@@ -62,6 +62,27 @@ fn registered_spellings_are_available_in_const_contexts() {
 }
 
 #[test]
+fn every_code_has_one_kind_and_author_is_the_default() {
+    assert_eq!(
+        codes::analysis::INVALID_TERM.kind(),
+        Some(codes::CodeKind::Author)
+    );
+    assert_eq!(
+        codes::analysis::INVALID_SEMANTIC_THEORY.kind(),
+        Some(codes::CodeKind::Internal)
+    );
+    assert_eq!(
+        codes::collect::HOST_IO.kind(),
+        Some(codes::CodeKind::Environment)
+    );
+    assert_eq!(Code::foreign("E0308").kind(), None);
+    assert_eq!(
+        codes::info("krs::analysis::cell-wrapper").map(|info| info.kind),
+        Some(codes::CodeKind::Author)
+    );
+}
+
+#[test]
 fn rustc_message_tags_round_trip_only_registered_codes() {
     let tagged = tag_rustc_message(&codes::syntax::INVALID_COLOR, "bad [colours] here");
     assert_eq!(tagged, "[krs::syntax::invalid-color] bad [colours] here");

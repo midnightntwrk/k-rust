@@ -2,17 +2,55 @@
 
 use crate::Code;
 
-/// A registered diagnostic code and its summary.
+/// Who can act on the condition a code describes.
+///
+/// A code has exactly one kind. A site that reports an author's mistake under an internal code is
+/// a bug in that site, fixed by re-coding the site, not by changing the code's kind.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CodeKind {
+    /// A property of what the author wrote (source, manifest, command line): some program text,
+    /// changed, removes it. KRS's limits and unsupported features are stated as author codes too,
+    /// since the author is the one who can act.
+    Author,
+    /// A broken contract between two KRS components. An author program that reaches it has found
+    /// a KRS bug: KRS should have refused the program earlier with an author code, or accepted it.
+    Internal,
+    /// The world around the program: files, Cargo, the toolchain, a stale build, pins, protocol
+    /// versions.
+    Environment,
+}
+
+/// A registered diagnostic code, its kind and its summary.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodeInfo {
     /// Stable code supplied by the producer.
     pub code: Code,
+    /// Who can act on the condition.
+    pub kind: CodeKind,
     /// One-line explanation of the condition the code describes.
     pub summary: &'static str,
 }
 
+/// The registry entry of a KRS code, by its spelling.
+#[must_use]
+pub fn info(spelling: &str) -> Option<&'static CodeInfo> {
+    REGISTRY.iter().find(|info| info.code.as_str() == spelling)
+}
+
+macro_rules! code_kind {
+    () => {
+        CodeKind::Author
+    };
+    ($kind:ident) => {
+        CodeKind::$kind
+    };
+}
+
+/// Registers each stage's codes. A code is an author code unless its spelling is followed by
+/// `[Internal]` or `[Environment]`.
 macro_rules! register_codes {
-    ($($(#[$stage_doc:meta])* $stage:ident { $($name:ident: $spelling:literal => $summary:literal,)* })*) => {
+    ($($(#[$stage_doc:meta])* $stage:ident { $($name:ident: $spelling:literal $([$kind:ident])? => $summary:literal,)* })*) => {
         $(
             $(#[$stage_doc])*
             pub mod $stage {
@@ -26,9 +64,9 @@ macro_rules! register_codes {
             }
         )*
 
-        /// Every diagnostic code owned by KRS and its summary.
+        /// Every diagnostic code owned by KRS, its kind and its summary.
         pub const REGISTRY: &[CodeInfo] = &[
-            $($(CodeInfo { code: $stage::$name, summary: $summary },)*)*
+            $($(CodeInfo { code: $stage::$name, kind: code_kind!($($kind)?), summary: $summary },)*)*
         ];
     };
 }
@@ -36,8 +74,8 @@ macro_rules! register_codes {
 register_codes! {
     /// Diagnostics from collector planning.
     plan {
-        INVALID_METADATA: "krs::plan::invalid-metadata" => "Metadata has inconsistent package or resolve records.",
-        MISSING_RESOLVE_GRAPH: "krs::plan::missing-resolve-graph" => "Full dependency metadata was not supplied.",
+        INVALID_METADATA: "krs::plan::invalid-metadata" [Environment] => "Metadata has inconsistent package or resolve records.",
+        MISSING_RESOLVE_GRAPH: "krs::plan::missing-resolve-graph" [Internal] => "Full dependency metadata was not supplied.",
         MISSING_PACKAGE: "krs::plan::missing-package" => "A package selector matched nothing.",
         AMBIGUOUS_PACKAGE: "krs::plan::ambiguous-package" => "A name selector matched multiple package IDs.",
         MISSING_KRS_METADATA: "krs::plan::missing-krs-metadata" => "A selected package has no KRS metadata table.",
@@ -46,15 +84,15 @@ register_codes! {
         INVALID_DEFINITION: "krs::plan::invalid-definition" => "A selected facet has an invalid metadata shape.",
         MISSING_LIBRARY_TARGET: "krs::plan::missing-library-target" => "A selected semantics package has no linkable Rust library target.",
         AMBIGUOUS_LIBRARY_TARGET: "krs::plan::ambiguous-library-target" => "A selected semantics package has multiple linkable Rust library targets.",
-        INVALID_PACKAGE_CONTEXT: "krs::plan::invalid-package-context" => "Selected package identity, target, or manifest data is invalid.",
+        INVALID_PACKAGE_CONTEXT: "krs::plan::invalid-package-context" [Internal] => "Selected package identity, target, or manifest data is invalid.",
         DUPLICATE_NAMESPACE: "krs::plan::duplicate-namespace" => "Two selected packages declare the same semantic namespace.",
         UNREACHABLE_SELECTION: "krs::plan::unreachable-selection" => "A dependency facet is not in the root Cargo package closure.",
-        UNREACHABLE_ENTRYPOINT: "krs::plan::unreachable-entrypoint" => "The collector package is not in the root Cargo package closure.",
-        DEPENDENCY_CYCLE: "krs::plan::dependency-cycle" => "Cargo metadata contains a dependency cycle.",
+        UNREACHABLE_ENTRYPOINT: "krs::plan::unreachable-entrypoint" [Internal] => "The collector package is not in the root Cargo package closure.",
+        DEPENDENCY_CYCLE: "krs::plan::dependency-cycle" [Environment] => "Cargo metadata contains a dependency cycle.",
         INVALID_HOST_TARGET: "krs::plan::invalid-host-target" => "The requested host target is malformed.",
         INVALID_CFG: "krs::plan::invalid-cfg" => "A KRS cfg input is not safe Rust cfg syntax.",
-        INVALID_ENTRYPOINT: "krs::plan::invalid-entrypoint" => "The collector function path is invalid.",
-        INVALID_COLLECTOR_RUNTIME: "krs::plan::invalid-collector-runtime" => "A collector runtime manifest path is malformed.",
+        INVALID_ENTRYPOINT: "krs::plan::invalid-entrypoint" [Internal] => "The collector function path is invalid.",
+        INVALID_COLLECTOR_RUNTIME: "krs::plan::invalid-collector-runtime" [Internal] => "A collector runtime manifest path is malformed.",
         INVALID_REGISTRATION_MODE: "krs::plan::invalid-registration-mode" => "The registration mode does not apply to this plan.",
         INVENTORY_FEATURE_ACTIVE: "krs::plan::inventory-feature-active" => "Explicit registration conflicts with the inventory feature.",
         UNREGISTERED_KRS_DEPENDENT: "krs::plan::unregistered-krs-dependent" => "Explicit registration would omit a KRS dependent.",
@@ -64,120 +102,120 @@ register_codes! {
     }
     /// Diagnostics from canonical K emission.
     emit {
-        UNSUPPORTED_SHAPE: "krs::emit::unsupported-shape" => "Canonical-source emission does not support a Definition IR shape.",
-        INVALID_REFERENCE: "krs::emit::invalid-reference" => "A Definition symbol reference was absent or had the wrong role.",
-        DUPLICATE_GENERATED_RANGE: "krs::emit::duplicate-generated-range" => "Rendered nodes attempted to own the same generated source range.",
-        INVALID_SIDECAR: "krs::emit::invalid-sidecar" => "An emitted sidecar invariant failed.",
+        UNSUPPORTED_SHAPE: "krs::emit::unsupported-shape" [Internal] => "Canonical-source emission does not support a Definition IR shape.",
+        INVALID_REFERENCE: "krs::emit::invalid-reference" [Internal] => "A Definition symbol reference was absent or had the wrong role.",
+        DUPLICATE_GENERATED_RANGE: "krs::emit::duplicate-generated-range" [Internal] => "Rendered nodes attempted to own the same generated source range.",
+        INVALID_SIDECAR: "krs::emit::invalid-sidecar" [Internal] => "An emitted sidecar invariant failed.",
         TRUSTED_CLAIM: "krs::emit::trusted-claim" => "A `trusted` claim is assumed without proof; every Haskell build and every prove run reports it.",
         SMT_ONLY_FUNCTION: "krs::emit::smt-only-function" => "A function with an `smt_hook` has no equation: Z3 evaluates it on symbolic paths, and concrete execution cannot.",
     }
     /// Diagnostics from collector package generation.
     generate {
-        INVALID_PLAN: "krs::generate::invalid-plan" => "The collector plan contains an unusable Cargo manifest path.",
-        SERIALIZATION: "krs::generate::serialization" => "Canonical selection serialization failed.",
+        INVALID_PLAN: "krs::generate::invalid-plan" [Internal] => "The collector plan contains an unusable Cargo manifest path.",
+        SERIALIZATION: "krs::generate::serialization" [Internal] => "Canonical selection serialization failed.",
         UNSAFE_OUTPUT: "krs::generate::unsafe-output" => "The output directory does not belong to KRS.",
-        IO: "krs::generate::io" => "A generated collector filesystem operation failed.",
+        IO: "krs::generate::io" [Environment] => "A generated collector filesystem operation failed.",
     }
     /// Diagnostics from reference Rust projection.
     reference {
         SOURCE_SELECTION: "krs::reference::source-selection" => "The package descriptors do not select exactly one source file.",
         SOURCE_MODULES: "krs::reference::source-modules" => "The selected source contains descriptors from multiple Rust modules.",
-        SOURCE_MANIFEST_DIRECTORY: "krs::reference::source-manifest-directory" => "The package manifest has no parent directory.",
-        SOURCE_READ: "krs::reference::source-read" => "The selected source file could not be read.",
-        SOURCE_CHANGED: "krs::reference::source-changed" => "The selected source changed after collection.",
+        SOURCE_MANIFEST_DIRECTORY: "krs::reference::source-manifest-directory" [Environment] => "The package manifest has no parent directory.",
+        SOURCE_READ: "krs::reference::source-read" [Environment] => "The selected source file could not be read.",
+        SOURCE_CHANGED: "krs::reference::source-changed" [Environment] => "The selected source changed after collection.",
         SOURCE_ENCODING: "krs::reference::source-encoding" => "The selected source file is not UTF-8.",
         RUST_SYNTAX: "krs::reference::rust-syntax" => "The selected source is not valid Rust.",
-        GENERATED_RUST: "krs::reference::generated-rust" => "The generated reference Rust failed to parse.",
+        GENERATED_RUST: "krs::reference::generated-rust" [Internal] => "The generated reference Rust failed to parse.",
         DUPLICATE_RULE: "krs::reference::duplicate-rule" => "A rule name occurs in multiple readable tables.",
-        RULE_COVERAGE: "krs::reference::rule-coverage" => "A readable rule does not map to exactly one collected head rule.",
-        CONSTRUCTOR_COVERAGE: "krs::reference::constructor-coverage" => "An enum variant does not map to exactly one constructor.",
-        CONSTRUCTOR_FIELD_COVERAGE: "krs::reference::constructor-field-coverage" => "Projected fields do not cover the collected constructor.",
-        MISSING_CONSTRUCTOR_FIELD: "krs::reference::missing-constructor-field" => "A projected field is absent from the collected constructor.",
-        MISSING_CONSTRUCTOR_FIELD_SORT: "krs::reference::missing-constructor-field-sort" => "A collected constructor field has no resolved sort.",
-        MISSING_SEMANTIC_RULE: "krs::reference::missing-semantic-rule" => "Semantic lowering omitted a collected rule.",
-        MISSING_BINDING_SORT: "krs::reference::missing-binding-sort" => "Inference produced no sort for a readable binder.",
+        RULE_COVERAGE: "krs::reference::rule-coverage" [Internal] => "A readable rule does not map to exactly one collected head rule.",
+        CONSTRUCTOR_COVERAGE: "krs::reference::constructor-coverage" [Internal] => "An enum variant does not map to exactly one constructor.",
+        CONSTRUCTOR_FIELD_COVERAGE: "krs::reference::constructor-field-coverage" [Internal] => "Projected fields do not cover the collected constructor.",
+        MISSING_CONSTRUCTOR_FIELD: "krs::reference::missing-constructor-field" [Internal] => "A projected field is absent from the collected constructor.",
+        MISSING_CONSTRUCTOR_FIELD_SORT: "krs::reference::missing-constructor-field-sort" [Internal] => "A collected constructor field has no resolved sort.",
+        MISSING_SEMANTIC_RULE: "krs::reference::missing-semantic-rule" [Internal] => "Semantic lowering omitted a collected rule.",
+        MISSING_BINDING_SORT: "krs::reference::missing-binding-sort" [Internal] => "Inference produced no sort for a readable binder.",
         EXTERNAL_DECLARATION: "krs::reference::external-declaration" => "A dependency alias cannot be reconstructed.",
         EXTERNAL_REFERENCE_SORT: "krs::reference::external-reference-sort" => "A constructor field marker path is external.",
         MIXED_APPLICATION_ARGUMENTS: "krs::reference::mixed-application-arguments" => "An application mixes positional and named arguments.",
         NAMED_BUILTIN_APPLICATION: "krs::reference::named-builtin-application" => "A builtin operation uses named arguments.",
-        MISSING_DECLARATION: "krs::reference::missing-declaration" => "A referenced declaration is absent from the collected bundle.",
+        MISSING_DECLARATION: "krs::reference::missing-declaration" [Internal] => "A referenced declaration is absent from the collected bundle.",
         NAMED_NON_CONSTRUCTOR: "krs::reference::named-non-constructor" => "A named application does not reference a constructor.",
         DUPLICATE_APPLICATION_FIELD: "krs::reference::duplicate-application-field" => "A named constructor field occurs more than once.",
         MISSING_APPLICATION_FIELD: "krs::reference::missing-application-field" => "A constructor result omits a required named field.",
         UNKNOWN_APPLICATION_FIELD: "krs::reference::unknown-application-field" => "A named argument does not belong to its constructor.",
-        INVALID_LITERAL: "krs::reference::invalid-literal" => "A canonical integer payload is not valid Rust tokens.",
+        INVALID_LITERAL: "krs::reference::invalid-literal" [Internal] => "A canonical integer payload is not valid Rust tokens.",
         UNSUPPORTED_BUILTIN_TOKEN: "krs::reference::unsupported-builtin-token" => "A builtin token sort has no reference spelling.",
         UNSUPPORTED_STATE: "krs::reference::unsupported-state" => "A readable optional or collection entry has a shape with no reference spelling.",
-        UNRESOLVED_OPERATOR: "krs::reference::unresolved-operator" => "Semantic lowering recorded no builtin operation for an operator the reference projection renders.",
-        UNRESOLVED_LIST_NOTATION: "krs::reference::unresolved-list-notation" => "Semantic lowering recorded no constructor for bracket list notation the reference projection renders.",
+        UNRESOLVED_OPERATOR: "krs::reference::unresolved-operator" [Internal] => "Semantic lowering recorded no builtin operation for an operator the reference projection renders.",
+        UNRESOLVED_LIST_NOTATION: "krs::reference::unresolved-list-notation" [Internal] => "Semantic lowering recorded no constructor for bracket list notation the reference projection renders.",
     }
     /// Diagnostics from native Definition compilation.
     native {
-        ADAPTER_MISSING_SYMBOL: "krs::native::adapter-missing-symbol" => "A symbol is absent from the native adapter index.",
-        ADAPTER_MISSING_REFERENCE: "krs::native::adapter-missing-reference" => "A nominal reference is absent from the native adapter index.",
-        ADAPTER_EMPTY_GROUP: "krs::native::adapter-empty-group" => "A precedence or associativity sentence names a production group with no labelled member.",
+        ADAPTER_MISSING_SYMBOL: "krs::native::adapter-missing-symbol" [Internal] => "A symbol is absent from the native adapter index.",
+        ADAPTER_MISSING_REFERENCE: "krs::native::adapter-missing-reference" [Internal] => "A nominal reference is absent from the native adapter index.",
+        ADAPTER_EMPTY_GROUP: "krs::native::adapter-empty-group" [Internal] => "A precedence or associativity sentence names a production group with no labelled member.",
         ADAPTER_TOKEN_GUARD: "krs::native::adapter-token-guard" => "A token regex carries a precede or follow guard, which k-rust does not read.",
-        DUPLICATE_SENTENCE_MAPPING: "krs::native::duplicate-sentence-mapping" => "Native provenance maps a sentence more than once.",
-        MISSING_SENTENCE_MAPPING: "krs::native::missing-sentence-mapping" => "Native provenance has no mapping for an input address.",
-        LOSSY_COMPILE_ADDRESS: "krs::native::lossy-compile-address" => "A compile address cannot map to a KRS sentence.",
-        INDEX_OUT_OF_RANGE: "krs::native::index-out-of-range" => "A native input address is outside its module.",
-        KIND_MISMATCH: "krs::native::kind-mismatch" => "The native source kind differs from the IR sentence.",
-        MISSING_KIND: "krs::native::missing-kind" => "Native provenance lacks a kind for an input address.",
-        INVALID_IDENTITY: "krs::native::invalid-identity" => "A native identity has an invalid author relation.",
-        MISSING_PRELUDE: "krs::native::missing-prelude" => "The pinned structured-loader prelude is unavailable.",
+        DUPLICATE_SENTENCE_MAPPING: "krs::native::duplicate-sentence-mapping" [Internal] => "Native provenance maps a sentence more than once.",
+        MISSING_SENTENCE_MAPPING: "krs::native::missing-sentence-mapping" [Internal] => "Native provenance has no mapping for an input address.",
+        LOSSY_COMPILE_ADDRESS: "krs::native::lossy-compile-address" [Internal] => "A compile address cannot map to a KRS sentence.",
+        INDEX_OUT_OF_RANGE: "krs::native::index-out-of-range" [Internal] => "A native input address is outside its module.",
+        KIND_MISMATCH: "krs::native::kind-mismatch" [Internal] => "The native source kind differs from the IR sentence.",
+        MISSING_KIND: "krs::native::missing-kind" [Internal] => "Native provenance lacks a kind for an input address.",
+        INVALID_IDENTITY: "krs::native::invalid-identity" [Internal] => "A native identity has an invalid author relation.",
+        MISSING_PRELUDE: "krs::native::missing-prelude" [Environment] => "The pinned structured-loader prelude is unavailable.",
         PREPARATION: "krs::native::preparation" => "The native loader rejected the definition.",
         COMPILE: "krs::native::compile" => "A native frontend stage rejected the definition.",
-        KORE_REPARSE: "krs::native::kore-reparse" => "A produced KORE artifact failed to reparse under the pin.",
+        KORE_REPARSE: "krs::native::kore-reparse" [Internal] => "A produced KORE artifact failed to reparse under the pin.",
         RAW_K_PARSE: "krs::native::raw-k-parse" => "The pinned K parser rejected the text of a `raw_k!` sentence.",
     }
     /// Diagnostics from host descriptor collection.
     collect {
-        INVALID_PACKAGE_CONTEXT: "krs::collect::invalid-package-context" => "Caller-supplied package metadata was invalid.",
-        HOST_IO: "krs::collect::host-io" => "A host path could not be canonicalized or read.",
-        DUPLICATE_PACKAGE_CONTEXT: "krs::collect::duplicate-package-context" => "More than one context claimed the same host package lookup key.",
+        INVALID_PACKAGE_CONTEXT: "krs::collect::invalid-package-context" [Internal] => "Caller-supplied package metadata was invalid.",
+        HOST_IO: "krs::collect::host-io" [Environment] => "A host path could not be canonicalized or read.",
+        DUPLICATE_PACKAGE_CONTEXT: "krs::collect::duplicate-package-context" [Internal] => "More than one context claimed the same host package lookup key.",
         DUPLICATE_KNAMESPACE: "krs::collect::duplicate-knamespace" => "More than one package claimed the same immutable K namespace.",
-        UNSUPPORTED_SCHEMA_VERSION: "krs::collect::unsupported-schema-version" => "A descriptor carried a schema version other than the current one.",
-        INVALID_BUILTIN_REGISTRY: "krs::collect::invalid-builtin-registry" => "The compiler-provided builtin marker catalog was incomplete or ambiguous.",
+        UNSUPPORTED_SCHEMA_VERSION: "krs::collect::unsupported-schema-version" [Environment] => "A descriptor carried a schema version other than the current one.",
+        INVALID_BUILTIN_REGISTRY: "krs::collect::invalid-builtin-registry" [Internal] => "The compiler-provided builtin marker catalog was incomplete or ambiguous.",
         PACKAGE_NOT_SELECTED: "krs::collect::package-not-selected" => "No selected Cargo package matched a descriptor's host lookup key.",
-        CRATE_ROOT_MISMATCH: "krs::collect::crate-root-mismatch" => "The first `module_path!()` segment did not match the selected target.",
-        INVALID_STABLE_IDENTITY: "krs::collect::invalid-stable-identity" => "A host item could not become a stable item identity.",
+        CRATE_ROOT_MISMATCH: "krs::collect::crate-root-mismatch" [Internal] => "The first `module_path!()` segment did not match the selected target.",
+        INVALID_STABLE_IDENTITY: "krs::collect::invalid-stable-identity" [Internal] => "A host item could not become a stable item identity.",
         DUPLICATE_ITEM_ID: "krs::collect::duplicate-item-id" => "Two declarations produced the same final stable identity.",
-        ITEM_KIND_MISMATCH: "krs::collect::item-kind-mismatch" => "A descriptor payload did not agree with its declared item kind.",
-        DUPLICATE_TYPE_DECLARATION: "krs::collect::duplicate-type-declaration" => "Two declarations exposed the same build-local Rust `TypeId`.",
-        DECLARATION_BUILTIN_COLLISION: "krs::collect::declaration-builtin-collision" => "A Rust identity was assigned to both an authored declaration and a builtin.",
-        MISSING_TYPE_DECLARATION: "krs::collect::missing-type-declaration" => "A sort or constructor declaration exposed no build-local Rust `TypeId`.",
+        ITEM_KIND_MISMATCH: "krs::collect::item-kind-mismatch" [Internal] => "A descriptor payload did not agree with its declared item kind.",
+        DUPLICATE_TYPE_DECLARATION: "krs::collect::duplicate-type-declaration" [Internal] => "Two declarations exposed the same build-local Rust `TypeId`.",
+        DECLARATION_BUILTIN_COLLISION: "krs::collect::declaration-builtin-collision" [Internal] => "A Rust identity was assigned to both an authored declaration and a builtin.",
+        MISSING_TYPE_DECLARATION: "krs::collect::missing-type-declaration" [Internal] => "A sort or constructor declaration exposed no build-local Rust `TypeId`.",
         UNRESOLVED_TYPE_REFERENCE: "krs::collect::unresolved-type-reference" => "A Rust type reference had no declaration in the selected collection.",
         REFERENCE_KIND_MISMATCH: "krs::collect::reference-kind-mismatch" => "A resolved declaration had the wrong semantic item kind.",
-        INVALID_CONFIGURATION: "krs::collect::invalid-configuration" => "A fixed configuration, cell, or configuration rule descriptor was malformed.",
-        INVALID_DISPLAY_FILE: "krs::collect::invalid-display-file" => "A display filename was not a normalized relative source hint.",
-        SOURCE_OUTSIDE_PACKAGE: "krs::collect::source-outside-package" => "A resolved source escaped its canonical package directory.",
-        AMBIGUOUS_SOURCE_PATH: "krs::collect::ambiguous-source-path" => "A display hint resolved to multiple distinct files in the package.",
-        SOURCE_POSITION_OUT_OF_BOUNDS: "krs::collect::source-position-out-of-bounds" => "A line or Unicode-scalar column was outside the exact source revision.",
-        IMPRECISE_AUTHORED_ANCHOR: "krs::collect::imprecise-authored-anchor" => "A semantic node used an invocation-fallback rather than exact leaves.",
-        SOURCE_SYNTAX: "krs::collect::source-syntax" => "The exact source no longer parses under the shared KRS parser.",
+        INVALID_CONFIGURATION: "krs::collect::invalid-configuration" => "A configuration, cell, or configuration-rule entry is not one its declaration admits.",
+        INVALID_DISPLAY_FILE: "krs::collect::invalid-display-file" [Internal] => "A display filename was not a normalized relative source hint.",
+        SOURCE_OUTSIDE_PACKAGE: "krs::collect::source-outside-package" [Environment] => "A resolved source escaped its canonical package directory.",
+        AMBIGUOUS_SOURCE_PATH: "krs::collect::ambiguous-source-path" [Environment] => "A display hint resolved to multiple distinct files in the package.",
+        SOURCE_POSITION_OUT_OF_BOUNDS: "krs::collect::source-position-out-of-bounds" [Environment] => "A line or Unicode-scalar column was outside the exact source revision.",
+        IMPRECISE_AUTHORED_ANCHOR: "krs::collect::imprecise-authored-anchor" [Internal] => "A semantic node used an invocation-fallback rather than exact leaves.",
+        SOURCE_SYNTAX: "krs::collect::source-syntax" [Environment] => "The exact source no longer parses under the shared KRS parser.",
         UNRESOLVED_ATTRIBUTE: "krs::collect::unresolved-attribute" => "An authored attribute or item macro names a KRS entry point but does not invoke it under the package's facade alias.",
         FACADE_ATTRIBUTE_ON_MACRO: "krs::collect::facade-attribute-on-macro" => "A facade attribute annotates a macro instead of the item it names.",
-        STALE_ANCHOR: "krs::collect::stale-anchor" => "A host anchor did not match the corresponding reparsed semantic node.",
-        AMBIGUOUS_ANCHOR: "krs::collect::ambiguous-anchor" => "More than one reparsed invocation matched a host descriptor.",
-        PROVENANCE_MISMATCH: "krs::collect::provenance-mismatch" => "The macro and shared parser disagreed about the complete anchor set.",
+        STALE_ANCHOR: "krs::collect::stale-anchor" [Environment] => "A host anchor did not match the corresponding reparsed semantic node.",
+        AMBIGUOUS_ANCHOR: "krs::collect::ambiguous-anchor" [Internal] => "More than one reparsed invocation matched a host descriptor.",
+        PROVENANCE_MISMATCH: "krs::collect::provenance-mismatch" [Internal] => "The macro and shared parser disagreed about the complete anchor set.",
     }
     /// Diagnostics from semantic analysis and definition lowering.
     analysis {
         BUILTIN_SORT_NAME_COLLISION: "krs::analysis::builtin-sort-name-collision" => "An authored sort uses a compiler builtin sort name.",
         CONFIGURATION_COUNT: "krs::analysis::configuration-count" => "The selected descriptors do not contain exactly one configuration.",
-        DANGLING_REFERENCE: "krs::analysis::dangling-reference" => "A descriptor reference names no selected declaration.",
-        REFERENCE_KIND_MISMATCH: "krs::analysis::reference-kind-mismatch" => "A declaration reference uses the wrong namespace.",
-        PARSER_REFERENCE_DISAGREEMENT: "krs::analysis::parser-reference-disagreement" => "Parser-owned origins or references disagree with a descriptor.",
-        INVALID_TERM: "krs::analysis::invalid-term" => "A descriptor term cannot be represented structurally.",
-        UNSUPPORTED_SHAPE: "krs::analysis::unsupported-shape" => "A semantic shape is outside the supported lowering subset.",
-        INVALID_GENERATED_IDENTITY: "krs::analysis::invalid-generated-identity" => "A generated IR identity is invalid.",
-        INVALID_SEMANTIC_THEORY: "krs::analysis::invalid-semantic-theory" => "Whole-theory semantic validation failed.",
+        DANGLING_REFERENCE: "krs::analysis::dangling-reference" [Internal] => "A descriptor reference names no selected declaration.",
+        REFERENCE_KIND_MISMATCH: "krs::analysis::reference-kind-mismatch" [Internal] => "A declaration reference uses the wrong namespace.",
+        PARSER_REFERENCE_DISAGREEMENT: "krs::analysis::parser-reference-disagreement" [Internal] => "Parser-owned origins or references disagree with a descriptor.",
+        INVALID_TERM: "krs::analysis::invalid-term" => "A term does not fit its position: its sort, arity, or fields disagree with what the position admits.",
+        UNSUPPORTED_SHAPE: "krs::analysis::unsupported-shape" [Internal] => "A semantic shape is outside the supported lowering subset.",
+        INVALID_GENERATED_IDENTITY: "krs::analysis::invalid-generated-identity" [Internal] => "A generated IR identity is invalid.",
+        INVALID_SEMANTIC_THEORY: "krs::analysis::invalid-semantic-theory" [Internal] => "Whole-theory semantic validation failed.",
         INVALID_PRODUCTION_TEMPLATE: "krs::analysis::invalid-production-template" => "Authored syntax cannot be represented by a production template.",
         INVALID_EMITTED_NAME: "krs::analysis::invalid-emitted-name" => "An emitted name is not canonical K syntax.",
-        SOURCE_MAP_COLLISION: "krs::analysis::source-map-collision" => "Generated Definition nodes use the same source-map key.",
-        INVALID_DEFINITION: "krs::analysis::invalid-definition" => "The lowered Definition IR failed validation.",
-        INVALID_SIDECAR: "krs::analysis::invalid-sidecar" => "A sidecar cannot be derived from the lowered Definition IR.",
-        UNRESOLVED_REFERENCE: "krs::analysis::unresolved-reference" => "An analysis reference names no declaration.",
+        SOURCE_MAP_COLLISION: "krs::analysis::source-map-collision" [Internal] => "Generated Definition nodes use the same source-map key.",
+        INVALID_DEFINITION: "krs::analysis::invalid-definition" [Internal] => "The lowered Definition IR failed validation.",
+        INVALID_SIDECAR: "krs::analysis::invalid-sidecar" [Internal] => "A sidecar cannot be derived from the lowered Definition IR.",
+        UNRESOLVED_REFERENCE: "krs::analysis::unresolved-reference" [Internal] => "An analysis reference names no declaration.",
         SORT_CYCLE: "krs::analysis::sort-cycle" => "The direct subsort relation contains a cycle.",
         OVERLAPPING_RULE_HEADS: "krs::analysis::overlapping-rule-heads" => "Two rules have overlapping application heads.",
         OVERLAPPING_EQUATIONS: "krs::analysis::overlapping-equations" => "Two equations of one function at one priority apply to one argument and give it different results, so the definition would state that the results are equal.",
@@ -234,6 +272,8 @@ register_codes! {
         INVALID_HEAT_COOL: "krs::analysis::invalid-heat-cool" => "A heat or cool rule's `hole = x` binder does not occur on its left side, or occurs there more than once.",
         INVALID_CONTEXT: "krs::analysis::invalid-context" => "A context's `hole = x` binder is absent, bound twice, or outside the computation cell, or its rewrite is not `HOLE => term-containing-HOLE`; or a context alias's HERE is outside the computation cell.",
         OPTIONAL_PRESENCE: "krs::analysis::optional-presence" => "An optional (`?`) cell is written without `Some`/`None`, a `Some`/`None` entry names a cell that is not optional, or a rule tests absence other than by creating the cell (`None => Some(..)`).",
+        CELL_WRAPPER: "krs::analysis::cell-wrapper" => "A configuration entry's wrapper is not its cell's: `KCell(..)` or a bracketed sequence for the computation cell, `Cell(..)` for a leaf, none for a group, written on another kind of cell.",
+        UNUSED_CONFIGURATION_VARIABLE: "krs::analysis::unused-configuration-variable" => "A `#[k::config_var]` initializer parameter is read by no cell's initial content, so its input would have nowhere to go.",
         UNKNOWN_INSTANCE_LABEL: "krs::analysis::unknown-instance-label" => "A result instance updates `..label` without a subject instance `label`, or two result instances update the same label.",
         MAP_COLLECTION_KEY: "krs::analysis::map-collection-key" => "A created instance of a Map cell collection does not state its key (the first child), or an update changes the key.",
         NO_CELL_DEFAULT: "krs::analysis::no-cell-default" => "A created instance's `..` defaults a child whose template reads a configuration variable, so K has no default for it.",
@@ -306,7 +346,7 @@ register_codes! {
         DUPLICATE_CONFIGURATION_FIELD: "krs::syntax::duplicate-configuration-field" => "An initializer field occurred more than once.",
         INVALID_CELL_ATTRIBUTE: "krs::syntax::invalid-cell-attribute" => "A `#[k::cell(...)]` payload was malformed.",
         INVALID_STATE_MACRO: "krs::syntax::invalid-state-macro" => "A compiler-owned configuration/state macro payload was malformed.",
-        INVALID_TRIVIA: "krs::syntax::invalid-trivia" => "Source trivia could not be classified against the token byte ranges.",
+        INVALID_TRIVIA: "krs::syntax::invalid-trivia" [Internal] => "Source trivia could not be classified against the token byte ranges.",
         UNSUPPORTED_DSL_BLOCK_COMMENT: "krs::syntax::unsupported-dsl-block-comment" => "A non-documentation block comment occurred in a line-comment-only DSL body.",
         UNSUPPORTED_RULE_SIGNATURE: "krs::syntax::unsupported-rule-signature" => "A rule function used a signature feature outside the one-clause rule ABI.",
         UNSUPPORTED_RULE_PATTERN: "krs::syntax::unsupported-rule-pattern" => "A rule subject was not a supported named-constructor pattern.",
@@ -323,7 +363,7 @@ register_codes! {
         INVALID_LET: "krs::syntax::invalid-let" => "A term block is not `let pattern = term;` statements followed by one result term (K's `#let`), its pattern has alternatives or an alias, or it occurs in a pattern.",
         INVALID_FUNCTION_CONTEXT: "krs::syntax::invalid-function-context" => "A function context (K's `[[ .. ]]` configuration context) is not a final `k::cells! { .., .. }` parameter of an `#[k::equation]` typed by the configuration struct and framed by an anonymous `..`.",
         INVALID_LOCAL_REWRITE: "krs::syntax::invalid-local-rewrite" => "A `k::rewrite!` (K's local `=>`) occurs outside the subject of a single-body `#[k::rule]` fn, inside another rewrite, in a map key, or with a right-side name the left image does not bind, or a single-body rule has no rewrite.",
-        MISSING_TOKEN_ENDPOINT: "krs::syntax::missing-token-endpoint" => "A token-bearing semantic node unexpectedly emitted no token leaves.",
+        MISSING_TOKEN_ENDPOINT: "krs::syntax::missing-token-endpoint" [Internal] => "A token-bearing semantic node unexpectedly emitted no token leaves.",
         TOO_MANY_PROVENANCE_OCCURRENCES: "krs::syntax::too-many-provenance-occurrences" => "A single invocation contained more same-role nodes than `u32` can key.",
         INVALID_RULE_KEY: "krs::syntax::invalid-rule-key" => "A rule, equation, simplification, alias, or desugar attribute combines keys K does not accept together, or a desugar clause carries `recursive` or `#[k::requires]`.",
         RETIRED_ATTRIBUTE: "krs::syntax::retired-attribute" => "A retired KRS attribute was used; its replacement is named in the message.",
@@ -350,19 +390,19 @@ register_codes! {
         ATTRIBUTE_ORDER: "krs::expand::attribute-order" => "A KRS attribute follows an attribute that rustc would expand first.",
         ATTRIBUTE_FORM: "krs::expand::attribute-form" => "A KRS attribute has a `key = value` form, which rustc rejects for attribute macros.",
         NOT_AN_ATTRIBUTE_MACRO: "krs::expand::not-an-attribute-macro" => "The first expandable attribute names a facade item that is not a KRS attribute macro.",
-        NESTED_ATTRIBUTE: "krs::expand::nested-attribute" => "An expansion emitted a KRS attribute invocation, which this driver does not expand.",
+        NESTED_ATTRIBUTE: "krs::expand::nested-attribute" [Internal] => "An expansion emitted a KRS attribute invocation, which this driver does not expand.",
         RECURSION: "krs::expand::recursion-limit" => "Rescanned invocations nest deeper than the expansion recursion limit.",
         REGISTRATION_SCOPE: "krs::expand::registration-scope" => "A descriptor factory is defined where the crate-root registration table cannot name it.",
 SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spec_module]` cannot be expanded there: a nested spec module, or an attribute on a KRS macro.",
-                SELECTION: "krs::expand::selection" => "An explicitly selected invocation does not match a discovered one.",
-        PRINT: "krs::expand::print" => "An expansion cannot be printed as text without changing its tokens.",
+                SELECTION: "krs::expand::selection" [Internal] => "An explicitly selected invocation does not match a discovered one.",
+        PRINT: "krs::expand::print" [Internal] => "An expansion cannot be printed as text without changing its tokens.",
         DESCRIPTOR_CAPACITY: "krs::expand::descriptor-capacity" => "A descriptor count or ordinal exceeds its u32 representation.",
-        DUPLICATE_PROVENANCE_KEY: "krs::expand::duplicate-provenance-key" => "KRS numbered two authored nodes of one sentence with the same provenance key; this is a bug in KRS, not in the definition.",
+        DUPLICATE_PROVENANCE_KEY: "krs::expand::duplicate-provenance-key" [Internal] => "KRS numbered two authored nodes of one sentence with the same provenance key; this is a bug in KRS, not in the definition.",
         HELPER_PAYLOAD_FORM: "krs::expand::helper-payload-form" => "A helper attribute requires a parenthesized payload.",
-        CFG_REPRODUCTION: "krs::expand::cfg-reproduction" => "A cfg attribute could not be reproduced for generated tokens.",
+        CFG_REPRODUCTION: "krs::expand::cfg-reproduction" [Internal] => "A cfg attribute could not be reproduced for generated tokens.",
         MISSING_COMPUTATION_CELL: "krs::expand::missing-computation-cell" => "A configuration-owned rule has no computation-cell field.",
         INITIALIZER_BODY_SHAPE: "krs::expand::initializer-body-shape" => "A fixed initializer does not contain exactly one struct expression.",
-        MISSING_CHECKED_FIELD: "krs::expand::missing-checked-field" => "A field accepted by syntax validation is absent during rendering.",
+        MISSING_CHECKED_FIELD: "krs::expand::missing-checked-field" [Internal] => "A field accepted by syntax validation is absent during rendering.",
         INITIALIZER_CELL_SHAPE: "krs::expand::initializer-cell-shape" => "A nested fixed-cell initializer is not a struct expression.",
         CELL_STATE_FAMILY_MISMATCH: "krs::expand::cell-state-family-mismatch" => "A cell wrapper disagrees with the state family of its initializer or rule.",
         MISSING_INITIALIZER: "krs::expand::missing-initializer" => "A configuration has no inherent `#[k::init]` initializer, which gives each cell its initial content.",
@@ -390,9 +430,9 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         SORT_PARENT_MISMATCH: "krs::expand::sort-parent-mismatch" => "A reference sort lacks one semantic parent path per Rust marker supertrait.",
         DUPLICATE_MEMBERSHIP_RELATION: "krs::expand::duplicate-membership-relation" => "A readable sort block declares a membership relation more than once.",
         FRAMEWORK_SORT_ENTRY: "krs::expand::framework-sort-entry" => "A framework sort block contains a membership line or a bracket.",
-        EMPTY_SORT_DECLARATION: "krs::expand::empty-sort-declaration" => "A sort declaration contains no descriptor-bearing tokens.",
-        EMPTY_SORT_PATH: "krs::expand::empty-sort-path" => "A sort reference contains no path segments.",
-        EMPTY_BRACKET: "krs::expand::empty-bracket" => "A bracket template contains no descriptor-bearing tokens.",
+        EMPTY_SORT_DECLARATION: "krs::expand::empty-sort-declaration" [Internal] => "A sort declaration contains no descriptor-bearing tokens.",
+        EMPTY_SORT_PATH: "krs::expand::empty-sort-path" [Internal] => "A sort reference contains no path segments.",
+        EMPTY_BRACKET: "krs::expand::empty-bracket" [Internal] => "A bracket template contains no descriptor-bearing tokens.",
         ENUM_VARIANT_COLLISION: "krs::expand::enum-variant-collision" => "Two enum variants have the same readable rule resolution name.",
         RULE_RESULT_WILDCARD: "krs::expand::rule-result-wildcard" => "A rule result contains a wildcard.",
         UNBOUND_NAME: "krs::expand::unbound-name" => "A bare snake-case name outside a pattern is not bound by the sentence: not by its pattern, an existential or fresh binder, a parameter, or an enclosing `let`.",
@@ -406,10 +446,10 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         CONFIGURATION_SHAPE: "krs::expand::configuration-shape" => "A fixed configuration is not a named-field struct.",
         FRAGMENT_SHAPE: "krs::expand::fragment-shape" => "A fragment payload is not a parent record with named fields.",
         CONTEXT_ALIAS_RESULT_SORT: "krs::expand::context-alias-result-sort" => "A named context alias has a result sort other than the unambiguous `KResult` sort.",
-        UNDECLARED_STRICTNESS_FIELD: "krs::expand::undeclared-strictness-field" => "Strictness metadata names a field absent from the rendered declaration.",
+        UNDECLARED_STRICTNESS_FIELD: "krs::expand::undeclared-strictness-field" [Internal] => "Strictness metadata names a field absent from the rendered declaration.",
         INVALID_ID_TOKEN: "krs::expand::invalid-id-token" => "A builtin Id token is not a dollar-prefixed nonempty ASCII identifier.",
         FACADE_DEPENDENCY: "krs::expand::facade-dependency" => "The invoking crate has no direct dependency on the KRS facade package.",
-        PROTOCOL_ERROR: "krs::expand::protocol" => "The request was not a valid schema-1 request.",
+        PROTOCOL_ERROR: "krs::expand::protocol" [Environment] => "The request was not a valid schema-1 request.",
         EXISTENTIAL_PLACEMENT: "krs::expand::existential-placement" => "An `exists` or `ensures` helper is attached to an equation, simplification, or alias; existential results and ensures are allowed on claims and transition rules.",
         FRESH_PLACEMENT: "krs::expand::fresh-placement" => "A `fresh` helper is attached to an equation, simplification, alias, claim, context, context alias, anywhere rule, or heat or cool rule; fresh values are drawn only by a transition step of the configuration.",
         TURBOFISH_PLACEMENT: "krs::expand::turbofish-placement" => "A turbofish instance (`Choose::<k::builtin::Int> { .. }`) occurs in an initializer, which builds a concrete value.",
@@ -435,12 +475,12 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         KRS_ITEM_SCOPE: "krs::policy::krs-item-scope" => "Rejects KRS invocations outside the crate root's module level.",
         ATTRIBUTE_ORDER: "krs::policy::attribute-order" => "Rejects an order-sensitive attribute before a KRS attribute.",
         RESERVED_NAME: "krs::policy::reserved-name" => "Rejects an authored name in the generated-name namespace.",
-        PROTOCOL_ERROR: "krs::policy::protocol" => "The request was not a valid schema-1 request.",
+        PROTOCOL_ERROR: "krs::policy::protocol" [Environment] => "The request was not a valid schema-1 request.",
         RAW_K_NOT_ALLOWED: "krs::policy::raw-k-not-allowed" => "A quoted hook or `raw_k!` occurs in a package without `allow-raw-k = true`, or under the strict profile.",
     }
     /// Diagnostics from `krs parse`, `krs run`, `krs search`, and `krs prove` (`krs-exec`).
     exec {
-        BACKEND: "krs::exec::backend" => "The native backend failed while loading or running the definition.",
+        BACKEND: "krs::exec::backend" [Environment] => "The native backend failed while loading or running the definition.",
         PROGRAM: "krs::exec::program" => "FILE was given without $PGM, or omitted with $PGM.",
         VARIABLE: "krs::exec::variable" => "A configuration variable is unknown, bound twice, or missing.",
         COLLECTION_ELEMENT_SORT: "krs::exec::collection-element-sort" => "A configuration variable's value has a part that does not fit the element types of the typed collection cell it fills.",
@@ -448,8 +488,8 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         SORT: "krs::exec::sort" => "A requested parse sort is not a program sort.",
         CLAIM: "krs::exec::claim" => "A claim label matched no claim, several claims, or the definition has no claims.",
         STREAMS: "krs::exec::streams" => "Search was requested on a definition with stream cells.",
-        UNAVAILABLE: "krs::exec::unavailable" => "The requested operation is not available in this build.",
-        RESULT: "krs::exec::result" => "The backend returned a result KRS cannot read.",
-        STAGE_CACHE: "krs::exec::stage-cache" => "The compiled-stage cache directory lies inside the input's Cargo workspace, so it is not used.",
+        UNAVAILABLE: "krs::exec::unavailable" [Environment] => "The requested operation is not available in this build.",
+        RESULT: "krs::exec::result" [Internal] => "The backend returned a result KRS cannot read.",
+        STAGE_CACHE: "krs::exec::stage-cache" [Environment] => "The compiled-stage cache directory lies inside the input's Cargo workspace, so it is not used.",
     }
 }

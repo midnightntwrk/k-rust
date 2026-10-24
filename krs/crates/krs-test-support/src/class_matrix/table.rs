@@ -1,8 +1,8 @@
 //! The expected-outcome table, `krs/tests/class-matrix/expected.toml`.
 //!
-//! The table has four parts:
+//! The table has three parts:
 //!
-//! 1. `[class.NAME]`: mistake classes, each with one registered `code` and a `doc`. A class
+//! 1. `[class.NAME]`: mistake classes, each with one registered author `code` and a `doc`. A class
 //!    names an author mistake, not a site, so every case of the mistake answers with one code.
 //!    `proposed = true` marks a code that is not registered yet, whose step will register it;
 //!    until then every case of the class is red, and once it is registered the mark must go.
@@ -14,7 +14,9 @@
 //!    normalized K. `k` is written by the full tier's record mode (`scripts/krs-class.sh
 //!    --record`) and reviewed as a diff, never by hand; an entry without `k` is a case that should
 //!    be accepted and is refused today, whose K is recorded once it is accepted.
-//! 4. `[internal]`: `codes` that never answer an author mistake.
+//!
+//! Which codes never answer an author mistake is the registry's kind (`krs_diagnostic::codes::
+//! CodeKind`), not the table's.
 //!
 //! **Globs.** `*` matches any run of characters other than `/`, and `{a,b,..}` matches any one
 //! of its comma-separated alternatives, which may themselves hold globs. `\` makes the next
@@ -33,6 +35,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::ops::Range;
 
+use krs_diagnostic::codes::CodeKind;
 use toml_edit::{DocumentMut, Item, Table as TomlTable};
 
 use super::Placed;
@@ -113,8 +116,6 @@ pub struct Table {
     pub refuse: Vec<RefuseRule>,
     /// The accepted cases by ID.
     pub accept: BTreeMap<String, Accepted>,
-    /// Codes that never answer an author mistake.
-    pub internal: Vec<String>,
 }
 
 /// What the table expects of one case.
@@ -162,7 +163,7 @@ pub enum TableError {
         /// The class it names.
         class: String,
     },
-    /// A class's code or an internal code is not in the registry.
+    /// A class's code is not in the registry.
     Unregistered {
         /// Where the code is named.
         owner: String,
@@ -176,12 +177,14 @@ pub enum TableError {
         /// The code.
         code: String,
     },
-    /// A class answers with a code that `[internal]` lists.
-    InternalClassCode {
+    /// A class answers with a code the registry does not give the author kind.
+    NonAuthorClassCode {
         /// The class.
         class: String,
         /// The code.
         code: String,
+        /// The code's kind.
+        kind: CodeKind,
     },
     /// An accept entry or a `same_k_as` names no generated case.
     UnknownCase {
@@ -234,9 +237,9 @@ impl fmt::Display for TableError {
                 formatter,
                 "class {class:?} marks {code:?} proposed, but it is registered: remove `proposed`"
             ),
-            Self::InternalClassCode { class, code } => write!(
+            Self::NonAuthorClassCode { class, code, kind } => write!(
                 formatter,
-                "class {class:?} answers with {code:?}, which [internal] lists"
+                "class {class:?} answers with {code:?}, which is no author code but {kind:?}"
             ),
             Self::UnknownCase { owner, id } => {
                 write!(
@@ -287,7 +290,6 @@ impl Table {
                 "class" => table.classes = parse_classes(item, &mut errors),
                 "refuse" => table.refuse = parse_rules(item, &mut errors),
                 "accept" => table.accept = parse_accepts(item, &mut errors),
-                "internal" => table.internal = parse_internal(item, &mut errors),
                 other => errors.push(schema(format!("unknown part {other:?}"))),
             }
         }
@@ -307,7 +309,7 @@ impl Table {
     }
 
     /// Decide every case of `ids`, and check the table against them and against the code
-    /// registry, which `registered` answers.
+    /// registry, which `kind` answers: a code's kind, or `None` for an unregistered code.
     ///
     /// # Panics
     ///
@@ -316,9 +318,9 @@ impl Table {
     pub fn resolve<'t>(
         &'t self,
         ids: &[&str],
-        registered: impl Fn(&str) -> bool,
+        kind: impl Fn(&str) -> Option<CodeKind>,
     ) -> Resolution<'t> {
-        let mut errors = self.check_codes(&registered);
+        let mut errors = self.check_codes(&kind);
         let known = ids.iter().copied().collect::<BTreeSet<_>>();
         self.check_accepts(&known, &mut errors);
 
@@ -381,33 +383,24 @@ impl Table {
         Resolution { expected, errors }
     }
 
-    fn check_codes(&self, registered: &impl Fn(&str) -> bool) -> Vec<TableError> {
+    fn check_codes(&self, kind: &impl Fn(&str) -> Option<CodeKind>) -> Vec<TableError> {
         let mut errors = Vec::new();
         for (name, class) in &self.classes {
-            if class.proposed && registered(&class.code) {
-                errors.push(TableError::ProposedRegistered {
+            match (class.proposed, kind(&class.code)) {
+                (true, Some(_)) => errors.push(TableError::ProposedRegistered {
                     class: name.clone(),
                     code: class.code.clone(),
-                });
-            } else if !class.proposed && !registered(&class.code) {
-                errors.push(TableError::Unregistered {
+                }),
+                (false, None) => errors.push(TableError::Unregistered {
                     owner: format!("class {name:?}"),
                     code: class.code.clone(),
-                });
-            }
-            if self.internal.contains(&class.code) {
-                errors.push(TableError::InternalClassCode {
+                }),
+                (_, Some(CodeKind::Author)) | (true, None) => {}
+                (false, Some(kind)) => errors.push(TableError::NonAuthorClassCode {
                     class: name.clone(),
                     code: class.code.clone(),
-                });
-            }
-        }
-        for code in &self.internal {
-            if !registered(code) {
-                errors.push(TableError::Unregistered {
-                    owner: "[internal]".to_owned(),
-                    code: code.clone(),
-                });
+                    kind,
+                }),
             }
         }
         errors
@@ -622,14 +615,6 @@ fn parse_accepts(item: &Item, errors: &mut Vec<TableError>) -> BTreeMap<String, 
         );
     }
     accepts
-}
-
-fn parse_internal(item: &Item, errors: &mut Vec<TableError>) -> Vec<String> {
-    let Some(table) = table_of(item, "[internal]", errors) else {
-        return Vec::new();
-    };
-    let fields = fields(table, "[internal]", &["codes"], &[], errors);
-    strings(fields.get("codes"), "[internal]", "codes", errors)
 }
 
 /// A parsed glob over case IDs.

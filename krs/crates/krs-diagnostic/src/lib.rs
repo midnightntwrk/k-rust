@@ -47,10 +47,13 @@ impl Code {
     /// Returns the KRS-registered code with this spelling, if there is one.
     #[must_use]
     pub fn registered_spelling(spelling: &str) -> Option<Self> {
-        codes::REGISTRY
-            .iter()
-            .find(|info| info.code.as_str() == spelling)
-            .map(|info| info.code.clone())
+        codes::info(spelling).map(|info| info.code.clone())
+    }
+
+    /// Returns the registry's kind of a KRS code, or `None` for a forwarded code.
+    #[must_use]
+    pub fn kind(&self) -> Option<codes::CodeKind> {
+        codes::info(self.as_str()).map(|info| info.kind)
     }
 }
 

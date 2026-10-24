@@ -97,7 +97,14 @@ impl DiagnosticSources {
         generated: Option<&DiagnosticGeneratedRange>,
         color: bool,
     ) -> String {
-        let mut group = Group::with_title(level.primary_title(message).id(code));
+        let internal = krs_diagnostic::codes::info(code)
+            .is_some_and(|info| info.kind == krs_diagnostic::codes::CodeKind::Internal);
+        let title = if internal {
+            format!("internal error (a KRS bug): {message}").into()
+        } else {
+            std::borrow::Cow::Borrowed(message)
+        };
+        let mut group = Group::with_title(level.primary_title(title).id(code));
         if let Some(range) = range {
             let path = self.display_path(range);
             group = match self.source(range) {
@@ -129,6 +136,11 @@ impl DiagnosticSources {
         for help in help {
             group = group
                 .element(Level::HELP.message(annotate_snippets::normalize_untrusted_str(help)));
+        }
+        if internal {
+            group = group.element(Level::HELP.message(
+                "this is a bug in KRS, not in the program: please report it with the source that reached it",
+            ));
         }
         if let Some(generated) = generated {
             let note = format!(

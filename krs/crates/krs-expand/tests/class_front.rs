@@ -32,12 +32,12 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use krs_diagnostic::{Code, untag_rustc_message};
+use krs_diagnostic::untag_rustc_message;
 use krs_expand::sink::{ByteRange, InvocationId, MappingClass};
 use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest, Selection};
 use krs_ir::ProvenanceRole;
 use krs_test_support::class_matrix::invariants::{
-    Observed, ObservedDiagnostic, Severity, signature, violations,
+    Observed, ObservedDiagnostic, Severity, registry_kind, signature, violations,
 };
 use krs_test_support::class_matrix::pending::{Judgement, Observation, Pending, UNASSIGNED};
 use krs_test_support::class_matrix::table::{Expected, Table, TableError};
@@ -60,10 +60,6 @@ fn expand(source: &str) -> Result<FileExpansion, Vec<ExpandDiagnostic>> {
         module_path: &module_path,
         selection: &Selection::WholeFile,
     })
-}
-
-fn registered(code: &str) -> bool {
-    Code::registered_spelling(code).is_some()
 }
 
 fn read_class_matrix(file: &str) -> String {
@@ -568,12 +564,7 @@ enum Verdict {
 }
 
 /// The front's verdict against the invariants and the table.
-fn judge(
-    placed: &Placed<'_>,
-    front: &Front,
-    expected: Option<&Expected<'_>>,
-    internal: &[String],
-) -> Verdict {
+fn judge(placed: &Placed<'_>, front: &Front, expected: Option<&Expected<'_>>) -> Verdict {
     if !front.observed.refused() {
         return if front.keys.defects.is_empty() {
             Verdict::Deferred
@@ -582,7 +573,7 @@ fn judge(
         };
     }
     let site = expected.map_or(&placed.entry, |expected| expected.site(placed));
-    let broken = !violations(&front.observed, site, internal, registered).is_empty();
+    let broken = !violations(&front.observed, site, registry_kind).is_empty();
     let off_table = match expected {
         None => false,
         Some(Expected::Accept(_)) => true,
@@ -619,7 +610,6 @@ struct Ran {
 fn run_cases(
     cases: &[class_matrix::Case],
     expected: &BTreeMap<String, Expected<'_>>,
-    internal: &[String],
 ) -> (Vec<Ran>, usize) {
     let threads = std::thread::available_parallelism().map_or(1, usize::from);
     let next = AtomicUsize::new(0);
@@ -636,7 +626,7 @@ fn run_cases(
                         let rendered = case.render();
                         let placed = &rendered.cases[0];
                         let front = run_front(placed, &rendered.source);
-                        let verdict = judge(placed, &front, expected.get(&case.id), internal);
+                        let verdict = judge(placed, &front, expected.get(&case.id));
                         proc_macro2::extra::invalidate_current_thread_spans();
                         let keyed = [
                             front.keys.factories,
@@ -703,7 +693,7 @@ fn every_case_meets_the_front_invariants_and_keys_its_payloads() {
         .iter()
         .map(|case| case.id.as_str())
         .collect::<Vec<_>>();
-    let resolution = table.resolve(&ids, registered);
+    let resolution = table.resolve(&ids, registry_kind);
     let mut table_errors = resolution
         .errors
         .iter()
@@ -716,7 +706,7 @@ fn every_case_meets_the_front_invariants_and_keys_its_payloads() {
         .filter(|error| matches!(error, TableError::Uncovered { .. }))
         .count();
 
-    let (ran, threads) = run_cases(&cases, &resolution.expected, &table.internal);
+    let (ran, threads) = run_cases(&cases, &resolution.expected);
     let elapsed = started.elapsed();
     assert!(
         ran.iter().any(|ran| ran.keyed[1] > 0),
@@ -887,7 +877,7 @@ k = ""
         .iter()
         .map(|case| case.id.as_str())
         .collect::<Vec<_>>();
-    let resolution = table.resolve(&ids, registered);
+    let resolution = table.resolve(&ids, registry_kind);
     let verdict = |id: &str| {
         let case = cases
             .iter()
@@ -895,12 +885,7 @@ k = ""
             .unwrap_or_else(|| panic!("{id} is generated"));
         let rendered = case.render();
         let front = run_front(&rendered.cases[0], &rendered.source);
-        let verdict = judge(
-            &rendered.cases[0],
-            &front,
-            resolution.expected.get(id),
-            &table.internal,
-        );
+        let verdict = judge(&rendered.cases[0], &front, resolution.expected.get(id));
         proc_macro2::extra::invalidate_current_thread_spans();
         match verdict {
             Verdict::Deferred => "deferred".to_owned(),

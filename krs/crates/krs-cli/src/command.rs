@@ -1826,7 +1826,16 @@ mod tests {
             assert!(matches!(diagnostic.primary.location, Location::None));
             let rendered =
                 crate::DiagnosticSources::default().render_diagnostic(&diagnostic, false);
-            assert_eq!(rendered, format!("error[{code}]: {error}"));
+            if code.kind() == Some(codes::CodeKind::Internal) {
+                let (headline, help) = rendered.split_once('\n').unwrap();
+                assert_eq!(
+                    headline,
+                    format!("error[{code}]: internal error (a KRS bug): {error}")
+                );
+                assert!(help.contains("please report it"), "{rendered}");
+            } else {
+                assert_eq!(rendered, format!("error[{code}]: {error}"));
+            }
         }
     }
 
