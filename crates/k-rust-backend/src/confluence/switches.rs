@@ -102,6 +102,11 @@ pub(crate) struct Switches {
     /// Conditions: substitute a class's literal through classes that also merge the operands of
     /// negative equalities.
     pub(crate) substitute_without_class: bool,
+    /// Conditions: use every linear constraint in the difference bounds, also a `\not` one whose
+    /// atoms are not shown defined.
+    pub(crate) drop_dbm_definedness_guard: bool,
+    /// Conditions: read the lengths, sizes and absolute values as at least 1.
+    pub(crate) misread_range_fact: bool,
 }
 
 #[cfg(test)]
@@ -145,6 +150,8 @@ thread_local! {
             skip_hook_pairs: false,
             misread_literal_classes: false,
             substitute_without_class: false,
+            drop_dbm_definedness_guard: false,
+            misread_range_fact: false,
         })
     };
 }

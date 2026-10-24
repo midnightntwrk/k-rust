@@ -484,3 +484,45 @@ fn string_equalities_refute_two_literals_and_substitute_one() {
         [UnjoinedReason::ConditionOpen]
     );
 }
+
+/// Class B of the WASM pairs: comparisons over shared atoms read as linear forms. `unescape`'s end
+/// rule (`I ==Int lengthString(S) -Int 1`) against its escape rules (`I <Int lengthString(S)
+/// -Int 3`) is refuted (the simplifier substitutes `I`, leaving a constant comparison), and so is
+/// `lengthBytes(B) <Int N` beside `lengthBytes(B) >Int N` (a negative cycle), and a size below
+/// zero (a range fact). A shared atom with a satisfiable gap stays a genuine overlap.
+#[test]
+fn comparisons_over_shared_atoms_are_refuted_by_their_differences() {
+    let strings = "  syntax Int ::= un(String, Int) [function, symbol(un)]";
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{strings}
+  rule [a]: un(S, I) => 1 requires I ==Int lengthString(S) -Int 1
+  rule [b]: un(S, I) => 2 requires I <Int lengthString(S) -Int 3"#
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{strings}
+  rule [a]: un(S, N) => 1 requires lengthString(S) <Int N
+  rule [b]: un(S, N) => 2 requires lengthString(S) >Int N"#
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{strings}
+  rule [a]: un(S, N) => 1 requires lengthString(S) <Int 0
+  rule [b]: un(S, N) => 2"#
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{strings}
+  rule [a]: un(S, N) => 1 requires lengthString(S) <Int N
+  rule [b]: un(S, N) => 2 requires lengthString(S) +Int 2 >Int N"#
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
+}

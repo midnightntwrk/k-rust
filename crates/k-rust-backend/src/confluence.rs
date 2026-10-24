@@ -1572,7 +1572,10 @@ impl<'d> Context<'d> {
                 return Conditions::Refuted;
             }
         }
-        Conditions::Open(conditions::equalities(&conjuncts))
+        Conditions::Open(conditions::equalities_with_bounds(
+            self.definition,
+            &conjuncts,
+        ))
     }
 
     /// The predicate simplified with no assumption and no solver, `None` on a failure or stop:

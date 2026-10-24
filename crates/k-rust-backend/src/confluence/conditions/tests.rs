@@ -5,11 +5,10 @@
 
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
-use super::{contradictory, equalities, literal_values};
+use super::{contradictory, equalities, equalities_with_bounds, literal_values};
 use crate::{
     definition::BackendDefinition,
     rule::Predicate,
-    substitution::substitute,
     term::{Term, TermKind},
 };
 
@@ -30,6 +29,7 @@ const DEFINITION: &str = r#"
     hooked-symbol addInt{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}(), hook{}("INT.add")]
     hooked-symbol subInt{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}(), hook{}("INT.sub")]
     hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), hook{}("INT.tdiv")]
+    hooked-symbol absInt{}(SortInt{}) : SortInt{} [function{}(), total{}(), hook{}("INT.abs")]
     hooked-symbol ltString{}(SortString{}, SortString{}) : SortBool{} [function{}(), total{}(), hook{}("STRING.lt")]
     hooked-sort SortMInt{S} [hook{}("MINT.MInt"), hasDomainValues{}()]
     sort Sort8{} []
@@ -79,6 +79,10 @@ enum Operand {
     Variable(usize),
     Literal(i64),
     Shifted(usize, i64),
+    /// `X /Int Y` (truncating), undefined where `Y` is 0: a partial atom.
+    Quotient(usize, usize),
+    /// `absInt(X)`: an atom with the range facts of `INT.abs`.
+    Abs(usize),
 }
 
 const NAMES: [&str; 3] = ["X", "Y", "Z"];
@@ -98,20 +102,32 @@ impl Operand {
                 Self::Variable(index).kore(),
                 Self::Literal(offset).kore()
             ),
+            Self::Quotient(left, right) => format!(
+                "divInt{{}}({}, {})",
+                Self::Variable(left).kore(),
+                Self::Variable(right).kore()
+            ),
+            Self::Abs(index) => format!("absInt{{}}({})", Self::Variable(index).kore()),
         }
     }
 
-    fn value(self, assignment: [i64; 3]) -> i64 {
+    /// The value at `assignment`, `None` where the operand is undefined.
+    fn value(self, assignment: [i64; 3]) -> Option<i64> {
         match self {
-            Self::Variable(index) => assignment[index],
-            Self::Literal(value) => value,
-            Self::Shifted(index, offset) => assignment[index] + offset,
+            Self::Variable(index) => Some(assignment[index]),
+            Self::Literal(value) => Some(value),
+            Self::Shifted(index, offset) => Some(assignment[index] + offset),
+            Self::Quotient(left, right) => {
+                (assignment[right] != 0).then(|| assignment[left] / assignment[right])
+            }
+            Self::Abs(index) => Some(assignment[index].abs()),
         }
     }
 }
 
 /// A conjunct: `operator(left, right)` required `polarity`, written under `negations` `notBool`s;
-/// or the equality `\equals(X, operand)`.
+/// `\not` of `operator(left, right)` required true (which holds also where an operand is
+/// undefined); or the equality `\equals(X, operand)`.
 #[derive(Clone, Debug)]
 enum Conjunct {
     Literal {
@@ -122,6 +138,11 @@ enum Conjunct {
         polarity: bool,
     },
     Equality(usize, Operand),
+    Negated {
+        operator: &'static str,
+        left: Operand,
+        right: Operand,
+    },
 }
 
 impl Conjunct {
@@ -145,6 +166,20 @@ impl Conjunct {
                 term(definition, &Operand::Variable(*variable).kore()),
                 term(definition, &operand.kore()),
             ),
+            Self::Negated {
+                operator,
+                left,
+                right,
+            } => Predicate::Not(std::sync::Arc::new(
+                Self::Literal {
+                    operator,
+                    left: *left,
+                    right: *right,
+                    negations: 0,
+                    polarity: true,
+                }
+                .predicate(definition),
+            )),
         }
     }
 
@@ -156,11 +191,25 @@ impl Conjunct {
                 right,
                 negations,
                 polarity,
-            } => {
-                let value = holds(operator, left.value(assignment), right.value(assignment));
-                (value != (negations % 2 == 1)) == *polarity
+            } => match (left.value(assignment), right.value(assignment)) {
+                (Some(left), Some(right)) => {
+                    let value = holds(operator, left, right);
+                    (value != (negations % 2 == 1)) == *polarity
+                }
+                // An undefined comparison is no Boolean: the conjunct does not hold.
+                _ => false,
+            },
+            Self::Equality(variable, operand) => {
+                operand.value(assignment) == Some(assignment[*variable])
             }
-            Self::Equality(variable, operand) => assignment[*variable] == operand.value(assignment),
+            Self::Negated {
+                operator,
+                left,
+                right,
+            } => !matches!(
+                (left.value(assignment), right.value(assignment)),
+                (Some(left), Some(right)) if holds(operator, left, right)
+            ),
         }
     }
 }
@@ -210,17 +259,14 @@ fn check(definition: &BackendDefinition, conjuncts: &[Conjunct]) -> Option<Strin
             }
         }
     }
-    let substitution = equalities(&predicates);
+    let substitution = equalities_with_bounds(definition, &predicates);
     for assignment in &satisfying {
         for (variable, value) in &substitution {
             let index = NAMES
                 .iter()
                 .position(|name| variable.name.as_ref() == *name)
                 .expect("a variable of the conjunction");
-            let evaluated = ground_value(&substitute(
-                value,
-                &assignment_substitution(definition, *assignment),
-            ));
+            let evaluated = evaluate(value, *assignment);
             if evaluated != Some(assignment[index]) {
                 return Some(format!(
                     "{conjuncts:?}: the equality {} = {value:?} fails at {assignment:?}",
@@ -230,28 +276,6 @@ fn check(definition: &BackendDefinition, conjuncts: &[Conjunct]) -> Option<Strin
         }
     }
     None
-}
-
-fn assignment_substitution(
-    definition: &BackendDefinition,
-    assignment: [i64; 3],
-) -> crate::substitution::Substitution {
-    NAMES
-        .iter()
-        .enumerate()
-        .map(|(index, name)| {
-            let TermKind::Variable(variable) = term(definition, &format!("{name}:SortInt{{}}"))
-                .kind()
-                .clone()
-            else {
-                unreachable!("a variable")
-            };
-            (
-                variable,
-                term(definition, &Operand::Literal(assignment[index]).kore()),
-            )
-        })
-        .collect()
 }
 
 /// The integer value of a term of the generated conjunctions (variables of `NAMES`, literals,
@@ -266,13 +290,15 @@ fn evaluate(term: &Term, assignment: [i64; 3]) -> Option<i64> {
         TermKind::Application {
             symbol, arguments, ..
         } => {
-            let (left, right) = (
-                evaluate(arguments.first()?, assignment)?,
-                evaluate(arguments.get(1)?, assignment)?,
-            );
+            let left = evaluate(arguments.first()?, assignment)?;
+            if symbol.name.as_ref() == "absInt" {
+                return Some(left.abs());
+            }
+            let right = evaluate(arguments.get(1)?, assignment)?;
             match symbol.name.as_ref() {
                 "addInt" => Some(left + right),
                 "subInt" => Some(left - right),
+                "divInt" => (right != 0).then(|| left / right),
                 _ => None,
             }
         }
@@ -491,6 +517,90 @@ pub(crate) fn random_conjunctions_agree_with_brute_force(cases: usize) -> Vec<St
 fn random_conjunctions_agree_with_brute_force_by_default() {
     let failures = random_conjunctions_agree_with_brute_force(2_000);
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// Random conjunctions over linear forms (differences of variables shifted by literals), partial
+/// quotients, absolute values and `\not` of comparisons, against brute force: the difference
+/// bounds, their definedness discipline and the range facts (module documentation, "linear
+/// integer arithmetic").
+pub(crate) fn random_linear_conjunctions_agree_with_brute_force(cases: usize) -> Vec<String> {
+    let definition = definition();
+    let mut state = 0x11ea_c0d1_u64;
+    let mut next = |bound: usize| {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        usize::try_from((state >> 33) % u64::try_from(bound).unwrap()).unwrap()
+    };
+    let mut failures = Vec::new();
+    for _ in 0..cases {
+        let operand = |next: &mut dyn FnMut(usize) -> usize| match next(8) {
+            0 => Operand::Literal(i64::try_from(next(5)).unwrap() - 2),
+            1 | 2 => Operand::Shifted(next(3), i64::try_from(next(5)).unwrap() - 2),
+            // One quotient, `X /Int Y`, so that conjuncts meet on it.
+            3 | 4 => Operand::Quotient(0, 1),
+            5 => Operand::Abs(next(3)),
+            _ => Operand::Variable(next(3)),
+        };
+        let count = 2 + next(3);
+        let conjuncts = (0..count)
+            .map(|_| {
+                let operator = OPERATORS[next(OPERATORS.len())];
+                match next(5) {
+                    0 | 1 => Conjunct::Negated {
+                        operator,
+                        left: operand(&mut next),
+                        right: operand(&mut next),
+                    },
+                    _ => Conjunct::Literal {
+                        operator,
+                        left: operand(&mut next),
+                        right: operand(&mut next),
+                        negations: next(2),
+                        polarity: next(2) == 0,
+                    },
+                }
+            })
+            .collect::<Vec<_>>();
+        if let Some(failure) = check(&definition, &conjuncts) {
+            failures.push(failure);
+        }
+    }
+    failures
+}
+
+#[test]
+fn random_linear_conjunctions_agree_with_brute_force_by_default() {
+    let failures = random_linear_conjunctions_agree_with_brute_force(4_000);
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// V7: using a `\not` comparison of a partial term whose definedness no conjunct shows refutes
+/// conjunctions satisfiable where the term is undefined, which the property test sees.
+#[test]
+fn a_dropped_difference_definedness_guard_is_caught_by_the_property_test() {
+    let switches = crate::confluence::switches::Switches {
+        drop_dbm_definedness_guard: true,
+        ..Default::default()
+    };
+    let failures = crate::confluence::switches::with(switches, || {
+        random_linear_conjunctions_agree_with_brute_force(4_000)
+    });
+    assert!(!failures.is_empty());
+}
+
+/// V7: reading an absolute value as at least 1 refutes conjunctions satisfiable at 0, which the
+/// property test sees.
+#[test]
+fn a_misread_range_fact_is_caught_by_the_property_test() {
+    let switches = crate::confluence::switches::Switches {
+        misread_range_fact: true,
+        ..Default::default()
+    };
+    let failures = crate::confluence::switches::with(switches, || {
+        random_linear_conjunctions_agree_with_brute_force(4_000)
+    });
+    assert!(!failures.is_empty());
 }
 
 /// V7: reading `a <=Int b` with the wrong orientation refutes satisfiable conjunctions, which the
