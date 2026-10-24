@@ -113,7 +113,10 @@
 //! A decided finding ([`Finding::is_decided`]) cannot be assumed: an equation headed by a
 //! constructor or an injection, or indexed at a collection or a bare variable, rewrites terms
 //! that [`BackendDefinition::is_data`] reads as free without consulting the load verdict, so they
-//! are not normal forms, and no premise that keeps the equation an axiom makes them so.
+//! are not normal forms, and no premise that keeps the equation an axiom makes them so; and an
+//! equation whose right-hand side leaves a variable unbound by its left-hand side equates, read
+//! as written, its left-hand side with every value of that variable's sort, which the evaluator
+//! never applies, so there is no reading of it as written to assume.
 //!
 //! Every finding that can be assumed bears on data only through the load verdict
 //! (`ValueClaims`), which still withholds what it taints. The overload data heads and the
@@ -186,15 +189,30 @@ impl Finding {
         )
     }
 
-    /// Whether the finding is a fact the check decides about the definition as written: a
-    /// precondition row that withdraws claims ([`ViolationKind::withdraws`](crate::confluence::ViolationKind::withdraws): an executable
-    /// equation headed by a constructor or an injection, or indexed at a collection or a bare
-    /// variable). The equation rewrites terms the data judgement reads as free, so those terms
-    /// are not normal forms; no assumption about the definition as written changes that, so
-    /// [`BackendDefinition::data_heads_assuming`] never moves such a finding.
+    /// Whether the finding is a fact the check decides about the definition as written, which no
+    /// assumption about it removes, so [`BackendDefinition::data_heads_assuming`] never moves
+    /// it:
+    /// - a precondition row that withdraws claims
+    ///   ([`ViolationKind::withdraws`](crate::confluence::ViolationKind::withdraws): an
+    ///   executable equation headed by a constructor or an injection, or indexed at a collection
+    ///   or a bare variable). The equation rewrites terms the data judgement reads as free, so
+    ///   those terms are not normal forms;
+    /// - an equation whose right-hand side or `ensures` has variables its left-hand side does
+    ///   not bind
+    ///   ([`UnjoinedReason::UnboundResultVariables`](crate::confluence::UnjoinedReason::UnboundResultVariables)).
+    ///   Read as written, the axiom equates its left-hand side with every value of the unbound
+    ///   variable's sort, and the evaluator never applies it, so "applied as written" is no
+    ///   premise about it.
     #[must_use]
     pub fn is_decided(&self) -> bool {
-        matches!(self, Self::Precondition(violation) if violation.kind.withdraws())
+        match self {
+            Self::Precondition(violation) => violation.kind.withdraws(),
+            Self::Equation(pair) => matches!(
+                pair.reason,
+                crate::confluence::UnjoinedReason::UnboundResultVariables
+            ),
+            Self::Pair { .. } => false,
+        }
     }
 
     /// The pair, for a pair finding.

@@ -433,3 +433,48 @@ fn each_definition_judges_a_term_by_its_own_equations() {
     assert!(data(&baseline, &baseline.data_heads(), FUN_EXPS));
     assert!(data(&unlowered, &unlowered.data_heads(), FUN_EXPS));
 }
+
+/// INT8 follow-ups (review N4): an equation whose right-hand side has a variable its left-hand
+/// side does not bind (`any(X0) = Y`) is a decided finding: read as written it equates `any(X0)`
+/// with every `Val`, and the evaluator never applies it. Only hand-written KORE gives one (k-rust
+/// refuses `Y` in K source). It keeps the definition without data, and no assumption moves it.
+#[test]
+fn an_equation_with_an_unbound_result_variable_is_decided_and_never_assumed() {
+    let definition = with_sentences(
+        r#"
+    symbol any{}(SortExps{}) : SortVal{} [function{}()]
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(),
+            \and{R}(\in{SortExps{}, R}(X0:SortExps{}, Es:SortExps{}), \top{R}())),
+        \equals{SortVal{}, R}(any{}(X0:SortExps{}), \and{SortVal{}}(Y:SortVal{}, \top{SortVal{}}())))
+        [label{}("any-unbound")]
+"#,
+    );
+    let heads = definition.data_heads();
+    let decided = heads
+        .findings()
+        .iter()
+        .filter(|finding| finding.is_decided())
+        .collect::<Vec<_>>();
+    assert_eq!(decided.len(), 1, "{:?}", heads.findings());
+    assert!(
+        matches!(decided[0], k_rust_backend::data_term::Finding::Equation(pair)
+            if pair.reason == k_rust_backend::confluence::UnjoinedReason::UnboundResultVariables),
+        "{:?}",
+        decided[0]
+    );
+    let assumed = definition.data_heads_assuming(&heads, |_| true);
+    assert!(!assumed.confluent());
+    assert!(
+        assumed
+            .findings()
+            .iter()
+            .any(|finding| finding.is_decided())
+    );
+    assert!(
+        assumed
+            .assumed()
+            .iter()
+            .all(|finding| !finding.is_decided())
+    );
+}

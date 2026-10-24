@@ -24,10 +24,12 @@
 //! (one per equation of the hook's written meaning): assuming it reads the equation as agreeing
 //! with the hook; likewise one `precondition:EQUATION` names every row of that equation.
 //!
-//! A decided precondition row ([`Finding::is_decided`]: an equation headed by a constructor or an
-//! injection, or indexed at a collection or a bare variable) is named too, but its name is
-//! refused: the equation rewrites terms the data judgement reads as free, so they are not normal
-//! forms, a fact about the definition as written that no assumption removes.
+//! A decided finding ([`Finding::is_decided`]) is named too, but its name is refused: a
+//! precondition row that an equation is headed by a constructor or an injection, or indexed at a
+//! collection or a bare variable (the equation rewrites terms the data judgement reads as free,
+//! so they are not normal forms), or an equation whose right-hand side leaves a variable unbound
+//! (read as written it equates every value of that sort). Each is a fact about the definition
+//! as written that no assumption removes.
 
 use std::collections::BTreeSet;
 
@@ -304,13 +306,59 @@ pub(crate) fn assumed(assumed: &[String], finding: &Finding) -> bool {
 }
 
 /// The printed name of a decided finding of `heads` that `given` (without a side prefix) names,
-/// if any: such a name is refused, since the finding is a fact about the definition as written.
-pub(crate) fn decided_named(given: &str, heads: &DataHeads) -> Option<String> {
+/// with why it cannot be assumed, if any: such a name is refused, since the finding is a fact
+/// about the definition as written.
+pub(crate) fn decided_named(given: &str, heads: &DataHeads) -> Option<(String, String)> {
     heads
         .findings()
         .iter()
         .filter(|finding| finding.is_decided() && names_finding(given, finding))
-        .find_map(finding_name)
+        .find_map(|finding| {
+            let why = match finding {
+                Finding::Equation(pair) => format!(
+                    "an equation whose right-hand side leaves {} unbound by its left-hand side: \
+                     read as written it equates its left-hand side with every value of that \
+                     sort, and the evaluator never applies it, so `applied as written` is no \
+                     premise about the definition",
+                    unbound_variables(pair)
+                ),
+                _ => "a precondition row: its equation rewrites terms the data judgement reads \
+                      as free (constructor-, injection- or collection-headed), so no assumption \
+                      about the definition as written makes them normal forms"
+                    .to_owned(),
+            };
+            Some((finding_name(finding)?, why))
+        })
+}
+
+/// The variables an equation's right-hand side or `ensures` leaves unbound by its left-hand
+/// side, as the author wrote them, each in backquotes.
+fn unbound_variables(pair: &UnjoinedPair) -> String {
+    let names = pair
+        .first
+        .computed_attributes
+        .unbound_result_variables
+        .iter()
+        .map(|name| format!("`{}`", readable_variable(name)))
+        .collect::<Vec<_>>();
+    if names.is_empty() {
+        "a variable".to_owned()
+    } else {
+        names.join(", ")
+    }
+}
+
+/// What a decided single-equation finding states: an equation whose right-hand side leaves a
+/// variable unbound, which read as written equates every value of the variable's sort.
+fn decided_equation_reason(pair: &UnjoinedPair) -> String {
+    format!(
+        "`{}`'s right-hand side or `ensures` leaves {} unbound by its left-hand side, so read as \
+         written the equation equates its left-hand side with every value of that sort and the \
+         evaluator never applies it: no end of this definition is data (a fact about the \
+         definition as written, which assume-joined cannot remove; change that equation)",
+        equation(&pair.first),
+        unbound_variables(pair)
+    )
 }
 
 /// What a decided precondition row states (the row withdraws claims: an equation rewrites terms
@@ -461,6 +509,7 @@ fn entry(
             equations: vec![equation(&pair.first)],
             position: None,
             reason: match &pair.hook {
+                None if finding.is_decided() => decided_equation_reason(pair),
                 Some(hook) => format!(
                     "the equation is not shown to agree with its hook `{hook}`: {}",
                     pair.reason
@@ -749,5 +798,55 @@ fn pair_entry(
             .map(|conditions| names.show_predicate(conditions, text)),
         instance,
         assumed,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use k_rust::{k_rust_backend::definition::BackendDefinition, kore::parser::parse_definition};
+
+    use super::{decided_named, entry, finding_name};
+    use crate::report::{DefinitionRole, FindingKind, FindingVerdict};
+
+    /// INT8 follow-ups (review N4): an equation whose right-hand side leaves `Y` unbound (only
+    /// hand-written KORE gives one) is a decided finding: its report entry says so, and the name
+    /// `assume-joined` would take for it is refused with why.
+    #[test]
+    fn an_unbound_result_variable_is_decided_and_its_name_refused() {
+        const FIXTURE: &str =
+            include_str!("../../k-rust-backend/tests/fixtures/overloaded-list-owise.kore");
+        let (head, tail) = FIXTURE.rsplit_once("endmodule").expect("one module");
+        let source = format!(
+            r#"{head}
+    symbol any{{}}(SortExps{{}}) : SortVal{{}} [function{{}}()]
+    axiom{{R}} \implies{{R}}(
+        \and{{R}}(\top{{R}}(),
+            \and{{R}}(\in{{SortExps{{}}, R}}(X0:SortExps{{}}, Es:SortExps{{}}), \top{{R}}())),
+        \equals{{SortVal{{}}, R}}(any{{}}(X0:SortExps{{}}), \and{{SortVal{{}}}}(Y:SortVal{{}}, \top{{SortVal{{}}}}())))
+        [label{{}}("any-unbound")]
+endmodule{tail}"#
+        );
+        let syntax = parse_definition(&source).expect("parses");
+        let definition =
+            BackendDefinition::internalize(&syntax, "OVERLOADED-LIST-OWISE").expect("loads");
+        let heads = definition.data_heads();
+        let finding = heads
+            .findings()
+            .iter()
+            .find(|finding| finding.is_decided())
+            .expect("a decided finding");
+        let report = entry(DefinitionRole::Baseline, finding, false, None);
+        assert_eq!(report.verdict, FindingVerdict::Decided);
+        assert_eq!(report.kind, FindingKind::Equation);
+        assert!(
+            report.reason.contains("leaves `Y` unbound") && report.reason.contains("change that"),
+            "{}",
+            report.reason
+        );
+        let name = finding_name(finding).expect("named");
+        assert!(name.starts_with("equation:"), "{name}");
+        let (named, why) = decided_named(&name, &heads).expect("refused");
+        assert_eq!(named, name);
+        assert!(why.contains("leaves `Y` unbound"), "{why}");
     }
 }

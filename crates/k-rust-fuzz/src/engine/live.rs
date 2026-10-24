@@ -1079,14 +1079,12 @@ fn match_assumed(
         if prefix.is_some_and(|prefix| prefix != role) {
             continue;
         }
-        if let Some(decided) = crate::findings::decided_named(rest, heads) {
+        if let Some((decided, why)) = crate::findings::decided_named(rest, heads) {
             return Err(CampaignError::InvalidOptions {
                 message: format!(
                     "assume-joined names `{given}`, which matches `{decided}` of the \
-                     {side_name}, a precondition row that cannot be assumed: its equation \
-                     rewrites terms the data judgement reads as free (constructor-, injection- \
-                     or collection-headed), so no assumption about the definition as written \
-                     makes them normal forms; change that equation"
+                     {side_name}, a decided finding that cannot be assumed: {why}; change that \
+                     equation"
                 ),
             });
         }

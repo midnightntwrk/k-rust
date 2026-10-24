@@ -1690,8 +1690,8 @@ export interface FuzzReport {
  * One finding of a definition's full critical-pair check. `genuine`: at a ground instance both
  * equations apply and the input has two normal forms, so k-rust's result for it depends on the
  * order it tries the equations; `decided`: an equation rewrites a constructor-, injection- or
- * collection-headed term, so such terms are not normal forms (a fact about the definition, which
- * `assume-joined` refuses); `undecided`: not shown to join, which may be a limit of the check.
+ * collection-headed term, so such terms are not normal forms, or leaves a right-hand-side
+ * variable unbound (a fact about the definition, which `assume-joined` refuses); `undecided`: not shown to join, which may be a limit of the check.
  */
 export interface FuzzDefinitionFinding {
   side: 'baseline' | 'mutant'

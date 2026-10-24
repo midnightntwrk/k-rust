@@ -762,8 +762,9 @@ pub struct DefinitionFinding {
     /// `genuine` when a ground instance is exhibited at which both equations apply and the input
     /// has two normal forms, so k-rust's result for that input depends on the order in which it
     /// tries the equations; `decided` for a precondition row that states an equation rewrites a
-    /// constructor-, injection- or collection-headed term (a fact about the definition as
-    /// written, which no assumption removes); `undecided` otherwise: not shown to join, which may
+    /// constructor-, injection- or collection-headed term, or an equation whose right-hand side
+    /// leaves a variable unbound (a fact about the definition as written, which no assumption
+    /// removes); `undecided` otherwise: not shown to join, which may
     /// be a limit of the check as well as an input with two normal forms.
     pub verdict: FindingVerdict,
     /// A pair of equations, one equation, or a precondition row.
@@ -814,8 +815,9 @@ pub enum FindingVerdict {
     /// A fact the check decides about the definition as written, not a limit of it: an
     /// equation rewrites a term headed by a constructor, an injection or a collection (a
     /// precondition row), which the data judgement reads as free, so such terms are not normal
-    /// forms and no end of the definition is data. It cannot be assumed (`assume-joined`): fix
-    /// the equation.
+    /// forms; or an equation's right-hand side leaves a variable unbound by its left-hand side,
+    /// so read as written it equates every value of that sort. No end of the definition is
+    /// data. It cannot be assumed (`assume-joined`): fix the equation.
     Decided,
 }
 
