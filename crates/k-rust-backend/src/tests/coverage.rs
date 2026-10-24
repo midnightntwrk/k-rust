@@ -1873,6 +1873,10 @@ fn every_priority_group_selection_offers_what_it_never_tries() {
         ("simplify/scan.rs", "scan_group"),
         // The load-time confluence check, which no run's coverage includes.
         ("confluence/join.rs", "*"),
+        // The data judgement's ground-instance search (`data_term::DataHeads`), an analysis of
+        // the definition that no run's coverage includes: it asks whether an application is
+        // stuck, and applies nothing.
+        ("data_term/instance.rs", "stuck"),
         // The former lazy step, a differential-test oracle compiled only in tests.
         ("rewrite/step.rs", "rewrite_step_all_first_group_for_tests"),
     ];

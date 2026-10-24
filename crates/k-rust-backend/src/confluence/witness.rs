@@ -421,9 +421,14 @@ pub(super) fn adopted(first: &Checked, second: &Checked, witnesses: &Witnesses) 
 /// load's own, whose closure the full check's contains only where the two scopes classify alike.
 /// A witness pair the pass leaves unjoined seeds the witness, whose head T1 then taints, so this
 /// also refuses such a pass. Test switch `adopt_with_tainted_witness_head` drops condition 4 in
-/// both places.
+/// both places, and so does `witnesses_only_at_their_pair`: the pass it validates keeps every
+/// pair but the proposing ones at its pass-1 classification ([`only_at_their_pairs`]), so its
+/// closure is not the one `pass` read, where a pair over a sort with no normal form that the
+/// witnesses split seeds like any other.
 pub(super) fn heads_untainted(pass: &Checked, rules: &[Arc<RewriteRule>]) -> bool {
-    super::switches::active().adopt_with_tainted_witness_head
+    let switches = super::switches::active();
+    switches.adopt_with_tainted_witness_head
+        || switches.witnesses_only_at_their_pair
         || rules
             .iter()
             .filter_map(|rule| head(rule))

@@ -84,7 +84,8 @@ pub(crate) struct Switches {
     /// per-pair choice the design rejects as unsound).
     pub(crate) adopt_unvalidated_witnesses: bool,
     /// Witnesses: validate a witness only at the pairs that proposed it: in pass 2 every other
-    /// pair, and every pair of a witness, keeps its pass-1 classification.
+    /// pair, and every pair of a witness, keeps its pass-1 classification, and condition 4 is not
+    /// read on pass 2's own closure (`witness::heads_untainted`).
     pub(crate) witnesses_only_at_their_pair: bool,
     /// Witnesses: drop the condition that a witness's left-hand side holds a variable of a sort
     /// with no normal form: open mode reads every stuck partial application holding a variable
