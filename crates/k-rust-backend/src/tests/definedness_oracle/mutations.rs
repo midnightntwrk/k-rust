@@ -252,8 +252,10 @@ fn accepted_splits(switches: Switches) -> Vec<super::generator::Split> {
 /// `Tc`, whose constructors cover it, when each branch's conditions are refuted under its
 /// unifier (WASM's `sparse-bytes.k:121/133` shape) or each branch joins. It stays named where a
 /// branch's conditions may hold, where a constructor has no branch, where an empty subsort gives
-/// `Tc` an element in every model that no constructor builds, and where an equation head
-/// produces `Tc`. Each defect switch of the two rules accepts the shapes it should not.
+/// `Tc` an element in every model that no constructor builds, where an equation head or a total
+/// function produces `Tc`, where a branch binds a constructor to a specific argument, and where
+/// `Tc` is not surely inhabited. Each defect switch of the two rules accepts the shapes it should
+/// not.
 #[test]
 fn a_constructor_split_joins_exactly_where_the_constructors_cover_the_sort() {
     use super::generator::Split;
@@ -262,7 +264,10 @@ fn a_constructor_split_joins_exactly_where_the_constructors_cover_the_sort() {
             .into_iter()
             .filter(|split| split.joins())
             .collect::<Vec<_>>();
-        assert_eq!(joining, [Split::Refuted, Split::Covered]);
+        assert_eq!(
+            joining,
+            [Split::Refuted, Split::Covered, Split::CoveredUnary]
+        );
         assert_eq!(accepted_splits(Switches::default()), joining);
         for (switches, also) in [
             (
@@ -277,7 +282,14 @@ fn a_constructor_split_joins_exactly_where_the_constructors_cover_the_sort() {
                     drop_complement_without_coverage: true,
                     ..Switches::default()
                 },
-                vec![Split::Uncovered, Split::EmptySubsort, Split::HeadProducer],
+                vec![
+                    Split::Uncovered,
+                    Split::EmptySubsort,
+                    Split::HeadProducer,
+                    Split::TotalProducer,
+                    Split::Specific,
+                    Split::Uninhabited,
+                ],
             ),
             (
                 Switches {

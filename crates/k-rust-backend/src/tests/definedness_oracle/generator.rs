@@ -963,35 +963,57 @@ pub(super) enum Split {
     /// The same with an equation head `hdTc : Int -> Tc` (`hdTc(0) = tc1`), whose application
     /// `hdTc(1)` is a normal form of `Tc` that is no constructor application.
     HeadProducer,
+    /// The same with a total function `tfTc : Int -> Tc` without equations, whose stuck
+    /// application `tfTc(1)` is a normal form of `Tc` that is no constructor application.
+    TotalProducer,
+    /// `Covered` with `tc1 : Int -> Tc` and `pTc(tc1(N)) = c`: the branch binds `X` to `tc1`
+    /// applied to a fresh variable of `Int`, which covers every `tc1(n)`.
+    CoveredUnary,
+    /// The same with `pTc(tc1(0)) = c` only: the branch binds `X` to `tc1(0)`, which leaves
+    /// `tc1(1)` to the complement, where `pTc` is stuck.
+    Specific,
+    /// `Covered` with `tc1, tc2 : Ec -> Tc` over an empty `Ec` (`pTc(tc1(E)) = c`, the same at
+    /// `tc2`): `Tc` is not surely inhabited, so `D+` gives it a constant `junkTc` that no
+    /// constructor builds, at which `pTc` is stuck.
+    Uninhabited,
 }
 
 impl Split {
-    pub(super) const ALL: [Self; 6] = [
+    pub(super) const ALL: [Self; 10] = [
         Self::Refuted,
         Self::Open,
         Self::Covered,
         Self::Uncovered,
         Self::EmptySubsort,
         Self::HeadProducer,
+        Self::TotalProducer,
+        Self::CoveredUnary,
+        Self::Specific,
+        Self::Uninhabited,
     ];
 
     /// Whether the pair joins in `M+`, so the full check reports nothing.
     pub(super) fn joins(self) -> bool {
-        matches!(self, Self::Refuted | Self::Covered)
+        matches!(self, Self::Refuted | Self::Covered | Self::CoveredUnary)
     }
 }
 
 /// A pair that joins only by a case split on a residual whose argument is a variable of the sort
 /// `Tc ::= tc1 | tc2`, the class of the join's rules F1 and F2 (`confluence/join.rs`), in one of
-/// the shapes of [`Split`]: two that join and four that must not.
+/// the shapes of [`Split`]: three that join and seven that must not.
 pub(super) fn constructor_split(split: Split) -> Definition {
     let x = || var("VarX", "Tc");
+    let (tc1, tc2): (&[&str], &[&str]) = match split {
+        Split::CoveredUnary | Split::Specific => (&["Int"], &[]),
+        Split::Uninhabited => (&["Ec"], &["Ec"]),
+        _ => (&[], &[]),
+    };
     let mut definition = Definition::new(&["A", "Tc"])
         .constructor("c", &[], "A")
         .constructor("d", &[], "A")
         .constructor("m", &["Int"], "A")
-        .constructor("tc1", &[], "Tc")
-        .constructor("tc2", &[], "Tc");
+        .constructor("tc1", tc1, "Tc")
+        .constructor("tc2", tc2, "Tc");
     match split {
         Split::Refuted | Split::Open => {
             let size = || app("szTc", vec![x()]);
@@ -1019,12 +1041,28 @@ pub(super) fn constructor_split(split: Split) -> Definition {
                     Some(second),
                 )
         }
-        Split::Covered | Split::Uncovered | Split::EmptySubsort | Split::HeadProducer => {
+        Split::Covered
+        | Split::Uncovered
+        | Split::EmptySubsort
+        | Split::HeadProducer
+        | Split::TotalProducer
+        | Split::CoveredUnary
+        | Split::Specific
+        | Split::Uninhabited => {
+            let (first, second) = match split {
+                Split::CoveredUnary => (app("tc1", vec![int_var("VarN")]), cons("tc2")),
+                Split::Specific => (app("tc1", vec![int(0)]), cons("tc2")),
+                Split::Uninhabited => (
+                    app("tc1", vec![var("VarE", "Ec")]),
+                    app("tc2", vec![var("VarE", "Ec")]),
+                ),
+                _ => (cons("tc1"), cons("tc2")),
+            };
             definition = definition
                 .function("pTc", &["Tc"], "A")
                 .head("hTc", &["Tc"], "A")
-                .equation(app("pTc", vec![cons("tc1")]), cons("c"))
-                .equation(app("pTc", vec![cons("tc2")]), cons("c"))
+                .equation(app("pTc", vec![first]), cons("c"))
+                .equation(app("pTc", vec![second]), cons("c"))
                 .equation(app("hTc", vec![x()]), cons("c"))
                 .equation(app("hTc", vec![x()]), app("pTc", vec![x()]));
             match split {
@@ -1038,7 +1076,15 @@ pub(super) fn constructor_split(split: Split) -> Definition {
                         .head("hdTc", &["Int"], "Tc")
                         .equation(app("hdTc", vec![int(0)]), cons("tc1"));
                 }
-                Split::Covered | Split::Refuted | Split::Open => {}
+                Split::TotalProducer => {
+                    definition = definition.total_function("tfTc", &["Int"], "Tc");
+                }
+                Split::Uninhabited => definition.sorts.push("Ec".into()),
+                Split::Covered
+                | Split::CoveredUnary
+                | Split::Specific
+                | Split::Refuted
+                | Split::Open => {}
             }
             definition
         }
