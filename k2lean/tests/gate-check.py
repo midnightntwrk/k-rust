@@ -114,10 +114,18 @@ def read(p):
 
 
 def equations(path):
-    """(stated, open set) of a generated Equations.lean."""
+    """(stated, open set) of a generated Equations.lean, with the parts it imports when it is
+    written in parts (`NS/Equations/PartK.lean`, `import NS.Equations.PartK`)."""
     text = read(path)
     if text is None:
         return None
+    path = Path(path)
+    ns = path.parent.name
+    for m in re.findall(rf"^import {re.escape(ns)}\.Equations\.(Part\d+)$", text, re.M):
+        part = read(path.parent / "Equations" / f"{m}.lean")
+        if part is None:
+            return None
+        text += "\n" + part
     opened = re.findall(r"^def (\S+)\.statement : Prop", text, re.M)
     proved = re.findall(r"^theorem ((?:Eqn|Simp|Lemma)\.\S+)", text, re.M)
     return len(opened) + len(proved), sorted(opened)

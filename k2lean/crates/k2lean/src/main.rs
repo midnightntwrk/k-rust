@@ -42,6 +42,10 @@ use std::path::PathBuf;
 /// The Lean toolchain of every generated project (and of `k2lean/lean/prelude` and `k2lean/lean/claims`).
 pub const LEAN_TOOLCHAIN: &str = "leanprover/lean4:v4.34.0\n";
 
+/// The default bound on the weight of one module of `Equations` (`eqns::weight`,
+/// `gen --equations-part-weight`).
+pub const EQUATIONS_PART_WEIGHT: usize = 2000;
+
 struct Args {
     cmd: String,
     kore: PathBuf,
@@ -97,14 +101,44 @@ fn write(path: &PathBuf, text: &str) {
     std::fs::write(path, text).unwrap();
 }
 
+/// The Lean files of a generated module: the file itself and, for an `Equations.lean` written in
+/// parts (`eqns::emit_modules`), the parts it imports (`import NS.Equations.PartK`, at
+/// `NS/Equations/PartK.lean` beside it), each with the path suffix its build errors name.
+fn module_files(file: &std::path::Path) -> Vec<(PathBuf, String)> {
+    let name = file.file_name().unwrap().to_string_lossy().to_string();
+    let mut out = vec![(file.to_path_buf(), name.clone())];
+    let (Some(dir), Some(stem)) = (file.parent(), file.file_stem()) else {
+        return out;
+    };
+    let stem = stem.to_string_lossy().to_string();
+    let ns = dir.file_name().map(|n| n.to_string_lossy().to_string());
+    let text = std::fs::read_to_string(file).unwrap_or_default();
+    for l in text.lines().take_while(|l| l.starts_with("import ")) {
+        let Some(ns) = &ns else { break };
+        let Some(part) = l
+            .strip_prefix("import ")
+            .and_then(|m| m.strip_prefix(&format!("{ns}.{stem}.")))
+        else {
+            continue;
+        };
+        if part.is_empty() || part.contains('.') {
+            continue;
+        }
+        out.push((
+            dir.join(&stem).join(format!("{part}.lean")),
+            format!("{stem}/{part}.lean"),
+        ));
+    }
+    out
+}
+
 /// `open-from-log EQUATIONS.lean BUILD.log OPEN.txt`: add the theorems whose proofs failed in a
-/// build log to the open-obligation list (they are then emitted as statements only).
+/// build log to the open-obligation list (they are then emitted as statements only). The errors
+/// of the parts of an `Equations.lean` written in parts count as its own.
 fn open_from_log(args: &[String]) {
     let [eq_file, log, out] = args else {
         panic!("usage: open-from-log EQUATIONS.lean BUILD.log OPEN.txt")
     };
-    let text = std::fs::read_to_string(eq_file).unwrap();
-    let lines: Vec<&str> = text.lines().collect();
     let log = std::fs::read_to_string(log).unwrap();
     let mut open: std::collections::BTreeSet<String> = std::fs::read_to_string(out)
         .unwrap_or_default()
@@ -112,34 +146,40 @@ fn open_from_log(args: &[String]) {
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty())
         .collect();
-    let file_name = std::path::Path::new(eq_file)
-        .file_name()
-        .unwrap()
-        .to_string_lossy()
-        .to_string();
-    for l in log.lines() {
-        let Some(pos) = l.find(&format!("{file_name}:")) else {
+    for (file, suffix) in module_files(std::path::Path::new(eq_file)) {
+        let Ok(text) = std::fs::read_to_string(&file) else {
             continue;
         };
-        if !l.trim_start().starts_with("error:") {
-            continue;
-        }
-        let rest = &l[pos + file_name.len() + 1..];
-        let Some(line) = rest.split(':').next().and_then(|n| n.parse::<usize>().ok()) else {
-            continue;
-        };
-        // an error in a command (`#k2l_assert_axioms`) is a consequence, not a failed proof
-        if lines
-            .get(line.wrapping_sub(1))
-            .is_some_and(|l| l.starts_with('#'))
-        {
-            continue;
-        }
-        for i in (0..line.min(lines.len())).rev() {
-            if let Some(name) = lines[i].strip_prefix("theorem ") {
-                // the name ends at the first space outside `«…»` (rule names hold spaces)
-                open.insert(invariants::case_token(name).unwrap());
-                break;
+        let lines: Vec<&str> = text.lines().collect();
+        for l in log.lines() {
+            let Some(pos) = l.find(&format!("{suffix}:")) else {
+                continue;
+            };
+            if !l.trim_start().starts_with("error:") {
+                continue;
+            }
+            // `Equations.lean:` must not match the error of a part (`Equations/Part1.lean:`), nor
+            // the reverse: the suffix starts the path or follows a `/`
+            if pos > 0 && !l[..pos].ends_with('/') && !l[..pos].ends_with(' ') {
+                continue;
+            }
+            let rest = &l[pos + suffix.len() + 1..];
+            let Some(line) = rest.split(':').next().and_then(|n| n.parse::<usize>().ok()) else {
+                continue;
+            };
+            // an error in a command (`#k2l_assert_axioms`) is a consequence, not a failed proof
+            if lines
+                .get(line.wrapping_sub(1))
+                .is_some_and(|l| l.starts_with('#'))
+            {
+                continue;
+            }
+            for i in (0..line.min(lines.len())).rev() {
+                if let Some(name) = lines[i].strip_prefix("theorem ") {
+                    // the name ends at the first space outside `«…»` (rule names hold spaces)
+                    open.insert(invariants::case_token(name).unwrap());
+                    break;
+                }
             }
         }
     }
@@ -535,26 +575,44 @@ fn main() {
                     names::short_sort(x)
                 )
             }));
-            write(
-                &out.join(ns).join("Equations.lean"),
-                &with_hooks(
-                    eqns::emit_with(
-                        ns,
-                        &stated,
-                        &open,
-                        &eq_base,
-                        &fgen.unfold,
-                        &fgen.recursive,
-                        &fgen.list_recursive,
-                    ),
-                    ns,
-                    &fgen.params,
-                ),
-            );
+            // in modules of bounded weight (`eqns::emit_modules`); the parts of an earlier
+            // generation go first, so that a part no longer generated is not left behind
+            let part_weight = match a.rest.iter().position(|x| x == "--equations-part-weight") {
+                Some(i) => a.rest[i + 1]
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|w| *w > 0)
+                    .expect("--equations-part-weight: a positive integer"),
+                None => EQUATIONS_PART_WEIGHT,
+            };
+            let _ = std::fs::remove_dir_all(out.join(ns).join("Equations"));
+            let eq_weight: usize = stated.iter().map(|s| eqns::weight(s, &fgen.unfold)).sum();
+            let mut eq_modules = 0;
+            for (path, text) in eqns::emit_modules(
+                ns,
+                &stated,
+                &open,
+                &eq_base,
+                &fgen.unfold,
+                &fgen.recursive,
+                &fgen.list_recursive,
+                part_weight,
+            ) {
+                write(
+                    &out.join(ns).join(format!("{path}.lean")),
+                    &with_hooks(text, ns, &fgen.params),
+                );
+                eq_modules += 1;
+            }
             eprintln!(
-                "{} equations and simplifications stated, {} open",
+                "{} equations and simplifications stated, {} open; weight {eq_weight} in {} (bound {part_weight})",
                 stated.len(),
-                stated.iter().filter(|s| open.contains(&s.name)).count()
+                stated.iter().filter(|s| open.contains(&s.name)).count(),
+                if eq_modules == 1 {
+                    "one module".to_string()
+                } else {
+                    format!("{} parts", eq_modules - 1)
+                }
             );
             // kind 1 invariants: `InvariantDefs.lean`, `Invariants.lean`, `open-invariant-cases.txt`
             if specs.is_empty() && declared.is_empty() {
@@ -794,6 +852,38 @@ mod tests {
             std::fs::read_to_string(&open).unwrap(),
             "Eqn.a_1\nEqn.z_9\nEqn.«b_c_1»\n"
         );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// An `Equations.lean` written in parts: the errors of each part name its theorems, and an
+    /// error of a part is not read against the aggregating file's lines, nor the reverse.
+    #[test]
+    fn open_from_log_reads_the_parts() {
+        let d = std::env::temp_dir().join(format!("k2lean-open-parts-{}", std::process::id()));
+        let n = d.join("N");
+        std::fs::create_dir_all(n.join("Equations")).unwrap();
+        let eq = n.join("Equations.lean");
+        std::fs::write(
+            &eq,
+            "import N.Equations.Part1\nimport N.Equations.Part2\n\n/-! doc -/\n",
+        )
+        .unwrap();
+        let part = |k: usize, name: &str| {
+            format!("import N.Functions\n\nnamespace N\n\ntheorem Eqn.{name} :\n    1 = 1 := by\n  rfl\n\nend N\n")
+                .replace("Functions", &format!("Functions -- {k}"))
+        };
+        std::fs::write(n.join("Equations/Part1.lean"), part(1, "a_1")).unwrap();
+        std::fs::write(n.join("Equations/Part2.lean"), part(2, "b_1")).unwrap();
+        let log = d.join("build.log");
+        std::fs::write(
+            &log,
+            "error: N/Equations/Part2.lean:7:2: unsolved goals\nerror: N/Equations.lean:6:0: not a theorem line\nerror: N/XEquations/Part1.lean:6:0: another module\n",
+        )
+        .unwrap();
+        let open = d.join("open.txt");
+        let s = |p: &std::path::Path| p.to_string_lossy().to_string();
+        open_from_log(&[s(&eq), s(&log), s(&open)]);
+        assert_eq!(std::fs::read_to_string(&open).unwrap(), "Eqn.b_1\n");
         let _ = std::fs::remove_dir_all(&d);
     }
 }

@@ -62,11 +62,13 @@ libs_gen() {
             --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt" \
             $([ "$1" = kimp-ar ] && echo --arity-terms) ;;
     # kimp with determinism along the rule index (`--det2`), and one exclusive pair of rules listed
-    # as overlapping, so that the conditional statements (`Step.deterministic_of`) are built too
+    # as overlapping, so that the conditional statements (`Step.deterministic_of`) are built too;
+    # and its Equations in parts of weight at most 30 (kimp's whole is 84), so that the parts, their
+    # aggregating module and `open-from-log` over them are built and checked against kimp's counts
     kimp-d2) "$G" gen --kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json" \
             --out "$o" --name KImp --prelude ../../lean/prelude \
             --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt" \
-            --det2 --det2-overlap IMP.if-true,IMP.if-false ;;
+            --det2 --det2-overlap IMP.if-true,IMP.if-false --equations-part-weight 30 ;;
     kimpinv) "$G" gen --kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json" \
             --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
             --invariant envOk@env --invariant storeNoIds@env ;;
