@@ -1,4 +1,5 @@
-//! `kink-flow fuzz`: a k-rust-fuzz campaign on kink's own sides (fz26 P7-KINKFLOW, ticket T3a).
+//! `kink-flow fuzz`: a k-rust-fuzz campaign on kink's own sides (fz26 P7-KINKFLOW, tickets T3a
+//! and T3b).
 //!
 //! The command takes a template, a program of the flow with some of its literals marked as holes
 //! (`TEMPLATES.toml`, [`TemplateList`]), and one job. T3a builds the kill job: look for hole
@@ -26,6 +27,20 @@
 //! beside the `[[program]]` fragment, genuine ones flagged, with the instruction to add each name
 //! the flow lacks (kink counts no kill on the definition without it).
 //!
+//! **Guards** (T3b). kink's definition exclusions are read on both sides as kink's runner reads
+//! them; one refuses the job with the status and reason kink's `run` gives the mutation
+//! (`unknown` and the exclusion for the mutant's; `error`, `no-comparable-program` for the
+//! baseline's, which excludes every program's baseline run). kink assembles every test's input
+//! from the baseline's grammar for both sides, so a run of no case first compares each side's
+//! initial configuration at the holes' anchors: a mutant that assembles the template otherwise
+//! (a `[macro]` edit) is refused before any case, and so is a baseline that assembles it otherwise
+//! than kink does. Each candidate's program is then assembled by kink exactly as a `[[program]]`
+//! ([`check_assembly`]), and each side's initial configuration must be that configuration, or
+//! the candidate is not offered (`assembly-mismatch`). The last `run` document, only read, gives
+//! the template program's class and the mutation's `reaching` programs (suggested as
+//! templates), and the document warns about an unusable template, a template outside the
+//! reaching programs, and the scope of `--time-limit-ms`.
+//!
 //! **Budgets.** `--cases N` (default [`DEFAULT_CASES`]) or `--work W`, `--seed S` (default 0),
 //! the library's default proposers. Every case runs with the flow's `max_depth`, a safety limit
 //! of the flow's `time_ms` per execution, and `max_work` of `--max-work` (default
@@ -42,27 +57,34 @@
 
 use crate::{
     admit::{AdmittedSpec, ProgramInputs, admit_spec},
-    digest::program_digest,
+    digest::{program_digest, spec_digest},
     manifest::{FlowManifest, ManifestError, Program},
     mutation::{MutationList, resolve},
     report::claims_value,
     results::kebab,
     search::status_name,
 };
+use k_rust::kore::parser::parse_pattern;
 use k_rust_fuzz::{
     BackendRoute, Budget, CallerIdentity, Campaign, CampaignSpec, CancellationToken, CaseOptions,
     CompiledDefinition, Definitions, HoleDecl, HoleLocation, PathMode, ProgramInput,
     ProposerConfig, Target, TargetKind,
     error::CampaignError,
     holes::HoleFile,
-    report::{CampaignOutcome, DefinitionFinding, FindingVerdict, FuzzReport, WitnessCase},
+    report::{
+        CampaignOutcome, DefinitionFinding, FindingVerdict, FuzzReport, WitnessCase, digest_hex,
+    },
     spec::{DEFAULT_REJECTION_CAP, ProgramSource as FuzzProgram, ProgramText},
     target::DifferentialTarget,
     values::GenerationBounds,
 };
 use kink_campaign::{MutantAdmission, claim_free_mutant};
 use kink_corpus::{ProgramSource, cli::DEFINITION_STACK_BYTES};
-use kink_native::{K_RUST_REVISION, ValidatedDefinition, execution::SolverProfile};
+use kink_native::{
+    K_RUST_REVISION, ValidatedDefinition,
+    exclusion::{DefinitionExclusions, Exclusion},
+    execution::SolverProfile,
+};
 use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -148,7 +170,8 @@ impl TemplateList {
     /// Each `[[template.hole]]` goes from its TOML value through k-rust-fuzz's serde decoder
     /// (`HoleFile`), whose messages are wrapped with the template and the hole's index; a TOML
     /// date or time anywhere in a hole is refused (it is no K value), and a hole's `program`
-    /// may only name a binding (`"$NAME"`): by default a hole addresses the template's text.
+    /// may only name a binding (`"$NAME"`, a literal inside that variable's text): by default a
+    /// hole addresses the template's text.
     ///
     /// # Errors
     ///
@@ -379,15 +402,6 @@ fn template_hole(
             ),
         ));
     }
-    if file.program.is_some() {
-        // The fragment would need the binding's instantiated text, which the fuzz report does
-        // not carry (it has the program's): refused until the report or the library gives it.
-        return Err(ManifestError::new(
-            join(&hole_key, "program"),
-            "a hole in a binding's text is not supported by kink-flow fuzz yet; make the whole \
-             binding a hole with `config-var`",
-        ));
-    }
     file.into_decl(Some(id))
         .map_err(|message| ManifestError::new(hole_key, message))
 }
@@ -411,6 +425,9 @@ pub struct FuzzOptions {
     pub assume_joined: Vec<String>,
     /// All paths, or one with `--one-path`.
     pub paths: PathMode,
+    /// `--cache DIR`: where the last `run` document is read from (default `.kink-flow` beside
+    /// `FLOW.toml`); only read, for the template's class and the mutation's reaching programs.
+    pub cache: Option<PathBuf>,
 }
 
 impl Default for FuzzOptions {
@@ -422,6 +439,7 @@ impl Default for FuzzOptions {
             time_limit_ms: None,
             assume_joined: Vec::new(),
             paths: PathMode::AllPaths,
+            cache: None,
         }
     }
 }
@@ -465,12 +483,14 @@ fn document() -> Value {
         "template": null,
         "job": null,
         "sides": null,
+        "assembly": null,
         "findings": [],
         "assumed": [],
         "attempts": [],
         "program": null,
         "stopped": null,
         "action": null,
+        "warnings": [],
     })
 }
 
@@ -731,12 +751,24 @@ fn under_watchdog<T>(
     (value, fired.load(Ordering::Acquire))
 }
 
-/// The `[[program]]` fragment of a witness case, as TOML text, and its id.
-fn fragment(
-    template: &Template,
-    instance: &Instance,
-    case: &WitnessCase,
-) -> (String, Option<String>, String) {
+/// The `[[program]]` a witness case re-enters the corpus as, and its printed fragment.
+struct Fragment {
+    /// The fragment, as TOML text.
+    toml: String,
+    /// Where a file of the program's text could go, beside the template's file.
+    file: Option<String>,
+    id: String,
+    /// The program as kink's manifest decodes the fragment (its text inline).
+    program: Program,
+    /// The instantiated program text.
+    text: String,
+}
+
+/// The fragment of a witness case: the instantiated program text (the template's when the case
+/// has none), the written start sort, and the template's variables with the case's instantiated
+/// bindings over them (a span hole inside a binding, or a configuration-variable hole's whole
+/// value).
+fn fragment(template: &Template, instance: &Instance, case: &WitnessCase) -> Fragment {
     let text = case
         .program
         .clone()
@@ -746,20 +778,25 @@ fn fragment(
         .iter()
         .cloned()
         .collect::<BTreeMap<_, _>>();
+    for (name, text) in &case.config_vars {
+        let name = name.strip_prefix('$').unwrap_or(name);
+        variables.insert(name.to_owned(), text.clone());
+    }
     for hole in &case.holes {
         if let (HoleLocation::ConfigVar { name }, Some(k_text)) = (&hole.location, &hole.k_text) {
             variables.insert(name.clone(), k_text.clone());
         }
     }
     let variables = variables.into_iter().collect::<Vec<_>>();
-    let digest_program = Program {
+    let mut program = Program {
         id: String::new(),
         source: ProgramSource::Text(text.clone()),
         start_sort: instance.written_start_sort.clone(),
         variables: variables.clone(),
     };
-    let digest = program_digest(&digest_program, &text).to_string();
+    let digest = program_digest(&program, &text).to_string();
     let id = format!("{}-fz-{}", template.id, &digest[..8]);
+    program.id.clone_from(&id);
     let file = instance.file.as_ref().map(|file| {
         let path = Path::new(file);
         let name = match path.extension().and_then(|e| e.to_str()) {
@@ -770,7 +807,7 @@ fn fragment(
     });
     let mut table = Table::new();
     table.insert("id".into(), Toml::String(id.clone()));
-    table.insert("text".into(), Toml::String(text));
+    table.insert("text".into(), Toml::String(text.clone()));
     if let Some(sort) = &instance.written_start_sort {
         table.insert("start_sort".into(), Toml::String(sort.clone()));
     }
@@ -788,7 +825,13 @@ fn fragment(
     let mut top = Table::new();
     top.insert("program".into(), Toml::Array(vec![Toml::Table(table)]));
     let toml = toml::to_string(&top).expect("a table of strings encodes");
-    (toml, file, id)
+    Fragment {
+        toml,
+        file,
+        id,
+        program,
+        text,
+    }
 }
 
 /// The premises of a witness, as the fragment prints them: each assumed name, genuine ones
@@ -819,6 +862,309 @@ fn premises(manifest: &FlowManifest, options: &FuzzOptions, report: &FuzzReport)
             json!({"name": name, "genuine": genuine, "in_flow": in_flow, "note": note})
         })
         .collect()
+}
+
+// ---------------------------------------------------------------------------------------------
+// Guards: definition exclusions, assembly, the last run's facts
+// ---------------------------------------------------------------------------------------------
+
+/// What makes `exclusion` hold on a definition with these facts, naming the sentences.
+fn exclusion_detail(facts: &DefinitionExclusions, exclusion: Exclusion) -> String {
+    fn listed(items: impl IntoIterator<Item = String>) -> String {
+        let items = items.into_iter().collect::<Vec<_>>();
+        let shown = items.iter().take(8).cloned().collect::<Vec<_>>().join("; ");
+        if items.len() > 8 {
+            format!("{shown}; and {} more", items.len() - 8)
+        } else {
+            shown
+        }
+    }
+    match exclusion {
+        Exclusion::LoadStackStop => format!(
+            "its load counted {} stop(s) for lack of native stack, so the theory a run executes \
+             is not a function of the definition",
+            facts.load_stack_stops
+        ),
+        Exclusion::ImplementationChosenHook => format!(
+            "it references a hook whose value the definition leaves open and k-rust chooses: {}",
+            listed(facts.implementation_chosen.iter().map(|reference| format!(
+                "{} {} applies {} ({})",
+                reference.module, reference.sentence, reference.symbol, reference.hook
+            )))
+        ),
+        Exclusion::ShortCircuitReading => format!(
+            "a rule's condition or result depends on whether andBool, orBool or #if skip an \
+             operand that may be undefined: {}",
+            listed(
+                facts
+                    .short_circuit_conditions
+                    .iter()
+                    .chain(&facts.short_circuit_results)
+                    .cloned()
+                    .collect::<BTreeSet<_>>()
+            )
+        ),
+        Exclusion::EqualsCondition => format!(
+            "a rule or equation has a condition equating two terms, a gap of k-rust's answers: {}",
+            listed(facts.equals_conditions.iter().cloned())
+        ),
+        other => other.name().to_owned(),
+    }
+}
+
+/// The definition exclusion of one side, if any, as kink-campaign's runner reads it for every
+/// run on that side: from the side's compiled KORE loaded for `module` on this thread.
+fn side_exclusion(
+    side: &ValidatedDefinition,
+    module: &str,
+) -> Result<Option<(Exclusion, String)>, String> {
+    let facts = DefinitionExclusions::of_validated(side, module)?;
+    Ok(facts
+        .definition_exclusion()
+        .map(|exclusion| (exclusion, exclusion_detail(&facts, exclusion))))
+}
+
+/// What kink's own assembly makes of a witness's input, against each side's initial
+/// configuration in the witness (design 3.2.5).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum AssemblyCheck {
+    /// Each side's initial configuration is kink's assembly of the program.
+    Match,
+    /// These sides' initial configurations (`baseline`, `mutant`) are not kink's assembly of the
+    /// program, or do not parse as KORE.
+    Mismatch { sides: Vec<String>, detail: String },
+    /// kink refuses the program's input: its admission stage's reason and detail.
+    Refused { reason: String, detail: String },
+}
+
+impl AssemblyCheck {
+    /// `{status, ...}` for the document.
+    #[must_use]
+    pub fn value(&self) -> Value {
+        match self {
+            Self::Match => json!({"status": "match"}),
+            Self::Mismatch { sides, detail } => {
+                json!({"status": "mismatch", "sides": sides, "detail": detail})
+            }
+            Self::Refused { reason, detail } => {
+                json!({"status": "refused", "reason": reason, "detail": detail})
+            }
+        }
+    }
+}
+
+/// The per-candidate assembly check (design 3.2.5): kink assembles `program` (with `text`, its
+/// instantiated text) exactly as it assembles a `[[program]]` of the corpus, from the
+/// baseline's grammar for both sides of every test, with the program's start sort (kink's
+/// default when it has none) and variables, then its concrete-state check and input gate; each
+/// side's `initial_configuration` in `case`, parsed as KORE, must equal that configuration.
+/// A difference means the campaign judged another input than the one kink would run, so the
+/// case is no witness for kink (`assembly-mismatch`). The hole values are covered, since the
+/// check reads the instantiated program.
+pub fn check_assembly(
+    spec: &AdmittedSpec,
+    inputs: &mut ProgramInputs,
+    program: &Program,
+    text: &str,
+    case: &WitnessCase,
+) -> AssemblyCheck {
+    let kink = match inputs.test_case(spec, program, text.to_owned()) {
+        Ok(test) => test.initial_state,
+        Err(refusal) => {
+            return AssemblyCheck::Refused {
+                reason: refusal.reason,
+                detail: format!("{}: {}", refusal.stage, refusal.detail),
+            };
+        }
+    };
+    let kink_digest = digest_hex(kink.to_string().as_bytes());
+    let mut sides = Vec::new();
+    let mut details = Vec::new();
+    for side in &case.sides {
+        let role = role_name(side.role);
+        match parse_pattern(&side.initial_configuration) {
+            Ok(pattern) if pattern == kink => {}
+            Ok(_) => {
+                sides.push(role.to_owned());
+                details.push(format!(
+                    "the {role}'s initial configuration (sha256 {}) is not kink's assembly of \
+                     the program (sha256 {kink_digest})",
+                    digest_hex(side.initial_configuration.as_bytes())
+                ));
+            }
+            Err(error) => {
+                sides.push(role.to_owned());
+                details.push(format!(
+                    "the {role}'s initial configuration does not parse as KORE: {error}"
+                ));
+            }
+        }
+    }
+    if sides.is_empty() {
+        AssemblyCheck::Match
+    } else {
+        AssemblyCheck::Mismatch {
+            sides,
+            detail: details.join("; "),
+        }
+    }
+}
+
+/// The template as a `[[program]]` of the flow (its text inline): what kink would assemble and
+/// digest for it.
+fn template_program(template: &Template, instance: &Instance) -> Program {
+    Program {
+        id: template.id.clone(),
+        source: ProgramSource::Text(instance.text.clone()),
+        start_sort: instance.written_start_sort.clone(),
+        variables: instance.variables.clone(),
+    }
+}
+
+fn warning(kind: &str, detail: impl Into<String>) -> Value {
+    json!({"kind": kind, "detail": detail.into()})
+}
+
+fn push_warning(document: &mut Value, warning: Value) {
+    if let Some(warnings) = document["warnings"].as_array_mut() {
+        warnings.push(warning);
+    }
+}
+
+/// What the last `run` document (`report.json` in the cache directory, read as `report` reads
+/// it: this build's, this kink identity's, and of the current specification) says about the
+/// template and the mutation: the template program's class (found by its program digest), the
+/// mutation's status and its `reaching` programs, each suggested as a template; and the
+/// warnings these facts give. Nothing is run or written.
+fn last_run(
+    manifest: &FlowManifest,
+    spec: &AdmittedSpec,
+    options: &FuzzOptions,
+    template: &Template,
+    instance: &Instance,
+    mutation: &str,
+    warnings: &mut Vec<Value>,
+) -> Value {
+    let (document, found) = crate::report::report(
+        manifest,
+        &crate::report::ReportOptions {
+            cache: options.cache.clone(),
+        },
+    );
+    if !found {
+        return json!({
+            "found": false,
+            "detail": document["detail"],
+        });
+    }
+    let current = spec_digest(manifest, &spec.loaded.files).to_string();
+    if document["spec"]["digest"] != json!(current) {
+        warnings.push(warning(
+            "stale-run-document",
+            "the last run document is of another specification (its digest differs): run \
+             `kink-flow run` again for the template's class and the mutation's reaching programs",
+        ));
+        return json!({"found": true, "current": false});
+    }
+    let program = template_program(template, instance);
+    let digest = program_digest(&program, &instance.text).to_string();
+    let rows = document["programs"].as_array().cloned().unwrap_or_default();
+    let row = rows.iter().find(|row| row["digest"] == json!(digest));
+    let template_row = row.map(|row| {
+        json!({
+            "program": row["id"],
+            "class": row["class"],
+            "cause": row["cause"],
+        })
+    });
+    if let Some(row) = row
+        && row["class"] != "comparable"
+    {
+        warnings.push(warning(
+            "unusable-template",
+            format!(
+                "the template's own program ({}) is {} in the last run{}: kink compares only \
+                 programs that end on a comparable value, so a witness from this template may \
+                 be refused for the same reason; prefer a template whose program is comparable",
+                row["id"].as_str().unwrap_or("?"),
+                row["class"].as_str().unwrap_or("?"),
+                row["cause"]
+                    .as_str()
+                    .map(|cause| format!(" ({cause})"))
+                    .unwrap_or_default(),
+            ),
+        ));
+    }
+    let mutations = document["mutations"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    let Some(entry) = mutations.iter().find(|entry| entry["id"] == mutation) else {
+        return json!({
+            "found": true,
+            "current": true,
+            "template": template_row,
+            "mutation": null,
+        });
+    };
+    let reaching = entry["reaching"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    let template_id = row.and_then(|row| row["id"].as_str());
+    let status = entry["status"].as_str().unwrap_or_default();
+    if status == "killed" {
+        warnings.push(warning(
+            "already-killed",
+            format!(
+                "the last run already killed this mutation (killer {})",
+                entry["killer"].as_str().unwrap_or("?")
+            ),
+        ));
+    } else if reaching.is_empty() {
+        if crate::report::SURVIVOR_STATUSES.contains(&status) {
+            warnings.push(warning(
+                "no-reaching-program",
+                "in the last run no comparable program reaches the edited rule: a template \
+                 whose run reaches it is needed, or holes that make the run reach it",
+            ));
+        }
+    } else if template_id.is_none_or(|id| !reaching.iter().any(|r| r == id)) {
+        warnings.push(warning(
+            "template-not-reaching",
+            format!(
+                "the template's program is not among the programs whose coverage reaches the \
+                 edited rule in the last run ({}); a template built on one of them is suggested",
+                reaching.join(", ")
+            ),
+        ));
+    }
+    let suggested = reaching
+        .iter()
+        .map(|id| {
+            json!({
+                "program": id,
+                "template": format!(
+                    "[[template]]\nid = \"{id}-holes\"\nprogram = \"{id}\"\n# mark literals \
+                     with [[template.hole]] tables\n"
+                ),
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "found": true,
+        "current": true,
+        "template": template_row,
+        "mutation": {
+            "status": entry["status"],
+            "reason": entry["reason"],
+            "reaching": reaching,
+        },
+        "suggested_templates": suggested,
+    })
 }
 
 /// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID --kill MUTATION --mutations
@@ -868,7 +1214,7 @@ pub fn kill(
         return refuse(document, refusal, "name a mutation of MUTATIONS.toml");
     };
     let (record, admitted) = admit_spec(manifest);
-    let Some((spec, inputs)) = admitted else {
+    let Some((spec, mut inputs)) = admitted else {
         let refusal = record.refusal.as_ref().map_or_else(
             || Refusal::new("spec", "refused", ""),
             |r| Refusal {
@@ -908,7 +1254,28 @@ pub fn kill(
             .map(|(name, text)| json!({"name": name, "text": text}))
             .collect::<Vec<_>>(),
         "holes": serde_json::to_value(&template.holes).expect("hole declarations encode"),
+        "last_run": null,
     });
+    let mut warnings = Vec::new();
+    if options.time_limit_ms.is_some() {
+        warnings.push(warning(
+            "time-limit-scope",
+            "--time-limit-ms bounds the campaign's run only: kink's admission, the mutant's \
+             preparation, the definition exclusions and the campaign's setup (k-rust-fuzz \
+             Campaign::new: both grammars and backends, and both definitions' full critical-pair \
+             checks) run before the watchdog starts, and no time limit bounds them",
+        ));
+    }
+    document["template"]["last_run"] = last_run(
+        manifest,
+        &spec,
+        options,
+        template,
+        &instance,
+        mutation,
+        &mut warnings,
+    );
+    document["warnings"] = json!(warnings);
 
     // The mutant, exactly as kink's runner prepares it for every test of the mutation.
     let resolved = match resolve(manifest, &spec.loaded, mutation_entry) {
@@ -964,6 +1331,66 @@ pub fn kill(
     document["job"]["claims"] = claims_value(baseline, &mutant.claims);
     document["job"]["mutant_unnamed_findings"] =
         Value::Array(mutant.data.unnamed().iter().map(|f| f.value()).collect());
+
+    // kink's definition exclusions (design 3.2.4): one on the mutant makes every test of the
+    // mutation unknown in kink's run; one on the baseline makes every program's baseline result
+    // unknown (excluded), so no program is comparable and nothing can kill. Either way no witness
+    // could be confirmed.
+    let module = k_rust::kast::identifier::encode(&manifest.spec.main_module);
+    let mut exclusions = serde_json::Map::new();
+    for (role, side) in [("baseline", &spec.compiled), ("mutant", &mutant.side)] {
+        match side_exclusion(side, &module) {
+            Ok(None) => {
+                exclusions.insert(role.into(), Value::Null);
+            }
+            Ok(Some((exclusion, detail))) => {
+                exclusions.insert(
+                    role.into(),
+                    json!({"exclusion": exclusion.name(), "detail": detail}),
+                );
+                document["job"]["exclusions"] = Value::Object(exclusions);
+                // The status and reason kink's `run` gives the mutation.
+                let (status, reason) = if role == "baseline" {
+                    ("error", "no-comparable-program")
+                } else {
+                    ("unknown", exclusion.name())
+                };
+                document["job"]["status"] = json!(status);
+                document["job"]["reason"] = json!(reason);
+                let detail = format!(
+                    "the {role}'s definition has kink's definition exclusion {}: {detail}",
+                    exclusion.name()
+                );
+                let action = if role == "baseline" {
+                    "kink excludes every run on this specification, so every program's result is \
+                     unknown and no mutation can be killed (`kink-flow run` gives each mutation \
+                     status error, no-comparable-program, and each program the exclusion as its \
+                     cause): fix the specification"
+                } else {
+                    "kink reports this mutation unknown with this reason (every test of the \
+                     mutant is excluded), so no program can kill it: choose another mutation \
+                     (`kink-flow run` gives the same reason)"
+                };
+                return refuse(
+                    document,
+                    Refusal::new("exclusions", exclusion.name(), detail),
+                    action,
+                );
+            }
+            Err(error) => {
+                return refuse(
+                    document,
+                    Refusal::new(
+                        "exclusions",
+                        "exclusions-unavailable",
+                        format!("the {role}'s definition exclusions: {error}"),
+                    ),
+                    "report this: kink's exclusions of the side could not be read",
+                );
+            }
+        }
+    }
+    document["job"]["exclusions"] = Value::Object(exclusions);
 
     let sides = compiled_side(manifest, &spec, &spec.compiled).and_then(|baseline_side| {
         compiled_side(manifest, &spec, &mutant.side).map(|mutant_side| (baseline_side, mutant_side))
@@ -1031,6 +1458,94 @@ pub fn kill(
             );
         }
     };
+
+    // The up-front assembly check (design 3.2.5): a run of no case gives each side's initial
+    // configuration at the holes' anchors (the identity's digests). kink assembles both sides'
+    // inputs from the baseline, so a mutant that assembles the template otherwise (an edit of a
+    // `[macro]` rule) would judge an input kink never runs; and a baseline that assembles it
+    // otherwise than kink would make every candidate an assembly mismatch.
+    let zero = campaign.run(Budget::Cases(0), None);
+    let anchor = |role| {
+        zero.identity
+            .definitions
+            .iter()
+            .find(|definition| definition.role == role)
+            .and_then(|definition| definition.initial_configuration_digest.clone())
+    };
+    let (baseline_anchor, mutant_anchor) = (
+        anchor(k_rust_fuzz::report::DefinitionRole::Baseline),
+        anchor(k_rust_fuzz::report::DefinitionRole::Mutant),
+    );
+    let template_input = template_program(template, &instance);
+    let kink_template = inputs.test_case(&spec, &template_input, instance.text.clone());
+    let kink_digest = kink_template
+        .as_ref()
+        .ok()
+        .map(|test| digest_hex(test.initial_state.to_string().as_bytes()));
+    document["assembly"] = json!({
+        "kink_template": match &kink_template {
+            Ok(_) => json!({"sha256": kink_digest}),
+            Err(refusal) => json!({
+                "refused": {"stage": refusal.stage, "reason": refusal.reason, "detail": refusal.detail},
+            }),
+        },
+        "baseline_anchor": baseline_anchor,
+        "mutant_anchor": mutant_anchor,
+    });
+    if let Err(refusal) = &kink_template {
+        push_warning(
+            &mut document,
+            warning(
+                "unusable-template",
+                format!(
+                    "kink refuses the template's own input ({}: {}): a program from this \
+                     template may be refused the same way",
+                    refusal.reason, refusal.detail
+                ),
+            ),
+        );
+    }
+    if let (Some(baseline), Some(mutant)) = (&baseline_anchor, &mutant_anchor)
+        && baseline != mutant
+    {
+        return refuse(
+            document,
+            Refusal::new(
+                "assembly",
+                "mutant-assembly-differs",
+                format!(
+                    "the mutant parses the template differently from kink's input: at the \
+                     holes' anchors its initial configuration (sha256 {mutant}) is not the \
+                     baseline's (sha256 {baseline}), while kink assembles every test's input \
+                     from the baseline (an edit of a [macro] rule, or of what the program's \
+                     parse reads)"
+                ),
+            ),
+            "no witness of this campaign could be kink's: the fuzz would run the mutant on \
+             another input than kink does. Choose another mutation, or kill this one with a \
+             program whose text does not reach the edited parse",
+        );
+    }
+    if let (Some(baseline), Some(kink)) = (&baseline_anchor, &kink_digest)
+        && baseline != kink
+    {
+        return refuse(
+            document,
+            Refusal::new(
+                "assembly",
+                "template-assembly-differs",
+                format!(
+                    "the campaign's baseline assembles the template at the holes' anchors \
+                     (sha256 {baseline}) differently from kink's assembly of the template \
+                     (sha256 {kink})"
+                ),
+            ),
+            "report this: k-rust-fuzz and kink assemble the template into different initial \
+             configurations (grammar, bindings or stream defaults), so every candidate would \
+             be an assembly mismatch",
+        );
+    }
+
     let (report, fired) =
         under_watchdog(options.time_limit_ms.map(Duration::from_millis), |token| {
             campaign.run(options.budget, token)
@@ -1060,12 +1575,33 @@ pub fn kill(
                 .map_or((&witness.first, "first"), |shrunk| (shrunk, "shrunk"));
             let mut candidate = serde_json::to_value(case).expect("a witness case encodes");
             candidate["case"] = json!(which);
+            let fragment = fragment(template, &instance, case);
+            let assembly =
+                check_assembly(&spec, &mut inputs, &fragment.program, &fragment.text, case);
+            candidate["assembly"] = assembly.value();
             attempt["candidate"] = candidate;
-            let (fragment, file, id) = fragment(template, &instance, case);
+            if assembly != AssemblyCheck::Match {
+                document["stopped"] = json!("assembly-mismatch");
+                document["action"] = json!(format!(
+                    "the witness is no kink witness: kink's assembly of its program does not \
+                     give the input the campaign judged ({}); nothing is offered. Report it, or \
+                     try another seed or template",
+                    match &assembly {
+                        AssemblyCheck::Mismatch { detail, .. } => detail.clone(),
+                        AssemblyCheck::Refused { reason, detail } => {
+                            format!("kink refuses the program's input, {reason}: {detail}")
+                        }
+                        AssemblyCheck::Match => unreachable!(),
+                    }
+                ));
+                document["attempts"] = json!([attempt]);
+                return (document, true);
+            }
+            let (id, file) = (fragment.id.clone(), fragment.file.clone());
             let premises = premises(manifest, options, &report);
             document["program"] = json!({
                 "id": id,
-                "fragment": fragment,
+                "fragment": fragment.toml,
                 "file": file,
                 "premises": premises,
                 "confirmed": false,

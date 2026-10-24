@@ -37,7 +37,7 @@ pub const USAGE: &str = "usage: kink-flow check FLOW.toml | kink-flow results FL
                          [--only ID]... [--verify] [--cache DIR] | kink-flow fuzz FLOW.toml \
                          TEMPLATES.toml --template ID --kill MUTATION --mutations MUTATIONS.toml \
                          [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
-                         [--assume-joined NAME]... [--one-path] --no-confirm";
+                         [--assume-joined NAME]... [--one-path] [--cache DIR] --no-confirm";
 
 /// Run one command; returns the process exit status.
 pub fn execute(args: Vec<OsString>) -> u8 {
@@ -384,6 +384,10 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
             }
             "--one-path" if !one_path => one_path = true,
             "--no-confirm" if !no_confirm => no_confirm = true,
+            "--cache" if options.cache.is_none() => {
+                let directory = args.next().ok_or("--cache needs a directory")?;
+                options.cache = Some(PathBuf::from(directory));
+            }
             _ => return Err(format!("unexpected argument {arg:?}")),
         }
     }
