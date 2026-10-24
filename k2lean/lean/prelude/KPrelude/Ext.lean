@@ -386,8 +386,12 @@ that mentions the call (a `cases` on `K.parseByteStack DATA = some r` cost 67 mi
 on KEVM, and 0.2 million with it irreducible). -/
 @[irreducible] def replaceAll (h n r : String) : String :=
   if n.isEmpty then h else String.ofList (replaceAllChars h.length h.toList n.toList r.toList)
+/-- The first occurrence of `n` that `find` reports, replaced by `r`. With an empty `n` that is
+the occurrence at index 0, so the result is `r ++ h`: the definition's equation
+`replaceFirst(S, T, R) => substrString(S, 0, findString(S, T, 0)) +String R +String …` (when
+`findString(S, T, 0) >=Int 0`) gives that value, and a model satisfies every equation of the
+definition. -/
 def replaceFirst (h n r : String) : String :=
-  if n.isEmpty then h else
   match (find h n 0) with
   | some k => if k < 0 then h else
       String.ofList ((h.toList.take k.toNat) ++ r.toList ++ (h.toList.drop (k.toNat + n.length)))
