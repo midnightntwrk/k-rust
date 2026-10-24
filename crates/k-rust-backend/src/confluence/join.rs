@@ -141,6 +141,10 @@ struct Join<'c, 'd> {
     context: &'c mut Context<'d>,
     lifting: bool,
     mode: Mode,
+    /// The free variables of the pair's conditions under `unifier ∘ theta` that occur in no left-
+    /// hand side (`requires`-only variables), which a split's renaming apart must avoid too, so
+    /// that F1 does not conflate them with an equation's variable (the others are in `values`).
+    condition_only: BTreeSet<Variable>,
     /// The open atoms this case reads as settled ([`Mode::Open`]).
     open_atoms: Vec<Term>,
     /// Terms known settled.
@@ -259,6 +263,7 @@ pub(super) fn join(
             continue;
         }
         let mut join = Join {
+            condition_only: condition_only_variables(conditions, &case.theta),
             context: &mut *context,
             lifting,
             mode,
@@ -325,6 +330,25 @@ fn closed_by_conditions(
         Conditions::Holds => false,
         Conditions::Open(..) => super::switches::active().close_case_without_refutation,
     }
+}
+
+/// The free variables, under `unifier ∘ theta`, of the pair's `requires`-only variables (those
+/// no left-hand side binds): usually none.
+fn condition_only_variables(
+    conditions: &PairConditions<'_>,
+    theta: &Substitution,
+) -> BTreeSet<Variable> {
+    let mut variables = BTreeSet::new();
+    for rule in conditions.rules {
+        for variable in &rule.computed_attributes.unbound_variables {
+            let value = match conditions.unifier.get(variable) {
+                Some(value) => substitute(value, theta),
+                None => substitute(&Term::variable(variable.clone()), theta),
+            };
+            variables.extend(value.attributes().variables.iter().cloned());
+        }
+    }
+    variables
 }
 
 /// Whether `symbol` is declared total (`functional` or `total`): its application to defined
@@ -829,6 +853,7 @@ impl Join<'_, '_> {
         // The unifiers are applied to the whole case, so the equation's variables are named
         // apart from every variable of the case.
         let mut scope = variables.to_btree_set();
+        scope.extend(self.condition_only.iter().cloned());
         for term in [&case.sides.0, &case.sides.1]
             .into_iter()
             .flatten()
