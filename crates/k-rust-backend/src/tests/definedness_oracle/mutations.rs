@@ -343,9 +343,9 @@ fn the_overload_switches_withdraw_no_fewer_claims() {
 
 /// The harness's own acceptance: each switch below makes a claim false, or makes the check
 /// accept a definition that has no model or whose evaluation depends on its axioms' order, on
-/// one of the definitions the harness runs, and the harness sees it. That is 26 of the 32 defect
+/// one of the definitions the harness runs, and the harness sees it. That is 25 of the 32 defect
 /// switches of `confluence::switches` (`no_condition_memo` configures the load and seeds no
-/// defect). The other six it cannot see:
+/// defect). The other seven it cannot see:
 ///
 /// - `drop_injected_inner`, `drop_lifting` and `drop_lesser_productions` make no claim false:
 ///   each drops a pair whose overlap exists only modulo an overload axiom, and the check also
@@ -369,6 +369,11 @@ fn the_overload_switches_withdraw_no_fewer_claims() {
 ///   directions, a second engine;
 /// - `self_pair_reads_opaque_rhs_as_nothing`: its self pairs have a disjunction, `\top` or
 ///   predicates as right-hand side, which the harness does not instantiate;
+/// - `drop_supersort_inhabitation` since FZ-EMPTYJOIN-CLAIMS: a pair over a sort read as having
+///   no normal form withdraws like any other, so the switch no longer keeps a claim; it moves the
+///   reason and the witnesses open mode proposes, and a witness at a sort that has a normal form
+///   applies where `M_NF` reads the stuck application as `\bottom`, which no generated
+///   definition here exercises;
 /// - `separate_uninhabited` (not counted above) sets aside overlaps over a sort with no normal
 ///   form, which the harness, instantiating with the backend's values, has no value of.
 ///
@@ -378,6 +383,9 @@ fn the_overload_switches_withdraw_no_fewer_claims() {
 /// definedness obligation (`confluence::tests::discharging_before_the_check_is_caught`), and the
 /// last by V3c's brute-force self pairs
 /// (`the_self_pair_brute_force_sees_a_disjunction_read_as_reading_nothing`);
+/// `drop_supersort_inhabitation` by the witness it proposes at a sort with a normal form
+/// (`confluence::tests::witness::a_dropped_supersort_closure_proposes_a_witness_at_a_sort_with_a_normal_form`)
+/// and the reason it names (`confluence::tests::review_one`);
 /// `separate_uninhabited` by the constants of `D+`
 /// (`restored_vacuity_goes_unnoticed_without_the_constants_and_is_caught_with_them`).
 macro_rules! axiom_mutation {
@@ -458,10 +466,6 @@ axiom_mutation!(
 axiom_mutation!(
     the_axiom_harness_sees_stuck_totals_read_as_bottom,
     stuck_total_is_bottom
-);
-axiom_mutation!(
-    the_axiom_harness_sees_a_dropped_supersort_closure,
-    drop_supersort_inhabitation
 );
 axiom_mutation!(
     the_axiom_harness_sees_relevance_without_tobs,

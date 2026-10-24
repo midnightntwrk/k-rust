@@ -3,14 +3,18 @@
 //! normal forms, but every model
 //! of the definition has an element of the sort, at which both equations hold, so the check sets
 //! no such overlap aside, under either scope: it is refuted, joined or not joined like any other,
-//! and a non-joined one names the sort. It withdraws no claim: the claims are read in `M_NF`,
-//! where the sort is empty.
+//! and a non-joined one names the sort. It withdraws claims and is reported like any other pair
+//! (FZ-EMPTYJOIN-CLAIMS): the claims are read in models with nonempty carriers too.
 
 use k_rust_kore::kore::parser::parse_definition;
 
 use crate::{
-    confluence::{CheckScope, UnjoinedReason, ValueClaims},
+    confluence::{
+        CheckScope, UnjoinedReason, ValueClaims,
+        switches::{self, Switches},
+    },
     definition::BackendDefinition,
+    term::HeadRole,
 };
 
 /// `A, B < AB`, the constructors `a : A` and `bb : B`, a total identity `id` on `AB`, and the
@@ -122,11 +126,13 @@ fn the_full_check_reports_a_pair_over_a_sort_with_no_normal_form() {
     }
 }
 
-/// The same pair at an equation head (`h(_:S) => a`, `h(_:S) => bb`, `anywhere`): the load's
-/// scope classifies and lists it too, naming `S`, but it withdraws no claim in either scope (the
-/// claims are read in `M_NF`, where it has no instance), so the scopes admit the same claims.
+/// The same pair at an equation head (`h(_:S) => a`, `h(_:S) => bb`, `anywhere`): both scopes
+/// classify and list it, naming `S`, and it withdraws `h` and is named at load in both
+/// (FZ-EMPTYJOIN-CLAIMS: every model has an element of `S`, at which the pair equates `a` with
+/// `bb`, so the claims on `h` rest on no model the pair leaves). Before, it withdrew nothing: the
+/// claims were read in `M_NF`, where it has no instance. The scopes admit the same claims.
 #[test]
-fn a_pair_over_a_sort_with_no_normal_form_is_listed_by_both_scopes_and_withdraws_nothing() {
+fn a_pair_over_a_sort_with_no_normal_form_withdraws_its_closure_and_is_reported_in_both_scopes() {
     for (name, symbols) in [("empty", NOTHING), ("partial", PARTIAL_NO_RULE)] {
         let definition = load(
             &format!("symbol h{{}}(SortS{{}}) : SortAB{{}} [anywhere{{}}()] {symbols}"),
@@ -148,10 +154,25 @@ fn a_pair_over_a_sort_with_no_normal_form_is_listed_by_both_scopes_and_withdraws
             let pair = &claims.unjoined()[0];
             assert!(pair.over_uninhabited_sort(), "{name} {scope:?}");
             assert!(
-                !pair.relevant() && !pair.reported(),
+                pair.relevant() && pair.reported(),
                 "{name} {scope:?}: {pair:?}"
             );
-            assert!(claims.tainted_symbols().is_empty(), "{name} {scope:?}");
+            assert_eq!(
+                pair.withdrawn
+                    .iter()
+                    .map(AsRef::as_ref)
+                    .collect::<Vec<&str>>(),
+                ["h"],
+                "{name} {scope:?}"
+            );
+            assert!(
+                claims
+                    .tainted_symbols()
+                    .iter()
+                    .any(|symbol| symbol.as_ref() == "h"),
+                "{name} {scope:?}: {:?}",
+                claims.tainted_symbols()
+            );
             assert_eq!(claims.counts().uninhabited, 1, "{name} {scope:?}");
         }
         assert_eq!(
@@ -283,11 +304,13 @@ fn a_pair_with_a_non_joined_overlap_over_an_inhabited_sort_is_an_ordinary_pair_i
     }
 }
 
-/// FZ-EMPTYSORT review S1: an inner pair at an argument (`f(h(_:S)) => bb` beside
-/// `h(_:S) => a`, `S` empty) over a sort with no normal form is listed for the full check's
-/// clients but, withdrawing no claim, is not named at load either, as on main.
+/// FZ-EMPTYSORT review S1, repro `inarg`: an inner pair at an argument (`f(h(_:S)) => bb`
+/// beside `h(_:S) => a`, `S` empty) over a sort with no normal form is listed and, like every
+/// inner pair at an argument whose second equation is an equation head, named at load in both
+/// scopes (FZ-EMPTYJOIN-CLAIMS): `fh` is not shown consistent with `ha` at an element of `S`,
+/// which every model has. Before, it was not named, the claims being read in `M_NF`.
 #[test]
-fn an_argument_pair_over_a_sort_with_no_normal_form_is_listed_but_not_reported() {
+fn an_argument_pair_over_a_sort_with_no_normal_form_is_reported() {
     let definition = load(
         "symbol h{}(SortS{}) : SortAB{} [anywhere{}()] symbol f{}(SortAB{}) : SortAB{} [function{}()]",
         &[
@@ -307,6 +330,75 @@ fn an_argument_pair_over_a_sort_with_no_normal_form_is_listed_but_not_reported()
         let pair = &pairs[0];
         assert!(pair.over_uninhabited_sort(), "{scope:?}: {pair:?}");
         assert!(pair.in_argument(), "{scope:?}");
-        assert!(!pair.reported(), "{scope:?}");
+        assert!(pair.reported(), "{scope:?}");
     }
+}
+
+/// One scope's load-level counts on WASM: (unjoined pairs, tainted symbols, tainted equation
+/// heads, witnesses).
+type WasmCounts = (usize, usize, usize, usize);
+
+/// WASM's verdicts under `switches`, the load's then the full check's, and V9's differences.
+fn wasm_verdicts(switches: Switches) -> (WasmCounts, WasmCounts, Vec<String>) {
+    let path = std::env::var("KRUST_WASM_DEFINITION")
+        .expect("KRUST_WASM_DEFINITION names WASM's compiled definition.kore");
+    let text = std::fs::read_to_string(&path).expect("the WASM definition is readable");
+    // Internalization recurses over the definition's terms: give it the stack WASM needs.
+    std::thread::Builder::new()
+        .stack_size(1 << 30)
+        .spawn(move || {
+            switches::with(switches, || {
+                let syntax = parse_definition(&text).expect("the definition parses");
+                let main = syntax.modules.last().expect("a module").name.clone();
+                let definition =
+                    BackendDefinition::internalize(&syntax, &main).expect("WASM internalizes");
+                let heads = definition
+                    .symbols()
+                    .values()
+                    .filter(|symbol| symbol.attributes.head_role() == HeadRole::EquationHead)
+                    .map(|symbol| symbol.name.clone())
+                    .collect::<Vec<_>>();
+                let counts = |claims: &ValueClaims| {
+                    let tainted = claims.tainted_symbols();
+                    (
+                        claims.unjoined().len(),
+                        tainted.len(),
+                        heads.iter().filter(|head| tainted.contains(head)).count(),
+                        claims.witnesses().len(),
+                    )
+                };
+                let full = definition.value_claims_in_scope(CheckScope::All);
+                let gate = definition.value_claims();
+                (
+                    counts(gate),
+                    counts(&full),
+                    gate.claim_differences(&full, &definition),
+                )
+            })
+        })
+        .expect("the loading thread starts")
+        .join()
+        .expect("loading does not panic")
+}
+
+/// WASM (`#t2aStmt`'s `Defn`/`Instr` pair over the empty `EmptyStmt`, design `P7-EMPTYJOIN`
+/// section 3). With its witness adopted the load lists no pair and withdraws nothing, and the
+/// full check lists 4 pairs and withdraws 8 symbols, as at the witness ticket. With pass 1 forced
+/// (`adopt_pass_1`) the pair over `EmptyStmt` now withdraws like any other: 91 symbols (its 6
+/// heads) at load, 95 under the full check, as the design's probe measured with such pairs
+/// seeding (`KRUST_PROBE_SEED_UNINHABITED`); before FZ-EMPTYJOIN-CLAIMS it withdrew nothing.
+/// Both scopes admit the same claims in both runs (V9).
+#[test]
+#[ignore = "reads WASM's compiled definition.kore named by KRUST_WASM_DEFINITION"]
+fn wasm_withdraws_the_empty_sort_pair_only_without_its_witness() {
+    let (gate, full, differences) = wasm_verdicts(Switches::default());
+    assert_eq!((gate, full), ((0, 0, 0, 1), (4, 8, 0, 1)));
+    assert_eq!(differences, Vec::<String>::new());
+    let forced = Switches {
+        adopt_pass_1: true,
+        ..Switches::default()
+    };
+    let (gate, full, differences) = wasm_verdicts(forced);
+    assert_eq!((gate, full), ((1, 91, 6, 0), (5, 95, 6, 0)));
+    assert_eq!(differences, Vec::<String>::new());
 }

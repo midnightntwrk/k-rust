@@ -114,7 +114,9 @@ fn the_f1_probes_withdraw_v_and_see_the_revision_two_collapse() {
 
 /// `A` gets its normal forms only from its subsort `B`. Without the supersort closure (the
 /// switch) `A` reads as a sort with no normal form: the pair is still listed, naming `SortA`
-/// (FZ-EMPTYSORT), but it withdraws no claim, so `v` keeps claims it must not.
+/// (FZ-EMPTYSORT). Such a pair withdraws like any other since FZ-EMPTYJOIN-CLAIMS, so `v` loses
+/// its claims either way and the switch shows only in the reason; before, the pair withdrew no
+/// claim and `v` kept claims it must not.
 #[test]
 fn the_subsort_probe_withdraws_v_and_sees_a_missing_supersort_closure() {
     let reasons = |definition: &BackendDefinition| {
@@ -135,7 +137,7 @@ fn the_subsort_probe_withdraws_v_and_sees_a_missing_supersort_closure() {
         },
         || n1(None),
     );
-    assert!(!tainted(&open, "v"));
+    assert!(tainted(&open, "v"));
     assert_eq!(
         reasons(&open),
         [UnjoinedReason::UninhabitedSort {

@@ -63,8 +63,9 @@ pub(crate) struct Switches {
     pub(crate) root_read_overloaded_patterns: bool,
     /// Normal-form sorts: no supersort closure (an overlap whose variable's sort gets its
     /// elements only from a subsort is said to range over a sort with no normal form, which its
-    /// non-joined reason then names; such a pair withdraws no claim, so the switch keeps the
-    /// claims its closure would withdraw).
+    /// non-joined reason then names, and whose stuck partial applications open mode reads as
+    /// atoms; such a pair withdraws like any other since FZ-EMPTYJOIN-CLAIMS, so the switch moves
+    /// the reason and the proposals, not the closure).
     pub(crate) drop_supersort_inhabitation: bool,
     /// Set aside every overlap over a sort with no normal form, as neither refuted, joined nor
     /// listed (vacuity restored: the check before FZ-EMPTYSORT, which read the equations in the

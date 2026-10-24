@@ -252,6 +252,17 @@ fn the_b2_shape_keeps_pass_one_in_both_scopes() {
         );
         assert!(claims.witnesses().is_empty(), "{scope:?}");
         assert_eq!(claims.counts().witness_pass, WitnessPass::Kept, "{scope:?}");
+        // FZ-EMPTYJOIN-CLAIMS: the pair over `E` withdraws like any other, so both scopes
+        // withdraw `hd` (T-obs through `X:A`).
+        assert!(pairs[0].reported(), "{scope:?}");
+        assert!(
+            claims
+                .tainted_symbols()
+                .iter()
+                .any(|symbol| symbol.as_ref() == "hd"),
+            "{scope:?}: {:?}",
+            claims.tainted_symbols()
+        );
     }
     let full = definition.value_claims_in_scope(CheckScope::All);
     assert_eq!(
@@ -283,8 +294,84 @@ fn adopt_pass_1_keeps_the_pair_over_the_empty_sort() {
             );
             assert!(claims.witnesses().is_empty(), "{scope:?}");
             assert_eq!(claims.counts().witness_pass, WitnessPass::Kept, "{scope:?}");
+            // FZ-EMPTYJOIN-CLAIMS: without its witness the pair withdraws `s`, `da`, `ib` and
+            // `hd`, and is named at load.
+            assert!(claims.unjoined()[0].reported(), "{scope:?}");
+            let tainted = claims.tainted_symbols();
+            for symbol in ["s", "da", "ib", "hd"] {
+                assert!(
+                    tainted.iter().any(|name| name.as_ref() == symbol),
+                    "{scope:?} {symbol}: {tainted:?}"
+                );
+            }
         }
     });
+}
+
+/// Witness review N4: adoption reads the full check's second-pass closure (condition 4), which
+/// pairs over a sort with no normal form now seed (FZ-EMPTYJOIN-CLAIMS). Beside the WASM shape,
+/// `r(X:E) => ib(inj X)` beside `r(X:E) => d(X)` (`d` a constructor) proposes nothing (`d(X)` is
+/// no injection) and does not join in either pass (`inj X` against `d(X)` with the witness). It
+/// mentions `ib`, the witness's head, so its closure taints `ib`: pass 2 joins `sa`/`sb` and loses
+/// nothing, yet condition 4 keeps pass 1 in both scopes. Before, the `r` pair, over `E` alone,
+/// seeded nothing and the witness was adopted.
+#[test]
+fn a_pair_over_the_empty_sort_that_taints_the_witness_head_keeps_pass_one() {
+    let mut axioms = shape_equations();
+    axioms.push(equation(
+        "r",
+        "SortE{}",
+        "SortB{}",
+        "VarW:SortE{}",
+        "ib{}(inj{SortE{}, SortB{}}(VarW:SortE{}))",
+        "rib",
+    ));
+    axioms.push(equation(
+        "r",
+        "SortE{}",
+        "SortB{}",
+        "VarW:SortE{}",
+        "d{}(VarW:SortE{})",
+        "rd",
+    ));
+    let definition = load(
+        "symbol r{}(SortE{}) : SortB{} [function{}()]
+         symbol d{}(SortE{}) : SortB{} [constructor{}(), functional{}(), injective{}()]",
+        &axioms,
+    );
+    let full = definition.value_claims_in_scope(CheckScope::All);
+    assert_eq!(
+        pairs(&full),
+        [
+            ("rib".to_owned(), "rd".to_owned()),
+            ("sa".to_owned(), "sb".to_owned())
+        ]
+    );
+    assert!(
+        full.tainted_symbols()
+            .iter()
+            .any(|symbol| symbol.as_ref() == "ib"),
+        "{:?}",
+        full.tainted_symbols()
+    );
+    for (scope, claims) in both_scopes(&definition) {
+        assert!(claims.witnesses().is_empty(), "{scope:?}");
+        assert_eq!(claims.counts().witness_pass, WitnessPass::Kept, "{scope:?}");
+        assert!(
+            claims
+                .unjoined()
+                .iter()
+                .all(|pair| pair.over_uninhabited_sort()),
+            "{scope:?}: {:?}",
+            reasons(&claims)
+        );
+    }
+    assert_eq!(
+        definition
+            .value_claims()
+            .claim_differences(&full, &definition),
+        Vec::<String>::new()
+    );
 }
 
 /// `head(X0:E, X1:A) = right` with `X0 = VarX`, `X1 = VarY`: the variable of `A` makes the
@@ -509,14 +596,20 @@ fn the_load_keeps_pass_one_when_its_own_second_pass_taints_a_witness_head() {
                 reason: Box::new(UnjoinedReason::DifferentResults),
             }]
         );
-        assert!(
-            !gate
-                .tainted_symbols()
-                .iter()
-                .any(|symbol| symbol.as_ref() == "ib"),
-            "{:?}",
-            gate.tainted_symbols()
+        // The kept verdict is pass 1's, whose own pair over `E` withdraws (FZ-EMPTYJOIN-CLAIMS),
+        // not pass 2's with the switch's seeds: its closure is `adopt_pass_1`'s.
+        let pass_one = switches::with(
+            Switches {
+                adopt_pass_1: true,
+                ..Switches::default()
+            },
+            || {
+                load("", &shape_equations())
+                    .value_claims()
+                    .tainted_symbols()
+            },
         );
+        assert_eq!(gate.tainted_symbols(), pass_one);
         let full = definition.value_claims_in_scope(CheckScope::All);
         assert_eq!(witnesses(&full), [IB_WITNESS]);
         assert!(
@@ -564,4 +657,37 @@ fn a_genuine_pair_stays_genuine_with_a_witness() {
     let instance = finding.instance().expect("a genuine finding");
     let values = [&instance.values.0, &instance.values.1];
     assert_ne!(values[0], values[1], "{instance:?}");
+}
+
+/// The test switch `drop_supersort_inhabitation` (no supersort closure of the sorts with a normal
+/// form), which since FZ-EMPTYJOIN-CLAIMS no longer moves the closure: a pair over a sort read as
+/// having no normal form withdraws like any other. What it still moves is which variables open
+/// mode reads as ranging over a sort with no normal form, and so which witnesses are proposed. In
+/// the WASM shape with `E` inhabited through its subsort `Ee` (`e0 : Ee`), `ib(inj{E,B}(e0))` is a
+/// stuck partial application over a normal form, `\bottom` in `M_NF`, where `s`'s other equation
+/// gives `inj e0`: the pair holds in no model in which that application is undefined, and the
+/// full check reports it. Under the switch `E` reads as having no normal form, the witness
+/// `ib(inj X) => inj X` is proposed and adopted, and the full check reports nothing, although
+/// the witness applies to a term free of the added constants (design 4.1 (a) fails).
+#[test]
+fn a_dropped_supersort_closure_proposes_a_witness_at_a_sort_with_a_normal_form() {
+    let declarations = r"
+        sort SortEe{} []
+        axiom{R} \exists{R}(V:SortE{}, \equals{SortE{}, R}(V:SortE{}, inj{SortEe{}, SortE{}}(F:SortEe{}))) [subsort{SortEe{}, SortE{}}()]
+        symbol e0{}() : SortEe{} [constructor{}(), functional{}(), injective{}()]";
+    let full = |switches: Switches| {
+        switches::with(switches, || {
+            load(declarations, &shape_equations()).value_claims_in_scope(CheckScope::All)
+        })
+    };
+    let closed = full(Switches::default());
+    assert_eq!(pairs(&closed), [("sa".to_owned(), "sb".to_owned())]);
+    assert_eq!(reasons(&closed), [UnjoinedReason::DifferentResults]);
+    assert!(closed.witnesses().is_empty());
+    let open = full(Switches {
+        drop_supersort_inhabitation: true,
+        ..Switches::default()
+    });
+    assert_eq!(pairs(&open), []);
+    assert_eq!(witnesses(&open), [IB_WITNESS]);
 }
