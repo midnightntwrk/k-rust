@@ -1468,6 +1468,7 @@ dependencies = [
  "krs-diagnostic",
  "krs-ir",
  "krs-syntax",
+ "krs-test-support",
  "prettyplease",
  "proc-macro2",
  "quote",

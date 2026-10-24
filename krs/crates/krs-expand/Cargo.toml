@@ -18,6 +18,7 @@ syn = { workspace = true, features = ["full", "parsing", "printing", "visit"] }
 
 [dev-dependencies]
 expect-test = { workspace = true }
+krs-test-support = { path = "../krs-test-support" }
 prettyplease = { workspace = true }
 sha2 = "0.10.9"
 
