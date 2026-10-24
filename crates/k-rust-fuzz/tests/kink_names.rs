@@ -106,16 +106,20 @@ const FLOWS: [Flow; 7] = [
 ];
 
 fn source(flow: &str) -> String {
+    read(&format!("flow/findings/{flow}/spec.k"))
+}
+
+/// The text of `kink/testdata/<path>`.
+fn read(path: &str) -> String {
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../kink/testdata/flow/findings")
-        .join(flow)
-        .join("spec.k");
+        .join("../../kink/testdata")
+        .join(path);
     std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
 }
 
-/// `text` compiled under the source name `spec.k`, as kink-corpus loads a flow's entry, on the
-/// campaign's default route.
-fn compiled(text: &str, main_module: &str) -> CompiledDefinition {
+/// `text` compiled under the source name `file` (`spec.k` for a flow's entry, as kink-corpus
+/// loads it), on the campaign's default route.
+fn compiled_as(file: &str, text: &str, main_module: &str) -> CompiledDefinition {
     let mut resolver = |_: &str, required: &str| {
         embedded(required).ok_or_else(|| format!("unexpected require {required}"))
     };
@@ -124,7 +128,7 @@ fn compiled(text: &str, main_module: &str) -> CompiledDefinition {
         ..CompilationBackend::Rust.load_options()
     };
     let (loaded, syntax_module) = load_for_compilation(
-        ResolvedSource::new("spec.k", text),
+        ResolvedSource::new(file, text),
         main_module,
         None,
         &mut resolver,
@@ -145,14 +149,24 @@ fn compiled(text: &str, main_module: &str) -> CompiledDefinition {
 }
 
 /// The differential campaign of the flow's mutation over a hole on `go`'s argument.
-fn spec(flow: &str, main_module: &str, (find, replace): (&str, &str)) -> CampaignSpec {
-    let baseline = source(flow);
-    assert_eq!(baseline.matches(find).count(), 1, "{flow}");
+fn spec(flow: &str, main_module: &str, edit: (&str, &str)) -> CampaignSpec {
+    spec_of("spec.k", &source(flow), main_module, edit)
+}
+
+/// The differential campaign of `baseline` (source name `file`) against its edit, over a hole
+/// on `go`'s argument.
+fn spec_of(
+    file: &str,
+    baseline: &str,
+    main_module: &str,
+    (find, replace): (&str, &str),
+) -> CampaignSpec {
+    assert_eq!(baseline.matches(find).count(), 1, "{file}");
     let mutant = baseline.replacen(find, replace, 1);
     CampaignSpec {
         definitions: Definitions {
-            baseline: Arc::new(compiled(&baseline, main_module)),
-            mutant: Some(Arc::new(compiled(&mutant, main_module))),
+            baseline: Arc::new(compiled_as(file, baseline, main_module)),
+            mutant: Some(Arc::new(compiled_as(file, &mutant, main_module))),
         },
         program: ProgramInput::Source(ProgramSource {
             program: Some(ProgramText {
@@ -227,4 +241,39 @@ fn the_fuzz_names_each_repro_finding_as_kink_does_and_assuming_them_kills() {
             .run(Budget::Cases(8), None);
         assert!(report.witness().is_some(), "{flow}: {:?}", report.outcome);
     }
+}
+
+/// Review N4: a precondition row's name. kink-native `tests/data.rs` pins the same name for
+/// `kink/testdata/k/kbf/listrow.k` (`IndexedAt(List)`, decided): the fuzz names it alike and
+/// refuses to assume it.
+#[test]
+fn the_fuzz_names_a_precondition_row_as_kink_does() {
+    let text = read("k/kbf/listrow.k");
+    let spec = || {
+        spec_of(
+            "listrow.k",
+            &text,
+            "LISTROW",
+            ("_ => ListItem(1)", "_ => ListItem(3)"),
+        )
+    };
+    let report = Campaign::new(spec())
+        .expect("valid")
+        .run(Budget::Cases(4), None);
+    let baseline = report
+        .definition_findings
+        .iter()
+        .filter(|finding| finding.side == DefinitionRole::Baseline)
+        .map(|finding| (finding.name.clone().expect("named"), finding.verdict))
+        .collect::<Vec<_>>();
+    assert_eq!(
+        baseline,
+        [(
+            "precondition:listrow.k:11:3".to_owned(),
+            FindingVerdict::Decided
+        )]
+    );
+    let mut assumed = spec();
+    assumed.options.assume_joined = vec!["precondition:listrow.k:11:3".to_owned()];
+    assert!(Campaign::new(assumed).is_err(), "a decided name is refused");
 }
