@@ -1718,7 +1718,7 @@ impl Ctx {
                 })
                 .collect();
             format!(
-                "{doc}{}@[k2l_fact] theorem {} {} :\n    {} := by\n  generalize hr : {} {xs} = r\n  {}\n  k2l_fn_facts [{}]\n",
+                "{}{doc}@[k2l_fact] theorem {} {} :\n    {} := by\n  generalize hr : {} {xs} = r\n  {}\n  k2l_fn_facts [{}]\n",
                 self.omit(f.hooks),
                 lm.name,
                 bs.join(" "),
@@ -1747,7 +1747,7 @@ impl Ctx {
                 }
             };
             format!(
-                "{doc}{}@[k2l_fact] theorem {} {} (h : {} {xs} = some {res}) :\n    {} := by\n  {}\n  k2l_fn_facts [{}]\n",
+                "{}{doc}@[k2l_fact] theorem {} {} (h : {} {xs} = some {res}) :\n    {} := by\n  {}\n  k2l_fn_facts [{}]\n",
                 self.omit(f.hooks),
                 lm.name,
                 bs.join(" "),
@@ -1876,6 +1876,8 @@ impl Ctx {
         }
         let xj = shape_atom(&f.params[j]);
         let mut deps = Vec::new();
+        // every recursive call is on an argument of smaller shape
+        let mut rec_shape = true;
         for (steps, _, rhs) in &f.eqs {
             let mut facts: Vec<Lin> = Vec::new();
             let mut alias: BTreeMap<String, L> = BTreeMap::new();
@@ -1896,9 +1898,19 @@ impl Ctx {
                     let e = subst_sim(expr, &alias);
                     let L::App(h, args) = &e else { continue };
                     if h == fname {
-                        // the recursive call: the lemma itself, on the call's argument
+                        // the recursive call: the lemma itself, on the call's argument, whose
+                        // shape is smaller (the lemma's own measure, when `f` has none)
                         if let Some(a) = self.shape_of(&args[j]) {
                             facts.push(a.add(&shape_atom(var), -1));
+                            let mut all = facts.clone();
+                            for x in atoms_of(&[a.clone(), xj.clone()]).union(&atoms_of(&facts)) {
+                                if x.starts_with(SHAPE) {
+                                    all.push(Lin::atom(x));
+                                }
+                            }
+                            rec_shape &= entails(&all, &xj.add(&a, -1).plus(-1));
+                        } else {
+                            rec_shape = false;
                         }
                     } else if self.fns.contains_key(h)
                         && !self.builtin.contains(&self.fns[h].result)
@@ -1950,9 +1962,9 @@ impl Ctx {
             .map(|(p, t)| format!("{{{p} : {t}}}"))
             .collect();
         let mut text = format!(
-            "/-- `{}` builds its result from pieces of its argument (generated: termination of a recursive function). -/\n{}@[k2l_fact] theorem {name} {} {{r : {}}} (h : {} {} = some r) :\n    {SHAPE} r ≤ {SHAPE} {} := by\n  {}\n  k2l_fn_facts [{}]{}\n",
-            f.lean.trim_start_matches("K."),
+            "{}/-- `{}` builds its result from pieces of its argument (generated: termination of a recursive function). -/\n@[k2l_fact] theorem {name} {} {{r : {}}} (h : {} {} = some r) :\n    {SHAPE} r ≤ {SHAPE} {} := by\n  {}\n  k2l_fn_facts [{}]{}\n",
             self.omit(f.hooks),
+            f.lean.trim_start_matches("K."),
             bs.join(" "),
             f.result,
             f.lean,
@@ -1967,12 +1979,25 @@ impl Ctx {
             }
         );
         if f.recursive {
-            if let Some(m) = &f.measure {
-                text.push_str(&format!("termination_by {m}\n"));
+            match &f.measure {
+                Some(m) => {
+                    text.push_str(&format!("termination_by {m}\n"));
+                    text.push_str(
+                        "decreasing_by all_goals first | k2l_decreasing | (simp_wf; (try subst_vars); simp_all; omega)\n",
+                    );
+                }
+                // structural recursion of `f`: the shape of the argument decreases too
+                None if rec_shape => {
+                    text.push_str(&format!(
+                        "termination_by {SHAPE} {}\ndecreasing_by all_goals k2l_decreasing [] using [{}]\n",
+                        f.params[j],
+                        simps.join(", ")
+                    ));
+                }
+                None => text.push_str(
+                    "decreasing_by all_goals first | k2l_decreasing | (simp_wf; (try subst_vars); simp_all; omega)\n",
+                ),
             }
-            text.push_str(
-                "decreasing_by all_goals first | k2l_decreasing | (simp_wf; (try subst_vars); simp_all; omega)\n",
-            );
         }
         deps.sort();
         deps.dedup();
@@ -3547,9 +3572,9 @@ impl Ctx {
                         .map(|(x, t)| format!("({x} : {t})"))
                         .collect();
                     let mut d = format!(
-                        "/-- `{}`'s termination measure (generated). -/\n{}def {name} {} : {ty} :=\n  match x{k} with\n  | {} => {}\n",
-                        f.lean.trim_start_matches("K."),
+                        "{}/-- `{}`'s termination measure (generated). -/\ndef {name} {} : {ty} :=\n  match x{k} with\n  | {} => {}\n",
                         self.omit(false),
+                        f.lean.trim_start_matches("K."),
                         ps.join(" "),
                         p.render(),
                         tuple(false)

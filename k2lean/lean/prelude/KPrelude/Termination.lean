@@ -620,6 +620,21 @@ macro "k2l_fn_split" : tactic => `(tactic| (
   all_goals (try simp only [Option.some.injEq, reduceCtorEq] at *)
   all_goals (try subst_vars)))
 
+/-- Decompose the equations between constructor applications among the hypotheses (`ids`: the
+constructors and their injectivity lemmas), and substitute. -/
+syntax "k2l_fn_inj" " [" ident,* "]" : tactic
+
+macro_rules
+  | `(tactic| k2l_fn_inj [$ids,*]) => do
+    -- not the shapes: those are unfolded with the facts, by `k2l_fn_close`
+    let ids := ids.getElems.filter fun i =>
+      !(i.getId.getString!.startsWith "shape" && i.getId.getPrefix.getString! == "Term")
+    let simps : Array (TSyntax `Lean.Parser.Tactic.simpLemma) ←
+      ids.mapM fun i => `(Lean.Parser.Tactic.simpLemma| $i:ident)
+    `(tactic| (
+      (try simp only [reduceCtorEq, true_and, and_true, false_and, and_false, $simps,*] at *)
+      all_goals (k2l_hyp_ands; (try subst_vars))))
+
 /-- The second half of `k2l_fn_facts`: facts, unfoldings, `omega`. -/
 syntax "k2l_fn_close" " [" ident,* "]" : tactic
 
@@ -634,6 +649,7 @@ macro_rules
         shape_prod, shape_unit, reduceCtorEq, true_and, and_true, false_and, and_false, $simps,*] at *)
       all_goals (
         k2l_hyp_ands
+        (try subst_vars)
         k2l_int_types
         (repeat' apply And.intro)
         all_goals (first | done | omega))))
@@ -642,7 +658,9 @@ macro_rules
   | `(tactic| k2l_fn_facts [$ids,*]) =>
     `(tactic| (k2l_fn_split; all_goals (first | done | k2l_fn_close [$ids,*])))
   | `(tactic| k2l_fn_facts [$ids,*] using $h:ident) =>
-    `(tactic| (k2l_fn_split; all_goals (first | done | (k2l_ih @$h; k2l_fn_close [$ids,*]))))
+    -- the constructor equations decomposed first, so that the recursive calls' arguments are
+    -- pieces of the parameters (the lemma's own measure must see them decrease)
+    `(tactic| (k2l_fn_split; all_goals (first | done | (k2l_fn_inj [$ids,*]; k2l_ih @$h; k2l_fn_close [$ids,*]))))
 
 /-- Close a `decreasing_by` goal whose measures are definitions by cases (`ms`, unfolded and split
 first; a measure of a mutual group: a distance, then the function's rank), unfolding `us` in the
@@ -667,6 +685,7 @@ macro_rules
           shape_prod, shape_unit, reduceCtorEq, true_and, and_true, false_and, and_false, $simps,*] at *)
         all_goals (
           k2l_hyp_ands
+          (try subst_vars)
           k2l_int_types
           (try simp only [Prod.lex_def] at ⊢)
           (try simp only [true_and, and_true, Nat.lt_irrefl, false_or, or_false] at ⊢)
