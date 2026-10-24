@@ -760,12 +760,13 @@ pub struct DefinitionFinding {
     /// Which definition's check reports it.
     pub side: DefinitionRole,
     /// `genuine` when a ground instance is exhibited at which both equations apply and the input
-    /// has two normal forms, so k-rust's result for that input depends on the order in which it
-    /// tries the equations; `decided` for a precondition row that an equation is headed by a
+    /// has two different results, two normal forms or a normal form and an undefined value
+    /// ([`FindingInstance::stuck`]), so k-rust's result for that input depends on the order in
+    /// which it tries the equations; `decided` for a precondition row that an equation is headed by a
     /// constructor or an injection or indexed at a collection or a bare variable, or an equation
     /// whose right-hand side leaves a variable unbound (a fact about the definition as written, which no assumption
     /// removes); `undecided` otherwise: not shown to join, which may
-    /// be a limit of the check as well as an input with two normal forms.
+    /// be a limit of the check as well as an input with two different results.
     pub verdict: FindingVerdict,
     /// A pair of equations, one equation, or a precondition row.
     pub kind: FindingKind,

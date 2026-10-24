@@ -803,8 +803,10 @@ fn not_comparable(
         statement: format!(
             "{consequence}. The full critical-pair check of {named} equations reports \
              findings (listed in the report's definition-findings). A genuine pair comes with a \
-             ground instance at which both equations apply and the input has two normal forms, \
-             so k-rust's result for it depends on the order it tries the equations; a decided \
+             ground instance at which both equations apply and the input has two different \
+             results, two normal forms or a normal form and an undefined value \
+             (`instance.stuck`), so k-rust's result for it depends on the order it tries the \
+             equations; a decided \
              one is a fact about the definition as written (an equation headed by a constructor \
              or an injection, or indexed at a collection or a bare variable, so the terms it \
              describes are not distinct normal forms; or an equation whose right-hand side \
