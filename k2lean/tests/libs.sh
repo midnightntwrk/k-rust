@@ -15,7 +15,7 @@
 #   SD       SIMPLE's K sources (for libs_simple_cases, and the simple and simple-inv compiles)
 #   GOLDENS  the golden cases of kimp (k2lean/tests/goldens; only for libs_goldens)
 # and defines the function `kore_dir NAME`, which prints the directory of the compiled KORE of
-# NAME (kimp, kimp-verif, kimp-inv, kimp-keys, imp-typing, kmut, ovl, simple, simple-inv, simple-variant, kterm), so that each caller keeps its own layout.
+# NAME (kimp, kimp-verif, kimp-inv, kimp-keys, kimp-unroll, imp-typing, kmut, ovl, simple, simple-inv, simple-variant, kterm), so that each caller keeps its own layout.
 
 # libs_kcompile NAME: compile NAME's K definition with krust into `kore_dir NAME`.
 libs_kcompile() {
@@ -37,6 +37,11 @@ libs_kcompile() {
       python3 -I "$(dirname "${BASH_SOURCE[0]}")/simple-variant.py" "$SD/simple-untyped.md" "$out.src/simple-variant.md" || return 1
       f=$out.src/simple-variant.md m=SIMPLE-UNTYPED s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
     kterm) f=$DEMOS/k/term/term.k m=TERM s=TERM-SYNTAX inc=$DEMOS/k/term ;;
+    # kimp whose `while` unrolls straight to the two-armed `if` (tests/kimp-unroll.py), the other
+    # side of the stuttering bisimulation demos/ImpUnroll
+    kimp-unroll) mkdir -p "$out.src" &&
+      python3 -I "$(dirname "${BASH_SOURCE[0]}")/kimp-unroll.py" "$KIMP/imp.k" "$out.src/imp.k" || return 1
+      f=$out.src/imp.k m=IMP s=IMP-SYNTAX inc=$KIMP ;;
     *) echo "libs_kcompile: unknown definition $1" >&2; return 2 ;;
   esac
   "$KRUST" kcompile "$f" --main-module "$m" --syntax-module "$s" --output-directory "$out" \
@@ -46,7 +51,7 @@ libs_kcompile() {
 # libs_name DIR: the Lean namespace of library DIR.
 libs_name() {
   case $1 in
-    kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv|kimpfold|kimptop) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;; ovl) echo KOvl ;;
+    kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv|kimpfold|kimptop) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; kunroll) echo KUnroll ;; imptypes) echo KImpTypes ;; ovl) echo KOvl ;;
     simple|simple-ar) echo KSimple ;; simpleinv|simplestore|simplet) echo KSimpleInv ;; nested) echo KNested ;; simplev) echo KSimpleV ;;
     peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;; freekey) echo FreeKey ;; kterm-ar) echo KTerm ;;
     *) echo "libs_name: unknown library $1" >&2; return 2 ;;
@@ -99,6 +104,8 @@ libs_gen() {
     # (demos/k/overlap.k): `Step.deterministic_of` with `overlaps_witnessed`
     ovl) "$G" gen --kore "$(kore_dir ovl)/definition.kore" --runtime "$(kore_dir ovl)/runtime.json" \
             --out "$o" --name KOvl --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
+    kunroll) "$G" gen --kore "$(kore_dir kimp-unroll)/definition.kore" --runtime "$(kore_dir kimp-unroll)/runtime.json" \
+            --out "$o" --name KUnroll --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
     imptypes) "$G" gen --kore "$(kore_dir imp-typing)/definition.kore" --runtime "$(kore_dir imp-typing)/runtime.json" \
             --out "$o" --name KImpTypes --prelude ../../lean/prelude \
             --open-obligations "$o/open-obligations.txt" --extra-fns typeOf,wt ;;
@@ -193,6 +200,7 @@ libs_relate() {
     ImpRel) nb=KrsImp kd=$KRS f=Bisim ;;
     ImpTypes) nb=KImpTypes kd=$(kore_dir imp-typing) extra=(--roots "SortStmt,SortExpr") ;;
     ImpMut) nb=KMut kd=$(kore_dir kmut) ;;
+    ImpUnroll) nb=KUnroll kd=$(kore_dir kimp-unroll) extra=(--per-rule true) ;;
     SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim ;;
     # a fixture related to itself (libraries peano and peanob, cellmap and cellmapb)
     PeanoRel) na=Peano ka=$(libs_fixture peano) nb=PeanoB kd=$ka f=Bisim ;;
@@ -218,5 +226,18 @@ libs_soundness() {
         --typing typeOf,wt --store-cell env --store-typing envTy \
         --out-typing "$DEMOS/ImpTypes/ImpTypes/Typing.lean" --out-soundness "$DEMOS/ImpTypes/ImpTypes/Soundness.lean" ;;
     *) echo "libs_soundness: unknown demo $1" >&2; return 2 ;;
+  esac
+}
+
+# libs_refine NS: the generated module of the stuttering-bisimulation demo NS after its hand module
+# `NS/Relation.lean` (ImpUnroll: kimp against tests/kimp-unroll.py's variant; needs libs_relate NS first,
+# whose `--per-rule` lemmas and report it reads), and its report `NS/refine.toml`.
+libs_refine() {
+  case $1 in
+    ImpUnroll) "$G" refine --kore-a "$(kore_dir kimp)/definition.kore" --name-a KImp \
+        --kore-b "$(kore_dir kimp-unroll)/definition.kore" --name-b KUnroll --ns ImpUnroll \
+        --correspondence "$DEMOS/ImpUnroll/correspondence.toml" --open "$DEMOS/ImpUnroll/open-cases.txt" \
+        --out "$DEMOS/ImpUnroll/ImpUnroll/Refine.lean" --report "$DEMOS/ImpUnroll/refine.toml" ;;
+    *) echo "libs_refine: unknown demo $1" >&2; return 2 ;;
   esac
 }

@@ -26,6 +26,7 @@ mod overload;
 mod pairs;
 mod preserves;
 mod ranked;
+mod refine;
 mod relate;
 mod render;
 mod rulename;
@@ -213,6 +214,9 @@ fn main() {
     }
     if raw.first().map(|s| s.as_str()) == Some("relate") {
         return relate::main(&raw[1..]);
+    }
+    if raw.first().map(|s| s.as_str()) == Some("refine") {
+        return refine::main(&raw[1..]);
     }
     if raw.first().map(|s| s.as_str()) == Some("soundness") {
         return soundness::main(&raw[1..]);
