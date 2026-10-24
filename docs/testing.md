@@ -55,7 +55,12 @@ Beyond its Rust tests, KRS has gates (`krs/tests/<gate>/verify.py`) that compare
   The gates build their tools (`krs`, `krs-gate`), the packages they check, and the collectors `krs` generates for those packages in the workspace's `target/`, so a change to these crates rebuilds each once; the run then removes the collectors of the gates' temporary packages from that target.
   On 2026-10-20, on a 32-core host under a load of about 30 from other work, it took about four minutes after a change to these crates or to KRS, three with nothing changed, and nine from an empty target;
   most of that is the gates' several hundred `krs` invocations, each of which runs Cargo to build or check a collector;
-- `krs-imp`, `krs-kevm`, `krs-kmir`, `krs-kwasm` (heavy, at a host UID): the complete IMP definition and the three language ports, one at a time.
+- `krs-ports-emit` (certification, runs in an agent sandbox): for the complete IMP definition and the three language ports, the steps of each port's heavy gate that read only the port's packages and the `krs` binary (`krs fmt --check`, the `krs check` count and warnings, the `krs expand` digest and its independent compile, two fresh emissions and a cached replay), against that gate's own pins, plus the digest of what the macros hand rustc for every port source file (`krs/tests/ports-emit/verify.py`).
+  It owns only that last pin, which `krs/tests/gates.sh ports-emit --record` rewrites; a moved artifact pin is recorded by the port's own gate.
+  A source file the whole-file expander refuses (two of IMP's test-only files, which define descriptors in inline modules) is pinned by its diagnostics, which do not show its macro output.
+  On 2026-10-24, with the tools and port targets warm, under a load of about 15, it took about two minutes with a peak RSS of 1.3 GiB.
+- `krs-ports-rust` (heavy, at a host UID): the four port gates with `--artifacts-only`, which add the ports' Clippy, tests, MSRV check, and rust-analyzer probes.
+- `krs-imp`, `krs-kevm`, `krs-kmir`, `krs-kwasm` (heavy, at a host UID): the complete IMP definition and the three language ports, one at a time, through their native compile, behavior corpus, and proofs.
 - `krs-tour-pages` (certification, owed by a change to one of the three site pages whose proof claims `tour-proof-evidence` checks against KRS's pinned results): that gate alone (`krs/tests/gates.sh tour-pages`).
   No other KRS gate reads `docs-site/`, so an edit to any other page owes no KRS gate; the site's own checks are in `docs-site/README.md`.
 
@@ -63,6 +68,29 @@ Beyond its Rust tests, KRS has gates (`krs/tests/<gate>/verify.py`) that compare
 
 The gates read Z3 4.12.5 through `KRS_Z3_LIB` (or the Nix store) and replay Java K results from a per-user cache; a cold cache runs K 7.1.337 through `KRS_K_BIN` or `PATH` (`krs/README.md`, "Prerequisites").
 When a change alters an output a gate pins on purpose, rerun that gate with `--record` and review the pin diff with the change; `--record` never rewrites an input pin.
+
+#### What each KRS gate observes
+
+The registry's path patterns name the changes each KRS gate is a candidate for, because the gate observes what they change; `scripts/run-gates.sh --list --changed BASE..HEAD` lists the candidates of committed work and `--list --worktree` those of uncommitted work.
+A candidate is assessed against the change, not run by rote: run the checks the change justifies, and report one that contention keeps from running as pending.
+
+The heavy port gates observe, in order: the port's Rust checks (Clippy, tests, the MSRV check, rust-analyzer), which see the macro output, the facade crate, and the toolchain; its formatting, `krs check` warnings, expansion, and emitted artifacts; and its native compile, behavior corpus, and proofs, which read the emitted `definition-ir.json` through the native code (`krs-ir`, `krs-ir-levels`, `krs-k-rust`, `krs-exec`, `krs-unparse`, `krs-gate`) and krust.
+`krs-ports-emit` checks the middle layer against the heavy gates' own pins and pins the macro output, so while it passes, a heavy gate's later layers would read the same bytes through the same code unless that code changed.
+
+| A change to | Candidates | Not candidates, and why |
+|---|---|---|
+| `docs/`, Markdown, `krs/docs-plan/` | none; under `krs/`, `python3 krs/tests/repo-hygiene/verify.py` (seconds), which scans every tracked file | no gate reads them |
+| a `docs-site/` page | the site's own checks (`docs-site/README.md`); `krs-tour-pages` for the three pages it reads | every other KRS gate: none reads `docs-site/` |
+| `krs-fmt` | its crate tests, `krs-light`, `krs-ports-emit` (the ports' `krs fmt --check`) | heavy: formatting reaches no emitted K, and the ports' format check is in `krs-ports-emit` |
+| the browser crates (`krs-expand-wasm`, `krs-wasm-abi`, `krs-lesson-policy`) | their crate tests, the `krs.yml` wasm lints, the browser gates; `krs-light` by its path set | `krs-ports-emit`, heavy: neither the `krs` binary nor the ports link them |
+| the collector, compiler, or CLI (`krs-collector`, `krs-compiler`, `krs-cli`), diagnostics included | crate tests, `krs-light`, `krs-ports-emit` | heavy, while `krs-ports-emit` passes: the ports compile without errors, their warnings and artifacts are pinned, and identical artifacts give the later layers identical inputs |
+| the parser and expander (`krs-syntax`, `krs-expand`, `krs-diagnostic`) | as above; `krs-ports-rust` when the macro-output pin moved | full heavy, while no artifact pin moved |
+| the facade or the macros (`krs`, `krs-macros`), or `Cargo.lock` | as above, and `krs-ports-rust` | the macro-output digest does not see spans inside a segment, which can change what Clippy treats as macro code, nor the facade's API |
+| the native code, the port harness (`krs/tests/gates.sh`, `krs/tests/support/`, `krs/Krs.lock`), or krust | crate tests, `krs-light`, `krs-ports-emit`, all four heavy gates | none: the later layers run this code, and nothing cheaper pins it |
+| a port (`krs/semantics/<port>/`, `krs/tests/<port>/`, its pins included) | `cargo test --manifest-path krs/semantics/Cargo.toml`, `krs-ports-emit`, that port's heavy gate | the other ports' heavy gates |
+| one light gate's directory | that gate (`python3 krs/tests/<gate>/verify.py`); `krs-light` by its path set | heavy, except IMP's, for the corpora IMP reuses |
+
+When `krs-ports-emit` fails because a port's artifact moved on purpose, the port's own gate records the new pins with `--record`, and that pin edit makes the port's heavy gate a candidate; when only the macro output moved, `krs/tests/gates.sh ports-emit --record` records it, and the moved pin makes `krs-ports-rust` one.
 
 ### k2lean
 
@@ -102,7 +130,7 @@ A failed scheduled run shows only on the repository's Actions page; `gh run list
 ### Reference gates, the conformance ratchet, and coverage
 
 The reference gates need the pinned reference toolchain and checkouts (README, "Compatibility evidence").
-Every gate, tool and scheduled check outside `cargo test` is an entry of `scripts/gates.toml`, and `scripts/run-gates.sh --changed BASE..HEAD` runs the entries a change owes: those with a path pattern that matches a path the change touched, or whose own entry it changed (`--list` shows the selection without running it, `--touched PATH` asks about one path).
+Every gate, tool and scheduled check outside `cargo test` is an entry of `scripts/gates.toml`, and `scripts/run-gates.sh --changed BASE..HEAD` runs the entries a change owes: those with a path pattern that matches a path the change touched, or whose own entry it changed (`--list` shows the selection without running it, `--worktree` asks about the uncommitted work, `--touched PATH` about one path).
 The reference-output cache (below) replays unchanged reference results, so a repeated run costs mostly the krust side.
 The gates build krust and the comparator with Cargo's default features, which download the Z3 release; `KRUST_GATE_Z3=system` builds them with `--no-default-features --features cli` instead, the same features linked to the Z3 the build environment provides (for example under `with-z3-static-4.16.0`); `scripts/backend-smoke.sh` follows the same selection when it builds krust itself (without `KRUST_BIN`).
 `KRUST_GATE_TARGET_DIR` and `KRUST_GATE_INVARIANT_CHECKS` (`scripts/reference-memory-guard.sh`) select the gate krust's target directory and its kompile invariant checks.

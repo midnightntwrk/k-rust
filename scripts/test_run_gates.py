@@ -78,6 +78,40 @@ class SelectionTest(unittest.TestCase):
         self.assertEqual(selected[0][1], "its registry entry changed")
 
 
+class KrsSelectionTest(unittest.TestCase):
+    """What the workspace registry asks of a change to KRS (docs/testing.md, "What each KRS gate
+    observes")."""
+
+    def setUp(self):
+        self.gates = run_gates.load(run_gates.REGISTRY)
+
+    def krs(self, path):
+        return [name for name in names(run_gates.select(self.gates, touched=[path]))
+                if name.startswith("krs-")]
+
+    def test_each_kind_of_krs_change_selects_the_gates_that_observe_it(self):
+        ports = ["krs-imp", "krs-kevm", "krs-kmir", "krs-kwasm"]
+        for path, expected in [
+            ("docs-site/src/pages/krs/language.mdx", []),
+            ("krs/crates/krs-fmt/src/lib.rs", ["krs-light", "krs-ports-emit"]),
+            ("krs/crates/krs-compiler/src/lib.rs", ["krs-light", "krs-ports-emit"]),
+            ("krs/crates/krs-macros/src/lib.rs", ["krs-light", "krs-ports-emit", "krs-ports-rust"]),
+            ("krs/crates/krs-k-rust/src/lib.rs", ["krs-light", "krs-ports-emit", *ports]),
+            ("krs/tests/kevm/pins.toml", ["krs-light", "krs-ports-emit", "krs-kevm"]),
+            ("krs/tests/ports-emit/pins.toml", ["krs-light", "krs-ports-emit", "krs-ports-rust"]),
+            ("krs/crates/krs-expand-wasm/src/lib.rs", ["krs-light"]),
+        ]:
+            with self.subTest(path=path):
+                self.assertEqual(self.krs(path), expected)
+
+    def test_every_tracked_krs_path_still_owes_krs_light(self):
+        tracked = run_gates.git("ls-files", "krs/crates", "krs/tests", "krs/semantics",
+                                "krs/Krs.lock").splitlines()
+        self.assertTrue(tracked)
+        light = next(gate for gate in self.gates if gate.name == "krs-light")
+        self.assertEqual([path for path in tracked if light.owed_by([path]) is None], [])
+
+
 class HostTest(unittest.TestCase):
     def test_a_host_uid_entry_is_recorded_as_not_run_in_a_sandbox_and_the_run_exits_3(self):
         real = next(gate for gate in run_gates.parse(REGISTRY) if gate.name == "real")
@@ -156,6 +190,30 @@ class ChangedPathsTest(unittest.TestCase):
                                          "scripts/gates.toml"])
         self.assertEqual(entries, {"tool"})
 
+
+    def test_the_worktree_is_every_uncommitted_path_and_the_registry_entries_it_changes(self):
+        self.write(".gitignore", "ignored/\n")
+        self.write("scripts/compile.sh", "")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "more")
+        self.write("crates/k-rust/src/a.rs", "edited")
+        self.git("rm", "-q", "scripts/compile.sh")
+        self.write("staged.txt", "")
+        self.git("add", "staged.txt")
+        self.write("untracked/new.rs", "")
+        self.write("ignored/build.log", "")
+        self.write("scripts/gates.toml", REGISTRY.replace('command = "scripts/real.sh"',
+                                                         'command = "scripts/real.sh --all"'))
+        paths, entries = run_gates.worktree_paths()
+        self.assertEqual(paths, ["crates/k-rust/src/a.rs", "scripts/compile.sh", "scripts/gates.toml",
+                                 "staged.txt", "untracked/new.rs"])
+        self.assertEqual(entries, {"real"})
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            status = run_gates.main(["--worktree", "--list", "--registry",
+                                     str(self.repo / "scripts/gates.toml")])
+        self.assertEqual(status, 0)
+        self.assertIn("compile  run=certification", output.getvalue())
+        self.assertIn("selected: its registry entry changed", output.getvalue())
 
 if __name__ == "__main__":
     unittest.main()

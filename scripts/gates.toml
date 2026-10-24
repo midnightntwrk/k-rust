@@ -106,13 +106,27 @@ inference = [
   '^crates/k-rust/Cargo\.toml$',
 ]
 # KRS (krs/README.md): its crates, gates, and ports, and the lock of the K, Z3, and schema versions its
-# gates read. KRS lowers through krust's sources, so its entries also take [path-set.krust].
+# gates read; krs-light reads or builds all of them. KRS lowers through krust's sources, so its
+# entries also take [path-set.krust]. The sets after it split KRS by what the port gates observe
+# (docs/testing.md, "What each KRS gate observes").
 krs = [
   '^krs/crates/',
   '^krs/tests/',
   '^krs/semantics/',
   '^krs/Krs\.lock$',
 ]
+# What rustc sees of a port besides its own source: the facade, the macros, and the expander and
+# parser they render with. krs-ports-emit pins their output for every port source file.
+krs-front = ['^krs/crates/(krs|krs-macros|krs-expand|krs-syntax|krs-diagnostic)/']
+# The rest of the `krs` binary's own code: collection, compilation to K, and formatting.
+krs-emit = ['^krs/crates/(krs-collector|krs-compiler|krs-cli|krs-fmt)/']
+# The code that reads, validates, compiles, and executes emitted Definition IR, which the heavy
+# gates' native, behavior, and proof layers run and nothing cheaper pins.
+krs-native = ['^krs/crates/(krs-ir|krs-ir-levels|krs-k-rust|krs-exec|krs-unparse|krs-gate)/']
+# The harness every port gate runs through, and the lock of the versions it reads.
+krs-harness = ['^krs/tests/gates\.sh$', '^krs/tests/support/', '^krs/Krs\.lock$']
+# The workspace the three language ports build in.
+krs-ports = ['^krs/semantics/Cargo\.(toml|lock)$']
 # kink (kink/README.md, "Gate"): its crates, test data, tier configuration and tier script, and
 # the nextest configuration that holds its overrides and its tier profile.
 kink = [
@@ -430,33 +444,73 @@ paths = [
   '^docs-site/src/pages/verification/reachability-claims\.mdx$',
 ]
 
+# The four ports' emission against the heavy gates' own pins (krs/tests/ports-emit/verify.py): the
+# formatting, check, expansion, and artifact steps of each port gate, which read the port's packages
+# and the `krs` binary only, and the digest of what the macros hand rustc for each port source file,
+# the one pin it owns. While it passes, a heavy gate's native, behavior, and proof layers would read
+# the same artifact bytes, so only a change to the code those layers run, or to the port, owes them.
+[[gate]]
+name = "krs-ports-emit"
+run = "certification"
+command = "krs/tests/gates.sh ports-emit"
+paths = [
+  "@krust",
+  "@krs-front",
+  "@krs-emit",
+  "@krs-native",
+  "@krs-harness",
+  '^krs/semantics/',
+  '^krs/tests/(imp|kevm|kmir|kwasm|ports-emit)/',
+]
+
+# The four port gates with `--artifacts-only`: their Rust checks (Clippy, tests, the MSRV check,
+# rust-analyzer) and emitted artifacts. Those checks see the macro output, which krs-ports-emit pins
+# only up to spans inside a segment, the facade crate, and the dependency versions, so a moved
+# macro-output pin, the facade, the macros, or the lock owes them.
+[[gate]]
+name = "krs-ports-rust"
+run = "heavy"
+host = "human-uid"
+command = "krs/tests/gates.sh ports-rust"
+paths = ['^krs/tests/ports-emit/pins\.toml$', '^krs/crates/(krs|krs-macros)/', '^Cargo\.lock$']
+
+# Each port's full gate: also its native compile, behavior corpus, and proofs, which read the
+# emitted artifacts through [path-set.krs-native] and krust. A change to the port's sources, corpus,
+# pins, or gate owes its own gate only.
 [[gate]]
 name = "krs-imp"
 run = "heavy"
 host = "human-uid"
 command = "krs/tests/gates.sh imp"
-paths = ["@krust", "@krs"]
+paths = [
+  "@krust",
+  "@krs-native",
+  "@krs-harness",
+  '^krs/tests/imp/',
+  # The input ledgers and corpora of the IMP gates whose inputs IMP reuses (tests/imp/corpus.json).
+  '^krs/tests/(imp-state|imp-control-flow|imp_static_semantics)/(pins\.json|corpus/|fixtures/|claims/)',
+]
 
 [[gate]]
 name = "krs-kevm"
 run = "heavy"
 host = "human-uid"
 command = "krs/tests/gates.sh kevm"
-paths = ["@krust", "@krs"]
+paths = ["@krust", "@krs-native", "@krs-harness", "@krs-ports", '^krs/semantics/kevm/', '^krs/tests/kevm/']
 
 [[gate]]
 name = "krs-kmir"
 run = "heavy"
 host = "human-uid"
 command = "krs/tests/gates.sh kmir"
-paths = ["@krust", "@krs"]
+paths = ["@krust", "@krs-native", "@krs-harness", "@krs-ports", '^krs/semantics/kmir/', '^krs/tests/kmir/']
 
 [[gate]]
 name = "krs-kwasm"
 run = "heavy"
 host = "human-uid"
 command = "krs/tests/gates.sh kwasm"
-paths = ["@krust", "@krs"]
+paths = ["@krust", "@krs-native", "@krs-harness", "@krs-ports", '^krs/semantics/kwasm/', '^krs/tests/kwasm/']
 
 # kink's test tiers (kink/scripts/kink-tier.py, kink/.config/kink-tiers.toml), in both solver
 # profiles: the Z3 profile (the kink packages' default features; Z3 acquired as for the other
