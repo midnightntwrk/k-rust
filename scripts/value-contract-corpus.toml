@@ -18,6 +18,11 @@
 # (`BackendDefinition::discharge_counts`); every case expects none, so a stop in the
 # corpus fails the gate (the values for `wasm` and `kevm` are the expectation, measured by the
 # KINK-06/3 heavy gate).
+# `witnesses` and `full_witnesses` count the witness equations of each scope's verdict and
+# `tainted_witness_heads` the full check's witness heads the load's closure taints; only `wasm`
+# has a witness: a proposal needs a non-joined overlap over a sort with no normal form, and the
+# other cases list no full-check pair over one (`issue-4114`'s one pair is the load's too, which
+# counts no such overlap; `kevm` was measured with none).
 
 [[case]]
 name = "fun"
@@ -55,6 +60,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "simple-untyped"
@@ -92,6 +100,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "simple-typed-static"
@@ -129,6 +140,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "simple-typed-dynamic"
@@ -166,6 +180,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "kool-untyped"
@@ -203,6 +220,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "kool-typed-dynamic"
@@ -240,6 +260,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "kool-typed-static"
@@ -277,6 +300,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "iele-bison-glr-bug"
@@ -314,6 +340,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "glr2"
@@ -351,6 +380,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "glr3"
@@ -388,6 +420,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "glr4"
@@ -425,6 +460,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "overload"
@@ -462,6 +500,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "issue-1090"
@@ -499,6 +540,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "issue-2909-llvm"
@@ -536,6 +580,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "issue-2909-haskell"
@@ -573,6 +620,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "issue-4142"
@@ -610,6 +660,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "issue-4114"
@@ -647,6 +700,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0
 
 [[case]]
 name = "wasm"
@@ -657,8 +713,8 @@ pairs = 3846
 overlaps = 102
 uninhabited = 33
 refuted = 7
-joined = 94
-unjoined = 1
+joined = 95
+unjoined = 0
 relevant = 0
 violations = 0
 heads = 6
@@ -670,7 +726,7 @@ confluent_families = 2
 relevant_equations = 1062
 skipped = 734
 full_pairs = 4580
-full_unjoined = 5
+full_unjoined = 4
 full_tainted_symbols = 8
 simplifier_calls = 76
 condition_memo_hits = 61
@@ -684,6 +740,9 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 1
+full_witnesses = 1
+tainted_witness_heads = 0
 
 # KEVM withdraws a claim (a relevant non-joined pair), so the manifest covers it; it is compiled
 # here and measured at a host UID (scripts/gates.toml, value-contract-corpus).
@@ -723,3 +782,6 @@ full_condition_budget_stops = 0
 full_condition_stack_stops = 0
 discharge_budget_stops = 0
 discharge_stack_stops = 0
+witnesses = 0
+full_witnesses = 0
+tainted_witness_heads = 0

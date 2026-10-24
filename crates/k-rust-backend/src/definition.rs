@@ -2941,10 +2941,13 @@ impl BackendDefinition {
     /// equations of every priority group offered at a subterm's index, its overload family and
     /// the bare-variable index. The precondition rows ([`crate::confluence::ValueClaims::violations`])
     /// name the equations outside the check's reasoning. `refuted` and `joined` are sound (no
-    /// overlap is set aside because it ranges over a sort with no normal form), a non-joined pair
-    /// is not shown to join and may be spurious, and the verdicts rest
-    /// on the definition's declarations and axioms: the contract is stated at
-    /// [`crate::confluence::CheckScope::All`].
+    /// overlap is set aside because it ranges over a sort with no normal form), "joined" meaning
+    /// joined by steps of the executable equations and the adopted witness equations
+    /// ([`crate::confluence::ValueClaims::witnesses`]) in the model `M+`, which adds a constant
+    /// to each sort that is not surely inhabited; a non-joined pair is not shown to join and may
+    /// be spurious, and the verdicts rest on the definition's declarations and axioms and, for
+    /// `M+` to be a model, on the termination of those equations over the added constants (A1+,
+    /// not checked): the contract is stated at [`crate::confluence::CheckScope::All`].
     #[must_use]
     pub fn value_claims_in_scope(
         &self,

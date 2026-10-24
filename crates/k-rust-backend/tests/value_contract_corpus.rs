@@ -12,13 +12,20 @@
 //! each scope the check without its memo of condition simplifications (`ConditionMemo::Off`)
 //! reaches the same verdict and the same counts but the memo's own work
 //! (`CheckCounts::without_memo_work`).
+//!
+//! `witnesses` and `full_witnesses` count the witness equations each verdict was computed with
+//! (`ValueClaims::witnesses`), and `tainted_witness_heads` the heads of the full check's
+//! witnesses that the load's closure taints: the load adopts the witnesses only when its own
+//! second pass taints none of them, so a nonzero count with `witnesses = 0` shows the two scopes
+//! classifying differently. Each witness is also printed on a `VALUE_CONTRACT_WITNESS` line, for
+//! the record.
 
 use std::time::Instant;
 
 use k_rust_backend::{
     confluence::{CheckScope, ConditionMemo, ValueClaims},
     definition::BackendDefinition,
-    term::HeadRole,
+    term::{HeadRole, TermKind},
 };
 
 /// Where `on`, a verdict computed with the memo of condition simplifications, and `off`, the same
@@ -102,6 +109,20 @@ fn value_contract_corpus() {
             .collect::<Vec<_>>();
         let tainted = claims.tainted_symbols();
         let tainted_heads = heads.iter().filter(|head| tainted.contains(head)).count();
+        let tainted_witness_heads = full
+            .witnesses()
+            .iter()
+            .filter(|rule| match rule.lhs.kind() {
+                TermKind::Application { symbol, .. } => tainted.contains(&symbol.name),
+                _ => false,
+            })
+            .count();
+        for rule in full.witnesses() {
+            println!(
+                "VALUE_CONTRACT_WITNESS {name} {}",
+                rule.attributes.unique_id
+            );
+        }
         let line = serde_json::json!({
             "name": name,
             "load_seconds": seconds,
@@ -137,6 +158,9 @@ fn value_contract_corpus() {
             "full_condition_stack_stops": full.counts().condition_stack_stops,
             "discharge_budget_stops": definition.discharge_counts().budget_stops,
             "discharge_stack_stops": definition.discharge_counts().stack_stops,
+            "witnesses": counts.witnesses,
+            "full_witnesses": full.counts().witnesses,
+            "tainted_witness_heads": tainted_witness_heads,
         });
         println!("VALUE_CONTRACT {line}");
     }

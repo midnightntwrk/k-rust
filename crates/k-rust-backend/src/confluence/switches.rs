@@ -66,6 +66,17 @@ pub(crate) struct Switches {
     /// non-joined reason then names; such a pair withdraws no claim, so the switch keeps the
     /// claims its closure would withdraw).
     pub(crate) drop_supersort_inhabitation: bool,
+    /// Set aside every overlap over a sort with no normal form, as neither refuted, joined nor
+    /// listed (vacuity restored: the check before FZ-EMPTYSORT, which read the equations in the
+    /// normal-form model, where such a sort is empty, while every model has an element of it).
+    pub(crate) separate_uninhabited: bool,
+    /// Witnesses: keep pass 1 (no witness equation) whatever pass 2 finds, as the check did
+    /// before FZ-EMPTYJOIN-WITNESS.
+    pub(crate) adopt_pass_1: bool,
+    /// Witnesses: the load's second pass seeds its witness equations into its closure, as a
+    /// witness pair only that scope leaves unjoined would (the two scopes classifying a pair
+    /// differently, which compat allows).
+    pub(crate) gate_taints_witnesses: bool,
     /// Join: read every function application as never a normal form, and a stuck one as
     /// `\bottom` (revision 2's 3.13 (c) before R1.5).
     pub(crate) stuck_total_is_bottom: bool,
@@ -150,6 +161,9 @@ thread_local! {
             admit_certificates: false,
             root_read_overloaded_patterns: false,
             drop_supersort_inhabitation: false,
+            separate_uninhabited: false,
+            adopt_pass_1: false,
+            gate_taints_witnesses: false,
             stuck_total_is_bottom: false,
             collapse_every_total: false,
             misread_int_le: false,

@@ -42,6 +42,13 @@
 //! assumes:
 //!
 //! - **A1 (termination).** Evaluation terminates, as every evaluation assumes.
+//! - **A1+ (termination with witnesses).** Innermost evaluation by the executable equations and
+//!   the full check's witness equations ([`ValueClaims::witnesses`](crate::confluence::ValueClaims::witnesses))
+//!   terminates over the signature with one fresh constant in each sort that is not surely
+//!   inhabited (the model `M+`, `confluence.rs`). A new premise, not checked: it is derived
+//!   neither from A1, which is about ground terms of the signature, nor from termination on open
+//!   terms (`k(inj{E,T}(X)) => k(f(X))` with the witness `f(X:E) => inj X` loops on `k(inj *)`).
+//!   It implies A1, since no witness applies to a term free of the constants.
 //! - **A2 (lemmas).** The axioms no check pairs, `simplification` lemmas and `[symbolic]`
 //!   function equations, are theorems of the executable equations, as every use of them assumes
 //!   (compat, "Anywhere rules"), and the declarations the check reads as true hold (the verdict
@@ -57,12 +64,14 @@
 //! different and free of every symbol involved. Hence the whole definition must be shown
 //! confluent.
 //!
-//! When the full check reports nothing, then under A1 and A2 `M_NF` is a model of the
-//! definition. Every data term is a normal form: no executable equation is rooted at a free
-//! constructor, an injection or a collection (no precondition row), and an instance-normal
-//! overload application over normal forms is one. Distinct normal forms are distinct elements of
-//! `M_NF`, so two different data terms are kept apart by a model, and they differ in the initial
-//! model. (Syntactic difference is read on k-rust's internal normal form, below.)
+//! When the full check reports nothing, then under A1+ and A2 `M+` is a model of the executable
+//! and witness equations, so of the definition (`M_NF` is the part of `M+` free of the
+//! constants). Every data term is free of the constants and a normal form: no executable equation
+//! is rooted at a free constructor, an injection or a collection (no precondition row), an
+//! instance-normal overload application over normal forms is one, and no witness applies to a
+//! term free of the constants. Distinct normal forms are distinct elements of `M+`, so two
+//! different data terms are kept apart by a model, and they differ in the initial model.
+//! (Syntactic difference is read on k-rust's internal normal form, below.)
 //!
 //! # Two definitions
 //!

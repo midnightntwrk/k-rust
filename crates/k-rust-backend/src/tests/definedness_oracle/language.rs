@@ -1,6 +1,9 @@
 //! The oracle's definition language: patterns, symbols, equations, and their KORE text.
 
-use std::{collections::BTreeMap, fmt::Write as _};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Write as _,
+};
 
 /// A pattern of the oracle's language. Sorts and symbols are named as in the KORE the definition
 /// is written to (without the `Sort` prefix for sorts).
@@ -536,6 +539,92 @@ impl Definition {
         }
     }
 
+    /// Every sort of the definition: the declared ones, `Int` and `Bool`, and the hooked `List`,
+    /// `Map` and `Set` when declared.
+    pub(super) fn all_sorts(&self) -> Vec<String> {
+        let mut sorts = self.sort_order().into_keys().collect::<Vec<_>>();
+        if self.collections {
+            sorts.extend(["Map".to_owned(), "Set".to_owned()]);
+        }
+        sorts
+    }
+
+    /// The sorts that have an element in every model of the definition, computed in the
+    /// oracle's own language: the least set that holds the hooked sorts (`Int` and `Bool`, whose
+    /// literals are elements, and the collection sorts `List`, `Map` and `Set`, whose units are),
+    /// the result sort of every constructor and every symbol declared total
+    /// ([`Symbol::total`]) whose argument sorts it holds, and every supersort of a sort it holds.
+    /// A symbol's application to elements is an element in every model when it is a free
+    /// constructor or declared total (its functional axiom); an equation head that is not
+    /// declared total, and a partial function, may be undefined on every argument, so neither
+    /// builds an element.
+    pub(super) fn surely_inhabited(&self) -> BTreeSet<String> {
+        let known = self.all_sorts();
+        let mut inhabited = ["Int", "Bool", "List", "Map", "Set"]
+            .into_iter()
+            .filter(|sort| known.iter().any(|name| name == sort))
+            .map(str::to_owned)
+            .collect::<BTreeSet<_>>();
+        let order = self.sort_order();
+        loop {
+            let before = inhabited.len();
+            for symbol in &self.symbols {
+                if symbol.total()
+                    && symbol
+                        .arguments
+                        .iter()
+                        .all(|argument| inhabited.contains(argument))
+                {
+                    inhabited.insert(symbol.result.clone());
+                }
+            }
+            for (sup, below) in &order {
+                if below.iter().any(|sub| inhabited.contains(sub)) {
+                    inhabited.insert(sup.clone());
+                }
+            }
+            if inhabited.len() == before {
+                return inhabited;
+            }
+        }
+    }
+
+    /// The sorts of the definition outside [`Self::surely_inhabited`]: the set `J` of the
+    /// design's model `M+` (P7-EMPTYJOIN 4.1), each of which gets a free constant in `D+`.
+    pub(super) fn junk_sorts(&self) -> BTreeSet<String> {
+        let inhabited = self.surely_inhabited();
+        self.all_sorts()
+            .into_iter()
+            .filter(|sort| !inhabited.contains(sort))
+            .collect()
+    }
+
+    /// `D+`: the definition with one fresh free constant [`junk_constant`] of each sort of
+    /// `sorts`, declared before the other symbols, so that the oracle's values of every sort
+    /// are built from it first. No equation mentions a constant, so only a variable matches one,
+    /// and a term free of constants evaluates in `D+` as in the definition.
+    pub(super) fn with_junk_constants(&self, sorts: &BTreeSet<String>) -> Self {
+        let mut extended = self.clone();
+        let constants = sorts
+            .iter()
+            .map(|sort| {
+                let name = junk_constant(sort);
+                assert!(
+                    self.symbols.iter().all(|symbol| symbol.name != name),
+                    "the constant {name} is fresh"
+                );
+                Symbol {
+                    name,
+                    arguments: Vec::new(),
+                    result: sort.clone(),
+                    kind: Kind::Constructor,
+                }
+            })
+            .collect::<Vec<_>>();
+        extended.symbols.splice(0..0, constants);
+        extended
+    }
+
     /// The KORE text of the definition, each equation labelled `eq{index}`.
     pub(super) fn kore(&self) -> String {
         let mut source = String::from(
@@ -744,6 +833,15 @@ impl Definition {
         )
     }
 }
+
+/// The free constant `*_S` that `D+` adds to the sort `sort`
+/// ([`Definition::with_junk_constants`]): `junk` followed by the sort's name.
+pub(super) fn junk_constant(sort: &str) -> String {
+    format!("{JUNK_PREFIX}{sort}")
+}
+
+/// The prefix of the names of `D+`'s constants; no other symbol of the oracle's language has it.
+pub(super) const JUNK_PREFIX: &str = "junk";
 
 /// The label of equation `index` (`eq{index}`), quoted for KORE.
 fn quoted_label(index: usize) -> String {
