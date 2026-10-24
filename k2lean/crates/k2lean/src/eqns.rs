@@ -703,7 +703,7 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
         format!("{}, $xs,*", base.join(", "))
     };
     o.push_str(&format!(
-        "/-- The generic proof attempts without case splits. -/\nlocal macro \"k2l_eqn_a\" \" [\" xs:Lean.Parser.Tactic.simpLemma,* \"]\" : tactic => `(tactic| first\n  | rfl\n  | (simp [{u}]; done)\n  | (simp_all [{u}]; done)\n  | (simp_all [{u}]; omega)\n  | (simp only [{u}]; rw [Bool.eq_iff_iff]; simp_all; done)\n  | (simp only [{u}]; rw [Bool.eq_iff_iff]; simp_all; omega))\n\n\
+        "/-- The generic proof attempts without case splits. -/\nlocal macro \"k2l_eqn_a\" \" [\" xs:Lean.Parser.Tactic.simpLemma,* \"]\" : tactic => `(tactic| first\n  | rfl\n  | k2l_hook_law\n  | (simp [{u}]; done)\n  | (simp_all [{u}]; done)\n  | (simp_all [{u}]; omega)\n  | (simp only [{u}]; rw [Bool.eq_iff_iff]; simp_all; done)\n  | (simp only [{u}]; rw [Bool.eq_iff_iff]; simp_all; omega))\n\n\
 /-- The generic proof by case splits (equations `x = t` from a split substituted first: `simp_all`\nuses an equation `t = x` only from left to right). -/\nlocal macro \"k2l_eqn_b\" \" [\" xs:Lean.Parser.Tactic.simpLemma,* \"]\" : tactic => `(tactic| ((repeat' (first | split | k2l_split_hyps)) <;> (try subst_vars) <;> simp_all [{u}]))\n\n"
     ));
     // the equations of a recursive function: a well-founded definition, which `simp` cannot unfold;
@@ -760,8 +760,11 @@ all_goals first\n      \
                 format!("by\n  intros\n  first\n  | k2l_eqn_r {f} [{own}]\n  | k2l_fold_eqn {f}")
             }
             Some(f) => format!("by\n  intros\n  k2l_eqn_r {f} [{own}]"),
+            // last, a case split on the variables under injections, which reduces a cascade that
+            // matches the injected term (`k2l_eqn_b` can leave goals, so it must end in `done`
+            // for `first` to go on)
             None => format!(
-                "by\n  intros\n  first\n  | k2l_eqn_a [{own}]\n  | ({first}k2l_eqn_b [{own}])"
+                "by\n  intros\n  first\n  | k2l_eqn_a [{own}]\n  | ({first}k2l_eqn_b [{own}]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [{own}])"
             ),
         };
         if open.contains(&s.name) {
@@ -946,10 +949,10 @@ mod tests {
         assert!(o.contains("k2l_case_rec [K.f]"));
         // a non-recursive function: the generic tactics, unfolding it (and its equations) first
         assert!(o.contains(
-            "theorem Eqn.g_1 (x : SortNat)\n    (hreq0 : K.h x = true) :\n    K.g x = x := by\n  intros\n  first\n  | k2l_eqn_a [K.g, K.g.rule1]\n  | (unfold K.g K.g.rule1; k2l_eqn_b [K.g, K.g.rule1])\n"
+            "theorem Eqn.g_1 (x : SortNat)\n    (hreq0 : K.h x = true) :\n    K.g x = x := by\n  intros\n  first\n  | k2l_eqn_a [K.g, K.g.rule1]\n  | (unfold K.g K.g.rule1; k2l_eqn_b [K.g, K.g.rule1]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.g, K.g.rule1])\n"
         ), "{o}");
         // a statement that names no generated definition unfolds none
-        assert!(o.contains("theorem Simp.s_0123456789ab (b : Bool) :\n    (b && true) = b := by\n  intros\n  first\n  | k2l_eqn_a []\n  | (k2l_eqn_b [])\n"));
+        assert!(o.contains("theorem Simp.s_0123456789ab (b : Bool) :\n    (b && true) = b := by\n  intros\n  first\n  | k2l_eqn_a []\n  | (k2l_eqn_b []; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])\n"));
     }
 
     #[test]
@@ -958,8 +961,13 @@ mod tests {
         assert!(!o.contains("k2l_eqn_r"), "{o}");
         assert!(o.contains("local macro \"k2l_eqn_a\""));
         assert!(o.contains("local macro \"k2l_eqn_b\""));
+        // the laws of `KPrelude.HookLaws` are tried right after `rfl`
+        assert!(
+            o.contains("tactic| first\n  | rfl\n  | k2l_hook_law\n"),
+            "{o}"
+        );
         // `K.f` is not in the unfold list, so it is not unfolded first either
-        assert!(o.contains("theorem Eqn.f_1 (x : SortNat) :\n    K.f x = some x := by\n  intros\n  first\n  | k2l_eqn_a []\n  | (k2l_eqn_b [])\n"), "{o}");
+        assert!(o.contains("theorem Eqn.f_1 (x : SortNat) :\n    K.f x = some x := by\n  intros\n  first\n  | k2l_eqn_a []\n  | (k2l_eqn_b []; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])\n"), "{o}");
     }
 
     #[test]
