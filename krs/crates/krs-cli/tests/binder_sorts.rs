@@ -517,7 +517,7 @@ fn a_k_item_occurrence_chooses_no_operator_and_overlaps_every_sort() {
                     ),
                 ),
                 "error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-BINDERS::probe (rule): K sequence items do not have one most-specific common sort; a `K` item splices into a sequence only in a rule result".to_owned(),
-                "",
+                "probe",
             ),
         ],
     );

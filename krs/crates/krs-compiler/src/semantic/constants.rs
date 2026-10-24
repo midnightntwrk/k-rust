@@ -97,9 +97,13 @@ fn expand_constant(
     if expanded.contains_key(id) {
         return Ok(());
     }
-    let descriptor = constants
-        .get(id)
-        .ok_or_else(|| DescriptorLoweringError::DanglingReference(Box::new(id.clone())))?;
+    let descriptor =
+        constants
+            .get(id)
+            .ok_or_else(|| DescriptorLoweringError::DanglingReference {
+                id: Box::new(id.clone()),
+                range: None,
+            })?;
     if let Some(start) = path.iter().position(|entry| entry == id) {
         let cycle = path[start..]
             .iter()
@@ -183,6 +187,7 @@ fn substitute(
         .map_err(|error| DescriptorLoweringError::UnsupportedShape {
             node: "inlined constant",
             detail: error.to_string(),
+            range: None,
         })
 }
 
@@ -200,6 +205,7 @@ impl Substitution<'_> {
             DescriptorLoweringError::UnsupportedShape {
                 node: "inlined constant",
                 detail: format!("too many substituted nodes in {}", self.descriptor.id()),
+                range: None,
             }
         })?;
         let key = ProvenanceRole::InlinedConstant.key(ordinal);
@@ -234,6 +240,7 @@ impl Substitution<'_> {
                         node: "constant value",
                         detail: "a constant's value is a literal or a constructor application"
                             .into(),
+                        range: None,
                     });
                 }
                 let reference = krs_ir::DescriptorApplicationReference {
@@ -276,6 +283,7 @@ impl Substitution<'_> {
                     node: "constant value",
                     detail: "a constant's value is a literal or a constructor application"
                         .to_owned(),
+                    range: None,
                 });
             }
         })
@@ -317,10 +325,13 @@ impl RefMap<DescriptorStage, DescriptorStage> for Substitution<'_> {
                     .map(Box::new),
             });
         }
-        let value = self
-            .values
-            .get(id)
-            .ok_or_else(|| DescriptorLoweringError::DanglingReference(Box::new(id.clone())))?;
+        let value =
+            self.values
+                .get(id)
+                .ok_or_else(|| DescriptorLoweringError::DanglingReference {
+                    id: Box::new(id.clone()),
+                    range: None,
+                })?;
         let mut origin = use_origin.cloned().ok_or_else(|| {
             DescriptorLoweringError::ParserReferenceDisagreement {
                 id: Box::new(self.descriptor.id().clone()),
@@ -329,6 +340,7 @@ impl RefMap<DescriptorStage, DescriptorStage> for Substitution<'_> {
                     reference.key.role().as_str(),
                     reference.key.ordinal()
                 ),
+                range: None,
             }
         })?;
         origin.push(OriginFrame::Transformation {

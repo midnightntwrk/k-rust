@@ -59,6 +59,43 @@ pub(super) fn collection_error(
     }
 }
 
+/// Checks that an entry's state is one its declared cell's kind has: `Some`/`None` only on an
+/// optional cell, an instance list only on a collection. The entry that disagrees with the
+/// declaration is the mistake, so the error names `cell`, the entry, whichever side it is on.
+pub(super) fn check_state_kind(
+    descriptor: &Descriptor,
+    declared: &DescriptorCellField,
+    cell: &DescriptorCellReference,
+    state: &DescriptorState,
+) -> Result<(), DescriptorLoweringError> {
+    let name = &cell.cell.field;
+    match (state, multiplicity(declared)) {
+        (ProtocolRuleStateTerm::Present { .. } | ProtocolRuleStateTerm::Absent, multiplicity)
+            if multiplicity != Some("?") =>
+        {
+            Err(collection_error(
+                descriptor,
+                codes::analysis::OPTIONAL_PRESENCE,
+                &cell.key,
+                format!(
+                    "`{name}` is not an optional cell: `Some`/`None` entries name a cell declared `#[k::cell(multiplicity = \"?\")]` with an `Option<T>` field"
+                ),
+            ))
+        }
+        (ProtocolRuleStateTerm::Instances(_), multiplicity) if multiplicity != Some("*") => {
+            Err(collection_error(
+                descriptor,
+                codes::analysis::COLLECTION_ENTRY,
+                &cell.key,
+                format!(
+                    "`{name}` is not a cell collection: an instance list names a cell declared `#[k::cell(multiplicity = \"*\", cell_type = .., nested)]`; the empty Map or Set a leaf cell holds is `map::empty()` or `set::empty()`, and its empty List is `[]`"
+                ),
+            ))
+        }
+        _ => Ok(()),
+    }
+}
+
 /// Whether a cell entry's state is optional or a collection (KF-023).
 pub(super) fn is_cell_state(state: &DescriptorState) -> bool {
     matches!(
@@ -139,6 +176,7 @@ fn state_frame(
                 "rule {} uses incompatible subject/result associative state frames",
                 descriptor.id()
             ),
+            range: None,
         });
     }
     let binding =
@@ -160,6 +198,7 @@ fn state_frame(
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "subject cell frame",
             detail: "a subject frame cannot reuse a result binding".into(),
+            range: None,
         });
     }
     Ok(match family {
@@ -536,8 +575,14 @@ pub(super) fn lower_instances_clause(
         // instances, or keeps a back instance in place, is outside what
         // both backends agree on.
         if !front.is_empty() {
+            // The subject names one end; the result that names the other is the entry to split.
+            let key = if before.front.is_empty() || before.back.is_empty() {
+                result_key.unwrap_or(&cell.key)
+            } else {
+                &cell.key
+            };
             return Err(entry_error(
-                &cell.key,
+                key,
                 format!(
                     "this entry names instances at both ends of the List collection `{name}`; a KRS rule changes either the front (before `..`) or the back (after it), so split it into two rules"
                 ),
@@ -749,6 +794,7 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
                     return Err(DescriptorLoweringError::UnsupportedShape {
                         node: "collection instance",
                         detail: "a whole nested child has no frame".into(),
+                        range: None,
                     });
                 }
                 clause.with_kind(CellClauseKind::Whole)

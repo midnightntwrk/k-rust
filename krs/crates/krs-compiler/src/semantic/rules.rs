@@ -24,7 +24,7 @@ use super::configuration::{check_stdin_reads, stdin_cells};
 use super::error::DescriptorLoweringError;
 use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
 use super::origin::{
-    generated_semantic_id, role_key, semantic_cell_id, semantic_origin,
+    generated_semantic_id, key_range, role_key, semantic_cell_id, semantic_origin,
     semantic_origin_from_primary,
 };
 use super::references::require_cell_field;
@@ -47,12 +47,14 @@ pub(super) fn framework_k_item_sort(
         .ok_or_else(|| DescriptorLoweringError::UnsupportedShape {
             node: "framework sort",
             detail: "internal error: the descriptor bundle has no framework KItem sort, which every definition has".into(),
+            range: None,
         })?;
     if matches.next().is_some() {
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "framework sort",
             detail: "internal error: the descriptor bundle has more than one framework KItem sort"
                 .into(),
+            range: None,
         });
     }
     Ok(SemanticSortRef::Declared(first.clone()))
@@ -74,6 +76,7 @@ pub(super) fn require_fixed_configuration<'a>(
                 DescriptorLoweringError::UnsupportedShape {
                     node,
                     detail: detail.into(),
+                    range: None,
                 }
             }
             other => other.into(),
@@ -122,6 +125,7 @@ pub(super) fn check_group_descendants(
             return Err(DescriptorLoweringError::UnsupportedShape {
                 node: "nested cell declaration",
                 detail: "cyclic nominal cell declaration".into(),
+                range: None,
             });
         }
         for field in &declaration.fields {
@@ -572,13 +576,19 @@ pub(super) fn lower_head_rule_descriptor(
         selected.insert(computation.cell.clone());
     }
     for extra in &rule.extras {
-        clauses.push(lower_head_rule_extra(
-            &mut builder,
-            extra,
-            declarations,
-            configuration,
-            &mut selected,
-        )?);
+        // An error that names no narrower node is located at the extra's cell entry.
+        clauses.push(
+            lower_head_rule_extra(
+                &mut builder,
+                extra,
+                declarations,
+                configuration,
+                &mut selected,
+            )
+            .map_err(|error| {
+                error.within(key_range(descriptor, &head_rule_extra_cell(extra).key).as_ref())
+            })?,
+        );
     }
     // Every cell record is checked, since one may now only read `k`; a
     // `for Sort` table's clause is a K term rule and is not. A claim is no
@@ -944,6 +954,7 @@ fn head_rule_configuration<'a>(
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "head-anchored rule",
             detail: "readable head completion supports transitions and claims only".into(),
+            range: None,
         });
     }
     let configuration = require_fixed_configuration(
@@ -958,6 +969,7 @@ fn head_rule_configuration<'a>(
                 node: "head-anchored rule",
                 detail: "a rule that matches a computation-cell head has no computation cell"
                     .into(),
+                range: None,
             });
         }
         return Ok(configuration);
@@ -967,6 +979,7 @@ fn head_rule_configuration<'a>(
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "head-anchored rule",
             detail: "resolved computation cell is not a fixed leaf".into(),
+            range: None,
         });
     };
     if *wrapper != krs_ir::CellWrapper::KCell
@@ -975,6 +988,7 @@ fn head_rule_configuration<'a>(
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "head-anchored rule",
             detail: "resolved computation cell is not KCell<KSequence>".into(),
+            range: None,
         });
     }
     Ok(configuration)
@@ -1059,6 +1073,7 @@ fn seed_head_rule_sorts(
                 DescriptorLoweringError::UnsupportedShape {
                     node: "head-anchored rule extra",
                     detail: format!("updated cell {:?} is not a fixed leaf", cell.cell.field),
+                    range: None,
                 }
             })?;
             let refinement = refinements
@@ -1150,6 +1165,7 @@ fn infer_head_rule(
                                 "updated cell {:?} is not a fixed leaf",
                                 cell.cell.field
                             ),
+                            range: None,
                         }
                     })?;
                     builder.infer_collection_update(update, base_binding, expected)?;
@@ -1167,6 +1183,7 @@ fn infer_head_rule(
                                 "ordinary cell {:?} is not a fixed leaf",
                                 cell.cell.field
                             ),
+                            range: None,
                         }
                     })?;
                     builder.infer(before, Some(expected), true)?;
@@ -1292,6 +1309,8 @@ fn lower_head_rule_computation_clause(
         )?);
     }
     builder.head_pending = false;
+    // The matched items have no key of their own (the head's is the first item's), so a
+    // sequence whose items share no sort is located at the rule.
     let subject_item_sort = match subject_items.as_slice() {
         [item] => item.sort().clone(),
         items => common_sequence_item_sort(descriptor, items, sort_parents, false)?,
@@ -1315,7 +1334,9 @@ fn lower_head_rule_computation_clause(
                 krs_ir::ProtocolHeadRuleResult::Erase => Vec::new(),
             };
             let result_item_sort =
-                common_sequence_item_sort(descriptor, &result_items, sort_parents, true)?;
+                common_sequence_item_sort(descriptor, &result_items, sort_parents, true).map_err(
+                    |error| error.within(key_range(descriptor, &rule.result_key).as_ref()),
+                )?;
             // A result that restates the matched items unchanged only reads
             // them, as a restated cell does.
             if same_items(&before_k, &result_items) {
@@ -1424,11 +1445,14 @@ impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
         match state {
             State::Term(term) | State::Group(term) => self.builder.lower(term, Some(sort), subject),
             State::KSequence(sequence) => {
+                let key = sequence.payload_key.as_ref().unwrap_or(fallback_key);
+                let range = key_range(descriptor, key);
                 if *sort != SemanticSortRef::k_sequence() {
                     return Err(DescriptorLoweringError::invalid_term(
                         descriptor.id(),
                         "a `[..]` sequence occurs in a cell that is not the computation cell",
-                    ));
+                    )
+                    .within(range.as_ref()));
                 }
                 let items = sequence
                     .items
@@ -1440,8 +1464,8 @@ impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
                     &items,
                     self.builder.sort_parents,
                     !subject,
-                )?;
-                let key = sequence.payload_key.as_ref().unwrap_or(fallback_key);
+                )
+                .map_err(|error| error.within(range.as_ref()))?;
                 Ok(SemanticTerm::k_sequence(
                     semantic_origin(descriptor, key.clone(), "readable-k-sequence")?,
                     item_sort,
@@ -1479,6 +1503,7 @@ fn lower_head_rule_extra(
                 "cell {:?} is mentioned more than once",
                 cell_reference.cell.field
             ),
+            range: None,
         });
     }
     if let krs_ir::ProtocolHeadRuleExtra::RewriteState {
@@ -1541,6 +1566,7 @@ fn lower_head_rule_fixed_extra(
                 node: "head-anchored rule extra",
                 detail: "a nested cell entry is a binder, `_`, or fragment!, not a map pattern"
                     .into(),
+                range: None,
             });
         };
         super::cell_alternatives::reject_cell_alternatives(
@@ -1619,6 +1645,7 @@ fn lower_head_rule_map_read(
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "head-anchored rule extra",
             detail: format!("extra cell {:?} is not a Map cell", cell.cell.field),
+            range: None,
         });
     }
     let mut items = Vec::with_capacity(entries.len());
@@ -1688,6 +1715,7 @@ fn lower_head_rule_collection_write(
                 "updated cell {:?} is not a Map or List cell",
                 cell.cell.field
             ),
+            range: None,
         });
     }
     let expected = semantic_sort_ref(&sort.sort);
@@ -1731,6 +1759,7 @@ fn lower_head_rule_cell_rewrite(
                 "ordinary cell {:?} does not use the Cell wrapper",
                 cell.cell.field
             ),
+            range: None,
         });
     }
     let expected = semantic_sort_ref(&sort.sort);
@@ -1863,6 +1892,7 @@ fn collect_declared_leaf_identities(
                     return Err(DescriptorLoweringError::UnsupportedShape {
                         node: "nested cell declaration",
                         detail: "cyclic nominal cell declaration".into(),
+                        range: None,
                     });
                 }
                 let nested = declarations.cell(&declaration.declaration)?;

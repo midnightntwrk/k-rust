@@ -131,7 +131,10 @@ pub fn lower_descriptor_bundle(
         })
         .count();
     if configurations != 1 {
-        return Err(DescriptorLoweringError::ConfigurationCount(configurations));
+        return Err(DescriptorLoweringError::ConfigurationCount {
+            count: configurations,
+            range: None,
+        });
     }
 
     let declarations = DescriptorIndex::from_descriptors(descriptors.iter().copied());
@@ -475,6 +478,7 @@ fn validate_builtin_sort_names(
             return Err(DescriptorLoweringError::BuiltinSortNameCollision {
                 id: Box::new(descriptor.id().clone()),
                 builtin,
+                range: self::origin::item_range(descriptor).map(Box::new),
             });
         }
     }

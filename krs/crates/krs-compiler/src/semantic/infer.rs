@@ -3264,25 +3264,19 @@ impl StructuredTermBuilder<'_> {
     }
 
     /// An invalid-term error, which [`Self::infer`] and [`Self::lower`]
-    /// locate at the term they were given.
+    /// locate at the innermost term they were given.
     pub(super) fn invalid_term(&self, detail: impl Into<String>) -> DescriptorLoweringError {
         DescriptorLoweringError::invalid_term(self.descriptor.id(), detail)
     }
 
-    /// `error`, an invalid-term error not yet located, located at `term`.
+    /// `error` located at `term` when it is not located yet: inference and lowering recurse
+    /// into terms, so an error takes the innermost term that encloses it.
     fn locate(
         &self,
-        mut error: DescriptorLoweringError,
+        error: DescriptorLoweringError,
         term: &DescriptorTerm,
     ) -> DescriptorLoweringError {
-        if let DescriptorLoweringError::InvalidTerm {
-            range: range @ None,
-            ..
-        } = &mut error
-        {
-            *range = self.authored_range(Self::term_key(term));
-        }
-        error
+        error.within(self.authored_range(Self::term_key(term)).as_deref())
     }
 }
 

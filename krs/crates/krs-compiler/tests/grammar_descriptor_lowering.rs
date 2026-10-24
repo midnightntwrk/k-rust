@@ -559,7 +559,7 @@ fn constructor_without_grammar_descriptor_is_rejected() {
     ));
 
     let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
-    let krs_compiler::DescriptorLoweringError::UnsupportedShape { node, detail } = error else {
+    let krs_compiler::DescriptorLoweringError::UnsupportedShape { node, detail, .. } = error else {
         panic!("unexpected error: {error:?}")
     };
     assert_eq!(node, "constructor");

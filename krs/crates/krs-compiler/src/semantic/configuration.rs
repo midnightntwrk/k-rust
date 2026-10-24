@@ -19,7 +19,7 @@ use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_so
 use super::collection_types::{CollectionTyping, Root, SortType, Walker};
 use super::error::DescriptorLoweringError;
 use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
-use super::origin::{generated_semantic_id, semantic_cell_id, semantic_origin};
+use super::origin::{generated_semantic_id, key_range, semantic_cell_id, semantic_origin};
 use super::references::require_cell_field;
 
 pub(super) fn lower_fixed_configuration_descriptor(
@@ -334,6 +334,7 @@ fn cell_attributes(
             DescriptorLoweringError::UnsupportedShape {
                 node: "cell multiplicity",
                 detail: format!("unsupported multiplicity {:?}", multiplicity.value),
+                range: None,
             }
         })?;
         if value == CellMultiplicity::Star && declaration.fields.len() != 1 {
@@ -430,6 +431,7 @@ fn lower_cell_declaration(
                             "cyclic nominal cell declaration at {}",
                             declaration.declaration
                         ),
+                        range: None,
                     });
                 }
                 let (nested, nested_declaration) =
@@ -522,7 +524,18 @@ fn initializer_typing(
     walker.run(&output)
 }
 
+/// Lowers one initializer cell; an error that names no narrower node is located at the cell.
 fn lower_initializer_cell(
+    descriptor: &Descriptor,
+    cell: &DescriptorInitializerCell,
+    declarations: &DescriptorIndex<'_>,
+    tables: &InitializerTables<'_>,
+) -> Result<FixedInitializerCell<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+    lower_initializer_cell_content(descriptor, cell, declarations, tables)
+        .map_err(|error| error.within(key_range(descriptor, &cell.key).as_ref()))
+}
+
+fn lower_initializer_cell_content(
     descriptor: &Descriptor,
     cell: &DescriptorInitializerCell,
     declarations: &DescriptorIndex<'_>,
@@ -559,6 +572,7 @@ fn lower_initializer_cell(
         _ => Err(DescriptorLoweringError::ParserReferenceDisagreement {
             id: Box::new(cell.field.cell.owner.clone()),
             detail: "initializer content disagrees with the declared cell family".into(),
+            range: None,
         }),
     }
 }
@@ -584,23 +598,25 @@ fn lower_initializer_state(
     match state {
         ProtocolInitializerStateTerm::Term(term) => lower_term(&term.term, Some(declared_sort)),
         ProtocolInitializerStateTerm::KSequence(sequence) => {
+            let key = sequence
+                .payload_key
+                .as_ref()
+                .or(sequence.dot_k_key.as_ref())
+                .unwrap_or(fallback_key);
             if *declared_sort != SemanticSortRef::k_sequence() {
                 return Err(DescriptorLoweringError::invalid_term(
                     descriptor.id(),
                     "K sequence initializes a non-KSequence cell",
-                ));
+                )
+                .within(key_range(descriptor, key).as_ref()));
             }
             let items = sequence
                 .items
                 .iter()
                 .map(|item| lower_term(&item.value.term, None))
                 .collect::<Result<Vec<_>, _>>()?;
-            let item_sort = common_sequence_item_sort(descriptor, &items, sort_parents, false)?;
-            let key = sequence
-                .payload_key
-                .as_ref()
-                .or(sequence.dot_k_key.as_ref())
-                .unwrap_or(fallback_key);
+            let item_sort = common_sequence_item_sort(descriptor, &items, sort_parents, false)
+                .map_err(|error| error.within(key_range(descriptor, key).as_ref()))?;
             Ok(SemanticTerm::k_sequence(
                 semantic_origin(descriptor, key.clone(), "initializer-k-sequence")?,
                 item_sort,
@@ -608,13 +624,14 @@ fn lower_initializer_state(
             ))
         }
         ProtocolInitializerStateTerm::Map(map) => {
+            let key = map.payload_key.as_ref().unwrap_or(fallback_key);
             if *declared_sort != SemanticSortRef::map() {
                 return Err(DescriptorLoweringError::invalid_term(
                     descriptor.id(),
                     "map initializes a non-Map cell",
-                ));
+                )
+                .within(key_range(descriptor, key).as_ref()));
             }
-            let key = map.payload_key.as_ref().unwrap_or(fallback_key);
             let operands = match &map.body {
                 ProtocolMapBody::Empty { .. } => MapOperands::Empty,
                 ProtocolMapBody::Items { items } => {
