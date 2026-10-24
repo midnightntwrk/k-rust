@@ -17,3 +17,4 @@ import KPrelude.InvColl
 import KPrelude.Logic
 import KPrelude.Termination
 import KPrelude.Determinism
+import KPrelude.Soundness
