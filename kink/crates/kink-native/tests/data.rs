@@ -292,37 +292,66 @@ fn an_overload_application_is_data_only_where_it_is_instance_normal() {
 }
 
 /// fz26 KINK-OVERLOAD-VALUE consumes k-rust's data judgement rather than re-implementing it, so
-/// the passages its soundness rests on are pinned by digest: `data_term`'s module documentation
-/// from "The class" through "Two definitions" (what a data term is, why two differ in each
-/// definition's initial model under A1 and A2, and that ends compared across two definitions
-/// must be data in both, each judged by its own), the selection of the overload data heads
-/// (`overload_data_heads`, `canonical_overload_equation`) and the walk `is_data` makes
-/// (`built_from_data`). A k-rust change that moves any of them fails here, and kink's reading
-/// (kink-native `data::data_ends`, the TV-01 walk) is checked against it again before re-pinning.
+/// the passages its soundness rests on are pinned by digest:
+/// - `data_term`'s module documentation from "The class" through "Two definitions" (what a data
+///   term is, why two differ in each definition's initial model under A1 and A2, and that ends
+///   compared across two definitions must be data in both, each judged by its own);
+/// - `data_heads` (a finding leaves no head), the selection of the overload data heads
+///   (`overload_data_heads`, `canonical_overload_equation`), `is_data_walk` (no data without a
+///   confluent check) and the walk `is_data` makes (`built_from_data`);
+/// - the instance-normal scan `built_from_data` calls on an overload application
+///   (`instance_normal.rs`: its module documentation, `instance_normal` and `excluded`), whose
+///   equations are rooted at the application's head and read only its own subterm, which is why
+///   judging once at the outermost overload application is `is_data` on the whole end (review N1).
+///
+/// A k-rust change that moves any of them fails here, and kink's reading (kink-native
+/// `data::data_ends`, the TV-01 walk) is checked against it again before re-pinning.
 #[test]
 fn the_data_judgement_kink_reads_is_pinned() {
-    const SOURCE: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
-    let between = |from: &str, to: &str| {
-        let start = SOURCE.find(from).unwrap_or_else(|| panic!("no {from:?}"));
-        let end = SOURCE[start..]
+    const DATA_TERM: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
+    const INSTANCE_NORMAL: &str =
+        include_str!("../../../../crates/k-rust-backend/src/instance_normal.rs");
+    let between = |source: &'static str, from: &str, to: &str| {
+        let start = source.find(from).unwrap_or_else(|| panic!("no {from:?}"));
+        let end = source[start..]
             .find(to)
             .unwrap_or_else(|| panic!("no {to:?}"))
             + start;
-        &SOURCE[start..end]
+        &source[start..end]
     };
-    let function = |name: &str| between(&format!("fn {name}("), "\n}\n");
-    let method = |name: &str| between(&format!("    fn {name}("), "\n    }\n");
+    let function = |name: &str| between(DATA_TERM, &format!("\nfn {name}("), "\n}\n");
+    let method = |source, prefix: &str, name: &str| {
+        between(source, &format!("\n    {prefix}fn {name}("), "\n    }\n")
+    };
     let pinned = [
         (
-            between("//! # The class", "//! # Findings: genuine or undecided"),
+            between(
+                DATA_TERM,
+                "//! # The class",
+                "//! # Findings: genuine or undecided",
+            ),
             "doc",
         ),
-        (method("overload_data_heads"), "overload_data_heads"),
+        (method(DATA_TERM, "pub ", "data_heads"), "data_heads"),
+        (
+            method(DATA_TERM, "", "overload_data_heads"),
+            "overload_data_heads",
+        ),
         (
             function("canonical_overload_equation"),
             "canonical_overload_equation",
         ),
-        (method("built_from_data"), "built_from_data"),
+        (method(DATA_TERM, "", "is_data_walk"), "is_data_walk"),
+        (method(DATA_TERM, "", "built_from_data"), "built_from_data"),
+        (
+            between(INSTANCE_NORMAL, "//! Instance normality", "\nmod token;"),
+            "instance_normal_doc",
+        ),
+        (
+            method(INSTANCE_NORMAL, "pub(crate) ", "instance_normal"),
+            "instance_normal",
+        ),
+        (method(INSTANCE_NORMAL, "", "excluded"), "excluded"),
     ]
     .map(|(text, name)| (name, kink_patch::sha256(text.as_bytes()).to_string()));
     assert_eq!(
@@ -330,19 +359,39 @@ fn the_data_judgement_kink_reads_is_pinned() {
         [
             (
                 "doc",
-                "5ebdb4fa12e513bb1c2da9be194120fe9b2b322ab49800a4c5b073cd5c18fdff",
+                "5ebdb4fa12e513bb1c2da9be194120fe9b2b322ab49800a4c5b073cd5c18fdff"
+            ),
+            (
+                "data_heads",
+                "22035f93fbe4fce9e126c099b62cdf55c962ac28c0b533681dce799826041b66"
             ),
             (
                 "overload_data_heads",
-                "655cb79c76f4bb457e81e60681043fc35de8661cc9a475efe378faa9001fbb34",
+                "ff973c12826c14df6ad2ce694d166eebbf3f972d1fa655ecff980441c4fb14d3"
             ),
             (
                 "canonical_overload_equation",
-                "ce72331ace58ecd71b41ed67068c952b3d972d2e84cab18a36cef89f9a42c26b",
+                "faf42a39040681e158cf3f4f5d623040faa00fee5dc3ebd245ae4a31f4fe35eb"
+            ),
+            (
+                "is_data_walk",
+                "2c32c7ce5a5c35763062ea2bd2a0cc6a154af224430ea26c34983945ffd85862"
             ),
             (
                 "built_from_data",
-                "7b76f08166b68d2a94290b090933f570af2e701f64df7114399ec57964b311e5",
+                "0c171d308ef0252e0f9e27fa63119c381c8944843dbfc0b93ea576a42ff53e02"
+            ),
+            (
+                "instance_normal_doc",
+                "7fba49e94666ca7c1dd2dc113566a8c43d87e54daf2205a9f65f6ba186cc56f5"
+            ),
+            (
+                "instance_normal",
+                "b1a96645c05d2e8ba7f9b464e149867b37cfe18ae4c331cc721f1875a69cd2ce"
+            ),
+            (
+                "excluded",
+                "641b47e1929c88a6e3f66d0234fca49119e0f6a7d86ab1b1321b772182e58136"
             ),
         ]
         .map(|(name, digest)| (name, digest.to_owned()))
