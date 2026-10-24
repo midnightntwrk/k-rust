@@ -63,7 +63,7 @@ INVS = {"kimpinv": ("KImpInv", "light"), "krsimp": ("KrsImp", "light"), "simplei
         "simplestore": ("KSimpleInv", "heavy"), "simplet": ("KSimpleInv", "heavy")}
 DEMOS = {"ImpRel": "light", "ImpTypes": "light", "ImpMut": "light", "KrsImpTyping": "light",
          "Kind2Template": "light", "SimpleEnv": "heavy", "ImpWrites": "light", "ImpRelClaims": "heavy",
-         "PeanoRel": "light", "CellMapRel": "light"}
+         "PeanoRel": "light", "CellMapRel": "light", "ImpUnroll": "light", "RaceConf": "light", "ImpNI": "light"}
 OUTPUTS = {  # recorded output → (tier, normalization)
     "goldens.toml": ("light", "exact"),
     "kimp-test.out": ("light", "exact"),
@@ -77,6 +77,7 @@ OUTPUTS = {  # recorded output → (tier, normalization)
     "replay/addition-2.toml": ("heavy", "strip-seconds"),
     "replay/branching.toml": ("heavy", "strip-seconds"),
     "replay/sum-loop.toml": ("heavy", "strip-seconds"),
+    "simple-confluence.toml": ("heavy", "exact"),
 }
 # the recorded outputs an arity run produces, compared with the default encoding's
 ARITY_OUTPUTS = {"goldens.toml", "kimp-test.out", "simple-acceptance.toml", "simple-acceptance.md"}
@@ -91,7 +92,8 @@ NOT_REGENERATED = {"generated/kimp/KImpBench/Programs.lean", "generated/kimp-d2/
 SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsimp", "generated/kmut", "generated/imptypes", "generated/ovl", "generated/kimpinv",
                          "generated/kimpkeys", "generated/kimpkeys-hand",
                          "generated/kimpfold", "generated/kimptop", "generated/nested",
-                         "generated/freekey", "generated/peano", "generated/peanob", "generated/cellmap", "generated/cellmapb"],
+                         "generated/freekey", "generated/peano", "generated/peanob", "generated/cellmap", "generated/cellmapb",
+                         "generated/kunroll", "generated/impsec", "generated/race"],
                "heavy": ["generated/simple", "generated/kimp-claims", "generated/simpleinv", "generated/simplestore", "generated/simplet",
                          "generated/kimpinv-claims"],
                "arity": ["generated/kimp-ar", "generated/simple-ar", "generated/kterm-ar"]}
@@ -100,7 +102,12 @@ DEMO_SOURCES = {"light": ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/corres
                           "demos/ImpTypes/ImpTypes/Typing.lean", "demos/ImpTypes/ImpTypes/Soundness.lean",
                           "demos/ImpMut/ImpMut/Tr.lean", "demos/ImpMut/correspondence.toml",
                           "demos/PeanoRel/PeanoRel/Bisim.lean", "demos/PeanoRel/correspondence.toml",
-                          "demos/CellMapRel/CellMapRel/Bisim.lean", "demos/CellMapRel/correspondence.toml"],
+                          "demos/CellMapRel/CellMapRel/Bisim.lean", "demos/CellMapRel/correspondence.toml",
+                          "demos/ImpUnroll/ImpUnroll/Tr.lean", "demos/ImpUnroll/ImpUnroll/Refine.lean",
+                          "demos/ImpUnroll/correspondence.toml", "demos/ImpUnroll/refine.toml",
+                          "demos/RaceConf/RaceConf/Confluence.lean", "demos/RaceConf/confluence.toml",
+                          "demos/ImpNI/ImpNI/Tr.lean", "demos/ImpNI/ImpNI/NI.lean",
+                          "demos/ImpNI/correspondence.toml", "demos/ImpNI/noninterference.toml"],
                 "heavy": [],
                 "arity": []}
 

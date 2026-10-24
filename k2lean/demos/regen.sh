@@ -9,6 +9,11 @@
 #   SimpleEnv     (heavy only) a kind 2 invariant of SIMPLE: every environment maps into the store
 #   PeanoRel, CellMapRel  the generator's fixtures peano and cellmap (../tests/fixtures) are each
 #                 bisimilar to themselves under two namespaces (`k2lean relate`, `Bisim.lean`)
+#   ImpUnroll     kimp and a variant whose `while` unrolls in one step less are stuttering
+#                 bisimilar (`k2lean refine` around the hand module `Relation.lean`)
+#   RaceConf      every schedule of the fixture race ends in one configuration (`k2lean confluence`)
+#   ImpNI         kimp's noninterference for the checker k/imp-sec.k, stated with its obligations
+#                 (`k2lean noninterference`)
 # ImpRel, ImpTypes and KrsImpTyping also have `Preserve.lean`, the preservation theorem proved with
 # the prelude's invariant core and `k2l_preserve`; ImpRel has `CollTest.lean`, tests of the
 # collection preservation lemmas; ImpTypes has `PreservesOf.lean`, `preservation` through the
@@ -83,7 +88,7 @@ export DEMOS=$D KRS=$D/k/krs-imp GEN
 kore_dir() { echo "$S/kore/$1"; }
 
 # 1. compiled KORE (krust): kimp and its lemma module, the type checker, the mutant, SIMPLE
-kores=(kimp kimp-verif imp-typing kmut)
+kores=(kimp kimp-verif imp-typing kmut kimp-unroll imp-sec)
 [ "$TIER" = heavy ] && kores+=(simple)
 for k in "${kores[@]}"; do libs_kcompile "$k" > "$S/kcompile-$k.log" 2>&1 || { tail -5 "$S/kcompile-$k.log"; exit 1; }; done
 
@@ -118,19 +123,25 @@ lib imptypes KImpTypes
 lib freekey FreeKey
 # the two sides of each fixture self-relation; the demo's build builds them as far as it needs
 for d in peano peanob cellmap cellmapb; do mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"; gen "$d"; done
+# the libraries of the scaffolds' demos, built by the demos as far as they need
+for d in kunroll impsec race; do mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"; gen "$d"; done
 if [ "$TIER" = heavy ]; then lib simple KSimple; fi
 
 # 4. the relations (generated files of ImpRel, ImpTypes, ImpMut, PeanoRel, CellMapRel) and the
 #    soundness modules of ImpTypes
-for ns in ImpRel ImpTypes ImpMut PeanoRel CellMapRel; do libs_relate "$ns" > "$S/relate-$ns.log" 2>&1 || { tail -5 "$S/relate-$ns.log"; exit 1; }; done
+for ns in ImpRel ImpTypes ImpMut PeanoRel CellMapRel ImpUnroll ImpNI; do libs_relate "$ns" > "$S/relate-$ns.log" 2>&1 || { tail -5 "$S/relate-$ns.log"; exit 1; }; done
 # the generated modules of ImpTypes' type-soundness proof (`k2lean soundness`)
 libs_soundness ImpTypes > "$S/soundness-ImpTypes.log" 2>&1 || { tail -5 "$S/soundness-ImpTypes.log"; exit 1; }
+# the scaffolds' generated modules (`k2lean refine`, `confluence`, `noninterference`)
+libs_refine ImpUnroll > "$S/refine-ImpUnroll.log" 2>&1 || { tail -5 "$S/refine-ImpUnroll.log"; exit 1; }
+libs_confluence RaceConf > "$S/confluence-RaceConf.log" 2>&1 || { tail -5 "$S/confluence-RaceConf.log"; exit 1; }
+libs_noninterference ImpNI > "$S/noninterference-ImpNI.log" 2>&1 || { tail -5 "$S/noninterference-ImpNI.log"; exit 1; }
 
 # 5. the projects; the axiom guards are `#k2l_assert_axioms` commands inside them, so a build
 #    that passes has checked them; `sorry` is rejected below
 printf 'module\tbuild\n' > "$S/modules.tsv"
 : > "$S/preserve.txt"
-projects=(ImpRel ImpTypes ImpMut KrsImpTyping PeanoRel CellMapRel)
+projects=(ImpRel ImpTypes ImpMut KrsImpTyping PeanoRel CellMapRel ImpUnroll RaceConf ImpNI)
 [ "$TIER" = heavy ] && projects+=(SimpleEnv)
 for p in "${projects[@]}"; do
   [ "${CLEAN:-0}" = 1 ] && rm -rf "$D/$p/.lake"

@@ -18,7 +18,7 @@ The output of `k2lean gen --kore definition.kore --runtime runtime.json --out DI
 | `NS/Adequacy.lean` | `step` against `Step` and `App`: sound by construction, complete rule by rule |
 | `NS/Determinism.lean` | `Step` is deterministic, along the rule index modulo the definition's overlapping pairs, each witnessed (§3.1), or by cases on pairs of rules (`--det-pairs`); for a definition whose rules match a map at several keys, why it is not claimed, and the check `uniqueAt c` instead |
 | `NS/Init.lean` | `init`, the initial configuration of the configuration declaration, with one parameter per configuration variable |
-| `NS/Preserves.lean` | `Step.Case.r P` per rule and `Step.preserves_of`, the per-rule preservation principle |
+| `NS/Preserves.lean` | `Step.Case.r P` per rule and `Step.preserves_of`, the per-rule preservation principle; `Step.Rel.r Q` and `Step.rel_of`, the same for a relation `Q c c'` between a step's source and target, which the scaffolds (§3.5 to §3.7) state their obligations with |
 | `NS/InvariantDefs.lean`, `NS/Invariants.lean` | with `--invariant NAME[@CELL]` or `--sidecar FILE`: the invariant and its `Preserved` theorem (`invariants.md`, §3) |
 | `NSTest/Axioms.lean` | the axiom guard: `#k2l_assert_axioms` over every proved theorem |
 | `NSTest/DetAxioms.lean` | the axiom guard of `NS.Determinism` alone, which `NSTest.Axioms` imports: it builds without `NS.Equations` (§3.1) |
@@ -261,6 +261,80 @@ The case splits are prelude tactics (`KPrelude.Soundness`: `k2l_cases_apps`, `k2
 It is a command of its own rather than an option of `relate`: it reads the checker's equations and the semantics' rules and writes two modules around a hand module, while `relate --roots` stays the translation.
 Not supported (the command stops with a message): rules of several priorities; a top cell whose children are not leaf cells; holes of several sorts; types that are not an enumeration; typing functions that are not `Option`-valued or take other than a term and an environment; a store-reading rule whose head of `<k>` is not a `KItem` injection of variables, or two such rules with one head.
 
+### 3.4 Scaffolds: what is generated and what is supplied
+
+Three theorem templates need an argument no generator has: a correspondence that is not a renaming (refinement), a commutation argument (confluence), a relation between two runs (noninterference).
+For each, k2lean generates the statement and its decomposition into named obligations, proves the reduction once for every relation (`KPrelude.Scaffold`), proves the obligations that a generic argument closes, and leaves the others to a hand module, whose cases it names.
+The obligations are stated with `Step.Rel.r Q` (`Preserves.lean`): every instance of rule `r` relates its left- and right-hand sides by `Q`; `Step.rel_of` assembles one such case per rule into `Q c c'` for every step, by one `cases`, since `Step` has one constructor per rule.
+Each template has a demonstration in the light tier; the table separates what is generated from what a person supplies.
+In the heavy gate run of 2026-10-25 (Lean v4.34.0, shared 32-CPU host, load about 50 to 67, work tree seeded with another run's builds), the three demonstrations and their libraries took 146 s wall and 248 s of CPU together, nearly all of it the three libraries' `Terms` (34 to 42 s each); every scaffold module built in 0.5 to 1.2 s, and `relate --per-rule`'s `Tr.lean` for ImpUnroll in 10 s.
+
+| template | command | generated | supplied (hand module) | demonstration |
+|---|---|---|---|---|
+| refinement (stuttering bisimulation) | `refine` | the relation's shape `d = tr c ∨ X c d`, the cases of every rule in both directions, the generic ones proved, the bisimulation and the transfer of terminating runs | the non-local part `X`, the measures, the cases left | `demos/ImpUnroll`: 310 of 316 case parts generated |
+| confluence modulo scheduling | `confluence` | the statement from a cell list, the join of every ordered pair of rules, the generic ones proved, the classification of the pairs | the program hypothesis `H` and its preservation, a measure for Newman's lemma (`--join local`), the joins left | `demos/RaceConf`: 9 of 9 joins generated; SIMPLE: 836 of 14,365 pairs critical, counted |
+| noninterference | `noninterference` | the statement, `Final`, the reduction to a relation on pairs of runs and its three modes, one obligation per rule and mode | `secure`, `lowEq` (a security checker in K and its labelling), the relation and every obligation | `demos/ImpNI`: 240 obligations stated, none discharged |
+
+### 3.5 Refinement: a stuttering bisimulation (`refine`)
+
+Two definitions of one language can take steps of different granularity: a rule split in two, a loop that unrolls in one step less.
+`R` is a stuttering simulation of `A` by `B` with measure `μ` (`StutterSim`) when a step `c → c'` of `A` from a state related to `d` is matched by one or more steps of `B` to a state related to `c'`, or by none, with `c'` still related to `d` and `μ c' < μ c`; a stuttering bisimulation (`StutterBisim`) is one in each direction, with measures `μ` and `ν`.
+It transfers terminating runs (`StutterBisim.terminal_run`): a run of `A` to a terminal state is matched by a run of `B` from a related state to a terminal state related to it, because at a state related to a terminal state of `A`, `B` can only stutter, and `ν` bounds that.
+
+`k2lean refine` takes the correspondence of `relate --per-rule true`: the translation `tr`, and for each pair of rules with the same KORE axiom up to renaming, the lemmas `fwd.r` (a step of `A` by `r` translates to a step of `B` by its counterpart) and `bwd.r` (a step of `B` from a translation is the translation of a step of `A`), proved as the arms of `relate`'s simulations are (§3.2; an order-preserving translation, no priority ranks).
+The relation is `Stutter.Rel tr X c d := d = tr c ∨ X c d`: the translation where the steps correspond, and the non-local part `X` that the hand module defines where they do not.
+Each rule's case in each direction is split in two parts (`Stutter.fwdQ_of`, `bwdQ_of`):
+
+- at a translation (`fwd_tr r`, `bwd_tr r`): one step of the other side and the translation again, from `fwd.r` or `bwd.r`, when `r` has a counterpart;
+- at a state `X` relates (`fwd_x r`, `bwd_x r`): refuted by `cases` on `X`, which closes when the rule's left-hand side and `X`'s indices clash on a constructor.
+  So `X` is written as an inductive predicate whose `B` side is a pattern of `B`'s constructors over variables, each equated to the translation of `A`'s (`demos/ImpUnroll/ImpUnroll/Relation.lean`): `cases` then never has to invert a translation.
+
+The parts the generator cannot write are listed in an open list (`--open`, `KIND RULE` per line) and taken from the hand module (`hand.fwd_tr.r : A.Step.Rel.r (Stutter.FwdTr …)` and so on); a generic part that does not close is a build error, so the list is exactly the hand cases.
+The output module proves `bisim : StutterBisim A.Step B.Step (Stutter.Rel tr X) μ ν`, `run_fwd` and `run_bwd`.
+
+`demos/ImpUnroll` relates kimp to a variant whose `while` rewrites straight to the two-armed `if (C) {…} else {}` (`tests/kimp-unroll.py`), so kimp takes two steps (`while`, `if-else`) where the variant takes one.
+78 of 79 rules pair; of the 316 case parts, 310 are generated.
+The hand module supplies `X` (kimp at a one-armed `if`, the variant at its completion), `μ` (1 at a one-armed `if`), `ν = 0`, and 6 parts: `while` in both directions (two steps of kimp against one), kimp's `if-else` at an `X` state (kimp stutters and `μ` decreases), and the variant's `if-true`, `if-false` and condition heating at an `X` state (kimp completes its `if`, then takes the same step).
+`Run.lean` derives that two runs to terminal states end in translations of each other, since `X` never relates a terminal state of kimp.
+
+### 3.6 Confluence modulo scheduling (`confluence`)
+
+The statement, for a program hypothesis `H` (a predicate with `H.preserved : Preserved Step H`, from the hand module) and an observation `obs` (the cells `--obs` names): two runs from a configuration satisfying `H` that end in terminal configurations end in the same one (`terminal_unique`), so they observe the same `obs` (`obs_confluent`).
+Equality is the instance `E = Eq` of the prelude's theorems, which hold modulo any equivalence `E` that is a strong bisimulation of `Step` with itself (`StepEquiv`), for definitions whose finals differ in unobserved cells.
+It follows from the diamond property modulo `E` (`DiamondMod`: two steps from one state join in at most one step each; `terminal_unique_of_diamond`, by the strip lemma, with no termination hypothesis) or, with `--join local`, from local confluence (`JoinMod`) and a measure every step from `H` decreases (Newman's lemma, `terminal_unique_of_local`; the hand module supplies `μ` and `μ_dec`).
+The joins are one obligation per ordered pair of rules, `pair.r₁.r₂ : Step.Rel.r₁ (fun c c₁ => Step.Rel.r₂ (fun c' c₂ => c' = c → H c → DiamondMod Step Eq c₁ c₂))`, attempted in order by:
+
+- refutation: the two left-hand sides do not unify (`cases` on `c' = c`);
+- one instance: the same rule at the same match gives the same successor;
+- two bindings of a cell map matched at a free key (threads, workers): two updates of different bindings commute (`MapHook.concat_element_comm`), and an update and the insertion of a fresh binding commute (`concat_element_comm_insert`); the same binding is one instance;
+- each rule applied after the other with its own hypotheses (rules on disjoint cells);
+- the joined states closed by `k2l_join_eq`: equal, or equal up to the commutativity and associativity of integer addition (two updates of a shared counter).
+
+The map lemmas rest on the extensionality of canonical maps (`SAL.ext`: two sorted association lists with the same lookups are equal).
+The pairs listed in `--open` (`RULE | RULE`) are the hand module's (`hand.pair.r₁.r₂`, of the same type).
+
+The report (`--report`) classifies the unordered pairs without Lean.
+At one binding (two free-key matches taken as the same, `pairs.rs`'s classifier with `same_binding`): `clash`, `exclusive`, `priority` (pairs of different ranks, which the stratified `Step` separates), and `overlap`, split by footprint into `overlap-independent` (neither rule writes a cell the other reads or writes) and `overlap-conflict`.
+At two bindings of one cell map: `independent` (both update their binding and their footprints on the other cells are disjoint, so the map lemma commutes them), `conflict` (they race on a shared cell, named in `[races]`), and `map-structure` (a rule changes the map's bindings otherwise: a removal, a two-map concatenation).
+The critical pairs are the `overlap-conflict`, `conflict` and `map-structure` ones; the footprints are untrusted, the Lean build is the check.
+
+`demos/RaceConf` is the fixture `race` (`tests/fixtures/race`: workers in a cell map each add their count to a shared accumulator, one unit at a time; `spawn` inserts a worker with a fresh id): all 9 ordered pairs are generated and proved, `H = True` (a fresh id is not a key, which the insertion's own definedness says), and every schedule ends in one configuration.
+SIMPLE is counted, not built (`--report-only`, heavy tier, `simple-confluence.toml` recorded): 169 rules make 28,561 pair theorems, beyond a gate tier's budget (estimate, from the fixture's cost per pair; not measured).
+Of its 14,365 unordered pairs, 13,544 are separated at one binding (10,172 clashes, 2,707 exclusive, 665 of different ranks) and 12,545 commute at two threads; 836 are critical: 178 at one binding of a thread (61 with a heating rule: the order of evaluation of a strict operator's arguments, which joins only after several steps, so SIMPLE needs `--join local` and a measure; 117 between a thread's end and another rule, which the classifier does not separate, since it does not unify the two map patterns, although the two `<k>` cells clash), 16 at two threads racing on `store`, `busy`, `nextLoc`, `input`, `output`, `genv`, `terminated` or the fresh counter, and 642 with a rule that changes the thread map's bindings (`spawn`, a thread's end, `rendezvous`).
+A data-race freedom hypothesis `H` would discharge the 16 races; the 178 and 642 need joins of several steps.
+
+### 3.7 Noninterference (`noninterference`)
+
+The statement (termination-insensitive): for a program `secure` at a labelling and two stores related by `lowEq`, two runs from `init P E₁` and `init P E₂` that both end in final configurations (`<k>` empty, `Final`) end in stores related by `lowEq`.
+`secure` and `lowEq` are the hand module's; in `demos/ImpNI` they are the acceptance of the program's translation by a two-level security checker written in K (`demos/k/imp-sec.k`: `lev` the level of an expression, `sec` at a low program counter, `conf` for the confined branches of a high condition; library `impsec`, translation by `relate --roots`), and the agreement of the stores on the identifiers labelled `lo`.
+The reduction is `ProductInv.final`: a relation `Rel` on pairs of states from which, unless both are final, one side that is not final, or both, can be advanced by any of their steps without leaving `Rel` relates the final states of any two runs from related states.
+`ProductInv.of_modes` builds it from three modes of `Rel`: `Sync` (both runs step), `Left` and `Right` (one run steps while the other waits, where a secret branch desynchronizes them), and `cover` (which mode a pair is in).
+The generated module states `Obligations Rel Sync Left Right`, a structure of `init`, `final`, `cover` and one field per rule and mode (`sync:r`, `left:r`, `right:r`, stated with `Step.Rel`), and proves `noninterference` for every relation that satisfies it, `Final`, and that a final configuration has no step.
+
+On kimp the structure has 240 fields (3 per rule for 79 rules, and 3), and none is discharged: they depend on the relation, which is the person's.
+The relation that would satisfy them is known (estimate: T3's cost doubled): `Sync` relates configurations with the same `<k>`, low-equal stores and a well-labelled `<k>` (the stack typing of §3.3 at levels), so a step of either is a step of the other by the same rule, by determinism; `Left` and `Right` relate a confined prefix of `<k>` over a common continuation, whose steps keep the low part of the store (confinement is a unary invariant, `k2l_preserve`'s kind).
+Generating that relation from the checker is the next experiment.
+
 ## 4. Commands
 
 | command | does |
@@ -271,6 +345,9 @@ Not supported (the command stops with a message): rules of several priorities; a
 | `survey` | which constructs of a definition the generator supports, without writing a library |
 | `relate` | the correspondence of two definitions, and its Lean translation |
 | `soundness` | the runtime typing, preservation, progress and type soundness of a semantics for a K type checker, around a hand module (§3.3) |
+| `refine` | a stuttering bisimulation between two definitions whose steps do not correspond one to one, from `relate --per-rule` and a hand module (§3.5) |
+| `confluence` | the determinism of observations modulo scheduling, one join per ordered pair of rules, and a classification of the pairs (§3.6) |
+| `noninterference` | termination-insensitive noninterference reduced to a product relation and its obligations (§3.7) |
 | `claims`, `claims replay` | K claims as Lean statements and proofs; with `--assume-invariant`, under a preserved invariant; with `--induction`, the termination of a sublanguage (§3.2) |
 | `new-invariant` | the skeleton of a kind 2 invariant project (`invariants.md`, §4) |
 | `diff OLD NEW [--hand PATH]…` | the rules whose `Step.Case` changed between two generations, the generated functions whose definitions changed with the rules that call them, and the hand-written references to both (`invariants.md`, §7) |

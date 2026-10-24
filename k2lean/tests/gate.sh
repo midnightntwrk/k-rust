@@ -11,7 +11,10 @@
 #                                 ImpRel, ImpTypes, ImpMut, KrsImpTyping,
 #                                 ImpWrites (a kind 2 invariant that walks <k>), and the fixture
 #                                 self-relations PeanoRel and CellMapRel (libraries peano, peanob,
-#                                 cellmap, cellmapb); the kind 1 invariants of kimpinv (two K
+#                                 cellmap, cellmapb); the scaffolds' demos ImpUnroll (a stuttering
+#                                 bisimulation, library kunroll), RaceConf (confluence of the
+#                                 fixture race) and ImpNI (noninterference, library impsec); the
+#                                 kind 1 invariants of kimpinv (two K
 #                                 functions of demos/k/kimp-inv), kimpfold and kimptop (the same
 #                                 definition: a fold with a parameter, the top-cell form), kimpkeys
 #                                 (the walkthrough of docs/invariants.md, demos/k/kimp-keys),
@@ -238,6 +241,8 @@ if [ "$TIER" != arity ]; then
   kc imp-typing
   kc kmut
   kc ovl
+  kc kimp-unroll
+  kc imp-sec
 fi
 phase llvm
 key=$(cd "$KIMP" && find . -type f | sort | xargs sha256sum | sha256sum | cut -c1-12)
@@ -470,7 +475,33 @@ for p in PeanoRel CellMapRel; do
   if lbuild "$D/$p" "build-$p"; then ok "build $p" "$L/build-$p.log"; else bad "build $p" "$L/build-$p.log"; fi
 done
 
-# 5b. the kind 2 template: the skeleton `k2lean new-invariant` writes for kimp, rewritten on every
+# 5b. the scaffolds (docs/design.md, sections 3.5 to 3.7): a stuttering bisimulation (ImpUnroll:
+#     kimp against tests/kimp-unroll.py's variant, library kunroll), confluence modulo scheduling
+#     (RaceConf: the fixture race) and noninterference (ImpNI: kimp and the checker
+#     demos/k/imp-sec.k, library impsec), each library built only as far as its demo needs
+phase "scaffolds"
+for d in kunroll impsec race; do
+  mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"
+  if genlib "$d"; then
+    t=$(libs_name "$d").Preserves; [ "$d" = impsec ] && t=KImpSec.Functions
+    if lbuild "$GEN/$d" "build-$d" "$t"; then ok "build $d" "$L/build-$d.log"
+    else bad "build $d" "$L/build-$d.log"; fi
+  else bad "gen $d" "$L/gen-$d.log"; fi
+done
+rel ImpUnroll
+rel ImpNI
+scaffold() { # NAME COMMAND...: one scaffold generator call (tests/libs.sh)
+  local n=$1; shift
+  "$@" > "$L/$n.log" 2>&1 && ok "$n" "$L/$n.log" || bad "$n" "$L/$n.log"
+}
+scaffold refine-ImpUnroll libs_refine ImpUnroll
+scaffold confluence-RaceConf libs_confluence RaceConf
+scaffold noninterference-ImpNI libs_noninterference ImpNI
+for p in ImpUnroll RaceConf ImpNI; do
+  if lbuild "$D/$p" "build-$p"; then ok "build $p" "$L/build-$p.log"; else bad "build $p" "$L/build-$p.log"; fi
+done
+
+# 5c. the kind 2 template: the skeleton `k2lean new-invariant` writes for kimp, rewritten on every
 #     run (the command never overwrites a file, so the skeleton's files are deleted first; .lake/
 #     and the manifest are kept), built like a demo (demo.Kind2Template)
 phase "kind2 template"
@@ -531,6 +562,10 @@ if [ "$TIER" = heavy ]; then
     libs_simple_cases
     lib_simple simple && ok "simple acceptance" "$MEAS/simple-acceptance.md"
     diffs simple
+    # SIMPLE's pairs of rules for confluence modulo scheduling, counted (`k2lean confluence
+    # --report-only`, docs/design.md, section 3.6): a recorded output
+    libs_confluence SimpleConf "$MEAS/simple-confluence.toml" > "$L/confluence-SimpleConf.log" 2>&1 \
+      && ok "confluence SimpleConf" "$L/confluence-SimpleConf.log" || bad "confluence SimpleConf" "$L/confluence-SimpleConf.log"
   else bad "kcompile simple" "$L/kcompile-simple.log"; fi
 
   # SIMPLE's invariants. Kind 1: SIMPLE with the K function `holdsOk` (demos/k/simple-inv), only
