@@ -361,8 +361,9 @@ pub struct CaseOptions {
     /// Findings of either definition's full critical-pair check that the data judgement reads as
     /// resolved (`k_rust_backend::data_term`, "Assumed pairs"; ARCHITECTURE 4.3): a pair as
     /// joining, an equation as agreeing with its hook or applied as written, a precondition row as
-    /// met (only an overload row: a row that an equation rewrites a constructor-, injection- or
-    /// collection-headed term is a decided fact, and its name is refused). Each is named as the
+    /// met (only an overload row: a row that an equation is headed by a constructor or an
+    /// injection or indexed at a collection or a bare variable is a decided fact, and its name is
+    /// refused). Each is named as the
     /// report's `definition-findings` name it: a pair
     /// `FIRST,SECOND@POSITION`, each rule
     /// by its written position `FILE:LINE:COLUMN` (the file may be shortened to any trailing

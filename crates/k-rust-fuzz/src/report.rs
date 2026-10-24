@@ -761,9 +761,9 @@ pub struct DefinitionFinding {
     pub side: DefinitionRole,
     /// `genuine` when a ground instance is exhibited at which both equations apply and the input
     /// has two normal forms, so k-rust's result for that input depends on the order in which it
-    /// tries the equations; `decided` for a precondition row that states an equation rewrites a
-    /// constructor-, injection- or collection-headed term, or an equation whose right-hand side
-    /// leaves a variable unbound (a fact about the definition as written, which no assumption
+    /// tries the equations; `decided` for a precondition row that an equation is headed by a
+    /// constructor or an injection or indexed at a collection or a bare variable, or an equation
+    /// whose right-hand side leaves a variable unbound (a fact about the definition as written, which no assumption
     /// removes); `undecided` otherwise: not shown to join, which may
     /// be a limit of the check as well as an input with two normal forms.
     pub verdict: FindingVerdict,
@@ -813,9 +813,11 @@ pub enum FindingVerdict {
     /// Not shown to join; possibly a limit of the check.
     Undecided,
     /// A fact the check decides about the definition as written, not a limit of it: an
-    /// equation rewrites a term headed by a constructor, an injection or a collection (a
-    /// precondition row), which the data judgement reads as free, so such terms are not normal
-    /// forms; or an equation's right-hand side leaves a variable unbound by its left-hand side,
+    /// equation is headed by a constructor or an injection (it rewrites such terms) or indexed at
+    /// a collection or a bare variable (its axiom equates the collection terms it describes with
+    /// its right-hand side, or it is offered at every subject), terms the data judgement reads
+    /// as free, so they are not distinct normal forms (a precondition row); or an equation's
+    /// right-hand side leaves a variable unbound by its left-hand side,
     /// so read as written it equates every value of that sort. No end of the definition is
     /// data. It cannot be assumed (`assume-joined`): fix the equation.
     Decided,

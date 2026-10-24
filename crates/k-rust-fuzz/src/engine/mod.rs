@@ -805,8 +805,11 @@ fn not_comparable(
              findings (listed in the report's definition-findings). A genuine pair comes with a \
              ground instance at which both equations apply and the input has two normal forms, \
              so k-rust's result for it depends on the order it tries the equations; a decided \
-             finding is an equation that rewrites a constructor-, injection- or \
-             collection-headed term, so such terms are not normal forms; an undecided one (a \
+             one is a fact about the definition as written (an equation headed by a constructor \
+             or an injection, or indexed at a collection or a bare variable, so the terms it \
+             describes are not distinct normal forms; or an equation whose right-hand side \
+             leaves a variable unbound, which equates every value of its sort); an undecided one \
+             (a \
              pair, an equation not shown to agree with its hook, an overload row) may be a limit \
              of the check. Fix a genuine or decided finding in the definition. Naming an \
              undecided or genuine finding with `assume-joined` (by its name in \

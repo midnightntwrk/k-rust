@@ -111,9 +111,11 @@
 //! genuine pair makes no model whatever the inputs.
 //!
 //! A decided finding ([`Finding::is_decided`]) cannot be assumed: an equation headed by a
-//! constructor or an injection, or indexed at a collection or a bare variable, rewrites terms
-//! that [`BackendDefinition::is_data`] reads as free without consulting the load verdict, so they
-//! are not normal forms, and no premise that keeps the equation an axiom makes them so; and an
+//! constructor or an injection rewrites, and one indexed at a collection or a bare variable
+//! equates with its right-hand side (as an axiom the evaluator never applies, or at every
+//! subject), terms that [`BackendDefinition::is_data`] reads as free without consulting the load
+//! verdict, so they are not distinct normal forms, and no premise that keeps the equation an
+//! axiom makes them so; and an
 //! equation whose right-hand side leaves a variable unbound by its left-hand side equates, read
 //! as written, its left-hand side with every value of that variable's sort, which the evaluator
 //! never applies, so there is no reading of it as written to assume.
@@ -192,11 +194,12 @@ impl Finding {
     /// Whether the finding is a fact the check decides about the definition as written, which no
     /// assumption about it removes, so [`BackendDefinition::data_heads_assuming`] never moves
     /// it:
-    /// - a precondition row that withdraws claims
-    ///   ([`ViolationKind::withdraws`](crate::confluence::ViolationKind::withdraws): an
-    ///   executable equation headed by a constructor or an injection, or indexed at a collection
-    ///   or a bare variable). The equation rewrites terms the data judgement reads as free, so
-    ///   those terms are not normal forms;
+    /// - a precondition row about an executable equation's left-hand side: headed by a
+    ///   constructor or an injection (it rewrites terms the data judgement reads as free), or
+    ///   indexed at a collection or a bare variable (its axiom equates the collection terms it
+    ///   describes with its right-hand side, or it is offered at every subject), so those terms
+    ///   are not distinct normal forms. A `PinnedByInjectiveTotal` row, which names no equation,
+    ///   is not decided;
     /// - an equation whose right-hand side or `ensures` has variables its left-hand side does
     ///   not bind
     ///   ([`UnjoinedReason::UnboundResultVariables`](crate::confluence::UnjoinedReason::UnboundResultVariables)).
@@ -206,7 +209,15 @@ impl Finding {
     #[must_use]
     pub fn is_decided(&self) -> bool {
         match self {
-            Self::Precondition(violation) => violation.kind.withdraws(),
+            // Only the rows about an executable equation's own left-hand side; a pinned
+            // injective symbol (`PinnedByInjectiveTotal`), which also withdraws claims, names no
+            // equation and is assumable.
+            Self::Precondition(violation) => matches!(
+                violation.kind,
+                crate::confluence::ViolationKind::ConstructorHeaded(_)
+                    | crate::confluence::ViolationKind::InjectionHeaded
+                    | crate::confluence::ViolationKind::IndexedAt(_)
+            ),
             Self::Equation(pair) => matches!(
                 pair.reason,
                 crate::confluence::UnjoinedReason::UnboundResultVariables

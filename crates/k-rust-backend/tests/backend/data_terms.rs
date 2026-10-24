@@ -478,3 +478,22 @@ fn an_equation_with_an_unbound_result_variable_is_decided_and_never_assumed() {
             .all(|finding| !finding.is_decided())
     );
 }
+
+/// INT8 follow-ups review round 2 (R2-B1): a `PinnedByInjectiveTotal` row also withdraws claims,
+/// but it names no equation: it is an overload premise, not a decided fact about an equation's
+/// left-hand side, so it is not decided (and can be assumed), unlike the three rows about an
+/// executable equation's left-hand side.
+#[test]
+fn a_pinned_injective_row_is_not_decided() {
+    use k_rust_backend::{
+        confluence::{Violation, ViolationKind},
+        data_term::Finding,
+        rule::TermIndex,
+    };
+    let row = |kind| Finding::Precondition(Violation { rule: None, kind });
+    assert!(!row(ViolationKind::PinnedByInjectiveTotal("Lblenc".into())).is_decided());
+    assert!(!row(ViolationKind::OverloadShape("Lblf".into())).is_decided());
+    assert!(row(ViolationKind::ConstructorHeaded("Lblc".into())).is_decided());
+    assert!(row(ViolationKind::InjectionHeaded).is_decided());
+    assert!(row(ViolationKind::IndexedAt(TermIndex::List)).is_decided());
+}

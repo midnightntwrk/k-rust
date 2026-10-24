@@ -1571,7 +1571,9 @@ fn a_decided_precondition_row_cannot_be_assumed() {
         assert_eq!(finding.kind, FindingKind::Precondition, "{finding:?}");
         assert_eq!(finding.verdict, FindingVerdict::Decided, "{finding:?}");
         assert!(
-            finding.reason.contains("not normal forms") && !finding.reason.contains("limit"),
+            finding.reason.contains("not distinct normal forms")
+                && finding.reason.contains("never applies")
+                && !finding.reason.contains("limit"),
             "{finding:?}"
         );
     }

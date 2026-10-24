@@ -322,10 +322,12 @@ pub(crate) fn decided_named(given: &str, heads: &DataHeads) -> Option<(String, S
                      premise about the definition",
                     unbound_variables(pair)
                 ),
-                _ => "a precondition row: its equation rewrites terms the data judgement reads \
-                      as free (constructor-, injection- or collection-headed), so no assumption \
-                      about the definition as written makes them normal forms"
-                    .to_owned(),
+                Finding::Precondition(violation) => format!(
+                    "a precondition row: {}, which the data judgement reads as free, and no \
+                     assumption about the definition as written changes that",
+                    decided_fact(violation)
+                ),
+                Finding::Pair { .. } => return None,
             };
             Some((finding_name(finding)?, why))
         })
@@ -361,32 +363,45 @@ fn decided_equation_reason(pair: &UnjoinedPair) -> String {
     )
 }
 
-/// What a decided precondition row states (the row withdraws claims: an equation rewrites terms
-/// the data judgement reads as free): the equation, the terms it rewrites, and that those terms
-/// are not normal forms, so no end of the definition is data.
-fn decided_reason(violation: &Violation) -> String {
+/// What a decided precondition row states (an equation headed by a constructor or an injection,
+/// or indexed at a collection or a bare variable): the equation and the terms that are therefore
+/// not distinct normal forms, so no end of the definition is data.
+fn decided_fact(violation: &Violation) -> String {
     let rule = violation.rule.as_ref().map_or_else(
         || "an equation".to_owned(),
         |rule| format!("`{}`", equation(rule)),
     );
-    let rewrites = match &violation.kind {
+    match &violation.kind {
         ViolationKind::ConstructorHeaded(symbol) => {
             let symbol = label(symbol);
-            format!("a term headed by the constructor `{symbol}`, so `{symbol}` terms are")
+            format!(
+                "{rule} rewrites a term headed by the constructor `{symbol}`, so `{symbol}` terms \
+                 are not normal forms"
+            )
         }
-        ViolationKind::InjectionHeaded => "a sort injection, so injected terms are".to_owned(),
-        ViolationKind::IndexedAt(TermIndex::Variable) => {
-            "any term (it is indexed at a bare variable), so its subjects are".to_owned()
+        ViolationKind::InjectionHeaded => {
+            format!("{rule} rewrites a sort injection, so injected terms are not normal forms")
         }
-        ViolationKind::IndexedAt(index) => {
-            format!("a {index:?}-headed term, so {index:?} terms are")
-        }
-        other => return other.to_string(),
-    };
+        ViolationKind::IndexedAt(TermIndex::Variable) => format!(
+            "{rule} is indexed at a bare variable and is offered at every subject, so the terms \
+             it rewrites are not normal forms"
+        ),
+        ViolationKind::IndexedAt(index) => format!(
+            "{rule} states the instances of its left-hand side, {index:?} terms, equal to its \
+             right-hand side, an axiom the evaluator never applies, so those {index:?} terms are \
+             not distinct normal forms"
+        ),
+        other => other.to_string(),
+    }
+}
+
+/// [`decided_fact`] as a report reason: the fact, that no end of the definition is data, and the
+/// remedy.
+fn decided_reason(violation: &Violation) -> String {
     format!(
-        "{rule} rewrites {rewrites} not normal forms: no end of this definition is data (a fact \
-         about the definition as written, which assume-joined cannot remove; change that \
-         equation)"
+        "{}: no end of this definition is data (a fact about the definition as written, which \
+         assume-joined cannot remove; change that equation)",
+        decided_fact(violation)
     )
 }
 
@@ -848,5 +863,31 @@ endmodule{tail}"#
         let (named, why) = decided_named(&name, &heads).expect("refused");
         assert_eq!(named, name);
         assert!(why.contains("leaves `Y` unbound"), "{why}");
+    }
+
+    /// INT8 follow-ups review round 2 (R2-B1): a pinned injective row is an overload premise,
+    /// not a decided fact: its report entry is `undecided` with the row's own text, and its
+    /// name is one `assume-joined` accepts.
+    #[test]
+    fn a_pinned_injective_row_is_undecided_and_its_name_accepted() {
+        use k_rust::k_rust_backend::{
+            confluence::{Violation, ViolationKind},
+            data_term::Finding,
+        };
+        let finding = Finding::Precondition(Violation {
+            rule: None,
+            kind: ViolationKind::PinnedByInjectiveTotal("Lblenc".into()),
+        });
+        assert!(!finding.is_decided());
+        let report = entry(DefinitionRole::Baseline, &finding, false, None);
+        assert_eq!(report.verdict, FindingVerdict::Undecided);
+        assert!(
+            report.reason.contains("total and injective"),
+            "{}",
+            report.reason
+        );
+        let name = finding_name(&finding).expect("named");
+        assert_eq!(name, "precondition:pinned-by-injective-total:enc");
+        assert!(super::assumed(std::slice::from_ref(&name), &finding));
     }
 }
