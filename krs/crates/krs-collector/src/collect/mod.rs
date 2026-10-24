@@ -319,22 +319,19 @@ fn collect_pending_descriptors(
             ));
         };
         let id = stable_item_id(&host.id, &contexts[context_index])?;
+        // The ownership check follows the lookup of the descriptor's package context, which
+        // locating its error needs; a descriptor of a package outside the selection is no part
+        // of the definition, so that error comes first whatever the descriptor's shape.
         if let Err(error) = host.validate_state_ownership() {
-            let mismatch = matches!(
-                error,
-                krs_ir::StateTransportError::InitializerDeclarationMismatch
-            );
-            let mut error = CollectionError::new(
+            let at = error.at().cloned();
+            let error = CollectionError::new(
                 CollectionErrorKind::InvalidConfiguration,
                 format!("invalid host configuration descriptor: {error}"),
             );
-            // An initializer that disagrees with its declaration is located at its body.
-            if mismatch {
-                error = error.with_reference_key(krs_ir::ProvenanceKey::new(
-                    krs_ir::ProvenanceRole::InitializerBody,
-                    0,
-                ));
-            }
+            let error = match at {
+                Some(key) => error.with_reference_key(key),
+                None => error,
+            };
             return Err(locate_at_host(error, &host, &id, context_index, contexts));
         }
         if !ids.insert(id.clone()) {
@@ -487,6 +484,11 @@ fn descriptor_contract_error(failure: krs_ir::DescriptorFailure) -> CollectionEr
         provenance,
         id,
     } = failure;
+    // A state contract that names its node locates the error there when no term walk did.
+    let at = at.or_else(|| match &error {
+        krs_ir::DescriptorError::State(error) => error.at().cloned(),
+        _ => None,
+    });
     let (kind, message) = match error {
         krs_ir::DescriptorError::Grammar(error) => (
             CollectionErrorKind::ProvenanceMismatch,

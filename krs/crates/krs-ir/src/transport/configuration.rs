@@ -709,7 +709,11 @@ pub enum StateTransportError {
     /// Stable Rust field spelling disagreed with cell identity.
     CellFieldMismatch,
     /// Initializer and declaration field trees disagreed.
-    InitializerDeclarationMismatch,
+    InitializerDeclarationMismatch {
+        /// The initializer node that disagrees, when one does: a cell whose field is not the
+        /// declaration's, or the initializer of another owner.
+        at: Option<ProvenanceKey>,
+    },
     /// More than one configuration variable was marked main.
     MultipleMainVariables,
     /// A `KCell` or state family disagreed with its declaration.
@@ -727,6 +731,28 @@ pub enum StateTransportError {
     },
     /// Materialized provenance contained a key absent from the typed payload.
     ExtraProvenance(ProvenanceKey),
+}
+
+impl StateTransportError {
+    /// The node the failure is about, when it names one that the provenance can locate.
+    #[must_use]
+    pub const fn at(&self) -> Option<&ProvenanceKey> {
+        match self {
+            Self::InitializerDeclarationMismatch { at } => at.as_ref(),
+            Self::UnexpectedProvenance { actual: key, .. } | Self::ExtraProvenance(key) => Some(key),
+            Self::InvalidText(_)
+            | Self::EmptyCollection(_)
+            | Self::DuplicateValue(_)
+            | Self::ItemKind { .. }
+            | Self::CellOwnerMismatch
+            | Self::CellFieldMismatch
+            | Self::MultipleMainVariables
+            | Self::InvalidCellContent(_)
+            | Self::InvalidTerm(_)
+            // A key absent from the provenance locates nothing.
+            | Self::MissingProvenance(_) => None,
+        }
+    }
 }
 
 impl fmt::Display for StateTransportError {
@@ -747,7 +773,7 @@ impl fmt::Display for StateTransportError {
             Self::CellFieldMismatch => {
                 formatter.write_str("cell identity and Rust field name mismatch")
             }
-            Self::InitializerDeclarationMismatch => {
+            Self::InitializerDeclarationMismatch { .. } => {
                 formatter.write_str("initializer cell tree disagrees with its declaration")
             }
             Self::MultipleMainVariables => {
@@ -1440,7 +1466,9 @@ fn validate_initializer<S: ConfigurationValidationStage>(
     keys: &mut BTreeSet<ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
     if !S::owners_match(&initializer.owner, owner) {
-        return Err(StateTransportError::InitializerDeclarationMismatch);
+        return Err(StateTransportError::InitializerDeclarationMismatch {
+            at: Some(initializer.owner_key.clone()),
+        });
     }
     insert_exact(
         keys,
@@ -1578,11 +1606,13 @@ fn validate_initializer_cells<S: ConfigurationValidationStage>(
         ));
     }
     if cells.len() != declarations.len() {
-        return Err(StateTransportError::InitializerDeclarationMismatch);
+        return Err(StateTransportError::InitializerDeclarationMismatch { at: None });
     }
     for (cell, declaration) in cells.iter().zip(declarations) {
         if !S::initializer_field_matches(&cell.field, declaration, owner) {
-            return Err(StateTransportError::InitializerDeclarationMismatch);
+            return Err(StateTransportError::InitializerDeclarationMismatch {
+                at: Some(cell.key.clone()),
+            });
         }
         validate_initializer_cell::<S>(cell, Some(declaration), owner, bindings, counters, keys)?;
     }
@@ -1665,7 +1695,9 @@ fn validate_initializer_cell<S: ConfigurationValidationStage>(
                 keys,
             )
         }
-        _ => Err(StateTransportError::InitializerDeclarationMismatch),
+        _ => Err(StateTransportError::InitializerDeclarationMismatch {
+            at: Some(cell.key.clone()),
+        }),
     }
 }
 
@@ -1680,7 +1712,9 @@ fn validate_nested_children<S: ConfigurationValidationStage>(
     for child in children {
         if !S::cell_owned_by(&child.field, owner) || !fields.insert(S::field_identity(&child.field))
         {
-            return Err(StateTransportError::InitializerDeclarationMismatch);
+            return Err(StateTransportError::InitializerDeclarationMismatch {
+                at: Some(child.key.clone()),
+            });
         }
         validate_initializer_cell::<S>(child, None, owner, bindings, counters, keys)?;
     }

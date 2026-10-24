@@ -231,10 +231,10 @@ fn fixed_configuration_rejects_wrong_keys_duplicates_and_tree_drift() {
 
     let mut reordered = configuration.clone();
     reordered.initializer.cells.swap(0, 1);
-    assert_eq!(
+    assert!(matches!(
         reordered.validate(&owner),
-        Err(StateTransportError::InitializerDeclarationMismatch)
-    );
+        Err(StateTransportError::InitializerDeclarationMismatch { .. })
+    ));
 
     let expected = configuration.expected_provenance_keys(&owner).unwrap();
     let mut actual = expected.clone();
