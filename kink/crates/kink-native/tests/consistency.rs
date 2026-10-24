@@ -188,6 +188,14 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// guards that hold on no normal-form instance. Only more overlaps are refuted; the other
 /// passages are unmoved.
 ///
+/// k-rust S2B-T2 (collection membership): line 1103 of 1100-1107 adds collection memberships to
+/// what "refuted" reads (`933b39db` -> `3e1072d3`): a membership required true or false in a
+/// list without middle, a set or map without rest, or the values or keys of a map without rest
+/// is read as the equalities between the element and the members (their disjunction when
+/// required true, each negated when required false), each implied wherever the membership is
+/// defined, and a conjunction is refuted when it is refuted with or without them. Only more
+/// overlaps are refuted; the other passages are unmoved.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
@@ -202,7 +210,7 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
         "docs/compatibility.md",
         1100,
         1107,
-        "933b39db406033f69a8ae13bda209872628cab54a16516d0be7bce8b8737e8a1",
+        "3e1072d35486706ea02d7c7aa8df7bbae07879e17f9248e6e2bde42ea8d266c9",
     ),
     (
         "docs/compatibility.md",
