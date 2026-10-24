@@ -940,6 +940,211 @@ pub(super) fn empty_sort(definition: Definition, clash: bool) -> (Definition, Ve
     (definition, Vec::new())
 }
 
+/// The variants of the WASM witness shape ([`witness_shape`]).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum WitnessShape {
+    /// The shape alone: its pair over `Ew` joins through one witness.
+    Wasm,
+    /// `Ew` inhabited by the constructor `ew`: the pair is a clash at `s(C, inj(ew))`, which no
+    /// witness may join (a witness must hold a variable of a sort with no normal form).
+    Inhabited,
+    /// With `m(C, X:Ew) = ib(C, inj(X))` beside `m(C, X:Ew) = z(C, X)`, `z` partial without
+    /// equations, `m` relevant through `C`: the witness would split `m`'s pair, which pass 1
+    /// joins (both sides `\bottom`), so pass 1 is kept.
+    Kept,
+    /// The review's B2 (`P7-EMPTYJOIN-review.md`), on the shape without its context argument:
+    /// `m(X:Ew) = ib(inj(X))` beside `m(X:Ew) = z0(X)`, `z0` partial without equations, and `m`
+    /// reaching no equation head, so the load's scope never classifies its pair; the full check
+    /// keeps pass 1, and both scopes must agree (V9).
+    B2,
+    /// The review's B1: an unrelated pair `q(I) = ib(c0, bw(I))` beside `q(I) = bw(1)` that does
+    /// not join and taints `ib`, the witness's head, whose context can hold the equation head
+    /// `hd`: adoption condition 4 keeps pass 1.
+    TaintedHead,
+}
+
+/// The WASM shape (`#t2aStmt`'s `Defn` and `Instr` equations over the empty `EmptyStmt`,
+/// `wasm-text.md:837/838`) in the oracle's language, with `#t2aStmt`'s context argument: `Ew`
+/// has no symbol, `Ew < Aw`, `Ew < Bw`, `Aw < Sw`, `Bw < Sw`; the context sort `Ct` holds
+/// `c0` and `ctx(Aw)`, so a context can hold the equation head `hd(I) = aw(I)`, which also makes
+/// `s`'s equations relevant (N3); `s(C, inj(X:Aw)) = inj(da(C, X))` beside
+/// `s(C, inj(Y:Bw)) = inj(ib(C, Y))`; `da(C, aw(I)) = aw(0)` and `da(C, Z) = Z` (`owise`);
+/// `ib(C, bw(J)) = bw(0)` and no other equation of `ib`, so `ib(C, inj(X:Ew))` is stuck. Every
+/// model has an element `e` of `Ew`, where `s(C, inj(e))` is `inj(e)` by `da`'s `owise` and
+/// `inj(ib(C, inj(e)))` by `ib`'s; the check joins the pair through the witness
+/// `ib(C, inj(X:Ew)) => inj(X)`, and `D+` with it is a model. `shape` adds a variant's
+/// equations.
+pub(super) fn witness_shape(shape: WitnessShape) -> Definition {
+    // B2's `m` must reach no equation head, so its shape has no context: `ib`'s context would
+    // make `m`'s equation, which mentions `ib`, relevant through `ib`'s equations.
+    let contextual = shape != WitnessShape::B2;
+    let context = || var("VarC", "Ct");
+    // `head(C, arguments)`, or `head(arguments)` without the context.
+    let call = |head: &str, arguments: Vec<Pat>| {
+        let mut all = Vec::new();
+        if contextual {
+            all.push(context());
+        }
+        all.extend(arguments);
+        app(head, all)
+    };
+    let arguments = |sort: &'static str| {
+        let mut sorts = Vec::new();
+        if contextual {
+            sorts.push("Ct");
+        }
+        sorts.push(sort);
+        sorts
+    };
+    let element = || var("VarX", "Ew");
+    let mut definition = Definition::new(&["Ew", "Aw", "Bw", "Sw", "Ct"])
+        .subsort("Ew", "Aw")
+        .subsort("Ew", "Bw")
+        .subsort("Aw", "Sw")
+        .subsort("Bw", "Sw")
+        .constructor("aw", &["Int"], "Aw")
+        .constructor("bw", &["Int"], "Bw")
+        .constructor("c0", &[], "Ct")
+        .constructor("ctx", &["Aw"], "Ct")
+        .head("hd", &["Int"], "Aw")
+        .function("s", &arguments("Sw"), "Sw")
+        .function("da", &arguments("Aw"), "Aw")
+        .function("ib", &arguments("Bw"), "Bw")
+        .equation(
+            app("hd", vec![int_var("VarK")]),
+            app("aw", vec![int_var("VarK")]),
+        )
+        .equation(
+            call("s", vec![inj("Aw", "Sw", var("VarY", "Aw"))]),
+            inj("Aw", "Sw", call("da", vec![var("VarY", "Aw")])),
+        )
+        .equation(
+            call("s", vec![inj("Bw", "Sw", var("VarY", "Bw"))]),
+            inj("Bw", "Sw", call("ib", vec![var("VarY", "Bw")])),
+        )
+        .equation(
+            call("da", vec![app("aw", vec![int_var("VarI")])]),
+            app("aw", vec![int(0)]),
+        )
+        .full(
+            call("da", vec![var("VarZ", "Aw")]),
+            var("VarZ", "Aw"),
+            None,
+            None,
+            OWISE_PRIORITY,
+        )
+        .equation(
+            call("ib", vec![app("bw", vec![int_var("VarJ")])]),
+            app("bw", vec![int(0)]),
+        );
+    match shape {
+        WitnessShape::Wasm => {}
+        WitnessShape::Inhabited => definition = definition.constructor("ew", &[], "Ew"),
+        WitnessShape::Kept => {
+            definition = definition
+                .function("m", &["Ct", "Ew"], "Bw")
+                .function("z", &["Ct", "Ew"], "Bw")
+                .equation(
+                    call("m", vec![element()]),
+                    call("ib", vec![inj("Ew", "Bw", element())]),
+                )
+                .equation(call("m", vec![element()]), call("z", vec![element()]));
+        }
+        WitnessShape::B2 => {
+            definition = definition
+                .function("m", &["Ew"], "Bw")
+                .function("z0", &["Ew"], "Bw")
+                .equation(
+                    app("m", vec![element()]),
+                    app("ib", vec![inj("Ew", "Bw", element())]),
+                )
+                .equation(app("m", vec![element()]), app("z0", vec![element()]));
+        }
+        WitnessShape::TaintedHead => {
+            definition = definition
+                .function("q", &["Int"], "Bw")
+                .equation(
+                    app("q", vec![int_var("VarI")]),
+                    app("ib", vec![cons("c0"), app("bw", vec![int_var("VarI")])]),
+                )
+                .equation(app("q", vec![int_var("VarI")]), app("bw", vec![int(1)]));
+        }
+    }
+    definition
+}
+
+/// Conflicting proposals (review S1), with the equation head `hd(I) = aw(I)` that makes every
+/// pair relevant through `Y:Aw` (N3): `Ew` has no symbol, `Ew < Bw`, the constructor
+/// `dw : Ew -> Bw`, the partial function `f : Ew -> Bw` without equations, and
+/// `k(X:Ew, Y:Aw) = f(X)` beside `k(X, Y) = dw(X)`, which proposes the witness
+/// `f(X) => dw(X)`; when `both`, also `g(X:Ew, Y:Aw) = f(X)` beside `g(X, Y) = inj(X)`, which
+/// proposes `f(X) => inj(X)`. The two proposals' left-hand sides unify while their right-hand
+/// sides differ, so neither is adopted and both pairs stay listed; alone, `k`'s is adopted.
+pub(super) fn conflicting_witnesses(both: bool) -> Definition {
+    let pair = |definition: Definition, head: &str, left: Pat, right: Pat| {
+        let lhs = || app(head, vec![var("VarX", "Ew"), var("VarY", "Aw")]);
+        definition
+            .function(head, &["Ew", "Aw"], "Bw")
+            .equation(lhs(), left)
+            .equation(lhs(), right)
+    };
+    let element = || var("VarX", "Ew");
+    let definition = Definition::new(&["Ew", "Aw", "Bw"])
+        .subsort("Ew", "Bw")
+        .constructor("aw", &["Int"], "Aw")
+        .constructor("dw", &["Ew"], "Bw")
+        .head("hd", &["Int"], "Aw")
+        .function("f", &["Ew"], "Bw")
+        .equation(
+            app("hd", vec![int_var("VarK")]),
+            app("aw", vec![int_var("VarK")]),
+        );
+    let definition = pair(
+        definition,
+        "k",
+        app("f", vec![element()]),
+        app("dw", vec![element()]),
+    );
+    if both {
+        pair(
+            definition,
+            "g",
+            app("f", vec![element()]),
+            inj("Ew", "Bw", element()),
+        )
+    } else {
+        definition
+    }
+}
+
+/// The witness templates (FZ-EMPTYJOIN-ORACLE; design 4.3): the WASM shape and its variants
+/// ([`witness_shape`]) and the conflicting proposals with and without the conflict
+/// ([`conflicting_witnesses`]), each named.
+pub(super) fn witness_templates() -> Vec<(String, Definition)> {
+    let mut templates = [
+        WitnessShape::Wasm,
+        WitnessShape::Inhabited,
+        WitnessShape::Kept,
+        WitnessShape::B2,
+        WitnessShape::TaintedHead,
+    ]
+    .into_iter()
+    .map(|shape| (witness_template_name(shape), witness_shape(shape)))
+    .collect::<Vec<_>>();
+    for both in [false, true] {
+        templates.push((
+            format!("template witness conflict (both {both})"),
+            conflicting_witnesses(both),
+        ));
+    }
+    templates
+}
+
+/// The name of the template of `shape` among [`templates`].
+pub(super) fn witness_template_name(shape: WitnessShape) -> String {
+    format!("template witness {shape:?}")
+}
+
 /// One fixed definition per feature class, so that every class is present in every run.
 #[allow(clippy::too_many_lines, reason = "one template per feature class")]
 pub(super) fn templates() -> Vec<(String, Definition, Vec<Pat>)> {
@@ -1176,6 +1381,9 @@ pub(super) fn templates() -> Vec<(String, Definition, Vec<Pat>)> {
             definition,
             seeds,
         ));
+    }
+    for (name, definition) in witness_templates() {
+        templates.push((name, definition, Vec::new()));
     }
     // No equation head: functions and lists only.
     templates.push((

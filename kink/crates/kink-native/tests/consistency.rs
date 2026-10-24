@@ -340,11 +340,19 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// different roots as undecided: the conflict rule now compares proposals of one root alone, so
 /// more witnesses can be adopted (precision; each adoption still passes the second pass).
 ///
-/// fz26 int9 (FZ-MEMBERSHIP merged with FZ-JUNK-ORACLE and FZ-EMPTYJOIN-WITNESS): the membership
-/// table, the `separate_uninhabited` reader and the witness passes side by side, and the contract's
-/// `refuted` and `joined` points stated together (models of the axioms read as true; steps of `R ∪
-/// W` in `M+`); re-pinned by digest of the merged file: -> `fb288730`.
-const CONFLUENCE_RS: &str = "fb2887301fd673e37d6862f63b71ff843f8c19949a48e792bf49a6c53b115892";
+/// fz26 phase-8 FZ-EMPTYJOIN-ORACLE: 4d58d09a -> 414e35af. `check_detached`, the proposal and
+/// `Context::holds_empty_variable` read the test-only witness switches
+/// (`adopt_unvalidated_witnesses`, `witnesses_only_at_their_pair`,
+/// `witness_without_empty_variable`), which outside test builds are the constant `false`
+/// (`switches::active`): no verdict kink reads changes.
+///
+/// fz26 int9 (FZ-MEMBERSHIP merged with FZ-JUNK-ORACLE, FZ-EMPTYJOIN-WITNESS with its review fixes
+/// and FZ-EMPTYJOIN-ORACLE): the membership table, the `separate_uninhabited` reader, the witness
+/// passes and the oracle's witness switch readers side by side (the load's own condition 4 check is
+/// kept beside `witnesses_only_at_their_pair`), and the contract's `refuted` and `joined` points
+/// stated together (models of the axioms read as true; steps of `R ∪ W` in `M+`); re-pinned by
+/// digest of the merged file: -> `d4e5c7b7`.
+const CONFLUENCE_RS: &str = "d4e5c7b7a9798c315a1ecc6bf08d8d41982b6d430c82ba9e080a1d8b960970de";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin

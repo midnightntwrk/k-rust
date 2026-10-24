@@ -77,6 +77,20 @@ pub(crate) struct Switches {
     /// witness pair only that scope leaves unjoined would (the two scopes classifying a pair
     /// differently, which compat allows).
     pub(crate) gate_taints_witnesses: bool,
+    /// Witnesses: adopt every proposal of pass 1 as it stands, without dropping conflicting
+    /// ones and without pass 2: each proposing pair counts as joined by its own proposal (the
+    /// per-pair choice the design rejects as unsound).
+    pub(crate) adopt_unvalidated_witnesses: bool,
+    /// Witnesses: validate a witness only at the pairs that proposed it: in pass 2 every other
+    /// pair, and every pair of a witness, keeps its pass-1 classification.
+    pub(crate) witnesses_only_at_their_pair: bool,
+    /// Witnesses: drop the condition that a witness's left-hand side holds a variable of a sort
+    /// with no normal form: open mode reads every stuck partial application holding a variable
+    /// as an open atom, and every non-joined overlap proposes.
+    pub(crate) witness_without_empty_variable: bool,
+    /// Witnesses: drop adoption condition 4 (no witness head tainted in the full check's
+    /// closure), and its second reading on the load's own second pass.
+    pub(crate) adopt_with_tainted_witness_head: bool,
     /// Join: read every function application as never a normal form, and a stuck one as
     /// `\bottom` (revision 2's 3.13 (c) before R1.5).
     pub(crate) stuck_total_is_bottom: bool,
@@ -194,6 +208,10 @@ thread_local! {
             separate_uninhabited: false,
             adopt_pass_1: false,
             gate_taints_witnesses: false,
+            adopt_unvalidated_witnesses: false,
+            witnesses_only_at_their_pair: false,
+            witness_without_empty_variable: false,
+            adopt_with_tainted_witness_head: false,
             stuck_total_is_bottom: false,
             collapse_every_total: false,
             misread_int_le: false,

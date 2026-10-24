@@ -393,7 +393,10 @@ fn the_checks_work_counters_stay_within_ten_percent_of_their_pins() {
         // FZ-CONFLUENCE: 6 -> 10 simplifier calls, one more simplification of each open
         // condition whose conjuncts give a term a literal's value (the equality classes,
         // `confluence/conditions.rs`).
-        ("oracle templates", 57, 124, 24, 10),
+        // FZ-EMPTYJOIN-ORACLE: (57, 124, 24, 10) -> (68, 151, 33, 10), the seven witness
+        // templates (`generator::witness_templates`): the load's counts on them, those of its
+        // second pass where a witness is adopted, the witness pairs included.
+        ("oracle templates", 68, 151, 33, 10),
     ];
     let mut measured = Vec::new();
     let counts = load(FUN_LISTS, "OVERLOADED-LIST-OWISE")

@@ -298,7 +298,7 @@ pub(super) fn settle(context: &mut Context<'_>, proposals: Vec<Proposal>) -> Wit
                     .any(|unifier| substitute(left_rhs, unifier) != substitute(right_rhs, unifier)),
                 Err(_) => true,
             };
-            if conflict {
+            if conflict && !super::switches::active().adopt_unvalidated_witnesses {
                 dropped[first] = true;
                 dropped[second] = true;
             }
@@ -420,12 +420,51 @@ pub(super) fn adopted(first: &Checked, second: &Checked, witnesses: &Witnesses) 
 /// closure (`Checked::tainted_symbols`). Checked on the full check's second pass, and again on the
 /// load's own, whose closure the full check's contains only where the two scopes classify alike.
 /// A witness pair the pass leaves unjoined seeds the witness, whose head T1 then taints, so this
-/// also refuses such a pass.
+/// also refuses such a pass. Test switch `adopt_with_tainted_witness_head` drops condition 4 in
+/// both places.
 pub(super) fn heads_untainted(pass: &Checked, rules: &[Arc<RewriteRule>]) -> bool {
-    rules
-        .iter()
-        .filter_map(|rule| head(rule))
-        .all(|head| !pass.tainted_symbols.contains(&head))
+    super::switches::active().adopt_with_tainted_witness_head
+        || rules
+            .iter()
+            .filter_map(|rule| head(rule))
+            .all(|head| !pass.tainted_symbols.contains(&head))
+}
+
+/// Test switch `adopt_unvalidated_witnesses`: `first`, pass 1's verdict, with every pair that
+/// proposed one of `witnesses` read as joined by its own proposal and `witnesses` adopted, no
+/// pass 2 run.
+pub(super) fn adopted_unvalidated(mut first: Checked, witnesses: &Witnesses) -> Checked {
+    first
+        .unjoined
+        .retain(|pair| !witnesses.proposing.contains(&pair_key(pair)));
+    first.counts.unjoined = first.unjoined.len();
+    first.counts.witnesses = witnesses.rules.len();
+    first.witnesses.clone_from(&witnesses.rules);
+    first
+}
+
+/// Test switch `witnesses_only_at_their_pair`: `second`, a pass 2 verdict, with the witnesses
+/// validated only at their proposing pairs: every other pair it lists is replaced by what `first`,
+/// the same scope's pass 1, lists.
+pub(super) fn only_at_their_pairs(
+    second: &mut Checked,
+    first: &Checked,
+    proposing: &BTreeSet<PairKey>,
+) {
+    if !super::switches::active().witnesses_only_at_their_pair {
+        return;
+    }
+    second
+        .unjoined
+        .retain(|pair| proposing.contains(&pair_key(pair)));
+    second.unjoined.extend(
+        first
+            .unjoined
+            .iter()
+            .filter(|pair| !proposing.contains(&pair_key(pair)))
+            .cloned(),
+    );
+    second.counts.unjoined = second.unjoined.len();
 }
 
 /// Test builds: the canonical text of a witness, `lhs => rhs`.

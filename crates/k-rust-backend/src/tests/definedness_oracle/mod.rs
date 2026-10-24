@@ -44,10 +44,12 @@
 //! - **M+** ([`checks::junk_check`]). On every definition, the sorts with an element in every
 //!   model, computed in the oracle's language, are the backend's (`Sorts::surely_inhabited`);
 //!   the axiom-instance harness compares them too. Where the full check reports nothing, the
-//!   oracle's evaluator shows `D+`, the definition with a free constant in every other sort, a
-//!   model: at every instance of an equation over values, constants included, each side has one
-//!   normal form, the two are equal where the premise holds, and a term free of constants
-//!   evaluates as in the definition.
+//!   oracle's evaluator shows `D+`, the definition with a free constant in every other sort and
+//!   the verdict's witness equations at the lowest priority, a model: at every instance of an
+//!   equation or a witness over values, constants included, each side has one normal form, the
+//!   two are equal where the premise holds, and a term free of constants evaluates as in the
+//!   definition without witnesses. On every definition each witness is well formed and its head
+//!   untainted in the full check's closure (`checks::witness_failures`).
 //!
 //! A definition the backend does not internalize is a failure. The definitions are the probes,
 //! one fixed template per feature class ([`generator::templates`]), and seeded random ones.
@@ -178,6 +180,12 @@ fn assert_bounds(tally: &Tally, cases: u64, failures: &mut Vec<String>) {
     // guarantee one), so it stays able to see a pair the check sets aside.
     if tally.junk_constant_instances == 0 {
         failures.push("no axiom instance over constants judged in D+".into());
+    }
+    // The constants check judges some definition with witness equations, instances of them
+    // included (the WASM witness template guarantees one), so it stays able to see a witness
+    // the check adopts that `D+` refutes.
+    if tally.junk_witnessed == 0 || tally.junk_witness_instances == 0 {
+        failures.push("no witness equation judged in D+".into());
     }
     if cases >= FLOOR_CASES {
         if tally.accepted * 10 < tally.definitions * 3 {

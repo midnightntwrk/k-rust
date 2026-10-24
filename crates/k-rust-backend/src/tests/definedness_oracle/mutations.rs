@@ -189,7 +189,7 @@ fn empty_sort_failures(switches: Switches, constants: bool) -> (Vec<String>, boo
             if full.unjoined().is_empty() && full.violations().is_empty() {
                 clash_accepted |= clash;
                 failures.extend(
-                    super::checks::junk_check(&definition, constants, &mut Rng(DEFAULT_SEED))
+                    super::checks::junk_check(&definition, &[], constants, &mut Rng(DEFAULT_SEED))
                         .failures,
                 );
             }
@@ -379,7 +379,13 @@ fn the_overload_switches_withdraw_no_fewer_claims() {
 /// last by V3c's brute-force self pairs
 /// (`the_self_pair_brute_force_sees_a_disjunction_read_as_reading_nothing`);
 /// `separate_uninhabited` by the constants of `D+`
-/// (`restored_vacuity_goes_unnoticed_without_the_constants_and_is_caught_with_them`).
+/// (`restored_vacuity_goes_unnoticed_without_the_constants_and_is_caught_with_them`). The four
+/// witness switches (`adopt_unvalidated_witnesses`, `witnesses_only_at_their_pair`,
+/// `witness_without_empty_variable`, `adopt_with_tainted_witness_head`) are not counted either:
+/// the harness's judge, the backend's evaluation, never reads a witness equation, and its values
+/// are free of constants. The oracle sees the first three in `D+` with the verdict's witnesses
+/// and the last by the closure (`checks::witness_failures`), each on its witness template
+/// (`generator::witness_templates`), in the tests after this macro's uses.
 macro_rules! axiom_mutation {
     ($test:ident, $field:ident) => {
         #[test]
@@ -530,3 +536,312 @@ axiom_mutation!(
     the_axiom_harness_sees_an_empty_side_clashed_whatever_its_rest,
     empty_clash_ignores_rest
 );
+
+/// What the oracle found on one witness template ([`super::generator::witness_templates`]) under
+/// some switches: its failures (V9, the memo, `M+` and `W`), the two scopes' verdicts, and
+/// whether the constants check judged it with witness equations, and how many of their instances.
+struct WitnessRun {
+    failures: Vec<String>,
+    gate: crate::confluence::ValueClaims,
+    full: crate::confluence::ValueClaims,
+    witnessed: usize,
+    witness_instances: usize,
+    /// The full check's witnesses in the oracle's language, as text.
+    witnesses: Vec<String>,
+}
+
+fn witness_template(name: &str) -> super::language::Definition {
+    super::generator::witness_templates()
+        .into_iter()
+        .find(|(template, _)| template == name)
+        .unwrap_or_else(|| panic!("no template {name}"))
+        .1
+}
+
+fn witness_run(switches: Switches, name: &str) -> WitnessRun {
+    let definition = witness_template(name);
+    switches::with(switches, || {
+        let (tally, _) = check_definition(name, &definition);
+        let backend = super::checks::backend(&definition).expect("the template loads");
+        let full = backend.value_claims_in_scope(crate::confluence::CheckScope::All);
+        let witnesses = super::checks::witness_equations(&definition, &full)
+            .expect("the witnesses are equations of the oracle's language")
+            .iter()
+            .map(|equation| {
+                format!(
+                    "{} => {}",
+                    super::checks::show(&equation.lhs),
+                    super::checks::show(&equation.rhs)
+                )
+            })
+            .collect();
+        WitnessRun {
+            failures: tally.failures,
+            gate: backend.value_claims().clone(),
+            full,
+            witnessed: tally.junk_witnessed,
+            witness_instances: tally.junk_witness_instances,
+            witnesses,
+        }
+    })
+}
+
+fn template_name(shape: super::generator::WitnessShape) -> String {
+    super::generator::witness_template_name(shape)
+}
+
+/// The WASM template's witness, in the oracle's language.
+const WASM_WITNESS: &str = "ib(VarWitness0, inj{Ew, Bw}(VarWitness1)) => inj{Ew, Bw}(VarWitness1)";
+
+/// The witness templates without a switch: none fails the oracle, and each verdict is the one
+/// the design gives. The WASM shape is adopted with its one witness in both scopes and accepted,
+/// and the constants check judges `D+` with it, instances of the witness included; with `Ew`
+/// inhabited the pair is a clash, which proposes nothing; the `z` variant (`Kept`) and B2 keep
+/// pass 1, and on B2 the load's scope never classifies `m`'s pair while both scopes agree (V9,
+/// in the failures); B1 (`TaintedHead`) keeps pass 1 because the unrelated pair taints `ib`;
+/// `k`'s proposal alone is adopted, and with `g`'s conflicting one neither is.
+#[test]
+fn the_witness_templates_hold_with_the_verdicts_the_design_gives() {
+    use super::generator::WitnessShape;
+    use crate::confluence::WitnessPass;
+    super::on_large_stack(|| {
+        let mut failures = Vec::new();
+        for (name, _) in super::generator::witness_templates() {
+            failures.extend(witness_run(Switches::default(), &name).failures);
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+        let both = |run: &WitnessRun| [run.gate.clone(), run.full.clone()];
+
+        let wasm = witness_run(Switches::default(), &template_name(WitnessShape::Wasm));
+        assert_eq!(wasm.witnesses, [WASM_WITNESS]);
+        for claims in both(&wasm) {
+            assert!(claims.witness_pass_adopted());
+            assert!(claims.unjoined().is_empty() && claims.violations().is_empty());
+        }
+        assert_eq!(wasm.witnessed, 1);
+        assert!(wasm.witness_instances > 0);
+
+        let inhabited = witness_run(Switches::default(), &template_name(WitnessShape::Inhabited));
+        for claims in both(&inhabited) {
+            assert_eq!(claims.counts().witness_pass, WitnessPass::NotProposed);
+            assert_eq!(claims.unjoined().len(), 1);
+            assert!(!claims.unjoined()[0].over_uninhabited_sort());
+        }
+
+        for shape in [WitnessShape::Kept, WitnessShape::B2] {
+            let run = witness_run(Switches::default(), &template_name(shape));
+            for claims in both(&run) {
+                assert_eq!(claims.counts().witness_pass, WitnessPass::Kept, "{shape:?}");
+                assert!(claims.witnesses().is_empty(), "{shape:?}");
+                assert_eq!(claims.unjoined().len(), 1, "{shape:?}");
+                assert!(claims.unjoined()[0].over_uninhabited_sort(), "{shape:?}");
+            }
+            if shape == WitnessShape::B2 {
+                assert!(
+                    run.gate.counts().skipped > 0,
+                    "the load classifies m's pair"
+                );
+            }
+        }
+
+        let tainted = witness_run(
+            Switches::default(),
+            &template_name(WitnessShape::TaintedHead),
+        );
+        assert!(
+            tainted
+                .full
+                .tainted_symbols()
+                .iter()
+                .any(|symbol| symbol.as_ref() == "ib")
+        );
+        for claims in both(&tainted) {
+            assert_eq!(claims.counts().witness_pass, WitnessPass::Kept);
+        }
+
+        let alone = witness_run(
+            Switches::default(),
+            "template witness conflict (both false)",
+        );
+        assert_eq!(alone.witnesses, ["f(VarWitness0) => dw(VarWitness0)"]);
+        assert_eq!(alone.witnessed, 1);
+        let conflict = witness_run(Switches::default(), "template witness conflict (both true)");
+        for claims in both(&conflict) {
+            assert_eq!(claims.counts().witness_pass, WitnessPass::Kept);
+            assert_eq!(claims.unjoined().len(), 2);
+        }
+    });
+}
+
+/// `D+` needs the verdict's witnesses: the full check accepts the WASM template with one
+/// witness, and without it `D+` gives `s(C, inj(*_Ew))` two normal forms, `inj(*_Ew)` by `da`'s
+/// `owise` and `\bottom` by `ib`'s stuck application, a false alarm on a definition that has
+/// the model; with it each instance holds.
+#[test]
+fn the_wasm_template_has_the_model_d_plus_with_its_witness_only() {
+    super::on_large_stack(|| {
+        let definition = witness_template(&template_name(super::generator::WitnessShape::Wasm));
+        let backend = super::checks::backend(&definition).expect("the template loads");
+        let full = backend.value_claims_in_scope(crate::confluence::CheckScope::All);
+        let witnesses = super::checks::witness_equations(&definition, &full)
+            .expect("the witness is an equation of the oracle's language");
+        assert_eq!(witnesses.len(), 1);
+        let without = super::checks::junk_check(&definition, &[], true, &mut Rng(DEFAULT_SEED));
+        assert!(
+            without
+                .failures
+                .iter()
+                .any(|failure| failure.contains("has the normal forms ⊥, inj{Ew, Sw}(junkEw)")),
+            "{:?}",
+            without.failures
+        );
+        let with = super::checks::junk_check(&definition, &witnesses, true, &mut Rng(DEFAULT_SEED));
+        assert!(with.failures.is_empty(), "{:?}", with.failures);
+        assert!(with.witness_instances > 0 && with.with_constants > 0);
+    });
+}
+
+/// The failures of the witness template `name` under the one switch `switches`, after checking
+/// that the template has none without it.
+fn witness_switch_failures(switches: Switches, name: &str) -> Vec<String> {
+    let off = witness_run(Switches::default(), name);
+    assert!(off.failures.is_empty(), "{}", off.failures.join("\n"));
+    witness_run(switches, name).failures
+}
+
+/// Asserts that some failure of `failures` contains every one of `texts`.
+fn assert_failure(name: &str, failures: &[String], texts: &[&str]) {
+    assert!(
+        failures
+            .iter()
+            .any(|failure| texts.iter().all(|text| failure.contains(text))),
+        "the switch {name} went unnoticed: no failure holds {texts:?} in {failures:#?}"
+    );
+}
+
+/// `adopt_unvalidated_witnesses` adopts each pair's own proposal, without the conflict drop or
+/// pass 2: on the conflicting template both `f(X) => dw(X)` and `f(X) => inj(X)` are adopted
+/// and the full check reports nothing, but in `D+` with them `k(*_Ew, Y)` has the two normal
+/// forms `dw(*_Ew)` and `inj(*_Ew)`.
+#[test]
+fn unvalidated_witnesses_are_caught_in_d_plus() {
+    super::on_large_stack(|| {
+        let switch = Switches {
+            adopt_unvalidated_witnesses: true,
+            ..Switches::default()
+        };
+        let failures = witness_switch_failures(switch, "template witness conflict (both true)");
+        assert_failure(
+            "adopt_unvalidated_witnesses",
+            &failures,
+            &[
+                super::checks::JUNK,
+                "has the normal forms dw(junkEw), inj{Ew, Bw}(junkEw)",
+            ],
+        );
+    });
+}
+
+/// `witnesses_only_at_their_pair` validates the witness at `s`'s pair alone: on the `z` template
+/// and on B2 it is adopted although it splits `m`'s pair, which pass 1 joins, and in `D+`
+/// `m(…, *_Ew)` has the normal forms `\bottom` (by `z`) and `inj(*_Ew)` (by `ib`'s witness).
+#[test]
+fn witnesses_validated_only_at_their_pair_are_caught_in_d_plus() {
+    use super::generator::WitnessShape;
+    super::on_large_stack(|| {
+        let switch = Switches {
+            witnesses_only_at_their_pair: true,
+            ..Switches::default()
+        };
+        for shape in [WitnessShape::Kept, WitnessShape::B2] {
+            let failures = witness_switch_failures(switch, &template_name(shape));
+            assert_failure(
+                "witnesses_only_at_their_pair",
+                &failures,
+                &[
+                    super::checks::JUNK,
+                    "has the normal forms ⊥, inj{Ew, Bw}(junkEw)",
+                ],
+            );
+        }
+    });
+}
+
+/// `witness_without_empty_variable` proposes from a clash over an inhabited sort: with `Ew`
+/// inhabited by `ew`, `ib(C, inj(X:Ew)) => inj(X)` is adopted, so `ib(c0, inj(ew))`, `\bottom`
+/// in the definition, is `inj(ew)` in `D+`: a term free of constants that `D+` evaluates
+/// otherwise. The oracle's reading of the witness's well-formedness names it too.
+#[test]
+fn witnesses_without_an_empty_variable_are_caught() {
+    super::on_large_stack(|| {
+        let switch = Switches {
+            witness_without_empty_variable: true,
+            ..Switches::default()
+        };
+        let name = template_name(super::generator::WitnessShape::Inhabited);
+        let failures = witness_switch_failures(switch, &name);
+        assert_failure(
+            "witness_without_empty_variable",
+            &failures,
+            &[
+                super::checks::JUNK,
+                "ib(c0, inj{Ew, Bw}(ew)) evaluates in D+ to [\"inj{Ew, Bw}(ew)\"] and in the definition to [\"⊥\"]",
+            ],
+        );
+        assert_failure(
+            "witness_without_empty_variable",
+            &failures,
+            &[
+                super::checks::WITNESS,
+                "holds no variable of a sort outside the surely-inhabited ones",
+            ],
+        );
+    });
+}
+
+/// `adopt_with_tainted_witness_head` drops adoption condition 4: on B1 (`TaintedHead`) the witness
+/// at `ib` is adopted although the unrelated pair `q` taints `ib`. No evaluation shows it: the
+/// full check still names `q`'s pair, so `D+` is not judged, and the claims' model `M'`, where
+/// the witness fails at a context holding a new element, has elements no evaluation builds. So
+/// the closure is checked instead (design 4.3): an adopted witness's head is tainted.
+#[test]
+fn a_witness_adopted_at_a_tainted_head_is_caught_by_the_closure() {
+    super::on_large_stack(|| {
+        let switch = Switches {
+            adopt_with_tainted_witness_head: true,
+            ..Switches::default()
+        };
+        let name = template_name(super::generator::WitnessShape::TaintedHead);
+        let failures = witness_switch_failures(switch, &name);
+        assert_failure(
+            "adopt_with_tainted_witness_head",
+            &failures,
+            &[
+                super::checks::WITNESS,
+                "its head is tainted in the full check's closure",
+            ],
+        );
+        let run = witness_run(switch, &name);
+        assert!(run.full.witness_pass_adopted());
+        assert_eq!(
+            run.witnessed, 0,
+            "D+ is judged although the full check names q's pair"
+        );
+    });
+}
+
+/// The axiom-instance harness on the witness templates (also run by `run_axioms` through
+/// `generator::templates`): every instance it judges holds in the backend's evaluation, whose
+/// values are free of constants, so no witness applies at them.
+#[test]
+fn the_axiom_harness_holds_on_the_witness_templates() {
+    super::on_large_stack(|| {
+        let mut failures = Vec::new();
+        for (name, definition) in super::generator::witness_templates() {
+            let tally =
+                super::axioms::check_with_a_model(&name, &definition, &mut Rng(DEFAULT_SEED));
+            failures.extend(tally.failures);
+        }
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    });
+}

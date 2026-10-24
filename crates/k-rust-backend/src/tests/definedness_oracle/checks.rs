@@ -4,8 +4,10 @@
 //! check with and without its memo of condition simplifications reaches the same verdict), and
 //! each probe's `\ceil` obligation and token, with the preconditions P0 and P2 measured by the
 //! oracle's evaluator, and the constants check (`M+`: the oracle's surely-inhabited sorts are the
-//! backend's, and a definition the full check accepts has the model `D+`, [`junk_check`]). The
-//! value claims themselves are judged against the axioms by [`super::axioms`].
+//! backend's, and a definition the full check accepts has the model `D+` with the verdict's
+//! witness equations, [`junk_check`], which are well formed and have no tainted head,
+//! [`witness_failures`]). The value claims themselves are judged against the axioms by
+//! [`super::axioms`].
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -124,6 +126,10 @@ pub(super) struct Tally {
     pub(super) junk_instances: usize,
     pub(super) junk_constant_instances: usize,
     pub(super) junk_agreements: usize,
+    /// The definitions the constants check judged with witness equations
+    /// (`ValueClaims::witnesses`) in `D+`, and the instances of witness equations it judged.
+    pub(super) junk_witnessed: usize,
+    pub(super) junk_witness_instances: usize,
     pub(super) failures: Vec<String>,
 }
 
@@ -142,6 +148,8 @@ impl Tally {
         self.junk_instances += other.junk_instances;
         self.junk_constant_instances += other.junk_constant_instances;
         self.junk_agreements += other.junk_agreements;
+        self.junk_witnessed += other.junk_witnessed;
+        self.junk_witness_instances += other.junk_witness_instances;
         for (class, count) in other.classes {
             *self.classes.entry(class).or_default() += count;
         }
@@ -153,7 +161,7 @@ impl Tally {
 
     pub(super) fn summary(&self, name: &str) -> String {
         format!(
-            "{name}: {} definitions ({} rejected, {} accepted, {} partially tainted, {} outside P2), {} probe queries explored ({} outside P0); classes {:?}; non-joined pairs by reason {:?}; {} of the full check's {} conditions answered from the memo; {} definitions with a pair the load's scope skipped; {} axiom instances judged in D+ ({} over constants; {} terms free of constants compared with the definition); {} failures",
+            "{name}: {} definitions ({} rejected, {} accepted, {} partially tainted, {} outside P2), {} probe queries explored ({} outside P0); classes {:?}; non-joined pairs by reason {:?}; {} of the full check's {} conditions answered from the memo; {} definitions with a pair the load's scope skipped; {} axiom instances judged in D+ ({} over constants; {} terms free of constants compared with the definition; {} definitions with witness equations, {} instances of them); {} failures",
             self.definitions,
             self.rejected,
             self.accepted,
@@ -169,6 +177,8 @@ impl Tally {
             self.junk_instances,
             self.junk_constant_instances,
             self.junk_agreements,
+            self.junk_witnessed,
+            self.junk_witness_instances,
             self.failures.len()
         )
     }
@@ -769,11 +779,29 @@ pub(super) fn check_definition(label: &str, definition: &Definition) -> (Tally, 
             .failures
             .push(format!("{label}: {JUNK}: {failure}\n{}", describe()));
     }
+    // The verdict's witness equations, read in the oracle's language: well formed, and none
+    // headed by a symbol the full check's closure taints.
+    let witnesses = match witness_equations(definition, &full) {
+        Ok(witnesses) => witnesses,
+        Err(error) => {
+            tally
+                .failures
+                .push(format!("{label}: {WITNESS}: {error}\n{}", describe()));
+            Vec::new()
+        }
+    };
+    for failure in witness_failures(definition, &witnesses, &full) {
+        tally
+            .failures
+            .push(format!("{label}: {WITNESS}: {failure}\n{}", describe()));
+    }
     if full.unjoined().is_empty() && full.violations().is_empty() && !definition.collections {
-        let run = junk_check(definition, true, &mut Rng(JUNK_SEED));
+        let run = junk_check(definition, &witnesses, true, &mut Rng(JUNK_SEED));
         tally.junk_instances += run.instances;
         tally.junk_constant_instances += run.with_constants;
         tally.junk_agreements += run.agreements;
+        tally.junk_witnessed += usize::from(!witnesses.is_empty());
+        tally.junk_witness_instances += run.witness_instances;
         for failure in run.failures {
             tally.failures.push(format!(
                 "{label}: {JUNK}: the full check reports nothing, but {failure}\n{}",
@@ -813,6 +841,205 @@ pub(super) fn check_definition(label: &str, definition: &Definition) -> (Tally, 
 /// design's `M+`, P7-EMPTYJOIN 4.1 and 4.3) is no model of the axioms of a definition the full
 /// check accepts.
 pub(super) const JUNK: &str = "M+";
+
+/// The tag of the witness equations' failures: a witness of the verdict
+/// (`ValueClaims::witnesses`) the oracle's language cannot read, that is not well formed (the
+/// design's 4.1, read in the oracle's language), or whose head the full check's closure taints
+/// (adoption condition 4: the claims' model `M'` interprets a tainted symbol by any model, which
+/// need not satisfy the witness).
+pub(super) const WITNESS: &str = "W";
+
+/// The priority of the witness equations in `D+`: below every priority group a definition of
+/// the oracle's language writes.
+pub(super) const WITNESS_PRIORITY: u8 = u8::MAX;
+
+/// The oracle's pattern of a backend pattern, when it is one the oracle's language writes over
+/// `definition`'s symbols and sorts.
+fn oracle_pattern(definition: &Definition, term: &Term) -> Option<Pat> {
+    let sort = |sort: &Sort| {
+        let name = sort_name(sort)?;
+        definition.all_sorts().contains(&name).then_some(name)
+    };
+    match term.kind() {
+        TermKind::Variable(variable) => {
+            Some(Pat::Var(variable.name.to_string(), sort(&variable.sort)?))
+        }
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            let name = symbol.name.to_string();
+            if !definition.symbols.iter().any(|symbol| symbol.name == name) {
+                return None;
+            }
+            let arguments = arguments
+                .iter()
+                .map(|argument| oracle_pattern(definition, argument))
+                .collect::<Option<Vec<_>>>()?;
+            Some(Pat::App(name, arguments))
+        }
+        TermKind::Injection {
+            source,
+            target,
+            term,
+        } => Some(Pat::Inj(
+            sort(source)?,
+            sort(target)?,
+            Box::new(oracle_pattern(definition, term)?),
+        )),
+        TermKind::DomainValue { sort: of, value } if sort_name(of).as_deref() == Some("Int") => {
+            Some(Pat::Int(
+                std::str::from_utf8(value.as_bytes()).ok()?.parse().ok()?,
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// The witness equations of `claims` (`ValueClaims::witnesses`) as equations of the oracle's
+/// language at [`WITNESS_PRIORITY`], below every group of their head; an error names a witness
+/// the language does not write (a witness has no condition and a term right-hand side).
+pub(super) fn witness_equations(
+    definition: &Definition,
+    claims: &crate::confluence::ValueClaims,
+) -> Result<Vec<Equation>, String> {
+    claims
+        .witnesses()
+        .iter()
+        .map(|rule| {
+            let unreadable = || {
+                format!(
+                    "the witness {} is not an equation of the oracle's language",
+                    rule.attributes.unique_id
+                )
+            };
+            let crate::rule::RuleRhs::Term(rhs) = &rule.rhs else {
+                return Err(unreadable());
+            };
+            if !(rule.requires.is_empty() && rule.ensures.is_empty()) {
+                return Err(unreadable());
+            }
+            let (Some(lhs @ Pat::App(..)), Some(rhs)) = (
+                oracle_pattern(definition, &rule.lhs),
+                oracle_pattern(definition, rhs),
+            ) else {
+                return Err(unreadable());
+            };
+            Ok(Equation {
+                lhs,
+                rhs,
+                requires: None,
+                ensures: None,
+                priority: WITNESS_PRIORITY,
+                overload: None,
+                symbolic: false,
+            })
+        })
+        .collect()
+}
+
+/// Where the `witnesses` of the full check's verdict `full`, read in the oracle's language, fail
+/// the design's well-formedness (P7-EMPTYJOIN 4.1) or adoption condition 4. A witness `p => t`
+/// must apply a partial function (declared `function`, not `total`) that is not overloaded to
+/// constructor, injection and variable terms, and hold a variable of a sort outside the
+/// oracle's surely-inhabited ones (a sort with no normal form is one: a surely-inhabited sort has
+/// a ground term, which evaluates to a defined element under P2); `t` must be built from
+/// constructors, injections and `p`'s variables, at a sort below `p`'s; and no definition
+/// equation may sit at the witnesses' priority. Its head must not be a symbol the full check's
+/// closure taints: the claims' model interprets a tainted symbol by an arbitrary model, which
+/// need not satisfy the witness, so a join step through it would hold in no model the claims
+/// name.
+pub(super) fn witness_failures(
+    definition: &Definition,
+    witnesses: &[Equation],
+    full: &crate::confluence::ValueClaims,
+) -> Vec<String> {
+    fn built(
+        definition: &Definition,
+        pattern: &Pat,
+        variables: Option<&BTreeMap<String, String>>,
+    ) -> bool {
+        match pattern {
+            Pat::Var(name, _) => variables.is_none_or(|variables| variables.contains_key(name)),
+            Pat::Inj(_, _, inner) => built(definition, inner, variables),
+            Pat::App(name, arguments) => {
+                definition.symbol_named(name).kind == Kind::Constructor
+                    && arguments
+                        .iter()
+                        .all(|argument| built(definition, argument, variables))
+            }
+            Pat::Int(_) | Pat::As(..) | Pat::List(..) => false,
+        }
+    }
+    let sort_of = |pattern: &Pat| match pattern {
+        Pat::Var(_, sort) | Pat::Inj(_, sort, _) => Some(sort.clone()),
+        Pat::App(name, _) => Some(definition.symbol_named(name).result.clone()),
+        _ => None,
+    };
+    let junk = definition.junk_sorts();
+    let order = definition.sort_order();
+    let overloaded = definition
+        .overloads()
+        .into_iter()
+        .flat_map(|(greater, lesser)| [greater, lesser])
+        .collect::<BTreeSet<_>>();
+    let tainted = full
+        .tainted_symbols()
+        .iter()
+        .map(ToString::to_string)
+        .collect::<BTreeSet<_>>();
+    let mut failures = Vec::new();
+    if !witnesses.is_empty()
+        && definition
+            .equations
+            .iter()
+            .any(|equation| equation.priority == WITNESS_PRIORITY)
+    {
+        failures.push("a definition equation sits at the witnesses' priority".to_owned());
+    }
+    for witness in witnesses {
+        let text = format!("{} => {}", show(&witness.lhs), show(&witness.rhs));
+        let Pat::App(head, arguments) = &witness.lhs else {
+            unreachable!("witness_equations reads applications only");
+        };
+        let mut variables = BTreeMap::new();
+        pattern_variables(&witness.lhs, &mut variables);
+        let symbol = definition.symbol_named(head);
+        let problems = [
+            (
+                symbol.kind == (Kind::Function { total: false }) && !overloaded.contains(head),
+                "its head is no partial function that is not overloaded",
+            ),
+            (
+                arguments
+                    .iter()
+                    .all(|argument| built(definition, argument, None)),
+                "an argument of its left-hand side is not built from constructors, injections and variables",
+            ),
+            (
+                variables.values().any(|sort| junk.contains(sort)),
+                "its left-hand side holds no variable of a sort outside the surely-inhabited ones",
+            ),
+            (
+                built(definition, &witness.rhs, Some(&variables)),
+                "its right-hand side is not built from constructors, injections and the left-hand side's variables",
+            ),
+            (
+                sort_of(&witness.rhs).is_some_and(|sort| order[&symbol.result].contains(&sort)),
+                "its right-hand side's sort is not below its head's",
+            ),
+            (
+                !tainted.contains(head),
+                "its head is tainted in the full check's closure (adoption condition 4)",
+            ),
+        ];
+        for (holds, problem) in problems {
+            if !holds {
+                failures.push(format!("the witness {text}: {problem}"));
+            }
+        }
+    }
+    failures
+}
 
 /// The seed of the constants check's valuations.
 const JUNK_SEED: u64 = 0x5eed_0a11;
@@ -858,34 +1085,46 @@ pub(super) struct JunkRun {
     pub(super) with_constants: usize,
     /// Terms free of constants whose normal forms in `D+` were compared with the definition's.
     pub(super) agreements: usize,
+    /// Of `instances`, those of witness equations.
+    pub(super) witness_instances: usize,
     pub(super) failures: Vec<String>,
 }
 
-/// The constants check (FZ-JUNK-ORACLE; P7-EMPTYJOIN 4.3) of a definition whose full check
-/// reports nothing, with the oracle's own evaluator.
+/// The constants check (FZ-JUNK-ORACLE, FZ-EMPTYJOIN-ORACLE; P7-EMPTYJOIN 4.3) of a definition
+/// whose full check reports nothing, with the oracle's own evaluator.
 ///
-/// When every overlap of the definition is refuted or joined by steps valid on every instance,
-/// the normal forms of innermost evaluation over the signature extended with a fresh free
-/// constant `*_S` in each sort `S` outside the surely-inhabited ones (`D+`, the design's `M+`)
-/// are a model of the axioms: every model of a definition has an element of every sort, and the
-/// constant stands for one that no term of the signature denotes. So in `D+`, at each instance of
-/// an executable equation `l = r` by values (normal forms other than `\bottom`, constants
-/// included), each side has one normal form; where the premise holds (the `requires` evaluates
-/// to `true`, and no equation of a higher priority group applies at `l`'s root once its
-/// arguments are evaluated) the two are the same, `\bottom` standing for the right-hand side where
-/// the `ensures` evaluates to `false`. A term free of constants evaluates in `D+` as in the
-/// definition. Without `constants` the same check runs on the definition itself, whose sorts
-/// without a normal form then have no value: an overlap over such a sort has no instance there.
+/// When every overlap of the definition's equations `R` and the verdict's witness equations
+/// `witnesses` (`W`, already in the oracle's language, [`witness_equations`]) is refuted or
+/// joined by steps valid on every instance, the normal forms of innermost evaluation by `R ∪ W`
+/// over the signature extended with a fresh free constant `*_S` in each sort `S` outside the
+/// surely-inhabited ones (`D+`, the design's `M+`) are a model of the axioms of `R ∪ W`: every
+/// model of a definition has an element of every sort, and the constant stands for one that no
+/// term of the signature denotes. Each witness is an equation of the lowest priority group of
+/// its head. So in `D+`, at each instance of an executable equation `l = r` of `R ∪ W` by values
+/// (normal forms other than `\bottom`, constants included), each side has one normal form; where
+/// the premise holds (the `requires` evaluates to `true`, and no equation of a higher priority
+/// group applies at `l`'s root once its arguments are evaluated) the two are the same, `\bottom`
+/// standing for the right-hand side where the `ensures` evaluates to `false`. A term free of
+/// constants evaluates in `D+` as in the definition without `W`: a witness applies only to a
+/// term that holds a constant. Without `constants` the same check runs on the definition itself,
+/// whose sorts without a normal form then have no value: an overlap over such a sort has no
+/// instance there.
 ///
 /// An instance whose evaluation does not end within the oracle's bounds (outside P0), or that
 /// meets a hook on a term other than a literal, is skipped.
-pub(super) fn junk_check(definition: &Definition, constants: bool, rng: &mut Rng) -> JunkRun {
+pub(super) fn junk_check(
+    definition: &Definition,
+    witnesses: &[Equation],
+    constants: bool,
+    rng: &mut Rng,
+) -> JunkRun {
     let sorts = if constants {
         definition.junk_sorts()
     } else {
         BTreeSet::new()
     };
-    let plus = definition.with_junk_constants(&sorts);
+    let mut plus = definition.with_junk_constants(&sorts);
+    plus.equations.extend(witnesses.iter().cloned());
     let mut universe = Universe::new(&plus);
     let mut plain = Universe::new(definition);
     let mut values = values(&mut universe, rng);
@@ -924,7 +1163,11 @@ pub(super) fn junk_check(definition: &Definition, constants: bool, rng: &mut Rng
                     continue 'valuations;
                 }
             }
+            let before = run.instances;
             judge_instance(&mut universe, &mut plain, equation, &valuation, &mut run);
+            if equation.priority == WITNESS_PRIORITY {
+                run.witness_instances += run.instances - before;
+            }
         }
     }
     run
