@@ -1164,8 +1164,8 @@ fn emit(
     )
     .unwrap();
     // an order-preserving translation: the collection lemmas come first, the functions use them
-    let ordered_lemmas =
-        ((bisim || per_rule) && ordered).then(|| emit_ordered_terms(a, b, &mut o, covered, &fold_names));
+    let ordered_lemmas = ((bisim || per_rule) && ordered)
+        .then(|| emit_ordered_terms(a, b, &mut o, covered, &fold_names));
     let mut fn_count = 0;
     // the commutation lemmas of total functions (`B.f (tr x) = tr (A.f x)`), which push `tr` in
     let mut pure_fns: Vec<String> = Vec::new();
@@ -1335,7 +1335,9 @@ fn emit(
         }
     }
     if per_rule && !ordered {
-        return Err("--per-rule needs a translation that keeps every constructor's position".into());
+        return Err(
+            "--per-rule needs a translation that keeps every constructor's position".into(),
+        );
     }
     if !bisim && !per_rule {
         writeln!(o, "\nend {ns}").unwrap();
@@ -2498,7 +2500,11 @@ fn emit_per_rule(
         }
     };
     let mut names = Vec::new();
-    writeln!(o, "/-! ## Forward: a step of `{na}` by a rule with a counterpart is a step of `{nb}` -/\n").unwrap();
+    writeln!(
+        o,
+        "/-! ## Forward: a step of `{na}` by a rule with a counterpart is a step of `{nb}` -/\n"
+    )
+    .unwrap();
     for (i, j) in pairs {
         let (ra, rb) = (&a.rules[*i], &b.rules[*j]);
         writeln!(

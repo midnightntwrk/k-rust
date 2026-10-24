@@ -155,12 +155,19 @@ theorem Step.preserves_of {{{p} : {top} → Prop}}\n",
 /// sides of a step is not a preserved predicate.
 fn emit_rel(o: &mut String, ctors: &[Ctor], top: &str, taken: &BTreeSet<String>, x: &str) {
     let q = free("Q", taken);
-    o.push_str("/-! ## The per-rule principle for a relation between the two sides of a step -/\n\n");
+    o.push_str(
+        "/-! ## The per-rule principle for a relation between the two sides of a step -/\n\n",
+    );
     for c in ctors {
         let body = if c.binders.is_empty() {
             format!("{q} {} {}", c.lhs, c.rhs)
         } else {
-            format!("∀ {},\n    {q} {}\n      {}", c.binders.join(" "), c.lhs, c.rhs)
+            format!(
+                "∀ {},\n    {q} {}\n      {}",
+                c.binders.join(" "),
+                c.lhs,
+                c.rhs
+            )
         };
         o.push_str(&format!(
             "/-- Rule {} relates its left- and right-hand sides by `{q}`. -/\ndef Step.Rel.{} ({q} : {top} → {top} → Prop) : Prop :=\n  {body}\n\n",
@@ -185,6 +192,9 @@ theorem Step.rel_of {{{q} : {top} → {top} → Prop}}\n",
         let xs: Vec<String> = (1..=c.args.len()).map(|i| format!("{x}{i}")).collect();
         let xs = xs.join(" ");
         let sep = if xs.is_empty() { "" } else { " " };
-        o.push_str(&format!("  | {}{sep}{xs} => exact {}{sep}{xs}\n", c.lean, c.lean));
+        o.push_str(&format!(
+            "  | {}{sep}{xs} => exact {}{sep}{xs}\n",
+            c.lean, c.lean
+        ));
     }
 }

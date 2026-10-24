@@ -191,19 +191,18 @@ module's (`hand.fwd_tr.r`, `hand.fwd_x.r`, `hand.bwd_tr.r`, `hand.bwd_x.r`). -/\
                     args: &[String],
                     auto: Option<String>| {
         let e = counts.entry(kind).or_default();
-        if open.contains(&(kind.to_string(), name.to_string())) || auto.is_none() {
-            e.1 += 1;
-            hand_cases.push(format!("{kind} {name}"));
-            let sep = if args.is_empty() { "" } else { " " };
-            writeln!(
-                o,
-                "  · exact hand.{kind}.{lean}{sep}{}",
-                args.join(" ")
-            )
-            .unwrap();
-        } else {
-            e.0 += 1;
-            writeln!(o, "  · {}", auto.unwrap()).unwrap();
+        let listed = open.contains(&(kind.to_string(), name.to_string()));
+        match auto {
+            Some(tac) if !listed => {
+                e.0 += 1;
+                writeln!(o, "  · {tac}").unwrap();
+            }
+            _ => {
+                e.1 += 1;
+                hand_cases.push(format!("{kind} {name}"));
+                let sep = if args.is_empty() { "" } else { " " };
+                writeln!(o, "  · exact hand.{kind}.{lean}{sep}{}", args.join(" ")).unwrap();
+            }
         }
     };
     writeln!(o, "/-! ## Forward: the steps of `{na}` -/\n").unwrap();
@@ -232,7 +231,10 @@ module's (`hand.fwd_tr.r`, `hand.fwd_x.r`, `hand.bwd_tr.r`, `hand.bwd_x.r`). -/\
             "fwd_x",
             (&name, &c.lean),
             &args,
-            Some("intro d hX; cases hX <;> first | done | contradiction | (simp_all; done)".to_string()),
+            Some(
+                "intro d hX; cases hX <;> first | done | contradiction | (simp_all; done)"
+                    .to_string(),
+            ),
         );
         writeln!(o).unwrap();
         guard.push(format!("stutter_fwd.{}", c.lean));
@@ -263,7 +265,10 @@ module's (`hand.fwd_tr.r`, `hand.fwd_x.r`, `hand.bwd_tr.r`, `hand.bwd_x.r`). -/\
             "bwd_x",
             (&name, &c.lean),
             &args,
-            Some("intro c hX; cases hX <;> first | done | contradiction | (simp_all; done)".to_string()),
+            Some(
+                "intro c hX; cases hX <;> first | done | contradiction | (simp_all; done)"
+                    .to_string(),
+            ),
         );
         writeln!(o).unwrap();
         guard.push(format!("stutter_bwd.{}", c.lean));
@@ -274,7 +279,11 @@ module's (`hand.fwd_tr.r`, `hand.fwd_x.r`, `hand.bwd_tr.r`, `hand.bwd_x.r`). -/\
             .collect::<Vec<_>>()
             .join(" ")
     };
-    writeln!(o, "/-! ## The stuttering bisimulation and what it transfers -/\n").unwrap();
+    writeln!(
+        o,
+        "/-! ## The stuttering bisimulation and what it transfers -/\n"
+    )
+    .unwrap();
     writeln!(
         o,
         "theorem bisim : StutterBisim {na}.Step {nb}.Step (Stutter.Rel {tr} {x}) {mu} {nu} :=\n  Stutter.bisim_of\n    (fun h => {na}.Step.rel_of {} h)\n    (fun h => {nb}.Step.rel_of {} h)\n",
@@ -335,7 +344,10 @@ mod tests {
 
     #[test]
     fn open_cases_are_kind_and_rule() {
-        let p = tmp("open", "# hand cases\nfwd_tr IMP.while\n\nbwd_x IMP-SYNTAX.if(_)_else_ heat\n");
+        let p = tmp(
+            "open",
+            "# hand cases\nfwd_tr IMP.while\n\nbwd_x IMP-SYNTAX.if(_)_else_ heat\n",
+        );
         let o = read_open(&p);
         assert!(o.contains(&("fwd_tr".into(), "IMP.while".into())));
         // a rule name may contain spaces: everything after the kind

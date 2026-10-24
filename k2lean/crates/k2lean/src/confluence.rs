@@ -102,9 +102,14 @@ fn map_hyp(h: &str) -> Option<(String, String)> {
 enum MapRole {
     /// `hm : (K ↦ V) R = some m` on the left, `hr : (K ↦ W) R = some r` on the right: an update
     /// of one binding.
-    Update { hm: String, hr: String },
+    Update {
+        hm: String,
+        hr: String,
+    },
     /// `hr : (K ↦ W) M = some r` with `M` the cell's content on the left: an insertion.
-    Insert { hr: String },
+    Insert {
+        hr: String,
+    },
     None,
 }
 
@@ -129,7 +134,8 @@ fn map_role(r: &Rule) -> MapRole {
         }
     }
     if let [(hm, rest, _)] = matches.as_slice() {
-        let rs: Vec<&(String, String, String)> = results.iter().filter(|(_, r2, _)| r2 == rest).collect();
+        let rs: Vec<&(String, String, String)> =
+            results.iter().filter(|(_, r2, _)| r2 == rest).collect();
         return match rs.as_slice() {
             [(hr, _, _)] => MapRole::Update {
                 hm: hm.clone(),
@@ -156,12 +162,20 @@ fn free_key(r: &Rule, h: &str, p: &str) -> bool {
     let key = first_arg(rest.trim_start());
     let words = |t: &str| -> BTreeSet<String> {
         t.split(|c: char| !(c.is_alphanumeric() || c == '_' || c == '\''))
-            .filter(|w| !w.is_empty() && w.chars().next().is_some_and(|c| c.is_lowercase() || c.is_uppercase()))
+            .filter(|w| {
+                !w.is_empty()
+                    && w.chars()
+                        .next()
+                        .is_some_and(|c| c.is_lowercase() || c.is_uppercase())
+            })
             .map(String::from)
             .collect()
     };
     let binders: BTreeSet<&String> = r.step.binders.iter().map(|(b, _)| b).collect();
-    let kv: BTreeSet<String> = words(key).into_iter().filter(|w| binders.contains(w)).collect();
+    let kv: BTreeSet<String> = words(key)
+        .into_iter()
+        .filter(|w| binders.contains(w))
+        .collect();
     if kv.is_empty() {
         return false;
     }
@@ -240,7 +254,9 @@ fn footprint(r: &Rule) -> BTreeMap<String, (bool, bool)> {
         if let (L::App(ha, xa), L::App(hb, xb)) = (a, b)
             && ha == hb
             && xa.len() == xb.len()
-            && xa.iter().any(|x| matches!(x, L::App(h, _) if is_cell(h).is_some()))
+            && xa
+                .iter()
+                .any(|x| matches!(x, L::App(h, _) if is_cell(h).is_some()))
         {
             for (x, y) in xa.iter().zip(xb) {
                 let n = match x {
@@ -378,19 +394,15 @@ pub(crate) fn proj_def(
             }
         }
         let Some((t, p)) = found else {
-            fail(&format!("--obs: no rule's left-hand side shows the cell <{c}>"))
+            fail(&format!(
+                "--obs: no rule's left-hand side shows the cell <{c}>"
+            ))
         };
         pats.push((t, String::new()));
         paths.push(p);
     }
     // build the pattern: walk the shape, keeping constructors on the paths, `_` elsewhere
-    fn pat(
-        l: &L,
-        paths: &[(usize, Vec<usize>)],
-        depth: usize,
-        ns: &str,
-        content: bool,
-    ) -> String {
+    fn pat(l: &L, paths: &[(usize, Vec<usize>)], depth: usize, ns: &str, content: bool) -> String {
         if let Some((i, _)) = paths.iter().find(|(_, p)| p.len() == depth) {
             return match (content, l) {
                 (true, L::App(h, _)) => format!("({ns}.{h} x{i})"),
@@ -547,7 +559,11 @@ pub fn main(args: &[String]) {
     let mut rep = format!(
         "# k2lean confluence: the pairs of rules of {name}\n\nrules = {n}\nmulti = {}\nranks = {}\nunordered_pairs = {}\ncritical = {}\n\n[one_binding]\n",
         rs.iter().filter(|r| r.multi).count(),
-        if lib.ranked { lib.prios.len().max(1) } else { 1 },
+        if lib.ranked {
+            lib.prios.len().max(1)
+        } else {
+            1
+        },
         n * (n + 1) / 2,
         critical.len()
     );
@@ -558,7 +574,11 @@ pub fn main(args: &[String]) {
     for (k, v) in &distinct {
         writeln!(rep, "{k} = {v}").unwrap();
     }
-    writeln!(rep, "\n[races]  # pairs at two bindings that both touch the cell, one writing").unwrap();
+    writeln!(
+        rep,
+        "\n[races]  # pairs at two bindings that both touch the cell, one writing"
+    )
+    .unwrap();
     for (k, v) in &races {
         writeln!(rep, "{:?} = {v}", k).unwrap();
     }
@@ -669,7 +689,12 @@ are the hand module's (`hand.pair.r₁.r₂`). -/\n",
             let mut xs = a1.clone();
             xs.extend(a2.iter().cloned());
             xs.extend(["hc".to_string(), "hH".to_string()]);
-            writeln!(o, "theorem pair.{l1}.{l2} :\n    {ty} := by\n{}", intro(&xs)).unwrap();
+            writeln!(
+                o,
+                "theorem pair.{l1}.{l2} :\n    {ty} := by\n{}",
+                intro(&xs)
+            )
+            .unwrap();
             let listed = open.contains(&(rules::display_name(r1), rules::display_name(r2)));
             if listed {
                 counts.1 += 1;
@@ -809,7 +834,11 @@ theorem terminal_unique {{c n₁ n₂ : {top}}} (hc : {h} c) (h₁ : Star {name}
 theorem obs_confluent {{c n₁ n₂ : {top}}} (hc : {h} c) (h₁ : Star {name}.Step c n₁) (t₁ : Terminal {name}.Step n₁)\n    (h₂ : Star {name}.Step c n₂) (t₂ : Terminal {name}.Step n₂) : obs n₁ = obs n₂ :=\n  congrArg obs (terminal_unique hc h₁ t₁ h₂ t₂)\n"
     )
     .unwrap();
-    guard.extend(["joins".into(), "terminal_unique".into(), "obs_confluent".into()]);
+    guard.extend([
+        "joins".into(),
+        "terminal_unique".into(),
+        "obs_confluent".into(),
+    ]);
     writeln!(o, "#k2l_assert_axioms {}\n\nend {ns}", guard.join(" ")).unwrap();
     write_file(&get("out"), &o);
     writeln!(
