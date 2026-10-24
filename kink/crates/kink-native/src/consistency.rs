@@ -52,8 +52,12 @@
 //! unchanged pair of a symbol that reaches a changed one can stop joining, since its reducts and
 //! conditions are normalized with the changed equations. A changed or reached index that is not
 //! a symbol checks every head. Every other pair is the baseline's and is normalized with the
-//! baseline's equations alone, so it joins in the mutant exactly when it does in the baseline:
-//! the baseline's equations stay a trusted premise, and the baseline is not checked.
+//! baseline's equations alone, so it joins in the mutant exactly when it does in the baseline.
+//! kink checks that rather than arguing it (fz26 KINK-BASELINE-FINDINGS): every finding of the
+//! mutant's full check outside the checked heads must be the baseline's, by name and unique ids
+//! ([`crate::data::DataFacts::differs_outside`]; kink-campaign refuses a difference as
+//! `mutant-findings`), and a baseline with a finding no name assumes leaves no end data
+//! ([`crate::data::data_ends`]; every mutation `baseline-findings`).
 //!
 //! The source reading is kept as a fail-closed cross-check, since claim removal reads it: every
 //! compiled equation that a rule the patch touches or inserts gives, on either side, must be
@@ -67,20 +71,21 @@
 //! Two properties of k-rust's check need care, and each is closed here:
 //!
 //! - A definition that declares no equation head (an `anywhere` production that is not a
-//!   declared function) and no overloaded symbol that can be withdrawn "has no pair checked: no
-//!   pair can change a claim" (`compatibility.md`, the paragraph after "the load classifies only
-//!   the pairs that can change a claim"), in either scope. That is most definitions kink mutates.
-//!   kink therefore checks a copy of the mutant's KORE with one more declaration: a sort
-//!   [`PROBE_SORT`] and a nullary equation head [`PROBE_SYMBOL`] (`anywhere`, no equation, so it
-//!   appears in no equation, no pair and no step). The copy's executable equations, sorts and
-//!   overload families are the mutant's, so every pair of the mutant is classified, and
-//!   classified as k-rust classifies it in any definition with an equation head. kink also checks
-//!   that the check ran on the whole definition: it must have read every executable equation,
-//!   skipped no candidate pair, and classified at least as many pairs as the copy has root pairs
-//!   (two equations of one index and priority group); otherwise the mutant is refused. k-rust
-//!   reports these counts for the whole definition only, so the guard does not show, group by
-//!   group, that every root, self and inner pair was classified; it shows that the early return
-//!   did not fire, since every definition has root pairs of its own or the prelude's.
+//!   declared function) and no overloaded symbol that can be withdrawn has no pair checked by the
+//!   load's own scope (`CheckScope::Gate`'s early return, `compatibility.md`, the paragraph after
+//!   "the load classifies only the pairs that can change a claim"). That is most definitions kink
+//!   mutates. `CheckScope::All` has no such return (k-rust-backend `confluence.rs`: the shortcut is
+//!   taken under `Gate` only), so the check reads the mutant's full check, which kink computes
+//!   once per load on the backend the mutant runs on (`Backend::from_definition`'s selected
+//!   definition; [`crate::data::DataFacts`], fz26 KINK-BASELINE-FINDINGS): before that ticket it
+//!   checked a source-route copy with an added equation head, which the full scope does not need.
+//!   kink also checks that the check ran on the whole definition: it must have read every
+//!   executable equation, skipped no candidate pair, and classified at least as many pairs as the
+//!   definition has root pairs (two equations of one index and priority group); otherwise the
+//!   mutant is refused. k-rust reports these counts for the whole definition only, so the guard
+//!   does not show, group by group, that every root, self and inner pair was classified; it shows
+//!   that no early return fired, since every definition has root pairs of its own or the
+//!   prelude's.
 //! - A simplification of the check that runs out of native stack decides nothing, and then "the
 //!   verdict is a function of the definition only when [`condition_stack_stops`] is zero"; a
 //!   nonzero count refuses the mutant. Budget stops are a function of the definition, and a
@@ -97,14 +102,16 @@ use k_rust::kast::{GeneratedLabel, Label};
 use k_rust::kore::parser::parse_definition;
 use k_rust::provenance::InputSpace;
 use k_rust_backend::{
-    confluence::{CheckScope, UnjoinedPair, ViolationKind},
+    confluence::UnjoinedPair,
+    data_term::Finding,
     definition::BackendDefinition,
-    rule::{Concreteness, ConstraintKind, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex},
+    rule::{PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex},
     term::{FunctionType, SymbolType, Term},
 };
 use kink_patch::{SentenceOrigin, SentenceRef, SourceEffect};
 
 use crate::ValidatedDefinition;
+use crate::data::DataFacts;
 
 /// The version of the consistency check: a mutant's admission depends on it, so kink's semantics
 /// identity names it (kink-campaign `identity`), on which every store keys. v2 (re-pin
@@ -120,12 +127,6 @@ pub const MUTANT_CONSISTENCY_VERSION: &str = "kink-native/mutant-consistency/v3"
 /// the source reading, re-pin R0c-fix-4). A mutant's admission depends on it, so kink's
 /// semantics identity names it (kink-campaign `identity`).
 pub const MUTANT_EFFECT_VERSION: &str = "kink-native/mutant-effect/v1";
-
-/// The sort of the equation head kink adds to the checked copy (see the module documentation).
-pub const PROBE_SORT: &str = "SortKinkMutantConsistencyProbe";
-
-/// The equation head kink adds to the checked copy: `anywhere`, nullary, with no equation.
-pub const PROBE_SYMBOL: &str = "LblkinkMutantConsistencyProbe";
 
 /// One pair of equations that k-rust's critical-pair check does not show to join (or one
 /// equation it reports on its own), with its reason.
@@ -538,6 +539,10 @@ pub struct CompiledEffect {
 ///
 /// The compiled diff is always computed: an empty source reading never admits a mutant without it.
 ///
+/// This loads `side` on kink's route itself ([`loaded_definition`]) and reads its full check
+/// with no name assumed; kink-campaign's runner, which loads the mutant once for its runs and
+/// its facts, calls [`admit_mutant_with`].
+///
 /// # Errors
 ///
 /// Returns why the mutant is refused.
@@ -546,19 +551,47 @@ pub fn admit_mutant(
     side: &ValidatedDefinition,
     source: &SourceEffect,
 ) -> Result<CompiledEffect, MutantFailure> {
+    let definition = loaded_definition(side).map_err(MutantFailure::Uninternalizable)?;
+    let facts = DataFacts::of(&definition, &[]);
+    admit_mutant_with(baseline, side, source, &definition, &facts)
+}
+
+/// The definition a backend loads `side` as on kink's route (`Backend::from_definition` of its
+/// compiled KORE for its main module, then the selected definition), on this thread: the
+/// definition the side's runs execute on and its full check reads.
+///
+/// # Errors
+///
+/// Returns why the side's KORE does not parse, load or internalize.
+pub fn loaded_definition(
+    side: &ValidatedDefinition,
+) -> Result<std::sync::Arc<BackendDefinition>, String> {
+    let parsed = parse_definition(&side.artifacts().definition_kore).map_err(|e| e.to_string())?;
+    let mut backend = k_rust::backend::Backend::from_definition(
+        parsed,
+        encode(&side.definition().main_module),
+        k_rust::backend::BackendOptions::default(),
+    )
+    .map_err(|e| e.to_string())?;
+    backend.select_definition(None).map_err(|e| e.to_string())
+}
+
+/// [`admit_mutant`] on the claim-free mutant `side` loaded as `definition` (the definition its
+/// runs execute on, [`loaded_definition`]), whose full check is `facts` (computed on
+/// `definition`, with any names: the gate reads assumed findings as unjoined all the same).
+///
+/// # Errors
+///
+/// Returns why the mutant is refused.
+pub fn admit_mutant_with(
+    baseline: &CompiledEquations,
+    side: &ValidatedDefinition,
+    source: &SourceEffect,
+    definition: &BackendDefinition,
+    facts: &DataFacts,
+) -> Result<CompiledEffect, MutantFailure> {
     let unchecked = |why: String| MutantFailure::Inconsistent(Inconsistency::Unchecked(why));
-    let definition = match checked_copy(side) {
-        Ok(definition) => definition,
-        Err(why) => {
-            // A mutant whose own KORE does not internalize runs nothing (its runtime cannot be
-            // prepared); one that internalizes only without the probe is unchecked.
-            return Err(match CompiledEquations::of(side) {
-                Err(own) => MutantFailure::Uninternalizable(own),
-                Ok(_) => unchecked(why),
-            });
-        }
-    };
-    let mutant = CompiledEquations::read(&definition, side);
+    let mutant = CompiledEquations::read(definition, side);
 
     let unread = unread_equations(baseline, &mutant, source);
     if !unread.is_empty() {
@@ -637,7 +670,7 @@ pub fn admit_mutant(
         // none: every pair is the baseline's.
         return Ok(effect);
     }
-    check(&definition, effect.checked.as_ref()).map_err(MutantFailure::Inconsistent)?;
+    check(facts, effect.checked.as_ref()).map_err(MutantFailure::Inconsistent)?;
     Ok(effect)
 }
 
@@ -734,7 +767,8 @@ fn index_name(index: &TermIndex) -> String {
 /// Whether the claim-free mutant `side` is shown to be a theory with models for the symbols
 /// `heads` (K labels; `None` for every symbol): every pair with an equation of one of them, or
 /// one not indexed at a symbol, joins by k-rust's critical-pair check. This reads the check for
-/// given heads only; [`admit_mutant`] decides which heads an edit can change.
+/// given heads only, on `side` loaded on kink's route ([`loaded_definition`]); [`admit_mutant`]
+/// decides which heads an edit can change.
 ///
 /// # Errors
 ///
@@ -743,7 +777,7 @@ pub fn check_heads(
     side: &ValidatedDefinition,
     heads: Option<&BTreeSet<String>>,
 ) -> Result<(), Inconsistency> {
-    let definition = checked_copy(side).map_err(Inconsistency::Unchecked)?;
+    let definition = loaded_definition(side).map_err(Inconsistency::Unchecked)?;
     let heads = heads.map(|heads| {
         heads
             .iter()
@@ -762,78 +796,28 @@ pub fn check_heads(
             )));
         }
     }
-    check(&definition, heads.as_ref())
+    check(&DataFacts::of(&definition, &[]), heads.as_ref())
 }
 
-/// The mutant's definition with the probe sort and equation head added to its main module.
-fn checked_copy(side: &ValidatedDefinition) -> Result<BackendDefinition, String> {
-    let kore = &side.artifacts().definition_kore;
-    if kore.contains(PROBE_SORT) || kore.contains(PROBE_SYMBOL) {
-        return Err(format!(
-            "the definition already names {PROBE_SORT} or {PROBE_SYMBOL}"
-        ));
-    }
-    let mut parsed = parse_definition(kore).map_err(|e| e.to_string())?;
-    let main = encode(&side.definition().main_module);
-    let probe = parse_definition(&format!(
-        "[] module KINKPROBE sort {PROBE_SORT}{{}} [] \
-         symbol {PROBE_SYMBOL}{{}}() : {PROBE_SORT}{{}} [anywhere{{}}()] endmodule []"
-    ))
-    .map_err(|e| e.to_string())?;
-    let sentences = probe
-        .modules
-        .into_iter()
-        .next()
-        .ok_or("the probe module did not parse")?
-        .sentences;
-    parsed
-        .modules
-        .iter_mut()
-        .find(|module| module.name == main)
-        .ok_or_else(|| format!("no main module {main} in the compiled KORE"))?
-        .sentences
-        .extend(sentences);
-    BackendDefinition::internalize_for_source_execution(
-        &parsed,
-        &main,
-        &side.artifacts().execution_rewrite_order,
-    )
-    .map_err(|e| e.to_string())
-}
-
-/// k-rust's check of every pair of `definition`, read for the KORE symbols `heads`.
-fn check(
-    definition: &BackendDefinition,
-    heads: Option<&BTreeSet<String>>,
-) -> Result<(), Inconsistency> {
-    let claims = definition.value_claims_in_scope(CheckScope::All);
-    let counts = claims.counts();
+/// k-rust's full check of a definition (`facts`, [`DataFacts::heads`] with its counts), read for
+/// the KORE symbols `heads`: every finding, assumed by a name or not, that the gate reads for
+/// those heads ([`DataFacts::reads`]) refuses.
+fn check(facts: &DataFacts, heads: Option<&BTreeSet<String>>) -> Result<(), Inconsistency> {
+    let counts = facts.heads().check_counts();
     if counts.condition_stack_stops > 0 {
         return Err(Inconsistency::Unchecked(format!(
             "{} simplifications of the check ran out of native stack",
             counts.condition_stack_stops
         )));
     }
-    let mut index_of = BTreeMap::new();
-    let mut root_pairs = 0;
-    let mut executable_equations = 0;
-    for (index, priorities) in definition.function_theory() {
-        for rules in priorities.values() {
-            for rule in rules {
-                index_of.insert(rule.attributes.unique_id.clone(), index.clone());
-            }
-            let executable = rules.iter().filter(|rule| !symbolic(rule)).count();
-            executable_equations += executable;
-            root_pairs += executable * executable.saturating_sub(1) / 2;
-        }
-    }
+    let (executable_equations, root_pairs) = facts.guard();
     // k-rust reports its counts for the whole definition only (`CheckCounts`), so these guards
     // are global: the check read every executable equation, skipped no candidate pair, and
     // unified at least as many candidate pairs as there are root pairs (two executable equations
     // of one index and priority group; `pairs` also counts the inner pairs, and a self pair is
     // counted in `several_matches` instead). They show the check ran on the whole definition
-    // (its early return for a definition with nothing withdrawable reads no pair); they do not
-    // show, group by group, that every root, self and inner pair was classified.
+    // (no early return read no pair); they do not show, group by group, that every root, self
+    // and inner pair was classified.
     if counts.equations != executable_equations || counts.skipped > 0 || counts.pairs < root_pairs {
         return Err(Inconsistency::Unchecked(format!(
             "k-rust read {} of the {executable_equations} executable equations, skipped {} \
@@ -841,61 +825,33 @@ fn check(
             counts.equations, counts.skipped, counts.pairs
         )));
     }
-    let checked_symbol = |name: &str| heads.is_none_or(|heads| heads.contains(name));
-    let checked = |rule: &RewriteRule| match index_of.get(&rule.attributes.unique_id) {
-        Some(TermIndex::Symbol(name)) => checked_symbol(name),
-        // An equation not indexed at a symbol (at a conjunction, a domain value, a collection or
-        // a bare variable) could be offered at a head's application: read it as every head's.
-        _ => true,
-    };
-    let mut pairs = claims
-        .unjoined()
+    let mut pairs = BTreeSet::new();
+    for finding in facts
+        .heads()
+        .findings()
         .iter()
-        // A hook pair's second equation is the hook's written meaning, no equation of the
-        // definition: the pair is about its first equation alone.
-        .filter(|pair| checked(&pair.first) || (pair.hook.is_none() && checked(&pair.second)))
-        .map(unjoined)
-        .collect::<BTreeSet<_>>();
-    for violation in claims.violations() {
-        let outside = match &violation.kind {
-            // An equation the check cannot pair with a head's equations (offered everywhere, or
-            // at a collection): every head is unchecked.
-            ViolationKind::IndexedAt(_) => true,
-            ViolationKind::OverloadShape(symbol)
-            | ViolationKind::PinnedByInjectiveTotal(symbol) => checked_symbol(symbol),
-            ViolationKind::NoLeastCommonOverload(left, right) => {
-                checked_symbol(left) || checked_symbol(right)
+        .chain(facts.heads().assumed())
+        .filter(|finding| facts.reads(finding, heads))
+    {
+        match finding {
+            Finding::Pair { pair, .. } | Finding::Equation(pair) => {
+                pairs.insert(unjoined(pair));
             }
-            ViolationKind::ConstructorHeaded(_) | ViolationKind::InjectionHeaded => {
-                violation.rule.as_deref().is_none_or(checked)
+            Finding::Precondition(violation) => {
+                let name = violation.rule.as_deref().map_or_else(String::new, name);
+                pairs.insert(UnjoinedEquations {
+                    first: name.clone(),
+                    second: name,
+                    position: Vec::new(),
+                    reason: format!("outside the check: {}", violation.kind),
+                });
             }
-        };
-        if outside {
-            let name = violation.rule.as_deref().map_or_else(String::new, name);
-            pairs.insert(UnjoinedEquations {
-                first: name.clone(),
-                second: name,
-                position: Vec::new(),
-                reason: format!("outside the check: {}", violation.kind),
-            });
         }
     }
     if pairs.is_empty() {
         Ok(())
     } else {
         Err(Inconsistency::Unjoined(pairs.into_iter().collect()))
-    }
-}
-
-/// Whether k-rust's check skips `rule`: restricted to symbolic instances, it is never a step on
-/// a ground term (`confluence.rs` `symbolic`).
-fn symbolic(rule: &RewriteRule) -> bool {
-    match &rule.attributes.concreteness {
-        Concreteness::Unconstrained => false,
-        Concreteness::All(kind) => *kind == ConstraintKind::Symbolic,
-        Concreteness::Some(constraints) => constraints
-            .values()
-            .any(|kind| *kind == ConstraintKind::Symbolic),
     }
 }
 

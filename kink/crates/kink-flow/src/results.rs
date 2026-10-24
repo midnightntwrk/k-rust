@@ -266,7 +266,11 @@ impl<'a> BaselineRunner<'a> {
             generations: vec![generation],
             budget: execution_budget(manifest.budget),
             authors: RuleAuthors::of(&spec.compiled),
-            session: RefCell::new(BaselineSession::new(&spec.validator)),
+            session: RefCell::new(
+                BaselineSession::new(&spec.validator)
+                    .assuming(manifest.spec.assume_joined.clone())
+                    .with_baseline_data(spec.data.clone()),
+            ),
             diagnostic: Cell::new(0),
             observable: OnceCell::new(),
         })
@@ -916,7 +920,10 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
     );
     let mut ok = update.ok();
     let rules = rules(&spec, manifest, &update.rows);
-    let programs = update.rows.into_iter().map(|row| row.row).collect();
+    let programs = data_marked(
+        update.rows.into_iter().map(|row| row.row).collect(),
+        &spec.data,
+    );
     let mut document = document(
         &record,
         Some(update.spec_digest),
@@ -925,6 +932,7 @@ pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, boo
         update.mismatches,
         runner.baseline_runs(),
     );
+    document["data"] = spec.data.value();
     // The rules no mutation of the given list targets (flow F-13, informational only).
     if let Some(path) = &options.mutations {
         match crate::mutation::MutationList::read(path) {
@@ -1299,5 +1307,21 @@ fn document(
         "summary": summary,
         "baseline_runs": baseline_runs,
         "untargeted_rules": null,
+        "data": null,
     })
+}
+
+/// `rows` (program rows of a document), each comparable row marked `unable_to_kill:
+/// "baseline-findings"` while the baseline has a finding no `[spec] assume_joined` name assumes
+/// (fz26 KINK-BASELINE-FINDINGS): its class and coverage are facts of the run k-rust made, but
+/// no end of the definition is data (kink-native `data::data_ends`), so it kills nothing.
+pub fn data_marked(mut rows: Vec<Value>, data: &kink_native::data::DataFacts) -> Vec<Value> {
+    if kink_native::data::data_ends(data) == kink_native::data::DataEnds::None {
+        for row in &mut rows {
+            if row["class"] == ResultClass::Comparable.as_str() {
+                row["unable_to_kill"] = json!("baseline-findings");
+            }
+        }
+    }
+    rows
 }

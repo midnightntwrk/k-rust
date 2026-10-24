@@ -6,7 +6,10 @@
 //! (`kink_corpus::load_source`, which records every non-builtin file read), the
 //! below-floor exclusion of every loaded file, the semantic-input canonical check, the
 //! compile with its kompile warnings, the representation gate (TB-03), the declaration
-//! census (VI-T13) and the input backend. Then each program is admitted on its own: its
+//! census (VI-T13), the input backend, and the definition's full critical-pair check on that
+//! backend (stage `assume-joined`: every name of `[spec] assume_joined` must name exactly one
+//! finding that can be assumed; fz26 KINK-BASELINE-FINDINGS). Then each program is admitted on
+//! its own: its
 //! file is read inside the manifest's directory, its configuration is assembled, and the
 //! concrete-state check and the input gate run. A refused program never stops the others.
 
@@ -24,7 +27,8 @@ use kink_corpus::{
     manifest::Exclusion,
 };
 use kink_native::{
-    CensusError, DeclarationCensus, NativeValidator, ValidatedDefinition, declaration_census,
+    CensusError, DeclarationCensus, NativeValidator, ValidatedDefinition, data::DataFacts,
+    declaration_census,
 };
 use kink_patch::SemanticInput;
 use std::{
@@ -43,6 +47,12 @@ pub struct AdmittedSpec {
     pub compiled: ValidatedDefinition,
     /// The validator the specification was compiled with; its baseline compile is memoised.
     pub validator: NativeValidator,
+    /// The baseline's full critical-pair check under `[spec] assume_joined`, computed once, on
+    /// the input backend (`Backend::from_definition` of the compile, the route kink runs it on;
+    /// fz26 KINK-BASELINE-FINDINGS). While a finding is left no end is data, so no mutation can
+    /// be killed (`baseline-findings`), no comparable program can kill, and no query `no` is
+    /// given.
+    pub data: DataFacts,
 }
 
 /// The admission of one program.
@@ -115,10 +125,7 @@ pub fn admit_spec_with(
     ) -> Result<DeclarationCensus, CensusError>,
 ) -> (AdmissionRecord, Option<(AdmittedSpec, ProgramInputs)>) {
     let mut record = AdmissionRecord::new(SPEC_RECORD_NAME);
-    let admitted = admit_definition(manifest, &mut record, census).and_then(|spec| {
-        let backend = input_backend(&spec.compiled, &manifest.spec.main_module)?;
-        Ok((spec, backend))
-    });
+    let admitted = admit_definition(manifest, &mut record, census);
     match admitted {
         Ok((spec, backend)) => (
             record,
@@ -215,7 +222,7 @@ fn admit_definition(
         &LoadedSource,
         &ValidatedDefinition,
     ) -> Result<DeclarationCensus, CensusError>,
-) -> Result<AdmittedSpec, AdmissionRefusal> {
+) -> Result<(AdmittedSpec, Backend), AdmissionRefusal> {
     let spec = &manifest.spec;
     let exclusions = below_floor_exclusions();
     let entry = manifest.directory.join(&spec.entry);
@@ -228,12 +235,50 @@ fn admit_definition(
     let semantic_input = check_loaded_semantic_input(&loaded)?;
     let validator = NativeValidator::bind(loaded.baseline.clone(), Default::default());
     let compiled = compile_definition_with(&validator, record, |side| census(&loaded, side))?;
-    Ok(AdmittedSpec {
-        loaded,
-        semantic_input,
-        compiled,
-        validator,
-    })
+    let mut backend = input_backend(&compiled, &spec.main_module)?;
+    let data = baseline_data(&mut backend, &spec.assume_joined)?;
+    Ok((
+        AdmittedSpec {
+            loaded,
+            semantic_input,
+            compiled,
+            validator,
+            data,
+        },
+        backend,
+    ))
+}
+
+/// The baseline's data facts on its input backend (stage `assume-joined`): the definition the
+/// backend selected for the main module, its full critical-pair check, and every name of
+/// `assume_joined` checked against it (kink-native `DataFacts::refused_names`: a name must name
+/// exactly one finding, and not a decided one).
+fn baseline_data(
+    backend: &mut Backend,
+    assume_joined: &[String],
+) -> Result<DataFacts, AdmissionRefusal> {
+    let selected = backend
+        .select_definition(None)
+        .map_err(|e| AdmissionRefusal {
+            stage: "inputs".into(),
+            reason: "input-gate".into(),
+            detail: e.to_string(),
+        })?;
+    let data = DataFacts::of(&selected, assume_joined);
+    let refused = data.refused_names();
+    if refused.is_empty() {
+        Ok(data)
+    } else {
+        Err(AdmissionRefusal {
+            stage: "assume-joined".into(),
+            reason: "name-refused".into(),
+            detail: refused
+                .iter()
+                .map(|refusal| format!("`{}`: {}", refusal.name, refusal.reason))
+                .collect::<Vec<_>>()
+                .join("; "),
+        })
+    }
 }
 
 /// Read a program file inside the canonical manifest directory `root`, as kink-corpus

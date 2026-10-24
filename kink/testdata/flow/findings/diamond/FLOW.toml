@@ -1,0 +1,8 @@
+[spec]
+entry = "spec.k"
+main_module = "DIA"
+syntax_module = "DIA-SYNTAX"
+
+[[program]]
+id = "one"
+file = "one.pgm"

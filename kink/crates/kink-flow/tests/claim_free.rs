@@ -54,7 +54,12 @@ fn agrees_with_the_runner(dir: &Path) -> (usize, usize) {
     let admission = admit(&manifest);
     let spec = admission.spec.expect("the specification is admitted");
     let baseline = spec.validator.baseline();
-    let mutant_admission = MutantAdmission::new(baseline, &spec.compiled);
+    let mutant_admission = MutantAdmission::new(
+        baseline,
+        &spec.compiled,
+        &k_rust::kast::identifier::encode(&manifest.spec.main_module),
+        &[],
+    );
     let support = ClaimSupport::new(baseline);
     let (mut built, mut refused) = (0, 0);
     for mutation in &list.mutations {
@@ -78,7 +83,12 @@ fn agrees_with_the_runner(dir: &Path) -> (usize, usize) {
         ) {
             Ok(mutant) => {
                 built += 1;
-                assert_eq!(stages, [MutantStage::Consistency], "{}", mutation.id);
+                assert_eq!(
+                    stages,
+                    [MutantStage::Backend, MutantStage::Consistency],
+                    "{}",
+                    mutation.id
+                );
                 let claims = support.withdraw(baseline, &resolved.patch).unwrap();
                 assert_eq!(mutant.claims, claims, "{}", mutation.id);
                 let claim_free = claims.patch().unwrap_or(&resolved.patch);

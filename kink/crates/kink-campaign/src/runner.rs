@@ -125,6 +125,7 @@ use kink_native::bridge::{
 };
 use kink_native::consistency::{CompiledEquations, MutantFailure, UnjoinedEquations};
 use kink_native::coverage::{RuleAuthors, TestCoverage};
+use kink_native::data::{DataEnds, DataFacts, data_ends};
 use kink_native::exclusion::{DefinitionExclusions, Exclusion};
 use kink_native::execution::{
     AdaptedExecution, ExecutionAdapter, ExecutionAdapterFailure, ExecutionBudget, HaltClass,
@@ -881,10 +882,18 @@ pub struct BaselineSession<'v> {
     reused: usize,
     /// The recording of the last call; reset when a call starts.
     last_call: CallRecording,
+    /// The findings of the full critical-pair check every call reads as assumed (kink-flow's
+    /// `[spec] assume_joined`; fz26 KINK-BASELINE-FINDINGS), by name.
+    assume_joined: Vec<String>,
+    /// The baseline's data facts under [`Self::assume_joined`], with the compiled baseline's
+    /// `kore_sha256` they were computed for: given by the caller ([`Self::with_baseline_data`]) or
+    /// computed by the first call that has a mutant, on its baseline load, and reused by every
+    /// later call.
+    baseline_data: Option<(Sha256Digest, DataFacts)>,
 }
 
 impl<'v> BaselineSession<'v> {
-    /// An empty session for `validator`'s compiled baseline.
+    /// An empty session for `validator`'s compiled baseline, assuming no finding.
     #[must_use]
     pub fn new(validator: &'v NativeValidator) -> Self {
         Self {
@@ -894,7 +903,69 @@ impl<'v> BaselineSession<'v> {
             live: 0,
             reused: 0,
             last_call: CallRecording::default(),
+            assume_joined: Vec::new(),
+            baseline_data: None,
         }
+    }
+
+    /// The session, its calls reading the findings `names` names as assumed (fz26
+    /// KINK-BASELINE-FINDINGS): on the baseline, so that a finding the author names does not
+    /// make every mutant `baseline-findings`, and on each claim-free mutant alike. A name that
+    /// matches no finding of the baseline, more than one, or a decided one refuses every call
+    /// with a mutant ([`DataFacts::refused_names`]).
+    #[must_use]
+    pub fn assuming(mut self, names: Vec<String>) -> Self {
+        self.assume_joined = names;
+        self.baseline_data = None;
+        self
+    }
+
+    /// The session with the baseline's data facts already computed by the caller (`facts`, on the
+    /// validator's compiled baseline loaded on kink's route, under [`Self::assume_joined`]), so no
+    /// call computes them again. Facts computed for another compiled definition or other names
+    /// are not used.
+    #[must_use]
+    pub fn with_baseline_data(mut self, facts: DataFacts) -> Self {
+        if facts.assume_joined() == self.assume_joined.as_slice()
+            && let Some((digest, _)) = self.compiled_baseline()
+        {
+            self.baseline_data = Some((digest, facts));
+        }
+        self
+    }
+
+    /// The names the session's calls read as assumed.
+    #[must_use]
+    pub fn assume_joined(&self) -> &[String] {
+        &self.assume_joined
+    }
+
+    /// The baseline's data facts, when a call has computed them or the caller gave them.
+    #[must_use]
+    pub fn baseline_data(&self) -> Option<&DataFacts> {
+        self.baseline_data.as_ref().map(|(_, facts)| facts)
+    }
+
+    /// The baseline's data facts for `compiled` (the call's baseline compile) loaded as
+    /// `runtime`: the session's, or computed on `runtime`'s selected definition and kept.
+    fn data_of(
+        &mut self,
+        compiled: &ValidatedDefinition,
+        runtime: &mut Runtime,
+    ) -> Result<DataFacts, String> {
+        let digest = compiled.kore_sha256();
+        if let Some((stored, facts)) = &self.baseline_data
+            && *stored == digest
+        {
+            return Ok(facts.clone());
+        }
+        let definition = runtime
+            .backend
+            .select_definition(None)
+            .map_err(|error| error.to_string())?;
+        let facts = DataFacts::of(&definition, &self.assume_joined);
+        self.baseline_data = Some((digest, facts.clone()));
+        Ok(facts)
     }
 
     /// What the last call through this session ran (empty before the first call, and for a
@@ -1099,11 +1170,39 @@ pub fn run_campaign_multi_with(
         .map_err(|_| admission_failure(BaselineAdmission::Error))?;
     runtime.coverage = Some(RuleAuthors::of(&baseline));
     runtime.modality = options.run.result_modality;
+    // The baseline's full critical-pair check, once per session (fz26 KINK-BASELINE-FINDINGS):
+    // only a call with a mutant reads it, and a name the author gives that the baseline refuses
+    // refuses the call.
+    let data = if generations
+        .iter()
+        .any(|generation| !generation.candidates().is_empty())
+    {
+        let facts = session
+            .data_of(&baseline, &mut runtime)
+            .map_err(|_| admission_failure(BaselineAdmission::Error))?;
+        let refused = facts.refused_names();
+        if !refused.is_empty() {
+            return Err(CampaignFailure::new(
+                CampaignFailureKind::InvalidDeclaration,
+                refused
+                    .iter()
+                    .map(|refusal| format!("assume_joined `{}`: {}", refusal.name, refusal.reason))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+            ));
+        }
+        Ok(facts)
+    } else {
+        Err("a call with no mutant reads no baseline data facts".to_owned())
+    };
     // The baseline's compiled equations, which every mutant's are read against (re-pin
     // R0c-fix-4). A baseline that does not internalize again leaves every mutant unchecked.
     let admission = MutantAdmission {
         equations: CompiledEquations::of(&baseline),
         support,
+        module: campaign.module.to_owned(),
+        assume_joined: session.assume_joined.clone(),
+        data,
     };
     // Test-written predicates do not inherit the definedness premise of backend-built
     // predicates. Refuse unsafe input through the existing declaration admission gate,
@@ -1529,7 +1628,16 @@ fn run_mutant(
     admission: &MutantAdmission,
     observations: &mut BaselineObservations<'_>,
 ) -> MutantExecution {
-    match prepare_mutant(campaign, patch, compiled_baseline, admission) {
+    // fz26 KINK-BASELINE-FINDINGS: no end of a baseline with a finding left is data, so no
+    // comparison on it can kill, and the mutant is unknown before it compiles.
+    let gated = match &admission.data {
+        Ok(facts) if data_ends(facts) == DataEnds::None => Err(MutantRefusal::new(
+            MutantScopeFailure::BaselineFindings,
+            Withdrawal::default(),
+        )),
+        _ => prepare_mutant(campaign, patch, compiled_baseline, admission),
+    };
+    match gated {
         Err(refusal) => {
             let MutantRefusal {
                 failure,
@@ -1655,19 +1763,26 @@ fn prepare_mutant(
     compiled_baseline: &ValidatedDefinition,
     admission: &MutantAdmission,
 ) -> Result<(MutantSides, Withdrawal), Box<MutantRefusal>> {
-    let ClaimFreeMutant { side, claims } = claim_free_mutant(
+    let ClaimFreeMutant {
+        side,
+        claims,
+        loaded,
+        ..
+    } = claim_free_mutant(
         campaign.validator,
         compiled_baseline,
         patch,
         admission,
         &mut |stage| match stage {
+            MutantStage::Backend => stage_log::note(campaign, stage_log::Stage::Backend),
             MutantStage::Consistency => stage_log::note(campaign, stage_log::Stage::Consistency),
         },
     )?;
     let fail = |failure| MutantRefusal::new(failure, claims.clone());
     let edit = CompiledEdit::between(compiled_baseline, &side);
-    let runtime =
-        Runtime::prepare(campaign, &side).map_err(|_| fail(MutantScopeFailure::Infrastructure))?;
+    // The claim-free mutant's backend was loaded once, for its facts, and runs its tests.
+    let runtime = Runtime::from_loaded(campaign, &side, loaded)
+        .map_err(|_| fail(MutantScopeFailure::Infrastructure))?;
     Ok((MutantSides { runtime, edit }, claims))
 }
 
@@ -1676,18 +1791,36 @@ fn prepare_mutant(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[non_exhaustive]
 pub enum MutantStage {
+    /// The load of the claim-free mutant on kink's route (`Backend::from_definition`), whose
+    /// selected definition its full critical-pair check and its runs read.
+    Backend,
     /// The consistency check of the claim-free mutant
-    /// ([`kink_native::consistency::admit_mutant`]).
+    /// ([`kink_native::consistency::admit_mutant_with`]) and the comparison of its findings with
+    /// the baseline's.
     Consistency,
 }
 
 /// The claim-free mutant of a patch: the compiled definition every test of the mutant runs on,
-/// and the claims the patch leaves unbacked, which its compile has withdrawn
-/// ([`claim_free_mutant`]).
-#[derive(Clone, Debug)]
+/// the claims the patch leaves unbacked, which its compile has withdrawn, and its full
+/// critical-pair check under the admission's names ([`claim_free_mutant`]).
 pub struct ClaimFreeMutant {
     pub side: ValidatedDefinition,
     pub claims: Withdrawal,
+    /// The claim-free mutant's data facts, on the definition its runs execute on.
+    pub data: DataFacts,
+    /// The claim-free mutant's load, which the runner's runtime takes over.
+    loaded: LoadedSide,
+}
+
+impl std::fmt::Debug for ClaimFreeMutant {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ClaimFreeMutant")
+            .field("side", &self.side.kore_sha256())
+            .field("claims", &self.claims)
+            .field("data", &self.data)
+            .finish_non_exhaustive()
+    }
 }
 
 /// The claim-free mutant of `patch`, exactly as the runner builds it for every test of the
@@ -1710,13 +1843,19 @@ pub struct ClaimFreeMutant {
 /// R0c-fix-3, decisions log 2026-10-17 "inconsistent mutants"): every pair of equations of a
 /// symbol whose compiled equations differ from the baseline's or reach one, or that the patch
 /// redefines or reaches by kink-patch's source reading ([`ClaimSupport::effect`]), must join by
-/// k-rust's critical-pair check ([`kink_native::consistency::admit_mutant`], re-pin R0c-fix-4).
-/// A pair not shown to join, or a check that cannot run, refuses the mutant as
-/// `InconsistentMutant`, invalid and outside the score, with the pairs named. It runs on the
-/// mutant only: the baseline's equations stay a trusted premise. A compiled equation of a sentence
-/// the patch touches whose head the source reading does not redefine leaves the claims the edit
-/// unbacks unknown, so the mutant is `UnsupportedClaims`, each such equation recorded as an
-/// unsupported claim with key [`UNREAD_EQUATION_CLAIM`].
+/// k-rust's critical-pair check ([`kink_native::consistency::admit_mutant_with`], re-pin
+/// R0c-fix-4). A pair not shown to join, or a check that cannot run, refuses the mutant as
+/// `InconsistentMutant`, invalid and outside the score, with the pairs named. A compiled equation
+/// of a sentence the patch touches whose head the source reading does not redefine leaves the
+/// claims the edit unbacks unknown, so the mutant is `UnsupportedClaims`, each such equation
+/// recorded as an unsupported claim with key [`UNREAD_EQUATION_CLAIM`]. The check reads the
+/// claim-free mutant's full critical-pair check ([`DataFacts`]), computed once on the backend its
+/// runs execute on (fz26 KINK-BASELINE-FINDINGS); a mutant that does not load there is
+/// `Infrastructure`. Every finding outside the heads the edit can change must then be the
+/// baseline's (by name and by the unique ids of its equations): such a pair is normalized with the
+/// baseline's equations alone, and kink checks it rather than arguing it, refusing a difference
+/// as `MutantFindings` (unknown). Whether the baseline's own findings leave any end data is the
+/// runner's question, not this function's (`BaselineFindings`).
 ///
 /// # Errors
 ///
@@ -1767,17 +1906,33 @@ pub fn claim_free_mutant(
     validate_representation(&side).map_err(|_| {
         MutantRefusal::new(MutantScopeFailure::RepresentationRefused, claims.clone())
     })?;
+    on_stage(MutantStage::Backend);
+    let infrastructure = |claims: &Withdrawal| {
+        MutantRefusal::new(MutantScopeFailure::Infrastructure, claims.clone())
+    };
+    let loaded = LoadedSide::load(&side, &admission.module).map_err(|_| infrastructure(&claims))?;
+    let baseline_data = admission
+        .data
+        .as_ref()
+        .map_err(|_| infrastructure(&claims))?;
+    let data = DataFacts::of(&loaded.selected, &admission.assume_joined);
     on_stage(MutantStage::Consistency);
     let admitted = match &admission.equations {
-        Ok(equations) => kink_native::consistency::admit_mutant(equations, &side, &effect),
+        Ok(equations) => kink_native::consistency::admit_mutant_with(
+            equations,
+            &side,
+            &effect,
+            &loaded.selected,
+            &data,
+        ),
         Err(why) => Err(MutantFailure::Inconsistent(
             kink_native::consistency::Inconsistency::Unchecked(format!(
                 "the baseline's equations did not internalize: {why}"
             )),
         )),
     };
-    match admitted {
-        Ok(_) => {}
+    let effect = match admitted {
+        Ok(effect) => effect,
         Err(MutantFailure::UnreadEquations(unread)) => {
             // The patch's effect on the claims is not known: no claim-free definition is known
             // either, so the mutant is refused as unsupported, naming each unread equation.
@@ -1813,28 +1968,64 @@ pub fn claim_free_mutant(
                 inconsistent_pairs: inconsistency.pairs(),
             }));
         }
+    };
+    if data.differs_outside(baseline_data, effect.checked.as_ref()) {
+        return Err(MutantRefusal::new(
+            MutantScopeFailure::MutantFindings,
+            claims,
+        ));
     }
-    Ok(ClaimFreeMutant { side, claims })
+    Ok(ClaimFreeMutant {
+        side,
+        claims,
+        data,
+        loaded,
+    })
 }
 
 /// What every mutant of a campaign is admitted against: the baseline's claim support and its
-/// compiled equations (re-pin R0c-fix-4).
+/// compiled equations (re-pin R0c-fix-4), the module the mutants load, the names of the findings
+/// read as assumed, and the baseline's data facts under them (fz26 KINK-BASELINE-FINDINGS).
 pub struct MutantAdmission {
     support: ClaimSupport,
     equations: Result<CompiledEquations, String>,
+    /// The backend's module of every mutant load (the campaign's).
+    module: String,
+    assume_joined: Vec<String>,
+    data: Result<DataFacts, String>,
 }
 
 impl MutantAdmission {
     /// The admission of every mutant of `baseline` (a validator's baseline), whose compile is
-    /// `compiled`: its claim support and its compiled equations, which every mutant's are read
-    /// against. A baseline whose equations do not internalize again leaves every mutant
-    /// unchecked (`InconsistentMutant`).
+    /// `compiled`, each loaded for `module` (KORE-encoded, the campaign's), reading the findings
+    /// `assume_joined` names as assumed: its claim support, its compiled equations, which every
+    /// mutant's are read against, and its data facts, which every mutant's are compared with
+    /// (computed here on `compiled` loaded on kink's route). A baseline whose equations do not
+    /// internalize again leaves every mutant unchecked (`InconsistentMutant`); one that does not
+    /// load leaves every mutant `Infrastructure`.
     #[must_use]
-    pub fn new(baseline: &kink_patch::Baseline, compiled: &ValidatedDefinition) -> Self {
+    pub fn new(
+        baseline: &kink_patch::Baseline,
+        compiled: &ValidatedDefinition,
+        module: &str,
+        assume_joined: &[String],
+    ) -> Self {
+        let data = LoadedSide::load(compiled, module)
+            .map(|loaded| DataFacts::of(&loaded.selected, assume_joined))
+            .map_err(|_| format!("the baseline does not load for {module}"));
         Self {
             support: ClaimSupport::new(baseline),
             equations: CompiledEquations::of(compiled),
+            module: module.to_owned(),
+            assume_joined: assume_joined.to_vec(),
+            data,
         }
+    }
+
+    /// The baseline's data facts, unless the baseline did not load.
+    #[must_use]
+    pub fn baseline_data(&self) -> Option<&DataFacts> {
+        self.data.as_ref().ok()
     }
 
     /// The baseline's claim support.
@@ -2100,22 +2291,56 @@ struct Runtime {
     exclusions: DefinitionExclusions,
 }
 
-impl Runtime {
-    /// Parses the side's KORE once for its symbol sorts and event-free backend adapter.
-    fn prepare(campaign: &Campaign<'_>, side: &ValidatedDefinition) -> Result<Self, Preparation> {
-        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+/// One load of a compiled side on kink's route: its parsed KORE, the backend built from it for a
+/// module, and the definition that backend selected for it (loaded, its load counts and value
+/// claims final; findings A-08, C-10).
+struct LoadedSide {
+    parsed: k_rust::kore::ast::Definition,
+    backend: Backend,
+    selected: std::sync::Arc<k_rust::k_rust_backend::definition::BackendDefinition>,
+}
+
+impl LoadedSide {
+    fn load(side: &ValidatedDefinition, module: &str) -> Result<Self, Preparation> {
         let parsed = parse_definition(&side.artifacts().definition_kore)
             .map_err(|_| Preparation::Infrastructure)?;
-        let symbol_sorts = SymbolSorts::from_definition(&parsed);
-        stage_log::note(campaign, stage_log::Stage::Backend);
         let mut backend =
-            Backend::from_definition(parsed.clone(), campaign.module, BackendOptions::default())
+            Backend::from_definition(parsed.clone(), module, BackendOptions::default())
                 .map_err(|_| Preparation::Infrastructure)?;
-        // Selecting the default module loads it if the backend has not yet; its load counts and
-        // value-claim violations are then final (findings A-08, C-10).
+        // Selecting the default module loads it if the backend has not yet.
         let selected = backend
             .select_definition(None)
             .map_err(|_| Preparation::Infrastructure)?;
+        Ok(Self {
+            parsed,
+            backend,
+            selected,
+        })
+    }
+}
+
+impl Runtime {
+    /// Parses the side's KORE once for its symbol sorts and event-free backend adapter.
+    fn prepare(campaign: &Campaign<'_>, side: &ValidatedDefinition) -> Result<Self, Preparation> {
+        stage_log::note(campaign, stage_log::Stage::Backend);
+        let loaded = LoadedSide::load(side, campaign.module)?;
+        Self::from_loaded(campaign, side, loaded)
+    }
+
+    /// The runtime of `side` on its load `loaded` ([`LoadedSide::load`] for the campaign's
+    /// module).
+    fn from_loaded(
+        campaign: &Campaign<'_>,
+        side: &ValidatedDefinition,
+        loaded: LoadedSide,
+    ) -> Result<Self, Preparation> {
+        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+        let LoadedSide {
+            parsed,
+            backend,
+            selected,
+        } = loaded;
+        let symbol_sorts = SymbolSorts::from_definition(&parsed);
         let exclusions = DefinitionExclusions::of(
             &parsed,
             &selected,
@@ -3782,6 +4007,69 @@ mod tests {
         }
     }
 
+    /// fz26 KINK-BASELINE-FINDINGS (review R2-S2): a claim-free mutant whose findings outside the
+    /// heads its edit can change differ from the baseline's is `MutantFindings`, checked rather
+    /// than argued. The mutant is hand-built against a forged admission: `counter.k`'s edit of a
+    /// rewrite rule's condition changes no equation (no head is checked), so every finding is
+    /// outside, and the admission's baseline facts are r3-plainq's, whose genuine pair the
+    /// mutant lacks. With the baseline's own facts the same mutant is admitted (the runner's own
+    /// `BaselineFindings` gate is kink-flow's `tests/findings.rs`).
+    #[test]
+    fn a_mutant_whose_findings_differ_from_the_baselines_is_unknown() {
+        use k_rust::kast::{Sort, Term};
+        use kink_patch::{Edit, TermRef};
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                let validator = NativeValidator::bind(
+                    input_test_support::load("counter.k"),
+                    k_rust::kompile::CompileOptions::default(),
+                );
+                let baseline = validator.baseline();
+                let compiled = validator.compile_baseline().unwrap();
+                let at = TermRef::new(input_test_support::rule(baseline, "COUNTER.branch"), [1]);
+                let patch = Patch::new(vec![Edit::ReplaceTerm {
+                    expected: baseline.term(&at).unwrap().clone(),
+                    at,
+                    replacement: Term::Token {
+                        token: "false".into(),
+                        sort: Sort::new("Bool"),
+                    },
+                }])
+                .unwrap();
+                let mut admission = MutantAdmission::new(baseline, &compiled, "COUNTER", &[]);
+                assert!(admission.baseline_data().unwrap().has_data());
+                let mutant =
+                    claim_free_mutant(&validator, &compiled, &patch, &admission, &mut |_| {})
+                        .expect("the baseline's own facts admit the mutant");
+                assert!(mutant.data.has_data());
+
+                let plainq = NativeValidator::bind(
+                    input_test_support::load_path(
+                        &std::path::Path::new(input_test_support::DIR)
+                            .join("../flow/findings/r3-plainq/spec.k"),
+                        "PQ",
+                    ),
+                    k_rust::kompile::CompileOptions::default(),
+                );
+                let forged = kink_native::consistency::loaded_definition(
+                    &plainq.compile_baseline().unwrap(),
+                )
+                .unwrap();
+                let facts = DataFacts::of(&forged, &[]);
+                assert_eq!(data_ends(&facts), DataEnds::None);
+                admission.data = Ok(facts);
+                let refusal =
+                    claim_free_mutant(&validator, &compiled, &patch, &admission, &mut |_| {})
+                        .expect_err("the findings differ");
+                assert_eq!(refusal.failure, MutantScopeFailure::MutantFindings);
+                assert_eq!(refusal.failure.status(), MutantStatus::Unknown);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
     mod kink_tier {
         use super::*;
 
@@ -3834,7 +4122,7 @@ mod tests {
                         validator.validate(&a).unwrap().kore_sha256(),
                         validator.validate(&b).unwrap().kore_sha256()
                     );
-                    let support = MutantAdmission::new(baseline, &compiled);
+                    let support = MutantAdmission::new(baseline, &compiled, "SYMPARTIAL", &[]);
                     let input = input_test_support::initial_state(
                         input_test_support::app(
                             "Lblseq",

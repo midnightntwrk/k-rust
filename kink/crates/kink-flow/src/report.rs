@@ -234,6 +234,15 @@ pub fn action(status: &str, reason: Option<&str>) -> Option<&'static str> {
             "write a program that ends under the mutant within budget.time_ms with a different \
              final configuration: a program did not end on the mutant, and no program killed it"
         }
+        "unknown" if reason == Some("baseline-findings") => {
+            "fix the specification, or name each finding you accept as a premise in [spec] \
+             assume_joined: its full critical-pair check has findings (findings), so the \
+             definition may identify the ends kink compares and no program can kill"
+        }
+        "unknown" if reason == Some("mutant-findings") => {
+            "report it, or change the mutation: the claim-free mutant's findings outside the \
+             heads its edit can change differ from the baseline's, so kink cannot compare its ends"
+        }
         "unknown" => {
             "write a program whose final configuration under the mutant kink can compare: the \
              cause of each executed program says what stopped the comparison"

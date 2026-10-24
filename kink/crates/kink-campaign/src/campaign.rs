@@ -87,6 +87,17 @@ pub enum MutantScopeFailure {
     /// names them; [`kink_native::consistency`]). Invalid like a compile failure: outside the
     /// score, never killed or survived.
     InconsistentMutant,
+    /// The baseline's full critical-pair check has a finding no `assume_joined` name assumes
+    /// (`baseline-findings`, fz26 KINK-BASELINE-FINDINGS): the definition may identify any two
+    /// ends kink compares, so no end of it is data (kink-native `data::data_ends`) and no
+    /// comparison can kill. Every mutant of such a baseline is unknown, before it compiles.
+    BaselineFindings,
+    /// The claim-free mutant's findings outside the heads its edit can change are not the
+    /// baseline's, by name and by the unique ids of their equations (`mutant-findings`, fz26
+    /// KINK-BASELINE-FINDINGS): kink's consistency gate checks those heads only, on the premise
+    /// that every other pair is the baseline's, and the difference shows the premise does not
+    /// hold, so the mutant is unknown, never killed.
+    MutantFindings,
     /// Infrastructure failure affecting the whole mutant, for example a
     /// backend that cannot be prepared for the validated mutant.
     Infrastructure,
@@ -105,7 +116,9 @@ impl MutantScopeFailure {
             Self::LoweringResourceLimit
             | Self::RepresentationRefused
             | Self::UnsupportedClaims
-            | Self::StrippedClaimCompileFailure => MutantStatus::Unknown,
+            | Self::StrippedClaimCompileFailure
+            | Self::BaselineFindings
+            | Self::MutantFindings => MutantStatus::Unknown,
             Self::Infrastructure => MutantStatus::Error,
         }
     }

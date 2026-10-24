@@ -404,6 +404,7 @@ fn facts<'a>(
         baseline_class: Some(class),
         baseline_cause: None,
         profile,
+        unnamed_findings: 0,
     }
 }
 

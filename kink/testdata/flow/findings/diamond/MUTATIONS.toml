@@ -1,0 +1,8 @@
+[[mutation]]
+id = "store-changed"
+note = "the stored value changes (.Ids to .Vals)"
+
+  [[mutation.edit]]
+  line = 20
+  find = "_ => .Ids </s>"
+  replace = "_ => .Vals </s>"

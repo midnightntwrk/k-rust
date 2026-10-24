@@ -1,0 +1,8 @@
+[spec]
+entry = "spec.k"
+main_module = "PR"
+syntax_module = "PR-SYNTAX"
+
+[[program]]
+id = "one"
+file = "one.pgm"
