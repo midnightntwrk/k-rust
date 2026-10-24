@@ -192,6 +192,17 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// adopted witness is no longer listed, so such a mutant can be admitted (admission widens), and
 /// an adoption can flip between baseline and mutant, which KINK-WITNESS diffs.
 ///
+/// fz26 phase-8 FZ-CONFLUENCE-F: 1100-1107 changes, by digest (3483b03d -> 9acdb775). Line 1103
+/// adds two ways the join closes a case it split off, each because the case has no instance at
+/// which both conditions hold: a case whose two `requires`, read again under the substitution
+/// that made it, are refuted (F1), and the complement of a split whose cases bind one variable to
+/// each constructor of a sort whose every element in `M+` is such an application (F2: surely
+/// inhabited, no proper subsort, neither hooked nor a collection, no domain values, and no symbol
+/// of the sort but its constructors and unhooked partial functions, `KEQUAL.ite` aside); such a
+/// pair is joined. "Joined" keeps its meaning (steps of `R ∪ W` valid on the instances the
+/// lifting lemma ranges over, in `M+`); the check shows more pairs joined, so kink can admit more
+/// mutants: on KEVM the six `#hashTxData` pairs (`serialization.md:193-196`) now join by F1.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
@@ -206,7 +217,7 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
         "docs/compatibility.md",
         1100,
         1107,
-        "3483b03dce2cf5265ac2ca28f9a5bc34c56517108eb1ce955468cd3f45e0302a",
+        "9acdb7754e6fe97dce1bf30ff006a2bd8358c41775a46bd61b80d931f01fbfd6",
     ),
     (
         "docs/compatibility.md",
@@ -293,7 +304,13 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// `pairs` counts witness pairs too (so `pairs >= root pairs` still holds), and `skipped` stays
 /// 0 under `CheckScope::All`. A verdict kink reads can now be the adopted pass, in which a pair
 /// that joins through a witness is not listed: see `PREMISE_PASSAGES`.
-const CONFLUENCE_RS: &str = "4d58d09a60ab5033107c005c542def14d32f6b944bf8bfdff0a9ee0cbed74483";
+///
+/// fz26 phase-8 FZ-CONFLUENCE-F: 4d58d09a -> c94f501b. `classify` passes the join the pair's two
+/// equations and the overlap's unifier (`join::PairConditions`), so that the join re-reads the
+/// conditions in each case it splits off (F1, `confluence/join.rs`); the proposal pass passes the
+/// same. The stages, the early return and the counts kink reads are unchanged; the join closes
+/// more cases, so a verdict kink reads can list fewer pairs (see `PREMISE_PASSAGES`).
+const CONFLUENCE_RS: &str = "c94f501bbce948eb8a44bd827f0ee7b191fc3fcd178d868fdee5bee7a287a117";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin
