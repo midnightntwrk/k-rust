@@ -126,6 +126,10 @@ pub struct OptionsFile {
     pub smt_timeout_ms: Option<u32>,
     /// The solver's retry limit.
     pub smt_retry_limit: Option<u32>,
+    /// Unjoined pairs of the definitions' critical-pair checks to read as joined, each named
+    /// as the report's definition-findings name it (library `CaseOptions::assume_joined`).
+    #[serde(default)]
+    pub assume_joined: Vec<String>,
 }
 
 /// The `[bounds]` table (library `GenerationBounds`); omitted fields keep the defaults.
@@ -241,6 +245,7 @@ pub struct Overrides {
     pub run_to_completion: Option<bool>,
     pub negated_property: Option<bool>,
     pub data_end: Option<bool>,
+    pub assume_joined: Vec<String>,
     pub all_paths: Option<bool>,
     pub max_depth: Option<u64>,
     pub max_work: Option<u64>,
@@ -815,6 +820,17 @@ fn options(file: OptionsFile, flags: &Overrides) -> Result<CaseOptions, String> 
     if let Some(limit) = flags.smt_retry_limit.or(file.smt_retry_limit) {
         options.backend.smt_retry_limit = limit;
     }
+    // The flags add to the file's names; a name given twice is kept once.
+    for name in file
+        .assume_joined
+        .into_iter()
+        .chain(flags.assume_joined.iter().cloned())
+    {
+        if !options.assume_joined.contains(&name) {
+            options.assume_joined.push(name);
+        }
+    }
+    options.assume_joined.sort();
     Ok(options)
 }
 

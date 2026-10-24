@@ -729,10 +729,11 @@ fn a_run_to_completion_rule_hit_needs_a_data_end() {
     assert!(!witness.clean_leaf_facts.contains(&"end-data".to_owned()));
 }
 
-/// INT7: a run-to-completion hit on a definition whose full critical-pair check reports a pair
-/// (R3-PLAINQ's `q(_) => a` against `q(_) => bb`) has no data end, even when the end is a
-/// constructor term: the case is `unsupported` under `definition-not-confluent`, which sends the
-/// reader to the report's warning, not under `reached-end-not-data`.
+/// INT7, then FZ-POLISH: a run-to-completion hit on a definition whose full critical-pair check
+/// reports a pair (R3-PLAINQ's `q(_) => a` against `q(_) => bb`) has no data end, even when the
+/// end is a constructor term. That holds of every case and is known before the first, so the
+/// campaign runs no case and ends `not-comparable`, its warning naming the definition and the
+/// report listing the finding. With `data-end = false` the cases run.
 #[test]
 fn a_data_end_hit_on_a_definition_without_data_names_the_definition() {
     let mut setup = Setup::new(
@@ -746,12 +747,16 @@ fn a_data_end_hit_on_a_definition_without_data_names_the_definition() {
     setup.holes = vec![int_hole("N", "r3-plainq/go.pgm", "3", "3")];
     setup.proposers = anchors_only();
     let report = setup.run(Budget::Cases(1));
-    assert!(report.witness().is_none(), "{:?}", report.outcome);
-    assert_eq!(classes(&report), [(OutcomeClass::Unsupported, 1)]);
-    assert_eq!(
-        report.totals.unsupported_reasons,
-        std::collections::BTreeMap::from([(UnjudgedReason::DefinitionNotConfluent, 1)])
+    assert!(
+        matches!(
+            &report.outcome,
+            k_rust_fuzz::report::CampaignOutcome::NotComparable { sides, .. }
+                if sides == &[k_rust_fuzz::report::DefinitionRole::Baseline]
+        ),
+        "{:?}",
+        report.outcome
     );
+    assert_eq!(report.totals.cases, 0);
     assert!(
         report
             .warnings
@@ -760,6 +765,11 @@ fn a_data_end_hit_on_a_definition_without_data_names_the_definition() {
         "{:?}",
         report.warnings
     );
+    assert_eq!(report.definition_findings.len(), 1);
+    setup.target.data_end = false;
+    let waived = setup.run(Budget::Cases(1));
+    assert_eq!(waived.totals.cases, 1, "{:?}", waived.outcome);
+    assert!(waived.definition_findings.is_empty());
 }
 
 /// FZ-DATAEND review S1: a negated property's counterexample is decided by its match, so it

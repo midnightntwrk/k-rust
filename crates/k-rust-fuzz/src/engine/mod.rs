@@ -67,6 +67,9 @@ pub struct Campaign {
     settings: LoopSettings,
     /// Differential: the definitions are equivalent, so no case runs (ARCHITECTURE 4.3).
     equivalent: bool,
+    /// The campaign reads data ends and a definition has none: no case runs, and every run
+    /// reports this outcome (ARCHITECTURE 4.3).
+    not_comparable: Option<CampaignOutcome>,
     /// The immutable internalized definitions confirmations build fresh backends from, filled
     /// on the first confirmation and kept across runs.
     definition_cache: Arc<OnceLock<Result<live::DefinitionCache, String>>>,
@@ -122,7 +125,7 @@ impl Campaign {
         let spec = Arc::new(spec);
         let mut cases = LiveCases::build(Arc::clone(&spec))?;
         let rules = cases.rule_index()?;
-        let definition_findings = cases.definition_findings();
+        let definition_findings = cases.definition_findings()?;
         let holes = &cases.baseline.holes.holes;
         let names: Vec<String> = holes.iter().map(|hole| hole.decl.name.clone()).collect();
         let anchors: Vec<Option<Value>> = holes.iter().map(|hole| hole.anchor.clone()).collect();
@@ -186,7 +189,8 @@ impl Campaign {
         let mut identity = identity(&spec, &initial)?;
         identity.effective_constraints = effective_constraints(holes);
         identity.target_rule = rules.target;
-        let warnings = campaign_warnings(holes, graph.as_deref(), definition_findings);
+        let not_comparable = not_comparable(&definition_findings.without_data, &spec.target);
+        let warnings = campaign_warnings(holes, graph.as_deref(), definition_findings.warnings);
         let settings = LoopSettings {
             identity,
             rejection_cap: spec.rejection_cap,
@@ -199,6 +203,7 @@ impl Campaign {
                 .flat_map(ResolvedHole::sort_overrides)
                 .collect(),
             warnings,
+            definition_findings: definition_findings.findings,
             scorer: guidance.scorer,
             pool_rank: guidance.pool_rank,
             normal_end: Some(cases.normal_ends()),
@@ -211,6 +216,7 @@ impl Campaign {
             explicit,
             settings,
             equivalent,
+            not_comparable,
             definition_cache: Arc::new(OnceLock::new()),
             graph,
             dictionary: guidance.dictionary,
@@ -259,6 +265,9 @@ impl Campaign {
     pub fn run(&mut self, budget: Budget, cancel: Option<CancellationToken>) -> FuzzReport {
         if self.equivalent {
             return report_without_cases(&self.settings, budget, CampaignOutcome::Equivalent);
+        }
+        if let Some(outcome) = &self.not_comparable {
+            return report_without_cases(&self.settings, budget, outcome.clone());
         }
         let mut cases = match self.cases.take() {
             Some(cases) => cases,
@@ -749,6 +758,55 @@ fn campaign_warnings(
         .collect()
 }
 
+/// The outcome of a campaign that reads data ends when the definitions `without_data` have none
+/// (ARCHITECTURE 4.3): every end of such a definition is not data, so a differential case could
+/// compare no end and a rule or pattern case could reach no data end; whatever the budget, bounds
+/// or values, no case could give a witness, and that is known before the first case.
+/// `None` when every definition read has data.
+fn not_comparable(
+    without_data: &[DefinitionRole],
+    target: &crate::Target,
+) -> Option<CampaignOutcome> {
+    if without_data.is_empty() {
+        return None;
+    }
+    let named = without_data
+        .iter()
+        .map(|role| match role {
+            DefinitionRole::Baseline => "the baseline's",
+            DefinitionRole::Mutant => "the mutant's",
+        })
+        .collect::<Vec<_>>()
+        .join(" and ");
+    let differential = matches!(target.kind, TargetKind::Differential(_));
+    let named = if differential {
+        named
+    } else {
+        "the definition's".to_owned()
+    };
+    let consequence = if differential {
+        "no kill can be established: no end of such a definition is data, so no end can be \
+         compared"
+    } else {
+        "no hit can be established: a hit needs a data end, and no end of the definition is data \
+         (`data-end = false`, `--no-data-end` accept other ends)"
+    };
+    Some(CampaignOutcome::NotComparable {
+        sides: without_data.to_vec(),
+        statement: format!(
+            "{consequence}. The full critical-pair check of {named} equations reports pairs \
+             it does not show to join (listed in the report's definition-findings: a genuine \
+             one comes with a ground instance at which both equations apply and the input has \
+             two normal forms, so k-rust's result for it depends on the order it tries the \
+             equations; an undecided one may be a limit of \
+             the check). Fix a genuine pair in the definition. Naming a pair with \
+             `assume-joined` makes the campaign judge the definition read as if that pair \
+             joined: its verdicts then hold for that reading, not for the definition as \
+             written, whatever inputs reach the pair. No case was run."
+        ),
+    })
+}
+
 /// How a hit of `target` is reported: as a property failure when the target states a
 /// property's violation.
 fn hit_label(target: &crate::Target) -> HitLabel {
@@ -813,6 +871,15 @@ fn identity(
         target_rule: None,
         options: CaseOptions {
             max_work: spec.options.effective_max_work(),
+            // A set of premises: the same names in another order are the same campaign.
+            assume_joined: spec
+                .options
+                .assume_joined
+                .iter()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect(),
             ..spec.options.clone()
         },
         proposers: spec.proposers.clone(),

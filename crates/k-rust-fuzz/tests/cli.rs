@@ -30,7 +30,7 @@ use k_rust_fuzz::{
     target::{PatternAt, PatternTarget},
     values::{Constraints, GenerationBounds},
 };
-use support::{COIN, COIN_KILL, COIN_LAYOUT, Fixture, IMP};
+use support::{COIN, COIN_KILL, COIN_LAYOUT, Fixture, IMP, R3_PLAINQ, R3_PLAINQ_M};
 
 /// `r` of `le.imp` is not 1 at a clean natural end (the anchors' `x <= y` branch is not taken),
 /// as `tests/campaign_m1.rs` states it.
@@ -655,6 +655,82 @@ literal = "3"
     let (status, report) = json_run(&directory, &args("coin-layout"));
     assert_eq!(status, Some(1), "no witness exits 1");
     assert_eq!(report.outcome, CampaignOutcome::Equivalent);
+}
+
+/// FZ-POLISH: a differential campaign on definitions whose critical-pair checks report a pair
+/// is not comparable at setup: no case runs, the summary leads with why and lists the finding
+/// as genuine with its instance and its name, and `--assume-joined` with those names makes the
+/// cases run under the stated premise.
+#[test]
+fn a_not_comparable_campaign_says_why_and_assume_joined_runs_it() {
+    let program = R3_PLAINQ.program("r3-plainq/go.pgm").text;
+    let campaign = r#"
+seed = 7
+cases = 4
+
+[[hole]]
+name = "N"
+sort = "Int"
+literal = "3"
+"#;
+    let directory = workspace(
+        "not-comparable",
+        &[("b-kompiled", &R3_PLAINQ), ("m-kompiled", &R3_PLAINQ_M)],
+        &[("go.pgm", program), ("d.toml", campaign)],
+    );
+    let base = [
+        "--campaign",
+        "d.toml",
+        "--definition",
+        "b-kompiled",
+        "--mutant",
+        "m-kompiled",
+        "--program",
+        "go.pgm",
+    ];
+    let output = krust_fuzz(&directory, &base);
+    let summary = text(&output.stdout);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{summary}{}",
+        text(&output.stderr)
+    );
+    assert!(summary.starts_with("not comparable"), "{summary}");
+    assert!(summary.contains("cases: 0"), "{summary}");
+    assert!(summary.contains("no kill can be established"), "{summary}");
+    assert!(
+        summary.contains("baseline critical-pair findings: 1 genuine, 0 undecided"),
+        "{summary}"
+    );
+    assert!(summary.contains("[genuine]"), "{summary}");
+    assert!(summary.contains("name: b.k:"), "{summary}");
+    assert!(!summary.contains("Lbl"), "{summary}");
+    let (_, report) = json_run(&directory, &[&base[..], &["--json"]].concat());
+    let names = report
+        .definition_findings
+        .iter()
+        .filter_map(|finding| finding.name.clone())
+        .collect::<Vec<_>>();
+    assert_eq!(names.len(), 2, "{:?}", report.definition_findings);
+    let mut args = base.to_vec();
+    for name in &names {
+        args.extend(["--assume-joined", name.as_str()]);
+    }
+    args.push("--json");
+    let (status, report) = json_run(&directory, &args);
+    assert_eq!(status, Some(0), "{:?}", report.outcome);
+    assert_eq!(report.identity.options.assume_joined, names);
+    let refused = krust_fuzz(
+        &directory,
+        &[&base[..], &["--assume-joined", "b.k:1:1,b.k:2:1@root"]].concat(),
+    );
+    assert_eq!(refused.status.code(), Some(2), "{}", text(&refused.stderr));
+    assert!(
+        text(&refused.stderr).contains("matches no unjoined pair"),
+        "{}",
+        text(&refused.stderr)
+    );
 }
 
 #[test]

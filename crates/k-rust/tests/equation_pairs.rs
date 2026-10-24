@@ -50,6 +50,15 @@ const ANYWHERE_HEAD: &str = "  syntax Wrap ::= wr(MyTok) [symbol(wr)] | nw(Wrap)
 /// `nw` when `with_head`. Without it the definition has nothing the load could withdraw, so the
 /// load classifies none of its pairs; `CheckScope::All` classifies them either way.
 fn definition(declarations: &str, with_head: bool) -> std::sync::Arc<BackendDefinition> {
+    definition_importing("", declarations, with_head)
+}
+
+/// [`definition`], with the module also importing `imports` (`imports MAP` lines).
+fn definition_importing(
+    imports: &str,
+    declarations: &str,
+    with_head: bool,
+) -> std::sync::Arc<BackendDefinition> {
     let head = if with_head { ANYWHERE_HEAD } else { "" };
     let source = format!(
         r#"module PAIRS
@@ -57,6 +66,7 @@ fn definition(declarations: &str, with_head: bool) -> std::sync::Arc<BackendDefi
   imports BOOL
   imports STRING
   imports K-EQUAL
+{imports}
   syntax MyTok ::= r"[a-z][a-z0-9]*" [token]
 {head}
   syntax Prog ::= go(MyTok) [symbol(go)] | val(Int) [symbol(val)]
@@ -396,4 +406,271 @@ fn negated_bounds_of_a_partial_term_are_refuted_only_as_complementary_literals()
         )),
         [UnjoinedReason::ConditionOpen]
     );
+}
+
+/// FZ-POLISH: `f(I) => 1 requires I <Int 0` beside `f(-1) => 2` overlap at `I = -1`, where the
+/// condition `-1 <Int 0` simplifies to `true`. The results differ wherever the overlap is
+/// defined, so the pair is reported with what the join found, `DifferentResults`, not
+/// `ConditionOpen`; and with `I >Int 0` in place of the guard the pair is refuted.
+#[test]
+fn a_pair_whose_conditions_simplify_to_true_keeps_different_results() {
+    for (guard, expected) in [
+        ("I <Int 0", vec![UnjoinedReason::DifferentResults]),
+        ("I >Int 0", Vec::new()),
+    ] {
+        let definition = definition(
+            &format!(
+                "  syntax Int ::= f(Int) [function, symbol(f)]
+  rule [a]: f(I) => 1 requires {guard}
+  rule [b]: f(-1) => 2"
+            ),
+            false,
+        );
+        let all = definition.value_claims_in_scope(CheckScope::All);
+        let pairs = pairs_between(&all, "a", "b");
+        assert_eq!(
+            pairs
+                .iter()
+                .map(|pair| pair.reason.clone())
+                .collect::<Vec<_>>(),
+            expected,
+            "{guard}: {:?}",
+            all.unjoined()
+        );
+    }
+}
+
+/// FZ-POLISH: the pair above records its simplified conditions (`true`), and the data
+/// judgement marks it genuine with the ground instance `f(-1)`, whose reducts are `1` and `2`;
+/// a pair under a guard the instances do not decide is recorded with its open conditions and
+/// stays undecided.
+#[test]
+fn a_pair_with_different_results_on_a_ground_instance_is_genuine() {
+    let holds = definition(
+        "  syntax Int ::= f(Int) [function, symbol(f)]
+  rule [a]: f(I) => 1 requires I <Int 0
+  rule [b]: f(-1) => 2",
+        false,
+    );
+    let all = holds.value_claims_in_scope(CheckScope::All);
+    let [pair] = pairs_between(&all, "a", "b")[..] else {
+        panic!("one pair: {:?}", all.unjoined());
+    };
+    assert_eq!(pair.conditions, Some(k_rust_backend::rule::Predicate::True));
+    let heads = holds.data_heads();
+    let genuine = heads
+        .findings()
+        .iter()
+        .filter(|finding| finding.is_genuine())
+        .collect::<Vec<_>>();
+    assert_eq!(genuine.len(), 1, "{:?}", heads.findings());
+    let instance = genuine[0].instance().expect("genuine");
+    let values = [&instance.values.0, &instance.values.1];
+    assert!(
+        values.contains(&&k_rust_backend::term::Term::int(1))
+            && values.contains(&&k_rust_backend::term::Term::int(2)),
+        "{instance:?}"
+    );
+
+    let open = definition(
+        r#"  syntax Int ::= ht(MyTok) [function, symbol(ht)]
+  rule [a]: ht(T) => 1 requires T =/=K #token("true", "MyTok")
+  rule [b]: ht(T) => 2 requires T =/=K #token("false", "MyTok")"#,
+        false,
+    );
+    let all = open.value_claims_in_scope(CheckScope::All);
+    let [pair] = pairs_between(&all, "a", "b")[..] else {
+        panic!("one pair: {:?}", all.unjoined());
+    };
+    assert!(
+        pair.conditions
+            .as_ref()
+            .is_some_and(|conditions| *conditions != k_rust_backend::rule::Predicate::True),
+        "{pair:?}"
+    );
+    assert!(
+        open.data_heads()
+            .findings()
+            .iter()
+            .all(|finding| !finding.is_genuine())
+    );
+}
+
+/// The genuine findings of `definition`'s full check between the equations labelled `first` and
+/// `second`, and whether the check reports such a pair at all.
+fn genuine_between(
+    definition: &BackendDefinition,
+    first: &str,
+    second: &str,
+) -> (bool, Vec<k_rust_backend::data_term::GroundInstance>) {
+    let (first, second) = (format!("PAIRS.{first}"), format!("PAIRS.{second}"));
+    let label = |rule: &k_rust_backend::rule::RewriteRule| rule.attributes.label.clone();
+    let heads = definition.data_heads();
+    let pairs = heads
+        .findings()
+        .iter()
+        .filter(|finding| {
+            finding.pair().is_some_and(|pair| {
+                let labels = (label(&pair.first), label(&pair.second));
+                labels == (Some(first.clone()), Some(second.clone()))
+                    || labels == (Some(second.clone()), Some(first.clone()))
+            })
+        })
+        .collect::<Vec<_>>();
+    (
+        !pairs.is_empty(),
+        pairs
+            .iter()
+            .filter_map(|finding| finding.instance().cloned())
+            .collect(),
+    )
+}
+
+/// FZ-POLISH review B1 (`prio/b.k`): `f(0) => 3 [priority(10)]` takes every input where the
+/// guards of the two priority-50 equations hold, so they apply nowhere and the definition is
+/// confluent. The check still reports their pair (it pairs within one priority group), but the
+/// instance `f(0)` is no instance where both apply: undecided, never genuine.
+#[test]
+fn a_pair_a_higher_priority_equation_preempts_is_not_genuine() {
+    let definition = definition(
+        "  syntax Int ::= f(Int) [function, symbol(f)]
+  rule [p]: f(0) => 3 [priority(10)]
+  rule [a]: f(X) => 1 requires X ==Int 0
+  rule [b]: f(X) => 2 requires X ==Int 0",
+        false,
+    );
+    let (reported, genuine) = genuine_between(&definition, "a", "b");
+    assert!(reported);
+    assert!(genuine.is_empty(), "{genuine:?}");
+}
+
+/// FZ-POLISH review B1 (`prio/o.k`): `g(X) => 3 requires X <=Int 0` beside two `owise`
+/// equations: the pair really is not confluent, at `g(1)`, and that is the instance exhibited,
+/// never `g(0)`, where the priority-50 equation applies.
+#[test]
+fn an_owise_pair_is_exhibited_where_both_owise_equations_apply() {
+    let definition = definition(
+        "  syntax Int ::= g(Int) [function, total, symbol(g)]
+  rule [p]: g(X) => 3 requires X <=Int 0
+  rule [a]: g(_) => 1 [owise]
+  rule [b]: g(_) => 2 [owise]",
+        false,
+    );
+    let (reported, genuine) = genuine_between(&definition, "a", "b");
+    assert!(reported);
+    let [instance] = &genuine[..] else {
+        panic!("one genuine instance: {genuine:?}");
+    };
+    let k_rust_backend::term::TermKind::Application { arguments, .. } = instance.overlap.kind()
+    else {
+        panic!("an application: {instance:?}");
+    };
+    assert_eq!(
+        arguments[0],
+        k_rust_backend::term::Term::int(1),
+        "{instance:?}"
+    );
+}
+
+/// FZ-POLISH review B1 (`mapdup/b.k`): `m(K |-> _ M) => 1 requires K in_keys(M)` applies at no
+/// defined map (in a well-formed `K |-> _ M`, `K` is never a key of `M`), so `m` is 0 everywhere.
+/// An instance holding a map with a repeated key is `\bottom` and proves nothing: undecided.
+#[test]
+fn an_instance_with_a_repeated_map_key_is_not_genuine() {
+    let definition = definition_importing(
+        "  imports MAP",
+        "  syntax Int ::= m(Map) [function, symbol(m)]
+  rule [a]: m(K |-> _ M) => 1 requires K in_keys(M)
+  rule [b]: m(_:Map) => 0",
+        false,
+    );
+    let (reported, genuine) = genuine_between(&definition, "a", "b");
+    assert!(reported);
+    assert!(genuine.is_empty(), "{genuine:?}");
+}
+
+/// FZ-POLISH review round 3: `q(_) => a` beside `q(_) => bb`, with `a` and `bb` of the sorts `A`
+/// and `B` below `AB`: at `q(0)` both equations apply and the input has two normal forms,
+/// `inj{A,AB}(a)` and `inj{B,AB}(bb)` (different on k-rust's internal normal form, whatever a
+/// model may identify), so the finding is genuine; with `a` and `bb` of one sort as well.
+#[test]
+fn values_injected_from_different_sorts_are_two_normal_forms() {
+    for declarations in [
+        r#"  syntax A ::= "a" [symbol(a)]
+  syntax B ::= "bb" [symbol(bb)]
+  syntax AB ::= A | B"#,
+        r#"  syntax AB ::= "a" [symbol(a)] | "bb" [symbol(bb)]"#,
+    ] {
+        let definition = definition(
+            &format!(
+                "{declarations}
+  syntax AB ::= q(Int) [function, total, symbol(q)]
+  rule [a]: q(_) => a
+  rule [b]: q(_) => bb"
+            ),
+            false,
+        );
+        let (reported, genuine) = genuine_between(&definition, "a", "b");
+        assert!(reported, "{declarations}");
+        assert_eq!(genuine.len(), 1, "{declarations}: {genuine:?}");
+    }
+}
+
+/// FZ-POLISH review rounds 2 and 3 (`r2-mapkeys`): `mk((a |-> _) (bb |-> _)) => 1` beside
+/// `mk(_:Map) => 0`. The instance's map is keyed by the distinct normal forms `inj{A,KItem}(a)`
+/// and `inj{B,KItem}(bb)`, both equations apply there, and the input has the two normal forms 1
+/// and 0: genuine, whether `a` and `bb` share a sort or not.
+#[test]
+fn an_instance_keyed_by_distinct_normal_forms_is_genuine() {
+    for declarations in [
+        r#"  syntax A ::= "a" [symbol(a)]
+  syntax B ::= "bb" [symbol(bb)]"#,
+        r#"  syntax AB ::= "a" [symbol(a)] | "bb" [symbol(bb)]"#,
+    ] {
+        let definition = definition_importing(
+            "  imports MAP",
+            &format!(
+                "{declarations}
+  syntax Int ::= mk(Map) [function, symbol(mk)]
+  rule [a]: mk((a |-> _:Int) (bb |-> _:Int)) => 1
+  rule [b]: mk(_:Map) => 0"
+            ),
+            false,
+        );
+        let (reported, genuine) = genuine_between(&definition, "a", "b");
+        assert!(reported, "{declarations}");
+        assert_eq!(genuine.len(), 1, "{declarations}: {genuine:?}");
+    }
+}
+
+/// FZ-POLISH review round 3 (`r3-indirect`): `p(X) => g(X)` beside `p(_) => 1`, where
+/// `g(X) => h(X)`, `h(a) => 1` and `h(_) => 0 [owise]`, and `q(X) => e(X)` beside
+/// `q(_) => true`, where `e(X) => X ==K a`. At `p(bb)` the input has the normal forms 0 and 1,
+/// at `q(bb)` false and true: genuine, as k-rust's evaluation reads them.
+#[test]
+fn an_input_with_two_normal_forms_through_other_equations_is_genuine() {
+    let definition = definition(
+        r#"  syntax A ::= "a" [symbol(a)]
+  syntax B ::= "bb" [symbol(bb)]
+  syntax AB ::= A | B
+  syntax Int ::= h(AB) [function, total, symbol(h)]
+  rule h(a) => 1
+  rule h(_) => 0 [owise]
+  syntax Int ::= g(AB) [function, total, symbol(g)]
+  rule g(X) => h(X)
+  syntax Int ::= p(AB) [function, total, symbol(p)]
+  rule [p1]: p(X) => g(X)
+  rule [p2]: p(_) => 1
+  syntax Bool ::= e(AB) [function, total, symbol(e)]
+  rule e(X) => X ==K a
+  syntax Bool ::= qq(AB) [function, total, symbol(qq)]
+  rule [q1]: qq(X) => e(X)
+  rule [q2]: qq(_) => true"#,
+        false,
+    );
+    for (first, second) in [("p1", "p2"), ("q1", "q2")] {
+        let (reported, genuine) = genuine_between(&definition, first, second);
+        assert!(reported, "{first}");
+        assert_eq!(genuine.len(), 1, "{first}: {genuine:?}");
+    }
 }

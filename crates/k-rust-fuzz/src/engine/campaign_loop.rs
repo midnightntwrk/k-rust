@@ -47,6 +47,9 @@ pub(crate) struct LoopSettings {
     /// Campaign-level warnings known before the first case (the rule graph's), which every
     /// report starts with.
     pub(crate) warnings: Vec<String>,
+    /// The findings of the definitions' full critical-pair checks, which every report carries
+    /// (`FuzzReport::definition_findings`).
+    pub(crate) definition_findings: Vec<crate::report::DefinitionFinding>,
     /// The scorer of the campaign's target, when a proposer climbs a score (ARCHITECTURE 6.4).
     pub(crate) scorer: Option<Scorer>,
     /// The rank of each recorded rule in a case's pool of run-time literals, its rule-graph
@@ -1057,6 +1060,7 @@ impl State {
             incidental: self.incidental,
             sort_overrides: settings.sort_overrides.clone(),
             warnings: self.warnings,
+            definition_findings: settings.definition_findings.clone(),
             engine_defects: self.defects,
         }
     }

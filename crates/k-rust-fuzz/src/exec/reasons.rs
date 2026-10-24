@@ -116,9 +116,10 @@ pub enum UnjudgedReason {
     /// A compared or reaching end is not data because a definition of the case (the baseline,
     /// or the mutant) has no data: its full critical-pair check reports a pair it does not join,
     /// an equation the evaluator does not apply to every subject it describes, or a violated
-    /// precondition (`k_rust_backend::data_term`), so no end of it is data. The report's
-    /// warnings name each finding (`definition-not-confluent (baseline|mutant): …`). Chosen in
-    /// place of the not-data reasons below whenever a side's definition has no data.
+    /// precondition (`k_rust_backend::data_term`), so no end of it is data. Chosen in place of
+    /// the not-data reasons below whenever a side's definition has no data. A campaign whose
+    /// definition has no data ends `not-comparable` before its first case (the report's
+    /// `definition-findings` list the findings), so no campaign counts a case under it.
     DefinitionNotConfluent,
     /// Differential: an end of the mutant that the baseline does not reach, or the mutant's set
     /// against which a baseline end would be removed, holds an end that is not data in both

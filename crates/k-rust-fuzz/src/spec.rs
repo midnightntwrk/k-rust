@@ -358,6 +358,21 @@ pub struct CaseOptions {
     /// case's execution, but it lives here so that the report's identity records it with the
     /// other options.
     pub shrink: bool,
+    /// Unjoined pairs of either definition's full critical-pair check that the data judgement
+    /// reads as joined (`k_rust_backend::data_term`, "Assumed pairs"; ARCHITECTURE 4.3), each
+    /// named as the report's `definition-findings` name it: `FIRST,SECOND@POSITION`, each rule
+    /// by its written position `FILE:LINE:COLUMN` (the file may be shortened to any trailing
+    /// part of its path), `overload:GREATER:LESSER` for a compiler-generated overload axiom, its
+    /// unique id or its label, and the position `root` or the argument indexes joined by `.`;
+    /// `baseline:` or `mutant:` before a name applies it on that definition only. A campaign
+    /// whose target reads no data end, or a name that matches no pair finding, pairs of more
+    /// than one equation pair of one definition, or different pairs on the two, is refused at
+    /// [`crate::Campaign::new`]. Every verdict of the campaign then holds only under these
+    /// premises: the report's identity records them here (sorted), and a warning states it. Empty (and
+    /// absent from the JSON) by default. Not an option of a case's execution; it lives here for
+    /// the same reason as [`Self::shrink`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub assume_joined: Vec<String>,
 }
 
 /// The solver options of every backend a campaign builds: a serializable copy of
@@ -405,6 +420,7 @@ impl Default for CaseOptions {
             safety_limit_ms: None,
             backend: BackendSettings::default(),
             shrink: true,
+            assume_joined: Vec::new(),
         }
     }
 }

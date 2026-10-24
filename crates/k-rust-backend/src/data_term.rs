@@ -82,10 +82,42 @@
 //! from the term's own sort (nested injections compose), which does not depend on the
 //! definition. A term that does not internalize in a definition (a symbol it lacks) is not data
 //! there.
+//!
+//! # Findings: genuine or undecided
+//!
+//! A finding of the full check ([`Finding`]) is *genuine* only when it comes with a
+//! [`GroundInstance`] (`instance.rs`): a ground input that has two normal forms. The instance is
+//! built from normal forms (its maps and sets keyed by distinct ones), both equations apply
+//! there by the evaluator's own rule (each matches its redex, its `requires` evaluates to true,
+//! and no equation of its head with a higher priority applies, an undecided one counting as
+//! applying), and the two reducts evaluate to different normal forms, read on k-rust's internal
+//! normal form as everywhere in this module. Evaluation of that input is then not uniquely
+//! determined: `M_NF` is not a model of the definition, and k-rust's result for the input
+//! depends on the order in which it tries the equations. This is not a claim that no model
+//! satisfies the definition (no KORE axiom keeps, for instance, injections from different
+//! source sorts apart). Every other finding is *undecided*: not shown to join, which may be a
+//! limit of the checker (a condition its solver-free reader does not decide, a shape its
+//! unifier does not solve) as well as a defect of the definition.
+//!
+//! # Assumed pairs
+//!
+//! A client may name pairs the definition is to be read as joining
+//! ([`BackendDefinition::data_heads_assuming`]). The data judgement is then about that reading
+//! of the definition, not about the definition as written: a premise the client states wherever
+//! the judgement is reported. Which inputs reach the pair does not enter: the judgement reads the
+//! definition by `M_NF`, which a genuine pair makes no model whatever the inputs. The assumed
+//! findings no longer withdraw every datum. The overload data heads and the instance-normal scan still read the definition's load
+//! verdict (`ValueClaims`), which withdraws the claims an assumed pair's taint closure reaches;
+//! so an assumed pair can only make fewer terms data than a definition in which it joins.
+
+mod instance;
 
 use std::collections::BTreeSet;
 
+pub use instance::GroundInstance;
+
 use crate::{
+    confluence::{UnjoinedPair, Violation},
     definition::BackendDefinition,
     rule::{RuleRhs, TermIndex},
     term::{HeadRole, Name, Term, TermKind},
@@ -94,14 +126,97 @@ use crate::{
 /// The overload data heads of one definition and the findings of its full critical-pair check
 /// (the [module documentation](self), "The class"), built by [`BackendDefinition::data_heads`]
 /// and read only by [`BackendDefinition::is_data`] of the same definition.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default)]
 pub struct DataHeads {
     heads: BTreeSet<Name>,
-    /// Why the definition's equations are not shown confluent: one line per pair of executable
-    /// equations the full check does not join, per equation the evaluator does not apply to
-    /// every subject it describes, and per precondition row the definition violates. When there
-    /// is one, no term is data.
-    findings: Vec<String>,
+    /// Why the definition's equations are not shown confluent: one finding per pair of
+    /// executable equations the full check does not join, per equation the evaluator does not
+    /// apply to every subject it describes, and per precondition row the definition violates.
+    /// When there is one, no term is data.
+    findings: Vec<Finding>,
+    /// The pair findings the client assumed joined ([`BackendDefinition::data_heads_assuming`]).
+    assumed: Vec<Finding>,
+}
+
+/// One finding of a definition's full critical-pair check (the [module documentation](self),
+/// "Findings: genuine or undecided").
+#[derive(Clone, Debug)]
+pub enum Finding {
+    /// A violated precondition row: an equation outside the check's reasoning, or an overload
+    /// family the argument does not cover.
+    Precondition(Violation),
+    /// An equation the evaluator does not apply to every subject it describes
+    /// ([`UnjoinedReason::describes_one_equation`](crate::confluence::UnjoinedReason::describes_one_equation)).
+    Equation(UnjoinedPair),
+    /// A pair of executable equations the check does not join, with a ground input that has two
+    /// normal forms when one was found (a genuine finding); otherwise undecided.
+    Pair {
+        pair: UnjoinedPair,
+        instance: Option<GroundInstance>,
+    },
+}
+
+impl Finding {
+    /// Whether the finding is genuine: a pair with a [`GroundInstance`].
+    #[must_use]
+    pub fn is_genuine(&self) -> bool {
+        matches!(
+            self,
+            Self::Pair {
+                instance: Some(_),
+                ..
+            }
+        )
+    }
+
+    /// The pair, for a pair finding.
+    #[must_use]
+    pub fn pair(&self) -> Option<&UnjoinedPair> {
+        match self {
+            Self::Pair { pair, .. } => Some(pair),
+            Self::Precondition(_) | Self::Equation(_) => None,
+        }
+    }
+
+    /// The ground instance of a genuine finding.
+    #[must_use]
+    pub fn instance(&self) -> Option<&GroundInstance> {
+        match self {
+            Self::Pair { instance, .. } => instance.as_ref(),
+            Self::Precondition(_) | Self::Equation(_) => None,
+        }
+    }
+
+    /// One line naming the finding, each equation named by its diagnostic name with symbols
+    /// written by `symbol` from their KORE names
+    /// ([`RuleAttributes::diagnostic_name`](crate::rule::RuleAttributes::diagnostic_name)).
+    /// A pair is "not shown to join", never a defect: only [`Self::is_genuine`] says that.
+    pub fn describe(&self, symbol: impl Fn(&str) -> String + Copy) -> String {
+        let name = |rule: &crate::rule::RewriteRule| rule.attributes.diagnostic_name(symbol);
+        match self {
+            Self::Precondition(violation) => match &violation.rule {
+                Some(rule) => format!("{} ({})", violation.kind, name(rule)),
+                None => violation.kind.to_string(),
+            },
+            Self::Equation(pair) => format!(
+                "the equation {} is not applied to every subject it describes ({})",
+                name(&pair.first),
+                pair.reason
+            ),
+            Self::Pair { pair, .. } => format!(
+                "the equations {} and {} are not shown to join ({})",
+                name(&pair.first),
+                name(&pair.second),
+                pair.reason
+            ),
+        }
+    }
+}
+
+impl std::fmt::Display for Finding {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.describe(str::to_owned))
+    }
 }
 
 impl DataHeads {
@@ -129,11 +244,17 @@ impl DataHeads {
         self.findings.is_empty()
     }
 
-    /// Why the definition's equations are not shown confluent, one line each (empty when they
-    /// are).
+    /// Why the definition's equations are not shown confluent (empty when they are), the
+    /// assumed pairs left out.
     #[must_use]
-    pub fn findings(&self) -> &[String] {
+    pub fn findings(&self) -> &[Finding] {
         &self.findings
+    }
+
+    /// The pair findings assumed joined ([`BackendDefinition::data_heads_assuming`]).
+    #[must_use]
+    pub fn assumed(&self) -> &[Finding] {
+        &self.assumed
     }
 }
 
@@ -147,16 +268,63 @@ impl BackendDefinition {
     /// function, has no hook, roots no simplification, roots at least one executable equation
     /// and only canonically shaped overload equations rooted at itself; when the check has a
     /// finding there is no head.
+    ///
+    /// Each pair finding is searched for a [`GroundInstance`] (the [module
+    /// documentation](self), "Findings: genuine or undecided"), a bounded search whose cost is
+    /// a few evaluations of small ground terms per pair.
     #[must_use]
     pub fn data_heads(&self) -> DataHeads {
         let verdict = self.value_claims_in_scope(crate::confluence::CheckScope::All);
-        let findings = confluence_findings(&verdict);
+        let findings = confluence_findings(self, &verdict);
         if !findings.is_empty() {
             return DataHeads {
                 heads: BTreeSet::new(),
                 findings,
+                assumed: Vec::new(),
             };
         }
+        DataHeads {
+            heads: self.overload_data_heads(),
+            findings,
+            assumed: Vec::new(),
+        }
+    }
+
+    /// `heads` (from [`Self::data_heads`] of this definition), with every pair finding for which
+    /// `assumed` holds read as a pair that joins (the [module documentation](self), "Assumed
+    /// pairs"): such findings move to [`DataHeads::assumed`], and when no other finding is left
+    /// the definition has data, with its overload data heads. Only pairs can be assumed: a
+    /// precondition row or a per-equation report stays a finding whatever `assumed` says.
+    #[must_use]
+    pub fn data_heads_assuming(
+        &self,
+        heads: &DataHeads,
+        mut assumed: impl FnMut(&Finding) -> bool,
+    ) -> DataHeads {
+        let mut kept = Vec::new();
+        let mut moved = heads.assumed.clone();
+        for finding in &heads.findings {
+            if finding.pair().is_some() && assumed(finding) {
+                moved.push(finding.clone());
+            } else {
+                kept.push(finding.clone());
+            }
+        }
+        let names = if kept.is_empty() {
+            self.overload_data_heads()
+        } else {
+            BTreeSet::new()
+        };
+        DataHeads {
+            heads: names,
+            findings: kept,
+            assumed: moved,
+        }
+    }
+
+    /// The overload data heads (the [module documentation](self), "The class"), read without
+    /// regard to the full check's findings.
+    fn overload_data_heads(&self) -> BTreeSet<Name> {
         let mut heads = BTreeSet::new();
         for (name, symbol) in self.symbols() {
             if symbol.attributes.head_role() != HeadRole::EquationHead
@@ -182,7 +350,7 @@ impl BackendDefinition {
                 heads.insert(name.clone());
             }
         }
-        DataHeads { heads, findings }
+        heads
     }
 
     /// Whether the ground term `term` is data in this definition (the
@@ -196,12 +364,19 @@ impl BackendDefinition {
     }
 
     fn is_data_walk(&self, term: &Term, heads: &DataHeads) -> bool {
-        let mut pending = vec![term];
-        // Invariant: every term popped is a subterm of `term`, and each subterm is pushed once by
-        // its parent, so the loop visits at most the nodes of `term`.
         if !heads.confluent() {
             return false;
         }
+        self.built_from_data(term, &heads.heads)
+    }
+
+    /// Whether `term` is built only from domain values, injections, free-constructor
+    /// applications, rest-free collections with distinct keys and elements, and instance-normal
+    /// applications of the symbols in `heads`, whatever the full check says.
+    fn built_from_data(&self, term: &Term, heads: &BTreeSet<Name>) -> bool {
+        let mut pending = vec![term];
+        // Invariant: every term popped is a subterm of `term`, and each subterm is pushed once by
+        // its parent, so the loop visits at most the nodes of `term`.
         while let Some(term) = pending.pop() {
             if term.attributes().constructor_like {
                 continue;
@@ -328,33 +503,28 @@ fn canonical_overload_equation(head: &Name, rule: &crate::rule::RewriteRule) -> 
             })
 }
 
-/// One line per finding of a full critical-pair check: each pair it does not join (and each
-/// equation the evaluator does not apply to every subject it describes), and each precondition
-/// row the definition violates.
-fn confluence_findings(verdict: &crate::confluence::ValueClaims) -> Vec<String> {
-    let name = |rule: &crate::rule::RewriteRule| rule.attributes.diagnostic_name(str::to_owned);
-    let mut findings: Vec<String> = verdict
+/// The findings of a full critical-pair check of `definition`: each precondition row the
+/// definition violates, then each pair it does not join (and each equation the evaluator does not
+/// apply to every subject it describes), every pair searched for a ground instance.
+fn confluence_findings(
+    definition: &BackendDefinition,
+    verdict: &crate::confluence::ValueClaims,
+) -> Vec<Finding> {
+    let mut findings: Vec<Finding> = verdict
         .violations()
         .iter()
-        .map(|violation| match &violation.rule {
-            Some(rule) => format!("{} ({})", violation.kind, name(rule)),
-            None => violation.kind.to_string(),
-        })
+        .cloned()
+        .map(Finding::Precondition)
         .collect();
+    let mut search = instance::Search::new(definition);
     findings.extend(verdict.unjoined().iter().map(|pair| {
         if pair.reason.describes_one_equation() {
-            format!(
-                "the equation {} is not applied to every subject it describes ({})",
-                name(&pair.first),
-                pair.reason
-            )
+            Finding::Equation(pair.clone())
         } else {
-            format!(
-                "the equations {} and {} are not shown to join ({})",
-                name(&pair.first),
-                name(&pair.second),
-                pair.reason
-            )
+            Finding::Pair {
+                pair: pair.clone(),
+                instance: search.ground_instance(pair),
+            }
         }
     }));
     findings

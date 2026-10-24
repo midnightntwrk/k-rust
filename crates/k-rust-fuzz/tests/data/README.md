@@ -97,11 +97,14 @@ The tickets are those of `impl.toml`; the classes are those of `ARCHITECTURE.md`
 | R3_PROPAGATE | `r3-propagate/b.k`, `r3-propagate/go.pgm` | `PR` (`PR-SYNTAX`) | The broken diamond plus `pick(.Ids) => a`, `pick(.Vals) => bb`. Stores `a`. | FZ-DATAEND review R3-B1 (main kills it) |
 | | `r3-propagate/m.k` | | Stores `bb`. | `unsupported`, `definition-not-confluent` |
 | R3_PLAINQ | `r3-plainq/b.k`, `r3-plainq/go.pgm` | `PQ` (`PQ-SYNTAX`) | `q(_) => a`, `q(_) => bb` (total), a pair only the full check classifies. Stores `a`. | FZ-DATAEND review R3-S1 |
-| | `r3-plainq/m.k` | | Stores `bb`. | `unsupported`, `definition-not-confluent` (the full check runs at campaign setup) |
+| | `r3-plainq/m.k` | | Stores `bb`. | `not-comparable`, no case; the pair is genuine: at `q(0)` the input has the two normal forms `a` and `bb` |
 | R4_EMPTY | `r4-empty/b.k`, `r4-empty/go.pgm` | `RE` (`RE-SYNTAX`) | `f(_:S) => a`, `f(_:S) => bb` (total) with `syntax S` and no production: an overlap over a sort with no normal form, which every model inhabits. Stores `a`. | FZ-DATAEND review round 4 (main kills it) |
-| | `r4-empty/m.k` | | Stores `bb`. | `unsupported`, `definition-not-confluent` (the full check names `SortS`, FZ-EMPTYSORT) |
+| | `r4-empty/m.k` | | Stores `bb`. | `not-comparable`, no case; the full check names `SortS` (FZ-EMPTYSORT) |
 | R4_PARTNORULE | `r4-partnorule/b.k`, `r4-partnorule/go.pgm` | `RP` (`RP-SYNTAX`) | The same with `syntax S ::= g(Int) [function]` and no rule for `g`. Stores `a`. | FZ-DATAEND review round 4 (main kills it) |
-| | `r4-partnorule/m.k` | | Stores `bb`. | `unsupported`, `definition-not-confluent` (FZ-EMPTYSORT) |
+| | `r4-partnorule/m.k` | | Stores `bb`. | `not-comparable`, no case (FZ-EMPTYSORT) |
+| OWISE | `owise/b.k`, `owise/go.pgm` | `OW` (`OW-SYNTAX`) | `g(X) => c requires X <=Int 0` beside two `owise` equations to `a` and `bb`. Stores `g(N)`. | FZ-POLISH review B1 |
+| | `owise/m.k` | | Stores `g(N +Int 0)`. | `not-comparable`, no case; the owise pair is genuine at `g(1)`, never `g(0)` |
+| | `owise/x.k` | | The labels `ow1`, `ow2` on `g(_) => c` and `g(_) => bb`. | an unprefixed assume-joined name by labels matches different pairs on the two sides: refused |
 
 ## Not covered here
 

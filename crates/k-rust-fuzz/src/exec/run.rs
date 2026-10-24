@@ -525,6 +525,10 @@ pub(crate) struct Executor {
     /// first need ([`Self::data_heads`]), since it runs the definition's full critical-pair
     /// check, or given by the campaign's cache ([`Self::with_data_heads`]).
     data_heads: Option<DataHeads>,
+    /// The pairs the data judgement reads as joined (`CaseOptions::assume_joined`, the names
+    /// that apply on this executor's definition), applied to [`Self::data_heads`] when they are
+    /// computed ([`Self::with_assume_joined`]).
+    assume_joined: Vec<String>,
     /// The per-case safety limit, in milliseconds; wasm32 refuses it, so there it is never set.
     #[cfg(not(target_arch = "wasm32"))]
     safety_limit_ms: Option<u64>,
@@ -643,6 +647,7 @@ impl Executor {
             max_simplification_iterations: options.max_simplification_iterations,
             load_stack_stops,
             data_heads: None,
+            assume_joined: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
             safety_limit_ms: options.safety_limit_ms,
             #[cfg(not(target_arch = "wasm32"))]
@@ -678,7 +683,8 @@ impl Executor {
     }
 
     /// The definition's data heads and the findings of its full critical-pair check
-    /// ([`BackendDefinition::data_heads`]), computed once.
+    /// ([`BackendDefinition::data_heads`]), with the pairs `CaseOptions::assume_joined` names
+    /// read as joined ([`BackendDefinition::data_heads_assuming`]), computed once.
     ///
     /// # Errors
     ///
@@ -689,7 +695,13 @@ impl Executor {
                 .backend
                 .select_definition(None)
                 .map_err(|error| error.to_string())?;
-            self.data_heads = Some(loaded.data_heads());
+            let mut heads = loaded.data_heads();
+            if !self.assume_joined.is_empty() {
+                heads = loaded.data_heads_assuming(&heads, |finding| {
+                    crate::findings::assumed(&self.assume_joined, finding)
+                });
+            }
+            self.data_heads = Some(heads);
         }
         Ok(self.data_heads.as_ref().expect("computed just above"))
     }
@@ -697,6 +709,14 @@ impl Executor {
     /// The data heads, when already computed.
     pub(crate) fn computed_data_heads(&self) -> Option<&DataHeads> {
         self.data_heads.as_ref()
+    }
+
+    /// This executor, reading the pairs `names` names (side prefixes removed,
+    /// `crate::findings::for_side`) as joined when it computes its data heads.
+    #[must_use]
+    pub(crate) fn with_assume_joined(mut self, names: Vec<String>) -> Self {
+        self.assume_joined = names;
+        self
     }
 
     /// This executor, with `heads` (computed for its definition) as its data heads, so that

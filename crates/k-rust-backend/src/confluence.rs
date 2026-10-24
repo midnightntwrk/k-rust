@@ -104,6 +104,7 @@ pub(crate) use join::SettledRoot;
 pub use unify::UnresolvedShape;
 
 use crate::{
+    condition::Condition,
     definition::BackendDefinition,
     instance_normal::InstanceNormal,
     rule::{
@@ -825,6 +826,14 @@ pub struct UnjoinedPair {
     pub reached: Option<(Option<Term>, Option<Term>)>,
     /// The subterm at which the join refused a step, if it refused one.
     pub refused: Option<Term>,
+    /// The conjunction of both equations' `requires` at the overlap (each term's definedness
+    /// stated), simplified as the check simplified it: with no assumption, no solver and every
+    /// claim withheld, so that it holds exactly where the conjunction holds, in every model.
+    /// [`Predicate::True`] when the pair has no `requires` or the conjunction simplified to
+    /// `\top` (then [`UnjoinedReason::DifferentResults`] is kept: the reducts differ wherever
+    /// the overlap is defined). `None` when the check reached no condition (no overlap, or a
+    /// per-equation report) or could not simplify it (a failure or a stop).
+    pub conditions: Option<Predicate>,
     pub reason: UnjoinedReason,
     /// The symbols some gate site is asked about (equation heads and overloaded symbols) that the
     /// taint closure of this pair alone withdraws, sorted: empty when the pair changes no claim.
@@ -920,6 +929,10 @@ impl UnjoinedPair {
         for term in self.terms() {
             memo::first_occurrences(term, &mut seen, &mut order);
         }
+        if let Some(conditions) = &self.conditions {
+            conditions
+                .visit_terms(&mut |term| memo::first_occurrences(term, &mut seen, &mut order));
+        }
         let renaming = order
             .into_iter()
             .filter(|variable| variable.name.contains('!'))
@@ -952,6 +965,18 @@ impl UnjoinedPair {
             rename(&mut terms.1);
         }
         rename(&mut self.refused);
+        if let Some(conditions) = &mut self.conditions {
+            let renamed =
+                Condition::new(vec![conditions.clone()]).rename(|variable| {
+                    match renaming.get(variable).map(Term::kind) {
+                        Some(TermKind::Variable(renamed)) => renamed.clone(),
+                        _ => variable.clone(),
+                    }
+                });
+            if let Some(predicate) = renamed.iter().next() {
+                *conditions = predicate.clone();
+            }
+        }
     }
 }
 
@@ -1529,21 +1554,21 @@ impl<'d> Context<'d> {
             let (instance, stops) = budgeted(|| instance.with_definedness(self.definition, &[]));
             self.count_stops(stops);
             let Ok(instance) = instance else {
-                return Conditions::Open(Substitution::new());
+                return Conditions::Open(Substitution::new(), None);
             };
             if stops.any() {
-                return Conditions::Open(Substitution::new());
+                return Conditions::Open(Substitution::new(), None);
             }
             predicates.extend(instance);
         }
         if predicates.is_empty() {
-            return Conditions::Open(Substitution::new());
+            return Conditions::Holds;
         }
         if switches::active().refute_every_condition {
             return Conditions::Refuted;
         }
         let Some(simplified) = self.simplify(Predicate::And(predicates.into())) else {
-            return Conditions::Open(Substitution::new());
+            return Conditions::Open(Substitution::new(), None);
         };
         let mut conjuncts = BTreeSet::new();
         flatten(simplified, &mut conjuncts);
@@ -1553,7 +1578,17 @@ impl<'d> Context<'d> {
         {
             return Conditions::Refuted;
         }
-        Conditions::Open(conditions::equalities(&conjuncts))
+        if conjuncts.is_empty() {
+            // Every conjunct simplified to `\top` (`flatten` drops it): each simplification step
+            // is an axiom instance, so the conjunction holds on every instance in every model.
+            return Conditions::Holds;
+        }
+        let equalities = conditions::equalities(&conjuncts);
+        let conjunction = match <[Predicate; 1]>::try_from(conjuncts) {
+            Ok([conjunct]) => conjunct,
+            Err(conjuncts) => Predicate::And(conjuncts.into()),
+        };
+        Conditions::Open(equalities, Some(conjunction))
     }
 
     /// The predicate simplified with no assumption and no solver, `None` on a failure or stop:
@@ -1771,8 +1806,12 @@ const CONDITION_ITERATIONS: usize = 64;
 enum Conditions {
     /// They hold on no instance.
     Refuted,
-    /// They may hold; every instance where they do satisfies these equalities.
-    Open(Substitution),
+    /// They hold on every instance: the pair has no `requires`, or their conjunction simplified
+    /// to `\top`.
+    Holds,
+    /// They may hold; every instance where they do satisfies these equalities. The simplified
+    /// conjunction, when it was simplified ([`UnjoinedPair::conditions`]).
+    Open(Substitution, Option<Predicate>),
 }
 
 /// One candidate pair: `first`'s left-hand side at `position` against `second`'s.
@@ -1891,14 +1930,16 @@ impl Context<'_> {
                 self.group(candidate.group).uninhabited += 1;
             }
             let unjoined: UnjoinedPair = 'classified: {
-                let equalities = match self.conditions(&[first.as_ref(), second.as_ref()], &unifier)
+                let (equalities, conjunction, open) = match self
+                    .conditions(&[first.as_ref(), second.as_ref()], &unifier)
                 {
                     Conditions::Refuted => {
                         self.counts.refuted += 1;
                         self.group(candidate.group).refuted += 1;
                         continue 'unifiers;
                     }
-                    Conditions::Open(equalities) => equalities,
+                    Conditions::Holds => (Substitution::new(), Some(Predicate::True), false),
+                    Conditions::Open(equalities, conjunction) => (equalities, conjunction, true),
                 };
                 let instantiate = |term: &Term| substitute(&collapse_conjunctions(term), &unifier);
                 let ensures = |rule: &RewriteRule| -> BTreeSet<Predicate> {
@@ -1910,6 +1951,7 @@ impl Context<'_> {
                 if ensures(first) != ensures(&second) && !switches::active().ignore_ensures {
                     break 'classified UnjoinedPair {
                         overlap: Some(overlap),
+                        conditions: conjunction,
                         ..unjoined_report(candidate, UnjoinedReason::EnsuresDiffer)
                     };
                 }
@@ -1918,6 +1960,7 @@ impl Context<'_> {
                 else {
                     break 'classified UnjoinedPair {
                         overlap: Some(overlap),
+                        conditions: conjunction,
                         ..unjoined_report(candidate, UnjoinedReason::UnsupportedRightHandSide)
                     };
                 };
@@ -1962,7 +2005,6 @@ impl Context<'_> {
                             .unwrap_or_else(|| Term::variable(variable.clone()))
                     })
                     .collect::<Vec<_>>();
-                let conditional = !first.requires.is_empty() || !second.requires.is_empty();
                 // Only the instances where both conditions hold are peaks, and each of them
                 // satisfies the conditions' equalities.
                 // The values stay as the unifier built them: they are instances of patterns, which
@@ -1987,8 +2029,11 @@ impl Context<'_> {
                         refused,
                         reason,
                     } => {
+                        // Different results under conditions the check neither refuted nor showed
+                        // to hold may be an artifact of the condition reader; under conditions
+                        // that hold on every instance they are what the join found.
                         let reason = match reason {
-                            UnjoinedReason::DifferentResults if conditional => {
+                            UnjoinedReason::DifferentResults if open => {
                                 UnjoinedReason::ConditionOpen
                             }
                             reason => reason,
@@ -1998,6 +2043,7 @@ impl Context<'_> {
                             sides: Some((first_side, second_side)),
                             reached: Some(reached),
                             refused,
+                            conditions: conjunction,
                             ..unjoined_report(candidate, reason)
                         };
                     }
@@ -2139,6 +2185,7 @@ fn unjoined_report(candidate: &Candidate<'_>, reason: UnjoinedReason) -> Unjoine
         sides: None,
         reached: None,
         refused: None,
+        conditions: None,
         reason,
         withdrawn: Vec::new(),
         rewrites_argument: false,
@@ -2279,6 +2326,7 @@ fn check_detached(
                 sides: None,
                 reached: None,
                 refused: None,
+                conditions: None,
                 reason,
                 withdrawn: Vec::new(),
                 rewrites_argument: false,
@@ -2436,6 +2484,7 @@ fn check_detached(
             sides: None,
             reached: None,
             refused: None,
+            conditions: None,
             reason: UnjoinedReason::Unresolved(UnresolvedShape::SeveralMatches),
             withdrawn: Vec::new(),
             rewrites_argument: false,

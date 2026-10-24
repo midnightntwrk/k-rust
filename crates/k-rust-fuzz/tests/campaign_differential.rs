@@ -11,7 +11,9 @@ use k_rust_fuzz::{
     HoleDecl, HoleLocation, OutcomeClass, ProgramInput, ProposerConfig, SpanAddress, Target,
     TargetKind,
     exec::UnjudgedReason,
-    report::{CampaignOutcome, DefinitionRole, HitLabel, KillKind, Reaching},
+    report::{
+        CampaignOutcome, DefinitionRole, FindingKind, FindingVerdict, HitLabel, KillKind, Reaching,
+    },
     spec::DEFAULT_REJECTION_CAP,
     spec::PathMode,
     target::DifferentialTarget,
@@ -23,9 +25,9 @@ use support::{
     COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture,
     IMP_ADD_BECOMES_SUB, IMP_ADD_COMMUTED, IMP_AND_TRUE_IGNORES_RHS, IMP_DECL_ALLOWS_REDECLARATION,
     IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE, KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND,
-    OV_SIZE, R2_ADDMEMBER, R2_ADDMEMBER_M, R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R3_MODOV,
-    R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M, R3_PROPAGATE, R3_PROPAGATE_M, R4_EMPTY, R4_EMPTY_M,
-    R4_PARTNORULE, R4_PARTNORULE_M, RERUN, RERUN_DROP,
+    OV_SIZE, OWISE, OWISE_M, OWISE_X, R2_ADDMEMBER, R2_ADDMEMBER_M, R2_ANYW, R2_ANYW_M, R2_OVER,
+    R2_OVER_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M, R3_PROPAGATE, R3_PROPAGATE_M,
+    R4_EMPTY, R4_EMPTY_M, R4_PARTNORULE, R4_PARTNORULE_M, RERUN, RERUN_DROP,
 };
 #[cfg(feature = "z3")]
 use support::{R2_PARAM, R2_PARAM_M};
@@ -699,8 +701,7 @@ fn an_end_holding_an_irreducible_overload_application_is_compared() {
 #[test]
 fn a_mutant_whose_overload_equations_differ_is_never_killed_through_them() {
     let report = ov_report(&OV, &OV_INTS);
-    assert!(report.witness().is_none(), "{:?}", report.outcome);
-    assert_only_unsupported(&report);
+    assert_not_comparable(&report, &[DefinitionRole::Mutant]);
 }
 
 /// An end that holds an unevaluated total function application is not data, on either side:
@@ -738,8 +739,7 @@ fn constructor_ends_a_broken_overload_family_equates_are_never_compared() {
         "{:?}",
         report.engine_defects
     );
-    assert!(report.witness().is_none(), "{:?}", report.outcome);
-    assert_only_unsupported(&report);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
 }
 
 /// FZ-DATAEND review B1: `f_K(kseq(inj(X), dotk)) = f_Exp(X)` is an overload equation of another
@@ -756,8 +756,7 @@ fn an_overload_of_another_shape_is_never_compared_through() {
         "{:?}",
         report.engine_defects
     );
-    assert!(report.witness().is_none(), "{:?}", report.outcome);
-    assert_only_unsupported(&report);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
 }
 
 // ---- each end judged by both definitions (FZ-DATAEND review round 2)
@@ -817,24 +816,32 @@ fn an_end_an_added_anywhere_rule_rewrites_is_never_compared() {
 #[test]
 fn an_unused_k_placed_overload_leaves_the_definition_without_data() {
     let report = r2_report(&R2_OVER, &R2_OVER_M, "r2-over/go.pgm");
-    assert!(report.witness().is_none(), "{:?}", report.outcome);
-    assert_only_unsupported(&report);
-    assert_not_confluent(&report, &["baseline", "mutant"]);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
 }
 
-/// The report names, for each of `sides`, why its definition has no data, and counts every
-/// `unsupported` case under `definition-not-confluent`, not under a side's not-data reason
-/// (INT7).
-fn assert_not_confluent(report: &k_rust_fuzz::FuzzReport, sides: &[&str]) {
-    assert_eq!(
-        report.totals.unsupported_reasons,
-        BTreeMap::from([(
-            UnjudgedReason::DefinitionNotConfluent,
-            report.totals.classes[&OutcomeClass::Unsupported]
-        )])
-    );
+/// A definition without data makes every case unjudgeable, which is known before the first
+/// case (FZ-POLISH, not comparable at setup): the campaign runs no case and ends
+/// `not-comparable`, naming the definitions `sides` without data; the report names, for each,
+/// why (one warning, and every finding in `definition-findings`).
+fn assert_not_comparable(report: &k_rust_fuzz::FuzzReport, sides: &[DefinitionRole]) {
+    match &report.outcome {
+        CampaignOutcome::NotComparable {
+            sides: named,
+            statement,
+        } => {
+            assert_eq!(named, sides);
+            assert!(statement.contains("No case was run"), "{statement}");
+        }
+        other => panic!("not comparable expected: {other:?}"),
+    }
+    assert_eq!(report.totals.cases, 0, "{:?}", report.totals);
+    assert!(report.totals.classes.is_empty(), "{:?}", report.totals);
     for side in sides {
-        let prefix = format!("definition-not-confluent ({side}): ");
+        let name = match side {
+            DefinitionRole::Baseline => "baseline",
+            DefinitionRole::Mutant => "mutant",
+        };
+        let prefix = format!("definition-not-confluent ({name}): ");
         assert!(
             report
                 .warnings
@@ -842,6 +849,14 @@ fn assert_not_confluent(report: &k_rust_fuzz::FuzzReport, sides: &[&str]) {
                 .any(|warning| warning.starts_with(&prefix)),
             "{prefix} missing in {:?}",
             report.warnings
+        );
+        assert!(
+            report
+                .definition_findings
+                .iter()
+                .any(|finding| finding.side == *side && !finding.assumed),
+            "no finding of the {name}: {:?}",
+            report.definition_findings
         );
     }
 }
@@ -855,9 +870,7 @@ fn assert_not_confluent(report: &k_rust_fuzz::FuzzReport, sides: &[&str]) {
 #[test]
 fn a_definition_whose_check_reports_a_pair_has_no_data() {
     let report = r2_report(&R3_MODOV, &R3_MODOV_M, "r3-modov/go.pgm");
-    assert!(report.witness().is_none(), "{:?}", report.outcome);
-    assert_only_unsupported(&report);
-    assert_not_confluent(&report, &["baseline", "mutant"]);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
 }
 
 /// R3-B1: the broken diamond's identification of `.Ids` with `.Vals` reaches `a` and `bb`
@@ -865,9 +878,7 @@ fn a_definition_whose_check_reports_a_pair_has_no_data() {
 #[test]
 fn an_identification_reached_through_a_function_is_never_a_kill() {
     let report = r2_report(&R3_PROPAGATE, &R3_PROPAGATE_M, "r3-propagate/go.pgm");
-    assert!(report.witness().is_none(), "{:?}", report.outcome);
-    assert_only_unsupported(&report);
-    assert_not_confluent(&report, &["baseline", "mutant"]);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
 }
 
 /// R3-S1: `q(_) => a` and `q(_) => bb` equate `a` with `bb`; the load's check does not pair them
@@ -875,9 +886,272 @@ fn an_identification_reached_through_a_function_is_never_a_kill() {
 #[test]
 fn a_function_pair_only_the_full_check_finds_is_never_a_kill() {
     let report = r2_report(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm");
-    assert!(report.witness().is_none(), "{:?}", report.outcome);
-    assert_only_unsupported(&report);
-    assert_not_confluent(&report, &["baseline", "mutant"]);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
+}
+
+/// FZ-POLISH review round 3: R3-S1's pair is genuine: at `q(0)` both equations apply and the
+/// input has two normal forms, `a` and `bb`. The finding names both equations by their written
+/// positions (no 64-hex id, no KORE name), and carries the name `assume-joined` takes.
+#[test]
+fn a_pair_whose_input_has_two_normal_forms_is_genuine() {
+    let report = r2_report(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm");
+    let baseline = report
+        .definition_findings
+        .iter()
+        .filter(|finding| finding.side == DefinitionRole::Baseline)
+        .collect::<Vec<_>>();
+    let [finding] = baseline[..] else {
+        panic!("one baseline finding: {:?}", report.definition_findings);
+    };
+    assert_eq!(finding.verdict, FindingVerdict::Genuine, "{finding:?}");
+    let instance = finding.instance.as_ref().expect("the instance");
+    assert_eq!(instance.overlap, "q ( 0 )", "{instance:?}");
+    let mut values = instance.values.clone();
+    values.sort();
+    assert_eq!(values, ["a", "bb"]);
+    assert!(
+        finding
+            .reason
+            .ends_with("k-rust's result for it depends on the order it tries the equations"),
+        "{}",
+        finding.reason
+    );
+    assert_eq!(finding.kind, FindingKind::Pair);
+    assert_eq!(finding.position.as_deref(), Some("root"));
+    for equation in &finding.equations {
+        assert!(equation.contains("r3-plainq/b.k:"), "{equation}");
+    }
+    let name = finding.name.as_deref().expect("a pair's name");
+    assert!(
+        name.starts_with("b.k:") && name.ends_with("@root"),
+        "{name}"
+    );
+    assert_readable(&format!("{finding:?}"));
+}
+
+/// No mangled KORE symbol and no 64-hex id in `text`.
+fn assert_readable(text: &str) {
+    assert!(!text.contains("Lbl"), "{text}");
+    assert!(
+        !text
+            .split(|character: char| !character.is_ascii_hexdigit())
+            .any(|word| word.len() == 64),
+        "{text}"
+    );
+}
+
+/// FZ-POLISH review B1 (a): OWISE's two `owise` equations give the constructors `a` and `bb`
+/// of one sort where both apply. The finding is genuine, and its instance is `g(1)`: at `g(0)`
+/// the priority-50 equation applies, so the owise equations do not. The reason says what the
+/// instance shows.
+#[test]
+fn a_genuine_instance_is_one_where_both_equations_apply() {
+    let report = r2_report(&OWISE, &OWISE_M, "owise/go.pgm");
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
+    let genuine = report
+        .definition_findings
+        .iter()
+        .filter(|finding| finding.verdict == FindingVerdict::Genuine)
+        .collect::<Vec<_>>();
+    assert_eq!(genuine.len(), 2, "{:?}", report.definition_findings);
+    for finding in genuine {
+        let instance = finding.instance.as_ref().expect("the instance");
+        assert_eq!(instance.overlap, "g ( 1 )", "{instance:?}");
+        let mut values = instance.values.clone();
+        values.sort();
+        assert_eq!(values, ["a", "bb"]);
+        assert!(
+            finding
+                .reason
+                .starts_with("at g ( 1 ) both equations apply and the input has two normal forms")
+                && finding.reason.ends_with(
+                    "k-rust's result for it depends on the order it tries the equations"
+                ),
+            "{}",
+            finding.reason
+        );
+        assert_readable(&format!("{finding:?}"));
+    }
+}
+
+/// FZ-POLISH review S2: R3-PROPAGATE's overload-axiom pairs have reducts that differ only by the
+/// source sorts of injections; their texts are written apart (with the sorts) instead of reading
+/// alike. Review S3: compiler-generated overload axioms are named
+/// (`overload:GREATER:LESSER`), so the pairs can be assumed joined.
+#[test]
+fn reducts_that_differ_only_by_injection_sorts_are_written_apart_and_named() {
+    let report = r2_report(&R3_PROPAGATE, &R3_PROPAGATE_M, "r3-propagate/go.pgm");
+    assert!(!report.definition_findings.is_empty());
+    for finding in &report.definition_findings {
+        if let [left, right] = &finding.reducts[..] {
+            assert_ne!(left, right, "{finding:?}");
+        }
+        let name = finding.name.as_deref().expect("every pair is named");
+        assert!(name.contains("overload:"), "{name}");
+        // Readable (round 2): the overloaded pair by its K labels, quoted, never mangled KORE.
+        assert!(!name.contains("Lbl"), "{name}");
+    }
+    let mut names = report
+        .definition_findings
+        .iter()
+        .filter_map(|finding| finding.name.clone())
+        .collect::<Vec<_>>();
+    names.sort();
+    names.dedup();
+    let mut spec = spec_on(&R3_PROPAGATE, &R3_PROPAGATE_M, "r3-propagate/go.pgm", None);
+    spec.options.assume_joined = names;
+    let assumed = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(1), None);
+    assert!(
+        assumed
+            .definition_findings
+            .iter()
+            .all(|finding| finding.assumed),
+        "{:?}",
+        assumed.definition_findings
+    );
+}
+
+/// FZ-POLISH review S5: `baseline:` restricts a name to the baseline, so the mutant keeps its
+/// finding; with `mutant:` the baseline's name matches nothing and is refused.
+#[test]
+fn a_side_prefix_restricts_an_assumed_pair_to_one_definition() {
+    let names = plainq_pair_names();
+    let mut spec = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    spec.options.assume_joined = vec![format!("baseline:{}", names[0])];
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(1), None);
+    assert_not_comparable(&report, &[DefinitionRole::Mutant]);
+    let mut spec = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    spec.options.assume_joined = vec![format!("mutant:{}", names[0])];
+    assert!(Campaign::new(spec).is_err());
+}
+
+/// FZ-POLISH review S5: an unprefixed name applies on each definition where it matches and must
+/// name the same equations on both. `OW.ow1,OW.ow2@root` names `OWISE`'s owise pair on both of
+/// `OWISE` and `OWISE_M` (the same equations): accepted, with a warning that the assumed pair is
+/// genuine. On `OWISE_X` the labels sit on other equations: refused as ambiguous, and accepted
+/// with a side prefix per definition.
+#[test]
+fn an_assumed_name_matching_different_pairs_on_the_two_sides_is_refused() {
+    let labels = "OW.ow1,OW.ow2@root".to_owned();
+    let mut spec = spec_on(&OWISE, &OWISE_M, "owise/go.pgm", None);
+    spec.options.assume_joined = vec![labels.clone()];
+    let run = Campaign::new(spec)
+        .expect("one pair on both sides")
+        .run(Budget::Cases(1), None);
+    assert!(
+        run.warnings.iter().any(|warning| {
+            warning.starts_with("assume-joined (baseline): ") && warning.contains("is genuine")
+        }),
+        "{:?}",
+        run.warnings
+    );
+    let mut spec = spec_on(&OWISE, &OWISE_X, "owise/go.pgm", None);
+    spec.options.assume_joined = vec![labels.clone()];
+    let error = Campaign::new(spec).err().expect("refused");
+    assert!(
+        error.to_string().contains("different equation pairs"),
+        "{error}"
+    );
+    let mut spec = spec_on(&OWISE, &OWISE_X, "owise/go.pgm", None);
+    spec.options.assume_joined = vec![format!("baseline:{labels}"), format!("mutant:{labels}")];
+    assert!(Campaign::new(spec).is_ok());
+}
+
+/// The names of R3-PLAINQ's pair in each definition, as the report's findings give them: the
+/// baseline's (in `b.k`), then the mutant's (in `m.k`).
+fn plainq_pair_names() -> Vec<String> {
+    let report = r2_report(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm");
+    [DefinitionRole::Baseline, DefinitionRole::Mutant]
+        .into_iter()
+        .map(|side| {
+            report
+                .definition_findings
+                .iter()
+                .find(|finding| finding.side == side)
+                .and_then(|finding| finding.name.clone())
+                .expect("a pair's name")
+        })
+        .collect()
+}
+
+/// FZ-POLISH, assume-joined: naming R3-PLAINQ's pair reads both definitions as if it joined, so
+/// their ends are data and the cases run; under that premise the mutant's `bb` against the
+/// baseline's `a` is a kill. The report's identity records the assumption, a warning states
+/// that the verdict holds only under it, and the findings are kept, marked assumed. (The
+/// assumption is false here: the definitions do equate `a` and `bb`. The kill is sound only
+/// relative to it, which is what the warning says.)
+#[test]
+fn an_assumed_pair_lets_the_cases_run_under_the_stated_premise() {
+    let names = plainq_pair_names();
+    // The baseline's pair alone leaves the mutant without data.
+    let mut spec = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    spec.options.assume_joined = vec![names[0].clone()];
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(8), None);
+    assert_not_comparable(&report, &[DefinitionRole::Mutant]);
+    let mut spec = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    spec.options.assume_joined.clone_from(&names);
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(8), None);
+    assert!(report.witness().is_some(), "{:?}", report.outcome);
+    assert_eq!(report.identity.options.assume_joined, names);
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.starts_with("assume-joined: ")
+                && names.iter().all(|name| warning.contains(name.as_str()))),
+        "{:?}",
+        report.warnings
+    );
+    assert!(
+        report
+            .definition_findings
+            .iter()
+            .all(|finding| finding.assumed),
+        "{:?}",
+        report.definition_findings
+    );
+    // A trailing part of the path names the pair too.
+    let longer = names
+        .iter()
+        .map(|name| {
+            let (first, rest) = name.split_once(',').expect("two equations");
+            format!("r3-plainq/{first},r3-plainq/{rest}")
+        })
+        .collect::<Vec<_>>();
+    let mut spec = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    spec.options.assume_joined = longer;
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(1), None);
+    assert!(report.witness().is_some(), "{:?}", report.outcome);
+}
+
+/// FZ-POLISH, assume-joined: a name that matches no pair finding is refused, as is a name given
+/// to a campaign that reads no data end.
+#[test]
+fn an_assumed_pair_that_names_no_finding_is_refused() {
+    let mut plainq = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    plainq.options.assume_joined = vec!["b.k:1:1,b.k:2:1@root".into()];
+    let error = Campaign::new(plainq).err().expect("refused");
+    assert!(
+        error.to_string().contains("matches no unjoined pair"),
+        "{error}"
+    );
+    let mut plainq = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    plainq.options.assume_joined = vec!["not a name".into()];
+    assert!(Campaign::new(plainq).is_err());
+    // COIN's definitions have data and no finding.
+    let mut coin = spec(&COIN_KILL);
+    coin.options.assume_joined = plainq_pair_names();
+    assert!(Campaign::new(coin).is_err());
 }
 
 // ---- pairs over a sort with no normal form (FZ-DATAEND review round 4, FZ-EMPTYSORT)
@@ -885,7 +1159,8 @@ fn a_function_pair_only_the_full_check_finds_is_never_a_kill() {
 /// R4: `f(_:S) => a` and `f(_:S) => bb` overlap only over a sort with no normal form: `S` has no
 /// production (`r4-empty`), or only the partial function `g`, which no rule rewrites
 /// (`r4-partnorule`). Every model has an element `s` of `S`, so `a = f(s) = bb` there; the full
-/// check reports the pair, naming `S`, and no end is data. Never a kill (main killed both).
+/// check reports the pair, naming `S`, and no end is data, so the campaign is not comparable
+/// at setup (FZ-POLISH) and runs no case. Never a kill (main killed both).
 #[test]
 fn a_pair_over_a_sort_with_no_normal_form_leaves_the_definition_without_data() {
     for (baseline, mutant, program) in [
@@ -898,17 +1173,21 @@ fn a_pair_over_a_sort_with_no_normal_form_leaves_the_definition_without_data() {
             "{program}: {:?}",
             report.outcome
         );
-        assert_only_unsupported(&report);
-        assert_not_confluent(&report, &["baseline", "mutant"]);
-        assert!(
-            report
-                .warnings
-                .iter()
-                .any(|warning| warning.contains("a sort with no normal form")
-                    && warning.contains("SortS")),
-            "{program}: {:?}",
-            report.warnings
-        );
+        assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
+        for side in [DefinitionRole::Baseline, DefinitionRole::Mutant] {
+            assert!(
+                report
+                    .definition_findings
+                    .iter()
+                    .any(|finding| finding.side == side
+                    && finding.reason.contains("a sort with no normal form")
+                    && finding.reason.contains("SortS")
+                    // No normal form of `S` exists to build an instance from.
+                    && finding.verdict == FindingVerdict::Undecided),
+                "{program}: {:?}",
+                report.definition_findings
+            );
+        }
     }
 }
 

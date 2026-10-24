@@ -280,6 +280,7 @@ fn settings(holes: usize) -> LoopSettings {
         constraints: vec![Constraints::default(); holes],
         sort_overrides: Vec::new(),
         warnings: Vec::new(),
+        definition_findings: Vec::new(),
         scorer: None,
         pool_rank: std::collections::BTreeMap::new(),
         normal_end: None,
