@@ -1,0 +1,10 @@
+# The class-test cases known not to conform: the red list. Each entry is keyed by the case ID and
+# names the finding that owns the deviation (`unassigned` while none does), the deviation exactly as
+# the harness prints it, and optionally the step (S1 to S6) whose design makes the case conform:
+#
+#    ["readable/result/pc/Some(x)"]
+#    finding = "unassigned"
+#    deviation = "E0277 @ item"
+#
+# A pending case that conforms, or deviates differently, fails until this file records it; see
+# `class_matrix::pending`.

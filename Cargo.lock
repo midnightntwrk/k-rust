@@ -1614,7 +1614,10 @@ dependencies = [
 name = "krs-test-support"
 version = "0.1.0"
 dependencies = [
+ "krs-diagnostic",
+ "krs-expand",
  "serde_json",
+ "syn 2.0.119",
  "tempfile",
  "toml_edit 0.25.15+spec-1.1.0",
 ]

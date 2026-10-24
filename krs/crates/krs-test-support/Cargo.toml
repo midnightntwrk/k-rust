@@ -18,3 +18,8 @@ workspace = true
 tempfile = "3.27.0"
 serde_json.workspace = true
 toml_edit = { workspace = true, features = ["parse"] }
+
+[dev-dependencies]
+krs-diagnostic = { path = "../krs-diagnostic" }
+krs-expand = { path = "../krs-expand" }
+syn.workspace = true

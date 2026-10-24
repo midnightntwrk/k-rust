@@ -1,0 +1,37 @@
+# The expected outcome of every class-test case (`krs_test_support::class_matrix`), in four parts.
+# The schema and how a case is decided are documented in `class_matrix::table`.
+#
+# 1. Mistake classes: one registered code each. A class names an author mistake, not a site.
+#
+#    [class.presence-on-plain-cell]
+#    code = "krs::analysis::optional-presence"
+#    doc = "`Some(..)`/`None` on a cell that is not `multiplicity = \"?\"`"
+#
+# 2. Refusal rules: a glob over case IDs, the class of the mistake the matched cases make, and the
+#    range the error must lie inside (entry, spelling, item, or header). The most specific entry
+#    that covers a case decides it; two entries of which neither is more specific are a tie.
+#
+#    [[refuse]]
+#    match = "readable/*/{pc,stack,env,frame,job}/{Some(x),None}"
+#    class = "presence-on-plain-cell"
+#    at = "spelling"
+#
+# 3. Accepted cases with their own sentence as normalized K, written by `--record` and reviewed as a
+#    diff; `same_k_as` names the cases that must emit the same normalized K.
+#
+#    [accept."readable/subject/stack/[x, ..]"]
+#    k = "..."
+#    same_k_as = []
+#
+# 4. Codes that never answer an author mistake.
+
+[class]
+
+[accept]
+
+[internal]
+codes = [
+    "krs::analysis::invalid-semantic-theory",
+    "krs::analysis::parser-reference-disagreement",
+    "krs::expand::duplicate-provenance-key",
+]
