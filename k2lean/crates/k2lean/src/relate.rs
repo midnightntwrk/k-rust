@@ -2408,7 +2408,12 @@ fn fwd_ctor(
     if !same {
         return format!("apply {ctor}");
     }
-    let mut args: Vec<String> = ra.binders.iter().map(|(x, s)| val(m, s, x)).collect();
+    // a set pattern's value is `()` (`Unit`, no translation)
+    let mut args: Vec<String> = ra
+        .binders
+        .iter()
+        .map(|(x, s)| if s == "Unit" { x.clone() } else { val(m, s, x) })
+        .collect();
     args.extend(std::iter::repeat_n(
         "?_".to_string(),
         ra.hyps.len() + usize::from(hpri),
