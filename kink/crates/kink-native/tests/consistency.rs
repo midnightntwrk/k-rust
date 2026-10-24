@@ -160,6 +160,20 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// more overlaps (or, for `\not` literals, fewer, where the old reading was unsound), so a mutant
 /// is admitted only where its guards hold on no instance. The other passages are unmoved.
 ///
+/// fz26 phase-6 integration (INT8, FZ-EMPTYSORT with FZ-CONFLUENCE and FZ-POLISH): three passages
+/// change, by digest of the final merged text. compatibility.md 1100-1107 (was 1100-1106): line
+/// 1103 no longer lists "separated" among an overlap's outcomes, and a new line 1104 states that
+/// no overlap is set aside because a variable of it ranges over a sort with no normal form: every
+/// model has an element of that sort, so such an overlap is refuted, joined or not joined like
+/// any other, and a pair whose non-joined overlaps are all over such sorts is listed (naming the
+/// sort) but withdraws no claim. compatibility.md 1123-1136 (was 1122-1135) moved down one line
+/// and its `group_counts` sentence counts overlaps over sorts with no normal form where it
+/// counted separated ones. `definition.rs` 2926-2953 (was 2926-2952) says that `refuted` and
+/// `joined` are sound, no overlap being set aside for an empty sort, where it said `separated`,
+/// `refuted` and `joined`. The check only gets stricter for kink: a mutant with such a pair, which
+/// the check used to separate, is now refused as `inconsistent-mutant`; no mutant is newly
+/// admitted.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
@@ -173,20 +187,20 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
     (
         "docs/compatibility.md",
         1100,
-        1106,
-        "00e7b87424c1ceb793e08c0d6c7ae1ab613779b4d7eea5a76752b1bc9d63e6cd",
+        1107,
+        "a83fde623d4af35da52631839831cc7e9a5cabc128bd5a716c7167605adc91d3",
     ),
     (
         "docs/compatibility.md",
-        1122,
-        1135,
-        "6a3b482248576ca08648f5e2bfd7c0211ad147f43d433245a4044507b4de472c",
+        1123,
+        1136,
+        "4cf7602887c991068f06eaf3af5192b8c938b842384ea0e0183571b768a51b75",
     ),
     (
         "crates/k-rust-backend/src/definition.rs",
         2926,
-        2952,
-        "231513b52fc26f915765b47abfb63789954e31ef4271986dd73f218f1ec9c8a0",
+        2953,
+        "761240eef36fdbf4d6f1fe3a61c132cec8cd8e3fa66694ab7c75fd6ca477d3b7",
     ),
 ];
 
@@ -229,7 +243,19 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// Re-pin FZ-CONFLUENCE review A round 2: 502e6d91 -> 7bddeac5. The hook stage passes the
 /// equation's right-hand side to `hooks::meaning` (which of several equal `replace` symbols the
 /// `replaceAll` lemma names), and `reported()`'s documentation cites the gate decision.
-const CONFLUENCE_RS: &str = "7bddeac58867ebb80f2f89580de98a3cd61f53f1bf9df2b431980cfeeeeaa36e";
+///
+/// Re-pin fz26 phase-6 integration (INT8: FZ-CONFLUENCE merged with FZ-EMPTYSORT and
+/// FZ-POLISH), by digest of the merged file: 7bddeac5 -> 286e86d7. FZ-EMPTYSORT: no overlap is
+/// separated by an uninhabited sort (`vacuous` is gone, `CheckCounts::separated` is
+/// `CheckCounts::uninhabited`, also counted for hook pairs in `HookCounts::uninhabited`); every
+/// overlap of a pair is classified, and a pair whose non-joined overlaps are all over sorts with
+/// no normal form is listed as `UnjoinedReason::UninhabitedSort` and seeds nothing into the
+/// closure. FZ-POLISH: `Conditions::Holds` keeps `DifferentResults` where a pair's conditions
+/// simplify to true, and `UnjoinedPair::conditions` records the simplified conjunction. The
+/// stages, the early return, the hook stage and the equation, pair and skipped counts kink reads
+/// are unchanged; a not-joined pair stays not joined (only reasons move), and a pair over an
+/// empty sort that was separated is now listed, so kink can only refuse more mutants.
+const CONFLUENCE_RS: &str = "286e86d773c6a93ef90247d0ba6f0aa4d396582fbf12f3ba509251c19e46e7cb";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin

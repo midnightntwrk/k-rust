@@ -16,8 +16,9 @@
 //! report of every pair that does not join". The check classifies each root pair (two executable
 //! equations of one index and priority group, an `owise` group being its own priority, and an
 //! equation with itself when a map or set pattern matches one subject in several ways) and each
-//! inner pair, as separated (k-rust 58720d2e5: no instance whose variables are normal forms;
-//! root pairs are formed within one priority group), refuted by the two `requires` (simplified
+//! inner pair (root pairs are formed within one priority group, k-rust 58720d2e5; an overlap over
+//! a sort with no normal form is no longer separated, k-rust FZ-EMPTYSORT), as refuted by the two
+//! `requires` (simplified
 //! with every claim withheld; since KINK-20/3 also by the integer bounds of one-term comparisons
 //! with literals), joined by innermost steps valid on every instance, or not joined. Not joined
 //! covers every answer short of a proof: the reducts differ, a condition is neither refuted nor

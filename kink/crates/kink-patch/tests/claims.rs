@@ -564,6 +564,12 @@ fn trusted_claims_are_pinned() {
 /// it, which also state that domains.md's `replaceAll` equation is reported). Those five
 /// inserted lines move every later passage down 5, byte-identical: only their lines, and
 /// `TRUSTED_CLAIMS`' citations of them, are re-pinned.
+///
+/// Re-pin fz26 phase-6 integration (INT8): FZ-EMPTYSORT's sentence that no overlap is set aside
+/// for a sort with no normal form ("Anywhere rules", after "Each overlap is then refuted") adds
+/// one line above every compatibility.md passage after 1100, which moves those ten passages down
+/// 1, byte-identical (found by their text in the merged file): only their lines, and
+/// `TRUSTED_CLAIMS`' citations of them, are re-pinned.
 const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
     (
         "docs/compatibility.md",
@@ -573,62 +579,62 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
     ),
     (
         "docs/compatibility.md",
-        1142,
-        1142,
+        1143,
+        1143,
         "8199e9124fc14aae5d25b074e191ce3e7885cfd662b51e8a055d0360b294c39b",
     ),
     (
         "docs/compatibility.md",
-        1144,
-        1144,
+        1145,
+        1145,
         "6ac61e27f16d7f63164621e446aa193f3d769bd4ce09ba332bf23b95c7c6fd13",
     ),
     (
         "docs/compatibility.md",
-        1174,
-        1179,
+        1175,
+        1180,
         "0f233fef017749e7d8e86379281d8286817adc73b4cf10fc9330213551261915",
     ),
     (
         "docs/compatibility.md",
-        1192,
-        1192,
+        1193,
+        1193,
         "674db170e02676b6eeeb961e20bf1ab36874f7b9e9c9615bdd12b603a17277e1",
     ),
     (
         "docs/compatibility.md",
-        1398,
-        1398,
+        1399,
+        1399,
         "fd173e7f850dec9744c13cfce3954d1e2f5521b7259f29f78e60235cc70f325d",
     ),
     (
         "docs/compatibility.md",
-        1552,
-        1552,
+        1553,
+        1553,
         "ceadc9f94bdf864bcf369b5fc107b27a3bf10026e71c05c5a54d547610075107",
     ),
     (
         "docs/compatibility.md",
-        1577,
-        1577,
+        1578,
+        1578,
         "cb62c2f07d19806a29e137c7821fdc2113eabdb6404dfd53215e3d51fb0b9bcb",
     ),
     (
         "docs/compatibility.md",
-        1640,
-        1650,
+        1641,
+        1651,
         "1c61218ca52c52d4e182fd7c3b475ebd3129ff57d44c41bb280f022eff21fb32",
     ),
     (
         "docs/compatibility.md",
-        2278,
-        2278,
+        2279,
+        2279,
         "1af53c1bf1af7a9f17e6a3fec30797cc00225b31ea36dbd3e7b68304ffa3481a",
     ),
     (
         "docs/compatibility.md",
-        2830,
         2831,
+        2832,
         "a7acad142464656d166719394614b9f7f621cc98c7470fa539a0e208ebf74c82",
     ),
     (
