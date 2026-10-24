@@ -8,8 +8,10 @@
 #                                           TARGET=evm, evm.md (main module EVM, the semantics)
 #   k2lean/pipelines/kevm.sh gen            k2lean gen --arity-terms --termination kevm-termination.toml
 #                                           into $OUT/lib (with TARGET=evm, without the entries of the
-#                                           driver's functions, which `gen` names when it refuses the
-#                                           file: termination-subset.py); Rules.lean split into $RULE_MODULES matcher
+#                                           driver's functions in the termination file and the heartbeat
+#                                           overrides, which `gen` names when it refuses either:
+#                                           termination-subset.py, heartbeats-subset.py); Rules.lean
+#                                           split into $RULE_MODULES matcher
 #                                           modules (split-rules.py); lean -j $LEAN_J for every module
 #                                           Lake builds; Adequacy bounded to $ADQ_HB heartbeats per
 #                                           declaration (a runaway lemma fails instead of running on)
@@ -81,23 +83,30 @@ case $step in
   gen)
     [ -f "$OUT/kore/definition.kore" ] || { echo "kevm.sh: run the compile step first" >&2; exit 2; }
     touch "$OUT/open-obligations.txt"
-    term=$here/kevm-termination.toml
+    term=$here/kevm-termination.toml hb=$here/kevm-heartbeats.txt
     gen() {
       "$RT" "$K2LEAN" gen --kore "$OUT/kore/definition.kore" --runtime "$OUT/kore/runtime.json" --out "$lib" \
         --name KEvm --prelude "$root/k2lean/lean/prelude" --arity-terms --termination "$term" \
         --open-obligations "$OUT/open-obligations.txt" ${EQ_WEIGHT:+--equations-part-weight "$EQ_WEIGHT"} \
-        --equations-heartbeats-file "$here/kevm-heartbeats.txt" ${EQ_HB:+--equations-heartbeats "$EQ_HB"} \
+        --equations-heartbeats-file "$hb" ${EQ_HB:+--equations-heartbeats "$EQ_HB"} \
         > "$logs/gen.log" 2>&1
     }
-    if ! gen; then
-      # the driver's functions are not in the EVM module: drop their entries and generate again
+    # the driver's functions are not in the EVM module: drop their entries from the termination
+    # file and from the heartbeat overrides, which `gen` names when it refuses either, and generate
+    # again (each file is refused at most once)
+    for attempt in 1 2 3; do
+      gen && break
+      [ "$TARGET" = evm ] && [ "$attempt" != 3 ] || { tail -n 5 "$logs/gen.log" >&2; exit 1; }
       drop=$(sed -n 's/.*--termination: no recursive function is labelled \(.*\)$/\1/p' "$logs/gen.log" | sed 's/, /\n/g')
-      [ "$TARGET" = evm ] && [ -n "$drop" ] || { tail -n 5 "$logs/gen.log" >&2; exit 1; }
-      mapfile -t labels <<< "$drop"
-      python3 -I "$here/termination-subset.py" "$here/kevm-termination.toml" "$OUT/termination.toml" "${labels[@]}"
-      term=$OUT/termination.toml
-      gen || { tail -n 5 "$logs/gen.log" >&2; exit 1; }
-    fi
+      if [ -n "$drop" ]; then
+        mapfile -t labels <<< "$drop"
+        python3 -I "$here/termination-subset.py" "$term" "$OUT/termination.toml" "${labels[@]}"
+        term=$OUT/termination.toml
+      else
+        python3 -I "$here/heartbeats-subset.py" "$hb" "$OUT/heartbeats.txt" "$logs/gen.log" || { tail -n 5 "$logs/gen.log" >&2; exit 1; }
+        hb=$OUT/heartbeats.txt
+      fi
+    done
     python3 -I "$here/split-rules.py" "$lib" KEvm "$RULE_MODULES"
     sed -i 's/^  leanOptions := #\[⟨`autoImplicit, false⟩\]$/&\n  moreLeanArgs := #["-j", "'"$LEAN_J"'"]/' "$lib/lakefile.lean"
     grep -q moreLeanArgs "$lib/lakefile.lean"
