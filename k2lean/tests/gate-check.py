@@ -51,7 +51,8 @@ LIBS = {"kimp": ("KImp", "light"), "kimp-d2": ("KImp", "light"), "krsimp": ("Krs
         "simpleinv": ("KSimpleInv", "heavy"), "kimp-ar": ("KImp", "arity"), "simple-ar": ("KSimple", "arity"),
         "kimpkeys": ("KImpKeys", "light"), "kimpkeys-hand": ("KImpKeys", "light"),
         "kimpfold": ("KImpInv", "light"), "kimptop": ("KImpInv", "light"), "nested": ("KNested", "light"),
-        "simplestore": ("KSimpleInv", "heavy"), "simplet": ("KSimpleInv", "heavy")}
+        "simplestore": ("KSimpleInv", "heavy"), "simplet": ("KSimpleInv", "heavy"),
+        "freekey": ("FreeKey", "light")}
 # libraries built only as far as their invariant needs: no `…Test.Axioms` guard
 NO_GUARD = {"kimpinv", "simpleinv", "kimpkeys", "kimpkeys-hand", "kimpfold", "kimptop", "nested", "simplestore", "simplet"}
 INVS = {"kimpinv": ("KImpInv", "light"), "krsimp": ("KrsImp", "light"), "simpleinv": ("KSimpleInv", "heavy"),
@@ -59,7 +60,8 @@ INVS = {"kimpinv": ("KImpInv", "light"), "krsimp": ("KrsImp", "light"), "simplei
         "kimpfold": ("KImpInv", "light"), "kimptop": ("KImpInv", "light"), "nested": ("KNested", "light"),
         "simplestore": ("KSimpleInv", "heavy"), "simplet": ("KSimpleInv", "heavy")}
 DEMOS = {"ImpRel": "light", "ImpTypes": "light", "ImpMut": "light", "KrsImpTyping": "light",
-         "Kind2Template": "light", "SimpleEnv": "heavy", "ImpWrites": "light", "ImpRelClaims": "heavy"}
+         "Kind2Template": "light", "SimpleEnv": "heavy", "ImpWrites": "light", "ImpRelClaims": "heavy",
+         "PeanoRel": "light", "CellMapRel": "light"}
 OUTPUTS = {  # recorded output → (tier, normalization)
     "goldens.toml": ("light", "exact"),
     "kimp-test.out": ("light", "exact"),
@@ -85,13 +87,16 @@ NOT_REGENERATED = {"generated/kimp/KImpBench/Programs.lean", "generated/kimp-d2/
                    "generated/kimp-ar/KImpBench/Programs.lean"}
 SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsimp", "generated/kmut", "generated/imptypes", "generated/kimpinv",
                          "generated/kimpkeys", "generated/kimpkeys-hand",
-                         "generated/kimpfold", "generated/kimptop", "generated/nested"],
+                         "generated/kimpfold", "generated/kimptop", "generated/nested",
+                         "generated/freekey", "generated/peano", "generated/peanob", "generated/cellmap", "generated/cellmapb"],
                "heavy": ["generated/simple", "generated/kimp-claims", "generated/simpleinv", "generated/simplestore", "generated/simplet",
                          "generated/kimpinv-claims"],
                "arity": ["generated/kimp-ar", "generated/simple-ar"]}
 DEMO_SOURCES = {"light": ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/correspondence.toml",
                           "demos/ImpTypes/ImpTypes/Tr.lean", "demos/ImpTypes/correspondence.toml",
-                          "demos/ImpMut/ImpMut/Tr.lean", "demos/ImpMut/correspondence.toml"],
+                          "demos/ImpMut/ImpMut/Tr.lean", "demos/ImpMut/correspondence.toml",
+                          "demos/PeanoRel/PeanoRel/Bisim.lean", "demos/PeanoRel/correspondence.toml",
+                          "demos/CellMapRel/CellMapRel/Bisim.lean", "demos/CellMapRel/correspondence.toml"],
                 "heavy": [],
                 "arity": []}
 

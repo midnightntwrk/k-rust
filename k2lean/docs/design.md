@@ -168,6 +168,7 @@ When every rule of `A` pairs, it states and proves `bisim : Bisimulation A.Step 
   A call on the result of another call (SIMPLE's `V[N1][N2, Vs]`) is a translation only once the inner call's value is identified, so the rewriting goes in rounds; a case where one cascade falls through a pattern that the other's translated scrutinee matches is refuted (`solve_by_elim` instantiates the negated pattern with the translation).
   A function with a free-key equation (`MapHook.chooseFirst`, §2) gets no lemma, and `relate` refuses the bisimulation.
 
+The light gate builds two self-relations of the generator's fixtures under two namespaces: `demos/PeanoRel` (an `owise` priority, recursive and mutual functions) and `demos/CellMapRel` (a free-key rule over a typed cell map), 5 s each once their libraries' `Rules` are built (2026-10-24, Lean v4.30.0).
 SIMPLE against a variant of it (`tests/simple-variant.py`: three constructors under other symbols, the rules in another order; `demos/SimpleRel`, `pipelines/simple-rel.sh`) is generated, 226 symbols and 169 rule pairs in 0.2 s, but does not build within a gate tier's cost; §9 has the measurements.
 
 ## 4. Commands

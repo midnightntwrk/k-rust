@@ -5,9 +5,11 @@
 #
 #   k2lean/tests/gate.sh light    generator unit and snapshot tests; kimp (goldens, step traces
 #                                 against krust and the K LLVM backend), kimp-d2 (kimp's determinism
-#                                 along the rule index, `--det2`), krsimp, kmut, imptypes; the
-#                                 demos ImpRel, ImpTypes, ImpMut, KrsImpTyping, ImpWrites (a kind 2
-#                                 invariant that walks <k>); the kind 1 invariants of kimpinv (two K
+#                                 along the rule index, `--det2`), krsimp, kmut, imptypes, the
+#                                 fixture freekey; the demos ImpRel, ImpTypes, ImpMut, KrsImpTyping,
+#                                 ImpWrites (a kind 2 invariant that walks <k>), and the fixture
+#                                 self-relations PeanoRel and CellMapRel (libraries peano, peanob,
+#                                 cellmap, cellmapb); the kind 1 invariants of kimpinv (two K
 #                                 functions of demos/k/kimp-inv), kimpfold and kimptop (the same
 #                                 definition: a fold with a parameter, the top-cell form), kimpkeys
 #                                 (the walkthrough of docs/invariants.md, demos/k/kimp-keys),
@@ -297,6 +299,8 @@ lib kimp-d2 KImp
 lib krsimp KrsImp
 lib kmut KMut
 lib imptypes KImpTypes
+# the fixture whose function equations match maps by free-key patterns (`MapHook.chooseFirst`)
+lib freekey FreeKey
 
 # 4b. kind 1 invariants: `{ns}/Invariants.lean`. A rule case that `k2l_preserve` does not close
 #     becomes an open case (`open-from-log` into open-invariant-cases.txt) and the library is
@@ -436,6 +440,23 @@ rel ImpRel
 rel ImpTypes
 rel ImpMut
 for p in ImpRel ImpTypes ImpMut KrsImpTyping ImpWrites; do
+  if lbuild "$D/$p" "build-$p"; then ok "build $p" "$L/build-$p.log"; else bad "build $p" "$L/build-$p.log"; fi
+done
+
+# 5a. two fixtures related to themselves: demos/PeanoRel (an `owise` priority, recursive and mutual
+#     functions) and demos/CellMapRel (a free-key rule over a typed cell map); each side generated
+#     under its own namespace and built only as far as the relation needs (Rules)
+phase "relate fixtures"
+for d in peano peanob cellmap cellmapb; do
+  mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"
+  if genlib "$d"; then
+    if lbuild "$GEN/$d" "build-$d" "$(libs_name "$d").Rules"; then ok "build $d" "$L/build-$d.log"
+    else bad "build $d" "$L/build-$d.log"; fi
+  else bad "gen $d" "$L/gen-$d.log"; fi
+done
+rel PeanoRel
+rel CellMapRel
+for p in PeanoRel CellMapRel; do
   if lbuild "$D/$p" "build-$p"; then ok "build $p" "$L/build-$p.log"; else bad "build $p" "$L/build-$p.log"; fi
 done
 

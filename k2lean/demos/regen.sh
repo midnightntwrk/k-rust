@@ -7,6 +7,8 @@
 #   ImpMut        a mutant of kimp (k/kimp-mutant) diverges from kimp
 #   KrsImpTyping  every KRS IMP rule preserves the declared cell type `env: Map<Id, Value>`
 #   SimpleEnv     (heavy only) a kind 2 invariant of SIMPLE: every environment maps into the store
+#   PeanoRel, CellMapRel  the generator's fixtures peano and cellmap (../tests/fixtures) are each
+#                 bisimilar to themselves under two namespaces (`k2lean relate`, `Bisim.lean`)
 # ImpRel, ImpTypes and KrsImpTyping also have `Preserve.lean`, the preservation theorem proved with
 # the prelude's invariant core and `k2l_preserve`; ImpRel has `CollTest.lean`, tests of the
 # collection preservation lemmas; ImpTypes has `PreservesOf.lean`, `preservation` through the
@@ -18,7 +20,7 @@
 #
 #   k2lean/demos/regen.sh [light|heavy]      (default light)
 #
-# light generates kimp, krsimp, kmut and imptypes and builds four projects (a clean build took
+# light generates kimp, krsimp, kmut, imptypes and the fixture libraries and builds six projects (a clean build took
 # 780 s wall and 2,000 s of CPU on a shared 32-CPU host); heavy also generates SIMPLE and builds
 # SimpleEnv (about 500 s more).
 #
@@ -112,16 +114,19 @@ lib kimp KImp
 lib krsimp KrsImp
 lib kmut KMut
 lib imptypes KImpTypes
+lib freekey FreeKey
+# the two sides of each fixture self-relation; the demo's build builds them as far as it needs
+for d in peano peanob cellmap cellmapb; do mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"; gen "$d"; done
 if [ "$TIER" = heavy ]; then lib simple KSimple; fi
 
-# 4. the relations (generated files of ImpRel, ImpTypes, ImpMut)
-for ns in ImpRel ImpTypes ImpMut; do libs_relate "$ns" > "$S/relate-$ns.log" 2>&1 || { tail -5 "$S/relate-$ns.log"; exit 1; }; done
+# 4. the relations (generated files of ImpRel, ImpTypes, ImpMut, PeanoRel, CellMapRel)
+for ns in ImpRel ImpTypes ImpMut PeanoRel CellMapRel; do libs_relate "$ns" > "$S/relate-$ns.log" 2>&1 || { tail -5 "$S/relate-$ns.log"; exit 1; }; done
 
 # 5. the projects; the axiom guards are `#k2l_assert_axioms` commands inside them, so a build
 #    that passes has checked them; `sorry` is rejected below
 printf 'module\tbuild\n' > "$S/modules.tsv"
 : > "$S/preserve.txt"
-projects=(ImpRel ImpTypes ImpMut KrsImpTyping)
+projects=(ImpRel ImpTypes ImpMut KrsImpTyping PeanoRel CellMapRel)
 [ "$TIER" = heavy ] && projects+=(SimpleEnv)
 for p in "${projects[@]}"; do
   [ "${CLEAN:-0}" = 1 ] && rm -rf "$D/$p/.lake"

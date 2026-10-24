@@ -46,6 +46,7 @@ libs_name() {
   case $1 in
     kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv|kimpfold|kimptop) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;;
     simple|simple-ar) echo KSimple ;; simpleinv|simplestore|simplet) echo KSimpleInv ;; nested) echo KNested ;; simplev) echo KSimpleV ;;
+    peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;; freekey) echo FreeKey ;;
     *) echo "libs_name: unknown library $1" >&2; return 2 ;;
   esac
 }
@@ -114,8 +115,20 @@ libs_gen() {
     simplev) "$G" gen --kore "$(kore_dir simple-variant)/definition.kore" --runtime "$(kore_dir simple-variant)/runtime.json" \
             --out "$o" --name KSimpleV --prelude ../../lean/prelude --linear-terms \
             --open-obligations "$o/open-obligations.txt" ;;
+    # the generator's K fixtures (tests/fixtures, compiled KORE checked in): freekey's functions
+    # walk maps by free-key patterns; peano and cellmap, each generated twice under two
+    # namespaces, are the two sides of the self-relations demos/PeanoRel and demos/CellMapRel
+    peano|peanob|cellmap|cellmapb|freekey) local fx; fx=$(libs_fixture "$1")
+      "$G" gen --kore "$fx/definition.kore" --runtime "$fx/runtime.json" \
+            --out "$o" --name "$(libs_name "$1")" --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
     *) echo "libs_gen: unknown library $1" >&2; return 2 ;;
   esac
+}
+
+# libs_fixture DIR: the fixture directory (tests/fixtures/NAME) of fixture library DIR.
+libs_fixture() {
+  local n=${1%b}   # peanob, cellmapb: the fixture of peano, cellmap
+  echo "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fixtures/$n"
 }
 
 # libs_gen_ill_typed DIR: KRS IMP with an ill-typed `assign` (krs-imp-ill-typed.py beside this file), with
@@ -159,7 +172,8 @@ libs_cases() {
 }
 
 # libs_relate NS: the relation of demo NS (ImpRel: `Bisim.lean`; ImpTypes, ImpMut: `Tr.lean`, all
-# from kimp; SimpleRel: `Bisim.lean`, SIMPLE to its variant) and its correspondence report.
+# from kimp; SimpleRel: `Bisim.lean`, SIMPLE to its variant; PeanoRel, CellMapRel: `Bisim.lean`, a
+# fixture to itself) and its correspondence report.
 libs_relate() {
   local ns=$1 na=KImp ka nb kd f=Tr extra=()
   ka=$(kore_dir kimp)
@@ -168,9 +182,16 @@ libs_relate() {
     ImpTypes) nb=KImpTypes kd=$(kore_dir imp-typing) extra=(--roots "SortStmt,SortExpr") ;;
     ImpMut) nb=KMut kd=$(kore_dir kmut) ;;
     SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim ;;
+    # a fixture related to itself (libraries peano and peanob, cellmap and cellmapb)
+    PeanoRel) na=Peano ka=$(libs_fixture peano) nb=PeanoB kd=$ka f=Bisim ;;
+    CellMapRel) na=CellMap ka=$(libs_fixture cellmap) nb=CellMapB kd=$ka f=Bisim ;;
     *) echo "libs_relate: unknown demo $ns" >&2; return 2 ;;
   esac
-  "$G" relate --kore-a "$ka/definition.kore" --syntax-a "$ka/syntaxDefinition.kore" --name-a "$na" \
-    --kore-b "$kd/definition.kore" --syntax-b "$kd/syntaxDefinition.kore" --name-b "$nb" \
+  # the syntax definitions name the concrete syntax of symbols; the fixtures have none
+  local sa=() sb=()
+  [ -f "$ka/syntaxDefinition.kore" ] && sa=(--syntax-a "$ka/syntaxDefinition.kore")
+  [ -f "$kd/syntaxDefinition.kore" ] && sb=(--syntax-b "$kd/syntaxDefinition.kore")
+  "$G" relate --kore-a "$ka/definition.kore" "${sa[@]}" --name-a "$na" \
+    --kore-b "$kd/definition.kore" "${sb[@]}" --name-b "$nb" \
     --ns "$ns" "${extra[@]}" --out "$DEMOS/$ns/$ns/$f.lean" --report "$DEMOS/$ns/correspondence.toml"
 }
