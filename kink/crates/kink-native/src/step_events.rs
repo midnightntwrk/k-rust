@@ -12,6 +12,7 @@ use kink_pattern::{
     TermRelation,
 };
 
+use crate::data::DataEnds;
 use crate::feasibility::{
     BackendRelations, Inhabitation, TestInitialState, contains_non_strict_injection,
     domain_value_identity_safe, free_constructor, non_strict_injection_node,
@@ -342,6 +343,15 @@ pub struct ObservationDecider<'a> {
     relations: BackendRelations<'a>,
     /// Whether a collection term can be a terminal value (re-pin finding C-10).
     collections_trusted: bool,
+    /// Which ends are data under the shared definition, from its own facts
+    /// ([`crate::data::data_ends`]): the overload data heads whose applications the walk admits
+    /// where k-rust's data judgement holds (KINK-OVERLOAD-VALUE). [`DataEnds::None`] (the default)
+    /// admits no overload application; it does not refuse the rest of TV-01, since refusing every
+    /// kill on a definition with a finding is the runner's gate (KINK-BASELINE-FINDINGS).
+    data: DataEnds<'a>,
+    /// The same for the leaf definition when it is another definition than the shared one: an
+    /// overload application in a leaf is admitted only where it is data under both.
+    leaf_data: DataEnds<'a>,
 }
 
 impl<'a> ObservationDecider<'a> {
@@ -370,7 +380,22 @@ impl<'a> ObservationDecider<'a> {
             leaf_inhabitation: Inhabitation::of(leaf_definition),
             relations: BackendRelations::shared(leaf_definition, leaf_solver, initial_state),
             collections_trusted: true,
+            data: DataEnds::None,
+            leaf_data: DataEnds::None,
         }
+    }
+
+    /// This decider, admitting in terms the instance-normal applications of the overload data
+    /// heads that `shared` (the shared definition's [`crate::data::data_ends`]) gives, where
+    /// k-rust's data judgement holds on the outermost one ([`DataEnds::overload_application_is_data`]),
+    /// and, for leaves of another definition, under `leaf` (the leaf definition's) as well
+    /// (KINK-OVERLOAD-VALUE). Every other head must still be a free constructor of the shared
+    /// definition.
+    #[must_use]
+    pub const fn judging_data(mut self, shared: DataEnds<'a>, leaf: DataEnds<'a>) -> Self {
+        self.data = shared;
+        self.leaf_data = leaf;
+        self
     }
 
     /// This decider, with no collection term a terminal value unless `trusted`: false when the
@@ -391,8 +416,15 @@ impl<'a> ObservationDecider<'a> {
     /// Whether `term` is a value that no definition can change: variables, domain values with a
     /// trusted injective codec, free constructors, and sort injections in k-rust's normal form
     /// ([`canonical_injection`]). Anything else, including an identity or nested injection, is
-    /// not (TV-01 and its fix 1, review R1-F1).
+    /// not (TV-01 and its fix 1, review R1-F1). With [`Self::judging_data`], also a ground
+    /// application of an overload data head that is data ([`Self::overload_data`]).
     pub fn definition_independent(&self, term: &Pattern) -> bool {
+        self.independent(term, false)
+    }
+
+    /// [`Self::definition_independent`] of `term`; `judged` when an enclosing overload application
+    /// was already judged data as a whole, so a nested one needs no judgement of its own.
+    fn independent(&self, term: &Pattern, judged: bool) -> bool {
         match term {
             Pattern::Variable(_) => true,
             Pattern::DomainValue { sort, value } => {
@@ -400,17 +432,40 @@ impl<'a> ObservationDecider<'a> {
             }
             Pattern::Application { arguments, .. } if is_injection(term) => {
                 canonical_injection(self.definition, term)
-                    && arguments.iter().all(|arg| self.definition_independent(arg))
+                    && arguments.iter().all(|arg| self.independent(arg, judged))
             }
             Pattern::Application { symbol, arguments } => {
-                self.definition
-                    .symbols()
-                    .get(symbol.name.as_str())
-                    .is_some_and(|s| free_constructor(s))
-                    && arguments.iter().all(|arg| self.definition_independent(arg))
+                let Some(head) = self.definition.symbols().get(symbol.name.as_str()) else {
+                    return false;
+                };
+                let judged = if free_constructor(head) {
+                    judged
+                } else if self.data.overload_head(&symbol.name) {
+                    if !judged && !self.overload_data(term) {
+                        return false;
+                    }
+                    true
+                } else {
+                    return false;
+                };
+                arguments.iter().all(|arg| self.independent(arg, judged))
             }
             _ => false,
         }
+    }
+
+    /// Whether `application`, an application of an overload data head of the shared definition
+    /// that no enclosing one covers, is data: under the shared definition with its facts, and,
+    /// for leaves of another definition, under the leaf definition with its facts too
+    /// ([`DataEnds::overload_application_is_data`], k-rust's `is_data`, once for the whole
+    /// subterm; review N4). Its arguments are walked for the rest of TV-01 by the caller.
+    fn overload_data(&self, application: &Pattern) -> bool {
+        self.data
+            .overload_application_is_data(self.definition, application)
+            && (std::ptr::eq(self.definition, self.leaf_definition)
+                || self
+                    .leaf_data
+                    .overload_application_is_data(self.leaf_definition, application))
     }
     /// The canonical value of a terminal term, or `None` when it is not
     /// definition-independent. A term without collection symbols is itself exactly when
@@ -428,7 +483,7 @@ impl<'a> ObservationDecider<'a> {
         if !self.collections_trusted {
             return None;
         }
-        self.value_at(term, None)
+        self.value_at(term, None, false)
     }
 
     fn has_collection_symbol(&self, term: &Pattern) -> bool {
@@ -445,9 +500,15 @@ impl<'a> ObservationDecider<'a> {
         found
     }
 
-    fn value_at(&self, term: &Pattern, expected: Option<&InternalSort>) -> Option<Pattern> {
+    /// The value of `term` at the sort `expected`; `judged` as in [`Self::independent`].
+    fn value_at(
+        &self,
+        term: &Pattern,
+        expected: Option<&InternalSort>,
+        judged: bool,
+    ) -> Option<Pattern> {
         if !self.has_collection_symbol(term) {
-            return self.definition_independent(term).then(|| term.clone());
+            return self.independent(term, judged).then(|| term.clone());
         }
         let Pattern::Application { symbol, arguments } = term else {
             return None;
@@ -462,14 +523,21 @@ impl<'a> ObservationDecider<'a> {
             };
             return Some(Pattern::Application {
                 symbol: symbol.clone(),
-                arguments: vec![self.value_at(argument, Some(&source))?],
+                arguments: vec![self.value_at(argument, Some(&source), judged)?],
             });
         }
         let backend = self.definition.symbols().get(symbol.name.as_str())?;
         if backend.attributes.collection.is_some() {
-            return self.collection_value(term, expected?);
+            return self.collection_value(term, expected?, judged);
         }
-        if !free_constructor(backend) || arguments.len() != backend.argument_sorts.len() {
+        let judged = if free_constructor(backend) {
+            judged
+        } else if self.data.overload_head(&symbol.name) {
+            (judged || self.overload_data(term)).then_some(true)?
+        } else {
+            return None;
+        };
+        if arguments.len() != backend.argument_sorts.len() {
             return None;
         }
         Some(Pattern::Application {
@@ -477,12 +545,17 @@ impl<'a> ObservationDecider<'a> {
             arguments: arguments
                 .iter()
                 .zip(&backend.argument_sorts)
-                .map(|(argument, sort)| self.value_at(argument, Some(sort)))
+                .map(|(argument, sort)| self.value_at(argument, Some(sort), judged))
                 .collect::<Option<Vec<_>>>()?,
         })
     }
 
-    fn collection_value(&self, term: &Pattern, expected: &InternalSort) -> Option<Pattern> {
+    fn collection_value(
+        &self,
+        term: &Pattern,
+        expected: &InternalSort,
+        judged: bool,
+    ) -> Option<Pattern> {
         use k_rust_backend::term::CollectionMetadata;
         let Pattern::Application { symbol, .. } = term else {
             return None;
@@ -510,7 +583,7 @@ impl<'a> ObservationDecider<'a> {
                 arguments
                     .iter()
                     .zip(&element.argument_sorts)
-                    .map(|(argument, sort)| self.value_at(argument, Some(sort)))
+                    .map(|(argument, sort)| self.value_at(argument, Some(sort), judged))
                     .collect::<Option<Vec<_>>>()
             })
             .collect::<Option<Vec<_>>>()?;

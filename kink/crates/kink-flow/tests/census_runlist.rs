@@ -154,17 +154,16 @@ mod kink_tier {
     /// into its stream cells, apply `#getc`, `#write` and `Float2String`. Each end holds its
     /// stream cells, so it states the text printed and the input not yet read.
     ///
-    /// `print(1);` and `var x = read(); print(x);` are excluded by nothing any more, but stay
-    /// unknown: the store keeps `main`'s body, which holds an irreducible overloaded list
-    /// application (`1, .Vals`; `x = read(), .Exps`), which the oracle gate does not admit as a
-    /// value (KINK-OVERLOAD-VALUE's case). So does every program whose body holds an argument
-    /// list or a declaration with an initializer.
+    /// `print(1);` and `var x = read(); print(x);` are comparable too since KINK-OVERLOAD-VALUE:
+    /// the store keeps `main`'s body, which holds an irreducible overloaded list application
+    /// (`1, .Vals`; `x = read(), .Exps`). With KINK-CENSUS-RUNLIST alone they were excluded by
+    /// nothing but unknown ("a baseline declaration-scoped oracle gate rejected"): the walk
+    /// admitted no overload application. It now admits one where k-rust's `is_data` holds.
     #[test]
     #[ignore = "kink"]
-    fn stock_simple_list_free_programs_are_comparable() {
+    fn stock_simple_programs_are_comparable() {
         let manifest = fixture("FLOW-simple.toml", "simple");
         let document = classes(&manifest);
-        let gate = "a baseline declaration-scoped oracle gate rejected";
         assert_rows(
             &document,
             &[
@@ -172,8 +171,8 @@ mod kink_tier {
                 ("decl", "comparable", None),
                 ("read-empty", "comparable", None),
                 ("read-5", "comparable", None),
-                ("print", "unknown", Some(gate)),
-                ("read-print", "unknown", Some(gate)),
+                ("print", "comparable", None),
+                ("read-print", "comparable", None),
             ],
         );
         assert!(

@@ -17,8 +17,9 @@
 //! instance (re-pin finding A-11).
 //!
 //! A stuck leaf is complete for a ground term without a path condition, or when its state is feasible: its `Stuck` halt says that no instance of its state has a successor.
-//! In either case its terminal term must have a definition-independent value (TV-01): free constructors, normal-form injections and domain values with trusted injective codecs, or ground natural collections canonicalized by [`ObservationDecider::terminal_value`] (T-COLL).
-//! An unevaluated function, anywhere head or uninterpreted application makes the path `SolverUnknown` before terminal classification.
+//! In either case its terminal term must have a definition-independent value (TV-01): free constructors, normal-form injections and domain values with trusted injective codecs, or ground natural collections canonicalized by [`ObservationDecider::terminal_value`] (T-COLL), and, with the definition's data facts ([`ObservationDecider::judging_data`], fz26 KINK-OVERLOAD-VALUE), instance-normal applications of an overload data head where k-rust's `is_data` holds (a leaf of another definition than the decider's shared one: under both), under premises A1 (evaluation terminates) and A2 (lemmas are theorems of the executable equations).
+//! An unevaluated function, any other anywhere head or an uninterpreted application makes the path `SolverUnknown` before terminal classification.
+//! The runner judges each compared end under the other side's definition too (kink-campaign `runner::judge_across`).
 //!
 //! A `Trivial` leaf is an undefined step: under its predicate, a rule applies to every instance of
 //! its pre-step state and no instance has a defined successor, because the rule's result

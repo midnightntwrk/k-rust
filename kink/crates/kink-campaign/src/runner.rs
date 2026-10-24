@@ -31,6 +31,14 @@
 //! - An undefined step (a feasible `Trivial` leaf, `PathStop::UndefinedStep`) is a complete
 //!   terminal. Its exit stop is the class `UndefinedStep` without a code, and its final result
 //!   is its last configuration, the pre-step term, as for a stuck terminal.
+//! - Every compared end is data under both definitions (fz26 KINK-OVERLOAD-VALUE; kink-native
+//!   [`data_ends`]): a run's terminals are judged under its own definition and facts when the
+//!   run is judged, and each side's terminals ([`TestEvidence::ends`]), pattern bindings and
+//!   one-sided terminals are judged under the other side's before a pair's slots are compared
+//!   ([`judge_across`]); an end that is not data there makes that side's slot `Unknown` for that
+//!   pair only (a one-sided terminal is dropped). Each definition reads the ends with its own
+//!   theory, and a mutant can change a symbol's role (an `anywhere` rule on a baseline
+//!   constructor, an overload member that lowers a baseline normal form).
 //! - A pattern oracle evaluates declared predicates of consecutive configurations.
 //!   Both sides use the baseline signature, evaluation context, definition-independence checks
 //!   and event walk, and link only the test's initial variables; every feasibility and relation
@@ -274,6 +282,11 @@ pub struct TestEvidence {
     /// What the run reports besides its sides (re-pin adoption A-1). Read by no comparison, fold,
     /// status or score, and not encoded in the campaign report.
     pub notes: RunNotes,
+    /// The terminal values of the run's complete paths, which its state sides are projected from
+    /// (canonical under its own definition, TV-01); empty when the run gave no sides. A pair
+    /// judges them under the other side's definition before it compares the state slots (fz26
+    /// KINK-OVERLOAD-VALUE, [`judge_across`]). Not encoded in the campaign report.
+    pub ends: Vec<Pattern>,
 }
 
 /// What one run reports besides its sides (re-pin adoption A-1): its contradicted-claim records
@@ -1067,6 +1080,7 @@ impl<'v> BaselineSession<'v> {
                         test_id: test.id.clone(),
                         run: SideRun::Failed((*exclusion).into()),
                         notes: RunNotes::default(),
+                        ends: Vec::new(),
                     },
                     (**cache).clone(),
                 ),
@@ -1171,15 +1185,17 @@ pub fn run_campaign_multi_with(
     runtime.coverage = Some(RuleAuthors::of(&baseline));
     runtime.modality = options.run.result_modality;
     // The baseline's full critical-pair check, once per session (fz26 KINK-BASELINE-FINDINGS):
-    // only a call with a mutant reads it, and a name the author gives that the baseline refuses
-    // refuses the call.
+    // a name the author gives that the baseline refuses refuses a call with a mutant. Every call
+    // reads it for the ends of the baseline's runs (KINK-OVERLOAD-VALUE: an overload application
+    // is data only under the definition's facts), so a program's class does not depend on whether
+    // the call has a mutant; a call without one that cannot compute them admits no overload end.
+    let baseline_data = session.data_of(&baseline, &mut runtime);
+    runtime.data = baseline_data.as_ref().ok().cloned();
     let data = if generations
         .iter()
         .any(|generation| !generation.candidates().is_empty())
     {
-        let facts = session
-            .data_of(&baseline, &mut runtime)
-            .map_err(|_| admission_failure(BaselineAdmission::Error))?;
+        let facts = baseline_data.map_err(|_| admission_failure(BaselineAdmission::Error))?;
         let refused = facts.refused_names();
         if !refused.is_empty() {
             return Err(CampaignFailure::new(
@@ -1766,8 +1782,8 @@ fn prepare_mutant(
     let ClaimFreeMutant {
         side,
         claims,
+        data,
         loaded,
-        ..
     } = claim_free_mutant(
         campaign.validator,
         compiled_baseline,
@@ -1780,9 +1796,11 @@ fn prepare_mutant(
     )?;
     let fail = |failure| MutantRefusal::new(failure, claims.clone());
     let edit = CompiledEdit::between(compiled_baseline, &side);
-    // The claim-free mutant's backend was loaded once, for its facts, and runs its tests.
-    let runtime = Runtime::from_loaded(campaign, &side, loaded)
+    // The claim-free mutant's backend was loaded once, for its facts, and runs its tests; its
+    // facts judge its ends and, in each pair, the baseline's (KINK-OVERLOAD-VALUE).
+    let mut runtime = Runtime::from_loaded(campaign, &side, loaded)
         .map_err(|_| fail(MutantScopeFailure::Infrastructure))?;
+    runtime.data = Some(data);
     Ok((MutantSides { runtime, edit }, claims))
 }
 
@@ -2166,6 +2184,16 @@ fn run_tests(
                 },
             );
         }
+        // fz26 KINK-OVERLOAD-VALUE: every end compared below is data under both definitions.
+        let mut one_sided = cache.one_sided;
+        judge_across(
+            test,
+            &mut paired_baseline,
+            &mut mutant,
+            &mut one_sided,
+            observations.runtime,
+            &mut sides.runtime,
+        );
         let run = match (&paired_baseline.run, &mutant.run) {
             // Admission keeps a baseline run that contradicts a claim: the test is unknown.
             (SideRun::Failed(ExecutionFailureKind::ContradictedClaim), _) => {
@@ -2195,7 +2223,7 @@ fn run_tests(
                                         declaration,
                                         baseline,
                                         mutant,
-                                        &cache.one_sided,
+                                        &one_sided,
                                     ) =>
                                 {
                                     OracleOutcome::Distinguish
@@ -2256,6 +2284,124 @@ fn step_failure_side(failure: &StepRunFailure) -> OracleSide {
     }
 }
 
+/// Judges the compared ends of one pair under the other side's definition (fz26
+/// KINK-OVERLOAD-VALUE; the own side's judgement is the run's, [`Runtime::judge_with`] and
+/// [`Runtime::step_sides`]). Each definition reads the ends with its own theory, and the two may
+/// differ on any symbol: a mutant can make a baseline constructor an `anywhere` head (`c(1) => d
+/// [anywhere]`, under which the baseline's end `c(1)` and the mutant's `d` are one value), or
+/// add an overload member that lowers a baseline normal form. Two different ends differ in each
+/// definition's initial model only when both are data in both (k-rust-backend `data_term`, "Two
+/// definitions"), so before the slots of `test` are compared:
+/// - the baseline's terminals ([`TestEvidence::ends`]) must be data under the mutant's definition
+///   and the mutant's under the baseline's: each must be its own terminal value there
+///   ([`ObservationDecider::terminal_value`] with that definition's collection trust and
+///   [`data_ends`] of its facts: a free-constructor, injection and domain-value check, and k-rust's
+///   `is_data` on each outermost overload application). A failure makes every state slot of that
+///   side `Unknown`, for this pair only;
+/// - every binding of a pattern side must be definition-independent under the mutant's definition
+///   (the baseline's own bindings and the mutant's were judged under the baseline's by
+///   [`Runtime::step_sides`], whose shared definition is the baseline's); a failure makes that
+///   slot `Unknown`;
+/// - a one-sided terminal of the mutant run must be data under the baseline's definition, or it
+///   is dropped (it can then not distinguish).
+///
+/// A side with no data facts (`None`), or with a finding left ([`DataEnds::None`]), makes every
+/// end judged under it not data. A failure to reach a definition does too.
+fn judge_across(
+    test: &TestCase,
+    baseline: &mut TestEvidence,
+    mutant: &mut TestEvidence,
+    one_sided: &mut Vec<ExecutionTerminal>,
+    baseline_runtime: &mut Runtime,
+    mutant_runtime: &mut Runtime,
+) {
+    // The terminals a side's state slots compare: none unless some state slot has a value.
+    let compared = |evidence: &TestEvidence| match &evidence.run {
+        SideRun::Sides { sides }
+            if test.oracles.iter().zip(sides).any(|(declaration, side)| {
+                matches!(declaration.projection(), Projection::State(_))
+                    && matches!(side, OracleSide::Normal(_) | OracleSide::SemanticCrash(_))
+            }) =>
+        {
+            evidence.ends.clone()
+        }
+        _ => Vec::new(),
+    };
+    let bindings = |evidence: &TestEvidence| match &evidence.run {
+        SideRun::Sides { sides } => sides
+            .iter()
+            .filter_map(|side| match side {
+                OracleSide::Normal(OracleValue::Pattern(PatternValue::Match {
+                    bindings: Some(witnesses),
+                })) => Some(witnesses),
+                _ => None,
+            })
+            .flatten()
+            .flatten()
+            .map(|binding| binding.term.clone())
+            .collect::<Vec<_>>(),
+        SideRun::Failed(_) => Vec::new(),
+    };
+    // Under the mutant's definition: the baseline's terminals, and both sides' bindings.
+    let under_mutant = mutant_runtime.judge_ends(
+        test,
+        &compared(baseline),
+        &[bindings(baseline), bindings(mutant)].concat(),
+    );
+    // Under the baseline's definition: the mutant's terminals, then its one-sided terminals.
+    let mutant_ends = compared(mutant);
+    let terminals = mutant_ends.len();
+    let under_baseline = baseline_runtime.judge_ends(
+        test,
+        &mutant_ends
+            .into_iter()
+            .chain(one_sided.iter().map(|terminal| terminal.state.clone()))
+            .collect::<Vec<_>>(),
+        &[],
+    );
+    let (mutant_data, one_sided_data) = under_baseline.terminals.split_at(terminals);
+    let mut one_sided_data = one_sided_data.iter().copied();
+    one_sided.retain(|_| one_sided_data.next().unwrap_or(false));
+    for (evidence, data) in [
+        (&mut *baseline, under_mutant.terminals.as_slice()),
+        (&mut *mutant, mutant_data),
+    ] {
+        let SideRun::Sides { sides } = &mut evidence.run else {
+            continue;
+        };
+        let states_data = data.iter().all(|data| *data);
+        for (declaration, side) in test.oracles.iter().zip(sides) {
+            let refused = match (declaration.projection(), &*side) {
+                (Projection::State(_), OracleSide::Normal(_) | OracleSide::SemanticCrash(_)) => {
+                    !states_data
+                }
+                (Projection::State(_), _) => false,
+                (
+                    Projection::Pattern { .. },
+                    OracleSide::Normal(OracleValue::Pattern(PatternValue::Match {
+                        bindings: Some(witnesses),
+                    })),
+                ) => witnesses
+                    .iter()
+                    .flatten()
+                    .any(|binding| !under_mutant.independent.contains(&binding.term)),
+                (Projection::Pattern { .. }, _) => false,
+            };
+            if refused {
+                *side = OracleSide::Unknown;
+            }
+        }
+    }
+}
+
+/// What one definition says of the ends of the other side of a pair ([`Runtime::judge_ends`]).
+struct EndJudgement {
+    /// For each terminal judged, in order, whether it is data there.
+    terminals: Vec<bool>,
+    /// The binding terms judged definition-independent there.
+    independent: Vec<Pattern>,
+}
+
 fn replace_patterns(test: &TestCase, evidence: &mut TestEvidence, patterns: Option<&[OracleSide]>) {
     if let SideRun::Sides { sides } = &mut evidence.run {
         for (index, (declaration, side)) in test.oracles.iter().zip(sides).enumerate() {
@@ -2289,6 +2435,12 @@ struct Runtime {
     /// its compiled KORE and from the definition its backend selected for the default module
     /// (the only module a request names), on the thread that runs it (re-pin R0b).
     exclusions: DefinitionExclusions,
+    /// The side's data facts (its full critical-pair check, [`DataFacts`]) on the definition its
+    /// backend selected: the baseline's (the session's), or the claim-free mutant's. They say
+    /// which ends are data under this side's definition ([`data_ends`]), for its own runs and for
+    /// the other side's ends of a pair ([`judge_across`]); `None` when they are not known, which
+    /// admits no overload application and makes every end of the other side not data here.
+    data: Option<DataFacts>,
 }
 
 /// One load of a compiled side on kink's route: its parsed KORE, the backend built from it for a
@@ -2364,6 +2516,7 @@ impl Runtime {
             modality: ResultModality::default(),
             one_sided: OneSided::Off,
             exclusions,
+            data: None,
         })
     }
 
@@ -2544,6 +2697,7 @@ impl Runtime {
             None => &self.exclusions,
         };
         let collections_trusted = exclusions.collections_trusted();
+        let own = self.data.as_ref().map_or(DataEnds::None, data_ends);
         let notes = match &executed.execution {
             Ok(execution) if !execution.timed_out() => RunNotes {
                 contradicted_claims: execution.facts().contradicted_claims.clone(),
@@ -2552,6 +2706,7 @@ impl Runtime {
             },
             _ => RunNotes::default(),
         };
+        let mut ends = Vec::new();
         let run = match &executed.execution {
             Err(failure) => SideRun::Failed(failure.into()),
             Ok(execution) if execution.timed_out() => {
@@ -2563,7 +2718,8 @@ impl Runtime {
                     solver,
                     TestInitialState::of_test(&test.initial_state),
                 )
-                .trusting_collections(collections_trusted);
+                .trusting_collections(collections_trusted)
+                .judging_data(own, own);
                 let context = BridgeContext {
                     test_id: &test.id,
                     classify: campaign.classify,
@@ -2609,6 +2765,12 @@ impl Runtime {
                         Some(exclusion) => SideRun::Failed(exclusion.into()),
                         None => {
                             terminals = one_sided;
+                            ends = bridged
+                                .paths
+                                .iter()
+                                .filter_map(|path| path.execution_terminal.as_ref())
+                                .map(|terminal| terminal.state.clone())
+                                .collect();
                             SideRun::Sides {
                                 sides: test
                                     .oracles
@@ -2633,6 +2795,7 @@ impl Runtime {
                 test_id: test.id.clone(),
                 run,
                 notes,
+                ends,
             },
             terminals,
         )
@@ -2710,28 +2873,81 @@ impl Runtime {
                 .collect::<Vec<_>>()
         };
         let initial = || TestInitialState::of_test(&test.initial_state);
+        let own = self.data.as_ref().map_or(DataEnds::None, data_ends);
         let sides = match leaves {
             None => self.backend.with_solver(None, |definition, solver| {
                 let decider = ObservationDecider::new(definition, solver, initial())
-                    .trusting_collections(trusted);
+                    .trusting_collections(trusted)
+                    .judging_data(own, own);
                 Ok::<_, k_rust::backend::BackendError>(evaluate(&decider))
             }),
-            Some(leaves) => self.backend.with_solver(None, |definition, _| {
-                leaves
-                    .backend
-                    .with_solver(None, |leaf_definition, leaf_solver| {
-                        let decider = ObservationDecider::for_leaves_of(
-                            definition,
-                            leaf_definition,
-                            leaf_solver,
-                            initial(),
-                        )
-                        .trusting_collections(trusted);
-                        Ok::<_, k_rust::backend::BackendError>(evaluate(&decider))
-                    })
-            }),
+            Some(leaves) => {
+                let leaf_data = leaves.data.as_ref().map_or(DataEnds::None, data_ends);
+                self.backend.with_solver(None, |definition, _| {
+                    leaves
+                        .backend
+                        .with_solver(None, |leaf_definition, leaf_solver| {
+                            let decider = ObservationDecider::for_leaves_of(
+                                definition,
+                                leaf_definition,
+                                leaf_solver,
+                                initial(),
+                            )
+                            .trusting_collections(trusted)
+                            .judging_data(own, leaf_data);
+                            Ok::<_, k_rust::backend::BackendError>(evaluate(&decider))
+                        })
+                })
+            }
         };
         sides.unwrap_or_else(|_| vec![OracleSide::Unknown; test.oracles.len()])
+    }
+
+    /// Whether each of `terminals`, ends of the other side of a pair, is data under this side's
+    /// definition (its own terminal value there, read with this side's collection trust and
+    /// [`data_ends`] of its facts), and which of `bindings` are definition-independent there
+    /// ([`judge_across`]). Without facts, with a finding left, or when no definition can be
+    /// reached, nothing is.
+    fn judge_ends(
+        &mut self,
+        test: &TestCase,
+        terminals: &[Pattern],
+        bindings: &[Pattern],
+    ) -> EndJudgement {
+        let refused = || EndJudgement {
+            terminals: vec![false; terminals.len()],
+            independent: Vec::new(),
+        };
+        if terminals.is_empty() && bindings.is_empty() {
+            return refused();
+        }
+        let ends = self.data.as_ref().map_or(DataEnds::None, data_ends);
+        if ends == DataEnds::None {
+            return refused();
+        }
+        let trusted = self.exclusions.collections_trusted();
+        self.backend
+            .with_solver(None, |definition, solver| {
+                let decider = ObservationDecider::new(
+                    definition,
+                    solver,
+                    TestInitialState::of_test(&test.initial_state),
+                )
+                .trusting_collections(trusted)
+                .judging_data(ends, ends);
+                Ok::<_, k_rust::backend::BackendError>(EndJudgement {
+                    terminals: terminals
+                        .iter()
+                        .map(|end| decider.terminal_value(end).as_ref() == Some(end))
+                        .collect(),
+                    independent: bindings
+                        .iter()
+                        .filter(|term| decider.definition_independent(term))
+                        .cloned()
+                        .collect(),
+                })
+            })
+            .unwrap_or_else(|_| refused())
     }
 }
 
@@ -3539,6 +3755,7 @@ mod tests {
                             test_id: "t".into(),
                             run: SideRun::Failed(ExecutionFailureKind::StackStop),
                             notes: RunNotes::default(),
+                            ends: Vec::new(),
                         },
                         Vec::new()
                     )
@@ -3993,6 +4210,7 @@ mod tests {
                     ],
                 },
                 notes: RunNotes::default(),
+                ends: Vec::new(),
             };
             let before = evidence.clone();
             replace_patterns(&test, &mut evidence, None);
@@ -4064,6 +4282,222 @@ mod tests {
                         .expect_err("the findings differ");
                 assert_eq!(refusal.failure, MutantScopeFailure::MutantFindings);
                 assert_eq!(refusal.failure.status(), MutantStatus::Unknown);
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+    }
+
+    /// fz26 KINK-OVERLOAD-VALUE: before a pair's slots are compared, each side's ends are judged
+    /// under the other side's definition (`judge_across`). `testdata/k/overload/anyw.k` has the
+    /// free constructor `c`; `anyw-anywhere.k` adds `[anywhere]` to its rule `c(1) => d`, so `c`
+    /// roots an equation there and `c(1)` is not data. With the plain definition as baseline: the
+    /// baseline's state slot holding `c(1)` and its pattern binding `c(1)` become unknown, while the
+    /// mutant's `d` (a free constructor of both) stays; and the mutant's own binding `c(1)` is
+    /// judged under the mutant's definition too. With the roles reversed, a one-sided terminal of
+    /// the mutant holding `c(1)` is dropped and one holding `d` kept. Every other side is untouched.
+    #[test]
+    fn every_compared_end_is_judged_under_the_other_definition() {
+        std::thread::Builder::new()
+            .stack_size(64 * 1024 * 1024)
+            .spawn(|| {
+                let dir = std::path::Path::new(input_test_support::DIR).join("overload");
+                let validator = |file: &str| {
+                    NativeValidator::bind(
+                        input_test_support::load_path(&dir.join(file), "AW"),
+                        k_rust::kompile::CompileOptions::default(),
+                    )
+                };
+                let (plain, anywhere) = (validator("anyw.k"), validator("anyw-anywhere.k"));
+                let state = OracleDeclaration::new(
+                    CrashPolicy::Reject,
+                    Projection::State(StateProjection::WholeTerm),
+                )
+                .unwrap();
+                let vocabulary =
+                    kink_pattern::EventVocabulary::new(vec![kink_pattern::Constructor {
+                        name: "tick".into(),
+                        payload_sorts: vec![],
+                    }])
+                    .unwrap();
+                let plan = PatternPlan::new(
+                    &vocabulary,
+                    vec![],
+                    vec![kink_pattern::PatternArm {
+                        atoms: vec![kink_pattern::Atom {
+                            constructor: "tick".into(),
+                            payload: vec![],
+                        }],
+                        relations: vec![],
+                    }],
+                    None,
+                )
+                .unwrap();
+                let pattern = OracleDeclaration::new(
+                    CrashPolicy::Reject,
+                    Projection::Pattern {
+                        plan,
+                        with_bindings: true,
+                    },
+                )
+                .unwrap();
+                // The KORE names of `c` and `d`: the constructors of sort `Foo` of the baseline.
+                let name = |arity: usize| {
+                    let compiled = plain.compile_baseline().unwrap();
+                    let definition =
+                        kink_native::consistency::loaded_definition(&compiled).unwrap();
+                    definition
+                        .symbols()
+                        .values()
+                        .find(|symbol| {
+                            symbol.result_sort
+                                == k_rust::k_rust_backend::term::Sort::simple("SortFoo")
+                                && symbol.argument_sorts.len() == arity
+                                && symbol.name.starts_with("Lbl")
+                        })
+                        .expect("a constructor of Foo")
+                        .name
+                        .to_string()
+                };
+                let c1 = input_test_support::app(
+                    &name(1),
+                    vec![Pattern::DomainValue {
+                        sort: Sort::Application {
+                            name: "SortInt".into(),
+                            arguments: vec![],
+                        },
+                        value: "1".into(),
+                    }],
+                );
+                let d = input_test_support::app(&name(0), vec![]);
+                let tests = [TestCase {
+                    id: "t".into(),
+                    initial_state: input_test_support::initial_state(
+                        input_test_support::app(
+                            "Lblgo",
+                            vec![Pattern::DomainValue {
+                                sort: Sort::Application {
+                                    name: "SortInt".into(),
+                                    arguments: vec![],
+                                },
+                                value: "1".into(),
+                            }],
+                        ),
+                        "SortPgm",
+                    ),
+                    oracles: vec![state, pattern],
+                }];
+                let classify: &dyn Fn(&Pattern) -> ExecutionTerminalKind =
+                    &|_| ExecutionTerminalKind::Normal;
+                let campaign = Campaign {
+                    validator: &plain,
+                    module: "AW",
+                    observation: &[],
+                    classify,
+                    tests: &tests,
+                    budget: ExecutionBudget {
+                        time: std::time::Duration::from_secs(30),
+                        max_depth: None,
+                        max_simplification_iterations: 1000,
+                        max_breadth: None,
+                    },
+                };
+                let runtime = |validator: &NativeValidator| {
+                    let side = validator.compile_baseline().unwrap();
+                    let mut runtime =
+                        Runtime::prepare(&campaign, &side).unwrap_or_else(|_| panic!());
+                    let definition = runtime.backend.select_definition(None).unwrap();
+                    let facts = DataFacts::of(&definition, &[]);
+                    assert!(facts.has_data());
+                    runtime.data = Some(facts);
+                    runtime
+                };
+                let (mut plain_runtime, mut anywhere_runtime) =
+                    (runtime(&plain), runtime(&anywhere));
+                let evidence = |end: &Pattern| TestEvidence {
+                    test_id: "t".into(),
+                    run: SideRun::Sides {
+                        sides: vec![
+                            OracleSide::Normal(OracleValue::FinalResult(FinalResult::WholeTerm(
+                                BTreeSet::from([end.clone()]),
+                            ))),
+                            OracleSide::Normal(OracleValue::Pattern(PatternValue::Match {
+                                bindings: Some(BTreeSet::from([vec![kink_pattern::Binding {
+                                    name: "X".into(),
+                                    term: end.clone(),
+                                }]])),
+                            })),
+                        ],
+                    },
+                    notes: RunNotes::default(),
+                    ends: vec![end.clone()],
+                };
+                let sides = |evidence: &TestEvidence| match &evidence.run {
+                    SideRun::Sides { sides } => sides
+                        .iter()
+                        .map(|side| matches!(side, OracleSide::Unknown))
+                        .collect::<Vec<_>>(),
+                    SideRun::Failed(_) => panic!("sides"),
+                };
+                let terminal = |state: &Pattern| ExecutionTerminal {
+                    kind: ExecutionTerminalKind::Stuck,
+                    state: state.clone(),
+                };
+                let test = &tests[0];
+                // The plain baseline against the anywhere mutant.
+                let (mut baseline, mut mutant) = (evidence(&c1), evidence(&d));
+                let mut one_sided = vec![terminal(&c1), terminal(&d)];
+                judge_across(
+                    test,
+                    &mut baseline,
+                    &mut mutant,
+                    &mut one_sided,
+                    &mut plain_runtime,
+                    &mut anywhere_runtime,
+                );
+                assert_eq!(sides(&baseline), [true, true], "{baseline:?}");
+                assert_eq!(sides(&mutant), [false, false], "{mutant:?}");
+                assert_eq!(one_sided, [terminal(&c1), terminal(&d)]);
+                // The mutant's own binding `c(1)` is not data under its own definition.
+                let (mut baseline, mut mutant) = (evidence(&d), evidence(&c1));
+                let mut none = Vec::new();
+                judge_across(
+                    test,
+                    &mut baseline,
+                    &mut mutant,
+                    &mut none,
+                    &mut plain_runtime,
+                    &mut anywhere_runtime,
+                );
+                assert_eq!(sides(&baseline), [false, false], "{baseline:?}");
+                assert_eq!(sides(&mutant), [false, true], "{mutant:?}");
+                // The anywhere baseline against the plain mutant: one-sided terminals.
+                let (mut baseline, mut mutant) = (evidence(&d), evidence(&d));
+                let mut one_sided = vec![terminal(&c1), terminal(&d)];
+                judge_across(
+                    test,
+                    &mut baseline,
+                    &mut mutant,
+                    &mut one_sided,
+                    &mut anywhere_runtime,
+                    &mut plain_runtime,
+                );
+                assert_eq!(sides(&baseline), [false, false], "{baseline:?}");
+                assert_eq!(sides(&mutant), [false, false], "{mutant:?}");
+                assert_eq!(one_sided, [terminal(&d)]);
+                // A side without facts makes every end judged under it not data.
+                plain_runtime.data = None;
+                let (mut baseline, mut mutant) = (evidence(&d), evidence(&d));
+                judge_across(
+                    test,
+                    &mut baseline,
+                    &mut mutant,
+                    &mut Vec::new(),
+                    &mut anywhere_runtime,
+                    &mut plain_runtime,
+                );
+                assert_eq!(sides(&baseline), [true, true], "{baseline:?}");
+                assert_eq!(sides(&mutant), [false, true], "{mutant:?}");
             })
             .unwrap()
             .join()

@@ -1,8 +1,8 @@
 # Stock SIMPLE (untyped), unedited: K's pl-tutorial
 # 2_languages/1_simple/1_untyped/simple-untyped.md. Its stream cells hold the text printed and
-# the input not yet read. Its list-free programs are comparable; an end holding an overloaded
-# list (main's body in the store holds print's argument list, or the list of a declaration with an
-# initializer) stays unknown until KINK-OVERLOAD-VALUE.
+# the input not yet read. Its programs are comparable, those whose end holds an overloaded list
+# (main's body in the store holds print's argument list, or the list of a declaration with an
+# initializer) since KINK-OVERLOAD-VALUE.
 [spec]
 entry = "simple-untyped.md"
 main_module = "SIMPLE-UNTYPED"

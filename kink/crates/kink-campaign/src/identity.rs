@@ -93,7 +93,7 @@ pub struct Component {
 /// the first that differs. The k-rust revision comes last: a campaign manifest also names it in
 /// its `k_rust` member, which replay checks first, and a manifest written before packet CACHE-ID
 /// lacks it in `kink`, where the first kink algorithm it lacks is the more useful report.
-pub const KINK_IDENTITY: [Component; 14] = [
+pub const KINK_IDENTITY: [Component; 15] = [
     Component {
         key: "fingerprint",
         krate: "kink-patch",
@@ -141,6 +141,12 @@ pub const KINK_IDENTITY: [Component; 14] = [
         krate: "kink-native",
         constant: "DATA_FACTS_VERSION",
         value: kink_native::data::DATA_FACTS_VERSION,
+    },
+    Component {
+        key: "terminal_value",
+        krate: "kink-native",
+        constant: "TERMINAL_VALUE_VERSION",
+        value: kink_native::data::TERMINAL_VALUE_VERSION,
     },
     Component {
         key: "definition_exclusion",

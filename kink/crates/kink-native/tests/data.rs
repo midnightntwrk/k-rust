@@ -68,7 +68,7 @@ fn a_finding_leaves_no_end_data_until_it_is_named() {
         assert!(strict.refused_names().is_empty());
 
         let named = flow_facts("r3-plainq", "PQ", &[PLAINQ_PAIR.to_owned()]);
-        assert_eq!(data_ends(&named), DataEnds::Admitted);
+        assert!(matches!(data_ends(&named), DataEnds::Admitted(_)));
         assert!(named.unnamed().is_empty());
         let [assumed] = named.findings().try_into().unwrap();
         assert!(assumed.assumed);
@@ -79,7 +79,7 @@ fn a_finding_leaves_no_end_data_until_it_is_named() {
             serde_json::json!([PLAINQ_PAIR])
         );
 
-        assert_eq!(data_ends(&counter_facts()), DataEnds::Admitted);
+        assert!(matches!(data_ends(&counter_facts()), DataEnds::Admitted(_)));
     });
 }
 
@@ -168,4 +168,176 @@ fn only_the_findings_outside_the_checked_heads_are_compared() {
         assert!(!named.differs_outside(&plainq, Some(&none)));
         assert!(named.differs_outside(&clean, Some(&none)));
     });
+}
+
+/// fz26 KINK-OVERLOAD-VALUE: the walk admits an application of an overload data head only with
+/// the definition's own facts (`data_ends`, `ObservationDecider::judging_data`), only where
+/// k-rust's `is_data` holds on it (instance-normal: no overload equation of the definition
+/// applies), and, for leaves of another definition, only where it is data there too. FZ-OVERLIST's
+/// `ov` (`testdata/k/overload/ov.k`): `1, .Ids` at sort `Exps` holds an `Int`, which no overload
+/// equation lowers to `Ids`, so it is a normal form; `a, .Ids` at sort `Exps` is lowered to an
+/// `Ids` list by an overload equation, so it is not.
+#[test]
+fn an_overload_application_is_data_only_where_it_is_instance_normal() {
+    use k_rust::kore::ast::{Pattern, Sort, Symbol};
+    use k_rust_backend::term::Sort as InternalSort;
+    use kink_native::feasibility::TestInitialState;
+    use kink_native::step_events::ObservationDecider;
+    on_a_big_stack(|| {
+        let compiled = NativeValidator::bind(
+            support::load_path(&Path::new(support::DIR).join("overload/ov.k"), "OV"),
+            CompileOptions::default(),
+        )
+        .compile_baseline()
+        .unwrap();
+        let definition = loaded_definition(&compiled).unwrap();
+        let facts = DataFacts::of(&definition, &[]);
+        let ends = data_ends(&facts);
+        assert!(matches!(ends, DataEnds::Admitted(_)), "{facts:?}");
+        let sort = |name: &str| Sort::Application {
+            name: name.to_owned(),
+            arguments: Vec::new(),
+        };
+        let symbol = |result: &str, arity: usize, data_head: bool| {
+            definition
+                .symbols()
+                .values()
+                .find(|symbol| {
+                    symbol.result_sort == InternalSort::simple(result)
+                        && symbol.argument_sorts.len() == arity
+                        && symbol.name.starts_with("Lbl")
+                        && ends.overload_head(&symbol.name) == data_head
+                        && (arity == 2 || symbol.name.contains("List"))
+                })
+                .unwrap_or_else(|| panic!("a symbol of {result}/{arity}"))
+                .name
+                .to_string()
+        };
+        let cons = symbol("SortExps", 2, true);
+        let unit = symbol("SortIds", 0, false);
+        let app = |name: &str, arguments| Pattern::Application {
+            symbol: Symbol {
+                name: name.to_owned(),
+                sort_parameters: Vec::new(),
+            },
+            arguments,
+        };
+        let inj = |from: &str, to: &str, argument| Pattern::Application {
+            symbol: Symbol {
+                name: "inj".to_owned(),
+                sort_parameters: vec![sort(from), sort(to)],
+            },
+            arguments: vec![argument],
+        };
+        let dv = |of: &str, value: &str| Pattern::DomainValue {
+            sort: sort(of),
+            value: value.into(),
+        };
+        let list = |element: Pattern| {
+            app(
+                &cons,
+                vec![element, inj("SortIds", "SortExps", app(&unit, Vec::new()))],
+            )
+        };
+        let int = list(inj("SortInt", "SortExp", dv("SortInt", "1")));
+        let id = list(inj("SortId", "SortExp", dv("SortId", "a")));
+        let solver = k_rust_backend::smt::NoSolver;
+        let decider = |judging: bool| {
+            let decider =
+                ObservationDecider::new(&definition, &solver, TestInitialState::of_test(&int));
+            if judging {
+                decider.judging_data(ends, ends)
+            } else {
+                decider
+            }
+        };
+        assert!(ends.overload_application_is_data(&definition, &int));
+        assert!(decider(true).definition_independent(&int));
+        assert_eq!(decider(true).terminal_value(&int), Some(int.clone()));
+        // Without the definition's facts, or with a finding left, no overload application.
+        assert!(!decider(false).definition_independent(&int));
+        assert!(!DataEnds::None.overload_head(&cons));
+        // Not instance-normal: an overload equation lowers it.
+        assert!(!ends.overload_application_is_data(&definition, &id));
+        assert!(!decider(true).definition_independent(&id));
+        // Nested in a free constructor, judged once at the outermost overload application.
+        assert!(decider(true).definition_independent(&inj("SortExps", "SortKItem", int.clone())));
+        // A leaf of another definition (counter.k lacks the symbols): not data there.
+        let counter = loaded_definition(
+            &NativeValidator::bind(support::load("counter.k"), CompileOptions::default())
+                .compile_baseline()
+                .unwrap(),
+        )
+        .unwrap();
+        let counter_facts = DataFacts::of(&counter, &[]);
+        let leaves = ObservationDecider::for_leaves_of(
+            &definition,
+            &counter,
+            &solver,
+            TestInitialState::of_test(&int),
+        );
+        assert!(
+            !leaves
+                .judging_data(ends, data_ends(&counter_facts))
+                .definition_independent(&int)
+        );
+    });
+}
+
+/// fz26 KINK-OVERLOAD-VALUE consumes k-rust's data judgement rather than re-implementing it, so
+/// the passages its soundness rests on are pinned by digest: `data_term`'s module documentation
+/// from "The class" through "Two definitions" (what a data term is, why two differ in each
+/// definition's initial model under A1 and A2, and that ends compared across two definitions
+/// must be data in both, each judged by its own), the selection of the overload data heads
+/// (`overload_data_heads`, `canonical_overload_equation`) and the walk `is_data` makes
+/// (`built_from_data`). A k-rust change that moves any of them fails here, and kink's reading
+/// (kink-native `data::data_ends`, the TV-01 walk) is checked against it again before re-pinning.
+#[test]
+fn the_data_judgement_kink_reads_is_pinned() {
+    const SOURCE: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
+    let between = |from: &str, to: &str| {
+        let start = SOURCE.find(from).unwrap_or_else(|| panic!("no {from:?}"));
+        let end = SOURCE[start..]
+            .find(to)
+            .unwrap_or_else(|| panic!("no {to:?}"))
+            + start;
+        &SOURCE[start..end]
+    };
+    let function = |name: &str| between(&format!("fn {name}("), "\n}\n");
+    let method = |name: &str| between(&format!("    fn {name}("), "\n    }\n");
+    let pinned = [
+        (
+            between("//! # The class", "//! # Findings: genuine or undecided"),
+            "doc",
+        ),
+        (method("overload_data_heads"), "overload_data_heads"),
+        (
+            function("canonical_overload_equation"),
+            "canonical_overload_equation",
+        ),
+        (method("built_from_data"), "built_from_data"),
+    ]
+    .map(|(text, name)| (name, kink_patch::sha256(text.as_bytes()).to_string()));
+    assert_eq!(
+        pinned,
+        [
+            (
+                "doc",
+                "5ebdb4fa12e513bb1c2da9be194120fe9b2b322ab49800a4c5b073cd5c18fdff",
+            ),
+            (
+                "overload_data_heads",
+                "655cb79c76f4bb457e81e60681043fc35de8661cc9a475efe378faa9001fbb34",
+            ),
+            (
+                "canonical_overload_equation",
+                "ce72331ace58ecd71b41ed67068c952b3d972d2e84cab18a36cef89f9a42c26b",
+            ),
+            (
+                "built_from_data",
+                "7b76f08166b68d2a94290b090933f570af2e701f64df7114399ec57964b311e5",
+            ),
+        ]
+        .map(|(name, digest)| (name, digest.to_owned()))
+    );
 }

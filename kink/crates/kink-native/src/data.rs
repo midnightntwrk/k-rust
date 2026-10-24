@@ -36,6 +36,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::kast::identifier::decode_label;
+use k_rust::kore::ast::Pattern;
 use k_rust_backend::{
     confluence::ViolationKind,
     data_term::{DataHeads, Finding, names},
@@ -416,28 +417,103 @@ pub(crate) fn symbolic(rule: &RewriteRule) -> bool {
     }
 }
 
+/// The version of what kink admits as a compared end (TV-01), [`data_ends`] and the
+/// terminal-value walk it parameterizes (`step_events::ObservationDecider::terminal_value`): v1
+/// (fz26 KINK-OVERLOAD-VALUE) admits an instance-normal application of an overload data head
+/// where k-rust's [`BackendDefinition::is_data`] holds, and judges every compared end of a pair
+/// under the other side's definition too, so an end that is not data there makes its slot
+/// unknown for that pair. A component of kink's semantics identity (kink-campaign `identity`, key
+/// `terminal_value`): it changes which slots compare, so a verdict. Bump it whenever what the walk
+/// admits changes.
+pub const TERMINAL_VALUE_VERSION: &str = "kink-native/terminal-value/v1";
+
 /// Which ends of runs on a definition are data under it ([`data_ends`]).
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum DataEnds {
+#[derive(Clone, Copy, Debug)]
+pub enum DataEnds<'f> {
     /// Every end kink's terminal-value walk admits (TV-01: free constructors, normal-form
-    /// injections, identity-safe domain values and trusted natural collections): such a term is
-    /// a normal form, and distinct normal forms differ in `M_NF`, a model of the definition.
-    Admitted,
+    /// injections, identity-safe domain values and trusted natural collections, and the
+    /// applications of these overload data heads where k-rust's data judgement holds,
+    /// [`Self::overload_application_is_data`]): such a term is a normal form, and distinct normal
+    /// forms differ in `M_NF`, a model of the definition.
+    Admitted(&'f DataHeads),
     /// None: a finding is left, so `M_NF` is not shown to be a model and the definition may
     /// identify any two ends.
     None,
 }
 
+impl DataEnds<'_> {
+    /// Whether `symbol` (a KORE symbol name) is one of the definition's overload data heads
+    /// (k-rust-backend `data_term`, "The class"). None is when no end is data.
+    #[must_use]
+    pub fn overload_head(&self, symbol: &str) -> bool {
+        match self {
+            Self::Admitted(heads) => heads.names().any(|name| &**name == symbol),
+            Self::None => false,
+        }
+    }
+
+    /// Whether `application`, a ground application of an overload data head
+    /// ([`Self::overload_head`]) on a definition `definition` whose facts gave `self`, is data
+    /// there: it internalizes in `definition` and k-rust's [`BackendDefinition::is_data`] holds
+    /// with the definition's own heads, which reads instance-normality from the evaluator's own
+    /// matcher, subsort order and overload axioms (no second matcher in kink). It judges the whole
+    /// subterm, so the walk calls it once, at the outermost such application, and walks its
+    /// arguments for the rest of TV-01 (identity-safe domain values, normal-form injections). A
+    /// term with a variable, a symbol `definition` lacks, or any failure is not data.
+    #[must_use]
+    pub fn overload_application_is_data(
+        &self,
+        definition: &BackendDefinition,
+        application: &Pattern,
+    ) -> bool {
+        let Self::Admitted(heads) = self else {
+            return false;
+        };
+        application.free_variables().is_empty()
+            && definition
+                .admit_unverified(application, &[])
+                .internalize_term()
+                .is_ok_and(|term| definition.is_data(&term, heads))
+    }
+}
+
+/// Two judgements are equal when they admit the same ends of one definition: both none, or the
+/// same overload data heads.
+impl PartialEq for DataEnds<'_> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::None, Self::None) => true,
+            (Self::Admitted(left), Self::Admitted(right)) => left.names().eq(right.names()),
+            _ => false,
+        }
+    }
+}
+
+impl Eq for DataEnds<'_> {}
+
 /// Which ends of runs on a definition are data under it, from that definition's own facts `own`
-/// (fz26 KINK-BASELINE-FINDINGS part 2): every end the terminal-value walk admits when no finding
-/// is left, and none otherwise. A kill counts only when both sides' compared ends are data, each
-/// under its own side's definition. This is the one place that says it: KINK-OVERLOAD-VALUE
-/// extends this function (instance-normal overload applications, `BackendDefinition::is_data`,
-/// and each end judged under the other side's definition too) rather than adding another.
+/// (fz26 KINK-BASELINE-FINDINGS part 2, extended by KINK-OVERLOAD-VALUE): none while a finding is
+/// left; otherwise every end the terminal-value walk admits, with the instance-normal
+/// applications of the definition's overload data heads where k-rust's data judgement holds
+/// (`step_events::ObservationDecider::judging_data` takes the result). This is the one place that
+/// says it.
+///
+/// A kill counts only when both sides' compared ends are data under *both* definitions (k-rust-
+/// backend `data_term`, "Two definitions"): each definition reads the ends with its own theory,
+/// and the two may differ on any symbol (a mutant can make a baseline constructor an `anywhere`
+/// head, or add an overload member that lowers a baseline normal form). Each side's ends are
+/// judged under its own definition with this function's result for its own facts when the run is
+/// judged (a baseline's facts, a claim-free mutant's facts), and under the other side's
+/// definition with the result for the other side's facts before the pair's slots are compared
+/// (kink-campaign `runner`): for a constructor-only end that is a head-role and injection check.
+/// So two different compared ends differ in each definition's initial model, under premises A1
+/// (evaluation terminates) and A2 (lemmas and `[symbolic]` equations are theorems of the
+/// executable equations; the baseline's claims are trusted, a mutant's that its edit unbacks are
+/// removed).
 #[must_use]
-pub fn data_ends(own: &DataFacts) -> DataEnds {
+pub fn data_ends(own: &DataFacts) -> DataEnds<'_> {
     if own.has_data() {
-        DataEnds::Admitted
+        DataEnds::Admitted(own.heads())
     } else {
         DataEnds::None
     }
