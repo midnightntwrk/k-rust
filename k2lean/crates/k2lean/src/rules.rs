@@ -93,6 +93,27 @@ pub fn priorities(def: &Def) -> Vec<i64> {
     v
 }
 
+/// The rules as `gen` emits them, with the priority ranks and whether `Step` is stratified
+/// (`App i`, `Step0 i`: several ranks, or a rule with several matches, which uses the ranked
+/// emitter even with one rank): with a free-key map pattern every rule is collected for the
+/// ranked relations, and only the ranks of the rules kept count.
+pub fn collect_ranked(
+    def: &Def,
+    m: &Model,
+    fns: &Fns,
+    order: &[String],
+) -> Result<(Vec<Rule>, Vec<i64>, bool), String> {
+    let mut rs = collect(def, m, fns, order)?;
+    let mut prios = priorities(def);
+    let multi = rs.iter().any(|r| r.multi);
+    if multi {
+        rs = collect_with(def, m, fns, order, true)?;
+        prios.retain(|p| rs.iter().any(|r| r.priority == *p));
+    }
+    let ranked = prios.len() > 1 || multi;
+    Ok((rs, prios, ranked))
+}
+
 pub fn collect(def: &Def, m: &Model, fns: &Fns, order: &[String]) -> Result<Vec<Rule>, String> {
     collect_with(def, m, fns, order, false)
 }

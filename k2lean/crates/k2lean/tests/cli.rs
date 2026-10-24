@@ -507,3 +507,64 @@ fn new_invariant_writes_the_skeleton_once_and_adds_stubs_for_open_rules() {
         std::fs::read_to_string(p.join("PeanoInv/Cases.lean")).unwrap()
     );
 }
+
+fn relate_fixture(name: &str, out: &Path) -> std::process::Output {
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures")
+        .join(name)
+        .join("definition.kore");
+    Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("relate")
+        .arg("--kore-a")
+        .arg(&fx)
+        .args(["--name-a", "A", "--kore-b"])
+        .arg(&fx)
+        .args(["--name-b", "B", "--ns", "Rel", "--out"])
+        .arg(out.join("Bisim.lean"))
+        .arg("--report")
+        .arg(out.join("correspondence.toml"))
+        .output()
+        .unwrap()
+}
+
+/// `relate` of two libraries that give every constructor the same position: `tr` keeps every
+/// term's serialization, so map keys need no invariant (`Inv` is `True`); the cell map of
+/// `<worker>`s is a typed collection sort with its own pointwise lemmas, and the free-key rule
+/// `tick` is inverted through the translated map's bindings and stepped with `B`'s variables
+/// given as translations.
+#[test]
+fn relate_with_kept_positions_states_the_bisimulation_without_a_key_invariant() {
+    let d = tmp("cli-relate-cellmap");
+    let o = relate_fixture("cellmap", &d);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let lean = std::fs::read_to_string(d.join("Bisim.lean")).unwrap();
+    for want in [
+        "def Inv (_ : A.SortGeneratedTopCell) : Prop := True",
+        "theorem ser_tr_SortWorkerCellMap (a : A.SortWorkerCellMap) : B.ser_SortWorkerCellMap (tr_SortWorkerCellMap a) = A.ser_SortWorkerCellMap a",
+        "theorem pres_SortWidCell : SAL.Pres tr_SortWidCell",
+        "theorem map_bwd_SortWorkerCellMap",
+        "    refine B.Step.tick (tr_SortKCell Gen3)",
+        "theorem bisim : Bisimulation A.Step B.Step R",
+    ] {
+        assert!(lean.contains(want), "missing `{want}`");
+    }
+    let report = std::fs::read_to_string(d.join("correspondence.toml")).unwrap();
+    assert!(
+        report.contains("keeps every constructor's position"),
+        "{report}"
+    );
+}
+
+/// A function with a free-key equation (`MapHook.chooseFirst`) gets no commutation lemma, so
+/// `relate` refuses the bisimulation with an error naming it (exit status 2), not a panic.
+#[test]
+fn relate_refuses_a_function_with_a_free_key_equation() {
+    let d = tmp("cli-relate-freekey");
+    let o = relate_fixture("freekey", &d);
+    assert_eq!(o.status.code(), Some(2));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(
+        err.contains("relate: the function allNat(_)_FREEKEY_Bool_Map has an equation with a free-key map pattern"),
+        "{err}"
+    );
+}

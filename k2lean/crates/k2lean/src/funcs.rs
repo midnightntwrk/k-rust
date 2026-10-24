@@ -257,6 +257,14 @@ pub struct Generated {
     /// Lean names of the recursive functions that recurse on a builtin `List` parameter (the length
     /// measure of `list_measure`).
     pub list_recursive: BTreeSet<String>,
+    /// The generated functions in definition order (callees first), one group per strongly
+    /// connected component of the call graph (a `mutual` block when it has several).
+    pub groups: Vec<Vec<String>>,
+    /// The termination measure of each recursive function (by symbol), as its `termination_by`
+    /// clause gives it (`None`: Lean's own search), and the rank functions it unfolds.
+    pub measures: BTreeMap<String, (Option<String>, Vec<String>)>,
+    /// The functions with an equation whose map pattern has a free key (`MapHook.chooseFirst`).
+    pub choose_fns: BTreeSet<String>,
     pub notes: Vec<String>,
 }
 
@@ -594,6 +602,7 @@ fn gen_recursive(
     scc: &[String],
     side: &Sidecar,
     list_rec_out: &mut BTreeSet<String>,
+    measures: &mut BTreeMap<String, (Option<String>, Vec<String>)>,
 ) -> Result<String, String> {
     let mut o = String::new();
     // declarations before the group: the file's `before` texts, rank functions of the measures
@@ -760,15 +769,27 @@ fn gen_recursive(
                 .cloned(),
         );
         let side_by = entry.and_then(|e| e.termination_by.as_ref());
-        if let Some(t) = side_by {
-            o.push_str(&format!("termination_by {t}\n"));
+        let by = if let Some(t) = side_by {
+            Some(t.clone())
         } else if let Some((meas, _, _)) = &list_rec {
-            o.push_str(&format!("termination_by {meas}\n"));
+            Some(meas.clone())
         } else if let (Some(meas), false) = (&measure, side_measure) {
-            o.push_str(&format!("termination_by {meas}\n"));
-        } else if let Some(p) = &plan {
-            o.push_str(&format!("termination_by {}\n", p.measure));
+            Some(meas.clone())
+        } else {
+            plan.as_ref().map(|p| p.measure.clone())
+        };
+        if let Some(t) = &by {
+            o.push_str(&format!("termination_by {t}\n"));
         }
+        measures.insert(
+            f.clone(),
+            (
+                by,
+                plan.as_ref()
+                    .map(|p| p.rank_names.clone())
+                    .unwrap_or_default(),
+            ),
+        );
         if let Some(d) = entry.and_then(|e| e.decreasing_by.as_ref()) {
             // a tactic block, indented under `decreasing_by`
             o.push_str("decreasing_by\n");
@@ -1065,9 +1086,27 @@ pub fn generate_with(
     // generate, deciding purity on the way (callees first, so their purity is known)
     let mut lean = helpers;
     let mut unfold = Vec::new();
+    let mut measures = BTreeMap::new();
+    let mut choose_fns = BTreeSet::new();
+    let is_choose = |st: &[crate::lower::Step]| {
+        st.iter()
+            .any(|x| matches!(x, crate::lower::Step::MapChoose { .. }))
+    };
     for scc in &sccs {
         if scc.iter().any(|f| recursive.contains(f)) {
-            let text = gen_recursive(m, &fns, &eqs, scc, side, &mut list_recursive)?;
+            for f in scc {
+                for e in &eqs[f] {
+                    let sig = &fns[f];
+                    let params: Vec<String> =
+                        (0..sig.args.len()).map(|i| format!("x{i}")).collect();
+                    if lower_equation(m, &fns, f, sig, &params, e)
+                        .is_ok_and(|(st, _, _)| is_choose(&st))
+                    {
+                        choose_fns.insert(f.clone());
+                    }
+                }
+            }
+            let text = gen_recursive(m, &fns, &eqs, scc, side, &mut list_recursive, &mut measures)?;
             lean.push_str(&text);
             for f in scc {
                 notes.push(format!(
@@ -1090,6 +1129,9 @@ pub fn generate_with(
                 continue; // needs a sort without values: never applies
             }
             let (steps, lhs_len, rhs) = lower_equation(m, &fns, f, &sig, &params, e)?;
+            if is_choose(&steps) {
+                choose_fns.insert(f.clone());
+            }
             let rhs_partial = steps.len() > lhs_len;
             let catch_all = lhs_len == 0;
             bodies.push((i, steps, lhs_len, rhs, rhs_partial, catch_all));
@@ -1186,6 +1228,9 @@ pub fn generate_with(
         unfold,
         recursive,
         list_recursive,
+        groups: sccs,
+        measures,
+        choose_fns,
         notes,
     })
 }

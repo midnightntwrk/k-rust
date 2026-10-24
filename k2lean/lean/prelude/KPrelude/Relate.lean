@@ -235,6 +235,366 @@ theorem concat_element_pointwise_inv (hT : Pointwise f g T) (hf : SAL.PresOn P f
 
 end MapHook
 
+/-! ## Translations that preserve the order of every key
+
+When the two libraries give every constructor the same position (a renaming that keeps each
+sort's constructor order, `docs/design.md`, §3.2), the translation preserves the serialization
+of every term, so it preserves the order of every key (`SAL.Pres`), and every collection
+operation commutes with it, with no hypothesis on the operands: the lemmas below are what
+`relate` states for each collection sort. -/
+
+namespace SAL
+
+set_option linter.unusedSectionVars false
+
+variable {α α' β β' : Type} [Ord α] [Ord α'] {f : α → α'} {g : β → β'}
+
+/-- `f` preserves the order of every key. -/
+def Pres (f : α → α') : Prop := ∀ a b, compare (f a) (f b) = compare a b
+
+theorem Pres.presOn (hf : Pres f) {P : α → Prop} : PresOn P f := fun a b _ _ => hf a b
+
+theorem sortedb_mapPairs (hf : Pres f) : ∀ l : List (α × β), sortedb (mapPairs f g l) = sortedb l
+  | [] => rfl
+  | (k, v) :: t => by
+    rw [mapPairs_cons]
+    simp only [sortedb]
+    rw [sortedb_mapPairs hf t]
+    congr 1
+    simp only [mapPairs, List.all_map]
+    exact List.all_congr rfl (fun p => by show (compare (f k) (f p.1) == _) = _; rw [hf])
+
+theorem lookup_mapPairs_of_pres (hf : Pres f) (k : α) (l : List (α × β)) :
+    lookup (f k) (mapPairs f g l) = (lookup k l).map g :=
+  lookup_mapPairs hf.presOn (P := fun _ => True) trivial (fun _ _ => trivial)
+
+theorem insert_mapPairs_of_pres (hf : Pres f) (k : α) (v : β) (l : List (α × β)) :
+    insert (f k) (g v) (mapPairs f g l) = mapPairs f g (insert k v l) :=
+  insert_mapPairs hf.presOn (P := fun _ => True) trivial v (fun _ _ => trivial)
+
+theorem erase_mapPairs_of_pres (hf : Pres f) (k : α) (l : List (α × β)) :
+    erase (f k) (mapPairs f g l) = mapPairs f g (erase k l) :=
+  erase_mapPairs hf.presOn (P := fun _ => True) trivial (fun _ _ => trivial)
+
+theorem foldr_insert_mapPairs (hf : Pres f) (b : List (α × β)) : ∀ a : List (α × β),
+    (mapPairs f g a).foldr (fun p acc => insert p.1 p.2 acc) (mapPairs f g b) =
+      mapPairs f g (a.foldr (fun p acc => insert p.1 p.2 acc) b)
+  | [] => rfl
+  | (k, v) :: t => by
+    simp only [mapPairs_cons, List.foldr_cons, foldr_insert_mapPairs hf b t]
+    exact insert_mapPairs_of_pres hf k v _
+
+theorem concat_mapPairs (hf : Pres f) (a b : List (α × β)) :
+    concat (mapPairs f g a) (mapPairs f g b) = (concat a b).map (mapPairs f g) := by
+  unfold concat
+  have hall : (mapPairs f g a).all (fun p => (lookup p.1 (mapPairs f g b)).isNone) =
+      a.all (fun p => (lookup p.1 b).isNone) := by
+    simp only [mapPairs, List.all_map]
+    exact List.all_congr rfl (fun p => by
+      show (lookup (f p.1) (mapPairs f g b)).isNone = _
+      rw [lookup_mapPairs_of_pres hf]; cases lookup p.1 b <;> rfl)
+  rw [sortedb_mapPairs hf, sortedb_mapPairs hf, hall]
+  split
+  · rw [Option.map_some, foldr_insert_mapPairs hf]
+  · rfl
+
+end SAL
+
+namespace MapHook
+
+open ListIso
+
+set_option linter.unusedSectionVars false
+
+variable {M K V M' K' V' : Type} [Ord K] [ListIso M (K × V)] [MapRepr M K V]
+  [Ord K'] [ListIso M' (K' × V')] [MapRepr M' K' V']
+  {f : K → K'} {g : V → V'} {T : M → M'}
+
+theorem unit_pointwise (hT : Pointwise f g T) : T unit = unit := by
+  unfold unit; rw [pointwise_ofList hT]; rfl
+
+theorem element_pointwise (hT : Pointwise f g T) (k : K) (v : V) :
+    element (f k) (g v) = T (element k v) := by
+  unfold element; rw [pointwise_ofList hT]; rfl
+
+theorem concat_pointwise (hT : Pointwise f g T) (hf : SAL.Pres f) (a b : M) :
+    concat (T a) (T b) = (concat a b).map T := by
+  unfold concat
+  rw [hT, hT, SAL.concat_mapPairs hf]
+  cases SAL.concat (toList a) (toList b) with
+  | none => rfl
+  | some l => simp only [Option.map_some, pointwise_ofList hT]
+
+theorem update_pointwise_of_pres (hT : Pointwise f g T) (hf : SAL.Pres f) (m : M) (k : K) (v : V) :
+    update (T m) (f k) (g v) = T (update m k v) := by
+  rw [update_def, update_def, hT, SAL.insert_mapPairs_of_pres hf, pointwise_ofList hT]
+
+theorem remove_pointwise (hT : Pointwise f g T) (hf : SAL.Pres f) (m : M) (k : K) :
+    remove (T m) (f k) = T (remove m k) := by
+  rw [remove_def, remove_def, hT, SAL.erase_mapPairs_of_pres hf, pointwise_ofList hT]
+
+theorem lookup_pointwise (hT : Pointwise f g T) (hf : SAL.Pres f) (m : M) (k : K) :
+    lookup (T m) (f k) = (lookup m k).map g := by
+  rw [lookup_def, lookup_def, hT, SAL.lookup_mapPairs_of_pres hf]
+
+theorem lookupOrDefault_pointwise (hT : Pointwise f g T) (hf : SAL.Pres f) (m : M) (k : K) (d : V) :
+    lookupOrDefault (T m) (f k) (g d) = g (lookupOrDefault m k d) := by
+  unfold lookupOrDefault
+  rw [MapRepr.lookupR_eq, MapRepr.lookupR_eq, hT, SAL.lookup_mapPairs_of_pres hf]
+  cases SAL.lookup k (toList m) <;> rfl
+
+theorem inKeys_pointwise (hT : Pointwise f g T) (hf : SAL.Pres f) (m : M) (k : K) :
+    inKeys (f k) (T m) = inKeys k m := by
+  unfold inKeys
+  rw [MapRepr.lookupR_eq, MapRepr.lookupR_eq, hT, SAL.lookup_mapPairs_of_pres hf]
+  cases SAL.lookup k (toList m) <;> rfl
+
+theorem size_pointwise (hT : Pointwise f g T) (m : M) : size (T m) = size m := by
+  unfold size; rw [hT]; simp [SAL.mapPairs]
+
+theorem keys_pointwise {S S' : Type} [ListIso S (K × Unit)] [MapRepr S K Unit]
+    [ListIso S' (K' × Unit)] [MapRepr S' K' Unit] {TS : S → S'}
+    (hT : Pointwise f g T) (hS : Pointwise f (fun u => u) TS) (m : M) : keys (T m) = TS (keys m) := by
+  unfold keys
+  rw [pointwise_ofList hS, hT]
+  simp only [SAL.mapPairs, List.map_map]
+  rfl
+
+theorem values_pointwise {L L' : Type} [ListIso L V] [ListIso L' V'] {TL : L → L'}
+    (hT : Pointwise f g T) (hL : ∀ l, toList (TL l) = (toList l).map g) (m : M) :
+    values (T m) = TL (values m) := by
+  unfold values
+  have := hL (ofList ((toList m).map (·.2)))
+  rw [toList_ofList] at this
+  rw [← ofList_toList (TL _), this, hT]
+  simp only [SAL.mapPairs, List.map_map]
+  rfl
+
+theorem keysList_pointwise {L L' : Type} [ListIso L K] [ListIso L' K'] {TL : L → L'}
+    (hT : Pointwise f g T) (hL : ∀ l, toList (TL l) = (toList l).map f) (m : M) :
+    keysList (T m) = TL (keysList m) := by
+  unfold keysList
+  have := hL (ofList ((toList m).map (·.1)))
+  rw [toList_ofList] at this
+  rw [← ofList_toList (TL _), this, hT]
+  simp only [SAL.mapPairs, List.map_map]
+  rfl
+
+theorem difference_pointwise [DecidableEq V] [DecidableEq V'] (hT : Pointwise f g T) (hf : SAL.Pres f)
+    (hg : ∀ a b, g a = g b → a = b) (a b : M) : difference (T a) (T b) = T (difference a b) := by
+  unfold difference
+  rw [pointwise_ofList hT, hT]
+  congr 1
+  simp only [SAL.mapPairs, List.filter_map]
+  congr 1
+  apply List.filter_congr
+  intro p _
+  simp only [Function.comp, lookup_pointwise hT hf]
+  cases lookup b p.1 with
+  | none => rfl
+  | some w =>
+    show (some (g w) != some (g p.2)) = (some w != some p.2)
+    by_cases h : w = p.2
+    · subst h; rw [bne_self_eq_false, bne_self_eq_false]
+    · have h' : g w ≠ g p.2 := fun e => h (hg _ _ e)
+      rw [show (some (g w) != some (g p.2)) = true from bne_iff_ne.2 (by simpa using h'),
+        show (some w != some p.2) = true from bne_iff_ne.2 (by simpa using h)]
+
+variable [Std.TransOrd K] [Std.LawfulEqOrd K] [Std.TransOrd K'] [Std.LawfulEqOrd K']
+
+theorem _root_.KPrelude.SAL.sortedAdj_mapPairs (hf : SAL.Pres f) :
+    ∀ l : List (K × V), SAL.sortedAdj (SAL.mapPairs f g l) = SAL.sortedAdj l
+  | [] => rfl
+  | [_] => rfl
+  | (k₁, v₁) :: (k₂, v₂) :: t => by
+    have ih := SAL.sortedAdj_mapPairs hf ((k₂, v₂) :: t)
+    simp only [SAL.mapPairs_cons] at ih ⊢
+    simp only [SAL.sortedAdj, hf k₁ k₂, ih]
+
+theorem wfb_pointwise (hT : Pointwise f g T) (hf : SAL.Pres f) (m : M) : wfb (T m) = wfb m := by
+  unfold wfb
+  rw [MapRepr.sortedR_eq, MapRepr.sortedR_eq, hT, SAL.sortedAdj_mapPairs hf]
+
+/-- `chooseFirst` as a search over the bindings, without the membership proofs. -/
+theorem chooseFirst_eq_findSome [DecidableEq M] {β : Type} {m : M} {hw : WF m}
+    {F : (k : K) → (v : V) → concat (element k v) (remove m k) = some m → Option β} :
+    chooseFirst m hw F = (toList m).findSome? fun p =>
+      if hc : concat (element p.1 p.2) (remove m p.1) = some m then F p.1 p.2 hc else none := by
+  unfold chooseFirst
+  have h : (fun (p : {x // x ∈ toList m}) =>
+      F p.1.1 p.1.2 (concat_element_remove hw (lookup_of_mem_toList hw p.2))) =
+      (fun p : K × V => if hc : concat (element p.1 p.2) (remove m p.1) = some m then
+        F p.1 p.2 hc else none) ∘ Subtype.val := by
+    funext p
+    simp only [Function.comp]
+    rw [dif_pos (concat_element_remove hw (lookup_of_mem_toList hw p.2))]
+  rw [h, ← List.findSome?_map, List.attach_map_subtype_val]
+
+theorem _root_.List.findSome?_map_of_mem {α β β' : Type} {G : α → Option β} {H : α → Option β'}
+    {φ : β → β'} : ∀ {l : List α}, (∀ x ∈ l, H x = (G x).map φ) →
+      l.findSome? H = (l.findSome? G).map φ
+  | [], _ => rfl
+  | a :: t, h => by
+    simp only [List.findSome?_cons, h a (List.mem_cons_self ..)]
+    cases G a with
+    | none => exact List.findSome?_map_of_mem (fun x hx => h x (List.mem_cons_of_mem _ hx))
+    | some b => rfl
+
+/-- `chooseFirst` on a translated map, with a continuation that agrees with the translation of
+the original one at every binding. -/
+theorem chooseFirst_pointwise [DecidableEq M] [DecidableEq M'] {β β' : Type}
+    (hT : Pointwise f g T) (hf : SAL.Pres f) {m : M} {hw : WF m} {hw' : WF (T m)}
+    {F : (k : K) → (v : V) → concat (element k v) (remove m k) = some m → Option β}
+    {F' : (k : K') → (v : V') → concat (element k v) (remove (T m) k) = some (T m) → Option β'}
+    {φ : β → β'} (h : ∀ k v hc hc', F' (f k) (g v) hc' = (F k v hc).map φ) :
+    chooseFirst (T m) hw' F' = (chooseFirst m hw F).map φ := by
+  rw [chooseFirst_eq_findSome, chooseFirst_eq_findSome, hT, SAL.mapPairs, List.findSome?_map]
+  apply List.findSome?_map_of_mem
+  intro p hp
+  have hc := concat_element_remove hw (lookup_of_mem_toList hw hp)
+  have hc' : concat (element (f p.1) (g p.2)) (remove (T m) (f p.1)) = some (T m) := by
+    rw [element_pointwise hT, remove_pointwise hT hf, concat_pointwise hT hf, hc]; rfl
+  simp only [Function.comp, dif_pos hc, dif_pos hc']
+  exact h _ _ hc hc'
+
+/-- A match `k' |-> v' r'` of a translated map, with a free key, is the translation of a match
+of the map. -/
+theorem concat_element_pointwise_inv_free (hT : Pointwise f g T) (hf : SAL.Pres f) {k' : K'} {v' : V'}
+    {r' : M'} {m : M} (h : concat (element k' v') r' = some (T m)) :
+    ∃ k v r, k' = f k ∧ v' = g v ∧ r' = T r ∧ concat (element k v) r = some m := by
+  have hl := lookup_of_concat_element h
+  rw [lookup_def, hT] at hl
+  obtain ⟨q, _, hq⟩ := SAL.mem_mapPairs.1 (SAL.lookup_mem hl)
+  simp only [Prod.mk.injEq] at hq
+  obtain ⟨rfl, -⟩ := hq
+  obtain ⟨v, r, hv, hr, hc⟩ := concat_element_pointwise_inv hT hf.presOn (P := fun _ => True)
+    trivial (fun _ _ => trivial) h
+  exact ⟨q.1, v, r, rfl, hv, hr, hc⟩
+
+/-- The same with the key bound (`k' = f k` known). -/
+theorem concat_element_pointwise_inv_of_pres (hT : Pointwise f g T) (hf : SAL.Pres f) {k : K} {v' : V'}
+    {r' : M'} {m : M} (h : concat (element (f k) v') r' = some (T m)) :
+    ∃ v r, v' = g v ∧ r' = T r ∧ concat (element k v) r = some m :=
+  concat_element_pointwise_inv hT hf.presOn (P := fun _ => True) trivial (fun _ _ => trivial) h
+
+end MapHook
+
+namespace SetHook
+
+open ListIso
+
+set_option linter.unusedSectionVars false
+
+variable {S K S' K' : Type} [Ord K] [ListIso S (K × Unit)] [MapRepr S K Unit]
+  [Ord K'] [ListIso S' (K' × Unit)] [MapRepr S' K' Unit] {f : K → K'} {T : S → S'}
+
+theorem unit_pointwise (hT : MapHook.Pointwise f (fun u => u) T) : T unit = unit :=
+  MapHook.unit_pointwise hT
+
+theorem element_pointwise (hT : MapHook.Pointwise f (fun u => u) T) (k : K) :
+    element (f k) = T (element k) :=
+  MapHook.element_pointwise hT k ()
+
+theorem concat_pointwise (hT : MapHook.Pointwise f (fun u => u) T) (hf : SAL.Pres f) (a b : S) :
+    concat (T a) (T b) = (concat a b).map T :=
+  MapHook.concat_pointwise hT hf a b
+
+theorem inSet_pointwise (hT : MapHook.Pointwise f (fun u => u) T) (hf : SAL.Pres f) (s : S) (k : K) :
+    inSet (f k) (T s) = inSet k s :=
+  MapHook.inKeys_pointwise hT hf s k
+
+theorem difference_pointwise (hT : MapHook.Pointwise f (fun u => u) T) (hf : SAL.Pres f) (a b : S) :
+    difference (T a) (T b) = T (difference a b) := by
+  unfold difference
+  rw [MapHook.pointwise_ofList hT, hT]
+  congr 1
+  simp only [SAL.mapPairs, List.filter_map]
+  congr 1
+  apply List.filter_congr
+  intro p _
+  simp only [Function.comp, MapHook.inKeys_pointwise hT hf]
+
+theorem size_pointwise (hT : MapHook.Pointwise f (fun u => u) T) (s : S) : size (T s) = size s := by
+  unfold size; rw [hT]; simp [SAL.mapPairs]
+
+end SetHook
+
+namespace ListHook
+
+open ListIso
+
+set_option linter.unusedSectionVars false
+
+variable {L E L' E' : Type} [ListIso L E] [ListIso L' E'] {f : E → E'} {T : L → L'}
+
+/-- `T` translates a list elementwise with `f`. -/
+def Pointwise (f : E → E') (T : L → L') : Prop := ∀ l, toList (T l) = (toList l).map f
+
+theorem pointwise_ofList (hT : Pointwise f T) (l : List E) : T (ofList l) = ofList (l.map f) := by
+  have := hT (ofList l)
+  rw [toList_ofList] at this
+  rw [← this, ofList_toList]
+
+theorem unit_pointwise (hT : Pointwise f T) : T unit = unit := by
+  unfold unit; rw [pointwise_ofList hT]; rfl
+
+theorem element_pointwise (hT : Pointwise f T) (x : E) : element (f x) = T (element x) := by
+  unfold element; rw [pointwise_ofList hT]; rfl
+
+theorem concat_pointwise (hT : Pointwise f T) (a b : L) : concat (T a) (T b) = T (concat a b) := by
+  unfold concat; rw [pointwise_ofList hT, hT, hT, List.map_append]
+
+theorem size_pointwise (hT : Pointwise f T) (l : L) : size (T l) = size l := by
+  unfold size; rw [hT, List.length_map]
+
+/-- `ListItem(X) REST` on a translated list is the translation of a match on the list. -/
+theorem concat_element_pointwise_inv (hT : Pointwise f T) {x' : E'} {t' : L'} {l : L}
+    (h : concat (element x') t' = T l) : ∃ x t, x' = f x ∧ t' = T t ∧ concat (element x) t = l := by
+  have hl := congrArg toList h
+  unfold concat element at hl
+  rw [toList_ofList, toList_ofList, hT, List.singleton_append] at hl
+  match hm : toList l, hl with
+  | x :: t, hl =>
+    simp only [List.map_cons, List.cons.injEq] at hl
+    obtain ⟨rfl, ht⟩ := hl
+    refine ⟨x, ofList t, rfl, ?_, ?_⟩
+    · rw [pointwise_ofList hT, ← ht, ofList_toList]
+    · unfold concat element; rw [toList_ofList, toList_ofList, List.singleton_append, ← hm, ofList_toList]
+
+/-- `REST ListItem(X)` on a translated list is the translation of a match on the list. -/
+theorem concat_element_pointwise_inv_back (hT : Pointwise f T) {x' : E'} {t' : L'} {l : L}
+    (h : concat t' (element x') = T l) : ∃ x t, x' = f x ∧ t' = T t ∧ concat t (element x) = l := by
+  have hl := congrArg toList h
+  unfold concat element at hl
+  rw [toList_ofList, toList_ofList, hT] at hl
+  have hne : toList l ≠ [] := by intro e; rw [e] at hl; simp at hl
+  obtain ⟨front, x, hfx⟩ := List.eq_nil_or_concat (toList l) |>.resolve_left hne
+  rw [List.concat_eq_append] at hfx
+  rw [hfx, List.map_append, List.map_singleton] at hl
+  obtain ⟨ht, hx⟩ := List.append_inj' hl rfl
+  simp only [List.cons.injEq, and_true] at hx
+  refine ⟨x, ofList front, hx, ?_, ?_⟩
+  · rw [pointwise_ofList hT, ← ht, ofList_toList]
+  · unfold concat element; rw [toList_ofList, toList_ofList, ← hfx, ofList_toList]
+
+end ListHook
+
+namespace KEqHook
+
+/-- `==K` commutes with an injective translation. -/
+theorem eq_of_injective {α β : Type} [DecidableEq α] [DecidableEq β] {f : α → β}
+    (hf : ∀ a b, f a = f b → a = b) (a b : α) : eq (f a) (f b) = eq a b := by
+  unfold eq
+  exact decide_eq_decide.2 ⟨hf a b, congrArg f⟩
+
+/-- `=/=K` commutes with an injective translation. -/
+theorem ne_of_injective {α β : Type} [DecidableEq α] [DecidableEq β] {f : α → β}
+    (hf : ∀ a b, f a = f b → a = b) (a b : α) : ne (f a) (f b) = ne a b := by
+  unfold ne
+  rw [decide_eq_decide.2 ⟨hf a b, congrArg f⟩]
+
+end KEqHook
+
 /-! ## Inverting a translation -/
 
 open Lean Meta Elab Tactic in
@@ -287,6 +647,9 @@ partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
     setGoals out.toList
 
 elab "k2l_inv" : tactic => k2lInvLoop 64
+
+
+
 
 end KPrelude
 

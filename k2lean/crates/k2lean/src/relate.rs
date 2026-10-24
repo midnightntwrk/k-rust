@@ -35,8 +35,34 @@ struct Side {
     m: Model,
     fns: BTreeMap<String, FnSig>,
     unfold: Vec<String>,
+    /// Lean names of the recursive (well-founded, `Option`-valued) functions.
+    recursive: BTreeSet<String>,
+    /// The generated functions by call-graph component, callees first, and the termination
+    /// measures of the recursive ones (`funcs::Generated`).
+    groups: Vec<Vec<String>>,
+    measures: BTreeMap<String, (Option<String>, Vec<String>)>,
+    choose_fns: BTreeSet<String>,
     rules: Vec<Rule>,
+    /// The priority ranks of the rules, and whether `App` and `Step` are stratified by them
+    /// (`App i c`, and `hpri` in each `Step` constructor of a rank above 0).
+    prios: Vec<i64>,
+    ranked: bool,
     ns: String,
+}
+
+impl Side {
+    fn rank(&self, r: &Rule) -> usize {
+        self.prios
+            .iter()
+            .position(|p| *p == r.priority)
+            .unwrap_or(0)
+    }
+}
+
+/// Stop with a message (exit status 2): a definition or a correspondence `relate` does not support.
+fn fail(msg: &str) -> ! {
+    eprintln!("relate: {msg}");
+    std::process::exit(2)
 }
 
 fn load_side(kore: &str, syn: Option<&str>, ns: &str, want_rules: bool) -> Side {
@@ -52,19 +78,12 @@ fn load_side(kore: &str, syn: Option<&str>, ns: &str, want_rules: bool) -> Side 
         }
     }
     roots.extend(m.anywhere.iter().cloned());
-    let fgen =
-        crate::funcs::generate(&def, &m, &roots).unwrap_or_else(|e| panic!("functions: {e}"));
-    let rules = if want_rules {
-        if rules::priorities(&def).len() > 1 {
-            panic!("relate: definitions with several rule priorities are not supported yet");
-        }
-        let rs = rules::collect(&def, &m, &fgen.fns, &[]).unwrap_or_else(|e| panic!("{e}"));
-        if rs.iter().any(|r| r.multi) {
-            panic!("relate: free-key map patterns are not supported yet");
-        }
-        rs
+    let fgen = crate::funcs::generate(&def, &m, &roots)
+        .unwrap_or_else(|e| fail(&format!("functions: {e}")));
+    let (rules, prios, ranked) = if want_rules {
+        rules::collect_ranked(&def, &m, &fgen.fns, &[]).unwrap_or_else(|e| fail(&e))
     } else {
-        vec![]
+        (vec![], vec![], false)
     };
     Side {
         def,
@@ -72,7 +91,13 @@ fn load_side(kore: &str, syn: Option<&str>, ns: &str, want_rules: bool) -> Side 
         m,
         fns: fgen.fns,
         unfold: fgen.unfold,
+        recursive: fgen.recursive,
+        groups: fgen.groups,
+        measures: fgen.measures,
+        choose_fns: fgen.choose_fns,
         rules,
+        prios,
+        ranked,
         ns: ns.to_string(),
     }
 }
@@ -635,30 +660,30 @@ pub fn main(args: &[String]) {
         for (u, k) in &kb {
             b_by_key.entry(k).or_default().push(u);
         }
-        let ia: BTreeMap<&str, usize> = a
-            .rules
-            .iter()
-            .enumerate()
-            .map(|(i, r)| (r.uid.as_str(), i))
-            .collect();
-        let ib: BTreeMap<&str, usize> = b
-            .rules
-            .iter()
-            .enumerate()
-            .map(|(i, r)| (r.uid.as_str(), i))
-            .collect();
+        // a KORE axiom is one rule per overload variant (`_ov1`, …), in the same order on both
+        // sides: the variants of two corresponding axioms correspond one to one
+        let group = |side: &Side| {
+            let mut g: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+            for (i, r) in side.rules.iter().enumerate() {
+                g.entry(r.uid.clone()).or_default().push(i);
+            }
+            g
+        };
+        let (ga, gb) = (group(&a), group(&b));
         let mut used_b = BTreeSet::new();
+        let mut unmatched_groups: Vec<&String> = Vec::new();
         for (u, k) in &ka {
-            let Some(&i) = ia.get(u.as_str()) else {
+            let Some(is) = ga.get(u) else {
                 continue;
             };
             match b_by_key.get(k).map(|v| v.as_slice()) {
-                Some([ub]) => {
-                    let j = ib[ub.as_str()];
-                    pairs.push((i, j));
-                    used_b.insert(j);
+                Some([ub]) if gb.get(*ub).is_some_and(|js| js.len() == is.len()) => {
+                    for (i, j) in is.iter().zip(&gb[*ub]) {
+                        pairs.push((*i, *j));
+                        used_b.insert(*j);
+                    }
                 }
-                _ => unmatched_rules_a.push(i),
+                _ => unmatched_groups.push(u),
             }
         }
         // the rest: B's rule an instance of A's at subsorts of some variables
@@ -687,27 +712,31 @@ pub fn main(args: &[String]) {
             })
             .collect();
         let mut still = Vec::new();
-        for i in std::mem::take(&mut unmatched_rules_a) {
-            let pa = ax_a[&a.rules[i].uid];
-            let cands: Vec<(usize, BTreeSet<(String, S)>)> = (0..b.rules.len())
-                .filter(|j| !used_b.contains(j))
-                .filter_map(|j| {
+        for u in unmatched_groups {
+            let is = &ga[u];
+            let pa = ax_a[u];
+            let cands: Vec<(&String, BTreeSet<(String, S)>)> = gb
+                .iter()
+                .filter(|(_, js)| js.len() == is.len() && js.iter().all(|j| !used_b.contains(j)))
+                .filter_map(|(ub, _)| {
                     let mut vm = BTreeMap::new();
                     let mut refs = BTreeSet::new();
-                    pmatch(pa, ax_b[&b.rules[j].uid], &ren, &mut vm, &mut refs).then_some((j, refs))
+                    pmatch(pa, ax_b[ub], &ren, &mut vm, &mut refs).then_some((ub, refs))
                 })
                 .collect();
-            if let [(j, refs)] = cands.as_slice() {
-                pairs.push((i, *j));
-                used_b.insert(*j);
-                refined.insert(
-                    i,
-                    refs.iter()
-                        .map(|(_, t)| t.name().unwrap_or("?").to_string())
-                        .collect(),
-                );
+            if let [(ub, refs)] = cands.as_slice() {
+                for (i, j) in is.iter().zip(&gb[*ub]) {
+                    pairs.push((*i, *j));
+                    used_b.insert(*j);
+                    refined.insert(
+                        *i,
+                        refs.iter()
+                            .map(|(_, t)| t.name().unwrap_or("?").to_string())
+                            .collect(),
+                    );
+                }
             } else {
-                still.push(i);
+                still.extend(is.iter().copied());
             }
         }
         unmatched_rules_a = still;
@@ -779,6 +808,48 @@ pub fn main(args: &[String]) {
             );
         }
     }
+    // priorities: a pair of rules must be of the same rank, so that "no rule of a higher rank
+    // applies" corresponds on both sides
+    let mut bisim = full && unmatched_rules_a.is_empty();
+    if bisim {
+        let bad: Vec<String> = pairs
+            .iter()
+            .filter(|(i, j)| a.rank(&a.rules[*i]) != b.rank(&b.rules[*j]))
+            .map(|(i, _)| rules::display_name(&a.rules[*i]))
+            .collect();
+        if a.ranked != b.ranked || !bad.is_empty() {
+            writeln!(
+                rep,
+                "\n# not stated: paired rules of different priority ranks: {bad:?}"
+            )
+            .unwrap();
+            eprintln!(
+                "note: paired rules of different priority ranks ({}); the bisimulation is not stated",
+                bad.join(", ")
+            );
+            bisim = false;
+        }
+    }
+    // whether the translation keeps every constructor's position (design.md, §3.2)
+    let ordered = if bisim {
+        positions_kept(&a, &b, &sm, &covered)
+    } else {
+        Err(String::new())
+    };
+    if bisim {
+        match &ordered {
+            Ok(()) => writeln!(
+                rep,
+                "\n# the translation keeps every constructor's position: it preserves the order of every key"
+            )
+            .unwrap(),
+            Err(e) => writeln!(
+                rep,
+                "\n# the translation moves a constructor ({e}): map keys are restricted by `Inv`"
+            )
+            .unwrap(),
+        }
+    }
     if let Some(r) = opt.get("report") {
         std::fs::write(r, &rep).unwrap();
     }
@@ -788,11 +859,13 @@ pub fn main(args: &[String]) {
         &ns,
         &sm,
         &covered,
-        full && unmatched_rules_a.is_empty(),
+        bisim,
+        ordered.is_ok(),
         &pairs,
         &unmatched_rules_b,
         &refined,
-    );
+    )
+    .unwrap_or_else(|e| fail(&e));
     std::fs::write(get("out"), lean).unwrap();
     eprintln!(
         "relate: {} symbols matched ({} unmatched in {}, {} in {}); {} rule pairs, {} + {} unmatched rules",
@@ -832,10 +905,11 @@ fn emit(
     sm: &SymMap,
     covered: &BTreeSet<String>,
     bisim: bool,
+    ordered: bool,
     pairs: &[(usize, usize)],
     unmatched_b: &[usize],
     refined: &BTreeMap<usize, Vec<String>>,
-) -> String {
+) -> Result<String, String> {
     let (na, nb) = (&a.ns, &b.ns);
     let mut o = String::new();
     // only what the statements need: the relations (or, for a translation of programs, the functions)
@@ -1059,66 +1133,182 @@ fn emit(
         "\n/-! ## Functions defined by equations commute with the translation -/\n"
     )
     .unwrap();
+    // an order-preserving translation: the collection lemmas come first, the functions use them
+    let ordered_lemmas =
+        (bisim && ordered).then(|| emit_ordered_terms(a, b, &mut o, covered, &fold_names));
     let mut fn_count = 0;
-    for (sym, sig) in &a.fns {
-        let Some(sb) = b.fns.get(sym) else { continue };
-        if crate::hooks::for_symbol(&a.def.symbols[sym]).is_some()
-            || sb.lean != sig.lean
-            || sb.args != sig.args
-            || sb.result != sig.result
-        {
-            continue;
-        }
-        if sig
-            .args
-            .iter()
-            .chain(std::iter::once(&sig.result))
-            .any(|s| !is_builtin(&a.m, s) && !covered.contains(s))
-        {
-            continue;
-        }
-        let xs: Vec<String> = (0..sig.args.len()).map(|i| format!("x{i}")).collect();
-        let binders: String = sig
-            .args
-            .iter()
-            .zip(&xs)
-            .map(|(s, x)| format!(" ({x} : {na}.{s})"))
-            .collect();
-        let vs: Vec<String> = sig
-            .args
-            .iter()
-            .zip(&xs)
-            .map(|(s, x)| val(&a.m, s, x))
-            .collect();
-        let call = format!("{na}.{} {}", sig.lean, xs.join(" "));
-        let rhs = if sig.partial {
-            if is_builtin(&a.m, &sig.result) {
-                format!("({call})")
-            } else {
-                format!("({call}).map {}", tr_name(&sig.result))
-            }
-        } else {
-            val(&a.m, &sig.result, &format!("({call})"))
+    // the commutation lemmas of total functions (`B.f (tr x) = tr (A.f x)`), which push `tr` in
+    let mut pure_fns: Vec<String> = Vec::new();
+    // the functions to translate, callees first: a lemma's proof rewrites with those of the
+    // functions it calls, and a recursive group's lemmas are proved together
+    let commutes = |sym: &String| -> bool {
+        let sig = &a.fns[sym];
+        let Some(sb) = b.fns.get(sym) else {
+            return false;
         };
-        let unf: Vec<String> = a
-            .unfold
+        crate::hooks::for_symbol(&a.def.symbols[sym]).is_none()
+            && sb.lean == sig.lean
+            && sb.args == sig.args
+            && sb.result == sig.result
+            && !sig
+                .args
+                .iter()
+                .chain(std::iter::once(&sig.result))
+                .any(|s| !is_builtin(&a.m, s) && !covered.contains(s))
+    };
+    let groups: Vec<Vec<String>> = if ordered_lemmas.is_some() {
+        a.groups
             .iter()
-            .filter(|u| u.starts_with(&sig.lean))
-            .flat_map(|u| [format!("{na}.{u}"), format!("{nb}.{u}")])
+            .map(|g| {
+                g.iter()
+                    .filter(|f| a.fns.contains_key(*f) && commutes(f))
+                    .cloned()
+                    .collect::<Vec<_>>()
+            })
+            .filter(|g| !g.is_empty())
+            .collect()
+    } else {
+        a.fns
+            .keys()
+            .filter(|f| commutes(f))
+            .map(|f| vec![f.clone()])
+            .collect()
+    };
+    if ordered_lemmas.is_some()
+        && let Some(f) = groups.iter().flatten().find(|f| a.choose_fns.contains(*f))
+    {
+        return Err(format!(
+            "the function {} has an equation with a free-key map pattern; its commutation with the translation is not generated",
+            names::demangle(f)
+        ));
+    }
+    for group in &groups {
+        let rec_group =
+            ordered_lemmas.is_some() && group.iter().any(|f| a.recursive.contains(&a.fns[f].lean));
+        let names: Vec<String> = (0..group.len())
+            .map(|i| format!("comm_fn_{}", fn_count + i))
             .collect();
-        writeln!(
-            o,
-            "@[k2l_rel] theorem comm_fn_{fn_count} {binders} : {nb}.{} {} = {rhs} := by\n  simp only [{}]\n  k2l_comm_fn",
-            sb.lean,
-            vs.join(" "),
-            unf.join(", ")
-        )
-        .unwrap();
-        fn_count += 1;
+        if rec_group && group.len() > 1 {
+            writeln!(o, "mutual").unwrap();
+        }
+        for sym in group {
+            let sig = &a.fns[sym];
+            let sb = &b.fns[sym];
+            let xs: Vec<String> = (0..sig.args.len()).map(|i| format!("x{i}")).collect();
+            let binders: String = sig
+                .args
+                .iter()
+                .zip(&xs)
+                .map(|(s, x)| format!(" ({x} : {na}.{s})"))
+                .collect();
+            let vs: Vec<String> = sig
+                .args
+                .iter()
+                .zip(&xs)
+                .map(|(s, x)| val(&a.m, s, x))
+                .collect();
+            let call = format!("{na}.{} {}", sig.lean, xs.join(" "));
+            let rhs = if sig.partial {
+                if is_builtin(&a.m, &sig.result) {
+                    format!("({call})")
+                } else {
+                    format!("({call}).map {}", tr_name(&sig.result))
+                }
+            } else {
+                val(&a.m, &sig.result, &format!("({call})"))
+            };
+            let unf: Vec<String> = a
+                .unfold
+                .iter()
+                .filter(|u| u.starts_with(&sig.lean))
+                .flat_map(|u| [format!("{na}.{u}"), format!("{nb}.{u}")])
+                .collect();
+            if rec_group {
+                // a well-founded definition: unfolded once on both sides, both cascades split
+                // in step; a recursive call of `B` is rewritten by the lemma of its function
+                // (this one or one of its group), which is the induction: the lemma is defined by
+                // the same well-founded recursion as `A.f`
+                let gens: String = xs
+                    .iter()
+                    .map(|x| format!("\n  generalize h{x} : {x} = {x}'"))
+                    .collect();
+                let (by, ranks) = a.measures.get(sym).cloned().unwrap_or((None, vec![]));
+                let qualify = |t: &str| t.replace("K.", &format!("{na}.K."));
+                // the measure of `A.f`; without one, Lean's own search, with its own tactic
+                let term = match by {
+                    Some(t) => format!(
+                        "termination_by {}\ndecreasing_by all_goals first\n  | k2l_decreasing [{}]\n  | (simp_wf; (try subst_vars); (try simp_all); omega)\n",
+                        qualify(&t),
+                        ranks
+                            .iter()
+                            .map(|r| qualify(r))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    None => {
+                        "decreasing_by all_goals (simp_wf; (try subst_vars); decreasing_tactic)\n"
+                            .to_string()
+                    }
+                };
+                writeln!(
+                o,
+                "@[k2l_rel] theorem comm_fn_{fn_count} {binders} : {nb}.{} {} = {rhs} := by\n  rw [{na}.{lean}.eq_def, {nb}.{lean}.eq_def]{gens}\n  comm_rec [{}]\n{term}",
+                sb.lean,
+                vs.join(" "),
+                names.join(", "),
+                lean = sig.lean
+            )
+            .unwrap();
+            } else {
+                writeln!(
+                o,
+                "@[k2l_rel] theorem comm_fn_{fn_count} {binders} : {nb}.{} {} = {rhs} := by\n  simp only [{}]\n  {}",
+                sb.lean,
+                vs.join(" "),
+                unf.join(", "),
+                // a body that calls other functions: their lemmas rewrite `B`'s calls
+                if ordered_lemmas.is_some() {
+                    "first | k2l_comm_fn | (simp only [k2l_rel]; comm_rec [])"
+                } else {
+                    "k2l_comm_fn"
+                }
+            )
+            .unwrap();
+            }
+            if !sig.partial && !is_builtin(&a.m, &sig.result) {
+                pure_fns.push(format!("comm_fn_{fn_count}"));
+            }
+            fn_count += 1;
+        }
+        if rec_group && group.len() > 1 {
+            writeln!(o, "end").unwrap();
+        }
     }
     if !bisim {
         writeln!(o, "\nend {ns}").unwrap();
-        return o;
+        return Ok(o);
+    }
+    if ordered {
+        let lemmas = ordered_lemmas.expect("the lemmas of an order-preserving translation");
+        return emit_ordered(
+            a,
+            b,
+            ns,
+            o,
+            covered,
+            pairs,
+            unmatched_b,
+            refined,
+            &fold_names,
+            &pure_fns,
+            lemmas,
+        );
+    }
+    if a.ranked || b.ranked {
+        return Err(format!(
+            "a correspondence that moves a constructor (so map keys need `Inv`) between definitions with priority ranks or free-key map patterns ({} or {}) is not supported",
+            a.ns, b.ns
+        ));
     }
     // the invariant: keys of map cells
     let top = rules::top_sort(&a.def).unwrap();
@@ -1200,9 +1390,9 @@ fn emit(
             )
         })
     {
-        panic!(
-            "relate: map keys that are not injections of builtin or token sorts: {bad:?} {key_leaves:?}"
-        );
+        return Err(format!(
+            "the translation moves a constructor, and map keys that are not injections of builtin or token sorts need an order-preserving translation: {bad:?} {key_leaves:?}"
+        ));
     }
     // map cells of the configuration (depth one)
     let top_ctor =
@@ -1229,7 +1419,10 @@ fn emit(
         .iter()
         .any(|s| a.m.elems(s) != ["SortKItem", "SortKItem"])
     {
-        panic!("relate: typed cell maps are not supported yet");
+        return Err(
+            "the translation moves a constructor, and typed cell maps need an order-preserving translation"
+                .into(),
+        );
     }
     writeln!(
         o,
@@ -1329,7 +1522,7 @@ fn emit(
             let t = names::short_sort(val_sorts.iter().next().unwrap()).to_string();
             writeln!(o, "theorem val_of_concat {{k v : {na}.SortKItem}} {{D m : {na}.SortMap}} (hm : ValsOK m)\n    (h : MapHook.concat (MapHook.element k v) D = some m) : ∃ V, v = {na}.inj_{t}_KItem V := by\n  have hl := MapHook.lookup_of_concat_element h\n  rw [MapHook.lookup_def] at hl\n  have hv := hm _ (SAL.lookup_mem hl)\n  simp only [valOK, Option.isSome_iff_exists] at hv\n  obtain ⟨V, hV⟩ := hv\n  exact ⟨V, {na}.proj_eq_some_KItem_{t}.1 hV⟩\n").unwrap();
         } else {
-            panic!("relate: refinements to several value sorts are not supported yet");
+            return Err("refinements to several value sorts are not supported yet".into());
         }
     }
     let mut inv_pats = Vec::new();
@@ -1694,5 +1887,762 @@ fn emit(
     .unwrap();
     writeln!(o, "#k2l_assert_axioms inv_step forward backward app_fwd app_bwd bisim stepsN_iff terminal_iff app_iff run_agree\n").unwrap();
     writeln!(o, "end {ns}").unwrap();
-    o
+    Ok(o)
+}
+
+/// Whether the translation keeps every constructor of every covered type at its position (its
+/// tag in the serialization `ser`, from which each library's order on terms comes): then
+/// `ser (tr a) = ser a` for every term, so the translation preserves the order of every map key
+/// and commutes with every collection operation, without a hypothesis (design.md, §3.2). `Err`
+/// names the first constructor that moves.
+fn positions_kept(
+    a: &Side,
+    b: &Side,
+    sm: &SymMap,
+    covered: &BTreeSet<String>,
+) -> Result<(), String> {
+    let bt: BTreeMap<String, Vec<String>> = terms::block_types(&b.m)
+        .into_iter()
+        .map(|(t, cs)| (t, cs.into_iter().map(|c| c.name).collect()))
+        .collect();
+    for (t, _, k) in universe(&a.m) {
+        if !covered.contains(&t) {
+            continue;
+        }
+        let Some(bcs) = bt.get(&t) else {
+            return Err(format!("{} has no type {t}", b.ns));
+        };
+        let images: Vec<String> = match &k {
+            TyKind::Own(cs) => cs
+                .iter()
+                .map(|(sym, _, _)| b.m.ctors[&sm.map[sym].0].lean.clone())
+                .collect(),
+            TyKind::Sum(ls) => ls
+                .iter()
+                .map(|(l, _)| format!("inj_{}", names::short_sort(l)))
+                .collect(),
+            TyKind::Coll(..) => vec!["nil".into(), "cons".into()],
+        };
+        for (i, n) in images.iter().enumerate() {
+            if bcs.get(i) != Some(n) {
+                let j = bcs.iter().position(|x| x == n);
+                return Err(format!(
+                    "{t}: the image `{n}` of constructor {i} of {} is at position {} in {}",
+                    a.ns,
+                    j.map(|j| j.to_string()).unwrap_or_else(|| "none".into()),
+                    b.ns
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The translation function of a value of type `s`, as a term (`(fun x => x)` for a builtin).
+fn tr_fn(m: &Model, s: &str) -> String {
+    if is_builtin(m, s) {
+        "(fun x => x)".to_string()
+    } else {
+        tr_name(s)
+    }
+}
+
+/// The lemmas of an order-preserving translation (`positions_kept`) that the commutation lemmas
+/// of functions already use: `ser (tr a) = ser a` on every covered type, injectivity, the order
+/// of every key, the pointwise translation of every collection and the commutation of every
+/// collection operation (`k2l_rel`), `==K`. Returns the names of the lemmas that push `tr` into
+/// an operation, and of the inversions of map and list patterns.
+fn emit_ordered_terms(
+    a: &Side,
+    b: &Side,
+    o: &mut String,
+    covered: &BTreeSet<String>,
+    fold_names: &[String],
+) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let (na, nb) = (&a.ns, &b.ns);
+    let block: Vec<(String, Vec<terms::LCtor>)> = terms::block_types(&a.m)
+        .into_iter()
+        .filter(|(t, _)| covered.contains(t))
+        .collect();
+    let in_block: BTreeSet<&String> = block.iter().map(|(t, _)| t).collect();
+    // ser (tr a) = ser a
+    writeln!(
+        *o,
+        "\n/-! ## The translation keeps every constructor's position, so it keeps every term's serialization -/\n"
+    )
+    .unwrap();
+    writeln!(*o, "mutual").unwrap();
+    for (t, ctors) in &block {
+        let f = terms::fsuffix(t);
+        writeln!(
+            o,
+            "theorem ser_tr_{f} (a : {na}.{t}) : {nb}.ser_{f} ({} a) = {na}.ser_{f} a :=\n  match a with",
+            tr_name(t)
+        )
+        .unwrap();
+        for (i, c) in ctors.iter().enumerate() {
+            let xs: Vec<String> = (0..c.args.len()).map(|j| format!("a{j}")).collect();
+            if c.args.is_empty() {
+                writeln!(*o, "  | .{} => rfl", c.name).unwrap();
+                continue;
+            }
+            let part = |side: &str, s: &str, x: &str, translate: bool| {
+                let arg = if translate {
+                    val(&a.m, s, x)
+                } else {
+                    x.to_string()
+                };
+                format!("{side}.ser_{} {arg}", terms::fsuffix(s))
+            };
+            let join = |ps: Vec<String>| {
+                let mut body = ps.last().unwrap().clone();
+                for p in ps.iter().rev().skip(1) {
+                    body = format!("({p} ++ {body})");
+                }
+                body
+            };
+            let lhs = join(
+                c.args
+                    .iter()
+                    .zip(&xs)
+                    .map(|(s, x)| part(nb, s, x, true))
+                    .collect(),
+            );
+            let rhs = join(
+                c.args
+                    .iter()
+                    .zip(&xs)
+                    .map(|(s, x)| part(na, s, x, false))
+                    .collect(),
+            );
+            let ih: Vec<String> = c
+                .args
+                .iter()
+                .zip(&xs)
+                .filter(|(s, _)| in_block.contains(s))
+                .map(|(s, x)| format!("ser_tr_{} {x}", terms::fsuffix(s)))
+                .collect();
+            let fin = if ih.is_empty() {
+                "exact rfl".to_string()
+            } else {
+                format!("rw [{}] <;> exact rfl", ih.join(", "))
+            };
+            writeln!(
+                o,
+                "  | .{} {} => by\n    show (Tok.c {i} :: {lhs} : List Tok) = Tok.c {i} :: {rhs}\n    {fin}",
+                c.name,
+                xs.join(" ")
+            )
+            .unwrap();
+        }
+        writeln!(*o, "  termination_by structural a").unwrap();
+    }
+    writeln!(*o, "end\n").unwrap();
+    // the collection sorts and their key types
+    let colls: Vec<(String, Coll, Vec<String>)> = universe(&a.m)
+        .into_iter()
+        .filter(|(t, _, _)| covered.contains(t))
+        .filter_map(|(t, _, k)| match k {
+            TyKind::Coll(c, es) => Some((t, c, es)),
+            _ => None,
+        })
+        .collect();
+    let mut keys: BTreeSet<String> = BTreeSet::new();
+    for (_, c, es) in &colls {
+        if !matches!(c, Coll::List) {
+            keys.insert(es[0].clone());
+        }
+    }
+    writeln!(*o, "/-! ## Order, injectivity and the collections -/\n").unwrap();
+    // injectivity of every type a value of which can be compared (`==K`, `-Map`)
+    for (t, _) in &block {
+        let f = terms::fsuffix(t);
+        writeln!(*o, "theorem tr_inj_{f} (x y : {na}.{t}) (h : {} x = {} y) : x = y :=\n  {na}.ser_{f}_inj x y (by rw [← ser_tr_{f}, ← ser_tr_{f}, h])", tr_name(t), tr_name(t)).unwrap();
+        writeln!(
+            *o,
+            "@[k2l_rel] theorem tr_eq_iff_{f} (x y : {na}.{t}) : {} x = {} y ↔ x = y :=\n  ⟨tr_inj_{f} x y, congrArg _⟩",
+            tr_name(t),
+            tr_name(t)
+        )
+        .unwrap();
+    }
+    for k in &keys {
+        let f = terms::fsuffix(k);
+        if is_builtin(&a.m, k) {
+            writeln!(
+                *o,
+                "theorem pres_{f} : SAL.Pres (fun x : {na}.{k} => x) := fun _ _ => rfl"
+            )
+            .unwrap();
+        } else if in_block.contains(k) {
+            writeln!(*o, "theorem pres_{f} : SAL.Pres {} := fun x y => by\n  show {nb}.cmp_{f} ({} x) ({} y) = {na}.cmp_{f} x y\n  rw [{nb}.cmp_{f}_eq, {na}.cmp_{f}_eq, ser_tr_{f}, ser_tr_{f}]", tr_name(k), tr_name(k), tr_name(k)).unwrap();
+        } else {
+            // a token sort: its order is the order of its strings
+            writeln!(
+                *o,
+                "theorem pres_{f} : SAL.Pres {} := fun _ _ => rfl",
+                tr_name(k)
+            )
+            .unwrap();
+        }
+    }
+    writeln!(o).unwrap();
+    let mut comm: Vec<String> = Vec::new();
+    // `tr (A.op x) = B.op (tr x)` lemmas, pushed inward on a configuration
+    let mut push_ops: Vec<String> = Vec::new();
+    let mut map_bwd: Vec<String> = Vec::new();
+    let mut list_bwd: Vec<String> = Vec::new();
+    // the pointwise translations first: the commutation lemmas of one collection sort use those
+    // of another (`keys` of a map is a set)
+    for pass in [0, 1] {
+        for (t, c, es) in &colls {
+            let f = terms::fsuffix(t);
+            let tr = tr_name(t);
+            let go = |o: &mut String, pw: &str, rhs: &str, cons: &str| {
+                if pass == 1 {
+                    return;
+                }
+                writeln!(
+                o,
+                "theorem pw_{f} : {pw} {tr} := by\n  intro m\n  exact go m\nwhere\n  go : ∀ m : {na}.{t}, ListIso.toList ({tr} m) = {rhs}\n    | .nil => rfl\n    | {cons}\n"
+            )
+            .unwrap();
+            };
+            match c {
+                Coll::Map => {
+                    let (tk, tv) = (tr_fn(&a.m, &es[0]), tr_fn(&a.m, &es[1]));
+                    go(
+                        o,
+                        &format!("MapHook.Pointwise {tk} {tv}"),
+                        &format!("SAL.mapPairs {tk} {tv} (ListIso.toList m)"),
+                        &format!(".cons k v r => congrArg (List.cons ({tk} k, {tv} v)) (go r)"),
+                    );
+                    if pass == 0 {
+                        continue;
+                    }
+                    let pk = format!("pres_{}", terms::fsuffix(&es[0]));
+                    let (kt, vt) = (format!("{na}.{}", es[0]), format!("{na}.{}", es[1]));
+                    for (n, stmt, proof) in [
+                        (
+                            "unit",
+                            format!(": (MapHook.unit : {nb}.{t}) = {tr} MapHook.unit"),
+                            format!("(MapHook.unit_pointwise pw_{f}).symm"),
+                        ),
+                        (
+                            "element",
+                            format!(
+                                "(k : {kt}) (v : {vt}) : (MapHook.element ({tk} k) ({tv} v) : {nb}.{t}) = {tr} (MapHook.element k v)"
+                            ),
+                            format!("MapHook.element_pointwise pw_{f} k v"),
+                        ),
+                        (
+                            "concat",
+                            format!(
+                                "(x y : {na}.{t}) : MapHook.concat ({tr} x) ({tr} y) = (MapHook.concat x y).map {tr}"
+                            ),
+                            format!("MapHook.concat_pointwise pw_{f} {pk} x y"),
+                        ),
+                        (
+                            "update",
+                            format!(
+                                "(m : {na}.{t}) (k : {kt}) (v : {vt}) : MapHook.update ({tr} m) ({tk} k) ({tv} v) = {tr} (MapHook.update m k v)"
+                            ),
+                            format!("MapHook.update_pointwise_of_pres pw_{f} {pk} m k v"),
+                        ),
+                        (
+                            "remove",
+                            format!(
+                                "(m : {na}.{t}) (k : {kt}) : MapHook.remove ({tr} m) ({tk} k) = {tr} (MapHook.remove m k)"
+                            ),
+                            format!("MapHook.remove_pointwise pw_{f} {pk} m k"),
+                        ),
+                        (
+                            "lookup",
+                            format!(
+                                "(m : {na}.{t}) (k : {kt}) : MapHook.lookup ({tr} m) ({tk} k) = (MapHook.lookup m k).map {tv}"
+                            ),
+                            format!("MapHook.lookup_pointwise pw_{f} {pk} m k"),
+                        ),
+                        (
+                            "lookupOrDefault",
+                            format!(
+                                "(m : {na}.{t}) (k : {kt}) (d : {vt}) : MapHook.lookupOrDefault ({tr} m) ({tk} k) ({tv} d) = {tv} (MapHook.lookupOrDefault m k d)"
+                            ),
+                            format!("MapHook.lookupOrDefault_pointwise pw_{f} {pk} m k d"),
+                        ),
+                        (
+                            "inKeys",
+                            format!(
+                                "(m : {na}.{t}) (k : {kt}) : MapHook.inKeys ({tk} k) ({tr} m) = MapHook.inKeys k m"
+                            ),
+                            format!("MapHook.inKeys_pointwise pw_{f} {pk} m k"),
+                        ),
+                        (
+                            "size",
+                            format!("(m : {na}.{t}) : MapHook.size ({tr} m) = MapHook.size m"),
+                            format!("MapHook.size_pointwise pw_{f} m"),
+                        ),
+                        (
+                            "wfb",
+                            format!("(m : {na}.{t}) : MapHook.wfb ({tr} m) = MapHook.wfb m"),
+                            format!("MapHook.wfb_pointwise pw_{f} {pk} m"),
+                        ),
+                    ] {
+                        writeln!(*o, "@[k2l_rel] theorem comm_{n}_{f} {stmt} :=\n  {proof}")
+                            .unwrap();
+                        comm.push(format!("comm_{n}_{f}"));
+                        if matches!(n, "unit" | "element" | "update" | "remove") {
+                            push_ops.push(format!("comm_{n}_{f}"));
+                        }
+                    }
+                    if in_block.contains(&es[1]) {
+                        let vf = terms::fsuffix(&es[1]);
+                        writeln!(*o, "@[k2l_rel] theorem comm_difference_{f} (x y : {na}.{t}) : MapHook.difference ({tr} x) ({tr} y) = {tr} (MapHook.difference x y) :=\n  MapHook.difference_pointwise pw_{f} {pk} tr_inj_{vf} x y").unwrap();
+                        push_ops.push(format!("comm_difference_{f}"));
+                    }
+                    // keys into each set sort, values and keys_list into each list sort, of the
+                    // matching element type
+                    for (t2, c2, es2) in &colls {
+                        let f2 = terms::fsuffix(t2);
+                        let tr2 = tr_name(t2);
+                        match c2 {
+                            Coll::Set if es2[0] == es[0] => {
+                                writeln!(*o, "@[k2l_rel] theorem comm_keys_{f}_{f2} (m : {na}.{t}) : (MapHook.keys ({tr} m) : {nb}.{t2}) = {tr2} (MapHook.keys m) :=\n  MapHook.keys_pointwise pw_{f} pw_{f2} m").unwrap();
+                                push_ops.push(format!("comm_keys_{f}_{f2}"));
+                            }
+                            Coll::List if es2[0] == es[1] => {
+                                writeln!(*o, "@[k2l_rel] theorem comm_values_{f}_{f2} (m : {na}.{t}) : (MapHook.values ({tr} m) : {nb}.{t2}) = {tr2} (MapHook.values m) :=\n  MapHook.values_pointwise pw_{f} pw_{f2} m").unwrap();
+                                push_ops.push(format!("comm_values_{f}_{f2}"));
+                            }
+                            _ => {}
+                        }
+                        if matches!(c2, Coll::List) && es2[0] == es[0] {
+                            writeln!(*o, "@[k2l_rel] theorem comm_keysList_{f}_{f2} (m : {na}.{t}) : (MapHook.keysList ({tr} m) : {nb}.{t2}) = {tr2} (MapHook.keysList m) :=\n  MapHook.keysList_pointwise pw_{f} pw_{f2} m").unwrap();
+                            push_ops.push(format!("comm_keysList_{f}_{f2}"));
+                        }
+                    }
+                    writeln!(*o, "theorem map_bwd_{f} {{k' : {nb}.{}}} {{v' : {nb}.{}}} {{r' : {nb}.{t}}} {{m : {na}.{t}}}\n    (h : MapHook.concat (MapHook.element k' v') r' = some ({tr} m)) :\n    ∃ k v r, k' = {tk} k ∧ v' = {tv} v ∧ r' = {tr} r ∧ MapHook.concat (MapHook.element k v) r = some m :=\n  MapHook.concat_element_pointwise_inv_free pw_{f} {pk} h\n", es[0], es[1]).unwrap();
+                    map_bwd.push(format!("map_bwd_{f}"));
+                }
+                Coll::Set => {
+                    let tk = tr_fn(&a.m, &es[0]);
+                    go(
+                        o,
+                        &format!("MapHook.Pointwise {tk} (fun u => u)"),
+                        &format!("SAL.mapPairs {tk} (fun u => u) (ListIso.toList m)"),
+                        &format!(".cons k r => congrArg (List.cons ({tk} k, ())) (go r)"),
+                    );
+                    if pass == 0 {
+                        continue;
+                    }
+                    let pk = format!("pres_{}", terms::fsuffix(&es[0]));
+                    let kt = format!("{na}.{}", es[0]);
+                    for (n, stmt, proof) in [
+                        (
+                            "munit",
+                            format!(": (MapHook.unit : {nb}.{t}) = {tr} MapHook.unit"),
+                            format!("(MapHook.unit_pointwise pw_{f}).symm"),
+                        ),
+                        (
+                            "melement",
+                            format!(
+                                "(k : {kt}) (v : Unit) : (MapHook.element ({tk} k) v : {nb}.{t}) = {tr} (MapHook.element k v)"
+                            ),
+                            format!("MapHook.element_pointwise pw_{f} k v"),
+                        ),
+                        (
+                            "mconcat",
+                            format!(
+                                "(x y : {na}.{t}) : MapHook.concat ({tr} x) ({tr} y) = (MapHook.concat x y).map {tr}"
+                            ),
+                            format!("MapHook.concat_pointwise pw_{f} {pk} x y"),
+                        ),
+                        (
+                            "unit",
+                            format!(": (SetHook.unit : {nb}.{t}) = {tr} SetHook.unit"),
+                            format!("(SetHook.unit_pointwise pw_{f}).symm"),
+                        ),
+                        (
+                            "element",
+                            format!(
+                                "(k : {kt}) : (SetHook.element ({tk} k) : {nb}.{t}) = {tr} (SetHook.element k)"
+                            ),
+                            format!("SetHook.element_pointwise pw_{f} k"),
+                        ),
+                        (
+                            "concat",
+                            format!(
+                                "(x y : {na}.{t}) : SetHook.concat ({tr} x) ({tr} y) = (SetHook.concat x y).map {tr}"
+                            ),
+                            format!("SetHook.concat_pointwise pw_{f} {pk} x y"),
+                        ),
+                        (
+                            "inSet",
+                            format!(
+                                "(s : {na}.{t}) (k : {kt}) : SetHook.inSet ({tk} k) ({tr} s) = SetHook.inSet k s"
+                            ),
+                            format!("SetHook.inSet_pointwise pw_{f} {pk} s k"),
+                        ),
+                        (
+                            "difference",
+                            format!(
+                                "(x y : {na}.{t}) : SetHook.difference ({tr} x) ({tr} y) = {tr} (SetHook.difference x y)"
+                            ),
+                            format!("SetHook.difference_pointwise pw_{f} {pk} x y"),
+                        ),
+                        (
+                            "size",
+                            format!("(s : {na}.{t}) : SetHook.size ({tr} s) = SetHook.size s"),
+                            format!("SetHook.size_pointwise pw_{f} s"),
+                        ),
+                        (
+                            "wfb",
+                            format!("(m : {na}.{t}) : MapHook.wfb ({tr} m) = MapHook.wfb m"),
+                            format!("MapHook.wfb_pointwise pw_{f} {pk} m"),
+                        ),
+                    ] {
+                        writeln!(*o, "@[k2l_rel] theorem comm_{n}_{f} {stmt} :=\n  {proof}")
+                            .unwrap();
+                        comm.push(format!("comm_{n}_{f}"));
+                        if matches!(n, "munit" | "melement" | "unit" | "element" | "difference") {
+                            push_ops.push(format!("comm_{n}_{f}"));
+                        }
+                    }
+                    writeln!(*o, "theorem map_bwd_{f} {{k' : {nb}.{}}} {{v' : Unit}} {{r' : {nb}.{t}}} {{m : {na}.{t}}}\n    (h : MapHook.concat (MapHook.element k' v') r' = some ({tr} m)) :\n    ∃ k v r, k' = {tk} k ∧ v' = v ∧ r' = {tr} r ∧ MapHook.concat (MapHook.element k v) r = some m :=\n  MapHook.concat_element_pointwise_inv_free pw_{f} {pk} h\n", es[0]).unwrap();
+                    map_bwd.push(format!("map_bwd_{f}"));
+                }
+                Coll::List => {
+                    let te = tr_fn(&a.m, &es[0]);
+                    go(
+                        o,
+                        &format!("ListHook.Pointwise {te}"),
+                        &format!("(ListIso.toList m).map {te}"),
+                        &format!(".cons x r => congrArg (List.cons ({te} x)) (go r)"),
+                    );
+                    if pass == 0 {
+                        continue;
+                    }
+                    let et = format!("{na}.{}", es[0]);
+                    for (n, stmt, proof) in [
+                        (
+                            "unit",
+                            format!(": (ListHook.unit : {nb}.{t}) = {tr} ListHook.unit"),
+                            format!("(ListHook.unit_pointwise pw_{f}).symm"),
+                        ),
+                        (
+                            "element",
+                            format!(
+                                "(x : {et}) : (ListHook.element ({te} x) : {nb}.{t}) = {tr} (ListHook.element x)"
+                            ),
+                            format!("ListHook.element_pointwise pw_{f} x"),
+                        ),
+                        (
+                            "concat",
+                            format!(
+                                "(x y : {na}.{t}) : ListHook.concat ({tr} x) ({tr} y) = {tr} (ListHook.concat x y)"
+                            ),
+                            format!("ListHook.concat_pointwise pw_{f} x y"),
+                        ),
+                        (
+                            "size",
+                            format!("(l : {na}.{t}) : ListHook.size ({tr} l) = ListHook.size l"),
+                            format!("ListHook.size_pointwise pw_{f} l"),
+                        ),
+                    ] {
+                        writeln!(*o, "@[k2l_rel] theorem comm_{n}_{f} {stmt} :=\n  {proof}")
+                            .unwrap();
+                        comm.push(format!("comm_{n}_{f}"));
+                        if matches!(n, "unit" | "element" | "concat") {
+                            push_ops.push(format!("comm_{n}_{f}"));
+                        }
+                    }
+                    writeln!(*o, "theorem list_bwd_{f} {{x' : {nb}.{}}} {{t' l' : {nb}.{t}}} {{l : {na}.{t}}} (h : ListHook.concat (ListHook.element x') t' = {tr} l) :\n    ∃ x t, x' = {te} x ∧ t' = {tr} t ∧ ListHook.concat (ListHook.element x) t = l :=\n  ListHook.concat_element_pointwise_inv pw_{f} h\n", es[0]).unwrap();
+                    writeln!(*o, "theorem list_bwd_back_{f} {{x' : {nb}.{}}} {{t' : {nb}.{t}}} {{l : {na}.{t}}} (h : ListHook.concat t' (ListHook.element x') = {tr} l) :\n    ∃ x t, x' = {te} x ∧ t' = {tr} t ∧ ListHook.concat t (ListHook.element x) = l :=\n  ListHook.concat_element_pointwise_inv_back pw_{f} h\n", es[0]).unwrap();
+                    list_bwd.push(format!("list_bwd_{f}"));
+                    list_bwd.push(format!("list_bwd_back_{f}"));
+                }
+            }
+            writeln!(o).unwrap();
+        }
+    }
+    // `==K` and `=/=K` on the types compared in rules
+    for t in ["SortK", "SortKItem"] {
+        if in_block.contains(&t.to_string()) {
+            writeln!(*o, "@[k2l_rel] theorem comm_keq_{t} (x y : {na}.{t}) : KEqHook.eq ({} x) ({} y) = KEqHook.eq x y :=\n  KEqHook.eq_of_injective (tr_inj_{t}) x y", tr_name(t), tr_name(t)).unwrap();
+            writeln!(*o, "@[k2l_rel] theorem comm_kne_{t} (x y : {na}.{t}) : KEqHook.ne ({} x) ({} y) = KEqHook.ne x y :=\n  KEqHook.ne_of_injective (tr_inj_{t}) x y\n", tr_name(t), tr_name(t)).unwrap();
+        }
+    }
+    // pushing `tr` into constructors, injections and collection operations, and the proof of the
+    // commutation of a recursive function (`comm_rec [A.f, B.f, …] [its lemma, …]`)
+    let push: Vec<String> = fold_names
+        .iter()
+        .chain(inj_fold_names(a, b, covered).iter())
+        .chain(push_ops.iter())
+        .map(|n| format!("← {n}"))
+        .collect();
+    writeln!(o, "set_option hygiene false in\n/-- Push `tr` into constructors, injections and collection operations, in the goal and the hypotheses. -/\nlocal macro \"push_ctor\" : tactic => `(tactic| simp only [{}] at *)\n", push.join(", ")).unwrap();
+    writeln!(o, "set_option hygiene false in\n/-- `B.f (tr x…) = (A.f x…).map tr` for a recursive `f`, after unfolding both once: case the parameters generalized (so that a split keeps `x = pattern`, which the termination proof reads), split `A`'s cascade and `B`'s (inverting `tr x = pattern`, pushing `tr` in, so that both reduce), rewrite `B`'s calls by the group's lemmas (`ls`, the induction; `rw`, not under binders), then identify the values. -/\nlocal macro \"comm_rec\" \"[\" ls:ident,* \"]\" : tactic => do\n  let rw ← ls.getElems.foldlM (fun acc l => `(tactic| first | rw [$l:ident] at * | $acc:tactic)) (← `(tactic| fail))\n  `(tactic| (\n  symm\n  repeat' (first | (split <;> (try k2l_inv) <;> (try push_ctor)) | (k2l_split_hyps <;> (try k2l_inv) <;> (try push_ctor)))\n  all_goals (try simp only [k2l_rel] at *)\n  all_goals (repeat ($rw:tactic))\n  all_goals (iterate 4 ((try subst_vars); (try simp only [Option.some.injEq, Option.map_some, Option.map_none, reduceCtorEq] at *)))\n  all_goals (first | (simp_all [k2l_rel]; done) | (simp_all; subst_vars; simp_all [k2l_rel]))))\n").unwrap();
+    (push_ops, map_bwd, list_bwd)
+}
+
+/// The constructor of `B`'s rule applied for a step of `A`'s: its variables are the translations
+/// of `A`'s, position by position, when the two constructors have the same variables (the rules
+/// correspond by their KORE text, so they lower to the same steps); its hypotheses, and the
+/// priority hypothesis `hpri`, are left as goals. Otherwise `apply`, which finds the variables by
+/// unification; a variable fixed only by a hypothesis (the key of a free-key match) then needs
+/// the explicit form.
+fn fwd_ctor(
+    m: &Model,
+    ctor: &str,
+    ra: &crate::render::Rel,
+    rb: &crate::render::Rel,
+    hpri: bool,
+) -> String {
+    let same = ra.binders.len() == rb.binders.len()
+        && ra.hyps.len() == rb.hyps.len()
+        && ra
+            .binders
+            .iter()
+            .zip(&rb.binders)
+            .all(|((_, s), (_, t))| s == t);
+    if !same {
+        return format!("apply {ctor}");
+    }
+    let mut args: Vec<String> = ra.binders.iter().map(|(x, s)| val(m, s, x)).collect();
+    args.extend(std::iter::repeat_n(
+        "?_".to_string(),
+        ra.hyps.len() + usize::from(hpri),
+    ));
+    format!("refine {ctor} {}", args.join(" "))
+}
+
+/// The folding lemmas of the injections that both libraries have, on the covered sorts.
+fn inj_fold_names(a: &Side, b: &Side, covered: &BTreeSet<String>) -> Vec<String> {
+    let pairs_b: BTreeSet<(String, String)> = terms::inj_pairs(&b.m).into_iter().collect();
+    terms::inj_pairs(&a.m)
+        .into_iter()
+        .filter(|(x, y)| {
+            pairs_b.contains(&(x.clone(), y.clone()))
+                && covered.contains(y)
+                && (is_builtin(&a.m, x)
+                    || covered.contains(x)
+                    || matches!(a.m.sorts[x].kind, Kind::Token))
+        })
+        .map(|(x, y)| {
+            format!(
+                "fold_inj_{}_{}",
+                names::short_sort(&x),
+                names::short_sort(&y)
+            )
+        })
+        .collect()
+}
+
+/// The bisimulation for a translation that keeps every constructor's position (`positions_kept`):
+/// `Inv` is `True`; map keys need no restriction, since `tr` preserves the serialization and so
+/// the order of every term; every collection operation commutes with `tr`; priorities are
+/// respected rank by rank (`hpri` of a step corresponds through `app_bwd`, `app_fwd`); a free-key
+/// map pattern (a match per binding) is inverted through the translated map's bindings.
+#[allow(clippy::too_many_arguments)]
+fn emit_ordered(
+    a: &Side,
+    b: &Side,
+    ns: &str,
+    mut o: String,
+    covered: &BTreeSet<String>,
+    pairs: &[(usize, usize)],
+    unmatched_b: &[usize],
+    refined: &BTreeMap<usize, Vec<String>>,
+    fold_names: &[String],
+    pure_fns: &[String],
+    (push_ops, map_bwd, list_bwd): (Vec<String>, Vec<String>, Vec<String>),
+) -> Result<String, String> {
+    let (na, nb) = (&a.ns, &b.ns);
+    if !refined.is_empty() {
+        return Err(format!(
+            "rules of {nb} that refine a rule of {na} to a subsort ({}) need a value invariant, which is generated only when the translation moves a constructor",
+            refined
+                .keys()
+                .map(|i| rules::display_name(&a.rules[*i]))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    let top = rules::top_sort(&a.def)?;
+    let trt = tr_name(&top);
+    let inj_names = inj_fold_names(a, b, covered);
+    let push = fold_names
+        .iter()
+        .chain(inj_names.iter())
+        .chain(push_ops.iter())
+        .chain(pure_fns.iter())
+        .map(|n| format!("← {n}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    writeln!(o, "/-! ## The invariant -/\n").unwrap();
+    writeln!(o, "/-- No restriction: the translation preserves the order of every term, so it commutes with every map operation on every configuration. -/\ndef Inv (_ : {na}.{top}) : Prop := True\n").unwrap();
+    writeln!(o, "theorem inv_step {{c c' : {na}.{top}}} (_ : Inv c) (_ : {na}.Step c c') : Inv c' := trivial\n").unwrap();
+    writeln!(o, "set_option hygiene false in\n/-- Push `tr` into a configuration (`tr`'s equations, injections, collection operations, total functions). -/\nlocal macro \"push_tr\" : tactic => `(tactic| simp only [{push}])\n").unwrap();
+    writeln!(o, "set_option hygiene false in\n/-- Close `d = tr c'` after a backward step. -/\nlocal macro \"fin_bwd\" : tactic => `(tactic| first | rfl | (simp only [k2l_rel]; done) | (simp only [k2l_rel] at * <;> simp_all))\n").unwrap();
+    writeln!(
+        o,
+        "/-- Hypotheses of `{nb}`'s rules from those of `{na}`'s, and back. -/"
+    )
+    .unwrap();
+    writeln!(o, "local macro \"hyp_fwd\" : tactic => `(tactic| first\n  | assumption\n  | rfl\n  | (simp only [k2l_rel, *]; done)\n  | (simp only [k2l_rel] <;> assumption)\n  | (simp only [k2l_rel, *] <;> rfl)\n  | (simp only [k2l_rel] at * <;> simp_all))\n").unwrap();
+    writeln!(o, "local macro \"hyp_bwd\" : tactic => `(tactic| first\n  | assumption\n  | rfl\n  | (simp only [k2l_rel] at * <;> assumption)\n  | (simp only [k2l_rel] at * <;> simp_all))\n").unwrap();
+    let alts = |names: &[String], pat: &str| -> String {
+        if names.is_empty() {
+            return "fail".to_string();
+        }
+        names
+            .iter()
+            .map(|n| format!("(obtain {pat} := {n} $h)"))
+            .collect::<Vec<_>>()
+            .join(" | ")
+    };
+    writeln!(o, "set_option hygiene false in\n/-- A map pattern of `{nb}` on a translated map is the translation of a match: its key, value and rest are translations. -/\nlocal macro \"map_bwd\" h:ident : tactic => `(tactic| first | {})\n", alts(&map_bwd, "⟨_, _, _, _, _, _, _⟩")).unwrap();
+    writeln!(o, "set_option hygiene false in\n/-- A list pattern of `{nb}` on a translated list. -/\nlocal macro \"list_bwd\" h:ident : tactic => `(tactic| first | {})\n", alts(&list_bwd, "⟨_, _, _, _, _⟩")).unwrap();
+    writeln!(o, "set_option hygiene false in\n/-- A partial operation of `{nb}` defined on translations is the translation of `{na}`'s. -/\nlocal macro \"bind_bwd\" h:ident : tactic => `(tactic| first | (simp only [k2l_rel, Option.map_eq_some_iff] at $h:ident; obtain ⟨_, _, rfl⟩ := $h:ident) | skip)\n").unwrap();
+    let (jb, ja) = if a.ranked {
+        ("{j : Nat} ", " j")
+    } else {
+        ("", "")
+    };
+    let is_map_hyp = |hp: &str| hp.starts_with("KPrelude.MapHook.concat (KPrelude.MapHook.element");
+    let is_list_hyp =
+        |hp: &str| hp.starts_with("KPrelude.ListHook.concat") && !hp.contains("= some");
+    // app_fwd, app_bwd (the priority hypotheses of the steps use them)
+    writeln!(o, "/-! ## A rule applies in `{na}` exactly when its counterpart applies in `{nb}` (so undefined and stuck configurations correspond too) -/\n").unwrap();
+    writeln!(o, "theorem app_fwd {jb}{{c : {na}.{top}}} (hi : Inv c) (h : {na}.App{ja} c) : {nb}.App{ja} ({trt} c) := by\n  cases h with").unwrap();
+    for (i, j) in pairs {
+        let (ra, rb) = (&a.rules[*i], &b.rules[*j]);
+        writeln!(
+            o,
+            "  | {} {} =>\n    push_tr\n    {}\n    all_goals hyp_fwd",
+            ra.lean,
+            rules::ctor_args(&ra.app).join(" "),
+            fwd_ctor(
+                &a.m,
+                &format!("{nb}.App.{}", rb.lean),
+                &ra.app,
+                &rb.app,
+                false
+            )
+        )
+        .unwrap();
+    }
+    writeln!(o).unwrap();
+    let back_of: BTreeMap<usize, usize> = pairs.iter().map(|(i, j)| (*j, *i)).collect();
+    let bwd_hyps = |o: &mut String, rb: &Rule, rel: &crate::render::Rel| {
+        let lhs: BTreeSet<&String> = rb.app.hyps.iter().map(|(h, _)| h).collect();
+        for (hn, hp) in &rel.hyps {
+            if lhs.contains(hn) && is_map_hyp(hp) {
+                writeln!(o, "    all_goals map_bwd {hn}\n    all_goals k2l_inv").unwrap();
+            } else if lhs.contains(hn) && is_list_hyp(hp) {
+                writeln!(o, "    all_goals list_bwd {hn}\n    all_goals k2l_inv").unwrap();
+            } else if hp.contains("= some") {
+                writeln!(o, "    all_goals bind_bwd {hn}").unwrap();
+            }
+        }
+    };
+    writeln!(o, "theorem app_bwd {jb}{{c : {na}.{top}}} (hi : Inv c) (h : {nb}.App{ja} ({trt} c)) : {na}.App{ja} c := by\n  generalize hd : {trt} c = d0 at h\n  cases h with").unwrap();
+    for (j, rb) in b.rules.iter().enumerate() {
+        writeln!(
+            o,
+            "  | {} {} =>\n    k2l_inv",
+            rb.lean,
+            rules::ctor_args(&rb.app).join(" ")
+        )
+        .unwrap();
+        let Some(i) = back_of.get(&j) else { continue };
+        bwd_hyps(&mut o, rb, &rb.app);
+        writeln!(
+            o,
+            "    all_goals (apply {na}.App.{} <;> hyp_bwd)",
+            a.rules[*i].lean
+        )
+        .unwrap();
+    }
+    writeln!(o).unwrap();
+    // forward, backward
+    writeln!(
+        o,
+        "/-! ## Forward simulation: every step of `{na}` is a step of `{nb}` -/\n"
+    )
+    .unwrap();
+    writeln!(o, "set_option hygiene false in\n/-- The priority hypothesis of a step of `{nb}` from that of `{na}`. -/\nlocal macro \"hpri_fwd\" : tactic => `(tactic| (intro j hj hb; exact hpri j hj (app_bwd trivial (by simpa only [k2l_rel] using hb))))\n").unwrap();
+    writeln!(o, "set_option hygiene false in\n/-- The priority hypothesis of a step of `{na}` from that of `{nb}`. -/\nlocal macro \"hpri_bwd\" : tactic => `(tactic| (intro j hj ha; exact hpri j hj (by simpa only [{push}] using app_fwd trivial ha)))\n").unwrap();
+    let hpri_arg = |side: &Side, r: &Rule| {
+        if side.ranked && side.rank(r) > 0 {
+            " hpri"
+        } else {
+            ""
+        }
+    };
+    writeln!(o, "theorem forward {{c c' : {na}.{top}}} (hi : Inv c) (h : {na}.Step c c') : {nb}.Step ({trt} c) ({trt} c') := by\n  cases h with").unwrap();
+    for (i, j) in pairs {
+        let (ra, rb) = (&a.rules[*i], &b.rules[*j]);
+        writeln!(
+            o,
+            "  | {} {}{} =>\n    push_tr\n    {}\n    all_goals first | hyp_fwd | hpri_fwd",
+            ra.lean,
+            rules::ctor_args(&ra.step).join(" "),
+            hpri_arg(a, ra),
+            fwd_ctor(
+                &a.m,
+                &format!("{nb}.Step.{}", rb.lean),
+                &ra.step,
+                &rb.step,
+                !hpri_arg(b, rb).is_empty()
+            )
+        )
+        .unwrap();
+    }
+    writeln!(o).unwrap();
+    writeln!(o, "/-! ## Backward simulation: every step of `{nb}` from a translation is the translation of a step of `{na}` -/\n").unwrap();
+    writeln!(o, "theorem backward {{c : {na}.{top}}} {{d : {nb}.{top}}} (hi : Inv c) (h : {nb}.Step ({trt} c) d) :\n    ∃ c', {na}.Step c c' ∧ d = {trt} c' := by\n  generalize hd : {trt} c = d0 at h\n  cases h with").unwrap();
+    for (j, rb) in b.rules.iter().enumerate() {
+        writeln!(
+            o,
+            "  | {} {}{} =>\n    k2l_inv",
+            rb.lean,
+            rules::ctor_args(&rb.step).join(" "),
+            hpri_arg(b, rb)
+        )
+        .unwrap();
+        let Some(i) = back_of.get(&j) else {
+            assert!(unmatched_b.contains(&j));
+            continue;
+        };
+        bwd_hyps(&mut o, rb, &rb.step);
+        writeln!(o, "    all_goals exact ⟨_, by apply {na}.Step.{} <;> first | hyp_bwd | hpri_bwd, by fin_bwd⟩", a.rules[*i].lean).unwrap();
+    }
+    writeln!(o).unwrap();
+    // the bisimulation and its corollaries: the statements of the other regime
+    writeln!(o, "/-! ## The bisimulation -/\n").unwrap();
+    writeln!(o, "/-- A configuration of `{na}` satisfying `Inv`, and its translation. -/\ndef R (c : {na}.{top}) (d : {nb}.{top}) : Prop := Inv c ∧ d = {trt} c\n").unwrap();
+    writeln!(
+        o,
+        "theorem bisim : Bisimulation {na}.Step {nb}.Step R where\n  fwd := by\n    rintro c d c' ⟨hi, rfl⟩ h\n    exact ⟨_, forward hi h, inv_step hi h, rfl⟩\n  bwd := by\n    rintro c d d' ⟨hi, rfl⟩ h\n    obtain ⟨c', hc, rfl⟩ := backward hi h\n    exact ⟨c', hc, inv_step hi hc, rfl⟩\n"
+    )
+    .unwrap();
+    writeln!(
+        o,
+        "/-- Runs of `n` steps correspond, and so do terminal configurations (stuck or undefined). -/\ntheorem stepsN_iff {{n : Nat}} {{c : {na}.{top}}} (hi : Inv c) :\n    (∃ c', StepsN {na}.Step n c c') ↔ (∃ d', StepsN {nb}.Step n ({trt} c) d') := by\n  constructor\n  · rintro ⟨c', h⟩; obtain ⟨d', hd, -⟩ := bisim.stepsN_fwd ⟨hi, rfl⟩ h; exact ⟨d', hd⟩\n  · rintro ⟨d', h⟩; obtain ⟨c', hc, -⟩ := bisim.stepsN_bwd ⟨hi, rfl⟩ h; exact ⟨c', hc⟩\n"
+    )
+    .unwrap();
+    writeln!(
+        o,
+        "theorem terminal_iff {{c : {na}.{top}}} (hi : Inv c) :\n    (∀ c', ¬ {na}.Step c c') ↔ (∀ d, ¬ {nb}.Step ({trt} c) d) :=\n  bisim.terminal_iff ⟨hi, rfl⟩\n\ntheorem app_iff {jb}{{c : {na}.{top}}} (hi : Inv c) : {na}.App{ja} c ↔ {nb}.App{ja} ({trt} c) := ⟨app_fwd hi, app_bwd hi⟩\n"
+    )
+    .unwrap();
+    writeln!(
+        o,
+        "/-- Every run of `{na}` from a configuration satisfying `Inv` is, translated, a run of `{nb}` of the same length, and its last configuration is terminal in one exactly when it is in the other. -/\ntheorem run_agree {{n : Nat}} {{c c' : {na}.{top}}} (hi : Inv c) (h : StepsN {na}.Step n c c') :\n    StepsN {nb}.Step n ({trt} c) ({trt} c') ∧ ((∀ x, ¬ {na}.Step c' x) ↔ (∀ y, ¬ {nb}.Step ({trt} c') y)) := by\n  obtain ⟨d', hd, hi', rfl⟩ := bisim.stepsN_fwd ⟨hi, rfl⟩ h\n  exact ⟨hd, terminal_iff hi'⟩\n"
+    )
+    .unwrap();
+    writeln!(o, "#k2l_assert_axioms inv_step forward backward app_fwd app_bwd bisim stepsN_iff terminal_iff app_iff run_agree\n").unwrap();
+    writeln!(o, "end {ns}").unwrap();
+    Ok(o)
 }

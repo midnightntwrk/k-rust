@@ -260,22 +260,16 @@ fn main() {
                 eprintln!("note: {n}");
             }
             let top = rules::top_sort(&def).unwrap();
-            let mut rs =
-                rules::collect(&def, &m, &fgen.fns, &order).unwrap_or_else(|e| panic!("{e}"));
-            let mut prios = rules::priorities(&def);
+            // several matches: the ranked, list-valued emitter (even with one priority)
+            let (rs, prios, ranked) = rules::collect_ranked(&def, &m, &fgen.fns, &order)
+                .unwrap_or_else(|e| panic!("{e}"));
             let multi = rs.iter().any(|r| r.multi);
             if multi {
-                // several matches: the ranked, list-valued emitter (even with one priority)
-                rs = rules::collect_with(&def, &m, &fgen.fns, &order, true)
-                    .unwrap_or_else(|e| panic!("{e}"));
-                // ranks only of the rules kept
-                prios.retain(|p| rs.iter().any(|r| r.priority == *p));
                 eprintln!(
                     "note: {} rules with several matches (free-key map patterns): list-valued matchers",
                     rs.iter().filter(|r| r.multi).count()
                 );
             }
-            let ranked = prios.len() > 1 || multi;
             if ranked {
                 eprintln!(
                     "note: {} priority ranks {:?}: stratified Step",
