@@ -14,14 +14,14 @@ use super::{
 use crate::{
     exec::{Abort, NormalEndKind, OutcomeClass, UnjudgedReason},
     report::{
-        CampaignOutcome, EngineDefect, FuzzReport, HitLabel, Incidentals, KillKind, LoadRecord,
-        NoWitness, NormalEnds, REPORT_SCHEMA, REPORT_VERSION, RejectionReason, ReportIdentity,
-        SortOverride, Totals, Witness, WitnessCase, digest_hex,
+        BestScore, CampaignOutcome, EngineDefect, FuzzReport, HitLabel, Incidentals, KillKind,
+        LoadRecord, NoWitness, NormalEnds, REPORT_SCHEMA, REPORT_VERSION, RejectionReason,
+        ReportIdentity, SortOverride, Totals, Witness, WitnessCase, digest_hex,
     },
-    score::{Scorer, Signals},
+    score::{Score, Scorer, Signals},
     spec::{Budget, CaseOptions, PathMode},
     target::RuleName,
-    values::{Constraints, Value},
+    values::{Constraints, Value, ValueSort},
 };
 
 /// The most shrink candidates the engine executes for one witness. Shrinking is also bounded
@@ -57,6 +57,208 @@ pub(crate) struct LoopSettings {
     /// The names of every id in the catalog of the definition whose coverage the cases record,
     /// from which the report names the rules its coverage holds.
     pub(crate) rule_names: Arc<std::collections::BTreeMap<String, RuleName>>,
+    /// The holes' finite domains, when every hole has one and their product is at most
+    /// [`MAX_EXHAUSTIVE`]: the campaign ends once every assignment of them has run.
+    pub(crate) domain: Option<FiniteDomain>,
+}
+
+/// The most assignments a campaign's finite domain may have for the loop to track which ran
+/// and end when all have ([`FiniteDomain`]).
+pub(crate) const MAX_EXHAUSTIVE: u64 = 4096;
+
+/// The finite set of values one hole is generated from (FZ-POLISH N-T1).
+#[derive(Clone, Debug, Eq, PartialEq)]
+enum HoleDomain {
+    /// The hole's choices.
+    Choices(Vec<Value>),
+    /// `true` and `false`.
+    Bool,
+    /// The integers of an inclusive range (an `Int` hole, or the unsigned values of an `MInt`
+    /// hole, its range cut to the width).
+    Ints {
+        min: num_bigint::BigInt,
+        max: num_bigint::BigInt,
+        /// For an `MInt` hole, its width.
+        width: Option<u32>,
+    },
+}
+
+impl HoleDomain {
+    /// The domain of a hole of `sort` generated under `constraints` (its effective
+    /// constraints), when it is finite.
+    fn of(sort: &ValueSort, constraints: &Constraints) -> Option<Self> {
+        if let Some(choices) = &constraints.choices {
+            let mut distinct: Vec<Value> = Vec::new();
+            for choice in choices {
+                if !distinct.contains(choice) {
+                    distinct.push(choice.clone());
+                }
+            }
+            return Some(Self::Choices(distinct));
+        }
+        let range = constraints.range.as_ref();
+        match sort.generated() {
+            ValueSort::Bool => Some(Self::Bool),
+            ValueSort::Int => Some(Self::Ints {
+                min: range?.min.clone()?,
+                max: range?.max.clone()?,
+                width: None,
+            }),
+            ValueSort::MInt { width } => {
+                let top: num_bigint::BigInt = (num_bigint::BigInt::from(1) << *width) - 1;
+                let min = range
+                    .and_then(|range| range.min.clone())
+                    .unwrap_or_default()
+                    .max(num_bigint::BigInt::default());
+                let max = range
+                    .and_then(|range| range.max.clone())
+                    .map_or_else(|| top.clone(), |max| max.min(top.clone()));
+                Some(Self::Ints {
+                    min,
+                    max,
+                    width: Some(*width),
+                })
+            }
+            _ => None,
+        }
+    }
+
+    /// The value of index `index` (below [`Self::size`]): a choice in order, `false` then
+    /// `true`, the integers from the range's minimum.
+    fn value(&self, index: u64) -> Value {
+        match self {
+            Self::Choices(choices) => {
+                choices[usize::try_from(index).expect("an index below the domain's size")].clone()
+            }
+            Self::Bool => Value::Bool(index == 1),
+            Self::Ints {
+                min, width: None, ..
+            } => Value::Int(min + index),
+            Self::Ints {
+                min,
+                width: Some(width),
+                ..
+            } => Value::MInt {
+                width: *width,
+                value: (min + index).to_biguint().unwrap_or_default(),
+            },
+        }
+    }
+
+    /// How many values the domain has, when it fits a `u64`.
+    fn size(&self) -> Option<u64> {
+        match self {
+            Self::Choices(choices) => u64::try_from(choices.len()).ok(),
+            Self::Bool => Some(2),
+            Self::Ints { min, max, .. } if max < min => Some(0),
+            Self::Ints { min, max, .. } => u64::try_from(max - min + 1).ok(),
+        }
+    }
+
+    fn contains(&self, value: &Value) -> bool {
+        match (self, value) {
+            (Self::Choices(choices), value) => choices.contains(value),
+            (Self::Bool, Value::Bool(_)) => true,
+            (
+                Self::Ints {
+                    min,
+                    max,
+                    width: None,
+                },
+                Value::Int(value),
+            ) => min <= value && value <= max,
+            (
+                Self::Ints {
+                    min,
+                    max,
+                    width: Some(width),
+                },
+                Value::MInt {
+                    width: value_width,
+                    value,
+                },
+            ) => {
+                let value = num_bigint::BigInt::from(value.clone());
+                width == value_width && *min <= value && value <= *max
+            }
+            _ => false,
+        }
+    }
+}
+
+/// The product of the holes' finite domains (FZ-POLISH N-T1): a campaign whose every hole takes
+/// finitely many values (choices, a Boolean, a bounded integer range) has finitely many
+/// assignments, and once each has run, more cases only repeat them.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct FiniteDomain {
+    holes: Vec<HoleDomain>,
+    size: u64,
+}
+
+impl FiniteDomain {
+    /// The domain of holes of `sorts` generated under `constraints`, in hole order, when every
+    /// hole's is finite and the product is at most [`MAX_EXHAUSTIVE`]; `None` otherwise, and for
+    /// a campaign without holes (whose one assignment the anchors run).
+    pub(crate) fn of<'a>(
+        holes: impl IntoIterator<Item = (&'a ValueSort, &'a Constraints)>,
+    ) -> Option<Self> {
+        let holes = holes
+            .into_iter()
+            .map(|(sort, constraints)| HoleDomain::of(sort, constraints))
+            .collect::<Option<Vec<_>>>()?;
+        if holes.is_empty() {
+            return None;
+        }
+        let mut size = 1_u64;
+        for hole in &holes {
+            size = size.checked_mul(hole.size()?)?;
+            if size > MAX_EXHAUSTIVE {
+                return None;
+            }
+        }
+        (size > 0).then_some(Self { holes, size })
+    }
+
+    /// Whether `values` (in hole order) is an assignment of the domain.
+    fn contains(&self, values: &[Value]) -> bool {
+        values.len() == self.holes.len()
+            && self
+                .holes
+                .iter()
+                .zip(values)
+                .all(|(hole, value)| hole.contains(value))
+    }
+
+    /// How many assignments the domain has.
+    pub(crate) fn size(&self) -> u64 {
+        self.size
+    }
+
+    /// The assignment of index `index` (below [`Self::size`]), the holes read as the digits
+    /// of a mixed-radix number, the last hole the least significant.
+    pub(crate) fn assignment(&self, mut index: u64) -> Vec<Value> {
+        let mut values = Vec::with_capacity(self.holes.len());
+        for hole in self.holes.iter().rev() {
+            let size = hole.size().unwrap_or(1).max(1);
+            values.push(hole.value(index % size));
+            index /= size;
+        }
+        values.reverse();
+        values
+    }
+
+    /// The indices of every assignment in an order drawn from `seed` (Fisher-Yates over a
+    /// `ChaCha20` stream of its own purpose), so the walk is part of the determinism contract.
+    pub(crate) fn permutation(&self, seed: u64) -> Vec<u64> {
+        use rand::{Rng as _, SeedableRng as _};
+        let mut rng =
+            rand_chacha::ChaCha20Rng::from_seed(super::schedule::derive_seed(seed, "domain"));
+        let mut order: Vec<u64> = (0..self.size).collect();
+        for last in (1..order.len()).rev() {
+            order.swap(last, rng.random_range(0..=last));
+        }
+        order
+    }
 }
 
 /// Run cases until the budget is spent, a witness is confirmed and shrunk, the rejection cap
@@ -95,6 +297,8 @@ pub(crate) fn run_loop(
         let Some(proposal) = proposal else {
             break Ending::Exhausted;
         };
+        // An assignment of a finite domain runs at most once (FZ-POLISH N-T1).
+        let proposal = state.unrepeated(settings, proposal);
         let case = state.totals.cases;
         state.sequence(&proposal.values);
         let mut run = match run_proposal(runner, &mut state, &proposal, cancel) {
@@ -159,8 +363,12 @@ pub(crate) fn run_loop(
             break Ending::Cancelled;
         }
         let observation = observation(settings, case, class, run);
+        state.score(case, observation.score.as_ref());
         let interesting = feedback.is_interesting(&observation);
         schedule.observe(&proposal, &observation, interesting);
+        if let Some(assignments) = state.exhausts(settings.domain.as_ref(), &proposal) {
+            break Ending::DomainExhausted { assignments };
+        }
     };
     schedule.contribute(&mut state.totals);
     let no_witness = no_witness(
@@ -171,16 +379,24 @@ pub(crate) fn run_loop(
         &settings.options,
         settings.rejection_cap,
     );
-    let outcome = match ending {
-        Ending::Budget | Ending::Exhausted => CampaignOutcome::NoWitnessFound { no_witness },
+    let outcome = outcome(ending, no_witness, state.abort.take());
+    state.report(settings, budget, outcome)
+}
+
+/// The outcome of a campaign that ended without a witness, for `ending`; `abort` is why an
+/// aborted one aborted.
+fn outcome(ending: Ending, no_witness: NoWitness, abort: Option<String>) -> CampaignOutcome {
+    match ending {
+        Ending::Budget | Ending::Exhausted | Ending::DomainExhausted { .. } => {
+            CampaignOutcome::NoWitnessFound { no_witness }
+        }
         Ending::RejectedOut => CampaignOutcome::RejectedOut { no_witness },
         Ending::Cancelled => CampaignOutcome::Cancelled { no_witness },
         Ending::Aborted => CampaignOutcome::Aborted {
-            reason: state.abort.take().unwrap_or_default(),
+            reason: abort.unwrap_or_default(),
             no_witness,
         },
-    };
-    state.report(settings, budget, outcome)
+    }
 }
 
 /// The observation of case `case` of `class` with `run`'s signals. Only `miss` cases are scored
@@ -346,15 +562,9 @@ fn finish_witness(
         return Witness {
             label: settings.label,
             krun_command: first.krun_command.clone(),
+            mutant_krun_command: first.mutant_krun_command.clone(),
             clean_leaf_facts: witness_facts(&settings.clean_leaf_facts, kind),
-            first: WitnessCase {
-                holes: first.holes,
-                class: OutcomeClass::Hit,
-                sides: first.sides,
-                reaching: first.reaching,
-                kill: first.kill,
-                steps: first.steps,
-            },
+            first: witness_case(first),
             shrunk: None,
         };
     }
@@ -416,27 +626,40 @@ fn finish_witness(
         };
         shrink(&values, trees, &settings.constraints, &mut test)
     };
-    let to_case = |detail: HitDetail| WitnessCase {
+    let (shrunk, krun_command, mutant_krun_command) = match last {
+        Some(detail) if shrunk != values => {
+            let commands = (
+                detail.krun_command.clone(),
+                detail.mutant_krun_command.clone(),
+            );
+            (Some(witness_case(detail)), commands.0, commands.1)
+        }
+        _ => (
+            None,
+            first.krun_command.clone(),
+            first.mutant_krun_command.clone(),
+        ),
+    };
+    Witness {
+        label: settings.label,
+        first: witness_case(first),
+        shrunk,
+        clean_leaf_facts: witness_facts(&settings.clean_leaf_facts, kind),
+        krun_command,
+        mutant_krun_command,
+    }
+}
+
+/// The witness case a confirmed hit's detail reports.
+fn witness_case(detail: HitDetail) -> WitnessCase {
+    WitnessCase {
         holes: detail.holes,
+        program: detail.program,
         class: OutcomeClass::Hit,
         sides: detail.sides,
         reaching: detail.reaching,
         kill: detail.kill,
         steps: detail.steps,
-    };
-    let (shrunk, krun_command) = match last {
-        Some(detail) if shrunk != values => {
-            let command = detail.krun_command.clone();
-            (Some(to_case(detail)), command)
-        }
-        _ => (None, first.krun_command.clone()),
-    };
-    Witness {
-        label: settings.label,
-        first: to_case(first),
-        shrunk,
-        clean_leaf_facts: witness_facts(&settings.clean_leaf_facts, kind),
-        krun_command,
     }
 }
 
@@ -502,12 +725,37 @@ pub(crate) struct Cuts {
     pub(crate) unfinished: CutCounts,
     /// Of the `baseline-incomplete` cases.
     pub(crate) incomplete: CutCounts,
+    /// The differential `work-bound` cases whose baseline reached all its ends (FZ-POLISH
+    /// S-T5).
+    pub(crate) diverging: Diverging,
+}
+
+/// The differential `work-bound` cases in which the work bound stopped the mutant while no
+/// bound and no clock cut the baseline: the mutant needed more than the bound where the
+/// baseline needed at most [`Self::baseline_work`]. Whether the mutant's run ends at all
+/// cannot be decided, so the statement reports these facts and suggests no bound.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub(crate) struct Diverging {
+    /// How many such cases.
+    pub(crate) cases: u64,
+    /// The largest work the baseline spent in one of them.
+    pub(crate) baseline_work: u64,
 }
 
 /// The loop's running totals.
 struct State {
     budget: Budget,
     totals: Totals,
+    /// The canonical JSON of each assignment of [`LoopSettings::domain`] that was tried.
+    assignments: BTreeSet<String>,
+    /// The seeded permutation of the domain's assignment indices, made on the first repeat,
+    /// and how far [`State::unrepeated`] has walked it.
+    order: Option<Vec<u64>>,
+    next_untried: usize,
+    /// The `miss` cases scored, and the best score with the earliest case that reached it
+    /// ([`Totals::best_score`]).
+    scored: u64,
+    best: Option<(Score, u64)>,
     cuts: Cuts,
     load_records: BTreeSet<LoadRecord>,
     warnings: Vec<String>,
@@ -525,6 +773,11 @@ impl State {
                 case_sequence_digest: digest_hex(b""),
                 ..Totals::default()
             },
+            assignments: BTreeSet::new(),
+            order: None,
+            next_untried: 0,
+            scored: 0,
+            best: None,
             cuts: Cuts::default(),
             load_records: BTreeSet::new(),
             warnings: Vec::new(),
@@ -637,12 +890,72 @@ impl State {
         runner.incidental_kept(class);
     }
 
+    /// `proposal`, or, when it repeats an assignment of the campaign's finite domain that was
+    /// already tried, the next untried assignment in a permutation of the domain seeded from
+    /// the campaign seed, proposed by the same proposer without value trees (FZ-POLISH N-T1).
+    /// Every case's outcome is a function of its assignment (ARCHITECTURE 5.4), so a repeat
+    /// adds nothing; the repeat is not run and is no case, and the proposer observes the
+    /// replacement it is credited with, as it would any case of its own.
+    fn unrepeated(&mut self, settings: &LoopSettings, proposal: Proposal) -> Proposal {
+        let Some(domain) = &settings.domain else {
+            return proposal;
+        };
+        if proposal.failure.is_some()
+            || !domain.contains(&proposal.values)
+            || !self.assignments.contains(&render(&proposal.values))
+        {
+            return proposal;
+        }
+        let order = self
+            .order
+            .get_or_insert_with(|| domain.permutation(settings.identity.seed));
+        while let Some(&index) = order.get(self.next_untried) {
+            self.next_untried += 1;
+            let values = domain.assignment(index);
+            if !self.assignments.contains(&render(&values)) {
+                return Proposal::plain(proposal.origin, values);
+            }
+        }
+        proposal
+    }
+
+    /// Record that `proposal`'s assignment ran, when it is one of `domain`'s; the number of
+    /// the domain's assignments once every one of them has run.
+    fn exhausts(&mut self, domain: Option<&FiniteDomain>, proposal: &Proposal) -> Option<u64> {
+        let domain = domain?;
+        if proposal.failure.is_some() || !domain.contains(&proposal.values) {
+            return None;
+        }
+        self.assignments.insert(render(&proposal.values));
+        (u64::try_from(self.assignments.len()).unwrap_or(u64::MAX) >= domain.size())
+            .then(|| domain.size())
+    }
+
+    /// Take case `case`'s score, when it was scored, into [`Totals::best_score`]: a better score
+    /// replaces the best one, an equal one keeps the earlier case.
+    fn score(&mut self, case: u64, score: Option<&Score>) {
+        let Some(score) = score else {
+            return;
+        };
+        self.scored += 1;
+        if self.best.as_ref().is_none_or(|(best, _)| score < best) {
+            self.best = Some((score.clone(), case));
+        }
+    }
+
     /// Count a case under `class`.
     fn record(&mut self, run: &CaseRun, class: OutcomeClass) {
         *self.totals.classes.entry(class).or_insert(0) += 1;
         match class {
             OutcomeClass::ReachedUnfinished => self.cuts.unfinished.add(run.cut),
             OutcomeClass::BaselineIncomplete => self.cuts.incomplete.add(run.cut),
+            OutcomeClass::WorkBound if run.cut.work => {
+                if let Some(work) = run.baseline_ended_within {
+                    let diverging = &mut self.cuts.diverging;
+                    diverging.cases += 1;
+                    diverging.baseline_work = diverging.baseline_work.max(work);
+                }
+            }
             _ => {}
         }
         // `Totals::unsupported_reasons` and `baseline_incomplete_reasons` sum to their classes' counts;
@@ -672,6 +985,10 @@ impl State {
             self.totals.outside_determinism += 1;
             return;
         }
+        if let Some(count) = run.pattern_body_matches {
+            let total = self.totals.pattern_body_matches.get_or_insert(0);
+            *total = total.saturating_add(count);
+        }
         let coverage = &mut self.totals.coverage;
         coverage.applied.extend(run.applied.iter().cloned());
         coverage.matched.extend(run.matched.iter().cloned());
@@ -694,6 +1011,10 @@ impl State {
         outcome: CampaignOutcome,
     ) -> FuzzReport {
         let mut totals = self.totals_snapshot();
+        totals.best_score = settings.scorer.as_ref().map(|_| BestScore {
+            scored_cases: self.scored,
+            best: self.best.as_ref().map(|(score, case)| score.value(*case)),
+        });
         let coverage = &mut totals.coverage;
         coverage.names = coverage
             .applied
@@ -706,6 +1027,19 @@ impl State {
                     .map(|name| (id.clone(), name.clone()))
             })
             .collect();
+        if totals.pattern_body_matches == Some(0) {
+            let judged = totals
+                .cases
+                .saturating_sub(self.rejected())
+                .saturating_sub(totals.outside_determinism);
+            self.warn(format!(
+                "pattern body: no end of the {judged} executed {} matched the pattern's \
+                 configuration, whatever its `requires` gave, so the pattern may name a cell, \
+                 key or value no end holds (a misspelled key?); a negated property then holds \
+                 vacuously, and a `miss` says nothing about it",
+                if judged == 1 { "case" } else { "cases" }
+            ));
+        }
         if let Some(warning) = every_k_warning(settings.normal_end, &totals) {
             self.warn(warning);
         }
@@ -794,6 +1128,12 @@ pub(crate) enum Ending {
     Budget,
     /// Every proposer was exhausted before the budget.
     Exhausted,
+    /// Every one of the `assignments` assignments of the holes' finite domains ran
+    /// ([`FiniteDomain`]).
+    DomainExhausted {
+        /// How many assignments the domain has.
+        assignments: u64,
+    },
     /// The rejection cap was reached.
     RejectedOut,
     /// The caller cancelled.
@@ -837,6 +1177,14 @@ pub(crate) fn no_witness(
             " The campaign ended before its budget because every proposer was exhausted; enable \
              the blind proposer to run more cases.",
         ),
+        Ending::DomainExhausted { assignments } => write!(
+            text,
+            " Domain exhausted: every one of the {assignments} assignments of the holes' finite \
+             domains (each hole's choices, a Boolean, or a bounded integer range, as generated) \
+             was tried once (run, or rejected before running), so the campaign ended before its \
+             budget; more cases would only repeat them."
+        )
+        .expect("writing to a String"),
         Ending::RejectedOut => {
             let reasons: Vec<String> = totals
                 .rejections
@@ -995,12 +1343,29 @@ pub(crate) fn no_witness(
         let bound = options
             .effective_max_work()
             .map_or_else(|| "its work bound".to_owned(), |w| format!("max-work {w}"));
-        write!(
-            text,
-            " {} stopped at {bound}: raise max-work.",
-            plural(work, "case")
-        )
-        .expect("writing to a String");
+        // A differential case whose baseline ended: the mutant's run needed more than the bound
+        // where the baseline's needed little, so the mutant may not end on this program at all,
+        // and no larger bound is known to help (FZ-POLISH S-T5).
+        let diverging = cuts.diverging.cases.min(work);
+        if work > diverging {
+            write!(
+                text,
+                " {} stopped at {bound}: raise max-work.",
+                plural(work - diverging, "case")
+            )
+            .expect("writing to a String");
+        }
+        if diverging > 0 {
+            write!(
+                text,
+                " {} stopped at {bound} on the mutant, where the baseline reached all its ends \
+                 within {} work at most: the mutant may not terminate on this program (whether a \
+                 run terminates cannot be decided, so no bound is suggested).",
+                plural(diverging, "case"),
+                cuts.diverging.baseline_work
+            )
+            .expect("writing to a String");
+        }
     }
     if timeouts > 0 {
         let advice = if options.safety_limit_ms.is_some() {

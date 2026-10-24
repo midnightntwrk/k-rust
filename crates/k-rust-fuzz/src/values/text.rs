@@ -237,28 +237,28 @@ impl TextSyntax {
             .parser
             .get_or_init(|| {
                 ProgramParser::from_resolved(resolved, &inner.main_module)
-                    .map_err(|error| format!("{error:?}"))
+                    .map_err(|error| format!("{error}"))
             })
             .as_ref()
             .map_err(Clone::clone)?;
         let parsed = parser
             .parse(&sort, text)
-            .map_err(|error| format!("`{text}` does not parse at {sort}: {error:?}"))?;
+            .map_err(|error| format!("`{text}` does not parse at {sort}: {error}"))?;
         let expanded = inner
             .macros
             .expand_program(&inner.main_module, parsed, &sort)?;
-        let injector = SortInjector::new(resolved, &inner.main_module)
-            .map_err(|error| format!("{error:?}"))?;
+        let injector =
+            SortInjector::new(resolved, &inner.main_module).map_err(|error| format!("{error}"))?;
         let term = injector
             .inject(expanded.term(), &sort)
-            .map_err(|error| format!("`{text}` cannot be placed at {sort}: {error:?}"))?;
+            .map_err(|error| format!("`{text}` cannot be placed at {sort}: {error}"))?;
         let mut pattern = term_to_kore_from_resolved_with_token_module(
             resolved,
             &inner.main_module,
             &inner.main_module,
             &term,
         )
-        .map_err(|error| format!("{error:?}"))?;
+        .map_err(|error| format!("{error}"))?;
         while let KorePattern::Application { symbol, arguments } = &pattern
             && symbol.name == "inj"
             && arguments.len() == 1

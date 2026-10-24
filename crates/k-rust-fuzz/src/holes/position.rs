@@ -154,11 +154,11 @@ pub(super) fn anchor_printed(hole: &ResolvedHole) -> Result<PrintedValue, Campai
             .parse(text, &hole.decl.sort)
             .map_err(|message| refuse(format!("the anchor does not read back: {message}")))?,
         _ => to_kore(anchor, &hole.sort)
-            .map_err(|error| refuse(format!("the anchor has no KORE form: {error:?}")))?,
+            .map_err(|error| refuse(format!("the anchor has no KORE form: {error}")))?,
     };
     // The anchor value's own sort, which the parsed anchor KORE has too.
     let (_, sort) = to_kore_with_sort(anchor, &hole.sort)
-        .map_err(|error| refuse(format!("the anchor has no KORE form: {error:?}")))?;
+        .map_err(|error| refuse(format!("the anchor has no KORE form: {error}")))?;
     Ok(PrintedValue {
         k_text: Some(text.clone()),
         kore,
@@ -167,9 +167,8 @@ pub(super) fn anchor_printed(hole: &ResolvedHole) -> Result<PrintedValue, Campai
 }
 
 pub(super) fn printed(value: &Value, hole: &ResolvedHole) -> Result<PrintedValue, String> {
-    let k_text = print_k_text(value, &hole.sort).map_err(|error| format!("{error:?}"))?;
-    let (kore, sort) =
-        to_kore_with_sort(value, &hole.sort).map_err(|error| format!("{error:?}"))?;
+    let k_text = print_k_text(value, &hole.sort).map_err(|error| error.to_string())?;
+    let (kore, sort) = to_kore_with_sort(value, &hole.sort).map_err(|error| error.to_string())?;
     Ok(PrintedValue {
         k_text: Some(k_text),
         kore,

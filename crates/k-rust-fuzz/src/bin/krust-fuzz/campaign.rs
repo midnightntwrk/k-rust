@@ -166,6 +166,9 @@ pub struct HoleFile {
     pub program: Option<String>,
     /// The one-based line of the span.
     pub line: Option<u32>,
+    /// The one-based column, in characters, of the literal's first character on `line`, which
+    /// places the literal without a unique `find`.
+    pub column: Option<u32>,
     /// A text occurring once in the line or text and containing the literal; the literal
     /// itself by default.
     pub find: Option<String>,
@@ -859,7 +862,10 @@ fn proposers(file: ProposersFile, holes: &[HoleDecl]) -> Result<ProposerConfig, 
 /// The library declaration of a `[[hole]]`.
 fn hole_decl(hole: HoleFile, program: Option<&str>) -> Result<HoleDecl, String> {
     let name = hole.name;
-    let span = hole.literal.is_some() || hole.find.is_some() || hole.line.is_some();
+    let span = hole.literal.is_some()
+        || hole.find.is_some()
+        || hole.line.is_some()
+        || hole.column.is_some();
     let location = match (hole.config_var, span) {
         (Some(variable), false) if hole.program.is_none() => HoleLocation::ConfigVar {
             name: variable.strip_prefix('$').unwrap_or(&variable).to_owned(),
@@ -867,7 +873,7 @@ fn hole_decl(hole: HoleFile, program: Option<&str>) -> Result<HoleDecl, String> 
         (Some(_), _) => {
             return Err(format!(
                 "hole `{name}`: `config-var` addresses a whole variable; it takes no `program`, \
-                 `line`, `find` or `literal`"
+                 `line`, `column`, `find` or `literal`"
             ));
         }
         (None, _) => {
@@ -883,6 +889,7 @@ fn hole_decl(hole: HoleFile, program: Option<&str>) -> Result<HoleDecl, String> 
             HoleLocation::Span(SpanAddress {
                 program,
                 line: hole.line,
+                column: hole.column,
                 find: hole.find.unwrap_or_else(|| literal.clone()),
                 literal,
             })

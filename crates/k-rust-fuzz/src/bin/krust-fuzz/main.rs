@@ -17,11 +17,15 @@ use std::{
 };
 
 use clap::{Parser, ValueEnum};
-use k_rust::backend::CompiledRuleKind;
+use k_rust::backend::{CompiledRuleKind, HaltReasonOutput};
 use k_rust_fuzz::{
-    Campaign,
+    Campaign, CampaignError,
+    error::TargetProblem,
     exec::UnjudgedReason,
-    report::{CampaignOutcome, FuzzReport, HitLabel, WitnessCase},
+    report::{
+        BestScore, CampaignOutcome, DefinitionRole, FuzzReport, HitLabel, KillKind, WitnessCase,
+    },
+    spec::CompiledDefinition,
     target::RuleMode,
 };
 
@@ -353,13 +357,18 @@ fn run(args: Args) -> Result<u8, String> {
         file.as_ref()
             .and_then(|(_, file)| file.target.as_ref()?.rule.clone())
     });
+    let origins = PatternOrigins::of(
+        args.campaign.as_deref(),
+        file.as_ref().map(|(_, file)| file),
+        &overrides,
+    );
     let loaded = campaign::resolve(file, overrides)?;
     let spec = loaded.spec(
         loaded.resolved.proposers.clone(),
         loaded.resolved.options.clone(),
         STACK_SIZE as u64,
     );
-    let mut campaign = Campaign::new(spec).map_err(|error| format!("campaign refused: {error}"))?;
+    let mut campaign = Campaign::new(spec).map_err(|error| origins.refusal(&error))?;
     if let (Some(text), Some(rule)) = (&rule_text, campaign.target_rule()) {
         campaign::check_rule_range(text, rule)?;
     }
@@ -369,7 +378,8 @@ fn run(args: Args) -> Result<u8, String> {
     if args.json {
         println!("{json}");
     } else {
-        print!("{}", summary(&report));
+        let printers = EndPrinters::of(&loaded.baseline, loaded.mutant.as_deref());
+        print!("{}", summary(&report, Some(&printers)));
     }
     if let Some(path) = &args.report {
         std::fs::write(path, format!("{json}\n"))
@@ -396,6 +406,62 @@ fn run(args: Args) -> Result<u8, String> {
     } else {
         NOT_FOUND
     })
+}
+
+/// Where a campaign's patterns came from, for a refusal that names them (FZ-POLISH S6): the
+/// library positions an error in the pattern's own text, and only the command line knows which
+/// key or flag gave the text.
+struct PatternOrigins {
+    /// The target pattern's: `--pattern` or the campaign file's key.
+    target: String,
+    /// The normal-end pattern's: `--normal-end` or the campaign file's key.
+    normal_end: String,
+}
+
+impl PatternOrigins {
+    /// The origins of the patterns that `overrides` and the campaign file at `path` give, as
+    /// `campaign::resolve` chooses them: a flag over the file.
+    fn of(
+        path: Option<&Path>,
+        file: Option<&campaign::CampaignFile>,
+        overrides: &Overrides,
+    ) -> Self {
+        let in_file = |key: &str, table: &str| match path {
+            Some(path) => format!("`{key}` of `[{table}]` in {}", path.display()),
+            None => format!("`{key}` of `[{table}]`"),
+        };
+        let target = if overrides.pattern.is_some() {
+            "--pattern".to_owned()
+        } else {
+            in_file("pattern", "target")
+        };
+        let in_options = file
+            .and_then(|file| file.options.as_ref())
+            .is_some_and(|options| options.normal_end_pattern.is_some());
+        let normal_end = if overrides.normal_end.is_some() {
+            "--normal-end".to_owned()
+        } else if in_options {
+            in_file("normal-end-pattern", "options")
+        } else {
+            "the default `<k> .K </k>`".to_owned()
+        };
+        Self { target, normal_end }
+    }
+
+    /// The command line's message for `error`, naming the origin of a refused pattern.
+    fn refusal(&self, error: &CampaignError) -> String {
+        match error {
+            CampaignError::Target(TargetProblem::Pattern(message)) => format!(
+                "campaign refused: the target pattern ({}) is refused: {message}",
+                self.target
+            ),
+            CampaignError::NormalEndPattern { message } => format!(
+                "campaign refused: the normal-end pattern ({}) is refused: {message}",
+                self.normal_end
+            ),
+            other => format!("campaign refused: {other}"),
+        }
+    }
 }
 
 /// `Some(true)` for the switch, `Some(false)` for its negation (clap keeps only the last one
@@ -525,8 +591,9 @@ fn replay_command(path: &Path, args: &Args) -> Result<u8, String> {
     Ok(if reproduced { FOUND } else { NOT_FOUND })
 }
 
-/// A human-readable summary of `report`.
-fn summary(report: &FuzzReport) -> String {
+/// A human-readable summary of `report`; a differential witness's ends are printed as K text
+/// with `printers`, as KORE without them.
+fn summary(report: &FuzzReport, printers: Option<&EndPrinters>) -> String {
     use std::fmt::Write as _;
     let mut text = String::new();
     let status = match &report.outcome {
@@ -562,6 +629,17 @@ fn summary(report: &FuzzReport) -> String {
             format!(" ({classes})")
         }
     );
+    if let Some(count) = report.totals.pattern_body_matches {
+        let _ = writeln!(
+            text,
+            "pattern body: {count} {} matched the pattern's configuration without its \
+             `requires`, whatever the `requires` gave",
+            if count == 1 { "end" } else { "ends" }
+        );
+    }
+    if let Some(best) = &report.totals.best_score {
+        let _ = writeln!(text, "{}", best_score_line(best));
+    }
     if let CampaignOutcome::Aborted { reason, .. } = &report.outcome {
         let _ = writeln!(text, "reason: {reason}");
     }
@@ -574,7 +652,17 @@ fn summary(report: &FuzzReport) -> String {
         };
         let _ = writeln!(text, "{which}:");
         write_case(&mut text, case);
-        if let Some(command) = &witness.krun_command {
+        if let Some(kind) = case.kill {
+            write_differential(&mut text, case, kind, printers);
+            for (side, command) in [
+                ("baseline", &witness.krun_command),
+                ("mutant", &witness.mutant_krun_command),
+            ] {
+                if let Some(command) = command {
+                    let _ = writeln!(text, "krun ({side}): {command}");
+                }
+            }
+        } else if let Some(command) = &witness.krun_command {
             let _ = writeln!(text, "krun: {command}");
         }
     }
@@ -594,6 +682,26 @@ fn summary(report: &FuzzReport) -> String {
         let _ = writeln!(text, "engine defect: {}", defect.description);
     }
     text
+}
+
+/// The summary's line for the best score of the scored cases (`totals.best-score`).
+fn best_score_line(best: &BestScore) -> String {
+    let Some(value) = &best.best else {
+        return "best score: none (no miss case was scored)".to_owned();
+    };
+    let level = value.level.map_or_else(
+        || "no rule-graph path to the target".to_owned(),
+        |level| format!("level {level}"),
+    );
+    let guard = value.guard_distance.as_deref().map_or_else(
+        || "no guard distance".to_owned(),
+        |distance| format!("guard distance {distance}"),
+    );
+    format!(
+        "best score: {level}, {guard} (case {}; {} miss cases scored; smaller is nearer the \
+         target)",
+        value.case, best.scored_cases
+    )
 }
 
 /// For a report with a witness, its `unsupported` and `baseline-incomplete` cases per reason,
@@ -703,6 +811,129 @@ fn write_coverage(text: &mut String, report: &FuzzReport) {
 /// How many rules each list of [`write_coverage`] names.
 const LISTED_RULES: usize = 30;
 
+/// How many ends of each side [`write_differential`] prints.
+const LISTED_ENDS: usize = 4;
+
+/// The K-text printers of a campaign's definitions (krs-unparse's pretty form; `krust krun`
+/// itself prints KORE),
+/// for a differential witness's ends.
+struct EndPrinters {
+    baseline: Option<krs_unparse::Unparser>,
+    mutant: Option<krs_unparse::Unparser>,
+}
+
+impl EndPrinters {
+    fn of(baseline: &CompiledDefinition, mutant: Option<&CompiledDefinition>) -> Self {
+        let printer = |definition: &CompiledDefinition| {
+            krs_unparse::Unparser::from_kore(
+                &definition.syntax_definition_kore,
+                &definition.macros_kore,
+            )
+            .ok()
+            .map(|printer| printer.with_program_grammar(&definition.frontend_definition))
+        };
+        Self {
+            baseline: printer(baseline),
+            mutant: mutant.and_then(printer),
+        }
+    }
+
+    /// `kore`, a configuration of `role`'s definition, as K text when it prints without a
+    /// warning, else as it is.
+    fn show(printers: Option<&Self>, role: DefinitionRole, kore: &str) -> String {
+        let printer = printers.and_then(|printers| match role {
+            DefinitionRole::Baseline => printers.baseline.as_ref(),
+            DefinitionRole::Mutant => printers.mutant.as_ref(),
+        });
+        printer
+            .and_then(|printer| {
+                let pattern = k_rust::kore::parser::parse_pattern(kore).ok()?;
+                let output = printer.print_kore(&pattern, &krs_unparse::Options::default());
+                output.warnings.is_empty().then_some(output.text)
+            })
+            .unwrap_or_else(|| kore.to_owned())
+    }
+}
+
+/// A differential witness case beyond its hole values (FZ-POLISH S10, S-T7): the kind of kill,
+/// the instantiated program, and each side's ends (its `stuck` leaves), the killing one marked,
+/// with the count of leaves at an undefined step, which are no ends.
+fn write_differential(
+    text: &mut String,
+    case: &WitnessCase,
+    kind: KillKind,
+    printers: Option<&EndPrinters>,
+) {
+    use std::fmt::Write as _;
+    let _ = writeln!(
+        text,
+        "kill: {}",
+        match kind {
+            KillKind::AddedEnd => "added end (the mutant reaches an end the baseline cannot)",
+            KillKind::RemovedEnd => "removed end (the baseline reaches an end the mutant cannot)",
+        }
+    );
+    if let Some(program) = &case.program {
+        let _ = writeln!(text, "program:");
+        for line in program.lines() {
+            let _ = writeln!(text, "  {line}");
+        }
+    }
+    for side in &case.sides {
+        let ends: Vec<(usize, &String)> = side
+            .final_configurations
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| side.halts.get(*index) == Some(&HaltReasonOutput::Stuck))
+            .collect();
+        let undefined = side
+            .halts
+            .iter()
+            .filter(|halt| **halt == HaltReasonOutput::Trivial)
+            .count();
+        let role = serde_name(&side.role);
+        let _ = writeln!(
+            text,
+            "{role} ends: {}{}",
+            ends.len(),
+            match undefined {
+                0 => String::new(),
+                1 => " (and 1 leaf at an undefined step, which is no end)".to_owned(),
+                _ => format!(" (and {undefined} leaves at an undefined step, which are no ends)"),
+            }
+        );
+        let killing = (case.reaching.role == side.role)
+            .then_some(case.reaching.leaf)
+            .flatten();
+        // The first ends, and the killing end wherever it lies.
+        let is_killing = |index: usize| killing == u64::try_from(index).ok();
+        let listed: Vec<&(usize, &String)> = ends
+            .iter()
+            .enumerate()
+            .filter(|(position, (index, _))| *position < LISTED_ENDS || is_killing(*index))
+            .map(|(_, end)| end)
+            .collect();
+        for (index, end) in &listed {
+            let mark = if is_killing(*index) {
+                " (the killing end)"
+            } else {
+                ""
+            };
+            let _ = writeln!(text, "  end {index}{mark}:");
+            for line in EndPrinters::show(printers, side.role, end).lines() {
+                let _ = writeln!(text, "    {line}");
+            }
+        }
+        if ends.len() > listed.len() {
+            let _ = writeln!(
+                text,
+                "  ... and {} more in the witness's sides (--json, --report)",
+                ends.len() - listed.len()
+            );
+        }
+    }
+}
+
 fn write_case(text: &mut String, case: &WitnessCase) {
     use std::fmt::Write as _;
     for hole in &case.holes {
@@ -723,6 +954,45 @@ pub(crate) fn serde_name<T: serde::Serialize>(value: &T) -> String {
 mod tests {
     use super::*;
     use crate::campaign::{CampaignFile, value_from_toml};
+
+    /// Review round 1 nit: the killing end is printed even beyond the first ends of its side.
+    #[test]
+    fn the_killing_end_is_always_printed() {
+        use k_rust_fuzz::report::{Reaching, WitnessSide};
+        let side = |role, count: usize| WitnessSide {
+            role,
+            initial_configuration: "init".into(),
+            final_configurations: (0..count).map(|index| format!("end-{index}")).collect(),
+            halts: vec![HaltReasonOutput::Stuck; count],
+        };
+        let case = WitnessCase {
+            holes: Vec::new(),
+            program: None,
+            class: k_rust_fuzz::OutcomeClass::Hit,
+            sides: vec![
+                side(DefinitionRole::Baseline, 1),
+                side(DefinitionRole::Mutant, 7),
+            ],
+            reaching: Reaching {
+                role: DefinitionRole::Mutant,
+                leaf: Some(6),
+                step: None,
+            },
+            kill: Some(KillKind::AddedEnd),
+            steps: Some(3),
+        };
+        let mut text = String::new();
+        write_differential(&mut text, &case, KillKind::AddedEnd, None);
+        assert!(
+            text.contains("  end 6 (the killing end):\n    end-6\n"),
+            "{text}"
+        );
+        assert!(
+            text.contains("  end 3:\n") && !text.contains("  end 4:"),
+            "{text}"
+        );
+        assert!(text.contains("... and 2 more"), "{text}");
+    }
     use k_rust_fuzz::Value;
     use num_bigint::BigInt;
 
@@ -743,6 +1013,20 @@ mod tests {
         .expect("the example parses");
         assert_eq!(file.hole.len(), 1);
         assert_eq!(file.hole[0].literal.as_deref(), Some("250"));
+        // A column places the literal on its line (FZ-POLISH S8).
+        let file: CampaignFile = toml::from_str(
+            r#"
+            [[hole]]
+            name = "C"
+            sort = "Int"
+            program = "t.wat"
+            line = 3
+            column = 17
+            literal = "3"
+            "#,
+        )
+        .expect("a hole with a column parses");
+        assert_eq!(file.hole[0].column, Some(17));
     }
 
     #[test]

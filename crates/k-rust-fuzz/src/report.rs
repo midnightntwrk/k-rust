@@ -760,9 +760,20 @@ pub struct Totals {
     pub coverage: CoverageTotals,
     /// Cases in which the target rule was blocked (ARCHITECTURE 6.2).
     pub target_blocked: u64,
-    /// The best score any case reached, compared lexicographically, smaller being better
-    /// (ARCHITECTURE 6.4); `None` when no proposer scores.
-    pub best_score: Option<Vec<u64>>,
+    /// For a pattern target (a negated property included), how many end leaves (`stuck`,
+    /// `trivial` or `terminal`) of the cases inside the determinism contract matched the
+    /// pattern's configuration without its `requires`, whatever the `requires` gave there
+    /// (true, false or undecided); a leaf counts when it is clean apart from the target's own
+    /// undecided verdict, so a leaf unclean for another reason (a chosen value, a contradicted
+    /// claim, a state that is not ceil-free) is left out even when its configuration matched. 0 means no end's configuration matched the pattern's (a misspelled
+    /// key, a cell no end holds), so a negated property held vacuously, and a warning says so. Information, not a class: each leaf is matched on its own. Absent for
+    /// every other target, and when no case inside the determinism contract was executed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern_body_matches: Option<u64>,
+    /// The best score the scored cases reached (ARCHITECTURE 6.4): present exactly when a
+    /// proposer scores the campaign's cases (the climb or the solve proposer), so that a reader
+    /// sees whether the guided search came near the target; `None` when no proposer scores.
+    pub best_score: Option<BestScore>,
     /// Cases outside the determinism contract (ARCHITECTURE 5.4).
     pub outside_determinism: u64,
     /// Candidates that reached the target but were not confirmed: the confirmation failed,
@@ -777,6 +788,40 @@ pub struct Totals {
     /// the JSON otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub solve: Option<SolveTotals>,
+}
+
+/// The best score of a campaign whose proposers score its cases ([`Totals::best_score`];
+/// ARCHITECTURE 6.4). Only `miss` cases are scored (R-18): a bounded or unclean case's signals
+/// stop early, and a rejected case ran nothing.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct BestScore {
+    /// The `miss` cases that were scored.
+    pub scored_cases: u64,
+    /// The best score among them, the earliest case on a tie; absent when no case was scored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub best: Option<ScoreValue>,
+}
+
+/// One case's score, compared lexicographically, the level first, smaller being better
+/// (ARCHITECTURE 6.4; the rustdoc of `crate::score`).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ScoreValue {
+    /// The case that reached it.
+    pub case: u64,
+    /// For a rule target, the rule-graph distance to the target: 0 when the case entered the
+    /// target's `requires`, 1 when it entered a direct predecessor's that failed, and so on;
+    /// absent when no rule the case applied or entered reaches the target in the rule graph.
+    /// Always 0 for an observer target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub level: Option<u64>,
+    /// The guard distance at that level, an exact fraction `NUMERATOR/DENOMINATOR` in lowest
+    /// terms: 0 when the guard holds, otherwise the sum (over a conjunction) or the least (over
+    /// a disjunction) of its atoms' normalized distances `d / (d + 1)`, each below 1; absent
+    /// when no instance gave a distance (no signal, worse than every distance).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub guard_distance: Option<String>,
 }
 
 /// Which normal end the classes of each definition of a campaign rest on (ARCHITECTURE 5.2):
@@ -834,6 +879,17 @@ pub enum RejectionReason {
     BackendRefused,
 }
 
+impl RejectionReason {
+    /// The reason's name in the report (`round-trip`, `backend-refused`).
+    #[must_use]
+    pub fn name(self) -> String {
+        serde_json::to_value(self)
+            .ok()
+            .and_then(|name| name.as_str().map(str::to_owned))
+            .unwrap_or_default()
+    }
+}
+
 /// How a hit is labelled (ARCHITECTURE 4, 5.3).
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -858,13 +914,20 @@ pub struct Witness {
     /// the conditions of ARCHITECTURE 4.3.
     pub clean_leaf_facts: Vec<String>,
     /// The `krun` command line that re-runs the shrunk witness when there is one, otherwise the
-    /// first: the instantiated program passed with `-e`, the configuration variables with `-c`,
-    /// `--io off`, the strategy of the path mode, the depth bound and the solver options, with
-    /// the compiled definition's directory left as `<definition-dir>`. `krun` has no work
-    /// bound, so a campaign bounded by `max-work` says so in a trailing comment. `None` when no
-    /// `krun` run is equivalent: a KORE-template program, a backend on the `from-definition`
-    /// route (krun orders rules by the compiler's rewrite order), or a differential pair.
+    /// first, on the baseline: the instantiated program passed with `-e`, the configuration
+    /// variables with `-c`, `--io off`, the strategy of the path mode (`all` for a differential
+    /// baseline, which runs all paths), the depth bound and the solver options, with the
+    /// compiled definition's directory left as `<definition-dir>`. `krun` has no work bound, so
+    /// a campaign bounded by `max-work` says so in a trailing comment. `None` when no `krun` run
+    /// is equivalent: a KORE-template program, a program without `$PGM`, or a backend on the
+    /// `from-definition` route (krun orders rules by the compiler's rewrite order).
     pub krun_command: Option<String>,
+    /// For a differential witness, the same command line on the mutant, whose compiled
+    /// directory is left as `<mutant-dir>`: strategy `all` for a removed end (judged against
+    /// the mutant's every path) or the all-paths mode, `any` for an added end in the one-path
+    /// mode. Absent for every other target, and when no `krun` run is equivalent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mutant_krun_command: Option<String>,
 }
 
 /// One confirmed witness case (ARCHITECTURE 2.6).
@@ -873,6 +936,12 @@ pub struct Witness {
 pub struct WitnessCase {
     /// The hole overlay with values, in declaration order.
     pub holes: Vec<HoleValue>,
+    /// The instantiated program text: the program with each span hole's K text in its span,
+    /// which re-enters the witness as a test (the configuration variables' bindings, holes
+    /// included, are in the `krun` lines' `-c`). Absent for a KORE template and a campaign
+    /// without a program text.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
     /// The class confirmation gave (`hit`).
     pub class: OutcomeClass,
     /// What each definition's run started from and ended in: the baseline, then for a
@@ -1288,6 +1357,7 @@ mod tests {
             location: HoleLocation::Span(SpanAddress {
                 program: "transfer.imp".into(),
                 line: Some(4),
+                column: Some(10),
                 find: "amount = 250;".into(),
                 literal: "250".into(),
             }),
@@ -1297,6 +1367,7 @@ mod tests {
         };
         let case = WitnessCase {
             holes: vec![hole],
+            program: Some("amount = -7;".into()),
             class: OutcomeClass::Hit,
             sides: vec![WitnessSide {
                 role: DefinitionRole::Baseline,
@@ -1378,6 +1449,7 @@ mod tests {
                     shrunk: Some(case),
                     clean_leaf_facts: vec!["ceil-free".into()],
                     krun_command: Some("krust krun transfer.imp".into()),
+                    mutant_krun_command: Some("krust krun --definition <mutant-dir>".into()),
                 },
             },
             totals: Totals {
@@ -1413,7 +1485,15 @@ mod tests {
                     )]),
                 },
                 target_blocked: 3,
-                best_score: Some(vec![0, 2]),
+                pattern_body_matches: Some(4),
+                best_score: Some(BestScore {
+                    scored_cases: 3,
+                    best: Some(ScoreValue {
+                        case: 1,
+                        level: Some(0),
+                        guard_distance: Some("2/3".into()),
+                    }),
+                }),
                 outside_determinism: 0,
                 unconfirmed: 1,
                 case_sequence_digest: digest_hex(b"cases"),
@@ -1535,7 +1615,8 @@ mod tests {
             r#""thread-stack-size":"67108864","solver":"none"},"#,
             r#""outcome":{"status":"witness-found","witness":{"label":"property-failure","#,
             r#""first":CASE,"shrunk":CASE,"clean-leaf-facts":["ceil-free"],"#,
-            r#""krun-command":"krust krun transfer.imp"}},"#,
+            r#""krun-command":"krust krun transfer.imp","#,
+            r#""mutant-krun-command":"krust krun --definition <mutant-dir>"}},"#,
             r#""totals":{"cases":40,"work":1234,"#,
             r#""classes":{"hit":1,"miss":37,"rejected":2},"rejection-rate-permille":50,"#,
             r#""rejections":{"round-trip":1,"backend-refused":1},"#,
@@ -1544,8 +1625,9 @@ mod tests {
             r#""coverage":{"applied":["a","b"],"matched":["c"],"names":{"a":{"kind":"rewrite","#,
             r#""label":"IMP.a","locations":[{"source":"/w/imp.k","reference":"imp.k","line":3,"#,
             r#""end-line":4}]}}},"#,
-            r#""target-blocked":3,"#,
-            r#""best-score":[0,2],"outside-determinism":0,"unconfirmed":1,"#,
+            r#""target-blocked":3,"pattern-body-matches":4,"#,
+            r#""best-score":{"scored-cases":3,"best":{"case":1,"level":0,"#,
+            r#""guard-distance":"2/3"}},"outside-determinism":0,"unconfirmed":1,"#,
             r#""case-sequence-digest":"CASES"},"normal-end":{"baseline":"every-k"},"#,
             r#""load-records":[{"kind":"contradicted-claim","#,
             r#""detail":"total"}],"sort-overrides":[{"hole":"X","sort":"Id","#,
@@ -1554,9 +1636,10 @@ mod tests {
         );
         let case = concat!(
             r#"{"holes":[{"name":"AMOUNT","location":{"kind":"span","#,
-            r#""program":"transfer.imp","line":4,"find":"amount = 250;","literal":"250"},"#,
+            r#""program":"transfer.imp","line":4,"column":10,"find":"amount = 250;","#,
+            r#""literal":"250"},"#,
             r#""k-text":"-7","kore":"\\dv{SortInt{}}(\"-7\")","#,
-            r#""value":{"int":"-7"}}],"class":"hit","#,
+            r#""value":{"int":"-7"}}],"program":"amount = -7;","class":"hit","#,
             r#""sides":[{"role":"baseline","#,
             r#""initial-configuration":"Lbl'-LT-'generatedTop'-GT-'{}()","#,
             r#""final-configurations":["Lbl'-LT-'generatedTop'-GT-'{}()"],"#,

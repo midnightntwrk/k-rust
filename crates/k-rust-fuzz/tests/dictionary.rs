@@ -240,6 +240,7 @@ fn dict_hole(program: &str, name: &str, sort: &str, find: &str, literal: &str) -
         location: HoleLocation::Span(SpanAddress {
             program: program.into(),
             line: None,
+            column: None,
             find: find.into(),
             literal: literal.into(),
         }),

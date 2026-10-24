@@ -353,6 +353,7 @@ fn the_command_line_runs_the_library_campaign() {
         location: HoleLocation::Span(SpanAddress {
             program: "le.imp".into(),
             line,
+            column: None,
             find: find.into(),
             literal: literal.into(),
         }),
@@ -614,6 +615,43 @@ literal = "3"
         text(&replay.stderr)
     );
 
+    // The summary of a differential witness (FZ-POLISH S10, S-T7): the kind of kill, the
+    // instantiated program, both sides' ends as K text with the killing one marked, and a krun
+    // line per side.
+    let summary = krust_fuzz(
+        &directory,
+        &[
+            "--campaign",
+            "flip.toml",
+            "--definition",
+            "coin",
+            "--program",
+            "flip.pgm",
+            "--mutant",
+            "coin-kill",
+        ],
+    );
+    let stdout = text(&summary.stdout);
+    assert_eq!(summary.status.code(), Some(0), "{stdout}");
+    for needle in [
+        "kill: added end",
+        "program:\n  flip(",
+        "baseline ends: 2\n",
+        "mutant ends: 1\n",
+        "  end 0 (the killing end):\n",
+        "<out>",
+        "krun (baseline): krust krun --definition <definition-dir> ",
+        " --strategy all ",
+        "krun (mutant): krust krun --definition <mutant-dir> ",
+        " -e 'flip(",
+    ] {
+        assert!(stdout.contains(needle), "{needle}: {stdout}");
+    }
+    assert!(
+        !stdout.contains("\\dv{"),
+        "the ends print as K text: {stdout}"
+    );
+
     let (status, report) = json_run(&directory, &args("coin-layout"));
     assert_eq!(status, Some(1), "no witness exits 1");
     assert_eq!(report.outcome, CampaignOutcome::Equivalent);
@@ -831,6 +869,47 @@ fn contradictory_options_are_refused_and_flags_switch_off_the_file() {
     );
     let stdout = text(&plain.stdout);
     assert!(stdout.starts_with("witness found\n"), "{stdout}");
+}
+
+/// FZ-POLISH S6: a pattern that does not compile is refused naming where it came from (the
+/// campaign file's key or the flag), with its position in the pattern's own text, never
+/// krun's `<command line>`.
+#[test]
+fn a_pattern_refusal_names_where_the_pattern_came_from() {
+    let directory = le_workspace("pattern-origin");
+    let broken = le_campaign().replace(LE_VIOLATION, "<k> .K </k> <state> r |-> R </state>");
+    fs::write(directory.join("broken.toml"), broken).unwrap();
+    let refused = |args: &[&str], needles: &[&str]| {
+        let output = krust_fuzz(&directory, args);
+        let stderr = text(&output.stderr);
+        assert_eq!(output.status.code(), Some(2), "{args:?}: {stderr}");
+        for needle in needles {
+            assert!(stderr.contains(needle), "{args:?}: {stderr}");
+        }
+        assert!(!stderr.contains("<command line>"), "{args:?}: {stderr}");
+    };
+    refused(
+        &["--campaign", "broken.toml"],
+        &["`pattern` of `[target]` in broken.toml", "line 1, column"],
+    );
+    refused(
+        &[
+            "--campaign",
+            "le.toml",
+            "--pattern",
+            "<k> .K </k> <state> r |-> R </state>",
+        ],
+        &["--pattern", "line 1, column"],
+    );
+    refused(
+        &[
+            "--campaign",
+            "le.toml",
+            "--normal-end",
+            "<k> .K </k> <nope> </nope>",
+        ],
+        &["--normal-end"],
+    );
 }
 
 /// Round 2, S1 and N2: a missing or non-executable `krust-fuzz` is an error (exit 2), never

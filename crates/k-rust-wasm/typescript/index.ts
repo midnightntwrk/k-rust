@@ -1196,7 +1196,7 @@ export type FuzzValue =
   | { apply: { symbol: string; arguments: FuzzValue[] } }
 
 export type FuzzHoleLocation =
-  | { kind: 'span'; program: string; line?: number | null; find: string; literal: string }
+  | { kind: 'span'; program: string; line?: number | null; column?: number; find: string; literal: string }
   | { kind: 'config-var'; name: string }
   | { kind: 'kore-variable'; name: string }
 
@@ -1479,6 +1479,8 @@ export interface FuzzHoleValue {
 
 export interface FuzzWitnessCase {
   holes: FuzzHoleValue[]
+  /** The instantiated program text; absent for a KORE template or without a program. */
+  program?: string
   class: FuzzOutcomeClass
   sides: {
     role: FuzzDefinitionRole
@@ -1499,6 +1501,8 @@ export interface FuzzWitness {
   shrunk: FuzzWitnessCase | null
   'clean-leaf-facts': string[]
   'krun-command': string | null
+  /** Differential witnesses: the krun line on the mutant (`<mutant-dir>`). */
+  'mutant-krun-command'?: string
 }
 
 /** The bounded statement of a campaign without a witness; never a claim that none exists. */
@@ -1583,6 +1587,19 @@ export interface FuzzRuleName {
   locations: FuzzRuleLocation[]
 }
 
+/** `totals.best-score`: lexicographic, the level first, smaller nearer the target. */
+export interface FuzzBestScore {
+  'scored-cases': number
+  /** Absent when no case was scored. */
+  best?: {
+    case: number
+    /** Rule-graph distance to the target; absent when no rule-graph path reaches it. */
+    level?: number
+    /** Exact fraction `N/D`; absent when no guard instance gave a distance. */
+    'guard-distance'?: string
+  }
+}
+
 export interface FuzzTotals {
   cases: number
   work: number
@@ -1600,7 +1617,10 @@ export interface FuzzTotals {
     names: Record<string, FuzzRuleName>
   }
   'target-blocked': number
-  'best-score': number[] | null
+  /** Pattern targets only: clean end leaves that matched the pattern's configuration without its `requires`; 0 warns of a vacuous pattern. */
+  'pattern-body-matches'?: number
+  /** The best score of the scored `miss` cases; null when no proposer scores (climb, solve). */
+  'best-score': FuzzBestScore | null
   'outside-determinism': number
   unconfirmed: number
   'case-sequence-digest': string

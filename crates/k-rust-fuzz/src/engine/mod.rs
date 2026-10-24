@@ -22,7 +22,9 @@ use k_rust::backend::CancellationToken;
 pub(crate) use self::live::ConfigurationBuilder;
 pub(crate) use self::schedule::derive_seed;
 use self::{
-    campaign_loop::{Cuts, Ending, LoopSettings, no_witness, report_without_cases, run_loop},
+    campaign_loop::{
+        Cuts, Ending, FiniteDomain, LoopSettings, no_witness, report_without_cases, run_loop,
+    },
     live::{GraphCheck, LiveCases, LiveRunner},
     proposer::{BlindProposer, Proposer},
     schedule::Schedule,
@@ -160,7 +162,9 @@ impl Campaign {
                     Err(reason) if side == 0 => {
                         return Err(CampaignError::Program {
                             message: format!(
-                                "the program with its anchor values is refused: {reason:?}"
+                                "the program with its anchor values is refused ({}: the \
+                                 rejection reason a case with these values would have)",
+                                reason.name()
                             ),
                         });
                     }
@@ -199,6 +203,7 @@ impl Campaign {
             pool_rank: guidance.pool_rank,
             normal_end: Some(cases.normal_ends()),
             rule_names: rules.names,
+            domain: FiniteDomain::of(holes.iter().map(|hole| (&hole.sort, &hole.constraints))),
         };
         Ok(Campaign {
             spec,

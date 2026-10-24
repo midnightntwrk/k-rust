@@ -69,6 +69,15 @@ pub(crate) struct CaseRun {
     /// What stopped paths of the result the class rests on, which the no-witness statement
     /// reads for `reached-unfinished` and `baseline-incomplete` cases.
     pub(crate) cut: Cut,
+    /// For a differential case whose baseline run no bound and no clock cut (every path of it
+    /// reached its end), the baseline's work; `None` otherwise and for every other target. The
+    /// no-witness statement reads it for a case the work bound stopped on the mutant: the
+    /// baseline needed this much, the mutant more than the bound (FZ-POLISH S-T5).
+    pub(crate) baseline_ended_within: Option<u64>,
+    /// For a pattern target, how many clean end leaves matched the pattern's configuration
+    /// without its `requires` ([`crate::report::Totals::pattern_body_matches`]); `None` for
+    /// every other target.
+    pub(crate) pattern_body_matches: Option<u64>,
 }
 
 /// Which bounds stopped some path of the result a case's class rests on: the judged result of a
@@ -109,6 +118,8 @@ impl CaseRun {
             hit: None,
             incidental: None,
             cut: Cut::default(),
+            baseline_ended_within: None,
+            pattern_body_matches: None,
         }
     }
 }
@@ -133,8 +144,12 @@ pub(crate) struct HitDetail {
     /// for a hit of the whole run every leaf's configuration in the backend's order, one per
     /// line, as KORE text: the case and its confirmation agree only when these are equal.
     pub(crate) reaching_state: String,
-    /// The `krun` command line that re-runs the case, when one is equivalent.
+    /// The `krun` command line that re-runs the case on the baseline, when one is equivalent.
     pub(crate) krun_command: Option<String>,
+    /// For a differential case, the `krun` command line on the mutant, when one is equivalent.
+    pub(crate) mutant_krun_command: Option<String>,
+    /// The instantiated program text, for a campaign with a program text.
+    pub(crate) program: Option<String>,
 }
 
 /// Why a confirmation gave no run.

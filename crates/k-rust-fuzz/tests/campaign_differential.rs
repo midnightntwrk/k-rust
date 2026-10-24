@@ -21,11 +21,11 @@ use num_bigint::BigInt;
 use support::{
     CLAIMSTEP, CLAIMSTEP_PARTIAL, CLAIMSTEP_PRESERVES, CLAIMSTEP_TOTAL, COIN, COIN_KILL,
     COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture,
-    IMP_ADD_COMMUTED, IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE,
-    KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE, R2_ADDMEMBER, R2_ADDMEMBER_M,
-    R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M,
-    R3_PROPAGATE, R3_PROPAGATE_M, R4_EMPTY, R4_EMPTY_M, R4_PARTNORULE, R4_PARTNORULE_M, RERUN,
-    RERUN_DROP,
+    IMP_ADD_BECOMES_SUB, IMP_ADD_COMMUTED, IMP_AND_TRUE_IGNORES_RHS, IMP_DECL_ALLOWS_REDECLARATION,
+    IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE, KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND,
+    OV_SIZE, R2_ADDMEMBER, R2_ADDMEMBER_M, R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R3_MODOV,
+    R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M, R3_PROPAGATE, R3_PROPAGATE_M, R4_EMPTY, R4_EMPTY_M,
+    R4_PARTNORULE, R4_PARTNORULE_M, RERUN, RERUN_DROP,
 };
 #[cfg(feature = "z3")]
 use support::{R2_PARAM, R2_PARAM_M};
@@ -61,6 +61,7 @@ fn spec_on(
             location: HoleLocation::Span(SpanAddress {
                 program: program.into(),
                 line: None,
+                column: None,
                 find: "3".into(),
                 literal: "3".into(),
             }),
@@ -104,9 +105,33 @@ fn a_mutant_that_adds_an_end_is_killed_by_a_confirmed_witness() {
     );
     let witness = report.witness().expect("a kill");
     assert_eq!(witness.label, HitLabel::Hit);
-    assert_eq!(
-        witness.krun_command, None,
-        "no single krun run is a differential pair"
+    // A krun line per side (FZ-POLISH S10, S-T7): the baseline on all paths, the mutant's added
+    // end on its one path, each on its own compiled directory, with the instantiated program.
+    let case = witness.shrunk.as_ref().unwrap_or(&witness.first);
+    let program = case.program.as_deref().expect("the instantiated program");
+    let Value::Int(n) = &case.holes[0].value else {
+        panic!("an Int")
+    };
+    assert_eq!(program.trim_end(), format!("flip({n})"));
+    let baseline = witness
+        .krun_command
+        .as_deref()
+        .expect("a baseline krun line");
+    assert!(
+        baseline.starts_with("krust krun --definition <definition-dir> ")
+            && baseline.contains(" --strategy all ")
+            && baseline.contains(&format!("-e 'flip({n})")),
+        "{baseline}"
+    );
+    let mutant = witness
+        .mutant_krun_command
+        .as_deref()
+        .expect("a mutant krun line");
+    assert!(
+        mutant.starts_with("krust krun --definition <mutant-dir> ")
+            && mutant.contains(" --strategy any ")
+            && mutant.contains(&format!("-e 'flip({n})")),
+        "{mutant}"
     );
     for case in [Some(&witness.first), witness.shrunk.as_ref()]
         .into_iter()
@@ -234,6 +259,7 @@ fn int_hole(name: &str, program: &str, find: &str, literal: &str, max: i64) -> H
         location: HoleLocation::Span(SpanAddress {
             program: program.into(),
             line: None,
+            column: None,
             find: find.into(),
             literal: literal.into(),
         }),
@@ -350,6 +376,7 @@ fn an_undefined_redeclaration_where_the_baseline_stops_is_killed() {
         location: HoleLocation::Span(SpanAddress {
             program: "imp-diff/sum.imp".into(),
             line: None,
+            column: None,
             find: "int n, sum;".into(),
             literal: "sum".into(),
         }),
@@ -881,6 +908,213 @@ fn a_pair_over_a_sort_with_no_normal_form_leaves_the_definition_without_data() {
                     && warning.contains("SortS")),
             "{program}: {:?}",
             report.warnings
+        );
+    }
+}
+
+/// TRIAL2 item 5 (FZ-POLISH N-T2): blind sampling at seed 8 kills `and-true-ignores-rhs` on
+/// `primes.imp` with `M = 8, N = 8, I = 1, T = 0`, as TRIAL2's seed did. `M` cannot shrink while
+/// `N` is 8 (the outer loop `n <= m` is not entered), and only once `N` has shrunk to 0 does
+/// `M = 1` kill; shrinking repeats its passes over every hole, value trees included, so `M` ends
+/// at 1 (TRIAL2 was left with `M = 8`, its tree having been spent before `N` moved).
+#[test]
+fn shrinking_revisits_every_hole_and_ends_at_m_1() {
+    let mut spec = trial_spec(
+        &IMP_DIFF,
+        &IMP_AND_TRUE_IGNORES_RHS,
+        "imp-diff/primes.imp",
+        primes_holes(),
+        Vec::new(),
+        PathMode::OnePath,
+    );
+    spec.seed = 8;
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(300), None);
+    let witness = report.witness().expect("a kill");
+    let show = |case: &k_rust_fuzz::report::WitnessCase| {
+        case.holes
+            .iter()
+            .map(|hole| format!("{}={}", hole.name, hole.k_text.as_deref().unwrap_or("?")))
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    assert_eq!(show(&witness.first), "M=8, N=8, I=1, T=0");
+    let shrunk = witness.shrunk.as_ref().expect("a shrunk witness");
+    assert_eq!(show(shrunk), "M=1, N=0, I=1, T=0");
+}
+
+/// TRIAL2 S-T5 (FZ-POLISH): `add-becomes-sub` turns `sum.imp`'s countdown `n = n + -D;` into a
+/// count-up, so for `n > 0` and `D > 0` the mutant's loop does not end while the baseline's
+/// does. Such cases stop at max-work on the mutant; the statement says the baseline ended
+/// within so much work and that the mutant may not terminate, and does not advise raising
+/// max-work for them. With `D = 0` the baseline's own loop does not end either: that case is
+/// `baseline-incomplete`, and its advice to raise max-work stands.
+#[test]
+fn a_mutant_that_stops_at_max_work_where_the_baseline_ended_is_not_told_to_raise_it() {
+    let program = "imp-diff/sum.imp";
+    let mut spec = trial_spec(
+        &IMP_DIFF,
+        &IMP_ADD_BECOMES_SUB,
+        program,
+        vec![
+            int_hole("N", program, "n = 3;", "3", 8),
+            int_hole("S", program, "sum = 0;", "0", 8),
+            int_hole("D", program, "n + -1;", "1", 8),
+        ],
+        vec![int_assignment(&[("N", 2), ("S", 0), ("D", 0)])],
+        PathMode::OnePath,
+    );
+    spec.options.max_work = Some(3000);
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(6), None);
+    let statement = &report.no_witness().expect("no kill").statement;
+    let work_bound = report.totals.classes.get(&OutcomeClass::WorkBound).copied();
+    assert!(work_bound.is_some_and(|count| count > 0), "{statement}");
+    assert!(
+        statement.contains(
+            "stopped at max-work 3000 on the mutant, where the baseline reached all its ends \
+             within"
+        ),
+        "{statement}"
+    );
+    assert!(
+        statement.contains("the mutant may not terminate on this program"),
+        "{statement}"
+    );
+    assert!(
+        !statement.contains("cases stopped at max-work 3000: raise max-work.")
+            && !statement.contains("case stopped at max-work 3000: raise max-work."),
+        "{statement}"
+    );
+    // The explicit `D = 0` case: the baseline does not end, and the old advice stands.
+    assert!(
+        report
+            .totals
+            .classes
+            .get(&OutcomeClass::BaselineIncomplete)
+            .is_some_and(|count| *count > 0),
+        "{statement}"
+    );
+    assert!(
+        statement.contains("a baseline path stopped at max-work 3000: raise max-work"),
+        "{statement}"
+    );
+}
+
+/// TRIAL2 N-T1 (FZ-POLISH): a campaign whose holes all have finite domains ends once every
+/// assignment has run. An `Id` hole with the two choices `sum` (the anchor) and `n` on the
+/// equivalent `add-commuted` has two assignments: the campaign stops with `domain exhausted`
+/// after exactly two cases, not after its budget of 50. No assignment runs twice: a proposal
+/// that repeats one is replaced by an unseen one (at seed 7 the first blind draw repeats the
+/// anchor).
+#[test]
+fn a_finite_domain_is_exhausted_after_its_assignments() {
+    let token = |text: &str| Value::Token {
+        sort: "Id".into(),
+        text: text.into(),
+    };
+    let hole = HoleDecl {
+        name: "V".into(),
+        sort: "Id".into(),
+        location: HoleLocation::Span(SpanAddress {
+            program: "imp-diff/sum.imp".into(),
+            line: None,
+            column: None,
+            find: "int n, sum;".into(),
+            literal: "sum".into(),
+        }),
+        constraints: Constraints {
+            choices: Some(vec![token("sum"), token("n")]),
+            ..Constraints::default()
+        },
+        allow_refused_sort: true,
+    };
+    let report = Campaign::new(trial_spec(
+        &IMP_DIFF,
+        &IMP_ADD_COMMUTED,
+        "imp-diff/sum.imp",
+        vec![hole],
+        Vec::new(),
+        PathMode::OnePath,
+    ))
+    .expect("valid")
+    .run(Budget::Cases(50), None);
+    let statement = &report.no_witness().expect("no kill").statement;
+    assert_eq!(report.totals.cases, 2, "{statement}");
+    assert!(
+        statement.contains("Domain exhausted: every one of the 2 assignments"),
+        "{statement}"
+    );
+    assert!(!statement.contains("The budget was spent"), "{statement}");
+}
+
+/// TRIAL2 N-T3 (FZ-POLISH): a token choice written as a plain string is refused with the form
+/// a token is written in.
+#[test]
+fn a_token_choice_written_as_a_string_is_refused_with_the_token_form() {
+    let hole = HoleDecl {
+        name: "V".into(),
+        sort: "Id".into(),
+        location: HoleLocation::Span(SpanAddress {
+            program: "imp-diff/sum.imp".into(),
+            line: None,
+            column: None,
+            find: "int n, sum;".into(),
+            literal: "sum".into(),
+        }),
+        constraints: Constraints {
+            choices: Some(vec![Value::String("n".into())]),
+            ..Constraints::default()
+        },
+        allow_refused_sort: true,
+    };
+    let error = Campaign::new(trial_spec(
+        &IMP_DIFF,
+        &IMP_ADD_COMMUTED,
+        "imp-diff/sum.imp",
+        vec![hole],
+        Vec::new(),
+        PathMode::OnePath,
+    ))
+    .err()
+    .expect("refused")
+    .to_string();
+    assert!(
+        error.contains(r#"{ token = { sort = "Id", text = "n" } }"#),
+        "{error}"
+    );
+}
+
+/// FZ-POLISH N-T1, review round 1: three holes of four values each (64 assignments) under blind
+/// sampling end after exactly 64 cases, each assignment once, at every seed (the review measured
+/// 722, 418 and 1059 cases when repeats ran).
+#[test]
+fn a_finite_product_is_exhausted_in_exactly_its_size_of_cases() {
+    let program = "imp-diff/sum.imp";
+    for seed in [1, 2, 3] {
+        let mut spec = trial_spec(
+            &IMP_DIFF,
+            &IMP_ADD_COMMUTED,
+            program,
+            vec![
+                int_hole("N", program, "n = 3;", "3", 3),
+                int_hole("S", program, "sum = 0;", "0", 3),
+                int_hole("D", program, "n + -1;", "1", 3),
+            ],
+            Vec::new(),
+            PathMode::OnePath,
+        );
+        spec.seed = seed;
+        let report = Campaign::new(spec)
+            .expect("valid")
+            .run(Budget::Cases(2000), None);
+        let statement = &report.no_witness().expect("no kill").statement;
+        assert_eq!(report.totals.cases, 64, "seed {seed}: {statement}");
+        assert!(
+            statement.contains("Domain exhausted: every one of the 64 assignments"),
+            "seed {seed}: {statement}"
         );
     }
 }

@@ -661,21 +661,100 @@ impl LiveCases {
             .collect()
     }
 
-    /// The `krun` command line equivalent to a case of this campaign, or `None` when no `krun`
-    /// run is: a differential pair, the `from-definition` route, a KORE template, or a program
-    /// without `$PGM` (krun would read `$PGM` from its standard input).
-    fn krun_command(&self, instantiated: &InstantiatedProgram) -> Option<String> {
-        let Judge::Target(target) = &self.judge else {
+    /// The `krun` command line equivalent to a run of `instantiated` on `definition`, whose
+    /// compiled directory is left as `directory` (`<definition-dir>`, `<mutant-dir>`), under
+    /// strategy `paths` and with `terminal_rules` as krun's terminal rules; `None` when no `krun`
+    /// run is: the `from-definition` route, a KORE template, or a program without `$PGM` (krun
+    /// would read `$PGM` from its standard input).
+    fn krun_command(
+        definition: &CompiledDefinition,
+        directory: &str,
+        options: &CaseOptions,
+        paths: PathMode,
+        terminal_rules: &[String],
+        instantiated: &InstantiatedProgram,
+    ) -> Option<String> {
+        if definition.route == BackendRoute::FromDefinition {
+            return None;
+        }
+        let InstantiatedProgram::Source {
+            program: Some(program),
+            config_vars,
+        } = instantiated
+        else {
             return None;
         };
-        let options = &self.spec.options;
+        let mut line = format!(
+            "krust krun --definition {directory} -m {} --syntax-module {}",
+            quote(&definition.main_module),
+            quote(&definition.syntax_module)
+        );
+        write!(line, " -s {}", quote(&program.start_sort)).expect("writing to a String");
+        line.push_str(" --io off --strategy ");
+        line.push_str(match paths {
+            PathMode::OnePath => "any",
+            PathMode::AllPaths => "all",
+        });
+        if let Some(depth) = options.max_depth {
+            write!(line, " --depth {depth}").expect("writing to a String");
+        }
         // A `fired` target under one path stops at its rule (FZ-05, D16); so must krun.
-        krun_line(
-            &self.spec.definitions.baseline,
-            options,
-            options.paths,
-            &target.needs(options.paths).terminal_rules,
-            instantiated,
+        for rule in terminal_rules {
+            write!(line, " --terminal-rule {}", quote(rule)).expect("writing to a String");
+        }
+        write!(
+            line,
+            " --max-simplification-iterations {} --smt-timeout {} --smt-retry-limit {}",
+            options.max_simplification_iterations,
+            options.backend.smt_timeout_ms,
+            options.backend.smt_retry_limit
+        )
+        .expect("writing to a String");
+        for (name, value) in config_vars {
+            write!(line, " -c {}", quote(&format!("{name}={value}"))).expect("writing to a String");
+        }
+        // `--io off` buffers standard input into `$STDIN`; the campaign binds it empty.
+        write!(line, " -e {} < /dev/null", quote(&program.text)).expect("writing to a String");
+        if let Some(work) = options.effective_max_work() {
+            write!(
+                line,
+                "  # the campaign also bounds max-work {work}, which krun cannot"
+            )
+            .expect("writing to a String");
+        }
+        Some(line)
+    }
+
+    /// What re-enters a differential case as a test: the `krun` lines of the baseline on all
+    /// paths, as it runs, and of the mutant in `paths`, the mode its judged result ran in, and
+    /// the instantiated program text.
+    fn reentry(
+        spec: &CampaignSpec,
+        baseline: &Prepared,
+        mutant: &Prepared,
+        paths: PathMode,
+    ) -> (Option<String>, Option<String>, Option<String>) {
+        let line = |definition, directory, paths, instantiated| {
+            Self::krun_command(
+                definition,
+                directory,
+                &spec.options,
+                paths,
+                &[],
+                instantiated,
+            )
+        };
+        (
+            line(
+                &spec.definitions.baseline,
+                "<definition-dir>",
+                PathMode::AllPaths,
+                &baseline.instantiated,
+            ),
+            spec.definitions.mutant.as_ref().and_then(|definition| {
+                line(definition, "<mutant-dir>", paths, &mutant.instantiated)
+            }),
+            program_text(&baseline.instantiated),
         )
     }
 
@@ -708,6 +787,7 @@ impl LiveCases {
             judged.judgement,
         );
         let mut run = run_of(&result, &[&result]);
+        run.pattern_body_matches = target.pattern_body_matches(&result);
         run.progress = progress;
         run.cut = cut_of(&result);
         match judged {
@@ -749,7 +829,16 @@ impl LiveCases {
                             kill: None,
                             steps,
                             reaching_state,
-                            krun_command: self.krun_command(&prepared.instantiated),
+                            krun_command: Self::krun_command(
+                                &self.spec.definitions.baseline,
+                                "<definition-dir>",
+                                &self.spec.options,
+                                self.spec.options.paths,
+                                &target.needs(self.spec.options.paths).terminal_rules,
+                                &prepared.instantiated,
+                            ),
+                            mutant_krun_command: None,
+                            program: program_text(&prepared.instantiated),
                         });
                     } else {
                         run.class = OutcomeClass::Unsupported;
@@ -821,6 +910,7 @@ impl LiveCases {
         let mut sides = vec![&baseline, &one_path];
         sides.extend(&rerun);
         let mut run = run_of(mutated, &sides);
+        run.baseline_ended_within = ended_within(&baseline);
         // A value either side's backend refuses makes the case `rejected` (ARCHITECTURE 4.3,
         // 5.3), before the pair is judged: a refused baseline is not an incomplete one.
         if refused(&baseline) || refused(mutated) {
@@ -852,9 +942,10 @@ impl LiveCases {
                         side.leaves.get(index).map(|leaf| (kind, role, index, leaf))
                     });
                     if let Some((kind, role, index, leaf)) = witness {
-                        let holes = self.hole_values(values, &baseline_case.printed);
+                        let (krun_command, mutant_krun_command, program) =
+                            Self::reentry(&self.spec, &baseline_case, &mutant_case, paths);
                         run.hit = Some(HitDetail {
-                            holes,
+                            holes: self.hole_values(values, &baseline_case.printed),
                             sides: vec![
                                 side_of(DefinitionRole::Baseline, &baseline_case, &baseline),
                                 side_of(DefinitionRole::Mutant, &mutant_case, mutated),
@@ -867,7 +958,9 @@ impl LiveCases {
                             kill: Some(kind),
                             steps: Some(leaf.depth),
                             reaching_state: leaf.state.to_string(),
-                            krun_command: None,
+                            krun_command,
+                            mutant_krun_command,
+                            program,
                         });
                     } else {
                         run.class = OutcomeClass::Unsupported;
@@ -980,8 +1073,9 @@ impl LiveCases {
                     HaltReasonOutput::Trivial | HaltReasonOutput::Vacuous
                 )
             });
-        let krun_command = krun_line(
+        let krun_command = Self::krun_command(
             &self.baseline.definition,
+            "<definition-dir>",
             &self.spec.options,
             paths,
             terminal_rules,
@@ -1065,6 +1159,8 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
         hit: None,
         incidental: None,
         cut: Cut::default(),
+        baseline_ended_within: None,
+        pattern_body_matches: None,
     }
 }
 
@@ -1190,65 +1286,22 @@ fn side_of(role: DefinitionRole, prepared: &Prepared, result: &CaseResult) -> Wi
     }
 }
 
-/// The `krun` command line that runs `instantiated` on `definition` as a case of a campaign with
-/// `options` does, in `paths` with `terminal_rules`, or `None` when no `krun` run is: the
-/// `from-definition` route, a KORE template, or a program without `$PGM` (krun would read `$PGM`
-/// from its standard input).
-fn krun_line(
-    definition: &CompiledDefinition,
-    options: &CaseOptions,
-    paths: PathMode,
-    terminal_rules: &[String],
-    instantiated: &InstantiatedProgram,
-) -> Option<String> {
-    if definition.route == BackendRoute::FromDefinition {
-        return None;
+/// The work of `baseline`, a differential case's baseline run, when no bound and no clock cut
+/// it: every path of it reached its end.
+fn ended_within(baseline: &CaseResult) -> Option<u64> {
+    let cut = cut_of(baseline);
+    (!(cut.depth || cut.work || cut.clock)).then_some(baseline.work)
+}
+
+/// The instantiated program text of a case, for a campaign with a program text.
+fn program_text(instantiated: &InstantiatedProgram) -> Option<String> {
+    match instantiated {
+        InstantiatedProgram::Source {
+            program: Some(program),
+            ..
+        } => Some(program.text.clone()),
+        _ => None,
     }
-    let InstantiatedProgram::Source {
-        program: Some(program),
-        config_vars,
-    } = instantiated
-    else {
-        return None;
-    };
-    let mut line = format!(
-        "krust krun --definition <definition-dir> -m {} --syntax-module {}",
-        quote(&definition.main_module),
-        quote(&definition.syntax_module)
-    );
-    write!(line, " -s {}", quote(&program.start_sort)).expect("writing to a String");
-    line.push_str(" --io off --strategy ");
-    line.push_str(match paths {
-        PathMode::OnePath => "any",
-        PathMode::AllPaths => "all",
-    });
-    if let Some(depth) = options.max_depth {
-        write!(line, " --depth {depth}").expect("writing to a String");
-    }
-    for rule in terminal_rules {
-        write!(line, " --terminal-rule {}", quote(rule)).expect("writing to a String");
-    }
-    write!(
-        line,
-        " --max-simplification-iterations {} --smt-timeout {} --smt-retry-limit {}",
-        options.max_simplification_iterations,
-        options.backend.smt_timeout_ms,
-        options.backend.smt_retry_limit
-    )
-    .expect("writing to a String");
-    for (name, value) in config_vars {
-        write!(line, " -c {}", quote(&format!("{name}={value}"))).expect("writing to a String");
-    }
-    // `--io off` buffers standard input into `$STDIN`; the campaign binds it empty.
-    write!(line, " -e {} < /dev/null", quote(&program.text)).expect("writing to a String");
-    if let Some(work) = options.effective_max_work() {
-        write!(
-            line,
-            "  # the campaign also bounds max-work {work}, which krun cannot"
-        )
-        .expect("writing to a String");
-    }
-    Some(line)
 }
 
 /// `text` quoted for a POSIX shell.
@@ -1647,6 +1700,7 @@ mod tests {
             location: HoleLocation::Span(SpanAddress {
                 program: "imp/le.imp".into(),
                 line: None,
+                column: None,
                 find: find.into(),
                 literal: literal.into(),
             }),
@@ -1789,6 +1843,7 @@ mod tests {
                 location: HoleLocation::Span(SpanAddress {
                     program: "coin/count.pgm".into(),
                     line: None,
+                    column: None,
                     find: "count(3)".into(),
                     literal: "3".into(),
                 }),
@@ -1875,6 +1930,7 @@ mod tests {
                 location: HoleLocation::Span(SpanAddress {
                     program: "coin/count.pgm".into(),
                     line: None,
+                    column: None,
                     find: "count(3)".into(),
                     literal: "3".into(),
                 }),

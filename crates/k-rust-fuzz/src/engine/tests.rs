@@ -67,6 +67,8 @@ fn run(class: OutcomeClass, work: u64) -> CaseRun {
         hit: None,
         incidental: None,
         cut: Cut::default(),
+        baseline_ended_within: None,
+        pattern_body_matches: None,
     }
 }
 
@@ -100,6 +102,8 @@ fn detail(values: &[Value], state: &str) -> HitDetail {
         steps: Some(3),
         reaching_state: state.to_owned(),
         krun_command: Some(format!("krust krun {values:?}")),
+        mutant_krun_command: None,
+        program: None,
     }
 }
 
@@ -280,6 +284,7 @@ fn settings(holes: usize) -> LoopSettings {
         pool_rank: std::collections::BTreeMap::new(),
         normal_end: None,
         rule_names: std::sync::Arc::default(),
+        domain: None,
     }
 }
 
@@ -1271,9 +1276,11 @@ fn value_trees_shrink_blind_values_and_stop_ends_shrinking() {
         },
     );
     assert_eq!(shrunk, [int(16), int(7)]);
+    // The hole's least value first (FZ-POLISH N-T2), then its tree.
     assert_eq!(
-        seen[..3],
+        seen[..4],
         [
+            vec![int(0), int(7)],
             vec![int(32), int(7)],
             vec![int(16), int(7)],
             vec![int(8), int(7)]
@@ -1292,6 +1299,47 @@ fn value_trees_shrink_blind_values_and_stop_ends_shrinking() {
     );
     assert_eq!(shrunk, [int(1000)]);
     assert_eq!(tests, 1);
+}
+
+/// A hole the hit does not need ends at its least value at once, its tree unused, and a hole
+/// with a tree is moved again after another hole shrank (FZ-POLISH N-T2): the first hole hits
+/// only at or above the second, so it cannot leave 40 while the second is 40.
+#[test]
+fn shrinking_tries_the_least_value_first_and_revisits_holes_with_trees() {
+    let tree = |values: Vec<i64>| -> Option<Box<dyn ValueShrinker>> {
+        Some(Box::new(Steps { values, at: 0 }))
+    };
+    let mut seen = Vec::new();
+    let shrunk = shrink(
+        &[int(64), int(40), int(9)],
+        vec![tree(vec![64, 32, 16]), tree(vec![40, 20]), tree(vec![9, 5])],
+        &[
+            Constraints::default(),
+            Constraints::default(),
+            Constraints::default(),
+        ],
+        &mut |values| {
+            seen.push(values.to_vec());
+            if as_int(&values[0]) >= as_int(&values[1]) {
+                Verdict::Hit
+            } else {
+                Verdict::Miss
+            }
+        },
+    );
+    assert_eq!(shrunk, [int(0), int(0), int(0)]);
+    // The first hole's least value and tree miss; the second and third holes' least values hit
+    // at once (their trees unused); a later pass moves the first hole to 0.
+    assert_eq!(
+        seen[..5],
+        [
+            vec![int(0), int(40), int(9)],
+            vec![int(32), int(40), int(9)],
+            vec![int(64), int(0), int(9)],
+            vec![int(64), int(0), int(0)],
+            vec![int(0), int(0), int(0)],
+        ]
+    );
 }
 
 #[test]
@@ -2455,4 +2503,59 @@ fn an_incidental_line_counts_steps_holes_paths_and_threads() {
         "{}",
         lines(&case, true)
     );
+}
+
+/// The holes' finite domain (FZ-POLISH N-T1): choices, a Boolean and bounded integer ranges
+/// multiply; an unbounded hole, another sort or a product above the cap has none.
+#[test]
+fn a_finite_domain_is_the_product_of_the_holes_finite_domains() {
+    use super::campaign_loop::{FiniteDomain, MAX_EXHAUSTIVE};
+    use crate::values::ValueSort;
+    let range = |min: i64, max: i64| Constraints {
+        range: Some(IntRange {
+            min: Some(BigInt::from(min)),
+            max: Some(BigInt::from(max)),
+        }),
+        ..Constraints::default()
+    };
+    let choices = Constraints {
+        choices: Some(vec![int(1), int(2), int(1)]),
+        ..Constraints::default()
+    };
+    let unbounded = Constraints::default();
+    let size = |holes: &[(&ValueSort, &Constraints)]| {
+        FiniteDomain::of(holes.iter().copied()).map(|domain| domain.size())
+    };
+    let small = range(-2, 2);
+    assert_eq!(
+        size(&[
+            (&ValueSort::Int, &small),
+            (&ValueSort::Bool, &unbounded),
+            (&ValueSort::Int, &choices)
+        ]),
+        Some(5 * 2 * 2)
+    );
+    assert_eq!(
+        size(&[(&ValueSort::MInt { width: 4 }, &unbounded)]),
+        Some(16)
+    );
+    assert_eq!(size(&[(&ValueSort::Int, &unbounded)]), None);
+    assert_eq!(size(&[(&ValueSort::String, &unbounded)]), None);
+    let wide = range(1, i64::try_from(MAX_EXHAUSTIVE).expect("fits") + 1);
+    assert_eq!(size(&[(&ValueSort::Int, &wide)]), None);
+    assert_eq!(size(&[]), None);
+    // The seeded walk visits every assignment once, and the same seed gives the same walk.
+    let domain = FiniteDomain::of([(&ValueSort::Int, &small), (&ValueSort::Bool, &unbounded)])
+        .expect("finite");
+    let order = domain.permutation(7);
+    assert_eq!(order, domain.permutation(7));
+    let mut sorted = order.clone();
+    sorted.sort_unstable();
+    assert_eq!(sorted, (0..10).collect::<Vec<u64>>());
+    let assignments: std::collections::BTreeSet<Vec<Value>> = order
+        .iter()
+        .map(|index| domain.assignment(*index))
+        .collect();
+    assert_eq!(assignments.len(), 10);
+    assert!(assignments.contains(&vec![int(-2), Value::Bool(true)]));
 }

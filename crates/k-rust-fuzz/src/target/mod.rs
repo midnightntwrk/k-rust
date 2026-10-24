@@ -30,7 +30,7 @@ use crate::{
     error::{CampaignError, TargetProblem},
     exec::{
         self, CaseResult, CompiledPattern, Executor, LeafMatcher, OutcomeClass, TargetNeeds,
-        UnjudgedReason,
+        UncleanReason, UnjudgedReason,
     },
     report::EngineDefect,
     spec::{CompiledDefinition, PathMode},
@@ -444,7 +444,17 @@ impl ResolvedTarget {
                         }
                     }
                     .map_err(pattern_problem)?;
+                    // The configuration without the `requires`, which only informs: the report
+                    // counts the clean ends it matched, so that a pattern no end comes near (a
+                    // misspelled key) is told apart from one whose condition fails (S2).
+                    let body = matcher
+                        .compiled()
+                        .body_only()
+                        .map(|body| LeafMatcher::prepare(executor, &body))
+                        .transpose()
+                        .map_err(pattern_problem)?;
                     matchers.push(matcher);
+                    matchers.extend(body.map(LeafMatcher::informational));
                     Resolved::PatternFinal
                 }
                 PatternAt::AnyState => {
@@ -494,13 +504,49 @@ impl ResolvedTarget {
         }
     }
 
-    /// The target's patterns compiled for its definition, in the order of [`Self::matchers`],
-    /// for [`Self::resolve_with`] on another backend of the same definition.
+    /// The target's patterns compiled for its definition, for [`Self::resolve_with`] on
+    /// another backend of the same definition: the target's own pattern, from which the
+    /// informational matcher of its configuration is derived again.
     pub(crate) fn compiled_patterns(&self) -> Vec<CompiledPattern> {
         self.matchers
             .iter()
+            .take(1)
             .map(|matcher| matcher.compiled().clone())
             .collect()
+    }
+
+    /// For a pattern target, how many end leaves of `result` (`stuck`, `trivial` or
+    /// `terminal`) matched the pattern's configuration without its `requires` (the target's
+    /// own matcher when the pattern has no `requires`), whatever the `requires` gave there:
+    /// true, false or undecided. A leaf counts when it is clean apart from the target
+    /// matcher's own undecided verdict ([`UncleanReason::UndecidedMatch`]); a leaf unclean for
+    /// any other reason (an undecided or not ceil-free state, an implementation-chosen value, a
+    /// contradicted claim, ...) is left out even when its configuration matched, as every
+    /// verdict of this campaign leaves it out, so a semantics whose every end is unclean gets a
+    /// count of 0. `None` for every other target kind (FZ-POLISH S2).
+    pub(crate) fn pattern_body_matches(&self, result: &CaseResult) -> Option<u64> {
+        if self.resolved != Resolved::PatternFinal {
+            return None;
+        }
+        let index = self.matchers.len().saturating_sub(1);
+        let count = result
+            .leaves
+            .iter()
+            .filter(|leaf| {
+                matches!(
+                    leaf.halt,
+                    HaltReasonOutput::Stuck
+                        | HaltReasonOutput::Trivial
+                        | HaltReasonOutput::Terminal
+                ) && leaf.unclean.iter().all(|reason| {
+                    matches!(
+                        reason,
+                        UncleanReason::NaturalEndUndecided | UncleanReason::UndecidedMatch
+                    )
+                }) && leaf.matches.get(index) == Some(&true)
+            })
+            .count();
+        Some(u64::try_from(count).unwrap_or(u64::MAX))
     }
 
     /// The leaf matchers [`Executor::run`] must judge for this target, in the order

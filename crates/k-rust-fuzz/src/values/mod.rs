@@ -876,6 +876,13 @@ fn check_shape_at(value: &Value, sort: &ValueSort, level: usize) -> Result<(), S
                 Ok(())
             }
         }
+        // A string where a token is expected: the author meant the token with that text
+        // (TRIAL2 N-T3).
+        (Value::String(text), ValueSort::Token { sort }) => Err(format!(
+            "the string {text:?} is not a token of {sort}: write a token as {{ token = {{ sort = \
+             \"{sort}\", text = {text:?} }} }} in a campaign file, or {{\"token\": {{\"sort\": \
+             \"{sort}\", \"text\": {text:?}}}}} in JSON"
+        )),
         (Value::Token { sort, text }, ValueSort::Token { sort: expected }) => {
             if sort != expected {
                 Err(format!("a token of {sort} at {expected}"))

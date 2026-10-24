@@ -30,6 +30,7 @@ fn int_hole(name: &str, program: &str, find: &str, literal: &str) -> HoleDecl {
         location: HoleLocation::Span(SpanAddress {
             program: program.into(),
             line: None,
+            column: None,
             find: find.into(),
             literal: literal.into(),
         }),

@@ -132,6 +132,7 @@ fn maze_spec(h: i64, i: i64, target: &str) -> CampaignSpec {
         location: HoleLocation::Span(SpanAddress {
             program: name.into(),
             line: None,
+            column: None,
             find,
             literal,
         }),

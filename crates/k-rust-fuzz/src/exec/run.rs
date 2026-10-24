@@ -74,23 +74,53 @@ impl PatternCompiler {
 
     /// Compile `pattern` (`requires` allowed) with the program grammar `grammar`.
     ///
+    /// A pattern whose `requires` reads a variable that its configuration does not bind is
+    /// refused ([`unbound_condition_variables`]). Such a variable is almost always a
+    /// misspelling (of a variable the configuration names, or of a key), and a leaf's match
+    /// then leaves a condition over it, which the leaf judgement decides only when it
+    /// simplifies to true or false without the variable (`R ==Int R`, `... orBool true`) and
+    /// classes as undecided (`unsupported`) otherwise. The refusal is a rule of use, not a
+    /// fact that no leaf could match: it refuses a few patterns some leaves would match.
+    /// (`krust krun --pattern` answers such a match with the remaining condition in its result
+    /// instead.)
+    ///
     /// # Errors
     ///
-    /// The compiler's message.
+    /// The compiler's message, or the refusal naming the unbound variables.
     pub(crate) fn compile(
         &self,
         grammar: &ProgramGrammar,
         pattern: &str,
     ) -> Result<CompiledPattern, String> {
-        compile_search_pattern(
+        let search = compile_search_pattern(
             grammar.resolved(),
             &self.execution_resolved,
             &self.main_module,
             pattern,
             pattern_attributes(pattern),
         )
-        .map(|search| CompiledPattern { search })
-        .map_err(|error| error.to_string())
+        .map_err(|error| relocate_positions(&error.to_string()))?;
+        let unbound = unbound_condition_variables(&search);
+        if !unbound.is_empty() {
+            let names = unbound
+                .iter()
+                .map(|name| format!("`{name}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let (noun, verb) = if unbound.len() == 1 {
+                ("variable", "it")
+            } else {
+                ("variables", "them")
+            };
+            return Err(format!(
+                "its `requires` reads the {noun} {names}, which the pattern's configuration does \
+                 not bind; such a variable is almost always a misspelling (of a variable the \
+                 configuration names, or of a key), and a condition on {verb} is decided only \
+                 when it is trivially true or false, so the pattern is refused: bind {verb} in \
+                 the configuration or remove {verb} from the condition"
+            ));
+        }
+        Ok(CompiledPattern { search })
     }
 
     /// Compile the normal-termination pattern of `options`: the given one
@@ -118,6 +148,80 @@ impl PatternCompiler {
     }
 }
 
+/// `message` with each position `<command line>:LINE:COLUMN:` that the frontend gives a
+/// pattern's text (krun's source name for a command-line pattern, [`pattern_attributes`])
+/// written as `line LINE, column COLUMN:` of the pattern's own text: a campaign's pattern comes
+/// from a campaign file, a flag or a library call, and its client names which.
+fn relocate_positions(message: &str) -> String {
+    use std::fmt::Write as _;
+    const SOURCE: &str = "<command line>:";
+    let mut relocated = String::with_capacity(message.len());
+    let mut rest = message;
+    while let Some(start) = rest.find(SOURCE) {
+        relocated.push_str(&rest[..start]);
+        let after = &rest[start + SOURCE.len()..];
+        let digits = |text: &str| text.bytes().take_while(u8::is_ascii_digit).count();
+        let line = digits(after);
+        let column = after
+            .get(line..)
+            .and_then(|text| text.strip_prefix(':'))
+            .map_or(0, digits);
+        match after.get(line + 1 + column..) {
+            Some(tail) if line > 0 && column > 0 && tail.starts_with(':') => {
+                let _ = write!(
+                    relocated,
+                    "line {}, column {}:",
+                    &after[..line],
+                    &after[line + 1..line + 1 + column]
+                );
+                rest = &tail[1..];
+            }
+            _ => {
+                relocated.push_str("the pattern:");
+                rest = after;
+            }
+        }
+    }
+    relocated.push_str(rest);
+    relocated
+}
+
+/// The K names of the free variables of `search`'s condition that its configuration does not
+/// bind, sorted. The compiled pattern is the conjunction of the configuration (its first
+/// conjunct) and one predicate per conjunct of the condition (`compile_search_pattern`); a
+/// variable a quantifier of the condition binds is not free. An anonymous variable is named
+/// `_`.
+fn unbound_condition_variables(search: &CompiledSearchPattern) -> Vec<String> {
+    let KorePattern::And { arguments, .. } = &search.pattern else {
+        return Vec::new();
+    };
+    let Some((configuration, condition)) = arguments.split_first() else {
+        return Vec::new();
+    };
+    let bound = configuration.free_variables();
+    let mut names = std::collections::BTreeSet::new();
+    for predicate in condition {
+        for variable in predicate.free_variables() {
+            if bound.contains(&variable) {
+                continue;
+            }
+            let generated = search
+                .generated_anonymous_variables
+                .iter()
+                .any(|identity| identity.kind == variable.kind && identity.name == variable.name);
+            let name = if generated {
+                "_".to_owned()
+            } else {
+                k_rust::kast::identifier::decode_variable(&variable.name)
+                    .1
+                    .unwrap_or_else(|_| variable.name.clone())
+            };
+            names.insert(name);
+        }
+    }
+    names.into_iter().collect()
+}
+
 /// A compiled surface pattern, independent of any backend.
 #[derive(Clone, Debug)]
 pub(crate) struct CompiledPattern {
@@ -129,6 +233,47 @@ impl CompiledPattern {
     /// a pattern target's literals from it, ARCHITECTURE 8.3).
     pub(crate) fn kore(&self) -> &KorePattern {
         &self.search.pattern
+    }
+
+    /// The pattern's configuration without its `requires`, when it has one: the conjunction of
+    /// the configuration (the compiled pattern's first conjunct) and `\top`, as a pattern
+    /// without `requires` compiles (`compile_search_pattern`). `None` for a pattern without
+    /// `requires`, which is its own configuration.
+    pub(crate) fn body_only(&self) -> Option<Self> {
+        let KorePattern::And { sort, arguments } = &self.search.pattern else {
+            return None;
+        };
+        let (configuration, condition) = arguments.split_first()?;
+        if condition
+            .iter()
+            .all(|predicate| matches!(predicate, KorePattern::Top { .. }))
+        {
+            return None;
+        }
+        let occurring = configuration.free_variables();
+        let generated_anonymous_variables = self
+            .search
+            .generated_anonymous_variables
+            .iter()
+            .filter(|identity| {
+                occurring.iter().any(|variable| {
+                    variable.kind == identity.kind && variable.name == identity.name
+                })
+            })
+            .cloned()
+            .collect();
+        Some(Self {
+            search: CompiledSearchPattern {
+                pattern: KorePattern::And {
+                    sort: sort.clone(),
+                    arguments: vec![
+                        configuration.clone(),
+                        KorePattern::Top { sort: sort.clone() },
+                    ],
+                },
+                generated_anonymous_variables,
+            },
+        })
     }
 }
 
@@ -233,6 +378,10 @@ pub(crate) struct LeafMatcher {
     /// The target has no constraints and every application in it has a free-constructor head,
     /// so matching it evaluates nothing and its verdict is the same in every evaluation mode.
     mode_independent: bool,
+    /// The matcher only informs: its verdict is reported in
+    /// [`crate::exec::LeafReport::matches`] when it matches, and an undecided verdict, a solver
+    /// `unknown` or a failure of its matching leaves the leaf as it was ([`Self::informational`]).
+    informational: bool,
 }
 
 impl LeafMatcher {
@@ -283,6 +432,15 @@ impl LeafMatcher {
     pub(crate) fn compiled(&self) -> &CompiledPattern {
         &self.compiled
     }
+
+    /// This matcher as one that only informs: no verdict of it makes a leaf unclean, since no
+    /// judgement rests on it (a pattern's configuration without its `requires`, counted for the
+    /// report; FZ-POLISH S2).
+    #[must_use]
+    pub(crate) fn informational(mut self) -> Self {
+        self.informational = true;
+        self
+    }
 }
 
 /// The attributes krun gives a command-line pattern (`crates/k-rust/src/main.rs`,
@@ -331,6 +489,7 @@ fn prepare_matcher(
         kore,
         target,
         mode_independent,
+        informational: false,
     })
 }
 
@@ -1079,6 +1238,15 @@ impl Judge<'_> {
             }
         }
         for (index, matcher) in self.matchers.iter().enumerate() {
+            if matcher.informational {
+                // Its own scratch record: what its matching meets is no fact of the leaf.
+                let mut scratch = Internal::default();
+                internal.matches[index] = matches!(
+                    self.match_leaf(definition, solver, matcher, &pattern, &mut scratch),
+                    Ok(MatchVerdict::Matched)
+                );
+                continue;
+            }
             match self.match_leaf(definition, solver, matcher, &pattern, &mut internal)? {
                 MatchVerdict::Matched => internal.matches[index] = true,
                 MatchVerdict::NotMatched => {}

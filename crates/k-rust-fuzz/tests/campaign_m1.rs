@@ -29,6 +29,7 @@ fn int_hole(name: &str, program: &str, find: &str, literal: &str) -> HoleDecl {
         location: HoleLocation::Span(SpanAddress {
             program: program.into(),
             line: None,
+            column: None,
             find: find.into(),
             literal: literal.into(),
         }),
@@ -408,6 +409,83 @@ fn a_proposer_this_milestone_does_not_provide_is_refused() {
         Err(other) => panic!("{other}"),
         Ok(_) => panic!("the climb proposer is not provided in M1"),
     }
+}
+
+/// A pattern whose `requires` reads a variable its configuration does not bind is refused with
+/// the variable's name (FZ-POLISH S3): such a variable is almost always a misspelling, and the
+/// engine decides a condition on it only when it is trivially true or false. A variable the configuration binds and a pattern
+/// without `requires` are accepted.
+#[test]
+fn a_pattern_whose_requires_reads_an_unbound_variable_is_refused() {
+    for (pattern, unbound) in [
+        ("<k> .K </k> <state> M </state> requires R >Int 0", "R"),
+        (
+            "<k> .K </k> <state> M </state> requires R >Int 0 andBool Q <Int R",
+            "Q`, `R",
+        ),
+    ] {
+        let mut setup = le();
+        setup.target = final_pattern(pattern, true);
+        match Campaign::new(setup.spec()) {
+            Err(error @ CampaignError::Target(_)) => {
+                let message = error.to_string();
+                assert!(
+                    message.contains(&format!("`{unbound}`")) && message.contains("requires"),
+                    "{message}"
+                );
+                // The reason stated is the honest one (review round 1): a condition that does
+                // not depend on the variable (`R ==Int R`) can hold, so no claim that no case
+                // could reach the pattern.
+                assert!(message.contains("almost always a misspelling"), "{message}");
+                assert!(!message.contains("no case could reach"), "{message}");
+            }
+            Err(other) => panic!("{pattern}: {other}"),
+            Ok(_) => panic!("{pattern}: accepted"),
+        }
+    }
+    for pattern in [LE_VIOLATION, "<k> .K </k> <state> M </state>"] {
+        let mut setup = le();
+        setup.target = final_pattern(pattern, true);
+        if let Err(error) = Campaign::new(setup.spec()) {
+            panic!("{pattern}: {error}");
+        }
+    }
+}
+
+/// A negated property whose pattern names a key no end holds (`rr` for `r`) holds vacuously:
+/// every case is a `miss`, as for a property that holds. The report counts the clean end
+/// leaves that matched the pattern's configuration without its `requires`, and warns when
+/// none did (FZ-POLISH S2).
+#[test]
+fn a_vacuous_negated_property_is_told_apart_from_one_that_holds() {
+    let misspelled = LE_VIOLATION.replace(r#"#token("r", "Id")"#, r#"#token("rr", "Id")"#);
+    let mut setup = le();
+    setup.target = final_pattern(&misspelled, true);
+    let report = setup.run(Budget::Cases(20));
+    assert_eq!(classes(&report), [(OutcomeClass::Miss, 20)]);
+    let vacuous = |report: &FuzzReport| {
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("pattern body: no end of the"))
+    };
+    assert!(vacuous(&report), "{:?}", report.warnings);
+    assert_eq!(report.totals.pattern_body_matches, Some(0));
+    assert!(
+        report
+            .to_canonical_json()
+            .contains("\"pattern-body-matches\":0")
+    );
+    // The property `x <= y => r == 1` holds on the anchors (3, 5): its body matches, no warning.
+    let mut holds = le();
+    holds.proposers = anchors_only();
+    let report = holds.run(Budget::Cases(1));
+    assert_eq!(classes(&report), [(OutcomeClass::Miss, 1)]);
+    assert!(!vacuous(&report), "{:?}", report.warnings);
+    assert_eq!(report.totals.pattern_body_matches, Some(1));
+    // A rule target reports no count.
+    let report = Setup::new(&IMP, "imp/le.imp", fired("IMP.assign")).run(Budget::Cases(1));
+    assert_eq!(report.totals.pattern_body_matches, None);
 }
 
 #[test]

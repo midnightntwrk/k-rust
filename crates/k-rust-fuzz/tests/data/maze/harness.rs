@@ -321,6 +321,7 @@ pub fn holes(program: &Program) -> Vec<HoleDecl> {
                 location: HoleLocation::Span(SpanAddress {
                     program: program.file.clone(),
                     line: None,
+                    column: None,
                     find,
                     literal: (*literal).into(),
                 }),
