@@ -843,8 +843,8 @@ impl EndPrinters {
         printer
             .and_then(|printer| {
                 let pattern = k_rust::kore::parser::parse_pattern(kore).ok()?;
-                let printed = printer.print_kore(&pattern, &krs_unparse::Options::default());
-                printed.warnings.is_empty().then_some(printed.text)
+                let output = printer.print_kore(&pattern, &krs_unparse::Options::default());
+                output.warnings.is_empty().then_some(output.text)
             })
             .unwrap_or_else(|| kore.to_owned())
     }

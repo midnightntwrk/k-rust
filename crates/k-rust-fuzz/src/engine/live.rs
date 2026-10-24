@@ -719,6 +719,39 @@ impl LiveCases {
         Some(line)
     }
 
+    /// What re-enters a differential case as a test: the `krun` lines of the baseline on all
+    /// paths, as it runs, and of the mutant in `paths`, the mode its judged result ran in, and
+    /// the instantiated program text.
+    fn reentry(
+        spec: &CampaignSpec,
+        baseline: &Prepared,
+        mutant: &Prepared,
+        paths: PathMode,
+    ) -> (Option<String>, Option<String>, Option<String>) {
+        let line = |definition, directory, paths, instantiated| {
+            Self::krun_command(
+                definition,
+                directory,
+                &spec.options,
+                paths,
+                Vec::new(),
+                instantiated,
+            )
+        };
+        (
+            line(
+                &spec.definitions.baseline,
+                "<definition-dir>",
+                PathMode::AllPaths,
+                &baseline.instantiated,
+            ),
+            spec.definitions.mutant.as_ref().and_then(|definition| {
+                line(definition, "<mutant-dir>", paths, &mutant.instantiated)
+            }),
+            program_text(&baseline.instantiated),
+        )
+    }
+
     fn run_target(
         &mut self,
         assemblers: &mut RunAssemblers<'_>,
@@ -864,10 +897,7 @@ impl LiveCases {
         let mut sides = vec![&baseline, &one_path];
         sides.extend(&rerun);
         let mut run = run_of(mutated, &sides);
-        let baseline_cut = cut_of(&baseline);
-        if !(baseline_cut.depth || baseline_cut.work || baseline_cut.clock) {
-            run.baseline_ended_within = Some(baseline.work);
-        }
+        run.baseline_ended_within = ended_within(&baseline);
         // A value either side's backend refuses makes the case `rejected` (ARCHITECTURE 4.3,
         // 5.3), before the pair is judged: a refused baseline is not an incomplete one.
         if refused(&baseline) || refused(mutated) {
@@ -899,9 +929,10 @@ impl LiveCases {
                         side.leaves.get(index).map(|leaf| (kind, role, index, leaf))
                     });
                     if let Some((kind, role, index, leaf)) = witness {
-                        let holes = self.hole_values(values, &baseline_case.printed);
+                        let (krun_command, mutant_krun_command, program) =
+                            Self::reentry(&self.spec, &baseline_case, &mutant_case, paths);
                         run.hit = Some(HitDetail {
-                            holes,
+                            holes: self.hole_values(values, &baseline_case.printed),
                             sides: vec![
                                 side_of(DefinitionRole::Baseline, &baseline_case, &baseline),
                                 side_of(DefinitionRole::Mutant, &mutant_case, mutated),
@@ -914,29 +945,9 @@ impl LiveCases {
                             kill: Some(kind),
                             steps: Some(leaf.depth),
                             reaching_state: leaf.state.to_string(),
-                            // The baseline runs all paths; the mutant in the mode its judged
-                            // result ran in.
-                            krun_command: Self::krun_command(
-                                &self.spec.definitions.baseline,
-                                "<definition-dir>",
-                                &self.spec.options,
-                                PathMode::AllPaths,
-                                Vec::new(),
-                                &baseline_case.instantiated,
-                            ),
-                            mutant_krun_command: self.spec.definitions.mutant.as_ref().and_then(
-                                |definition| {
-                                    Self::krun_command(
-                                        definition,
-                                        "<mutant-dir>",
-                                        &self.spec.options,
-                                        paths,
-                                        Vec::new(),
-                                        &mutant_case.instantiated,
-                                    )
-                                },
-                            ),
-                            program: program_text(&baseline_case.instantiated),
+                            krun_command,
+                            mutant_krun_command,
+                            program,
                         });
                     } else {
                         run.class = OutcomeClass::Unsupported;
@@ -1162,6 +1173,13 @@ fn side_of(role: DefinitionRole, prepared: &Prepared, result: &CaseResult) -> Wi
             .collect(),
         halts: result.leaves.iter().map(|leaf| leaf.halt).collect(),
     }
+}
+
+/// The work of `baseline`, a differential case's baseline run, when no bound and no clock cut
+/// it: every path of it reached its end.
+fn ended_within(baseline: &CaseResult) -> Option<u64> {
+    let cut = cut_of(baseline);
+    (!(cut.depth || cut.work || cut.clock)).then_some(baseline.work)
 }
 
 /// The instantiated program text of a case, for a campaign with a program text.

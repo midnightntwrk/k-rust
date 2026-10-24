@@ -760,7 +760,7 @@ pub struct Totals {
     /// pattern's configuration without its `requires`: 0 means no end came near the pattern (a
     /// misspelled key, a cell no end holds), so a negated property held vacuously, and a
     /// warning says so. Information, not a class: each leaf is matched on its own. Absent for
-    /// every other target.
+    /// every other target, and when no case inside the determinism contract was executed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pattern_body_matches: Option<u64>,
     /// The best score the scored cases reached (ARCHITECTURE 6.4): present exactly when a
@@ -870,6 +870,17 @@ pub enum RejectionReason {
     RoundTrip,
     /// The backend refused the initial state (`vacuous` at depth 0).
     BackendRefused,
+}
+
+impl RejectionReason {
+    /// The reason's name in the report (`round-trip`, `backend-refused`).
+    #[must_use]
+    pub fn name(self) -> String {
+        serde_json::to_value(self)
+            .ok()
+            .and_then(|name| name.as_str().map(str::to_owned))
+            .unwrap_or_default()
+    }
 }
 
 /// How a hit is labelled (ARCHITECTURE 4, 5.3).

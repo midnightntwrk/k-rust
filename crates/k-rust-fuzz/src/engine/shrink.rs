@@ -55,7 +55,7 @@ pub(crate) fn shrink(
     let bounds = |hole: usize| constraints.get(hole).unwrap_or(&default);
     for (hole, tree) in trees.into_iter().enumerate() {
         if let Some(tree) = tree
-            && !shrinker.to_least(hole, bounds(hole))
+            && !shrinker.try_least(hole, bounds(hole))
         {
             shrinker.along_tree(hole, tree);
         }
@@ -124,7 +124,7 @@ impl Shrinker<'_> {
 
     /// Try hole `hole` at its least value ([`least`]), when that is another value; whether it
     /// was kept.
-    fn to_least(&mut self, hole: usize, constraints: &Constraints) -> bool {
+    fn try_least(&mut self, hole: usize, constraints: &Constraints) -> bool {
         match least(&self.current[hole], constraints) {
             Some(value) if value != self.current[hole] => self.try_value(hole, value),
             _ => false,

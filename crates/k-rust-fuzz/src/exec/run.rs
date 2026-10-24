@@ -150,6 +150,7 @@ impl PatternCompiler {
 /// written as `line LINE, column COLUMN:` of the pattern's own text: a campaign's pattern comes
 /// from a campaign file, a flag or a library call, and its client names which.
 fn relocate_positions(message: &str) -> String {
+    use std::fmt::Write as _;
     const SOURCE: &str = "<command line>:";
     let mut relocated = String::with_capacity(message.len());
     let mut rest = message;
@@ -164,11 +165,12 @@ fn relocate_positions(message: &str) -> String {
             .map_or(0, digits);
         match after.get(line + 1 + column..) {
             Some(tail) if line > 0 && column > 0 && tail.starts_with(':') => {
-                relocated.push_str(&format!(
+                let _ = write!(
+                    relocated,
                     "line {}, column {}:",
                     &after[..line],
                     &after[line + 1..line + 1 + column]
-                ));
+                );
                 rest = &tail[1..];
             }
             _ => {

@@ -159,14 +159,11 @@ impl Campaign {
                         initial.push(Some(digest_hex(configuration.to_string().as_bytes())));
                     }
                     Err(reason) if side == 0 => {
-                        let reason = serde_json::to_value(reason)
-                            .ok()
-                            .and_then(|name| name.as_str().map(str::to_owned))
-                            .unwrap_or_default();
                         return Err(CampaignError::Program {
                             message: format!(
-                                "the program with its anchor values is refused ({reason}: the \
-                                 rejection reason a case with these values would have)"
+                                "the program with its anchor values is refused ({}: the \
+                                 rejection reason a case with these values would have)",
+                                reason.name()
                             ),
                         });
                     }
@@ -205,7 +202,6 @@ impl Campaign {
             pool_rank: guidance.pool_rank,
             normal_end: Some(cases.normal_ends()),
             rule_names: rules.names,
-            pattern_target: matches!(spec.target.kind, TargetKind::Pattern(_)),
             domain: FiniteDomain::of(holes.iter().map(|hole| (&hole.sort, &hole.constraints))),
         };
         Ok(Campaign {

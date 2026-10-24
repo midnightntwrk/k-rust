@@ -57,9 +57,6 @@ pub(crate) struct LoopSettings {
     /// The names of every id in the catalog of the definition whose coverage the cases record,
     /// from which the report names the rules its coverage holds.
     pub(crate) rule_names: Arc<std::collections::BTreeMap<String, RuleName>>,
-    /// The target is a pattern: the report counts the clean ends its configuration matched
-    /// ([`Totals::pattern_body_matches`]).
-    pub(crate) pattern_target: bool,
     /// The holes' finite domains, when every hole has one and their product is at most
     /// [`MAX_EXHAUSTIVE`]: the campaign ends once every assignment of them has run.
     pub(crate) domain: Option<FiniteDomain>,
@@ -318,16 +315,8 @@ pub(crate) fn run_loop(
         state.score(case, observation.score.as_ref());
         let interesting = feedback.is_interesting(&observation);
         schedule.observe(&proposal, &observation, interesting);
-        if let Some(domain) = &settings.domain
-            && proposal.failure.is_none()
-            && domain.contains(&proposal.values)
-        {
-            state.assignments.insert(render(&proposal.values));
-            if u64::try_from(state.assignments.len()).unwrap_or(u64::MAX) >= domain.size() {
-                break Ending::DomainExhausted {
-                    assignments: domain.size(),
-                };
-            }
+        if let Some(assignments) = state.exhausts(settings.domain.as_ref(), &proposal) {
+            break Ending::DomainExhausted { assignments };
         }
     };
     schedule.contribute(&mut state.totals);
@@ -339,18 +328,24 @@ pub(crate) fn run_loop(
         &settings.options,
         settings.rejection_cap,
     );
-    let outcome = match ending {
+    let outcome = outcome(ending, no_witness, state.abort.take());
+    state.report(settings, budget, outcome)
+}
+
+/// The outcome of a campaign that ended without a witness, for `ending`; `abort` is why an
+/// aborted one aborted.
+fn outcome(ending: Ending, no_witness: NoWitness, abort: Option<String>) -> CampaignOutcome {
+    match ending {
         Ending::Budget | Ending::Exhausted | Ending::DomainExhausted { .. } => {
             CampaignOutcome::NoWitnessFound { no_witness }
         }
         Ending::RejectedOut => CampaignOutcome::RejectedOut { no_witness },
         Ending::Cancelled => CampaignOutcome::Cancelled { no_witness },
         Ending::Aborted => CampaignOutcome::Aborted {
-            reason: state.abort.take().unwrap_or_default(),
+            reason: abort.unwrap_or_default(),
             no_witness,
         },
-    };
-    state.report(settings, budget, outcome)
+    }
 }
 
 /// The observation of case `case` of `class` with `run`'s signals. Only `miss` cases are scored
@@ -518,15 +513,7 @@ fn finish_witness(
             krun_command: first.krun_command.clone(),
             mutant_krun_command: first.mutant_krun_command.clone(),
             clean_leaf_facts: witness_facts(&settings.clean_leaf_facts, kind),
-            first: WitnessCase {
-                holes: first.holes,
-                program: first.program,
-                class: OutcomeClass::Hit,
-                sides: first.sides,
-                reaching: first.reaching,
-                kill: first.kill,
-                steps: first.steps,
-            },
+            first: witness_case(first),
             shrunk: None,
         };
     }
@@ -588,22 +575,13 @@ fn finish_witness(
         };
         shrink(&values, trees, &settings.constraints, &mut test)
     };
-    let to_case = |detail: HitDetail| WitnessCase {
-        holes: detail.holes,
-        program: detail.program,
-        class: OutcomeClass::Hit,
-        sides: detail.sides,
-        reaching: detail.reaching,
-        kill: detail.kill,
-        steps: detail.steps,
-    };
     let (shrunk, krun_command, mutant_krun_command) = match last {
         Some(detail) if shrunk != values => {
             let commands = (
                 detail.krun_command.clone(),
                 detail.mutant_krun_command.clone(),
             );
-            (Some(to_case(detail)), commands.0, commands.1)
+            (Some(witness_case(detail)), commands.0, commands.1)
         }
         _ => (
             None,
@@ -613,11 +591,24 @@ fn finish_witness(
     };
     Witness {
         label: settings.label,
-        first: to_case(first),
+        first: witness_case(first),
         shrunk,
         clean_leaf_facts: witness_facts(&settings.clean_leaf_facts, kind),
         krun_command,
         mutant_krun_command,
+    }
+}
+
+/// The witness case a confirmed hit's detail reports.
+fn witness_case(detail: HitDetail) -> WitnessCase {
+    WitnessCase {
+        holes: detail.holes,
+        program: detail.program,
+        class: OutcomeClass::Hit,
+        sides: detail.sides,
+        reaching: detail.reaching,
+        kill: detail.kill,
+        steps: detail.steps,
     }
 }
 
@@ -815,6 +806,18 @@ impl State {
         ));
     }
 
+    /// Record that `proposal`'s assignment ran, when it is one of `domain`'s; the number of
+    /// the domain's assignments once every one of them has run.
+    fn exhausts(&mut self, domain: Option<&FiniteDomain>, proposal: &Proposal) -> Option<u64> {
+        let domain = domain?;
+        if proposal.failure.is_some() || !domain.contains(&proposal.values) {
+            return None;
+        }
+        self.assignments.insert(render(&proposal.values));
+        (u64::try_from(self.assignments.len()).unwrap_or(u64::MAX) >= domain.size())
+            .then(|| domain.size())
+    }
+
     /// Take case `case`'s score, when it was scored, into [`Totals::best_score`]: a better score
     /// replaces the best one, an equal one keeps the earlier case.
     fn score(&mut self, case: u64, score: Option<&Score>) {
@@ -911,21 +914,18 @@ impl State {
                     .map(|name| (id.clone(), name.clone()))
             })
             .collect();
-        if settings.pattern_target {
+        if totals.pattern_body_matches == Some(0) {
             let judged = totals
                 .cases
                 .saturating_sub(self.rejected())
                 .saturating_sub(totals.outside_determinism);
-            let count = *totals.pattern_body_matches.get_or_insert(0);
-            if count == 0 && judged > 0 {
-                self.warn(format!(
-                    "pattern body: no clean end of the {judged} executed {} matched the pattern's \
-                     configuration without its `requires`, so the pattern may name a cell, key or \
-                     value no end holds (a misspelled key?); a negated property then holds \
-                     vacuously, and a `miss` says nothing about it",
-                    if judged == 1 { "case" } else { "cases" }
-                ));
-            }
+            self.warn(format!(
+                "pattern body: no clean end of the {judged} executed {} matched the pattern's \
+                 configuration without its `requires`, so the pattern may name a cell, key or \
+                 value no end holds (a misspelled key?); a negated property then holds \
+                 vacuously, and a `miss` says nothing about it",
+                if judged == 1 { "case" } else { "cases" }
+            ));
         }
         if let Some(warning) = every_k_warning(settings.normal_end, &totals) {
             self.warn(warning);
