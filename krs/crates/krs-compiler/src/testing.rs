@@ -147,6 +147,7 @@ pub struct SortJudges {
     sorts: Vec<SemanticSortRef>,
     judges: Vec<(SortJudge, Judge)>,
     user_lists: BTreeSet<(SemanticSortRef, SemanticSortRef)>,
+    definition_sorts: BTreeMap<SemanticSortRef, DefinitionSortRef>,
 }
 
 impl SortJudges {
@@ -190,6 +191,7 @@ impl SortJudges {
             .collect::<Result<BTreeMap<SemanticSortRef, DefinitionSortRef>, crate::LoweringError>>()
             .map_err(|error| error.to_string())?;
         let definition = lowered.definition().subsort_judge();
+        let definition_sorts = lowered_sorts.clone();
 
         let mut user_lists = BTreeSet::new();
         for production in modules.iter().flat_map(SemanticModule::productions) {
@@ -238,6 +240,7 @@ impl SortJudges {
                 ),
             ],
             user_lists,
+            definition_sorts,
         })
     }
 
@@ -265,6 +268,13 @@ impl SortJudges {
             .find(|(name, _)| *name == judge)
             .expect("every judge is built");
         judge(candidate, expected)
+    }
+
+    /// The Definition IR sort that lowering names `sort` by, for each of [`Self::sorts`]: how a
+    /// judge over the emitted definition is asked about the same sort.
+    #[must_use]
+    pub fn definition_sort(&self, sort: &SemanticSortRef) -> Option<&DefinitionSortRef> {
+        self.definition_sorts.get(sort)
     }
 
     /// The `(element, list)` sort pairs of the definition's user lists: the non-parametric

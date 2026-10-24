@@ -5,7 +5,8 @@
 //! conform listed in `pending.toml`.
 //!
 //! The shards are ignored tests, one per family group: `readable` (readable records and claims),
-//! `cells`, `init`, `terms`, and `import`. Each prints its counts and its red cases per finding
+//! `cells`, `init`, `terms`, and `import`; and `k4`, which compares KRS's sort judges with
+//! k-rust's lattice on each base's emitted definition ([`lattice`]). Each prints its counts and its red cases per finding
 //! and per step, and fails on a case that deviates and is not pending, a pending case that
 //! conforms or deviates differently, and a table error.
 //!
@@ -23,6 +24,8 @@
 //! - `KRS_CLASS_OUT`: a directory for one TSV line per case and the pending entries of every
 //!   deviation not yet recorded, `<shard>.tsv` and `<shard>.pending.toml`.
 
+#[path = "class_matrix/lattice.rs"]
+mod lattice;
 #[path = "class_matrix/pipeline.rs"]
 mod pipeline;
 
@@ -31,13 +34,14 @@ use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
+use krs_compiler::testing::SortJudges;
 use krs_diagnostic::Code;
 use krs_test_support::class_matrix::invariants::{signature, violations};
 use krs_test_support::class_matrix::pending::{
-    FULL, Judgement, KEYS, Observation, Pending, case_of,
+    FULL, Judgement, KEYS, LATTICE, Observation, Pending, case_of,
 };
 use krs_test_support::class_matrix::table::{At, Expected, Glob, Resolution, Table, TableError};
-use krs_test_support::class_matrix::{self, Case, Family, Placed};
+use krs_test_support::class_matrix::{self, Base, Case, Family, Placed};
 
 use pipeline::{Judged, Settings};
 
@@ -247,6 +251,51 @@ impl Shard {
         }
         red
     }
+
+    /// Apply the red list to `observed`, the signatures of the entries this test owns, which are
+    /// those keyed under `prefix`: an entry with no observation conforms. Returns the red keys.
+    fn judge_recorded(
+        &mut self,
+        pending: &Pending,
+        prefix: &str,
+        observed: &BTreeMap<String, String>,
+    ) -> Vec<String> {
+        let recorded = pending
+            .entries
+            .keys()
+            .filter(|id| id.starts_with(prefix))
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let mut red = Vec::new();
+        for key in recorded
+            .iter()
+            .chain(observed.keys())
+            .collect::<BTreeSet<_>>()
+        {
+            let observation = observed
+                .get(key)
+                .map_or(Observation::Conforms, |signature| {
+                    Observation::Deviates(signature)
+                });
+            match pending.judge(key, observation) {
+                Judgement::Conforms => {}
+                Judgement::Red => red.push(key.clone()),
+                failure => {
+                    self.failures.push(format!("{key}: {failure}"));
+                    if let Judgement::Unexpected { observed }
+                    | Judgement::DeviationChanged { observed, .. } = failure
+                    {
+                        writeln!(
+                            self.record,
+                            "[{key:?}]\nfinding = \"unassigned\"\ndeviation = {observed:?}\n"
+                        )
+                        .expect("writing to a String cannot fail");
+                    }
+                }
+            }
+        }
+        red
+    }
 }
 
 /// K2: the table-free invariants, and the table where it covers the case.
@@ -402,4 +451,89 @@ fn terms() {
 #[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
 fn import() {
     shard("import", &[Family::Import]);
+}
+
+#[test]
+#[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
+fn k4() {
+    let spec = spec();
+    let (settings, _scratch) = settings();
+    let started = std::time::Instant::now();
+    let comparisons = std::thread::scope(|scope| {
+        let handles = Base::ALL.map(|base| {
+            let settings = &settings;
+            scope.spawn(move || {
+                let name = format!("class-{}", format!("{base:?}").to_lowercase());
+                let collected = pipeline::collect_source(settings, &name, &base.preamble())
+                    .unwrap_or_else(|error| panic!("the {base:?} base collects: {error}"));
+                let judges = SortJudges::of_bundle(&collected.bundle)
+                    .unwrap_or_else(|error| panic!("the {base:?} base lowers: {error}"));
+                let emitted = collected
+                    .emit_k(collected.bundle.clone())
+                    .unwrap_or_else(|error| panic!("the {base:?} base emits: {error}"));
+                (name, lattice::compare(&judges, &emitted.ir))
+            })
+        });
+        handles.map(|handle| handle.join().expect("a base's comparison does not panic"))
+    });
+
+    let mut observed = BTreeMap::<String, String>::new();
+    let mut open = BTreeMap::<lattice::Class, usize>::new();
+    let mut report = String::new();
+    for (name, comparison) in &comparisons {
+        writeln!(report, "{name}: {} sorts", comparison.sorts)
+            .expect("writing to a String cannot fail");
+        for ((judge, k_rust, class), count) in &comparison.counts {
+            let signature = lattice::signature(count, *judge, *k_rust);
+            writeln!(
+                report,
+                "  {} ~ {} {}: {signature}",
+                judge.name(),
+                k_rust.name(),
+                class.name()
+            )
+            .expect("writing to a String cannot fail");
+            if class.open() {
+                *open.entry(*class).or_default() += count.krs_only + count.k_rust_only;
+            } else {
+                observed.insert(
+                    format!(
+                        "{LATTICE}{name}/{}~{}/{}",
+                        judge.name(),
+                        k_rust.name(),
+                        class.name()
+                    ),
+                    signature,
+                );
+            }
+        }
+    }
+    writeln!(report, "open classes (counted, not failed): {open:?}")
+        .expect("writing to a String cannot fail");
+
+    let mut shard = Shard::default();
+    let red = shard.judge_recorded(&spec.pending, &format!("{LATTICE}class-"), &observed);
+    if let Some(out) = variable("KRS_CLASS_OUT") {
+        let out = PathBuf::from(out);
+        std::fs::create_dir_all(&out).expect("the output directory is created");
+        std::fs::write(out.join("k4.txt"), &report).expect("the report is written");
+        std::fs::write(out.join("k4.pending.toml"), &shard.record)
+            .expect("the pending entries are written");
+    }
+    let tally = spec.pending.tally(red.iter().map(String::as_str));
+    eprint!("{report}");
+    eprintln!(
+        "[krs-class] k4: {} bases in {:.1} s; red {} (by finding {:?}; by step {:?})",
+        comparisons.len(),
+        started.elapsed().as_secs_f64(),
+        red.len(),
+        tally.by_finding,
+        tally.by_step,
+    );
+    assert!(
+        shard.failures.is_empty(),
+        "{} class-test failures in shard k4:\n{}",
+        shard.failures.len(),
+        shard.failures.join("\n")
+    );
 }

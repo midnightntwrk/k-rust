@@ -1535,3 +1535,46 @@ deviation = "uncoded @ unlocated"
 ["terms/table/subject/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "unassigned"
 deviation = "uncoded @ unlocated"
+# K4 against k-rust's lattice of each base's emitted definition: the coverage lint's graph (G5) has no
+# `S ≤ KItem`.
+
+["lattice/class-imported/coverage~k-rust-disambiguation/s-kitem"]
+finding = "unassigned"
+deviation = "0 pairs only coverage holds; 13 pairs only k-rust-disambiguation holds"
+step = "S4"
+
+["lattice/class-imported/coverage~k-rust-subsorts/s-kitem"]
+finding = "unassigned"
+deviation = "0 pairs only coverage holds; 13 pairs only k-rust-subsorts holds"
+step = "S4"
+
+["lattice/class-machine/coverage~k-rust-disambiguation/s-kitem"]
+finding = "unassigned"
+deviation = "0 pairs only coverage holds; 14 pairs only k-rust-disambiguation holds"
+step = "S4"
+
+["lattice/class-machine/coverage~k-rust-subsorts/s-kitem"]
+finding = "unassigned"
+deviation = "0 pairs only coverage holds; 14 pairs only k-rust-subsorts holds"
+step = "S4"
+
+["lattice/class-terms/coverage~k-rust-disambiguation/s-kitem"]
+finding = "unassigned"
+deviation = "0 pairs only coverage holds; 13 pairs only k-rust-disambiguation holds"
+step = "S4"
+
+["lattice/class-terms/coverage~k-rust-subsorts/s-kitem"]
+finding = "unassigned"
+deviation = "0 pairs only coverage holds; 13 pairs only k-rust-subsorts holds"
+step = "S4"
+
+["lattice/class-typed/coverage~k-rust-disambiguation/s-kitem"]
+finding = "unassigned"
+deviation = "0 pairs only coverage holds; 14 pairs only k-rust-disambiguation holds"
+step = "S4"
+
+["lattice/class-typed/coverage~k-rust-subsorts/s-kitem"]
+finding = "unassigned"
+deviation = "0 pairs only coverage holds; 14 pairs only k-rust-subsorts holds"
+step = "S4"
+

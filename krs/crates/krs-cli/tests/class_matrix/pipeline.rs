@@ -137,6 +137,26 @@ pub fn judge_all(cases: &[&Case], settings: &Settings) -> Vec<Judged> {
     judged
 }
 
+/// Collect `source` alone, as a package in the directory `name` of the scratch, with a target of
+/// its own.
+///
+/// # Errors
+///
+/// Fails as [`collect_descriptors`] fails.
+pub fn collect_source(
+    settings: &Settings,
+    name: &str,
+    source: &str,
+) -> Result<CollectedDefinition, CommandError> {
+    let builds = AtomicUsize::new(0);
+    let worker = Worker {
+        root: settings.scratch.join(name),
+        builds: &builds,
+    };
+    fs::create_dir_all(&worker.root).expect("the directory is created");
+    worker.collect(source)
+}
+
 /// The shared cases of each base in chunks of at most `size`, and every other case alone, the
 /// largest jobs last so that workers take them first.
 fn batches<'a>(cases: &[&'a Case], size: usize) -> Vec<Vec<&'a Case>> {

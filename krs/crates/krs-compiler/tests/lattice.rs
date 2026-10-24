@@ -288,10 +288,15 @@ fn the_krs_sort_judges_agree() {
         .expect("writing to a String");
     }
 
+    // The full tier records its own definitions' disagreements under `lattice/class-..`.
+    let names = definitions()
+        .into_iter()
+        .map(|(name, _)| format!("{LATTICE}{name}/"))
+        .collect::<Vec<_>>();
     let recorded = pending
         .entries
         .keys()
-        .filter(|id| id.starts_with(LATTICE))
+        .filter(|id| names.iter().any(|name| id.starts_with(name)))
         .cloned()
         .collect::<BTreeSet<_>>();
     let mut red = Vec::new();

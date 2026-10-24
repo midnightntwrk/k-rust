@@ -98,7 +98,7 @@ class KrsSelectionTest(unittest.TestCase):
             ("krs/crates/krs-cli/src/lib.rs", ["krs-light", "krs-ports-emit", "krs-class", "krs-imp"]),
             ("krs/crates/krs-macros/src/lib.rs",
              ["krs-light", "krs-ports-emit", "krs-class", "krs-ports-rust"]),
-            ("krs/crates/krs-k-rust/src/lib.rs", ["krs-light", "krs-ports-emit", *ports]),
+            ("krs/crates/krs-k-rust/src/lib.rs", ["krs-light", "krs-ports-emit", "krs-class", *ports]),
             ("krs/tests/kevm/pins.toml", ["krs-light", "krs-ports-emit", "krs-kevm"]),
             ("krs/tests/ports-emit/pins.toml", ["krs-light", "krs-ports-emit", "krs-ports-rust"]),
             ("krs/crates/krs-expand-wasm/src/lib.rs", ["krs-light"]),

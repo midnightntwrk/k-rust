@@ -27,7 +27,11 @@ the descriptors of the base and its own. A case is judged by
 - K1, once collected: every anchor of the case's descriptors lies inside the case's text, and no
   semantic key is found twice during lowering.
 
-Run one shard (`readable`, `cells`, `init`, `terms`, `import`), and choose the worker count yourself
+The `k4` shard compares KRS's sort judges with k-rust's subsort relations of each base's emitted
+definition; its disagreements are keyed `lattice/class-BASE/JUDGE~JUDGE/CLASS`, and those about
+`KItem ≤ K` or a list's element are only counted.
+
+Run one shard (`readable`, `cells`, `init`, `terms`, `import`, `k4`), and choose the worker count yourself
 when the default (from the load and the available memory) does not suit:
 
 ```sh

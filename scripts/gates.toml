@@ -466,9 +466,10 @@ paths = [
 # The class tests' full tier (krs/crates/krs-cli/tests/class_matrix.rs): every case the generator in
 # krs-test-support writes (one construct in one slot of an accepted base) through Cargo, rustc, the
 # collector, and emit-k's lowering, against the table-free invariants and
-# krs/tests/class-matrix/expected.toml, with the known failures in pending.toml. It observes the
-# code from the macros to the emitted K, and the generator and its table; not krust, the native
-# code, or formatting.
+# krs/tests/class-matrix/expected.toml, with the known failures in pending.toml, and KRS's sort
+# judges against k-rust's subsort relations of each base's emitted definition (the adapter, the
+# loader, and the relations). It observes the code from the macros to the emitted K, and the
+# generator and its table; not krust's compilation, the rest of the native code, or formatting.
 [[gate]]
 name = "krs-class"
 run = "certification"
@@ -476,6 +477,8 @@ command = "scripts/krs-class.sh"
 paths = [
   "@krs-front",
   '^krs/crates/(krs-collector|krs-compiler|krs-cli|krs-ir|krs-ir-levels|krs-test-support)/',
+  '^krs/crates/krs-k-rust/',
+  '^crates/k-rust/src/(definition|outer)/',
   '^krs/tests/class-matrix/',
   '^scripts/krs-class\.sh$',
 ]
