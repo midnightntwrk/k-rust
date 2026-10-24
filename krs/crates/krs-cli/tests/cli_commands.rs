@@ -208,6 +208,7 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     assert!(native.join("definition.kore").is_file());
     assert!(native.join("syntaxDefinition.kore").is_file());
     assert!(native.join("macros.kore").is_file());
+    assert!(native.join("k2lean-sidecar.json").is_file());
     assert!(native.join(".krs-artifacts").is_file());
 }
 
@@ -547,7 +548,7 @@ fn assert_build_measurement(temporary: &Path, target: &Path, manifest: &Path, na
     );
     assert_eq!(
         build.stdout,
-        b"built definition.kore, syntaxDefinition.kore, macros.kore\n"
+        b"built definition.kore, syntaxDefinition.kore, macros.kore, k2lean-sidecar.json\n"
     );
 }
 
@@ -702,6 +703,40 @@ pub fn sum(
         "{emitted:#?}"
     );
     assert_eq!(emitted[0], emitted[1]);
+}
+
+/// `build` writes the k2lean sidecar: the declared element sorts of the
+/// `mem: Map<Int, Int>` cell, by the KORE names of its label and its sorts.
+#[test]
+fn build_writes_the_declared_cell_types_for_k2lean() {
+    let target = shared_fixture_target();
+    let source = TWO_ENTRY_READ.replace(
+        "{rule}",
+        "krs::rules! { for Machine; sum: { acc: s, mem: { 0 -> x, .. } } => { acc: int::add(s, x) }; }",
+    );
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), &source);
+    let native = temporary.path().join("native");
+    assert_success(&command(
+        target.path(),
+        &manifest,
+        "build",
+        Some(&native),
+        &[],
+    ));
+    let sidecar = read_json(&native.join("k2lean-sidecar.json"));
+    assert_eq!(sidecar["format"], "k2lean-krs-sidecar");
+    assert_eq!(sidecar["version"], 1);
+    assert_eq!(
+        sidecar["cells"],
+        serde_json::json!([{
+            "cell": "Lbl'-LT-'mem'-GT-'",
+            "krs": "mem: Map<Int, Int>",
+            "collection": "Map",
+            "key": "SortInt",
+            "value": "SortInt",
+        }])
+    );
 }
 
 /// Emits a `TWO_ENTRY_READ` package and returns its `sum` rule sentence.
@@ -1188,7 +1223,7 @@ pub struct Sha256Digest {{
     assert_success(&first);
     assert_eq!(
         first.stdout,
-        b"built definition.kore, syntaxDefinition.kore, macros.kore\n"
+        b"built definition.kore, syntaxDefinition.kore, macros.kore, k2lean-sidecar.json\n"
     );
     let stderr = String::from_utf8(first.stderr.clone()).unwrap();
     let diagnostics = krs_cli::DiagnosticEnvelope::from_json_lines(&stderr).unwrap();

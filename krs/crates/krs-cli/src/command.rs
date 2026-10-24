@@ -7,7 +7,7 @@ use krs_collector::{CollectionError, FacadeAliases};
 use krs_compiler::{
     DEFINITION_ARTIFACT, DEFINITION_IR_ARTIFACT, DESCRIPTOR_ARTIFACT, DescriptorLoweringError,
     EmitError, LoweringError, ReferenceExpansionError, SEMANTIC_ARTIFACT, SOURCES_ARTIFACT,
-    SPEC_ARTIFACT, SYMBOLS_ARTIFACT, emit_k, expand_package_reference_source,
+    SPEC_ARTIFACT, SYMBOLS_ARTIFACT, declared_cell_types, emit_k, expand_package_reference_source,
     lower_descriptor_bundle, lower_semantic_theory,
 };
 use krs_diagnostic::{Diagnostic, ToDiagnostic};
@@ -1150,6 +1150,10 @@ fn build(
             artifacts.syntax_definition_kore.into_bytes(),
         ),
         ("macros.kore".to_owned(), artifacts.macros_kore.into_bytes()),
+        (
+            K2LEAN_SIDECAR_ARTIFACT.to_owned(),
+            k2lean_sidecar(prepared)?.into_bytes(),
+        ),
     ];
     // Do not create the output directory until structured compilation has
     // succeeded. A native rejection therefore leaves no artifacts.
@@ -1174,7 +1178,9 @@ fn build(
         1 => "omitted 1 claim: the llvm backend executes but does not prove\n".to_owned(),
         count => format!("omitted {count} claims: the llvm backend executes but does not prove\n"),
     };
-    let stdout = format!("built definition.kore, syntaxDefinition.kore, macros.kore\n{omitted}");
+    let stdout = format!(
+        "built definition.kore, syntaxDefinition.kore, macros.kore, {K2LEAN_SIDECAR_ARTIFACT}\n{omitted}"
+    );
     Ok(CommandExecution {
         outcome: CommandOutcome {
             stderr: Vec::new(),
@@ -1184,6 +1190,50 @@ fn build(
         },
         artifacts: files,
     })
+}
+
+/// The native artifact that gives k2lean the declared element sorts of the
+/// configuration's collection cells (`env: Map<Id, Value>`), which KORE does
+/// not carry (format `k2lean-krs-sidecar`, version 1, `k2lean/docs/design.md`,
+/// "The KRS sidecar").
+pub const K2LEAN_SIDECAR_ARTIFACT: &str = "k2lean-sidecar.json";
+
+/// The k2lean sidecar of a definition: one entry per declared cell type
+/// (`declared_cell_types`), keyed by the KORE names k-rust's compilation gives
+/// the cell's label and the element sorts.
+fn k2lean_sidecar(prepared: &PreparedDefinition) -> Result<String, CommandError> {
+    let cells = declared_cell_types(&prepared.lowered)?
+        .into_iter()
+        .map(|declared| {
+            let mut cell = serde_json::Map::new();
+            cell.insert(
+                "cell".into(),
+                krs_k_rust::kore_label(&format!("<{}>", declared.cell)).into(),
+            );
+            cell.insert("krs".into(), declared.declaration().into());
+            cell.insert("collection".into(), declared.collection.into());
+            let names: &[&str] = if declared.collection == "Map" {
+                &["key", "value"]
+            } else {
+                &["element"]
+            };
+            for (name, sort) in names.iter().zip(&declared.elements) {
+                cell.insert((*name).into(), krs_k_rust::kore_sort(sort).into());
+            }
+            serde_json::Value::Object(cell)
+        })
+        .collect::<Vec<_>>();
+    let sidecar = serde_json::json!({
+        "format": "k2lean-krs-sidecar",
+        "version": 1,
+        "producer": "krs build",
+        "cells": cells,
+    });
+    let mut text = serde_json::to_string_pretty(&sidecar).map_err(|error| {
+        CommandError::InvalidRequest(format!("k2lean sidecar serialization failed: {error}"))
+    })?;
+    text.push('\n');
+    Ok(text)
 }
 
 fn native_command_error(

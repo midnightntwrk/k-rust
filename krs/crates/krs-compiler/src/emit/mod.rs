@@ -580,6 +580,106 @@ impl GroupRelations {
 /// Every leaf below a collection (`*`) cell, mapped to its nearest
 /// collection: a rule that names such a leaf matches the collection's
 /// implicit single instance.
+/// One leaf configuration cell whose collection content declares its element
+/// sorts (`env: Map<Id, Value>`), which K erases: the cell's name and the K
+/// names of its collection sort and element sorts.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DeclaredCellType {
+    /// The cell's name (`env`, whose K label is `<env>`).
+    pub cell: String,
+    /// The K name of the collection sort: `Map`, `List` or `Set`.
+    pub collection: &'static str,
+    /// The K names of the element sorts: the key and the value of a map, the
+    /// element of a list or a set.
+    pub elements: Vec<String>,
+}
+
+impl DeclaredCellType {
+    /// The declaration as KRS writes it (`env: Map<Id, Value>`).
+    #[must_use]
+    pub fn declaration(&self) -> String {
+        format!(
+            "{}: {}<{}>",
+            self.cell,
+            self.collection,
+            self.elements.join(", ")
+        )
+    }
+}
+
+/// The declared element sorts of the definition's configuration cells, in
+/// configuration order: every leaf cell whose content is a `Map`, `List` or
+/// `Set` with element sorts that are not collections with element sorts of
+/// their own, outside every repeated (`*`) or optional (`?`) cell.
+///
+/// # Errors
+///
+/// Returns [`EmitError::InvalidReference`] for a sort the definition does not
+/// name.
+pub fn declared_cell_types(
+    lowered: &LoweredDefinition,
+) -> Result<Vec<DeclaredCellType>, EmitError> {
+    fn walk(
+        cells: &[FixedCell<DefinitionSortRef, SymbolId>],
+        context: &EmitContext<'_>,
+        out: &mut Vec<DeclaredCellType>,
+    ) -> Result<(), EmitError> {
+        for cell in cells {
+            if cell.multiplicity().is_some() {
+                continue;
+            }
+            match cell.content() {
+                FixedCellContent::Children { children } => walk(children, context, out)?,
+                FixedCellContent::Term { sort, arguments } => {
+                    let DefinitionSortRef::Builtin(builtin) = sort else {
+                        continue;
+                    };
+                    let collection = builtin.k_name();
+                    let arity = match collection {
+                        "Map" => 2,
+                        "List" | "Set" => 1,
+                        _ => continue,
+                    };
+                    if arguments.len() != arity
+                        || arguments
+                            .iter()
+                            .any(|argument| !argument.arguments.is_empty())
+                    {
+                        continue;
+                    }
+                    let elements = arguments
+                        .iter()
+                        .map(|argument| {
+                            context
+                                .sort_name_ref(&argument.sort)
+                                .map(std::borrow::Cow::into_owned)
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    out.push(DeclaredCellType {
+                        cell: cell.name().to_owned(),
+                        collection,
+                        elements,
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+    let definition = lowered.definition();
+    let context = EmitContext::new(definition);
+    let mut out = Vec::new();
+    for sentence in definition
+        .modules()
+        .iter()
+        .flat_map(DefinitionModule::sentences)
+    {
+        if let DefinitionSentence::Configuration(configuration) = sentence {
+            walk(configuration.cells(), &context, &mut out)?;
+        }
+    }
+    Ok(out)
+}
+
 fn collect_repeated_ancestors(
     cells: &[FixedCell<DefinitionSortRef, SymbolId>],
     repeated_ancestors: &mut BTreeMap<SymbolId, SymbolId>,

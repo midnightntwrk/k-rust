@@ -459,7 +459,9 @@ def phase_rust(context: Context) -> RustBuild:
     return RustBuild(krs)
 
 
-NATIVE_ARTIFACTS = (".krs-artifacts", "definition.kore", "macros.kore", "syntaxDefinition.kore")
+NATIVE_ARTIFACTS = (
+    ".krs-artifacts", "definition.kore", "k2lean-sidecar.json", "macros.kore", "syntaxDefinition.kore"
+)
 
 
 def krs_invocation(krs: Path) -> Invocation:
@@ -469,8 +471,9 @@ def krs_invocation(krs: Path) -> Invocation:
 def native_artifacts(context: Context, krs: Path, env: Mapping[str, str]) -> Path:
     """Build the native definition twice per backend and require identical builds.
 
-    Only the KRS-owned ownership marker is pinned: the KORE is k-rust's output,
-    which k-rust's own gates check, and IMP.7 and IMP.8 check what it does.
+    Only the KRS-owned artifacts are pinned, the ownership marker and the k2lean
+    sidecar of the declared cell types: the KORE is k-rust's output, which
+    k-rust's own gates check, and IMP.7 and IMP.8 check what it does.
     The concrete LLVM backend does not prove, so its build omits every claim.
     """
 

@@ -28,8 +28,9 @@ pub use artifacts::*;
 pub use cell_warnings::cell_collection_warnings;
 pub use coverage::coverage_warnings;
 pub use emit::{
-    EmitError, EmittedK, EmittedSpec, definition_module_imports, definition_sentence_source,
-    emit_k, smt_only_function_warnings, trusted_claim_warnings,
+    DeclaredCellType, EmitError, EmittedK, EmittedSpec, declared_cell_types,
+    definition_module_imports, definition_sentence_source, emit_k, smt_only_function_warnings,
+    trusted_claim_warnings,
 };
 pub use error::{AnalysisError, AnalysisErrorKind};
 pub use lowering::{CollisionNamespace, LoweredDefinition, LoweringError, lower_semantic_theory};

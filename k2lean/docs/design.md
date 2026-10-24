@@ -150,7 +150,8 @@ Each declared cell:
 
 For a declared cell the generated part says that every binding (element) has the declared sorts, where "a `KItem` `t` has sort `S`" is `∃ y, proj_KItem_S t = some y`: the projection is defined exactly on the injections of values of `S` and of its subsorts.
 The generator refuses a cell that is not in the definition, whose content is not the named collection, whose sorts are unknown or not subsorts of the collection's element sort, or that lies inside a cell collection; nested arguments (`Map<Int, Set<Int>>`) have no field in version 1.
-`krs build` does not write the sidecar; `demos/k/krs-imp/k2lean-sidecar.json` is written by hand for the recorded KRS IMP KORE beside it.
+`krs build` writes it as `k2lean-sidecar.json` beside `definition.kore` (`krs/crates/krs-cli/src/command.rs`, from the configuration cells of the Definition IR, `declared_cell_types`): one entry per leaf cell whose content is a `Map`, `List` or `Set` with declared element sorts that are not collections with arguments of their own, outside every repeated (`*`) or optional (`?`) cell, keyed by the KORE names k-rust's compilation gives the cell's label (`Lbl'-LT-'env'-GT-'`) and the element sorts (`SortId`); `producer` is `krs build`.
+The recorded `demos/k/krs-imp/k2lean-sidecar.json` is its output for KRS IMP (`krs/tests/imp/rust-definition`); the library generated from it equals, file for file, the one generated from the hand-written file it replaces.
 
 ## 7. Lean version
 

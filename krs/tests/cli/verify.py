@@ -203,10 +203,11 @@ def positive_run(
         return None
 
     build = cli_command(binary, "build", manifest, target, output=native)
-    expected_build = b"built definition.kore, syntaxDefinition.kore, macros.kore\n"
+    expected_build = b"built definition.kore, syntaxDefinition.kore, macros.kore, k2lean-sidecar.json\n"
     native_names = {
         ".krs-artifacts",
         "definition.kore",
+        "k2lean-sidecar.json",
         "macros.kore",
         "syntaxDefinition.kore",
     }

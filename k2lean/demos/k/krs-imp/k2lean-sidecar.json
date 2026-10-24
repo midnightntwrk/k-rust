@@ -1,15 +1,14 @@
 {
-  "format": "k2lean-krs-sidecar",
-  "version": 1,
-  "producer": "hand-written for the recorded krs build output definition.kore (k2lean/docs/design.md, \"The KRS sidecar\"); krs build does not emit it",
-  "definition": "krs/tests/imp/rust-definition, definition main",
   "cells": [
     {
       "cell": "Lbl'-LT-'env'-GT-'",
-      "krs": "env: Map<Id, Value>",
       "collection": "Map",
       "key": "SortId",
+      "krs": "env: Map<Id, Value>",
       "value": "SortValue"
     }
-  ]
+  ],
+  "format": "k2lean-krs-sidecar",
+  "producer": "krs build",
+  "version": 1
 }
