@@ -100,11 +100,11 @@ Its gate (`k2lean/tests/gate.sh`) regenerates every library and demonstration fr
 
 - `k2lean-light` (certification, owed by a change to krust's sources or to `k2lean/`): kimp, KRS IMP, a kimp mutant and kimp's type checker as libraries, kimp's determinism along the rule index (`kimp-d2`), the five IMP demonstrations, four kind 1 invariant libraries (one of them the fixture of the hand-proof path), the negative check and the kind 2 template.
   It needs krust, the pinned K release's `kompile` with its LLVM backend (kimp's interpreter for the step traces), the K and kimp sources at their pins, and Lean through elan.
-  On 2026-10-24, on a 32-core host under a load of 5 to 10 from other work, a run from an empty work tree took 639 s (970 s of CPU, 4.0 GB peak) and one with nothing changed 26 s;
+  On 2026-10-24, on a 32-core host, its part of a heavy run from an empty work tree took 809 s (1,198 s of CPU) under a load of 8 to 21 from other work, a light run from an empty work tree peaked at 4.0 GB, and one with nothing changed took 26 s (measured before the `kimpkeys` libraries and `ImpWrites` were added);
 - `k2lean-heavy` (heavy): light, then SIMPLE (its acceptance against krust and the K tests' `.out` files), SIMPLE's two invariants, and the kimp claims (`krust kprove` verdicts and the Lean claims).
-  A run from an empty work tree took 1,341 s (2,000 s of CPU) on the same host, under a load of 4 to 17, and one with nothing changed 50 s.
+  A run from an empty work tree took 1,661 s (2,389 s of CPU, 4.7 GB peak) on the same host, under a load of 8 to 21, and one with nothing changed 50 s (before the additions above).
 - `k2lean-arity` (heavy): kimp and SIMPLE in the arity-indexed term universe (`gen --arity-terms`, `k2lean/docs/design.md`, §2.1), built with their axiom guards; kimp's goldens and step traces and SIMPLE's cases against krust, whose recorded outputs must equal the default encoding's.
-  A run from an empty work tree took 225 s (623 s of CPU, 4.5 GB peak) on the same host, under a load of 7 to 9.
+  A run from an empty work tree took 225 s (623 s of CPU, 4.5 GB peak) on the same host, under a load of 7 to 9, and 457 s (679 s of CPU, 4.5 GB) under a load of 20 to 33.
 
 A tier fails on any regression and passes when an open set shrinks, printing what to lower; after a deliberate change, read the `FAIL` and `NOTE` lines and record the new baseline with `k2lean/tests/gate.sh accept`, which refuses a run with a failed step.
 The gate starts every library from its tracked open-obligation list (`k2lean/generated/*/open-obligations.txt`), so it finds a proof that stopped working but not one that started working; `GATE_RETRY_OPEN=1` attempts every open obligation again.
