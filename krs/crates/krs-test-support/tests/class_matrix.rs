@@ -16,7 +16,7 @@ use krs_test_support::class_matrix::pending::{
 };
 use krs_test_support::class_matrix::table::{At, Expected, Glob, Table, TableError};
 use krs_test_support::class_matrix::{
-    self, Base, Case, FRONT_CASE_CAP, Family, OwnReason, Packaging, Placed, render,
+    self, Base, Case, FRONT_CASE_CAP, Family, OwnReason, Packaging, Placed, entry_points, render,
 };
 
 fn expand(source: &str) -> Result<FileExpansion, Vec<ExpandDiagnostic>> {
@@ -251,7 +251,42 @@ fn the_shipped_table_and_red_list_parse() {
         .collect::<Vec<_>>();
     assert!(defects.is_empty(), "{defects:#?}");
     assert!(!table.internal.is_empty());
-    assert!(pending.stale(&ids).is_empty());
+    // K5's entries name mutations, which are no cases of the table.
+    let mutations = entry_points::mutations();
+    let mut named = ids.clone();
+    named.extend(mutations.iter().map(|mutation| mutation.id.as_str()));
+    assert!(pending.stale(&named).is_empty());
+}
+
+#[test]
+fn each_mutation_breaks_one_header_of_the_base() {
+    let mutations = entry_points::mutations();
+    assert_eq!(mutations.len(), 53);
+    let attributes = mutations
+        .iter()
+        .filter(|mutation| mutation.id.starts_with("entry/attribute/"))
+        .count();
+    assert_eq!(attributes, 29);
+    for mutation in &mutations {
+        assert_ne!(mutation.source, entry_points::BASE, "{}", mutation.id);
+        let header = &mutation.source[mutation.header.clone()];
+        assert!(
+            !header.trim().is_empty(),
+            "{}: the header is empty",
+            mutation.id
+        );
+        let (before, after) = (
+            &mutation.source[..mutation.header.start],
+            &mutation.source[mutation.header.end..],
+        );
+        assert!(
+            entry_points::BASE.starts_with(before) && entry_points::BASE.ends_with(after),
+            "{}: the mutation changes only its header",
+            mutation.id
+        );
+    }
+    // The whole-file expander refuses the base's inline spec module, so the full tier checks
+    // that the base passes `krs check` and `cargo check` cleanly before it judges a mutation.
 }
 
 fn table(text: &str) -> Table {

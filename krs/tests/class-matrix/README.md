@@ -37,7 +37,12 @@ The `k4` shard compares KRS's sort judges with k-rust's subsort relations of eac
 definition; its disagreements are keyed `lattice/class-BASE/JUDGE~JUDGE/CLASS`, and those about
 `KItem ≤ K` or a list's element are only counted.
 
-Run one shard (`readable`, `cells`, `init`, `terms`, `import`, `k4`), and choose the worker count yourself
+The `k5` shard checks `class_matrix::entry_points`: one package that uses all 53 entry points of
+`krs-macros`, and one mutation per entry point that breaks its header and keeps every dependent.
+Each mutation must give exactly one diagnostic, an error, under `krs check --message-format json`
+and under plain `cargo check`; its entry is keyed by the mutation, `entry/attribute/cell`.
+
+Run one shard (`readable`, `cells`, `init`, `terms`, `import`, `k4`, `k5`), and choose the worker count yourself
 when the default (from the load and the available memory) does not suit:
 
 ```sh

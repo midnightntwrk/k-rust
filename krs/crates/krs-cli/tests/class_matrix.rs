@@ -6,7 +6,8 @@
 //!
 //! The shards are ignored tests, one per family group: `readable` (readable records and claims),
 //! `cells`, `init`, `terms`, and `import`, each of which also judges its accepted cases by K3
-//! ([`closure`]) unless `KRS_CLASS_CLOSURE=0`; and `k4`, which compares KRS's sort judges with
+//! ([`closure`]) unless `KRS_CLASS_CLOSURE=0`; `k5`, which checks one broken header per entry
+//! point ([`mutations`]); and `k4`, which compares KRS's sort judges with
 //! k-rust's lattice on each base's emitted definition ([`lattice`]). Each prints its counts and its red cases per finding
 //! and per step, and fails on a case that deviates and is not pending, a pending case that
 //! conforms or deviates differently, and a table error.
@@ -29,6 +30,8 @@
 mod closure;
 #[path = "class_matrix/lattice.rs"]
 mod lattice;
+#[path = "class_matrix/mutations.rs"]
+mod mutations;
 #[path = "class_matrix/pipeline.rs"]
 mod pipeline;
 
@@ -230,6 +233,7 @@ impl Shard {
             key: match test {
                 "k1" => format!("{KEYS}{id}"),
                 "k3" => format!("{CLOSURE}{id}"),
+                "k5" => id.to_owned(),
                 _ if spec().pending.entries.contains_key(&full) => full,
                 _ => id.to_owned(),
             },
@@ -391,6 +395,8 @@ fn test_of(key: &str) -> &'static str {
         "k1"
     } else if key.starts_with(CLOSURE) {
         "k3"
+    } else if key.starts_with("entry/") {
+        "k5"
     } else {
         "k2"
     }
@@ -635,6 +641,72 @@ fn k4() {
     assert!(
         shard.failures.is_empty(),
         "{} class-test failures in shard k4:\n{}",
+        shard.failures.len(),
+        shard.failures.join("\n")
+    );
+}
+
+#[test]
+#[ignore = "the full tier builds packages; run it through scripts/krs-class.sh"]
+fn k5() {
+    let spec = spec();
+    let (settings, _scratch) = settings();
+    let started = std::time::Instant::now();
+    let checked = mutations::check_all(&settings);
+    let (base, checked): (Vec<_>, Vec<_>) = checked
+        .into_iter()
+        .partition(|checked| checked.id == "entry/base");
+    let base = &base[0];
+    assert!(
+        base.krs == mutations::Counts::default() && base.cargo == mutations::Counts::default(),
+        "the K5 base must pass both checks without a diagnostic: {}",
+        base.signature()
+    );
+    let mut shard = Shard::default();
+    let mut one = [0, 0];
+    for checked in &checked {
+        one[0] += usize::from(checked.krs.errors.len() == 1 && checked.krs.warnings.is_empty());
+        one[1] += usize::from(checked.cargo.errors.len() == 1 && checked.cargo.warnings.is_empty());
+        let misses = if checked.conforms() {
+            Vec::new()
+        } else {
+            vec!["more or fewer than one diagnostic".to_owned()]
+        };
+        shard.add("k5", &checked.id, checked.signature(), misses);
+    }
+    let red = shard.judge(&spec.pending, &[], false);
+    let judged = checked
+        .iter()
+        .map(|checked| checked.id.as_str())
+        .collect::<BTreeSet<_>>();
+    for key in spec.pending.entries.keys() {
+        if key.starts_with("entry/") && !judged.contains(key.as_str()) {
+            shard
+                .failures
+                .push(format!("{key}: pending, but no mutation has this ID"));
+        }
+    }
+    if let Some(out) = variable("KRS_CLASS_OUT") {
+        let out = PathBuf::from(out);
+        std::fs::create_dir_all(&out).expect("the output directory is created");
+        std::fs::write(out.join("k5.tsv"), &shard.lines).expect("the TSV is written");
+        std::fs::write(out.join("k5.pending.toml"), &shard.record)
+            .expect("the pending entries are written");
+    }
+    let tally = spec.pending.tally(red.iter().map(String::as_str));
+    eprintln!(
+        "[krs-class] k5: {} entry points in {:.1} s; one diagnostic under krs check {}, under cargo check {}; red {} (by finding {:?}; by step {:?})",
+        checked.len(),
+        started.elapsed().as_secs_f64(),
+        one[0],
+        one[1],
+        red.len(),
+        tally.by_finding,
+        tally.by_step,
+    );
+    assert!(
+        shard.failures.is_empty(),
+        "{} class-test failures in shard k5:\n{}",
         shard.failures.len(),
         shard.failures.join("\n")
     );

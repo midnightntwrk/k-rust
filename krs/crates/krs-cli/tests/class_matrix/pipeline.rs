@@ -528,7 +528,7 @@ fn observe_reports(
     located.chain(prose).collect()
 }
 
-fn write_package(directory: &Path, name: &str, source: &str) -> PathBuf {
+pub fn write_package(directory: &Path, name: &str, source: &str) -> PathBuf {
     let facade = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../krs")
         .canonicalize()

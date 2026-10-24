@@ -190,7 +190,7 @@ step = "S4"
 
 # Lane "full" (U3): the full tier, `krs/crates/krs-cli/tests/class_matrix.rs` (K2 through rustc,
 # the collector and lowering; K1 after lowering, keyed `k1/CASE`; K3, keyed `k3/CASE`; K4 against
-# k-rust, keyed `lattice/class-BASE/..`). Its findings:
+# k-rust, keyed `lattice/class-BASE/..`; K5, keyed by the mutation, `entry/..`). Its findings:
 # - B2: an initializer value of the wrong kind of cell is rustc E0308 at the generated types of
 #   `#[k::init]`, not at the value;
 # - B3: `Some(..)`/`None` in a readable result on a cell that is not optional is rustc E0277 on a
@@ -199,12 +199,14 @@ step = "S4"
 # - B6: a `cells!` wrapper that disagrees with the cell's kind (`KCell` on a leaf, `Cell` on the
 #   computation or a group) is an unlocated `parser-reference-disagreement` or `invalid-term`;
 # - B7: a bare entry on a `*` collection, accepted with a one-instance meaning (K3 below);
+# - N12: a failed item leaves an `unused_imports` warning under plain `cargo check` (K5 below);
 # - N22: a module-level `use Cmd::*;` does not reach the term positions (rustc E0573);
 # - N26: two literals in one initializer term give one semantic key twice;
 # - N27: an initializer value of a strict subsort of its cell's sort is refused by the IR
 #   validator, unlocated;
 # - S0-1: `Some(x)`/`None` in a result on the optional cell, when the subject binds the whole cell,
 #   is rustc E0277 at the whole block;
+# - S0-2: `for Nope;` in a sentence block reports rustc E0425 twice (K5 below);
 # - S0-4: an initializer that reads a configuration variable twice is rustc E0382;
 # - X1: initializer fields out of declaration order are an unlocated collector error;
 # - X2: an initializer that leaves a declared configuration variable unused is an unlocated IR
@@ -1571,6 +1573,38 @@ deviation = "printed surface refused: krs::expand::matches-outside-condition @ i
 ["k3/terms/sort-rule/result/{ let y = x; y }"]
 finding = "unassigned"
 deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+
+# K5: one broken header per entry point (`class_matrix::entry_points`), one diagnostic under `krs check`
+# and under plain `cargo check`. N12: a failed configuration, cell, initializer, or `k!` leaves an
+# `unused_imports` warning under `cargo check`; S0-2: `for Nope;` reports E0425 twice.
+
+["entry/attribute/cell"]
+finding = "N12"
+deviation = "krs check: 1 errors [krs::syntax::unknown-argument], 0 warnings []; cargo check: 1 errors [krs::syntax::unknown-argument], 1 warnings [unused_imports]"
+
+["entry/attribute/configuration"]
+finding = "N12"
+deviation = "krs check: 1 errors [krs::syntax::unknown-argument], 0 warnings []; cargo check: 1 errors [krs::syntax::unknown-argument], 1 warnings [unused_imports]"
+
+["entry/attribute/init"]
+finding = "N12"
+deviation = "krs check: 1 errors [krs::syntax::unexpected-attribute-payload], 0 warnings []; cargo check: 1 errors [krs::syntax::unexpected-attribute-payload], 1 warnings [unused_imports]"
+
+["entry/function/claims"]
+finding = "S0-2"
+deviation = "krs check: 2 errors [E0425], 0 warnings []; cargo check: 2 errors [E0425], 0 warnings []"
+
+["entry/function/equations"]
+finding = "unassigned"
+deviation = "krs check: 4 errors [E0422, E0425], 0 warnings []; cargo check: 4 errors [E0422, E0425], 0 warnings []"
+
+["entry/function/k"]
+finding = "N12"
+deviation = "krs check: 1 errors [krs::syntax::invalid-state-macro], 0 warnings []; cargo check: 1 errors [krs::syntax::invalid-state-macro], 1 warnings [unused_imports]"
+
+["entry/function/rules"]
+finding = "S0-2"
+deviation = "krs check: 2 errors [E0425], 0 warnings []; cargo check: 2 errors [E0425], 0 warnings []"
 
 # K4 against k-rust's lattice of each base's emitted definition: the coverage lint's graph (G5) has no
 # `S ≤ KItem`.

@@ -48,6 +48,7 @@
 //! budget.
 
 mod cells;
+pub mod entry_points;
 pub mod invariants;
 mod machine;
 pub mod pending;
