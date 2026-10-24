@@ -272,36 +272,6 @@ macro "ty_simp" : tactic => `(tactic| simp only [WTc, kOf, envOf, kty_dotk, kty_
     Option.map_some, Option.map_none, Option.bind_some, Option.bind_none, Bool.and_true, Bool.true_and,
     Bool.and_false, Bool.false_and, ite_true, ite_false, ↓reduceIte, and_self, and_true, true_and, *])
 
-/-- A lookup after an update at another key (sorted association lists; no sortedness needed). -/
-theorem SAL_lookup_insert_ne {α β : Type} [Ord α] [Std.TransOrd α] [Std.LawfulEqOrd α] {k k' : α} (v : β) (hne : k' ≠ k) :
-    ∀ (m : List (α × β)), SAL.lookup k' (SAL.insert k v m) = SAL.lookup k' m
-  | [] => by
-    simp only [SAL.insert, SAL.lookup]
-    cases hc : compare k' k
-    · rfl
-    · exact absurd (SAL.eq_of_cmp hc) hne
-    · rfl
-  | (k₁, v₁) :: t => by
-    simp only [SAL.insert]
-    cases h₁ : compare k k₁
-    · simp only [SAL.lookup]
-      cases hc : compare k' k
-      · simp only [SAL.lookup_of_lt (m := (k₁, v₁) :: t), SAL.lookup]
-        rw [SAL.lt_trans hc h₁]
-      · exact absurd (SAL.eq_of_cmp hc) hne
-      · rfl
-    · have := SAL.eq_of_cmp h₁; subst this
-      simp only [SAL.lookup]
-      cases hc : compare k' k
-      · rfl
-      · exact absurd (SAL.eq_of_cmp hc) hne
-      · rfl
-    · simp only [SAL.lookup]
-      cases compare k' k₁
-      · rfl
-      · rfl
-      · exact SAL_lookup_insert_ne v hne t
-
 theorem tyOf_value (G : TEnv) (V : KImp.SortValue) : tyOf G (KImp.inj_Value_Expr V) = valTy (KImp.inj_Value_KItem V) := by
   cases V <;> simp [KImp.inj_Value_Expr, KImp.inj_Value_KItem, valTy, tyOf_int, tyOf_bool]
 end ImpTypes

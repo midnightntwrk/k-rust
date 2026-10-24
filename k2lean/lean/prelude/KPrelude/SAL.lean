@@ -182,6 +182,39 @@ theorem lookup_insert_self (k : α) (v : β) : ∀ (m : List (α × β)), lookup
     · simp [lookup, cmp_self]
     · next h => simp only [lookup, h]; exact lookup_insert_self k v t
 
+/-- A lookup after an insert at another key is unchanged. No sortedness is needed: `insert`
+keeps the entries it passes, and `lookup k'` reads the same entries up to the place where
+`insert` puts the new one, which it skips because `k' ≠ k`. -/
+theorem lookup_insert_ne {k k' : α} (v : β) (hne : k' ≠ k) :
+    ∀ (m : List (α × β)), lookup k' (insert k v m) = lookup k' m
+  | [] => by
+    simp only [insert, lookup]
+    cases hc : compare k' k
+    · rfl
+    · exact absurd (eq_of_cmp hc) hne
+    · rfl
+  | (k₁, v₁) :: t => by
+    unfold insert
+    split
+    · next h₁ =>
+      simp only [lookup]
+      cases hc : compare k' k
+      · simp only [lt_trans hc h₁]
+      · exact absurd (eq_of_cmp hc) hne
+      · rfl
+    · next h₁ =>
+      cases eq_of_cmp h₁
+      simp only [lookup]
+      cases hc : compare k' k
+      · rfl
+      · exact absurd (eq_of_cmp hc) hne
+      · rfl
+    · simp only [lookup]
+      split
+      · rfl
+      · rfl
+      · exact lookup_insert_ne v hne t
+
 /-- Below the least key, lookup finds nothing. -/
 theorem lookup_of_lt {k : α} : ∀ {m : List (α × β)}, (∀ p ∈ m, compare k p.1 = .lt) → lookup k m = none
   | [], _ => rfl

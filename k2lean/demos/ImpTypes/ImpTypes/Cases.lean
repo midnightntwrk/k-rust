@@ -67,13 +67,12 @@ theorem «CALC.assign» (G : TEnv) : KImp.Step.Case.«CALC.assign» (WTc G) := b
     by_cases hxX : x = X
     · subst hxX
       refine ⟨KImp.inj_Value_KItem V, ?_, ?_⟩
-      · rw [MapHook.lookup_def, MapHook.update_def, ListIso.toList_ofList]; exact SAL.lookup_insert_self _ _ _
+      · exact MapHook.lookup_update_self _ _ _
       · rw [← tyOf_value, h₂, ← h₁, hx]
     · obtain ⟨v, hl, hv⟩ := he.2 x t hx
       refine ⟨v, ?_, hv⟩
-      rw [MapHook.lookup_def, MapHook.update_def, ListIso.toList_ofList, SAL_lookup_insert_ne]
-      · rwa [← MapHook.lookup_def]
-      · intro h; exact hxX (by cases h; rfl)
+      rwa [MapHook.lookup_update_ne]
+      intro h; exact hxX (by cases h; rfl)
   · simp [hw] at hk
 
 -- k2lean new-invariant --from-log: new hand cases go above this line

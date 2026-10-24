@@ -126,6 +126,16 @@ theorem lookup_of_concat_element {k : K} {v : V} {r m : M} (h : concat (element 
   obtain ⟨_, _, rfl⟩ := concat_element_iff.1 h
   rw [lookup_def, update_def, toList_ofList]; exact SAL.lookup_insert_self k v _
 
+/-- `M[K <- V][K]` is `V`. -/
+theorem lookup_update_self (m : M) (k : K) (v : V) : lookup (update m k v) k = some v := by
+  rw [lookup_def, update_def, toList_ofList]; exact SAL.lookup_insert_self k v _
+
+/-- A lookup after an update at another key is unchanged: `M[K <- V][K']` is `M[K']` when
+`K' ≠ K`. -/
+theorem lookup_update_ne (m : M) {k k' : K} (v : V) (hne : k' ≠ k) :
+    lookup (update m k v) k' = lookup m k' := by
+  rw [lookup_def, update_def, toList_ofList, SAL.lookup_insert_ne v hne, lookup_def]
+
 theorem remove_of_concat_element {k : K} {v : V} {r m : M} (h : concat (element k v) r = some m) :
     remove m k = r := by
   obtain ⟨h1, h2, rfl⟩ := concat_element_iff.1 h
