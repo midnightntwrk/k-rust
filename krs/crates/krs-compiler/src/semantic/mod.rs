@@ -337,7 +337,8 @@ pub fn lower_descriptor_bundle(
     theory.map_err(|error| DescriptorLoweringError::InvalidSemanticTheory {
         error,
         range: site
-            .and_then(|origin| origin.origin().exact_authored_range())
+            .iter()
+            .find_map(|origin| origin.origin().exact_authored_range())
             .map(Box::new),
     })
 }

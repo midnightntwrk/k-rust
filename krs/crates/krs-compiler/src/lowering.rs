@@ -397,7 +397,8 @@ pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinitio
     let definition = definition.map_err(|error| LoweringError::InvalidDefinition {
         error,
         range: site
-            .and_then(|origin| origin.origin().exact_authored_range())
+            .iter()
+            .find_map(|origin| origin.origin().exact_authored_range())
             .map(Box::new),
     })?;
     let symbol_map = SymbolMap::from_definition(&definition)

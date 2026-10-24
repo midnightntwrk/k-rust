@@ -524,7 +524,8 @@ impl TryFrom<DescriptorWire> for Descriptor {
 pub struct DescriptorFailure {
     /// The failure.
     pub error: DescriptorError,
-    /// The innermost node a term walk failed in, when a term walk failed.
+    /// The innermost node with an exact authored range that encloses the failure, when a term
+    /// walk failed.
     pub at: Option<ProvenanceKey>,
     /// The descriptor's provenance, which resolves `at`.
     pub provenance: DescriptorProvenance,
@@ -600,7 +601,7 @@ impl Descriptor {
             provenance,
             payload,
         };
-        let (validated, at) = crate::failure_site::record(|| {
+        let (validated, enclosing) = crate::failure_site::record(|| {
             descriptor
                 .validate_grammar_contract()
                 .map_err(DescriptorError::Grammar)?;
@@ -609,6 +610,13 @@ impl Descriptor {
                 .map_err(DescriptorError::State)
         });
         if let Err(error) = validated {
+            // The innermost enclosing node the author's text locates.
+            let at = enclosing.into_iter().find(|key| {
+                descriptor
+                    .provenance
+                    .origin_for(key)
+                    .is_some_and(|origin| origin.exact_authored_range().is_some())
+            });
             return Err(Box::new(DescriptorFailure {
                 error,
                 at,

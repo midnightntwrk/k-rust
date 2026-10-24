@@ -271,13 +271,16 @@ pub(crate) trait TermValidation<S: ValidationStage> {
     fn record_update(&mut self, base: &Term<S>) -> Result<(), Self::Error>;
 }
 
-/// Validates `term` and its subterms; a failure reports the innermost node that encloses it
+/// Validates `term` and its subterms; a failure lists the nodes that enclose it
 /// ([`crate::failure_site`]).
 pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
     term: &Term<S>,
     context: &mut C,
 ) -> Result<(), C::Error> {
-    validate_term_node(term, context).inspect_err(|_| crate::failure_site::report(term_key(term)))
+    let mark = crate::failure_site::enter();
+    let result = validate_term_node(term, context);
+    crate::failure_site::leave(mark, result.is_err(), term_key(term));
+    result
 }
 
 /// The provenance key of a term's own node.

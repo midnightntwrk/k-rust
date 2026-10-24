@@ -107,12 +107,13 @@ impl CollectionError {
     }
 
     pub(crate) fn with_provenance(self, provenance: &krs_ir::DescriptorProvenance) -> Self {
+        // The referenced node when the author's text locates it, the item otherwise.
         let range = self
             .reference_key
             .as_ref()
             .and_then(|key| provenance.origin_for(key))
-            .unwrap_or_else(|| provenance.primary_origin())
-            .exact_authored_range();
+            .and_then(krs_ir::OriginStack::exact_authored_range)
+            .or_else(|| provenance.primary_origin().exact_authored_range());
         match range {
             Some(range) => self.with_source_range(range),
             None => self,

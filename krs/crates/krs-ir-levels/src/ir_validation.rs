@@ -186,12 +186,14 @@ pub(crate) enum ValidationError<L: Validation> {
     PrecedenceCycle(ProductionGroupId),
     RegexWithoutToken,
     RewriteSortMismatch,
-    /// `alias @ pattern` outside a pre-pattern, or at a sort its alias or
-    /// pattern does not have.
+    /// `alias @ pattern` outside a pre-pattern.
     InvalidPatternAs,
-    /// `A | B` outside a pre-pattern, at a sort an alternative does not
-    /// inject into, or with alternatives binding different variables.
+    /// `alias @ pattern` at a sort its alias or pattern does not have.
+    PatternAsSortMismatch,
+    /// `A | B` outside a pre-pattern, or with alternatives binding different variables.
     InvalidPatternOr,
+    /// `A | B` at a sort an alternative does not inject into.
+    PatternOrSortMismatch,
     /// `k::matches!` outside a post-term or condition, at a sort other than
     /// Bool, or with local binders that are not exactly its pattern's named
     /// variables or that occur outside it.
@@ -1831,7 +1833,7 @@ fn collection_signature_holds<'a, L: Validation + 'a>(
             })
 }
 
-/// Validates `term` and its subterms; a failure reports the innermost term that encloses it
+/// Validates `term` and its subterms; a failure lists the terms that enclose it
 /// ([`crate::failure_site`]).
 pub(crate) fn validate_term<L: Validation>(
     term: &IrTerm<L>,
@@ -1842,7 +1844,8 @@ pub(crate) fn validate_term<L: Validation>(
     cell_ids: &BTreeSet<L::Cell>,
     nodes: &mut BTreeSet<SourceMapKey>,
 ) -> Result<(), L::Error> {
-    validate_term_node(
+    let mark = crate::failure_site::enter();
+    let result = validate_term_node(
         term,
         scope,
         declarations,
@@ -1850,8 +1853,9 @@ pub(crate) fn validate_term<L: Validation>(
         sort_parents,
         cell_ids,
         nodes,
-    )
-    .inspect_err(|_| crate::failure_site::report(term.origin()))
+    );
+    crate::failure_site::leave(mark, result.is_err(), term.origin());
+    result
 }
 
 #[expect(
@@ -2122,7 +2126,7 @@ fn validate_term_node<L: Validation>(
             if scope.get(alias) != Some(term.sort())
                 || !is_subsort::<L>(pattern.sort(), term.sort(), sort_parents)
             {
-                return Err(L::error(ValidationError::InvalidPatternAs));
+                return Err(L::error(ValidationError::PatternAsSortMismatch));
             }
             validate_term::<L>(
                 pattern,
@@ -2138,7 +2142,7 @@ fn validate_term_node<L: Validation>(
             let mut expected = None;
             for alternative in alternatives {
                 if !is_subsort::<L>(alternative.sort(), term.sort(), sort_parents) {
-                    return Err(L::error(ValidationError::InvalidPatternOr));
+                    return Err(L::error(ValidationError::PatternOrSortMismatch));
                 }
                 // Wildcards are distinct generated variables per occurrence;
                 // only named binders must agree across alternatives.
@@ -2597,81 +2601,74 @@ fn collect_local_binders<L: IrLevel>(
     }
 }
 
-/// Whether `term` contains `alias @ pattern`, which is admitted only in
-/// pre-patterns (KF-029).
-/// Reports the first node of `term`, in preorder, that `is` holds of as the failure's site
-/// ([`crate::failure_site`]), or `term` when none does.
-fn report_node<L: IrLevel>(term: &IrTerm<L>, is: impl Fn(&IrTerm<L>) -> bool) {
-    fn first<'t, L: IrLevel>(
-        term: &'t IrTerm<L>,
-        is: &impl Fn(&IrTerm<L>) -> bool,
-    ) -> Option<&'t IrTerm<L>> {
-        if is(term) {
-            return Some(term);
-        }
-        term.children()
-            .into_iter()
-            .find_map(|child| first(child, is))
-    }
-    crate::failure_site::report(first(term, &is).unwrap_or(term).origin());
+/// The first of `terms` in which `find` finds a node.
+fn first_of<'t, L: IrLevel>(
+    terms: impl IntoIterator<Item = &'t IrTerm<L>>,
+    find: fn(&'t IrTerm<L>) -> Option<&'t IrTerm<L>>,
+) -> Option<&'t IrTerm<L>> {
+    terms.into_iter().find_map(find)
 }
 
-pub(crate) fn contains_pattern_as<L: IrLevel>(term: &IrTerm<L>) -> bool {
+/// The first `alias @ pattern` of `term` in preorder, outside `k::matches!` patterns, where it is
+/// admitted (KF-031); `alias @ pattern` is admitted only in pre-patterns (KF-029).
+pub(crate) fn find_pattern_as<L: IrLevel>(term: &IrTerm<L>) -> Option<&IrTerm<L>> {
     match term.kind() {
-        IrTermKind::As { .. } => true,
+        IrTermKind::As { .. } => Some(term),
         // A `k::matches!` pattern may alias (KF-031).
-        IrTermKind::Matches { subject, .. } => contains_pattern_as(subject),
-        IrTermKind::Or { alternatives } => alternatives.iter().any(contains_pattern_as),
-        IrTermKind::Variable { .. } | IrTermKind::Token { .. } => false,
-        IrTermKind::Application { arguments, .. } => arguments.iter().any(contains_pattern_as),
-        IrTermKind::KSequence { items, .. } => items.iter().any(contains_pattern_as),
-        IrTermKind::Cell { children, .. } => children.iter().any(contains_pattern_as),
-        IrTermKind::Map(operands) => operands.operands().any(contains_pattern_as),
-        IrTermKind::List(operands) => operands.operands().any(contains_pattern_as),
-        IrTermKind::Set(operands) => operands.operands().any(contains_pattern_as),
-        IrTermKind::Rewrite { from, to } => contains_pattern_as(from) || contains_pattern_as(to),
+        IrTermKind::Matches { subject, .. } => find_pattern_as(subject),
+        IrTermKind::Or { alternatives } => first_of(alternatives.iter(), find_pattern_as),
+        IrTermKind::Variable { .. } | IrTermKind::Token { .. } => None,
+        IrTermKind::Application { arguments, .. } => first_of(arguments.iter(), find_pattern_as),
+        IrTermKind::KSequence { items, .. } => first_of(items.iter(), find_pattern_as),
+        IrTermKind::Cell { children, .. } => first_of(children.iter(), find_pattern_as),
+        IrTermKind::Map(operands) => first_of(operands.operands(), find_pattern_as),
+        IrTermKind::List(operands) => first_of(operands.operands(), find_pattern_as),
+        IrTermKind::Set(operands) => first_of(operands.operands(), find_pattern_as),
+        IrTermKind::Rewrite { from, to } => find_pattern_as(from).or_else(|| find_pattern_as(to)),
         IrTermKind::Let {
             pattern,
             value,
             body,
             ..
-        } => {
-            contains_pattern_as(pattern) || contains_pattern_as(value) || contains_pattern_as(body)
-        }
+        } => first_of([&**pattern, &**value, &**body], find_pattern_as),
     }
 }
 
-/// Whether `term` contains `A | B`, which is admitted only in pre-patterns
-/// (KF-030).
-pub(crate) fn contains_pattern_or<L: IrLevel>(term: &IrTerm<L>) -> bool {
+/// Whether `term` contains `alias @ pattern` outside `k::matches!` patterns.
+pub(crate) fn contains_pattern_as<L: IrLevel>(term: &IrTerm<L>) -> bool {
+    find_pattern_as(term).is_some()
+}
+
+/// The first `A | B` of `term` in preorder, outside `k::matches!` patterns, where it is admitted
+/// (KF-031); `A | B` is admitted only in pre-patterns (KF-030).
+pub(crate) fn find_pattern_or<L: IrLevel>(term: &IrTerm<L>) -> Option<&IrTerm<L>> {
     match term.kind() {
-        IrTermKind::Or { .. } => true,
+        IrTermKind::Or { .. } => Some(term),
         // A `k::matches!` pattern may have alternatives (KF-031).
-        IrTermKind::Matches { subject, .. } => contains_pattern_or(subject),
-        IrTermKind::As { pattern, .. } => contains_pattern_or(pattern),
-        IrTermKind::Variable { .. } | IrTermKind::Token { .. } => false,
-        IrTermKind::Application { arguments, .. } => arguments.iter().any(contains_pattern_or),
-        IrTermKind::KSequence { items, .. } => items.iter().any(contains_pattern_or),
-        IrTermKind::Cell { children, .. } => children.iter().any(contains_pattern_or),
-        IrTermKind::Map(operands) => operands.operands().any(contains_pattern_or),
-        IrTermKind::List(operands) => operands.operands().any(contains_pattern_or),
-        IrTermKind::Set(operands) => operands.operands().any(contains_pattern_or),
-        IrTermKind::Rewrite { from, to } => contains_pattern_or(from) || contains_pattern_or(to),
+        IrTermKind::Matches { subject, .. } => find_pattern_or(subject),
+        IrTermKind::As { pattern, .. } => find_pattern_or(pattern),
+        IrTermKind::Variable { .. } | IrTermKind::Token { .. } => None,
+        IrTermKind::Application { arguments, .. } => first_of(arguments.iter(), find_pattern_or),
+        IrTermKind::KSequence { items, .. } => first_of(items.iter(), find_pattern_or),
+        IrTermKind::Cell { children, .. } => first_of(children.iter(), find_pattern_or),
+        IrTermKind::Map(operands) => first_of(operands.operands(), find_pattern_or),
+        IrTermKind::List(operands) => first_of(operands.operands(), find_pattern_or),
+        IrTermKind::Set(operands) => first_of(operands.operands(), find_pattern_or),
+        IrTermKind::Rewrite { from, to } => find_pattern_or(from).or_else(|| find_pattern_or(to)),
         IrTermKind::Let {
             pattern,
             value,
             body,
             ..
-        } => {
-            contains_pattern_or(pattern) || contains_pattern_or(value) || contains_pattern_or(body)
-        }
+        } => first_of([&**pattern, &**value, &**body], find_pattern_or),
     }
 }
 
-/// Rejects `alias @ pattern` and `A | B` in a rule's post-terms and
-/// conditions (outside `k::matches!` patterns), `k::matches!` in its
-/// pre-patterns, and a `k::matches!` local binder that is listed twice or
-/// occurs outside its pattern (BIND-1).
+/// Whether `term` contains `A | B` outside `k::matches!` patterns.
+pub(crate) fn contains_pattern_or<L: IrLevel>(term: &IrTerm<L>) -> bool {
+    find_pattern_or(term).is_some()
+}
+
 /// Whether the local rewrites of a single-body term are well placed
 /// (KF-011): none inside another rewrite, and a right side `.K` (an empty K
 /// sequence) only on a whole K-sequence item.
@@ -2708,6 +2705,10 @@ fn body_contains_rewrite<L: Validation>(body: RuleBodyRef<'_, L>) -> bool {
     }
 }
 
+/// Rejects `alias @ pattern` and `A | B` in a rule's post-terms and
+/// conditions (outside `k::matches!` patterns), `k::matches!` in its
+/// pre-patterns, and a `k::matches!` local binder that is listed twice or
+/// occurs outside its pattern (BIND-1).
 #[expect(
     clippy::too_many_lines,
     reason = "One walk visits every term position of every rule body shape, optional and collection clauses included."
@@ -2770,12 +2771,12 @@ fn reject_pattern_as_outside_patterns<L: Validation>(
         return Err(L::error(ValidationError::InvalidLocalRewrite));
     }
     post.extend(conditions);
-    if let Some(term) = post.iter().copied().find(|term| contains_pattern_as(term)) {
-        report_node(term, |node| matches!(node.kind(), IrTermKind::As { .. }));
+    if let Some(alias) = post.iter().copied().find_map(find_pattern_as) {
+        crate::failure_site::report(alias.origin());
         return Err(L::error(ValidationError::InvalidPatternAs));
     }
-    if let Some(term) = post.iter().copied().find(|term| contains_pattern_or(term)) {
-        report_node(term, |node| matches!(node.kind(), IrTermKind::Or { .. }));
+    if let Some(alternatives) = post.iter().copied().find_map(find_pattern_or) {
+        crate::failure_site::report(alternatives.origin());
         return Err(L::error(ValidationError::InvalidPatternOr));
     }
     if pre.iter().copied().any(contains_matches) {
