@@ -1,0 +1,98 @@
+# TRIAL2's IMP templates (fz26, workers/TRIAL2-report.md, items 1-7 and 11):
+# every data literal of the program marked as a hole, as the trial's krust fuzz
+# campaign files did (one `[[hole]]` table each, the same keys).
+
+# primes with M, N, I and T: killed div-becomes-mul (T = 0 lets the mutant end)
+# and and-true-ignores-rhs in TRIAL2, and hit the pattern `<k> _:Int / 0 ~> _ </k>`.
+[[template]]
+id = "primes-holes"
+program = "primes"
+
+  [[template.hole]]
+  name = "M"
+  sort = "Int"
+  find = "m = 4;"
+  literal = "4"
+  range = { min = 0, max = 8 }
+
+  [[template.hole]]
+  name = "N"
+  sort = "Int"
+  find = "n = 2;"
+  literal = "2"
+  range = { min = 0, max = 8 }
+
+  [[template.hole]]
+  name = "I"
+  sort = "Int"
+  find = "i = 2;"
+  literal = "2"
+  range = { min = 0, max = 8 }
+
+  [[template.hole]]
+  name = "T"
+  sort = "Int"
+  find = "t = 1;"
+  literal = "1"
+  range = { min = 0, max = 3 }
+
+# sum with N, S and D: add-commuted (equivalent) gives no witness on it.
+[[template]]
+id = "sum-holes"
+program = "sum"
+
+  [[template.hole]]
+  name = "N"
+  sort = "Int"
+  find = "n = 3;"
+  literal = "3"
+  range = { min = 0, max = 8 }
+
+  [[template.hole]]
+  name = "S"
+  sort = "Int"
+  find = "sum = 0;"
+  literal = "0"
+  range = { min = 0, max = 8 }
+
+  [[template.hole]]
+  name = "D"
+  sort = "Int"
+  find = "n + -1;"
+  literal = "1"
+  range = { min = 0, max = 8 }
+
+# A five-line program written for add-becomes-sub and neg-drops-sign, which no
+# corpus program can kill (the mutant diverges in their loops); any Y other than 0
+# kills the first, any W other than 0 the second.
+[[template]]
+id = "straight-holes"
+file = "templates/straight.imp"
+
+  [[template.hole]]
+  name = "Y"
+  sort = "Int"
+  find = "y = 0;"
+  literal = "0"
+  range = { min = 0, max = 100 }
+
+  [[template.hole]]
+  name = "W"
+  sort = "Int"
+  find = "w = -0;"
+  literal = "0"
+  range = { min = 0, max = 100 }
+
+# sum with an `Id` hole (TRIAL2 item 7, decl-allows-redeclaration): a hole over
+# two tokens, kept as the trial wrote it.
+[[template]]
+id = "sum-redeclare"
+program = "sum"
+
+  [[template.hole]]
+  name = "V"
+  sort = "Id"
+  find = "int n, sum;"
+  literal = "sum"
+  allow-refused-sort = true
+  choices = [{ token = { sort = "Id", text = "n" } }, { token = { sort = "Id", text = "sum" } }]
