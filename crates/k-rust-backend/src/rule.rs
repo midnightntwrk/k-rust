@@ -3938,7 +3938,7 @@ fn binder_disjuncts(pattern: &kore::Pattern) -> Vec<kore::Pattern> {
         .collect()
 }
 
-fn make_rule(
+pub(crate) fn make_rule(
     lhs: Term,
     rhs: RuleRhs,
     requires: Vec<Predicate>,

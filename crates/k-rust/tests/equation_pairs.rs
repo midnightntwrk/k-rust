@@ -66,6 +66,7 @@ fn definition_importing(
   imports BOOL
   imports STRING
   imports K-EQUAL
+  imports LIST
 {imports}
   syntax MyTok ::= r"[a-z][a-z0-9]*" [token]
 {head}
@@ -672,5 +673,383 @@ fn an_input_with_two_normal_forms_through_other_equations_is_genuine() {
         let (reported, genuine) = genuine_between(&definition, first, second);
         assert!(reported, "{first}");
         assert_eq!(genuine.len(), 1, "{first}: {genuine:?}");
+    }
+}
+
+/// Every executable equation `domains.md` writes at a hooked symbol, in a module importing every
+/// domains module: each one at a hook the evaluator applies joins every equation of its hook's
+/// written meaning, none is at an evaluated hook without one, and the nine at `STRING.findChar`,
+/// `rfindChar`, `replaceFirst`, `replace` and `LIST.push`, hooks no builtin implements, are read
+/// as their hooks' meaning and paired with nothing. `replaceAll`'s equation joins the guarded
+/// lemma of its meaning, since `replace` is read by exactly domains.md's two equations here.
+#[test]
+fn the_domains_equations_at_hooked_symbols_agree_with_their_hooks() {
+    let source = r#"module ALL-DOMAINS
+  imports DOMAINS
+  imports ARRAY
+  imports RANGEMAP
+  imports COLLECTIONS
+  imports FLOAT
+  imports STRING
+  imports STRING-BUFFER
+  imports BYTES
+  imports ID
+  imports K-EQUAL
+  imports K-REFLECTION
+  imports K-IO
+  imports MINT
+  syntax Prog ::= go(Int) [symbol(go)]
+  configuration <k> $PGM:Prog </k>
+endmodule
+"#;
+    let kore = compile(source, "ALL-DOMAINS");
+    let mut backend = Backend::new(&kore, "ALL-DOMAINS", BackendOptions::default()).unwrap();
+    let definition = backend.select_definition(None).unwrap();
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    let counts = all.counts();
+    assert!(all.unjoined().is_empty(), "{:#?}", all.unjoined());
+    assert_eq!(
+        (
+            counts.hook.unevaluated,
+            counts.hook.unmodelled,
+            counts.hook.not_joined
+        ),
+        (9, 0, 0),
+        "{:?}",
+        counts.hook
+    );
+    assert_eq!(counts.hook.equations, 41, "{:?}", counts.hook);
+    assert!(counts.hook.joined > 0);
+}
+
+/// Class C of the WASM pairs: two equations whose `requires` give one string term two different
+/// literals (`unescape`'s `\t` and `\n` rules) are refuted, and so is one whose literal, put in
+/// the other's condition, evaluates it to false (`findChar` of the hex digits on `"t"`). The
+/// same literal on both sides is a genuine overlap, and a literal of a substring outside the valid
+/// indices is not substituted into anything that decides it.
+#[test]
+fn string_equalities_refute_two_literals_and_substitute_one() {
+    let declaration = "  syntax Int ::= un(String, Int) [function, symbol(un)]";
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{declaration}
+  rule [a]: un(S, I) => 1 requires substrString(S, I, I +Int 1) ==K "t"
+  rule [b]: un(S, I) => 2 requires substrString(S, I, I +Int 1) ==K "n""#
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{declaration}
+  rule [a]: un(S, I) => 1 requires findChar("0123456789abcdefABCDEF", substrString(S, I, I +Int 1), 0) =/=Int -1
+  rule [b]: un(S, I) => 2 requires substrString(S, I, I +Int 1) ==K "t""#
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{declaration}
+  rule [a]: un(S, I) => 1 requires substrString(S, I, I +Int 1) ==String "t"
+  rule [b]: un(S, I) => 2 requires substrString(S, I, I +Int 1) ==String "t""#
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{declaration}
+  rule [a]: un(S, I) => 1 requires I ==Int lengthString(S) -Int 1
+  rule [b]: un(S, I) => 2 requires substrString(S, I +Int 1, I +Int 2) ==K "u""#
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
+}
+
+/// Class B of the WASM pairs: comparisons over shared atoms read as linear forms. `unescape`'s end
+/// rule (`I ==Int lengthString(S) -Int 1`) against its escape rules (`I <Int lengthString(S)
+/// -Int 3`) is refuted (the simplifier substitutes `I`, leaving a constant comparison), and so is
+/// `lengthBytes(B) <Int N` beside `lengthBytes(B) >Int N` (a negative cycle), and a size below
+/// zero (a range fact). A shared atom with a satisfiable gap stays a genuine overlap.
+#[test]
+fn comparisons_over_shared_atoms_are_refuted_by_their_differences() {
+    let strings = "  syntax Int ::= un(String, Int) [function, symbol(un)]";
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{strings}
+  rule [a]: un(S, I) => 1 requires I ==Int lengthString(S) -Int 1
+  rule [b]: un(S, I) => 2 requires I <Int lengthString(S) -Int 3"#
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{strings}
+  rule [a]: un(S, N) => 1 requires lengthString(S) <Int N
+  rule [b]: un(S, N) => 2 requires lengthString(S) >Int N"#
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{strings}
+  rule [a]: un(S, N) => 1 requires lengthString(S) <Int 0
+  rule [b]: un(S, N) => 2"#
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{strings}
+  rule [a]: un(S, N) => 1 requires lengthString(S) <Int N
+  rule [b]: un(S, N) => 2 requires lengthString(S) +Int 2 >Int N"#
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
+}
+
+/// Class D of the WASM pairs: the unifier does not decide a list with fixed elements at both ends,
+/// so it drops that equation, solves the rest, and the pair is refuted when the conditions fail at
+/// every relaxed solution (`I = 0` beside `I <Int 0`); where they may hold (`I <=Int 0`), the pair
+/// stays undecided.
+#[test]
+fn an_undecided_list_equation_is_deferred_and_the_conditions_refute_the_rest() {
+    let declaration = "  syntax Int ::= gl(List, Int) [function, symbol(gl)]";
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gl(ListItem(V:Int) _:List, 0) => V
+  rule [b]: gl(_:List ListItem(V:Int), I) => V +Int 1 requires I <Int 0"
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gl(ListItem(V:Int) _:List, 0) => V
+  rule [b]: gl(_:List ListItem(V:Int), I) => V +Int 1 requires I <=Int 0"
+        )),
+        [UnjoinedReason::Unresolved(
+            k_rust_backend::confluence::UnresolvedShape::Collection
+        )]
+    );
+}
+
+/// Class E of the WASM pairs: a disjunction in a condition is split into its cases, and the pair
+/// is refuted when every case is (`S <Int 0 orBool E <Int S` beside `0 <=Int S andBool S <=Int
+/// E`); when one case is satisfiable (`E <Int S` beside `0 <=Int S`), it stays a genuine overlap.
+#[test]
+fn a_disjunction_is_refuted_when_each_of_its_cases_is() {
+    let declaration = "  syntax Int ::= gr(Int, Int) [function, symbol(gr)]";
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gr(S, E) => 1 requires S <Int 0 orBool E <Int S
+  rule [b]: gr(S, E) => 2 requires 0 <=Int S andBool S <=Int E"
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: gr(S, E) => 1 requires S <Int 0 orBool E <Int S
+  rule [b]: gr(S, E) => 2 requires 0 <=Int S"
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
+}
+
+/// The hook pairs of the full check whose first equation is labelled `label` in module `PAIRS`,
+/// with their reasons, and the per-equation `UnmodelledHook` reports of it.
+fn hook_findings(claims: &ValueClaims, label: &str) -> Vec<String> {
+    let label = format!("PAIRS.{label}");
+    claims
+        .unjoined()
+        .iter()
+        .filter(|pair| pair.first.attributes.label.as_deref() == Some(label.as_str()))
+        .filter(|pair| {
+            pair.hook.is_some() || matches!(pair.reason, UnjoinedReason::UnmodelledHook(_))
+        })
+        .map(|pair| format!("{:?} {}", pair.hook, pair.reason))
+        .collect()
+}
+
+/// Review A, B1: a written meaning may name only builtins the evaluator applies. `replaceAll`'s
+/// meaning used to read `replace`, whose meaning is whatever the definition's equations say, so a
+/// second symbol hooked to `STRING.replace` with a false equation made a false `replaceAll`
+/// equation join its hook. The meaning is now written over `findString`, `substrString`,
+/// `lengthString` and `+String`, and the false equation is named against it.
+#[test]
+fn a_written_meaning_reads_no_equation_of_the_definition() {
+    let definition = definition(
+        r##"  syntax String ::= "#aReplace" "(" String "," String "," String "," Int ")" [function, hook(STRING.replace)]
+                  | myReplaceAll(String, String, String) [function, hook(STRING.replaceAll)]
+  rule [twin]: #aReplace(S, _, _, _) => S
+  rule [mine]: myReplaceAll(S, T, R) => #aReplace(S, T, R, countAllOccurrences(S, T))"##,
+        false,
+    );
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    let findings = hook_findings(&all, "mine");
+    assert!(!findings.is_empty(), "{:#?}", all.unjoined());
+    // `#aReplace`'s equation is not domains.md's, so `replace` is still read by exactly
+    // domains.md's equations, the guarded lemma is built, and domains.md's `replaceAll` equation
+    // joins it: the only hook pairs named are `mine`'s.
+    assert!(
+        all.unjoined()
+            .iter()
+            .filter(|pair| pair.hook.is_some())
+            .all(|pair| pair.first.attributes.label.as_deref() == Some("PAIRS.mine")),
+        "{:#?}",
+        all.unjoined()
+    );
+    assert!(
+        findings
+            .iter()
+            .all(|finding| finding.starts_with("Some(\"STRING.replaceAll\")")),
+        "{findings:?}"
+    );
+}
+
+/// Review A, S1: helpers are found by hook, arity and argument and result sorts among every
+/// candidate. A symbol hooked to `INT.lt` at another Bool-domain sort (whose values the builtin
+/// never gives) is passed over for `_<Int_`, so `INT.min`'s meaning is built and a correct
+/// `minInt`-style equation joins it.
+#[test]
+fn a_helper_of_another_result_sort_is_passed_over() {
+    let definition = definition(
+        r##"  syntax MyBool [hook(BOOL.Bool)]
+  syntax MyBool ::= "#lt" "(" Int "," Int ")" [function, hook(INT.lt)]
+  syntax Int ::= myMin(Int, Int) [function, hook(INT.min)]
+  rule [mine]: myMin(X, Y) => Y requires X >=Int Y"##,
+        false,
+    );
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    assert_eq!(hook_findings(&all, "mine"), Vec::<String>::new());
+    assert!(
+        !all.unjoined()
+            .iter()
+            .any(|pair| matches!(&pair.reason, UnjoinedReason::UnmodelledHook(hook) if hook.as_ref() == "INT.min")),
+        "{:#?}",
+        all.unjoined()
+    );
+}
+
+/// Review A, N1: a symbol hooked at another arity than its hook's is no application of the
+/// builtin, and gets no written meaning: its equation is reported as at an unmodelled hook.
+#[test]
+fn a_symbol_hooked_at_another_arity_gets_no_written_meaning() {
+    let definition = definition(
+        r#"  syntax Bool ::= myAnd(Bool, Bool, Bool) [function, hook(BOOL.and)]
+  rule [mine]: myAnd(B, _, _) => B"#,
+        false,
+    );
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    assert_eq!(
+        hook_findings(&all, "mine"),
+        vec![format!(
+            "None {}",
+            UnjoinedReason::UnmodelledHook("BOOL.and".into())
+        )]
+    );
+}
+
+/// Review B, item 1: the range facts of `minInt` and `maxInt` bound them by their operands in the
+/// right direction. `minInt(X, Y) <Int X` beside `Y <Int X` holds at `X = 1, Y = 0`, a genuine
+/// overlap with different results, and so does `maxInt(X, Y) >Int X` beside `Y >Int X`.
+#[test]
+fn min_and_max_bound_their_operands_in_the_right_direction() {
+    let declaration = "  syntax Int ::= mm(Int, Int) [function, symbol(mm)]";
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: mm(X, Y) => 1 requires minInt(X, Y) <Int X
+  rule [b]: mm(X, Y) => 2 requires Y <Int X"
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: mm(X, Y) => 1 requires maxInt(X, Y) >Int X
+  rule [b]: mm(X, Y) => 2 requires Y >Int X"
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
+    // With the operand outside the bound, the pair is refuted: `minInt(X, Y) >Int X` holds on no
+    // instance.
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            "{declaration}
+  rule [a]: mm(X, Y) => 1 requires minInt(X, Y) >Int X
+  rule [b]: mm(X, Y) => 2"
+        )),
+        []
+    );
+}
+
+/// Coordinator's decision on domains.md 1917: `replaceAll(S, T, R) = replace(S, T, R,
+/// countAllOccurrences(S, T))` is part of `replaceAll`'s written meaning only while `replace` is
+/// read by exactly domains.md's two equations. A higher-priority `replace` equation changes what
+/// `replace` means, so the lemma is absent, and domains.md's `replaceAll` equation, which now
+/// disagrees with the builtin, is named against the meaning written by `findString`,
+/// `substrString`, `lengthString` and `+String`.
+#[test]
+fn a_redefined_replace_leaves_the_replace_all_equation_unshown() {
+    let definition = definition(
+        "  rule [mine]: replace(S, _, _, _) => S [priority(10)]",
+        false,
+    );
+    let all = definition.value_claims_in_scope(CheckScope::All);
+    let replace_all = all
+        .unjoined()
+        .iter()
+        .filter(|pair| pair.hook.as_deref() == Some("STRING.replaceAll"))
+        .map(|pair| pair.second.attributes.label.clone().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert!(!replace_all.is_empty(), "{:#?}", all.unjoined());
+    assert!(
+        replace_all
+            .iter()
+            .all(|label| label == "STRING.replaceAll meaning 1"
+                || label == "STRING.replaceAll meaning 2"),
+        "{replace_all:?}"
+    );
+}
+
+/// Review A round 2: the guard on `replaceAll`'s lemma reads the content of `replace`'s
+/// equations, not where they came from. A user's `replace`-hooked symbol with exactly
+/// domains.md's two rows qualifies (it is the same function), so an equation stating the lemma
+/// with it joins; with row A's `Count -Int 1` changed to `Count -Int 2`, or row B's `requires`
+/// dropped, it does not, and the equation that reads it is reported.
+#[test]
+fn the_replace_all_lemma_is_guarded_by_the_content_of_the_replace_rows() {
+    let rows = |step: &str, guard: &str| {
+        format!(
+            r#"  syntax String ::= myReplace(String, String, String, Int) [function, hook(STRING.replace)]
+                  | myReplaceAll(String, String, String) [function, hook(STRING.replaceAll)]
+  rule myReplace(Source:String, ToReplace:String, Replacement:String, Count:Int) =>
+       substrString(Source, 0, findString(Source, ToReplace, 0)) +String Replacement +String
+       myReplace(substrString(Source, findString(Source, ToReplace, 0) +Int lengthString(ToReplace), lengthString(Source)), ToReplace, Replacement, Count -Int {step})
+        requires Count >Int 0 andBool findString(Source, ToReplace, 0) >=Int 0
+  rule myReplace(Source:String, _, _, Count) => Source {guard} [owise]
+  rule [mine]: myReplaceAll(S, T, R) => myReplace(S, T, R, countAllOccurrences(S, T))"#
+        )
+    };
+    for (step, guard, joins) in [
+        ("1", "requires Count >=Int 0", true),
+        ("2", "requires Count >=Int 0", false),
+        ("1", "", false),
+    ] {
+        let definition = definition(&rows(step, guard), false);
+        let all = definition.value_claims_in_scope(CheckScope::All);
+        let findings = hook_findings(&all, "mine");
+        assert_eq!(findings.is_empty(), joins, "{step} {guard:?}: {findings:?}");
+        // domains.md's own `replace` still qualifies, so its `replaceAll` equation joins.
+        assert!(
+            all.unjoined()
+                .iter()
+                .filter(|pair| pair.hook.is_some())
+                .all(|pair| pair.first.attributes.label.as_deref() == Some("PAIRS.mine")),
+            "{step} {guard:?}: {:#?}",
+            all.unjoined()
+        );
     }
 }

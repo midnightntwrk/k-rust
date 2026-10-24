@@ -411,16 +411,20 @@ impl Join<'_, '_> {
         let rule = renamed.as_ref().unwrap_or(rule);
         let settled = &self.settled;
         let known_normal = |term: &Term| settled.contains(term);
-        let unifiers = match self
-            .context
-            .unify(self.lifting, &known_normal, subject, &rule.lhs)
-        {
-            Ok(unifiers) => unifiers,
-            Err(_) => return false,
-        };
-        unifiers
-            .iter()
-            .all(|unifier| self.context.refuted(&[rule], unifier))
+        // With deferral: a relaxed solution covers every instance it stands for, so refuting the
+        // `requires` at each solution refutes it at every unifier (`unify.rs`).
+        let unifiers =
+            match self
+                .context
+                .unify_relaxed(self.lifting, &known_normal, subject, &rule.lhs)
+            {
+                Ok(unifiers) => unifiers,
+                Err(_) => return false,
+            };
+        unifiers.iter().all(|(unifier, deferred)| {
+            (deferred.is_some() && super::switches::active().defer_without_refutation)
+                || self.context.refuted(&[rule], unifier)
+        })
     }
 
     /// One step at `redex`, whose proper subterms are settled or residual.

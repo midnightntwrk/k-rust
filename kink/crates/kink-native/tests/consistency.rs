@@ -152,6 +152,14 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// rules") moved the second and third compatibility.md passages down 6, byte-identical; only
 /// their lines are re-pinned, by digest.
 ///
+/// k-rust FZ-CONFLUENCE: the passage 1100-1106 changes in its line 1103, which states what
+/// "refuted" reads: also a literal under `\not` only where its term is shown defined, difference
+/// constraints between integer atoms with range facts, equality classes with literal
+/// substitution, the cases of at most three disjunctions, and an overlap whose list or function
+/// equation the unifier does not decide refuted at every solution without it. Each only refutes
+/// more overlaps (or, for `\not` literals, fewer, where the old reading was unsound), so a mutant
+/// is admitted only where its guards hold on no instance. The other passages are unmoved.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
@@ -166,7 +174,7 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
         "docs/compatibility.md",
         1100,
         1106,
-        "263edf4fe0dc7d38e545e15c1f70d869c36f421975fbd69204b2e35c35988a8f",
+        "00e7b87424c1ceb793e08c0d6c7ae1ab613779b4d7eea5a76752b1bc9d63e6cd",
     ),
     (
         "docs/compatibility.md",
@@ -204,7 +212,24 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// Re-pin KS-08c (backend sorts become interned `Copy` handles): b68ae7c7 -> 7fb0ca97. Syntax only:
 /// `Sort` patterns read `sort.node()` as `SortNode`, and sort clones become copies; no stage,
 /// count or early return changes.
-const CONFLUENCE_RS: &str = "7fb0ca976d3df364a22b681b2ffa82013ca23ba5ac3800dd52efe3c1a8f3f581";
+///
+/// Re-pin FZ-CONFLUENCE (k-rust fz26/confluence): 7fb0ca97 -> b00877b8. The hook stage: each
+/// executable equation at an evaluated hook is paired with the hook's written meaning, counted in
+/// `CheckCounts::hook` apart from `pairs` (so the `counts().pairs` guard and pins hold), marked
+/// `UnjoinedPair::hook` (which `check` reads for its first equation only) and seeding only that
+/// equation into the closure; `UnmodelledHook` per-equation reports; the condition reader's
+/// literal substitution and the unifier's deferral in `classify`. The stages, the early return and
+/// the equation and skipped counts kink reads are unchanged.
+///
+/// Re-pin FZ-CONFLUENCE review fixes: b00877b8 -> 502e6d91. A hook pair is reported at load only
+/// when it withdraws a claim (as the load classifies only relevant equations' hook pairs), and the
+/// literal substitution moved into `conditions.rs` (`refuted_by_literals`). No stage, count or
+/// early return kink reads changes.
+///
+/// Re-pin FZ-CONFLUENCE review A round 2: 502e6d91 -> 7bddeac5. The hook stage passes the
+/// equation's right-hand side to `hooks::meaning` (which of several equal `replace` symbols the
+/// `replaceAll` lemma names), and `reported()`'s documentation cites the gate decision.
+const CONFLUENCE_RS: &str = "7bddeac58867ebb80f2f89580de98a3cd61f53f1bf9df2b431980cfeeeeaa36e";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin

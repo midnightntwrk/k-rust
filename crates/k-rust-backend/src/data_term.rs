@@ -146,7 +146,9 @@ pub enum Finding {
     /// family the argument does not cover.
     Precondition(Violation),
     /// An equation the evaluator does not apply to every subject it describes
-    /// ([`UnjoinedReason::describes_one_equation`](crate::confluence::UnjoinedReason::describes_one_equation)).
+    /// ([`UnjoinedReason::describes_one_equation`](crate::confluence::UnjoinedReason::describes_one_equation)),
+    /// or an equation at an evaluated hook not shown to agree with the hook's written meaning
+    /// (a hook pair, [`UnjoinedPair::hook`](crate::confluence::UnjoinedPair::hook)).
     Equation(UnjoinedPair),
     /// A pair of executable equations the check does not join, with a ground input that has two
     /// normal forms when one was found (a genuine finding); otherwise undecided.
@@ -198,11 +200,18 @@ impl Finding {
                 Some(rule) => format!("{} ({})", violation.kind, name(rule)),
                 None => violation.kind.to_string(),
             },
-            Self::Equation(pair) => format!(
-                "the equation {} is not applied to every subject it describes ({})",
-                name(&pair.first),
-                pair.reason
-            ),
+            Self::Equation(pair) => match &pair.hook {
+                Some(hook) => format!(
+                    "the equation {} is not shown to agree with its hook {hook} ({})",
+                    name(&pair.first),
+                    pair.reason
+                ),
+                None => format!(
+                    "the equation {} is not applied to every subject it describes ({})",
+                    name(&pair.first),
+                    pair.reason
+                ),
+            },
             Self::Pair { pair, .. } => format!(
                 "the equations {} and {} are not shown to join ({})",
                 name(&pair.first),
@@ -518,7 +527,10 @@ fn confluence_findings(
         .collect();
     let mut search = instance::Search::new(definition);
     findings.extend(verdict.unjoined().iter().map(|pair| {
-        if pair.reason.describes_one_equation() {
+        // A hook pair's second equation is a written meaning of the hook, not an equation of
+        // the definition: the finding is about the one equation, which is not shown to agree
+        // with the builtin, and no input with two normal forms is searched for.
+        if pair.hook.is_some() || pair.reason.describes_one_equation() {
             Finding::Equation(pair.clone())
         } else {
             Finding::Pair {

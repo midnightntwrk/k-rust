@@ -201,12 +201,18 @@ pub(crate) struct Unifier<'a> {
     pub(crate) fresh: &'a mut u64,
     /// Branch states explored, for the check's counters.
     pub(crate) branches: usize,
+    /// Whether an equation of a shape the unifier does not decide (a collection or a function
+    /// application, [`UnresolvedShape::Collection`] and [`UnresolvedShape::Function`]) is dropped
+    /// instead of answering that shape ([`Self::unify_all_relaxed`]).
+    pub(crate) defer: bool,
 }
 
 #[derive(Clone, Debug, Default)]
 struct Problem {
     bindings: Substitution,
     equations: Vec<(Term, Term)>,
+    /// The shape of the first equation dropped (deferred) from this problem, if any.
+    deferred: Option<UnresolvedShape>,
 }
 
 impl Problem {
@@ -267,9 +273,30 @@ impl Unifier<'_> {
         &mut self,
         equations: Vec<(Term, Term)>,
     ) -> Result<Vec<Substitution>, UnresolvedShape> {
+        let solutions = self.unify_all_relaxed(equations)?;
+        match solutions.iter().find_map(|(_, deferred)| deferred.clone()) {
+            Some(shape) => Err(shape),
+            None => Ok(solutions
+                .into_iter()
+                .map(|(bindings, _)| bindings)
+                .collect()),
+        }
+    }
+
+    /// [`Self::unify_all`], except that with [`Self::defer`] an equation of a collection or
+    /// function shape is dropped from its problem and the problem goes on: each solution comes
+    /// with the shape of the first equation dropped from it, if any. Dropping an equation only
+    /// enlarges a problem's solutions, so every common instance is still an instance of one
+    /// solution (completeness); a solution with a dropped equation (*relaxed*) need not be a
+    /// unifier.
+    pub(crate) fn unify_all_relaxed(
+        &mut self,
+        equations: Vec<(Term, Term)>,
+    ) -> Result<Vec<(Substitution, Option<UnresolvedShape>)>, UnresolvedShape> {
         let mut stack = vec![Problem {
             bindings: Substitution::new(),
             equations,
+            deferred: None,
         }];
         let mut solutions = Vec::new();
         let mut explored = 0;
@@ -280,16 +307,22 @@ impl Unifier<'_> {
                 return Err(UnresolvedShape::Budget);
             }
             while let Some((left, right)) = problem.equations.pop() {
-                match self.step(&mut problem, left, right)? {
-                    Outcome::Continue => {}
-                    Outcome::Clash => continue 'problems,
-                    Outcome::Branch(branches) => {
+                match self.step(&mut problem, left, right) {
+                    Ok(Outcome::Continue) => {}
+                    Ok(Outcome::Clash) => continue 'problems,
+                    Ok(Outcome::Branch(branches)) => {
                         stack.extend(branches);
                         continue 'problems;
                     }
+                    Err(shape @ (UnresolvedShape::Collection | UnresolvedShape::Function(_)))
+                        if self.defer =>
+                    {
+                        problem.deferred.get_or_insert(shape);
+                    }
+                    Err(shape) => return Err(shape),
                 }
             }
-            solutions.push(problem.bindings);
+            solutions.push((problem.bindings, problem.deferred));
         }
         Ok(solutions)
     }

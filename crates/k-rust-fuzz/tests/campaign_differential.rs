@@ -26,8 +26,9 @@ use support::{
     IMP_ADD_BECOMES_SUB, IMP_ADD_COMMUTED, IMP_AND_TRUE_IGNORES_RHS, IMP_DECL_ALLOWS_REDECLARATION,
     IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE, KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND,
     OV_SIZE, OWISE, OWISE_M, OWISE_X, R2_ADDMEMBER, R2_ADDMEMBER_M, R2_ANYW, R2_ANYW_M, R2_OVER,
-    R2_OVER_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M, R3_PROPAGATE, R3_PROPAGATE_M,
-    R4_EMPTY, R4_EMPTY_M, R4_PARTNORULE, R4_PARTNORULE_M, RERUN, RERUN_DROP,
+    R2_OVER_M, R2_SPOOF, R2_SPOOF_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M, R3_PROPAGATE,
+    R3_PROPAGATE_M, R4_EMPTY, R4_EMPTY_M, R4_HOOKITE, R4_HOOKITE_M, R4_PARTNORULE, R4_PARTNORULE_M,
+    REPLACE_PRIORITY, REPLACE_PRIORITY_M, RERUN, RERUN_DROP,
 };
 #[cfg(feature = "z3")]
 use support::{R2_PARAM, R2_PARAM_M};
@@ -1396,4 +1397,59 @@ fn a_finite_product_is_exhausted_in_exactly_its_size_of_cases() {
             "seed {seed}: {statement}"
         );
     }
+}
+
+/// R4 (r4-hookite): `sel(_, _, Y) => Y` at a symbol hooked to `KEQUAL.ite` disagrees with the
+/// builtin, which gives `sel(true, a, bb) = a`, so the theory equates `a` with `bb`. The full
+/// check pairs the equation with the hook's written meaning and reports it: no end is data, so
+/// the campaign is not comparable at setup, never a kill (main kills it).
+#[test]
+fn an_equation_that_disagrees_with_its_hook_leaves_the_definition_without_data() {
+    let report = r2_report(&R4_HOOKITE, &R4_HOOKITE_M, "r4-hookite/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
+    // The finding is about the one equation against the hook's builtin, never genuine (the
+    // evaluator applies the builtin first, so k-rust's result does not depend on an order).
+    for side in [DefinitionRole::Baseline, DefinitionRole::Mutant] {
+        assert!(
+            report
+                .definition_findings
+                .iter()
+                .any(|finding| finding.side == side
+                    && finding.kind == FindingKind::Equation
+                    && finding.verdict == FindingVerdict::Undecided
+                    && finding
+                        .reason
+                        .contains("not shown to agree with its hook `KEQUAL.ite`")),
+            "{:?}",
+            report.definition_findings
+        );
+    }
+}
+
+/// FZ-CONFLUENCE review A (B1): with `rule replace(S, _, _, _) => S [priority(10)]`, domains.md's
+/// `replaceAll(S, T, R) => replace(S, T, R, countAllOccurrences(S, T))` gives
+/// `replaceAll("ab", "a", "c") = "ab"` while the builtin gives `"cb"`. `replaceAll`'s written
+/// meaning names only builtins, so the equation is not shown to agree with its hook: no end is
+/// data, never a kill (the first written meaning, through `replace`, killed it).
+#[test]
+fn an_equation_agreeing_with_its_hook_only_through_the_definition_has_no_data() {
+    let report = r2_report(
+        &REPLACE_PRIORITY,
+        &REPLACE_PRIORITY_M,
+        "replace-priority/go.pgm",
+    );
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
+}
+
+/// FZ-CONFLUENCE review A round 2 (R2-B1): a `replace`-hooked symbol named and placed like
+/// domains.md's, with false rows, does not qualify for `replaceAll`'s lemma (the guard reads the
+/// rows' content), so the false `myReplaceAll` equation is reported: never a kill (f202abd30's
+/// origin guard killed it).
+#[test]
+fn a_replace_spoofing_domains_origin_is_not_read_as_domains_replace() {
+    let report = r2_report(&R2_SPOOF, &R2_SPOOF_M, "r2-spoof/go.pgm");
+    assert!(report.witness().is_none(), "{:?}", report.outcome);
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
 }

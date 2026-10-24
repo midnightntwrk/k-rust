@@ -364,6 +364,28 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
         |rule: &k_rust_backend::rule::RewriteRule| rule.attributes.diagnostic_name(k_label);
     let unique_id =
         |rule: &k_rust_backend::rule::RewriteRule| rule.attributes.identifier().map(str::to_owned);
+    // A written meaning of a hook (`UnjoinedPair::hook`), named with the equation it states.
+    let meaning = |rule: &k_rust_backend::rule::RewriteRule| {
+        let side = |term: &k_rust_backend::term::Term| {
+            KorePrinter::compact().print_pattern(&externalize::term(term))
+        };
+        let rhs = match &rule.rhs {
+            k_rust_backend::rule::RuleRhs::Term(term) => side(term),
+            k_rust_backend::rule::RuleRhs::Bottom => "\\bottom".to_owned(),
+            // A written meaning's right-hand side is a term (`confluence/hooks.rs`).
+            k_rust_backend::rule::RuleRhs::Disjunction(_)
+            | k_rust_backend::rule::RuleRhs::Top
+            | k_rust_backend::rule::RuleRhs::Predicates(_) => "?".to_owned(),
+        };
+        format!(
+            "`{}` ({} = {rhs})",
+            rule.attributes
+                .label
+                .as_deref()
+                .unwrap_or(&rule.attributes.unique_id),
+            side(&rule.lhs)
+        )
+    };
     let mut findings = claims
         .violations()
         .iter()
@@ -410,7 +432,16 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
                     withdrawn_symbols(&pair.withdrawn)
                 )
             };
-            if matches!(pair.reason, UnjoinedReason::ComputedBelowRoot(_)) {
+            if let UnjoinedReason::UnmodelledHook(hook) = &pair.reason {
+                // The builtin is applied before any equation, so the equation applies only where
+                // the builtin gives no value; where it gives one, the equation is an axiom about
+                // the builtin's value that the check has no written meaning to check it against.
+                format!(
+                    "the equation {} is at a symbol hooked to `{hook}`, which the evaluator applies before any equation, and is not shown to agree with that hook ({}){claims}",
+                    equation(&pair.first),
+                    pair.reason,
+                )
+            } else if matches!(pair.reason, UnjoinedReason::ComputedBelowRoot(_)) {
                 // The equation matches the application as written: it applies where the subject
                 // spells the same application (a stuck or symbolic one), never where the
                 // argument holds the value the application computes.
@@ -435,7 +466,27 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
                 }
                 text
             });
-            if pair.in_argument() {
+            if let Some(hook) = &pair.hook {
+                // A hook pair: the second side is an equation of the hook's written meaning, an
+                // identity of the builtin the evaluator applies before any equation.
+                let claims = if pair.withdrawn.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "; no value claims are made for {}",
+                        withdrawn_symbols(&pair.withdrawn)
+                    )
+                };
+                let overlap = overlap
+                    .map(|text| format!(" (at {text})"))
+                    .unwrap_or_default();
+                format!(
+                    "the equation {} is not shown to agree with its hook `{hook}`, which the evaluator applies before any equation, against the meaning of the hook {}{overlap} ({}){claims}",
+                    equation(&pair.first),
+                    meaning(&pair.second),
+                    pair.reason,
+                )
+            } else if pair.in_argument() {
                 // Both equations are axioms: at an instance whose argument the second rewrites,
                 // the first's application equals the first's right-hand side and the application
                 // with the rewritten argument, which the check does not show equal.

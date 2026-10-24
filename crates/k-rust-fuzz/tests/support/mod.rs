@@ -768,6 +768,49 @@ fixture!(OWISE_M, "owise/m.k", "OW", OWISE_PROGRAMS);
 // OWISE with the labels `ow1` and `ow2` on other equations (`g(_) => c`, `g(_) => bb`).
 fixture!(OWISE_X, "owise/x.k", "OW", OWISE_PROGRAMS);
 
+/// FZ-DATAEND review round 4 (r4-hookite): an equation at a symbol hooked to `KEQUAL.ite` that
+/// disagrees with the builtin, which the evaluator applies first; each baseline stores `a` and
+/// its mutant `bb`, which its theory equates.
+pub const R4_HOOKITE_PROGRAMS: &[Program] = &[program!("r4-hookite/go.pgm")];
+fixture!(R4_HOOKITE, "r4-hookite/b.k", "HI", R4_HOOKITE_PROGRAMS);
+fixture!(R4_HOOKITE_M, "r4-hookite/m.k", "HI", R4_HOOKITE_PROGRAMS);
+
+/// FZ-CONFLUENCE review A (B1): `replace` (no builtin step) given a higher-priority equation, so
+/// that `replaceAll`'s domains.md equation, through `replace`, disagrees with the builtin; each
+/// baseline stores `"cb"` and its mutant `"ab"`, which its theory equates.
+/// FZ-CONFLUENCE review A round 2 (R2-B1): a file named `domains.md` whose `replace`-hooked
+/// symbol takes domains.md's label and two false rows at lines 1911 and 1915; each baseline
+/// stores `"cb"` and its mutant `"ab"`, which its theory equates.
+pub const R2_SPOOF_PROGRAMS: &[Program] = &[program!("r2-spoof/go.pgm")];
+fixture!(
+    R2_SPOOF,
+    "r2-spoof/b/domains.md",
+    "SPOOF",
+    R2_SPOOF_PROGRAMS,
+    diagnostics = [DeprecatedAttribute]
+);
+fixture!(
+    R2_SPOOF_M,
+    "r2-spoof/m/domains.md",
+    "SPOOF",
+    R2_SPOOF_PROGRAMS,
+    diagnostics = [DeprecatedAttribute]
+);
+
+pub const REPLACE_PRIORITY_PROGRAMS: &[Program] = &[program!("replace-priority/go.pgm")];
+fixture!(
+    REPLACE_PRIORITY,
+    "replace-priority/b.k",
+    "RP",
+    REPLACE_PRIORITY_PROGRAMS
+);
+fixture!(
+    REPLACE_PRIORITY_M,
+    "replace-priority/m.k",
+    "RP",
+    REPLACE_PRIORITY_PROGRAMS
+);
+
 /// The macro-only pair (phase-1 review B1): equal `definition.kore`, unequal `macros.kore`.
 pub const MAC_PROGRAMS: &[Program] = &[program!("mac/inc.pgm")];
 fixture!(MAC, "mac/mac.k", "MAC", MAC_PROGRAMS);
@@ -995,7 +1038,7 @@ fixture!(RERUN_DROP, "rerun/rerun-drop.k", "RERUN", RERUN_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 83] = [
+pub static ALL: [&Fixture; 89] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1079,4 +1122,10 @@ pub static ALL: [&Fixture; 83] = [
     &OWISE,
     &OWISE_M,
     &OWISE_X,
+    &R4_HOOKITE,
+    &R4_HOOKITE_M,
+    &REPLACE_PRIORITY,
+    &REPLACE_PRIORITY_M,
+    &R2_SPOOF,
+    &R2_SPOOF_M,
 ];

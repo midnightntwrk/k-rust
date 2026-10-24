@@ -5,11 +5,10 @@
 
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
-use super::{contradictory, equalities};
+use super::{contradictory, equalities, equalities_with_bounds, literal_values};
 use crate::{
     definition::BackendDefinition,
     rule::Predicate,
-    substitution::substitute,
     term::{Term, TermKind},
 };
 
@@ -30,6 +29,9 @@ const DEFINITION: &str = r#"
     hooked-symbol addInt{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}(), hook{}("INT.add")]
     hooked-symbol subInt{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}(), hook{}("INT.sub")]
     hooked-symbol divInt{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), hook{}("INT.tdiv")]
+    hooked-symbol absInt{}(SortInt{}) : SortInt{} [function{}(), total{}(), hook{}("INT.abs")]
+    hooked-symbol minInt{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}(), hook{}("INT.min")]
+    hooked-symbol maxInt{}(SortInt{}, SortInt{}) : SortInt{} [function{}(), total{}(), hook{}("INT.max")]
     hooked-symbol ltString{}(SortString{}, SortString{}) : SortBool{} [function{}(), total{}(), hook{}("STRING.lt")]
     hooked-sort SortMInt{S} [hook{}("MINT.MInt"), hasDomainValues{}()]
     sort Sort8{} []
@@ -79,6 +81,14 @@ enum Operand {
     Variable(usize),
     Literal(i64),
     Shifted(usize, i64),
+    /// `X /Int Y` (truncating), undefined where `Y` is 0: a partial atom.
+    Quotient(usize, usize),
+    /// `absInt(X)`: an atom with the range facts of `INT.abs`.
+    Abs(usize),
+    /// `minInt(X, Y +Int k)` and `maxInt(X, Y +Int k)`: atoms with the range facts of `INT.min`
+    /// and `INT.max`.
+    Min(usize, usize, i64),
+    Max(usize, usize, i64),
 }
 
 const NAMES: [&str; 3] = ["X", "Y", "Z"];
@@ -98,20 +108,48 @@ impl Operand {
                 Self::Variable(index).kore(),
                 Self::Literal(offset).kore()
             ),
+            Self::Quotient(left, right) => format!(
+                "divInt{{}}({}, {})",
+                Self::Variable(left).kore(),
+                Self::Variable(right).kore()
+            ),
+            Self::Abs(index) => format!("absInt{{}}({})", Self::Variable(index).kore()),
+            Self::Min(left, right, offset) => format!(
+                "minInt{{}}({}, {})",
+                Self::Variable(left).kore(),
+                Self::Shifted(right, offset).kore()
+            ),
+            Self::Max(left, right, offset) => format!(
+                "maxInt{{}}({}, {})",
+                Self::Variable(left).kore(),
+                Self::Shifted(right, offset).kore()
+            ),
         }
     }
 
-    fn value(self, assignment: [i64; 3]) -> i64 {
+    /// The value at `assignment`, `None` where the operand is undefined.
+    fn value(self, assignment: [i64; 3]) -> Option<i64> {
         match self {
-            Self::Variable(index) => assignment[index],
-            Self::Literal(value) => value,
-            Self::Shifted(index, offset) => assignment[index] + offset,
+            Self::Variable(index) => Some(assignment[index]),
+            Self::Literal(value) => Some(value),
+            Self::Shifted(index, offset) => Some(assignment[index] + offset),
+            Self::Quotient(left, right) => {
+                (assignment[right] != 0).then(|| assignment[left] / assignment[right])
+            }
+            Self::Abs(index) => Some(assignment[index].abs()),
+            Self::Min(left, right, offset) => {
+                Some(assignment[left].min(assignment[right] + offset))
+            }
+            Self::Max(left, right, offset) => {
+                Some(assignment[left].max(assignment[right] + offset))
+            }
         }
     }
 }
 
 /// A conjunct: `operator(left, right)` required `polarity`, written under `negations` `notBool`s;
-/// or the equality `\equals(X, operand)`.
+/// `\not` of `operator(left, right)` required true (which holds also where an operand is
+/// undefined); or the equality `\equals(X, operand)`.
 #[derive(Clone, Debug)]
 enum Conjunct {
     Literal {
@@ -122,6 +160,15 @@ enum Conjunct {
         polarity: bool,
     },
     Equality(usize, Operand),
+    Negated {
+        operator: &'static str,
+        left: Operand,
+        right: Operand,
+    },
+    /// `\or` of two conjuncts.
+    Either(Box<Conjunct>, Box<Conjunct>),
+    /// The ML `\equals(left, right)` of two operands, which holds also where both are undefined.
+    Same(Operand, Operand),
 }
 
 impl Conjunct {
@@ -145,6 +192,27 @@ impl Conjunct {
                 term(definition, &Operand::Variable(*variable).kore()),
                 term(definition, &operand.kore()),
             ),
+            Self::Negated {
+                operator,
+                left,
+                right,
+            } => Predicate::Not(std::sync::Arc::new(
+                Self::Literal {
+                    operator,
+                    left: *left,
+                    right: *right,
+                    negations: 0,
+                    polarity: true,
+                }
+                .predicate(definition),
+            )),
+            Self::Either(left, right) => {
+                Predicate::Or(vec![left.predicate(definition), right.predicate(definition)].into())
+            }
+            Self::Same(left, right) => Predicate::Equals(
+                term(definition, &left.kore()),
+                term(definition, &right.kore()),
+            ),
         }
     }
 
@@ -156,11 +224,27 @@ impl Conjunct {
                 right,
                 negations,
                 polarity,
-            } => {
-                let value = holds(operator, left.value(assignment), right.value(assignment));
-                (value != (negations % 2 == 1)) == *polarity
+            } => match (left.value(assignment), right.value(assignment)) {
+                (Some(left), Some(right)) => {
+                    let value = holds(operator, left, right);
+                    (value != (negations % 2 == 1)) == *polarity
+                }
+                // An undefined comparison is no Boolean: the conjunct does not hold.
+                _ => false,
+            },
+            Self::Equality(variable, operand) => {
+                operand.value(assignment) == Some(assignment[*variable])
             }
-            Self::Equality(variable, operand) => assignment[*variable] == operand.value(assignment),
+            Self::Negated {
+                operator,
+                left,
+                right,
+            } => !matches!(
+                (left.value(assignment), right.value(assignment)),
+                (Some(left), Some(right)) if holds(operator, left, right)
+            ),
+            Self::Either(left, right) => left.satisfied(assignment) || right.satisfied(assignment),
+            Self::Same(left, right) => left.value(assignment) == right.value(assignment),
         }
     }
 }
@@ -196,17 +280,28 @@ fn check(definition: &BackendDefinition, conjuncts: &[Conjunct]) -> Option<Strin
         }
         return None;
     }
-    let substitution = equalities(&predicates);
+    // Each term the conjuncts give a literal's value has that value wherever they hold.
+    for (member, literal) in literal_values(definition, &predicates) {
+        for assignment in &satisfying {
+            let (found, expected) = (
+                evaluate(&member, *assignment),
+                evaluate(&literal, *assignment),
+            );
+            if found.is_none() || found != expected {
+                return Some(format!(
+                    "{conjuncts:?}: {member:?} is given the value {literal:?} but is {found:?} at {assignment:?}"
+                ));
+            }
+        }
+    }
+    let substitution = equalities_with_bounds(definition, &predicates);
     for assignment in &satisfying {
         for (variable, value) in &substitution {
             let index = NAMES
                 .iter()
                 .position(|name| variable.name.as_ref() == *name)
                 .expect("a variable of the conjunction");
-            let evaluated = ground_value(&substitute(
-                value,
-                &assignment_substitution(definition, *assignment),
-            ));
+            let evaluated = evaluate(value, *assignment);
             if evaluated != Some(assignment[index]) {
                 return Some(format!(
                     "{conjuncts:?}: the equality {} = {value:?} fails at {assignment:?}",
@@ -218,26 +313,34 @@ fn check(definition: &BackendDefinition, conjuncts: &[Conjunct]) -> Option<Strin
     None
 }
 
-fn assignment_substitution(
-    definition: &BackendDefinition,
-    assignment: [i64; 3],
-) -> crate::substitution::Substitution {
-    NAMES
-        .iter()
-        .enumerate()
-        .map(|(index, name)| {
-            let TermKind::Variable(variable) = term(definition, &format!("{name}:SortInt{{}}"))
-                .kind()
-                .clone()
-            else {
-                unreachable!("a variable")
-            };
-            (
-                variable,
-                term(definition, &Operand::Literal(assignment[index]).kore()),
-            )
-        })
-        .collect()
+/// The integer value of a term of the generated conjunctions (variables of `NAMES`, literals,
+/// `addInt` and `subInt`) at `assignment`.
+fn evaluate(term: &Term, assignment: [i64; 3]) -> Option<i64> {
+    match term.kind() {
+        TermKind::Variable(variable) => NAMES
+            .iter()
+            .position(|name| variable.name.as_ref() == *name)
+            .map(|index| assignment[index]),
+        TermKind::DomainValue { .. } => ground_value(term),
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            let left = evaluate(arguments.first()?, assignment)?;
+            if symbol.name.as_ref() == "absInt" {
+                return Some(left.abs());
+            }
+            let right = evaluate(arguments.get(1)?, assignment)?;
+            match symbol.name.as_ref() {
+                "minInt" => Some(left.min(right)),
+                "maxInt" => Some(left.max(right)),
+                "addInt" => Some(left + right),
+                "subInt" => Some(left - right),
+                "divInt" => (right != 0).then(|| left / right),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 fn ground_value(term: &Term) -> Option<i64> {
@@ -453,6 +556,151 @@ fn random_conjunctions_agree_with_brute_force_by_default() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
+/// Random conjunctions over linear forms (differences of variables shifted by literals), partial
+/// quotients, absolute values and `\not` of comparisons, against brute force: the difference
+/// bounds, their definedness discipline and the range facts (module documentation, "linear
+/// integer arithmetic").
+pub(crate) fn random_linear_conjunctions_agree_with_brute_force(cases: usize) -> Vec<String> {
+    let definition = definition();
+    let mut state = 0x11ea_c0d1_u64;
+    let mut next = |bound: usize| {
+        state = state
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407);
+        usize::try_from((state >> 33) % u64::try_from(bound).unwrap()).unwrap()
+    };
+    let mut failures = Vec::new();
+    for _ in 0..cases {
+        let operand = |next: &mut dyn FnMut(usize) -> usize| match next(9) {
+            0 => Operand::Literal(i64::try_from(next(5)).unwrap() - 2),
+            1 | 2 => Operand::Shifted(next(3), i64::try_from(next(5)).unwrap() - 2),
+            // Two quotients by `Y`, `X /Int Y` and `Z /Int Y`, so that conjuncts meet on them
+            // and both are undefined at once.
+            3 | 4 => Operand::Quotient(if next(2) == 0 { 0 } else { 2 }, 1),
+            5 => Operand::Abs(next(3)),
+            6 => match next(2) {
+                0 => Operand::Min(next(3), next(3), i64::try_from(next(3)).unwrap() - 1),
+                _ => Operand::Max(next(3), next(3), i64::try_from(next(3)).unwrap() - 1),
+            },
+            _ => Operand::Variable(next(3)),
+        };
+        let count = 2 + next(3);
+        let conjunct = |next: &mut dyn FnMut(usize) -> usize| {
+            let operator = OPERATORS[next(OPERATORS.len())];
+            match next(6) {
+                // Half of them between the two quotients, both partial at `Y = 0`.
+                5 if next(2) == 0 => {
+                    Conjunct::Same(Operand::Quotient(0, 1), Operand::Quotient(2, 1))
+                }
+                5 => Conjunct::Same(operand(next), operand(next)),
+                0 | 1 => Conjunct::Negated {
+                    operator,
+                    left: operand(next),
+                    right: operand(next),
+                },
+                _ => Conjunct::Literal {
+                    operator,
+                    left: operand(next),
+                    right: operand(next),
+                    negations: next(2),
+                    polarity: next(2) == 0,
+                },
+            }
+        };
+        let conjuncts = (0..count)
+            .map(|_| {
+                if next(4) == 0 {
+                    Conjunct::Either(Box::new(conjunct(&mut next)), Box::new(conjunct(&mut next)))
+                } else {
+                    conjunct(&mut next)
+                }
+            })
+            .collect::<Vec<_>>();
+        if let Some(failure) = check(&definition, &conjuncts) {
+            failures.push(failure);
+        }
+    }
+    failures
+}
+
+#[test]
+fn random_linear_conjunctions_agree_with_brute_force_by_default() {
+    let failures = random_linear_conjunctions_agree_with_brute_force(4_000);
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// V7: using a `\not` comparison of a partial term whose definedness no conjunct shows refutes
+/// conjunctions satisfiable where the term is undefined, which the property test sees.
+#[test]
+fn a_dropped_difference_definedness_guard_is_caught_by_the_property_test() {
+    let switches = crate::confluence::switches::Switches {
+        drop_dbm_definedness_guard: true,
+        ..Default::default()
+    };
+    let failures = crate::confluence::switches::with(switches, || {
+        random_linear_conjunctions_agree_with_brute_force(4_000)
+    });
+    assert!(!failures.is_empty());
+}
+
+/// V7: refuting a disjunction when one of its cases is contradictory refutes satisfiable
+/// conjunctions, which the property test sees.
+#[test]
+fn a_misread_disjunction_is_caught_by_the_property_test() {
+    let switches = crate::confluence::switches::Switches {
+        misread_disjunction: true,
+        ..Default::default()
+    };
+    let failures = crate::confluence::switches::with(switches, || {
+        random_linear_conjunctions_agree_with_brute_force(4_000)
+    });
+    assert!(!failures.is_empty());
+}
+
+/// V7: reading `minInt` as at least its operands (and `maxInt` as at most them) refutes
+/// satisfiable conjunctions (`minInt(X, Y) <Int X` beside `Y <Int X`), which the property test
+/// sees.
+#[test]
+fn a_misread_min_max_is_caught_by_the_property_test() {
+    let switches = crate::confluence::switches::Switches {
+        misread_min_max: true,
+        ..Default::default()
+    };
+    let failures = crate::confluence::switches::with(switches, || {
+        random_linear_conjunctions_agree_with_brute_force(4_000)
+    });
+    assert!(!failures.is_empty());
+}
+
+/// V7 (review B round 2): reading an ML `\equals` of two partial terms as showing them defined
+/// refutes `\equals(X /Int Y, Z /Int Y)` beside `\not(X /Int Y ==Int Z /Int Y)`, which holds at
+/// `Y = 0`; the property test sees it.
+#[test]
+fn a_misread_equals_definedness_is_caught_by_the_property_test() {
+    let switches = crate::confluence::switches::Switches {
+        misread_equals_definedness: true,
+        ..Default::default()
+    };
+    let failures = crate::confluence::switches::with(switches, || {
+        random_linear_conjunctions_agree_with_brute_force(4_000)
+    });
+    assert!(!failures.is_empty());
+}
+
+/// V7: reading an absolute value as at least 1 refutes conjunctions satisfiable at 0, which the
+/// property test sees.
+#[test]
+fn a_misread_range_fact_is_caught_by_the_property_test() {
+    let switches = crate::confluence::switches::Switches {
+        misread_range_fact: true,
+        ..Default::default()
+    };
+    let failures = crate::confluence::switches::with(switches, || {
+        random_linear_conjunctions_agree_with_brute_force(4_000)
+    });
+    assert!(!failures.is_empty());
+}
+
 /// V7: reading `a <=Int b` with the wrong orientation refutes satisfiable conjunctions, which the
 /// property test sees.
 #[test]
@@ -479,6 +727,116 @@ fn a_misread_interval_bound_is_caught_by_the_property_test() {
         random_conjunctions_agree_with_brute_force(2_000)
     });
     assert!(!failures.is_empty());
+}
+
+/// A literal under `\not` holds also where its term is undefined: `\not(X in_keys (X |-> Y M))`
+/// holds where `M` has the key `X` (the map is undefined), so it refutes nothing alone, and is
+/// read as the false literal (which the key's membership contradicts) only beside the absence of
+/// `X` from `M` that makes the map defined (KOOL's `lookupMember` pair).
+#[test]
+fn a_negated_literal_is_read_only_where_its_term_is_shown_defined() {
+    let definition = definition();
+    let d = &definition;
+    let not_holds =
+        |text: &str| Predicate::Not(std::sync::Arc::new(Predicate::Term(term(d, text))));
+    let in_own_map = not_holds(
+        "inKeys{}(X:SortInt{}, mapConcat{}(mapItem{}(X:SortInt{}, Y:SortInt{}), M:SortMap{}))",
+    );
+    assert!(!contradictory(d, std::slice::from_ref(&in_own_map)));
+    let absent = not_holds("inKeys{}(X:SortInt{}, M:SortMap{})");
+    assert!(contradictory(d, &[in_own_map, absent]));
+    // `\not(Q ==Int Q)` over the partial quotient `Q = X /Int Y` holds where `Y` is 0.
+    let quotient = "divInt{}(X:SortInt{}, Y:SortInt{})";
+    let not_equal_to_itself = not_holds(&format!("eqInt{{}}({quotient}, {quotient})"));
+    assert!(!contradictory(
+        d,
+        std::slice::from_ref(&not_equal_to_itself)
+    ));
+    let nonzero = Predicate::Not(std::sync::Arc::new(Predicate::Equals(
+        term(d, "Y:SortInt{}"),
+        term(d, &int("0")),
+    )));
+    assert!(contradictory(d, &[not_equal_to_itself, nonzero]));
+}
+
+/// V7: merging the operands of a negative equality into one class refutes satisfiable
+/// conjunctions (`X =/=Int Y` beside `X ==Int 0` and `Y ==Int 1`), which the property test sees.
+#[test]
+fn a_misread_literal_class_is_caught_by_the_property_test() {
+    let switches = crate::confluence::switches::Switches {
+        misread_literal_classes: true,
+        ..Default::default()
+    };
+    let failures = crate::confluence::switches::with(switches, || {
+        random_conjunctions_agree_with_brute_force(2_000)
+    });
+    assert!(!failures.is_empty());
+}
+
+/// V7: substituting a literal through classes that merge negative equalities gives a term a value
+/// it does not have where the conjuncts hold, which the property test sees.
+#[test]
+fn a_substitution_without_its_class_is_caught_by_the_property_test() {
+    let switches = crate::confluence::switches::Switches {
+        substitute_without_class: true,
+        ..Default::default()
+    };
+    let failures = crate::confluence::switches::with(switches, || {
+        random_conjunctions_agree_with_brute_force(2_000)
+    });
+    assert!(!failures.is_empty());
+}
+
+/// Equalities with literals form classes: two different literals in one class, or a disequality
+/// between two members of one class, refute; one literal gives each member its value.
+#[test]
+fn equality_classes_refute_two_literals_and_give_a_members_value() {
+    let definition = definition();
+    let d = &definition;
+    let string = |value: &str| term(d, &format!(r#"\dv{{SortString{{}}}}("{value}")"#));
+    let s = term(d, "S:SortString{}");
+    let t = term(d, "T:SortString{}");
+    let equals = |left: &Term, right: &Term| Predicate::Equals(left.clone(), right.clone());
+    let differs =
+        |left: &Term, right: &Term| Predicate::Not(std::sync::Arc::new(equals(left, right)));
+    // S = "t", S = "n": two literals of one sort in one class.
+    assert!(contradictory(
+        d,
+        &[equals(&s, &string("t")), equals(&s, &string("n"))]
+    ));
+    // S = T, T = "t", S =/= "t": a disequality inside a class.
+    assert!(contradictory(
+        d,
+        &[
+            equals(&s, &t),
+            equals(&t, &string("t")),
+            differs(&s, &string("t"))
+        ]
+    ));
+    // S = "t", T = "n", S =/= T: satisfiable.
+    let open = [
+        equals(&s, &string("t")),
+        equals(&t, &string("n")),
+        differs(&s, &t),
+    ];
+    assert!(!contradictory(d, &open));
+    assert_eq!(
+        literal_values(d, &open),
+        vec![(s.clone(), string("t")), (t.clone(), string("n"))]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+    );
+    // The same literal twice is one value, not a clash.
+    assert!(!contradictory(
+        d,
+        &[
+            equals(&s, &string("t")),
+            equals(&t, &string("t")),
+            equals(&s, &t)
+        ]
+    ));
 }
 
 fn int(value: &str) -> String {

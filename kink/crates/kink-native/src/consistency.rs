@@ -107,8 +107,12 @@ use crate::ValidatedDefinition;
 
 /// The version of the consistency check: a mutant's admission depends on it, so kink's semantics
 /// identity names it (kink-campaign `identity`), on which every store keys. v2 (re-pin
-/// R0c-fix-4): the guard also reads the equation and skipped-pair counts.
-pub const MUTANT_CONSISTENCY_VERSION: &str = "kink-native/mutant-consistency/v2";
+/// R0c-fix-4): the guard also reads the equation and skipped-pair counts. v3 (k-rust
+/// FZ-CONFLUENCE): k-rust pairs the equations at evaluated hooks with the hooks' written meanings
+/// (a hook pair is read for its first equation only) and refutes more overlaps (equality classes,
+/// linear integer arithmetic, deferred unifier equations, disjunctions), so a mutant whose guards
+/// those refute is admitted and one whose equation disagrees with its hook is refused.
+pub const MUTANT_CONSISTENCY_VERSION: &str = "kink-native/mutant-consistency/v3";
 
 /// The version of the reading of a mutant's effect from the compiled definitions
 /// ([`admit_mutant`]: the compiled changed-index diff, its reverse reach and the cross-check of
@@ -846,7 +850,9 @@ fn check(
     let mut pairs = claims
         .unjoined()
         .iter()
-        .filter(|pair| checked(&pair.first) || checked(&pair.second))
+        // A hook pair's second equation is the hook's written meaning, no equation of the
+        // definition: the pair is about its first equation alone.
+        .filter(|pair| checked(&pair.first) || (pair.hook.is_none() && checked(&pair.second)))
         .map(unjoined)
         .collect::<BTreeSet<_>>();
     for violation in claims.violations() {

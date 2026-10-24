@@ -312,10 +312,16 @@ fn entry(
             name: None,
             equations: vec![equation(&pair.first)],
             position: None,
-            reason: format!(
-                "the equation is not applied to every subject it describes: {}",
-                pair.reason
-            ),
+            reason: match &pair.hook {
+                Some(hook) => format!(
+                    "the equation is not shown to agree with its hook `{hook}`: {}",
+                    pair.reason
+                ),
+                None => format!(
+                    "the equation is not applied to every subject it describes: {}",
+                    pair.reason
+                ),
+            },
             overlap: None,
             reducts: Vec::new(),
             conditions: None,
