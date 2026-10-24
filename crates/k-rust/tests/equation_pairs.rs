@@ -618,3 +618,37 @@ fn values_only_injections_from_different_sorts_separate_are_not_distinct() {
     assert!(reported);
     assert_eq!(genuine.len(), 1, "{genuine:?}");
 }
+
+/// FZ-POLISH review round 2, R2-B1 (`r2-mapkeys`): `mk((a |-> _) (bb |-> _)) => 1` beside
+/// `mk(_:Map) => 0`, with `a : A` and `bb : B`. The instance's map is defined only where the keys
+/// `inj{A,KItem}(a)` and `inj{B,KItem}(bb)` differ, which no axiom states (the same reading that
+/// does not count such values distinct), so the finding is undecided. With `a` and `bb` of one
+/// sort, and values of that sort too (a K map holds `KItem`s, so `Int` values would be injected
+/// from another sort than the keys, which the same reading does not keep apart from them), the
+/// map's entries are kept apart and the finding is genuine.
+#[test]
+fn an_instance_whose_map_keys_are_not_surely_distinct_is_not_genuine() {
+    let apart = definition_importing(
+        "  imports MAP",
+        r#"  syntax A ::= "a" [symbol(a)]
+  syntax B ::= "bb" [symbol(bb)]
+  syntax Int ::= mk(Map) [function, symbol(mk)]
+  rule [a]: mk((a |-> _:Int) (bb |-> _:Int)) => 1
+  rule [b]: mk(_:Map) => 0"#,
+        false,
+    );
+    let (reported, genuine) = genuine_between(&apart, "a", "b");
+    assert!(reported);
+    assert!(genuine.is_empty(), "{genuine:?}");
+    let together = definition_importing(
+        "  imports MAP",
+        r#"  syntax AB ::= "a" [symbol(a)] | "bb" [symbol(bb)]
+  syntax Int ::= mk(Map) [function, symbol(mk)]
+  rule [a]: mk((a |-> _:AB) (bb |-> _:AB)) => 1
+  rule [b]: mk(_:Map) => 0"#,
+        false,
+    );
+    let (reported, genuine) = genuine_between(&together, "a", "b");
+    assert!(reported);
+    assert_eq!(genuine.len(), 1, "{genuine:?}");
+}

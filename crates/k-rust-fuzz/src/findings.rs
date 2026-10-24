@@ -4,7 +4,8 @@
 //!
 //! A pair is named `FIRST,SECOND@POSITION`: each equation by its written position
 //! `FILE:LINE:COLUMN` with the file's last path component (a compiler-generated overload axiom,
-//! which has none, by `overload:GREATER:LESSER`, the KORE names of its overloaded pair), and the
+//! which has none, by `overload:GREATER:LESSER`, the K labels of its overloaded pair, each
+//! quoted with `"` when it holds `,`, `:`, `@`, `"`, `\` or whitespace), and the
 //! position in the first equation's left-hand side, `root` or argument indexes joined by `.`. A
 //! name given to `assume-joined` matches a pair when its position is the pair's and each rule
 //! part names the equation: its written position, or any trailing part of it that starts after
@@ -63,10 +64,75 @@ fn position_text(position: &[usize]) -> String {
     }
 }
 
-/// The overload part naming a compiler-generated overload axiom, which has no written position.
+/// The overload part naming a compiler-generated overload axiom, which has no written position:
+/// `overload:GREATER:LESSER` with the K labels of its overloaded pair, quoted where needed
+/// ([`quoted`]).
 fn overload_part(rule: &RewriteRule) -> Option<String> {
     let (greater, lesser) = rule.attributes.overload.as_ref()?;
+    Some(format!(
+        "overload:{}:{}",
+        quoted(&label(greater)),
+        quoted(&label(lesser))
+    ))
+}
+
+/// The same part with the KORE names, which a name may also use.
+fn overload_kore_part(rule: &RewriteRule) -> Option<String> {
+    let (greater, lesser) = rule.attributes.overload.as_ref()?;
     Some(format!("overload:{greater}:{lesser}"))
+}
+
+/// `text`, or `text` in `"` with `"` and `\` escaped by `\` when it holds a character a name
+/// separates its parts with (`,`, `:`, `@`), a quote, a backslash or whitespace.
+fn quoted(text: &str) -> String {
+    if text
+        .chars()
+        .any(|character| ",:@\"\\".contains(character) || character.is_whitespace())
+    {
+        let mut out = String::from('"');
+        for character in text.chars() {
+            if character == '"' || character == '\\' {
+                out.push('\\');
+            }
+            out.push(character);
+        }
+        out.push('"');
+        out
+    } else {
+        text.to_owned()
+    }
+}
+
+/// `given` split at its first `,` and its last `@` outside quotes: the two rule parts and the
+/// position; `None` for any other shape.
+fn split_name(given: &str) -> Option<(String, String, String)> {
+    let mut parts = vec![String::new()];
+    let mut separators = Vec::new();
+    let (mut quoted, mut escaped) = (false, false);
+    for character in given.chars() {
+        let current = parts.last_mut().expect("one part at least");
+        if escaped {
+            escaped = false;
+            current.push(character);
+        } else if quoted && character == '\\' {
+            escaped = true;
+            current.push(character);
+        } else if character == '"' {
+            quoted = !quoted;
+            current.push(character);
+        } else if !quoted && (character == ',' || character == '@') {
+            separators.push(character);
+            parts.push(String::new());
+        } else {
+            current.push(character);
+        }
+    }
+    match (separators.as_slice(), parts.as_slice()) {
+        ([',', '@'], [first, second, position]) => {
+            Some((first.clone(), second.clone(), position.clone()))
+        }
+        _ => None,
+    }
 }
 
 /// How a name writes `rule`: its written position with the file's last path component, else its
@@ -107,23 +173,21 @@ fn names_rule(given: &str, rule: &RewriteRule) -> bool {
     }) || rule.attributes.identifier() == Some(given)
         || rule.attributes.label.as_deref() == Some(given)
         || overload_part(rule).as_deref() == Some(given)
+        || overload_kore_part(rule).as_deref() == Some(given)
 }
 
 /// Whether the name `given`, without a side prefix, names `pair` (the module documentation). A
 /// name not of the shape `FIRST,SECOND@POSITION` names nothing.
 pub(crate) fn names(given: &str, pair: &UnjoinedPair) -> bool {
-    let Some((rules, position)) = given.rsplit_once('@') else {
-        return false;
-    };
-    let Some((first, second)) = rules.split_once(',') else {
+    let Some((first, second, position)) = split_name(given) else {
         return false;
     };
     position.trim() == position_text(&pair.position)
-        && ((names_rule(first, &pair.first) && names_rule(second, &pair.second))
+        && ((names_rule(&first, &pair.first) && names_rule(&second, &pair.second))
             // A root pair is symmetric.
             || (pair.position.is_empty()
-                && names_rule(first, &pair.second)
-                && names_rule(second, &pair.first)))
+                && names_rule(&first, &pair.second)
+                && names_rule(&second, &pair.first)))
 }
 
 /// The names of `assume_joined` that apply on the definition `side`, side prefixes removed.

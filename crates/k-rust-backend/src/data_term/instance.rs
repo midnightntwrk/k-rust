@@ -166,7 +166,20 @@ impl<'d> Search<'d> {
     ) -> Option<GroundInstance> {
         let substitution = assignment.iter().cloned().collect::<Substitution>();
         let instance = substitute(overlap, &substitution);
-        if !well_formed_collections(&instance) {
+        if !well_formed_collections(self.definition, &instance) {
+            return None;
+        }
+        // Every comparison the evaluation makes between the instance's data terms (a map lookup,
+        // `==K`, a match against a constant of the equations) reads them as distinct or equal;
+        // only terms kept apart in every model of the stated premises may be read as distinct.
+        let mut read = vec![
+            instance.clone(),
+            substitute(first, &substitution),
+            substitute(second, &substitution),
+        ];
+        conditions.visit_terms(&mut |term| read.push(substitute(term, &substitution)));
+        let fixed = self.matched_constants(pair, &read);
+        if !self.apart(&read, &fixed) {
             return None;
         }
         let (values, diagnostics) = diagnostic::collect(|| {
@@ -191,6 +204,7 @@ impl<'d> Search<'d> {
         });
         let (left, right) = values?;
         if !surely_distinct(self.definition, &left, &right)
+            || !self.apart(&[left.clone(), right.clone()], &[])
             || diagnostics
                 .iter()
                 .any(diagnostic::BackendDiagnostic::is_path_fact)
@@ -202,6 +216,77 @@ impl<'d> Search<'d> {
             overlap: instance,
             values: (left, right),
         })
+    }
+
+    /// Whether every two different ground data terms of one sort that the search reads are
+    /// surely distinct ([`surely_distinct`]): any two subterms of `terms` (the instance, its
+    /// reducts and conditions, or the values), and a subterm of `terms` beside a constant of
+    /// `fixed` (the ground data subterms of the left-hand sides and `requires` whose matching the
+    /// search reads, [`Self::matched_constants`]). Otherwise some model of the premises
+    /// identifies them, and a step that told them apart (a map lookup, `==K`, `in_keys`, a match
+    /// refuted by a constant) proves nothing in that model. Map keys and set elements obey the
+    /// same rule ([`well_formed_collections`]).
+    fn apart(&self, terms: &[Term], fixed: &[Term]) -> bool {
+        let read = self.ground_data(terms);
+        let constants = self.ground_data(fixed);
+        read.iter().all(|(sort, terms)| {
+            terms.iter().enumerate().all(|(index, left)| {
+                terms[index + 1..]
+                    .iter()
+                    .chain(constants.get(sort).into_iter().flatten())
+                    .all(|right| left == right || surely_distinct(self.definition, left, right))
+            })
+        })
+    }
+
+    /// The ground data subterms of `terms` (built from free constructors, injections, domain
+    /// values and rest-free collections), by sort, each once.
+    fn ground_data(&self, terms: &[Term]) -> FxHashMap<Sort, Vec<Term>> {
+        let mut by_sort: FxHashMap<Sort, Vec<Term>> = FxHashMap::default();
+        let mut pending = terms.to_vec();
+        while let Some(term) = pending.pop() {
+            pending.extend(subterms(&term));
+            if term.attributes().variables.is_empty()
+                && self.definition.built_from_data(&term, &BTreeSet::new())
+            {
+                let seen = by_sort.entry(term.sort()).or_default();
+                if !seen.contains(&term) {
+                    seen.push(term);
+                }
+            }
+        }
+        by_sort
+    }
+
+    /// The left-hand sides and `requires` of the equations whose matching the search reads: the
+    /// pair's two, every executable equation of their heads (a higher-priority one is read as
+    /// refuted when its match fails), and every executable equation of each symbol applied in
+    /// `read` (the evaluation of the reducts tries them).
+    fn matched_constants(&self, pair: &UnjoinedPair, read: &[Term]) -> Vec<Term> {
+        let mut indexes = vec![term_index(&pair.first.lhs), term_index(&pair.second.lhs)];
+        let mut pending = read.to_vec();
+        while let Some(term) = pending.pop() {
+            pending.extend(subterms(&term));
+            if let TermKind::Application { .. } = term.kind() {
+                let index = term_index(&term);
+                if !indexes.contains(&index) {
+                    indexes.push(index);
+                }
+            }
+        }
+        let mut constants = Vec::new();
+        for index in &indexes {
+            let Some(groups) = self.definition.function_theory().get(index) else {
+                continue;
+            };
+            for rule in groups.values().flatten() {
+                constants.push(rule.lhs.clone());
+                rule.requires.iter().for_each(|predicate| {
+                    predicate.visit_terms(&mut |term| constants.push(term.clone()))
+                });
+            }
+        }
+        constants
     }
 
     /// Whether `conditions` under `substitution` evaluates to `true`, each term's definedness
@@ -482,44 +567,53 @@ fn symbolic(rule: &RewriteRule) -> bool {
     }
 }
 
-/// Whether every map and set in `term` holds distinct keys and elements: otherwise the term is
-/// `\bottom`, and no equation applies at it.
-fn well_formed_collections(term: &Term) -> bool {
-    fn distinct<'t>(items: impl Iterator<Item = &'t Term>) -> bool {
-        let mut previous: Option<&Term> = None;
-        let mut items = items;
-        items.all(|item| {
-            // Keys and elements are held in order, so a repeat follows its first occurrence.
-            let fresh = previous != Some(item);
-            previous = Some(item);
-            fresh
+/// Whether every map and set in `term` holds keys and elements that are pairwise surely
+/// distinct ([`surely_distinct`], the same reading as the values'): otherwise some model of the
+/// premises identifies two of them, the collection is `\bottom` there, and no equation applies at
+/// it.
+fn well_formed_collections(definition: &BackendDefinition, term: &Term) -> bool {
+    let distinct = |items: &[&Term]| {
+        items.iter().enumerate().all(|(index, left)| {
+            items[index + 1..]
+                .iter()
+                .all(|right| surely_distinct(definition, left, right))
         })
-    }
+    };
+    let collections_apart = match term.kind() {
+        TermKind::Map { entries, .. } => {
+            distinct(&entries.iter().map(|(key, _)| key).collect::<Vec<_>>())
+        }
+        TermKind::Set { elements, .. } => distinct(&elements.iter().collect::<Vec<_>>()),
+        _ => true,
+    };
+    collections_apart
+        && subterms(term)
+            .iter()
+            .all(|subterm| well_formed_collections(definition, subterm))
+}
+
+/// The immediate subterms of `term`.
+fn subterms(term: &Term) -> Vec<Term> {
     match term.kind() {
-        TermKind::Map { entries, rest, .. } => {
-            distinct(entries.iter().map(|(key, _)| key))
-                && entries.iter().all(|(key, value)| {
-                    well_formed_collections(key) && well_formed_collections(value)
-                })
-                && rest.as_ref().is_none_or(well_formed_collections)
-        }
+        TermKind::Application { arguments, .. } => arguments.clone(),
+        TermKind::Injection { term, .. } => vec![term.clone()],
+        TermKind::And(left, right) => vec![left.clone(), right.clone()],
+        TermKind::Map { entries, rest, .. } => entries
+            .iter()
+            .flat_map(|(key, value)| [key.clone(), value.clone()])
+            .chain(rest.clone())
+            .collect(),
+        TermKind::List { heads, rest, .. } => heads
+            .iter()
+            .cloned()
+            .chain(rest.iter().flat_map(|(middle, tails)| {
+                std::iter::once(middle.clone()).chain(tails.iter().cloned())
+            }))
+            .collect(),
         TermKind::Set { elements, rest, .. } => {
-            distinct(elements.iter())
-                && elements.iter().all(well_formed_collections)
-                && rest.as_ref().is_none_or(well_formed_collections)
+            elements.iter().cloned().chain(rest.clone()).collect()
         }
-        TermKind::List { heads, rest, .. } => {
-            heads.iter().all(well_formed_collections)
-                && rest.as_ref().is_none_or(|(middle, tails)| {
-                    well_formed_collections(middle) && tails.iter().all(well_formed_collections)
-                })
-        }
-        TermKind::Application { arguments, .. } => arguments.iter().all(well_formed_collections),
-        TermKind::Injection { term, .. } => well_formed_collections(term),
-        TermKind::And(left, right) => {
-            well_formed_collections(left) && well_formed_collections(right)
-        }
-        TermKind::DomainValue { .. } | TermKind::Variable(_) => true,
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => Vec::new(),
     }
 }
 

@@ -951,6 +951,8 @@ fn reducts_that_differ_only_by_injection_sorts_are_written_apart_and_named() {
         }
         let name = finding.name.as_deref().expect("every pair is named");
         assert!(name.contains("overload:"), "{name}");
+        // Readable (round 2): the overloaded pair by its K labels, quoted, never mangled KORE.
+        assert!(!name.contains("Lbl"), "{name}");
     }
     let mut names = report
         .definition_findings
