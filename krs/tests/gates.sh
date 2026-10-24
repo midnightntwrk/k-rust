@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs KRS's gates for the krs-* entries of scripts/gates.toml.
 #
-# usage: krs/tests/gates.sh light|lint
+# usage: krs/tests/gates.sh light|lint|tour-pages
 #        krs/tests/gates.sh imp|kevm|kmir|kwasm [ARG...]
 #
 # `light` runs every gate except the browser ones (which need a fork build, krs/README.md) and
@@ -10,8 +10,9 @@
 # serializes their builds; afterwards `light` removes the collectors of the gates' temporary
 # packages from it (support/krs.py, prune_dead_collectors). `lint` runs Clippy and the MSRV check
 # over the standalone test packages (tests/package-lint/verify.py), which CI runs and `light` does
-# not. The heavy gates take the arguments after their name (`--artifacts-only`,
-# `--java-reference`, `--record`); run them one at a time.
+# not. `tour-pages` runs tour-proof-evidence alone, the one gate that reads site pages. The heavy
+# gates take the arguments after their name (`--artifacts-only`, `--java-reference`, `--record`);
+# run them one at a time.
 # The gates find the Z3 4.12.5 library through KRS_Z3_LIB or the Nix store, and K 7.1.337, which a
 # cold reference cache needs, through KRS_K_BIN or PATH (krs/README.md, "Prerequisites").
 set -euo pipefail
@@ -81,6 +82,10 @@ print(f"pruned {prune_dead_collectors(tool_target())} dead collectors")'
   lint)
     [[ $# -eq 1 ]] || { echo "lint takes no arguments" >&2; exit 2; }
     exec python3 tests/package-lint/verify.py
+    ;;
+  tour-pages)
+    [[ $# -eq 1 ]] || { echo "tour-pages takes no arguments" >&2; exit 2; }
+    exec python3 tests/tour-proof-evidence/verify.py
     ;;
   imp | kevm | kmir | kwasm)
     gate=$1

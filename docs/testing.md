@@ -56,6 +56,8 @@ Beyond its Rust tests, KRS has gates (`krs/tests/<gate>/verify.py`) that compare
   On 2026-10-20, on a 32-core host under a load of about 30 from other work, it took about four minutes after a change to these crates or to KRS, three with nothing changed, and nine from an empty target;
   most of that is the gates' several hundred `krs` invocations, each of which runs Cargo to build or check a collector;
 - `krs-imp`, `krs-kevm`, `krs-kmir`, `krs-kwasm` (heavy, at a host UID): the complete IMP definition and the three language ports, one at a time.
+- `krs-tour-pages` (certification, owed by a change to one of the three site pages whose proof claims `tour-proof-evidence` checks against KRS's pinned results): that gate alone (`krs/tests/gates.sh tour-pages`).
+  No other KRS gate reads `docs-site/`, so an edit to any other page owes no KRS gate; the site's own checks are in `docs-site/README.md`.
 
 `krs/tests/gates.sh lint`, which `krs.yml` runs, lints the standalone test packages (`krs/tests/support/packages.py`) with Clippy and checks them on the MSRV; the gates only format-check them, since the lint judges the packages' source rather than what KRS does with it.
 
