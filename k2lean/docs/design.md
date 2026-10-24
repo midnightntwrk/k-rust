@@ -312,19 +312,21 @@ KEVM through `pipelines/kevm.sh` (krust's compilation of `driver.md`, `gen --ari
 | krust `kcompile`, `k2lean gen` | 12 s, 3 s | | 0.4 GB | 32 |
 | `Terms` | 396 s | 814 s | 5.7 GB | 32 → 31 |
 | `Functions` (21 recursive groups, no `sorry`) | 92 to 209 s | 136 to 200 s | 2.7 GB | 31 to 52 |
+| `Functions`, measures synthesized (§2.2; 13 derived lemmas, `Term.shape`) | 106 s | 140 s | 2.9 GB | 8 → 10 |
 | `RulesRel` (`App`, `Step0`, `Step`) | 164 to 345 s | 165 to 266 s | 9.2 GB | 28 to 52 |
 | the 626 matchers, four modules | 530 s | 582 s | 3.2 GB | 52 to 66 |
 | `Rules` (index, `step`, `run`) | 47 s | 50 s | 2.3 GB | 66 → 43 |
 | `Adequacy` (2,504 per-rule lemmas and the global theorems) | 256 s | 602 s | 9.6 GB | 43 → 26 |
 
 Every module builds without an error, a `sorry` or an axiom beyond Lean's three; KEVM's 13 `KRYPTO` hooks are the parameters of `class Hooks`, and `senderTxData`, whose rewriting diverges at chain id −4, is a least fixed point (`pipelines/kevm-sender-diverges.lean` proves it has no value there).
+That is the only entry of `kevm-termination.toml`: the five groups that needed a hand-written measure (`qsortJSONs`, `computeValidJumpDests*`, `#bloomFilterAux`, `#fakeExponential`, `#rlpDecode*`) get theirs from the generator (§2.2), and the other recursive groups are unchanged.
+The `Functions` row with synthesized measures was measured from a built `Terms` under a lower load than the row above it, so the two rows' times are not comparable (2026-10-24, `lean -j 8`, 12 GB cap).
 KMIR's term universe builds (78 s, 3.0 GB, 2026-10-23); `gen` stops at its one `ensures` rule.
 
 Open, in the order they block a KEVM library with kimp's guarantees:
 
 - **KEVM `Equations`** (1,111 statements) does not build as one module: it exceeds 20 GB. In chunks of 139 theorems (2026-10-24), at least 273 of the 694 that finished fail: 171 are the equations of the two schedule functions, which are recursive and need to be unfolded once (`eq_def`) before the generic proof; the 83 equations of `#dasmOpCode`, a 150-rule cascade, exceed 20 GB together and need the cascade evaluated at the equation's own left-hand side; and the module needs splitting. The equations of a least fixed point (`senderTxData`) have no generic proof yet.
 - **KEVM determinism** (`--det2`, 79 overlapping pairs) was built against the statements of `Adequacy` with their proofs omitted (2026-10-24): 543 of the 626 per-rule lemmas proved, 74 CPU-minutes in 16 files at `lean -j 4` (one file exceeds 20 GB), with 75 goals open in 62 lemmas (102 with the first closers): 32 that `z3` separated with bytes, string and set facts that `omega` lacks, 26 that need evaluating a variable's membership in a set of literals, 7 complementary atoms equal only after evaluating a call, 10 clashes inside map and list patterns; and 21 lemmas out of heartbeats, three of them rules whose first `<k>` item is a variable of sort `Gas`, which invert all 597 rules of their rank and cost a third of the module. Not rebuilt against the real `Adequacy`.
-- **Termination**: all 21 recursive groups of KEVM that Lean's own search does not prove are proved, 15 by the generator's measures and 5 by `kevm-termination.toml`; a mutual group gets no synthesized measure, and the termination file's lemmas name generated definitions and the arity universe's constructors, so a change to either breaks them at build time.
 - **A KEVM run**: the test drivers need an instance of `Hooks` (real hashes, outside the semantics) and krust-produced initial configurations; none is generated yet.
 - **KMIR**: `ensures` rules, and per-program instances of its three equation-less `lookup*Kore` functions, now parameters.
 - **`relate` on SIMPLE** (`demos/SimpleRel`, human-run by `pipelines/simple-rel.sh`, positions kept, `Inv` = True), measured on 2026-10-24 on the shared 32-CPU host under a load of 10 to 17, each simulation in a module of its own with the others stated without proof:
