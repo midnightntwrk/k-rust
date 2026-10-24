@@ -26,10 +26,13 @@
 //!
 //! # Stuck applications
 //!
-//! An application is *stuck* when its arguments are defined and every executable equation the
-//! evaluator offers at it (its index's groups and the bare-variable ones, every priority, `owise`
-//! and overload equations included, `symbolic` ones excluded) fails to match it or matches with
-//! its `requires` evaluating to `false`. What a stuck application is in `M_NF` depends on its
+//! An application is *stuck* when its arguments are defined and every equation and lemma at its
+//! index and at the bare-variable index (every priority, `owise` and overload equations, and
+//! also the axioms the evaluator does not apply to it: `symbolic` equations and
+//! `simplification` lemmas) fails to match it or matches with its `requires` evaluating to
+//! `false`, and no `non-executable` equation or lemma is rooted at its symbol (the load keeps no
+//! rule of one to match, so its symbol is left out whole). An axiom that matched would equate the application with another term
+//! in every model, and a value `M_NF` already gives against it would say nothing about the pair. What a stuck application is in `M_NF` depends on its
 //! symbol's class, read through `confluence::symbols::Class`, which the join reads too
 //! (`confluence/join.rs`, rule 3), so a change of that reading moves the search with it:
 //!
@@ -62,6 +65,7 @@
 
 use std::collections::BTreeSet;
 
+use k_rust_kore::kore::ast::Pattern as KorePattern;
 use rustc_hash::FxHashMap;
 
 use crate::{
@@ -70,7 +74,9 @@ use crate::{
     diagnostic,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::Predicate,
-    rule::{Concreteness, ConstraintKind, RewriteRule, applicable_groups, term_index},
+    rule::{
+        ClassifiedAxiom, Concreteness, ConstraintKind, RewriteRule, applicable_groups, term_index,
+    },
     simplify::{SimplificationOptions, simplify, simplify_predicate_with_solver},
     smt::NoSolver,
     substitution::{Substitution, substitute},
@@ -151,13 +157,31 @@ impl Reading {
 pub(super) struct Search<'d> {
     definition: &'d BackendDefinition,
     candidates: FxHashMap<(Sort, usize), Vec<Term>>,
+    /// The symbols that root a `non-executable` function equation or simplification lemma: the
+    /// load keeps no rule of it to match, so an application of such a symbol is never read as
+    /// stuck.
+    unapplied: BTreeSet<String>,
 }
 
 impl<'d> Search<'d> {
     pub(super) fn new(definition: &'d BackendDefinition) -> Self {
+        let unapplied = definition
+            .classified_axioms()
+            .iter()
+            .filter(|axiom| !axiom.attributes().executable)
+            .filter_map(|axiom| match axiom {
+                ClassifiedAxiom::Function { lhs, .. }
+                | ClassifiedAxiom::Simplification { lhs, .. } => match lhs {
+                    KorePattern::Application { symbol, .. } => Some(symbol.name.clone()),
+                    _ => None,
+                },
+                ClassifiedAxiom::Rewrite { .. } | ClassifiedAxiom::Ceil { .. } => None,
+            })
+            .collect();
         Self {
             definition,
             candidates: FxHashMap::default(),
+            unapplied,
         }
     }
 
@@ -446,15 +470,27 @@ impl<'d> Search<'d> {
         })
     }
 
-    /// Whether the ground application `application` is stuck: every executable equation the
-    /// evaluator offers at it, `symbolic` ones aside, fails to match it or matches with its
-    /// `requires` evaluating to `false`.
+    /// Whether the ground application `application` is stuck: every equation the evaluator
+    /// offers at it fails to match it or matches with its `requires` evaluating to `false`, and
+    /// so does every axiom at its index the evaluator does not apply there (a `symbolic`
+    /// equation, a `simplification` lemma), and no `non-executable` equation or lemma is rooted
+    /// at its symbol (the load keeps none of them to match). Such an axiom that matched would
+    /// equate the application with another term in every model, so its value would say nothing
+    /// about the pair (the module documentation, "Stuck applications").
     fn stuck(&self, application: &Term) -> bool {
-        applicable_groups(self.definition.function_theory(), &term_index(application))
-            .values()
-            .flatten()
-            .filter(|rule| rule.attributes.executable && !symbolic(rule))
-            .all(|rule| self.matches(rule, application) == Some(false))
+        if let TermKind::Application { symbol, .. } = application.kind()
+            && self.unapplied.contains(symbol.name.as_ref())
+        {
+            return false;
+        }
+        let index = term_index(application);
+        [
+            self.definition.function_theory(),
+            self.definition.simplification_theory(),
+        ]
+        .into_iter()
+        .flat_map(|theory| applicable_groups(theory, &index).into_values().flatten())
+        .all(|rule| self.matches(&rule, application) == Some(false))
     }
 
     /// At most [`CANDIDATES`] small ground terms of `sort`, free constructors nested at most

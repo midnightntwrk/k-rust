@@ -93,7 +93,8 @@
 //! applying), and the two reducts evaluate either to two different normal forms, read on
 //! k-rust's internal normal form as everywhere in this module, or to a normal form and an
 //! undefined value. A normal form there may hold an application of a declared total function
-//! without a hook or an algebraic axiom that no equation rewrites; an undefined value holds,
+//! without a hook or an algebraic axiom that no equation or lemma at its index matches (also
+//! the `symbolic`, `simplification` and `non-executable` ones); an undefined value holds,
 //! under free constructors, injections and collection items only, such an application of a
 //! declared partial function without a hook, which is `\bottom` in `M_NF`
 //! ([`GroundInstance::stuck`]; `instance.rs`, "Stuck applications"). No term is both a normal
