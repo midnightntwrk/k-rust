@@ -32,11 +32,16 @@ On each goal it runs, in order, until one closes the goal completely:
    `@[k2l_arith]` lemmas, which state the `Int` and `Bool` hooks in Lean's arithmetic
    (`IntHook.add a b` is `a + b`, `IntHook.ge a b = true` is `a ≥ b`), then `omega`. The same
    step ends the leaf discharger of 3, so a conjunct such as the count test `0 ≤ N + 1` of a
-   rebuilt map entry, from the matched entry's `0 ≤ N`, is closed there.
+   rebuilt map entry, from the matched entry's `0 ≤ N`, is closed there;
+6. *injections*: for a variable `x` of the rule that is the argument of a generated injection
+   `inj_S_T x` in the goal (a definition by cases on `x`, which blocks every function that
+   matches on its result, such as `f (inj_Expr_KItem HOLE)` in a heating rule), `cases x`,
+   reduce the injection on each constructor, and run 1–6 on each case; at most two such splits
+   along one path. A case split is complete, so the cases together prove the rule's goal.
 
-Before 2–5, the hypotheses that were in context before `k2l_preserve` (and are not named in its
+Before 2–6, the hypotheses that were in context before `k2l_preserve` (and are not named in its
 simp list) are cleared, so that `simp [*]` and `simp_all` see only the rule's own hypotheses;
-a residual goal has them back. Also before 2–5, a hypothesis `proj_A_B y = some x` of the rule (a sort projection, from a sorted
+a residual goal has them back. Also before 2–6, a hypothesis `proj_A_B y = some x` of the rule (a sort projection, from a sorted
 variable of the rule) is rewritten to `y = inj_B_A x` by the generated lemma `proj_eq_some_A_B`
 when it exists, and substituted.
 
@@ -391,9 +396,38 @@ structure Closers where
   fuel : Nat
   ambient : Array FVarId
 
+/-- Is `c` a generated injection `inj_S_T` (`{ns}/Terms.lean`): a definition, not a constructor,
+whose name is `inj_…`? It is defined by cases on its argument, so `f (inj_S_T x)` does not reduce
+while `x` is a variable. -/
+def isInjection (c : Name) : MetaM Bool := do
+  let .str _ s := c | return false
+  unless s.startsWith "inj_" do return false
+  return match (← getEnv).find? c with
+    | some (.defnInfo _) => true
+    | _ => false
+
+/-- The local variables `x` that occur in `e` as the argument of a generated injection
+`inj_S_T x`, each with the injection, in order of first occurrence. -/
+partial def injVars (e : Expr) (acc : Array (FVarId × Name) := #[]) :
+    MetaM (Array (FVarId × Name)) := do
+  match e with
+  | .app .. =>
+    let mut acc := acc
+    if let .const c _ := e.getAppFn then
+      let x := e.appArg!
+      if x.isFVar && !acc.any (·.1 == x.fvarId!) && (← isInjection c) then
+        acc := acc.push (x.fvarId!, c)
+    for a in e.getAppArgs do acc ← injVars a acc
+    return acc
+  | .forallE _ d b _ | .lam _ d b _ => injVars b (← injVars d acc)
+  | .letE _ t v b _ => injVars b (← injVars v (← injVars t acc))
+  | .mdata _ b | .proj _ _ b => injVars b acc
+  | _ => return acc
+
 /-- Run the closers on the main goal `P lhs → P rhs` (the only goal); true when one of them
-closes it. Otherwise the goal is restored to its state on entry. -/
-def closeRule (k : Closers) : TacticM Bool := do
+closes it. Otherwise the goal is restored to its state on entry. `depth` bounds the case splits
+of closer 6 along one path. -/
+partial def closeRule (k : Closers) (depth : Nat := 2) : TacticM Bool := do
   let s0 ← saveState
   -- 1. untouched
   if ← closes (← `(tactic| (intro h; $(k.unfoldBoth); first | exact h | assumption))) then
@@ -435,6 +469,31 @@ def closeRule (k : Closers) : TacticM Bool := do
   -- 5. arithmetic
   unless ok do
     ok ← closes (← `(tactic| (intro h; $(k.arith))))
+  -- 6. injections: case on a variable under a generated injection, reduce the injection on
+  -- each constructor, and run the closers on each case
+  if !ok && depth > 0 then
+    s1.restore
+    let g ← getMainGoal
+    let cands ← g.withContext do injVars (← instantiateMVars (← g.getType))
+    for (x, inj) in cands do
+      let s ← saveState
+      let closed ← try
+          let sgs ← g.cases x
+          let mut all := true
+          for sg in sgs do
+            setGoals [sg.mvarId]
+            try evalTactic (← `(tactic| simp only [$(mkCIdent inj):ident] at *)) catch _ => pure ()
+            if (← getGoals).isEmpty then continue
+            unless ← closeRule k (depth - 1) do
+              all := false
+              break
+          pure all
+        catch _ => pure false
+      if closed then
+        setGoals []
+        ok := true
+        break
+      s.restore
   unless ok do s0.restore
   return ok
 
@@ -639,5 +698,6 @@ attribute [k2l_arith] IntHook.add IntHook.sub IntHook.mul IntHook.neg IntHook.lt
 attribute [k2l_pres] Option.map_some Option.map_none Option.bind_some Option.bind_none
   Bool.and_true Bool.true_and Bool.and_false Bool.false_and Bool.or_true Bool.true_or
   Bool.or_false Bool.false_or ite_true ite_false and_self and_true true_and
+  Bool.and_eq_true Bool.or_eq_false_iff
 
 end KPrelude
