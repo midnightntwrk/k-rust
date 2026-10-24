@@ -28,8 +28,8 @@ proofs need and the tactic the generator emits:
 * `k2l_split_hyp` splits a `match`/`if` in some hypothesis; repeated after unfolding a generated
   function in `h : f x = some r`, it enumerates the function's cases (used by hand-written
   facts about generated functions, e.g. in a `--termination` file).
-* `k2l_decreasing [r₁, …]` closes a goal of `decreasing_by`: the facts, the integer and Boolean
-  hooks unfolded, lexicographic goals split by `Prod.lex_def`, the given rank functions unfolded,
+* `k2l_decreasing [r₁, …]` closes a goal of `decreasing_by`: the facts, each failed guard
+  (`(if h : c then … else none) = none`) turned into `¬ c`, the integer and Boolean hooks unfolded, lexicographic goals split by `Prod.lex_def`, the given rank functions unfolded,
   then `omega`.
 
 No statement here depends on the exact `sizeOf` of an injection (`Term.inj`): the size laws are
@@ -244,6 +244,10 @@ macro_rules
       first | done | (
       (try subst_vars)
       k2l_facts
+      -- a failed guard's condition is extracted before the hooks are unfolded: unfolding a hook
+      -- inside the condition of a `dite` leaves its `Decidable` instance stated for the folded
+      -- condition, and on Lean v4.34.0 `dite_eq_right_iff` no longer rewrites such a `dite`
+      (try simp only [dite_eq_right_iff, ite_eq_right_iff, reduceCtorEq, imp_false] at *)
       (try simp only [IntHook.le, IntHook.lt, IntHook.ge, IntHook.gt, IntHook.eq, IntHook.ne,
         IntHook.add, IntHook.sub, IntHook.mul, BoolHook.not, BoolHook.and, BoolHook.or,
         BytesHook.length, decide_eq_true_eq, decide_eq_false_iff_not, Bool.not_eq_true',
