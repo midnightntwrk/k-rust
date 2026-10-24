@@ -393,7 +393,10 @@ fn the_checks_work_counters_stay_within_ten_percent_of_their_pins() {
         // FZ-CONFLUENCE: 6 -> 10 simplifier calls, one more simplification of each open
         // condition whose conjuncts give a term a literal's value (the equality classes,
         // `confluence/conditions.rs`).
-        ("oracle templates", 57, 124, 24, 10),
+        // FZ-CONFLUENCE-F: 57/124/24/10 -> 64/157/28/15. The six constructor-split templates
+        // (`generator::constructor_split`) add 6 pairs, 32 branches, 3 steps and 5 simplifier
+        // calls (the conditions F1 re-reads); the other templates measure 58/125/25/10.
+        ("oracle templates", 64, 157, 28, 15),
     ];
     let mut measured = Vec::new();
     let counts = load(FUN_LISTS, "OVERLOADED-LIST-OWISE")

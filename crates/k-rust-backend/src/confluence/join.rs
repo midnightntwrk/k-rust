@@ -48,15 +48,23 @@
 //! form, each join step is a step of that relation on the instance, or both its sides are
 //! `\bottom` there (a residual that is `\bottom` occurs in the result by the binding rule, or the
 //! step erases only a subterm defined on every instance). So both sides reach the common term's
-//! instance, and the peak's two reducts have a common reduct. No rule reads emptiness or
-//! coverage: the unifier enumerates subsort branches, and a complement case only assumes that no
-//! offered left-hand side matches, so the argument holds with the constants as with any element.
+//! instance, and the peak's two reducts have a common reduct. No rule reads emptiness, and one
+//! reads coverage: the unifier enumerates subsort branches, and a complement case only assumes
+//! that no offered left-hand side matches, so the argument holds with the constants as with any
+//! element; a complement is dropped only for a sort whose every element in `M+`, the constants
+//! included, is an application of one of its constructors (F2 at [`join`], which asks for a sort
+//! that gets no constant and has no proper subsort, so none of a subsort's either).
 //!
 //! The join's precision is frozen at these rules. A rule that lets more pairs join (a step, a
 //! settled shape or a refutation not stated above) keeps more claims, and a wrong one shows only
 //! as a claim that holds in no model; so a new rule comes with a definition of the class it
 //! decides in the axiom-instance harness (`tests/definedness_oracle/axioms.rs`), which judges the
 //! claims by the axioms, and a defect switch in the rule (`switches.rs`) that the harness catches.
+//! F1 and F2 (closing a case whose conditions are refuted under its substitution, and dropping a
+//! complement its branches cover, at [`join`]) are such rules: their class is the oracle's
+//! constructor-split templates (`generator::constructor_split`), judged by the harness and by
+//! `D+`'s constants, and their switches are `close_case_without_refutation`,
+//! `drop_complement_without_coverage` and `coverage_ignores_empty_subsorts`.
 //! The witness equations add steps only through the groups the check offers; they are adopted
 //! only after a second pass checks every pair with them, and their class is judged by the
 //! oracle's `D+` with the verdict's witnesses. Open mode ([`Mode::Open`]), which reads a stuck
@@ -64,18 +72,21 @@
 //! verdict: it only proposes witnesses to that second pass, so a wrong proposal costs a join,
 //! never a claim.
 
+use std::collections::BTreeSet;
+
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use k_rust_kore::measure::{self, Counter};
 
 use super::{
-    Context, UnjoinedReason, children, replace_at, right_hand_side, subterm_at, symbols::Class,
+    Conditions, Context, UnjoinedReason, children, replace_at, right_hand_side, subterm_at,
+    symbols::Class,
 };
 use crate::{
     matching::{MatchResult, match_with_settled_evidence},
     rule::{RewriteRule, applicable_groups, rename_apart, term_index},
     simplify::{SimplificationOptions, simplify},
-    substitution::{Substitution, substitute},
+    substitution::{Substitution, compose, substitute},
     term::{
         FunctionType, HeadRole, SymbolType, Term, TermKind, Variable,
         head::NormalEvidence,
@@ -153,10 +164,23 @@ pub(super) const JOIN_CASES: usize = 64;
 /// The most nested case splits.
 const SPLIT_DEPTH: usize = 6;
 
+/// The conditions of the pair a join is about: its two equations, whose `requires` the join
+/// re-reads under each case a split made (F1), at the overlap's unifier.
+pub(super) struct PairConditions<'r> {
+    pub(super) rules: [&'r RewriteRule; 2],
+    pub(super) unifier: &'r Substitution,
+}
+
 /// One case of a pair: its sides, the values known settled in it, and the applications it
 /// assumes normal (`settled`) or `\bottom`.
 struct Case {
     sides: (Option<Term>, Option<Term>),
+    /// The substitution the splits that made this case applied to the pair's sides, composed
+    /// (empty for the pair itself and for a complement of it).
+    theta: Substitution,
+    /// Whether `theta` is new in this case (a branch of a split, not a complement), so that the
+    /// pair's conditions say something new under it.
+    reread: bool,
     values: Vec<Term>,
     settled: Vec<Term>,
     bottom: Vec<Term>,
@@ -184,12 +208,30 @@ struct Case {
 /// whose arguments are normal forms, so it is a normal form or stuck. So the case is joined when
 /// every branch is. The values of the case stay settled under `theta`: they are normal forms on
 /// every instance, and so are their instances.
+///
+/// Two rules close a case without joining its sides, each because the case has no instance at
+/// which both conditions hold, so no peak:
+///
+/// - **F1.** A branch whose pair's conditions, re-read under the unifier composed with the
+///   case's substitution (`unifier ∘ theta`), are refuted (`Context::conditions`: they hold on
+///   no instance in any model). The branch's instances are the pair's instances that are
+///   instances of `theta`, and the conditions hold on none of them.
+/// - **F2.** The complement of a split whose unifiers bind one variable `x` of the residual, and
+///   only it, each to an application of a constructor, and bind it to `c(Y1, ..., Yn)`, with
+///   distinct variables of `c`'s argument sorts that occur nowhere else in the case, for each
+///   constructor `c` of `x`'s sort, when those constructors cover that sort
+///   (`Sorts::constructors_covering`: every element of the sort in `M+` and in `M'` is one of
+///   their applications). The case's instances read `x` as a normal form, which is then an
+///   instance of some branch, so the complement has none. The pair is then counted as joined,
+///   not refuted: "refuted" says the conditions hold on no instance in any model, and "joined"
+///   ranges over the instances the lifting lemma speaks about, whose arguments are normal forms.
 pub(super) fn join(
     context: &mut Context<'_>,
     lifting: bool,
     sides: (Option<Term>, Option<Term>),
     values: &[Term],
     mode: Mode,
+    conditions: &PairConditions<'_>,
 ) -> Outcome {
     let cap = SIZE_FACTOR
         * sides
@@ -202,6 +244,8 @@ pub(super) fn join(
             .max(16);
     let mut cases = vec![Case {
         sides,
+        theta: Substitution::new(),
+        reread: false,
         values: values.to_vec(),
         settled: Vec::new(),
         bottom: Vec::new(),
@@ -211,6 +255,9 @@ pub(super) fn join(
     let mut explored = 0;
     while let Some(case) = cases.pop() {
         explored += 1;
+        if case.reread && closed_by_conditions(context, conditions, &case.theta) {
+            continue;
+        }
         let mut join = Join {
             context: &mut *context,
             lifting,
@@ -263,6 +310,21 @@ pub(super) fn join(
         };
     }
     Outcome::Joined
+}
+
+/// F1: whether the pair's conditions, under `unifier ∘ theta`, hold on no instance, so that the
+/// case of `theta` has no peak. Test switch `close_case_without_refutation`: also when they are
+/// only not shown to hold.
+fn closed_by_conditions(
+    context: &mut Context<'_>,
+    conditions: &PairConditions<'_>,
+    theta: &Substitution,
+) -> bool {
+    match context.conditions(&conditions.rules, &compose(theta, conditions.unifier)) {
+        Conditions::Refuted => true,
+        Conditions::Holds => false,
+        Conditions::Open(..) => super::switches::active().close_case_without_refutation,
+    }
 }
 
 /// Whether `symbol` is declared total (`functional` or `total`): its application to defined
@@ -814,6 +876,8 @@ impl Join<'_, '_> {
                     instantiate(&case.sides.0, theta),
                     instantiate(&case.sides.1, theta),
                 ),
+                theta: compose(theta, &case.theta),
+                reread: true,
                 values: case
                     .values
                     .iter()
@@ -837,8 +901,14 @@ impl Join<'_, '_> {
                 depth: case.depth + 1,
             })
             .collect::<Vec<_>>();
+        if self.covers(&instances, &scope) {
+            // F2: every instance of the case is an instance of some branch.
+            return Some(branches);
+        }
         let mut complement = Case {
             sides: case.sides.clone(),
+            theta: case.theta.clone(),
+            reread: false,
             values: case.values.clone(),
             settled: case.settled.clone(),
             bottom: case.bottom.clone(),
@@ -864,6 +934,62 @@ impl Join<'_, '_> {
         }
         branches.push(complement);
         Some(branches)
+    }
+
+    /// F2: whether the split's unifiers `instances` (each restricted to the residual's
+    /// variables) bind one variable `x`, and only it, each to a constructor application, and
+    /// bind it to `c(Y1, ..., Yn)` for every constructor `c` of a sort its constructors cover
+    /// (`Sorts::constructors_covering`), with `Y1, ..., Yn` distinct variables of `c`'s argument
+    /// sorts outside `scope`, the case's variables. Test switch
+    /// `drop_complement_without_coverage`: without the last condition.
+    fn covers(&self, instances: &[Substitution], scope: &BTreeSet<Variable>) -> bool {
+        let mut bound: Option<&Variable> = None;
+        let mut general = FxHashSet::default();
+        for theta in instances {
+            let mut entries = theta.iter();
+            let (Some((variable, value)), None) = (entries.next(), entries.next()) else {
+                return false;
+            };
+            if *bound.get_or_insert(variable) != variable {
+                return false;
+            }
+            let TermKind::Application {
+                symbol, arguments, ..
+            } = value.kind()
+            else {
+                return false;
+            };
+            if Class::of(symbol) != Class::Constructor {
+                return false;
+            }
+            let mut fresh = FxHashSet::default();
+            if arguments.len() == symbol.argument_sorts.len()
+                && arguments
+                    .iter()
+                    .zip(&symbol.argument_sorts)
+                    .all(|(argument, sort)| {
+                        matches!(argument.kind(), TermKind::Variable(argument)
+                        if argument.sort == *sort
+                            && !scope.contains(argument)
+                            && fresh.insert(argument.clone()))
+                    })
+            {
+                general.insert(symbol.name.clone());
+            }
+        }
+        let Some(variable) = bound else {
+            return false;
+        };
+        super::switches::active().drop_complement_without_coverage
+            || self
+                .context
+                .sorts
+                .constructors_covering(&variable.sort)
+                .is_some_and(|constructors| {
+                    constructors
+                        .iter()
+                        .all(|constructor| general.contains(constructor))
+                })
     }
 
     /// Evaluate a hooked application of domain values with the simplifier, under the check's

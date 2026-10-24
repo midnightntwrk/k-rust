@@ -940,6 +940,111 @@ pub(super) fn empty_sort(definition: Definition, clash: bool) -> (Definition, Ve
     (definition, Vec::new())
 }
 
+/// The shapes of [`constructor_split`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Split {
+    /// `gTc(X, I) = c requires I <Int 0` beside `gTc(X, I) = m(I +Int szTc(X)) requires
+    /// szTc(X) <=Int I`: WASM's `sparse-bytes.k:121/133`. Every value of `szTc` is positive, so
+    /// both conditions hold nowhere, but only after a split on `szTc(X)`: each branch's
+    /// conditions are refuted under its unifier (F1), and the constructors cover `Tc` (F2).
+    Refuted,
+    /// The same with `I <Int 5` and `0 <Int I`: both hold at `I = 1`, where the reducts are `c`
+    /// and `m(1 +Int szTc(X))`. No branch is refuted.
+    Open,
+    /// `hTc(X) = c` beside `hTc(X) = pTc(X)`, with `pTc(tc1) = c` and `pTc(tc2) = c`: the split
+    /// on `pTc(X)` joins at each constructor of `Tc`, which they cover (F2).
+    Covered,
+    /// The same with a third constructor `tc3`, at which `pTc` is stuck, so `\bottom`.
+    Uncovered,
+    /// The same with an empty subsort `Ec < Tc`: every model has an element of `Ec`, so `Tc`
+    /// has one that no constructor of `Tc` builds (in `D+`, `inj(junkEc)`), at which `pTc` is
+    /// stuck.
+    EmptySubsort,
+    /// The same with an equation head `hdTc : Int -> Tc` (`hdTc(0) = tc1`), whose application
+    /// `hdTc(1)` is a normal form of `Tc` that is no constructor application.
+    HeadProducer,
+}
+
+impl Split {
+    pub(super) const ALL: [Self; 6] = [
+        Self::Refuted,
+        Self::Open,
+        Self::Covered,
+        Self::Uncovered,
+        Self::EmptySubsort,
+        Self::HeadProducer,
+    ];
+
+    /// Whether the pair joins in `M+`, so the full check reports nothing.
+    pub(super) fn joins(self) -> bool {
+        matches!(self, Self::Refuted | Self::Covered)
+    }
+}
+
+/// A pair that joins only by a case split on a residual whose argument is a variable of the sort
+/// `Tc ::= tc1 | tc2`, the class of the join's rules F1 and F2 (`confluence/join.rs`), in one of
+/// the shapes of [`Split`]: two that join and four that must not.
+pub(super) fn constructor_split(split: Split) -> Definition {
+    let x = || var("VarX", "Tc");
+    let mut definition = Definition::new(&["A", "Tc"])
+        .constructor("c", &[], "A")
+        .constructor("d", &[], "A")
+        .constructor("m", &["Int"], "A")
+        .constructor("tc1", &[], "Tc")
+        .constructor("tc2", &[], "Tc");
+    match split {
+        Split::Refuted | Split::Open => {
+            let size = || app("szTc", vec![x()]);
+            let lhs = || app("gTc", vec![x(), int_var("VarI")]);
+            let (first, second) = if split == Split::Refuted {
+                (
+                    app("ltInt", vec![int_var("VarI"), int(0)]),
+                    app("leInt", vec![size(), int_var("VarI")]),
+                )
+            } else {
+                (
+                    app("ltInt", vec![int_var("VarI"), int(5)]),
+                    app("ltInt", vec![int(0), int_var("VarI")]),
+                )
+            };
+            definition
+                .total_function("szTc", &["Tc"], "Int")
+                .head("gTc", &["Tc", "Int"], "A")
+                .equation(app("szTc", vec![cons("tc1")]), int(1))
+                .equation(app("szTc", vec![cons("tc2")]), int(2))
+                .conditional(lhs(), cons("c"), Some(first))
+                .conditional(
+                    lhs(),
+                    app("m", vec![app("addInt", vec![int_var("VarI"), size()])]),
+                    Some(second),
+                )
+        }
+        Split::Covered | Split::Uncovered | Split::EmptySubsort | Split::HeadProducer => {
+            definition = definition
+                .function("pTc", &["Tc"], "A")
+                .head("hTc", &["Tc"], "A")
+                .equation(app("pTc", vec![cons("tc1")]), cons("c"))
+                .equation(app("pTc", vec![cons("tc2")]), cons("c"))
+                .equation(app("hTc", vec![x()]), cons("c"))
+                .equation(app("hTc", vec![x()]), app("pTc", vec![x()]));
+            match split {
+                Split::Uncovered => definition = definition.constructor("tc3", &[], "Tc"),
+                Split::EmptySubsort => {
+                    definition = definition.subsort("Ec", "Tc");
+                    definition.sorts.push("Ec".into());
+                }
+                Split::HeadProducer => {
+                    definition = definition
+                        .head("hdTc", &["Int"], "Tc")
+                        .equation(app("hdTc", vec![int(0)]), cons("tc1"));
+                }
+                Split::Covered | Split::Refuted | Split::Open => {}
+            }
+            definition
+        }
+    }
+}
+
 /// One fixed definition per feature class, so that every class is present in every run.
 #[allow(clippy::too_many_lines, reason = "one template per feature class")]
 pub(super) fn templates() -> Vec<(String, Definition, Vec<Pat>)> {
@@ -1175,6 +1280,13 @@ pub(super) fn templates() -> Vec<(String, Definition, Vec<Pat>)> {
             format!("template empty sort (clash {clash})"),
             definition,
             seeds,
+        ));
+    }
+    for split in Split::ALL {
+        templates.push((
+            format!("template constructor split ({split:?})"),
+            constructor_split(split),
+            Vec::new(),
         ));
     }
     // No equation head: functions and lists only.

@@ -76,6 +76,16 @@ pub(crate) struct Switches {
     /// Join: read every function application as never a normal form, and a stuck one as
     /// `\bottom` (revision 2's 3.13 (c) before R1.5).
     pub(crate) stuck_total_is_bottom: bool,
+    /// Join (F1): close every case a split made whose conditions, re-read under its
+    /// substitution, are not shown to hold, instead of only those they refute.
+    pub(crate) close_case_without_refutation: bool,
+    /// Join (F2): drop a split's complement whenever every unifier binds one variable to a
+    /// constructor application, without asking whether those constructors cover its sort.
+    pub(crate) drop_complement_without_coverage: bool,
+    /// Coverage (F2): count only the proper subsorts with a normal form, so that a sort whose
+    /// subsorts are empty counts as covered by its constructors (the reading before
+    /// P7-EMPTYJOIN, which forgot that `M+` gives an empty subsort a constant).
+    pub(crate) coverage_ignores_empty_subsorts: bool,
     /// `SortReach`: collapse every non-injective total symbol and every uninterpreted symbol,
     /// whether or not its sort is surely inhabited (revision 2's 3.13 (l) before R1.3).
     pub(crate) collapse_every_total: bool,
@@ -160,6 +170,9 @@ thread_local! {
             separate_uninhabited: false,
             adopt_pass_1: false,
             stuck_total_is_bottom: false,
+            close_case_without_refutation: false,
+            drop_complement_without_coverage: false,
+            coverage_ignores_empty_subsorts: false,
             collapse_every_total: false,
             misread_int_le: false,
             misread_interval_bound: false,

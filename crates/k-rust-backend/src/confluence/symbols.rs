@@ -23,12 +23,12 @@
 //! never normal forms (vacuous join cases), and which sorts' elements can hold which equation
 //! heads (the closure's T-obs).
 
-use rustc_hash::FxHashSet;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::{
     definition::BackendDefinition,
     matching::ClosedSort,
-    term::{FunctionType, HeadRole, Sort, SortNode, Symbol, SymbolType},
+    term::{FunctionType, HeadRole, Name, Sort, SortNode, Symbol, SymbolType},
 };
 
 /// The class of a symbol other than the sort injection (R1.2).
@@ -138,6 +138,9 @@ pub(crate) struct Sorts {
     /// to every instance of a parametric sort the signatures use that is neither hooked nor a
     /// collection (which this set never holds), so that every carrier of `M+` is nonempty.
     surely_inhabited: FxHashSet<Sort>,
+    /// The sorts whose every element in `M+` and in `M'` is an application of one of their
+    /// constructors, each with those constructors ([`Self::constructors_covering`]).
+    covered: FxHashMap<Sort, Vec<Name>>,
 }
 
 impl Sorts {
@@ -164,10 +167,36 @@ impl Sorts {
                 .iter()
                 .filter(|symbol| Class::of(symbol).builds_defined(symbol)),
         );
+        let covered = covered_sorts(definition, &symbols, &normal_form, &surely_inhabited);
         Self {
             normal_form,
             surely_inhabited,
+            covered,
         }
+    }
+
+    /// The constructors of `sort` when every element of `sort` in `M+` and in `M'` is an
+    /// application of one of them to elements of its argument sorts (the join's coverage, F2 in
+    /// `join.rs`), `None` otherwise. That holds of a parameterless sort that:
+    ///
+    /// - is surely inhabited (outside `J`), so `M+` adds no constant `*_S` to it;
+    /// - has no proper subsort: a subsort's elements are elements of `sort` through an injection,
+    ///   and an empty subsort `E` still adds `inj(*_E)` in `M+`;
+    /// - is neither hooked nor a collection sort, and has no domain values;
+    /// - has no producer at it other than its constructors: no equation head, total,
+    ///   other-partial, collection or hooked symbol has it as result sort, nor does any symbol
+    ///   whose result sort is a sort variable. Such an application can be a normal form that is
+    ///   no constructor application, or a new element of `M'` (`OnNewArguments::Formal`). A
+    ///   declared partial function without a hook does not count: its stuck application is
+    ///   `\bottom`, and in `M'` it is `\bottom` or rewritten. Nor does a symbol hooked to
+    ///   `KEQUAL.ite`: its condition is a `Bool`, a fixed carrier whose elements are literals,
+    ///   so it always evaluates, to one of its other arguments;
+    /// - and has a constructor.
+    ///
+    /// Then the normal forms of `sort` in `M+` (over the signature with the constants) are its
+    /// constructors' applications to normal forms, and so are the new elements `M'` adds to it.
+    pub(crate) fn constructors_covering(&self, sort: &Sort) -> Option<&[Name]> {
+        self.covered.get(sort).map(Vec::as_slice)
     }
 
     /// Whether `sort` may have a normal form. A sort with a parameter, an instance of a parametric
@@ -270,6 +299,100 @@ fn least_sorts<'s>(
             return set;
         }
     }
+}
+
+/// The hook that [`Sorts::constructors_covering`] does not count as a producer.
+const ITE_HOOK: &str = "KEQUAL.ite";
+
+/// [`Sorts::constructors_covering`]'s table: each sort it holds with its constructors.
+fn covered_sorts(
+    definition: &BackendDefinition,
+    symbols: &[&Symbol],
+    normal_form: &FxHashSet<Sort>,
+    surely_inhabited: &FxHashSet<Sort>,
+) -> FxHashMap<Sort, Vec<Name>> {
+    let switches = super::switches::active();
+    let open = |sort: &Sort| ClosedSort::new(*sort).is_err();
+    let ite = |symbol: &Symbol| {
+        symbol
+            .attributes
+            .hook
+            .as_ref()
+            .is_some_and(|hook| hook.as_ref() == ITE_HOOK)
+    };
+    let mut constructors = FxHashMap::<Sort, Vec<Name>>::default();
+    let mut produced = FxHashSet::<Sort>::default();
+    let mut open_producer = false;
+    for symbol in symbols {
+        if ite(symbol) {
+            continue;
+        }
+        if open(&symbol.result_sort) {
+            // A sort variable instantiates at every sort; any other open sort is a parametric
+            // sort's, whose instances are never covered.
+            open_producer |= matches!(symbol.result_sort.node(), SortNode::Variable(_));
+            continue;
+        }
+        match Class::of(symbol) {
+            Class::Constructor if symbol.sort_variables.is_empty() => constructors
+                .entry(symbol.result_sort)
+                .or_default()
+                .push(symbol.name.clone()),
+            Class::PartialFunction => {}
+            Class::Constructor
+            | Class::Collection
+            | Class::EquationHead
+            | Class::Hooked { .. }
+            | Class::Total { .. }
+            | Class::OtherPartial => {
+                produced.insert(symbol.result_sort);
+            }
+        }
+    }
+    if open_producer {
+        return FxHashMap::default();
+    }
+    for symbol in definition.symbols().values() {
+        if let Some(collection) = &symbol.attributes.collection {
+            let sort = match collection {
+                crate::term::CollectionMetadata::Map(map) => map.map_sort.clone(),
+                crate::term::CollectionMetadata::List(list)
+                | crate::term::CollectionMetadata::Set(list) => list.list_sort.clone(),
+            };
+            produced.insert(Sort::simple(sort));
+        }
+    }
+    // The sorts with a proper subsort (test switch `coverage_ignores_empty_subsorts`: one with a
+    // normal form, the reading before P7-EMPTYJOIN, which forgot that `M+` gives an empty subsort
+    // a constant).
+    let mut above = FxHashSet::<Sort>::default();
+    for (supersort, below) in definition.sort_graph().closures() {
+        if below.iter().any(|sort| {
+            sort != supersort
+                && (!switches.coverage_ignores_empty_subsorts || normal_form.contains(sort.sort()))
+        }) {
+            above.insert(*supersort.sort());
+        }
+    }
+    constructors
+        .into_iter()
+        .filter(|(sort, _)| {
+            let SortNode::Application { name, arguments } = sort.node() else {
+                return false;
+            };
+            arguments.is_empty()
+                && definition.sorts().get(name).is_some_and(|info| {
+                    info.parameters.is_empty() && info.hook.is_none() && !info.has_domain_values
+                })
+                && surely_inhabited.contains(sort)
+                && !above.contains(sort)
+                && !produced.contains(sort)
+        })
+        .map(|(sort, mut names)| {
+            names.sort();
+            (sort, names)
+        })
+        .collect()
 }
 
 /// Whether `sort` is a fixed carrier: declared with a hook, so that its elements are the
