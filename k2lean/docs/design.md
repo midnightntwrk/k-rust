@@ -50,8 +50,8 @@ The generated Lean is a model of the KORE theory: every symbol gets an interpret
   - Several free keys in one left-hand side choose lexicographically; a function that recurses on the rest or on the value of the binding terminates by `MapSizeOf` (the value and the rest are smaller than the map, from the certificate the continuation receives).
   - Such an equation is not stated in `Equations.lean`, as no equation with a map pattern in its arguments is (their arguments are partial patterns, not terms); its K statement, the agreement of all matching bindings, holds exactly where the definition is confluent.
   Well-founded recursive functions are Lean definitions by well-founded recursion, and their equations get a proof by the recursion's own unfolding (`k2l_eqn_r`).
-  The measure is the length of a list the function destructures, an integer distance bounded by a requires, or one the generator synthesizes from the equations (`termination.rs`: integer distances from the requires, from failed earlier guards and from defined partial hooks, constructor ranks for fallback chains, combined lexicographically); the proof is Lean's (`k2l_decreasing`), so a wrong choice is a build error, never an unsound definition.
-  `gen --termination FILE` (TOML, keyed by K label) supplies a measure and its proof where no generic rule does, or makes a function whose rewriting diverges on some arguments the least fixed point of its equations (`partial_fixpoint`): `none` exactly where the rewriting diverges, the equations' value everywhere else.
+  The generator chooses each recursive group's measure and Lean proves that it decreases (§2.2), so a wrong choice is a build error, never an unsound definition.
+  `gen --termination FILE` (TOML, keyed by K label) makes a function whose rewriting diverges on some arguments the least fixed point of its equations (`partial_fixpoint`): `none` exactly where the rewriting diverges, the equations' value everywhere else; it can also supply a measure and its proof.
 - **Rules.** `Step` has one constructor per rewrite axiom of the compiled definition, heating and cooling included, at the top configuration.
   A rule whose left-hand side matches and whose `requires` is `true` but whose right-hand side is `⊥` applies (`App`) and has no `Step`: matching logic gives that configuration no successor.
   With priorities, `Step` is stratified: a rule of a lower rank steps only where no rule of a higher rank applies (`¬ App j lhs`).
@@ -83,6 +83,32 @@ Two choices in the family follow from its match compilation (measured 2026-10-23
 - `hasLeaves s` comes before the leaf tag in `inj`: a match at a sort without leaves refutes `inj` on that field, instead of splitting the leaf tag over every sort; on `evm.md:751:5` the match compiler's subgoals drop from 2,512 to 130 and the matcher's elaboration from 1.78 s to 0.44 s.
 - Every `match` on a non-variable pattern gets a fallback arm, an irrefutable one too (`--no-fallback-arms` turns it off), so the other constructors of the family go to `_` instead of being refuted one by one: KEVM's 626 matchers take 252 s / 443 CPU-s without the arms and 121 s / 211 CPU-s with them, and `Adequacy` 740 against 803 CPU-s (loads 15 and 34), so the arms cost the proofs little.
   In the per-sort encoding a match on a single-constructor sort is exhaustive and Lean rejects the arm as redundant, so the default encoding has none; it does not have the refutation cost either.
+
+### 2.2 Termination measures
+
+A recursive group (one function, or several that call each other) is one well-founded definition, so each function needs a measure that decreases at every recursive call; `termination.rs` chooses it and Lean proves the decrease (`decreasing_by`).
+In order:
+
+- the earlier rules, unchanged: the length of a builtin `List` the function destructures (when every recursive call is on the rest of the list), an integer distance bounded by a requires, or one integer measure or constructor rank chosen from the facts at the calls;
+- structural recursion on the pieces of a parameter (constructors over variables of its patterns) is left to Lean's own search (`sizeOf`);
+- otherwise each function gets a tuple of components, of one length across the group, compared lexicographically, chosen as Lean's `GuessLex` chooses: a component that no remaining call increases and some call decreases, then the next one for the calls that leave it equal.
+
+The components:
+
+- an integer distance `(e).toNat` over the function's integer parameters and terms over them (`lengthBytes(B) -Int I`): from the facts at its recursive calls (the requires, the failure of earlier guard-only equations, the ranges of defined partial hooks, facts about callees), carried from a callee to its caller through the call's arguments and back; it may read an integer field of a parameter that the equations match with a constructor, and the measure is then a definition by cases on that parameter (`f.k2l_measure`);
+- the shape of a parameter, in the arity-indexed universe (`KPrelude.Shape`, `Term.shape`): the number of its constructors and builtin values, every builtin value counting one whatever its magnitude, every collection element one more than its own shape; it decreases where a function replaces a list item by smaller pieces even when the list grows (KEVM's `#bloomFilterAux`), and through functions that return a sublist (`qsortJSONs`'s filters), where `sizeOf`, which grows with an integer's magnitude, does not;
+- a rank of the function within its group, along the calls that leave the earlier components equal; when the calls between functions form a cycle under the earlier components, the rank is guarded by the facts that hold at every call into the function from the group, and is above every other rank where the guard fails;
+- a counter's distance to a bound, before a component that decreases only beyond that bound (KEVM's `#fakeExponential`: the counter `I` increases towards `|NUMER| + 1`, and beyond it the accumulator `ACCUM *Int NUMER /Int (DENOM *Int I)` is smaller than `ACCUM`, `KPrelude.IntHook.tdiv_mul_facts`).
+
+The choice is checked symbolically before it is emitted: facts are linear integer forms, and a decrease is a consequence of the facts at the call, decided by Fourier–Motzkin elimination over the rationals with each fact's constant rounded down (sound for integers, incomplete); `omega` decides at least as much.
+
+Facts about a callee that the measure needs are lemmas derived from the callee's equations and proved before the group, registered with `@[k2l_fact]` so that `k2l_facts` adds them to a goal:
+
+- what a non-recursive function returns (`f.k2l_out`: facts of its arguments when it is defined, and of an integer result; `f.k2l_out_i`: facts of the integer fields of a constructor result, per pattern), as the strongest sums of one to three integer atoms that hold on every way the function returns (total callees inlined), then pruned to the facts the measure needs;
+- the range of a total integer function (`f.k2l_range`, KEVM's `#widthOpCode ≥ 1`);
+- a bound on a result's shape (`f.k2l_shape`: `shape r ≤ shape x_j`), by induction on the callee's own measure when it is recursive.
+
+Each lemma is proved by unfolding the function in its hypothesis and splitting its cascade (`k2l_fn_facts`); none changes a definition, and a lemma that does not hold is a build error.
 
 ## 3. What is proved, and how it is checked
 

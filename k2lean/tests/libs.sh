@@ -15,7 +15,7 @@
 #   SD       SIMPLE's K sources (for libs_simple_cases, and the simple and simple-inv compiles)
 #   GOLDENS  the golden cases of kimp (k2lean/tests/goldens; only for libs_goldens)
 # and defines the function `kore_dir NAME`, which prints the directory of the compiled KORE of
-# NAME (kimp, kimp-verif, kimp-inv, kimp-keys, imp-typing, kmut, simple, simple-inv, simple-variant), so that each caller keeps its own layout.
+# NAME (kimp, kimp-verif, kimp-inv, kimp-keys, imp-typing, kmut, simple, simple-inv, simple-variant, kterm), so that each caller keeps its own layout.
 
 # libs_kcompile NAME: compile NAME's K definition with krust into `kore_dir NAME`.
 libs_kcompile() {
@@ -35,6 +35,7 @@ libs_kcompile() {
     simple-variant) mkdir -p "$out.src" &&
       python3 -I "$(dirname "${BASH_SOURCE[0]}")/simple-variant.py" "$SD/simple-untyped.md" "$out.src/simple-variant.md" || return 1
       f=$out.src/simple-variant.md m=SIMPLE-UNTYPED s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
+    kterm) f=$DEMOS/k/term/term.k m=TERM s=TERM-SYNTAX inc=$DEMOS/k/term ;;
     *) echo "libs_kcompile: unknown definition $1" >&2; return 2 ;;
   esac
   "$KRUST" kcompile "$f" --main-module "$m" --syntax-module "$s" --output-directory "$out" \
@@ -46,7 +47,7 @@ libs_name() {
   case $1 in
     kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv|kimpfold|kimptop) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;;
     simple|simple-ar) echo KSimple ;; simpleinv|simplestore|simplet) echo KSimpleInv ;; nested) echo KNested ;; simplev) echo KSimpleV ;;
-    peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;; freekey) echo FreeKey ;;
+    peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;; freekey) echo FreeKey ;; kterm-ar) echo KTerm ;;
     *) echo "libs_name: unknown library $1" >&2; return 2 ;;
   esac
 }
@@ -121,6 +122,10 @@ libs_gen() {
     peano|peanob|cellmap|cellmapb|freekey) local fx; fx=$(libs_fixture "$1")
       "$G" gen --kore "$fx/definition.kore" --runtime "$fx/runtime.json" \
             --out "$o" --name "$(libs_name "$1")" --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
+    # recursive functions whose termination measures the generator synthesizes (demos/k/term)
+    kterm-ar) "$G" gen --kore "$(kore_dir kterm)/definition.kore" --runtime "$(kore_dir kterm)/runtime.json" \
+            --out "$o" --name KTerm --prelude ../../lean/prelude --arity-terms \
+            --open-obligations "$o/open-obligations.txt" ;;
     *) echo "libs_gen: unknown library $1" >&2; return 2 ;;
   esac
 }

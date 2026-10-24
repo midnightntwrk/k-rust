@@ -941,3 +941,162 @@ fn nest(parts: &[String]) -> String {
     }
     body
 }
+
+/// The shape of terms (`KPrelude.Shape`, a termination measure of `KPrelude.Termination`) in this
+/// universe: emitted in `Functions.lean` when a termination proof needs it (`termination.rs`).
+/// Every constructor and builtin value counts one, and every element of a collection one more
+/// than its own shape.
+pub fn shape_support(m: &Model) -> String {
+    let types = block_types(m);
+    let names: BTreeSet<String> = types.iter().map(|(t, _)| t.clone()).collect();
+    let lty = |s: &str| {
+        if names.contains(s) {
+            format!("(Term {})", tag(s))
+        } else {
+            s.to_string()
+        }
+    };
+    let mut plain: Vec<&Vec<LCtor>> = Vec::new();
+    let mut colls: Vec<Coll1> = Vec::new();
+    let mut sums: Vec<&Vec<LCtor>> = Vec::new();
+    for (ty, cs) in &types {
+        match &m.sorts.get(ty).map(|s| s.kind.clone()) {
+            Some(Kind::Coll(k)) => colls.push(Coll1 {
+                sort: ty.clone(),
+                kind: k.clone(),
+                elems: m
+                    .sort(ty)
+                    .elems
+                    .iter()
+                    .map(|e| (lty(e), e.clone()))
+                    .collect(),
+            }),
+            Some(Kind::Plain) if !m.sort(ty).is_simple() => sums.push(cs),
+            _ => plain.push(cs),
+        }
+    }
+    let mut builtins: BTreeSet<String> = BTreeSet::new();
+    for cs in &plain {
+        for c in cs.iter() {
+            for a in &c.args {
+                if !names.contains(a) {
+                    builtins.insert(a.clone());
+                }
+            }
+        }
+    }
+    for c in &colls {
+        for (_, e) in &c.elems {
+            if !names.contains(e) {
+                builtins.insert(e.clone());
+            }
+        }
+    }
+    for cs in &sums {
+        for c in cs.iter() {
+            if !names.contains(&c.args[0]) {
+                builtins.insert(c.args[0].clone());
+            }
+        }
+    }
+    let arities: BTreeSet<usize> = plain
+        .iter()
+        .flat_map(|cs| cs.iter().map(|c| c.args.len()))
+        .collect();
+    let mut o = String::from(
+        "/-! Shapes (termination measures): every constructor and builtin value counts one. -/\nmutual\ndef Term.shape : {s : Tag} → Term s → Nat\n",
+    );
+    for b in &builtins {
+        writeln!(o, "  | _, .{} _ => 1", q(&format!("b_{b}"))).unwrap();
+    }
+    for k in &arities {
+        let vs: Vec<String> = (0..*k).map(|i| format!(" a{i}")).collect();
+        let sum: String = (0..*k).map(|i| format!(" + Term.shape a{i}")).collect();
+        writeln!(o, "  | _, .c{k} _{} => 1{sum}", vs.concat()).unwrap();
+    }
+    let elem_shape = |e: &(String, String), v: &str| -> String {
+        if names.contains(&e.1) {
+            format!("Term.shape {v}")
+        } else {
+            "1".to_string()
+        }
+    };
+    for c in &colls {
+        let f = fsuffix(&c.sort);
+        writeln!(
+            o,
+            "  | _, .{} l => Term.shapeL_{f} l",
+            q(&format!("coll_{f}"))
+        )
+        .unwrap();
+    }
+    writeln!(o, "  | _, .inj _ _ _ a => 1 + Term.shape a").unwrap();
+    for c in &colls {
+        let f = fsuffix(&c.sort);
+        let ty = match c.kind {
+            Coll::Map => format!("List ({} × {})", c.elems[0].0, c.elems[1].0),
+            Coll::Set => format!("List ({} × Unit)", c.elems[0].0),
+            Coll::List => format!("List {}", c.elems[0].0),
+        };
+        writeln!(o, "def Term.shapeL_{f} : {ty} → Nat\n  | [] => 0").unwrap();
+        match c.kind {
+            Coll::Map => writeln!(
+                o,
+                "  | (k, v) :: t => {} + {} + 1 + Term.shapeL_{f} t",
+                elem_shape(&c.elems[0], "k"),
+                elem_shape(&c.elems[1], "v")
+            ),
+            Coll::Set => writeln!(
+                o,
+                "  | (k, ()) :: t => {} + 1 + Term.shapeL_{f} t",
+                elem_shape(&c.elems[0], "k")
+            ),
+            Coll::List => writeln!(
+                o,
+                "  | k :: t => {} + 1 + Term.shapeL_{f} t",
+                elem_shape(&c.elems[0], "k")
+            ),
+        }
+        .unwrap();
+    }
+    writeln!(o, "end\n").unwrap();
+    writeln!(
+        o,
+        "instance {{s : Tag}} : KPrelude.Shape (Term s) := ⟨Term.shape⟩"
+    )
+    .unwrap();
+    writeln!(o, "theorem Term.shape_eq {{s : Tag}} (t : Term s) : KPrelude.Shape.shape t = Term.shape t := rfl").unwrap();
+    let elem_builtins: BTreeSet<&String> = colls
+        .iter()
+        .flat_map(|c| c.elems.iter().map(|(_, e)| e))
+        .filter(|e| !names.contains(*e))
+        .collect();
+    for b in elem_builtins {
+        // a builtin element of a collection counts one
+        writeln!(o, "instance : KPrelude.Shape {b} := ⟨fun _ => 1⟩").unwrap();
+    }
+    for c in &colls {
+        let f = fsuffix(&c.sort);
+        let (elem, pat, extra) = match c.kind {
+            Coll::Map => (
+                format!("{} × {}", c.elems[0].0, c.elems[1].0),
+                "obtain ⟨k, v⟩ := x; ",
+                "KPrelude.shape_prod, ",
+            ),
+            Coll::Set => (
+                format!("{} × Unit", c.elems[0].0),
+                "obtain ⟨k, ⟨⟩⟩ := x; ",
+                "KPrelude.shape_prod, KPrelude.shape_unit, ",
+            ),
+            Coll::List => (c.elems[0].0.clone(), "", ""),
+        };
+        writeln!(
+            o,
+            "instance : KPrelude.ListShape {} ({elem}) := ⟨fun l => by\n  show Term.shapeL_{f} l = _\n  induction l with\n  | nil => rfl\n  | cons x t ih => {pat}simp only [Term.shapeL_{f}, List.map_cons, List.sum_cons, ih, {extra}Term.shape_eq] <;> first | rfl | omega⟩",
+            c.sort
+        )
+        .unwrap();
+    }
+    o.push('\n');
+    o
+}

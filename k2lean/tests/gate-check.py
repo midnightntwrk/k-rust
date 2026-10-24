@@ -52,7 +52,7 @@ LIBS = {"kimp": ("KImp", "light"), "kimp-d2": ("KImp", "light"), "krsimp": ("Krs
         "kimpkeys": ("KImpKeys", "light"), "kimpkeys-hand": ("KImpKeys", "light"),
         "kimpfold": ("KImpInv", "light"), "kimptop": ("KImpInv", "light"), "nested": ("KNested", "light"),
         "simplestore": ("KSimpleInv", "heavy"), "simplet": ("KSimpleInv", "heavy"),
-        "freekey": ("FreeKey", "light")}
+        "freekey": ("FreeKey", "light"), "kterm-ar": ("KTerm", "arity")}
 # libraries built only as far as their invariant needs: no `…Test.Axioms` guard
 NO_GUARD = {"kimpinv", "simpleinv", "kimpkeys", "kimpkeys-hand", "kimpfold", "kimptop", "nested", "simplestore", "simplet"}
 INVS = {"kimpinv": ("KImpInv", "light"), "krsimp": ("KrsImp", "light"), "simpleinv": ("KSimpleInv", "heavy"),
@@ -91,7 +91,7 @@ SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsim
                          "generated/freekey", "generated/peano", "generated/peanob", "generated/cellmap", "generated/cellmapb"],
                "heavy": ["generated/simple", "generated/kimp-claims", "generated/simpleinv", "generated/simplestore", "generated/simplet",
                          "generated/kimpinv-claims"],
-               "arity": ["generated/kimp-ar", "generated/simple-ar"]}
+               "arity": ["generated/kimp-ar", "generated/simple-ar", "generated/kterm-ar"]}
 DEMO_SOURCES = {"light": ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/correspondence.toml",
                           "demos/ImpTypes/ImpTypes/Tr.lean", "demos/ImpTypes/correspondence.toml",
                           "demos/ImpTypes/ImpTypes/Typing.lean", "demos/ImpTypes/ImpTypes/Soundness.lean",

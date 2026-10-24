@@ -31,9 +31,10 @@
 #                                 kimpinv-claims (claims under kimpinv's invariant) and the demo
 #                                 ImpRelClaims (a kimp claim transferred to KRS IMP along the
 #                                 bisimulation)
-#   k2lean/tests/gate.sh arity    generator unit and snapshot tests, then kimp and SIMPLE in the
-#                                 arity-indexed term universe (`gen --arity-terms`, libraries kimp-ar
-#                                 and simple-ar): built with their axiom guards, kimp's goldens and
+#   k2lean/tests/gate.sh arity    generator unit and snapshot tests, then kimp, SIMPLE and the
+#                                 termination fixture demos/k/term in the arity-indexed term universe
+#                                 (`gen --arity-terms`, libraries kimp-ar, simple-ar and kterm-ar):
+#                                 built with their axiom guards, kimp's goldens and
 #                                 step traces, SIMPLE's cases against krust; their recorded outputs
 #                                 must equal the default encoding's (expected/)
 #   k2lean/tests/gate.sh accept   make the last run's measurements the baseline (tests/baseline.toml
@@ -509,6 +510,8 @@ lib_simple() { # DIR (simple, simple-ar): generate, cases, build, guard, run the
 }
 if [ "$TIER" = arity ]; then
   lib kimp-ar KImp && kimp_tests kimp-ar
+  # recursive functions whose termination measures the generator synthesizes (demos/k/term)
+  kc kterm && lib kterm-ar KTerm
   phase "lib simple-ar"
   if libs_kcompile simple > "$L/kcompile-simple.log" 2>&1; then
     ok "kcompile simple"

@@ -254,10 +254,11 @@ fn main() {
             if let Ok(t) = &init_term {
                 roots.extend(init::functions(t, &def));
             }
-            let side = match &a.termination {
+            let mut side = match &a.termination {
                 Some(p) => funcs::Sidecar::load(p).unwrap_or_else(|e| panic!("--termination: {e}")),
                 None => funcs::Sidecar::default(),
             };
+            side.arity_terms = arity;
             let fgen = funcs::generate_with(&def, &m, &roots, &side)
                 .unwrap_or_else(|e| panic!("functions: {e}"));
             for n in &fgen.notes {
