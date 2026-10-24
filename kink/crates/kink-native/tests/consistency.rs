@@ -172,7 +172,11 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// `joined` are sound, no overlap being set aside for an empty sort, where it said `separated`,
 /// `refuted` and `joined`. The check only gets stricter for kink: a mutant with such a pair, which
 /// the check used to separate, is now refused as `inconsistent-mutant`; no mutant is newly
-/// admitted.
+/// admitted. INT8 follow-up: line 1104's account of why such a pair withdraws no claim now
+/// argues from the readers of the simplifier's mark (an overloaded partial function's marked
+/// application is never read as a value, and what is decided from a parent over it holds under
+/// its definedness) where it stated that case as a limit: 1100-1107 `a83fde62` -> `3af0cfea`.
+/// No verdict of the check changes.
 ///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
@@ -188,7 +192,7 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
         "docs/compatibility.md",
         1100,
         1107,
-        "a83fde623d4af35da52631839831cc7e9a5cabc128bd5a716c7167605adc91d3",
+        "3af0cfea8f92b5217b8b2fcc71ff542e890dbd5552876e186845d15b52f66947",
     ),
     (
         "docs/compatibility.md",
@@ -255,7 +259,11 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// stages, the early return, the hook stage and the equation, pair and skipped counts kink reads
 /// are unchanged; a not-joined pair stays not joined (only reasons move), and a pair over an
 /// empty sort that was separated is now listed, so kink can only refuse more mutants.
-const CONFLUENCE_RS: &str = "286e86d773c6a93ef90247d0ba6f0aa4d396582fbf12f3ba509251c19e46e7cb";
+///
+/// INT8 follow-up: 286e86d7 -> c9fa00d8. Documentation only: `Context::uninhabited_sort`'s
+/// account of the simplifier's mark argues from its readers where it stated the overloaded
+/// partial function as a limit.
+const CONFLUENCE_RS: &str = "c9fa00d8917e74a9f56506902688c76df92178ac91e1afeff37a6ad41fa56dfe";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin

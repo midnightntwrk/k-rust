@@ -3588,3 +3588,66 @@ fn a_shadowing_binder_leaves_the_rule_identifier_alpha_invariant() {
     };
     assert_eq!(id("Y"), id("Z"));
 }
+
+/// INT8 (the claims' reading of sorts with no normal form): the simplifier's normal-form
+/// certificate also marks an application of an overloaded declared partial function, `g(a)`
+/// here (`g` partial with no equation, in `Sub`, which only `g` produces, so `Sub` has no normal
+/// form), and the anywhere head `h` above it is then certified, so `h(g(a)) ==K d` is decided.
+/// The mark is no claim that `g(a)` is a normal form: `g(a)` is not ceil-free, so the step splits
+/// on its definedness, and the decision, which erases `g(a)`, holds only under the constraint
+/// `\ceil(g(a))`, which the normal-form model, where the stuck partial application is
+/// `\bottom`, makes vacuous. Without the overload `g(a)` is unmarked and the equality stays
+/// undecided.
+#[test]
+fn a_marked_overloaded_partial_argument_leaves_its_definedness_on_the_decision() {
+    const SOURCE: &str = r#"
+module OV-SYNTAX
+  imports INT-SYNTAX
+  syntax A ::= "a"
+  syntax A2 ::= A | "a2"
+  syntax Sub ::= g(A) [function, overload(g)]
+  syntax Sup ::= Sub | "c"
+  syntax Sup ::= g(A2) [function, overload(g)]
+  syntax H ::= h(Sup) | "d"
+  syntax Pgm ::= go(Int)
+endmodule
+module OV
+  imports OV-SYNTAX
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  rule h(c) => d [anywhere]
+  configuration <k> $PGM:Pgm </k> <s> .K </s>
+  rule <k> go(_) => .K </k> <s> _ => h(g(a)) ==K d </s>
+endmodule
+"#;
+    let overloaded = compile(SOURCE, "OV", "OV-SYNTAX", "Pgm", "go(0)");
+    // The step splits on the definedness of `g(a)`: where it is defined the equality is
+    // `false`, where it is not the configuration takes no step.
+    let leaves = text(&execute(&overloaded, "OV", None));
+    let decided = |leaf: &String| leaf.contains(r#"\dv{SortBool{}}("false")"#);
+    assert_eq!(leaves.len(), 2, "{leaves:?}");
+    assert!(
+        leaves.iter().all(|leaf| leaf.contains(r"\ceil{SortSub{}")),
+        "{leaves:?}"
+    );
+    assert!(
+        leaves
+            .iter()
+            .all(|leaf| decided(leaf) != leaf.contains(r"\not{SortGeneratedTopCell{}}(\ceil")),
+        "{leaves:?}"
+    );
+    assert_eq!(leaves.iter().filter(|leaf| decided(leaf)).count(), 1);
+    let plain_source = SOURCE
+        .replace(" [function, overload(g)]", " [function]")
+        .replace("syntax Sup ::= g(A2)", "syntax Sup ::= g2(A2)");
+    let plain = compile(&plain_source, "OV", "OV-SYNTAX", "Pgm", "go(0)");
+    let leaves = text(&execute(&plain, "OV", None));
+    assert!(
+        leaves
+            .iter()
+            .any(|leaf| leaf.contains("Lbl'UndsEqlsEqls'K'Unds'"))
+            && !leaves.iter().any(decided),
+        "{leaves:?}"
+    );
+}

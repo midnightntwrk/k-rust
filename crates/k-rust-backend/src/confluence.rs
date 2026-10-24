@@ -2296,16 +2296,26 @@ impl Context<'_> {
     /// certificates a claim rests on check. The instance-normal scan (`instance_normal.rs`)
     /// claims an application whose arguments are instance-normal; a ground instance-normal term
     /// is a normal form, and no ground term of the sort is one. The simplifier's
-    /// [`crate::term::head::NormalFormCertificate`] (`simplify::cacheable_equation_head`) claims
-    /// a ground application of an equation head or an overloaded symbol when equation selection
-    /// is complete, every function and simplification equation it offers fails to match it, and
-    /// every argument carries the `evaluated` mark; that mark is carried by free-constructor
-    /// applications, domain values, injections and collections of terms that carry it, and by
-    /// applications holding the certificate. Those are built from symbols whose stuck
-    /// application is not `\bottom` (`symbols.rs`, `Class::stuck_is_bottom`), the symbols a
-    /// sort's normal forms are read from, except an overloaded declared partial function, which
-    /// the certificate also accepts: so no ground term of the sort carries the mark unless such a
-    /// function produces the sort. The prover also uses claims (it
+    /// [`crate::term::head::NormalFormCertificate`] (`simplify::cacheable_equation_head`) marks
+    /// a ground application of an equation head or an overloaded symbol `evaluated` when equation
+    /// selection is complete, every function and simplification equation it offers fails to
+    /// match it, and every argument carries the mark; free-constructor applications, domain
+    /// values, injections and collections of marked terms carry it by construction. The mark
+    /// alone is the simplifier's cache (no equation matches, on every path). It is read as a
+    /// value only by `certified_ground_normal_form`, which needs a term concrete after
+    /// normalization (`term.rs`, `synthesize_attributes`: at every position a constructor root
+    /// or an `anywhere` root that is no declared function), and by `NormalEvidence::certified`,
+    /// which needs such an `anywhere` root and reads the root alone. Each symbol at any position
+    /// of the first, and the root of the second, has a stuck application that is not `\bottom`
+    /// (`symbols.rs`, `Class::stuck_is_bottom`): the symbols a sort's normal forms are read from,
+    /// so no ground term of the sort is such a term. The second's arguments are marked terms, and
+    /// the one marked term whose symbol's stuck application is `\bottom` is an application of an
+    /// overloaded declared partial function, which the certificate also marks (`g(a)`, `g`
+    /// overloaded and partial with no equation, in a sort only `g` produces). It is never read
+    /// as a value itself, and it keeps its parent from being ceil-free: a step that decides from
+    /// the parent states the argument's definedness (`ceil_term`), so `h(g(a)) ==K d`, `h` an
+    /// `anywhere` head, gives `false` only under `\ceil(g(a))`, which `M_NF`, where the stuck
+    /// partial application is `\bottom`, makes vacuous. The prover also uses claims (it
     /// decomposes and refutes equation-head applications by their instance-normal tokens when it
     /// unifies a claim or a rule with a symbolic state, `unification.rs`, `proof.rs`,
     /// `rewrite/recover.rs`), and its results rest on that reading too: from a model with an
