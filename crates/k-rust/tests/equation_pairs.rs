@@ -442,3 +442,45 @@ endmodule
     assert_eq!(counts.hook.equations, 41, "{:?}", counts.hook);
     assert!(counts.hook.joined > 0);
 }
+
+/// Class C of the WASM pairs: two equations whose `requires` give one string term two different
+/// literals (`unescape`'s `\t` and `\n` rules) are refuted, and so is one whose literal, put in
+/// the other's condition, evaluates it to false (`findChar` of the hex digits on `"t"`). The
+/// same literal on both sides is a genuine overlap, and a literal of a substring outside the valid
+/// indices is not substituted into anything that decides it.
+#[test]
+fn string_equalities_refute_two_literals_and_substitute_one() {
+    let declaration = "  syntax Int ::= un(String, Int) [function, symbol(un)]";
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{declaration}
+  rule [a]: un(S, I) => 1 requires substrString(S, I, I +Int 1) ==K "t"
+  rule [b]: un(S, I) => 2 requires substrString(S, I, I +Int 1) ==K "n""#
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{declaration}
+  rule [a]: un(S, I) => 1 requires findChar("0123456789abcdefABCDEF", substrString(S, I, I +Int 1), 0) =/=Int -1
+  rule [b]: un(S, I) => 2 requires substrString(S, I, I +Int 1) ==K "t""#
+        )),
+        []
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{declaration}
+  rule [a]: un(S, I) => 1 requires substrString(S, I, I +Int 1) ==String "t"
+  rule [b]: un(S, I) => 2 requires substrString(S, I, I +Int 1) ==String "t""#
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
+    assert_eq!(
+        reasons_between_a_and_b(&format!(
+            r#"{declaration}
+  rule [a]: un(S, I) => 1 requires I ==Int lengthString(S) -Int 1
+  rule [b]: un(S, I) => 2 requires substrString(S, I +Int 1, I +Int 2) ==K "u""#
+        )),
+        [UnjoinedReason::ConditionOpen]
+    );
+}

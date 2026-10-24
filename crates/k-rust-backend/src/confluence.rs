@@ -717,9 +717,9 @@ pub struct HookCounts {
     /// Hook pairs not classified because the equation is not relevant ([`CheckScope::Gate`];
     /// zero under [`CheckScope::All`]).
     pub skipped: usize,
-    /// Overlaps of hook pairs found, and of them those separated, refuted and joined.
+    /// Overlaps of hook pairs found, and of them those refuted and joined. A hook pair's overlap
+    /// is never separated by an uninhabited sort: it is refuted, joined or not joined.
     pub overlaps: usize,
-    pub separated: usize,
     pub refuted: usize,
     pub joined: usize,
     /// Hook pairs not shown to join, each in [`ValueClaims::unjoined`].
@@ -1555,6 +1555,23 @@ impl<'d> Context<'d> {
         {
             return Conditions::Refuted;
         }
+        // A term the conjuncts require equal to a literal has that value on every instance where
+        // they hold, so each conjunct with the term replaced by the literal holds there too
+        // (congruence); simplified again, the conjunction may be refuted (`conditions.rs`,
+        // "equality classes").
+        let values = conditions::literal_values(self.definition, &conjuncts);
+        if let Some(rewritten) = conditions::substituted(&values, &conjuncts)
+            && let Some(simplified) = self.simplify(Predicate::And(rewritten.into()))
+        {
+            let mut again = BTreeSet::new();
+            flatten(simplified, &mut again);
+            let again = again.into_iter().collect::<Vec<_>>();
+            if again.contains(&Predicate::False)
+                || conditions::contradictory(self.definition, &again)
+            {
+                return Conditions::Refuted;
+            }
+        }
         Conditions::Open(conditions::equalities(&conjuncts))
     }
 
@@ -1899,7 +1916,7 @@ impl Context<'_> {
             }
         };
         for unifier in unifiers {
-            if self.vacuous(first, &second, &unifier) {
+            if candidate.counted == Counted::Group && self.vacuous(first, &second, &unifier) {
                 self.tally(candidate, Tally::Separated);
                 continue;
             }
@@ -2033,7 +2050,7 @@ impl Context<'_> {
             Counted::Hook => {
                 let hook = &mut self.counts.hook;
                 *match tally {
-                    Tally::Separated => &mut hook.separated,
+                    Tally::Separated => unreachable!("a hook pair's overlap is not separated"),
                     Tally::Overlap => &mut hook.overlaps,
                     Tally::Refuted => &mut hook.refuted,
                     Tally::Joined => &mut hook.joined,

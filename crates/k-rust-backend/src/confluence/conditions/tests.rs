@@ -5,7 +5,7 @@
 
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
-use super::{contradictory, equalities};
+use super::{contradictory, equalities, literal_values};
 use crate::{
     definition::BackendDefinition,
     rule::Predicate,
@@ -196,6 +196,20 @@ fn check(definition: &BackendDefinition, conjuncts: &[Conjunct]) -> Option<Strin
         }
         return None;
     }
+    // Each term the conjuncts give a literal's value has that value wherever they hold.
+    for (member, literal) in literal_values(definition, &predicates) {
+        for assignment in &satisfying {
+            let (found, expected) = (
+                evaluate(&member, *assignment),
+                evaluate(&literal, *assignment),
+            );
+            if found.is_none() || found != expected {
+                return Some(format!(
+                    "{conjuncts:?}: {member:?} is given the value {literal:?} but is {found:?} at {assignment:?}"
+                ));
+            }
+        }
+    }
     let substitution = equalities(&predicates);
     for assignment in &satisfying {
         for (variable, value) in &substitution {
@@ -238,6 +252,32 @@ fn assignment_substitution(
             )
         })
         .collect()
+}
+
+/// The integer value of a term of the generated conjunctions (variables of `NAMES`, literals,
+/// `addInt` and `subInt`) at `assignment`.
+fn evaluate(term: &Term, assignment: [i64; 3]) -> Option<i64> {
+    match term.kind() {
+        TermKind::Variable(variable) => NAMES
+            .iter()
+            .position(|name| variable.name.as_ref() == *name)
+            .map(|index| assignment[index]),
+        TermKind::DomainValue { .. } => ground_value(term),
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            let (left, right) = (
+                evaluate(arguments.first()?, assignment)?,
+                evaluate(arguments.get(1)?, assignment)?,
+            );
+            match symbol.name.as_ref() {
+                "addInt" => Some(left + right),
+                "subInt" => Some(left - right),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
 }
 
 fn ground_value(term: &Term) -> Option<i64> {
@@ -479,6 +519,86 @@ fn a_misread_interval_bound_is_caught_by_the_property_test() {
         random_conjunctions_agree_with_brute_force(2_000)
     });
     assert!(!failures.is_empty());
+}
+
+/// V7: merging the operands of a negative equality into one class refutes satisfiable
+/// conjunctions (`X =/=Int Y` beside `X ==Int 0` and `Y ==Int 1`), which the property test sees.
+#[test]
+fn a_misread_literal_class_is_caught_by_the_property_test() {
+    let switches = crate::confluence::switches::Switches {
+        misread_literal_classes: true,
+        ..Default::default()
+    };
+    let failures = crate::confluence::switches::with(switches, || {
+        random_conjunctions_agree_with_brute_force(2_000)
+    });
+    assert!(!failures.is_empty());
+}
+
+/// V7: substituting a literal through classes that merge negative equalities gives a term a value
+/// it does not have where the conjuncts hold, which the property test sees.
+#[test]
+fn a_substitution_without_its_class_is_caught_by_the_property_test() {
+    let switches = crate::confluence::switches::Switches {
+        substitute_without_class: true,
+        ..Default::default()
+    };
+    let failures = crate::confluence::switches::with(switches, || {
+        random_conjunctions_agree_with_brute_force(2_000)
+    });
+    assert!(!failures.is_empty());
+}
+
+/// Equalities with literals form classes: two different literals in one class, or a disequality
+/// between two members of one class, refute; one literal gives each member its value.
+#[test]
+fn equality_classes_refute_two_literals_and_give_a_members_value() {
+    let definition = definition();
+    let d = &definition;
+    let string = |value: &str| term(d, &format!(r#"\dv{{SortString{{}}}}("{value}")"#));
+    let s = term(d, "S:SortString{}");
+    let t = term(d, "T:SortString{}");
+    let equals = |left: &Term, right: &Term| Predicate::Equals(left.clone(), right.clone());
+    let differs =
+        |left: &Term, right: &Term| Predicate::Not(std::sync::Arc::new(equals(left, right)));
+    // S = "t", S = "n": two literals of one sort in one class.
+    assert!(contradictory(
+        d,
+        &[equals(&s, &string("t")), equals(&s, &string("n"))]
+    ));
+    // S = T, T = "t", S =/= "t": a disequality inside a class.
+    assert!(contradictory(
+        d,
+        &[
+            equals(&s, &t),
+            equals(&t, &string("t")),
+            differs(&s, &string("t"))
+        ]
+    ));
+    // S = "t", T = "n", S =/= T: satisfiable.
+    let open = [
+        equals(&s, &string("t")),
+        equals(&t, &string("n")),
+        differs(&s, &t),
+    ];
+    assert!(!contradictory(d, &open));
+    assert_eq!(
+        literal_values(d, &open),
+        vec![(s.clone(), string("t")), (t.clone(), string("n"))]
+            .into_iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>()
+    );
+    // The same literal twice is one value, not a clash.
+    assert!(!contradictory(
+        d,
+        &[
+            equals(&s, &string("t")),
+            equals(&t, &string("t")),
+            equals(&s, &t)
+        ]
+    ));
 }
 
 fn int(value: &str) -> String {

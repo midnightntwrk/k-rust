@@ -97,6 +97,11 @@ pub(crate) struct Switches {
     pub(crate) no_condition_memo: bool,
     /// Hook gap: pair no equation at an evaluated hook with the hook's written meaning.
     pub(crate) skip_hook_pairs: bool,
+    /// Conditions: merge the operands of a negative equality into one class, as a positive one.
+    pub(crate) misread_literal_classes: bool,
+    /// Conditions: substitute a class's literal through classes that also merge the operands of
+    /// negative equalities.
+    pub(crate) substitute_without_class: bool,
 }
 
 #[cfg(test)]
@@ -138,6 +143,8 @@ thread_local! {
             relevance_needs_both: false,
             no_condition_memo: false,
             skip_hook_pairs: false,
+            misread_literal_classes: false,
+            substitute_without_class: false,
         })
     };
 }

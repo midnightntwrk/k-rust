@@ -42,6 +42,23 @@
 //! `notBool (X /Int Y >Int 5)` beside `notBool (X /Int Y <Int 6)` is not refuted: a known
 //! non-refutation, sound.
 //!
+//! - **equality classes**: the terms the conjuncts require equal form classes: the operands of an
+//!   equality atom (`INT.eq`, `KEQUAL.eq`, `BOOL.eq`, `STRING.eq`, or a negated `ne`) required
+//!   true, and the two sides of an ML `\equals(t, u)` neither of which is a Boolean literal. Such
+//!   an atom holds only where both operands are defined, and then exactly when they are the same
+//!   value (each hook is equality on its domain), and `\equals` is equality of patterns; equality
+//!   is an equivalence relation. A class holding two different domain values of one sort (two
+//!   different elements: the unifier reads them as a clash too) holds on no instance, nor does a
+//!   class two of whose members a negative equality (the atom required false, or `\not` of the
+//!   `\equals`) relates. The operands of `KEQUAL.eq` that are one-element sequences of injections
+//!   from one sort are compared by their items (`kseq` is a free constructor, `inj` injective).
+//!   A class with exactly one domain value gives each of its other members that value on every
+//!   instance where the conjuncts hold, so each conjunct with the members replaced by the value
+//!   holds there too (symbols denote functions: congruence); `Context::conditions` simplifies the
+//!   rewritten conjunction once more and refutes it when that gives `\bottom` or a contradiction
+//!   (`substring(S, I, I +Int 1) ==String "t"` beside `findChar(HEX, substring(S, I, I +Int 1), 0)
+//!   =/=Int -1` becomes `findChar(HEX, "t", 0) =/=Int -1`, which evaluates to false).
+//!
 //! Every remaining conjunct `X = t` (a variable equal to a term without `X`) is an equality every
 //! instance satisfying the conditions has, which the join may apply (`confluence.rs`).
 
@@ -62,7 +79,7 @@ use crate::{
 enum Atom {
     /// `left <Int right`.
     Less(Term, Term),
-    /// `left == right` (`INT.eq`, `KEQUAL.eq`, `BOOL.eq`), arguments in term order.
+    /// `left == right` (`INT.eq`, `KEQUAL.eq`, `BOOL.eq`, `STRING.eq`), arguments in term order.
     Equal(Term, Term),
     Other(Term),
 }
@@ -91,7 +108,250 @@ pub(super) fn contradictory(definition: &BackendDefinition, conjuncts: &[Predica
             }
         }
     }
-    integer_bounds_empty(definition, conjuncts)
+    let merging = super::switches::active().misread_literal_classes;
+    Classes::of(definition, conjuncts, merging).is_none()
+        || integer_bounds_empty(definition, conjuncts)
+}
+
+/// The classes of the terms the conjuncts require equal (module documentation, "equality
+/// classes"), with a union-find over the terms.
+struct Classes {
+    index: FxHashMap<Term, usize>,
+    terms: Vec<Term>,
+    parent: Vec<usize>,
+}
+
+impl Classes {
+    fn node(&mut self, term: &Term) -> usize {
+        if let Some(index) = self.index.get(term) {
+            return *index;
+        }
+        let index = self.terms.len();
+        self.index.insert(term.clone(), index);
+        self.terms.push(term.clone());
+        self.parent.push(index);
+        index
+    }
+
+    fn find(&mut self, mut index: usize) -> usize {
+        while self.parent[index] != index {
+            self.parent[index] = self.parent[self.parent[index]];
+            index = self.parent[index];
+        }
+        index
+    }
+
+    fn union(&mut self, left: &Term, right: &Term) {
+        let (left, right) = (self.node(left), self.node(right));
+        let (left, right) = (self.find(left), self.find(right));
+        self.parent[left] = right;
+    }
+
+    /// The classes of the positive equalities among `conjuncts`, or `None` when the conjuncts
+    /// are contradictory by them: a class holds two different domain values of one sort, or a
+    /// negative equality relates two members of one class. `merging` also merges the operands
+    /// of each negative equality (a defect switch).
+    fn of(definition: &BackendDefinition, conjuncts: &[Predicate], merging: bool) -> Option<Self> {
+        let mut classes = Self {
+            index: FxHashMap::default(),
+            terms: Vec::new(),
+            parent: Vec::new(),
+        };
+        let mut apart = Vec::new();
+        for conjunct in conjuncts {
+            let Some((left, right, positive)) = equality(definition, conjunct) else {
+                continue;
+            };
+            if positive || merging {
+                classes.union(&left, &right);
+            } else {
+                apart.push((left, right));
+            }
+        }
+        for (left, right) in apart {
+            let (left, right) = (classes.node(&left), classes.node(&right));
+            if classes.find(left) == classes.find(right) {
+                return None;
+            }
+        }
+        let mut literals = FxHashMap::<usize, Vec<Term>>::default();
+        for index in 0..classes.terms.len() {
+            if matches!(classes.terms[index].kind(), TermKind::DomainValue { .. }) {
+                let root = classes.find(index);
+                literals
+                    .entry(root)
+                    .or_default()
+                    .push(classes.terms[index].clone());
+            }
+        }
+        let clash = literals.values().any(|values| {
+            values.iter().enumerate().any(|(position, value)| {
+                values[position + 1..]
+                    .iter()
+                    .any(|other| other.sort() == value.sort() && other != value)
+            })
+        });
+        (!clash).then_some(classes)
+    }
+}
+
+/// The equality or disequality a conjunct states between two terms, and whether it is positive:
+/// an equality atom (`INT.eq`, `KEQUAL.eq`, `BOOL.eq`, `STRING.eq` and their negations) required
+/// true or false, an ML `\equals(t, u)` neither of whose sides is a Boolean literal, or its
+/// `\not`. The operands of `KEQUAL.eq` that are one-element sequences of an injection from one
+/// sort are compared by the injected items: `kseq` is a free constructor and `inj` injective.
+fn equality(definition: &BackendDefinition, conjunct: &Predicate) -> Option<(Term, Term, bool)> {
+    let plain = |predicate: &Predicate| match predicate {
+        Predicate::Equals(left, right)
+            if boolean(definition, left).is_none() && boolean(definition, right).is_none() =>
+        {
+            Some((left.clone(), right.clone()))
+        }
+        _ => None,
+    };
+    if let Some((left, right)) = plain(conjunct) {
+        return Some((left, right, true));
+    }
+    if let Predicate::Not(inner) = conjunct
+        && let Some((left, right)) = plain(inner)
+    {
+        return Some((left, right, false));
+    }
+    let (term, polarity) = literal(definition, conjunct)?;
+    let (Atom::Equal(left, right), polarity) = atom(&term, polarity) else {
+        return None;
+    };
+    let (left, right) = match (sequence_item(&left), sequence_item(&right)) {
+        (Some(left), Some(right)) if left.sort() == right.sort() => (left, right),
+        _ => (left, right),
+    };
+    Some((left, right, polarity))
+}
+
+/// The item of a one-element `K` sequence `kseq(inj{S, KItem}(item), dotk)`.
+fn sequence_item(term: &Term) -> Option<Term> {
+    let item = crate::builtin::k_sequence_item(term)?;
+    match item.kind() {
+        TermKind::Injection { term, .. } => Some(term.clone()),
+        _ => None,
+    }
+}
+
+/// The values the conjuncts give terms: each member of an equality class that holds exactly one
+/// domain value, other than that value, with the value (module documentation, "equality
+/// classes"). Empty when the conjuncts are contradictory by their classes.
+pub(super) fn literal_values(
+    definition: &BackendDefinition,
+    conjuncts: &[Predicate],
+) -> Vec<(Term, Term)> {
+    let merging = super::switches::active().substitute_without_class;
+    let Some(mut classes) = Classes::of(definition, conjuncts, merging) else {
+        return Vec::new();
+    };
+    let mut literal_of = FxHashMap::<usize, Option<Term>>::default();
+    for index in 0..classes.terms.len() {
+        let term = classes.terms[index].clone();
+        if matches!(term.kind(), TermKind::DomainValue { .. }) {
+            let root = classes.find(index);
+            let entry = literal_of.entry(root).or_insert(Some(term.clone()));
+            if entry.as_ref() != Some(&term) {
+                *entry = None;
+            }
+        }
+    }
+    let mut values = Vec::new();
+    for index in 0..classes.terms.len() {
+        let root = classes.find(index);
+        let term = &classes.terms[index];
+        if let Some(Some(literal)) = literal_of.get(&root)
+            && term != literal
+            && term.sort() == literal.sort()
+        {
+            values.push((term.clone(), literal.clone()));
+        }
+    }
+    values.sort_by(|left, right| left.0.cmp(&right.0));
+    values
+}
+
+/// `conjuncts` with every maximal occurrence of a term of `values` replaced by its value, outside
+/// quantifiers; `None` when nothing is replaced.
+pub(super) fn substituted(
+    values: &[(Term, Term)],
+    conjuncts: &[Predicate],
+) -> Option<Vec<Predicate>> {
+    if values.is_empty() {
+        return None;
+    }
+    let map = values.iter().cloned().collect::<FxHashMap<_, _>>();
+    let mut changed = false;
+    let rewritten = conjuncts
+        .iter()
+        .map(|conjunct| replace_in_predicate(conjunct, &map, &mut changed))
+        .collect();
+    changed.then_some(rewritten)
+}
+
+fn replace_in_term(term: &Term, map: &FxHashMap<Term, Term>, changed: &mut bool) -> Term {
+    if let Some(value) = map.get(term) {
+        *changed = true;
+        return value.clone();
+    }
+    let mut local = false;
+    let replaced = super::children(term)
+        .iter()
+        .map(|child| replace_in_term(child, map, &mut local))
+        .collect();
+    if !local {
+        return term.clone();
+    }
+    *changed = true;
+    super::with_children(term, replaced)
+}
+
+fn replace_in_predicate(
+    predicate: &Predicate,
+    map: &FxHashMap<Term, Term>,
+    changed: &mut bool,
+) -> Predicate {
+    let term = |term: &Term, changed: &mut bool| replace_in_term(term, map, changed);
+    let arc = |inner: &std::sync::Arc<Predicate>, changed: &mut bool| {
+        std::sync::Arc::new(replace_in_predicate(inner, map, changed))
+    };
+    match predicate {
+        Predicate::Term(inner) => Predicate::Term(term(inner, changed)),
+        Predicate::Equals(left, right) => {
+            Predicate::Equals(term(left, changed), term(right, changed))
+        }
+        Predicate::Ceil(inner) => Predicate::Ceil(term(inner, changed)),
+        Predicate::Floor(inner) => Predicate::Floor(term(inner, changed)),
+        Predicate::Defined(inner) => Predicate::Defined(term(inner, changed)),
+        Predicate::In(left, right) => Predicate::In(term(left, changed), term(right, changed)),
+        Predicate::Not(inner) => Predicate::Not(arc(inner, changed)),
+        Predicate::Implies(left, right) => {
+            Predicate::Implies(arc(left, changed), arc(right, changed))
+        }
+        Predicate::Iff(left, right) => Predicate::Iff(arc(left, changed), arc(right, changed)),
+        Predicate::And(items) => Predicate::And(
+            items
+                .iter()
+                .map(|item| replace_in_predicate(item, map, changed))
+                .collect(),
+        ),
+        Predicate::Or(items) => Predicate::Or(
+            items
+                .iter()
+                .map(|item| replace_in_predicate(item, map, changed))
+                .collect(),
+        ),
+        // Under a binder a member may mention the bound variable; leaving it as written only
+        // decides less.
+        Predicate::True
+        | Predicate::False
+        | Predicate::Exists(..)
+        | Predicate::Forall(..)
+        | Predicate::Absent(_) => predicate.clone(),
+    }
 }
 
 /// The integers a key may take under the conjuncts that compare it with literals: an interval
@@ -431,11 +691,11 @@ fn atom(term: &Term, polarity: bool) -> (Atom, bool) {
         }
         Some(("INT.le", [left, right])) => (Atom::Less(right.clone(), left.clone()), !polarity),
         Some(("INT.ge", [left, right])) => (Atom::Less(left.clone(), right.clone()), !polarity),
-        Some(("INT.eq" | "KEQUAL.eq" | "BOOL.eq", [left, right])) => {
+        Some(("INT.eq" | "KEQUAL.eq" | "BOOL.eq" | "STRING.eq", [left, right])) => {
             let (left, right) = ordered(left, right);
             (Atom::Equal(left, right), polarity)
         }
-        Some(("INT.ne" | "KEQUAL.ne" | "BOOL.ne", [left, right])) => {
+        Some(("INT.ne" | "KEQUAL.ne" | "BOOL.ne" | "STRING.ne", [left, right])) => {
             let (left, right) = ordered(left, right);
             (Atom::Equal(left, right), !polarity)
         }
