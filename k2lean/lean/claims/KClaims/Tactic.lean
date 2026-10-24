@@ -1,9 +1,11 @@
 import Lean
 import KClaims.RuleStep
 import KClaims.Exec
+import KClaims.StepInv
 import KClaims.SimpAttr
 import KPrelude.Hooks
 import KPrelude.Coll
+import KPrelude.InvColl
 
 /-!
 # Symbolic execution tactics for generated claims
@@ -59,6 +61,8 @@ partial def norm (e : Expr) : MetaM Expr := do
   if ← isLeafType ty then return e
   if ← isProp ty then return e
   let w ← whnfD e
+  -- a projection out of a known pair (a map lookup's value) is the variable it projects
+  if w.isFVar then return w
   let isC ← if w.getAppFn.isConst then isConstructorApp w else pure false
   let e' := if isC then w else e
   match e'.getAppFn with
@@ -79,10 +83,14 @@ def configOf (t : Expr) : Option (Expr × (Expr → Expr)) :=
   match t.getAppFnArgs with
   | (``KClaims.AF, #[α, R, P, c]) => some (c, fun c' => mkAppN t.getAppFn #[α, R, P, c'])
   | (``KClaims.AFn, #[α, R, P, n, c]) => some (c, fun c' => mkAppN t.getAppFn #[α, R, P, n, c'])
+  | (``KClaims.Reach, #[α, R, P, c]) => some (c, fun c' => mkAppN t.getAppFn #[α, R, P, c'])
   | _ => none
 
 def normGoal (g : MVarId) : MetaM MVarId := g.withContext do
   let t ← instantiateMVars (← g.getType)
+  -- a case split's motive can leave the target as a beta-redex or annotated
+  let t' := t.cleanupAnnotations.headBeta
+  let t := t'
   match configOf t with
   | some (c, mk) => g.replaceTargetDefEq (mk (← norm c))
   | none =>
@@ -134,7 +142,15 @@ def predIndex (n : Expr) : Option Expr :=
   else if n.isAppOfArity ``HAdd.hAdd 6 then some (n.getArg! 4)
   else none
 
-def tryRules (rules : Array Expr) (g : MVarId) : MetaM (Option MVarId) := g.withContext do
+/-- The local hypothesis named `hinv`: the assumed invariant at the goal's configuration (the
+`inv` mode of `kc_auto`). -/
+def invHyp? : MetaM (Option LocalDecl) := do
+  return (← getLCtx).findFromUserName? `hinv
+
+/-- Step by the first rule matcher that returns a successor. With `inv = some hP` (`hP : Preserved
+R P`) and a hypothesis `hinv : P c`, the step is `AFn.of_rule_inv`, and the new goal has
+`hinv : P c'` in place of the old one. -/
+def tryRules (rules : Array Expr) (g : MVarId) (inv : Option Expr := none) : MetaM (Option MVarId) := g.withContext do
   let t ← instantiateMVars (← g.getType)
   let some (c, mk) := configOf t | return none
   let mk := match t.getAppFnArgs with
@@ -149,13 +165,29 @@ def tryRules (rules : Array Expr) (g : MVarId) : MetaM (Option MVarId) := g.with
     let rhs ← mkAppM ``Option.some #[c']
     if ← isDefEq lhs rhs then
       let c'' ← norm (← instantiateMVars c')
-      let k ← mkFreshExprSyntheticOpaqueMVar (mk c'')
       let rhs'' ← mkAppM ``Option.some #[c'']
       let h ← mkExpectedTypeHint (← mkEqRefl rhs'') (← mkEq lhs rhs'')
-      let lem := if t.isAppOf ``KClaims.AFn then ``KClaims.AFn.of_rule else ``KClaims.AF.of_rule
-      let pf ← mkAppM lem #[r, h, k]
-      g.assign pf
-      return some k.mvarId!
+      if t.isAppOf ``KClaims.Reach then
+        let k ← mkFreshExprSyntheticOpaqueMVar (mk c'')
+        g.assign (← mkAppM ``KClaims.Reach.of_rule #[r, h, k])
+        return some k.mvarId!
+      match inv, ← invHyp? with
+      | some hP, some hd =>
+        let Pc ← match (← instantiateMVars (← inferType hP)).getAppFnArgs with
+          | (``KPrelude.Preserved, #[_, _, P]) => pure (P.beta #[c'']).headBeta
+          | _ => throwError "kc: inv expects a proof of `Preserved R P`"
+        let k ← mkFreshExprSyntheticOpaqueMVar (← mkArrow Pc (mk c''))
+        let lem := if t.isAppOf ``KClaims.AFn then ``KClaims.AFn.of_rule_inv else ``KClaims.AF.of_rule_inv
+        g.assign (← mkAppM lem #[hP, hd.toExpr, r, h, k])
+        let (_, g') ← k.mvarId!.intro `hinv
+        let g' ← (try g'.clear hd.fvarId catch _ => pure g')
+        return some g'
+      | _, _ =>
+        let k ← mkFreshExprSyntheticOpaqueMVar (mk c'')
+        let lem := if t.isAppOf ``KClaims.AFn then ``KClaims.AFn.of_rule else ``KClaims.AF.of_rule
+        let pf ← mkAppM lem #[r, h, k]
+        g.assign pf
+        return some k.mvarId!
     s.restore
   return none
 
@@ -260,6 +292,7 @@ def tryDone (closer : TSyntax `tactic) (g : MVarId) : TacticM Bool := do
   let lem ← match t.getAppFn with
     | .const ``KClaims.AF _ => pure ``KClaims.AF.here
     | .const ``KClaims.AFn _ => pure ``KClaims.AFn.here
+    | .const ``KClaims.Reach _ => pure ``KClaims.Reach.here
     | _ => return false
   let ok ← g.withContext do
     let some (c, _) := configOf t | return false
@@ -282,6 +315,20 @@ macro_rules
       Bool.not_eq_false', beq_iff_eq, bne_iff_ne, ne_eq, Bool.false_eq_true, not_false_eq_true,
       Bool.true_eq_false, decide_not, Bool.not_not, Int.not_lt, Int.not_le] $[$loc]?)
 
+/-- An application of an inductive predicate (with indices, not one of the logical connectives)
+whose index arguments are all constructor applications. -/
+def refutable (t : Expr) : MetaM Bool := do
+  let .const n _ := t.getAppFn | return false
+  if n == ``Eq || n == ``HEq || n == ``Exists || n == ``And || n == ``Or then return false
+  let some (.inductInfo ii) := (← getEnv).find? n | return false
+  if ii.numIndices == 0 then return false
+  unless ← isProp t do return false
+  let args := t.getAppArgs
+  for a in args[ii.numParams:] do
+    let w ← whnfD a
+    unless w.getAppFn.isConst && (← isConstructorApp w) do return false
+  return true
+
 /-- One opening step on some hypothesis of `g`: `∃` and `∧` are destructured, an equation with
 a variable side is substituted, an equation `f … = some x` is evaluated by `cases`, a Boolean
 condition is simplified to a proposition. `none` if no hypothesis needs it. -/
@@ -289,6 +336,8 @@ def openStep (g : MVarId) (tried : Array FVarId) : TacticM (Option (List MVarId 
   g.withContext do
   for ldecl in (← getLCtx) do
     if ldecl.isImplementationDetail || tried.contains ldecl.fvarId then continue
+    -- the assumed invariant stays folded (`kc_auto … inv`): it is opened on demand
+    if ldecl.userName == `hinv then continue
     let t ← whnfD (← instantiateMVars ldecl.type)
     match t.getAppFnArgs with
     | (``Exists, _) | (``And, _) =>
@@ -318,7 +367,15 @@ def openStep (g : MVarId) (tried : Array FVarId) : TacticM (Option (List MVarId 
           return some (subs.toList.map (·.mvarId), tried)
         catch _ => pure ()
       return some ([g], tried.push ldecl.fvarId)
-    | _ => continue
+    | _ =>
+      -- an inductive predicate whose indices are constructor applications: inversion refutes
+      -- the case when no constructor of the predicate has those indices
+      if ← refutable t then
+        let s ← saveState
+        let closed ← try pure (← g.cases ldecl.fvarId).isEmpty catch _ => pure false
+        if closed then return some ([], tried)
+        s.restore
+      continue
   return none
 
 /-- Open every hypothesis of `g` (see `openStep`). -/
@@ -356,26 +413,46 @@ elab "kc_intro " h:ident : tactic => do
   let gs ← gs.mapM fun g => do let g ← splitCells g; normGoal g
   setGoals gs
 
-/-- Split on the first non-literal Boolean of the configuration. -/
-def trySplit (g : MVarId) : TacticM (Option (List MVarId)) := g.withContext do
+/-- Close the goals whose arithmetic hypotheses contradict each other (`omega`), keep the others. -/
+def pruneArith (gs : List MVarId) : TacticM (List MVarId) := do
+  let mut out := []
+  for g in gs do
+    let s ← saveState
+    setGoals [g]
+    try
+      evalTactic (← `(tactic| (exfalso; omega)))
+      unless (← getUnsolvedGoals).isEmpty do s.restore; out := out ++ [g]
+    catch _ => s.restore; out := out ++ [g]
+  return out
+
+/-- Split on the first non-literal Boolean of the configuration; with `prune`, drop the cases
+whose arithmetic hypotheses are contradictory. -/
+def trySplit (g : MVarId) (prune : Bool := false) : TacticM (Option (List MVarId)) := g.withContext do
   let t ← instantiateMVars (← g.getType)
   let some (c, _) := configOf t | return none
   let some b ← findBool c | return none
   setGoals [g]
+  let fin (gs : List MVarId) : TacticM (List MVarId) := do
+    let gs ← gs.mapM fun g => (normGoal g : MetaM MVarId)
+    if prune then pruneArith gs else pure gs
   if b.isFVar then
     let subs ← g.cases b.fvarId!
-    return some (← subs.toList.mapM fun s => (normGoal s.mvarId : MetaM MVarId))
+    return some (← fin (subs.toList.map (·.mvarId)))
   let bs ← Term.exprToSyntax b
   try
-    evalTactic (← `(tactic| (generalize $(mkIdent `hkc) : $bs = $(mkIdent `bkc):ident; cases $(mkIdent `bkc):ident <;> (try kc_bool_simp at $(mkIdent `hkc):ident))))
+    if (← invHyp?).isSome then
+      -- the assumed invariant is about the same configuration: generalize it too
+      evalTactic (← `(tactic| (generalize $(mkIdent `hkc) : $bs = $(mkIdent `bkc):ident at $(mkIdent `hinv):ident ⊢; cases $(mkIdent `bkc):ident <;> (try kc_bool_simp at $(mkIdent `hkc):ident))))
+    else
+      evalTactic (← `(tactic| (generalize $(mkIdent `hkc) : $bs = $(mkIdent `bkc):ident; cases $(mkIdent `bkc):ident <;> (try kc_bool_simp at $(mkIdent `hkc):ident))))
     let gs ← getUnsolvedGoals
-    return some (← gs.mapM fun g => (normGoal g : MetaM MVarId))
+    return some (← fin gs)
   catch _ => return none
 
 /-- Apply a claim (a circularity with its index bound, or a proved claim) at the goal's
 configuration; continue from its post-condition. `ap c Q : Inst c Q → AFn R Q n c`. -/
-def tryClaim (closer : TSyntax `tactic) (g : MVarId) (ap : Expr → Expr → TacticM (Option Expr)) :
-    TacticM (Option (List MVarId)) := do
+def tryClaim (closer : TSyntax `tactic) (g : MVarId) (ap : Expr → Expr → TacticM (Option Expr))
+    (invP : Option Expr := none) : TacticM (Option (List MVarId)) := do
   let s ← saveState
   let r ← g.withContext do
     let t ← instantiateMVars (← g.getType)
@@ -389,17 +466,35 @@ def tryClaim (closer : TSyntax `tactic) (g : MVarId) (ap : Expr → Expr → Tac
     unless ← solveConj closer gi.mvarId! do return none
     let hQ := mkApp f gi
     let Qi ← instantiateMVars Q
-    let P := t.getAppArgs[2]!
-    let contTy ← withLocalDeclD `d α fun d => do
-      let body ← mkArrow (Qi.beta #[d]).headBeta (configOf t |>.get!.2 d)
-      mkForallFVars #[d] body
-    let cont ← mkFreshExprSyntheticOpaqueMVar contTy
-    let lem := if t.isAppOf ``KClaims.AFn then ``KClaims.AFn.trans else ``KClaims.AF.trans
-    g.assign (← mkAppM lem #[hQ, cont])
-    let _ := P
-    let (_, g1) ← cont.mvarId!.introN 2
-    let gs ← openAll g1
-    return some (← gs.mapM fun g => (normGoal g : MetaM MVarId))
+    match invP with
+    | some P =>
+      -- the claim's target is `P ∧ Q`: continue with `hinv : P d` and `Q d`
+      let contTy ← withLocalDeclD `d α fun d => do
+        let body ← mkArrow (P.beta #[d]).headBeta (← mkArrow (Qi.beta #[d]).headBeta (configOf t |>.get!.2 d))
+        mkForallFVars #[d] body
+      let cont ← mkFreshExprSyntheticOpaqueMVar contTy
+      let lem := if t.isAppOf ``KClaims.AFn then ``KClaims.AFn.trans_inv else ``KClaims.AF.trans_inv
+      g.assign (← mkAppM lem #[hQ, cont])
+      let old := (← invHyp?).map (·.fvarId)
+      let (_, g1) ← cont.mvarId!.intro1
+      let (_, g1) ← g1.intro `hinv
+      let (_, g1) ← g1.intro1
+      let g1 ← match old with
+        | some o => (try g1.clear o catch _ => pure g1)
+        | none => pure g1
+      let gs ← openAll g1
+      return some (← gs.mapM fun g => (normGoal g : MetaM MVarId))
+    | none =>
+      let contTy ← withLocalDeclD `d α fun d => do
+        let body ← mkArrow (Qi.beta #[d]).headBeta (configOf t |>.get!.2 d)
+        mkForallFVars #[d] body
+      let cont ← mkFreshExprSyntheticOpaqueMVar contTy
+      let lem := if t.isAppOf ``KClaims.AFn then ``KClaims.AFn.trans
+        else if t.isAppOf ``KClaims.Reach then ``KClaims.Reach.trans else ``KClaims.AF.trans
+      g.assign (← mkAppM lem #[hQ, cont])
+      let (_, g1) ← cont.mvarId!.introN 2
+      let gs ← openAll g1
+      return some (← gs.mapM fun g => (normGoal g : MetaM MVarId))
   match r with
   | some gs => return some gs
   | none => s.restore; return none
@@ -418,16 +513,167 @@ structure Cfg where
   closer : TSyntax `tactic
   rules : Array Expr
   circs : Array Name
-  lemmas : Array Expr
+  /-- proved claims; a local hypothesis is kept by its name, since a case split replaces it -/
+  lemmas : Array (Expr ⊕ Name)
   fuel : Nat
   /-- rule steps, splits, kept claim applications, configurations -/
   stats : IO.Ref (Array Nat)
+  /-- the assumed invariant (`inv [hP]`): `hP : Preserved R P`, and `P` -/
+  inv : Option (Expr × Expr) := none
+  /-- split variables of small sum types when stuck (`split`) -/
+  splitVars : Bool := false
+
+/-- A type whose values a case split enumerates cheaply: an inductive type without indices, with 2
+to 8 constructors, none of which has a field of the type itself (so `SortK`, maps and lists are
+excluded, and a split never produces a variable of the same type again); not a leaf type (`Int`,
+`Bool`, which `trySplit` handles, …), and not a structure. -/
+def splittable (ty : Expr) : MetaM Bool := do
+  if ← isLeafType ty then return false
+  let ty ← whnfR ty
+  let .const n _ := ty.getAppFn | return false
+  let env ← getEnv
+  let some (.inductInfo ii) := env.find? n | return false
+  if ii.numIndices != 0 || ii.ctors.length < 2 || ii.ctors.length > 8 then return false
+  if (Lean.getStructureInfo? env n).isSome then return false
+  -- `isRec` is set for every type of a `mutual` block, so look at the fields themselves
+  for ctor in ii.ctors do
+    let some (.ctorInfo ci) := env.find? ctor | return false
+    let selfRef ← forallTelescopeReducing ci.type fun xs _ => do
+      for x in xs[ci.numParams:] do
+        if (← whnfR (← inferType x)).getAppFn.constName? == some n then return true
+      return false
+    if selfRef then return false
+  return true
+
+/-- The free variables of `e`, left to right, first occurrences. -/
+partial def fvarsInOrder (e : Expr) (acc : Array FVarId := #[]) : Array FVarId :=
+  match e with
+  | .fvar f => if acc.contains f then acc else acc.push f
+  | .app f a => fvarsInOrder a (fvarsInOrder f acc)
+  | .mdata _ b => fvarsInOrder b acc
+  | _ => acc
+
+/-- Split the first variable of the configuration whose type is `splittable`; each case is opened
+(a hypothesis about the variable that becomes false closes the case). -/
+def trySplitVar (g : MVarId) : TacticM (Option (List MVarId)) := g.withContext do
+  let t ← instantiateMVars (← g.getType)
+  let some (c, _) := configOf t | return none
+  for f in fvarsInOrder c do
+    let some d := (← getLCtx).find? f | continue
+    if d.isLet then continue
+    unless ← splittable d.type do continue
+    let s ← saveState
+    try
+      let subs ← g.cases f
+      let mut out := []
+      for sg in subs do
+        let gs ← openAll sg.mvarId
+        out := out ++ (← gs.mapM fun g => (normGoal g : MetaM MVarId))
+      return some out
+    catch _ => s.restore
+  return none
+
+/-- A projection `proj_A_B x` of a variable `x` of the configuration, in a hypothesis, with the
+generated lemma `proj_eq_some_A_B` beside it. -/
+partial def findProj (cfgVars : Array FVarId) (e : Expr) : MetaM (Option (Expr × Name)) := do
+  if e.hasLooseBVars then
+    -- look inside binders' bodies only through closed subterms
+    for a in e.getAppArgs do
+      if let some r ← findProj cfgVars a then return some r
+    return none
+  match e.getAppFn with
+  | .const n _ =>
+    let args := e.getAppArgs
+    if let .str pre last := n then
+      if last.startsWith "proj_" && args.size == 1 && args[0]!.isFVar && cfgVars.contains args[0]!.fvarId! then
+        let lem := Name.str pre ("proj_eq_some_" ++ (last.drop 5).toString)
+        if (← getEnv).contains lem then return some (e, lem)
+    for a in args do
+      if let some r ← findProj cfgVars a then return some r
+    return none
+  | _ =>
+    match e with
+    | .app f a =>
+      if let some r ← findProj cfgVars f then return some r
+      findProj cfgVars a
+    | .lam _ _ b _ | .forallE _ _ b _ => findProj cfgVars b
+    | .mdata _ b => findProj cfgVars b
+    | _ => return none
+
+/-- Use the assumed invariant where no rule applies: open a copy of `hinv` with the `kc_inv` set
+(the invariant's definitions and equations; collections become lists of their bindings), then
+`kc_inv_fns` (the definitions of the functions it calls), and when it constrains a variable `x` of the configuration through a projection
+(`proj_A_B x`, for example "the store value `x` is a `Value`"), split on that projection: the case
+`none` is refuted by the opened invariant, and in the case `some y`, `x` is replaced by the
+injection of `y` (`proj_eq_some_A_B`), whose sort a later split can enumerate. -/
+def tryInvProj (g : MVarId) : TacticM (Option (List MVarId)) := g.withContext do
+  let some _ ← invHyp? | return none
+  let t ← instantiateMVars (← g.getType)
+  let some (c, _) := configOf t | return none
+  let s ← saveState
+  setGoals [g]
+  try
+    evalTactic (← `(tactic| have $(mkIdent `hkcI) := $(mkIdent `hinv)))
+    evalTactic (← `(tactic| simp only [kc_inv] at $(mkIdent `hkcI):ident))
+    evalTactic (← `(tactic| try simp only [kc_inv, KPrelude.ListHook.ElemsOn, KPrelude.MapHook.values, KPrelude.ListIso.toList_ofList] at $(mkIdent `hkcI):ident))
+    evalTactic (← `(tactic| try simp [kc_inv, KPrelude.ListIso.toList] at $(mkIdent `hkcI):ident))
+    evalTactic (← `(tactic| try simp only [kc_inv_fns] at $(mkIdent `hkcI):ident))
+  catch _ => s.restore; return none
+  let gs ← getUnsolvedGoals
+  let [g1] := gs | return some gs   -- the invariant is false here: the case closed
+
+  let found ← g1.withContext do
+    let vars := fvarsInOrder c
+    -- the projections already decided by an earlier split (`hkcP : proj_A_B x = …`)
+    let mut decided : Array Expr := #[]
+    for d in ← getLCtx do
+      if let some (_, l, _) := (← instantiateMVars d.type).eq? then decided := decided.push l
+    let some d := (← getLCtx).findFromUserName? `hkcI | return none
+    let mut best : Option (Nat × Expr × Name) := none
+    let mut ty ← instantiateMVars d.type
+    -- the first undecided projection, by the position of its variable in the configuration
+    for _ in [0:16] do
+      let some (p, lem) ← findProj vars ty | break
+      if decided.contains p then
+        ty := ty.replace fun e => if e == p then some (mkConst ``True) else none
+        continue
+      let i := (vars.idxOf? p.appArg!.fvarId!).getD vars.size
+      if best.all (fun b => i < b.1) then best := some (i, p, lem)
+      ty := ty.replace fun e => if e == p then some (mkConst ``True) else none
+    return best
+  let some (_, p, lem) := found | s.restore; return none
+  try
+    let ps ← g1.withContext (Term.exprToSyntax p)
+    setGoals [g1]
+    evalTactic (← `(tactic| cases $(mkIdent `hkcP):ident : $ps:term))
+    let mut out := []
+    for sg in ← getUnsolvedGoals do
+      setGoals [sg]
+      let isSome ← sg.withContext do
+        let some d := (← getLCtx).findFromUserName? `hkcP | return false
+        let ty ← instantiateMVars d.type
+        return (ty.eq?.map (·.2.2.isAppOf ``Option.some)).getD false
+      if isSome then
+        evalTactic (← `(tactic| (have $(mkIdent `hkcX) := ($(mkIdent lem)).1 $(mkIdent `hkcP); subst $(mkIdent `hkcX); clear $(mkIdent `hkcI))))
+      else
+        evalTactic (← `(tactic| (simp [$(mkIdent `hkcP):ident] at $(mkIdent `hkcI):ident; try clear $(mkIdent `hkcI))))
+      for g2 in ← getUnsolvedGoals do
+        let gs ← openAll g2
+        out := out ++ (← gs.mapM fun g => (normGoal g : MetaM MVarId))
+    return some out
+  catch _ => s.restore; return none
 
 inductive Outcome where
   | done
   | next (gs : List MVarId) (kind : Nat)
   /-- No step applies; `g` is the goal to leave open (after the index split, a new goal). -/
   | stuck (g : MVarId)
+
+/-- A lemma of `using […]` in the goal's context: a local hypothesis is looked up by its name. -/
+def resolveLemma (l : Expr ⊕ Name) : MetaM (Option Expr) := do
+  match l with
+  | .inl e => return some e
+  | .inr n => return ((← getLCtx).findFromUserName? n).map (·.toExpr)
 
 mutual
 
@@ -447,20 +693,34 @@ partial def exploreOne (cfg : Cfg) (g : MVarId) (fuel : Nat) : TacticM Outcome :
         let ity ← whnfR (← inferType (mkApp ih n))
         let .forallE _ ltTy _ _ := ity | return none
         let some hlt ← provLt ltTy | return none
-        return some (mkAppN ih #[n, hlt, c, Q])
+        match cfg.inv, ← invHyp? with
+        | some _, some hd => return some (mkAppN ih #[n, hlt, c, Q, hd.toExpr])
+        | some _, none => return none
+        | none, _ => return some (mkAppN ih #[n, hlt, c, Q])
     for l in cfg.lemmas do
       aps := aps.push fun c Q => do
+        let some l ← resolveLemma l | return none
         let lc ← mkAppM' l #[c, Q]
+        let lc ← match cfg.inv, ← invHyp? with
+          | some _, some hd => pure (mkApp lc hd.toExpr)
+          | some _, none => return none
+          | none, _ => pure lc
         let lty ← whnfR (← inferType lc)
         let .forallE nm instTy _ _ := lty | return none
         return some (← withLocalDeclD nm instTy fun hi => do
           mkLambdaFVars #[hi] (← mkAppM ``KClaims.AF.toAFn #[mkApp lc hi, n]))
   else
     for l in cfg.lemmas do
-      aps := aps.push fun c Q => do return some (← mkAppM' l #[c, Q])
+      aps := aps.push fun c Q => do
+        let some l ← resolveLemma l | return none
+        let lc ← mkAppM' l #[c, Q]
+        match cfg.inv, ← invHyp? with
+        | some _, some hd => return some (mkApp lc hd.toExpr)
+        | some _, none => return none
+        | none, _ => return some lc
   for ap in aps do
     let s ← saveState
-    if let some gs ← tryClaim cfg.closer g ap then
+    if let some gs ← tryClaim cfg.closer g ap (cfg.inv.map (·.2)) then
       let left ← explore cfg gs (fuel - 1)
       if left.isEmpty then
         cfg.stats.modify (·.modify 2 (· + 1))
@@ -468,8 +728,12 @@ partial def exploreOne (cfg : Cfg) (g : MVarId) (fuel : Nat) : TacticM Outcome :
       s.restore
   let some g ← succIndex g | return .stuck g
   g.withContext do
-  if let some g' ← tryRules cfg.rules g then return .next [g'] 0
-  if let some gs ← trySplit g then return .next gs 1
+  if let some g' ← tryRules cfg.rules g (cfg.inv.map (·.1)) then return .next [g'] 0
+  if let some gs ← trySplit g cfg.splitVars then return .next gs 1
+  if cfg.splitVars then
+    if let some gs ← trySplitVar g then return .next gs 1
+  if cfg.inv.isSome then
+    if let some gs ← tryInvProj g then return .next gs 1
   return .stuck g
 
 /-- The exploration loop (a work list, depth first). Returns the goals left open. -/
@@ -504,16 +768,32 @@ macro "kc_close" : tactic => `(tactic| first
 
 syntax kcCircs := " circ " "[" ident,* "]"
 syntax kcLemmas := " using " "[" term,* "]"
+syntax kcInv := " inv " "[" term "]"
+syntax kcSplit := " split"
 syntax kcClose := " close " "(" tactic ")"
 syntax kcFuel := " fuel " num
 
-/-- `kc_auto [circ [ih]] [using [lemma, …]] [close (tac)] [fuel n]`. -/
-elab "kc_auto" c:(kcCircs)? l:(kcLemmas)? cl:(kcClose)? f:(kcFuel)? : tactic => do
+/-- `kc_auto [circ [ih]] [using [lemma, …]] [inv [hP]] [split] [close (tac)] [fuel n]`, on a goal
+`AF R Q c`, `AFn R Q n c` or `Reach R Q c`.
+
+- `circ [ih]`: circularities of an `AFn` goal (`AF.circularity_inst`), usable after a step;
+- `using [l]`: proved claims `l : ∀ c Q, Inst c Q → AF R Q c` (with `inv`, `∀ c Q, P c → Inst c Q →
+  AF R (P ∧ Q) c`), or, on a `Reach` goal, `∀ c Q, Inst c Q → Reach R Q c` (such as induction
+  hypotheses, usable anywhere since `Reach` is inductive);
+- `inv [hP]` with `hP : Preserved R P`: the claims are under the invariant `P`. The goal's target
+  is `fun d => P d ∧ Q d` and the hypothesis `hinv : P c` is carried along every step
+  (`AFn.of_rule_inv`), through Boolean splits and claim applications; when no rule applies the
+  invariant is opened (`kc_inv`) to split on what it says about the configuration's variables;
+- `split`: when no rule applies, split a variable of the configuration whose type has few
+  constructors (`splittable`). -/
+elab "kc_auto" c:(kcCircs)? l:(kcLemmas)? v:(kcInv)? sp:(kcSplit)? cl:(kcClose)? f:(kcFuel)? : tactic => do
   let closer ← match cl with
     | some stx => match stx with
       | `(kcClose| close ($t)) => pure t
       | _ => `(tactic| kc_close)
     | none => `(tactic| kc_close)
+  -- the invariant conjunct of a target is `hinv` itself
+  let closer ← if v.isSome then `(tactic| first | assumption | ($closer:tactic)) else pure closer
   let fuel := match f with
     | some stx => match stx with
       | `(kcFuel| fuel $n) => n.getNat
@@ -531,12 +811,24 @@ elab "kc_auto" c:(kcCircs)? l:(kcLemmas)? cl:(kcClose)? f:(kcFuel)? : tactic => 
       | none => pure #[]
     let lemmas ← match l with
       | some stx => match stx with
-        | `(kcLemmas| using [$ts,*]) => ts.getElems.mapM fun t => Term.elabTerm t none |>.run'
+        | `(kcLemmas| using [$ts,*]) => ts.getElems.mapM fun t => do
+          let e ← Term.elabTerm t none |>.run'
+          if e.isFVar then return Sum.inr (← e.fvarId!.getUserName) else return Sum.inl e
         | _ => pure #[]
       | none => pure #[]
     return (rules, circs, lemmas)
+  let inv ← match v with
+    | some stx => match stx with
+      | `(kcInv| inv [$t]) => g.withContext do
+        let hP ← Term.elabTerm t none |>.run'
+        let hP ← instantiateMVars hP
+        match (← instantiateMVars (← inferType hP)).getAppFnArgs with
+        | (``KPrelude.Preserved, #[_, _, P]) => pure (some (hP, P))
+        | _ => throwError "kc_auto: inv expects a proof of `Preserved R P`"
+      | _ => pure none
+    | none => pure none
   let stats ← IO.mkRef #[0, 0, 0, 0]
-  let cfg : Cfg := { closer, rules, circs, lemmas, fuel, stats }
+  let cfg : Cfg := { closer, rules, circs, lemmas, fuel, stats, inv, splitVars := sp.isSome }
   let rest ← explore cfg [g] cfg.fuel
   if kc.stats.get (← getOptions) then
     let st ← stats.get

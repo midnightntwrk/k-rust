@@ -326,4 +326,24 @@ theorem AF_iff_EF_of_det (hdet : ∀ a b b', R a b → R a b' → b = b') : AF R
     · exact Or.inl hp
     · exact Or.inr ⟨⟨e, he⟩, fun e' he' => hdet d e e' he he' ▸ hef⟩
 
+
+/-! ## Reachability -/
+
+theorem Reach.mono (hPQ : ∀ d, P d → Q d) (h : Reach R P c) : Reach R Q c := by
+  induction h with
+  | here hp => exact Reach.here (hPQ _ hp)
+  | step he _ ih => exact Reach.step he ih
+
+/-- Transitivity: a proved reachability claim `P ⇒ Q` composes with `c ⇒ P`. -/
+theorem Reach.trans (h : Reach R P c) (hPQ : ∀ d, P d → Reach R Q d) : Reach R Q c := by
+  induction h with
+  | here hp => exact hPQ _ hp
+  | step he _ ih => exact Reach.step he ih
+
+/-- A reachability claim gives the one-path claim. -/
+theorem Reach.toEF (h : Reach R P c) : EF R P c := by
+  induction h with
+  | here hp => exact EF.here hp
+  | step he _ ih => exact EF.step he ih
+
 end KClaims
