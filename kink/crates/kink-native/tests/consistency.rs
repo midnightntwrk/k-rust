@@ -10,12 +10,14 @@ mod support;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use k_rust::kast::{Sort, Term};
+use k_rust::kast::{Label, Sort, Term};
 use k_rust::kompile::CompileOptions;
 use k_rust_backend::confluence::CheckScope;
 use kink_native::consistency::{
     CompiledEquations, Inconsistency, MutantFailure, UnjoinedEquations, admit_mutant, check_heads,
+    loaded_definition,
 };
+use kink_native::data::DataFacts;
 use kink_native::{NativeValidator, ValidatedDefinition};
 use kink_patch::{ClaimSupport, Edit, Patch, SentenceOrigin, SourceEffect, TermRef};
 
@@ -30,6 +32,11 @@ fn on_a_big_stack(work: impl FnOnce() + Send + 'static) {
         .unwrap()
         .join()
         .unwrap();
+}
+
+/// The full check of `side` on kink's route, no name assumed: what the gate reads of a side.
+fn facts(side: &ValidatedDefinition) -> DataFacts {
+    DataFacts::of(&loaded_definition(side).unwrap(), &[])
 }
 
 fn nomatch() -> NativeValidator {
@@ -186,7 +193,8 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// and adopted). The premise (1069-1071) is now that `M+` is a model when `R ∪ W` terminates
 /// innermost over the added constants (A1+, a new premise k-rust does not check, which implies
 /// A1 but is not implied by it) and the pairs of `R ∪ W` join; kink's quotation of the premise
-/// (`consistency.rs`, module documentation) is due for KINK-WITNESS. 1125 (in 1123-1136) reads
+/// (`consistency.rs`, module documentation, and the README) reads `M+` and A1+ since fz26
+/// KINK-WITNESS, which moves no passage. 1125 (in 1123-1136) reads
 /// the claims' model with the untainted equations of `R ∪ W`, and `definition.rs` restates
 /// "joined" and A1+. For kink: a pair over a sort with no normal form that joins only through an
 /// adopted witness is no longer listed, so such a mutant can be admitted (admission widens), and
@@ -504,6 +512,7 @@ mod kink_tier {
             let baseline = validator.baseline();
             let compiled = validator.compile_baseline().unwrap();
             let equations = CompiledEquations::of(&compiled).unwrap();
+            let baseline_facts = facts(&compiled);
             let rule = support::rule(baseline, "CFGF.fpos");
             let at = TermRef::new(rule.clone(), [1, 1]);
             let expected = baseline.term(&at).expect("the guard literal").clone();
@@ -528,7 +537,7 @@ mod kink_tier {
                 touched: effect.touched.clone(),
             };
             let Err(MutantFailure::UnreadEquations(unread)) =
-                admit_mutant(&equations, &side, &misread)
+                admit_mutant(&equations, &baseline_facts, &side, &misread)
             else {
                 panic!("the compiled equation of fpos is unread")
             };
@@ -539,7 +548,7 @@ mod kink_tier {
                 "{unread:?}"
             );
             assert!(matches!(
-                admit_mutant(&equations, &side, &effect),
+                admit_mutant(&equations, &baseline_facts, &side, &effect),
                 Err(MutantFailure::Inconsistent(Inconsistency::Unjoined(_)))
             ));
             let compiled_only = SourceEffect {
@@ -548,11 +557,12 @@ mod kink_tier {
                 touched: BTreeSet::new(),
             };
             assert!(matches!(
-                admit_mutant(&equations, &side, &compiled_only),
+                admit_mutant(&equations, &baseline_facts, &side, &compiled_only),
                 Err(MutantFailure::Inconsistent(Inconsistency::Unjoined(_)))
             ));
             // The baseline against itself changes nothing and is admitted with nothing checked.
-            let none = admit_mutant(&equations, &compiled, &compiled_only).unwrap();
+            let none =
+                admit_mutant(&equations, &baseline_facts, &compiled, &compiled_only).unwrap();
             assert!(none.changed.is_empty(), "{none:?}");
             assert_eq!(none.checked, Some(BTreeSet::new()));
         });
@@ -574,6 +584,168 @@ mod kink_tier {
                 Ok(())
             );
             assert!(check_heads(&side, Some(&BTreeSet::from(["f".to_owned()]))).is_err());
+        });
+    }
+
+    /// The claim-free mutant of `patch` on `validator`'s baseline, with kink-patch's source
+    /// reading of its effect.
+    fn claim_free(
+        validator: &NativeValidator,
+        patch: &Patch,
+    ) -> (ValidatedDefinition, SourceEffect) {
+        let baseline = validator.baseline();
+        let support = ClaimSupport::new(baseline);
+        let withdrawal = support.withdraw(baseline, patch).unwrap();
+        let side = validator
+            .validate(withdrawal.patch().unwrap_or(patch))
+            .unwrap();
+        (side, support.effect(baseline, patch).unwrap())
+    }
+
+    /// The canonical text of each witness of `facts` (its unique id).
+    fn witnesses(facts: &DataFacts) -> Vec<String> {
+        facts
+            .witnesses()
+            .iter()
+            .map(|rule| rule.attributes.unique_id.clone())
+            .collect()
+    }
+
+    const IB_WITNESS: &str = "witness Lblib{}(inj{SortE{}, SortB{}}(VarWitness0:SortE{})) => \
+                              inj{SortE{}, SortB{}}(VarWitness0:SortE{})";
+    const IC_WITNESS: &str = "witness Lblic{}(inj{SortE{}, SortC{}}(VarWitness0:SortE{})) => \
+                              inj{SortE{}, SortC{}}(VarWitness0:SortE{})";
+
+    /// fz26 KINK-WITNESS: a head whose witnesses differ from the baseline's is changed. On
+    /// `r0c/witness.k` the full check joins `s`'s and `t`'s pairs through `ib`'s witness, which
+    /// `s`'s pair proposes from `da`'s `owise`, and `s2`'s through `ic`'s. Deleting `daowise` takes
+    /// `ib`'s witness away; `ic`'s keeps the pass adopted, so the adopted pass does not flip.
+    /// Neither the compiled diff (`da`) nor the source reading reaches `t`, whose pair is now not
+    /// joined: only the witness diff (`ib`, which `t`'s equation applies) checks it, and the
+    /// mutant is refused naming it. Before the diff, the mutant was admitted (fail at base).
+    #[test]
+    #[ignore = "kink"]
+    fn a_head_whose_witnesses_differ_is_checked_where_it_is_reached() {
+        on_a_big_stack(|| {
+            let validator = r0c("witness");
+            let baseline = validator.baseline();
+            let compiled = validator.compile_baseline().unwrap();
+            let equations = CompiledEquations::of(&compiled).unwrap();
+            let baseline_facts = facts(&compiled);
+            assert!(baseline_facts.witness_pass_adopted());
+            assert_eq!(witnesses(&baseline_facts), [IB_WITNESS, IC_WITNESS]);
+            assert!(baseline_facts.has_data(), "{:?}", baseline_facts.findings());
+
+            let patch = Patch::new(vec![Edit::DeleteSentence {
+                at: support::rule(baseline, "WITNESS.daowise"),
+            }])
+            .unwrap();
+            let (side, effect) = claim_free(&validator, &patch);
+            let source = effect.affected.clone().expect("a known source reading");
+            assert!(
+                !source.contains("t") && !source.contains("ib"),
+                "{source:?}"
+            );
+            let mutant_facts = facts(&side);
+            assert!(mutant_facts.witness_pass_adopted());
+            assert_eq!(witnesses(&mutant_facts), [IC_WITNESS]);
+
+            let Err(MutantFailure::Inconsistent(Inconsistency::Unjoined(pairs))) =
+                admit_mutant(&equations, &baseline_facts, &side, &effect)
+            else {
+                panic!("t's pair is checked through ib's witness and refused")
+            };
+            assert_eq!(
+                pairs
+                    .iter()
+                    .map(|pair| (pair.first.as_str(), pair.second.as_str()))
+                    .collect::<Vec<_>>(),
+                [("WITNESS.tb", "WITNESS.te")],
+                "{pairs:?}"
+            );
+        });
+    }
+
+    /// fz26 KINK-WITNESS (design P7-EMPTYJOIN review B2 and R2-S3): a flip of the pass the full
+    /// check adopts checks every head, and the mutant is refused as inconsistent at admission,
+    /// before the mutant-findings comparison. On `r0c/witflip.k` the second pass is adopted (`s`'s
+    /// and `m`'s pairs join through `ib`'s witness). Editing `mid`'s right-hand side to `g(X)` (a
+    /// declared partial function with no equation) makes `m`'s pair join in the first pass only,
+    /// so the mutant's check keeps its first pass, where `s`'s pair is not joined: the mutant is
+    /// refused naming `s`'s pair. Read back the other way (the mutant as the baseline, the
+    /// baseline as its mutant), the flip checks every head (`checked` is `None`) although the
+    /// source reading names only `m`, and with nothing unjoined the side is admitted.
+    #[test]
+    #[ignore = "kink"]
+    fn a_flip_of_the_adopted_pass_checks_every_head() {
+        on_a_big_stack(|| {
+            let validator = r0c("witflip");
+            let baseline = validator.baseline();
+            let compiled = validator.compile_baseline().unwrap();
+            let equations = CompiledEquations::of(&compiled).unwrap();
+            let baseline_facts = facts(&compiled);
+            assert!(baseline_facts.witness_pass_adopted());
+            assert_eq!(witnesses(&baseline_facts), [IB_WITNESS]);
+            assert!(baseline_facts.has_data(), "{:?}", baseline_facts.findings());
+
+            // `mib`'s right-hand side is `ib(X)`: the same argument under `g`.
+            let ib = baseline
+                .term(&TermRef::new(
+                    support::rule(baseline, "WITFLIP.mib"),
+                    [0, 1],
+                ))
+                .unwrap()
+                .clone();
+            let Term::Apply { arguments, .. } = ib.unannotated() else {
+                panic!("{ib}")
+            };
+            let at = TermRef::new(support::rule(baseline, "WITFLIP.mid"), [0, 1]);
+            let expected = baseline.term(&at).unwrap().clone();
+            let patch = Patch::new(vec![Edit::ReplaceTerm {
+                at,
+                expected,
+                replacement: Term::Apply {
+                    label: Label::new("g"),
+                    arguments: arguments.clone(),
+                },
+            }])
+            .unwrap();
+            let (side, effect) = claim_free(&validator, &patch);
+            let mutant_facts = facts(&side);
+            assert!(!mutant_facts.witness_pass_adopted());
+            assert!(witnesses(&mutant_facts).is_empty());
+
+            let Err(MutantFailure::Inconsistent(Inconsistency::Unjoined(pairs))) =
+                admit_mutant(&equations, &baseline_facts, &side, &effect)
+            else {
+                panic!("the flip is refused as inconsistent")
+            };
+            assert_eq!(
+                pairs
+                    .iter()
+                    .map(|pair| (pair.first.as_str(), pair.second.as_str()))
+                    .collect::<Vec<_>>(),
+                [("WITFLIP.sa", "WITFLIP.sb")],
+                "{pairs:?}"
+            );
+
+            let back = SourceEffect {
+                redefined: None,
+                affected: Some(BTreeSet::from(["m".to_owned()])),
+                touched: BTreeSet::new(),
+            };
+            let admitted = admit_mutant(
+                &CompiledEquations::of(&side).unwrap(),
+                &mutant_facts,
+                &compiled,
+                &back,
+            )
+            .unwrap();
+            assert_eq!(admitted.checked, None, "{admitted:?}");
+            assert_eq!(
+                admitted.changed,
+                BTreeSet::from(["Lblib".to_owned(), "Lblm".to_owned()])
+            );
         });
     }
 }

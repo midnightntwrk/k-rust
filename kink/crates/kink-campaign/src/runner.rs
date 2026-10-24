@@ -1957,6 +1957,7 @@ pub fn claim_free_mutant(
     let admitted = match &admission.equations {
         Ok(equations) => kink_native::consistency::admit_mutant_with(
             equations,
+            baseline_data,
             &side,
             &effect,
             &loaded.selected,

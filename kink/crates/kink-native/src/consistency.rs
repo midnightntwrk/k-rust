@@ -18,12 +18,18 @@
 //! equation with itself when a map or set pattern matches one subject in several ways) and each
 //! inner pair (root pairs are formed within one priority group, k-rust 58720d2e5; an overlap over
 //! a sort with no normal form is no longer separated, k-rust FZ-EMPTYSORT), as refuted by the two
-//! `requires` (simplified
-//! with every claim withheld; since KINK-20/3 also by the integer bounds of one-term comparisons
-//! with literals), joined by innermost steps valid on every instance, or not joined. Not joined
+//! `requires` (simplified with every claim withheld and read for what `docs/compatibility.md`
+//! lists: complementary literals, the integer bounds of one-term comparisons with literals (since
+//! KINK-20/3), difference constraints with the range facts of lengths and sizes, classes of terms
+//! required equal, membership literals, collection memberships, and the cases of at most three
+//! disjunctions), joined by innermost steps valid on every instance (a residual split into the
+//! cases the equations offered at it distinguish), or not joined. Not joined
 //! covers every answer short of a proof: the reducts differ, a condition is neither refuted nor
 //! decided, the `ensures` differ, the unifier meets a shape it does not decide, a join step is
-//! refused, or the join runs out of its budget. Each of these, for a pair with an equation of a
+//! refused, or the join runs out of its budget. The join steps are those of the executable
+//! equations and of the witness equations the check adopts (k-rust FZ-EMPTYJOIN-WITNESS: each
+//! interprets a stuck partial application at an element of a sort with no normal form, proposed
+//! by a first pass and adopted only when a second pass with them loses no pair and joins more). Each of these, for a pair with an equation of a
 //! checked head, refuses the mutant, naming the pair; so do k-rust's reports of a checked
 //! equation the evaluator never applies as written, and a precondition row that puts an
 //! equation outside the check (an equation indexed at a collection or a bare variable, whatever
@@ -32,10 +38,21 @@
 //! injection, when that equation is checked or the row names none). A constructor-headed or
 //! injection-headed equation that is not checked refuses nothing, and k-rust classifies none of
 //! its overlaps, so one below the root of a checked left-hand side is a residual k-rust reading
-//! that no K source is known to give (re-pin R0-tail, R0c-fix-4 review minor 3). k-rust's premise, which this check
-//! adds to kink's trust list: "M_NF is a model of the definition when evaluation terminates, which
-//! every evaluation assumes, and the critical pairs of the executable equations join, which the
-//! backend checks"; that is, k-rust's critical-pair checker decides joinability correctly.
+//! that no K source is known to give (re-pin R0-tail, R0c-fix-4 review minor 3).
+//!
+//! k-rust's premise, which this check adds to kink's trust list (k-rust `docs/compatibility.md`,
+//! "Anywhere rules", since FZ-EMPTYJOIN-WITNESS): the definition's equations "have `M+` as a
+//! model when the executable equations and the witness equations the check adopts terminate
+//! innermost over the signature with the added constants (A1+), and their critical pairs join,
+//! which the backend checks". `M+` is read by the normal forms of innermost evaluation by those
+//! equations over the signature with one fresh constant in each sort that does not have an
+//! element in every model; it agrees with `M_NF` on every term free of the constants, and its
+//! carriers are nonempty. So kink trusts that k-rust's critical-pair checker decides joinability
+//! in `M+` correctly, and A1+, which k-rust states as a premise of its own and does not check: it
+//! implies that evaluation terminates, but follows neither from that nor from the termination of
+//! the executable equations on open terms. A mutant whose check reports nothing for the checked
+//! heads (and the baseline's for the rest) has `M+` as a model under A1+; a model is all its
+//! admission needs.
 //!
 //! What an edit changes is a fact about the compiled definitions, which k-rust executes, so it is
 //! read there ([`admit_mutant`], re-pin R0c-fix-4): some equations have no source sentence of
@@ -51,7 +68,19 @@
 //! together with kink-patch's source reading ([`kink_patch::ClaimSupport::affected`]): an
 //! unchanged pair of a symbol that reaches a changed one can stop joining, since its reducts and
 //! conditions are normalized with the changed equations. A changed or reached index that is not
-//! a symbol checks every head. Every other pair is the baseline's and is normalized with the
+//! a symbol checks every head.
+//!
+//! The witness equations are part of what an edit changes (fz26 KINK-WITNESS), and they are read
+//! from the full checks the gate reads ([`crate::data::DataFacts::witnesses`]), so the witnesses
+//! kink compares are those its verdict was computed with. The mutant's check therefore runs before
+//! the reach. An index whose witnesses differ from the baseline's (compared as equations are, the
+//! check having renamed their variables canonically) is changed, and a witness reaches the symbols
+//! it applies as an equation of its head does: a pair that joined through a baseline witness the
+//! mutant lacks, or through one only the mutant has, is checked wherever its equations reach the
+//! witness's head. A flip of the pass the check adopts between the baseline and the mutant
+//! ([`crate::data::DataFacts::witness_pass_adopted`]) changes the equations every pair was joined
+//! with, so it checks every head, and the mutant is refused as inconsistent if any pair is not
+//! joined, before kink-campaign compares the findings outside the checked heads. Every other pair is the baseline's and is normalized with the
 //! baseline's equations alone, so it joins in the mutant exactly when it does in the baseline.
 //! kink checks that rather than arguing it (fz26 KINK-BASELINE-FINDINGS): every finding of the
 //! mutant's full check outside the checked heads must be the baseline's, by name and unique ids
@@ -105,7 +134,7 @@ use k_rust_backend::{
     confluence::UnjoinedPair,
     data_term::Finding,
     definition::BackendDefinition,
-    rule::{PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex},
+    rule::{PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex, term_index},
     term::{FunctionType, SymbolType, Term},
 };
 use kink_patch::{SentenceOrigin, SentenceRef, SourceEffect};
@@ -539,21 +568,28 @@ pub struct CompiledEffect {
 ///
 /// The compiled diff is always computed: an empty source reading never admits a mutant without it.
 ///
+/// The witness equations of both sides' full checks are read with them (fz26 KINK-WITNESS): an
+/// index whose witnesses differ from `baseline_facts`' (compared as the equations are, so up to
+/// the canonical renaming of their variables) is changed, a witness reaches the symbols it
+/// applies as an equation of its head does, and a flip of the adopted pass between the two
+/// checks ([`DataFacts::witness_pass_adopted`]) checks every head.
+///
 /// This loads `side` on kink's route itself ([`loaded_definition`]) and reads its full check
-/// with no name assumed; kink-campaign's runner, which loads the mutant once for its runs and
-/// its facts, calls [`admit_mutant_with`].
+/// with no name assumed, before anything is reached; kink-campaign's runner, which loads the
+/// mutant once for its runs and its facts, calls [`admit_mutant_with`].
 ///
 /// # Errors
 ///
 /// Returns why the mutant is refused.
 pub fn admit_mutant(
     baseline: &CompiledEquations,
+    baseline_facts: &DataFacts,
     side: &ValidatedDefinition,
     source: &SourceEffect,
 ) -> Result<CompiledEffect, MutantFailure> {
     let definition = loaded_definition(side).map_err(MutantFailure::Uninternalizable)?;
     let facts = DataFacts::of(&definition, &[]);
-    admit_mutant_with(baseline, side, source, &definition, &facts)
+    admit_mutant_with(baseline, baseline_facts, side, source, &definition, &facts)
 }
 
 /// The definition a backend loads `side` as on kink's route (`Backend::from_definition` of its
@@ -578,13 +614,16 @@ pub fn loaded_definition(
 
 /// [`admit_mutant`] on the claim-free mutant `side` loaded as `definition` (the definition its
 /// runs execute on, [`loaded_definition`]), whose full check is `facts` (computed on
-/// `definition`, with any names: the gate reads assumed findings as unjoined all the same).
+/// `definition`, with any names: the gate reads assumed findings as unjoined all the same), the
+/// baseline's being `baseline_facts` (computed alike on the baseline's load). The mutant's check
+/// is thus run before its effect is reached: its witnesses are part of that effect.
 ///
 /// # Errors
 ///
 /// Returns why the mutant is refused.
 pub fn admit_mutant_with(
     baseline: &CompiledEquations,
+    baseline_facts: &DataFacts,
     side: &ValidatedDefinition,
     source: &SourceEffect,
     definition: &BackendDefinition,
@@ -602,6 +641,16 @@ pub fn admit_mutant_with(
     for (base, edited) in baseline.lemmas.iter().zip(&mutant.lemmas) {
         changed.extend(changed_indexes(base, edited));
     }
+    // fz26 KINK-WITNESS: the full check joins pairs with the witness equations it adopts, so a
+    // head whose witnesses differ is changed like one whose equations differ, and a pair that
+    // joined through the baseline's witness is checked wherever it reaches that head. A flip of
+    // the adopted pass changes which equations every pair was joined with: every head is checked.
+    changed.extend(changed_indexes(
+        &witness_theory(baseline_facts),
+        &witness_theory(facts),
+    ));
+    let witness_pass_flipped =
+        baseline_facts.witness_pass_adopted() != facts.witness_pass_adopted();
     // A changed predicate lemma is about no one symbol: every head is checked.
     let predicate_lemmas_changed = baseline.predicate_lemmas != mutant.predicate_lemmas;
     let generated = changed
@@ -625,7 +674,15 @@ pub fn admit_mutant_with(
         return Err(MutantFailure::UnreadEquations(generated));
     }
 
-    let reached = reach(&changed, [baseline, &mutant]);
+    let reached = reach(
+        &changed,
+        &[
+            &baseline.dependents,
+            &mutant.dependents,
+            &witness_dependents(baseline_facts),
+            &witness_dependents(facts),
+        ],
+    );
     let source_heads = source.affected.as_ref().map(|affected| {
         affected
             .iter()
@@ -649,6 +706,7 @@ pub fn admit_mutant_with(
     let checked = match source_heads {
         Some(mut heads)
             if !predicate_lemmas_changed
+                && !witness_pass_flipped
                 && reached
                     .iter()
                     .all(|index| matches!(index, TermIndex::Symbol(_))) =>
@@ -737,9 +795,13 @@ fn unread_equations(
     unread
 }
 
-/// The indexes whose equations reach one of `changed` (`changed` included), over both sides'
-/// compiled theories.
-fn reach(changed: &BTreeSet<TermIndex>, sides: [&CompiledEquations; 2]) -> BTreeSet<TermIndex> {
+/// The indexes whose equations reach one of `changed` (`changed` included), over `edges`: both
+/// sides' compiled theories and both sides' witness equations (for each symbol, the indexes whose
+/// equations apply it).
+fn reach(
+    changed: &BTreeSet<TermIndex>,
+    edges: &[&BTreeMap<String, BTreeSet<TermIndex>>],
+) -> BTreeSet<TermIndex> {
     let mut reached = BTreeSet::new();
     let mut pending = changed.iter().cloned().collect::<Vec<_>>();
     while let Some(index) = pending.pop() {
@@ -747,14 +809,47 @@ fn reach(changed: &BTreeSet<TermIndex>, sides: [&CompiledEquations; 2]) -> BTree
             continue;
         }
         if let TermIndex::Symbol(symbol) = &index {
-            for side in sides {
-                if let Some(dependents) = side.dependents.get(&**symbol) {
+            for edges in edges {
+                if let Some(dependents) = edges.get(&**symbol) {
                     pending.extend(dependents.difference(&reached).cloned());
                 }
             }
         }
     }
     reached
+}
+
+/// The witness equations of a full check (`facts`), by index and priority, read as the compiled
+/// equations are ([`meaning`]): the check renames each witness's variables canonically, so two
+/// witnesses equal up to a renaming compare equal, and their unique ids (their text) and origins
+/// (the proposing equation) are not read.
+fn witness_theory(facts: &DataFacts) -> BTreeMap<TermIndex, BTreeMap<u8, Vec<RewriteRule>>> {
+    let mut theory = BTreeMap::<TermIndex, BTreeMap<u8, Vec<RewriteRule>>>::new();
+    for rule in facts.witnesses() {
+        theory
+            .entry(term_index(&rule.lhs))
+            .or_default()
+            .entry(rule.attributes.priority)
+            .or_default()
+            .push(meaning(rule));
+    }
+    theory
+}
+
+/// For each symbol a witness equation of `facts` applies (its head, and the constructors and
+/// injections of its sides), the witnesses' indexes: a witness `p => t` reaches the symbols of
+/// `t` and its head, as an equation of its head does.
+fn witness_dependents(facts: &DataFacts) -> BTreeMap<String, BTreeSet<TermIndex>> {
+    let mut dependents = BTreeMap::<String, BTreeSet<TermIndex>>::new();
+    for rule in facts.witnesses() {
+        for symbol in mentioned(rule) {
+            dependents
+                .entry(symbol)
+                .or_default()
+                .insert(term_index(&rule.lhs));
+        }
+    }
+    dependents
 }
 
 fn index_name(index: &TermIndex) -> String {

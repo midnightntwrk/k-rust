@@ -311,7 +311,9 @@ fn an_overload_application_is_data_only_where_it_is_instance_normal() {
 /// the definition in `M+` under A1+ (witness equations, fresh constants) where it read `M_NF`
 /// under A1. Data terms are still free of the constants and normal forms, and two different data
 /// terms still differ in the initial model, so `data_ends` and the walk are unchanged; kink's
-/// own docs quote `M+` and A1+ since KINK-WITNESS.
+/// own docs quote `M+` and A1+ since KINK-WITNESS. `data_heads` was re-pinned after KINK-WITNESS,
+/// which also copies the check's adopted witnesses into `DataHeads`; the heads and findings it
+/// returns are unchanged.
 #[test]
 fn the_data_judgement_kink_reads_is_pinned() {
     const DATA_TERM: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
@@ -369,7 +371,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "data_heads",
-                "22035f93fbe4fce9e126c099b62cdf55c962ac28c0b533681dce799826041b66"
+                "f948e8ddfb47d575e25be1851f996bbbef1c416d1de5124e4204deb465ca478e"
             ),
             (
                 "overload_data_heads",

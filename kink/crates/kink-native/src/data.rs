@@ -3,10 +3,14 @@
 //!
 //! kink's kill is "relative to the definition, not to k-rust's model of it" (README, "What a
 //! kill trusts"): a compared end is the value of a term in the definition's initial model, and two
-//! ends differ only if no model of the definition identifies them. k-rust reads a definition by
-//! its normal-form model `M_NF`, which is a model of the definition when evaluation terminates and
-//! the critical pairs of its executable equations join (k-rust-backend `data_term`, "What a data
-//! term denotes"). The baseline's pairs were a trusted premise ("which the backend checks",
+//! ends differ only if no model of the definition identifies them. k-rust's full check reads a
+//! definition by the model `M+` (its normal forms, with a fresh constant in each sort that does
+//! not have an element in every model and the witness equations the check adopts), which is a
+//! model of the definition when the executable and witness equations terminate over the added
+//! constants (A1+, a premise k-rust states and does not check) and their critical pairs join
+//! (k-rust-backend `data_term`, "What a data term denotes"); `M+` agrees with the normal-form
+//! model `M_NF` on every term free of the constants, which every end kink compares is. The
+//! baseline's pairs were a trusted premise ("which the backend checks",
 //! `consistency`), but nothing checked them. A pair that does not join can identify two ends kink
 //! compares: in `q(_) => a` with `q(_) => bb`, every model has `a = bb`, so a mutant that writes
 //! `bb` where the baseline writes `a` is equal to it in every model, and a "kill" through the
@@ -34,10 +38,11 @@
 //! [`CheckScope::All`]: k_rust_backend::confluence::CheckScope::All
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use k_rust::kore::ast::Pattern;
 use k_rust_backend::{
-    confluence::ViolationKind,
+    confluence::{ViolationKind, WitnessPass},
     data_term::{DataHeads, Finding, names},
     definition::BackendDefinition,
     rule::{Concreteness, ConstraintKind, RewriteRule, TermIndex},
@@ -245,6 +250,23 @@ impl DataFacts {
     #[must_use]
     pub fn assume_joined(&self) -> &[String] {
         &self.assume_joined
+    }
+
+    /// The witness equations the full check adopted (k-rust-backend
+    /// `ValueClaims::witnesses`; empty unless [`Self::witness_pass_adopted`]): the findings are
+    /// those of the check on the executable equations and these, in the model `M+`. The
+    /// consistency gate diffs them between the baseline and a claim-free mutant (fz26
+    /// KINK-WITNESS), so the witnesses it compares are those of the check it reads.
+    #[must_use]
+    pub fn witnesses(&self) -> &[Arc<RewriteRule>] {
+        self.heads.witnesses()
+    }
+
+    /// Whether the full check adopted its pass with witness equations (k-rust-backend
+    /// `CheckCounts::witness_pass`): `false` when it proposed none or kept its first pass.
+    #[must_use]
+    pub fn witness_pass_adopted(&self) -> bool {
+        self.heads.check_counts().witness_pass == WitnessPass::Adopted
     }
 
     /// Whether no finding is left and the check is complete ([`Self::incomplete`]): [`data_ends`]
@@ -494,10 +516,11 @@ pub enum DataEnds<'f> {
     /// Every end kink's terminal-value walk admits (TV-01: free constructors, normal-form
     /// injections, identity-safe domain values and trusted natural collections, and the
     /// applications of these overload data heads where k-rust's data judgement holds,
-    /// [`Self::overload_application_is_data`]): such a term is a normal form, and distinct normal
-    /// forms differ in `M_NF`, a model of the definition.
+    /// [`Self::overload_application_is_data`]): such a term is a normal form free of `M+`'s
+    /// constants, and distinct such normal forms differ in `M+`, a model of the definition under
+    /// A1+.
     Admitted(&'f DataHeads),
-    /// None: a finding is left (or the check is incomplete), so `M_NF` is not shown to be a model
+    /// None: a finding is left (or the check is incomplete), so `M+` is not shown to be a model
     /// and the definition may identify any two ends.
     None,
 }
@@ -567,8 +590,9 @@ impl Eq for DataEnds<'_> {}
 /// judged (a baseline's facts, a claim-free mutant's facts), and under the other side's
 /// definition with the result for the other side's facts before the pair's slots are compared
 /// (kink-campaign `runner`): for a constructor-only end that is a head-role and injection check.
-/// So two different compared ends differ in each definition's initial model, under premises A1
-/// (evaluation terminates) and A2 (lemmas and `[symbolic]` equations are theorems of the
+/// So two different compared ends differ in each definition's initial model, under premises A1+
+/// (evaluation by the executable and witness equations terminates over `M+`'s constants, which
+/// implies A1, evaluation terminates) and A2 (lemmas and `[symbolic]` equations are theorems of the
 /// executable equations; the baseline's claims are trusted, a mutant's that its edit unbacks are
 /// removed).
 #[must_use]
