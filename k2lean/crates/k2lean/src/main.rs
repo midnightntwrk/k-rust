@@ -10,6 +10,7 @@ mod convert;
 mod det2;
 mod drivers;
 mod eqns;
+mod fndiff;
 mod funcs;
 mod goldens;
 mod hooks;

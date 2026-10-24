@@ -260,8 +260,10 @@ fn gen_fixture(dir: &Path, out: &Path, ns: &str) {
 /// whose header comment lists the edits): every line moved, one rule changed, three renamed with
 /// an equal statement (a relabelling, a focus edit that renames a variable, a collision that adds
 /// a digest), one renamed and changed, one added, one removed; and the hand-written references
-/// that a user should revisit, from a Lean file and from a kind 1 `open-invariant-cases.txt`. A
-/// generated file is not read, and a generation compared with itself has no difference.
+/// that a user should revisit, from a Lean file and from a kind 1 `open-invariant-cases.txt`; one
+/// function changed (`inc`), reported with the rule that calls it through another function
+/// (`go(N)`, through `twice`), and the hand-written case of that rule and mention of the function to
+/// revisit. A generated file is not read, and a generation compared with itself has no difference.
 #[test]
 fn diff_names_the_changed_renamed_added_and_removed_rules_and_the_hand_cases_to_revisit() {
     let d = tmp("cli-diff");
@@ -272,7 +274,7 @@ fn diff_names_the_changed_renamed_added_and_removed_rules_and_the_hand_cases_to_
     std::fs::create_dir_all(hand.join(".lake")).unwrap();
     std::fs::write(
         hand.join("Cases.lean"),
-        "theorem a : Diff.Step.Case.start P := x\ntheorem b : Diff.Step.Case.«done(s(z))» P := x\ntheorem c : Diff.Step.Case.«done(s(s(N)))» P := x\nexample := Diff.App.«stop(s(s(N)))»\n  case start N g => exact h\n",
+        "theorem a : Diff.Step.Case.start P := x\ntheorem b : Diff.Step.Case.«done(s(z))» P := x\ntheorem c : Diff.Step.Case.«done(s(s(N)))» P := x\nexample := Diff.App.«stop(s(s(N)))»\n  case start N g => exact h\ntheorem d : Diff.Step.Case.«go(N)» P := x\nexample := Eqn.«inc(_)_DIFF-SYNTAX_Nat_Nat_1»\n",
     )
     .unwrap();
     std::fs::write(
@@ -308,24 +310,24 @@ fn diff_names_the_changed_renamed_added_and_removed_rules_and_the_hand_cases_to_
         "{out}{}",
         String::from_utf8_lossy(&o.stderr)
     );
-    assert!(out.contains("7 -> 8 rules"), "{out}");
-    assert!(out.contains("changed 1, added 2, removed 1, renamed 3 (same statement), renamed and changed 1 (suggested), context changed 0; unchanged 1 (1 moved)"), "{out}");
+    assert!(out.contains("8 -> 9 rules"), "{out}");
+    assert!(out.contains("changed 1, added 2, removed 1, renamed 3 (same statement), renamed and changed 1 (suggested), context changed 0; unchanged 2 (2 moved)"), "{out}");
     assert!(
-        out.contains("  «done(s(z))»  old.k:13:3 -> new.k:19:3: right-hand side differs"),
+        out.contains("  «done(s(z))»  old.k:14:3 -> new.k:21:3: right-hand side differs"),
         "{out}"
     );
     assert!(
-        out.contains("  start -> begin  old.k:11:3 -> new.k:17:3"),
+        out.contains("  start -> begin  old.k:12:3 -> new.k:19:3"),
         "{out}"
     );
     assert!(out.contains("  «back(s(N))» -> «back(s(M))»"), "{out}");
     assert!(out.contains("  «halt(N)» -> «halt(N:Nat) #"), "{out}");
     assert!(out.contains("  «stop(s(s(N)))» -> «stop(s(N))»?"), "{out}");
     assert!(out.contains("added:\n  «halt(N:Nat) #"), "{out}");
-    assert!(out.contains("  «run(z)»  new.k:24:3"), "{out}");
-    assert!(out.contains("removed:\n  «back(z)»  old.k:15:3"), "{out}");
+    assert!(out.contains("  «run(z)»  new.k:26:3"), "{out}");
+    assert!(out.contains("removed:\n  «back(z)»  old.k:16:3"), "{out}");
     assert!(out.contains("(files read: 2)"), "{out}");
-    assert!(out.contains("revisit 4 rule(s):"), "{out}");
+    assert!(out.contains("revisit 5 rule(s):"), "{out}");
     assert!(
         out.contains("  start: renamed to begin (same statement): rename the reference\n"),
         "{out}"
@@ -341,6 +343,25 @@ fn diff_names_the_changed_renamed_added_and_removed_rules_and_the_hand_cases_to_
     assert!(out.contains("Cases.lean:5 (case tag)"), "{out}");
     assert!(out.contains("  unaffected: «done(s(s(N)))»\n"), "{out}");
     assert!(
+        out.contains("functions: changed 1, added 0, removed 0; unchanged 1\n"),
+        "{out}"
+    );
+    assert!(
+        out.contains(
+            "functions changed:\n  inc(_)_DIFF-SYNTAX_Nat_Nat: called by 1 rule(s): «go(N)»\n"
+        ),
+        "{out}"
+    );
+    assert!(
+        out.contains("  «go(N)»: calls the changed function(s) `inc(_)_DIFF-SYNTAX_Nat_Nat`\n"),
+        "{out}"
+    );
+    assert!(
+        out.contains("mentions of functions that changed or were removed (1):\n")
+            && out.contains("Cases.lean:7 (inc(_)_DIFF-SYNTAX_Nat_Nat)"),
+        "{out}"
+    );
+    assert!(
         !out.contains("«halt(N)»:"),
         "a generated file and .lake/ are not hand-written:\n{out}"
     );
@@ -348,7 +369,9 @@ fn diff_names_the_changed_renamed_added_and_removed_rules_and_the_hand_cases_to_
     assert!(
         t.contains("[summary]\n")
             && t.contains("changed = 1\n")
-            && t.contains("[[revisit]]\nrule = \"«done(s(z))»\""),
+            && t.contains("[[revisit]]\nrule = \"«done(s(z))»\"")
+            && t.contains("functions_changed = 1\n")
+            && t.contains("[[function]]\nname = \"K.«inc(_)_DIFF-SYNTAX_Nat_Nat»\""),
         "{t}"
     );
     // the same generation twice
@@ -360,7 +383,11 @@ fn diff_names_the_changed_renamed_added_and_removed_rules_and_the_hand_cases_to_
         .unwrap();
     let out = String::from_utf8_lossy(&o.stdout);
     assert_eq!(o.status.code(), Some(0), "{out}");
-    assert!(out.contains("changed 0, added 0, removed 0, renamed 0 (same statement), renamed and changed 0 (suggested), context changed 0; unchanged 7 (0 moved)"), "{out}");
+    assert!(out.contains("changed 0, added 0, removed 0, renamed 0 (same statement), renamed and changed 0 (suggested), context changed 0; unchanged 8 (0 moved)"), "{out}");
+    assert!(
+        out.contains("functions: changed 0, added 0, removed 0; unchanged 2"),
+        "{out}"
+    );
 }
 
 /// `k2lean new-invariant` on the peano library: the kind 2 skeleton (lakefile requiring the

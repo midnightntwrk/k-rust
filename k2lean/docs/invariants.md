@@ -726,8 +726,10 @@ $G diff OLD NEW [--hand PATH]… [--toml FILE]
 `OLD` and `NEW` are two generated library directories.
 It compares their `Step.Case` statements by rule name, after renaming bound variables, and reports the rules changed (and which parts: variables, side conditions, sides), renamed with an equal statement, renamed and changed (suggested), added, removed, and those whose priority context changed.
 `--hand PATH` scans the `.lean` and `.txt` files under `PATH` for references to rules (`Step.Case.r`, `Step.r`, `App.r`, `case r` tags, `open-invariant-cases.txt` lines) and lists the ones to revisit with file and line.
+It also compares the generated functions (`NS/Functions.lean`, written from their K equations): each function whose definition changed, was added or was removed is listed with the rules whose cases call it, directly or through other generated functions, and with the kind 1 invariant when it calls it (`NS/InvariantDefs.lean`), since then every case's meaning changed.
+With `--hand`, a reference to a rule that calls a changed or removed function is a case to revisit, and so is each mention of such a function (`K.f`, `Eqn.f_N`) in a hand-written file.
+A function is compared as the text of its definitions, so renaming a variable of one of its equations also reports it as changed.
 Exit status: 0 when nothing differs, 1 when something does, 2 on an error.
-It compares rule statements only, not the equations of the functions a rule calls (§9).
 
 ### 7.3 An edit, step by step
 
@@ -805,7 +807,7 @@ rm -rf $W2
 | a rule renamed (§7.1) | its hand case fails at its own statement (`unknown constant Step.Case.r`); `diff` reports the rename |
 | a rule added | nothing unless the closers fail on it (kind 1: build, then `open-from-log`; kind 2: it appears in `open`) |
 | a rule removed | its hand case fails at its statement; delete it |
-| a function's equations changed | the rule statements may be equal, so `diff` reports nothing, but the case's meaning changed: rebuild and read the results |
+| a function's equations changed | the rule statements may be equal, but the case's meaning changed: `diff` reports the function with the rules that call it, and `--hand` the hand cases of those rules; rebuild and read the results |
 | a side condition added or removed | the hand case's introductions shift (§7.3) |
 
 ## 8. Strengthening a non-inductive invariant
@@ -849,7 +851,6 @@ How to find the strengthening: read the open goal of the failing rule, find wher
 | list folds of one shape only | a recursive function other than `φ(X) andBool f(L)` with one argument gets a note (`… is not a list fold; its cases may need hand proofs`), and its cases usually become hand cases | rewrite it as such a fold, or write the invariant in Lean |
 | no top-cell K function | through krust, a function over `GeneratedTopCell` does not parse on SIMPLE; on kimp it compiles, but a function that is `true` on every configuration closed 2 of 79 cases and left `init` open (measured), because its equation needs every cell to be a constructor and the rules' cells are variables | the cell form `@CELL` (SIMPLE: `@T`, a function over `<T>`), or a kind 2 predicate with one projection per level |
 | cell collections: one level | a cell inside two nested collections is refused | state the invariant over the enclosing cell, or in Lean |
-| `diff` does not compare functions | a change to a function's equations is not reported, though it changes what the cases mean | rebuild after every regeneration; compare `NS/Functions.lean` of the two generations with `diff -u` |
 | Lake does not build the dependents of a module with an error | a broken hand case leaves `Run.lean` (kind 2) or `Invariants.lean` (kind 1) unchecked | keep hand cases in `Cases.lean` with `preserved`, as the skeleton does; fix the hand case first |
 | heartbeats | when the hand mode leaves goals open, elaboration after the tactic counts every rule's heartbeats and can add a timeout error at `preserved` (measured on SIMPLE) | `set_option maxHeartbeats 0` in `Cases.lean` (ImpTypes has it); successful proofs are not affected |
 | introductions are positional | an added or removed side condition shifts the names a hand case introduces | fix the `intro` line (§7.3) |

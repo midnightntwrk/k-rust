@@ -149,7 +149,7 @@ module DIFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,18,9,21)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,18,10,21)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/diff/new.k)"
     )
@@ -159,7 +159,7 @@ module DIFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(9,24,9,30)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,24,10,30)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/diff/new.k)"
     )
@@ -169,7 +169,7 @@ module DIFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,18,10,26)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,18,11,26)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/diff/new.k)"
     )
@@ -179,7 +179,7 @@ module DIFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,29,10,38)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,29,11,38)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/diff/new.k)"
     )
@@ -189,7 +189,7 @@ module DIFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,41,10,50)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,41,11,50)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/diff/new.k)"
     )
@@ -199,7 +199,7 @@ module DIFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,53,10,62)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,53,11,62)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/diff/new.k)"
     )
@@ -209,10 +209,40 @@ module DIFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(10,65,10,74)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,65,11,74)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/diff/new.k)"
     )
+  ]
+  symbol Lblgo'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(SortNat{}) : SortPgm{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(11,77,11,84)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/diff/new.k)"
+    )
+  ]
+  symbol Lbltwice'LParUndsRParUnds'DIFF-SYNTAX'Unds'Nat'Unds'Nat{}(SortNat{}) : SortNat{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,18,12,46)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/diff/new.k)"
+    ),
+    total{}()
+  ]
+  symbol Lblinc'LParUndsRParUnds'DIFF-SYNTAX'Unds'Nat'Unds'Nat{}(SortNat{}) : SortNat{}
+  [
+    function{}(),
+    functional{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,49,12,75)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/diff/new.k)"
+    ),
+    total{}()
   ]
   symbol LblisNat{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
   symbol LblisPgm{}(SortK{}) : SortBool{} [function{}(), functional{}(), total{}()]
@@ -737,7 +767,7 @@ module DIFF
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,3,15,34)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,3,17,34)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/diff/new.k)"
     )
@@ -889,6 +919,14 @@ module DIFF
       )
     )
     [constructor{}()]
+  axiom{}
+    \not{SortPgm{}}(
+      \and{SortPgm{}}(
+        Lblrun'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(X0:SortNat{}),
+        Lblgo'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(Y0:SortNat{})
+      )
+    )
+    [constructor{}()]
   axiom{R}
     \exists{R}(
       Val:SortPgm{},
@@ -933,6 +971,14 @@ module DIFF
       )
     )
     [constructor{}()]
+  axiom{}
+    \not{SortPgm{}}(
+      \and{SortPgm{}}(
+        Lbldone'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(X0:SortNat{}),
+        Lblgo'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(Y0:SortNat{})
+      )
+    )
+    [constructor{}()]
   axiom{R}
     \exists{R}(
       Val:SortPgm{},
@@ -969,6 +1015,14 @@ module DIFF
       )
     )
     [constructor{}()]
+  axiom{}
+    \not{SortPgm{}}(
+      \and{SortPgm{}}(
+        Lblback'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(X0:SortNat{}),
+        Lblgo'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(Y0:SortNat{})
+      )
+    )
+    [constructor{}()]
   axiom{R}
     \exists{R}(
       Val:SortPgm{},
@@ -997,6 +1051,14 @@ module DIFF
       )
     )
     [constructor{}()]
+  axiom{}
+    \not{SortPgm{}}(
+      \and{SortPgm{}}(
+        Lblhalt'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(X0:SortNat{}),
+        Lblgo'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(Y0:SortNat{})
+      )
+    )
+    [constructor{}()]
   axiom{R}
     \exists{R}(
       Val:SortPgm{},
@@ -1017,6 +1079,52 @@ module DIFF
       )
     )
     [constructor{}()]
+  axiom{}
+    \not{SortPgm{}}(
+      \and{SortPgm{}}(
+        Lblstop'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(X0:SortNat{}),
+        Lblgo'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(Y0:SortNat{})
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortPgm{},
+      \equals{SortPgm{}, R}(
+        Val:SortPgm{},
+        Lblgo'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(K0:SortNat{})
+      )
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortPgm{}}(
+      \and{SortPgm{}}(
+        Lblgo'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(X0:SortNat{}),
+        Lblgo'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(Y0:SortNat{})
+      ),
+      Lblgo'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(
+        \and{SortNat{}}(X0:SortNat{}, Y0:SortNat{})
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortNat{},
+      \equals{SortNat{}, R}(
+        Val:SortNat{},
+        Lbltwice'LParUndsRParUnds'DIFF-SYNTAX'Unds'Nat'Unds'Nat{}(K0:SortNat{})
+      )
+    )
+    [functional{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortNat{},
+      \equals{SortNat{}, R}(
+        Val:SortNat{},
+        Lblinc'LParUndsRParUnds'DIFF-SYNTAX'Unds'Nat'Unds'Nat{}(K0:SortNat{})
+      )
+    )
+    [functional{}()]
   axiom{R}
     \exists{R}(Val:SortBool{}, \equals{SortBool{}, R}(Val:SortBool{}, LblisNat{}(K0:SortK{})))
     [functional{}()]
@@ -1649,6 +1757,10 @@ module DIFF
       \exists{SortPgm{}}(
         X0:SortNat{},
         Lblstop'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(X0:SortNat{})
+      ),
+      \exists{SortPgm{}}(
+        X0:SortNat{},
+        Lblgo'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(X0:SortNat{})
       ),
       \bottom{SortPgm{}}()
     )
@@ -2339,7 +2451,7 @@ module DIFF
     [
       UNIQUE'Unds'ID{}("5bf95b2d5364f93c180cf834534374eb932cf4bbc2a0e47ac430b0c65b793461"),
       label{}("begin"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,3,17,49)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,3,19,49)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/diff/new.k)"
       )
@@ -2381,7 +2493,7 @@ module DIFF
     )
     [
       UNIQUE'Unds'ID{}("e91a852609487c7c62ebf0633e41f4a52187212c7418c60cbbe2b5826f70bf99"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,3,18,41)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,3,20,41)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/diff/new.k)"
       )
@@ -2426,7 +2538,7 @@ module DIFF
     )
     [
       UNIQUE'Unds'ID{}("a05db9468872f659968e51302b02d016da687fcc3ad6d7ac60a5026919d0ed7e"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,3,19,41)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,21,41)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/diff/new.k)"
       )
@@ -2466,7 +2578,7 @@ module DIFF
     )
     [
       UNIQUE'Unds'ID{}("1b789675bae4d6610599bbdcd70aa03b3a72adc497131c430d738f9d9f7009c7"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,3,20,38)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,3,22,38)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/diff/new.k)"
       )
@@ -2504,7 +2616,7 @@ module DIFF
     )
     [
       UNIQUE'Unds'ID{}("48f36c3f37e74a548e9cfceedd2f630c3067dade9a49e7858815949ea7e8ebb9"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,3,21,35)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,3,23,35)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/diff/new.k)"
       )
@@ -2542,7 +2654,7 @@ module DIFF
     )
     [
       UNIQUE'Unds'ID{}("089e76fd03913536afed19f6b4e0296ff14ad680e957791985ad1f82e70bc19e"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(22,3,22,34)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,3,24,34)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/diff/new.k)"
       )
@@ -2582,7 +2694,7 @@ module DIFF
     )
     [
       UNIQUE'Unds'ID{}("3ff30a9a687df86baa6ac6ef8978205de58117756f507cbe04e184502d386e85"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(23,3,23,38)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,25,38)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/diff/new.k)"
       )
@@ -2622,7 +2734,87 @@ module DIFF
     )
     [
       UNIQUE'Unds'ID{}("913d4b62d919267cc6d592abd9b90b4b157779424ec5892a1f9174a3219e8090"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,3,24,34)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(26,3,26,34)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/diff/new.k)"
+      )
+    ]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortPgm{}, SortKItem{}}(
+                Lblgo'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(VarN:SortNat{})
+              ),
+              dotk{}()
+            )
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortPgm{}, SortKItem{}}(
+                Lbldone'LParUndsRParUnds'DIFF-SYNTAX'Unds'Pgm'Unds'Nat{}(
+                  Lbltwice'LParUndsRParUnds'DIFF-SYNTAX'Unds'Nat'Unds'Nat{}(VarN:SortNat{})
+                )
+              ),
+              dotk{}()
+            )
+          ),
+          Var'Unds'DotVar0:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("08c5330631154ace7222106890c1c1e4fb1af94227c71cfbf9795a30035a14af"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(27,3,27,40)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/diff/new.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortNat{}, R}(X0:SortNat{}, VarN:SortNat{}), \top{R}())),
+      \equals{SortNat{}, R}(
+        Lbltwice'LParUndsRParUnds'DIFF-SYNTAX'Unds'Nat'Unds'Nat{}(X0:SortNat{}),
+        \and{SortNat{}}(
+          Lblinc'LParUndsRParUnds'DIFF-SYNTAX'Unds'Nat'Unds'Nat{}(
+            Lblinc'LParUndsRParUnds'DIFF-SYNTAX'Unds'Nat'Unds'Nat{}(VarN:SortNat{})
+          ),
+          \top{SortNat{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("76763b96b737864b9c615e8db08716a3dd869d03791a96d621c276ef30131b79"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(28,3,28,31)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/diff/new.k)"
+      )
+    ]
+  axiom{R}
+    \implies{R}(
+      \and{R}(\top{R}(), \and{R}(\in{SortNat{}, R}(X0:SortNat{}, VarN:SortNat{}), \top{R}())),
+      \equals{SortNat{}, R}(
+        Lblinc'LParUndsRParUnds'DIFF-SYNTAX'Unds'Nat'Unds'Nat{}(X0:SortNat{}),
+        \and{SortNat{}}(
+          Lbls'LParUndsRParUnds'DIFF-SYNTAX'Unds'Nat'Unds'Nat{}(
+            Lbls'LParUndsRParUnds'DIFF-SYNTAX'Unds'Nat'Unds'Nat{}(VarN:SortNat{})
+          ),
+          \top{SortNat{}}()
+        )
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("5030ba8c14d4848808e8e3aa3fff5a620519571e67a01caedb60b3a657388676"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(29,3,29,25)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/diff/new.k)"
       )
@@ -3196,7 +3388,7 @@ module DIFF
       simplification{}()
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,1,25,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,1,30,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/diff/new.k)"
   )

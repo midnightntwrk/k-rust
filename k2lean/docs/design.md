@@ -115,7 +115,7 @@ The inputs a person writes (the open lists and the kind 1 hand modules) are not 
 | `relate` | the correspondence of two definitions, and its Lean translation |
 | `claims`, `claims replay` | K claims as Lean statements and proofs |
 | `new-invariant` | the skeleton of a kind 2 invariant project (`invariants.md`, §4) |
-| `diff OLD NEW [--hand PATH]…` | the rules whose `Step.Case` changed between two generations, and the hand-written references to them (`invariants.md`, §7) |
+| `diff OLD NEW [--hand PATH]…` | the rules whose `Step.Case` changed between two generations, the generated functions whose definitions changed with the rules that call them, and the hand-written references to both (`invariants.md`, §7) |
 
 The flags of each command are in its module under `crates/k2lean/src/` and in the calls of `tests/libs.sh`.
 

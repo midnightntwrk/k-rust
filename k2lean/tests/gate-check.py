@@ -19,8 +19,8 @@ recorded outputs with the default encoding's, which they must equal):
             `k2lean new-invariant` writes for kimp (kind 2), built like a demo; SimpleEnv
             (heavy) is the kind 2 invariant of SIMPLE
   diff      `k2lean diff` of each library's last generation (the tree under test's generated/)
-            against the regenerated one: a NOTE naming the changed rules and the hand-written
-            references to revisit (the sources check is what fails)
+            against the regenerated one: a NOTE naming the changed rules and functions and the
+            hand-written references to revisit (the sources check is what fails)
   inv.X     the kind 1 invariant of library X (`X/NS/Invariants.lean`) builds; its open rule cases
             (open-invariant-cases.txt) may only shrink, the cases proved by `k2l_preserve` may not
             decrease, nor the theorems under its axiom guard
@@ -605,9 +605,11 @@ def compare(m, base, expected, accept_cmd):
             N(f"diff {f.stem[5:]}: unreadable {f}")
             continue
         sm = d.get("summary", {})
-        counts = {k: sm.get(k, 0) for k in ("changed", "added", "removed", "renamed", "renamed_changed", "context_changed")}
+        counts = {k: sm.get(k, 0) for k in ("changed", "added", "removed", "renamed", "renamed_changed", "context_changed",
+                                            "functions_changed", "functions_added", "functions_removed")}
         if any(counts.values()):
             rules = [f"{r['name']} {r['status']}" for r in d.get("rule", [])]
+            rules += [f"function {x['label']} {x['status']} ({len(x.get('rules', []))} calling rules)" for x in d.get("function", [])]
             revisit = sorted({r["rule"] for r in d.get("revisit", [])})
             N(f"diff {f.stem[5:]}: " + ", ".join(f"{k} {v}" for k, v in counts.items() if v) + f": {'; '.join(rules[:12])}"
               + (f"; hand-written cases to revisit: {', '.join(revisit)}" if revisit else "") + f" ({f.with_suffix('.txt')})")
