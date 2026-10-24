@@ -1501,6 +1501,11 @@ export interface FuzzWitnessCase {
   holes: FuzzHoleValue[]
   /** The instantiated program text; absent for a KORE template or without a program. */
   program?: string
+  /**
+   * The instantiated configuration-variable bindings by name (report version 7); absent for a KORE
+   * template or a program without bindings.
+   */
+  'config-vars'?: Record<string, string>
   class: FuzzOutcomeClass
   sides: {
     role: FuzzDefinitionRole
@@ -1710,7 +1715,7 @@ export interface FuzzIncidentalCase {
   'baseline-run'?: boolean
 }
 
-/** A campaign's report: schema `krust-fuzz-report`, version 6 (docs/compatibility.md). */
+/** A campaign's report: schema `krust-fuzz-report`, version 7 (docs/compatibility.md). */
 export interface FuzzReport {
   schema: 'krust-fuzz-report'
   version: number

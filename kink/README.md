@@ -408,7 +408,7 @@ Argue why, then drop it from `MUTATIONS.toml`.
 
 ### Reading the report
 
-The report (`run`'s output and `.kink-flow/report.json`, version 9) holds the specification digest, the k-rust revision and the solver profile;
+The report (`run`'s output and `.kink-flow/report.json`, version 10) holds the specification digest, the k-rust revision and the solver profile;
 `counts` per status; `survivors`, the ids of the mutations no program killed that a new program could kill;
 `unusable_programs`, every program that cannot kill (`{id, class, cause}`);
 `untargeted_rules`, every rule no mutation of the list targets (`{module, label, file, start_line, end_line, address, text}`, where `address` is the `rule` or `file` and `line` an edit can use);

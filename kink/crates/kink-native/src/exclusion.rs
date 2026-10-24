@@ -133,8 +133,13 @@ use crate::execution::{AdaptedExecution, AdaptedLeaf, HaltClass, RunFacts};
 /// variables. v2 (re-pin adoption A-1): a run is also excluded by k-rust's run-level lists, any
 /// entry of `contradictedClaims` (`contradicted-claim`), `implementationChosenValues`
 /// (`implementation-chosen-value`), `allowanceRefusals` (`allowance-refusal`) or
-/// `unsupportedHooks` (`unsupported-hook`).
-pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v2";
+/// `unsupportedHooks` (`unsupported-hook`). v3 (fz26 KS-PIN-SCDEF and KINK-CENSUS-RUNLIST): a
+/// short-circuit operator is flagged only when a term its skipped operand may leave undefined is
+/// not one another operand must evaluate (the must/may rule), and the definition-level census
+/// reads only the open hooks k-rust evaluates without a record ([`census_hook`]); the others
+/// ([`RUN_LIST_HOOKS`]) are judged per run through `unsupportedHooks`. Both only narrow what is
+/// excluded.
+pub const DEFINITION_EXCLUSION_VERSION: &str = "kink-native/definition-exclusion/v3";
 
 /// The hooks for which k-rust 8f8ad57c5 says it may compute a value the definition leaves open,
 /// exactly the hooks for which its classifier `chosen_value` (`k-rust-backend/src/builtin.rs`;

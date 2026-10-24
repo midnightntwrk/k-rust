@@ -43,6 +43,11 @@
 //! and one whose run took an undecided solver answer carries `smt_unknowns`; a program's row
 //! (in `programs`, from its result record) carries both always.
 //!
+//! fz26 KINK-BASELINE-FINDINGS (version 10): the document carries `data`, the baseline's full
+//! critical-pair check under the flow's `[spec] assume_joined`; a mutation made `unknown` with
+//! reason `baseline-findings` lists the unnamed `findings`; and a `comparable` program row is
+//! marked `unable_to_kill: "baseline-findings"` while such a finding is left.
+//!
 //! Nothing here reads or changes a verdict: every status is the kill search's, which is the
 //! campaign runner's fold over live and cached outcomes (README 7.5.3).
 
@@ -75,8 +80,9 @@ pub const RUN_SCHEMA: &str = "kink-flow-run";
 /// `report` requires to be this build's; 8 since packet CACHE-ID-fix-1 added `kink_build`, the
 /// digest of the executable that wrote it, which `report` requires to be this executable's; 9
 /// since re-pin adoption A-1 added `specification_diagnostics` and `smt_unknowns` to program rows
-/// and to executed entries.
-pub const RUN_VERSION: u64 = 9;
+/// and to executed entries; 10 since fz26 KINK-BASELINE-FINDINGS added `data`, a row's
+/// `findings` and a program row's `unable_to_kill`.
+pub const RUN_VERSION: u64 = 10;
 
 /// k-rust's contradicted-claim records of one run as specification diagnostics (re-pin adoption
 /// A-1): each `{claim, symbol, k_label, rule_id, rule_label, application, undefined,

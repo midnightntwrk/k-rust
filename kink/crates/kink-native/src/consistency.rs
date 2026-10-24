@@ -148,14 +148,25 @@ use crate::data::DataFacts;
 /// FZ-CONFLUENCE): k-rust pairs the equations at evaluated hooks with the hooks' written meanings
 /// (a hook pair is read for its first equation only) and refutes more overlaps (equality classes,
 /// linear integer arithmetic, deferred unifier equations, disjunctions), so a mutant whose guards
-/// those refute is admitted and one whose equation disagrees with its hook is refused.
-pub const MUTANT_CONSISTENCY_VERSION: &str = "kink-native/mutant-consistency/v3";
+/// those refute is admitted and one whose equation disagrees with its hook is refused. v4 (fz26
+/// phase 8): k-rust refutes more overlaps (membership literals, collection memberships, the map
+/// rule, literal bounds of `INT.max` and `INT.min`) and splits a residual into the cases its
+/// equations distinguish, so more mutants are admitted; it joins pairs over sorts with no normal
+/// form through the witness equations it adopts, whose adoption can flip between a baseline and
+/// its mutant, and withdraws claims through such pairs; and the gate reads the mutant's full check
+/// from its per-definition facts ([`crate::data::DataFacts`], KINK-BASELINE-FINDINGS) on kink's
+/// own load route instead of a probe copy's second check, with the completeness guard those facts
+/// hold.
+pub const MUTANT_CONSISTENCY_VERSION: &str = "kink-native/mutant-consistency/v4";
 
 /// The version of the reading of a mutant's effect from the compiled definitions
 /// ([`admit_mutant`]: the compiled changed-index diff, its reverse reach and the cross-check of
 /// the source reading, re-pin R0c-fix-4). A mutant's admission depends on it, so kink's
-/// semantics identity names it (kink-campaign `identity`).
-pub const MUTANT_EFFECT_VERSION: &str = "kink-native/mutant-effect/v1";
+/// semantics identity names it (kink-campaign `identity`). v2 (fz26 KINK-WITNESS): the effect
+/// also counts a head whose adopted witness equations differ from the baseline's as changed, a
+/// witness reaches the symbols it applies as an equation of its head does, and a flip of the
+/// adopted witness pass checks every head.
+pub const MUTANT_EFFECT_VERSION: &str = "kink-native/mutant-effect/v2";
 
 /// One pair of equations that k-rust's critical-pair check does not show to join (or one
 /// equation it reports on its own), with its reason.

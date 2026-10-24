@@ -578,8 +578,9 @@ mod kink_tier {
         // Re-pin R0c-fix-3: version 5 adds each row's `inconsistent_pairs`; re-pin L2-2-fix-1:
         // version 6 adds each row's `typing_diagnostics`; packet CACHE-ID: version 7 adds the
         // document's `kink` identity; packet CACHE-ID-fix-1: version 8 adds its `kink_build`; re-pin
-        // adoption A-1: version 9 adds `specification_diagnostics` and `smt_unknowns`.
-        assert_eq!(document["version"], 9);
+        // adoption A-1: version 9 adds `specification_diagnostics` and `smt_unknowns`; fz26
+        // KINK-BASELINE-FINDINGS: version 10 adds `data`, a row's `findings` and `unable_to_kill`.
+        assert_eq!(document["version"], 10);
         assert_eq!(row["typing_diagnostics"], json!([]));
         assert_eq!(
             entry(&document, "guard-dropped", "by-zero")["slots"],

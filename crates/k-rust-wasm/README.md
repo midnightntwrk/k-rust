@@ -130,7 +130,7 @@ return `Z3InferenceRequired`.
 library in one call: it compiles the definition, crafts values for the program's holes until the
 budget is spent or a concrete re-run confirms a witness, and returns the report. The campaign
 specification is the library's JSON, with kebab-case fields; `json` is the report's canonical text
-(schema `krust-fuzz-report`, version 6), and `report` the same document parsed.
+(schema `krust-fuzz-report`, version 7), and `report` the same document parsed.
 
 ```typescript
 import init, { runFuzzCampaign } from '@midnightntwrk/k-rust-wasm'

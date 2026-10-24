@@ -496,7 +496,7 @@ const impCampaign = (campaign = {}) => ({
 test('runs one fuzz campaign on IMP to a confirmed witness', () => {
   const { json, report } = runFuzzCampaign(impCampaign())
   assert.equal(report.schema, 'krust-fuzz-report')
-  assert.equal(report.version, 6)
+  assert.equal(report.version, 7)
   assert.equal(report.identity.solver, SOLVER)
   assert.equal(report.identity.seed, '24301')
   assert.deepEqual(report.identity.budget, { cases: '64' })

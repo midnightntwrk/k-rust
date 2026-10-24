@@ -257,7 +257,7 @@ mod kink_tier {
                 memo: kink_flow::memo::MemoUse::On,
             },
         );
-        assert_eq!(document["version"], 9);
+        assert_eq!(document["version"], 10);
         assert_sib_record(
             &program(&document, "sib-0")["specification_diagnostics"],
             "SPEC.sibtd",

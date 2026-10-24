@@ -103,7 +103,18 @@ pub use values::{Constraints, Value};
 /// no normal form like any other (FZ-EMPTYSORT), pairs each equation at an evaluated hook with the
 /// hook's written meaning and refutes more overlaps (FZ-CONFLUENCE), which moves the classes the
 /// proposers read.
-pub const ENGINE_VERSION: u32 = 5;
+///
+/// Version 6 (phase 8): the data judgement's check refutes more overlaps (membership literals,
+/// FZ-MEMBERSHIP; collection memberships, S2B-T2; the map rule, FZ-MAPKEY; literal bounds of
+/// `INT.max` and `INT.min`, FZ-CONFLUENCE-F), adopts witness equations for pairs over sorts with
+/// no normal form (FZ-EMPTYJOIN-WITNESS) with the claims read accordingly
+/// (FZ-EMPTYJOIN-CLAIMS), splits a residual into the cases its equations distinguish
+/// (FZ-CONFLUENCE-F), reads a leaf with a term-level `\and` of different sides conservatively
+/// (FZ-ADOPT-AND) and widens `genuine` (S2B-T3), which moves the findings and the classes the
+/// proposers read; a pattern target `at: any-state` now runs (FZ-ANYSTATE); and a rule or pattern
+/// hit under `comparable` or `query-confirmable` may take one more charged run, which moves
+/// `Budget::Work` and shrinking (FZ-COMPARABLE-AQ).
+pub const ENGINE_VERSION: u32 = 6;
 
 #[cfg(test)]
 mod release_tests {
