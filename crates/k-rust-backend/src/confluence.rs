@@ -2296,12 +2296,18 @@ impl Context<'_> {
                 let under =
                     |term: &Option<Term>| term.as_ref().map(|term| substitute(term, &equalities));
                 let (first_side, second_side) = (under(&first_side), under(&second_side));
+                // The join re-reads the pair's conditions in each case it splits off (F1).
+                let pair = join::PairConditions {
+                    rules: [first.as_ref(), second.as_ref()],
+                    unifier: &unifier,
+                };
                 match join::join(
                     self,
                     candidate.lifting,
                     (first_side.clone(), second_side.clone()),
                     &values,
                     join::Mode::Verdict,
+                    &pair,
                 ) {
                     join::Outcome::Joined => {
                         self.tally(candidate, Tally::Joined);
@@ -2316,7 +2322,7 @@ impl Context<'_> {
                         if uninhabited.is_some()
                             || switches::active().witness_without_empty_variable
                         {
-                            self.propose(candidate, (&first_side, &second_side), &values);
+                            self.propose(candidate, (&first_side, &second_side), &values, &pair);
                         }
                         // Different results under conditions the check neither refuted nor showed
                         // to hold may be an artifact of the condition reader; under conditions
@@ -2389,6 +2395,7 @@ impl Context<'_> {
         candidate: &Candidate<'_>,
         sides: (&Option<Term>, &Option<Term>),
         values: &[Term],
+        pair: &join::PairConditions<'_>,
     ) {
         if self.proposals.is_none() || !candidate.gate_classified {
             return;
@@ -2400,6 +2407,7 @@ impl Context<'_> {
             (sides.0.clone(), sides.1.clone()),
             values,
             join::Mode::Open,
+            pair,
         );
         self.counts = counts;
         let join::Outcome::NotJoined {

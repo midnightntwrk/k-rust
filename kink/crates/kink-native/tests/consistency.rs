@@ -192,6 +192,19 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// adopted witness is no longer listed, so such a mutant can be admitted (admission widens), and
 /// an adoption can flip between baseline and mutant, which KINK-WITNESS diffs.
 ///
+/// fz26 phase-8 FZ-CONFLUENCE-F: 1100-1107 changes, by digest (3483b03d -> 5b52aef7). Line 1103
+/// adds two ways the join closes a case it split off, each because the case has no instance at
+/// which both conditions hold: a case whose two `requires`, read again under the substitution
+/// that made it, are refuted (F1), and the complement of a split whose cases bind one variable to
+/// each constructor of a sort whose every element in `M+` is such an application (F2: surely
+/// inhabited, no proper subsort, neither hooked nor a collection, no domain values, and no symbol
+/// of the sort but its constructors and unhooked partial functions; `KEQUAL.ite` counts as
+/// another symbol, so a definition declaring K's `ite{S}` drops no complement); such a pair is
+/// joined. "Joined" keeps its meaning (steps of `R ∪ W` valid on the instances the lifting lemma
+/// ranges over, in `M+`); the check shows more pairs joined, so kink can admit more mutants: on
+/// KEVM the six `#hashTxData` pairs (`serialization.md:193-196`) now join by F1. Line 1104's WASM
+/// count stays four.
+///
 /// fz26 phase-8 FZ-EMPTYJOIN-CLAIMS: 1100-1107 and 1123-1136 change, by digest; no line moves.
 /// Line 1104: a pair over a sort with no normal form withdraws claims and is named at load like
 /// any other pair (it withdrew nothing and was not named, the claims being read in `M_NF`); the
@@ -227,13 +240,16 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// defined, and a conjunction is refuted when it is refuted with or without them. Only more
 /// overlaps are refuted; the other passages are unmoved.
 ///
-/// fz26 int9 (FZ-MAPKEY, FZ-MEMBERSHIP, S2B-T2, FZ-EMPTYJOIN-WITNESS and FZ-EMPTYJOIN-CLAIMS
-/// merged): line 1102 carries FZ-MAPKEY's map sentence; line 1103 FZ-MEMBERSHIP's and S2B-T2's
-/// clauses and, at its end, FZ-EMPTYJOIN-WITNESS's sentence reading "joined" in `M+`; line 1104 the
-/// witness proposal with FZ-EMPTYJOIN-CLAIMS's withdrawal; 1130 FZ-EMPTYJOIN-CLAIMS's warnings;
-/// each as its branch wrote it, no line moved. Re-pinned by digest of the merged texts: 1100-1107
-/// -> `2f92e7ff`; 1069-1071 (`a350602f`), 1123-1136 (`64b22da3`) and `definition.rs` 2926-2956
-/// (`3b520509`) are as the branches pinned them.
+/// fz26 int9 (FZ-MAPKEY, FZ-MEMBERSHIP, S2B-T2, FZ-EMPTYJOIN-WITNESS, FZ-EMPTYJOIN-CLAIMS and
+/// FZ-CONFLUENCE-F merged): line 1102 carries FZ-MAPKEY's map sentence; line 1103 FZ-MEMBERSHIP's
+/// and S2B-T2's clauses, FZ-CONFLUENCE-F's two ways a split case is closed and, at its end,
+/// FZ-EMPTYJOIN-WITNESS's sentence reading "joined" in `M+`; line 1104 the witness proposal with
+/// FZ-EMPTYJOIN-CLAIMS's withdrawal; 1130 FZ-EMPTYJOIN-CLAIMS's warnings; each as its branch wrote
+/// it, no line moved, except that 1103's KEVM example now says the six `#hashTxData` pairs are
+/// refuted by the membership literals before any join (the conditions are read before the join, so
+/// on the merged check F1 no longer removes them; it would close each split case alone). Re-pinned
+/// by digest of the merged texts: 1100-1107 -> `d519755a`; 1069-1071 (`a350602f`), 1123-1136
+/// (`64b22da3`) and `definition.rs` 2926-2956 (`3b520509`) are as the branches pinned them.
 ///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
@@ -249,7 +265,7 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
         "docs/compatibility.md",
         1100,
         1107,
-        "2f92e7ff61269ea251f5e67989acd6cda25408b582aaf8f48ee6a1ee4d8e0e01",
+        "d519755a07611bd6bbdd9789fe100d20e4466886e7760a565421fc35577846b8",
     ),
     (
         "docs/compatibility.md",
@@ -365,15 +381,22 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// sort that stays unjoined and reaches a witness head keeps the first pass (fewer witnesses, so
 /// more pairs listed: kink can only refuse more). WASM keeps its witness.
 ///
+/// fz26 phase-8 FZ-CONFLUENCE-F: 4d58d09a -> c94f501b. `classify` passes the join the pair's two
+/// equations and the overlap's unifier (`join::PairConditions`), so that the join re-reads the
+/// conditions in each case it splits off (F1, `confluence/join.rs`); the proposal pass passes the
+/// same. The stages, the early return and the counts kink reads are unchanged; the join closes
+/// more cases, so a verdict kink reads can list fewer pairs (see `PREMISE_PASSAGES`).
+///
 /// fz26 int9 (FZ-MEMBERSHIP merged with FZ-JUNK-ORACLE, FZ-EMPTYJOIN-WITNESS with its review fixes,
-/// FZ-EMPTYJOIN-ORACLE and FZ-EMPTYJOIN-CLAIMS): the membership table, the `separate_uninhabited`
-/// reader, the witness passes, the oracle's witness switch readers and the seeding of pairs over
-/// sorts with no normal form side by side (the load's own condition 4 check is kept beside
+/// FZ-EMPTYJOIN-ORACLE, FZ-EMPTYJOIN-CLAIMS and FZ-CONFLUENCE-F): the membership table, the
+/// `separate_uninhabited` reader, the witness passes, the oracle's witness switch readers, the
+/// seeding of pairs over sorts with no normal form and the pair's conditions passed to the join and
+/// to the witness proposal side by side (the load's own condition 4 check is kept beside
 /// `witnesses_only_at_their_pair`, and `adopt_with_tainted_witness_head` drops both readings of
 /// condition 4), and the contract's `refuted` and `joined` points stated together (models of the
 /// axioms read as true; steps of `R ∪ W` in `M+`); re-pinned by digest of the merged file: ->
-/// `a5db9cbd`.
-const CONFLUENCE_RS: &str = "a5db9cbd5703c819b5b1148130e2a9a72e24690ff19256e23a2743a24134da6a";
+/// `60e618a0`.
+const CONFLUENCE_RS: &str = "60e618a0aa3039ce0c85d09441acb6595c5d4a2d7d1b1bb2efa8208f2257da9d";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin

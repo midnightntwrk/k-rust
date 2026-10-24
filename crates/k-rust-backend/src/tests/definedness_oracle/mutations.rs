@@ -232,6 +232,122 @@ mutation!(
     scope_failures
 );
 
+/// The shapes of `generator::constructor_split` whose full check reports nothing under
+/// `switches`.
+fn accepted_splits(switches: Switches) -> Vec<super::generator::Split> {
+    switches::with(switches, || {
+        super::generator::Split::ALL
+            .into_iter()
+            .filter(|split| {
+                let definition = super::generator::constructor_split(*split);
+                let backend = super::checks::backend(&definition).expect("the template loads");
+                let full = backend.value_claims_in_scope(crate::confluence::CheckScope::All);
+                full.unjoined().is_empty() && full.violations().is_empty()
+            })
+            .collect()
+    })
+}
+
+/// F1 and F2 (`confluence/join.rs`): the pair joins after a split on a residual over the sort
+/// `Tc`, whose constructors cover it, when each branch's conditions are refuted under its
+/// unifier (WASM's `sparse-bytes.k:121/133` shape) or each branch joins. It stays named where a
+/// branch's conditions may hold, where a constructor has no branch, where an empty subsort gives
+/// `Tc` an element in every model that no constructor builds, where an equation head or a total
+/// function produces `Tc`, where a branch binds a constructor to a specific argument, and where
+/// `Tc` is not surely inhabited. Each defect switch of the two rules accepts the shapes it should
+/// not.
+#[test]
+fn a_constructor_split_joins_exactly_where_the_constructors_cover_the_sort() {
+    use super::generator::Split;
+    super::on_large_stack(|| {
+        let joining = Split::ALL
+            .into_iter()
+            .filter(|split| split.joins())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            joining,
+            [Split::Refuted, Split::Covered, Split::CoveredUnary]
+        );
+        assert_eq!(accepted_splits(Switches::default()), joining);
+        for (switches, also) in [
+            (
+                Switches {
+                    close_case_without_refutation: true,
+                    ..Switches::default()
+                },
+                vec![Split::Open],
+            ),
+            (
+                Switches {
+                    drop_complement_without_coverage: true,
+                    ..Switches::default()
+                },
+                vec![
+                    Split::Uncovered,
+                    Split::EmptySubsort,
+                    Split::HeadProducer,
+                    Split::TotalProducer,
+                    Split::Specific,
+                    Split::Uninhabited,
+                ],
+            ),
+            (
+                Switches {
+                    coverage_ignores_empty_subsorts: true,
+                    ..Switches::default()
+                },
+                vec![Split::EmptySubsort],
+            ),
+        ] {
+            let mut expected = joining.clone();
+            expected.extend(also);
+            let mut accepted = accepted_splits(switches);
+            accepted.sort_by_key(|split| Split::ALL.iter().position(|other| other == split));
+            expected.sort_by_key(|split| Split::ALL.iter().position(|other| other == split));
+            assert_eq!(accepted, expected, "{switches:?}");
+        }
+    });
+}
+
+/// `coverage_ignores_empty_subsorts` counts `Tc` covered by `tc1` and `tc2` although its empty
+/// subsort `Ec` gives it an element in every model, and the full check accepts
+/// `hTc(X) = c` beside `hTc(X) = pTc(X)`. Without `D+`'s constants nothing sees it, since no
+/// value of `Tc` is outside the constructors; with them `hTc(inj(junkEc))` is `c` by one
+/// equation and `\bottom` by the other.
+#[test]
+fn coverage_that_ignores_empty_subsorts_is_caught_by_the_constants() {
+    use super::generator::{Split, constructor_split};
+    super::on_large_stack(|| {
+        let switch = Switches {
+            coverage_ignores_empty_subsorts: true,
+            ..Switches::default()
+        };
+        assert!(accepted_splits(switch).contains(&Split::EmptySubsort));
+        let definition = constructor_split(Split::EmptySubsort);
+        // The pair is over `Tc`, which has normal forms, so it proposes no witness: `D+` is
+        // judged without witness equations.
+        let run = |constants| {
+            switches::with(switch, || {
+                super::checks::junk_check(&definition, &[], constants, &mut Rng(DEFAULT_SEED))
+                    .failures
+            })
+        };
+        let without = run(false);
+        assert!(without.is_empty(), "{}", without.join("\n"));
+        let with = run(true);
+        assert!(
+            with.iter().any(|failure| failure.contains("junkEc")),
+            "{with:?}"
+        );
+    });
+}
+
+mutation!(
+    coverage_that_ignores_empty_subsorts_is_caught_by_the_scope_run,
+    coverage_ignores_empty_subsorts,
+    scope_failures
+);
+
 /// V9's failures on N1 observed by a function under `switches`: the template where only T-obs
 /// makes a pair relevant to the load's scope.
 fn scope_failures_on_observation_by_a_function(switches: Switches) -> Vec<String> {
@@ -375,7 +491,9 @@ fn the_overload_switches_withdraw_no_fewer_claims() {
 ///   applies where `M_NF` reads the stuck application as `\bottom`, which no generated
 ///   definition here exercises;
 /// - `separate_uninhabited` (not counted above) sets aside overlaps over a sort with no normal
-///   form, which the harness, instantiating with the backend's values, has no value of.
+///   form, which the harness, instantiating with the backend's values, has no value of; and
+///   `coverage_ignores_empty_subsorts` (not counted above) drops a split's complement whose only
+///   instances are at an element of an empty subsort, of which the harness has no value either.
 ///
 /// The oracle sees the overload switches by comparing the pairs with its own (V2 and the
 /// completeness run), `claims_during_check` with the claim-dependent probe and both check
@@ -387,7 +505,9 @@ fn the_overload_switches_withdraw_no_fewer_claims() {
 /// (`confluence::tests::witness::a_dropped_supersort_closure_proposes_a_witness_at_a_sort_with_a_normal_form`)
 /// and the reason it names (`confluence::tests::review_one`);
 /// `separate_uninhabited` by the constants of `D+`
-/// (`restored_vacuity_goes_unnoticed_without_the_constants_and_is_caught_with_them`). The four
+/// (`restored_vacuity_goes_unnoticed_without_the_constants_and_is_caught_with_them`), and
+/// `coverage_ignores_empty_subsorts` too
+/// (`coverage_that_ignores_empty_subsorts_is_caught_by_the_constants`). The four
 /// witness switches (`adopt_unvalidated_witnesses`, `witnesses_only_at_their_pair`,
 /// `witness_without_empty_variable`, `adopt_with_tainted_witness_head`) are not counted either:
 /// the harness's judge, the backend's evaluation, never reads a witness equation, and its values
@@ -486,6 +606,16 @@ axiom_mutation!(
     self_pair_ignores_ensures
 );
 axiom_mutation!(the_axiom_harness_sees_a_misread_int_le, misread_int_le);
+// `generator::constructor_split`'s `Open` shape: `gTc(tc1, 1)` is `c` and `m(2)`.
+axiom_mutation!(
+    the_axiom_harness_sees_cases_closed_without_refutation,
+    close_case_without_refutation
+);
+// `generator::constructor_split`'s `Uncovered` shape: `hTc(tc3)` is `c` and `\bottom`.
+axiom_mutation!(
+    the_axiom_harness_sees_complements_dropped_without_coverage,
+    drop_complement_without_coverage
+);
 // The written-meaning template whose equation disagrees with `KEQUAL.ite` has no model; without
 // the hook pairs the full check names no pair for it.
 axiom_mutation!(the_axiom_harness_sees_skipped_hook_pairs, skip_hook_pairs);

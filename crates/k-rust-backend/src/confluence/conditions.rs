@@ -51,7 +51,8 @@
 //!   by 1 over the integers); any other form is ignored. The atoms' range facts, theorems of their
 //!   hooks wherever the atom is defined, are added: `STRING.length`, `BYTES.length`, `LIST.size`,
 //!   `MAP.size`, `SET.size` and `INT.abs` are at least 0, `INT.abs(x)` and `INT.max(x, y)` at
-//!   least each operand of the form `atom + k`, `INT.min(x, y)` at most each. Difference
+//!   least each operand of the form `atom + k` or a literal `k`, `INT.min(x, y)` at most each
+//!   (`maxInt(N, 0) >=Int 0`). Difference
 //!   constraints over the integers have a solution exactly when their graph has no negative cycle
 //!   (Floyd and Warshall), and a disequality `x - y =/= k` fails where the closure forces
 //!   `x - y = k`; then the conjunction is refuted. A conjunct is used only when it shows its atoms
@@ -1813,9 +1814,14 @@ impl Differences {
         }
     }
 
-    /// Record `operand <= atom node`, when the operand is a unit form.
+    /// Record `operand <= atom node`, when the operand is a unit form or a literal.
     fn below(&mut self, definition: &BackendDefinition, node: usize, operand: &Term) {
         let form = linear(definition, operand);
+        // A literal operand `k <= node`: 0 - node <= -k, node 0 standing for the integer 0.
+        if form.atoms.is_empty() {
+            self.edge(0, node, -form.constant.clone());
+            return;
+        }
         // operand = x + k (a positive unit form) <= node: x - node <= -k. A negative unit form
         // `k - y <= node` bounds a sum, which is no difference constraint.
         if let Some((x, 0, k)) = self.difference(&form)
@@ -1825,9 +1831,14 @@ impl Differences {
         }
     }
 
-    /// Record `atom node <= operand`, when the operand is a unit form.
+    /// Record `atom node <= operand`, when the operand is a unit form or a literal.
     fn above(&mut self, definition: &BackendDefinition, node: usize, operand: &Term) {
         let form = linear(definition, operand);
+        // A literal operand `node <= k`: node - 0 <= k.
+        if form.atoms.is_empty() {
+            self.edge(node, 0, form.constant.clone());
+            return;
+        }
         // node <= x + k: node - x <= k.
         if let Some((x, 0, k)) = self.difference(&form)
             && x != 0

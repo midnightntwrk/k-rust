@@ -396,7 +396,13 @@ fn the_checks_work_counters_stay_within_ten_percent_of_their_pins() {
         // FZ-EMPTYJOIN-ORACLE: (57, 124, 24, 10) -> (68, 151, 33, 10), the seven witness
         // templates (`generator::witness_templates`): the load's counts on them, those of its
         // second pass where a witness is adopted, the witness pairs included.
-        ("oracle templates", 68, 151, 33, 10),
+        // FZ-CONFLUENCE-F: 57/124/24/10 -> 68/178/30/15. The ten constructor-split templates
+        // (`generator::constructor_split`) add 10 pairs, 53 branches, 5 steps and 5 simplifier
+        // calls (the conditions F1 re-reads); the other templates measure 58/125/25/10.
+        // fz26 int9 (FZ-EMPTYJOIN-ORACLE merged with FZ-CONFLUENCE-F): both template sets,
+        // measured on the merged check: -> (78, 204, 38, 15), the base's (57, 124, 24, 10) plus
+        // each set's own addition.
+        ("oracle templates", 78, 204, 38, 15),
     ];
     let mut measured = Vec::new();
     let counts = load(FUN_LISTS, "OVERLOADED-LIST-OWISE")
