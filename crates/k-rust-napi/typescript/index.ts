@@ -1647,6 +1647,11 @@ export interface FuzzIncidentalCase {
   configuration: string
   /** Re-runs the semantics under test (a differential campaign's baseline, on all paths). */
   'krun-command': string | null
+  /**
+   * `true` when the run is a differential campaign's baseline run, on all paths and classed
+   * alone, so its class need not be the case's; absent otherwise.
+   */
+  'baseline-run'?: boolean
 }
 
 /** A campaign's report: schema `krust-fuzz-report`, version 5 (docs/compatibility.md). */

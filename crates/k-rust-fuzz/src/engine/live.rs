@@ -1228,12 +1228,19 @@ impl LiveCases {
         )
         .map(|line| {
             if hidden {
-                format!(
-                    "{line}  # krun reports an undefined step only when every path takes one, \
-                     and another path of this run does not: this finding is leaf {index} of \
-                     {leaves}, an undefined step at step {}",
+                let note = format!(
+                    "krun reports an undefined step only when every path takes one, and another \
+                     path of this run does not: this finding is leaf {index} of {leaves}, an \
+                     undefined step at step {}",
                     leaf.depth.saturating_add(1)
-                )
+                );
+                // One trailing comment: a line that already has one (the max-work note) takes
+                // the note as a further clause of it.
+                if line.contains("  # ") {
+                    format!("{line}; {note}")
+                } else {
+                    format!("{line}  # {note}")
+                }
             } else {
                 line
             }
@@ -1247,6 +1254,9 @@ impl LiveCases {
             k_heads: incidental::k_heads(&leaf.state, self.baseline.holes.text.as_ref()),
             configuration: leaf.state.to_string(),
             krun_command,
+            // A differential campaign's finding is always its baseline's own all-paths run
+            // (`Self::baseline_incidental`).
+            baseline_run: self.spec.definitions.mutant.is_some(),
         };
         Some((class, Box::new(finding)))
     }

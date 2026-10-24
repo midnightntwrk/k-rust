@@ -2333,6 +2333,7 @@ fn incidental(values: &[Value], class: OutcomeClass, head: &str) -> CaseRun {
                 k_heads: vec![head.to_owned()],
                 configuration: format!("config-{head}"),
                 krun_command: Some(format!("krust krun {values:?}")),
+                baseline_run: false,
             }),
         )),
         ..run(class, 10)
@@ -2469,6 +2470,7 @@ fn an_incidental_line_counts_steps_holes_paths_and_threads() {
         k_heads: vec!["join 0 ;".into(), "10 / 0".into()],
         configuration: String::new(),
         krun_command: None,
+        baseline_run: false,
     };
     let lines = |case: &crate::report::IncidentalCase, stuck: bool| {
         let incidentals = crate::report::Incidentals {
@@ -2492,11 +2494,23 @@ fn an_incidental_line_counts_steps_holes_paths_and_threads() {
     assert!(
         lines(&case, false).starts_with(
             "incidental (information, not a failure): case 0 on one of its 2 paths took an \
-             undefined step at step 2 at `a ( 0 )`;"
+             undefined step at step 2 on `a ( 0 )`;"
         ),
         "{}",
         lines(&case, false)
     );
+    // A differential baseline's run says it is that run, not the pair's class.
+    case.baseline_run = true;
+    assert!(
+        lines(&case, false).starts_with(
+            "incidental (information, not a failure): case 0, in the baseline's own run on all \
+             paths (not the pair's class), on one of its 2 paths took an undefined step at step \
+             2 on `a ( 0 )`;"
+        ),
+        "{}",
+        lines(&case, false)
+    );
+    case.baseline_run = false;
     // At most four heads, then a count.
     case.k_heads = (0..6).map(|n| format!("t{n}")).collect();
     assert!(

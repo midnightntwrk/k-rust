@@ -1838,6 +1838,9 @@ fn an_undefined_finding_on_one_path_of_several_says_so() {
         krun.contains("--strategy all") && krun.contains(note),
         "{krun}"
     );
+    // One trailing comment: the max-work note and the undefined-step note share it.
+    assert_eq!(krun.matches('#').count(), 1, "{krun}");
+    assert!(krun.contains("which krun cannot; krun reports"), "{krun}");
     let output = krust_fuzz(
         &directory,
         &["--campaign", "nd.toml", "--json", "--one-path"],

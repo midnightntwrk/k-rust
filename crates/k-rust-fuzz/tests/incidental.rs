@@ -159,6 +159,14 @@ fn the_imp_division_campaign_reports_its_undefined_case() {
         "{krun}"
     );
     assert_eq!(json["incidental"].get("stuck"), None);
+    // The case's own run: no `baseline-run`, and the step is taken on the heads.
+    assert_eq!(undefined.get("baseline-run"), None, "{undefined}");
+    let line = &report.incidental.lines()[0];
+    assert!(
+        line.contains("took an undefined step at step 28 on `100 / 0`;")
+            && !line.contains("baseline"),
+        "{line}"
+    );
     // The witness search is unchanged: B = 2, C = 1 style cases still hit.
     assert!(report.witness().is_some(), "{:?}", report.outcome);
 }
@@ -231,6 +239,13 @@ fn a_differential_case_where_both_sides_stop_names_the_baseline() {
         assert_eq!(stuck["k-heads"], serde_json::json!(["100 / 0"]));
         let krun = stuck["krun-command"].as_str().expect("a krun line");
         assert!(krun.contains("--strategy all"), "{krun}");
+        // The summary line and the report say the finding is the baseline's own run.
+        assert_eq!(stuck["baseline-run"], true, "{stuck}");
+        let line = &report.incidental.lines()[0];
+        assert!(
+            line.contains("in the baseline's own run on all paths (not the pair's class)"),
+            "{line}"
+        );
     }
 }
 

@@ -1243,16 +1243,19 @@ impl Incidentals {
             let steps = plural(case.steps, "step");
             lines.push(case.line(
                 &format!("got stuck before a natural end after {steps}"),
+                "at",
                 "no rule applies there: a missing rule, or a stop the semantics intends",
                 "stuck",
             ));
         }
         if let Some(case) = &self.undefined {
+            // The heads are the configuration the step rewrote, so the step is taken on them.
             lines.push(case.line(
                 &format!(
                     "took an undefined step at step {}",
                     case.steps.saturating_add(1)
                 ),
+                "on",
                 "a rule applied whose result is undefined there: a partiality the semantics may \
                  or may not intend",
                 "undefined",
@@ -1304,12 +1307,18 @@ pub struct IncidentalCase {
     /// when every path of the run takes one; when another path does not, the line says so in a
     /// trailing comment, and the finding is leaf [`Self::leaf`] of [`Self::leaves`].
     pub krun_command: Option<String>,
+    /// Whether the run is a differential campaign's baseline run of the case, on all paths and
+    /// classed alone ([`Incidentals`]), so that its class need not be the case's (absent when
+    /// `false`: the run is the case's own).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub baseline_run: bool,
 }
 
 impl IncidentalCase {
-    /// The summary line: the case, its holes, what happened (`what`), where, why it may matter
-    /// (`meaning`), and the report key (`key`) that holds the rest.
-    fn line(&self, what: &str, meaning: &str, key: &str) -> String {
+    /// The summary line: the case, its holes, which run (a differential baseline's says so),
+    /// what happened (`what`), where (the `<k>` heads after the preposition `place`), why it
+    /// may matter (`meaning`), and the report key (`key`) that holds the rest.
+    fn line(&self, what: &str, place: &str, meaning: &str, key: &str) -> String {
         /// The longest hole value or `<k>` item a line prints in full, in characters.
         const SHOWN: usize = 80;
         /// The most `<k>` items a line prints.
@@ -1359,10 +1368,15 @@ impl IncidentalCase {
             } else {
                 String::new()
             };
-            format!(" at {heads}{more}")
+            format!(" {place} {heads}{more}")
+        };
+        let run = if self.baseline_run {
+            ", in the baseline's own run on all paths (not the pair's class),"
+        } else {
+            ""
         };
         format!(
-            "incidental (information, not a failure): case {}{holes}{path} {what}{at}; \
+            "incidental (information, not a failure): case {}{holes}{run}{path} {what}{at}; \
              {meaning}. The report's `incidental.{key}` holds its configuration and krun line.",
             self.case
         )
@@ -1665,6 +1679,7 @@ mod tests {
             k_heads: vec!["100 / 0".into()],
             configuration: "Lbl'-LT-'generatedTop'-GT-'{}()".into(),
             krun_command: None,
+            baseline_run: false,
         });
         let text = report.to_canonical_json();
         assert!(
@@ -1681,7 +1696,7 @@ mod tests {
             report.incidental.lines(),
             vec![
                 "incidental (information, not a failure): case 3 took an undefined step at step \
-                 10 at `100 / 0`; a rule applied whose result is undefined there: a partiality \
+                 10 on `100 / 0`; a rule applied whose result is undefined there: a partiality \
                  the semantics may or may not intend. The report's `incidental.undefined` holds \
                  its configuration and krun line."
                     .to_owned()
