@@ -1,7 +1,7 @@
 //! `k2lean`: a Lean 4 library from a K definition compiled to KORE by krust (`k2lean/README.md`).
 //!
 //! Commands: `gen` (the library), `open-from-log`, `goldens`, `cases`, `configs`, `survey`,
-//! `relate`, `claims`, `new-invariant` and `diff`; `k2lean/docs/design.md` describes them.
+//! `relate`, `soundness`, `claims`, `new-invariant` and `diff`; `k2lean/docs/design.md` describes them.
 
 mod casediff;
 mod cases;
@@ -30,6 +30,7 @@ mod relate;
 mod render;
 mod rulename;
 mod rules;
+mod soundness;
 mod survey;
 mod template;
 mod termination;
@@ -154,6 +155,9 @@ fn main() {
     }
     if raw.first().map(|s| s.as_str()) == Some("relate") {
         return relate::main(&raw[1..]);
+    }
+    if raw.first().map(|s| s.as_str()) == Some("soundness") {
+        return soundness::main(&raw[1..]);
     }
     if raw.first().map(|s| s.as_str()) == Some("diff") {
         return casediff::main(&raw[1..]);
