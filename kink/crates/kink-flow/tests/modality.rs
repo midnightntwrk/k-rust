@@ -846,7 +846,9 @@ const CORPUS: [(&str, &[&str], Minimums); 25] = [
         at_least(0, 0, 0, 0),
     ),
     // fz26 P7-KINKFLOW T3a: TRIAL2's IMP fixtures for `kink-flow fuzz` (no minimum: they are
-    // there for `tests/fuzz.rs`).
+    // there for `tests/fuzz.rs`). fuzz/imp is listed but not run by a differential test: it is
+    // kink/examples/imp's IMP with seven of its mutations, whose path sets over `primes` took
+    // more than 19 CPU minutes without finishing (examples/imp is not in this corpus either).
     ("fuzz/imp", &["FLOW.toml"], at_least(0, 0, 0, 0)),
     ("fuzz/impu", &["FLOW.toml"], at_least(0, 0, 0, 0)),
     ("twin", &["FLOW.toml"], at_least(3, 2, 2, 2)),
@@ -1097,10 +1099,8 @@ mod kink_tier {
 
     #[test]
     #[ignore = "kink"]
-    fn modality_on_the_fuzz_fixtures() {
-        for name in ["fuzz/imp", "fuzz/impu"] {
-            corpus_specification(name, &["FLOW.toml"]);
-        }
+    fn modality_on_the_fuzz_corpus_u() {
+        corpus_specification("fuzz/impu", &["FLOW.toml"]);
     }
 
     /// The converging fixtures of `testdata/k/l1` (L1-1 review 1 minors 1-4), baseline and mutants:
