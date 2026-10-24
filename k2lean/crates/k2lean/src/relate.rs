@@ -575,6 +575,12 @@ pub fn main(args: &[String]) {
         .get("roots")
         .map(|r| r.split(',').map(|s| s.to_string()).collect());
     let full = roots.is_none();
+    // `--per-rule true`: when not every rule pairs, one simulation lemma per paired rule instead of
+    // the bisimulation (what `k2lean refine` builds a stuttering bisimulation from)
+    let per_rule = opt.get("per-rule").is_some_and(|v| v == "true");
+    if per_rule && !full {
+        fail("--per-rule needs the whole correspondence (not --roots)");
+    }
     let a = load_side(
         &get("kore-a"),
         opt.get("syntax-a").map(|s| s.as_str()),
@@ -841,7 +847,11 @@ pub fn main(args: &[String]) {
         }
     }
     // whether the translation keeps every constructor's position (design.md, §3.2)
-    let ordered = if bisim {
+    let per_rule = per_rule && !bisim;
+    if per_rule && (a.ranked || b.ranked) {
+        fail("--per-rule does not support priority ranks");
+    }
+    let ordered = if bisim || per_rule {
         positions_kept(&a, &b, &sm, &covered)
     } else {
         Err(String::new())
@@ -870,6 +880,7 @@ pub fn main(args: &[String]) {
         &sm,
         &covered,
         bisim,
+        per_rule,
         ordered.is_ok(),
         &pairs,
         &unmatched_rules_b,
@@ -915,6 +926,7 @@ fn emit(
     sm: &SymMap,
     covered: &BTreeSet<String>,
     bisim: bool,
+    per_rule: bool,
     ordered: bool,
     pairs: &[(usize, usize)],
     unmatched_b: &[usize],
@@ -923,7 +935,13 @@ fn emit(
     let (na, nb) = (&a.ns, &b.ns);
     let mut o = String::new();
     // only what the statements need: the relations (or, for a translation of programs, the functions)
-    let m = if bisim { "Rules" } else { "Functions" };
+    let m = if bisim {
+        "Rules"
+    } else if per_rule {
+        "Preserves"
+    } else {
+        "Functions"
+    };
     writeln!(
         o,
         "import {na}.{m}\nimport {nb}.{m}\nimport KPrelude.Relate\n"
@@ -936,7 +954,9 @@ fn emit(
          freezers of matched symbols)"
     )
     .unwrap();
-    if bisim {
+    if per_rule {
+        writeln!(o, "and, for each pair of corresponding rules, the simulation of each by the other (`fwd.r`, `bwd.r`), from which `k2lean refine` builds a stuttering bisimulation. -/\n").unwrap();
+    } else if bisim {
         writeln!(o, "and the strong bisimulation between `{na}.Step` and `{nb}.Step` on the configurations where `Inv` holds. -/\n").unwrap();
     } else {
         writeln!(o, "on the sorts it covers. -/\n").unwrap();
@@ -1145,7 +1165,7 @@ fn emit(
     .unwrap();
     // an order-preserving translation: the collection lemmas come first, the functions use them
     let ordered_lemmas =
-        (bisim && ordered).then(|| emit_ordered_terms(a, b, &mut o, covered, &fold_names));
+        ((bisim || per_rule) && ordered).then(|| emit_ordered_terms(a, b, &mut o, covered, &fold_names));
     let mut fn_count = 0;
     // the commutation lemmas of total functions (`B.f (tr x) = tr (A.f x)`), which push `tr` in
     let mut pure_fns: Vec<String> = Vec::new();
@@ -1314,7 +1334,10 @@ fn emit(
             writeln!(o, "end").unwrap();
         }
     }
-    if !bisim {
+    if per_rule && !ordered {
+        return Err("--per-rule needs a translation that keeps every constructor's position".into());
+    }
+    if !bisim && !per_rule {
         writeln!(o, "\nend {ns}").unwrap();
         return Ok(o);
     }
@@ -1332,6 +1355,7 @@ fn emit(
             &fold_names,
             &pure_fns,
             lemmas,
+            per_rule,
         );
     }
     if a.ranked || b.ranked {
@@ -2451,6 +2475,68 @@ fn fwd_ctor(
     format!("refine {ctor} {}", args.join(" "))
 }
 
+/// One simulation lemma per pair of corresponding rules (`--per-rule`), stated with the libraries'
+/// per-rule principle for relations (`Step.Rel.r`, `Preserves.lean`): `fwd.r`, a step of `A` by
+/// `r` is translated to a step of `B` by its counterpart, and `bwd.r`, a step of `B` by `r` from a
+/// translation is the translation of a step of `A`. They are the arms of `forward` and
+/// `backward`, proved alike (no priority ranks).
+fn emit_per_rule(
+    o: &mut String,
+    a: &Side,
+    b: &Side,
+    trt: &str,
+    pairs: &[(usize, usize)],
+    back_of: &BTreeMap<usize, usize>,
+    bwd_hyps: &dyn Fn(&mut String, &Rule, &crate::render::Rel),
+) {
+    let (na, nb) = (&a.ns, &b.ns);
+    let intro = |xs: Vec<String>| {
+        if xs.is_empty() {
+            String::new()
+        } else {
+            format!("    intro {}\n", xs.join(" "))
+        }
+    };
+    let mut names = Vec::new();
+    writeln!(o, "/-! ## Forward: a step of `{na}` by a rule with a counterpart is a step of `{nb}` -/\n").unwrap();
+    for (i, j) in pairs {
+        let (ra, rb) = (&a.rules[*i], &b.rules[*j]);
+        writeln!(
+            o,
+            "theorem fwd.{} : {na}.Step.Rel.{} (fun c c' => {nb}.Step ({trt} c) ({trt} c')) := by\n{}    show {nb}.Step _ _\n    push_tr\n    {}\n    all_goals hyp_fwd\n",
+            ra.lean,
+            ra.lean,
+            intro(rules::ctor_args(&ra.step)),
+            fwd_ctor(&a.m, &format!("{nb}.Step.{}", rb.lean), &ra.step, &rb.step, false)
+        )
+        .unwrap();
+        names.push(format!("fwd.{}", ra.lean));
+    }
+    writeln!(o, "/-! ## Backward: a step of `{nb}` from a translation by a rule with a counterpart is the translation of a step of `{na}` -/\n").unwrap();
+    for (j, rb) in b.rules.iter().enumerate() {
+        let Some(i) = back_of.get(&j) else { continue };
+        let mut xs = rules::ctor_args(&rb.step);
+        xs.extend(["c".to_string(), "hd".to_string()]);
+        writeln!(
+            o,
+            "theorem bwd.{} : {nb}.Step.Rel.{} (fun d d' => ∀ c, {trt} c = d → ∃ c', {na}.Step c c' ∧ d' = {trt} c') := by\n{}    k2l_inv",
+            rb.lean,
+            rb.lean,
+            intro(xs)
+        )
+        .unwrap();
+        bwd_hyps(o, rb, &rb.step);
+        writeln!(
+            o,
+            "    all_goals exact ⟨_, by apply {na}.Step.{} <;> hyp_bwd, by fin_bwd⟩\n",
+            a.rules[*i].lean
+        )
+        .unwrap();
+        names.push(format!("bwd.{}", rb.lean));
+    }
+    writeln!(o, "#k2l_assert_axioms {}\n", names.join(" ")).unwrap();
+}
+
 /// The folding lemmas of the injections that both libraries have, on the covered sorts.
 fn inj_fold_names(a: &Side, b: &Side, covered: &BTreeSet<String>) -> Vec<String> {
     let pairs_b: BTreeSet<(String, String)> = terms::inj_pairs(&b.m).into_iter().collect();
@@ -2491,6 +2577,7 @@ fn emit_ordered(
     fold_names: &[String],
     pure_fns: &[String],
     (push_ops, map_bwd, list_bwd): (Vec<String>, Vec<String>, Vec<String>),
+    per_rule: bool,
 ) -> Result<String, String> {
     let (na, nb) = (&a.ns, &b.ns);
     if !refined.is_empty() {
@@ -2547,6 +2634,24 @@ fn emit_ordered(
     let is_map_hyp = |hp: &str| hp.starts_with("KPrelude.MapHook.concat (KPrelude.MapHook.element");
     let is_list_hyp =
         |hp: &str| hp.starts_with("KPrelude.ListHook.concat") && !hp.contains("= some");
+    let back_of: BTreeMap<usize, usize> = pairs.iter().map(|(i, j)| (*j, *i)).collect();
+    let bwd_hyps = |o: &mut String, rb: &Rule, rel: &crate::render::Rel| {
+        let lhs: BTreeSet<&String> = rb.app.hyps.iter().map(|(h, _)| h).collect();
+        for (hn, hp) in &rel.hyps {
+            if lhs.contains(hn) && is_map_hyp(hp) {
+                writeln!(o, "    all_goals map_bwd {hn}\n    all_goals k2l_inv").unwrap();
+            } else if lhs.contains(hn) && is_list_hyp(hp) {
+                writeln!(o, "    all_goals list_bwd {hn}\n    all_goals k2l_inv").unwrap();
+            } else if hp.contains("= some") {
+                writeln!(o, "    all_goals bind_bwd {hn}").unwrap();
+            }
+        }
+    };
+    if per_rule {
+        emit_per_rule(&mut o, a, b, &trt, pairs, &back_of, &bwd_hyps);
+        writeln!(o, "end {ns}").unwrap();
+        return Ok(o);
+    }
     // app_fwd, app_bwd (the priority hypotheses of the steps use them)
     writeln!(o, "/-! ## A rule applies in `{na}` exactly when its counterpart applies in `{nb}` (so undefined and stuck configurations correspond too) -/\n").unwrap();
     writeln!(o, "theorem app_fwd {jb}{{c : {na}.{top}}} (hi : Inv c) (h : {na}.App{ja} c) : {nb}.App{ja} ({trt} c) := by\n  cases h with").unwrap();
@@ -2568,19 +2673,6 @@ fn emit_ordered(
         .unwrap();
     }
     writeln!(o).unwrap();
-    let back_of: BTreeMap<usize, usize> = pairs.iter().map(|(i, j)| (*j, *i)).collect();
-    let bwd_hyps = |o: &mut String, rb: &Rule, rel: &crate::render::Rel| {
-        let lhs: BTreeSet<&String> = rb.app.hyps.iter().map(|(h, _)| h).collect();
-        for (hn, hp) in &rel.hyps {
-            if lhs.contains(hn) && is_map_hyp(hp) {
-                writeln!(o, "    all_goals map_bwd {hn}\n    all_goals k2l_inv").unwrap();
-            } else if lhs.contains(hn) && is_list_hyp(hp) {
-                writeln!(o, "    all_goals list_bwd {hn}\n    all_goals k2l_inv").unwrap();
-            } else if hp.contains("= some") {
-                writeln!(o, "    all_goals bind_bwd {hn}").unwrap();
-            }
-        }
-    };
     writeln!(o, "theorem app_bwd {jb}{{c : {na}.{top}}} (hi : Inv c) (h : {nb}.App{ja} ({trt} c)) : {na}.App{ja} c := by\n  generalize hd : {trt} c = d0 at h\n  cases h with").unwrap();
     for (j, rb) in b.rules.iter().enumerate() {
         writeln!(
