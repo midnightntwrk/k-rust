@@ -755,6 +755,14 @@ pub struct Totals {
     pub coverage: CoverageTotals,
     /// Cases in which the target rule was blocked (ARCHITECTURE 6.2).
     pub target_blocked: u64,
+    /// For a pattern target (a negated property included), how many clean end leaves (`stuck`,
+    /// `trivial` or `terminal`) of the cases inside the determinism contract matched the
+    /// pattern's configuration without its `requires`: 0 means no end came near the pattern (a
+    /// misspelled key, a cell no end holds), so a negated property held vacuously, and a
+    /// warning says so. Information, not a class: each leaf is matched on its own. Absent for
+    /// every other target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern_body_matches: Option<u64>,
     /// The best score the scored cases reached (ARCHITECTURE 6.4): present exactly when a
     /// proposer scores the campaign's cases (the climb or the solve proposer), so that a reader
     /// sees whether the guided search came near the target; `None` when no proposer scores.
@@ -1259,6 +1267,7 @@ mod tests {
                     )]),
                 },
                 target_blocked: 3,
+                pattern_body_matches: Some(4),
                 best_score: Some(BestScore {
                     scored_cases: 3,
                     best: Some(ScoreValue {
@@ -1360,7 +1369,7 @@ mod tests {
             r#""coverage":{"applied":["a","b"],"matched":["c"],"names":{"a":{"kind":"rewrite","#,
             r#""label":"IMP.a","locations":[{"source":"/w/imp.k","reference":"imp.k","line":3,"#,
             r#""end-line":4}]}}},"#,
-            r#""target-blocked":3,"#,
+            r#""target-blocked":3,"pattern-body-matches":4,"#,
             r#""best-score":{"scored-cases":3,"best":{"case":1,"level":0,"#,
             r#""guard-distance":"2/3"}},"outside-determinism":0,"unconfirmed":1,"#,
             r#""case-sequence-digest":"CASES"},"normal-end":{"baseline":"every-k"},"#,

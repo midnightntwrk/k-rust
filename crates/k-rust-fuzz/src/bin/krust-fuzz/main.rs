@@ -562,6 +562,14 @@ fn summary(report: &FuzzReport) -> String {
             format!(" ({classes})")
         }
     );
+    if let Some(count) = report.totals.pattern_body_matches {
+        let _ = writeln!(
+            text,
+            "pattern body: {count} clean {} matched the pattern's configuration without its \
+             `requires`",
+            if count == 1 { "end" } else { "ends" }
+        );
+    }
     if let Some(best) = &report.totals.best_score {
         let _ = writeln!(text, "{}", best_score_line(best));
     }

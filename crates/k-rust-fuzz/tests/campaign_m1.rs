@@ -446,6 +446,42 @@ fn a_pattern_whose_requires_reads_an_unbound_variable_is_refused() {
     }
 }
 
+/// A negated property whose pattern names a key no end holds (`rr` for `r`) holds vacuously:
+/// every case is a `miss`, as for a property that holds. The report counts the clean end
+/// leaves that matched the pattern's configuration without its `requires`, and warns when
+/// none did (FZ-POLISH S2).
+#[test]
+fn a_vacuous_negated_property_is_told_apart_from_one_that_holds() {
+    let misspelled = LE_VIOLATION.replace(r#"#token("r", "Id")"#, r#"#token("rr", "Id")"#);
+    let mut setup = le();
+    setup.target = final_pattern(&misspelled, true);
+    let report = setup.run(Budget::Cases(20));
+    assert_eq!(classes(&report), [(OutcomeClass::Miss, 20)]);
+    let vacuous = |report: &FuzzReport| {
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("matched the pattern's configuration without its"))
+    };
+    assert!(vacuous(&report), "{:?}", report.warnings);
+    assert_eq!(report.totals.pattern_body_matches, Some(0));
+    assert!(
+        report
+            .to_canonical_json()
+            .contains("\"pattern-body-matches\":0")
+    );
+    // The property `x <= y => r == 1` holds on the anchors (3, 5): its body matches, no warning.
+    let mut holds = le();
+    holds.proposers = anchors_only();
+    let report = holds.run(Budget::Cases(1));
+    assert_eq!(classes(&report), [(OutcomeClass::Miss, 1)]);
+    assert!(!vacuous(&report), "{:?}", report.warnings);
+    assert_eq!(report.totals.pattern_body_matches, Some(1));
+    // A rule target reports no count.
+    let report = Setup::new(&IMP, "imp/le.imp", fired("IMP.assign")).run(Budget::Cases(1));
+    assert_eq!(report.totals.pattern_body_matches, None);
+}
+
 #[test]
 fn a_mutant_without_a_differential_target_is_refused() {
     let setup = le();

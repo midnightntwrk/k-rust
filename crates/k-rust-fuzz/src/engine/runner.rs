@@ -66,6 +66,10 @@ pub(crate) struct CaseRun {
     /// no-witness statement reads it for a case the work bound stopped on the mutant: the
     /// baseline needed this much, the mutant more than the bound (FZ-POLISH S-T5).
     pub(crate) baseline_ended_within: Option<u64>,
+    /// For a pattern target, how many clean end leaves matched the pattern's configuration
+    /// without its `requires` ([`crate::report::Totals::pattern_body_matches`]); `None` for
+    /// every other target.
+    pub(crate) pattern_body_matches: Option<u64>,
 }
 
 /// Which bounds stopped some path of the result a case's class rests on: the judged result of a
@@ -106,6 +110,7 @@ impl CaseRun {
             hit: None,
             cut: Cut::default(),
             baseline_ended_within: None,
+            pattern_body_matches: None,
         }
     }
 }

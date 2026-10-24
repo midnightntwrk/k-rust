@@ -744,6 +744,7 @@ impl LiveCases {
             judged.judgement,
         );
         let mut run = run_of(&result, &[&result]);
+        run.pattern_body_matches = target.pattern_body_matches(&result);
         run.progress = progress;
         run.cut = cut_of(&result);
         match judged {
@@ -1002,6 +1003,7 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
         hit: None,
         cut: Cut::default(),
         baseline_ended_within: None,
+        pattern_body_matches: None,
     }
 }
 

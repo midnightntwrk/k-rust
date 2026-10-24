@@ -67,6 +67,7 @@ fn run(class: OutcomeClass, work: u64) -> CaseRun {
         hit: None,
         cut: Cut::default(),
         baseline_ended_within: None,
+        pattern_body_matches: None,
     }
 }
 
@@ -273,6 +274,7 @@ fn settings(holes: usize) -> LoopSettings {
         pool_rank: std::collections::BTreeMap::new(),
         normal_end: None,
         rule_names: std::sync::Arc::default(),
+        pattern_target: false,
         domain: None,
     }
 }

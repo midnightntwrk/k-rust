@@ -57,6 +57,9 @@ pub(crate) struct LoopSettings {
     /// The names of every id in the catalog of the definition whose coverage the cases record,
     /// from which the report names the rules its coverage holds.
     pub(crate) rule_names: Arc<std::collections::BTreeMap<String, RuleName>>,
+    /// The target is a pattern: the report counts the clean ends its configuration matched
+    /// ([`Totals::pattern_body_matches`]).
+    pub(crate) pattern_target: bool,
     /// The holes' finite domains, when every hole has one and their product is at most
     /// [`MAX_EXHAUSTIVE`]: the campaign ends once every assignment of them has run.
     pub(crate) domain: Option<FiniteDomain>,
@@ -855,6 +858,10 @@ impl State {
             self.totals.outside_determinism += 1;
             return;
         }
+        if let Some(count) = run.pattern_body_matches {
+            let total = self.totals.pattern_body_matches.get_or_insert(0);
+            *total = total.saturating_add(count);
+        }
         let coverage = &mut self.totals.coverage;
         coverage.applied.extend(run.applied.iter().cloned());
         coverage.matched.extend(run.matched.iter().cloned());
@@ -893,6 +900,22 @@ impl State {
                     .map(|name| (id.clone(), name.clone()))
             })
             .collect();
+        if settings.pattern_target {
+            let judged = totals
+                .cases
+                .saturating_sub(self.rejected())
+                .saturating_sub(totals.outside_determinism);
+            let count = *totals.pattern_body_matches.get_or_insert(0);
+            if count == 0 && judged > 0 {
+                self.warn(format!(
+                    "pattern body: no clean end of the {judged} executed {} matched the pattern's \
+                     configuration without its `requires`, so the pattern may name a cell, key or \
+                     value no end holds (a misspelled key?); a negated property then holds \
+                     vacuously, and a `miss` says nothing about it",
+                    if judged == 1 { "case" } else { "cases" }
+                ));
+            }
+        }
         if let Some(warning) = every_k_warning(settings.normal_end, &totals) {
             self.warn(warning);
         }

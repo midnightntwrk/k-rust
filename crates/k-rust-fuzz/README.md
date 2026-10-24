@@ -38,6 +38,8 @@ A rule or pattern target with `run-to-completion` asks for a witness that become
 
 A pattern (a target's or the `normal-end-pattern`) whose `requires` reads a variable that its configuration does not bind, such as `<k> .K </k> <state> M </state> requires R >Int 0`, is refused by `Campaign::new`, naming the variable: a leaf matches the configuration with each of its variables given a value, so the condition still depends on the unbound one and the match holds only under a constraint on it, which decides no case (every leaf would be `unsupported`). `krust krun --pattern` answers such a match with the remaining condition in its result instead.
 
+A pattern target (a negated property included) also reports `totals.pattern-body-matches`: how many clean end leaves of the cases inside the determinism contract matched the pattern's configuration without its `requires` (each leaf on its own, as targets are matched). When no executed case had one, a warning (`pattern body: …`) says that the pattern may name a cell, key or value no end holds, such as a misspelled key: a negated property then holds vacuously, which its `miss` cases alone cannot tell from one that holds. The configuration's own match only informs: its verdict never makes a leaf `unsupported`.
+
 ### Natural ends
 
 `miss` against `stuck`, a run-to-completion hit and a differential end under `run-to-completion` all rest on the natural end: a clean `stuck` leaf on which the program finished (without `run-to-completion`, any clean decided `stuck` leaf is a differential end, a natural end or an abnormal stop alike).

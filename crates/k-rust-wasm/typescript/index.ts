@@ -1613,6 +1613,8 @@ export interface FuzzTotals {
     names: Record<string, FuzzRuleName>
   }
   'target-blocked': number
+  /** Pattern targets only: clean end leaves that matched the pattern's configuration without its `requires`; 0 warns of a vacuous pattern. */
+  'pattern-body-matches'?: number
   /** The best score of the scored `miss` cases; null when no proposer scores (climb, solve). */
   'best-score': FuzzBestScore | null
   'outside-determinism': number

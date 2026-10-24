@@ -193,6 +193,47 @@ impl CompiledPattern {
     pub(crate) fn kore(&self) -> &KorePattern {
         &self.search.pattern
     }
+
+    /// The pattern's configuration without its `requires`, when it has one: the conjunction of
+    /// the configuration (the compiled pattern's first conjunct) and `\top`, as a pattern
+    /// without `requires` compiles (`compile_search_pattern`). `None` for a pattern without
+    /// `requires`, which is its own configuration.
+    pub(crate) fn body_only(&self) -> Option<Self> {
+        let KorePattern::And { sort, arguments } = &self.search.pattern else {
+            return None;
+        };
+        let (configuration, condition) = arguments.split_first()?;
+        if condition
+            .iter()
+            .all(|predicate| matches!(predicate, KorePattern::Top { .. }))
+        {
+            return None;
+        }
+        let occurring = configuration.free_variables();
+        let generated_anonymous_variables = self
+            .search
+            .generated_anonymous_variables
+            .iter()
+            .filter(|identity| {
+                occurring.iter().any(|variable| {
+                    variable.kind == identity.kind && variable.name == identity.name
+                })
+            })
+            .cloned()
+            .collect();
+        Some(Self {
+            search: CompiledSearchPattern {
+                pattern: KorePattern::And {
+                    sort: sort.clone(),
+                    arguments: vec![
+                        configuration.clone(),
+                        KorePattern::Top { sort: sort.clone() },
+                    ],
+                },
+                generated_anonymous_variables,
+            },
+        })
+    }
 }
 
 /// A campaign's compiled normal-termination pattern.
@@ -296,6 +337,10 @@ pub(crate) struct LeafMatcher {
     /// The target has no constraints and every application in it has a free-constructor head,
     /// so matching it evaluates nothing and its verdict is the same in every evaluation mode.
     mode_independent: bool,
+    /// The matcher only informs: its verdict is reported in
+    /// [`crate::exec::LeafReport::matches`] when it matches, and an undecided verdict, a solver
+    /// `unknown` or a failure of its matching leaves the leaf as it was ([`Self::informational`]).
+    informational: bool,
 }
 
 impl LeafMatcher {
@@ -346,6 +391,15 @@ impl LeafMatcher {
     pub(crate) fn compiled(&self) -> &CompiledPattern {
         &self.compiled
     }
+
+    /// This matcher as one that only informs: no verdict of it makes a leaf unclean, since no
+    /// judgement rests on it (a pattern's configuration without its `requires`, counted for the
+    /// report; FZ-POLISH S2).
+    #[must_use]
+    pub(crate) fn informational(mut self) -> Self {
+        self.informational = true;
+        self
+    }
 }
 
 /// The attributes krun gives a command-line pattern (`crates/k-rust/src/main.rs`,
@@ -394,6 +448,7 @@ fn prepare_matcher(
         kore,
         target,
         mode_independent,
+        informational: false,
     })
 }
 
@@ -1142,6 +1197,15 @@ impl Judge<'_> {
             }
         }
         for (index, matcher) in self.matchers.iter().enumerate() {
+            if matcher.informational {
+                // Its own scratch record: what its matching meets is no fact of the leaf.
+                let mut scratch = Internal::default();
+                internal.matches[index] = matches!(
+                    self.match_leaf(definition, solver, matcher, &pattern, &mut scratch),
+                    Ok(MatchVerdict::Matched)
+                );
+                continue;
+            }
             match self.match_leaf(definition, solver, matcher, &pattern, &mut internal)? {
                 MatchVerdict::Matched => internal.matches[index] = true,
                 MatchVerdict::NotMatched => {}

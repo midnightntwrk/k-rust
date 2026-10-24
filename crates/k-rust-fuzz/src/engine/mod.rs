@@ -200,6 +200,7 @@ impl Campaign {
             pool_rank: guidance.pool_rank,
             normal_end: Some(cases.normal_ends()),
             rule_names: rules.names,
+            pattern_target: matches!(spec.target.kind, TargetKind::Pattern(_)),
             domain: FiniteDomain::of(holes.iter().map(|hole| (&hole.sort, &hole.constraints))),
         };
         Ok(Campaign {
