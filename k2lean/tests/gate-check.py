@@ -27,7 +27,8 @@ recorded outputs with the default encoding's, which they must equal):
   negative  KRS IMP with an ill-typed `assign`: the generated proof of the declared cell type must
             still fail, with exactly the baseline's open cases, and an error line naming each
   simple    cases and Lean = krust verdicts equal to the baseline
-  claims    stated claims and theorems under the guard equal to the baseline
+  claims    stated claims (kimp's, and kimpinv's under its invariant) and theorems under the guard
+            equal to the baseline
   outputs   recorded outputs (goldens.toml, kimp-test.out, acceptance tables, claims files)
             equal to expected/, after the normalization each one names (search times, replay
             seconds and the order of logged lines are not compared)
@@ -65,6 +66,7 @@ OUTPUTS = {  # recorded output → (tier, normalization)
     "simple-acceptance.toml": ("heavy", "strip-ms"),
     "simple-acceptance.md": ("heavy", "strip-ms"),
     "claims.toml": ("heavy", "exact"),
+    "claims-inv.toml": ("heavy", "exact"),
     "kprove.txt": ("heavy", "exact"),
     "kc-auto-stats.txt": ("heavy", "sorted-lines"),  # Lake replays logs in build order
     "axioms.txt": ("heavy", "axiom-sets"),
@@ -84,7 +86,8 @@ NOT_REGENERATED = {"generated/kimp/KImpBench/Programs.lean", "generated/kimp-d2/
 SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsimp", "generated/kmut", "generated/imptypes", "generated/kimpinv",
                          "generated/kimpkeys", "generated/kimpkeys-hand",
                          "generated/kimpfold", "generated/kimptop", "generated/nested"],
-               "heavy": ["generated/simple", "generated/kimp-claims", "generated/simpleinv", "generated/simplestore", "generated/simplet"],
+               "heavy": ["generated/simple", "generated/kimp-claims", "generated/simpleinv", "generated/simplestore", "generated/simplet",
+                         "generated/kimpinv-claims"],
                "arity": ["generated/kimp-ar", "generated/simple-ar"]}
 DEMO_SOURCES = ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/correspondence.toml",
                 "demos/ImpTypes/ImpTypes/Tr.lean", "demos/ImpTypes/correspondence.toml",
@@ -296,11 +299,13 @@ def measure(work, tier):
                        "lean_out_eq_out": len(re.findall(r'^lean_vs_out = "pass"', acc, re.M)) if acc else None}
     if tier == "heavy":
         ct = read(meas / "claims.toml")
+        ci = read(meas / "claims-inv.toml")
         ax = read(meas / "axioms.txt")
         kc = read(meas / "kc-auto-stats.txt")
         m["claims"] = {"tier": "heavy",
                        "claims": len(re.findall(r"^\[\[claim\]\]", ct, re.M)) if ct else None,
                        "stated": len(re.findall(r"^stated = true", ct, re.M)) if ct else None,
+                       "inv_stated": len(re.findall(r"^stated = true", ci, re.M)) if ci else None,
                        "guarded": len([l for l in ax.splitlines() if l.strip()]) if ax else None,
                        "kc_auto": len([l for l in kc.splitlines() if "kc_auto" in l]) if kc else None,
                        "kc_auto_open": sum(int(x) for x in re.findall(r"(\d+) open", kc)) if kc else None}

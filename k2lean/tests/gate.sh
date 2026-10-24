@@ -24,8 +24,9 @@
 #                                 cell map, of simpleinv, demos/k/simple-inv, and "every store value
 #                                 is a Val or undefined" as a cell function, simplestore, and as a function of
 #                                 the top cell <T>, simplet; the kind 2 demo SimpleEnv), kimp-claims
-#                                 (claims.toml, krust kprove, kc_auto statistics, three replays) and
-#                                 the demo ImpRelClaims (a kimp claim transferred to KRS IMP along the
+#                                 (claims.toml, krust kprove, kc_auto statistics, three replays),
+#                                 kimpinv-claims (claims under kimpinv's invariant) and the demo
+#                                 ImpRelClaims (a kimp claim transferred to KRS IMP along the
 #                                 bisimulation)
 #   k2lean/tests/gate.sh arity    generator unit and snapshot tests, then kimp and SIMPLE in the
 #                                 arity-indexed term universe (`gen --arity-terms`, libraries kimp-ar
@@ -542,8 +543,13 @@ if [ "$TIER" = heavy ]; then
   spec "$OWN/imp-ifs-uint64-spec.k" IMP-IFS-UINT64-SPEC imp-ifs-uint64-spec
   spec "$OWN/imp-two-sum-aux-spec.k" IMP-TWO-SUM-AUX-SPEC imp-two-sum-aux-spec
   spec "$OWN/imp-div0-spec.k" IMP-DIV0-SPEC imp-div0-spec
+  # claims that hold only under kimpinv's invariant `envOk` (demos/k/kimp-inv): over kimp they are
+  # false (refuted in demos/claims/hand/Hand.lean), over kimpinv with --assume-invariant they hold
+  "$KRUST" kcompile "$OWN/imp-inv-spec.k" --main-module IMP-INV-SPEC --definition-module IMP-INV-VERIFICATION --for-proving \
+    --output-directory "$KO/imp-inv-spec" --builtin-directory "$BUILTIN" -I "$KIMP" -I "$D/k/kimp-inv" -w none \
+    > "$L/kcompile-imp-inv-spec.log" 2>&1 || bad "kcompile imp-inv-spec" "$L/kcompile-imp-inv-spec.log"
   {
-    for d in imp-simple-spec:IMP-SIMPLE-SPEC imp-ifs-uint64-spec:IMP-IFS-UINT64-SPEC imp-two-sum-aux-spec:IMP-TWO-SUM-AUX-SPEC imp-div0-spec:IMP-DIV0-SPEC; do
+    for d in imp-simple-spec:IMP-SIMPLE-SPEC imp-ifs-uint64-spec:IMP-IFS-UINT64-SPEC imp-two-sum-aux-spec:IMP-TWO-SUM-AUX-SPEC imp-div0-spec:IMP-DIV0-SPEC imp-inv-spec:IMP-INV-SPEC; do
       "$KRUST" kprove --compiled-definition "$KO/${d%%:*}" --main-module "${d##*:}" 2>&1 < /dev/null | grep '^claim' || true
     done
     "$KRUST" kprove --compiled-definition "$KO/imp-sum-spec" --main-module IMP-SUM-SPEC \
@@ -554,6 +560,7 @@ if [ "$TIER" = heavy ]; then
   if "$G" claims --kore "$KO/kimp/definition.kore" \
       --spec "$KO/imp-simple-spec/definition.kore" --spec "$KO/imp-sum-spec/definition.kore" \
       --spec "$KO/imp-ifs-uint64-spec/definition.kore" --spec "$KO/imp-two-sum-aux-spec/definition.kore" --spec "$KO/imp-div0-spec/definition.kore" \
+      --spec "$KO/imp-inv-spec/definition.kore" \
       --out "$OUT" --name KImpClaims --semantics KImp --semantics-path ../kimp --kclaims-path ../../lean/claims \
       --open "$T/demos/claims/kimp-open.txt" \
       --hand Hand --hand Replay.Addition2 --hand Replay.Branching --hand Replay.SumLoop > "$L/claims-gen.log" 2>&1; then
@@ -587,6 +594,28 @@ if [ "$TIER" = heavy ]; then
       grep -E 'kc_auto' "$L/build-claims.log" > "$MEAS/kc-auto-stats.txt" || true
     else bad "build claims" "$L/build-claims.log"; fi
   else bad "claims gen" "$L/claims-gen.log"; fi
+
+  # claims under a preserved invariant (`--assume-invariant`): the kind 1 invariant `envOk` of
+  # kimpinv, whose library the light tier builds only as far as Invariants.lean; the claims need the
+  # rest (Rules, Adequacy, Determinism)
+  phase "kimpinv claims"
+  OUTI=$GEN/kimpinv-claims
+  if lbuild "$GEN/kimpinv" build-kimpinv-full KImpInv; then
+    ok "build kimpinv" "$L/build-kimpinv-full.log"
+    if "$G" claims --kore "$KO/kimp-inv/definition.kore" --spec "$KO/imp-inv-spec/definition.kore" \
+        --out "$OUTI" --name KImpInvClaims --semantics KImpInv --semantics-path ../kimpinv --kclaims-path ../../lean/claims \
+        --assume-invariant Invariant --invariant-unfold "$GEN/kimpinv/KImpInv/Invariants.lean" > "$L/claims-inv-gen.log" 2>&1; then
+      ok "claims-inv gen"
+      cp "$OUTI/claims.toml" "$MEAS/claims-inv.toml"
+      if lbuild "$OUTI" build-claims-inv; then
+        ok "build claims-inv" "$L/build-claims-inv.log"
+        if lbuild "$OUTI" build-claims-inv-guard KImpInvClaimsTest; then ok "guard claims-inv" "$L/build-claims-inv-guard.log"
+        else bad "guard claims-inv" "$L/build-claims-inv-guard.log"; fi
+        grep -o 'KImpInvClaims[^ ]*\.holds depends on axioms: .*' "$L/build-claims-inv-guard.log" >> "$MEAS/axioms.txt" || true
+        grep -E 'kc_auto' "$L/build-claims-inv.log" >> "$MEAS/kc-auto-stats.txt" || true
+      else bad "build claims-inv" "$L/build-claims-inv.log"; fi
+    else bad "claims-inv gen" "$L/claims-inv-gen.log"; fi
+  else bad "build kimpinv" "$L/build-kimpinv-full.log"; fi
 
   # a kimp claim transferred to the KRS IMP port along ImpRel's bisimulation (demos/ImpRelClaims),
   # built like a demo (demo.ImpRelClaims)
