@@ -89,6 +89,9 @@ enum Operand {
     /// and `INT.max`.
     Min(usize, usize, i64),
     Max(usize, usize, i64),
+    /// `minInt(X, k)` and `maxInt(X, k)` with a literal `k`: at most, respectively at least, `k`.
+    MinLiteral(usize, i64),
+    MaxLiteral(usize, i64),
 }
 
 const NAMES: [&str; 3] = ["X", "Y", "Z"];
@@ -124,6 +127,16 @@ impl Operand {
                 Self::Variable(left).kore(),
                 Self::Shifted(right, offset).kore()
             ),
+            Self::MinLiteral(index, value) => format!(
+                "minInt{{}}({}, {})",
+                Self::Variable(index).kore(),
+                Self::Literal(value).kore()
+            ),
+            Self::MaxLiteral(index, value) => format!(
+                "maxInt{{}}({}, {})",
+                Self::Variable(index).kore(),
+                Self::Literal(value).kore()
+            ),
         }
     }
 
@@ -143,6 +156,8 @@ impl Operand {
             Self::Max(left, right, offset) => {
                 Some(assignment[left].max(assignment[right] + offset))
             }
+            Self::MinLiteral(index, value) => Some(assignment[index].min(value)),
+            Self::MaxLiteral(index, value) => Some(assignment[index].max(value)),
         }
     }
 }
@@ -578,9 +593,11 @@ pub(crate) fn random_linear_conjunctions_agree_with_brute_force(cases: usize) ->
             // and both are undefined at once.
             3 | 4 => Operand::Quotient(if next(2) == 0 { 0 } else { 2 }, 1),
             5 => Operand::Abs(next(3)),
-            6 => match next(2) {
+            6 => match next(4) {
                 0 => Operand::Min(next(3), next(3), i64::try_from(next(3)).unwrap() - 1),
-                _ => Operand::Max(next(3), next(3), i64::try_from(next(3)).unwrap() - 1),
+                1 => Operand::Max(next(3), next(3), i64::try_from(next(3)).unwrap() - 1),
+                2 => Operand::MinLiteral(next(3), i64::try_from(next(3)).unwrap() - 1),
+                _ => Operand::MaxLiteral(next(3), i64::try_from(next(3)).unwrap() - 1),
             },
             _ => Operand::Variable(next(3)),
         };
@@ -670,6 +687,51 @@ fn a_misread_min_max_is_caught_by_the_property_test() {
         random_linear_conjunctions_agree_with_brute_force(4_000)
     });
     assert!(!failures.is_empty());
+}
+
+/// A literal operand of `INT.max` bounds it from below, and one of `INT.min` from above: WASM's
+/// `size(#empty(N))` is `maxInt(N, 0)`, so `S <Int 0` beside `maxInt(N, 0) <=Int S` is refuted
+/// (`sparse-bytes.k:121/133` after the join's split on `size(SBI)`), and so is `minInt(N, 0)`
+/// above 0. Without those facts both stay open. Where the bound can hold they are not refuted.
+#[test]
+fn a_literal_operand_of_min_or_max_bounds_it() {
+    let definition = definition();
+    let d = &definition;
+    let conjunction = |operator, left: Operand, right: Operand| {
+        [
+            literal("ltInt", Y, Operand::Literal(0), true),
+            literal(operator, left, right, true),
+        ]
+        .map(|conjunct| conjunct.predicate(d))
+    };
+    assert!(contradictory(
+        d,
+        &conjunction("leInt", Operand::MaxLiteral(0, 0), Y)
+    ));
+    assert!(!contradictory(
+        d,
+        &conjunction("leInt", Operand::MaxLiteral(0, -3), Y)
+    ));
+    assert!(contradictory(
+        d,
+        &[literal(
+            "gtInt",
+            Operand::MinLiteral(0, 0),
+            Operand::Literal(0),
+            true
+        )
+        .predicate(d)]
+    ));
+    assert!(!contradictory(
+        d,
+        &[literal(
+            "gtInt",
+            Operand::MinLiteral(0, 1),
+            Operand::Literal(0),
+            true
+        )
+        .predicate(d)]
+    ));
 }
 
 /// V7 (review B round 2): reading an ML `\equals` of two partial terms as showing them defined
