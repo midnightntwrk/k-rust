@@ -36,6 +36,11 @@ finding = "unassigned"
 deviation = "krs::expand::claim-only-term @ item"
 step = "S1"
 
+["terms/local-rule/subject/k::or_bool!(true, false)"]
+finding = "unassigned"
+deviation = "krs::expand::claim-only-term @ item"
+step = "S1"
+
 ["terms/readable/list-element/k::or_bool!(true, false)"]
 finding = "unassigned"
 deviation = "krs::expand::claim-only-term @ item"
@@ -131,104 +136,11 @@ finding = "unassigned"
 deviation = "krs::expand::claim-only-term @ item"
 step = "S1"
 
-# A `#[k::rule]` fn that returns `()` needs a `k::rewrite!` in its subject, and the `local-rule`
-# template has none but the case's own, so every other construct is refused for the template's
-# missing rewrite, at the fn's name, whatever the construct is (a generator defect: these cases have
-# two points of interest).
+# The `local-rule` template rewrites the command's first field, `k::rewrite!(x => Cmd::Go())`. An
+# existential closure in its second field is refused with `invalid-local-rewrite` at that rewrite,
+# not at the closure.
 
-["import/local-rule/subject/Go()"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["import/local-rule/subject/Hold(x)"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/\"s\""]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/-1"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/1"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/1.5"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/Cmd::Go"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/Cmd::Go()"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/Cmd::Go() | Cmd::Hold(_)"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/Cmd::Hold(x)"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/Size(x)"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/_"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/k::anonymous!(Int, \"_V\")"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/k::builtin::int::add(1, 2)"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/k::bytes!(b\"ab\")"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/k::fragment![crate::Frame { ret: 1 }]"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/k::id!(\"$x\")"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/k::is!(Int, x)"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/k::lexeme!(Word, \"word\")"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/k::or_bool!(true, false)"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/k::project!(Int, x)"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/true"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/x"]
-finding = "unassigned"
-deviation = "krs::syntax::invalid-local-rewrite @ item"
-
-["terms/local-rule/subject/y @ Cmd::Hold(_)"]
+["terms/local-rule/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
 finding = "unassigned"
 deviation = "krs::syntax::invalid-local-rewrite @ item"
 

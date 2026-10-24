@@ -240,7 +240,7 @@ const SLOTS: [Slot; 29] = [
         Side::Subject,
         concat!(
             "#[k::rule(label = \"case-TAG\")]\n",
-            "fn case_TAG(k::term![Cmd::NAME(x, HOLE)]: Term<Stmt>) {}\n"
+            "fn case_TAG(k::term![Cmd::NAME(k::rewrite!(x => Cmd::Go()), HOLE)]: Term<Stmt>) {}\n"
         ),
     ),
     slot(

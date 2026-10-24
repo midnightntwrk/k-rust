@@ -51,6 +51,27 @@ fn every_base_preamble_expands() {
     }
 }
 
+/// A single-body rule must rewrite something, so the `local-rule` template carries a rewrite of
+/// its own: with a plain construct in the hole, the case is accepted, and a refusal can only be
+/// about the construct.
+#[test]
+fn the_local_rule_template_is_accepted_around_a_plain_construct() {
+    let cases = class_matrix::cases();
+    for id in [
+        "terms/local-rule/subject/x",
+        "import/local-rule/subject/Go()",
+    ] {
+        let case = cases
+            .iter()
+            .find(|case| case.id == id)
+            .unwrap_or_else(|| panic!("{id} is generated"));
+        let rendered = case.render();
+        if let Err(diagnostics) = expand(&rendered.source) {
+            panic!("{id} does not expand: {diagnostics:#?}");
+        }
+    }
+}
+
 #[test]
 fn the_case_count_per_family_is_pinned_and_capped() {
     let cases = class_matrix::cases();
