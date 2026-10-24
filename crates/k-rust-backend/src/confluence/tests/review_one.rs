@@ -113,9 +113,8 @@ fn the_f1_probes_withdraw_v_and_see_the_revision_two_collapse() {
 }
 
 /// `A` gets its normal forms only from its subsort `B`. Without the supersort closure (the
-/// switch) `A` reads as a sort with no normal form. That no longer sets the overlap aside (every
-/// model has an element of `A`, FZ-EMPTYSORT), so `v` is withdrawn either way, and the probe sees
-/// the switch in the pair's reason, which then names `SortA`.
+/// switch) `A` reads as a sort with no normal form: the pair is still listed, naming `SortA`
+/// (FZ-EMPTYSORT), but it withdraws no claim, so `v` keeps claims it must not.
 #[test]
 fn the_subsort_probe_withdraws_v_and_sees_a_missing_supersort_closure() {
     let reasons = |definition: &BackendDefinition| {
@@ -136,7 +135,7 @@ fn the_subsort_probe_withdraws_v_and_sees_a_missing_supersort_closure() {
         },
         || n1(None),
     );
-    assert!(tainted(&open, "v"));
+    assert!(!tainted(&open, "v"));
     assert_eq!(
         reasons(&open),
         [UnjoinedReason::UninhabitedSort {

@@ -2,7 +2,8 @@
 //! repros `r4-empty` and `r4-partnorule`). No evaluation reaches such an overlap, but every model
 //! of the definition has an element of the sort, at which both equations hold, so the check sets
 //! no such overlap aside, under either scope: it is refuted, joined or not joined like any other,
-//! and a non-joined one names the sort.
+//! and a non-joined one names the sort. It withdraws no claim: the claims are read in `M_NF`,
+//! where the sort is empty.
 
 use k_rust_kore::kore::parser::parse_definition;
 
@@ -121,10 +122,10 @@ fn the_full_check_reports_a_pair_over_a_sort_with_no_normal_form() {
 }
 
 /// The same pair at an equation head (`h(_:S) => a`, `h(_:S) => bb`, `anywhere`): the load's
-/// scope classifies it too and withdraws `h`, whose claims no model would satisfy (every model
-/// has an element `s` of `S`, and `a = h(s) = bb` there).
+/// scope classifies and lists it too, naming `S`, but it withdraws no claim in either scope (the
+/// claims are read in `M_NF`, where it has no instance), so the scopes admit the same claims.
 #[test]
-fn the_load_withdraws_an_equation_head_whose_pair_is_over_a_sort_with_no_normal_form() {
+fn a_pair_over_a_sort_with_no_normal_form_is_listed_by_both_scopes_and_withdraws_nothing() {
     for (name, symbols) in [("empty", NOTHING), ("partial", PARTIAL_NO_RULE)] {
         let definition = load(
             &format!("symbol h{{}}(SortS{{}}) : SortAB{{}} [anywhere{{}}()] {symbols}"),
@@ -133,22 +134,32 @@ fn the_load_withdraws_an_equation_head_whose_pair_is_over_a_sort_with_no_normal_
                 equation("h", "SortS{}", "SortAB{}", BB, "hbb", ", anywhere{}()"),
             ],
         );
-        let claims = definition.value_claims();
+        let full = definition.value_claims_in_scope(CheckScope::All);
+        for (scope, claims) in [
+            (CheckScope::Gate, definition.value_claims()),
+            (CheckScope::All, &full),
+        ] {
+            assert_eq!(
+                reasons(claims),
+                [over_s(UnjoinedReason::DifferentResults)],
+                "{name} {scope:?}"
+            );
+            let pair = &claims.unjoined()[0];
+            assert!(pair.over_uninhabited_sort(), "{name} {scope:?}");
+            assert!(
+                !pair.relevant() && !pair.reported(),
+                "{name} {scope:?}: {pair:?}"
+            );
+            assert!(claims.tainted_symbols().is_empty(), "{name} {scope:?}");
+            assert_eq!(claims.counts().uninhabited, 1, "{name} {scope:?}");
+        }
         assert_eq!(
-            reasons(claims),
-            [over_s(UnjoinedReason::DifferentResults)],
+            definition
+                .value_claims()
+                .claim_differences(&full, &definition),
+            Vec::<String>::new(),
             "{name}"
         );
-        assert!(
-            claims
-                .tainted_symbols()
-                .iter()
-                .any(|symbol| symbol.as_ref() == "h"),
-            "{name}: {:?}",
-            claims.tainted_symbols()
-        );
-        assert_eq!(claims.counts().uninhabited, 1, "{name}");
-        assert!(claims.unjoined()[0].relevant(), "{name}");
     }
 }
 
