@@ -1,0 +1,12 @@
+[spec]
+entry = "lhs.k"
+main_module = "LHS"
+syntax_module = "LHS-SYNTAX"
+
+[[program]]
+id = "miss"
+text = 'go("ab")'
+
+[[program]]
+id = "hit"
+text = 'go("zz")'

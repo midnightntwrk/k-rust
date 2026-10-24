@@ -48,8 +48,15 @@
 //!   or the environment, and those k-rust evaluates that no builtin file documents
 //!   ([`IMPLEMENTATION_CHOSEN_HOOKS`], [`DOMAINS_OPEN_HOOKS`], [`BUILTIN_OPEN_HOOKS`],
 //!   [`UNDOCUMENTED_EVALUATED_HOOKS`]). The census reads the definition's own sentences and every
-//!   rewrite rule whatever its source: kompile copies the prelude's stream rules (`#getc`, `#write`,
-//!   `Float2String`) into a definition with stream cells, keeping their prelude source.
+//!   rewrite rule whatever its source: kompile copies the prelude's stream rules into a definition
+//!   with stream cells, keeping their prelude source. Since KINK-CENSUS-RUNLIST (fz26) it reads
+//!   only the open hooks k-rust evaluates without a run-level record ([`census_hook`]): an open
+//!   hook an execute request cannot evaluate (a console operation, or one k-rust has no
+//!   evaluator for, [`RUN_LIST_HOOKS`]) takes no value in a run, and an application of one whose
+//!   value the run needs is on the run's `unsupportedHooks` wherever it sits, which excludes that
+//!   run ([`Exclusion::UnsupportedHook`]). So the prelude's stream rules (`#getc`, `#write`,
+//!   `Float2String`) no longer exclude a definition with stream cells; a run that reaches one
+//!   with constructor-like arguments is excluded by its list.
 //! - [`Exclusion::ShortCircuitReading`]: the run's result can depend on whether `andBool`,
 //!   `orBool`, `impliesBool`, `#if`, `andThenBool` or `orElseBool` skip an operand that may be
 //!   undefined
@@ -64,7 +71,13 @@
 //!   excludes the definition too ([`DefinitionExclusions::short_circuit_results`]): its
 //!   undefined candidate beside a defined same-priority sibling leaves no leaf. "May be
 //!   undefined" is read on the definition the side runs, a mutant's after the claims its edit
-//!   leaves unbacked are removed (a function whose `total` was removed is partial there).
+//!   leaves unbacked are removed (a function whose `total` was removed is partial there). Since
+//!   KINK-SC-DEFINED (fz26) a skippable operand counts only where one of its possibly undefined
+//!   applications (of a partial or reading-dependent function) is evaluated by no operand that
+//!   runs whenever it is skipped: where it is, both readings are undefined together (the
+//!   must/may rule of `ShortCircuitAnalysis::direct`, which reads no guard's truth; a recursive
+//!   function's own calls are read under premise A1, termination). It clears the prelude's
+//!   `findChar` and so the stdin stream rules over it.
 //! - [`Exclusion::AllowanceRefusal`]: a leaf reports a hook left unevaluated whose refusal reads
 //!   the process's memory allowance (Execute promise exclusion, findings A-07, B-02, B-07): the
 //!   result is a function of the host, not of the inputs a key names. Since re-pin adoption A-1
@@ -621,6 +634,97 @@ pub const IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
     "SECP256K1.ecdsaRecover",
 ];
 
+/// The open hooks ([`IMPLEMENTATION_CHOSEN_HOOKS`]) that the definition-level census leaves to
+/// the run's `unsupportedHooks` list (KINK-CENSUS-RUNLIST, fz26): those an execute request cannot
+/// evaluate, because it supplies no console (the console operations, k-rust's inventory class
+/// `execution_only`) or because k-rust has no evaluator for them (its inventory class
+/// `unsupported`, its `NOT_EVALUATED` list, or a namespace it does not evaluate), less those with
+/// a k-rust `chosen_value` class ([`K_RUST_IMPLEMENTATION_CHOSEN_HOOKS`]: `IO.read`, a console
+/// operation of class `read-count`, stays in the census).
+///
+/// Why the census need not read them: such a hook takes no value in a run kink requests. An
+/// application of one on constructor-like arguments whose value the run needs is on the run's
+/// `unsupportedHooks`, wherever it sits (a right-hand side, a condition, a left-hand-side match
+/// that fails, an equation passed over, an undone attempt, the load) and whatever became of the
+/// work that met it ([`Exclusion::UnsupportedHook`]); on symbolic arguments it stays unevaluated,
+/// so it denotes some value of its sort, an end that holds it is no terminal value, and a branch
+/// on it is a branch the definition has; a comparison that sorts or heads alone decide reads no
+/// value of it. So no value of one can steer a compared run without the run's list naming it,
+/// and a census entry only duplicated that list. The census keeps the hooks k-rust evaluates
+/// without a record: the `String2Bytes`/`Bytes2String` pair, the hooks no builtin file documents
+/// ([`UNDOCUMENTED_EVALUATED_HOOKS`]), and those of its `chosen_value` classes (moving these
+/// needs every class shown withheld outside execution, which is not verified).
+///
+/// The premise is k-rust's contract, `docs/compatibility.md` line 117 ("Backend scope", the
+/// console paragraph), which the kink-native test
+/// `the_console_passage_the_run_list_rests_on_is_pinned` pins by digest; k-rust's test
+/// `unsupported_hook_positions.rs` checks it in the four positions for every hook of its `CASES`,
+/// which hold every hook here (`the_run_list_hooks_are_k_rusts_unevaluated_open_hooks`, which
+/// also derives this list from k-rust's inventory, its `NOT_EVALUATED` list and its hook
+/// namespaces). A test's initial state is still read against every open hook
+/// ([`state_references_implementation_chosen`]): the contract names the positions of a rule or
+/// equation, not the initial state.
+pub const RUN_LIST_HOOKS: &[&str] = &[
+    "STRING.float2string",
+    "STRING.floatFormat",
+    "STRING.category",
+    "STRING.directionality",
+    "STRING.uuid",
+    "INT.rand",
+    "INT.srand",
+    "RANGEMAP.choice",
+    "RANGEMAP.keys_list",
+    "RANGEMAP.values",
+    "KREFLECTION.configuration",
+    "KREFLECTION.fresh",
+    "KREFLECTION.getenv",
+    "KREFLECTION.kompiledDir",
+    "KREFLECTION.argv",
+    "KREFLECTION.printKORE",
+    "IO.open",
+    "IO.tell",
+    "IO.seek",
+    "IO.seekEnd",
+    "IO.getc",
+    "IO.putc",
+    "IO.write",
+    "IO.close",
+    "IO.lock",
+    "IO.unlock",
+    "IO.accept",
+    "IO.shutdownWrite",
+    "IO.time",
+    "IO.system",
+    "IO.mkstemp",
+    "IO.remove",
+    "SUBSTITUTION.substMany",
+    "UNIFICATION.renameVariables",
+    "UNIFICATION.variables",
+    "UNIFICATION.metaVariables",
+    "UNIFICATION.variablesMap",
+    "UNIFICATION.rename",
+    "UNIFICATION.freezeVariables",
+    "UNIFICATION.unifiable",
+    "JSON.json2string",
+    "JSON.string2json",
+    "TIMER.timerStart",
+    "TIMER.timerStop",
+    "FFI.call",
+    "FFI.call_variadic",
+    "FFI.address",
+    "FFI.alloc",
+    "FFI.bytes_address",
+    "FFI.read",
+    "FFI.write",
+];
+
+/// Whether the definition-level census reads `hook`: it is open ([`IMPLEMENTATION_CHOSEN_HOOKS`])
+/// and k-rust evaluates it without a run-level record (it is not on [`RUN_LIST_HOOKS`]).
+#[must_use]
+pub fn census_hook(hook: &str) -> bool {
+    IMPLEMENTATION_CHOSEN_HOOKS.contains(&hook) && !RUN_LIST_HOOKS.contains(&hook)
+}
+
 /// The hooks of the operators whose operands a backend may or may not skip (domains.md
 /// 1115-1117: `andBool` and `orBool` "may be short-circuited in concrete backends", and
 /// `impliesBool` is `notBool P orBool Q`, 1110-1111; 2314-2317: `#if` "does not short-circuit
@@ -629,7 +733,11 @@ pub const IMPLEMENTATION_CHOSEN_HOOKS: &[&str] = &[
 /// operand is undefined in k-rust where the text gives a value): re-pin decision 1 applied to the
 /// short-circuit reading ([`Exclusion::ShortCircuitReading`]). Each with the argument positions a
 /// backend may skip: both operands of a Boolean operator (a `[simplification]` such as
-/// `_ andBool false => false` skips the left one), the branches of `#if`.
+/// `_ andBool false => false` skips the left one), the branches of `#if`. The short-circuit
+/// analysis needs every operator here to evaluate at least one of its skippable positions, and
+/// every other position whenever it skips one (KINK-SC-DEFINED; the kink-native test
+/// `every_short_circuit_operator_evaluates_a_skippable_operand_and_every_other_one` checks it
+/// from each operator's meaning and fails on an operator it has none for).
 pub const SHORT_CIRCUIT_HOOKS: &[(&str, &[usize])] = &[
     ("BOOL.and", &[0, 1]),
     ("BOOL.or", &[0, 1]),
@@ -684,8 +792,8 @@ impl Exclusion {
     }
 }
 
-/// A non-prelude sentence of a definition that references a symbol with an
-/// [`IMPLEMENTATION_CHOSEN_HOOKS`] hook.
+/// A sentence of a definition (its own, or a rewrite rule whatever its source) that references a
+/// symbol with a hook the census reads ([`census_hook`]).
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub struct HookReference {
     /// The KORE module of the sentence.
@@ -703,7 +811,8 @@ pub struct DefinitionExclusions {
     /// `discharge_counts().stack_stops + value_claims().counts().condition_stack_stops` of the
     /// default module's load (the only module kink's requests name).
     pub load_stack_stops: usize,
-    /// The non-prelude sentences that reference an implementation-chosen hook.
+    /// The sentences that reference a hook the census reads ([`census_hook`]): the definition's
+    /// own, and every rewrite rule whatever its source.
     pub implementation_chosen: Vec<HookReference>,
     /// The axioms rooted at a collection role symbol: the executable equations the load reports
     /// as `IndexedAt(Map | List | Set)` and the `simplification` or `symbolic` axioms it does not
@@ -756,9 +865,7 @@ impl DefinitionExclusions {
             .values()
             .filter_map(|symbol| {
                 let hook = symbol.attributes.hook.as_deref()?;
-                IMPLEMENTATION_CHOSEN_HOOKS
-                    .contains(&hook)
-                    .then(|| (symbol.name.to_string(), hook.to_owned()))
+                census_hook(hook).then(|| (symbol.name.to_string(), hook.to_owned()))
             })
             .collect::<std::collections::BTreeMap<_, _>>();
         let roles = definition
@@ -823,7 +930,9 @@ impl DefinitionExclusions {
                     }
                 }
                 // A rewrite rule counts whatever its source says: the prelude's stream rules are
-                // copied into a definition with stream cells and keep their prelude source.
+                // copied into a definition with stream cells and keep their prelude source (their
+                // hooks, `#getc`, `#write` and `Float2String`, are on the run list, so they no
+                // longer count; a census hook in such a rule would).
                 if !authored(attributes, builtin_prefixes) && !is_rewrite_axiom(sentence) {
                     continue;
                 }
@@ -1238,14 +1347,91 @@ impl ShortCircuitAnalysis {
         found
     }
 
-    /// Whether `pattern` may be undefined: it applies a partial function, or a function that can
-    /// be undefined in k-rust's reading.
-    fn may_be_undefined(&self, pattern: &Pattern) -> bool {
-        self.applies(pattern, &self.partial) || self.applies(pattern, &self.undefined)
+    /// Whether `symbol` depends on the reading ([`Self::undefined`], [`Self::valued`]).
+    fn reading_dependent(&self, symbol: &str) -> bool {
+        self.undefined.contains(symbol) || self.valued.contains(symbol)
+    }
+
+    /// `May(pattern)`: the applications anywhere in `pattern` that may be undefined, of a
+    /// partial function or of a function that can be undefined in k-rust's reading
+    /// ([`Self::undefined`]). Where `pattern` is undefined on an instance, one of them is: every
+    /// other symbol is total, a constructor or a domain value, and every symbol is strict. (An
+    /// application of a total function of [`Self::valued`] is flagged by every caller wherever
+    /// it occurs.)
+    fn may(&self, pattern: &Pattern) -> BTreeSet<Pattern> {
+        let mut out = BTreeSet::new();
+        walk::for_each_post_order(pattern, |node| {
+            if let Pattern::Application { symbol, .. } = node
+                && (self.partial.contains(symbol.name.as_str())
+                    || self.undefined.contains(symbol.name.as_str()))
+            {
+                out.insert(node.clone());
+            }
+        });
+        out
+    }
+
+    /// `Must(pattern)`: applications of partial functions that do not depend on the reading
+    /// which every evaluation of `pattern` evaluates, under every order a short-circuit operator
+    /// may take. A short-circuit operator contributes its other operands' `Must` and the
+    /// intersection of its skippable operands' (it evaluates at least one skippable operand, and
+    /// every other operand whenever it skips one: `SHORT_CIRCUIT_HOOKS`, pinned by the test
+    /// `every_short_circuit_operator_evaluates_a_skippable_operand_and_every_other_one`); any
+    /// other application its arguments' `Must` and, for such a partial function, itself. An
+    /// application of a reading-dependent function is left out, so each term of `Must` is
+    /// undefined in one reading exactly where it is in the other (for its arguments, see
+    /// [`Self::direct`]). It is an under-approximation: a pattern that is no application
+    /// contributes nothing.
+    fn must(&self, pattern: &Pattern) -> BTreeSet<Pattern> {
+        let Pattern::Application { symbol, arguments } = pattern else {
+            return BTreeSet::new();
+        };
+        let mut out = BTreeSet::new();
+        if let Some(positions) = self.operators.get(symbol.name.as_str()) {
+            let mut skippable: Option<BTreeSet<Pattern>> = None;
+            for (index, argument) in arguments.iter().enumerate() {
+                let evaluated = self.must(argument);
+                if positions.contains(&index) {
+                    skippable = Some(match skippable {
+                        None => evaluated,
+                        Some(common) => common.intersection(&evaluated).cloned().collect(),
+                    });
+                } else {
+                    out.extend(evaluated);
+                }
+            }
+            out.extend(skippable.unwrap_or_default());
+            return out;
+        }
+        for argument in arguments {
+            out.extend(self.must(argument));
+        }
+        let name = symbol.name.as_str();
+        if self.partial.contains(name) && !self.reading_dependent(name) {
+            out.insert(pattern.clone());
+        }
+        out
     }
 
     /// Whether `pattern` applies a short-circuit operator with an operand a backend may skip
-    /// that may be undefined.
+    /// whose value can differ between the readings: for some skippable position `i`,
+    /// `May(arg_i)` is not contained in the union of `Must(arg_j)` over the other positions `j`
+    /// (KINK-SC-DEFINED, fz26 `P7-SIMPLE-KINK-design.md`). The readings differ at an operator
+    /// only on an instance where a skipped operand `arg_i` is undefined while the operands
+    /// evaluated are defined. There some `t` of `May(arg_i)` is undefined; if `t` is in
+    /// `Must(arg_j)`, the same pattern over the same variables, hence the same value, is
+    /// evaluated by an operand evaluated whenever `arg_i` is skipped, so both readings are
+    /// undefined there. No guard's truth is read, only the definedness of terms both readings
+    /// evaluate (`#if A >=Int 0 #then A #else pd(A) #fi` stays flagged where `pd(A)` occurs in no
+    /// other operand). The callers flag an application of a reading-dependent function wherever
+    /// it occurs, and the walk visits every operator node, so below a node they do not flag every
+    /// subterm has the same value and definedness in both readings.
+    ///
+    /// The reading-dependent functions are the least fixed point of [`Self::close_over`], so a
+    /// recursive function is read as independent while its own equations are checked (the
+    /// greatest fixed point of independence: `findChar`'s skipped recursive calls each occur in
+    /// `Must` of the condition or of the other branch). That is sound by induction on the depth
+    /// of evaluation, which needs evaluation to terminate (premise A1, k-rust `data_term`).
     fn direct(&self, pattern: &Pattern) -> bool {
         let mut found = false;
         walk::for_each_post_order(pattern, |node| {
@@ -1254,9 +1440,18 @@ impl ShortCircuitAnalysis {
                 && let Some(positions) = self.operators.get(symbol.name.as_str())
             {
                 found = positions.iter().any(|position| {
-                    arguments
-                        .get(*position)
-                        .is_some_and(|argument| self.may_be_undefined(argument))
+                    let Some(skipped) = arguments.get(*position) else {
+                        return false;
+                    };
+                    let mut evaluated = BTreeSet::new();
+                    for (index, other) in arguments.iter().enumerate() {
+                        if index != *position {
+                            evaluated.extend(self.must(other));
+                        }
+                    }
+                    self.may(skipped)
+                        .iter()
+                        .any(|term| !evaluated.contains(term))
                 });
             }
         });
