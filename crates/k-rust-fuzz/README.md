@@ -36,6 +36,8 @@ A stuck, truncated, timed-out, undefined or unsupported run is never reported as
 
 A rule or pattern target with `run-to-completion` asks for a witness that becomes a test: by default (`data-end`, on unless the campaign file says `data-end = false` or the command line `--no-data-end`, `Target::data_end` in the library) its hit also needs the reaching natural end to be data, as every end the differential target compares is (below), so that the test's end can be compared with a mutant's. A reaching natural end that is not data, such as one holding an unevaluated function application, is `unsupported`, and the witness's `clean-leaf-facts` name `end-data`. A negated property is exempt: its counterexample is decided by its match, whatever the end's function applications denote. The command line refuses `data-end` on a differential target.
 
+A pattern (a target's or the `normal-end-pattern`) whose `requires` reads a variable that its configuration does not bind, such as `<k> .K </k> <state> M </state> requires R >Int 0`, is refused by `Campaign::new`, naming the variable: a leaf matches the configuration with each of its variables given a value, so the condition still depends on the unbound one and the match holds only under a constraint on it, which decides no case (every leaf would be `unsupported`). `krust krun --pattern` answers such a match with the remaining condition in its result instead.
+
 ### Natural ends
 
 `miss` against `stuck`, a run-to-completion hit and a differential end under `run-to-completion` all rest on the natural end: a clean `stuck` leaf on which the program finished (without `run-to-completion`, any clean decided `stuck` leaf is a differential end, a natural end or an abnormal stop alike).

@@ -410,6 +410,42 @@ fn a_proposer_this_milestone_does_not_provide_is_refused() {
     }
 }
 
+/// A pattern whose `requires` reads a variable its configuration does not bind matches a leaf
+/// only under a condition on that variable, which is never a hit, so the campaign is refused
+/// with the variable's name (FZ-POLISH S3). A variable the configuration binds and a pattern
+/// without `requires` are accepted.
+#[test]
+fn a_pattern_whose_requires_reads_an_unbound_variable_is_refused() {
+    for (pattern, unbound) in [
+        ("<k> .K </k> <state> M </state> requires R >Int 0", "R"),
+        (
+            "<k> .K </k> <state> M </state> requires R >Int 0 andBool Q <Int R",
+            "Q`, `R",
+        ),
+    ] {
+        let mut setup = le();
+        setup.target = final_pattern(pattern, true);
+        match Campaign::new(setup.spec()) {
+            Err(error @ CampaignError::Target(_)) => {
+                let message = error.to_string();
+                assert!(
+                    message.contains(&format!("`{unbound}`")) && message.contains("requires"),
+                    "{message}"
+                );
+            }
+            Err(other) => panic!("{pattern}: {other}"),
+            Ok(_) => panic!("{pattern}: accepted"),
+        }
+    }
+    for pattern in [LE_VIOLATION, "<k> .K </k> <state> M </state>"] {
+        let mut setup = le();
+        setup.target = final_pattern(pattern, true);
+        if let Err(error) = Campaign::new(setup.spec()) {
+            panic!("{pattern}: {error}");
+        }
+    }
+}
+
 #[test]
 fn a_mutant_without_a_differential_target_is_refused() {
     let setup = le();

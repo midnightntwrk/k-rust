@@ -74,23 +74,50 @@ impl PatternCompiler {
 
     /// Compile `pattern` (`requires` allowed) with the program grammar `grammar`.
     ///
+    /// A pattern whose `requires` reads a variable that its configuration does not bind is
+    /// refused ([`unbound_condition_variables`]): a leaf matches its configuration with every
+    /// variable of the configuration given a value, and the condition then still depends on
+    /// the unbound variable, so the match holds only under a constraint on it, which the leaf
+    /// judgement classes as undecided (no hit, no miss) on every leaf. No case could reach such
+    /// a pattern. (`krust krun --pattern` answers such a match with the remaining condition in
+    /// its result instead.)
+    ///
     /// # Errors
     ///
-    /// The compiler's message.
+    /// The compiler's message, or the refusal naming the unbound variables.
     pub(crate) fn compile(
         &self,
         grammar: &ProgramGrammar,
         pattern: &str,
     ) -> Result<CompiledPattern, String> {
-        compile_search_pattern(
+        let search = compile_search_pattern(
             grammar.resolved(),
             &self.execution_resolved,
             &self.main_module,
             pattern,
             pattern_attributes(pattern),
         )
-        .map(|search| CompiledPattern { search })
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+        let unbound = unbound_condition_variables(&search);
+        if !unbound.is_empty() {
+            let names = unbound
+                .iter()
+                .map(|name| format!("`{name}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let (noun, verb) = if unbound.len() == 1 {
+                ("variable", "it")
+            } else {
+                ("variables", "them")
+            };
+            return Err(format!(
+                "its `requires` reads the {noun} {names}, which the pattern's configuration does \
+                 not bind: a leaf would match only under a condition on {verb}, which decides no \
+                 case, so no case could reach the pattern; bind {verb} in the configuration or \
+                 remove {verb} from the condition"
+            ));
+        }
+        Ok(CompiledPattern { search })
     }
 
     /// Compile the normal-termination pattern of `options`: the given one
@@ -116,6 +143,42 @@ impl PatternCompiler {
             .map_err(|message| CampaignError::NormalEndPattern { message })?;
         Ok(NormalEnd { pattern, kind })
     }
+}
+
+/// The K names of the free variables of `search`'s condition that its configuration does not
+/// bind, sorted. The compiled pattern is the conjunction of the configuration (its first
+/// conjunct) and one predicate per conjunct of the condition (`compile_search_pattern`); a
+/// variable a quantifier of the condition binds is not free. An anonymous variable is named
+/// `_`.
+fn unbound_condition_variables(search: &CompiledSearchPattern) -> Vec<String> {
+    let KorePattern::And { arguments, .. } = &search.pattern else {
+        return Vec::new();
+    };
+    let Some((configuration, condition)) = arguments.split_first() else {
+        return Vec::new();
+    };
+    let bound = configuration.free_variables();
+    let mut names = std::collections::BTreeSet::new();
+    for predicate in condition {
+        for variable in predicate.free_variables() {
+            if bound.contains(&variable) {
+                continue;
+            }
+            let generated = search
+                .generated_anonymous_variables
+                .iter()
+                .any(|identity| identity.kind == variable.kind && identity.name == variable.name);
+            let name = if generated {
+                "_".to_owned()
+            } else {
+                k_rust::kast::identifier::decode_variable(&variable.name)
+                    .1
+                    .unwrap_or_else(|_| variable.name.clone())
+            };
+            names.insert(name);
+        }
+    }
+    names.into_iter().collect()
 }
 
 /// A compiled surface pattern, independent of any backend.
