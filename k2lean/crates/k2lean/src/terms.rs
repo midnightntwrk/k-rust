@@ -380,9 +380,16 @@ mutual block.",
                 for p in parts.iter().rev().skip(1) {
                     body = format!("({p} ++ {body})");
                 }
+                // with one argument the serialization is a single cons and `e` has no `++` to
+                // rewrite, so `omega` reads it as it is
+                let split = if parts.len() > 1 {
+                    "simp only [List.length_append] at e; "
+                } else {
+                    ""
+                };
                 writeln!(
                     o,
-                    "      have hl : ({}) + 1 ≤ n + 1 := by\n        have e : (ser_{f} (.{} {})).length = ({body}).length + 1 := rfl\n        simp only [List.length_append] at e; omega",
+                    "      have hl : ({}) + 1 ≤ n + 1 := by\n        have e : (ser_{f} (.{} {})).length = ({body}).length + 1 := rfl\n        {split}omega",
                     lens.join(" + "),
                     c.name,
                     vars.join(" ")
