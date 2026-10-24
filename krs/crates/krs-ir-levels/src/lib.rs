@@ -14,6 +14,7 @@
 pub mod collection_operands;
 pub mod definition;
 mod display;
+pub mod failure_site;
 pub mod ir_level;
 mod ir_validation;
 pub mod k_surface;

@@ -332,7 +332,14 @@ pub fn lower_descriptor_bundle(
             second_head_range: range,
         });
     }
-    Ok(SemanticTheory::new(modules)?)
+    // A validator failure is located at the innermost term the validator was checking.
+    let (theory, site) = krs_ir_levels::failure_site::record(|| SemanticTheory::new(modules));
+    theory.map_err(|error| DescriptorLoweringError::InvalidSemanticTheory {
+        error,
+        range: site
+            .and_then(|origin| origin.origin().exact_authored_range())
+            .map(Box::new),
+    })
 }
 
 /// The exact authored range of a descriptor's first anchor of `role`.

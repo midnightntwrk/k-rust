@@ -401,6 +401,7 @@ pub(crate) fn validate_initializer_forest<L: Validation>(
                 // cell the sort of this term, so a term of a strict
                 // subsort would declare a narrower cell than the IR's.
                 if term.sort() != sort {
+                    crate::failure_site::report(term.origin());
                     return Err(L::error(ValidationError::InitializerLeafSortMismatch));
                 }
             }
@@ -1830,11 +1831,34 @@ fn collection_signature_holds<'a, L: Validation + 'a>(
             })
 }
 
+/// Validates `term` and its subterms; a failure reports the innermost term that encloses it
+/// ([`crate::failure_site`]).
+pub(crate) fn validate_term<L: Validation>(
+    term: &IrTerm<L>,
+    scope: &BTreeMap<SemanticId, L::Sort>,
+    declarations: &Declarations<L>,
+    signatures: &Signatures<L>,
+    sort_parents: &SortParents<L>,
+    cell_ids: &BTreeSet<L::Cell>,
+    nodes: &mut BTreeSet<SourceMapKey>,
+) -> Result<(), L::Error> {
+    validate_term_node(
+        term,
+        scope,
+        declarations,
+        signatures,
+        sort_parents,
+        cell_ids,
+        nodes,
+    )
+    .inspect_err(|_| crate::failure_site::report(term.origin()))
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "The closed shape checks must preserve the first reported failure."
 )]
-pub(crate) fn validate_term<L: Validation>(
+fn validate_term_node<L: Validation>(
     term: &IrTerm<L>,
     scope: &BTreeMap<SemanticId, L::Sort>,
     declarations: &Declarations<L>,
@@ -2575,6 +2599,23 @@ fn collect_local_binders<L: IrLevel>(
 
 /// Whether `term` contains `alias @ pattern`, which is admitted only in
 /// pre-patterns (KF-029).
+/// Reports the first node of `term`, in preorder, that `is` holds of as the failure's site
+/// ([`crate::failure_site`]), or `term` when none does.
+fn report_node<L: IrLevel>(term: &IrTerm<L>, is: impl Fn(&IrTerm<L>) -> bool) {
+    fn first<'t, L: IrLevel>(
+        term: &'t IrTerm<L>,
+        is: &impl Fn(&IrTerm<L>) -> bool,
+    ) -> Option<&'t IrTerm<L>> {
+        if is(term) {
+            return Some(term);
+        }
+        term.children()
+            .into_iter()
+            .find_map(|child| first(child, is))
+    }
+    crate::failure_site::report(first(term, &is).unwrap_or(term).origin());
+}
+
 pub(crate) fn contains_pattern_as<L: IrLevel>(term: &IrTerm<L>) -> bool {
     match term.kind() {
         IrTermKind::As { .. } => true,
@@ -2729,10 +2770,12 @@ fn reject_pattern_as_outside_patterns<L: Validation>(
         return Err(L::error(ValidationError::InvalidLocalRewrite));
     }
     post.extend(conditions);
-    if post.iter().copied().any(contains_pattern_as) {
+    if let Some(term) = post.iter().copied().find(|term| contains_pattern_as(term)) {
+        report_node(term, |node| matches!(node.kind(), IrTermKind::As { .. }));
         return Err(L::error(ValidationError::InvalidPatternAs));
     }
-    if post.iter().copied().any(contains_pattern_or) {
+    if let Some(term) = post.iter().copied().find(|term| contains_pattern_or(term)) {
+        report_node(term, |node| matches!(node.kind(), IrTermKind::Or { .. }));
         return Err(L::error(ValidationError::InvalidPatternOr));
     }
     if pre.iter().copied().any(contains_matches) {

@@ -1656,16 +1656,6 @@ finding = "S0-16"
 deviation = "krs::analysis::invalid-term @ item"
 step = "S1"
 
-["terms/local-rule/subject/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-step = "S1"
-
-["terms/local-rule/subject/y @ Cmd::Hold(_)"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-step = "S1"
-
 # S0-17: a readable or `for Stmt` result accepts `k::matches!` and `let` blocks that the `cells!` rule `krs expand` prints refuses
 
 ["k3/terms/readable/result-list-element/k::matches!(x, Cmd::Hold(_))"]
@@ -2977,59 +2967,59 @@ step = "S2"
 
 ["terms/init/item-depth-2/k::builtin::int::add(1, 2)"]
 finding = "N26"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ item"
 step = "S2"
 
 ["terms/init/item/k::builtin::int::add(1, 2)"]
 finding = "N26"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ item"
 step = "S2"
 
-# N27: an initializer value of a strict subsort of its cell's sort is refused by the IR validator, unlocated
+# N27: an initializer value of a strict subsort of its cell's sort is refused by the IR validator (located at the value since S1)
 
 ["init/typed/any/1"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/any/Cmd::Go()"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/any/Val::Unit()"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/boxed/1"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/leaf/1"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/opt/1"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/slot/1"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/stmt/1"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/stmt/Val::Unit()"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 # X1: initializer fields out of declaration order are a collector error (at the initializer body since S1)
