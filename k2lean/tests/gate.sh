@@ -39,11 +39,11 @@
 #                                 an arity run only the arity entries (and no recorded output)
 #
 # Exit status: 0 the tier passes; 1 a regression (the `FAIL` lines say which); 2 a setup error.
-# A clean light run builds eight Lean libraries and six Lean projects: on 2026-10-24, on a shared
-# 32-CPU host, its part of a clean heavy run took 809 s wall and 1,198 s of CPU under a load of 8 to
-# 21 (4.0 GB peak in a light run); the clean heavy run took 1,661 s wall, 2,389 s of CPU and 4.7 GB,
-# and a clean arity run 457 s and 679 s under a load of 20 to 33. A rerun rebuilds only what changed
-# (26 s light, 50 s heavy, measured before the kimpkeys libraries and ImpWrites were added).
+# A clean light run builds eleven Lean libraries and six Lean projects: on 2026-10-24, on Lean
+# v4.34.0 and a shared 32-CPU host, it took 1,103 s wall, 1,552 s of CPU and 4.1 GB of peak memory
+# under a load of 28 to 31; a clean heavy run took 2,709 s wall, 3,343 s of CPU and 8.5 GB under a
+# load of 26 to 56, and a clean arity run 442 s, 860 s and 4.2 GB under a load of 31 to 48. A rerun
+# rebuilds only what changed (26 s light, 50 s heavy, measured on Lean v4.30.0 with fewer libraries).
 #
 # Needs: krust (a release build), the K release's `kompile` with its LLVM backend (kimp's step
 # traces), the K sources and kimp's sources at the pins of scripts/reference-differential.toml
