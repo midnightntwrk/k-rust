@@ -371,7 +371,11 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
         };
         let rhs = match &rule.rhs {
             k_rust_backend::rule::RuleRhs::Term(term) => side(term),
-            _ => "\\bottom".to_owned(),
+            k_rust_backend::rule::RuleRhs::Bottom => "\\bottom".to_owned(),
+            // A written meaning's right-hand side is a term (`confluence/hooks.rs`).
+            k_rust_backend::rule::RuleRhs::Disjunction(_)
+            | k_rust_backend::rule::RuleRhs::Top
+            | k_rust_backend::rule::RuleRhs::Predicates(_) => "?".to_owned(),
         };
         format!(
             "`{}` ({} = {rhs})",
