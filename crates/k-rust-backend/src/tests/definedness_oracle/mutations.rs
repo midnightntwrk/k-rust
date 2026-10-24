@@ -170,6 +170,68 @@ mutation!(
     withdrawn_claim_failures
 );
 
+/// The constants check's failures (`checks::junk_check`) on the two empty-sort templates
+/// (`generator::empty_sort`, the repro `r4-empty`) under `switches`, each judged where its full
+/// check reports nothing, in `D+` (`constants`) or in the definition itself; and whether the
+/// full check reported nothing on the clashing one.
+fn empty_sort_failures(switches: Switches, constants: bool) -> (Vec<String>, bool) {
+    use super::language::Definition;
+    let base = Definition::new(&["A"])
+        .constructor("c", &[], "A")
+        .constructor("d", &[], "A");
+    switches::with(switches, || {
+        let mut failures = Vec::new();
+        let mut clash_accepted = false;
+        for clash in [true, false] {
+            let (definition, _) = super::generator::empty_sort(base.clone(), clash);
+            let backend = super::checks::backend(&definition).expect("the template loads");
+            let full = backend.value_claims_in_scope(crate::confluence::CheckScope::All);
+            if full.unjoined().is_empty() && full.violations().is_empty() {
+                clash_accepted |= clash;
+                failures.extend(
+                    super::checks::junk_check(&definition, constants, &mut Rng(DEFAULT_SEED))
+                        .failures,
+                );
+            }
+        }
+        (failures, clash_accepted)
+    })
+}
+
+/// `separate_uninhabited` restores vacuity: the check sets aside `fEm(X:Em) = c` beside
+/// `fEm(X:Em) = d` over the empty `Em`, and the full check reports nothing. Without `D+`'s
+/// constants nothing sees it: `Em` has no value, so the clashing instance does not exist, and no
+/// other run of the oracle or the harness judges an element of `Em`. With them `fEm(*_Em)` has
+/// the normal forms `c` and `d`. Without the switch the full check names the pair, and the
+/// joining template holds in `D+`.
+#[test]
+fn restored_vacuity_goes_unnoticed_without_the_constants_and_is_caught_with_them() {
+    super::on_large_stack(|| {
+        let switch = Switches {
+            separate_uninhabited: true,
+            ..Switches::default()
+        };
+        let (without, accepted) = empty_sort_failures(switch, false);
+        assert!(accepted, "the switch leaves the clashing pair reported");
+        assert!(without.is_empty(), "{}", without.join("\n"));
+        let (with, _) = empty_sort_failures(switch, true);
+        assert!(
+            with.iter()
+                .any(|failure| failure.contains("fEm(junkEm) has the normal forms c, d")),
+            "{with:?}"
+        );
+        let (off, accepted) = empty_sort_failures(Switches::default(), true);
+        assert!(!accepted, "the full check names the clashing pair");
+        assert!(off.is_empty(), "{}", off.join("\n"));
+    });
+}
+
+mutation!(
+    restored_vacuity_is_caught_by_the_constants,
+    separate_uninhabited,
+    scope_failures
+);
+
 /// V9's failures on N1 observed by a function under `switches`: the template where only T-obs
 /// makes a pair relevant to the load's scope.
 fn scope_failures_on_observation_by_a_function(switches: Switches) -> Vec<String> {
@@ -306,14 +368,18 @@ fn the_overload_switches_withdraw_no_fewer_claims() {
 ///   that would show `hv(1) = hv(2)` is skipped. Deciding it takes equational reasoning in both
 ///   directions, a second engine;
 /// - `self_pair_reads_opaque_rhs_as_nothing`: its self pairs have a disjunction, `\top` or
-///   predicates as right-hand side, which the harness does not instantiate.
+///   predicates as right-hand side, which the harness does not instantiate;
+/// - `separate_uninhabited` (not counted above) sets aside overlaps over a sort with no normal
+///   form, which the harness, instantiating with the backend's values, has no value of.
 ///
 /// The oracle sees the overload switches by comparing the pairs with its own (V2 and the
 /// completeness run), `claims_during_check` with the claim-dependent probe and both check
 /// switches with `withdrawn_claim_failures`, `discharge_before_check` also by the rewrite rule's
 /// definedness obligation (`confluence::tests::discharging_before_the_check_is_caught`), and the
 /// last by V3c's brute-force self pairs
-/// (`the_self_pair_brute_force_sees_a_disjunction_read_as_reading_nothing`).
+/// (`the_self_pair_brute_force_sees_a_disjunction_read_as_reading_nothing`);
+/// `separate_uninhabited` by the constants of `D+`
+/// (`restored_vacuity_goes_unnoticed_without_the_constants_and_is_caught_with_them`).
 macro_rules! axiom_mutation {
     ($test:ident, $field:ident) => {
         #[test]

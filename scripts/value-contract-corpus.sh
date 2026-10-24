@@ -151,7 +151,7 @@ keys = ["equations", "pairs", "overlaps", "uninhabited", "refuted", "joined", "u
         "full_simplifier_calls", "full_condition_memo_hits", "condition_memo_refusals",
         "full_condition_memo_refusals", "condition_budget_stops", "condition_stack_stops",
         "full_condition_budget_stops", "full_condition_stack_stops", "discharge_budget_stops",
-        "discharge_stack_stops"]
+        "discharge_stack_stops", "witnesses", "full_witnesses", "tainted_witness_heads"]
 if update:
     for case in cases:
         row = measured[case["name"]]

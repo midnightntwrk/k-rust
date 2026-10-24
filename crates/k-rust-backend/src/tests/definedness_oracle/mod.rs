@@ -41,6 +41,13 @@
 //!   inside the preconditions P0 and P2, or about the violation of one, so the oracle measures
 //!   them around the probe: a query whose evaluation does not end within the bounds is outside
 //!   P0, a definition that reaches a total symbol undefined on defined arguments is outside P2.
+//! - **M+** ([`checks::junk_check`]). On every definition, the sorts with an element in every
+//!   model, computed in the oracle's language, are the backend's (`Sorts::surely_inhabited`);
+//!   the axiom-instance harness compares them too. Where the full check reports nothing, the
+//!   oracle's evaluator shows `D+`, the definition with a free constant in every other sort, a
+//!   model: at every instance of an equation over values, constants included, each side has one
+//!   normal form, the two are equal where the premise holds, and a term free of constants
+//!   evaluates as in the definition.
 //!
 //! A definition the backend does not internalize is a failure. The definitions are the probes,
 //! one fixed template per feature class ([`generator::templates`]), and seeded random ones.
@@ -166,6 +173,11 @@ fn assert_bounds(tally: &Tally, cases: u64, failures: &mut Vec<String>) {
                 tally.definitions
             ));
         }
+    }
+    // The constants check judges some instance over a constant (the empty-sort templates
+    // guarantee one), so it stays able to see a pair the check sets aside.
+    if tally.junk_constant_instances == 0 {
+        failures.push("no axiom instance over constants judged in D+".into());
     }
     if cases >= FLOOR_CASES {
         if tally.accepted * 10 < tally.definitions * 3 {

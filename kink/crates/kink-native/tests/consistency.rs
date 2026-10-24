@@ -178,6 +178,20 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// its definedness) where it stated that case as a limit: 1100-1107 `a83fde62` -> `3af0cfea`.
 /// No verdict of the check changes.
 ///
+/// fz26 phase-8 FZ-EMPTYJOIN-WITNESS: all four passages change, by digest; their line ranges stay
+/// but `definition.rs`'s, which grows three lines (2926-2956). "Joined" now means joined by
+/// steps of the executable equations and the witness equations the full check adopts, in the
+/// model `M+` that adds a fresh constant to every sort not surely inhabited (1100-1107: line 1103
+/// says so, line 1104 states how witnesses are proposed, validated by a second pass on `R ∪ W`
+/// and adopted). The premise (1069-1071) is now that `M+` is a model when `R ∪ W` terminates
+/// innermost over the added constants (A1+, a new premise k-rust does not check, which implies
+/// A1 but is not implied by it) and the pairs of `R ∪ W` join; kink's quotation of the premise
+/// (`consistency.rs`, module documentation) is due for KINK-WITNESS. 1125 (in 1123-1136) reads
+/// the claims' model with the untainted equations of `R ∪ W`, and `definition.rs` restates
+/// "joined" and A1+. For kink: a pair over a sort with no normal form that joins only through an
+/// adopted witness is no longer listed, so such a mutant can be admitted (admission widens), and
+/// an adoption can flip between baseline and mutant, which KINK-WITNESS diffs.
+///
 /// fz26 phase-8 FZ-MAPKEY: line 1102 (how a pair is unified) gains, on the same line, that two
 /// maps are unified at every key written alike on both sides, value with value and rest with
 /// rest, and clash when one has no rest and fewer entries than the other: a map binds a key
@@ -185,6 +199,7 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// only decides more map equations, so more overlaps are separated or refuted and a mutant whose
 /// map-keyed equations that separates is admitted (`MUTANT_CONSISTENCY_VERSION` is bumped at
 /// integration). No line moves: 1100-1107 `3af0cfea` -> `7deefbc9`.
+///
 /// k-rust FZ-MEMBERSHIP: line 1103 of 1100-1107 adds membership literals to what "refuted"
 /// reads (`3af0cfea` -> `933b39db`): an item required in sorts with no common lower bound, or
 /// outside a sort above each of their maximal common lower bounds, by the predicates whose two
@@ -203,10 +218,12 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// defined, and a conjunction is refuted when it is refuted with or without them. Only more
 /// overlaps are refuted; the other passages are unmoved.
 ///
-/// fz26 int9 (FZ-MAPKEY, FZ-MEMBERSHIP and S2B-T2 merged): line 1102 carries FZ-MAPKEY's map
-/// sentence and line 1103 FZ-MEMBERSHIP's membership clause and S2B-T2's collection-membership
-/// clause, each as its branch wrote it; 1100-1107 re-pinned by digest of the merged text: ->
-/// `4a4ecc6f`.
+/// fz26 int9 (FZ-MAPKEY, FZ-MEMBERSHIP, S2B-T2 and FZ-EMPTYJOIN-WITNESS merged): line 1102 carries
+/// FZ-MAPKEY's map sentence; line 1103 FZ-MEMBERSHIP's and S2B-T2's clauses and, at its end,
+/// FZ-EMPTYJOIN-WITNESS's sentence reading "joined" in `M+`; line 1104 the witness proposal; each
+/// as its branch wrote it. Re-pinned by digest of the merged texts: 1069-1071 -> `a350602f`,
+/// 1100-1107 -> `40e53091`, 1123-1136 -> `55c5f5ca`, `definition.rs` 2926-2956 -> `3b520509` (the
+/// last three as the witness branch pinned them except 1100-1107).
 ///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
@@ -216,25 +233,25 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
         "docs/compatibility.md",
         1069,
         1071,
-        "21492a8b0fca47bf5bdea146350c650c1043731afee4cb07711db09b4d7d35c8",
+        "a350602f04b9a4d28ae88fa10bfe57340bcfe3f0f19a9260c9e926ac80f00e25",
     ),
     (
         "docs/compatibility.md",
         1100,
         1107,
-        "4a4ecc6f4e22a431d3fa1f5cb63a7af8efcaadd17a46e89f54825e4e6cbab706",
+        "40e53091bcdde8f4d37e003fc23f1390a4bbd2116c818f0907daf8399fdec969",
     ),
     (
         "docs/compatibility.md",
         1123,
         1136,
-        "4cf7602887c991068f06eaf3af5192b8c938b842384ea0e0183571b768a51b75",
+        "55c5f5caa7619a70ced6638c5e7d3b26abca9f9f05a238653a86f7686128e1a6",
     ),
     (
         "crates/k-rust-backend/src/definition.rs",
         2926,
-        2953,
-        "761240eef36fdbf4d6f1fe3a61c132cec8cd8e3fa66694ab7c75fd6ca477d3b7",
+        2956,
+        "3b5205091a3683ba0d694b1a136cef303abb250984fce1be15d3710769e4ffbe",
     ),
 ];
 
@@ -299,13 +316,44 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// `refuted` is stated over the models of that list; `Context` reads the definition's membership
 /// predicates once (`conditions::memberships`) and passes them to the condition reader. The
 /// stages, the early return and the counts kink reads are unchanged; `refuted` can only grow.
-const CONFLUENCE_RS: &str = "b19c253866cf9bb2b3a70f7a1e2e599a59c2f84602c2794d0e40354a97b6d2a6";
+///
+/// fz26 phase-8 FZ-JUNK-ORACLE: c9fa00d8 -> c74b0eb3. The classification of an overlap over a
+/// sort with no normal form reads the test-only switch `separate_uninhabited`, which outside
+/// test builds is the constant `false` (`switches::active`): no verdict kink reads changes.
+///
+/// fz26 phase-8 FZ-EMPTYJOIN-WITNESS: c74b0eb3 -> 4d58d09a. The check runs in passes
+/// (`check_detached` over `check_pass`): a first pass proposes witness equations from the
+/// non-joined overlaps over sorts with no normal form of the pairs the load's scope classifies;
+/// when it proposes, the full check's second pass on `R ∪ W` is adopted under the conditions of
+/// `witness.rs` (every proposing and witness pair joins, no pair is lost, fewer stay unjoined, no
+/// witness head tainted), and the load takes that decision and runs its own second pass. The
+/// stages, the early return and the guards kink reads keep their meaning: `counts().equations`
+/// counts the definition's executable equations only (witnesses are `counts().witnesses`),
+/// `pairs` counts witness pairs too (so `pairs >= root pairs` still holds), and `skipped` stays
+/// 0 under `CheckScope::All`. A verdict kink reads can now be the adopted pass, in which a pair
+/// that joins through a witness is not listed: see `PREMISE_PASSAGES`.
+///
+/// FZ-EMPTYJOIN-WITNESS review fixes: 4d58d09a -> 895e7fe4. The load's scope checks again, on its own
+/// second pass, that no witness head is tainted, and keeps its first pass otherwise; the reader of
+/// the test-only switch `gate_taints_witnesses` (constant `false` outside tests). kink reads
+/// `CheckScope::All`, whose verdict changes only where settling dropped two proposals of
+/// different roots as undecided: the conflict rule now compares proposals of one root alone, so
+/// more witnesses can be adopted (precision; each adoption still passes the second pass).
+///
+/// fz26 int9 (FZ-MEMBERSHIP merged with FZ-JUNK-ORACLE and FZ-EMPTYJOIN-WITNESS): the membership
+/// table, the `separate_uninhabited` reader and the witness passes side by side, and the contract's
+/// `refuted` and `joined` points stated together (models of the axioms read as true; steps of `R ∪
+/// W` in `M+`); re-pinned by digest of the merged file: -> `fb288730`.
+const CONFLUENCE_RS: &str = "fb2887301fd673e37d6862f63b71ff843f8c19949a48e792bf49a6c53b115892";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin
 /// R0c-fix-4, R0c-fix-3 review minor 4). Re-pin KS-08c: d6fa4b4c -> 37bed07e, the same syntax-only
-/// change of its sort patterns as `CONFLUENCE_RS`.
-const CLOSURE_RS: &str = "37bed07ece2d17afb4b1098566ee484167e244ed01104fe07d98d4cbf3df5c95";
+/// change of its sort patterns as `CONFLUENCE_RS`. fz26 phase-8 FZ-EMPTYJOIN-WITNESS: 37bed07e ->
+/// 13672570: the closure's equations include the witness equations of a pass that has them, which add
+/// `SortReach` edges, and the documentation reads the claims' model with `R ∪ W`; `taintable` is
+/// unchanged.
+const CLOSURE_RS: &str = "13672570f6038fe59ff83c59abc34f34f6c14111236ec118e26ac93e2e16aec9";
 
 /// A re-pin that changes the premise text or the check's driver needs the consistency check
 /// (and its probe head) read again against it.

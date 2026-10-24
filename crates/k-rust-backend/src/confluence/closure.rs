@@ -25,17 +25,26 @@
 //! classify, so it is withdrawn like a pair that does not join) and by the heads a pinned symbol
 //! withdraws.
 //!
+//! The equations are the executable equations `R` and, in a pass with witness equations, the
+//! witnesses `W` (`witness.rs`), which T1, T-sym and T-obs follow like any other; a witness `p =>
+//! t` also adds to [`SortReach`] the edges from `sort(p)` to the sorts of `t`'s variables.
+//!
 //! The operator is monotone on a finite lattice, so a worklist that visits each equation once
 //! and pushes each symbol once reaches its least fixpoint (Kleene iteration). With this closure,
 //! one model of the definition makes every claim on an untainted term true at once, whenever the
 //! definition has a model at all (sorts may be empty, and an axiom's variables range over
 //! elements): from any model `M`, keep its elements as *old* ones, add as *new* elements the formal
 //! normal forms that hold an untainted equation-head application, interpret untainted symbols by
-//! the untainted equations, and each application holding a new element that no untainted equation
-//! rewrites as `symbols.rs` states for its class (formally, `\bottom`, one fixed old element of a
-//! sort that has one in every model, or a literal). No tainted equation can see a new element,
-//! through its symbols (T1, T-sym) or through its variables (T-obs) (`docs/compatibility.md`,
-//! "Anywhere rules").
+//! the untainted equations of `R ∪ W`, on every argument, and each application holding a new
+//! element that no untainted equation rewrites as `symbols.rs` states for its class (formally,
+//! `\bottom`, one fixed old element of a sort that has one in every model, or a literal). No
+//! tainted equation can see a new element, through its symbols (T1, T-sym) or through its
+//! variables (T-obs) (`docs/compatibility.md`, "Anywhere rules"). Tainted equations mention no
+//! untainted symbol, so `M` need not satisfy `W`; the check adopts witnesses only when no witness
+//! head is tainted, so every join step through a witness is a step of an untainted equation, valid
+//! in this model. The construction is well defined when the untainted equations of `R ∪ W`, with
+//! the applications it reads opaquely, terminate on old and new elements, which extends the
+//! termination premise of the claims to `W`.
 
 use std::collections::{BTreeSet, VecDeque};
 
@@ -97,12 +106,16 @@ impl<'e> Closure<'e> {
             }
             lhs_symbols.push(lhs.into_iter().collect());
         }
+        let mut reach = SortReach::new(definition, sorts);
+        for equation in equations.iter().filter(|equation| equation.witness) {
+            reach.witness_edges(&equation.rule);
+        }
         Self {
             equations,
             id_of,
             lhs_index,
             lhs_symbols,
-            reach: SortReach::new(definition, sorts),
+            reach,
         }
     }
 
@@ -411,6 +424,23 @@ impl SortReach {
             }
         }
         reach
+    }
+
+    /// The edges of a witness equation `p => t` (`witness.rs`), added before any sort is asked
+    /// about: from `sort(p)` to the sorts of `t`'s variables. `M'` reads the witness's untainted
+    /// head by it, so an application of that head at a new element of `sort(p)` is `t`'s
+    /// instance, which holds the values of `t`'s variables.
+    pub(crate) fn witness_edges(&mut self, rule: &RewriteRule) {
+        debug_assert!(self.memo.is_empty(), "the edges are added before any walk");
+        let RuleRhs::Term(rhs) = &rule.rhs else {
+            return;
+        };
+        self.edges.entry(rule.lhs.sort()).or_default().extend(
+            rhs.attributes()
+                .variables
+                .iter()
+                .map(|variable| variable.sort),
+        );
     }
 
     /// The equation heads whose applications can occur inside an element of the argument sorts

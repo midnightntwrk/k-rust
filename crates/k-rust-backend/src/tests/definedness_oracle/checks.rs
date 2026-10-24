@@ -3,8 +3,9 @@
 //! and the full check admit the same claims and warn about the same pairs), the memo (the full
 //! check with and without its memo of condition simplifications reaches the same verdict), and
 //! each probe's `\ceil` obligation and token, with the preconditions P0 and P2 measured by the
-//! oracle's evaluator. The value claims themselves are judged against the axioms by
-//! [`super::axioms`].
+//! oracle's evaluator, and the constants check (`M+`: the oracle's surely-inhabited sorts are the
+//! backend's, and a definition the full check accepts has the model `D+`, [`junk_check`]). The
+//! value claims themselves are judged against the axioms by [`super::axioms`].
 
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap, HashSet},
@@ -17,7 +18,7 @@ use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 use super::{
     Rng,
     engine::{BOTTOM, Id, Node, Universe},
-    language::{Definition, Kind, Pat, pattern_variables},
+    language::{Definition, Equation, JUNK_PREFIX, Kind, Pat, junk_constant, pattern_variables},
 };
 use crate::{
     definition::BackendDefinition,
@@ -117,6 +118,12 @@ pub(super) struct Tally {
     /// Definitions whose load skipped a pair the full check classifies (`CheckCounts::skipped`):
     /// those on which V9 compares the two scopes where they could differ.
     pub(super) with_skipped_pair: usize,
+    /// The axiom instances the constants check judged in `D+` ([`junk_check`]), those of them
+    /// over values that hold a constant, and the terms free of constants it evaluated in both
+    /// `D+` and the definition.
+    pub(super) junk_instances: usize,
+    pub(super) junk_constant_instances: usize,
+    pub(super) junk_agreements: usize,
     pub(super) failures: Vec<String>,
 }
 
@@ -132,6 +139,9 @@ impl Tally {
         self.memo_conditions += other.memo_conditions;
         self.memo_hits += other.memo_hits;
         self.with_skipped_pair += other.with_skipped_pair;
+        self.junk_instances += other.junk_instances;
+        self.junk_constant_instances += other.junk_constant_instances;
+        self.junk_agreements += other.junk_agreements;
         for (class, count) in other.classes {
             *self.classes.entry(class).or_default() += count;
         }
@@ -143,7 +153,7 @@ impl Tally {
 
     pub(super) fn summary(&self, name: &str) -> String {
         format!(
-            "{name}: {} definitions ({} rejected, {} accepted, {} partially tainted, {} outside P2), {} probe queries explored ({} outside P0); classes {:?}; non-joined pairs by reason {:?}; {} of the full check's {} conditions answered from the memo; {} definitions with a pair the load's scope skipped; {} failures",
+            "{name}: {} definitions ({} rejected, {} accepted, {} partially tainted, {} outside P2), {} probe queries explored ({} outside P0); classes {:?}; non-joined pairs by reason {:?}; {} of the full check's {} conditions answered from the memo; {} definitions with a pair the load's scope skipped; {} axiom instances judged in D+ ({} over constants; {} terms free of constants compared with the definition); {} failures",
             self.definitions,
             self.rejected,
             self.accepted,
@@ -156,6 +166,9 @@ impl Tally {
             self.memo_hits,
             self.memo_conditions,
             self.with_skipped_pair,
+            self.junk_instances,
+            self.junk_constant_instances,
+            self.junk_agreements,
             self.failures.len()
         )
     }
@@ -749,6 +762,25 @@ pub(super) fn check_definition(label: &str, definition: &Definition) -> (Tally, 
     }
     tally.memo_hits += full.counts().condition_memo_hits;
     tally.memo_conditions += full.counts().simplifier_calls;
+    // The sorts with an element in every model, recomputed in the oracle's language, are the
+    // backend's; and where the full check reports nothing, `D+` is a model of the axioms.
+    for failure in inhabitation_failures(definition, &backend) {
+        tally
+            .failures
+            .push(format!("{label}: {JUNK}: {failure}\n{}", describe()));
+    }
+    if full.unjoined().is_empty() && full.violations().is_empty() && !definition.collections {
+        let run = junk_check(definition, true, &mut Rng(JUNK_SEED));
+        tally.junk_instances += run.instances;
+        tally.junk_constant_instances += run.with_constants;
+        tally.junk_agreements += run.agreements;
+        for failure in run.failures {
+            tally.failures.push(format!(
+                "{label}: {JUNK}: the full check reports nothing, but {failure}\n{}",
+                describe()
+            ));
+        }
+    }
     let has_head = definition.symbols.iter().any(|symbol| symbol.is_head());
     // Without an equation head the check stops after the precondition rows: it accepts nothing.
     verdict.accepted = has_head && full.unjoined().is_empty() && full.violations().is_empty();
@@ -774,6 +806,363 @@ pub(super) fn check_definition(label: &str, definition: &Definition) -> (Tally, 
         *tally.reasons.entry(reason).or_default() += 1;
     }
     (tally, verdict)
+}
+
+/// The tag of the constants check's failures: the oracle's surely-inhabited sorts differ from
+/// the backend's, or `D+` (the definition with a free constant in each sort outside them, the
+/// design's `M+`, P7-EMPTYJOIN 4.1 and 4.3) is no model of the axioms of a definition the full
+/// check accepts.
+pub(super) const JUNK: &str = "M+";
+
+/// The seed of the constants check's valuations.
+const JUNK_SEED: u64 = 0x5eed_0a11;
+
+/// Valuations per equation in the constants check: all of them up to this many, otherwise this
+/// many drawn, and one more that takes a value holding a constant wherever one exists.
+const JUNK_VALUATIONS: usize = 12;
+
+/// Where the sorts with an element in every model, computed in the oracle's own language
+/// ([`Definition::surely_inhabited`]), differ from the backend's (`Sorts::surely_inhabited`),
+/// over every sort of the definition. The set's complement `J` is the one set the model `M+`
+/// adds constants to, which the coverage condition of part F and the oracle's `D+` read too, so
+/// the backend's reading of it is tested, not assumed.
+pub(super) fn inhabitation_failures(
+    definition: &Definition,
+    backend: &BackendDefinition,
+) -> Vec<String> {
+    let sorts = crate::confluence::symbols::Sorts::of(backend);
+    let oracle = definition.surely_inhabited();
+    definition
+        .all_sorts()
+        .into_iter()
+        .filter_map(|sort| {
+            let theirs = sorts.surely_inhabited(&Sort::simple(format!("Sort{sort}")));
+            let ours = oracle.contains(&sort);
+            (theirs != ours).then(|| {
+                format!(
+                    "the oracle reads `{sort}` as {}surely inhabited, the backend as {}",
+                    if ours { "" } else { "not " },
+                    if theirs { "surely inhabited" } else { "not" }
+                )
+            })
+        })
+        .collect()
+}
+
+/// What the constants check of one definition counted and found.
+#[derive(Debug, Default)]
+pub(super) struct JunkRun {
+    /// Axiom instances judged: each side has one normal form, and the instance's premise holds.
+    pub(super) instances: usize,
+    /// Of those, the instances whose valuation holds a constant.
+    pub(super) with_constants: usize,
+    /// Terms free of constants whose normal forms in `D+` were compared with the definition's.
+    pub(super) agreements: usize,
+    pub(super) failures: Vec<String>,
+}
+
+/// The constants check (FZ-JUNK-ORACLE; P7-EMPTYJOIN 4.3) of a definition whose full check
+/// reports nothing, with the oracle's own evaluator.
+///
+/// When every overlap of the definition is refuted or joined by steps valid on every instance,
+/// the normal forms of innermost evaluation over the signature extended with a fresh free
+/// constant `*_S` in each sort `S` outside the surely-inhabited ones (`D+`, the design's `M+`)
+/// are a model of the axioms: every model of a definition has an element of every sort, and the
+/// constant stands for one that no term of the signature denotes. So in `D+`, at each instance of
+/// an executable equation `l = r` by values (normal forms other than `\bottom`, constants
+/// included), each side has one normal form; where the premise holds (the `requires` evaluates
+/// to `true`, and no equation of a higher priority group applies at `l`'s root once its
+/// arguments are evaluated) the two are the same, `\bottom` standing for the right-hand side where
+/// the `ensures` evaluates to `false`. A term free of constants evaluates in `D+` as in the
+/// definition. Without `constants` the same check runs on the definition itself, whose sorts
+/// without a normal form then have no value: an overlap over such a sort has no instance there.
+///
+/// An instance whose evaluation does not end within the oracle's bounds (outside P0), or that
+/// meets a hook on a term other than a literal, is skipped.
+pub(super) fn junk_check(definition: &Definition, constants: bool, rng: &mut Rng) -> JunkRun {
+    let sorts = if constants {
+        definition.junk_sorts()
+    } else {
+        BTreeSet::new()
+    };
+    let plus = definition.with_junk_constants(&sorts);
+    let mut universe = Universe::new(&plus);
+    let mut plain = Universe::new(definition);
+    let mut values = values(&mut universe, rng);
+    // Every constant is a value of its sort, whatever the cap on the values of a sort left.
+    for sort in &sorts {
+        let constant = universe.ground(&Pat::App(junk_constant(sort), Vec::new()));
+        let entry = values.entry(universe.sort_id(sort)).or_default();
+        if !entry.contains(&constant) {
+            entry.insert(0, constant);
+        }
+    }
+    let mut run = JunkRun::default();
+    for equation in &plus.equations {
+        if equation.symbolic {
+            continue;
+        }
+        // The variables outside aliases are drawn; an alias `\and(p, X)` binds `X` to `p`'s
+        // instance, innermost first, and where `X` also occurs outside aliases the valuation is
+        // an instance only when the two agree.
+        let mut variables = BTreeMap::new();
+        pattern_variables(&without_aliases(&equation.lhs), &mut variables);
+        let mut aliases = Vec::new();
+        alias_patterns(&equation.lhs, &mut aliases);
+        let mut sampled = Vec::new();
+        for (name, sort) in &variables {
+            let sort = universe.sort_id(sort);
+            sampled.push((name.clone(), candidates_of(&mut universe, &values, sort)));
+        }
+        if sampled.iter().any(|(_, candidates)| candidates.is_empty()) {
+            continue;
+        }
+        'valuations: for mut valuation in junk_valuations(&universe, &sampled, rng) {
+            for (alias, pattern) in &aliases {
+                let instance = universe.instantiate(pattern, &valuation);
+                if *valuation.entry(alias.clone()).or_insert(instance) != instance {
+                    continue 'valuations;
+                }
+            }
+            judge_instance(&mut universe, &mut plain, equation, &valuation, &mut run);
+        }
+    }
+    run
+}
+
+/// The aliases `\and(p, X)` of `pattern`, innermost first, each with `p` without aliases.
+fn alias_patterns(pattern: &Pat, into: &mut Vec<(String, Pat)>) {
+    match pattern {
+        Pat::As(inner, name, _) => {
+            alias_patterns(inner, into);
+            into.push((name.clone(), without_aliases(inner)));
+        }
+        Pat::App(_, arguments) => {
+            for argument in arguments {
+                alias_patterns(argument, into);
+            }
+        }
+        Pat::Inj(_, _, inner) => alias_patterns(inner, into),
+        Pat::List(prefix, _, suffix) => {
+            for element in prefix.iter().chain(suffix) {
+                alias_patterns(element, into);
+            }
+        }
+        Pat::Var(..) | Pat::Int(_) => {}
+    }
+}
+
+/// Whether `id` holds one of `D+`'s constants.
+fn holds_junk(universe: &Universe<'_>, id: Id) -> bool {
+    universe.holds_symbol(id, &|name: &str| name.starts_with(JUNK_PREFIX))
+}
+
+/// The valuations of `sampled` (each variable with its candidate values) the constants check
+/// judges: all of them when there are at most [`JUNK_VALUATIONS`], otherwise that many drawn;
+/// and the valuation that gives each variable its first candidate holding a constant, where it
+/// has one.
+fn junk_valuations(
+    universe: &Universe<'_>,
+    sampled: &[(String, Vec<Id>)],
+    rng: &mut Rng,
+) -> Vec<HashMap<String, Id>> {
+    let total = sampled
+        .iter()
+        .try_fold(1usize, |product, (_, candidates)| {
+            product.checked_mul(candidates.len())
+        })
+        .unwrap_or(usize::MAX);
+    let mut valuations = Vec::new();
+    if total <= JUNK_VALUATIONS {
+        let mut all = vec![HashMap::new()];
+        for (name, candidates) in sampled {
+            all = all
+                .into_iter()
+                .flat_map(|valuation: HashMap<String, Id>| {
+                    candidates.iter().map(move |candidate| {
+                        let mut extended = valuation.clone();
+                        extended.insert(name.clone(), *candidate);
+                        extended
+                    })
+                })
+                .collect();
+        }
+        valuations = all;
+    } else {
+        for _ in 0..JUNK_VALUATIONS {
+            valuations.push(
+                sampled
+                    .iter()
+                    .map(|(name, candidates)| (name.clone(), *rng.pick(candidates)))
+                    .collect(),
+            );
+        }
+        let with_junk = sampled
+            .iter()
+            .map(|(name, candidates)| {
+                let chosen = candidates
+                    .iter()
+                    .find(|candidate| holds_junk(universe, **candidate))
+                    .unwrap_or(&candidates[0]);
+                (name.clone(), *chosen)
+            })
+            .collect::<HashMap<_, _>>();
+        if !valuations.contains(&with_junk) {
+            valuations.push(with_junk);
+        }
+    }
+    valuations
+}
+
+/// The one normal form of `id` in `universe`: `None` when its evaluation does not end within the
+/// bounds, and also when it has several, which is recorded in `run` as a failure.
+fn one_normal_form(
+    universe: &mut Universe<'_>,
+    id: Id,
+    what: &str,
+    run: &mut JunkRun,
+) -> Option<Id> {
+    let normal = universe.normalize(id);
+    if !normal.complete {
+        return None;
+    }
+    if normal.forms.len() != 1 {
+        run.failures.push(format!(
+            "{what} {} has the normal forms {}",
+            universe.show(id),
+            normal
+                .forms
+                .iter()
+                .map(|form| universe.show(*form))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+        return None;
+    }
+    Some(normal.forms[0])
+}
+
+/// Whether the term `id` of `D+` free of constants evaluates in the definition (`plain`) to
+/// the same normal forms, when both evaluations end; a difference is recorded in `run`.
+fn agrees_with_the_definition(
+    universe: &mut Universe<'_>,
+    plain: &mut Universe<'_>,
+    id: Id,
+    run: &mut JunkRun,
+) {
+    if id == BOTTOM || holds_junk(universe, id) {
+        return;
+    }
+    let moved = universe.transfer(id, plain);
+    let (here, there) = (universe.normalize(id), plain.normalize(moved));
+    if !(here.complete && there.complete) {
+        return;
+    }
+    run.agreements += 1;
+    let mut forms = here
+        .forms
+        .iter()
+        .map(|form| universe.transfer(*form, plain))
+        .collect::<Vec<_>>();
+    forms.sort_unstable();
+    if forms != there.forms {
+        run.failures.push(format!(
+            "{} evaluates in D+ to {:?} and in the definition to {:?}",
+            universe.show(id),
+            here.forms
+                .iter()
+                .map(|form| universe.show(*form))
+                .collect::<Vec<_>>(),
+            there
+                .forms
+                .iter()
+                .map(|form| plain.show(*form))
+                .collect::<Vec<_>>()
+        ));
+    }
+}
+
+/// Judges the instance of `equation` by `valuation` in `D+` ([`junk_check`]).
+fn judge_instance(
+    universe: &mut Universe<'_>,
+    plain: &mut Universe<'_>,
+    equation: &Equation,
+    valuation: &HashMap<String, Id>,
+    run: &mut JunkRun,
+) {
+    let left = universe.instantiate(&without_aliases(&equation.lhs), valuation);
+    let right = universe.instantiate(&equation.rhs, valuation);
+    for side in [left, right] {
+        agrees_with_the_definition(universe, plain, side, run);
+    }
+    let over = if valuation.values().any(|value| holds_junk(universe, *value)) {
+        " over constants"
+    } else {
+        ""
+    };
+    let Some(left_form) =
+        one_normal_form(universe, left, &format!("the left-hand side{over}"), run)
+    else {
+        return;
+    };
+    let Some(right_form) =
+        one_normal_form(universe, right, &format!("the right-hand side{over}"), run)
+    else {
+        return;
+    };
+    // The premise: the root's arguments evaluate to elements, the `requires` to `true`, and no
+    // equation of a higher priority group applies at the root on those elements.
+    let Node::App(symbol, arguments) = universe.node_of(left).clone() else {
+        return;
+    };
+    let mut elements = Vec::new();
+    for argument in arguments {
+        match one_normal_form(universe, argument, "the argument", run) {
+            Some(element) if element != BOTTOM => elements.push(element),
+            _ => return,
+        }
+    }
+    let root = universe.node(Node::App(symbol, elements));
+    let truth = universe.boolean(true);
+    if let Some(requires) = &equation.requires {
+        let condition = universe.instantiate(requires, valuation);
+        if one_normal_form(universe, condition, "the requires", run) != Some(truth) {
+            return;
+        }
+    }
+    let (applying, complete) = universe.applicable(root);
+    let definition = universe.definition;
+    if !complete
+        || applying
+            .iter()
+            .any(|(index, _)| definition.equations[*index].priority < equation.priority)
+    {
+        return;
+    }
+    let expected = match &equation.ensures {
+        None => right_form,
+        Some(ensures) => {
+            let condition = universe.instantiate(ensures, valuation);
+            match one_normal_form(universe, condition, "the ensures", run) {
+                None => return,
+                Some(holds) if holds == truth => right_form,
+                Some(_) => BOTTOM,
+            }
+        }
+    };
+    run.instances += 1;
+    if !over.is_empty() {
+        run.with_constants += 1;
+    }
+    if left_form != expected {
+        run.failures.push(format!(
+            "the instance {} = {}{over} does not hold in D+: the left-hand side evaluates to {}, the right-hand side to {}",
+            universe.show(left),
+            universe.show(right),
+            universe.show(left_form),
+            universe.show(expected)
+        ));
+    }
 }
 
 /// Asks the loaded `definition` about the probe terms `probes`: for each whose evaluation under
@@ -936,4 +1325,58 @@ pub(super) fn show(pattern: &Pat) -> String {
             format!("[{}]", parts.join(", "))
         }
     }
+}
+
+/// The oracle's surely-inhabited sorts on one sort per kind of producer, with and without the
+/// collection sorts, and the backend's agree: a sort is surely inhabited through a literal or a
+/// collection unit, a constructor, a symbol declared total (a function, an equation head, a
+/// `functional` symbol) on surely-inhabited arguments, or a subsort; not through an equation
+/// head or a function that is not declared total, nor through a constructor of an argument sort
+/// that is not surely inhabited. Those sorts are `J`, and `D+` gives each a constant.
+#[test]
+fn the_oracles_surely_inhabited_sorts_are_the_backends() {
+    super::on_large_stack(|| {
+        for collections in [false, true] {
+            let mut definition = Definition::new(&["A"])
+                .with_lists()
+                .constructor("c", &[], "A")
+                .head("hHd", &["Int"], "Hd")
+                .total_function("tTf", &["Int"], "Tf")
+                .function("pPf", &["Int"], "Pf")
+                .total_head("tTh", &["Int"], "Th")
+                .functional("uFn", &["A"], "Fn")
+                .constructor("cCh", &["Em"], "Ch")
+                .constructor("cTe", &["Em"], "Te")
+                .total_function("tTe", &["Hd"], "Te")
+                .subsort("A", "Sup")
+                .subsort("Lo", "Hd");
+            if collections {
+                definition = definition.with_collections();
+            }
+            for sort in ["Em", "Hd", "Tf", "Pf", "Th", "Fn", "Ch", "Te", "Sup", "Lo"] {
+                definition.sorts.push(sort.into());
+            }
+            let mut expected = vec!["A", "Bool", "Fn", "Int", "List", "S", "Sup", "Tf", "Th"];
+            if collections {
+                expected.extend(["Map", "Mv", "Set"]);
+            }
+            expected.sort_unstable();
+            assert_eq!(
+                definition.surely_inhabited(),
+                expected.iter().map(|sort| (*sort).to_owned()).collect(),
+                "collections {collections}"
+            );
+            assert_eq!(
+                definition.junk_sorts(),
+                ["Ch", "Em", "Hd", "Lo", "Pf", "Te"]
+                    .iter()
+                    .map(|sort| (*sort).to_owned())
+                    .collect(),
+                "collections {collections}"
+            );
+            let loaded = backend(&definition).expect("the definition loads");
+            let failures = inhabitation_failures(&definition, &loaded);
+            assert!(failures.is_empty(), "{}", failures.join("\n"));
+        }
+    });
 }
