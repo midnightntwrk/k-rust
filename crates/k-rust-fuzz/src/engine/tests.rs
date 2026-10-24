@@ -65,6 +65,7 @@ fn run(class: OutcomeClass, work: u64) -> CaseRun {
         defects: Vec::new(),
         warnings: Vec::new(),
         hit: None,
+        incidental: None,
         cut: Cut::default(),
     }
 }
@@ -123,6 +124,8 @@ struct Scripted {
     confirm_aborts: bool,
     cases: Vec<Vec<Value>>,
     confirmed: Vec<Vec<Value>>,
+    /// The classes the loop said it kept an incidental finding of, in order.
+    kept: Vec<OutcomeClass>,
 }
 
 impl Scripted {
@@ -138,6 +141,7 @@ impl Scripted {
             confirm_aborts: false,
             cases: Vec::new(),
             confirmed: Vec::new(),
+            kept: Vec::new(),
         }
     }
 }
@@ -173,6 +177,10 @@ impl CaseRunner for Scripted {
 
     fn admissible(&self, hole: usize, value: &Value) -> bool {
         (self.admissible)(hole, value)
+    }
+
+    fn incidental_kept(&mut self, class: OutcomeClass) {
+        self.kept.push(class);
     }
 }
 
@@ -2257,4 +2265,194 @@ fn the_climb_spends_at_most_half_of_the_cases_and_of_the_work() {
             "work {climb_work}/{work} (cost {climb_cost})"
         );
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Incidental findings (FZ-INCIDENTAL)
+
+/// A case of `class` whose runner describes it as an incidental finding at `head`.
+fn incidental(values: &[Value], class: OutcomeClass, head: &str) -> CaseRun {
+    CaseRun {
+        incidental: Some((
+            class,
+            Box::new(crate::report::IncidentalCase {
+                case: 0,
+                holes: detail(values, head).holes,
+                leaves: 1,
+                leaf: 0,
+                steps: 4,
+                k_heads: vec![head.to_owned()],
+                configuration: format!("config-{head}"),
+                krun_command: Some(format!("krust krun {values:?}")),
+            }),
+        )),
+        ..run(class, 10)
+    }
+}
+
+#[test]
+fn the_first_stuck_and_the_first_undefined_case_are_kept_and_nothing_else_moves() {
+    // Values 1, 2, …: 2 and 5 get stuck, 3 and 6 take an undefined step, 4 is stuck outside the
+    // determinism contract (kept nowhere), the rest miss.
+    let script = |values: &[Value]| match as_int(&values[0]) {
+        2 | 5 => incidental(values, OutcomeClass::Stuck, "stop"),
+        3 | 6 => incidental(values, OutcomeClass::Undefined, "undef"),
+        4 => CaseRun {
+            outside_determinism: true,
+            ..incidental(values, OutcomeClass::Stuck, "clock")
+        },
+        _ => run(OutcomeClass::Miss, 10),
+    };
+    let mut runner = Scripted::new(script, |_| Ok(run(OutcomeClass::Miss, 7)));
+    let report = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(8),
+        None,
+    );
+    // The runner is told once per class, so it describes no later case of it.
+    assert_eq!(
+        runner.kept,
+        vec![OutcomeClass::Stuck, OutcomeClass::Undefined]
+    );
+    let stuck = report.incidental.stuck.as_ref().expect("a stuck finding");
+    assert_eq!((stuck.case, stuck.holes[0].value.clone()), (1, int(2)));
+    assert_eq!(stuck.k_heads, vec!["stop".to_owned()]);
+    let undefined = report
+        .incidental
+        .undefined
+        .as_ref()
+        .expect("an undefined finding");
+    assert_eq!(
+        (undefined.case, undefined.holes[0].value.clone()),
+        (2, int(3))
+    );
+    // The classes, counts and case sequence are a run's without findings.
+    let mut plain = Scripted::new(
+        move |values: &[Value]| CaseRun {
+            incidental: None,
+            ..script(values)
+        },
+        |_| Ok(run(OutcomeClass::Miss, 7)),
+    );
+    let without = run_loop(
+        &mut plain,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(8),
+        None,
+    );
+    assert!(without.incidental.is_empty());
+    assert_eq!(report.totals, without.totals);
+    assert_eq!(report.outcome, without.outcome);
+    // The summary words each finding as information, in one line.
+    let lines = report.incidental.lines();
+    assert_eq!(lines.len(), 2);
+    assert!(lines.iter().all(|line| !line.contains('\n')
+        && line.starts_with("incidental (information, not a failure): case ")));
+    assert!(
+        lines[0].contains(
+            "case 1 (H0 = Int(2)) got stuck before a natural end after 4 steps at `stop`"
+        ),
+        "{}",
+        lines[0]
+    );
+    assert!(lines[1].contains("took an undefined step"), "{}", lines[1]);
+}
+
+#[test]
+fn a_finding_outside_the_determinism_contract_leaves_the_class_open() {
+    // The only stuck case is outside the contract: no finding, though the class is counted.
+    let mut runner = Scripted::new(
+        |values| CaseRun {
+            outside_determinism: true,
+            ..incidental(values, OutcomeClass::Stuck, "clock")
+        },
+        |_| Ok(run(OutcomeClass::Miss, 7)),
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(2),
+        None,
+    );
+    assert_eq!(classes(&report), vec![(OutcomeClass::Stuck, 2)]);
+    assert!(report.incidental.is_empty());
+    assert!(!report.to_canonical_json().contains("\"incidental\""));
+}
+
+#[test]
+fn a_witness_report_keeps_the_findings_before_it() {
+    let mut runner = Scripted::new(
+        |values| match as_int(&values[0]) {
+            1 => incidental(values, OutcomeClass::Undefined, "undef"),
+            2 => hit(values, 10, "end-2"),
+            _ => run(OutcomeClass::Miss, 10),
+        },
+        |values| Ok(hit(values, 7, "end-2")),
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(8),
+        None,
+    );
+    assert!(report.witness().is_some());
+    assert_eq!(
+        report.incidental.undefined.as_ref().map(|found| found.case),
+        Some(0)
+    );
+    let read = FuzzReport::from_json(&report.to_canonical_json()).expect("reads back");
+    assert_eq!(read, report);
+}
+
+#[test]
+fn an_incidental_line_counts_steps_holes_paths_and_threads() {
+    let mut case = crate::report::IncidentalCase {
+        case: 0,
+        holes: Vec::new(),
+        leaves: 1,
+        leaf: 0,
+        steps: 1,
+        k_heads: vec!["join 0 ;".into(), "10 / 0".into()],
+        configuration: String::new(),
+        krun_command: None,
+    };
+    let lines = |case: &crate::report::IncidentalCase, stuck: bool| {
+        let incidentals = crate::report::Incidentals {
+            stuck: stuck.then(|| case.clone()),
+            undefined: (!stuck).then(|| case.clone()),
+        };
+        incidentals.lines().remove(0)
+    };
+    // No holes: no empty list; one step; every thread's head.
+    assert!(
+        lines(&case, true).starts_with(
+            "incidental (information, not a failure): case 0 got stuck before a natural end after \
+             1 step at `join 0 ;` | `10 / 0`;"
+        ),
+        "{}",
+        lines(&case, true)
+    );
+    // An undefined step is the step after the leaf's depth; one path of several says so.
+    case.leaves = 2;
+    case.k_heads = vec!["a ( 0 )".into()];
+    assert!(
+        lines(&case, false).starts_with(
+            "incidental (information, not a failure): case 0 on one of its 2 paths took an \
+             undefined step at step 2 at `a ( 0 )`;"
+        ),
+        "{}",
+        lines(&case, false)
+    );
+    // At most four heads, then a count.
+    case.k_heads = (0..6).map(|n| format!("t{n}")).collect();
+    assert!(
+        lines(&case, true).contains("at `t0` | `t1` | `t2` | `t3` and 2 more;"),
+        "{}",
+        lines(&case, true)
+    );
 }

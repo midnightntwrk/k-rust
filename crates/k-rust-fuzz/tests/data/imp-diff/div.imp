@@ -1,0 +1,8 @@
+// DOGFOOD campaign 1's division on the tutorial IMP: d is b minus 3, so `a / d` divides by
+// zero when the 7 and the 3 are equal.
+
+int a, b, d, q;
+a = 100;
+b = 7;
+d = b + - 3;
+q = a / d;

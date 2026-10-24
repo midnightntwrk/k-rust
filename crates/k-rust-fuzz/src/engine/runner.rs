@@ -11,7 +11,9 @@ use k_rust::backend::CancellationToken;
 
 use crate::{
     exec::{Abort, OutcomeClass, UnjudgedReason},
-    report::{HoleValue, KillKind, LoadRecord, Reaching, RejectionReason, WitnessSide},
+    report::{
+        HoleValue, IncidentalCase, KillKind, LoadRecord, Reaching, RejectionReason, WitnessSide,
+    },
     score::{Guards, records::Compared},
     values::Value,
 };
@@ -58,6 +60,12 @@ pub(crate) struct CaseRun {
     pub(crate) warnings: Vec<String>,
     /// For a (candidate) hit, what a witness reports of it.
     pub(crate) hit: Option<HitDetail>,
+    /// When the case's run of the semantics under test (the case's run; a differential case's
+    /// baseline) is `stuck` or `undefined` and the case is inside the determinism contract, that
+    /// class and what the report's incidental finding holds of it
+    /// ([`crate::report::Incidentals`]), with `case` 0: the loop numbers it. `None` otherwise,
+    /// and for a class the loop has already kept ([`CaseRunner::incidental_kept`]).
+    pub(crate) incidental: Option<(OutcomeClass, Box<IncidentalCase>)>,
     /// What stopped paths of the result the class rests on, which the no-witness statement
     /// reads for `reached-unfinished` and `baseline-incomplete` cases.
     pub(crate) cut: Cut,
@@ -99,6 +107,7 @@ impl CaseRun {
             defects: Vec::new(),
             warnings: Vec::new(),
             hit: None,
+            incidental: None,
             cut: Cut::default(),
         }
     }
@@ -175,4 +184,8 @@ pub(crate) trait CaseRunner {
     /// Whether `value` satisfies hole `hole`'s sort and constraints; shrink moves that leave
     /// them are never run.
     fn admissible(&self, hole: usize, value: &Value) -> bool;
+
+    /// The loop kept an incidental finding of `class` ([`CaseRun::incidental`]): later cases
+    /// of that class need not describe one, which spares building a finding no report holds.
+    fn incidental_kept(&mut self, _class: OutcomeClass) {}
 }

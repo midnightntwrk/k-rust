@@ -2,6 +2,7 @@
 //! confirmation, shrinking and the report (ARCHITECTURE 1, 7, 8, 9.2, 9.3). Owner: FZ-06.
 
 mod campaign_loop;
+mod incidental;
 mod live;
 pub(crate) mod proposer;
 mod runner;

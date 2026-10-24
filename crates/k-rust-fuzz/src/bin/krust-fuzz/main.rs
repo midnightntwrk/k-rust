@@ -583,6 +583,10 @@ fn summary(report: &FuzzReport) -> String {
     }
     write_unjudged(&mut text, report);
     write_coverage(&mut text, report);
+    // The first `stuck` and `undefined` cases, one line each, worded as information.
+    for line in report.incidental.lines() {
+        let _ = writeln!(text, "{line}");
+    }
     for warning in &report.warnings {
         let _ = writeln!(text, "warning: {warning}");
     }

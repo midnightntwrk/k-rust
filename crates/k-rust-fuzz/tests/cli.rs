@@ -1517,6 +1517,183 @@ fn a_file_that_names_two_files_is_refused_at_every_line() {
     );
 }
 
+/// FZ-INCIDENTAL: a SIMPLE division by zero is stuck under the every-`<k>` default (SIMPLE's
+/// `<k>` lies under the multiplicity cell `<thread>`), and the first such case is reported as
+/// information: one summary line, and `incidental.stuck` in the report with the hole values, the
+/// `<k>` item and a krun line.
+#[test]
+fn a_simple_division_by_zero_is_reported_as_an_incidental_stuck_case() {
+    let campaign = "definition = \"simple-kompiled\"\nprogram = \"div.simple\"\nsort = \"Stmt\"\n\
+                    seed = 1\ncases = 3\n[target]\nrule = \"simple.md:910\"\nmode = \"covered\"\n\
+                    [options]\nmax-work = 50000\n\
+                    [proposers]\nexplicit = [{ D = 0 }]\n\
+                    [[hole]]\nname = \"D\"\nsort = \"Int\"\nfind = \"var d = 4;\"\nliteral = \"4\"\n\
+                    range = { min = 0, max = 8 }\n";
+    let directory = workspace(
+        "incidental-simple",
+        &[],
+        &[
+            ("div.simple", include_str!("data/simple/div.simple")),
+            ("div.toml", campaign),
+        ],
+    );
+    write_compiled_source(
+        "simple/simple.md",
+        include_str!("data/simple/simple.md"),
+        "SIMPLE-UNTYPED",
+        &directory.join("simple-kompiled"),
+    );
+    let output = krust_fuzz(&directory, &["--campaign", "div.toml"]);
+    let stdout = text(&output.stdout);
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "{stdout}{}",
+        text(&output.stderr)
+    );
+    let lines: Vec<&str> = stdout
+        .lines()
+        .filter(|line| line.starts_with("incidental"))
+        .collect();
+    assert_eq!(lines.len(), 1, "{stdout}");
+    assert!(
+        lines[0].starts_with(
+            "incidental (information, not a failure): case 1 (D = 0) got stuck before a natural \
+             end"
+        ) && lines[0].contains("at `10 / 0`"),
+        "{stdout}"
+    );
+    let output = krust_fuzz(&directory, &["--campaign", "div.toml", "--json"]);
+    let report = json_value(&output);
+    assert_eq!(report["normal-end"]["baseline"], "every-k", "{report}");
+    assert_eq!(report["totals"]["classes"]["stuck"], 1, "{report}");
+    let stuck = &report["incidental"]["stuck"];
+    assert_eq!(stuck["case"], 1, "{report}");
+    assert_eq!(stuck["holes"][0]["value"]["int"], "0");
+    assert_eq!(stuck["k-heads"], serde_json::json!(["10 / 0"]));
+    let krun = stuck["krun-command"].as_str().expect("a krun line");
+    assert!(krun.contains("var d = 0;"), "{krun}");
+    assert_eq!(report["incidental"].get("undefined"), None);
+}
+
+/// A workspace for `test` with SIMPLE compiled to `simple-kompiled` and `files`.
+fn simple_workspace(test: &str, files: &[(&str, &str)]) -> PathBuf {
+    let directory = workspace(test, &[], files);
+    write_compiled_source(
+        "simple/simple.md",
+        include_str!("data/simple/simple.md"),
+        "SIMPLE-UNTYPED",
+        &directory.join("simple-kompiled"),
+    );
+    directory
+}
+
+/// A SIMPLE campaign on `program` that targets a rule it never reaches, with `holes` (TOML).
+fn simple_campaign(program: &str, holes: &str) -> String {
+    format!(
+        "definition = \"simple-kompiled\"\nprogram = \"{program}\"\nsort = \"Stmt\"\nseed = 1\n\
+         cases = 3\n[target]\nrule = \"simple.md:910\"\nmode = \"covered\"\n[options]\n\
+         max-work = 50000\n{holes}"
+    )
+}
+
+/// FZ-INCIDENTAL review S4: under every-`<k>` a stuck configuration is stuck in every thread, so
+/// the finding names the head of each non-empty `<k>`, in order: main waiting at `join` and the
+/// spawned thread stopped at `10 / 0`.
+#[test]
+fn a_stuck_threaded_finding_names_every_threads_head() {
+    let holes = "[proposers]\nexplicit = [{ D = 0 }]\n[[hole]]\nname = \"D\"\nsort = \"Int\"\n\
+                 find = \"var d = 4;\"\nliteral = \"4\"\nrange = { min = 0, max = 8 }\n";
+    let campaign = simple_campaign("join.simple", holes);
+    let directory = simple_workspace(
+        "incidental-join",
+        &[
+            ("join.simple", include_str!("data/simple/join.simple")),
+            ("join.toml", &campaign),
+        ],
+    );
+    let output = krust_fuzz(&directory, &["--campaign", "join.toml", "--json"]);
+    let report = json_value(&output);
+    let stuck = &report["incidental"]["stuck"];
+    assert_eq!(stuck["case"], 1, "{report}");
+    assert_eq!(
+        stuck["k-heads"],
+        serde_json::json!(["join 0 ;", "10 / 0"]),
+        "{stuck}"
+    );
+}
+
+/// FZ-INCIDENTAL review nit N2: a campaign without holes names no empty hole list.
+#[test]
+fn an_incidental_line_without_holes_lists_none() {
+    let program = "function main() {\n  var d = 0;\n  print(7 / d, \"\\n\");\n}\n";
+    let campaign = simple_campaign("zero.simple", "");
+    let directory = simple_workspace(
+        "incidental-no-holes",
+        &[("zero.simple", program), ("zero.toml", &campaign)],
+    );
+    let output = krust_fuzz(&directory, &["--campaign", "zero.toml"]);
+    let stdout = text(&output.stdout);
+    let line = stdout
+        .lines()
+        .find(|line| line.starts_with("incidental"))
+        .unwrap_or_else(|| panic!("no incidental line in {stdout}"));
+    assert!(
+        line.starts_with("incidental (information, not a failure): case 0 got stuck"),
+        "{line}"
+    );
+}
+
+/// FZ-INCIDENTAL review S2: `go(0)` branches to an undefined step (`a(0)`, `10 /Int 0`) and an
+/// end (`b(0)`). krun reports an undefined step only when every path takes one, so the
+/// all-paths finding says it is one path of several, and its krun line says krun will not show
+/// it; on one path krun shows it, and the line carries no such note.
+#[test]
+fn an_undefined_finding_on_one_path_of_several_says_so() {
+    let campaign = "definition = \"nd-kompiled\"\nprogram = \"nd.pgm\"\nseed = 1\ncases = 3\n\
+                    [target]\npattern = '<k> .K </k> <out> X </out> requires X >Int 1000'\n\
+                    [options]\nmax-work = 10000\n[proposers]\nexplicit = [{ N = 0 }]\n\
+                    [[hole]]\nname = \"N\"\nsort = \"Int\"\nfind = \"go(3)\"\nliteral = \"3\"\n\
+                    range = { min = 0, max = 50 }\n";
+    let directory = workspace(
+        "incidental-nd",
+        &[],
+        &[
+            ("nd.pgm", include_str!("data/nd/nd.pgm")),
+            ("nd.toml", campaign),
+        ],
+    );
+    write_compiled_source(
+        "nd/nd.k",
+        include_str!("data/nd/nd.k"),
+        "ND",
+        &directory.join("nd-kompiled"),
+    );
+    let note = "krun reports an undefined step only when every path takes one";
+    let output = krust_fuzz(
+        &directory,
+        &["--campaign", "nd.toml", "--json", "--all-paths"],
+    );
+    let report = json_value(&output);
+    let undefined = &report["incidental"]["undefined"];
+    assert_eq!(undefined["case"], 1, "{report}");
+    assert_eq!(undefined["leaves"], 2, "{undefined}");
+    let krun = undefined["krun-command"].as_str().expect("a krun line");
+    assert!(
+        krun.contains("--strategy all") && krun.contains(note),
+        "{krun}"
+    );
+    let output = krust_fuzz(
+        &directory,
+        &["--campaign", "nd.toml", "--json", "--one-path"],
+    );
+    let report = json_value(&output);
+    let undefined = &report["incidental"]["undefined"];
+    assert_eq!(undefined["leaves"], 1, "{report}");
+    let krun = undefined["krun-command"].as_str().expect("a krun line");
+    assert!(!krun.contains(note), "{krun}");
+}
+
 /// FZ-RULEREF review S3: SIMPLE untyped (the pl-tutorial definition, without its `stream`
 /// attributes), whose rules carry no label: TRIAL2 item 15's `popx`, which spans lines 915-916,
 /// and the `try` rule, which spans 908-913, are reached by any of their lines.

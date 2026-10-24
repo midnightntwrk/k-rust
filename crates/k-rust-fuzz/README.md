@@ -54,6 +54,19 @@ A case is counted once, under the first of its reasons in the order of `exec::Un
 A case whose compared or reaching end is not data because a definition's full critical-pair check reports findings (so no end of that definition is data, below) is counted as `definition-not-confluent`, not under the side's not-data reason; the findings are in the report's warnings.
 The no-witness statement, and the summary of a report with a witness, list the reasons, largest first, with the largest one's remedy (`UnjudgedReason::remedy`); a remedy only suggests actions that keep verdicts sound (a bound, a pattern, another program or hole range), never a change to the definition's claims, and names options by campaign key and command-line flag; a `not-ceil-free` case also adds a warning naming the partial function whose application a leaf holds.
 
+### Incidental findings
+
+A rule missing from the semantics, or a partiality its author did not intend, is invisible to every target: no mutant of an absent rule exists, a baseline and its mutant get stuck alike, and coverage lists the rules that exist.
+So the report keeps the first case of each of the classes `stuck` and `undefined` as information, `incidental.stuck` and `incidental.undefined` (`report::Incidentals`), whatever the target; the key, and each class's entry, is absent when no case had the class.
+The classes are the classes of one run (above), under the normal end the report's `normal-end` names: `stuck` is a clean, decided `stuck` leaf that is not a natural end (under `every-k`, some `<k>` cell still holds a computation), `undefined` a clean undefined step (a rule applied whose result is undefined there; its leaf is the configuration before the step, and it is no end), each with no leaf of higher precedence.
+The run is the semantics under test's: in a rule, pattern or observer campaign the case's own, so the finding's class is the case's class; in a differential campaign the baseline's run of the case (all paths), classed alone, whatever the pair's class.
+A stop or undefined step only the mutant has is never a finding: without `run-to-completion` it is a kill (an added or removed end, below); under `run-to-completion` an abnormal stop is no kill, and the pair's class (the mutant's) reports that the sides disagree.
+A case that ends the campaign with a witness gives no finding; its witness shows its runs.
+Each finding holds the case's number (counted from 0), its hole values, how many leaves the run has (`leaves`) and which one is the finding (`leaf`), its depth (`steps`; an undefined step is the step after it), the first item of each `<k>` cell that holds one, in order, as K text (`k-heads`: under `every-k` a stuck configuration is stuck in every thread, so each is where a thread stopped, a thread waiting for another included; for an undefined step, the items before the step), the leaf's configuration as KORE, and the `krun` line that re-runs that run (on all paths for a differential baseline).
+`krun` reports an undefined step only when every path of its run takes one; when another path of the finding's run does not, the krun line says so in a trailing comment with the finding's leaf and step, and the summary line says the finding is on one of several paths.
+Only cases inside the determinism contract are kept, so a finding reproduces; keeping one changes no class, case or budget, and nothing is re-run or shrunk.
+The summary prints one line per finding, worded as information: a K semantics often leaves a program stuck on purpose (an ill-typed program, a division by zero the language leaves without meaning).
+
 ## Hole declarations
 
 A hole replaces a span of the unmodified program, addressed by `program`, an optional `line`, `find` (a text that occurs exactly once in the addressed line or program) and `literal` (the hole's literal, which occurs exactly once in `find`).

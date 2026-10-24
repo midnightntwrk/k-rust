@@ -14,9 +14,9 @@ use super::{
 use crate::{
     exec::{Abort, NormalEndKind, OutcomeClass, UnjudgedReason},
     report::{
-        CampaignOutcome, EngineDefect, FuzzReport, HitLabel, KillKind, LoadRecord, NoWitness,
-        NormalEnds, REPORT_SCHEMA, REPORT_VERSION, RejectionReason, ReportIdentity, SortOverride,
-        Totals, Witness, WitnessCase, digest_hex,
+        CampaignOutcome, EngineDefect, FuzzReport, HitLabel, Incidentals, KillKind, LoadRecord,
+        NoWitness, NormalEnds, REPORT_SCHEMA, REPORT_VERSION, RejectionReason, ReportIdentity,
+        SortOverride, Totals, Witness, WitnessCase, digest_hex,
     },
     score::{Scorer, Signals},
     spec::{Budget, CaseOptions, PathMode},
@@ -153,6 +153,7 @@ pub(crate) fn run_loop(
                 }
             }
         }
+        state.keep_incidental(case, &mut run, runner);
         state.record(&run, class);
         if is_cancelled(cancel) {
             break Ending::Cancelled;
@@ -512,6 +513,8 @@ struct State {
     warnings: Vec<String>,
     defects: Vec<EngineDefect>,
     abort: Option<String>,
+    /// The first `stuck` and the first `undefined` case (FZ-INCIDENTAL).
+    incidental: Incidentals,
 }
 
 impl State {
@@ -527,6 +530,7 @@ impl State {
             warnings: Vec::new(),
             defects: Vec::new(),
             abort: None,
+            incidental: Incidentals::default(),
         }
     }
 
@@ -607,6 +611,30 @@ impl State {
              is not a witness",
             render(values)
         ));
+    }
+
+    /// Keep case `case`'s incidental finding ([`CaseRun::incidental`]) when it is the first of
+    /// its class (`stuck` or `undefined`) inside the determinism contract, and tell `runner`,
+    /// which then describes no later case of that class. Nothing else changes: the class, the
+    /// counts, the case sequence and the budget are what they would be without it.
+    fn keep_incidental(&mut self, case: u64, run: &mut CaseRun, runner: &mut dyn CaseRunner) {
+        if run.outside_determinism {
+            return;
+        }
+        let Some((class, mut found)) = run.incidental.take() else {
+            return;
+        };
+        let slot = match class {
+            OutcomeClass::Stuck => &mut self.incidental.stuck,
+            OutcomeClass::Undefined => &mut self.incidental.undefined,
+            _ => return,
+        };
+        if slot.is_some() {
+            return;
+        }
+        found.case = case;
+        *slot = Some(*found);
+        runner.incidental_kept(class);
     }
 
     /// Count a case under `class`.
@@ -692,6 +720,7 @@ impl State {
             totals,
             load_records: self.load_records.into_iter().collect(),
             normal_end: settings.normal_end,
+            incidental: self.incidental,
             sort_overrides: settings.sort_overrides.clone(),
             warnings: self.warnings,
             engine_defects: self.defects,
