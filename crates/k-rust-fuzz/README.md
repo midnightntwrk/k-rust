@@ -113,6 +113,16 @@ User token sorts such as `Id` are refused, because an identifier names a declara
 `allow_refused_sort` (`allow-refused-sort = true` in a campaign file) overrides a refusal, and the report records the override; the refusal itself says why the sort is refused and, where an override applies, names it.
 The values of an admitted token sort are tokens, written `{ token = { sort = "Id", text = "n" } }` in a campaign file (`{"token": {"sort": "Id", "text": "n"}}` in JSON), in `choices` too; a plain string there is refused with that form.
 
+## Pattern targets at any state
+
+A pattern target is matched at `final` (a clean end of the run, the default) or at `any-state` (the campaign file's `at = "any-state"`, `--at any-state`, `PatternTarget::at` in the library; ARCHITECTURE 4.1).
+At `any-state` each case runs once through observed execution, and the pattern is matched against the normalized configurations of every path: the initial configuration (after its initializers are evaluated), the configuration each step reaches, and a leaf's state unless a bound, a timeout or a cancellation stopped the leaf there (that state is not normalized).
+A configuration reaches the target when it has no constraint or variable, is ceil-free and matches with empty constraints, as an end does at `final`; nothing below the first reaching configuration of a path is matched.
+A hit also needs that path's leaf to be clean (the leaf's diagnostics hold the facts of its whole path, and the run's facts are on every leaf), a natural end under `run-to-completion`, and a data end with `data-end`. So a path that reaches the pattern and is then cut by `max-work` or `max-depth` is `unsupported` (`reached-cut-path`), or `reached-unfinished` under `run-to-completion`, never a hit.
+A configuration that cannot be decided (it matches but is not ceil-free, its match is undecided, or it holds a constraint) makes the case `unsupported` unless another leaf is a hit.
+The witness's `reaching.step` is the step of the first reaching configuration on the hit leaf's path, counted in rewrite steps from the initial configuration (0 for the initial configuration itself); `steps` is the leaf's own depth, since the run goes on to its end. `totals.pattern-body-matches` is counted at `final` only.
+An any-state case costs more than a `final` one: observed execution keeps two configurations per step and an event for every equation it applies, and each configuration before the first reach is internalized and matched once (twice when the pattern evaluates a function or has a `requires`, which is matched in both evaluation modes). Observed execution dominates: on IMP's `loop.imp` (306 steps) a case takes about 4 ms at `final`, 176 ms through observed execution with every event, and 237 ms at `any-state` (best of 7 on a loaded machine; 12 times `final` on COIN's `count(200)`); the observer target pays the same observed execution.
+
 ## Differential target
 
 A differential campaign (a mutant beside the definition) looks for an input on which the two definitions' sets of ends differ (ARCHITECTURE 4.3).
@@ -230,7 +240,7 @@ The start sort defaults to the sort of `$PGM`.
 
 The campaign file holds the `[[hole]]` declarations of [Hole declarations](#hole-declarations) and, optionally, everything else; paths in the file are relative to its directory.
 Every flag overrides the file: each switch has a negation (`--one-path`, `--no-run-to-completion`, `--no-negated-property`, `--data-end`, `--shrink`), and a target named by flags replaces the file's target kind with its `mode` and `at`.
-`--rule-mode` and `mode` are refused unless the target is a rule, `at` unless it is a pattern, and `--mutant` selects the differential target only when no other target is named (a mutant with a rule or pattern target is refused).
+`--rule-mode` and `mode` are refused unless the target is a rule, `--at` and `at` unless it is a pattern, and `--mutant` selects the differential target only when no other target is named (a mutant with a rule or pattern target is refused).
 A pattern the campaign refuses (it does not parse, or its `requires` reads a variable its configuration does not bind) is named by where it came from (`--pattern`, `--normal-end`, or the key and table of the campaign file), with positions as lines and columns of the pattern's own text; the library's `TargetProblem::Pattern` and `CampaignError::NormalEndPattern` give the same positions.
 
 ```toml
@@ -240,7 +250,7 @@ seed = "0x5eed"               # --seed; `cases` (--cases) or `work` (--work) is 
 
 [target]                      # exactly one of rule, pattern, differential (OD-2)
 rule = "IMP.overflow"         # --reach-rule: FILE:LINE, a unique id or a label; `mode` (--rule-mode) is fired, covered or condition-reached
-# pattern = '<k> .K </k> ...' # --pattern, in krun's --pattern syntax with `requires`; `at` is final
+# pattern = '<k> .K </k> ...' # --pattern, in krun's --pattern syntax with `requires`; `at` (--at) is final or any-state
 # run-to-completion = true    # --run-to-completion; negated-property (--negated-property)
 # data-end = false            # --no-data-end: accept a run-to-completion hit whose end is not data
 

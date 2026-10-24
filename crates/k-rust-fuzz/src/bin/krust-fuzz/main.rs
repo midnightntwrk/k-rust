@@ -26,7 +26,7 @@ use k_rust_fuzz::{
         BestScore, CampaignOutcome, DefinitionRole, FuzzReport, HitLabel, KillKind, WitnessCase,
     },
     spec::CompiledDefinition,
-    target::RuleMode,
+    target::{PatternAt, RuleMode},
 };
 
 use crate::{
@@ -103,9 +103,15 @@ struct Args {
     #[arg(long, value_enum, value_name = "MODE")]
     rule_mode: Option<RuleModeArg>,
 
-    /// Target: a clean final configuration matches this pattern (`krust krun --pattern` syntax).
+    /// Target: a clean final configuration matches this pattern (`krust krun --pattern` syntax),
+    /// or with `--at any-state` any configuration of a path.
     #[arg(long, value_name = "PATTERN", conflicts_with = "differential")]
     pattern: Option<String>,
+
+    /// Where the pattern is matched (only with a pattern target): `final` (the default) or
+    /// `any-state`.
+    #[arg(long, value_enum, value_name = "WHERE")]
+    at: Option<PatternAtArg>,
 
     /// Target: the mutant reaches an end the baseline cannot (needs --mutant).
     #[arg(long)]
@@ -224,7 +230,7 @@ struct Args {
         long,
         value_name = "FILE",
         conflicts_with_all = [
-            "campaign", "sort", "config_vars", "reach_rule", "rule_mode", "pattern",
+            "campaign", "sort", "config_vars", "reach_rule", "rule_mode", "pattern", "at",
             "differential", "run_to_completion", "no_run_to_completion", "negated_property",
             "no_negated_property", "data_end", "no_data_end", "assume_joined", "all_paths",
             "one_path",
@@ -249,6 +255,24 @@ enum RuleModeArg {
     Covered,
     /// The rule is in the run's coverage `matched`.
     ConditionReached,
+}
+
+/// `--at`: where a pattern target is matched.
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum PatternAtArg {
+    /// A clean end of the run.
+    Final,
+    /// Any configuration on a path, the initial one included, on the path of a clean end.
+    AnyState,
+}
+
+impl From<PatternAtArg> for PatternAt {
+    fn from(at: PatternAtArg) -> Self {
+        match at {
+            PatternAtArg::Final => PatternAt::Final,
+            PatternAtArg::AnyState => PatternAt::AnyState,
+        }
+    }
 }
 
 impl From<RuleModeArg> for RuleMode {
@@ -310,6 +334,23 @@ fn main() -> ExitCode {
     }
 }
 
+/// Refuse output paths that cannot be written, and a report and a witness that name one file.
+fn check_outputs(report: Option<&Path>, witness: Option<&Path>) -> Result<(), String> {
+    for path in [report, witness].into_iter().flatten() {
+        check_writable(path)?;
+    }
+    if let (Some(report), Some(witness)) = (report, witness)
+        && same_file(report, witness)
+    {
+        return Err(format!(
+            "--report `{}` and --witness `{}` name the same file; give them different paths",
+            report.display(),
+            witness.display()
+        ));
+    }
+    Ok(())
+}
+
 fn run(args: Args) -> Result<u8, String> {
     if let Some(witness) = &args.replay {
         return replay_command(witness, &args);
@@ -328,6 +369,7 @@ fn run(args: Args) -> Result<u8, String> {
         reach_rule: args.reach_rule,
         rule_mode: args.rule_mode.map(RuleMode::from),
         pattern: args.pattern,
+        at: args.at.map(PatternAt::from),
         differential: args.differential,
         run_to_completion: switch(args.run_to_completion, args.no_run_to_completion),
         negated_property: switch(args.negated_property, args.no_negated_property),
@@ -349,18 +391,7 @@ fn run(args: Args) -> Result<u8, String> {
     };
     // The output paths are checked before the campaign, so that a long campaign's result is not
     // lost to a path that cannot be written.
-    for path in [&args.report, &args.witness].into_iter().flatten() {
-        check_writable(path)?;
-    }
-    if let (Some(report), Some(witness)) = (&args.report, &args.witness)
-        && same_file(report, witness)
-    {
-        return Err(format!(
-            "--report `{}` and --witness `{}` name the same file; give them different paths",
-            report.display(),
-            witness.display()
-        ));
-    }
+    check_outputs(args.report.as_deref(), args.witness.as_deref())?;
     // The rule reference as written, for the range check below: the flag's, or else the file's
     // (a flag naming another target kind makes the target no rule, and the check is skipped).
     let rule_text = overrides.reach_rule.clone().or_else(|| {
