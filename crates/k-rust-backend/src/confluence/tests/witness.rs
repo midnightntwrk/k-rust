@@ -405,3 +405,163 @@ fn a_tainted_witness_head_keeps_pass_one() {
         Vec::<String>::new()
     );
 }
+
+/// Review S3 (design Q1): only a pair the load's scope classifies proposes. `n(X:E) => ib(inj X)`
+/// beside `n(X:E) => inj X`, with no `s` pair and no path from `n` to `hd`: the pair is listed
+/// over `E` by the full check, but neither scope proposes (`ib(inj X) => inj X` would join it),
+/// so the two scopes read the same model and admit the same claims.
+#[test]
+fn review_irrelevant_pair_proposes_nothing() {
+    let mut axioms = shape_equations()
+        .into_iter()
+        .filter(|equation| !equation.contains(r#"("sa")"#) && !equation.contains(r#"("sb")"#))
+        .collect::<Vec<_>>();
+    axioms.push(equation(
+        "n",
+        "SortE{}",
+        "SortB{}",
+        "VarW:SortE{}",
+        "ib{}(inj{SortE{}, SortB{}}(VarW:SortE{}))",
+        "nib",
+    ));
+    axioms.push(equation(
+        "n",
+        "SortE{}",
+        "SortB{}",
+        "VarW:SortE{}",
+        "inj{SortE{}, SortB{}}(VarW:SortE{})",
+        "ninj",
+    ));
+    let definition = load("symbol n{}(SortE{}) : SortB{} [function{}()]", &axioms);
+    for (scope, claims) in both_scopes(&definition) {
+        assert!(claims.witnesses().is_empty(), "{scope:?}");
+        assert_eq!(
+            claims.counts().witness_pass,
+            WitnessPass::NotProposed,
+            "{scope:?}"
+        );
+    }
+    let full = definition.value_claims_in_scope(CheckScope::All);
+    assert_eq!(pairs(&full), [("nib".to_owned(), "ninj".to_owned())]);
+    assert!(full.unjoined()[0].over_uninhabited_sort());
+    assert_eq!(
+        definition
+            .value_claims()
+            .claim_differences(&full, &definition),
+        Vec::<String>::new()
+    );
+}
+
+/// Review S1/S2: the `k`/`g` conflict at `f` beside the WASM shape's good witness at `ib`. The
+/// conflicting proposals are dropped, and only they: proposals of different roots never conflict.
+/// `W` is the `ib` witness alone, `sa`/`sb` joins, and the `k`/`g` pairs stay listed. Without the
+/// conflict rule both `f` witnesses would form an unjoined witness pair and keep pass 1.
+#[test]
+fn review_conflict_dropped_beside_a_good_witness() {
+    let mut axioms = shape_equations();
+    axioms.extend([
+        binary("k", "f{}(VarX:SortE{})", "kf"),
+        binary("k", "d{}(VarX:SortE{})", "kd"),
+        binary("g", "f{}(VarX:SortE{})", "gf"),
+        binary("g", "inj{SortE{}, SortB{}}(VarX:SortE{})", "ginj"),
+    ]);
+    let definition = load(
+        "symbol f{}(SortE{}) : SortB{} [function{}()]
+         symbol d{}(SortE{}) : SortB{} [constructor{}(), functional{}(), injective{}()]
+         symbol k{}(SortE{}, SortA{}) : SortB{} [function{}()]
+         symbol g{}(SortE{}, SortA{}) : SortB{} [function{}()]",
+        &axioms,
+    );
+    for (scope, claims) in both_scopes(&definition) {
+        assert_eq!(witnesses(&claims), [IB_WITNESS], "{scope:?}");
+        assert!(claims.witness_pass_adopted(), "{scope:?}");
+        assert_eq!(
+            pairs(&claims),
+            [
+                ("gf".to_owned(), "ginj".to_owned()),
+                ("kf".to_owned(), "kd".to_owned())
+            ],
+            "{scope:?}"
+        );
+    }
+}
+
+/// Review B1: the load's scope checks condition 4 on its own second pass. The switch
+/// `gate_taints_witnesses` makes that pass taint the witness head, as a witness pair only the
+/// load's scope left unjoined would; the full check adopts `W`, the load keeps its pass 1 (the
+/// pair listed over `E`, no witness), and the claim comparison (V9) reports the divergence
+/// instead of hiding it.
+#[test]
+fn the_load_keeps_pass_one_when_its_own_second_pass_taints_a_witness_head() {
+    let switches = Switches {
+        gate_taints_witnesses: true,
+        ..Switches::default()
+    };
+    switches::with(switches, || {
+        let definition = load("", &shape_equations());
+        let gate = definition.value_claims();
+        assert!(gate.witnesses().is_empty());
+        assert_eq!(gate.counts().witness_pass, WitnessPass::Kept);
+        assert_eq!(
+            reasons(gate),
+            [UnjoinedReason::UninhabitedSort {
+                sort: "SortE".into(),
+                reason: Box::new(UnjoinedReason::DifferentResults),
+            }]
+        );
+        assert!(
+            !gate
+                .tainted_symbols()
+                .iter()
+                .any(|symbol| symbol.as_ref() == "ib"),
+            "{:?}",
+            gate.tainted_symbols()
+        );
+        let full = definition.value_claims_in_scope(CheckScope::All);
+        assert_eq!(witnesses(&full), [IB_WITNESS]);
+        assert!(
+            gate.claim_differences(&full, &definition)
+                .iter()
+                .any(|difference| difference.starts_with("witness equations")),
+            "{:?}",
+            gate.claim_differences(&full, &definition)
+        );
+    });
+}
+
+/// The genuine search (`data_term`) with `W` nonempty: beside the WASM shape, whose witness the
+/// full check adopts, `t(I) => a(0)` beside `t(I) => a(1)` keeps a ground instance with two normal
+/// forms. A witness never applies to a term free of the added constants, so the evaluation the
+/// search reads is unchanged.
+#[test]
+fn a_genuine_pair_stays_genuine_with_a_witness() {
+    let mut axioms = shape_equations();
+    let zero = r#"a{}(\dv{SortInt{}}("0"))"#;
+    let one = r#"a{}(\dv{SortInt{}}("1"))"#;
+    axioms.push(equation(
+        "t",
+        "SortInt{}",
+        "SortA{}",
+        "VarI:SortInt{}",
+        zero,
+        "tzero",
+    ));
+    axioms.push(equation(
+        "t",
+        "SortInt{}",
+        "SortA{}",
+        "VarI:SortInt{}",
+        one,
+        "tone",
+    ));
+    let definition = load("symbol t{}(SortInt{}) : SortA{} [function{}()]", &axioms);
+    let full = definition.value_claims_in_scope(CheckScope::All);
+    assert_eq!(witnesses(&full), [IB_WITNESS]);
+    let heads = definition.data_heads();
+    let [finding] = heads.findings() else {
+        panic!("one finding: {:?}", heads.findings());
+    };
+    let instance = finding.instance().expect("a genuine finding");
+    let values = [&instance.values.0, &instance.values.1];
+    assert_ne!(values[0], values[1], "{instance:?}");
+}

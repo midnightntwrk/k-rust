@@ -25,14 +25,17 @@
 //!   sort as a settled atom. Where the two reached sides differ only at such an atom `p` on one
 //!   side and `inj{S1,T}(u)` on the other ([`differences`]), with `S1 <= sort(p)` and
 //!   `vars(u) ⊆ vars(p)`, `p => inj{S1,sort(p)}(u)` is proposed. A proposal whose left-hand side
-//!   unifies with another's while their right-hand sides differ at the unifier is dropped, and
+//!   unifies with another's of the same root while their right-hand sides differ at the unifier
+//!   is dropped, and
 //!   the others are ordered by index, then by text ([`settle`]);
 //! - **validation** (pass 2): the whole check again on `R ∪ W`, which still reads a stuck partial
 //!   application as `\bottom` (true in `M+`, where `W` is offered too);
 //! - **adoption** ([`adopted`]), decided once, by the full check (`CheckScope::All`): pass 2 is
 //!   used when (1) every proposing pair and every pair with a witness joins, (2) nothing pass 1
 //!   joined or refuted is lost, (3) fewer pairs do not join, and (4) no witness head is tainted
-//!   in pass 2's closure (unfiltered). Otherwise pass 1 is kept, with `W` empty. One round.
+//!   in pass 2's closure (unfiltered). Otherwise pass 1 is kept, with `W` empty. The load's scope
+//!   checks condition 4 again on its own pass 2 ([`heads_untainted`]) and keeps its pass 1 when a
+//!   witness head is tainted there. One round.
 
 use std::{collections::BTreeSet, sync::Arc};
 
@@ -250,10 +253,10 @@ fn text(term: &Term) -> String {
 }
 
 /// Settle pass 1's `proposals` into the witnesses pass 2 reads: each renamed canonically, equal
-/// ones merged; a proposal whose left-hand side unifies with another's while their right-hand
-/// sides differ at a unifier (or whose unification is undecided) dropped with that other; one at
-/// an index with a group at [`WITNESS_PRIORITY`] dropped; the rest ordered by index, then by text,
-/// each made an executable equation of that priority.
+/// ones merged; a proposal whose left-hand side unifies with another's of the same root while
+/// their right-hand sides differ at a unifier (or whose unification is undecided) dropped with
+/// that other; one at an index with a group at [`WITNESS_PRIORITY`] dropped; the rest ordered by
+/// index, then by text, each made an executable equation of that priority.
 pub(super) fn settle(context: &mut Context<'_>, proposals: Vec<Proposal>) -> Witnesses {
     let proposed = proposals.len();
     // Canonical proposals, merged, each with its proposing pairs and origins.
@@ -278,6 +281,11 @@ pub(super) fn settle(context: &mut Context<'_>, proposals: Vec<Proposal>) -> Wit
     for (first, left) in rules.iter().enumerate() {
         for (offset, right) in rules[first + 1..].iter().enumerate() {
             let second = first + 1 + offset;
+            // Two left-hand sides with different roots never match one redex, so they cannot
+            // conflict; asking the unifier would read their two function roots as undecided.
+            if term_index(&left.lhs) != term_index(&right.lhs) {
+                continue;
+            }
             let right = rename_apart(right, &left.computed_attributes.variables, &[])
                 .map_or_else(|| right.as_ref().clone(), |(renamed, _)| renamed);
             let (RuleRhs::Term(left_rhs), RuleRhs::Term(right_rhs)) = (&left.rhs, &right.rhs)
@@ -401,12 +409,23 @@ pub(super) fn adopted(first: &Checked, second: &Checked, witnesses: &Witnesses) 
     // (3) Fewer pairs do not join.
     let fewer = second.unjoined.len() < first.unjoined.len();
     // (4) No witness head is tainted in the unfiltered closure.
-    let heads_untainted = witnesses
-        .rules
+    proposing_join
+        && witness_pairs_join
+        && nothing_lost
+        && fewer
+        && heads_untainted(second, &witnesses.rules)
+}
+
+/// Condition 4 on a pass with the witnesses `rules`: no witness head is in its unfiltered
+/// closure (`Checked::tainted_symbols`). Checked on the full check's second pass, and again on the
+/// load's own, whose closure the full check's contains only where the two scopes classify alike.
+/// A witness pair the pass leaves unjoined seeds the witness, whose head T1 then taints, so this
+/// also refuses such a pass.
+pub(super) fn heads_untainted(pass: &Checked, rules: &[Arc<RewriteRule>]) -> bool {
+    rules
         .iter()
         .filter_map(|rule| head(rule))
-        .all(|head| !second.tainted_symbols.contains(&head));
-    proposing_join && witness_pairs_join && nothing_lost && fewer && heads_untainted
+        .all(|head| !pass.tainted_symbols.contains(&head))
 }
 
 /// Test builds: the canonical text of a witness, `lhs => rhs`.

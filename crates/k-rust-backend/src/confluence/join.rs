@@ -62,7 +62,11 @@
 //! oracle's `D+` with the verdict's witnesses. Open mode ([`Mode::Open`]), which reads a stuck
 //! partial application at an element of a sort with no normal form as an atom, is no rule of the
 //! verdict: it only proposes witnesses to that second pass, so a wrong proposal costs a join,
-//! never a claim.
+//! never a claim. Its atoms enter the case's settled terms like any normal form, so the rest of
+//! that join reads them as normal forms too: a constructor pattern at an atom is refuted there
+//! (`known_normal`), and a lower group such as an `owise` equation may then apply to a term
+//! holding one. What it proposes is only a candidate: the well-formedness of each witness is
+//! checked again (`witness.rs`) and the second pass decides.
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
@@ -106,7 +110,8 @@ impl SettledRoot {
 pub(super) enum Mode {
     /// As `\bottom` (rule 3), and so the complement of a split on one: the verdict's reading.
     Verdict,
-    /// As a settled *open atom* when it holds a variable of a sort with no normal form
+    /// As a settled *open atom* (entered among the case's settled terms, so read as a normal form
+    /// by the rest of the join) when it holds a variable of a sort with no normal form
     /// (`Context::empty_sort`), and as `\bottom` otherwise: pass 1's proposal of witness
     /// equations (`witness.rs`) reads where the two sides differ around such atoms. No verdict
     /// is ever read from this mode.

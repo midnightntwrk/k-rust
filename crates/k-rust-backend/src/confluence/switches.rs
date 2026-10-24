@@ -73,6 +73,10 @@ pub(crate) struct Switches {
     /// Witnesses: keep pass 1 (no witness equation) whatever pass 2 finds, as the check did
     /// before FZ-EMPTYJOIN-WITNESS.
     pub(crate) adopt_pass_1: bool,
+    /// Witnesses: the load's second pass seeds its witness equations into its closure, as a
+    /// witness pair only that scope leaves unjoined would (the two scopes classifying a pair
+    /// differently, which compat allows).
+    pub(crate) gate_taints_witnesses: bool,
     /// Join: read every function application as never a normal form, and a stuck one as
     /// `\bottom` (revision 2's 3.13 (c) before R1.5).
     pub(crate) stuck_total_is_bottom: bool,
@@ -159,6 +163,7 @@ thread_local! {
             drop_supersort_inhabitation: false,
             separate_uninhabited: false,
             adopt_pass_1: false,
+            gate_taints_witnesses: false,
             stuck_total_is_bottom: false,
             collapse_every_total: false,
             misread_int_le: false,

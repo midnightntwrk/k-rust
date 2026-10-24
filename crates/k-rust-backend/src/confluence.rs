@@ -259,8 +259,10 @@ pub enum CheckScope {
     /// first pass proposes one, the check runs the full check's two passes, takes from them only
     /// the witnesses, the adoption and its condition that no witness head is tainted, and runs
     /// this scope's own second pass with those witnesses. Its counts, pairs and claims are its
-    /// own: its closure is contained in the full check's, so no witness head is tainted in it, and
-    /// each claim it admits rests on its own classification of `R ∪ W`. Where the two scopes
+    /// own, and each claim it admits rests on its own classification of `R ∪ W`. That no witness
+    /// head is tainted in its second pass is checked again there, not assumed (its closure is
+    /// contained in the full check's only where the scopes classify alike, which is tested, not
+    /// derived): a tainted witness head keeps this scope's first pass. Where the two scopes
     /// classify the relevant pairs alike, they read the same witnesses (tested, V9); where this
     /// scope proposes nothing that the full check would, it keeps its first pass, which only
     /// withdraws more.
@@ -2693,8 +2695,10 @@ fn check_detached(
     // Witnesses were proposed (`witness.rs`). `W`, the adoption and condition 4 are decided once,
     // by the full check (design B2): the load's scope does not classify every pair, so its own
     // conditions 2 and 3 could adopt a pass the full check refuses, and two scopes would read
-    // two models. The load's scope then runs its own pass 2 with that `W`: its closure is
-    // contained in the full check's, so no witness head is tainted in it either.
+    // two models. The load's scope then runs its own pass 2 with that `W`, and condition 4 is
+    // checked on it again, not assumed: its closure is contained in the full check's only where
+    // the two scopes classify alike, which is tested, not derived (compat, "Anywhere rules"). A
+    // witness head tainted in it keeps its pass 1.
     let adopted = (!switches::active().adopt_pass_1)
         .then(|| {
             let full_first = (scope == CheckScope::Gate).then(|| pass(CheckScope::All, &[], true));
@@ -2719,7 +2723,13 @@ fn check_detached(
     let mut second = if scope == CheckScope::All {
         full_second
     } else {
-        pass(scope, &witnesses, false).0
+        let (second, _) = pass(scope, &witnesses, false);
+        if !witness::heads_untainted(&second, &witnesses) {
+            let mut kept = first;
+            kept.counts.witness_pass = WitnessPass::Kept;
+            return verdict(kept);
+        }
+        second
     };
     second.counts.witness_pass = WitnessPass::Adopted;
     second.witnesses = witnesses;
@@ -3241,12 +3251,19 @@ fn check_pass(
                 .collect();
         }
     }
+    let divergent = scope == CheckScope::Gate && switches::active().gate_taints_witnesses;
     let tainted = closure.taint(
         unjoined
             .iter()
             .filter(|pair| !pair.over_uninhabited_sort())
             .flat_map(seeds)
-            .chain(&row_seeds),
+            .chain(&row_seeds)
+            .chain(
+                equations
+                    .iter()
+                    .filter(|equation| divergent && equation.witness)
+                    .map(|equation| &equation.rule),
+            ),
         pinned_heads,
     );
     debug_assert!(
