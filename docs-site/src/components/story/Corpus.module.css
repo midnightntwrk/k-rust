@@ -1,0 +1,57 @@
+.runner {
+  border: 1px solid var(--vocs-border-color-primary);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  font-family: var(--vocs-font-mono);
+  font-size: 0.875rem;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--vocs-border-color-primary);
+  background: var(--vocs-background-color-secondary);
+}
+
+.header > span {
+  color: var(--vocs-text-color-secondary);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+}
+
+.list {
+  box-sizing: content-box;
+  list-style: none;
+  margin: 0;
+  padding: 0.35rem 1rem;
+}
+
+.list li {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  height: 2.75rem;
+  margin: 0;
+}
+
+.name {
+  white-space: nowrap;
+}
+
+.dots {
+  flex: 1;
+  border-bottom: 1px dotted var(--vocs-border-color-primary);
+}
+
+.check,
+.pass {
+  color: var(--vocs-color-green);
+  font-weight: 600;
+}
+
+.pass {
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+}

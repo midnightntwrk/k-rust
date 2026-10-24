@@ -1,0 +1,314 @@
+.specificationTree {
+  display: grid;
+  justify-items: center;
+  padding-block: 1rem;
+}
+
+.root {
+  border: 1px solid var(--vocs-border-color-primary);
+  border-radius: 999px;
+  padding: 0.65rem 1.1rem;
+}
+
+.connectors {
+  height: 3rem;
+  width: 100%;
+}
+
+.connectors path {
+  fill: none;
+  stroke: var(--vocs-text-color-muted);
+  stroke-width: 1.5;
+}
+
+.specifications {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  width: 100%;
+}
+
+.specification {
+  align-items: center;
+  color: var(--vocs-text-color-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  text-align: center;
+  text-decoration: none;
+}
+
+.specification > span:last-child {
+  color: var(--vocs-text-color-muted);
+  font-size: 0.75rem;
+}
+
+.specificationSymbol {
+  align-items: center;
+  border: 1px solid var(--vocs-border-color-primary);
+  border-radius: 50%;
+  display: flex;
+  font-family: var(--vocs-font-mono);
+  height: 4.5rem;
+  justify-content: center;
+  transition: border-color 200ms, background 200ms;
+  width: 4.5rem;
+}
+
+.specification:hover .specificationSymbol,
+.specification[data-active='true'] .specificationSymbol {
+  background: var(--tint-focus);
+  border-color: var(--vocs-color-blue);
+}
+
+.leanScene {
+  align-content: center;
+  display: grid;
+  min-height: 22rem;
+}
+
+.embedding {
+  align-items: center;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: 1fr minmax(0, 2.5fr);
+  margin-inline: auto;
+  max-width: 34rem;
+  width: 100%;
+}
+
+.generator {
+  display: grid;
+  gap: 0.6rem;
+  text-align: center;
+}
+
+.generator span {
+  color: var(--vocs-color-blue);
+  font-family: var(--vocs-font-mono);
+}
+
+.leanCircle {
+  aspect-ratio: 1;
+  border: 1.5px solid var(--vocs-text-color-muted);
+  border-radius: 50%;
+  position: relative;
+}
+
+.leanLabel {
+  align-items: center;
+  display: grid;
+  gap: 0.3rem;
+  left: 0;
+  position: absolute;
+  text-align: center;
+  top: 12%;
+  width: 100%;
+}
+
+.leanLabel strong {
+  font-size: 1.4rem;
+}
+
+.leanLabel span,
+.matchingCircle span,
+.ownProofs {
+  color: var(--vocs-text-color-muted);
+  font-size: 0.82rem;
+}
+
+.matchingCircle {
+  align-items: center;
+  background: var(--tint-focus);
+  border: 1.5px solid var(--vocs-color-blue);
+  border-radius: 50%;
+  bottom: 8%;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  height: 55%;
+  justify-content: center;
+  left: 12%;
+  position: absolute;
+  text-align: center;
+  width: 55%;
+}
+
+.ownProofs {
+  left: 66%;
+  position: absolute;
+  text-align: center;
+  top: 43%;
+  width: 27%;
+}
+
+.property {
+  align-items: center;
+  display: grid;
+  gap: 1.5rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.guarantee {
+  display: grid;
+  gap: 0.9rem;
+  text-align: center;
+}
+
+.guarantee > span:last-child {
+  color: var(--vocs-text-color-muted);
+  font-size: 0.85rem;
+}
+
+.soundness,
+.equivalence {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.question {
+  font-size: 1.05rem;
+  margin-inline: auto;
+  max-width: 34rem;
+  text-align: center;
+}
+
+.typingPromise {
+  font-size: 0.9rem;
+}
+
+.typeCases {
+  border-collapse: collapse;
+  font-size: 0.88rem;
+  text-align: left;
+  width: 100%;
+}
+
+.typeCases th,
+.typeCases td {
+  border-bottom: 1px solid var(--vocs-border-color-primary);
+  padding: 0.65rem 0.4rem;
+}
+
+.typeCases thead th {
+  color: var(--vocs-text-color-muted);
+  font-weight: 500;
+}
+
+.typeCases code {
+  white-space: nowrap;
+}
+
+.typeCases tbody th {
+  font-weight: 400;
+}
+
+.missingRule {
+  color: var(--bad);
+}
+
+.proofGoal {
+  color: var(--vocs-text-color-muted);
+  font-size: 0.88rem;
+  text-align: center;
+  margin-inline: auto;
+  max-width: 33rem;
+}
+
+.execution {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.execution > strong {
+  font-size: 0.9rem;
+}
+
+.executionTrace {
+  align-items: center;
+  display: grid;
+  gap: 0.5rem;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  text-align: center;
+}
+
+.executionTrace > span {
+  color: var(--vocs-text-color-muted);
+  font-size: 0.88rem;
+}
+
+.executionTrace > code {
+  border-bottom: 1px solid var(--vocs-border-color-primary);
+  padding: 0.35rem;
+}
+
+.toolFlow {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  justify-content: center;
+  padding-block: 1rem;
+}
+
+.toolFlow strong {
+  font-family: var(--vocs-font-mono);
+  font-size: 0.95rem;
+}
+
+.toolFlow span {
+  color: var(--vocs-text-color-muted);
+}
+
+.benefits {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  padding-block: 0.25rem;
+}
+
+@media (max-width: 540px) {
+  .leanScene {
+    min-height: 17rem;
+  }
+
+  .embedding {
+    gap: 0.4rem;
+    grid-template-columns: 1fr minmax(0, 3fr);
+  }
+
+  .generator {
+    font-size: 0.75rem;
+  }
+
+  .leanLabel strong {
+    font-size: 1.1rem;
+  }
+
+  .leanLabel span,
+  .matchingCircle span,
+  .ownProofs {
+    font-size: 0.65rem;
+  }
+
+  .matchingCircle strong {
+    font-size: 0.75rem;
+  }
+
+  .specification strong {
+    font-size: 0.82rem;
+  }
+
+  .specification > span:last-child {
+    font-size: 0.65rem;
+  }
+
+  .property {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .specificationSymbol {
+    transition: none;
+  }
+}

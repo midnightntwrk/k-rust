@@ -8,6 +8,7 @@ import type { ReactNode } from 'react'
 import { output, paperRules, result, ruleNames, tests } from './data'
 import { Controls, usePlayer } from './player'
 import styles from './Story.module.css'
+import visual from './SpecificationTools.module.css'
 
 const program = tests.find((test) => test.id === 't3')!.program
 const answer = result('base', 't3')
@@ -81,7 +82,7 @@ const tools: { verb: string; what: string; title: string; body: ReactNode }[] = 
           <span aria-hidden="true">⟶</span>
           <span className={styles.answer}>{answer}</span>
         </div>
-        <p>The rewrite machine below shows how, one rule application at a time.</p>
+        <p>The rewrite machine you just saw performs these rule applications directly.</p>
         <Raw id="story-base-t3" />
       </>
     ),
@@ -106,14 +107,68 @@ const tools: { verb: string; what: string; title: string; body: ReactNode }[] = 
     ),
   },
   {
-    verb: 'prove',
-    what: 'Symbolic execution and proofs',
-    title: 'Run the specification on unknown inputs, and prove claims about all of them.',
+    verb: 'symbolic execution',
+    what: 'Explore unknown inputs',
+    title: 'Explore paths without choosing every input in advance.',
     body: (
-      <p>
-        Instead of {program}, run plus(M, N) with M and N unknown, and the machine explores every shape of input at once. On top of that, the prover
-        checks claims such as "plus(zero, n) is n for every n". Later lessons teach both.
-      </p>
+      <>
+        <div className={styles.flow}>
+          <code>plus(zero, N)</code>
+          <span aria-hidden="true">⟶</span>
+          <span className={styles.answer}>N</span>
+        </div>
+        <p>N stands for any natural number. Symbolic execution follows the specification’s rules with unknown inputs, tracking the conditions under which each path applies.</p>
+        <p>Use it to explore which inputs can reach an error or a state you care about.</p>
+      </>
+    ),
+  },
+  {
+    verb: 'prove',
+    what: 'Check claims about behavior',
+    title: 'Prove a claim across the inputs it describes.',
+    body: (
+      <p>The prover uses symbolic execution to check claims such as “plus(zero, n) is n for every natural number n”. A proof must account for every case covered by the claim.</p>
+    ),
+  },
+  {
+    verb: 'lean',
+    what: 'Generate a Lean library',
+    title: 'Take the same specification into Lean.',
+    body: (
+      <>
+        <div className={visual.toolFlow}><strong>KRS specification</strong><span>→</span><strong>k2lean</strong><span>→</span><strong>Lean library</strong></div>
+        <p>Generate Lean types, functions, execution rules, and supporting proofs. Add your own Lean proofs for program properties, type soundness, or bisimulation.</p>
+        <div className={visual.benefits}>
+          <a href="https://github.com/midnightntwrk/k-rust/tree/main/k2lean/demos/claims">Program properties ↗</a>
+          <a href="https://github.com/midnightntwrk/k-rust/tree/main/k2lean/demos/ImpTypes">Type soundness ↗</a>
+          <a href="https://github.com/midnightntwrk/k-rust/tree/main/k2lean/demos/ImpRel">Bisimulation ↗</a>
+        </div>
+      </>
+    ),
+  },
+  {
+    verb: 'fuzz',
+    what: 'Find inputs that reach a target',
+    title: 'Choose a program and a target. Let the fuzzer craft the inputs.',
+    body: (
+      <>
+        <div className={visual.toolFlow}><strong>Program + input holes</strong><span>→</span><strong>Targeted search</strong><span>→</span><strong>Replayable input</strong></div>
+        <p>Find inputs that trigger a crash, reach a rule, or put the program in a state you specify. The fuzzer steers input values using the specification, then confirms a candidate by running it again.</p>
+        <p>Keep the program you wrote; vary its inputs. The same mechanism can search for an input that makes two specifications disagree.</p>
+        <a href="https://github.com/midnightntwrk/k-rust/tree/main/crates/k-rust-fuzz">Explore k-rust-fuzz ↗</a>
+      </>
+    ),
+  },
+  {
+    verb: 'mutation testing',
+    what: 'Measure what your tests catch',
+    title: 'Would your tests notice a mistake in the specification?',
+    body: (
+      <>
+        <div className={visual.toolFlow}><strong>Edit a rule</strong><span>→</span><strong>Run the corpus</strong><span>→</span><strong>Caught or missed?</strong></div>
+        <p>Make a deliberate change to the specification and compare the test results. A changed result means the corpus caught the edit; an unchanged result can reveal a gap for the next test to close.</p>
+        <a href="#mutation-testing-done-right">See how mutation testing guides the hill-climb ↓</a>
+      </>
     ),
   },
   {

@@ -7,7 +7,8 @@ import { Climb } from '../components/story/Climb'
 import { Corpus } from '../components/story/Corpus'
 import { EveryTool } from '../components/story/EveryTool'
 import { MissedCases } from '../components/story/MissedCases'
-import { KRSProofs } from '../components/story/KRSProofs'
+import { LeanBridge } from '../components/story/LeanBridge'
+import { MatchingLogic } from '../components/story/MatchingLogic'
 import { MutateTheSpec } from '../components/story/MutateTheSpec'
 import { MutationReputation } from '../components/story/MutationReputation'
 import { PastFullCoverage } from '../components/story/PastFullCoverage'
@@ -17,17 +18,12 @@ import { SpecIsRust } from '../components/story/SpecIsRust'
 import { StandingOnK } from '../components/story/StandingOnK'
 import { TestSuiteCost } from '../components/story/TestSuiteCost'
 import { TestsThatCheckNothing } from '../components/story/TestsThatCheckNothing'
-import { WhyNotLean } from '../components/story/WhyNotLean'
 import { WhyTests } from '../components/story/WhyTests'
 import { WriteItDown } from '../components/story/WriteItDown'
 
 # Measure the tests your AI writes
 
-KRS lets you write a specification of your program in Rust, run it, and use it to grade and grow the test suite an AI writes for you.
-k-rust, a Rust implementation of the K Framework, runs it.
-
-Each scene below starts in a readable state; press Play to animate it, or step through it.
-After the opening problem scenes, every scene follows one small example, a `plus` function on natural numbers, and every result shown as output is one that `krs` printed for it.
+AI is getting better at formal verification, but KRS allows it to also hill-climb on test quality, all while maintaining readability.
 
 ## The problem
 
@@ -47,9 +43,18 @@ Tests can check real results and still miss the cases that would catch a bug.
 
 <MissedCases />
 
+### Why tests, now
+
+Test quality matters for many AI workloads.
+
+<WhyTests />
+
 ## A specification you can run
 
-### Write down what it means
+KRS lets you write a specification of your program in Rust, run it, and use it to grade and grow the test suite an AI writes for you.
+k-rust, a Rust implementation of the K Framework, runs it.
+
+### For example, let’s specify natural numbers and addition
 
 Before any code, write down what `plus` means.
 
@@ -62,41 +67,38 @@ KRS is real Rust, written in a particular style: the specification is a crate, C
 
 <SpecIsRust />
 
-### One specification, every tool
-
-From that one crate, `krs` gives you a parser, an interpreter, and a search over every possible result; later lessons add symbolic execution and proofs.
-
-<EveryTool />
-
 ### The rewrite machine
 
-How `run` computes: a rule's pattern finds a subterm it fits, binds its variables, and the subterm is replaced using those bindings.
+KRS uses matching logic to describe values and states as patterns, with rules that say how they change.
+To compute `plus`, a rule finds a subterm its pattern fits, binds the variables, and replaces the subterm using those bindings.
 
 <RewriteMachine />
 
+## Why matching logic?
+
+Matching logic scales from our two rules for addition to specifications of real languages and virtual machines, including Rust’s MIR, WebAssembly, and the EVM.
+
+<MatchingLogic />
+
+### KRS generates Lean
+
+KRS generates Lean code through `k2lean`.
+You can start with a compact matching-logic specification, and use Lean to prove more complex properties around the generated model.
+
+<LeanBridge />
+
+### One specification, every tool
+
+A small vocabulary of patterns and rules keeps the specification readable.
+That shared structure also gives every tool the same rules to work with.
+One definition becomes a parser, an interpreter, a search engine, a prover, a Lean library, and a fuzzer that crafts inputs to reach your target.
+
+<EveryTool />
+
 ## Why a test corpus
 
-### Why tests, now
-
-<WhyTests />
-
-### Why not Lean instead?
-
-<WhyNotLean />
-
-### What can KRS prove compared with Lean?
-
-<KRSProofs />
-
-<details>
-<summary>The theory is broader than the current tools</summary>
-
-Lean builds proofs using dependent types; matching logic reasons about patterns that describe sets of values or states.
-[Matching Logic Explained](https://fsl.cs.illinois.edu/publications/chen-lucanu-rosu-2020-trb.pdf) shows how matching logic can also describe dependent types and support induction.
-The [Chen–Roșu paper on completeness](https://arxiv.org/pdf/2608.13306v1) studies what can be derived in particular versions of matching logic; it does not establish parity between KRS and Lean’s tools.
-The comparison above concerns the proof workflows available today.
-
-</details>
+KRS supports autoresearch and hill-climbing on your specification, using Lean proofs and bisimulation to check that changes preserve its intended properties and behavior.
+It also gives AI a way to hill-climb on test corpus quality: measure which mistakes the tests catch, then add tests that close the gaps.
 
 ### A test corpus
 
@@ -114,6 +116,9 @@ That is coverage of the specification itself, not of one implementation's code.
 
 ### Past 100%
 
+100% rule coverage does not mean no bugs.
+Your tests can exercise every rule and still miss bugs in how they interact—for example, a READ that returns stale data only after a WRITE under specific conditions.
+
 <PastFullCoverage />
 
 ## Mutation testing, done right
@@ -126,7 +131,7 @@ That is coverage of the specification itself, not of one implementation's code.
 
 Mutating the specification instead of the code changes the experience.
 The specification is small, so there are few places to edit, and an AI proposes only edits that would be real misunderstandings of its meaning.
-The mutation tool is in development; these scenes apply the same edits by hand, and every result is one that `krs` recorded.
+Each edit is checked against the corpus, and surviving edits become targets for new tests.
 
 <MutateTheSpec />
 
@@ -139,7 +144,7 @@ Each surviving edit becomes a new test, and the tool remembers which test catche
 
 ## Standing on K
 
-Your KRS crate is a definition in the K Framework, a mature system for language semantics with large published definitions, such as the EVM, WebAssembly and Rust's MIR.
+Your KRS crate is a definition in the K Framework, so it builds on the same foundation as those language specifications.
 Each KRS item becomes a K sentence you can read, and k-rust is a reimplementation of K in Rust.
 
 <StandingOnK />
