@@ -487,6 +487,8 @@ paths = [
   "@krs-native",
   "@krs-harness",
   '^krs/tests/imp/',
+  # IMP's native and behavior layers also run `krs build` and `krs run` (tests/imp/verify.py).
+  '^krs/crates/krs-cli/',
   # The input ledgers and corpora of the IMP gates whose inputs IMP reuses (tests/imp/corpus.json).
   '^krs/tests/(imp-state|imp-control-flow|imp_static_semantics)/(pins\.json|corpus/|fixtures/|claims/)',
 ]
