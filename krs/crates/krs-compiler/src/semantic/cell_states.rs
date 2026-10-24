@@ -257,7 +257,9 @@ pub(super) fn lower_optional_clause(
     if !is_presence(before) {
         return Err(presence_error(
             &cell.key,
-            format!("the optional cell `{name}` is matched with `Some(..)` or `None`"),
+            format!(
+                "the optional cell `{name}` takes `Some(..)` when present and `None` when absent, not a bare value: write `Some(k::configuration::Cell(..))` for a leaf, `Some(..)` around a group, or `None`"
+            ),
         ));
     }
     let before_inner = present_content(before);

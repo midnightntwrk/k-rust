@@ -53,8 +53,7 @@ pub(super) fn framework_k_item_sort(
     if matches.next().is_some() {
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "framework sort",
-            detail: "internal error: the descriptor bundle has more than one framework KItem sort"
-                .into(),
+            detail: "the descriptor bundle has more than one framework KItem sort".into(),
             range: None,
         });
     }
@@ -1759,7 +1758,7 @@ fn lower_head_rule_cell_rewrite(
     let descriptor = builder.descriptor;
     if wrapper != krs_ir::CellWrapper::Cell {
         return Err(DescriptorLoweringError::cell_wrapper(
-            &cell.cell.field,
+            Some(&cell.cell.field),
             Some(wrapper),
             None,
         ));

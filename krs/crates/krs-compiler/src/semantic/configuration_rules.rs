@@ -152,7 +152,6 @@ impl StateRuleTerms<'_> {
         Ok(lowered)
     }
 
-    /// Lowers one cell's state term: an ordinary term, a K sequence, or a map.
     /// Lowers one entry's state; an error that names no narrower node is located at the entry,
     /// `fallback_key`.
     fn state_term(
@@ -167,6 +166,7 @@ impl StateRuleTerms<'_> {
             .map_err(|error| error.within(key_range(self.descriptor, fallback_key).as_ref()))
     }
 
+    /// Lowers one cell's state term: an ordinary term, a K sequence, or a map.
     fn entry_state_term(
         &mut self,
         state: &ProtocolRuleStateTerm<DescriptorTerm>,
@@ -185,19 +185,22 @@ impl StateRuleTerms<'_> {
             )),
             ProtocolRuleStateTerm::Term(term) => {
                 if matches!(declared_sort, SemanticSortRef::Cell(_)) {
-                    return Err(DescriptorLoweringError::CellWrapper {
-                        reason: "a nested cell group's entry is the group itself (a binder, `_`, `k::fragment![..]` or the group's record), with no wrapper".to_owned(),
-                        range: None,
-                    });
+                    return Err(DescriptorLoweringError::cell_wrapper(None, None, None));
                 }
                 self.term(term, Some(declared_sort), binding_sorts, subject)
             }
             ProtocolRuleStateTerm::Group(term) => {
                 if !matches!(declared_sort, SemanticSortRef::Cell(_)) {
-                    return Err(DescriptorLoweringError::CellWrapper {
-                        reason: "a leaf cell's entry is `k::configuration::Cell(..)` around its content, and the computation cell's `k::configuration::KCell(..)` around its items".to_owned(),
-                        range: None,
-                    });
+                    let wrapper = if *declared_sort == SemanticSortRef::k_sequence() {
+                        krs_ir::CellWrapper::KCell
+                    } else {
+                        krs_ir::CellWrapper::Cell
+                    };
+                    return Err(DescriptorLoweringError::cell_wrapper(
+                        None,
+                        Some(wrapper),
+                        None,
+                    ));
                 }
                 self.term(term, Some(declared_sort), binding_sorts, subject)
             }
@@ -535,12 +538,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         .transpose()?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let (existentials, ensures) = lower_existentials(&mut terms, rule, &result_sorts)?;
-    check_moved_remainders(
-        descriptor,
-        &unused_moved,
-        requires.as_ref(),
-        ensures.as_ref(),
-    )?;
+    check_moved_remainders(&unused_moved, requires.as_ref(), ensures.as_ref())?;
     Ok(SemanticRule::new_configuration(
         semantic_origin(
             descriptor,
@@ -824,7 +822,9 @@ fn lower_configuration_rule_clause(
                 descriptor,
                 krs_diagnostic::codes::analysis::OPTIONAL_PRESENCE,
                 &subject.field.key,
-                format!("the optional cell `{name}` is matched with `Some(..)` or `None`"),
+                format!(
+                    "the optional cell `{name}` takes `Some(..)` when present and `None` when absent, not a bare value: write `Some(k::configuration::Cell(..))` for a leaf, `Some(..)` around a group, or `None`"
+                ),
             ));
         }
         Some(_) => {
@@ -856,7 +856,7 @@ fn lower_configuration_rule_clause(
     let entries = || std::iter::once(subject).chain(result);
     if let Some(entry) = entries().find(|entry| entry.wrapper != Some(*wrapper)) {
         return Err(DescriptorLoweringError::cell_wrapper(
-            name,
+            Some(name),
             Some(*wrapper),
             entry_range(descriptor, entry),
         ));
@@ -928,7 +928,7 @@ fn lower_configuration_group_clause(
         .find(|entry| !group_entry(entry))
     {
         return Err(DescriptorLoweringError::cell_wrapper(
-            &subject.field.cell.field,
+            Some(&subject.field.cell.field),
             None,
             entry_range(descriptor, entry),
         ));
@@ -1637,7 +1637,6 @@ fn moved_remainders_unused_by(
 /// condition. A bound remainder the rule neither puts back nor uses would
 /// be dropped silently, so it keeps the frame-mismatch error.
 fn check_moved_remainders(
-    descriptor: &Descriptor,
     unused: &[SemanticId],
     requires: Option<&SemanticCondition>,
     ensures: Option<&SemanticCondition>,
@@ -1649,13 +1648,15 @@ fn check_moved_remainders(
             .flat_map(SemanticCondition::terms)
             .any(|term| super::evaluation::mentions(term, tail));
         if !used {
-            // The same mistake as a map remainder the result drops, and the same code.
-            return Err(DescriptorLoweringError::invalid_term(
-                descriptor.id(),
-                format!(
-                    "the computation remainder `{tail}` is neither put back with `..{tail}` nor used, so the rule would drop the rest of the computation: keep it with `..{tail}`, or use it in a condition"
+            // A subject rest the result drops: the rest-mismatch mistake, whose code is the
+            // bracket notation's.
+            return Err(DescriptorLoweringError::CellCollection {
+                code: krs_diagnostic::codes::syntax::INVALID_LIST_NOTATION,
+                reason: format!(
+                    "the subject names the rest of the computation `..{tail}`, and the result neither puts it back with `..{tail}` nor uses it, so the rule would drop it: put it back with `..{tail}`, or use it in a condition"
                 ),
-            ));
+                range: None,
+            });
         }
     }
     Ok(())

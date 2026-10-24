@@ -775,21 +775,23 @@ impl DescriptorLoweringError {
         }
     }
 
-    /// A wrapper error naming the cell `name`, which takes `wrapper` (`None` for a group).
+    /// A wrapper error about the cell `name` (this cell, when no name is at hand), which takes
+    /// `wrapper` (`None` for a group).
     pub(crate) fn cell_wrapper(
-        name: &str,
+        name: Option<&str>,
         wrapper: Option<krs_ir::CellWrapper>,
         range: Option<Box<SourceRange>>,
     ) -> Self {
+        let cell = name.map_or_else(|| "this cell".to_owned(), |name| format!("`{name}`"));
         let reason = match wrapper {
             Some(krs_ir::CellWrapper::KCell) => format!(
-                "`{name}` is the computation cell: its entry is `k::configuration::KCell(..)` around its items, or its items in brackets"
+                "{cell} is the computation cell: its entry is `k::configuration::KCell(..)` around its items, or its items in brackets"
             ),
             Some(krs_ir::CellWrapper::Cell) => format!(
-                "`{name}` is a leaf cell: its entry is `k::configuration::Cell(..)` around its content"
+                "{cell} is a leaf cell: its entry is `k::configuration::Cell(..)` around its content"
             ),
             None => format!(
-                "`{name}` is a nested cell group: its entry is the group itself (a binder, `_`, `k::fragment![..]` or the group's record), with no wrapper"
+                "{cell} is a nested cell group: its entry is the group itself (a binder, `_`, `k::fragment![..]` or the group's record), with no wrapper"
             ),
         };
         Self::CellWrapper { reason, range }
