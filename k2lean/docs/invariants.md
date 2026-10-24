@@ -71,7 +71,7 @@ The commands use these variables; set them in the shell you run the guide in.
 | `G` | `$R/target/release/k2lean`, the k2lean binary |
 | `GEN` | `$W/k2lean/generated`, your generated libraries |
 
-`elan`, `lean` and `lake` must be on `PATH`; each project's `lean-toolchain` selects Lean v4.30.0, which elan installs on first use.
+`elan`, `lean` and `lake` must be on `PATH`; each project's `lean-toolchain` selects Lean v4.34.0, which elan installs on first use.
 
 ```sh
 R=$(git rev-parse --show-toplevel)

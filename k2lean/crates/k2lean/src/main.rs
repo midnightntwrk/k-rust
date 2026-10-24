@@ -38,7 +38,7 @@ mod terms_arity;
 use std::path::PathBuf;
 
 /// The Lean toolchain of every generated project (and of `k2lean/lean/prelude` and `k2lean/lean/claims`).
-pub const LEAN_TOOLCHAIN: &str = "leanprover/lean4:v4.30.0\n";
+pub const LEAN_TOOLCHAIN: &str = "leanprover/lean4:v4.34.0\n";
 
 struct Args {
     cmd: String,

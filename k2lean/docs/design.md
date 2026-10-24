@@ -153,7 +153,7 @@ The generator refuses a cell that is not in the definition, whose content is not
 
 ## 7. Lean version
 
-Every generated project, the prelude and KClaims pin Lean v4.30.0 (`LEAN_TOOLCHAIN` in `crates/k2lean/src/main.rs`, and each `lean-toolchain`); the generated tactics and the prelude's proofs are checked on that version only.
+Every generated project, the prelude and KClaims pin Lean v4.34.0 (`LEAN_TOOLCHAIN` in `crates/k2lean/src/main.rs`, and each `lean-toolchain`); the generated tactics and the prelude's proofs are checked on that version only.
 The arity-indexed universe needs v4.30.0 or later (§2.1).
 The repository's own Lean proofs (`lean/`) are a separate project with a toolchain of their own.
 
