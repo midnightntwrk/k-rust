@@ -1646,15 +1646,63 @@ fn mutant_selection(
     })
 }
 
-/// Builds the mutant every test runs on, or its mutant-scope failure with the claims its patch
-/// leaves unbacked (re-pin R0c-fix-2, Sebastien 2026-10-17: a mutant drops the claims its edit
-/// leaves unbacked).
+/// Builds the mutant every test runs on ([`claim_free_mutant`]) and its runtime, or its
+/// mutant-scope failure with the claims its patch leaves unbacked. A preparation failure after
+/// the claim-free mutant is built is the mutant side's (`Infrastructure`).
+fn prepare_mutant(
+    campaign: &Campaign<'_>,
+    patch: &Patch,
+    compiled_baseline: &ValidatedDefinition,
+    admission: &MutantAdmission,
+) -> Result<(MutantSides, Withdrawal), Box<MutantRefusal>> {
+    let ClaimFreeMutant { side, claims } = claim_free_mutant(
+        campaign.validator,
+        compiled_baseline,
+        patch,
+        admission,
+        &mut |stage| match stage {
+            MutantStage::Consistency => stage_log::note(campaign, stage_log::Stage::Consistency),
+        },
+    )?;
+    let fail = |failure| MutantRefusal::new(failure, claims.clone());
+    let edit = CompiledEdit::between(compiled_baseline, &side);
+    let runtime =
+        Runtime::prepare(campaign, &side).map_err(|_| fail(MutantScopeFailure::Infrastructure))?;
+    Ok((MutantSides { runtime, edit }, claims))
+}
+
+/// A step of [`claim_free_mutant`] that it reports to its caller's stage hook before running it
+/// (the runner's unit tests record where each step runs, re-pin L1-3).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[non_exhaustive]
+pub enum MutantStage {
+    /// The consistency check of the claim-free mutant
+    /// ([`kink_native::consistency::admit_mutant`]).
+    Consistency,
+}
+
+/// The claim-free mutant of a patch: the compiled definition every test of the mutant runs on,
+/// and the claims the patch leaves unbacked, which its compile has withdrawn
+/// ([`claim_free_mutant`]).
+#[derive(Clone, Debug)]
+pub struct ClaimFreeMutant {
+    pub side: ValidatedDefinition,
+    pub claims: Withdrawal,
+}
+
+/// The claim-free mutant of `patch`, exactly as the runner builds it for every test of the
+/// mutant, or its mutant-scope failure with the claims its patch leaves unbacked (re-pin
+/// R0c-fix-2, Sebastien 2026-10-17: a mutant drops the claims its edit leaves unbacked).
+/// `validator` is the campaign's (bound to the baseline the patch was derived from),
+/// `compiled_baseline` its baseline compile, `admission` what every mutant of that baseline is
+/// admitted against ([`MutantAdmission::new`]), and `on_stage` is told each [`MutantStage`]
+/// before it runs.
 ///
 /// The mutant as written is validated, admitted and checked for an equivalent compilation first,
 /// with the baseline's claims, so a semantically null edit stays `EquivalentCompilation` and
 /// removing claims never makes a mutant equivalent. Then [`ClaimSupport::withdraw`] removes every
-/// claim the edit leaves unbacked, and the claim-free mutant is compiled and prepared: every
-/// test, ground or symbolic, runs on it. A mutant with an unbacked claim no removal takes away is
+/// claim the edit leaves unbacked, and the claim-free mutant is compiled: every test, ground or
+/// symbolic, runs on it. A mutant with an unbacked claim no removal takes away is
 /// `UnsupportedClaims`; one whose claim-free definition k-rust refuses to compile is
 /// `StrippedClaimCompileFailure`. Both are unknown, never killed.
 ///
@@ -1669,16 +1717,20 @@ fn mutant_selection(
 /// the patch touches whose head the source reading does not redefine leaves the claims the edit
 /// unbacks unknown, so the mutant is `UnsupportedClaims`, each such equation recorded as an
 /// unsupported claim with key [`UNREAD_EQUATION_CLAIM`].
-fn prepare_mutant(
-    campaign: &Campaign<'_>,
-    patch: &Patch,
+///
+/// # Errors
+///
+/// The mutant-scope failure that refuses the mutant, with the claims and pairs it names.
+pub fn claim_free_mutant(
+    validator: &NativeValidator,
     compiled_baseline: &ValidatedDefinition,
+    patch: &Patch,
     admission: &MutantAdmission,
-) -> Result<(MutantSides, Withdrawal), Box<MutantRefusal>> {
+    on_stage: &mut dyn FnMut(MutantStage),
+) -> Result<ClaimFreeMutant, Box<MutantRefusal>> {
     let support = &admission.support;
     let unclaimed = |failure| MutantRefusal::new(failure, Withdrawal::default());
-    let side = campaign
-        .validator
+    let side = validator
         .validate(patch)
         .map_err(|rejection| unclaimed(MutantScopeFailure::from(&rejection)))?;
     validate_representation(&side)
@@ -1689,7 +1741,7 @@ fn prepare_mutant(
         Err(_) => return Err(unclaimed(MutantScopeFailure::Infrastructure)),
     }
     // The patch applied during validation, so it applies here too.
-    let baseline = campaign.validator.baseline();
+    let baseline = validator.baseline();
     let (mut claims, effect) = support
         .withdraw(baseline, patch)
         .and_then(|claims| Ok((claims, support.effect(baseline, patch)?)))
@@ -1702,7 +1754,7 @@ fn prepare_mutant(
     }
     let side = match claims.patch() {
         None => side,
-        Some(withdrawing) => match campaign.validator.validate(withdrawing) {
+        Some(withdrawing) => match validator.validate(withdrawing) {
             Ok(side) => side,
             Err(_) => {
                 return Err(MutantRefusal::new(
@@ -1715,7 +1767,7 @@ fn prepare_mutant(
     validate_representation(&side).map_err(|_| {
         MutantRefusal::new(MutantScopeFailure::RepresentationRefused, claims.clone())
     })?;
-    stage_log::note(campaign, stage_log::Stage::Consistency);
+    on_stage(MutantStage::Consistency);
     let admitted = match &admission.equations {
         Ok(equations) => kink_native::consistency::admit_mutant(equations, &side, &effect),
         Err(why) => Err(MutantFailure::Inconsistent(
@@ -1762,38 +1814,43 @@ fn prepare_mutant(
             }));
         }
     }
-    let fail = |failure| MutantRefusal::new(failure, claims.clone());
-    // A preparation failure here is the mutant side's.
-    let edit = CompiledEdit::between(compiled_baseline, &side);
-    let runtime =
-        Runtime::prepare(campaign, &side).map_err(|_| fail(MutantScopeFailure::Infrastructure))?;
-    Ok((MutantSides { runtime, edit }, claims))
+    Ok(ClaimFreeMutant { side, claims })
 }
 
 /// What every mutant of a campaign is admitted against: the baseline's claim support and its
 /// compiled equations (re-pin R0c-fix-4).
-struct MutantAdmission {
+pub struct MutantAdmission {
     support: ClaimSupport,
     equations: Result<CompiledEquations, String>,
 }
 
 impl MutantAdmission {
-    #[cfg(test)]
-    fn new(baseline: &kink_patch::Baseline, compiled: &ValidatedDefinition) -> Self {
+    /// The admission of every mutant of `baseline` (a validator's baseline), whose compile is
+    /// `compiled`: its claim support and its compiled equations, which every mutant's are read
+    /// against. A baseline whose equations do not internalize again leaves every mutant
+    /// unchecked (`InconsistentMutant`).
+    #[must_use]
+    pub fn new(baseline: &kink_patch::Baseline, compiled: &ValidatedDefinition) -> Self {
         Self {
             support: ClaimSupport::new(baseline),
             equations: CompiledEquations::of(compiled),
         }
+    }
+
+    /// The baseline's claim support.
+    #[must_use]
+    pub const fn support(&self) -> &ClaimSupport {
+        &self.support
     }
 }
 
 /// Why a mutant runs no test: its mutant-scope failure, the claims its patch leaves unbacked (as
 /// far as the preparation got), and the pairs of equations that refuse an inconsistent mutant.
 #[derive(Debug)]
-struct MutantRefusal {
-    failure: MutantScopeFailure,
-    claims: Withdrawal,
-    inconsistent_pairs: Vec<UnjoinedEquations>,
+pub struct MutantRefusal {
+    pub failure: MutantScopeFailure,
+    pub claims: Withdrawal,
+    pub inconsistent_pairs: Vec<UnjoinedEquations>,
 }
 
 impl MutantRefusal {
