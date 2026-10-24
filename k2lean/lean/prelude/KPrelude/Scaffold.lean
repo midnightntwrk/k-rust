@@ -1,4 +1,6 @@
 import KPrelude.Invariant
+import KPrelude.Coll
+import KPrelude.Hooks
 
 /-!
 # The generic theorems behind the scaffolds (`confluence`, `refine`, `noninterference`)
@@ -16,12 +18,16 @@ proved once for every relation.
   of `B`, or by none while a measure decreases (`StutterSim`); in both directions
   (`StutterBisim`), a run of `A` to a terminal state is matched by a run of `B` to a related
   terminal state.
+- **Two bindings of a map** (the confluence of rules that match a cell map at a free key, such
+  as threads): steps at two different bindings commute (`MapHook.concat_element_comm`), by the
+  extensionality of canonical maps (`SAL.ext`).
 - **Two runs** (`k2lean noninterference`): a relation on pairs of states from which, unless both
   are final, one side can be advanced by any of its steps without leaving the relation
   (`ProductInv`) relates the final states of any two runs from related states.
 -/
 
 set_option autoImplicit false
+set_option linter.unusedSimpArgs false
 
 namespace KPrelude
 
@@ -35,7 +41,7 @@ variable {α : Type u} {S : α → α → Prop}
 def Terminal (S : α → α → Prop) (c : α) : Prop := ∀ c', ¬ S c c'
 
 /-- At most one step: `a' = a` or `S a a'`. -/
-def Opt (S : α → α → Prop) (a a' : α) : Prop := a' = a ∨ S a a'
+abbrev Opt (S : α → α → Prop) (a a' : α) : Prop := a' = a ∨ S a a'
 
 theorem Opt.star {a a' : α} : Opt S a a' → Star S a a'
   | .inl h => h ▸ .refl _
@@ -109,11 +115,11 @@ theorem StepEquiv.terminal (hE : StepEquiv S E) {a b : α} (he : E a b) (ha : Te
   exact ha a' ha'
 
 /-- `a` and `b` join modulo `E` in at most one step each. -/
-def DiamondMod (S : α → α → Prop) (E : α → α → Prop) (a b : α) : Prop :=
+abbrev DiamondMod (S : α → α → Prop) (E : α → α → Prop) (a b : α) : Prop :=
   ∃ a' b', Opt S a a' ∧ Opt S b b' ∧ E a' b'
 
 /-- `a` and `b` join modulo `E`. -/
-def JoinMod (S : α → α → Prop) (E : α → α → Prop) (a b : α) : Prop :=
+abbrev JoinMod (S : α → α → Prop) (E : α → α → Prop) (a b : α) : Prop :=
   ∃ a' b', Star S a a' ∧ Star S b b' ∧ E a' b'
 
 /-- The strip lemma: a step and a run to a terminal state close modulo `E`. -/
@@ -172,6 +178,14 @@ theorem terminal_unique_of_local (hE : StepEquiv S E) (hH : Preserved S H) (μ :
         obtain ⟨nb, hnb, he'⟩ := hE.star he hna
         have e₂ := ih b (hμ hc hsb) Hb (hb'.trans hnb) (hE.terminal he' htna) restb ht₂
         exact hE.trans e₁ (hE.trans he' e₂)
+
+/-- Close the equation of the two states a diamond joins in: equal, or equal once the integer
+hooks are unfolded, up to the commutativity and associativity of addition (two updates of a
+shared counter in either order). -/
+macro "k2l_join_eq" : tactic => `(tactic| first
+  | rfl
+  | (simp only [KPrelude.IntHook.add, KPrelude.IntHook.sub, Int.add_right_comm, Int.add_assoc,
+      Int.add_comm, Int.add_left_comm]; done))
 
 end Confluence
 
@@ -332,5 +346,167 @@ theorem ProductInv.final (h : ProductInv S Final Rel) (hfin : ∀ {c c'}, Final 
       · exact ih₂ hf₂ (hm _ hs₂)
 
 end NonInterference
+
+/-! ## Two bindings of a canonical map -/
+
+namespace SAL
+
+variable {α β : Type} [Ord α] [Std.TransOrd α] [Std.LawfulEqOrd α]
+
+/-- Two sorted lists with the same lookups are equal: the canonical representation is
+extensional. -/
+theorem ext : ∀ {a b : List (α × β)}, Sorted a → Sorted b → (∀ k, lookup k a = lookup k b) → a = b
+  | [], [], _, _, _ => rfl
+  | [], (k, v) :: t, _, _, h => by have := h k; simp [lookup, cmp_self] at this
+  | (k, v) :: t, [], _, _, h => by have := h k; simp [lookup, cmp_self] at this
+  | (k, v) :: t, (k', v') :: t', ha, hb, h => by
+    cases ha with
+    | cons hlt ht =>
+    cases hb with
+    | cons hlt' ht' =>
+    cases hc : compare k k' with
+    | lt => have := h k; simp [lookup, cmp_self, hc] at this
+    | gt => have := h k'; simp [lookup, cmp_self, lt_of_gt hc] at this
+    | eq =>
+      cases eq_of_cmp hc
+      have hv := h k
+      simp only [lookup, cmp_self, Option.some.injEq] at hv
+      subst hv
+      congr 1
+      refine ext ht ht' (fun j => ?_)
+      have hj := h j
+      cases hjk : compare j k with
+      | lt =>
+        rw [lookup_of_lt (fun p hp => lt_trans hjk (hlt p hp)),
+          lookup_of_lt (fun p hp => lt_trans hjk (hlt' p hp))]
+      | eq => cases eq_of_cmp hjk; rw [lookup_of_lt hlt, lookup_of_lt hlt']
+      | gt => simpa only [lookup, hjk] using hj
+
+theorem lookup_erase_ne {k k' : α} (hne : k' ≠ k) :
+    ∀ {m : List (α × β)}, Sorted m → lookup k' (erase k m) = lookup k' m
+  | [], _ => rfl
+  | (k₀, v₀) :: t, hs => by
+    cases hs with
+    | cons hlt ht =>
+      unfold erase
+      split
+      · rfl
+      · next h =>
+        cases eq_of_cmp h
+        cases hc : compare k' k with
+        | lt => rw [lookup_of_lt (fun p hp => lt_trans hc (hlt p hp))]; simp [lookup, hc]
+        | eq => exact absurd (eq_of_cmp hc) hne
+        | gt => simp [lookup, hc]
+      · next h =>
+        simp only [lookup]
+        split
+        · rfl
+        · rfl
+        · exact lookup_erase_ne hne ht
+
+end SAL
+
+namespace MapHook
+
+open ListIso
+
+variable {M K V : Type} [Ord K] [ListIso M (K × V)] [MapRepr M K V] [Std.TransOrd K]
+  [Std.LawfulEqOrd K]
+
+theorem ext {a b : M} (ha : WF a) (hb : WF b) (h : ∀ k, lookup a k = lookup b k) : a = b := by
+  have e : toList a = toList b := SAL.ext ha hb (fun k => by rw [← lookup_def, ← lookup_def, h])
+  rw [← ofList_toList a, e, ofList_toList]
+
+theorem lookup_remove_self {m : M} (k : K) (hw : WF m) : lookup (remove m k) k = none := by
+  rw [lookup_def, remove_def, toList_ofList]; exact SAL.lookup_erase_self k hw
+
+theorem lookup_remove_ne {m : M} {k k' : K} (hne : k' ≠ k) (hw : WF m) :
+    lookup (remove m k) k' = lookup m k' := by
+  rw [lookup_def, remove_def, toList_ofList, SAL.lookup_erase_ne hne hw, lookup_def]
+
+/-- Steps at two different bindings of a map commute. A step at `k₁` turns `m = (k₁ ↦ v₁) R₁`
+into `m₁ = (k₁ ↦ w₁) R₁`, one at `k₂ ≠ k₁` turns `m = (k₂ ↦ v₂) R₂` into `m₂ = (k₂ ↦ w₂) R₂`:
+the second still matches `m₁` (at a rest `R₁₂`), the first still matches `m₂` (at `R₂₁`), and
+both orders give one map `m'`. -/
+theorem concat_element_comm {k₁ k₂ : K} {v₁ v₂ w₁ w₂ : V} {R₁ R₂ m m₁ m₂ : M}
+    (h₁ : concat (element k₁ v₁) R₁ = some m) (h₂ : concat (element k₂ v₂) R₂ = some m)
+    (r₁ : concat (element k₁ w₁) R₁ = some m₁) (r₂ : concat (element k₂ w₂) R₂ = some m₂)
+    (hne : k₁ ≠ k₂) :
+    ∃ R₁₂ R₂₁ m', concat (element k₂ v₂) R₁₂ = some m₁ ∧ concat (element k₂ w₂) R₁₂ = some m' ∧
+      concat (element k₁ v₁) R₂₁ = some m₂ ∧ concat (element k₁ w₁) R₂₁ = some m' := by
+  obtain ⟨wR₁, n₁, rfl⟩ := concat_element_iff.1 h₁
+  obtain ⟨wR₂, n₂, e⟩ := concat_element_iff.1 h₂
+  obtain ⟨-, -, rfl⟩ := concat_element_iff.1 r₁
+  obtain ⟨-, -, rfl⟩ := concat_element_iff.1 r₂
+  have hne' : k₂ ≠ k₁ := fun h => hne h.symm
+  have w₁' : WF (update R₁ k₁ w₁) := wf_update wR₁
+  have w₂' : WF (update R₂ k₂ w₂) := wf_update wR₂
+  -- the other binding is unchanged by each step
+  have l₂ : lookup (update R₁ k₁ w₁) k₂ = some v₂ := by
+    rw [lookup_update_ne _ _ hne', ← lookup_update_ne R₁ v₁ hne', e, lookup_update_self]
+  have l₁ : lookup (update R₂ k₂ w₂) k₁ = some v₁ := by
+    rw [lookup_update_ne _ _ hne, ← lookup_update_ne R₂ v₂ hne, ← e, lookup_update_self]
+  refine ⟨remove (update R₁ k₁ w₁) k₂, remove (update R₂ k₂ w₂) k₁,
+    update (remove (update R₁ k₁ w₁) k₂) k₂ w₂, concat_element_remove w₁' l₂,
+    concat_element_iff.2 ⟨wf_remove w₁', lookup_remove_self k₂ w₁', rfl⟩,
+    concat_element_remove w₂' l₁,
+    concat_element_iff.2 ⟨wf_remove w₂', lookup_remove_self k₁ w₂', ?_⟩⟩
+  -- one map whichever step comes first
+  refine ext (wf_update (wf_remove w₁')) (wf_update (wf_remove w₂')) (fun j => ?_)
+  by_cases j₂ : j = k₂
+  · subst j₂
+    rw [lookup_update_self, lookup_update_ne _ _ hne', lookup_remove_ne hne' w₂', lookup_update_self]
+  by_cases j₁ : j = k₁
+  · subst j₁
+    rw [lookup_update_ne _ _ hne, lookup_remove_ne hne w₁', lookup_update_self, lookup_update_self]
+  rw [lookup_update_ne _ _ j₂, lookup_remove_ne j₂ w₁', lookup_update_ne _ _ j₁,
+    lookup_update_ne _ _ j₁, lookup_remove_ne j₁ w₂', lookup_update_ne _ _ j₂,
+    ← lookup_update_ne R₁ v₁ j₁, ← lookup_update_ne R₂ v₂ j₂, e]
+
+/-- Two matches of `K |-> V REST` in one map are one binding, or they commute
+(`concat_element_comm`). -/
+theorem concat_element_same_or_comm {k₁ k₂ : K} {v₁ v₂ w₁ w₂ : V} {R₁ R₂ m m₁ m₂ : M}
+    (h₁ : concat (element k₁ v₁) R₁ = some m) (h₂ : concat (element k₂ v₂) R₂ = some m)
+    (r₁ : concat (element k₁ w₁) R₁ = some m₁) (r₂ : concat (element k₂ w₂) R₂ = some m₂) :
+    (k₁ = k₂ ∧ v₁ = v₂ ∧ R₁ = R₂) ∨
+    ∃ R₁₂ R₂₁ m', concat (element k₂ v₂) R₁₂ = some m₁ ∧ concat (element k₂ w₂) R₁₂ = some m' ∧
+      concat (element k₁ v₁) R₂₁ = some m₂ ∧ concat (element k₁ w₁) R₂₁ = some m' := by
+  by_cases hk : k₁ = k₂
+  · subst hk
+    exact Or.inl ⟨rfl, concat_element_unique h₁ h₂⟩
+  · exact Or.inr (concat_element_comm h₁ h₂ r₁ r₂ hk)
+
+/-- A step at a binding `k₁` and the insertion of a fresh binding `k₂` (`(k₂ ↦ w₂) m`, defined
+only when `k₂` is not a key of `m`) commute. -/
+theorem concat_element_comm_insert {k₁ k₂ : K} {v₁ w₁ w₂ : V} {R₁ m m₁ m₂ : M}
+    (h₁ : concat (element k₁ v₁) R₁ = some m) (r₁ : concat (element k₁ w₁) R₁ = some m₁)
+    (r₂ : concat (element k₂ w₂) m = some m₂) :
+    ∃ R₂₁ m', concat (element k₁ v₁) R₂₁ = some m₂ ∧ concat (element k₁ w₁) R₂₁ = some m' ∧
+      concat (element k₂ w₂) m₁ = some m' := by
+  have lm := lookup_of_concat_element h₁
+  obtain ⟨wR₁, _, rfl⟩ := concat_element_iff.1 h₁
+  obtain ⟨-, -, rfl⟩ := concat_element_iff.1 r₁
+  obtain ⟨wm, n₂, rfl⟩ := concat_element_iff.1 r₂
+  have hne : k₁ ≠ k₂ := fun h => by subst h; rw [lm] at n₂; exact absurd n₂ (by simp)
+  have hne' : k₂ ≠ k₁ := fun h => hne h.symm
+  have w₂' : WF (update (update R₁ k₁ v₁) k₂ w₂) := wf_update wm
+  have l₁ : lookup (update (update R₁ k₁ v₁) k₂ w₂) k₁ = some v₁ := by
+    rw [lookup_update_ne _ _ hne, lookup_update_self]
+  refine ⟨remove (update (update R₁ k₁ v₁) k₂ w₂) k₁,
+    update (remove (update (update R₁ k₁ v₁) k₂ w₂) k₁) k₁ w₁, concat_element_remove w₂' l₁,
+    concat_element_iff.2 ⟨wf_remove w₂', lookup_remove_self k₁ w₂', rfl⟩,
+    concat_element_iff.2 ⟨wf_update wR₁, ?_, ?_⟩⟩
+  · rw [lookup_update_ne _ _ hne', ← lookup_update_ne R₁ v₁ hne', n₂]
+  · refine ext (wf_update (wf_remove w₂')) (wf_update (wf_update wR₁)) (fun j => ?_)
+    by_cases j₁ : j = k₁
+    · subst j₁
+      rw [lookup_update_self, lookup_update_ne _ _ hne, lookup_update_self]
+    by_cases j₂ : j = k₂
+    · subst j₂
+      rw [lookup_update_ne _ _ j₁, lookup_remove_ne j₁ w₂', lookup_update_self, lookup_update_self]
+    rw [lookup_update_ne _ _ j₁, lookup_remove_ne j₁ w₂', lookup_update_ne _ _ j₂,
+      lookup_update_ne _ _ j₁, lookup_update_ne _ _ j₂, lookup_update_ne _ _ j₁]
+
+end MapHook
 
 end KPrelude
