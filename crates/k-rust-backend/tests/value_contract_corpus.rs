@@ -14,9 +14,11 @@
 //! (`CheckCounts::without_memo_work`).
 //!
 //! `witnesses` and `full_witnesses` count the witness equations each verdict was computed with
-//! (`ValueClaims::witnesses`), and `full_tainted_witness_heads` the heads of the full check's
-//! witnesses that its closure taints (adoption requires none); each witness is also printed on a
-//! `VALUE_CONTRACT_WITNESS` line, for the record.
+//! (`ValueClaims::witnesses`), and `tainted_witness_heads` the heads of the full check's
+//! witnesses that the load's closure taints: the load adopts the witnesses only when its own
+//! second pass taints none of them, so a nonzero count with `witnesses = 0` shows the two scopes
+//! classifying differently. Each witness is also printed on a `VALUE_CONTRACT_WITNESS` line, for
+//! the record.
 
 use std::time::Instant;
 
@@ -107,12 +109,11 @@ fn value_contract_corpus() {
             .collect::<Vec<_>>();
         let tainted = claims.tainted_symbols();
         let tainted_heads = heads.iter().filter(|head| tainted.contains(head)).count();
-        let full_tainted = full.tainted_symbols();
-        let full_tainted_witness_heads = full
+        let tainted_witness_heads = full
             .witnesses()
             .iter()
             .filter(|rule| match rule.lhs.kind() {
-                TermKind::Application { symbol, .. } => full_tainted.contains(&symbol.name),
+                TermKind::Application { symbol, .. } => tainted.contains(&symbol.name),
                 _ => false,
             })
             .count();
@@ -159,7 +160,7 @@ fn value_contract_corpus() {
             "discharge_stack_stops": definition.discharge_counts().stack_stops,
             "witnesses": counts.witnesses,
             "full_witnesses": full.counts().witnesses,
-            "full_tainted_witness_heads": full_tainted_witness_heads,
+            "tainted_witness_heads": tainted_witness_heads,
         });
         println!("VALUE_CONTRACT {line}");
     }
