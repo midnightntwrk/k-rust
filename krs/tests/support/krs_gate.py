@@ -328,6 +328,16 @@ class Session:
             crate_name=crate_name, facade_alias=facade_alias,
         )
 
+    def expansion_digest(
+        self, source: Path, display_file: str, module_path: Sequence[str], facade_alias: str,
+    ) -> dict[str, Any]:
+        """Digest the product's whole-file expansion of one authored file: its text and source map."""
+
+        return self.request(
+            "expansion.digest", source=os.fspath(source), display_file=display_file,
+            module_path=list(module_path), facade_alias=facade_alias,
+        )
+
     def configure(self, variables: Mapping[str, str]) -> dict[str, Any]:
         """Parse surface configuration variables and return their KORE pattern."""
 

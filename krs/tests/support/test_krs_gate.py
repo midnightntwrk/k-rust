@@ -134,6 +134,15 @@ class ClientTests(unittest.TestCase):
                 environment={"KRS_TEST_GATE_MODE": "error"},
             )
 
+    def test_expansion_digest_needs_no_definition_load_and_forwards_the_module_path(self) -> None:
+        with krs_gate.Session(self.binary) as session:
+            result = session.expansion_digest(Path("src/imp.rs"), "src/imp.rs", ("lesson", "imp"), "k")
+        self.assertEqual(result["operation"], "expansion.digest")
+        self.assertEqual(result["fields"], {
+            "source": "src/imp.rs", "display_file": "src/imp.rs",
+            "module_path": ["lesson", "imp"], "facade_alias": "k",
+        })
+
     def test_concurrent_requests_keep_matching_responses(self) -> None:
         with krs_gate.Session(self.binary) as session:
             with ThreadPoolExecutor(max_workers=8) as executor:
