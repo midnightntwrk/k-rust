@@ -178,6 +178,16 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// its definedness) where it stated that case as a limit: 1100-1107 `a83fde62` -> `3af0cfea`.
 /// No verdict of the check changes.
 ///
+/// k-rust FZ-MEMBERSHIP: line 1103 of 1100-1107 adds membership literals to what "refuted"
+/// reads (`3af0cfea` -> `933b39db`): an item required in sorts with no common lower bound, or
+/// outside a sort above each of their maximal common lower bounds, by the predicates whose two
+/// equations make them a sort's membership predicates, in the models that also satisfy
+/// injection composition and no confusion between injections from incomparable sorts. The
+/// normal-form model kink's premise builds satisfies both (`Term::injection` composes chains, and
+/// injections from incomparable sorts are distinct normal forms), so a mutant newly admitted has
+/// guards that hold on no normal-form instance. Only more overlaps are refuted; the other
+/// passages are unmoved.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
@@ -192,7 +202,7 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
         "docs/compatibility.md",
         1100,
         1107,
-        "3af0cfea8f92b5217b8b2fcc71ff542e890dbd5552876e186845d15b52f66947",
+        "933b39db406033f69a8ae13bda209872628cab54a16516d0be7bce8b8737e8a1",
     ),
     (
         "docs/compatibility.md",
@@ -263,7 +273,13 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
 /// INT8 follow-up: 286e86d7 -> c9fa00d8. Documentation only: `Context::uninhabited_sort`'s
 /// account of the simplifier's mark argues from its readers where it stated the overloaded
 /// partial function as a limit.
-const CONFLUENCE_RS: &str = "c9fa00d8917e74a9f56506902688c76df92178ac91e1afeff37a6ad41fa56dfe";
+///
+/// Re-pin FZ-MEMBERSHIP (k-rust fz26/membership): c9fa00d8 -> b19c2538. The contract's list of
+/// axioms read as true adds injection composition and no confusion between injections, and
+/// `refuted` is stated over the models of that list; `Context` reads the definition's membership
+/// predicates once (`conditions::memberships`) and passes them to the condition reader. The
+/// stages, the early return and the counts kink reads are unchanged; `refuted` can only grow.
+const CONFLUENCE_RS: &str = "b19c253866cf9bb2b3a70f7a1e2e599a59c2f84602c2794d0e40354a97b6d2a6";
 
 /// The taint closure (`confluence/closure.rs`): `taintable`, which with `certified_root` decides
 /// the early return the probe head turns off (an equation head is taintable), by digest (re-pin

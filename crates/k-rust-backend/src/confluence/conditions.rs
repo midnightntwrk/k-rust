@@ -87,7 +87,46 @@
 //!   holds there too (symbols denote functions: congruence); `Context::conditions` simplifies the
 //!   rewritten conjunction once more and refutes it when that gives `\bottom` or a contradiction
 //!   (`substring(S, I, I +Int 1) ==String "t"` beside `findChar(HEX, substring(S, I, I +Int 1), 0)
-//!   =/=Int -1` becomes `findChar(HEX, "t", 0) =/=Int -1`, which evaluates to false).
+//!   =/=Int -1` becomes `findChar(HEX, "t", 0) =/=Int -1`, which evaluates to false);
+//! - **membership literals**: a symbol `p` is the *membership predicate* of a sort `S` when its
+//!   executable equations are exactly `p(kseq(inj{S, KItem}(V:S), dotk)) = true` in its highest
+//!   priority group and `p(X) = false`, `X` of the argument's sort, in a lower one, both
+//!   unconditional, without `ensures`, `concrete` or `symbolic`, with `p` unhooked and in no
+//!   overload relation, and no executable equation is indexed at a bare variable or a
+//!   conjunction (such an equation is offered at every index). This is read from the equations,
+//!   never from the name (`isS` is what K generates), once per check ([`memberships`]). A conjunct
+//!   states a membership literal of an item `u` when its Boolean literal is
+//!   `p(kseq(inj{T, KItem}(u), dotk))` (exactly a `dotk` tail: `p` is false at a longer sequence
+//!   whatever its first item) with a polarity, read through `notBool`, through `==Bool`,
+//!   `=/=Bool`, `==K` and `=/=K` against a Boolean literal (each holds only where its operands
+//!   are defined, and a Boolean sort has two values), and through `andBool` or `andThenBool`
+//!   required true and `orBool` or `orElseBool` required false, which state both operands. A
+//!   literal under `\not` holds also where its term is undefined, so it is read only where its
+//!   whole term is shown defined; `p`, `kseq` and the injection are total, so a membership atom is
+//!   defined where its item is: `ceil_free`, shown by the definedness rules above, or the item of
+//!   a literal not under `\not`. For each item, `L` is the set of maximal common lower bounds of
+//!   `T` and the sorts the item is required to lie in (from the sort graph; a sort variable or an
+//!   unknown sort decides nothing). The conjunction is refuted when `L` is empty, or when a sort
+//!   the item is required not to lie in is above every member of `L`.
+//!
+//!   This holds in every model of the definition's axioms that also satisfies two axioms of the
+//!   matching theory which are no KORE axioms: injection composition,
+//!   `inj{B, A}(inj{C, B}(x)) = inj{C, A}(x)`, and no confusion, `inj{A, K}(x) = inj{B, K}(y)`
+//!   only through a common subsort of `A` and `B`. Where `p(...) = true` and the item lay in no
+//!   image of `S`, the `false` equation, read with the priority antecedent, would give `false`; so
+//!   the item lies in `S`'s image (`kseq` and `inj` are injective). By no confusion, the images of
+//!   incomparable sorts meet only in the images of their common subsorts, so the item lies in the
+//!   image of a sort below every sort required, hence below a member of `L` (the order is finite),
+//!   and no such sort exists when `L` is empty. When every member `l` of `L` is below a sort `S'`
+//!   required false, the item is `inj{l, KItem}(w) = inj{S', KItem}(inj{l, S'}(w))` by
+//!   composition, where the `true` equation, which has no antecedent, gives `true`. No sort's
+//!   emptiness is used: a common subsort with no constructor blocks the refutation, since
+//!   carriers are nonempty. That class is the one every reader of the verdicts reads: the
+//!   evaluator matches modulo both axioms, so on ground instances the rule decides what
+//!   evaluation decides; the data judgement reads normal forms modulo them; and the normal-form
+//!   model that follows from the pairs when evaluation terminates (the premise kink reads)
+//!   satisfies composition (`Term::injection` composes chains), no confusion and the overload
+//!   axioms (lowest forms are unique).
 //!
 //! Every remaining conjunct `X = t` (a variable equal to a term without `X`) is an equality every
 //! instance satisfying the conditions has, which the join may apply (`confluence.rs`).
@@ -99,9 +138,9 @@ use rustc_hash::FxHashMap;
 
 use crate::{
     definition::BackendDefinition,
-    rule::Predicate,
+    rule::{Concreteness, Predicate, RewriteRule, RuleRhs, TermIndex},
     substitution::{Substitution, substitute},
-    term::{DomainKind, Term, TermKind},
+    term::{DomainKind, Name, Sort, Term, TermKind},
 };
 
 /// A Boolean atom up to the arithmetic identities above.
@@ -114,11 +153,21 @@ enum Atom {
     Other(Term),
 }
 
-/// Whether the conjuncts are contradictory by complementary literals, by an atom required false
-/// that holds wherever it is defined, or by the integer bounds of one key, the domain kinds of
-/// their sorts read in `definition`.
+/// Whether the conjuncts are contradictory by the rules of the module documentation, the domain
+/// kinds of their sorts and the membership predicates read in `definition`.
+#[cfg(test)]
 pub(super) fn contradictory(definition: &BackendDefinition, conjuncts: &[Predicate]) -> bool {
-    contradictory_without_cases(definition, conjuncts) || cases_contradictory(definition, conjuncts)
+    contradictory_in(definition, &memberships(definition), conjuncts)
+}
+
+/// [`contradictory`] with the definition's membership predicates already read ([`memberships`]).
+pub(super) fn contradictory_in(
+    definition: &BackendDefinition,
+    memberships: &Memberships,
+    conjuncts: &[Predicate],
+) -> bool {
+    contradictory_without_cases(definition, memberships, conjuncts)
+        || cases_contradictory(definition, memberships, conjuncts)
 }
 
 /// The most disjunctive conjuncts, and the most combinations of their disjuncts, that
@@ -165,7 +214,11 @@ fn disjuncts(definition: &BackendDefinition, conjunct: &Predicate) -> Option<Vec
 /// other conjuncts is contradictory ([`contradictory_without_cases`]). A disjunctive conjunct
 /// holds only where one of its disjuncts does, so the conjunction holds only where one of the
 /// combinations does.
-fn cases_contradictory(definition: &BackendDefinition, conjuncts: &[Predicate]) -> bool {
+fn cases_contradictory(
+    definition: &BackendDefinition,
+    memberships: &Memberships,
+    conjuncts: &[Predicate],
+) -> bool {
     let mut split = Vec::new();
     let mut rest = Vec::new();
     for conjunct in conjuncts {
@@ -190,7 +243,7 @@ fn cases_contradictory(definition: &BackendDefinition, conjuncts: &[Predicate]) 
             index /= disjuncts.len();
         }
         if conjunction.contains(&Predicate::False)
-            || contradictory_without_cases(definition, &conjunction)
+            || contradictory_without_cases(definition, memberships, &conjunction)
         {
             refuted += 1;
             if misread {
@@ -202,7 +255,11 @@ fn cases_contradictory(definition: &BackendDefinition, conjuncts: &[Predicate]) 
 }
 
 /// [`contradictory`] without splitting disjunctions.
-fn contradictory_without_cases(definition: &BackendDefinition, conjuncts: &[Predicate]) -> bool {
+fn contradictory_without_cases(
+    definition: &BackendDefinition,
+    memberships: &Memberships,
+    conjuncts: &[Predicate],
+) -> bool {
     let mut seen = FxHashMap::<Atom, bool>::default();
     // A literal under `\not` holds also where its term is undefined: it is read only where the
     // term is shown defined wherever the conjunction holds (`Definedness`), or a literal not
@@ -244,6 +301,334 @@ fn contradictory_without_cases(definition: &BackendDefinition, conjuncts: &[Pred
     Classes::of(definition, conjuncts, merging).is_none()
         || integer_bounds_empty(definition, conjuncts)
         || Differences::of(definition, conjuncts).is_none()
+        || memberships_contradictory(definition, memberships, &facts, conjuncts)
+}
+
+/// The membership predicates of a definition, each with its sort (module documentation,
+/// "membership literals").
+pub(super) type Memberships = FxHashMap<Name, Sort>;
+
+/// The membership predicates of `definition`: each symbol `p` whose executable equations are
+/// exactly `p(kseq(inj{S, KItem}(V:S), dotk)) = true` in its highest priority group and `p(X) =
+/// false` in a lower one, with `X` of the argument's sort, both unconditional, without `ensures`,
+/// `concrete` or `symbolic`, with `p` unhooked and in no overload relation, mapped to `S`. None
+/// when some executable equation is indexed at a bare variable or a conjunction, since such an
+/// equation is offered at every index. The meaning is read from the equations, never from the
+/// symbol's name.
+pub(super) fn memberships(definition: &BackendDefinition) -> Memberships {
+    if super::switches::active().loose_membership_recognition {
+        return loose_memberships(definition);
+    }
+    let theory = definition.function_theory();
+    let offered_everywhere = [TermIndex::Variable, TermIndex::And].iter().any(|index| {
+        theory
+            .get(index)
+            .is_some_and(|groups| groups.values().any(|group| !group.is_empty()))
+    });
+    if offered_everywhere {
+        return Memberships::default();
+    }
+    theory
+        .iter()
+        .filter_map(|(index, groups)| {
+            let TermIndex::Symbol(name) = index else {
+                return None;
+            };
+            membership_sort(definition, name, groups).map(|sort| (name.clone(), sort))
+        })
+        .collect()
+}
+
+/// The sort `S` of which `name`, with the equations `groups` by priority, is the membership
+/// predicate ([`memberships`]).
+fn membership_sort(
+    definition: &BackendDefinition,
+    name: &Name,
+    groups: &std::collections::BTreeMap<u8, Vec<std::sync::Arc<RewriteRule>>>,
+) -> Option<Sort> {
+    if definition.overloads().is_overloaded(name) {
+        return None;
+    }
+    let mut groups = groups.values();
+    let (Some(high), Some(low), None) = (groups.next(), groups.next(), groups.next()) else {
+        return None;
+    };
+    let ([high], [low]) = (high.as_slice(), low.as_slice()) else {
+        return None;
+    };
+    let value = |rule: &RewriteRule| match &rule.rhs {
+        RuleRhs::Term(term)
+            if rule.requires.is_empty()
+                && rule.ensures.is_empty()
+                && rule.existentials.is_empty()
+                && rule.attributes.executable
+                && !rule.attributes.simplification
+                && matches!(rule.attributes.concreteness, Concreteness::Unconstrained) =>
+        {
+            boolean(definition, term)
+        }
+        _ => None,
+    };
+    if value(high) != Some(true) || value(low) != Some(false) {
+        return None;
+    }
+    let argument = |rule: &RewriteRule| match rule.lhs.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } if symbol.name == *name && symbol.attributes.hook.is_none() => match arguments.as_slice()
+        {
+            [argument] => Some(argument.clone()),
+            _ => None,
+        },
+        _ => None,
+    };
+    let (high, low) = (argument(high)?, argument(low)?);
+    if !matches!(low.kind(), TermKind::Variable(_)) || low.sort() != high.sort() {
+        return None;
+    }
+    let item = crate::builtin::k_sequence_item(&high)?;
+    matches!(item.kind(), TermKind::Variable(_)).then(|| item.sort())
+}
+
+/// A defect switch's recognition: the sort of the first equation of each symbol whose result is
+/// `true` and whose argument is a sequence starting with an injection, whatever its other
+/// equations, conditions, priorities, tail and injected pattern.
+fn loose_memberships(definition: &BackendDefinition) -> Memberships {
+    let mut memberships = Memberships::default();
+    for (index, groups) in definition.function_theory() {
+        let TermIndex::Symbol(name) = index else {
+            continue;
+        };
+        let sort = groups.values().flatten().find_map(|rule| {
+            let RuleRhs::Term(result) = &rule.rhs else {
+                return None;
+            };
+            if boolean(definition, result) != Some(true) {
+                return None;
+            }
+            let TermKind::Application { arguments, .. } = rule.lhs.kind() else {
+                return None;
+            };
+            let TermKind::Application {
+                arguments: sequence,
+                ..
+            } = arguments.first()?.kind()
+            else {
+                return None;
+            };
+            match sequence.first()?.kind() {
+                TermKind::Injection { term, .. } => Some(term.sort()),
+                _ => None,
+            }
+        });
+        if let Some(sort) = sort {
+            memberships.insert(name.clone(), sort);
+        }
+    }
+    memberships
+}
+
+/// The item `u` and sort `S` of a membership atom `p(kseq(inj{T, KItem}(u), dotk))`, `p` the
+/// membership predicate of `S`.
+fn membership_atom(memberships: &Memberships, term: &Term) -> Option<(Term, Sort)> {
+    let TermKind::Application {
+        symbol, arguments, ..
+    } = term.kind()
+    else {
+        return None;
+    };
+    let [argument] = arguments.as_slice() else {
+        return None;
+    };
+    if symbol.attributes.hook.is_some() {
+        return None;
+    }
+    let sort = *memberships.get(&symbol.name)?;
+    Some((crate::builtin::k_sequence_item(argument)?.clone(), sort))
+}
+
+/// The membership literals of the Boolean term `term` required with `polarity`: `(u, S, b)`
+/// says that `u` lies in `S` when `b`, and does not when not `b`. The term is read through
+/// `notBool`, `==Bool`, `=/=Bool`, `==K` and `=/=K` against a Boolean literal (each holds only
+/// where its operands are defined, so the operand is the literal or its complement there),
+/// `andBool` and `andThenBool` required true and `orBool` and `orElseBool` required false (both
+/// operands hold, respectively fail).
+fn membership_literals(
+    definition: &BackendDefinition,
+    memberships: &Memberships,
+    term: &Term,
+    polarity: bool,
+    literals: &mut Vec<(Term, Sort, bool)>,
+) {
+    let both = |left: &Term, right: &Term, literals: &mut Vec<_>| {
+        membership_literals(definition, memberships, left, polarity, literals);
+        membership_literals(definition, memberships, right, polarity, literals);
+    };
+    match hooked(term) {
+        Some(("BOOL.not", [inner])) => {
+            membership_literals(definition, memberships, inner, !polarity, literals);
+        }
+        Some(("BOOL.and" | "BOOL.andThen", [left, right])) if polarity => {
+            both(left, right, literals);
+        }
+        Some(("BOOL.or" | "BOOL.orElse", [left, right])) if !polarity => {
+            both(left, right, literals);
+        }
+        Some((hook @ ("BOOL.eq" | "BOOL.ne" | "KEQUAL.eq" | "KEQUAL.ne"), [left, right])) => {
+            let (left, right) = if hook.starts_with("KEQUAL") {
+                match (sequence_item(left), sequence_item(right)) {
+                    (Some(left), Some(right)) => (left, right),
+                    _ => return,
+                }
+            } else {
+                (left.clone(), right.clone())
+            };
+            if left.sort() != right.sort() {
+                return;
+            }
+            let (operand, value) = match (boolean(definition, &left), boolean(definition, &right)) {
+                (None, Some(value)) => (left, value),
+                (Some(value), None) => (right, value),
+                _ => return,
+            };
+            // `operand == value` required true gives the operand `value`, required false its
+            // complement (a Boolean sort has the two values); `=/=` the other way round.
+            let equal = hook.ends_with(".eq");
+            membership_literals(
+                definition,
+                memberships,
+                &operand,
+                (value == polarity) == equal,
+                literals,
+            );
+        }
+        _ => {
+            if let Some((item, sort)) = membership_atom(memberships, term) {
+                literals.push((item, sort, polarity));
+            }
+        }
+    }
+}
+
+/// Whether the Boolean term `term` is defined on every instance where the conjuncts hold: a
+/// membership atom whose item is (its predicate, `kseq` and the injection are total), or an
+/// application of a total symbol or a constructor, or an injection, of such terms, or a term
+/// [`Definedness::defined`] shows defined.
+fn membership_defined(
+    memberships: &Memberships,
+    facts: &Definedness,
+    items: &rustc_hash::FxHashSet<Term>,
+    term: &Term,
+) -> bool {
+    use crate::term::{FunctionType, SymbolType};
+    if let Some((item, _)) = membership_atom(memberships, term) {
+        return items.contains(&item) || facts.defined(&item);
+    }
+    if facts.defined(term) {
+        return true;
+    }
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            matches!(
+                symbol.attributes.symbol_type,
+                SymbolType::Constructor | SymbolType::Function(FunctionType::Total)
+            ) && symbol.attributes.collection.is_none()
+                && arguments
+                    .iter()
+                    .all(|argument| membership_defined(memberships, facts, items, argument))
+        }
+        TermKind::Injection { term, .. } => membership_defined(memberships, facts, items, term),
+        _ => false,
+    }
+}
+
+/// Whether the membership literals of the conjuncts are contradictory (module documentation,
+/// "membership literals"): for some item, the sorts it is required to lie in, with its own sort,
+/// have no common lower bound, or one it is required not to lie in is above each of their
+/// maximal common lower bounds.
+fn memberships_contradictory(
+    definition: &BackendDefinition,
+    memberships: &Memberships,
+    facts: &Definedness,
+    conjuncts: &[Predicate],
+) -> bool {
+    if memberships.is_empty() {
+        return false;
+    }
+    let unguarded = super::switches::active().membership_not_without_definedness;
+    let disjoint = super::switches::active().disjoint_incomparable_memberships;
+    let mut read = Vec::new();
+    for conjunct in conjuncts {
+        let Some((term, polarity)) = literal(definition, conjunct) else {
+            continue;
+        };
+        let mut literals = Vec::new();
+        membership_literals(definition, memberships, &term, polarity, &mut literals);
+        if !literals.is_empty() {
+            read.push((term, matches!(conjunct, Predicate::Not(_)), literals));
+        }
+    }
+    // A literal not under `\not` holds only where its term is defined, hence where its items
+    // are; one under `\not` holds also where its term is undefined, so it is read only where its
+    // whole term is shown defined.
+    let defined_items = read
+        .iter()
+        .filter(|(_, under_not, _)| !under_not)
+        .flat_map(|(_, _, literals)| literals.iter().map(|(item, _, _)| item.clone()))
+        .collect::<rustc_hash::FxHashSet<_>>();
+    let mut by_item = FxHashMap::<Term, (Vec<Sort>, Vec<Sort>)>::default();
+    for (term, under_not, literals) in read {
+        if under_not && !unguarded && !membership_defined(memberships, facts, &defined_items, &term)
+        {
+            continue;
+        }
+        for (item, sort, member) in literals {
+            let entry = by_item.entry(item).or_default();
+            if member {
+                entry.0.push(sort);
+            } else {
+                entry.1.push(sort);
+            }
+        }
+    }
+    let graph = definition.sort_graph();
+    let below = |sub: &Sort, sup: &Sort| matches!(graph.check_subsort(sub, sup), Ok(true));
+    'items: for (item, (inside, outside)) in by_item {
+        // The maximal common lower bounds of the item's sort and the sorts it lies in: every
+        // common lower bound is below one of them (a finite order).
+        let mut bounds = vec![item.sort()];
+        for sort in &inside {
+            let mut next = Vec::new();
+            for bound in &bounds {
+                if below(bound, sort) {
+                    next.push(*bound);
+                } else if below(sort, bound) {
+                    next.push(*sort);
+                } else if !disjoint {
+                    let Some(common) = graph.maximal_common_subsorts(bound, sort) else {
+                        // A sort variable or an unknown sort: the order does not decide it.
+                        continue 'items;
+                    };
+                    next.extend(common);
+                }
+            }
+            next.sort();
+            next.dedup();
+            bounds = next;
+        }
+        if bounds.is_empty() {
+            return true;
+        }
+        if outside
+            .iter()
+            .any(|sort| bounds.iter().all(|bound| below(bound, sort)))
+        {
+            return true;
+        }
+    }
+    false
 }
 
 /// What the conjuncts show about the definedness of terms, wherever they hold: the integer terms
@@ -555,6 +940,7 @@ pub(super) fn literal_values(
 /// (module documentation, "equality classes").
 pub(super) fn refuted_by_literals(
     definition: &BackendDefinition,
+    memberships: &Memberships,
     conjuncts: &[Predicate],
     simplify: &mut dyn FnMut(Predicate) -> Option<Predicate>,
 ) -> bool {
@@ -568,7 +954,7 @@ pub(super) fn refuted_by_literals(
     let mut again = BTreeSet::new();
     super::flatten(simplified, &mut again);
     let again = again.into_iter().collect::<Vec<_>>();
-    again.contains(&Predicate::False) || contradictory(definition, &again)
+    again.contains(&Predicate::False) || contradictory_in(definition, memberships, &again)
 }
 
 /// `conjuncts` with every innermost occurrence of a term of `values` replaced by its value, outside
@@ -1411,6 +1797,8 @@ fn has_key(map: &Term, key: &Term) -> bool {
     matches!(map.kind(), TermKind::Map { entries, .. } if entries.iter().any(|(entry, _)| entry == key))
 }
 
+#[cfg(test)]
+mod membership_tests;
 #[cfg(test)]
 mod string_tests;
 #[cfg(test)]

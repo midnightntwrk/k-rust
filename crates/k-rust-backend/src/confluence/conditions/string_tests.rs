@@ -203,7 +203,12 @@ fn refuted(definition: &BackendDefinition, conjuncts: &[Predicate]) -> (bool, bo
     if flat.contains(&Predicate::False) || contradictory(definition, &flat) {
         return (true, false);
     }
-    let substituted = refuted_by_literals(definition, &flat, &mut simplify);
+    let substituted = refuted_by_literals(
+        definition,
+        &super::memberships(definition),
+        &flat,
+        &mut simplify,
+    );
     (substituted, substituted)
 }
 

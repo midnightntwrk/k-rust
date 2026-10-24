@@ -122,6 +122,16 @@ pub(crate) struct Switches {
     /// Conditions: read an ML `\equals` between integer terms as showing its atoms defined, also
     /// when neither side is `ceil_free` (both sides undefined satisfy it).
     pub(crate) misread_equals_definedness: bool,
+    /// Conditions: read two sorts an item is required to lie in as disjoint unless one is below
+    /// the other, ignoring their common subsorts.
+    pub(crate) disjoint_incomparable_memberships: bool,
+    /// Conditions: read a membership literal under `\not` also where its item is not shown
+    /// defined.
+    pub(crate) membership_not_without_definedness: bool,
+    /// Conditions: recognize as the membership predicate of `S` any symbol with an equation whose
+    /// result is `true` at a sequence starting with an injection from `S`, whatever its other
+    /// equations, conditions, priorities and argument shape.
+    pub(crate) loose_membership_recognition: bool,
 }
 
 #[cfg(test)]
@@ -172,6 +182,9 @@ thread_local! {
             misread_min_max: false,
             misplace_class_literal: false,
             misread_equals_definedness: false,
+            disjoint_incomparable_memberships: false,
+            membership_not_without_definedness: false,
+            loose_membership_recognition: false,
         })
     };
 }
