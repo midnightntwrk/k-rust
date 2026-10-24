@@ -58,7 +58,7 @@ INVS = {"kimpinv": ("KImpInv", "light"), "krsimp": ("KrsImp", "light"), "simplei
         "kimpfold": ("KImpInv", "light"), "kimptop": ("KImpInv", "light"), "nested": ("KNested", "light"),
         "simplestore": ("KSimpleInv", "heavy"), "simplet": ("KSimpleInv", "heavy")}
 DEMOS = {"ImpRel": "light", "ImpTypes": "light", "ImpMut": "light", "KrsImpTyping": "light",
-         "Kind2Template": "light", "SimpleEnv": "heavy", "ImpWrites": "light"}
+         "Kind2Template": "light", "SimpleEnv": "heavy", "ImpWrites": "light", "ImpRelClaims": "heavy"}
 OUTPUTS = {  # recorded output → (tier, normalization)
     "goldens.toml": ("light", "exact"),
     "kimp-test.out": ("light", "exact"),

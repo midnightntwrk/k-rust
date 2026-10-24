@@ -23,9 +23,10 @@
 #                                 invariants (the kind 1 `holdsOk@holds`, lifted over the <thread>
 #                                 cell map, of simpleinv, demos/k/simple-inv, and "every store value
 #                                 is a Val or undefined" as a cell function, simplestore, and as a function of
-#                                 the top cell <T>, simplet; the kind 2 demo SimpleEnv) and
-#                                 kimp-claims (claims.toml, krust kprove, kc_auto
-#                                 statistics, three replays)
+#                                 the top cell <T>, simplet; the kind 2 demo SimpleEnv), kimp-claims
+#                                 (claims.toml, krust kprove, kc_auto statistics, three replays) and
+#                                 the demo ImpRelClaims (a kimp claim transferred to KRS IMP along the
+#                                 bisimulation)
 #   k2lean/tests/gate.sh arity    generator unit and snapshot tests, then kimp and SIMPLE in the
 #                                 arity-indexed term universe (`gen --arity-terms`, libraries kimp-ar
 #                                 and simple-ar): built with their axiom guards, kimp's goldens and
@@ -586,6 +587,12 @@ if [ "$TIER" = heavy ]; then
       grep -E 'kc_auto' "$L/build-claims.log" > "$MEAS/kc-auto-stats.txt" || true
     else bad "build claims" "$L/build-claims.log"; fi
   else bad "claims gen" "$L/claims-gen.log"; fi
+
+  # a kimp claim transferred to the KRS IMP port along ImpRel's bisimulation (demos/ImpRelClaims),
+  # built like a demo (demo.ImpRelClaims)
+  phase "demo ImpRelClaims"
+  if lbuild "$D/ImpRelClaims" build-ImpRelClaims; then ok "build ImpRelClaims" "$L/build-ImpRelClaims.log"
+  else bad "build ImpRelClaims" "$L/build-ImpRelClaims.log"; fi
 fi
 
 # 7. measure and compare
