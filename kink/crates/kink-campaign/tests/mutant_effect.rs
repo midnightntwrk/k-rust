@@ -3,6 +3,12 @@
 //! a fail-closed cross-check (kink-native `consistency::admit_mutant`). The fixtures are the
 //! review's probes: a generated `#fun` lambda (`r0c/lamrule.k`, `r0c/lamfun.k`, control
 //! `r0c/mapfun.k`) and a function rule written with configuration context (`r0c/cfgf.k`).
+//!
+//! fz26 KINK-BASELINE-FINDINGS: the lambda and map-pattern baselines' own full checks report the
+//! self pair of a map pattern (not shown to join), so every mutant of them is
+//! `baseline-findings` unless the findings are named. These tests are about the consistency gate,
+//! so each campaign names every finding of its baseline ([`run_named`]), as a flow's
+//! `[spec] assume_joined` would.
 
 #[path = "../../../testdata/k/support.rs"]
 mod support;
@@ -15,7 +21,7 @@ use k_rust::kompile::CompileOptions;
 use k_rust::kore::ast::Pattern;
 use kink_campaign::{
     Campaign, CrashPolicy, MutantRun, MutantScopeFailure, MutantStatus, OracleDeclaration,
-    Projection, ScheduleMode, SideRun, StateProjection, TestCase, run_campaign,
+    Projection, ScheduleMode, SideRun, StateProjection, TestCase,
 };
 use kink_native::{NativeValidator, execution::ExecutionBudget};
 use kink_patch::{
@@ -154,6 +160,40 @@ fn literal<'b>(
     generation
 }
 
+/// `run_campaign` through a session that names every finding of the baseline's full
+/// critical-pair check (none for a confluent baseline), so the consistency gate, not the
+/// baseline gate, decides each mutant.
+fn run_named(
+    campaign: &Campaign<'_>,
+    generation: &CandidateGeneration<'_>,
+    schedule: ScheduleMode,
+) -> Result<kink_campaign::CampaignRun, kink_campaign::CampaignFailure> {
+    let compiled = campaign.validator.compile_baseline().unwrap();
+    let names = kink_native::data::DataFacts::of(
+        &kink_native::consistency::loaded_definition(&compiled).unwrap(),
+        &[],
+    )
+    .unnamed()
+    .into_iter()
+    .filter_map(|finding| finding.name)
+    .collect::<std::collections::BTreeSet<_>>()
+    .into_iter()
+    .collect();
+    let mut session = kink_campaign::BaselineSession::new(campaign.validator).assuming(names);
+    kink_campaign::run_campaign_multi_with(
+        campaign,
+        std::slice::from_ref(generation),
+        &kink_campaign::CampaignOptions {
+            schedule,
+            selection: kink_campaign::SelectionPolicy::None,
+            share_evidence: true,
+            run: kink_campaign::RunOptions::default(),
+            compile_workers: 1,
+        },
+        &mut session,
+    )
+}
+
 fn on_a_big_stack(work: impl FnOnce() + Send + 'static) {
     std::thread::Builder::new()
         .stack_size(256 << 20)
@@ -261,7 +301,7 @@ mod kink_tier {
             let tests = [start()];
             let campaign = campaign(&validator, "LAMRULE", &tests);
             for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-                let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                let run = run_named(&campaign, &generation, schedule).unwrap();
                 assert!(matches!(run.baseline[0].run, SideRun::Sides { .. }));
                 assert_self_pair(&run.mutants[0], None);
             }
@@ -281,7 +321,7 @@ mod kink_tier {
             let tests = [start()];
             let campaign = campaign(&validator, "LAMFUN", &tests);
             for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-                let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                let run = run_named(&campaign, &generation, schedule).unwrap();
                 assert_self_pair(&run.mutants[0], None);
             }
         });
@@ -298,7 +338,7 @@ mod kink_tier {
             let tests = [start()];
             let campaign = campaign(&validator, "MAPFUN", &tests);
             for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-                let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                let run = run_named(&campaign, &generation, schedule).unwrap();
                 assert_self_pair(&run.mutants[0], Some("MAPFUN.f"));
             }
         });
@@ -317,7 +357,7 @@ mod kink_tier {
             let tests = [start()];
             let campaign = campaign(&validator, "LAMRULE", &tests);
             for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-                let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                let run = run_named(&campaign, &generation, schedule).unwrap();
                 let mutant = &run.mutants[0];
                 assert_eq!(mutant.plan.mutant_failure, None, "{schedule:?}");
                 assert!(mutant.report.inconsistent_pairs.is_empty());
@@ -378,7 +418,7 @@ mod kink_tier {
                 let generation = literal(baseline, rule, from, to);
                 let campaign = campaign(&validator, "CFGF", &tests);
                 for schedule in [ScheduleMode::Full, ScheduleMode::FirstKill] {
-                    let run = run_campaign(&campaign, &generation, schedule).unwrap();
+                    let run = run_named(&campaign, &generation, schedule).unwrap();
                     let mutant = &run.mutants[0];
                     assert_eq!(
                         named(baseline, "CFGF", &mutant.report.claims.withdrawn),

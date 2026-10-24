@@ -794,7 +794,7 @@ const CORPUS_MINIMUMS: Minimums = at_least(250, 200, 60, 50);
 /// 500 ms manifests are the only ones the clock may leave uncompared (both timed out): its
 /// minimum of compared pairs is 9 below the 29 compared; every other minimum is what was
 /// compared.
-const CORPUS: [(&str, &[&str], Minimums); 16] = [
+const CORPUS: [(&str, &[&str], Minimums); 23] = [
     ("bytes-map", &["FLOW.toml"], at_least(1, 0, 0, 0)),
     (
         "calc",
@@ -828,6 +828,23 @@ const CORPUS: [(&str, &[&str], Minimums); 16] = [
     ("markdown", &["FLOW-view.toml"], at_least(28, 24, 6, 6)),
     ("overlap", &["FLOW.toml"], at_least(3, 2, 2, 2)),
     ("register", &["FLOW.toml"], at_least(15, 12, 4, 4)),
+    // fz26 KINK-BASELINE-FINDINGS: the seven repros whose baselines have findings (no minimum:
+    // they are there for the baseline gate, `tests/findings.rs`).
+    ("findings/diamond", &["FLOW.toml"], at_least(0, 0, 0, 0)),
+    ("findings/r3-modov", &["FLOW.toml"], at_least(0, 0, 0, 0)),
+    ("findings/r3-plainq", &["FLOW.toml"], at_least(0, 0, 0, 0)),
+    (
+        "findings/r3-propagate",
+        &["FLOW.toml"],
+        at_least(0, 0, 0, 0),
+    ),
+    ("findings/r4-empty", &["FLOW.toml"], at_least(0, 0, 0, 0)),
+    ("findings/r4-hookite", &["FLOW.toml"], at_least(0, 0, 0, 0)),
+    (
+        "findings/r4-partnorule",
+        &["FLOW.toml"],
+        at_least(0, 0, 0, 0),
+    ),
     ("twin", &["FLOW.toml"], at_least(3, 2, 2, 2)),
 ];
 
@@ -1056,6 +1073,22 @@ mod kink_tier {
     #[ignore = "kink"]
     fn modality_on_twin() {
         corpus_specification("twin", &["FLOW.toml"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn modality_on_the_findings_repros() {
+        for name in [
+            "findings/diamond",
+            "findings/r3-modov",
+            "findings/r3-plainq",
+            "findings/r3-propagate",
+            "findings/r4-empty",
+            "findings/r4-hookite",
+            "findings/r4-partnorule",
+        ] {
+            corpus_specification(name, &["FLOW.toml"]);
+        }
     }
 
     /// The converging fixtures of `testdata/k/l1` (L1-1 review 1 minors 1-4), baseline and mutants:

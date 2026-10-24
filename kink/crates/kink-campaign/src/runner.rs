@@ -4416,7 +4416,8 @@ mod tests {
                         ]
                     );
                     // The baseline's steps, then each candidate's turn in candidate order, each
-                    // with its own consistency check, backend build and executions.
+                    // with its own backend build (whose loaded definition its full check reads,
+                    // fz26 KINK-BASELINE-FINDINGS), consistency check and executions.
                     let turns = ahead_steps
                         .iter()
                         .enumerate()
@@ -4442,8 +4443,8 @@ mod tests {
                         assert_eq!(
                             own,
                             [
-                                Stage::Consistency,
                                 Stage::Backend,
+                                Stage::Consistency,
                                 Stage::Execute,
                                 Stage::Execute
                             ],
