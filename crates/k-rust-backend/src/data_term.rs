@@ -86,23 +86,25 @@
 //! # Findings: genuine or undecided
 //!
 //! A finding of the full check ([`Finding`]) is *genuine* only when it comes with a
-//! [`GroundInstance`]: a ground instance of the pair's overlap at which the conjunction of both
-//! equations' `requires` evaluates to `true` and the two one-step reducts evaluate to two
-//! different terms built only from free constructors, injections, domain values and rest-free
-//! collections of them (`instance.rs`). Both reducts equal the instance by an equation of the
-//! definition, so the definition's equations state that one ground input has two different
-//! constructor values: the equations are not confluent there, whatever the checker can or
-//! cannot decide. Every other finding is *undecided*: not shown to join, which may be a limit of
-//! the checker (a condition its solver-free reader does not decide, a shape its unifier does not
+//! [`GroundInstance`] (`instance.rs`): a ground, defined instance of the pair's overlap at which
+//! both equations apply (each matches its redex, its `requires` holds, and no equation of its
+//! head with a higher priority applies), and whose two reducts evaluate to two data terms that
+//! are distinct in every model in which the constructor declarations, the injectivity of sort
+//! injections and the builtin hooks hold (terms that differ only by injections from different
+//! source sorts, or that an overload equation may identify, are not). Each step is an instance
+//! of an axiom where it applies, so the definition equates the two terms: no model satisfies
+//! it. Every other finding is *undecided*: not shown to join, which may be a limit of the
+//! checker (a condition its solver-free reader does not decide, a shape its unifier does not
 //! solve) as well as a defect of the definition.
 //!
 //! # Assumed pairs
 //!
 //! A client may name pairs the definition is to be read as joining
-//! ([`BackendDefinition::data_heads_assuming`]), for instance one it knows to be unreachable
-//! from its inputs. The data judgement is then sound relative to that premise, which the client
-//! must state wherever the judgement is reported: the assumed findings no longer withdraw every
-//! datum. The overload data heads and the instance-normal scan still read the definition's load
+//! ([`BackendDefinition::data_heads_assuming`]). The data judgement is then about that reading
+//! of the definition, not about the definition as written: a premise the client states wherever
+//! the judgement is reported. Which inputs reach the pair does not enter: the judgement is about
+//! the definition's models, and a genuine pair has none whatever the inputs. The assumed
+//! findings no longer withdraw every datum. The overload data heads and the instance-normal scan still read the definition's load
 //! verdict (`ValueClaims`), which withdraws the claims an assumed pair's taint closure reaches;
 //! so an assumed pair can only make fewer terms data than a definition in which it joins.
 

@@ -24,9 +24,9 @@ use support::{
     CLAIMSTEP, CLAIMSTEP_PARTIAL, CLAIMSTEP_PRESERVES, CLAIMSTEP_TOTAL, COIN, COIN_KILL,
     COIN_LAYOUT, COIN_PRIO, COIN_SWAPPED, DIA, DIA_M, DIAMOND, DIAMOND_PLUS, Fixture,
     IMP_ADD_COMMUTED, IMP_DECL_ALLOWS_REDECLARATION, IMP_DIFF, IMP_DIV_GUARD_DROPPED, KPLACE,
-    KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE, R2_ADDMEMBER, R2_ADDMEMBER_M,
-    R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R3_MODOV, R3_MODOV_M, R3_PLAINQ, R3_PLAINQ_M,
-    R3_PROPAGATE, R3_PROPAGATE_M, RERUN, RERUN_DROP,
+    KPLACE_M, MAC, MAC_KILL, OV, OV_INTS, OV_PREPEND, OV_SIZE, OWISE, OWISE_M, OWISE_X,
+    R2_ADDMEMBER, R2_ADDMEMBER_M, R2_ANYW, R2_ANYW_M, R2_OVER, R2_OVER_M, R3_MODOV, R3_MODOV_M,
+    R3_PLAINQ, R3_PLAINQ_M, R3_PROPAGATE, R3_PROPAGATE_M, RERUN, RERUN_DROP,
 };
 #[cfg(feature = "z3")]
 use support::{R2_PARAM, R2_PARAM_M};
@@ -861,11 +861,12 @@ fn a_function_pair_only_the_full_check_finds_is_never_a_kill() {
     assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
 }
 
-/// FZ-POLISH: R3-S1's pair is genuine: at `q(0)` the equations give `a` and `bb`. The finding
-/// names both equations by their written positions (no 64-hex id, no KORE name), shows the
-/// overlap, the reducts and the instance as K text, and carries the name `assume-joined` takes.
+/// FZ-POLISH review B1 (b) and S1: R3-S1's pair equates `a` with `bb`, which are injected into
+/// `AB` from different sorts: no axiom keeps them apart, so the theory stays consistent and the
+/// finding is undecided. The finding names both equations by their written positions (no 64-hex
+/// id, no KORE name) and carries the name `assume-joined` takes.
 #[test]
-fn a_pair_with_different_constructor_results_on_an_instance_is_genuine() {
+fn a_pair_equating_injections_from_different_sorts_is_undecided() {
     let report = r2_report(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm");
     let baseline = report
         .definition_findings
@@ -875,7 +876,8 @@ fn a_pair_with_different_constructor_results_on_an_instance_is_genuine() {
     let [finding] = baseline[..] else {
         panic!("one baseline finding: {:?}", report.definition_findings);
     };
-    assert_eq!(finding.verdict, FindingVerdict::Genuine, "{finding:?}");
+    assert_eq!(finding.verdict, FindingVerdict::Undecided, "{finding:?}");
+    assert!(finding.instance.is_none());
     assert_eq!(finding.kind, FindingKind::Pair);
     assert_eq!(finding.position.as_deref(), Some("root"));
     for equation in &finding.equations {
@@ -886,13 +888,11 @@ fn a_pair_with_different_constructor_results_on_an_instance_is_genuine() {
         name.starts_with("b.k:") && name.ends_with("@root"),
         "{name}"
     );
-    let instance = finding.instance.as_ref().expect("the instance");
-    assert_eq!(instance.overlap, "q ( 0 )", "{instance:?}");
-    let mut values = instance.values.clone();
-    values.sort();
-    assert_eq!(values, ["a", "bb"]);
-    // Readable throughout: no mangled KORE symbol and no 64-hex id.
-    let text = format!("{finding:?}");
+    assert_readable(&format!("{finding:?}"));
+}
+
+/// No mangled KORE symbol and no 64-hex id in `text`.
+fn assert_readable(text: &str) {
     assert!(!text.contains("Lbl"), "{text}");
     assert!(
         !text
@@ -900,6 +900,126 @@ fn a_pair_with_different_constructor_results_on_an_instance_is_genuine() {
             .any(|word| word.len() == 64),
         "{text}"
     );
+}
+
+/// FZ-POLISH review B1 (a): OWISE's two `owise` equations equate the constructors `a` and `bb`
+/// of one sort where both apply. The finding is genuine, and its instance is `g(1)`: at `g(0)`
+/// the priority-50 equation applies, so the owise equations do not. The reason says what the
+/// instance shows.
+#[test]
+fn a_genuine_instance_is_one_where_both_equations_apply() {
+    let report = r2_report(&OWISE, &OWISE_M, "owise/go.pgm");
+    assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
+    let genuine = report
+        .definition_findings
+        .iter()
+        .filter(|finding| finding.verdict == FindingVerdict::Genuine)
+        .collect::<Vec<_>>();
+    assert_eq!(genuine.len(), 2, "{:?}", report.definition_findings);
+    for finding in genuine {
+        let instance = finding.instance.as_ref().expect("the instance");
+        assert_eq!(instance.overlap, "g ( 1 )", "{instance:?}");
+        let mut values = instance.values.clone();
+        values.sort();
+        assert_eq!(values, ["a", "bb"]);
+        assert!(
+            finding
+                .reason
+                .starts_with("at g ( 1 ) the two equations equate ")
+                && finding
+                    .reason
+                    .ends_with("distinct data terms, so no model satisfies the definition"),
+            "{}",
+            finding.reason
+        );
+        assert_readable(&format!("{finding:?}"));
+    }
+}
+
+/// FZ-POLISH review S2: R3-PROPAGATE's overload-axiom pairs have reducts that differ only by the
+/// source sorts of injections; they are undecided, and their texts are written apart (with the
+/// sorts) instead of reading alike. Review S3: compiler-generated overload axioms are named
+/// (`overload:GREATER:LESSER`), so the pairs can be assumed joined.
+#[test]
+fn reducts_that_differ_only_by_injection_sorts_are_written_apart_and_named() {
+    let report = r2_report(&R3_PROPAGATE, &R3_PROPAGATE_M, "r3-propagate/go.pgm");
+    assert!(!report.definition_findings.is_empty());
+    for finding in &report.definition_findings {
+        assert_eq!(finding.verdict, FindingVerdict::Undecided, "{finding:?}");
+        if let [left, right] = &finding.reducts[..] {
+            assert_ne!(left, right, "{finding:?}");
+        }
+        let name = finding.name.as_deref().expect("every pair is named");
+        assert!(name.contains("overload:"), "{name}");
+    }
+    let mut names = report
+        .definition_findings
+        .iter()
+        .filter_map(|finding| finding.name.clone())
+        .collect::<Vec<_>>();
+    names.sort();
+    names.dedup();
+    let mut spec = spec_on(&R3_PROPAGATE, &R3_PROPAGATE_M, "r3-propagate/go.pgm", None);
+    spec.options.assume_joined = names;
+    let assumed = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(1), None);
+    assert!(
+        assumed
+            .definition_findings
+            .iter()
+            .all(|finding| finding.assumed),
+        "{:?}",
+        assumed.definition_findings
+    );
+}
+
+/// FZ-POLISH review S5: `baseline:` restricts a name to the baseline, so the mutant keeps its
+/// finding; with `mutant:` the baseline's name matches nothing and is refused.
+#[test]
+fn a_side_prefix_restricts_an_assumed_pair_to_one_definition() {
+    let names = plainq_pair_names();
+    let mut spec = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    spec.options.assume_joined = vec![format!("baseline:{}", names[0])];
+    let report = Campaign::new(spec)
+        .expect("valid")
+        .run(Budget::Cases(1), None);
+    assert_not_comparable(&report, &[DefinitionRole::Mutant]);
+    let mut spec = spec_on(&R3_PLAINQ, &R3_PLAINQ_M, "r3-plainq/go.pgm", None);
+    spec.options.assume_joined = vec![format!("mutant:{}", names[0])];
+    assert!(Campaign::new(spec).is_err());
+}
+
+/// FZ-POLISH review S5: an unprefixed name applies on each definition where it matches and must
+/// name the same equations on both. `OW.ow1,OW.ow2@root` names OWISE's owise pair on both of
+/// OWISE and OWISE_M (the same equations): accepted, with a warning that the assumed pair is
+/// genuine. On OWISE_X the labels sit on other equations: refused as ambiguous, and accepted
+/// with a side prefix per definition.
+#[test]
+fn an_assumed_name_matching_different_pairs_on_the_two_sides_is_refused() {
+    let labels = "OW.ow1,OW.ow2@root".to_owned();
+    let mut spec = spec_on(&OWISE, &OWISE_M, "owise/go.pgm", None);
+    spec.options.assume_joined = vec![labels.clone()];
+    let run = Campaign::new(spec)
+        .expect("one pair on both sides")
+        .run(Budget::Cases(1), None);
+    assert!(
+        run.warnings.iter().any(|warning| {
+            warning.starts_with("assume-joined (baseline): ") && warning.contains("is genuine")
+        }),
+        "{:?}",
+        run.warnings
+    );
+    let mut spec = spec_on(&OWISE, &OWISE_X, "owise/go.pgm", None);
+    spec.options.assume_joined = vec![labels.clone()];
+    let error = Campaign::new(spec).err().expect("refused");
+    assert!(
+        error.to_string().contains("different equation pairs"),
+        "{error}"
+    );
+    let mut spec = spec_on(&OWISE, &OWISE_X, "owise/go.pgm", None);
+    spec.options.assume_joined = vec![format!("baseline:{labels}"), format!("mutant:{labels}")];
+    assert!(Campaign::new(spec).is_ok());
 }
 
 /// The names of R3-PLAINQ's pair in each definition, as the report's findings give them: the

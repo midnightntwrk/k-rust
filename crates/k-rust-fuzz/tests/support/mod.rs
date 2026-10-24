@@ -722,6 +722,15 @@ pub const R3_PLAINQ_PROGRAMS: &[Program] = &[program!("r3-plainq/go.pgm")];
 fixture!(R3_PLAINQ, "r3-plainq/b.k", "PQ", R3_PLAINQ_PROGRAMS);
 fixture!(R3_PLAINQ_M, "r3-plainq/m.k", "PQ", R3_PLAINQ_PROGRAMS);
 
+/// FZ-POLISH review B1: two `owise` equations equating the constructors `a` and `bb` of one
+/// sort, beside a priority-50 equation for `g(X)` with `X <=Int 0`; a genuine finding whose
+/// instance must be `g(1)`. The mutant stores `g(N +Int 0)`.
+pub const OWISE_PROGRAMS: &[Program] = &[program!("owise/go.pgm")];
+fixture!(OWISE, "owise/b.k", "OW", OWISE_PROGRAMS);
+fixture!(OWISE_M, "owise/m.k", "OW", OWISE_PROGRAMS);
+/// OWISE with the labels `ow1` and `ow2` on other equations (`g(_) => c`, `g(_) => bb`).
+fixture!(OWISE_X, "owise/x.k", "OW", OWISE_PROGRAMS);
+
 /// The macro-only pair (phase-1 review B1): equal `definition.kore`, unequal `macros.kore`.
 pub const MAC_PROGRAMS: &[Program] = &[program!("mac/inc.pgm")];
 fixture!(MAC, "mac/mac.k", "MAC", MAC_PROGRAMS);
@@ -949,7 +958,7 @@ fixture!(RERUN_DROP, "rerun/rerun-drop.k", "RERUN", RERUN_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 74] = [
+pub static ALL: [&Fixture; 77] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1024,4 +1033,7 @@ pub static ALL: [&Fixture; 74] = [
     &R3_PROPAGATE_M,
     &R3_PLAINQ,
     &R3_PLAINQ_M,
+    &OWISE,
+    &OWISE_M,
+    &OWISE_X,
 ];

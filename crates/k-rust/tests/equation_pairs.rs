@@ -50,6 +50,15 @@ const ANYWHERE_HEAD: &str = "  syntax Wrap ::= wr(MyTok) [symbol(wr)] | nw(Wrap)
 /// `nw` when `with_head`. Without it the definition has nothing the load could withdraw, so the
 /// load classifies none of its pairs; `CheckScope::All` classifies them either way.
 fn definition(declarations: &str, with_head: bool) -> std::sync::Arc<BackendDefinition> {
+    definition_importing("", declarations, with_head)
+}
+
+/// [`definition`], with the module also importing `imports` (`imports MAP` lines).
+fn definition_importing(
+    imports: &str,
+    declarations: &str,
+    with_head: bool,
+) -> std::sync::Arc<BackendDefinition> {
     let head = if with_head { ANYWHERE_HEAD } else { "" };
     let source = format!(
         r#"module PAIRS
@@ -57,6 +66,7 @@ fn definition(declarations: &str, with_head: bool) -> std::sync::Arc<BackendDefi
   imports BOOL
   imports STRING
   imports K-EQUAL
+{imports}
   syntax MyTok ::= r"[a-z][a-z0-9]*" [token]
 {head}
   syntax Prog ::= go(MyTok) [symbol(go)] | val(Int) [symbol(val)]
@@ -484,4 +494,127 @@ fn a_pair_with_different_results_on_a_ground_instance_is_genuine() {
             .iter()
             .all(|finding| !finding.is_genuine())
     );
+}
+
+/// The genuine findings of `definition`'s full check between the equations labelled `first` and
+/// `second`, and whether the check reports such a pair at all.
+fn genuine_between(
+    definition: &BackendDefinition,
+    first: &str,
+    second: &str,
+) -> (bool, Vec<k_rust_backend::data_term::GroundInstance>) {
+    let (first, second) = (format!("PAIRS.{first}"), format!("PAIRS.{second}"));
+    let label = |rule: &k_rust_backend::rule::RewriteRule| rule.attributes.label.clone();
+    let heads = definition.data_heads();
+    let pairs = heads
+        .findings()
+        .iter()
+        .filter(|finding| {
+            finding.pair().is_some_and(|pair| {
+                let labels = (label(&pair.first), label(&pair.second));
+                labels == (Some(first.clone()), Some(second.clone()))
+                    || labels == (Some(second.clone()), Some(first.clone()))
+            })
+        })
+        .collect::<Vec<_>>();
+    (
+        !pairs.is_empty(),
+        pairs
+            .iter()
+            .filter_map(|finding| finding.instance().cloned())
+            .collect(),
+    )
+}
+
+/// FZ-POLISH review B1 (`prio/b.k`): `f(0) => 3 [priority(10)]` takes every input where the
+/// guards of the two priority-50 equations hold, so they apply nowhere and the definition is
+/// confluent. The check still reports their pair (it pairs within one priority group), but the
+/// instance `f(0)` is no instance where both apply: undecided, never genuine.
+#[test]
+fn a_pair_a_higher_priority_equation_preempts_is_not_genuine() {
+    let definition = definition(
+        "  syntax Int ::= f(Int) [function, symbol(f)]
+  rule [p]: f(0) => 3 [priority(10)]
+  rule [a]: f(X) => 1 requires X ==Int 0
+  rule [b]: f(X) => 2 requires X ==Int 0",
+        false,
+    );
+    let (reported, genuine) = genuine_between(&definition, "a", "b");
+    assert!(reported);
+    assert!(genuine.is_empty(), "{genuine:?}");
+}
+
+/// FZ-POLISH review B1 (`prio/o.k`): `g(X) => 3 requires X <=Int 0` beside two `owise`
+/// equations: the pair really is not confluent, at `g(1)`, and that is the instance exhibited,
+/// never `g(0)`, where the priority-50 equation applies.
+#[test]
+fn an_owise_pair_is_exhibited_where_both_owise_equations_apply() {
+    let definition = definition(
+        "  syntax Int ::= g(Int) [function, total, symbol(g)]
+  rule [p]: g(X) => 3 requires X <=Int 0
+  rule [a]: g(_) => 1 [owise]
+  rule [b]: g(_) => 2 [owise]",
+        false,
+    );
+    let (reported, genuine) = genuine_between(&definition, "a", "b");
+    assert!(reported);
+    let [instance] = &genuine[..] else {
+        panic!("one genuine instance: {genuine:?}");
+    };
+    let k_rust_backend::term::TermKind::Application { arguments, .. } = instance.overlap.kind()
+    else {
+        panic!("an application: {instance:?}");
+    };
+    assert_eq!(
+        arguments[0],
+        k_rust_backend::term::Term::int(1),
+        "{instance:?}"
+    );
+}
+
+/// FZ-POLISH review B1 (`mapdup/b.k`): `m(K |-> _ M) => 1 requires K in_keys(M)` applies at no
+/// defined map (in a well-formed `K |-> _ M`, `K` is never a key of `M`), so `m` is 0 everywhere.
+/// An instance holding a map with a repeated key is `\bottom` and proves nothing: undecided.
+#[test]
+fn an_instance_with_a_repeated_map_key_is_not_genuine() {
+    let definition = definition_importing(
+        "  imports MAP",
+        "  syntax Int ::= m(Map) [function, symbol(m)]
+  rule [a]: m(K |-> _ M) => 1 requires K in_keys(M)
+  rule [b]: m(_:Map) => 0",
+        false,
+    );
+    let (reported, genuine) = genuine_between(&definition, "a", "b");
+    assert!(reported);
+    assert!(genuine.is_empty(), "{genuine:?}");
+}
+
+/// FZ-POLISH review B1 (b) and S1: `q(_) => a` beside `q(_) => bb`, with `a` and `bb` of the
+/// sorts `A` and `B` below `AB`, equate `inj{A,AB}(a)` with `inj{B,AB}(bb)`, which no axiom
+/// keeps apart: the theory stays consistent, so the finding is undecided. With `a` and `bb`
+/// constructors of one sort it is genuine.
+#[test]
+fn values_only_injections_from_different_sorts_separate_are_not_distinct() {
+    let apart = definition(
+        r#"  syntax A ::= "a" [symbol(a)]
+  syntax B ::= "bb" [symbol(bb)]
+  syntax AB ::= A | B
+  syntax AB ::= q(Int) [function, total, symbol(q)]
+  rule [a]: q(_) => a
+  rule [b]: q(_) => bb"#,
+        false,
+    );
+    let (reported, genuine) = genuine_between(&apart, "a", "b");
+    assert!(reported);
+    assert!(genuine.is_empty(), "{genuine:?}");
+    let together = definition(
+        r#"  syntax AB ::= "a" [symbol(a)] | "bb" [symbol(bb)]
+  syntax AB ::= q(Int) [function, total, symbol(q)]
+  rule [a]: q(_) => a
+  rule [b]: q(_) => bb"#,
+        false,
+    );
+    let (reported, genuine) = genuine_between(&together, "a", "b");
+    assert!(reported);
+    assert_eq!(genuine.len(), 1, "{genuine:?}");
 }

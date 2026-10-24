@@ -93,7 +93,10 @@ The tickets are those of `impl.toml`; the classes are those of `ARCHITECTURE.md`
 | R3_PROPAGATE | `r3-propagate/b.k`, `r3-propagate/go.pgm` | `PR` (`PR-SYNTAX`) | The broken diamond plus `pick(.Ids) => a`, `pick(.Vals) => bb`. Stores `a`. | FZ-DATAEND review R3-B1 (main kills it) |
 | | `r3-propagate/m.k` | | Stores `bb`. | `unsupported`, `definition-not-confluent` |
 | R3_PLAINQ | `r3-plainq/b.k`, `r3-plainq/go.pgm` | `PQ` (`PQ-SYNTAX`) | `q(_) => a`, `q(_) => bb` (total), a pair only the full check classifies. Stores `a`. | FZ-DATAEND review R3-S1 |
-| | `r3-plainq/m.k` | | Stores `bb`. | `unsupported`, `definition-not-confluent` (the full check runs at campaign setup) |
+| | `r3-plainq/m.k` | | Stores `bb`. | `not-comparable`, no case; the pair is undecided (`a` and `bb` are injected from different sorts) |
+| OWISE | `owise/b.k`, `owise/go.pgm` | `OW` (`OW-SYNTAX`) | `g(X) => c requires X <=Int 0` beside two `owise` equations to `a` and `bb`. Stores `g(N)`. | FZ-POLISH review B1 |
+| | `owise/m.k` | | Stores `g(N +Int 0)`. | `not-comparable`, no case; the owise pair is genuine at `g(1)`, never `g(0)` |
+| | `owise/x.k` | | The labels `ow1`, `ow2` on `g(_) => c` and `g(_) => bb`. | an unprefixed assume-joined name by labels matches different pairs on the two sides: refused |
 
 ## Not covered here
 

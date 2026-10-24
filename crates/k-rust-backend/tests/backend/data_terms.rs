@@ -241,31 +241,15 @@ fn a_pair_of_function_equations_with_different_results_withdraws_all_data() {
     let heads = definition.data_heads();
     assert!(!heads.confluent(), "{:?}", heads.findings());
     assert!(!data(&definition, &heads, "one{}()"));
-    // The finding is genuine (FZ-POLISH): at `q(one)` the two equations give `one` and
-    // `inj(bottom)`, two different constructor terms.
+    // The finding is undecided (FZ-POLISH review B1): `one` and `inj{Bottom,Val}(bottom)` are
+    // a constructor of `Val` and an injection into it, which no axiom keeps apart, so the
+    // instance `q(one)` proves no inconsistency.
     let [finding] = heads.findings() else {
         panic!("one finding: {:?}", heads.findings());
     };
-    let instance = finding.instance().expect("a genuine finding");
-    assert_eq!(
-        instance.overlap,
-        term(&definition, "q{}(one{}())"),
-        "{instance:?}"
-    );
-    let values = [&instance.values.0, &instance.values.1];
-    assert!(
-        values.contains(&&term(&definition, "one{}()")),
-        "{values:?}"
-    );
-    assert!(
-        values.contains(&&term(
-            &definition,
-            "inj{SortBottom{}, SortVal{}}(bottom{}())"
-        )),
-        "{values:?}"
-    );
+    assert!(!finding.is_genuine(), "{:?}", finding.instance());
     // Assumed joined, the pair no longer withdraws every datum: the definition has data again.
-    let assumed = definition.data_heads_assuming(&heads, |finding| finding.is_genuine());
+    let assumed = definition.data_heads_assuming(&heads, |_| true);
     assert!(assumed.confluent(), "{:?}", assumed.findings());
     assert_eq!(assumed.assumed().len(), 1);
     assert!(data(&definition, &assumed, "one{}()"));
@@ -274,6 +258,45 @@ fn a_pair_of_function_equations_with_different_results_withdraws_all_data() {
         !definition
             .data_heads_assuming(&heads, |_| false)
             .confluent()
+    );
+}
+
+/// FZ-POLISH: two equations whose results are distinct constructors of one sort at a ground
+/// instance make the finding genuine: at `s(one)` they equate `failed` and `bound(one)`, which
+/// the constructor declarations keep apart in every model, so no model satisfies the definition.
+#[test]
+fn a_pair_equating_two_constructors_of_one_sort_is_genuine() {
+    let definition = with_sentences(
+        r#"
+    symbol s{}(SortVal{}) : SortState{} [function{}(), total{}()]
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortVal{}, R}(X0:SortVal{}, V:SortVal{}), \top{R}())),
+        \equals{SortState{}, R}(s{}(X0:SortVal{}), \and{SortState{}}(failed{}(), \top{SortState{}}())))
+        [label{}("s-failed")]
+    axiom{R} \implies{R}(
+        \and{R}(\top{R}(), \and{R}(\in{SortVal{}, R}(X0:SortVal{}, V:SortVal{}), \top{R}())),
+        \equals{SortState{}, R}(s{}(X0:SortVal{}), \and{SortState{}}(bound{}(V:SortVal{}), \top{SortState{}}())))
+        [label{}("s-bound")]
+"#,
+    );
+    let heads = definition.data_heads();
+    let [finding] = heads.findings() else {
+        panic!("one finding: {:?}", heads.findings());
+    };
+    let instance = finding.instance().expect("a genuine finding");
+    assert_eq!(
+        instance.overlap,
+        term(&definition, "s{}(one{}())"),
+        "{instance:?}"
+    );
+    let values = [&instance.values.0, &instance.values.1];
+    assert!(
+        values.contains(&&term(&definition, "failed{}()")),
+        "{values:?}"
+    );
+    assert!(
+        values.contains(&&term(&definition, "bound{}(one{}())")),
+        "{values:?}"
     );
 }
 

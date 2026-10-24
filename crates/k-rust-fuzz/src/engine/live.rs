@@ -25,8 +25,8 @@ use crate::{
     graph::{self, RuleGraph, entry::Entry},
     holes::{self, HoleSite, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
     report::{
-        DefinitionRole, HoleValue, KillKind, NormalEnds, Reaching, RejectionReason, TargetRule,
-        WitnessSide,
+        DefinitionRole, FindingVerdict, HoleValue, KillKind, NormalEnds, Reaching, RejectionReason,
+        TargetRule, WitnessSide,
     },
     score,
     spec::{BackendRoute, CampaignSpec, CompiledDefinition, PathMode, ProgramInput},
@@ -115,7 +115,9 @@ impl Side {
                 .with_compiler(compiler);
             (executor, normal_end)
         };
-        let mut executor = executor.with_data_heads(seed.data_heads.cloned());
+        let mut executor = executor
+            .with_assume_joined(crate::findings::for_side(role, &spec.options.assume_joined))
+            .with_data_heads(seed.data_heads.cloned());
         if let Some((holes, round_trip)) = seed.resolved {
             return Ok(Self {
                 definition: Arc::clone(definition),
@@ -548,8 +550,9 @@ impl LiveCases {
             }
         }
         let mut stated = DefinitionFindings::default();
-        // How many pair findings each name matches, over the definitions.
-        let mut matched = vec![0_usize; assume_joined.len()];
+        // The pair each name matches on each definition, by its equations' identities.
+        let mut matched: Vec<Vec<(DefinitionRole, Vec<String>, String)>> =
+            vec![Vec::new(); assume_joined.len()];
         for (role, side) in sides {
             let side_name = match role {
                 DefinitionRole::Baseline => "baseline",
@@ -567,12 +570,16 @@ impl LiveCases {
                     continue;
                 }
             };
-            for (given, count) in assume_joined.iter().zip(&mut matched) {
-                let pairs = crate::findings::named_pairs(given, heads);
+            for (given, found) in assume_joined.iter().zip(&mut matched) {
+                let (prefix, rest) = crate::findings::side_of(given);
+                if prefix.is_some_and(|prefix| prefix != role) {
+                    continue;
+                }
+                let pairs = crate::findings::named_pairs(rest, heads);
                 if pairs.len() > 1 {
                     let candidates = pairs
                         .iter()
-                        .map(|(equations, position)| format!("{}@{position}", equations.join(",")))
+                        .map(|(_, written)| written.clone())
                         .collect::<Vec<_>>()
                         .join("; ");
                     return Err(CampaignError::InvalidOptions {
@@ -582,7 +589,11 @@ impl LiveCases {
                         ),
                     });
                 }
-                *count += pairs.len();
+                found.extend(
+                    pairs
+                        .into_iter()
+                        .map(|(identities, written)| (role, identities, written)),
+                );
             }
             if !heads.confluent() {
                 stated.without_data.push(role);
@@ -600,27 +611,50 @@ impl LiveCases {
                     total - genuine
                 ));
             }
-            stated
-                .findings
-                .extend(crate::findings::report(role, heads, text.as_ref()));
+            let entries = crate::findings::report(role, heads, text.as_ref());
+            // A pair the campaign assumes joined although the check shows it does not join: the
+            // verdicts then hold for a reading of the definition that no model satisfies.
+            for entry in entries
+                .iter()
+                .filter(|entry| entry.assumed && entry.verdict == FindingVerdict::Genuine)
+            {
+                stated.warnings.push(format!(
+                    "assume-joined ({side_name}): `{}` is genuine: {}; the verdicts hold only for \
+                     the definition read as if this pair joined, which no model satisfies, not \
+                     for the definition as written",
+                    entry.name.as_deref().unwrap_or_default(),
+                    entry.reason
+                ));
+            }
+            stated.findings.extend(entries);
         }
-        if let Some((given, _)) = assume_joined
-            .iter()
-            .zip(&matched)
-            .find(|(_, count)| **count == 0)
-        {
-            return Err(CampaignError::InvalidOptions {
-                message: format!(
-                    "assume-joined names `{given}`, which matches no unjoined pair of the \
-                     definitions' critical-pair checks; name a pair as the report's \
-                     definition-findings name it: FIRST,SECOND@POSITION"
-                ),
-            });
+        for (given, found) in assume_joined.iter().zip(&matched) {
+            if found.is_empty() {
+                return Err(CampaignError::InvalidOptions {
+                    message: format!(
+                        "assume-joined names `{given}`, which matches no unjoined pair of the \
+                         definitions' critical-pair checks; name a pair as the report's \
+                         definition-findings name it: FIRST,SECOND@POSITION, optionally after \
+                         `baseline:` or `mutant:`"
+                    ),
+                });
+            }
+            if let [(_, first, written_first), (_, second, written_second)] = &found[..]
+                && first != second
+            {
+                return Err(CampaignError::InvalidOptions {
+                    message: format!(
+                        "assume-joined names `{given}`, which matches different equation pairs on \
+                         the two definitions (baseline {written_first}, mutant {written_second}); \
+                         name each with `baseline:` or `mutant:` before it"
+                    ),
+                });
+            }
         }
         if !assume_joined.is_empty() {
             stated.warnings.push(format!(
-                "assume-joined: every verdict of this campaign holds only if the pairs {} join, \
-                 as the campaign assumes",
+                "assume-joined: the verdicts of this campaign hold for the definitions read as if \
+                 the pairs {} joined, not for the definitions as written",
                 assume_joined
                     .iter()
                     .map(|name| format!("`{name}`"))

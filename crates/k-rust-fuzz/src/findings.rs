@@ -3,11 +3,15 @@
 //! with readable terms ([`crate::report::DefinitionFinding`]).
 //!
 //! A pair is named `FIRST,SECOND@POSITION`: each equation by its written position
-//! `FILE:LINE:COLUMN` with the file's last path component, and the position in the first
-//! equation's left-hand side, `root` or argument indexes joined by `.`. A name given to
-//! `assume-joined` matches a pair when its position is the pair's and each rule part names the
-//! equation: its written position, or any trailing part of it that starts after a `/`, its
-//! unique id, or its label.
+//! `FILE:LINE:COLUMN` with the file's last path component (a compiler-generated overload axiom,
+//! which has none, by `overload:GREATER:LESSER`, the KORE names of its overloaded pair), and the
+//! position in the first equation's left-hand side, `root` or argument indexes joined by `.`. A
+//! name given to `assume-joined` matches a pair when its position is the pair's and each rule
+//! part names the equation: its written position, or any trailing part of it that starts after
+//! a `/`, its unique id, its label, or its overload part; a root pair is matched in either order.
+//! A name may start with `baseline:` or `mutant:` to apply on that definition only; otherwise it
+//! applies on each definition where it matches, and must match the same equations (by unique
+//! id) on both.
 
 use std::collections::BTreeSet;
 
@@ -20,7 +24,7 @@ use k_rust::{
         substitution::{Substitution, substitute},
         term::Term,
     },
-    kast::identifier::{decode_label, decode_variable, encode_variable},
+    kast::identifier::{decode_label, decode_sort_name, decode_variable, encode_variable},
     kore::ast::{Pattern as KorePattern, VariableKind},
 };
 
@@ -59,19 +63,32 @@ fn position_text(position: &[usize]) -> String {
     }
 }
 
-/// The name `assume-joined` takes for `pair` (the module documentation), `None` when an
-/// equation has no written position.
-pub(crate) fn name(pair: &UnjoinedPair) -> Option<String> {
-    let short = |rule: &RewriteRule| {
-        written(rule).map(|written| match written.rsplit_once('/') {
+/// The overload part naming a compiler-generated overload axiom, which has no written position.
+fn overload_part(rule: &RewriteRule) -> Option<String> {
+    let (greater, lesser) = rule.attributes.overload.as_ref()?;
+    Some(format!("overload:{greater}:{lesser}"))
+}
+
+/// How a name writes `rule`: its written position with the file's last path component, else its
+/// overload part, its label or its unique id.
+fn rule_part(rule: &RewriteRule) -> Option<String> {
+    written(rule)
+        .map(|written| match written.rsplit_once('/') {
             Some((_, file)) => file.to_owned(),
             None => written,
         })
-    };
+        .or_else(|| overload_part(rule))
+        .or_else(|| rule.attributes.label.clone())
+        .or_else(|| rule.attributes.identifier().map(str::to_owned))
+}
+
+/// The name `assume-joined` takes for `pair` (the module documentation), `None` when an
+/// equation has neither a written position, an overloaded pair, a label nor a unique id.
+pub(crate) fn name(pair: &UnjoinedPair) -> Option<String> {
     Some(format!(
         "{},{}@{}",
-        short(&pair.first)?,
-        short(&pair.second)?,
+        rule_part(&pair.first)?,
+        rule_part(&pair.second)?,
         position_text(&pair.position)
     ))
 }
@@ -89,10 +106,11 @@ fn names_rule(given: &str, rule: &RewriteRule) -> bool {
                 .is_some_and(|prefix| prefix.ends_with('/'))
     }) || rule.attributes.identifier() == Some(given)
         || rule.attributes.label.as_deref() == Some(given)
+        || overload_part(rule).as_deref() == Some(given)
 }
 
-/// Whether the name `given` names `pair` (the module documentation). A name not of the shape
-/// `FIRST,SECOND@POSITION` names nothing.
+/// Whether the name `given`, without a side prefix, names `pair` (the module documentation). A
+/// name not of the shape `FIRST,SECOND@POSITION` names nothing.
 pub(crate) fn names(given: &str, pair: &UnjoinedPair) -> bool {
     let Some((rules, position)) = given.rsplit_once('@') else {
         return false;
@@ -101,19 +119,55 @@ pub(crate) fn names(given: &str, pair: &UnjoinedPair) -> bool {
         return false;
     };
     position.trim() == position_text(&pair.position)
-        && names_rule(first, &pair.first)
-        && names_rule(second, &pair.second)
+        && ((names_rule(first, &pair.first) && names_rule(second, &pair.second))
+            // A root pair is symmetric.
+            || (pair.position.is_empty()
+                && names_rule(first, &pair.second)
+                && names_rule(second, &pair.first)))
 }
 
-/// Whether one of `assumed` names `finding`'s pair.
+/// The names of `assume_joined` that apply on the definition `side`, side prefixes removed.
+pub(crate) fn for_side(side: DefinitionRole, assume_joined: &[String]) -> Vec<String> {
+    assume_joined
+        .iter()
+        .filter_map(|given| match side_of(given) {
+            (Some(named), _) if named != side => None,
+            (_, rest) => Some(rest.to_owned()),
+        })
+        .collect()
+}
+
+/// The side prefix of `given`, if any, and the name without it.
+pub(crate) fn side_of(given: &str) -> (Option<DefinitionRole>, &str) {
+    if let Some(rest) = given.strip_prefix("baseline:") {
+        (Some(DefinitionRole::Baseline), rest)
+    } else if let Some(rest) = given.strip_prefix("mutant:") {
+        (Some(DefinitionRole::Mutant), rest)
+    } else {
+        (None, given)
+    }
+}
+
+/// Whether one of `assumed` (side prefixes already removed) names `finding`'s pair.
 pub(crate) fn assumed(assumed: &[String], finding: &Finding) -> bool {
     finding
         .pair()
         .is_some_and(|pair| assumed.iter().any(|given| names(given, pair)))
 }
 
-/// The pairs `given` names among `heads`' findings, assumed or not, as `(equations, position)`
-/// so that one equation pair found on both sides counts once.
+/// How a pair's equations are identified across definitions: each by its unique id, else its
+/// overload part, else its written position.
+fn identity(rule: &RewriteRule) -> String {
+    rule.attributes
+        .identifier()
+        .map(str::to_owned)
+        .or_else(|| overload_part(rule))
+        .unwrap_or_else(|| equation(rule))
+}
+
+/// The pairs `given` (without a side prefix) names among `heads`' findings, assumed or not:
+/// each as its equations' identities ([`identity`]) and its position, and as the report writes
+/// it.
 pub(crate) fn named_pairs(given: &str, heads: &DataHeads) -> BTreeSet<(Vec<String>, String)> {
     heads
         .findings()
@@ -122,9 +176,20 @@ pub(crate) fn named_pairs(given: &str, heads: &DataHeads) -> BTreeSet<(Vec<Strin
         .filter_map(Finding::pair)
         .filter(|pair| names(given, pair))
         .map(|pair| {
+            let mut identities = vec![identity(&pair.first), identity(&pair.second)];
+            if pair.position.is_empty() {
+                // A root pair is symmetric: its equations in either order are one pair.
+                identities.sort();
+            }
+            identities.push(position_text(&pair.position));
             (
-                vec![equation(&pair.first), equation(&pair.second)],
-                position_text(&pair.position),
+                identities,
+                format!(
+                    "{},{}@{}",
+                    equation(&pair.first),
+                    equation(&pair.second),
+                    position_text(&pair.position)
+                ),
             )
         })
         .collect()
@@ -196,37 +261,37 @@ fn entry(
         Finding::Pair { pair, instance } => {
             let names = Readable::of(pair);
             let show = |term: &Term| names.show(term, text);
-            DefinitionFinding {
-                side,
-                verdict,
-                kind: FindingKind::Pair,
-                name: name(pair),
-                equations: vec![equation(&pair.first), equation(&pair.second)],
-                position: Some(position_text(&pair.position)),
-                reason: if instance.is_some() {
-                    "shown not to join: at the instance the two reducts evaluate to different \
-                     constructor terms"
-                        .to_owned()
-                } else {
-                    format!("not shown to join: {}", pair.reason)
-                },
-                overlap: pair.overlap.as_ref().map(show),
-                reducts: pair
-                    .sides
-                    .as_ref()
-                    .map(|(left, right)| {
-                        [left, right]
-                            .into_iter()
-                            .map(|side| side.as_ref().map_or_else(|| "\\bottom".to_owned(), show))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
-                conditions: pair
-                    .conditions
-                    .as_ref()
-                    .filter(|conditions| **conditions != Predicate::True)
-                    .map(|conditions| names.show_predicate(conditions, text)),
-                instance: instance.as_ref().map(|instance| FindingInstance {
+            // The reducts, then the overlap, written so that different terms never read alike.
+            let reducts = pair.sides.as_ref().map(|(left, right)| {
+                let bottom = || "\\bottom".to_owned();
+                match (left, right) {
+                    (Some(left), Some(right)) => names.show_apart(left, right, text),
+                    (left, right) => (
+                        left.as_ref().map_or_else(bottom, show),
+                        right.as_ref().map_or_else(bottom, show),
+                    ),
+                }
+            });
+            let overlap = pair.overlap.as_ref().map(|overlap| {
+                let written = show(overlap);
+                match (&reducts, &pair.sides) {
+                    (Some((left, right)), Some((left_term, right_term)))
+                        if written == *left || written == *right =>
+                    {
+                        let other = if written == *left {
+                            left_term
+                        } else {
+                            right_term
+                        };
+                        let other = other.as_ref().unwrap_or(overlap);
+                        names.show_apart(overlap, other, text).0
+                    }
+                    _ => written,
+                }
+            });
+            let instance = instance.as_ref().map(|instance| {
+                let (left, right) = names.show_apart(&instance.values.0, &instance.values.1, text);
+                FindingInstance {
                     assignment: instance
                         .assignment
                         .iter()
@@ -235,8 +300,34 @@ fn entry(
                         })
                         .collect(),
                     overlap: show(&instance.overlap),
-                    values: vec![show(&instance.values.0), show(&instance.values.1)],
-                }),
+                    values: vec![left, right],
+                }
+            });
+            DefinitionFinding {
+                side,
+                verdict,
+                kind: FindingKind::Pair,
+                name: name(pair),
+                equations: vec![equation(&pair.first), equation(&pair.second)],
+                position: Some(position_text(&pair.position)),
+                reason: match &instance {
+                    Some(instance) => format!(
+                        "at {} the two equations equate {} and {}, distinct data terms, so no \
+                         model satisfies the definition",
+                        instance.overlap, instance.values[0], instance.values[1]
+                    ),
+                    None => format!("not shown to join: {}", pair.reason),
+                },
+                overlap,
+                reducts: reducts
+                    .map(|(left, right)| vec![left, right])
+                    .unwrap_or_default(),
+                conditions: pair
+                    .conditions
+                    .as_ref()
+                    .filter(|conditions| **conditions != Predicate::True)
+                    .map(|conditions| names.show_predicate(conditions, text)),
+                instance,
                 assumed,
             }
         }
@@ -315,6 +406,18 @@ impl Readable {
             .unwrap_or_else(|| prefix(&pattern))
     }
 
+    /// `left` and `right` as [`Self::show`] writes them, or, when the two texts are equal although
+    /// the terms differ (the printers drop injections, so terms of different source sorts read
+    /// alike), as applications of K labels with each injection's source sort (`t : Sort`).
+    fn show_apart(&self, left: &Term, right: &Term, text: Option<&TextSyntax>) -> (String, String) {
+        let (left_text, right_text) = (self.show(left, text), self.show(right, text));
+        if left_text != right_text || left == right {
+            return (left_text, right_text);
+        }
+        let typed = |term: &Term| typed(&externalize::term(&substitute(term, &self.0)));
+        (typed(left), typed(right))
+    }
+
     /// `predicate`, its conjuncts joined by `andBool`, each a Boolean term as [`Self::show`]
     /// writes it when it is one, else its matching-logic form.
     fn show_predicate(&self, predicate: &Predicate, text: Option<&TextSyntax>) -> String {
@@ -328,6 +431,9 @@ impl Readable {
                 Predicate::Term(term) => self.show(term, text),
                 Predicate::Equals(left, right) if is_true(right) => self.show(left, text),
                 Predicate::Equals(left, right) if is_true(left) => self.show(right, text),
+                Predicate::Equals(left, right) => {
+                    format!("{} = {}", self.show(left, text), self.show(right, text))
+                }
                 other => {
                     let mut terms = Vec::new();
                     other.visit_terms(&mut |term| terms.push(self.show(term, text)));
@@ -366,6 +472,16 @@ fn connective(predicate: &Predicate) -> &'static str {
 /// `pattern` as applications of K labels: injections dropped, domain values as their text,
 /// variables by their K names.
 fn prefix(pattern: &KorePattern) -> String {
+    labelled(pattern, false)
+}
+
+/// [`prefix`], with each injection written as its argument and its source sort, `(t : Sort)`.
+fn typed(pattern: &KorePattern) -> String {
+    labelled(pattern, true)
+}
+
+fn labelled(pattern: &KorePattern, sorts: bool) -> String {
+    let prefix = |pattern: &KorePattern| labelled(pattern, sorts);
     match pattern {
         KorePattern::String(text) => format!("{:?}", String::from_utf8_lossy(text.as_bytes())),
         KorePattern::Variable(variable) => readable_variable(&variable.name),
@@ -379,7 +495,13 @@ fn prefix(pattern: &KorePattern) -> String {
             if symbol.name == "inj"
                 && let [argument] = arguments.as_slice()
             {
-                return prefix(argument);
+                return match (sorts, symbol.sort_parameters.first()) {
+                    (true, Some(k_rust::kore::ast::Sort::Application { name, .. })) => {
+                        let sort = decode_sort_name(name).unwrap_or_else(|_| name.clone());
+                        format!("({} : {sort})", prefix(argument))
+                    }
+                    _ => prefix(argument),
+                };
             }
             if symbol.name == "\\dv"
                 && let [KorePattern::String(text)] = arguments.as_slice()

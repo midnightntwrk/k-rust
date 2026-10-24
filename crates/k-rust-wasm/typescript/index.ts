@@ -1636,9 +1636,9 @@ export interface FuzzReport {
 }
 
 /**
- * One finding of a definition's full critical-pair check. `genuine`: a ground instance shows the
- * two equations giving two different constructor values; `undecided`: not shown to join, which
- * may be a limit of the check.
+ * One finding of a definition's full critical-pair check. `genuine`: at a ground instance both
+ * equations apply and equate two distinct data terms, so no model satisfies the definition;
+ * `undecided`: not shown to join, which may be a limit of the check.
  */
 export interface FuzzDefinitionFinding {
   side: 'baseline' | 'mutant'

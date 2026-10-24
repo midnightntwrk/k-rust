@@ -790,11 +790,12 @@ fn not_comparable(
         statement: format!(
             "{consequence}. The full critical-pair check of {named} equations reports pairs \
              it does not show to join (listed in the report's definition-findings: a genuine \
-             one comes with a ground instance on which the definition gives two values; an \
-             undecided one may be a limit of the check). Fix a genuine pair in the definition; \
-             a pair known to be harmless (unreachable from the programs compared) can be \
-             assumed joined by naming it with `assume-joined`, and every verdict then holds \
-             only under that assumption. No case was run."
+             one comes with a ground instance at which the two equations equate distinct data \
+             terms, so no model satisfies the definition; an undecided one may be a limit of \
+             the check). Fix a genuine pair in the definition. Naming a pair with \
+             `assume-joined` makes the campaign judge the definition read as if that pair \
+             joined: its verdicts then hold for that reading, not for the definition as \
+             written, whatever inputs reach the pair. No case was run."
         ),
     })
 }
@@ -863,6 +864,15 @@ fn identity(
         target_rule: None,
         options: CaseOptions {
             max_work: spec.options.effective_max_work(),
+            // A set of premises: the same names in another order are the same campaign.
+            assume_joined: spec
+                .options
+                .assume_joined
+                .iter()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .collect(),
             ..spec.options.clone()
         },
         proposers: spec.proposers.clone(),

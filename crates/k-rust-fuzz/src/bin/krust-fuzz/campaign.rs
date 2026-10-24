@@ -827,6 +827,7 @@ fn options(file: OptionsFile, flags: &Overrides) -> Result<CaseOptions, String> 
             options.assume_joined.push(name);
         }
     }
+    options.assume_joined.sort();
     Ok(options)
 }
 

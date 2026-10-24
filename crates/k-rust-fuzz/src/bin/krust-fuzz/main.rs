@@ -640,10 +640,10 @@ fn write_findings(text: &mut String, report: &FuzzReport) {
                 .any(|finding| finding.verdict == FindingVerdict::Genuine)
         };
         groups.sort_by_key(|(_, members)| !genuine(members));
-        let count = |verdict| {
+        let count = |verdict, assumed: bool| {
             findings
                 .iter()
-                .filter(|finding| finding.verdict == verdict && !finding.assumed)
+                .filter(|finding| finding.verdict == verdict && (!assumed || finding.assumed))
                 .count()
         };
         let assumed = findings.iter().filter(|finding| finding.assumed).count();
@@ -651,12 +651,15 @@ fn write_findings(text: &mut String, report: &FuzzReport) {
             text,
             "{} critical-pair findings: {} genuine, {} undecided{}",
             serde_name(&side),
-            count(FindingVerdict::Genuine),
-            count(FindingVerdict::Undecided),
+            count(FindingVerdict::Genuine, false),
+            count(FindingVerdict::Undecided, false),
             if assumed == 0 {
                 String::new()
             } else {
-                format!(", {assumed} assumed joined")
+                format!(
+                    "; {assumed} assumed joined, {} of them genuine",
+                    count(FindingVerdict::Genuine, true)
+                )
             }
         );
         for (equations, members) in groups.iter().take(SHOWN_FINDING_GROUPS) {

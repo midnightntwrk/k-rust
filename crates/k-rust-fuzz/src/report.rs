@@ -745,9 +745,10 @@ pub enum CampaignOutcome {
 pub struct DefinitionFinding {
     /// Which definition's check reports it.
     pub side: DefinitionRole,
-    /// `genuine` when a ground instance is exhibited on which the two equations give two
-    /// different constructor values (a defect of the definition); `undecided` otherwise: not
-    /// shown to join, which may be a limit of the check as well as a defect.
+    /// `genuine` when a ground instance is exhibited at which both equations apply and equate
+    /// two distinct data terms, so no model satisfies the definition (a defect of the
+    /// definition); `undecided` otherwise: not shown to join, which may be a limit of the check
+    /// as well as a defect.
     pub verdict: FindingVerdict,
     /// A pair of equations, one equation, or a precondition row.
     pub kind: FindingKind,

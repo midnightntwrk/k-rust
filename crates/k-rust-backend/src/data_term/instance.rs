@@ -10,18 +10,28 @@
 //! terms. The assignments are tried in a fixed order, at most [`INSTANCES`] per pair. One is an
 //! instance when, under it:
 //!
-//! - the pair's conditions evaluate to `true` (they are the conjunction of both `requires` at
-//!   the overlap, simplified by the check with every claim withheld, so `true` here means both
-//!   `requires` hold at the instance);
+//! - the overlap's instance is defined: every map and set in it holds distinct keys and
+//!   elements (a left-hand side matches only a defined subject);
+//! - both equations apply there, each at its own redex (the overlap's instance, and for an
+//!   inner pair its subterm at the pair's position): its left-hand side matches the redex, its
+//!   `requires` evaluates to `true`, it has no `ensures`, and no executable equation of the same
+//!   head in a group of higher priority (`priority`, `owise` the lowest) matches the redex with
+//!   its `requires` true or undecided, since every equation holds only under that priority
+//!   antecedent (`docs/compatibility.md`, the priority reading of `M_NF`);
 //! - each reduct evaluates, unconditionally and without a stop, to a ground term built only from
 //!   free constructors, injections, domain values and rest-free collections with distinct keys
 //!   and elements;
-//! - the two values differ;
+//! - the two values are *surely distinct* ([`surely_distinct`]): distinct in every model in
+//!   which the definition's constructor declarations, the sort injections' injectivity and the
+//!   builtin hooks hold. Two terms that differ only by the source sorts of injections, or that
+//!   an overload equation may identify, are not;
 //! - no evaluation noted an implementation-chosen value or a contradicted claim.
 //!
-//! The reducts are one equation step each from the overlap's instance and their evaluation
-//! applies equations and hooks only, so the definition states that the instance equals both
-//! values. The search decides nothing when it finds no instance: the finding stays undecided.
+//! Each equation applies at its redex, so the redex equals its reduct in every model, and the
+//! evaluation of a reduct applies equations (respecting their priorities) and hooks only, so
+//! the reduct equals its value in every model. The overlap's instance therefore equals both
+//! values, which no model keeps apart from each other: no model satisfies the definition. The
+//! search decides nothing when it finds no instance: the finding stays undecided.
 
 use std::collections::BTreeSet;
 
@@ -31,11 +41,13 @@ use crate::{
     condition::Condition,
     definition::BackendDefinition,
     diagnostic,
+    matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::Predicate,
+    rule::{Concreteness, ConstraintKind, RewriteRule, term_index},
     simplify::{SimplificationOptions, simplify, simplify_predicate_with_solver},
     smt::NoSolver,
     substitution::{Substitution, substitute},
-    term::{CollectionMetadata, HeadRole, Sort, SortNode, Term, Variable},
+    term::{CollectionMetadata, HeadRole, Sort, SortNode, Term, TermKind, Variable},
 };
 
 use crate::confluence::UnjoinedPair;
@@ -92,6 +104,10 @@ impl<'d> Search<'d> {
             return None;
         };
         let conditions = pair.conditions.as_ref()?;
+        // An `ensures` may make a step's result `\bottom` at the instance: not read here.
+        if !pair.first.ensures.is_empty() || !pair.second.ensures.is_empty() {
+            return None;
+        }
         let mut variables = BTreeSet::new();
         for term in [overlap, first, second] {
             variables.extend(term.attributes().variables.iter().cloned());
@@ -118,7 +134,7 @@ impl<'d> Search<'d> {
                     })
                     .collect::<Vec<_>>();
                 if let Some(instance) =
-                    self.try_assignment(&assignment, overlap, (first, second), conditions)
+                    self.try_assignment(pair, &assignment, overlap, (first, second), conditions)
                 {
                     return Some(instance);
                 }
@@ -142,14 +158,31 @@ impl<'d> Search<'d> {
 
     fn try_assignment(
         &self,
+        pair: &UnjoinedPair,
         assignment: &[(Variable, Term)],
         overlap: &Term,
         (first, second): (&Term, &Term),
         conditions: &Predicate,
     ) -> Option<GroundInstance> {
         let substitution = assignment.iter().cloned().collect::<Substitution>();
+        let instance = substitute(overlap, &substitution);
+        if !well_formed_collections(&instance) {
+            return None;
+        }
         let (values, diagnostics) = diagnostic::collect(|| {
             if !self.holds(conditions, &substitution) {
+                return None;
+            }
+            if !self.applies(&pair.first, &instance) {
+                return None;
+            }
+            let inner = inner_redex(&pair.first.lhs, &instance, &pair.position)?;
+            // `second` applies at the redex, or under an injection at a position of a greater
+            // sort.
+            let applies = self.applies(&pair.second, &inner)
+                || matches!(inner.kind(), TermKind::Injection { term, .. }
+                    if self.applies(&pair.second, term));
+            if !applies {
                 return None;
             }
             let left = self.value(&substitute(first, &substitution))?;
@@ -157,7 +190,7 @@ impl<'d> Search<'d> {
             Some((left, right))
         });
         let (left, right) = values?;
-        if left == right
+        if !surely_distinct(self.definition, &left, &right)
             || diagnostics
                 .iter()
                 .any(diagnostic::BackendDiagnostic::is_path_fact)
@@ -166,7 +199,7 @@ impl<'d> Search<'d> {
         }
         Some(GroundInstance {
             assignment: assignment.to_vec(),
-            overlap: substitute(overlap, &substitution),
+            overlap: instance,
             values: (left, right),
         })
     }
@@ -174,30 +207,69 @@ impl<'d> Search<'d> {
     /// Whether `conditions` under `substitution` evaluates to `true`, each term's definedness
     /// stated.
     fn holds(&self, conditions: &Predicate, substitution: &Substitution) -> bool {
-        if *conditions == Predicate::True {
-            return true;
+        *conditions == Predicate::True
+            || self.truth(&Condition::new(vec![conditions.clone()]), substitution) == Some(true)
+    }
+
+    /// What `condition` under `substitution` evaluates to, each term's definedness stated:
+    /// `Some(true)` or `Some(false)` when it simplifies to `\top` or `\bottom`, `None` otherwise.
+    fn truth(&self, condition: &Condition, substitution: &Substitution) -> Option<bool> {
+        if condition.is_empty() {
+            return Some(true);
         }
-        let instance = Condition::new(vec![conditions.clone()]).instantiate(substitution);
-        let (decided, _) = budgeted(|| {
+        let instance = condition.instantiate(substitution);
+        let (decided, stops) = budgeted(|| {
             let Ok(predicates) = instance.with_definedness(self.definition, &[]) else {
-                return false;
+                return None;
             };
             let options = SimplificationOptions {
                 max_iterations: EVALUATION_ITERATIONS,
                 ..SimplificationOptions::default()
             };
-            matches!(
-                simplify_predicate_with_solver(
-                    self.definition,
-                    &Predicate::And(predicates.into()),
-                    &[],
-                    options,
-                    &NoSolver,
-                ),
-                Ok(Ok(Predicate::True))
-            )
+            match simplify_predicate_with_solver(
+                self.definition,
+                &Predicate::And(predicates.into()),
+                &[],
+                options,
+                &NoSolver,
+            ) {
+                Ok(Ok(Predicate::True)) => Some(true),
+                Ok(Ok(Predicate::False)) => Some(false),
+                _ => None,
+            }
         });
-        decided
+        decided.filter(|_| !stops.any())
+    }
+
+    /// Whether `rule` applies at the ground term `redex`: its left-hand side matches, its
+    /// `requires` evaluates to `true`, and no executable equation of the same head in a group of
+    /// higher priority matches with its `requires` true or undecided.
+    fn applies(&self, rule: &RewriteRule, redex: &Term) -> bool {
+        if self.matches(rule, redex) != Some(true) {
+            return false;
+        }
+        let Some(groups) = self
+            .definition
+            .function_theory()
+            .get(&term_index(&rule.lhs))
+        else {
+            return false;
+        };
+        groups
+            .range(..rule.attributes.priority)
+            .flat_map(|(_, rules)| rules)
+            .filter(|other| other.attributes.executable && !symbolic(other))
+            .all(|other| self.matches(other, redex) == Some(false))
+    }
+
+    /// Whether `rule`'s left-hand side matches `redex` with its `requires` true (`Some(true)`),
+    /// does not match or matches with its `requires` false (`Some(false)`), or neither is decided.
+    fn matches(&self, rule: &RewriteRule, redex: &Term) -> Option<bool> {
+        match match_terms_in_definition(MatchMode::Evaluate, self.definition, &rule.lhs, redex) {
+            MatchResult::Failed(_) => Some(false),
+            MatchResult::Success(substitution) => self.truth(&rule.requires, &substitution),
+            MatchResult::Indeterminate { .. } | MatchResult::Undecided(_) => None,
+        }
     }
 
     /// The value `term` evaluates to, when it evaluates unconditionally, within the budget, to
@@ -267,7 +339,9 @@ impl<'d> Search<'d> {
                 }
             }
         }
-        let constructors = definition
+        // The definition's own constructors before K's internal ones (`#`-labelled, such as
+        // `#KConfigValue`), which a reader of the instance would not recognize.
+        let mut constructors = definition
             .symbols()
             .values()
             .filter(|symbol| {
@@ -277,6 +351,7 @@ impl<'d> Search<'d> {
             })
             .cloned()
             .collect::<Vec<_>>();
+        constructors.sort_by_key(|symbol| symbol.name.starts_with("Lbl'Hash'"));
         for symbol in constructors
             .iter()
             .filter(|symbol| symbol.argument_sorts.is_empty())
@@ -393,6 +468,178 @@ impl<'d> Search<'d> {
                 Term::set(set.clone(), vec![element], None)
             }
         })
+    }
+}
+
+/// Whether `rule` holds only on symbolic instances, so it is never a step on a ground term.
+fn symbolic(rule: &RewriteRule) -> bool {
+    match &rule.attributes.concreteness {
+        Concreteness::Unconstrained => false,
+        Concreteness::All(kind) => *kind == ConstraintKind::Symbolic,
+        Concreteness::Some(constraints) => constraints
+            .values()
+            .any(|kind| *kind == ConstraintKind::Symbolic),
+    }
+}
+
+/// Whether every map and set in `term` holds distinct keys and elements: otherwise the term is
+/// `\bottom`, and no equation applies at it.
+fn well_formed_collections(term: &Term) -> bool {
+    fn distinct<'t>(items: impl Iterator<Item = &'t Term>) -> bool {
+        let mut previous: Option<&Term> = None;
+        let mut items = items;
+        items.all(|item| {
+            // Keys and elements are held in order, so a repeat follows its first occurrence.
+            let fresh = previous != Some(item);
+            previous = Some(item);
+            fresh
+        })
+    }
+    match term.kind() {
+        TermKind::Map { entries, rest, .. } => {
+            distinct(entries.iter().map(|(key, _)| key))
+                && entries.iter().all(|(key, value)| {
+                    well_formed_collections(key) && well_formed_collections(value)
+                })
+                && rest.as_ref().is_none_or(well_formed_collections)
+        }
+        TermKind::Set { elements, rest, .. } => {
+            distinct(elements.iter())
+                && elements.iter().all(well_formed_collections)
+                && rest.as_ref().is_none_or(well_formed_collections)
+        }
+        TermKind::List { heads, rest, .. } => {
+            heads.iter().all(well_formed_collections)
+                && rest.as_ref().is_none_or(|(middle, tails)| {
+                    well_formed_collections(middle) && tails.iter().all(well_formed_collections)
+                })
+        }
+        TermKind::Application { arguments, .. } => arguments.iter().all(well_formed_collections),
+        TermKind::Injection { term, .. } => well_formed_collections(term),
+        TermKind::And(left, right) => {
+            well_formed_collections(left) && well_formed_collections(right)
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => true,
+    }
+}
+
+/// The subterm of `instance`, the overlap's instance of `lhs`, at `position` (argument indexes
+/// in `lhs`, an `\and`'s conjuncts counted as its arguments 0 and 1, as `UnjoinedPair::position`
+/// counts them). `None` when the path enters a collection, or `instance` does not have `lhs`'s
+/// shape along it: the redex is then not located, and no instance is claimed.
+fn inner_redex(lhs: &Term, instance: &Term, position: &[usize]) -> Option<Term> {
+    let (mut pattern, mut term) = (lhs.clone(), instance.clone());
+    for index in position {
+        if let TermKind::And(left, right) = pattern.kind() {
+            // The instance holds one term for both conjuncts.
+            pattern = (*[left, right].get(*index)?).clone();
+            continue;
+        }
+        let next = match (pattern.kind(), term.kind()) {
+            (
+                TermKind::Application {
+                    symbol, arguments, ..
+                },
+                TermKind::Application {
+                    symbol: found,
+                    arguments: held,
+                    ..
+                },
+            ) if symbol.name == found.name && arguments.len() == held.len() => {
+                (arguments.get(*index)?.clone(), held.get(*index)?.clone())
+            }
+            (TermKind::Injection { term: inner, .. }, TermKind::Injection { term: held, .. })
+                if *index == 0 =>
+            {
+                (inner.clone(), held.clone())
+            }
+            _ => return None,
+        };
+        (pattern, term) = next;
+    }
+    Some(term)
+}
+
+/// Whether the ground terms `left` and `right`, built from free constructors, injections,
+/// domain values and collections, are distinct in every model in which the constructor
+/// declarations (distinct constructors of one sort differ, each constructor is injective), the
+/// injectivity of each sort injection and the builtin hooks hold. Conservative: two injections
+/// from different source sorts are not separated by any axiom (an overload equation may even
+/// identify them), nor are an injection and a constructor of the target sort, nor maps and sets
+/// whose elements would have to be paired up; such terms are not counted distinct.
+pub(super) fn surely_distinct(definition: &BackendDefinition, left: &Term, right: &Term) -> bool {
+    match (left.kind(), right.kind()) {
+        // Distinct values of a hooked sort are distinct builtin values; a sort with domain
+        // values but no hook (a token sort) states no such axiom.
+        (TermKind::DomainValue { .. }, TermKind::DomainValue { .. }) => {
+            left.sort() == right.sort()
+                && left != right
+                && crate::confluence::symbols::fixed_carrier(definition, &left.sort())
+        }
+        (
+            TermKind::Injection {
+                source: left_source,
+                term: left_term,
+                ..
+            },
+            TermKind::Injection {
+                source: right_source,
+                term: right_term,
+                ..
+            },
+        ) => left_source == right_source && surely_distinct(definition, left_term, right_term),
+        (
+            TermKind::Application {
+                symbol: left_symbol,
+                arguments: left_arguments,
+                ..
+            },
+            TermKind::Application {
+                symbol: right_symbol,
+                arguments: right_arguments,
+                ..
+            },
+        ) => {
+            let constructor = |symbol: &crate::term::Symbol| {
+                symbol.attributes.head_role() == HeadRole::FreeConstructor
+            };
+            if !constructor(left_symbol) || !constructor(right_symbol) {
+                return false;
+            }
+            if left_symbol.name != right_symbol.name {
+                // Two free constructors of one sort: no confusion. An overloaded one may be
+                // identified with another through its family's overload equations only under
+                // an injection, which the case above does not separate.
+                return left_symbol.result_sort == right_symbol.result_sort
+                    && !definition.overloads().is_overloaded(&left_symbol.name)
+                    && !definition.overloads().is_overloaded(&right_symbol.name);
+            }
+            left_arguments.len() == right_arguments.len()
+                && left_arguments
+                    .iter()
+                    .zip(right_arguments)
+                    .any(|(left, right)| surely_distinct(definition, left, right))
+        }
+        (
+            TermKind::List {
+                definition: left_list,
+                heads: left_heads,
+                rest: None,
+            },
+            TermKind::List {
+                definition: right_list,
+                heads: right_heads,
+                rest: None,
+            },
+        ) => {
+            left_list == right_list
+                && (left_heads.len() != right_heads.len()
+                    || left_heads
+                        .iter()
+                        .zip(right_heads.iter())
+                        .any(|(left, right)| surely_distinct(definition, left, right)))
+        }
+        _ => false,
     }
 }
 
