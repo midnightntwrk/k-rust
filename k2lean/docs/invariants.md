@@ -169,7 +169,7 @@ The shapes the generator and the tactic support:
 | cell form (the default) | `f(S)` where `S` is the content sort of the cell (`envKeysOk(Map)` for `<env>`), and `--invariant f@env` | the part `f (content_env (cell_env c)) = true`, read through one projection per level of the configuration |
 | cell-map lift | `f(S)` over a cell inside a cell collection (`--invariant holdsOk@holds` on SIMPLE, where `<holds>` is inside the `<thread>` cell map) | "for every element": `MapHook.EntriesOn` over the collection's bindings, so the closers read the invariant of the matched element; one level of collection only |
 | list fold | `f(.List) => true` and `f(ListItem(X) L) => φ(X) andBool f(L)` (or `f(L) andBool φ(X)`), no `requires`, `φ` total, `f` with one argument | the theorem `f l = true ↔ every element satisfies φ` (`Invariant.f_iff`), which the collection lemmas read |
-| non-recursive helpers | ordinary equations | their K equations (`Eqn.*`) join the unfolding set |
+| non-recursive helpers | ordinary equations, `owise` ones included | their K equations (`Eqn.*`) join the unfolding set; an `owise` equation is a rewrite conditional on its side condition (no other equation matches), which simp discharges when the argument's constructors differ from the other equations' patterns |
 | a map walked by pattern (`f(K |-> V M)`) | not supported: the generator panics (§9); fold over `values(M)` or `keys_list(M)` instead | — |
 | top-cell form | `f(GeneratedTopCell)` and `--invariant f` without a cell | supported by the generator, but closes almost nothing (§9); use the cell form or kind 2 |
 
@@ -195,15 +195,15 @@ $G gen --kore $W/kore/kimp-keys/definition.kore --runtime $W/kore/kimp-keys/runt
 
 ```sh
 (cd $GEN/kimpkeys && lake build KImpKeys.Invariants > $W/kimpkeys-1.log 2>&1)
-grep -E "k2l_preserve|^error" $W/kimpkeys-1.log
+grep -E "k2l_preserve|depends on|^error|Build completed" $W/kimpkeys-1.log
 ```
 
-The first build compiles the whole library (46 s here, 40 s of it `Terms.lean`), and fails:
+The first build compiles the whole library (132 s wall and 93 s of CPU in the gate, under a load of 21 to 57), and succeeds: `k2l_preserve` closes the case of every rule, and the four guarded theorems depend on `propext`, `Classical.choice` and `Quot.sound` only.
 
 ```text
-info: KImpKeys/Invariants.lean:88:64: k2l_preserve: rule «CALC.assign» not closed; the goal is its case, with the rule's variables and side conditions introduced
-error: KImpKeys/Invariants.lean:88:61: unsolved goals
-error: KImpKeys/Invariants.lean:362:0: KImpKeys.Invariant.preserved depends on disallowed axioms [sorryAx]
+info: KImpKeys/Invariants.lean:362:0: KImpKeys.Invariant.preserved depends on axioms: [propext, Classical.choice, Quot.sound]
+…
+Build completed successfully
 ```
 
 What `InvariantDefs.lean` defines (`K.envKeysOk` abbreviates `K.«envKeysOk(_)_IMP-KEYS_Bool_Map»`):
@@ -231,28 +231,32 @@ theorem Invariant.stepsN {pgm env} (h_env : …) {n c} (h : StepsN Step n (init 
 ```
 
 - Each case is `by k2l_inv`, a local macro for `k2l_preserve` with the invariant's unfolding set (the parts, the projections, the K equations, the fold's `_iff`).
+- The case of `CALC.assign`, which updates the store, closes because `ListHook.elemsOn_keysList_iff` (`@[k2l_pres]`) turns the fold over `keys_list(E)` into a predicate on `E`'s bindings, which `MapHook.entriesOn_update` carries to the updated store; the new key `X` is an `Id` by `isId`'s equation.
 - `init_holds` follows the configuration declaration: a cell that holds a configuration variable (`<env> $ENV:Map </env>`) gives a hypothesis on that parameter; a cell with a closed term is proved by computation; anything else makes `init` an open case (`Invariant.hand.init`).
 - `#k2l_assert_axioms` fails the build when a theorem depends on `sorryAx` or on an axiom other than `propext`, `Classical.choice`, `Quot.sound`.
 - `Invariant` is named so, not `Inv`, because core Lean declares a class `Inv`.
 
 ### 3.4 Open cases and the hand module
 
-A case the tactic does not close becomes an open case: it is listed in `open-invariant-cases.txt`, and `Invariants.lean` takes it from the hand module `KImpKeys/InvariantsHand.lean` as the theorem `Invariant.hand.r` with the same statement.
+A case the tactic does not close fails the build at its theorem: the log has `k2l_preserve: rule r not closed; …` and an `unsolved goals` error that shows the case, with the rule's variables and side conditions in context.
+`$G open-from-log NS/Invariants.lean BUILD.log open-invariant-cases.txt` lists the failed cases in `open-invariant-cases.txt`, and the next `gen` takes each listed case from the hand module `NS/InvariantsHand.lean`, as the theorem `Invariant.hand.r` with the same statement.
+
+Every case of `envKeysOk` closes, so to see the hand path, list `CALC.assign` yourself (the gate's fixture `generated/kimpkeys-hand` is this library with this list and the hand proof below):
 
 ```sh
 cd $GEN/kimpkeys
-$G open-from-log KImpKeys/Invariants.lean $W/kimpkeys-1.log open-invariant-cases.txt
+echo '«CALC.assign» | Step.Case.«CALC.assign» Invariant | calc.k:32:3' >> open-invariant-cases.txt
 $G gen --kore $W/kore/kimp-keys/definition.kore --runtime $W/kore/kimp-keys/runtime.json \
   --out $GEN/kimpkeys --name KImpKeys --prelude ../../lean/prelude \
   --open-obligations $GEN/kimpkeys/open-obligations.txt --invariant envKeysOk@env
 grep -v '^#' open-invariant-cases.txt
 ```
 
-The list now reads `«CALC.assign» | Step.Case.«CALC.assign» Invariant | calc.k:32:3`: the case, its statement, the rule's position.
+A line of the list is the case, its statement and the rule's position; `gen` prints `invariant: 1 open cases`.
 The generator wrote `KImpKeys/InvariantsHand.lean` once, with the statement in a comment and the generated unfolding set in its header; it never overwrites that file.
 Until the theorem exists, the build fails at `Invariant.case.«CALC.assign»` with ``Unknown constant `KImpKeys.Invariant.hand.«CALC.assign»` ``, which names the rule.
 
-To prove the case, read its statement in `KImpKeys/Preserves.lean` (or in the `unsolved goals` error):
+To prove the case, read its statement in `KImpKeys/Preserves.lean` (or in the `unsolved goals` error of a case the tactic left open):
 
 ```lean
 def Step.Case.«CALC.assign» (P : SortGeneratedTopCell → Prop) : Prop :=
@@ -262,8 +266,7 @@ def Step.Case.«CALC.assign» (P : SortGeneratedTopCell → Prop) : Prop :=
     P (… (SortEnvCell.«<env>» (KPrelude.MapHook.update E (SortKItem.inj_Id X) (inj_Value_KItem V))) DotVar0)
 ```
 
-The tactic leaves it because the hypothesis is a fact about `keys_list(E)`, and no lemma turns it into a fact about `E`'s bindings, which the update lemma needs.
-The hand proof does that step:
+The hand proof takes the steps the closers take (§3.3):
 
 ```sh
 cat > $GEN/kimpkeys/KImpKeys/InvariantsHand.lean <<'EOF'
@@ -275,19 +278,13 @@ namespace KImpKeys
 
 open KPrelude
 
-/-- Rule `CALC.assign` (calc.k:32:3): the updated store's keys are the old keys and `X`. -/
+/-- Rule `CALC.assign` (calc.k:32:3): the updated store's keys are the old keys and `X`, an `Id`. -/
 theorem Invariant.hand.«CALC.assign» : Step.Case.«CALC.assign» Invariant := by
   intro X y DotVar1 E DotVar0 V hp h
   simp only [Invariant, Invariant.envKeysOk, Invariant.cell_env, Invariant.content_env,
-    Eqn.«envKeysOk(_)_IMP-KEYS_Bool_Map_1», Invariant.allIds_iff, Option.bind_fun_some] at h ⊢
-  apply ListHook.elemsOn_keysList
-  apply MapHook.entriesOn_update
-  · intro p hp
-    apply h p.1
-    unfold MapHook.keysList
-    rw [ListIso.toList_ofList]
-    exact List.mem_map_of_mem hp
-  · exact Eqn.isId_1 X
+    Eqn.«envKeysOk(_)_IMP-KEYS_Bool_Map_1», Invariant.allIds_iff, Option.bind_fun_some,
+    ListHook.elemsOn_keysList_iff] at h ⊢
+  exact MapHook.entriesOn_update h (Eqn.isId_1 X)
 
 end KImpKeys
 EOF
@@ -296,8 +293,8 @@ EOF
 
 The build completes; the four theorems depend on `propext`, `Classical.choice` and `Quot.sound` only.
 
-- The `simp only` list is the generated unfolding set (copied from the header of the skeleton).
-- `ListHook.elemsOn_keysList` and `MapHook.entriesOn_update` are collection lemmas of `KPrelude.InvColl` (§6.4).
+- The `simp only` list is the generated unfolding set (from the header of the skeleton), with the fold's rewrite `ListHook.elemsOn_keysList_iff`.
+- `MapHook.entriesOn_update` is a collection lemma of `KPrelude.InvColl` (§6.3).
 - `Eqn.isId_1 X : K.isId (kseq (inj_Id X) dotk) = true` is the generated K equation of `isId`.
 - The hand module is yours: regeneration never touches it, and `k2lean diff` names it when its rule changes (§7).
 
@@ -595,8 +592,11 @@ EOF
 | 2 | compute (only with `split [f, …]`) | goals decided by computing `P`: simp with the unfolding set and the rule's hypotheses, then case on applications of `f` and on enumeration-typed fields of the result, at most `fuel` deep (default 5) |
 | 3 | collections | predicates on the keys, values or entries of maps, sets and lists: substitute the rule's equations, split conjunctions, add the facts read off the rule's matched collections (for `EntriesOn Q m` and a match `concat a b = some m`: `Q (k, v)` for an element, `EntriesOn Q x` for the rest), then close each conjunct by a hypothesis or by `apply` of a `@[k2l_coll]` lemma (update, remove, concat, element, unit, `values`, `keys_list`, …), normalizing a goal no lemma fits by the unfolding set and trying again |
 | 4 | simp | `simp_all` with the unfolding set |
+| 5 | arithmetic | linear arithmetic over `Int`: rewrite the hypotheses and the goal with the unfolding set and the `@[k2l_arith]` lemmas, which state the `Int` and `Bool` hooks in Lean's arithmetic (`IntHook.add a b` is `a + b`, `IntHook.ge a b = true` is `a ≥ b`, `BoolHook.not`, `&&`, `\|\|`), then `omega`; the same step ends the discharger of closer 3's leaves, so the count test `0 ≤ N + 1` of a rebuilt map entry closes from the matched entry's `0 ≤ N` (SIMPLE's `acquire`, `release`) |
+| 6 | injections | a variable `x` of the rule that is the argument of a generated injection `inj_S_T x` in the goal (`inj_Expr_KItem HOLE` in a heating rule, `inj_Value_KItem V` in `CALC.assign`): `cases x`, reduce the injection on each constructor, and run closers 1–6 on each case, at most two such splits along one path; an injection is defined by cases on its argument, so a function that matches on its result is stuck until the argument is a constructor |
 
-- Before closers 2–4, the hypotheses that were in context before the tactic and are not named in its lemma list are hidden, and a rule's sort projections `proj_A_B y = some x` are turned into `y = inj_B_A x` and substituted.
+- Before closers 2–6, the hypotheses that were in context before the tactic and are not named in its lemma list are hidden, and a rule's sort projections `proj_A_B y = some x` are turned into `y = inj_B_A x` and substituted.
+- The unfolding set normalizes `Bool` conjunctions: `(a && b) = true` is `a = true ∧ b = true` and `(a || b) = false` is `a = false ∧ b = false` (`@[k2l_pres]`), so closer 3 splits them as it splits `∧`.
 - A goal no closer closes is restored to its state after the case split, so the residual goal is exactly the rule's case.
 - Each rule gets a fresh heartbeat budget, so `maxHeartbeats` bounds the work on one rule.
 
@@ -614,22 +614,23 @@ k2l_preserve [lemmas]? (split [f, …])? (fuel n)? (hand NS)?
 | `hand NS` | on `Preserved S P` with `S` a generated `Step`: apply `S.preserves_of`, close the case of rule `r` by `NS.r` when that constant exists, and run the closers on the other cases |
 
 The goal may be `Preserved S P`, or one rule's case `Step.Case.r P` (the per-case mode the generated kind 1 cases use: it logs `k2l_preserve: rule r not closed; …` when it fails and nothing when it succeeds).
-Lemmas of your own can join the closers through the two attributes the tactic reads (`lean/prelude/KPrelude/InvAttr.lean`): `@[k2l_pres]` adds a simp lemma to every unfolding set, and `@[k2l_coll]` adds a lemma that closer 3 tries by `apply`, in a module the cases import.
+Lemmas of your own can join the closers through the three attributes the tactic reads (`lean/prelude/KPrelude/InvAttr.lean`): `@[k2l_pres]` adds a simp lemma to every unfolding set, `@[k2l_coll]` adds a lemma that closer 3 tries by `apply`, and `@[k2l_arith]` adds a rewrite that closer 5 applies before `omega`, in a module the cases import.
 No demo tags a lemma of its own; the tested routes are naming a simp lemma in `[…]` and proving the case by hand.
 
-### 5.3 Cost (measured 2026-10-23, Lean v4.30.0, shared 32-CPU host)
+### 5.3 Cost (Lean v4.30.0, shared 32-CPU host)
 
 | invariant | kind | rules | automatic | hand | elaboration of the case module |
 |---|---|---|---|---|---|
-| kimp, `envKeysOk@env` (§3) | 1 | 79 | 78 | 1 | 1.1–1.6 s (load 25) |
-| kimp, `Invariant D` (§4) | 2 | 79 | 78 | 1 | 1.1–1.4 s (load 25) |
-| kimp, `envOk@env`: every store value is a `Value` (`demos/k/kimp-inv`) | 1 | 79 | 79 | 0 | 1.0–1.1 s, 1.6 GB |
-| KRS IMP, sidecar `Map<Id, Value>` (`demos/k/krs-imp`) | 1 | 82 | 82 | 0 | 0.7–0.9 s, 1.5 GB |
-| kimp, ImpTypes runtime typing `WTc G` (`demos/ImpTypes`) | 2 | 79 | 77 | 2 | 6.0–8.8 s, 1.7 GB |
-| SIMPLE, `holdsOk@holds`, lock counts ≥ 0 (`demos/k/simple-inv`) | 1 | 169 | 167 | 2 | 2.5–2.7 s, 1.9 GB |
-| SIMPLE, environments map into the store (`demos/SimpleEnv`) | 2 | 169 | 164 | 5 | 26–27 s, 3.5 GB |
+| kimp, `envKeysOk@env` (§3, library `kimpkeys`) | 1 | 79 | 79 | 0 | 1.1–1.2 s, 1.6 GB |
+| kimp, `Invariant D` (§4) | 2 | 79 | 78 | 1 | 1.1–1.4 s (2026-10-23, load 25) |
+| kimp, `envOk@env` and `storeNoIds@env`: every store value is a `Value` and none is an `Id` (`demos/k/kimp-inv`) | 1 | 79 | 79 | 0 | 1.5–1.6 s, 1.6 GB |
+| KRS IMP, sidecar `Map<Id, Value>` (`demos/k/krs-imp`) | 1 | 82 | 82 | 0 | 1.0–1.2 s, 1.6 GB |
+| kimp, ImpTypes runtime typing `WTc G` (`demos/ImpTypes`) | 2 | 79 | 77 | 2 | 5.4–10.3 s, 1.8 GB (main before closers 5 and 6: 7.9–8.7 s at the same load) |
+| kimp, no pending statement assigns `x` (`demos/ImpWrites`) | 2 | 79 | 79 | 0 | 7.7–10.8 s, 1.8 GB; 50 of 79 without closer 6 |
+| SIMPLE, `holdsOk@holds`, lock counts ≥ 0 (`demos/k/simple-inv`) | 1 | 169 | 169 | 0 | 3.4–4.0 s, 2.0 GB (load 20 to 29) |
+| SIMPLE, environments map into the store (`demos/SimpleEnv`) | 2 | 169 | 164 | 5 | 26.7–27.3 s, 3.5 GB (load 20 to 29; main 33.2 s) |
 
-- Times are `lake env lean FILE`, two runs each; the module's imports alone take 0.6–1.0 s of it.
+- Times are `lake env lean FILE`, two runs each, on 2026-10-24 under a load of 12 to 22 unless a row says otherwise; the module's imports alone take 0.6–1.0 s of it.
 - `Preserves.lean` itself takes 0.5 s on kimp and 1.2 s on SIMPLE.
 - A new library is a full build: kimp-based up to `Invariants`, 46 s wall at load 31; SIMPLE-based, 242 s wall and 3.4 GB at load 1–3.
 
@@ -660,26 +661,9 @@ theorem «CALC.var» (G : TEnv) : KImp.Step.Case.«CALC.var» (WTc G) := by
     cases v <;> simp_all [valTy, item_none, item0_int, item0_bool]
 ```
 
-`CALC.assign` writes the store: the proof splits on whether a typed identifier `x` is `X` (`SAL.lookup_insert_self`) or another key (a lookup under `insert` at another key: the prelude has no lemma for it yet, so copy `SAL_lookup_insert_ne` from `demos/ImpTypes/ImpTypes/Invariant.lean`), the same split as `boundIn_update` in §4.4.
+`CALC.assign` writes the store: the proof splits on whether a typed identifier `x` is `X` (`MapHook.lookup_update_self`) or another key (`MapHook.lookup_update_ne`, from `SAL.lookup_insert_ne`), the same split as `boundIn_update` in §4.4.
 
-### 6.2 Arithmetic: SIMPLE's `acquire` and `release` (`generated/simpleinv/KSimpleInv/InvariantsHand.lean`)
-
-The kind 1 invariant `holdsOk@holds` says every lock count is an `Int` at least 0.
-Re-acquiring increments a count and releasing decrements it under `N >Int 0`; the closers reduce each case to `0 ≤ N + 1` from `0 ≤ N`, or `0 ≤ N - 1` from `0 < N`, and stop there.
-The hand proofs take the collection steps by hand (`MapHook.entry_of_concat_element` on the matched thread and lock, `MapHook.entriesOn_concat` on the rebuilt ones), then restate the goal at `Int` and call `omega`:
-
-```lean
-  have hN := MapHook.entry_of_concat_element hm_6 ht
-  simp only [Invariant.isCount_int, IntHook.add] at hN ⊢
-  -- `SortInt` is `Int`; `omega` reads `Int` syntactically
-  have hN' : (0 : Int) ≤ (N : Int) := hN
-  show (0 : Int) ≤ (N : Int) + 1
-  omega
-```
-
-`SortInt` is an abbreviation of `Int`, and `omega` does not see through it; the `have … : (0 : Int) ≤ …` and `show` lines are what make it apply.
-
-### 6.3 Monotonicity: SIMPLE's store-growing rules (`demos/SimpleEnv/SimpleEnv/Cases.lean`)
+### 6.2 Monotonicity: SIMPLE's store-growing rules (`demos/SimpleEnv/SimpleEnv/Cases.lean`)
 
 The kind 2 invariant says every environment value is a location of `<store>`.
 Five rules add or overwrite a store binding (`var X;`, `var X[N];`, `function F(Xs) S`, `++ loc(L)`, `loc(L) = V`): before the step `P` speaks of the store `S`, after it of a larger `S'`, and no closer carries a predicate from `S` to `S'`.
@@ -696,18 +680,18 @@ theorem «var X;» : KSimple.Step.Case.«var X;» (Invariant) := by
 
 `grow_close` ends with `k2l_coll_close [lemmas]`, the collections closer on its own, which is the usual way to finish a hand case once the step the closers miss is done.
 
-### 6.4 Useful lemmas
+### 6.3 Useful lemmas
 
 | lemma (namespace `KPrelude`) | says |
 |---|---|
 | `MapHook.update_def`, `MapHook.lookup_def` | `update` and `lookup` through the sorted association list `SAL` |
-| `SAL.mem_insert`, `SAL.mem_insert_self`, `SAL.mem_insert_of_mem_ne`, `SAL.lookup_insert_self` | membership and lookup after an insert |
+| `SAL.mem_insert`, `SAL.mem_insert_self`, `SAL.mem_insert_of_mem_ne`, `SAL.lookup_insert_self`, `SAL.lookup_insert_ne` | membership and lookup after an insert, at the inserted key and at another key |
+| `MapHook.lookup_update_self`, `MapHook.lookup_update_ne` | `M[K <- V][K]` is `V`, and `M[K <- V][K']` is `M[K']` when `K' ≠ K` |
 | `MapHook.mem_toList_of_concat` | a binding of a defined `concat a b` is a binding of `a` or of `b`, and conversely |
 | `MapHook.entry_of_concat_element`, `MapHook.entriesOn_of_concat_right` | the matched binding of `K |-> V REST`, and the rest |
 | `MapHook.entriesOn_update`, `_concat`, `_element`, `_unit`, `_remove` | `EntriesOn Q` kept by each map operation |
 | `MapHook.lookup_of_concat_element` | the lookup of the matched key |
-| `SAL_lookup_insert_ne` (not in the prelude: `demos/ImpTypes/ImpTypes/Invariant.lean`) | a lookup after an insert at another key is unchanged |
-| `ListHook.elemsOn_keysList`, `ListHook.elemsOn_values`, `ListHook.elemsOn_values_iff` | list predicates over `keys_list(M)` and `values(M)` |
+| `ListHook.elemsOn_keysList`, `ListHook.elemsOn_values`, `ListHook.elemsOn_keysList_iff`, `ListHook.elemsOn_values_iff` | list predicates over `keys_list(M)` and `values(M)`; the two `_iff` (`@[k2l_pres]`) state them on `M`'s bindings |
 
 They are in `lean/prelude/KPrelude/{InvColl,Coll,SAL,InvFold}.lean`.
 
@@ -847,7 +831,7 @@ def Invariant (c : SortGeneratedTopCell) : Prop :=
     EnvIn (storeOf (tStore (topT c))) (genvOf (tGenv (topT c)))
 ```
 
-It implies the plain statement (its first conjunct), and it is inductive: 164 of 169 rules close automatically and the 5 store rules by hand (§6.3).
+It implies the plain statement (its first conjunct), and it is inductive: 164 of 169 rules close automatically and the 5 store rules by hand (§6.2).
 How to find the strengthening: read the open goal of the failing rule, find where the value the rule installs comes from (here, a `setEnv` item or a stack frame), and add the property of that source to `P`.
 `Preserved.and_under` (`lean/prelude/KPrelude/Invariant.lean`) proves a conjunction in stages: `Preserved S P` and `PreservedUnder S P Q` (`Q` kept by the steps from configurations satisfying `P`) give `Preserved S (P ∧ Q)`.
 
@@ -858,12 +842,11 @@ How to find the strengthening: read the open goal of the failing rule, find wher
 | inductive invariants only | a non-inductive property fails at a rule | strengthen it (§8) |
 | nothing about undefined steps | a rule with an undefined result has no `Step` | state undefinedness through `App` and the adequacy theorems |
 | configuration variables are arbitrary at `init` | `init_holds` needs hypotheses on `pgm`, `env` | state them; they are what a caller must establish |
-| no linear-arithmetic closer | a case that needs `0 ≤ N + 1` from `0 ≤ N` stays open (SIMPLE's `acquire`, `release`) | a hand case: restate at `Int` with `have`/`show`, then `omega` (§6.2) |
 | no free-key map patterns in invariant functions | `gen` panics: ``functions: f(…) equation …: a map pattern with a free key in a function equation (several matches)`` | fold over `values(M)` or `keys_list(M)` (§3.1), or write the invariant in Lean |
-| owise equations are not in the unfolding set | only a function's non-`owise` equations are unfolded, so a test such as `notBool isId(X)` that needs `isId`'s `owise` equation leaves the update rule open | add the `owise` equation from `NS/Equations.lean` (for example `Eqn.isId_2`) to the hand proof, discharging its side condition by `cases` |
-| injections are defined by cases | a predicate that walks `<k>` is stuck on `inj_Expr_KItem HOLE` or `inj_Value_KItem V` in the heating rules and `&&`/`||` (measured on one such predicate: 49 of 79 rules automatic without the lemmas) | prove one lemma per injection, `f (inj_Expr_KItem e) = …` by `cases e <;> rfl`, and pass them to `k2l_preserve` |
+| arithmetic is linear | closer 5 is `omega` on the total `Int` hooks: a case that needs a product of variables, or `/Int`, `%Int`, `^Int` (partial hooks, `Option`-valued, not unfolded), stays open | a hand case, or a lemma of the step it needs passed to `k2l_preserve` |
+| injection splits: of variables, two along a path | closer 6 cases only on a variable under an injection (not on `inj_S_T (f x)`), at most twice on one path | a lemma `f (inj_S_T e) = …` by `cases e <;> rfl`, passed to `k2l_preserve` |
+| `owise` side conditions by simp | an `owise` equation rewrites only where simp proves that no other equation matches, from the argument's constructors; on `isId(kseq(inj_Value_KItem V, .K))` it applies only in closer 6's cases of `V` | a lemma of the injection, or a hand case |
 | list folds of one shape only | a recursive function other than `φ(X) andBool f(L)` with one argument gets a note (`… is not a list fold; its cases may need hand proofs`), and its cases usually become hand cases | rewrite it as such a fold, or write the invariant in Lean |
-| `keys_list` has no rewrite into map bindings | with a `keys_list` fold, every rule that updates the map is a hand case (measured: `CALC.assign`, §3.4) | the hand proof of §3.4; a `values` fold has the rewrite (`ListHook.elemsOn_values_iff`) |
 | no top-cell K function | through krust, a function over `GeneratedTopCell` does not parse on SIMPLE; on kimp it compiles, but a function that is `true` on every configuration closed 2 of 79 cases and left `init` open (measured), because its equation needs every cell to be a constructor and the rules' cells are variables | the cell form `@CELL` (SIMPLE: `@T`, a function over `<T>`), or a kind 2 predicate with one projection per level |
 | cell collections: one level | a cell inside two nested collections is refused | state the invariant over the enclosing cell, or in Lean |
 | `diff` does not compare functions | a change to a function's equations is not reported, though it changes what the cases mean | rebuild after every regeneration; compare `NS/Functions.lean` of the two generations with `diff -u` |
@@ -878,20 +861,22 @@ How to find the strengthening: read the open goal of the failing rule, find wher
 `$K/tests/gate.sh light|heavy` regenerates every library and demo of `k2lean/` from the K sources, builds them in a work tree of its own, and compares what it measures with `$K/tests/baseline.toml`: open sets may only shrink, `k2l_preserve` counts may not drop, axiom guards may not lose theorems, no `sorry`, and regenerated sources must equal the last accepted generation.
 `docs/testing.md` of the repository says when it is owed and how it runs in CI (`k2lean-light`, `k2lean-heavy`).
 To have it ratchet a new invariant, register it in three scripts, put its inputs in the tree, run a tier, and accept.
+The library `kimpkeys` of §3 is registered so (with `kimpkeys-hand`, the same library with `CALC.assign` listed as a hand case, §3.4); the kind 2 project `EnvBound` of §4 is not, and the steps below add it.
 
 1. The inputs, in the k2lean directory `T` the gate checks (`T=$K` for real; git tracks exactly these files):
 
    ```text
-   T/demos/k/kimp-keys/imp-keys.k                    the K module of §3.1
-   T/generated/kimpkeys/open-obligations.txt         the library's open lists and hand module: the rest of
-   T/generated/kimpkeys/open-invariant-cases.txt     generated/ is regenerated by every run, and git ignores it
-   T/generated/kimpkeys/KImpKeys/InvariantsHand.lean
-   T/demos/EnvBound/EnvBound/{Invariant,Cases,Run}.lean   the three modules of §4
+   T/demos/k/kimp-keys/imp-keys.k                    the K module of §3.1 (in the tree)
+   T/generated/kimpkeys/open-obligations.txt         a library's open lists and hand module (in the tree): the
+   T/generated/kimpkeys/open-invariant-cases.txt     rest of generated/ is regenerated by every run, and git
+   T/generated/kimpkeys-hand/KImpKeys/InvariantsHand.lean   ignores it
+   T/demos/EnvBound/EnvBound/{Invariant,Cases,Run}.lean   the three modules of §4 (to add)
    T/demos/EnvBound/{lakefile.lean,lean-toolchain}
    ```
 
    A kind 2 project under `demos/` must require `../../lean/prelude` and `../../generated/kimp`; copy the three modules first and then run `$G new-invariant --lib $T/generated/kimp --out $T/demos/EnvBound` with a generated kimp in `$T/generated/kimp` (from `demos/regen.sh`), which writes the lakefile with those paths and keeps the modules.
-2. The registrations: `tests/libs.sh` (how to compile and generate), `tests/gate.sh` (the phases), `tests/gate-check.py` (what is measured):
+2. The registrations: `tests/libs.sh` (how to compile and generate), `tests/gate.sh` (the phases), `tests/gate-check.py` (what is measured).
+   The `kimpkeys` lines show the shape of a kind 1 library's registration (the tree has them, with one loop in `gate.sh` for `kimpkeys` and `kimpkeys-hand`); the `EnvBound` lines are the ones to add:
 
    ```diff
    --- a/k2lean/tests/libs.sh
@@ -951,20 +936,17 @@ To have it ratchet a new invariant, register it in three scripts, put its inputs
    $T/tests/gate.sh light
    ```
 
-   The first run passes with `NOTE` lines for what the baseline does not have yet:
+   The first run passes with a `NOTE` line for what the baseline does not have yet (a new kind 1 library adds `lib.NAME`, `inv.NAME` and `sources` notes):
 
    ```text
-   gate: NOTE lib.kimpkeys: not in the baseline
    gate: NOTE demo.EnvBound: not in the baseline
-   gate: NOTE inv.kimpkeys: not in the baseline
-   gate: NOTE sources: 17 new generated files: generated/kimpkeys/KImpKeys.lean, …
    gate: light passed
    ```
 
-   `accept` (which refuses a run with failed steps, banned items or failing unit tests) writes the new entries to `T/tests/baseline.toml`: for kimpkeys, 79 cases, 78 automatic, open `[«CALC.assign»]`, 4 guarded; for EnvBound, 78 of 79 closed with hand `[«CALC.assign»]`, 5 guarded.
+   `accept` (which refuses a run with failed steps, banned items or failing unit tests) writes the new entries to `T/tests/baseline.toml`: for EnvBound, 78 of 79 closed with hand `[«CALC.assign»]`, 5 guarded (for kimpkeys the baseline has 79 cases, 79 automatic, open `[]`, 4 guarded).
    The second run passes with no `NOTE`.
    From then on the gate fails if a hand case breaks (`FAIL step build EnvBound`, `FAIL demo.EnvBound: not built`), an open set grows, or a `k2l_preserve` count drops.
-   The hand module `generated/kimpkeys/KImpKeys/InvariantsHand.lean` is among the hashed sources, so an edit to it is a `FAIL sources` until accepted.
+   A kind 1 hand module (`generated/kimpkeys-hand/KImpKeys/InvariantsHand.lean`) is, like the open lists, an input that a person writes: the sources check does not hash it, and the build of the invariant checks it, so an edit that still proves its cases passes and one that does not fails (`FAIL step invariant kimpkeys-hand`).
 
 To rehearse without touching your checkout, make a worktree of it (`git worktree add`), edit there, and run the worktree's gate with `GATE_KRUST_REPO=$R` (the checkout with krust and the K and kimp sources) and your own `GATE_WORK` and `GATE_CACHE`; `GATE_SEED=DIR` copies the `.lake/` directories of an existing work tree first, which makes the run incremental (`tests/gate.sh` with no argument prints every variable).
 
@@ -972,10 +954,12 @@ To rehearse without touching your checkout, make a worktree of it (`git worktree
 
 | demo | kind | what it shows |
 |---|---|---|
-| `demos/k/kimp-inv/imp-inv.k` (library `kimpinv`, light gate) | 1 | a `values` fold, 79 of 79 automatic, `init_holds` from a hypothesis |
-| `demos/k/simple-inv/simple-inv.k`, `generated/simpleinv/KSimpleInv/InvariantsHand.lean` (library `simpleinv`, heavy gate) | 1 | the cell-map lift over SIMPLE's threads, two arithmetic hand cases |
+| `demos/k/kimp-inv/imp-inv.k` (library `kimpinv`, light gate) | 1 | two `values` folds conjoined (`envOk`, and `storeNoIds`, whose test `notBool isId(X)` on the value `CALC.assign` stores closes by the injection split), 79 of 79 automatic, `init_holds` from hypotheses |
+| `demos/k/kimp-keys/imp-keys.k` (libraries `kimpkeys` and `kimpkeys-hand`, light gate) | 1 | the `keys_list` fold of §3, 79 of 79 automatic; `kimpkeys-hand` takes `CALC.assign` from its hand module (§3.4) |
+| `demos/k/simple-inv/simple-inv.k` (library `simpleinv`, heavy gate) | 1 | the cell-map lift over SIMPLE's threads, 169 of 169 automatic, the lock counts by linear arithmetic |
 | `demos/k/krs-imp/k2lean-sidecar.json`, `demos/KrsImpTyping/` | 1 | the KRS sidecar, proved equivalent to a hand-written typing predicate |
 | `demos/ImpTypes/ImpTypes/{Invariant,Cases,Run}.lean` | 2 | a parametrized runtime typing with `split [tyOf, wtS]`, two store hand cases |
+| `demos/ImpWrites/ImpWrites/{Invariant,Cases,Run}.lean` | 2 | a predicate that walks `<k>` (no pending statement assigns `x`), 79 of 79 automatic, 29 of them through the injection split |
 | `demos/SimpleEnv/` | 2 | a relational, strengthened invariant over SIMPLE, five monotonicity hand cases |
 | `lean/prelude/KPrelude/InvTactic.lean` | — | the tactic's documentation |
 | `lean/prelude/KPrelude/Invariant.lean`, `InvSteps.lean` | — | `Preserved`, `PreservedUnder`, `Star`, `StepsN`, the typed view `TConfig` and `OnCell` |
