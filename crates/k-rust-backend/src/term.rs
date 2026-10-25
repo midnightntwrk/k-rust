@@ -766,7 +766,9 @@ pub struct TermAttributes {
     /// See [`TermAttributes::may_be_rigid`]; set only by `Term::allocate`, from the kind.
     may_be_rigid: bool,
     /// The first conjunct of a conjunction, `None` for any other kind: see
-    /// [`Term::first_conjunct`]; set only by `Term::allocate`, from the kind.
+    /// [`Term::first_conjunct`]; set only by `Term::allocate`, from the kind. A second handle to
+    /// a subterm of the kind, which [`Term`]'s `Drop` releases before it reads the kind's
+    /// subterms' counts.
     first_conjunct: Option<Term>,
     hash: u64,
 }
@@ -933,7 +935,18 @@ impl NodeIdentity {
 /// freed after the nodes of its own such subterms were moved to the list, so every free goes one
 /// level down: a subterm left behind is a shared node, which is only released, or a node without
 /// subterms. Every other drop is left to the glue, which by the same argument goes at most one
-/// level down. The handle counts read here are hints: a node another thread releases at the same
+/// level down.
+///
+/// A conjunction's attributes hold a second handle to its first conjunct
+/// ([`Term::first_conjunct`]), a subterm its kind reaches through its left side, so that
+/// subterm's count is not its owners' alone. A node taken from the list therefore releases its
+/// attributes before its subterms are read: the subterm is still reached through the kind, so
+/// that only lowers its count, and the counts read next are exact. The last handle of a
+/// conjunction always takes the work list, since its left side's count includes its own
+/// attribute's handle: left to the glue, the attributes would release that handle and the kind
+/// would then drop the subterm's last handle, one nested drop per conjunction of a deep term.
+///
+/// The handle counts read here are hints: a node another thread releases at the same
 /// moment may be left to the glue, which then frees it through this same `Drop` one level down.
 ///
 /// Cost: a drop of a shared handle reads its count once more; a drop of a last handle also reads
@@ -945,7 +958,9 @@ impl NodeIdentity {
 /// than its stack.
 impl Drop for Term {
     fn drop(&mut self) {
-        if Arc::strong_count(&self.0) != 1 || !self.0.kind.owns_deep_subterm() {
+        if Arc::strong_count(&self.0) != 1
+            || !(self.0.attributes.first_conjunct.is_some() || self.0.kind.owns_deep_subterm())
+        {
             return;
         }
         let leaf = DETACHED
@@ -957,7 +972,12 @@ impl Drop for Term {
             leaf,
         };
         while let Some(node) = work.next.take().or_else(|| work.rest.pop()) {
-            if let Some(TermData { kind, .. }) = Arc::into_inner(node) {
+            if let Some(TermData {
+                attributes, kind, ..
+            }) = Arc::into_inner(node)
+            {
+                // A first conjunct the kind still reaches: only its count goes down.
+                drop(attributes);
                 kind.into_deep_subterms(&mut work);
             }
         }
