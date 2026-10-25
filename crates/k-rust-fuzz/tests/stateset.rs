@@ -591,7 +591,7 @@ fn a_cleaner_merged_arrival_is_an_any_state_hit() {
             "merge/both.pgm",
             ("both(12)", "12", 12),
             any_state("<k> chain(12) </k> <out> 5 </out>"),
-            options,
+            options.clone(),
         ));
         assert_eq!(
             verdict(&report),
@@ -603,6 +603,18 @@ fn a_cleaner_merged_arrival_is_an_any_state_hit() {
         assert_eq!(witness.first.reaching.step, Some(3), "{witness:?}");
         assert_eq!(witness.first.reaching.leaf, None, "{witness:?}");
         assert!(report.totals.work < 200, "{}", report.totals.work);
+        // The krun line is the search; a depth bound bounds it, and without one it says it
+        // may not terminate and names the work bound krun cannot take.
+        let krun = witness.krun_command.as_deref().expect("a krun line");
+        assert!(krun.contains(" --search-all --pattern "), "{krun}");
+        if options.max_depth.is_some() {
+            assert!(krun.contains(" --depth 100 "), "{krun}");
+        } else {
+            assert!(
+                krun.contains("max-work 2000") && krun.contains("may not terminate"),
+                "{krun}"
+            );
+        }
     }
     // On one path only `mark(5)`'s first branch runs: its reach is on the dirty prefix alone,
     // never a clean hit.
@@ -645,6 +657,16 @@ fn a_committed_rule_on_a_run_that_never_ends_naturally_is_reached_unfinished() {
     };
     assert_eq!(stall(false), (OutcomeClass::Hit, None));
     assert_eq!(stall(true), (OutcomeClass::ReachedUnfinished, None));
+    // The hit is the run's: `sb` is on no retained trace.
+    let report = run(fixture_spec(
+        &MERGE,
+        "merge/stall.pgm",
+        ("stall(5)", "5", 5),
+        rule(label("sb"), RuleMode::Fired),
+        all_paths(None, None),
+    ));
+    let witness = report.witness().expect("a witness");
+    assert_eq!(witness.first.reaching.leaf, None, "{witness:?}");
 }
 
 /// Design test 4 and its fuzz-level guard: a verdict that only execution mode gives is never a
@@ -671,11 +693,13 @@ fn a_verdict_only_execution_mode_gives_is_never_a_miss() {
 }
 
 /// Regression guard (FZ-STATESET-MATCH). IMP primes with `m = 4`, all-paths `fired` on the right
-/// heating of `/`: the strict operator's evaluation orders meet, so the state set keeps the
-/// left-first arrival's trace and the right heating may fire only on absorbed arrivals; it is
-/// committed and every leaf is clean, so the case is a hit of the whole run.
+/// heating of `/`: the strict operator's evaluation orders meet, and the state set keeps the
+/// left-first arrival, whose path also heats the right operand (after the left one is
+/// evaluated), so the rule is on a retained trace and the hit is that leaf's. (A rule that
+/// fires only on an absorbed arrival, whose hit is the run's, is MERGE's `ac` and `sb` in this file;
+/// IMP's strictness rules fire on the kept order as well, so it offers none.)
 #[test]
-fn imp_primes_fires_the_right_division_heating_by_committed() {
+fn imp_primes_fires_the_right_division_heating_on_a_retained_trace() {
     let report = run(fixture_spec(
         &IMP_DIFF,
         "imp-diff/primes.imp",
@@ -689,4 +713,31 @@ fn imp_primes_fires_the_right_division_heating_by_committed() {
         "{:?}",
         report.outcome
     );
+    // The hit is a retained leaf's: its own trace holds the rule.
+    let witness = report.witness().expect("a witness");
+    assert_eq!(witness.first.reaching.leaf, Some(0), "{witness:?}");
+}
+
+/// ANY-STATE-MEM (TRIAL3): IMP `primes` with `m = 4` against `at: any-state`
+/// `<k> _:Int / 0 ~> _ </k>` on all paths within max-work 1000. The base held every configuration
+/// of its path set (7.4 GB) and was cut `work-bound` at work 1000; the state set with in-run
+/// matching completes at work 467 and misses: no reached state divides by zero. (Memory is
+/// measured outside the test suite; the class and the work are what the in-run judgement
+/// changes.)
+#[test]
+fn the_any_state_mem_case_completes_and_misses() {
+    let report = run(fixture_spec(
+        &IMP_DIFF,
+        "imp-diff/primes.imp",
+        ("m = 4;", "4", 4),
+        any_state("<k> _:Int / 0 ~> _ </k>"),
+        all_paths(Some(1000), None),
+    ));
+    assert_eq!(
+        verdict(&report),
+        (OutcomeClass::Miss, None),
+        "{:?}",
+        report.outcome
+    );
+    assert_eq!(report.totals.work, 467);
 }

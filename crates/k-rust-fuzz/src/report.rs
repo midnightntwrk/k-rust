@@ -1180,9 +1180,13 @@ pub struct Witness {
     /// variables with `-c`, `--io off`, the strategy of the path mode (`all` for a differential
     /// baseline, which runs all paths), the depth bound and the solver options, with the
     /// compiled definition's directory left as `<definition-dir>`. `krun` has no work bound, so
-    /// a campaign bounded by `max-work` says so in a trailing comment. `None` when no `krun` run
-    /// is equivalent: a KORE-template program, a program without `$PGM`, or a backend on the
-    /// `from-definition` route (krun orders rules by the compiler's rewrite order).
+    /// a campaign bounded by `max-work` says so in a trailing comment. For a pattern target
+    /// `at: any-state` the line is the search `--search-all --pattern '<pattern>'` in place of
+    /// the strategy, which explores every reachable configuration: with no depth bound it ends
+    /// only when they are finitely many, and the trailing comment says that it may not terminate.
+    /// `None` when no `krun` run is equivalent: a KORE-template program, a program without
+    /// `$PGM`, or a backend on the `from-definition` route (krun orders rules by the compiler's
+    /// rewrite order).
     pub krun_command: Option<String>,
     /// For a differential witness, the same command line on the mutant, whose compiled
     /// directory is left as `<mutant-dir>`: strategy `all` for a removed end (judged against

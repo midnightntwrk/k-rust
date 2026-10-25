@@ -1216,3 +1216,204 @@ fn the_pattern_body_count_ignores_the_targets_own_verdict() {
     );
     assert_eq!(target.pattern_body_matches(&result), Some(2));
 }
+
+// ------------------------------------------------- FZ-STATESET-MATCH fix round (D1-D3)
+
+/// A pattern target `at: any-state`, resolved without a matcher (the judgement reads only the
+/// run's state matches).
+fn any_state_target(run_to_completion: bool) -> ResolvedTarget {
+    ResolvedTarget {
+        target: Target {
+            kind: TargetKind::Pattern(super::PatternTarget {
+                pattern: "<k> .K </k>".to_owned(),
+                at: super::PatternAt::AnyState,
+            }),
+            run_to_completion,
+            negated_property: false,
+            data_end: false,
+            comparable: false,
+            query_confirmable: false,
+        },
+        resolved: Resolved::PatternAnyState,
+        matchers: Vec::new(),
+    }
+}
+
+/// A run whose state matches hold one clean reach at depth 1.
+fn clean_reach() -> crate::exec::AnyStateRun {
+    let state = k_rust::kore::json::to_value(
+        &parse_pattern(r"\top{SortGeneratedTopCell{}}()").expect("a KORE pattern"),
+    )
+    .expect("KORE JSON");
+    crate::exec::AnyStateRun {
+        matches: k_rust::backend::StateMatchesOutput {
+            first_clean_reach: Some(k_rust::backend::StateMatchOutput {
+                depth: 1,
+                state,
+                diagnostics: Vec::new(),
+                term_conjunction: false,
+            }),
+            first_dirty_reach: None,
+            dirty_reaches: 0,
+            undecided: Vec::new(),
+            matched: 2,
+            refuted: 1,
+            smt_unknowns: 0,
+            stack_stops: 0,
+        },
+        run_reasons: Vec::new(),
+    }
+}
+
+fn judge_any(
+    target: &ResolvedTarget,
+    result: &CaseResult,
+) -> (OutcomeClass, Option<UnjudgedReason>) {
+    let (judgement, _) = target
+        .judge_any_state(result, Some(&clean_reach()), None)
+        .expect("no engine defect");
+    (judgement.class, judgement.reason)
+}
+
+/// D1 (fix round): under `run-to-completion` a clean reach names no leaf, and when no leaf is a
+/// clean natural end the case is `reached-unfinished` only if no path ends naturally *and* the
+/// leaves' own class claims nothing unsupported. A stuck leaf whose natural end is undecided,
+/// and an undefined step that rests on a chosen value, keep the leaves' class (`unsupported`,
+/// with their reason), as at the base; a decided abnormal stop or a clean undefined step gives
+/// `reached-unfinished`.
+#[test]
+fn an_any_state_reach_is_reached_unfinished_only_on_decided_unfinished_leaves() {
+    let target = any_state_target(true);
+    let undecided_end = case(
+        vec![leaf(
+            HaltReasonOutput::Stuck,
+            vec![UncleanReason::NaturalEndUndecided],
+            false,
+        )],
+        &[],
+        &[],
+    );
+    assert_eq!(
+        judge_any(&target, &undecided_end),
+        (
+            OutcomeClass::Unsupported,
+            Some(UnjudgedReason::NaturalEndUndecided)
+        )
+    );
+    let chosen_undefined = case(
+        vec![leaf(
+            HaltReasonOutput::Trivial,
+            vec![
+                UncleanReason::Halt,
+                UncleanReason::ImplementationChosenValue,
+            ],
+            false,
+        )],
+        &[],
+        &[],
+    );
+    assert_eq!(
+        judge_any(&target, &chosen_undefined),
+        (
+            OutcomeClass::Unsupported,
+            Some(UnjudgedReason::ImplementationChosenValue)
+        )
+    );
+    for decided in [
+        leaf(HaltReasonOutput::Stuck, Vec::new(), false),
+        leaf(HaltReasonOutput::Trivial, vec![UncleanReason::Halt], false),
+    ] {
+        assert_eq!(
+            judge_any(&target, &case(vec![decided], &[], &[])),
+            (OutcomeClass::ReachedUnfinished, None)
+        );
+    }
+    // Beside a clean natural end, an abnormal stop leaves the reach unattributed.
+    assert_eq!(
+        judge_any(
+            &target,
+            &case(
+                vec![
+                    natural_end(),
+                    leaf(HaltReasonOutput::Stuck, Vec::new(), false)
+                ],
+                &[],
+                &[]
+            )
+        ),
+        (
+            OutcomeClass::Unsupported,
+            Some(UnjudgedReason::AnyStateUnattributed)
+        )
+    );
+}
+
+/// D2 (fix round): the hit of the whole run that the committed transitions decide is demoted
+/// outside the determinism contract as every hit is: a load-time stack stop (on no leaf) makes
+/// it `unsupported` (`stack-stops`), exactly as it does a retained-trace hit, and the safety
+/// limit makes it `timeout`.
+#[test]
+fn a_committed_hit_is_demoted_outside_the_determinism_contract_as_every_hit_is() {
+    let target = rule_target("id-ac", RuleMode::Fired, false);
+    let committed = |end: LeafReport| {
+        let mut result = case(vec![end], &["id-ac"], &["id-ac"]);
+        if let Some(coverage) = result.coverage.as_mut() {
+            coverage.committed = Some(vec!["id-ac".to_owned()]);
+        }
+        result
+    };
+    let verdict = |result: &CaseResult| {
+        let judgement = target
+            .judge_run(result, true, true)
+            .expect("no engine defect");
+        (judgement.class, judgement.reason)
+    };
+    assert_eq!(
+        verdict(&committed(natural_end())),
+        (OutcomeClass::Hit, None)
+    );
+    let stack_stop = crate::report::LoadRecord {
+        kind: crate::exec::LOAD_STACK_STOP.to_owned(),
+        detail: "1".to_owned(),
+    };
+    let mut off_trace = committed(natural_end());
+    off_trace.load_records.push(stack_stop.clone());
+    let mut traced_end = natural_end();
+    traced_end.rewrites = vec!["id-ac".to_owned()];
+    let mut on_trace = committed(traced_end);
+    on_trace.load_records.push(stack_stop);
+    let stack_stops = (OutcomeClass::Unsupported, Some(UnjudgedReason::StackStops));
+    assert_eq!(verdict(&on_trace), stack_stops);
+    assert_eq!(verdict(&off_trace), stack_stops);
+    let mut clocked = committed(natural_end());
+    clocked.safety_limit_hit = true;
+    assert_eq!(verdict(&clocked), (OutcomeClass::Timeout, None));
+}
+
+/// D3 (fix round): a leaf that halted on an internal cause makes an any-state case
+/// `unsupported` (`internal-halt`) whatever state was reached, as every leaf-judged case is
+/// (FZ-CRASH-CAUSE).
+#[test]
+fn an_internal_halt_beside_an_any_state_reach_is_internal_halt() {
+    let mut broken = leaf(
+        HaltReasonOutput::SimplificationError,
+        vec![UncleanReason::Halt],
+        false,
+    );
+    broken.halt_cause = Some(crate::exec::HaltCause::Internal(
+        crate::exec::InternalHalt {
+            site: "smt:missing-model".to_owned(),
+            message: "smt:missing-model".to_owned(),
+        },
+    ));
+    let result = case(vec![natural_end(), broken], &[], &[]);
+    for run_to_completion in [false, true] {
+        assert_eq!(
+            judge_any(&any_state_target(run_to_completion), &result),
+            (
+                OutcomeClass::Unsupported,
+                Some(UnjudgedReason::InternalHalt)
+            )
+        );
+    }
+}

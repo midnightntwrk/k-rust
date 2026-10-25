@@ -906,13 +906,27 @@ impl LiveCases {
         }
         // `--io off` buffers standard input into `$STDIN`; the campaign binds it empty.
         write!(line, " -e {} < /dev/null", quote(&program.text)).expect("writing to a String");
-        if let Some(work) = options.effective_max_work() {
-            write!(
+        // The search explores every reachable configuration; with no depth bound it ends only
+        // when they are finitely many, so the line says so, and names the work bound the run
+        // used, which krun cannot take.
+        let unbounded_search = search_pattern.is_some() && options.max_depth.is_none();
+        match (options.effective_max_work(), unbounded_search) {
+            (Some(work), false) => write!(
                 line,
                 "  # the campaign also bounds max-work {work}, which krun cannot"
-            )
-            .expect("writing to a String");
+            ),
+            (Some(work), true) => write!(
+                line,
+                "  # the campaign bounded max-work {work}, which krun cannot, and no depth: \
+                 this search may not terminate"
+            ),
+            (None, true) => write!(
+                line,
+                "  # the campaign bounded no depth: this search may not terminate"
+            ),
+            (None, false) => Ok(()),
         }
+        .expect("writing to a String");
         Some(line)
     }
 
@@ -2662,6 +2676,11 @@ mod tests {
         if let Some(krun) = &witness.krun_command {
             assert!(
                 krun.contains(" --search-all --pattern ") && !krun.contains("--strategy"),
+                "{krun}"
+            );
+            // A depth bound bounds the search; without one the line says it may not end.
+            assert!(
+                krun.contains(" --depth ") || krun.contains("this search may not terminate"),
                 "{krun}"
             );
         }

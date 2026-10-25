@@ -812,7 +812,8 @@ impl Executor {
     /// Besides the judged result, the run's state matches and its run-level unclean reasons
     /// ([`AnyStateRun`]); `None` for a failed case. The matcher's solver `unknown`s are added to
     /// [`CaseResult::smt_unknowns`], since they depend on the clock as much as the run's do
-    /// (review 2, NI-2).
+    /// (review 2, NI-2), and its stack stops to [`CaseResult::stack_stops`], since they depend on
+    /// the host: either makes the case a determinism break.
     ///
     /// # Errors
     ///
@@ -1145,8 +1146,10 @@ impl Judge<'_> {
         let mut judged = self.judge(backend, &result, probe)?;
         let any_state = match matches {
             Some(matches) if judged.failure.is_none() => {
-                // The matcher's undecided answers depend on the clock as the run's do.
+                // The matcher's undecided answers depend on the clock, and its stack stops on the
+                // host, as the run's do: both put the case outside the determinism contract.
                 judged.smt_unknowns = judged.smt_unknowns.saturating_add(matches.smt_unknowns);
+                judged.stack_stops = judged.stack_stops.saturating_add(matches.stack_stops);
                 Some(AnyStateRun {
                     matches,
                     run_reasons: run_reasons(&result),

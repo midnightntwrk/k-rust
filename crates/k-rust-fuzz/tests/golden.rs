@@ -26,7 +26,7 @@ use k_rust_fuzz::{
     values::{Constraints, ElementSorts, GenerationBounds, IntRange},
 };
 use num_bigint::BigInt;
-use support::{COIN, COIN_KILL, DICT, IMP, IMP_DIFF, LOCK, MAZE, UNSIGNED, VALUES};
+use support::{COIN, COIN_KILL, DICT, IMP, IMP_DIFF, LOCK, MAZE, MERGE, UNSIGNED, VALUES};
 
 /// The variable that makes [`golden_child`] run the campaigns and print their reports.
 const CHILD: &str = "KRUST_FUZZ_GOLDEN_CHILD";
@@ -66,6 +66,17 @@ const PINNED: Option<(u32, &str)> = Some((
 const PINNED_STATESET: Option<(u32, &str)> = Some((
     7,
     "c43af437cd3593aa92147bbada3fdc4df0b22771fc2bb46dd9f21dabe57f5382",
+));
+
+/// The pinned fingerprint of the state-match campaigns' case sequence (FZ-STATESET-MATCH), at
+/// [`ENGINE_VERSION`] 7: an all-paths `at: any-state` campaign, whose states k-rust matches
+/// inside the run (sharing the run's solver cache), and an all-paths `fired` campaign whose hit
+/// is the run's, by the committed transitions. A change of the in-run matching, of the
+/// committed transitions or of the classes judged on them moves it: bump `ENGINE_VERSION` and
+/// re-pin every fingerprint.
+const PINNED_STATE_MATCH: Option<(u32, &str)> = Some((
+    7,
+    "afbe5ed23402779c61f4bf34bfe2768bcd0b5ad7879f95b8e322019b37342019",
 ));
 
 /// The pinned fingerprint of the dictionary campaigns' case sequence (FZ-11) at
@@ -125,7 +136,8 @@ const SOLVE_CAMPAIGNS: usize = if cfg!(feature = "z3") { 1 } else { 0 };
 
 /// How many of [`golden_reports`] are blind campaigns, fingerprinted by [`PINNED`]; the
 /// state-set campaigns follow ([`STATESET_CAMPAIGNS`]), fingerprinted by [`PINNED_STATESET`],
-/// then the dictionary campaigns, fingerprinted by [`PINNED_DICTIONARY`], then the climb campaigns
+/// then the state-match campaigns ([`STATE_MATCH_CAMPAIGNS`]), fingerprinted by
+/// [`PINNED_STATE_MATCH`], then the dictionary campaigns, fingerprinted by [`PINNED_DICTIONARY`], then the climb campaigns
 /// ([`CLIMB_CAMPAIGNS`]), fingerprinted by [`PINNED_CLIMB`], then the corpus campaigns
 /// ([`CORPUS_CAMPAIGNS`]), fingerprinted by [`PINNED_CORPUS`], and the solve campaigns last
 /// ([`SOLVE_CAMPAIGNS`], in builds with the `z3` feature), checked by `check_solve`.
@@ -133,6 +145,10 @@ const BLIND_CAMPAIGNS: usize = 5;
 
 /// How many of [`golden_reports`], after the blind campaigns, run all paths on state sets.
 const STATESET_CAMPAIGNS: usize = 1;
+
+/// How many of [`golden_reports`], after the state-set campaign, judge state matches or committed
+/// transitions ([`state_match_campaigns`]), fingerprinted by [`PINNED_STATE_MATCH`].
+const STATE_MATCH_CAMPAIGNS: usize = 2;
 
 /// How many of [`golden_reports`], before the corpus campaigns, enable the climb.
 const CLIMB_CAMPAIGNS: usize = 1;
@@ -309,6 +325,7 @@ fn golden_reports() -> Vec<FuzzReport> {
     ]
     .into_iter()
     .chain([(stateset_campaign(), Budget::Cases(30))])
+    .chain(state_match_campaigns())
     .chain(dictionary_campaigns(&coin_spec))
     .chain([(climb_campaign(), Budget::Cases(200))])
     .chain([(corpus_campaign(), Budget::Cases(1500))])
@@ -359,6 +376,85 @@ fn stateset_campaign() -> CampaignSpec {
         ..CaseOptions::default()
     };
     spec
+}
+
+/// The state-match campaigns (FZ-STATESET-MATCH), with blind sampling, on all paths:
+/// - IMP's `primes`, `m` over `0 ..= 8`, against `at: any-state` `s` holding 3 mid-run (reached
+///   on the way to every end of `m` at least 5), within max-work 20 000;
+/// - MERGE's `go(N)`, `N` over `0 ..= 9`, `fired` on `ac`, which fires only on the arrival the
+///   state set absorbs, so every hit is the run's, by the committed transitions.
+fn state_match_campaigns() -> Vec<(CampaignSpec, Budget)> {
+    let mut any_state = stateset_campaign();
+    any_state.target.kind = TargetKind::Pattern(PatternTarget {
+        pattern: r#"<state> (#token("s", "Id") |-> S:Int) _:Map </state> requires S ==Int 3"#
+            .into(),
+        at: PatternAt::AnyState,
+    });
+    any_state.seed = 0x0000_0005;
+    let compiled = MERGE.compiled();
+    let program = "merge/go.pgm";
+    let mut committed = stateset_campaign();
+    committed.definitions = Definitions {
+        baseline: Arc::new(compiled.definition()),
+        mutant: None,
+    };
+    committed.program = ProgramInput::Source(compiled.program_source(program));
+    let mut hole = int_hole("N", program, "go(5)", "5");
+    hole.constraints.range = Some(IntRange {
+        min: Some(BigInt::from(0)),
+        max: Some(BigInt::from(9)),
+    });
+    committed.holes = vec![hole];
+    committed.target.kind = TargetKind::Rule(RuleTarget {
+        rule: RuleRef::Label("ac".into()),
+        mode: RuleMode::Fired,
+    });
+    committed.seed = 0x0000_0006;
+    vec![
+        (any_state, Budget::Cases(30)),
+        (committed, Budget::Cases(30)),
+    ]
+}
+
+/// The state-match campaigns run their cases on state sets and find their witnesses: the
+/// any-state one names its reaching configuration and no leaf, the committed one no leaf; their
+/// fingerprint is [`PINNED_STATE_MATCH`].
+fn check_state_match(reports: &[FuzzReport]) {
+    let computed = fingerprint(reports);
+    if std::env::var_os("KRUST_FUZZ_GOLDEN_PRINT").is_some() {
+        eprintln!("state-match fingerprint at engine version {ENGINE_VERSION}: {computed}");
+    }
+    let [any_state, committed] = reports else {
+        panic!("two state-match campaigns");
+    };
+    for report in reports {
+        assert_eq!(
+            serde_json::to_value(&report.identity).expect("the identity is JSON")["execution-modality"]
+                ["cases"],
+            "state-set"
+        );
+    }
+    let reach = &any_state
+        .witness()
+        .expect("the any-state campaign finds a witness")
+        .first
+        .reaching;
+    assert!(
+        reach.configuration.is_some() && reach.leaf.is_none(),
+        "{reach:?}"
+    );
+    let run_hit = &committed
+        .witness()
+        .expect("the committed campaign finds a witness")
+        .first
+        .reaching;
+    assert!(run_hit.leaf.is_none(), "{run_hit:?}");
+    check_pin(
+        "state-match",
+        PINNED_STATE_MATCH,
+        &computed,
+        "the in-run matching, the committed transitions or the classes judged on them",
+    );
 }
 
 /// VALUES with a `Map` configuration-variable hole of `Int` keys and values, and a target that
@@ -787,7 +883,8 @@ fn the_same_campaign_in_two_processes_gives_byte_identical_reports() {
     let corpus_start = solving - CORPUS_CAMPAIGNS;
     let climbing = corpus_start - CLIMB_CAMPAIGNS;
     let computed = fingerprint(&reports[..BLIND_CAMPAIGNS]);
-    let dictionary_start = BLIND_CAMPAIGNS + STATESET_CAMPAIGNS;
+    let state_match_start = BLIND_CAMPAIGNS + STATESET_CAMPAIGNS;
+    let dictionary_start = state_match_start + STATE_MATCH_CAMPAIGNS;
     let dictionary = fingerprint(&reports[dictionary_start..climbing]);
     let climb = fingerprint(&reports[climbing..corpus_start]);
     let corpus = fingerprint(&reports[corpus_start..solving]);
@@ -830,7 +927,8 @@ fn the_same_campaign_in_two_processes_gives_byte_identical_reports() {
         &climb,
         "its parameters, its moves or its score",
     );
-    check_stateset(&reports[BLIND_CAMPAIGNS..dictionary_start]);
+    check_stateset(&reports[BLIND_CAMPAIGNS..state_match_start]);
+    check_state_match(&reports[state_match_start..dictionary_start]);
     check_pin(
         "dictionary",
         PINNED_DICTIONARY,

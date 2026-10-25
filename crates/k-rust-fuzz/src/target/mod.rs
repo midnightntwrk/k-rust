@@ -567,9 +567,10 @@ fn every_leaf_qualifies(result: &CaseResult, run_to_completion: bool, data_end: 
 /// Some explored path fired the rule when it is committed (a run without the committed
 /// transitions reads coverage `applied` in their place, conservatively, since that also holds
 /// rolled-back candidates). A committed rule is a hit of the whole run when every leaf could
-/// carry it ([`every_leaf_qualifies`]); under `run-to-completion`, a `stuck` or
-/// `reached-unfinished` case is `reached-unfinished` when no path ends naturally
-/// ([`no_path_ends_naturally`]); otherwise a case that fired somewhere and whose class denies a
+/// carry it ([`every_leaf_qualifies`]), demoted as every hit is outside the determinism
+/// contract ([`hit_unless_demoted`]); under `run-to-completion`, a case whose leaves give
+/// `stuck`, `undefined` or `reached-unfinished` is `reached-unfinished` when no path ends
+/// naturally ([`reached_unfinished_everywhere`]); otherwise a case that fired somewhere and whose class denies a
 /// clean reaching end ([`denies_a_clean_reaching_end`]) is `unsupported` with
 /// [`UnjudgedReason::FiredOffTrace`].
 fn fired_off_retained_traces(
@@ -586,14 +587,11 @@ fn fired_off_retained_traces(
         // Every path's end is a leaf of the result, as its configuration and halt, and no leaf
         // carries a fact or a taint a path to it may have carried that it does not show
         // (`every_leaf_qualifies`): a path that fired the rule ends at a leaf that may carry the
-        // hit. Which one is not known, so the hit is the run's (D13).
-        return Some((OutcomeClass::Hit, None));
+        // hit. Which one is not known, so the hit is the run's (D13), and it is demoted as every
+        // hit is outside the determinism contract.
+        return Some(hit_unless_demoted(result));
     }
-    if committed
-        && run_to_completion
-        && matches!(class, OutcomeClass::Stuck | OutcomeClass::ReachedUnfinished)
-        && no_path_ends_naturally(result)
-    {
+    if committed && run_to_completion && reached_unfinished_everywhere(result, class) {
         // Some path fired the rule and no path ends naturally: the target was reached and the
         // run did not end naturally, whichever path reached it.
         return Some((OutcomeClass::ReachedUnfinished, None));
@@ -604,10 +602,36 @@ fn fired_off_retained_traces(
     ))
 }
 
+/// `hit`, or the class a hit takes in a run outside the determinism contract
+/// ([`exec::demoted_hit`], with the first of its reasons): the one demotion every hit goes
+/// through, whether the leaves' classification or the run's committed transitions or state
+/// matches decided it.
+pub(super) fn hit_unless_demoted(result: &CaseResult) -> (OutcomeClass, Option<UnjudgedReason>) {
+    match exec::demoted_hit(&result.determinism_breaks()) {
+        Some((class, reasons)) => (class, reasons.into_iter().min()),
+        None => (OutcomeClass::Hit, None),
+    }
+}
+
+/// Whether `reached-unfinished` holds of the whole run, whichever path reached the target
+/// (FZ-STATESET-MATCH): the leaves' own class (`leaves_class`, from their traces or with no leaf
+/// reaching) is one that claims nothing unsupported and no cut (`stuck`, `undefined`, or
+/// `reached-unfinished`), and no path ends naturally ([`no_path_ends_naturally`]). A leaf that
+/// is unsupported (a fact, an undecided natural end) or cut keeps the class its leaves give.
+pub(super) fn reached_unfinished_everywhere(
+    result: &CaseResult,
+    leaves_class: OutcomeClass,
+) -> bool {
+    matches!(
+        leaves_class,
+        OutcomeClass::Stuck | OutcomeClass::Undefined | OutcomeClass::ReachedUnfinished
+    ) && no_path_ends_naturally(result)
+}
+
 /// Whether no path of `result` ends naturally (FZ-STATESET-MATCH): every leaf is an undefined
-/// step (`trivial`), never a natural end, or a clean `stuck` leaf that is not a natural end, and
-/// no run fact lies off the leaves. No leaf is cut, so every explored path ends at a leaf of the
-/// result as its configuration and halt ([`every_leaf_qualifies`]); a `stuck` leaf merges only
+/// step (`trivial`) unclean for nothing but its halt, never a natural end, or a clean `stuck`
+/// leaf whose natural end is decided false, and no run fact lies off the leaves. No leaf is cut,
+/// so every explored path ends at a leaf of the result as its configuration and halt ([`every_leaf_qualifies`]); a `stuck` leaf merges only
 /// with leaves of its configuration whose halt it stands for, and whether a clean stuck leaf is
 /// a natural end is a property of its configuration. So no path, absorbed or not, reached a
 /// natural end, and `reached-unfinished` (some path reached the target, none ended naturally)
@@ -616,8 +640,12 @@ fn no_path_ends_naturally(result: &CaseResult) -> bool {
     !result.leaves.is_empty()
         && !result.run_facts_off_leaves
         && result.leaves.iter().all(|leaf| match leaf.halt {
-            HaltReasonOutput::Trivial => true,
-            HaltReasonOutput::Stuck => leaf.is_clean() && !leaf.natural_end,
+            // An undefined step that rests on nothing open: in every model the path ends there.
+            HaltReasonOutput::Trivial => !leaf.unclean_beyond_halt(),
+            // A decided abnormal stop: its natural end is refuted, not undecided.
+            HaltReasonOutput::Stuck => {
+                leaf.is_clean() && !leaf.natural_end && !leaf.natural_end_undecided()
+            }
             HaltReasonOutput::Cancelled
             | HaltReasonOutput::Vacuous
             | HaltReasonOutput::Branch

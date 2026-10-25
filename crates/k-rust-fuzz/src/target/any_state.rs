@@ -18,15 +18,19 @@
 //!   the configuration and its constraints), and an arrival on a clean path merged into a
 //!   reaching state with a dirty one is reported as the clean reach, with its own prefix.
 //!
-//! The case is a hit when the summary has a first clean reach and the run has no run-level
-//! reason (an unsupported hook observed in the run, D21; the clock, stack and solver reasons put
-//! the case outside the determinism contract, below). What follows the reaching state on its
+//! The case is a hit when the summary has a first clean reach, no leaf halted on an internal
+//! cause (`internal-halt`, FZ-CRASH-CAUSE: k-rust broke on this run, so nothing of it is
+//! evidence), and the run has no run-level reason (an unsupported hook observed in the run, D21;
+//! the clock, stack and solver reasons, the matcher's stack stops and solver `unknown`s
+//! included, put the case outside the determinism contract, below). What follows the reaching state on its
 //! path cannot unmake the reach, so a reaching path a bound later cuts is still a hit
 //! (CUT-PATH-HIT); only its prefix's facts bear on it. Under `run-to-completion` the hit also
 //! needs the reaching path to end cleanly and naturally (and in data with `data-end`), and a
 //! reached state names no leaf: it is a hit only when every leaf of the run is such an end and no
-//! run fact lies off the leaves, and `reached-unfinished` when no path ends naturally at all
-//! (`no_path_ends_naturally`); otherwise `unsupported` with `any-state-unattributed` (S4).
+//! run fact lies off the leaves. Otherwise a leaf the classification calls `unsupported` keeps
+//! that class and its reason; the case is `reached-unfinished` when the leaves claim nothing
+//! unsupported or cut and no path ends naturally (`reached_unfinished_everywhere`, the guard
+//! `fired` uses); otherwise `unsupported` with `any-state-unattributed` (S4).
 //!
 //! Without a clean reach, a dirty reach or an undecided state may hide a hit: the case is then
 //! `unsupported`, with the first reason in [`UnjudgedReason`]'s order among theirs and the
@@ -51,8 +55,9 @@ use k_rust::backend::{
 };
 
 use super::{
-    HitSite, Judgement, ResolvedTarget, every_leaf_qualifies, no_path_ends_naturally,
+    HitSite, Judgement, ResolvedTarget, every_leaf_qualifies, hit_unless_demoted,
     observer::{defect, explained, unobserved},
+    reached_unfinished_everywhere,
 };
 use crate::{
     exec::{self, AnyStateRun, CaseResult, DeterminismBreak, OutcomeClass, UnjudgedReason},
@@ -140,6 +145,17 @@ impl ResolvedTarget {
             return exec::classify_explained(result, &[], run_to_completion)
                 .map(|(class, reason)| (explained(class, reason), None));
         }
+        // A leaf that halted on an internal cause shows k-rust broke on this run, so nothing of
+        // the run is evidence, a reached state included (FZ-CRASH-CAUSE).
+        if result.internal_halt().is_some() {
+            return Ok((
+                explained(
+                    OutcomeClass::Unsupported,
+                    Some(UnjudgedReason::InternalHalt),
+                ),
+                None,
+            ));
+        }
         let cancelled = cancel.is_some_and(CancellationToken::is_cancelled);
         let breaks = result.determinism_breaks();
         if result.safety_limit_hit || !breaks.is_empty() || cancelled {
@@ -163,8 +179,15 @@ impl ResolvedTarget {
             }
             if run_to_completion && !every_leaf_qualifies(result, run_to_completion, data_end) {
                 // The reached state names no leaf; whether the path through it ends cleanly and
-                // naturally is shown only when every path does, or when none does.
-                let judgement = if no_path_ends_naturally(result) {
+                // naturally is shown only when every path does, or when none does. A leaf the
+                // classification calls `unsupported` (a fact, an undecided natural end) keeps
+                // that class and its reason, as it does for `fired`.
+                let unreached = vec![false; result.leaves.len()];
+                let (leaves_class, leaves_reason) =
+                    exec::classify_ends_explained(result, &unreached, run_to_completion, data_end)?;
+                let judgement = if leaves_class == OutcomeClass::Unsupported {
+                    explained(leaves_class, leaves_reason)
+                } else if reached_unfinished_everywhere(result, leaves_class) {
                     explained(OutcomeClass::ReachedUnfinished, None)
                 } else {
                     explained(
@@ -174,12 +197,14 @@ impl ResolvedTarget {
                 };
                 return Ok((judgement, None));
             }
+            let (class, reason) = hit_unless_demoted(result);
             let judgement = self.confirmable(
                 Judgement {
-                    class: OutcomeClass::Hit,
-                    hit_site: Some(HitSite::StateMatch { depth: reach.depth }),
+                    class,
+                    hit_site: (class == OutcomeClass::Hit)
+                        .then_some(HitSite::StateMatch { depth: reach.depth }),
                     blocked: false,
-                    reason: None,
+                    reason,
                     demoted_from: None,
                 },
                 result,
@@ -201,34 +226,52 @@ impl ResolvedTarget {
                 }),
             ));
         }
-        let unreached = vec![false; result.leaves.len()];
-        let (class, reason) =
-            exec::classify_ends_explained(result, &unreached, run_to_completion, data_end)?;
-        // No clean reach: a dirty reach or an undecided state may hide one.
-        let mut unresolved: Vec<UnjudgedReason> = Vec::new();
-        if let Some(reach) = &matches.first_dirty_reach {
-            let reasons = prefix_reasons(reach);
-            if reasons.is_empty() {
-                return Err(defect(
-                    "a reach k-rust reports on a dirty prefix carries no fact that makes a prefix unclean",
-                ));
-            }
-            unresolved.extend(reasons);
-        }
-        unresolved.extend(
-            matches
-                .undecided
-                .iter()
-                .map(|entry| undecided_reason(entry.reason)),
-        );
-        if let Some(unresolved) = unresolved.into_iter().min() {
-            // A configuration that could not be decided may reach the target: never a `miss`.
-            let reason = reason.map_or(unresolved, |reason| reason.min(unresolved));
-            return Ok((explained(OutcomeClass::Unsupported, Some(reason)), None));
-        }
-        if class == OutcomeClass::Hit {
-            return Err(defect("leaves that reach nothing were classed `hit`"));
-        }
-        Ok((explained(class, reason), None))
+        no_clean_reach(result, matches, run_to_completion, data_end)
+            .map(|judgement| (judgement, None))
     }
+}
+
+/// The judgement of an any-state case whose run reports no clean reach (module documentation):
+/// a dirty reach or an undecided state may hide one, so the case is `unsupported` with the first
+/// of their reasons and the leaves'; otherwise the leaves class it as reaching nothing.
+///
+/// # Errors
+///
+/// [`EngineDefect`] from classification, and when a dirty reach carries none of the facts that
+/// make a prefix unclean.
+fn no_clean_reach(
+    result: &CaseResult,
+    matches: &k_rust::backend::StateMatchesOutput,
+    run_to_completion: bool,
+    data_end: bool,
+) -> Result<Judgement, EngineDefect> {
+    let unreached = vec![false; result.leaves.len()];
+    let (class, reason) =
+        exec::classify_ends_explained(result, &unreached, run_to_completion, data_end)?;
+    // No clean reach: a dirty reach or an undecided state may hide one.
+    let mut unresolved: Vec<UnjudgedReason> = Vec::new();
+    if let Some(reach) = &matches.first_dirty_reach {
+        let reasons = prefix_reasons(reach);
+        if reasons.is_empty() {
+            return Err(defect(
+                "a reach k-rust reports on a dirty prefix carries no fact that makes a prefix unclean",
+            ));
+        }
+        unresolved.extend(reasons);
+    }
+    unresolved.extend(
+        matches
+            .undecided
+            .iter()
+            .map(|entry| undecided_reason(entry.reason)),
+    );
+    if let Some(unresolved) = unresolved.into_iter().min() {
+        // A configuration that could not be decided may reach the target: never a `miss`.
+        let reason = reason.map_or(unresolved, |reason| reason.min(unresolved));
+        return Ok(explained(OutcomeClass::Unsupported, Some(reason)));
+    }
+    if class == OutcomeClass::Hit {
+        return Err(defect("leaves that reach nothing were classed `hit`"));
+    }
+    Ok(explained(class, reason))
 }

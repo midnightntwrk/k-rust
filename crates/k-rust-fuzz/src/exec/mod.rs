@@ -801,6 +801,31 @@ impl CaseRequestShape {
     }
 }
 
+/// The class a hit takes in a run outside the determinism contract (`breaks`,
+/// [`CaseResult::determinism_breaks`]), with the reasons of an `unsupported` one: `timeout` when a
+/// clock was involved (the per-case safety limit among them), else `unsupported` with each
+/// break's reason; `None` inside the contract. Every hit goes through it, whatever decided it
+/// ([`classify`], and the hits decided off the leaves' classes, `crate::target`), so that no
+/// route to a hit can skip it.
+pub(crate) fn demoted_hit(
+    breaks: &[DeterminismBreak],
+) -> Option<(OutcomeClass, Vec<UnjudgedReason>)> {
+    if breaks.is_empty() {
+        None
+    } else if breaks.contains(&DeterminismBreak::Clock) {
+        Some((OutcomeClass::Timeout, Vec::new()))
+    } else {
+        Some((
+            OutcomeClass::Unsupported,
+            breaks
+                .iter()
+                .copied()
+                .map(UnjudgedReason::of_break)
+                .collect(),
+        ))
+    }
+}
+
 /// Whether a leaf with `halt` holds the stopped, unnormalised state the worklist held rather
 /// than a reached configuration: `work-bound`, `timeout` and `cancelled` (review 2, S1). A
 /// judge may mark such a leaf reaching only from its [`LeafReport::rewrites`] ([`classify`]).
@@ -928,13 +953,11 @@ pub(crate) fn classify_ends_explained(
         } else {
             class
         };
-        let class = if class == OutcomeClass::Hit && !breaks.is_empty() {
-            if breaks.contains(&DeterminismBreak::Clock) {
-                OutcomeClass::Timeout
-            } else {
-                reasons.extend(breaks.iter().copied().map(UnjudgedReason::of_break));
-                OutcomeClass::Unsupported
-            }
+        let class = if class == OutcomeClass::Hit
+            && let Some((demoted, why)) = demoted_hit(&breaks)
+        {
+            reasons.extend(why);
+            demoted
         } else {
             if class == OutcomeClass::Unsupported {
                 reasons.push(leaf_reason(leaf, *reached));
