@@ -65,20 +65,36 @@ fn registered_spellings_are_available_in_const_contexts() {
 fn every_code_has_one_kind_and_author_is_the_default() {
     assert_eq!(
         codes::analysis::INVALID_TERM.kind(),
-        Some(codes::CodeKind::Author)
+        codes::CodeKind::Author
     );
     assert_eq!(
         codes::analysis::INVALID_SEMANTIC_THEORY.kind(),
-        Some(codes::CodeKind::Internal)
+        codes::CodeKind::Internal
     );
+    assert_eq!(codes::collect::HOST_IO.kind(), codes::CodeKind::Environment);
     assert_eq!(
-        codes::collect::HOST_IO.kind(),
-        Some(codes::CodeKind::Environment)
-    );
-    assert_eq!(Code::foreign("E0308").kind(), None);
-    assert_eq!(
-        codes::info("krs::analysis::cell-wrapper").map(|info| info.kind),
+        codes::info("krs::analysis::cell-wrapper").map(|info| info.code.kind()),
         Some(codes::CodeKind::Author)
+    );
+}
+
+#[test]
+fn a_foreign_code_has_the_kind_its_forwarder_states() {
+    for kind in [
+        codes::CodeKind::Author,
+        codes::CodeKind::Internal,
+        codes::CodeKind::Environment,
+    ] {
+        assert_eq!(Code::foreign("UnboundVariable", kind).kind(), kind);
+    }
+    assert_ne!(
+        Code::foreign("UnboundVariable", codes::CodeKind::Author),
+        Code::foreign("UnboundVariable", codes::CodeKind::Internal)
+    );
+    assert_eq!(
+        serde_json::to_string(&Code::foreign("UnboundVariable", codes::CodeKind::Internal))
+            .unwrap(),
+        "\"UnboundVariable\""
     );
 }
 
@@ -108,15 +124,15 @@ fn rustc_message_tags_round_trip_only_registered_codes() {
 
 #[test]
 fn foreign_codes_preserve_borrowed_and_owned_spellings_without_registration() {
-    let borrowed = Code::foreign("E0412");
-    let owned = Code::foreign(String::from("E0412"));
+    let borrowed = Code::foreign("E0412", codes::CodeKind::Author);
+    let owned = Code::foreign(String::from("E0412"), codes::CodeKind::Author);
     assert_eq!(borrowed, owned);
     assert_eq!(borrowed.cmp(&owned), std::cmp::Ordering::Equal);
     assert_eq!(HashSet::from([borrowed.clone(), owned.clone()]).len(), 1);
     assert_eq!(owned.as_str(), "E0412");
     assert_eq!(borrowed.to_string(), "E0412");
     assert!(!codes::REGISTRY.iter().any(|info| info.code == owned));
-    let native = Code::foreign(format!("Native{}", "ParseError"));
+    let native = Code::foreign(format!("Native{}", "ParseError"), codes::CodeKind::Author);
     assert_eq!(native.clone().as_str(), "NativeParseError");
 }
 
@@ -316,9 +332,13 @@ mod envelope_schema {
 
     #[test]
     fn the_authored_range_key_is_required_and_nullable() {
-        let line = DiagnosticEnvelope::unlocated(DiagnosticStage::Analysis, "E0308", "mismatch")
-            .to_json_line()
-            .unwrap();
+        let line = DiagnosticEnvelope::unlocated(
+            DiagnosticStage::Analysis,
+            Code::foreign("E0308", codes::CodeKind::Author),
+            "mismatch",
+        )
+        .to_json_line()
+        .unwrap();
         assert!(DiagnosticEnvelope::from_json_lines(&line).is_ok());
         let missing = line.replace(",\"authored_range\":null", "");
         assert_ne!(missing, line);
@@ -327,10 +347,14 @@ mod envelope_schema {
 
     #[test]
     fn a_version_one_line_is_rejected_by_its_version() {
-        let line = DiagnosticEnvelope::unlocated(DiagnosticStage::Analysis, "E0308", "mismatch")
-            .to_json_line()
-            .unwrap()
-            .replace("\"schema_version\":2", "\"schema_version\":1");
+        let line = DiagnosticEnvelope::unlocated(
+            DiagnosticStage::Analysis,
+            Code::foreign("E0308", codes::CodeKind::Author),
+            "mismatch",
+        )
+        .to_json_line()
+        .unwrap()
+        .replace("\"schema_version\":2", "\"schema_version\":1");
         let error = DiagnosticEnvelope::from_json_lines(&line).unwrap_err();
         assert!(
             error

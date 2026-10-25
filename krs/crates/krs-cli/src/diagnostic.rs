@@ -77,7 +77,7 @@ impl DiagnosticReports {
 #[must_use]
 pub fn translate_k_frontend_diagnostic(
     source_map: &SourceMap,
-    code: impl Into<String>,
+    code: krs_diagnostic::Code,
     message: impl Into<String>,
     generated_start_byte: u64,
     generated_end_byte: u64,
@@ -104,6 +104,7 @@ pub fn translate_k_frontend_diagnostic(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use krs_diagnostic::codes::CodeKind;
     use krs_diagnostic::{Location, Severity};
     use krs_ir::{OriginStack, PackageId, Sha256Digest, SourceFileId};
     use krs_ir::{SourceMapKey, SourceRange};
@@ -186,7 +187,7 @@ mod tests {
     fn envelope_is_one_canonical_json_line() {
         let envelope = DiagnosticEnvelope::error(
             DiagnosticStage::Analysis,
-            krs_diagnostic::codes::analysis::SYMBOL_NAME_COLLISION.as_str(),
+            krs_diagnostic::codes::analysis::SYMBOL_NAME_COLLISION,
             "collision",
             range(),
         );
@@ -207,12 +208,13 @@ mod tests {
 
         let diagnostic = FrontendDiagnostic {
             severity: NativeSeverity::Error,
-            code: krs_diagnostic::Code::foreign("UnsupportedThing"),
+            code: krs_diagnostic::Code::foreign("UnsupportedThing", CodeKind::Internal),
             source_map_key: Some(key.clone()),
             message: "unsupported".to_owned(),
             source: None,
             location: None,
             input_addresses: Vec::new(),
+            help: Vec::new(),
         };
         let translated = translate_native_diagnostic(&source_map, &diagnostic);
         assert_eq!(translated.authored_range, Some(range()));
@@ -231,16 +233,17 @@ mod tests {
         };
         let located = FrontendDiagnostic {
             severity: NativeSeverity::Error,
-            code: krs_diagnostic::Code::foreign("UndefinedKLabel"),
+            code: krs_diagnostic::Code::foreign("UndefinedKLabel", CodeKind::Internal),
             message: "undefined label".to_owned(),
             source_map_key: Some(key),
             source: Some("native-definition".to_owned()),
             location: Some(generated),
             input_addresses: Vec::new(),
+            help: Vec::new(),
         };
         let mut unlocated = located.clone();
         unlocated.source_map_key = Some(SourceMapKey::new("missing.key").unwrap());
-        unlocated.code = krs_diagnostic::Code::foreign("InvalidAttribute");
+        unlocated.code = krs_diagnostic::Code::foreign("InvalidAttribute", CodeKind::Internal);
         unlocated.message = "unlocated attribute".to_owned();
         let reports =
             DiagnosticReports::native(&source_map, &[unlocated, located.clone(), located]);
@@ -269,12 +272,13 @@ mod tests {
         let source_map = source_map(&key);
         let located = FrontendDiagnostic {
             severity: NativeSeverity::Warning,
-            code: krs_diagnostic::Code::foreign("UnusedVariable"),
+            code: krs_diagnostic::Code::foreign("UnusedVariable", CodeKind::Author),
             message: "unused variable".to_owned(),
             source_map_key: Some(key),
             source: None,
             location: None,
             input_addresses: Vec::new(),
+            help: Vec::new(),
         };
         let mut unlocated = located.clone();
         unlocated.source_map_key = None;

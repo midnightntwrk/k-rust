@@ -20,7 +20,10 @@ use krs_ir_levels::{
 };
 use serde_json::json;
 
-use super::{Adapter, AdapterError, SentenceNodeRole, attributes_for_origin, term::TermContext};
+use super::{
+    Adapter, AdapterError, NativeNodePlace, SentenceNodeRole, SentenceProducer,
+    attributes_for_origin, term::TermContext,
+};
 
 impl Adapter<'_> {
     pub(super) fn sentence(
@@ -29,11 +32,18 @@ impl Adapter<'_> {
         module: &str,
         sentence_index: usize,
     ) -> Result<NativeSentence, AdapterError> {
-        self.map_sentence_origin(
+        let producer = match sentence {
+            DefinitionSentence::Raw(_) => SentenceProducer::Raw,
+            _ => SentenceProducer::Lowered,
+        };
+        self.map_origin(
             sentence.origin(),
             module,
-            sentence_index,
-            SentenceNodeRole::Sentence,
+            NativeNodePlace::Sentence {
+                index: sentence_index,
+                role: SentenceNodeRole::Sentence,
+            },
+            producer,
         );
         match sentence {
             DefinitionSentence::SyntaxSort(sentence) => Ok(NativeSentence::SyntaxSort {

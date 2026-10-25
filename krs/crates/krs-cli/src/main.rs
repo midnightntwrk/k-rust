@@ -890,6 +890,7 @@ fn utf8(value: OsString, role: &str) -> Result<String, UsageError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use krs_diagnostic::codes::CodeKind;
 
     #[test]
     fn reports_located_then_unlocated_errors_and_warnings_as_envelopes() {
@@ -900,21 +901,23 @@ mod tests {
             krs_ir::Sha256Digest::new("11".repeat(32)).unwrap(),
         )
         .unwrap();
+        let unused = krs_diagnostic::Code::foreign("UnusedVariable", CodeKind::Author);
         let mut envelope = krs_cli::DiagnosticEnvelope::error(
             krs_cli::DiagnosticStage::Native,
-            "UnusedVariable",
+            unused.clone(),
             "unused variable",
             krs_ir::SourceRange::new(file, 7, 16).unwrap(),
         );
         envelope.severity = krs_cli::DiagnosticSeverity::Warning;
+        // An undefined label in a `raw_k!` text: the author's.
         let error = krs_cli::DiagnosticEnvelope::unlocated(
             krs_cli::DiagnosticStage::Native,
-            "UndefinedKLabel",
+            krs_diagnostic::Code::foreign("UndefinedKLabel", CodeKind::Author),
             "undefined label",
         );
         let mut warning = krs_cli::DiagnosticEnvelope::unlocated(
             krs_cli::DiagnosticStage::Native,
-            "UnusedVariable",
+            unused,
             "unused variable",
         );
         warning.severity = krs_cli::DiagnosticSeverity::Warning;

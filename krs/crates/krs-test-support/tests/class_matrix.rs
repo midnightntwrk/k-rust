@@ -607,6 +607,8 @@ fn error(code: Option<&str>, range: Option<Range<usize>>, message: &str) -> Obse
     ObservedDiagnostic {
         severity: Severity::Error,
         code: code.map(str::to_owned),
+        // A forwarded code reaches the harness as the author's, as rustc's do.
+        kind: code.map(|code| registry_kind(code).unwrap_or(CodeKind::Author)),
         range,
         labels: Vec::new(),
         message: message.to_owned(),
@@ -692,6 +694,7 @@ fn the_table_free_invariants_judge_a_refusal_without_the_table() {
             ObservedDiagnostic {
                 severity: Severity::Warning,
                 code: Some("unused_imports".to_owned()),
+                kind: Some(CodeKind::Author),
                 range: None,
                 labels: Vec::new(),
                 message: "unused import".to_owned(),
@@ -765,4 +768,46 @@ fn the_table_free_invariants_judge_a_refusal_without_the_table() {
         ]
     );
     assert_eq!(signature(&silent, placed), "refused without an error");
+}
+
+#[test]
+fn invariant_four_reads_the_kind_an_error_was_reported_with() {
+    let cases = class_matrix::cases();
+    let case = cases
+        .iter()
+        .find(|case| case.id == "readable/result/pc/Some(x)")
+        .expect("the case is generated");
+    let rendered = case.render();
+    let placed = &rendered.cases[0];
+    let judge = |observed: &Observed| violations(observed, &placed.entry, registry_kind);
+
+    // A native code is in no registry: its kind is the one it was reported with, internal at a
+    // sentence KRS lowered.
+    let native = Observed {
+        accepted: false,
+        diagnostics: vec![ObservedDiagnostic {
+            kind: Some(CodeKind::Internal),
+            ..error(
+                Some("UnboundVariable"),
+                Some(placed.spelling.clone()),
+                "variable x is unbound",
+            )
+        }],
+        panic: None,
+    };
+    assert_eq!(
+        judge(&native),
+        vec![
+            Violation::NoRegisteredCode,
+            Violation::NonAuthorCode {
+                code: "UnboundVariable".to_owned(),
+                kind: CodeKind::Internal,
+            }
+        ]
+    );
+
+    // The same spelling about a `raw_k!` text is the author's.
+    let mut raw = native;
+    raw.diagnostics[0].kind = Some(CodeKind::Author);
+    assert_eq!(judge(&raw), vec![Violation::NoRegisteredCode]);
 }

@@ -4,9 +4,14 @@ use crate::Code;
 
 /// Who can act on the condition a code describes.
 ///
-/// A code has exactly one kind. A site that reports an author's mistake under an internal code is
-/// a bug in that site, fixed by re-coding the site, not by changing the code's kind.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize, serde::Deserialize)]
+/// A KRS code has exactly one kind. A site that reports an author's mistake under an internal code
+/// is a bug in that site, fixed by re-coding the site, not by changing the code's kind. A forwarded
+/// code's kind is stated where it is forwarded ([`Code::foreign`]): the same native spelling can
+/// judge the author's `raw_k!` text or K that KRS lowered, so consumers read a diagnostic's kind,
+/// never look its spelling up.
+#[derive(
+    Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "lowercase")]
 pub enum CodeKind {
     /// A property of what the author wrote (source, manifest, command line): some program text,
@@ -24,10 +29,8 @@ pub enum CodeKind {
 /// A registered diagnostic code, its kind and its summary.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodeInfo {
-    /// Stable code supplied by the producer.
+    /// Stable code supplied by the producer, with its kind.
     pub code: Code,
-    /// Who can act on the condition.
-    pub kind: CodeKind,
     /// One-line explanation of the condition the code describes.
     pub summary: &'static str,
 }
@@ -40,10 +43,10 @@ pub fn info(spelling: &str) -> Option<&'static CodeInfo> {
 
 macro_rules! code_kind {
     () => {
-        CodeKind::Author
+        crate::codes::CodeKind::Author
     };
     ($kind:ident) => {
-        CodeKind::$kind
+        crate::codes::CodeKind::$kind
     };
 }
 
@@ -56,7 +59,8 @@ macro_rules! register_codes {
             pub mod $stage {
                 $(
                     #[doc = $summary]
-                    pub const $name: crate::Code = crate::Code::registered($spelling);
+                    pub const $name: crate::Code =
+                        crate::Code::registered($spelling, code_kind!($($kind)?));
                 )*
 
                 /// Every diagnostic code registered for this stage.
@@ -66,7 +70,7 @@ macro_rules! register_codes {
 
         /// Every diagnostic code owned by KRS, its kind and its summary.
         pub const REGISTRY: &[CodeInfo] = &[
-            $($(CodeInfo { code: $stage::$name, kind: code_kind!($($kind)?), summary: $summary },)*)*
+            $($(CodeInfo { code: $stage::$name, summary: $summary },)*)*
         ];
     };
 }
@@ -162,7 +166,7 @@ register_codes! {
         KIND_MISMATCH: "krs::native::kind-mismatch" [Internal] => "The native source kind differs from the IR sentence.",
         MISSING_KIND: "krs::native::missing-kind" [Internal] => "Native provenance lacks a kind for an input address.",
         INVALID_IDENTITY: "krs::native::invalid-identity" [Internal] => "A native identity has an invalid author relation.",
-        MISSING_PRELUDE: "krs::native::missing-prelude" [Environment] => "The pinned structured-loader prelude is unavailable.",
+        MISSING_PRELUDE: "krs::native::missing-prelude" [Internal] => "The pinned structured-loader prelude is unavailable.",
         PREPARATION: "krs::native::preparation" => "The native loader rejected the definition.",
         COMPILE: "krs::native::compile" => "A native frontend stage rejected the definition.",
         KORE_REPARSE: "krs::native::kore-reparse" [Internal] => "A produced KORE artifact failed to reparse under the pin.",

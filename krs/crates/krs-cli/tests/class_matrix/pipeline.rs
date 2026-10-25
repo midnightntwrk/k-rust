@@ -518,6 +518,7 @@ pub fn observe_error(error: &CommandError) -> Vec<ObservedDiagnostic> {
         observed.push(ObservedDiagnostic {
             severity: Severity::Error,
             code: None,
+            kind: None,
             range: None,
             labels: Vec::new(),
             message: error.to_string(),
@@ -548,6 +549,7 @@ fn observe_reports(envelopes: &[DiagnosticEnvelope]) -> Vec<ObservedDiagnostic> 
         .map(|envelope| ObservedDiagnostic {
             severity: severity(envelope.severity),
             code: Some(envelope.code.clone()),
+            kind: Some(envelope.kind),
             range: envelope.authored_range.as_ref().map(in_case),
             labels: envelope
                 .labels

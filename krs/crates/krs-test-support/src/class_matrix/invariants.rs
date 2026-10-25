@@ -7,8 +7,9 @@
 //! 2. with its primary range, the first error's, or one of that error's labels inside the case's
 //!    site;
 //! 3. with exactly one error;
-//! 4. with no code the registry gives another kind than author (an internal or environment
-//!    code is never the answer to an author's mistake);
+//! 4. with no error whose kind is another than author (an internal or environment code is never
+//!    the answer to an author's mistake); the kind is the one the diagnostic was reported with,
+//!    since a forwarded native code's kind depends on who wrote the sentence it names;
 //! 5. without a panic, and without "internal error" in any message.
 //!
 //! None of them needs the expected-outcome table, so they hold before the table is reviewed.
@@ -46,6 +47,8 @@ pub struct ObservedDiagnostic {
     pub severity: Severity,
     /// The code: a KRS code (`krs::…`), a rustc code or lint as the harness spells it, or none.
     pub code: Option<String>,
+    /// The code's kind, as the diagnostic was reported with it; `None` without a code.
+    pub kind: Option<CodeKind>,
     /// The primary byte range in the rendered source, if the diagnostic is located there.
     pub range: Option<Range<usize>>,
     /// The byte ranges of its labels, its related locations, in the rendered source.
@@ -105,7 +108,7 @@ pub enum Violation {
     },
     /// Invariant 3: the number of errors is not one.
     ErrorCount(usize),
-    /// Invariant 4: an error carries a code that is not an author code.
+    /// Invariant 4: an error is reported with another kind than author.
     NonAuthorCode {
         /// The code.
         code: String,
@@ -149,12 +152,13 @@ pub const FORWARDED_RUSTC: &str = "krs::rust-expansion::uncoded-error";
 /// registry by.
 #[must_use]
 pub fn registry_kind(code: &str) -> Option<CodeKind> {
-    krs_diagnostic::codes::info(code).map(|info| info.kind)
+    krs_diagnostic::codes::info(code).map(|info| info.code.kind())
 }
 
 /// The invariants `observed` breaks; empty when the case was accepted. `site` is the range in
 /// the rendered source the primary error must lie inside, and `kind` answers a code's registered
-/// kind, `None` for a code the registry does not have.
+/// kind, `None` for a code the registry does not have (invariant 1); invariant 4 reads each
+/// error's own kind.
 #[must_use]
 pub fn violations(
     observed: &Observed,
@@ -187,8 +191,9 @@ pub fn violations(
         violations.push(Violation::ErrorCount(errors.len()));
     }
     for error in &errors {
-        let Some(code) = &error.code else { continue };
-        if let Some(kind) = kind(code).filter(|kind| *kind != CodeKind::Author) {
+        if let (Some(code), Some(kind)) = (&error.code, error.kind)
+            && kind != CodeKind::Author
+        {
             violations.push(Violation::NonAuthorCode {
                 code: code.clone(),
                 kind,

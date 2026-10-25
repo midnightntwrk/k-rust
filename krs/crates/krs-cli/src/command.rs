@@ -1081,8 +1081,20 @@ fn finish_native(
             warnings.push(diagnostic, DiagnosticStage::Analysis);
         }
     }
-    let native =
-        crate::DiagnosticReports::native(prepared.lowered.source_map(), &artifacts.diagnostics);
+    // KRS's own `collection-config-var-without-initial`, among the definition's warnings, already
+    // says that K starts such a cell present; k-rust's warning about the same cell adds nothing.
+    let warned = krs_compiler::cells_warned_without_initial(prepared.lowered.definition());
+    let native = artifacts
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| {
+            !diagnostic
+                .collection_cell_without_initial()
+                .is_some_and(|cell| warned.contains(&cell))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    let native = crate::DiagnosticReports::native(prepared.lowered.source_map(), &native);
     warnings.envelopes.extend(native.envelopes);
     Ok((artifacts, context, warnings))
 }
@@ -1723,7 +1735,7 @@ mod tests {
             assert_eq!(envelope.message, error.to_string());
             assert_eq!(envelope.authored_range, None);
             let rendered = crate::DiagnosticSources::default().render_envelope(envelope, false);
-            if code.kind() == Some(codes::CodeKind::Internal) {
+            if code.kind() == codes::CodeKind::Internal {
                 let (headline, help) = rendered.split_once('\n').unwrap();
                 assert_eq!(
                     headline,
@@ -1776,7 +1788,7 @@ mod tests {
     fn unlocated_warning(message: &str) -> DiagnosticEnvelope {
         let mut warning = DiagnosticEnvelope::unlocated(
             DiagnosticStage::Analysis,
-            codes::analysis::RAW_K.as_str(),
+            codes::analysis::RAW_K,
             message,
         );
         warning.severity = crate::DiagnosticSeverity::Warning;

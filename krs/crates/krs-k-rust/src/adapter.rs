@@ -115,6 +115,17 @@ pub struct OriginMapping {
     pub module: String,
     /// Structural destination within the native module.
     pub place: NativeNodePlace,
+    /// Who wrote the K of the sentence the destination lies in.
+    pub producer: SentenceProducer,
+}
+
+/// Who wrote the K of an adapted sentence, which decides whose mistake a native refusal of it is.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SentenceProducer {
+    /// KRS lowered the sentence from the author's Rust: the native frontend judges KRS's output.
+    Lowered,
+    /// The sentence is the author's verbatim `raw_k!` text, which only the native frontend judges.
+    Raw,
 }
 
 /// A native source definition structurally adapted from Definition IR.
@@ -356,7 +367,12 @@ impl<'a> Adapter<'a> {
         module: &krs_ir_levels::DefinitionModule,
     ) -> Result<FlatModule, AdapterError> {
         let module_name = module.id().as_str().to_owned();
-        self.map_origin(module.origin(), &module_name, NativeNodePlace::Module);
+        self.map_origin(
+            module.origin(),
+            &module_name,
+            NativeNodePlace::Module,
+            SentenceProducer::Lowered,
+        );
         let mut local_sentences = Vec::with_capacity(module.sentences().len());
         for sentence in module.sentences() {
             if !self.keep_claims && !module.is_spec() && is_claim(sentence) {
@@ -477,12 +493,19 @@ impl<'a> Adapter<'a> {
             })
     }
 
-    fn map_origin(&mut self, origin: &NodeOrigin, module: &str, place: NativeNodePlace) {
+    fn map_origin(
+        &mut self,
+        origin: &NodeOrigin,
+        module: &str,
+        place: NativeNodePlace,
+        producer: SentenceProducer,
+    ) {
         self.origins.push(OriginMapping {
             key: origin.key().clone(),
             origin: origin.clone(),
             module: module.to_owned(),
             place,
+            producer,
         });
     }
 
@@ -493,7 +516,12 @@ impl<'a> Adapter<'a> {
         index: usize,
         role: SentenceNodeRole,
     ) {
-        self.map_origin(origin, module, NativeNodePlace::Sentence { index, role });
+        self.map_origin(
+            origin,
+            module,
+            NativeNodePlace::Sentence { index, role },
+            SentenceProducer::Lowered,
+        );
     }
 }
 

@@ -241,7 +241,7 @@ pub(super) fn source_token(
         .expect("selected a generated range");
     let diagnostic = krs_cli::translate_k_frontend_diagnostic(
         &selected,
-        "gate-source-token",
+        krs_diagnostic::Code::foreign("gate-source-token", krs_diagnostic::codes::CodeKind::Author),
         "exact authored token",
         generated.start_byte(),
         generated.end_byte(),

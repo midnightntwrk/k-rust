@@ -256,7 +256,7 @@ mod tests {
         };
         let envelope = DiagnosticEnvelope::error(
             DiagnosticStage::Analysis,
-            OVERLAPPING_RULE_HEADS.as_str(),
+            OVERLAPPING_RULE_HEADS,
             "rule heads overlap",
             range,
         );
@@ -364,7 +364,7 @@ mod tests {
     fn unlocated_diagnostic() {
         let mut envelope = DiagnosticEnvelope::unlocated(
             DiagnosticStage::Analysis,
-            OVERLAPPING_RULE_HEADS.as_str(),
+            OVERLAPPING_RULE_HEADS,
             "rule heads overlap",
         );
         expect!["error[krs::analysis::overlapping-rule-heads]: rule heads overlap"]
@@ -381,7 +381,7 @@ mod tests {
     fn internal_code_is_rendered_as_a_krs_bug() {
         let envelope = DiagnosticEnvelope::unlocated(
             DiagnosticStage::Analysis,
-            krs_diagnostic::codes::analysis::INVALID_SEMANTIC_THEORY.as_str(),
+            krs_diagnostic::codes::analysis::INVALID_SEMANTIC_THEORY,
             "declared variables must exactly match sentence uses",
         );
         assert_eq!(envelope.kind, CodeKind::Internal);

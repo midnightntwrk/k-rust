@@ -1241,6 +1241,13 @@ pub struct Sha256Digest {{
         diagnostics[0].message,
         "hook namespace `KRYPTO` of `hook(KRYPTO.sha256raw)` is neither builtin nor selected with --hook-namespaces; the production compiles as an unhooked function"
     );
+    assert_eq!(diagnostics[0].kind, krs_diagnostic::codes::CodeKind::Author);
+    assert_eq!(
+        diagnostics[0].help,
+        [
+            "KRS has no `--hook-namespaces`: `--backend llvm` admits no plugin hook namespace, and `--backend haskell` admits those its backend implements"
+        ]
+    );
     assert_eq!(
         diagnostics[0]
             .authored_range

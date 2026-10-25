@@ -1,7 +1,7 @@
 //! Stable diagnostic envelopes shared across process boundaries.
 
-use crate::codes::{self, CodeKind};
-use crate::{Diagnostic, Location, Severity};
+use crate::codes::CodeKind;
+use crate::{Code, Diagnostic, Location, Severity};
 use krs_ir::{SourceMapKey, SourceRange};
 use serde::{Deserialize, Serialize};
 
@@ -94,8 +94,8 @@ pub struct DiagnosticEnvelope {
     pub stage: DiagnosticStage,
     /// Stable KRS code or stable-within-a-pin upstream code.
     pub code: String,
-    /// Who can act on the condition: the registry's kind for a KRS code, `author` for a forwarded
-    /// one, which judges authored text.
+    /// Who can act on the condition: the registry's kind for a KRS code, the kind its forwarder
+    /// stated for a forwarded one ([`Code::foreign`]).
     pub kind: CodeKind,
     /// Renderer-independent severity.
     pub severity: DiagnosticSeverity,
@@ -127,7 +127,7 @@ impl DiagnosticEnvelope {
     #[must_use]
     pub fn error(
         stage: DiagnosticStage,
-        code: impl Into<String>,
+        code: Code,
         message: impl Into<String>,
         authored_range: SourceRange,
     ) -> Self {
@@ -136,17 +136,12 @@ impl DiagnosticEnvelope {
 
     /// Constructs an error that no authored text is the subject of.
     #[must_use]
-    pub fn unlocated(
-        stage: DiagnosticStage,
-        code: impl Into<String>,
-        message: impl Into<String>,
-    ) -> Self {
-        let code = code.into();
+    pub fn unlocated(stage: DiagnosticStage, code: Code, message: impl Into<String>) -> Self {
         Self {
             schema_version: DIAGNOSTIC_SCHEMA_VERSION,
             stage,
-            kind: kind_of(&code),
-            code,
+            kind: code.kind(),
+            code: code.spelling.into_owned(),
             severity: DiagnosticSeverity::Error,
             message: message.into(),
             authored_range: None,
@@ -207,13 +202,6 @@ where
     Option::deserialize(deserializer)
 }
 
-/// The envelope kind of a code: the registry's kind for a KRS code, and `author` for a code
-/// forwarded from rustc or a native frontend, which judges authored text.
-#[must_use]
-pub fn kind_of(code: &str) -> CodeKind {
-    codes::info(code).map_or(CodeKind::Author, |info| info.kind)
-}
-
 /// Builds the envelope view of a diagnostic.
 ///
 /// Definition locations require exact source-map resolution from the producing boundary. Only
@@ -251,7 +239,7 @@ pub fn diagnostic_envelope(
     DiagnosticEnvelope {
         schema_version: DIAGNOSTIC_SCHEMA_VERSION,
         stage,
-        kind: kind_of(diagnostic.code.as_str()),
+        kind: diagnostic.code.kind(),
         code: diagnostic.code.to_string(),
         severity: diagnostic.severity.into(),
         message: diagnostic.message,

@@ -21,7 +21,7 @@ use k_rust::{
 use krs_ir::measure::Timings;
 use krs_ir_levels::DefinitionIr;
 
-use error::resolve_diagnostic_keys;
+use error::attribute_diagnostics;
 use provenance::join_sentence_provenance;
 
 pub use k_rust::definition::Definition as NativeDefinition;
@@ -35,7 +35,7 @@ pub use k_rust::timings::PhaseTimings as NativePhaseTimings;
 
 pub use adapter::{
     AdaptedDefinition, AdapterError, NativeNodePlace, OriginMapping, SentenceNodeRole,
-    adapt_definition, adapt_definition_for, adapt_spec_definition,
+    SentenceProducer, adapt_definition, adapt_definition_for, adapt_spec_definition,
 };
 pub use error::{
     CompileError, DefinitionCompileError, DiagnosticSeverity, FrontendDiagnostic, PreparationError,
@@ -464,11 +464,11 @@ fn compile_ir(
             timings.record(phase.name, phase.seconds, phase.depth);
         }
         compiled.map_err(|mut error| {
-            resolve_diagnostic_keys(adapted.origins(), &mut error.diagnostics);
+            attribute_diagnostics(adapted.origins(), &mut error.diagnostics);
             DefinitionCompileError::Compile(error)
         })
     })?;
-    resolve_diagnostic_keys(adapted.origins(), &mut artifacts.diagnostics);
+    attribute_diagnostics(adapted.origins(), &mut artifacts.diagnostics);
     timings.try_span("native.reparse.definition", |_| {
         parse_kore_definition(&artifacts.definition_kore).map_err(|error| {
             DefinitionCompileError::KoreReparse {

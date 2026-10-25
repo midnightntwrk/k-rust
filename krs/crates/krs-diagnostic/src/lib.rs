@@ -13,32 +13,42 @@ use serde::Serialize;
 pub mod codes;
 pub mod envelope;
 
-/// An opaque diagnostic code, serialized as its string spelling.
+/// An opaque diagnostic code and its kind, serialized as its string spelling.
 ///
-/// KRS-owned codes must come from [`codes`].
+/// KRS-owned codes must come from [`codes`], whose registry gives each its kind.
 /// Registered codes borrow static spellings and do not allocate when cloned.
-/// Forwarded codes must use [`Code::foreign`] and are not registered.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
-#[serde(transparent)]
-pub struct Code(Cow<'static, str>);
+/// Forwarded codes must use [`Code::foreign`], which states their kind, and are not registered.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Code {
+    spelling: Cow<'static, str>,
+    kind: codes::CodeKind,
+}
 
 impl Code {
-    const fn registered(spelling: &'static str) -> Self {
-        Self(Cow::Borrowed(spelling))
+    const fn registered(spelling: &'static str, kind: codes::CodeKind) -> Self {
+        Self {
+            spelling: Cow::Borrowed(spelling),
+            kind,
+        }
     }
 
-    /// Carries a code owned by another producer, such as rustc or a native frontend.
+    /// Carries a code owned by another producer, such as rustc or a native frontend, with the
+    /// kind its forwarder judges it to have: who can act on the condition depends on what the
+    /// foreign producer judged, which only the forwarder knows.
     ///
     /// The spelling is forwarded unchanged and is not added to the KRS registry.
     #[must_use]
-    pub fn foreign(spelling: impl Into<Cow<'static, str>>) -> Self {
-        Self(spelling.into())
+    pub fn foreign(spelling: impl Into<Cow<'static, str>>, kind: codes::CodeKind) -> Self {
+        Self {
+            spelling: spelling.into(),
+            kind,
+        }
     }
 
     /// Returns the spelling for renderers and existing string-based records.
     #[must_use]
     pub const fn as_str(&self) -> &str {
-        match &self.0 {
+        match &self.spelling {
             Cow::Borrowed(spelling) => spelling,
             Cow::Owned(spelling) => spelling.as_str(),
         }
@@ -50,10 +60,17 @@ impl Code {
         codes::info(spelling).map(|info| info.code.clone())
     }
 
-    /// Returns the registry's kind of a KRS code, or `None` for a forwarded code.
+    /// Returns who can act on the condition: the registry's kind for a KRS code, the stated one
+    /// for a forwarded code.
     #[must_use]
-    pub fn kind(&self) -> Option<codes::CodeKind> {
-        codes::info(self.as_str()).map(|info| info.kind)
+    pub const fn kind(&self) -> codes::CodeKind {
+        self.kind
+    }
+}
+
+impl Serialize for Code {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
     }
 }
 

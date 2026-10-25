@@ -32,7 +32,7 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use krs_diagnostic::untag_rustc_message;
+use krs_diagnostic::{Code, untag_rustc_message};
 use krs_expand::sink::{ByteRange, InvocationId, MappingClass};
 use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest, Selection};
 use krs_ir::ProvenanceRole;
@@ -125,6 +125,7 @@ fn run_front(placed: &Placed<'_>, source: &str) -> Front {
                     .map(|diagnostic| ObservedDiagnostic {
                         severity: Severity::Error,
                         code: Some(diagnostic.code.to_string()),
+                        kind: Some(diagnostic.code.kind()),
                         range: diagnostic.authored.map(range),
                         labels: Vec::new(),
                         message: diagnostic.message,
@@ -176,13 +177,14 @@ fn written_errors(expansion: &FileExpansion) -> Vec<(ObservedDiagnostic, bool)> 
         for (message, span) in found {
             let exact = expansion.authored.byte_range(span);
             let (code, message) = match untag_rustc_message(&message) {
-                Some((code, rest)) => (Some(code.to_string()), rest.to_owned()),
+                Some((code, rest)) => (Some(code), rest.to_owned()),
                 None => (None, message),
             };
             errors.push((
                 ObservedDiagnostic {
                     severity: Severity::Error,
-                    code,
+                    kind: code.as_ref().map(Code::kind),
+                    code: code.as_ref().map(Code::to_string),
                     range: Some(range(exact.unwrap_or(call_site))),
                     labels: Vec::new(),
                     message,

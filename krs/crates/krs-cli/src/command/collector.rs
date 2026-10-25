@@ -361,8 +361,9 @@ fn rust_diagnostics(
         let tagged = untagged.is_some();
         let (code, text) = match (&diagnostic.code, untagged) {
             (_, Some((code, text))) => (code, text),
+            // rustc judges the authored Rust.
             (Some(code), None) => (
-                Code::foreign(code.code.clone()),
+                Code::foreign(code.code.clone(), codes::CodeKind::Author),
                 diagnostic.message.as_str(),
             ),
             (None, None) => (
@@ -410,7 +411,8 @@ fn relay_unused_imports(
     failed: &mut FailedItems,
     diagnostics: &mut Vec<DiagnosticEnvelope>,
 ) -> Result<(), CommandError> {
-    let code = Code::foreign(UNUSED_IMPORTS.to_owned());
+    // The lint judges the author's imports.
+    let code = Code::foreign(UNUSED_IMPORTS.to_owned(), codes::CodeKind::Author);
     let primary = diagnostic
         .spans
         .iter()
@@ -1105,7 +1107,7 @@ mod tests {
         .unwrap();
         let envelope = DiagnosticEnvelope::error(
             DiagnosticStage::Analysis,
-            "krs::collect::source-syntax",
+            codes::collect::SOURCE_SYNTAX,
             "detail",
             SourceRange::new(file, 7, 16).unwrap(),
         );

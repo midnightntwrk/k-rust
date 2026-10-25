@@ -8,14 +8,15 @@ use k_rust::{
     kompile,
 };
 use krs_diagnostic::{
-    Code, Diagnostic, Label, Location, Severity, ToDiagnostic, codes,
+    Code, Diagnostic, Label, Location, Severity, ToDiagnostic,
+    codes::{self, CodeKind},
     envelope::DiagnosticGeneratedRange,
 };
 use krs_ir::SourceMapKey;
 
 use crate::{
     InputAddress, InputSpace,
-    adapter::{AdapterError, NativeNodePlace, OriginMapping, SentenceNodeRole},
+    adapter::{AdapterError, NativeNodePlace, OriginMapping, SentenceNodeRole, SentenceProducer},
     provenance::ProvenanceError,
 };
 
@@ -64,7 +65,8 @@ pub struct SourceLocation {
 pub struct FrontendDiagnostic {
     /// Diagnostic severity.
     pub severity: DiagnosticSeverity,
-    /// Stable-within-the-pin native diagnostic code name.
+    /// Stable-within-the-pin native diagnostic code name, with its kind: its kind on lowered K
+    /// until the adapter finds the sentence it names (`attribute_diagnostics`).
     pub code: Code,
     /// Human-readable diagnostic message.
     pub message: String,
@@ -76,6 +78,9 @@ pub struct FrontendDiagnostic {
     pub source_map_key: Option<SourceMapKey>,
     /// Input sentence addresses attached by the native frontend.
     pub input_addresses: Vec<InputAddress>,
+    /// Advice in KRS's terms, where the native frontend's message gives advice KRS's command line
+    /// cannot follow.
+    pub help: Vec<String>,
 }
 
 impl From<&NativeDiagnostic> for FrontendDiagnostic {
@@ -93,6 +98,10 @@ impl From<&NativeDiagnostic> for FrontendDiagnostic {
             }),
             source_map_key: None,
             input_addresses: diagnostic.input_addresses.clone(),
+            help: native_help(diagnostic.code)
+                .into_iter()
+                .map(str::to_owned)
+                .collect(),
         }
     }
 }
@@ -107,6 +116,7 @@ impl ToDiagnostic for FrontendDiagnostic {
                 .map_or(Location::None, Location::Definition),
         );
         diagnostic.severity = self.severity.into();
+        diagnostic.help.clone_from(&self.help);
         if let Some(location) = self.location {
             diagnostic
                 .secondary
@@ -127,7 +137,135 @@ impl ToDiagnostic for FrontendDiagnostic {
 
 fn native_diagnostic_code(code: NativeDiagnosticCode) -> Code {
     // k-rust treats `DiagnosticCode::as_str` as a compatibility surface, so KRS forwards it unchanged.
-    Code::foreign(code.as_str())
+    Code::foreign(code.as_str(), native_kind(code))
+}
+
+/// Who can act on a native diagnostic about a sentence KRS lowered, or about no KRS sentence.
+///
+/// KRS lowers only programs it accepts, into K it means the native frontend to accept. A native
+/// refusal of lowered K is therefore the author's only where it judges a property of the author's
+/// program that KRS leaves to the native frontend; where KRS checks the same rule earlier under
+/// its own code, or produces the construct itself, the refusal is a KRS bug. A code whose meaning
+/// is unclear is internal: a wrong internal produces a report, a wrong author hides a bug. The
+/// match has no wildcard, so a new native code is classified where it is added.
+/// [`attribute_diagnostics`] makes every non-environment code author at a `raw_k!` sentence.
+const fn native_kind(code: NativeDiagnosticCode) -> CodeKind {
+    use NativeDiagnosticCode as C;
+    match code {
+        // Properties of the author's program that KRS delegates: a function or projection in a
+        // pattern, a hook the selected backend does not implement, a collection cell started
+        // present by a configuration variable, an unused binder or constructor, and the value
+        // claims' verdicts on the author's equations.
+        C::IllegalFunctionOnLhs
+        | C::UnadmittedHookNamespace
+        | C::CellCollectionVarWithoutInitial
+        | C::UnusedVariable
+        | C::UnusedSymbol
+        | C::UnjoinedCriticalPair
+        | C::ValueClaimPrecondition => CodeKind::Author,
+        // Whether it fires depends on the calling thread's stack, not on the program.
+        C::TermTooDeep => CodeKind::Environment,
+        // KRS checks the same rule earlier under its own code: patterns, binders and variables,
+        // placement and evaluation, strictness and holes, SMT lemmas and stream cells, spec
+        // modules, lists, tokens and sorts, overloads and precedence, and the route's capability.
+        C::InvalidAsPattern
+        | C::InvalidOrPattern
+        | C::InvalidFunctionPattern
+        | C::InvalidFunctionConfiguration
+        | C::InvalidLocalFunction
+        | C::InvalidExistentialVariable
+        | C::InvalidFreshConstant
+        | C::UnboundVariable
+        | C::InvalidBinder
+        | C::MlConstructPosition
+        | C::InvalidContext
+        | C::InvalidHeatCool
+        | C::InvalidStrictness
+        | C::InvalidHole
+        | C::InvalidSmtLemma
+        | C::InvalidIoStream
+        | C::InvalidStreamCell
+        | C::InvalidMainCell
+        | C::ProofModuleRule
+        | C::ProofModuleSyntax
+        | C::DuplicateUserList
+        | C::InvalidListDeclaration
+        | C::InvalidRegex
+        | C::InvalidTokenProduction
+        | C::InvalidDomainValue
+        | C::UnsupportedParametricSort
+        | C::IsSortPredicateConflict
+        | C::DuplicateOverload
+        | C::SingletonOverload
+        | C::InvalidAssociativity
+        | C::UnsupportedExistentialVariable
+        // KRS produces the construct itself: labels and names, attributes, generated
+        // productions, cells and sorts, references, modules and imports, the production a builtin
+        // lowers to, substituted constants, simplifications, casts and search patterns, the one
+        // rewrite of every rule form, and line markers (none).
+        | C::DuplicateKLabel
+        | C::DuplicateSentenceLabel
+        | C::InvalidAnonymousVariable
+        | C::InvalidNumeralSort
+        | C::InvalidAttribute
+        | C::UnrecognizedAttribute
+        | C::DeprecatedAttribute
+        | C::InconsistentFunctionRuleAttributes
+        | C::InvalidBracketProduction
+        | C::InvalidUnitAttribute
+        | C::DuplicateConfigurationCell
+        | C::UnsupportedCellBag
+        | C::InvalidCellConcretization
+        | C::MultipleTopSorts
+        | C::KernelSortPosition
+        | C::InvalidSortSynonym
+        | C::UndefinedKLabel
+        | C::UndefinedSort
+        | C::MissingLocationsImport
+        | C::ClaimInDefinition
+        | C::DeprecatedProduction
+        | C::InvalidConstantFolding
+        | C::InvalidCommutativeSimplification
+        | C::InvalidSimplification
+        | C::InvalidMacroExpansion
+        | C::InvalidSemanticCast
+        | C::InvalidSearchPattern
+        | C::InvalidRewrite
+        | C::UnsupportedLineMarker
+        // The structured route KRS loads by never raises these: it resolves no syntax module and
+        // loads no source text but the embedded prelude's, and the adapter re-codes the parse of
+        // a `raw_k!` text (`krs::native::raw-k-parse`).
+        | C::MissingSyntaxModule
+        | C::FutureError
+        | C::MarkdownWarning
+        | C::UndeclaredTag => CodeKind::Internal,
+    }
+}
+
+/// Advice in KRS's terms for a native diagnostic whose own advice names a k-rust option.
+const fn native_help(code: NativeDiagnosticCode) -> Option<&'static str> {
+    match code {
+        // KRS passes no hook namespaces of its own: the backend the author selects admits the
+        // plugin namespaces it implements.
+        NativeDiagnosticCode::UnadmittedHookNamespace => Some(
+            "KRS has no `--hook-namespaces`: `--backend llvm` admits no plugin hook namespace, and `--backend haskell` admits those its backend implements",
+        ),
+        _ => None,
+    }
+}
+
+impl FrontendDiagnostic {
+    /// The configuration cell a native `CellCollectionVarWithoutInitial` warning names, by its K
+    /// name. k-rust attaches no sentence to it, so its message is the only place the cell is
+    /// named: "... collection cell <NAME>. ...".
+    #[must_use]
+    pub fn collection_cell_without_initial(&self) -> Option<&str> {
+        if self.code.as_str() != NativeDiagnosticCode::CellCollectionVarWithoutInitial.as_str() {
+            return None;
+        }
+        let (_, rest) = self.message.split_once("collection cell <")?;
+        rest.split_once('>').map(|(name, _)| name)
+    }
 }
 
 /// Rejection by the pinned native preparation boundary.
@@ -156,7 +294,7 @@ impl PreparationError {
 
     pub(super) fn resolve_diagnostics(&mut self, origins: &[OriginMapping]) {
         if let Self::Loader { diagnostics, .. } = self {
-            resolve_diagnostic_keys(origins, diagnostics);
+            attribute_diagnostics(origins, diagnostics);
         }
     }
 
@@ -206,6 +344,7 @@ impl PreparationError {
                 }),
                 source_map_key: Some(raw.origin.key().clone()),
                 input_addresses: Vec::new(),
+                help: Vec::new(),
             });
         }
     }
@@ -331,12 +470,22 @@ fn display_diagnostics(
     Ok(())
 }
 
-pub(super) fn resolve_diagnostic_keys(
+/// Attributes each native diagnostic to the KRS sentence it names: its source-map key, and its
+/// kind by who wrote that sentence. Every native refusal of the author's verbatim `raw_k!` text is
+/// the author's, except a host limit; a diagnostic about a lowered sentence, the prelude or no
+/// sentence keeps its kind on lowered K ([`native_kind`]).
+pub(super) fn attribute_diagnostics(
     origins: &[OriginMapping],
     diagnostics: &mut [FrontendDiagnostic],
 ) {
     for diagnostic in diagnostics {
-        diagnostic.source_map_key = diagnostic_source_map_key(origins, diagnostic);
+        let mapping = sentence_mapping(origins, diagnostic);
+        diagnostic.source_map_key = mapping.map(|mapping| mapping.key.clone());
+        if mapping.is_some_and(|mapping| mapping.producer == SentenceProducer::Raw)
+            && diagnostic.code.kind() == CodeKind::Internal
+        {
+            diagnostic.code = Code::foreign(diagnostic.code.as_str().to_owned(), CodeKind::Author);
+        }
     }
 }
 
@@ -346,6 +495,13 @@ pub fn diagnostic_source_map_key(
     origins: &[OriginMapping],
     diagnostic: &FrontendDiagnostic,
 ) -> Option<SourceMapKey> {
+    sentence_mapping(origins, diagnostic).map(|mapping| mapping.key.clone())
+}
+
+fn sentence_mapping<'a>(
+    origins: &'a [OriginMapping],
+    diagnostic: &FrontendDiagnostic,
+) -> Option<&'a OriginMapping> {
     diagnostic.input_addresses.iter().find_map(|address| {
         (address.input == InputSpace::Structured)
             .then(|| {
@@ -359,7 +515,6 @@ pub fn diagnostic_source_map_key(
                 })
             })
             .flatten()
-            .map(|mapping| mapping.key.clone())
     })
 }
 
