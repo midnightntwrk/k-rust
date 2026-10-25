@@ -570,9 +570,11 @@ mod tests {
         }
         if let Ok(value) = EquationTable::parse_source(source) {
             for row in value.rows() {
-                round_trip.sentence(&label("equations"), row.provenance(), |nodes| {
-                    row.keyed_nodes(nodes)
-                });
+                round_trip.descriptor(
+                    &label("equations"),
+                    row.descriptor().map(|row| row.anchors().to_vec()),
+                    |nodes| row.keyed_nodes(nodes),
+                );
             }
         }
         if let Ok(value) = SortsDeclaration::parse_source(source) {
@@ -1154,8 +1156,11 @@ mod tests {
                 }
                 FunctionMacro::Equations => {
                     for row in EquationTable::parse_tokens(tokens.clone()).unwrap().rows() {
-                        round_trip
-                            .sentence(label, row.provenance(), |nodes| row.keyed_nodes(nodes));
+                        round_trip.descriptor(
+                            label,
+                            row.descriptor().map(|row| row.anchors().to_vec()),
+                            |nodes| row.keyed_nodes(nodes),
+                        );
                     }
                 }
                 FunctionMacro::Sorts | FunctionMacro::FrameworkSorts => {

@@ -848,51 +848,6 @@ impl InstanceList {
         self.front.iter().chain(&self.back)
     }
 
-    /// Returns the instance, child-field, and rest anchors in traversal
-    /// order: front instances (each followed by its children), the rest,
-    /// then back instances.
-    ///
-    /// A collection is no sentence of its own: a standalone `cells!` anchors
-    /// no entry's state, and a rule side keys its collections itself
-    /// ([`Self::allocate_keys`]). So these anchors are the catalog of the
-    /// list's anchored nodes, each at ordinal 0, not a keying.
-    ///
-    /// # Errors
-    ///
-    /// Returns endpoint or ordinal-overflow errors only.
-    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = Vec::new();
-        let push_item = |item: &InstanceItem, output: &mut Vec<ProvenanceAnchor>| {
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::CellsInstance,
-                0,
-                item.range,
-            ));
-            for field in &item.fields {
-                output.push(ProvenanceAnchor::new(
-                    ProvenanceRole::CellsInstanceField,
-                    0,
-                    TokenRange::for_tokens(&field.name)?,
-                ));
-            }
-            Ok::<_, SyntaxError>(())
-        };
-        for item in &self.front {
-            push_item(item, &mut output)?;
-        }
-        if let Some(range) = self.rest.range() {
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::CellsInstancesRest,
-                0,
-                range,
-            ));
-        }
-        for item in &self.back {
-            push_item(item, &mut output)?;
-        }
-        Ok(output)
-    }
-
     /// Forgets the keys of the list and of its instances' children, before
     /// an enclosing sentence's pass keys them.
     pub(crate) fn clear_keys(&mut self) {

@@ -26,9 +26,9 @@ use syn::{Attribute, Expr, Ident, ItemFn, ItemUse, Pat, Path, Token};
 use super::block::RuleClauseLayout;
 use super::item::RuleItem;
 use super::pattern::NegativeLiteralSpans;
-use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
+use crate::parse::{KrsSyntax, ParseError, structured};
 use crate::surface::{AttributeMacro, helper_entry};
-use crate::{EquationAttribute, ProvenanceAnchor, SyntaxError, SyntaxErrorKind, TokenRange};
+use crate::{EquationAttribute, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// K's default rule priority, which an equation without `owise` or
 /// `priority = N` has.
@@ -47,8 +47,6 @@ pub struct EquationRow {
     /// Whether the row has an authored `#[k::requires]`; a `k::bits!`
     /// template's guard is not one.
     authored_requires: bool,
-    /// The anchors of the row's keying.
-    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl EquationRow {
@@ -100,25 +98,16 @@ impl EquationRow {
         self.arity
     }
 
-    /// The row's anchors: the equation's and its `#[k::equation]` keys'.
+    /// The row's descriptor: its equation's, keyed as an `#[k::equation]`
+    /// fn's is, then its `#[k::equation]` keys, each keyed when the row was
+    /// parsed.
     ///
     /// # Errors
     ///
-    /// None: the row was keyed when it was parsed.
-    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(self.anchors.clone())
-    }
-
-    /// Keys the row as a sentence of its own: the equation's full view, then
-    /// its `#[k::equation]` keys. The equation is re-keyed as part of the row,
-    /// which numbers it as the equation numbers itself.
-    fn keyed(mut self) -> Result<Self, SyntaxError> {
-        let mut keys = KeyAllocator::default();
-        self.rule.clear_keys();
-        self.rule.allocate_full_keys(&mut keys)?;
-        self.equation.allocate_keys(&mut keys)?;
-        self.anchors = keys.into_anchors();
-        Ok(self)
+    /// Returns an endpoint error only if the label emits no token leaves,
+    /// and a repeated-key error if the two pieces hold one key.
+    pub fn descriptor(&self) -> Result<crate::RuleDescriptor, SyntaxError> {
+        crate::RuleDescriptor::new(&self.rule, crate::RuleSentence::Equation(&self.equation))
     }
 }
 
@@ -307,9 +296,7 @@ fn parse_row(input: ParseStream<'_>, function: &Path) -> Result<EquationRow, Par
         source_range: TokenRange::new(row_start, semicolon.span),
         layout,
         authored_requires,
-        anchors: Vec::new(),
-    }
-    .keyed()?)
+    })
 }
 
 /// A row's attributes: its `#[k::equation(..)]` keys, parsed and authored,

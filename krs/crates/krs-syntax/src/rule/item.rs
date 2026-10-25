@@ -831,16 +831,6 @@ impl RuleItem {
         Ok(self.full_anchors.clone())
     }
 
-    /// Keys the compact catalog, then the subject, the function context, the
-    /// result, and the conditions, in provenance order.
-    pub(crate) fn allocate_full_keys(
-        &mut self,
-        keys: &mut KeyAllocator,
-    ) -> Result<(), SyntaxError> {
-        self.allocate_catalog_keys(keys, ItemView::Rule)?;
-        self.allocate_term_keys(keys, ItemView::Rule)
-    }
-
     /// Keys the subject's nodes, record field names and wildcards, the
     /// function context, the result's, the conditions, then the islands of
     /// every term in expansion order.

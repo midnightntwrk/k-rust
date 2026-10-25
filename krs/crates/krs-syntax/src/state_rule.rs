@@ -356,33 +356,30 @@ impl StateClaimItem {
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         Ok(self.anchors.clone())
     }
-    /// Returns claim-only sort paths needing rustc/collector resolution.
+    /// Returns claim-only sort paths needing rustc/collector resolution,
+    /// each with the key its node holds: the existential binders' sorts,
+    /// which the claim numbers after its universal binders' sorts, then the
+    /// anonymous nodes' sorts.
     ///
     /// # Errors
     ///
-    /// Returns an occurrence-overflow error if claim sort provenance cannot be
-    /// represented.
+    /// None: the claim was keyed when it was parsed.
     ///
     /// # Panics
     ///
-    /// Never: parsing keys every anonymous sort.
+    /// Never: parsing keys every existential and anonymous sort.
     pub fn sort_candidates(&self) -> Result<Vec<ClaimSortCandidate>, SyntaxError> {
         let mut output = self
             .existentials()
             .iter()
-            .enumerate()
-            .map(|(index, binder)| {
-                Ok(ClaimSortCandidate {
-                    key: key(
-                        ProvenanceRole::ClaimBinderSort,
-                        u32::try_from(index).map_err(|_| {
-                            signature_error("too many existential binders", binder.name().span())
-                        })?,
-                    ),
-                    path: binder.sort().clone(),
-                })
+            .map(|binder| ClaimSortCandidate {
+                key: binder
+                    .sort_key()
+                    .expect("a claim keys every existential sort")
+                    .clone(),
+                path: binder.sort().clone(),
             })
-            .collect::<Result<Vec<_>, SyntaxError>>()?;
+            .collect::<Vec<_>>();
         // An anonymous node's keys are its own, its sort's and its
         // spelling's.
         for term in claim_terms(&self.rule, self.ensures.as_ref()) {
@@ -2385,10 +2382,6 @@ pub(crate) fn allocate_claim_node_keys<'a, K: std::borrow::BorrowMut<TermKeys>>(
         }
     }
     Ok(())
-}
-
-fn key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
-    role.key(ordinal)
 }
 
 fn body_error(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {

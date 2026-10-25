@@ -1087,10 +1087,11 @@ fn collect_macro_invocations(
                     .iter()
                     .map(|binding| binding.unraw().to_string())
                     .collect();
+                let descriptor = row.descriptor().map_err(source_syntax)?;
                 output.push(parsed_invocation(
                     ProvenanceRole::RuleDeclaration,
                     row.label().to_string(),
-                    row.provenance().map_err(source_syntax)?,
+                    descriptor.anchors().to_vec(),
                     ParsedInvocationPayload::Rule { bindings },
                 )?);
             }

@@ -749,13 +749,14 @@ impl FunctionAttribute {
 
     /// Keys the function as a sentence of its own: its production's full
     /// view, then the totality marker, `memo`, `fresh_generator`, `hook`,
-    /// the SMT translation and `underspecified`. The production is first
-    /// keyed alone, which gives its compact and sort-argument views; its
-    /// full view starts both sentences, so its nodes hold the same keys.
+    /// the SMT translation and `underspecified`. The production is keyed
+    /// alone, which gives its compact and sort-argument views; its full view
+    /// starts the function's sentence, whose keying records the keys the
+    /// production's nodes hold and continues after them.
     fn rekey(&mut self) -> Result<(), SyntaxError> {
         self.constructor.rekey()?;
         let mut keys = KeyAllocator::default();
-        self.constructor.allocate_full_keys(&mut keys)?;
+        keys.append(&self.constructor.full_provenance()?)?;
         self.production = keys.anchors().len();
         let (role, marker) = match &self.totality {
             FunctionTotality::Total(marker) => (ProvenanceRole::FunctionTotal, marker),
@@ -1235,15 +1236,6 @@ impl ConstructorAttribute {
     /// None: the attribute was keyed when it was parsed.
     pub fn full_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         Ok(self.anchors.clone())
-    }
-
-    /// Keys the compact catalog, then the syntax template and the metadata.
-    pub(crate) fn allocate_full_keys(
-        &mut self,
-        keys: &mut KeyAllocator,
-    ) -> Result<(), SyntaxError> {
-        self.allocate_keys(keys)?;
-        self.allocate_metadata_keys(keys)
     }
 }
 
