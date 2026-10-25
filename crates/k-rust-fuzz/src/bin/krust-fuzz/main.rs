@@ -693,11 +693,13 @@ fn summary(report: &FuzzReport, printers: Option<&EndPrinters>) -> String {
         }
     );
     if let Some(count) = report.totals.pattern_body_matches {
+        let judged = report.totals.pattern_body_judged.unwrap_or(0);
         let _ = writeln!(
             text,
             "pattern body: {count} {} matched the pattern's configuration without its \
-             `requires`, whatever the `requires` gave",
-            if count == 1 { "end" } else { "ends" }
+             `requires`, whatever the `requires` gave, in {judged} {} whose ends were judged",
+            if count == 1 { "end" } else { "ends" },
+            if judged == 1 { "case" } else { "cases" }
         );
     }
     if let Some(best) = &report.totals.best_score {

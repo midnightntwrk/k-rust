@@ -1273,7 +1273,7 @@ fn judge_any(
     target: &ResolvedTarget,
     result: &CaseResult,
 ) -> (OutcomeClass, Option<UnjudgedReason>) {
-    let (judgement, _) = target
+    let (judgement, _, _) = target
         .judge_any_state(result, Some(&clean_reach()), None)
         .expect("no engine defect");
     (judgement.class, judgement.reason)
@@ -1420,4 +1420,73 @@ fn an_internal_halt_beside_an_any_state_reach_is_internal_halt() {
             )
         );
     }
+}
+
+// ------------------------------------------------- UNNAMED-HOOK fix round (review S1)
+
+/// A dirty reach whose prefix read `SET.choice`'s item, beside the clean reach of `run` when
+/// `clean` holds.
+fn dirty_reach(clean: bool) -> crate::exec::AnyStateRun {
+    let mut run = clean_reach();
+    let reach = run
+        .matches
+        .first_clean_reach
+        .clone()
+        .expect("a clean reach");
+    run.matches.first_dirty_reach = Some(k_rust::backend::StateMatchOutput {
+        diagnostics: vec![
+            k_rust::backend::BackendDiagnosticOutput::ImplementationChosenValue {
+                hook: "SET.choice".to_owned(),
+                class: "item".to_owned(),
+            },
+        ],
+        ..reach
+    });
+    run.matches.dirty_reaches = 1;
+    if !clean {
+        run.matches.first_clean_reach = None;
+    }
+    run
+}
+
+/// The dirty reach's hooks are named only where the verdict read the reach: a run with no clean
+/// reach, inside the determinism contract. With a clean reach under `run-to-completion` the
+/// leaves' own chosen value decides the case, and outside the contract the leaves alone do, so
+/// neither names the reach's `SET.choice`.
+#[test]
+fn an_any_state_case_names_the_dirty_reach_only_when_its_verdict_reads_it() {
+    let target = any_state_target(true);
+    let marked = case(
+        vec![leaf(
+            HaltReasonOutput::Trivial,
+            vec![
+                UncleanReason::Halt,
+                UncleanReason::ImplementationChosenValue,
+            ],
+            false,
+        )],
+        &[],
+        &[],
+    );
+    let judged = |result: &CaseResult, run| {
+        let (judgement, _, hooks) = target
+            .judge_any_state(result, Some(&run), None)
+            .expect("no engine defect");
+        (judgement.reason, hooks)
+    };
+    let chosen = Some(UnjudgedReason::ImplementationChosenValue);
+    assert_eq!(judged(&marked, dirty_reach(true)), (chosen, Vec::new()));
+    assert_eq!(
+        judged(&marked, dirty_reach(false)),
+        (
+            chosen,
+            vec![crate::report::ReasonHook::chosen("SET.choice", "item")]
+        )
+    );
+    let outside = CaseResult {
+        smt_unknowns: 1,
+        ..marked.clone()
+    };
+    let (_, hooks) = judged(&outside, dirty_reach(false));
+    assert!(hooks.is_empty(), "{hooks:?}");
 }

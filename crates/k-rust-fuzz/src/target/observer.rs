@@ -459,10 +459,14 @@ impl ResolvedTarget {
                 })
             }
             Resolved::PatternAnyState => {
-                let (result, run) = executor.run_any_state(initial, shape, cancel)?;
+                let (mut result, run) = executor.run_any_state(initial, shape, cancel)?;
                 let (judgement, state_match) =
                     match self.judge_any_state(&result, run.as_ref(), cancel) {
-                        Ok((judgement, state_match)) => (Ok(judgement), state_match),
+                        Ok((judgement, state_match, reach_hooks)) => {
+                            // The dirty reach's hooks count only where its verdict read it.
+                            result.hooks.chosen_on_reach = reach_hooks;
+                            (Ok(judgement), state_match)
+                        }
                         Err(defect) => (Err(defect), None),
                     };
                 let (judgement, comparable, every_path) =

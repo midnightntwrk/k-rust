@@ -1655,6 +1655,8 @@ export interface FuzzWitnessCase {
 export interface FuzzReasonHooks {
   hooks: { hook: string; class?: string }[]
   omitted?: number
+  /** In the totals: how many of the reason's cases named a hook; absent in `comparable.hooks`. */
+  cases?: number
 }
 
 export interface FuzzWitness {
@@ -1902,6 +1904,8 @@ export interface FuzzTotals {
   'target-blocked': number
   /** Pattern targets only: clean end leaves that matched the pattern's configuration without its `requires`; 0 warns of a vacuous pattern when some case's ends were judged. */
   'pattern-body-matches'?: number
+  /** Pattern targets only: cases with an end clean enough to be judged against the pattern; present exactly when `pattern-body-matches` is. */
+  'pattern-body-judged'?: number
   /** The best score of the scored `miss` cases; null when no proposer scores (climb, solve). */
   'best-score': FuzzBestScore | null
   'outside-determinism': number

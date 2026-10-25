@@ -14,12 +14,12 @@ use k_rust_fuzz::{
     HoleLocation, ProgramInput, ProposerConfig, SpanAddress, Target, TargetKind,
     report::FuzzReport,
     spec::{DEFAULT_REJECTION_CAP, PathMode},
-    target::{PatternAt, PatternTarget, RuleMode, RuleRef, RuleTarget},
+    target::{DifferentialTarget, PatternAt, PatternTarget, RuleMode, RuleRef, RuleTarget},
     values::{Constraints, GenerationBounds, IntRange},
 };
 use num_bigint::BigInt;
 use serde_json::{Value as Json, json};
-use support::{CHOSEN, Fixture, HOOKNAME};
+use support::{CHOSEN, Fixture, HOOKNAME, HOOKNAME_M, VANISH, VANISH_KILL};
 
 /// An `Int` hole `N` at `literal` in `find` of `program`, over `min..=max`.
 fn hole(program: &str, find: &str, literal: &str, (min, max): (i64, i64)) -> HoleDecl {
@@ -154,11 +154,13 @@ fn an_implementation_chosen_value_names_the_hook_that_read_it() {
     );
     assert_eq!(
         json(&report)["totals"]["unsupported-hooks"],
-        json!({"implementation-chosen-value": {"hooks": [{"hook": "MAP.keys_list", "class": "order"}]}})
+        json!({"implementation-chosen-value": {"hooks": [{"hook": "MAP.keys_list", "class": "order"}], "cases": 4}})
     );
     let statement = statement(&report);
     assert!(
-        statement.contains("4 implementation-chosen-value (hook MAP.keys_list [order])"),
+        statement.contains(
+            "4 implementation-chosen-value (hook MAP.keys_list [order] named in 4 of them)"
+        ),
         "{statement}"
     );
 }
@@ -192,11 +194,11 @@ fn an_unsupported_hook_in_the_run_names_the_hook() {
     );
     assert_eq!(
         json(&report)["totals"]["unsupported-hooks"],
-        json!({"unsupported-hook": {"hooks": [{"hook": "INT.shl"}]}})
+        json!({"unsupported-hook": {"hooks": [{"hook": "INT.shl"}], "cases": 4}})
     );
     let statement = statement(&report);
     assert!(
-        statement.contains("4 unsupported-hook (hook INT.shl)"),
+        statement.contains("4 unsupported-hook (hook INT.shl named in 4 of them)"),
         "{statement}"
     );
 }
@@ -241,11 +243,12 @@ fn a_hit_not_comparable_for_an_unsupported_hook_names_the_hook() {
     );
     assert_eq!(
         json(&on)["totals"]["unsupported-hooks"],
-        json!({"end-not-comparable:unsupported-hook": {"hooks": [{"hook": "INT.shl"}]}})
+        json!({"end-not-comparable:unsupported-hook": {"hooks": [{"hook": "INT.shl"}], "cases": 4}})
     );
     let statement = statement(&on);
     assert!(
-        statement.contains("4 end-not-comparable:unsupported-hook (hook INT.shl)"),
+        statement
+            .contains("4 end-not-comparable:unsupported-hook (hook INT.shl named in 4 of them)"),
         "{statement}"
     );
 }
@@ -280,6 +283,7 @@ fn the_pattern_body_warning_counts_only_cases_whose_ends_were_judged() {
         json!({"implementation-chosen-value": 4})
     );
     assert_eq!(json(&unjudged)["totals"]["pattern-body-matches"], json!(0));
+    assert_eq!(json(&unjudged)["totals"]["pattern-body-judged"], json!(0));
     assert!(
         body_warnings(&unjudged).is_empty(),
         "{:?}",
@@ -289,11 +293,201 @@ fn the_pattern_body_warning_counts_only_cases_whose_ends_were_judged() {
     // three values is exhausted after three cases.
     let mixed = run(campaign((1, 3)), 10);
     assert_eq!(reasons(&mixed), json!({"implementation-chosen-value": 2}));
+    assert_eq!(json(&mixed)["totals"]["pattern-body-judged"], json!(1));
     let warnings = body_warnings(&mixed);
     assert_eq!(warnings.len(), 1, "{:?}", mixed.warnings);
     assert!(
         warnings[0].contains("no end of the 1 executed case whose ends were judged matched")
             && warnings[0].contains("2 other executed cases had no end clean enough to judge"),
+        "{}",
+        warnings[0]
+    );
+}
+
+/// HOOKNAME's `which(N)` reads `MAP.keys_list`'s order for N > 0 and `SET.set2list`'s otherwise:
+/// the five cases of N in -2..2 are all `implementation-chosen-value`, and the reason names the
+/// union of the hooks its cases named, with how many named one.
+#[test]
+fn a_reason_names_every_hook_its_cases_named() {
+    let report = run(
+        spec(
+            &HOOKNAME,
+            "hookname/which.pgm",
+            hole("hookname/which.pgm", "which(1)", "1", (-2, 2)),
+            target(final_pattern("<out> 5 </out>"), false),
+            PathMode::OnePath,
+        ),
+        10,
+    );
+    assert_eq!(
+        reasons(&report),
+        json!({"implementation-chosen-value": 5}),
+        "{}",
+        json(&report)
+    );
+    assert_eq!(
+        json(&report)["totals"]["unsupported-hooks"],
+        json!({"implementation-chosen-value": {
+            "hooks": [
+                {"hook": "MAP.keys_list", "class": "order"},
+                {"hook": "SET.set2list", "class": "order"}
+            ],
+            "cases": 5
+        }})
+    );
+    let statement = statement(&report);
+    assert!(
+        statement.contains(
+            "5 implementation-chosen-value (hooks MAP.keys_list [order], SET.set2list [order] \
+             named in 5 of them)"
+        ),
+        "{statement}"
+    );
+}
+
+/// HOOKNAME's `exp(N)` follows `calm` on one path and fires it cleanly; the program's run of
+/// every path also halts `unsupported-hook` on `FLOAT.exp`, whose hook the leaf's cause names.
+/// The witness's comparable judgement names it under `halt` (the halt's cause), beside the
+/// leaf's diagnostic and the run's record.
+#[test]
+fn a_halt_on_an_unsupported_hook_names_the_hook_of_its_cause() {
+    let report = run(
+        spec(
+            &HOOKNAME,
+            "hookname/exp.pgm",
+            hole("hookname/exp.pgm", "exp(7)", "7", (1, 9)),
+            target(fired("calm"), false),
+            PathMode::OnePath,
+        ),
+        4,
+    );
+    let exp = json!({"hooks": [{"hook": "FLOAT.exp"}]});
+    assert_eq!(
+        json(&report)["outcome"]["witness"]["first"]["comparable"],
+        json!({
+            "holds": false,
+            "reasons": ["halt", "unsupported-hook-unevaluated", "unsupported-hook"],
+            "hooks": {
+                "halt": exp,
+                "unsupported-hook-unevaluated": exp,
+                "unsupported-hook": exp
+            }
+        }),
+        "{}",
+        json(&report)
+    );
+}
+
+/// A differential campaign over the hole `N` at `literal` in `find` of `program`, over `range`.
+fn differential(
+    baseline: &'static Fixture,
+    mutant: &'static Fixture,
+    program: &str,
+    (find, literal): (&str, &str),
+    range: (i64, i64),
+) -> CampaignSpec {
+    let mut spec = spec(
+        baseline,
+        program,
+        hole(program, find, literal, range),
+        target(
+            TargetKind::Differential(DifferentialTarget::default()),
+            false,
+        ),
+        PathMode::OnePath,
+    );
+    spec.definitions.mutant = Some(Arc::new(mutant.compiled().definition()));
+    spec
+}
+
+/// A differential case reads its hooks from the side its reason names. HOOKNAME's baseline run
+/// of every path halts on `FLOAT.exp`, so it is incomplete (`halt-unsupported-hook`, which
+/// precedes the run's `unsupported-hook` among a baseline's reasons): the baseline names the hook
+/// in `baseline-incomplete-hooks`, where the mutant (HOOKNAME-M, no such path) names none. With
+/// VANISH-KILL as the baseline and VANISH as the mutant, the mutant's leaf carries a mark of
+/// `MAP.keys_list`'s order (`implementation-chosen-value`, an `unsupported` case read from the
+/// mutant), which the complete baseline never reads.
+#[test]
+fn a_differential_case_names_the_hooks_of_the_side_its_reason_reads() {
+    let incomplete = run(
+        differential(
+            &HOOKNAME,
+            &HOOKNAME_M,
+            "hookname/exp.pgm",
+            ("exp(7)", "7"),
+            (1, 9),
+        ),
+        4,
+    );
+    assert_eq!(
+        json(&incomplete)["totals"]["baseline-incomplete-reasons"],
+        json!({"halt-unsupported-hook": 4}),
+        "{}",
+        json(&incomplete)
+    );
+    assert_eq!(
+        json(&incomplete)["totals"]["baseline-incomplete-hooks"],
+        json!({"halt-unsupported-hook": {"hooks": [{"hook": "FLOAT.exp"}], "cases": 4}})
+    );
+    let statement = statement(&incomplete);
+    assert!(
+        statement.contains("4 halt-unsupported-hook (hook FLOAT.exp named in 4 of them)"),
+        "{statement}"
+    );
+    let no_evidence = run(
+        differential(
+            &VANISH_KILL,
+            &VANISH,
+            "vanish/pick.pgm",
+            ("pick(1, 2)", "2"),
+            (2, 5),
+        ),
+        4,
+    );
+    assert_eq!(
+        reasons(&no_evidence),
+        json!({"implementation-chosen-value": 4}),
+        "{}",
+        json(&no_evidence)
+    );
+    assert_eq!(
+        json(&no_evidence)["totals"]["unsupported-hooks"],
+        json!({"implementation-chosen-value": {
+            "hooks": [{"hook": "MAP.keys_list", "class": "order"}],
+            "cases": 4
+        }})
+    );
+}
+
+/// HOOKNAME's `pick(N)` for a small N computes the shift, so both paths end cleanly: each case
+/// judges two ends against a pattern no end holds. The warning and `pattern-body-judged` count
+/// the two cases, not their four ends.
+#[test]
+fn the_pattern_body_warning_counts_cases_not_ends() {
+    let report = run(
+        spec(
+            &HOOKNAME,
+            "hookname/pick.pgm",
+            hole("hookname/pick.pgm", "pick(33554432)", "33554432", (1, 2)),
+            target(final_pattern("<out> 5 </out>"), false),
+            PathMode::AllPaths,
+        ),
+        10,
+    );
+    // The anchor 33554432 lies outside the range: rejected, not run.
+    assert_eq!(
+        json(&report)["totals"]["classes"],
+        json!({"miss": 2, "rejected": 1}),
+        "{}",
+        json(&report)
+    );
+    assert_eq!(json(&report)["totals"]["pattern-body-matches"], json!(0));
+    assert_eq!(json(&report)["totals"]["pattern-body-judged"], json!(2));
+    let warnings = body_warnings(&report);
+    assert_eq!(warnings.len(), 1, "{:?}", report.warnings);
+    assert!(
+        warnings[0].contains("no end of the 2 executed cases whose ends were judged matched")
+            && !warnings[0].contains("other executed"),
         "{}",
         warnings[0]
     );

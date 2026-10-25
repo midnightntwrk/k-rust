@@ -60,13 +60,19 @@ use super::{
     reached_unfinished_everywhere,
 };
 use crate::{
-    exec::{self, AnyStateRun, CaseResult, DeterminismBreak, OutcomeClass, UnjudgedReason},
-    report::EngineDefect,
+    exec::{
+        self, AnyStateRun, CaseResult, DeterminismBreak, OutcomeClass, RunHooks, UnjudgedReason,
+    },
+    report::{EngineDefect, ReasonHook},
 };
 
 #[cfg(test)]
 #[path = "any_state_tests.rs"]
 mod tests;
+
+/// What [`ResolvedTarget::judge_any_state`] gives: the judgement, the reaching configuration of
+/// a hit, and the hooks of the dirty reach the judgement read (empty when it read none).
+pub(crate) type AnyStateJudgement = (Judgement, Option<StateMatchHit>, Vec<ReasonHook>);
 
 /// An any-state hit's reaching configuration (the first clean reach of the run's state
 /// matches): its depth and its state, as KORE.
@@ -120,7 +126,11 @@ fn undecided_reason(reason: UndecidedMatchReasonOutput) -> UnjudgedReason {
 impl ResolvedTarget {
     /// Judge an any-state case from its judged `result` and the run's state matches `run`
     /// ([`Executor::run_any_state`]), with the reaching configuration for a hit (module
-    /// documentation).
+    /// documentation), and the hooks of the implementation-chosen values on the first dirty
+    /// reach's prefix when the judgement read that reach (UNNAMED-HOOK,
+    /// [`crate::exec::RunHooks::chosen_on_reach`]): only a run with no clean reach, inside the
+    /// determinism contract, reads it; every other verdict rests on the leaves or the clean
+    /// reach, and names no hook of the dirty one.
     ///
     /// A failed run is classed by its failure alone. A case outside the determinism contract,
     /// or whose `cancel` is cancelled by the time it is judged, is classed with no leaf reaching
@@ -138,12 +148,12 @@ impl ResolvedTarget {
         result: &CaseResult,
         run: Option<&AnyStateRun>,
         cancel: Option<&CancellationToken>,
-    ) -> Result<(Judgement, Option<StateMatchHit>), EngineDefect> {
+    ) -> Result<AnyStateJudgement, EngineDefect> {
         let run_to_completion = self.target.run_to_completion;
         let data_end = self.target.requires_data_end();
         if result.failure.is_some() {
             return exec::classify_explained(result, &[], run_to_completion)
-                .map(|(class, reason)| (explained(class, reason), None));
+                .map(|(class, reason)| (explained(class, reason), None, Vec::new()));
         }
         // A leaf that halted on an internal cause shows k-rust broke on this run, so nothing of
         // the run is evidence, a reached state included (FZ-CRASH-CAUSE).
@@ -154,6 +164,7 @@ impl ResolvedTarget {
                     Some(UnjudgedReason::InternalHalt),
                 ),
                 None,
+                Vec::new(),
             ));
         }
         let cancelled = cancel.is_some_and(CancellationToken::is_cancelled);
@@ -161,7 +172,8 @@ impl ResolvedTarget {
         if result.safety_limit_hit || !breaks.is_empty() || cancelled {
             let clock =
                 result.safety_limit_hit || breaks.contains(&DeterminismBreak::Clock) || cancelled;
-            return unobserved(result, run_to_completion, clock).map(|judgement| (judgement, None));
+            return unobserved(result, run_to_completion, clock)
+                .map(|judgement| (judgement, None, Vec::new()));
         }
         let Some(run) = run else {
             return Err(defect("an any-state run reported no state matches"));
@@ -175,7 +187,11 @@ impl ResolvedTarget {
                 .filter_map(UnjudgedReason::of_unclean)
                 .min()
             {
-                return Ok((explained(OutcomeClass::Unsupported, Some(reason)), None));
+                return Ok((
+                    explained(OutcomeClass::Unsupported, Some(reason)),
+                    None,
+                    Vec::new(),
+                ));
             }
             if run_to_completion && !every_leaf_qualifies(result, run_to_completion, data_end) {
                 // The reached state names no leaf; whether the path through it ends cleanly and
@@ -195,7 +211,7 @@ impl ResolvedTarget {
                         Some(UnjudgedReason::AnyStateUnattributed),
                     )
                 };
-                return Ok((judgement, None));
+                return Ok((judgement, None, Vec::new()));
             }
             let (class, reason) = hit_unless_demoted(result);
             let judgement = self.confirmable(
@@ -211,7 +227,7 @@ impl ResolvedTarget {
                 reach.term_conjunction,
             );
             if judgement.class != OutcomeClass::Hit {
-                return Ok((judgement, None));
+                return Ok((judgement, None, Vec::new()));
             }
             let configuration = k_rust::kore::codec::from_value(&reach.state).map_err(|error| {
                 defect(&format!(
@@ -224,10 +240,16 @@ impl ResolvedTarget {
                     depth: reach.depth,
                     configuration,
                 }),
+                Vec::new(),
             ));
         }
+        let reach_hooks = matches
+            .first_dirty_reach
+            .as_ref()
+            .map(RunHooks::chosen_on)
+            .unwrap_or_default();
         no_clean_reach(result, matches, run_to_completion, data_end)
-            .map(|judgement| (judgement, None))
+            .map(|judgement| (judgement, None, reach_hooks))
     }
 }
 

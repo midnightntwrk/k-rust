@@ -1014,9 +1014,11 @@ impl ResolvedTarget {
 }
 
 /// Whether `leaf`'s configuration is judged against a final pattern's
-/// ([`ResolvedTarget::pattern_body_matches`], [`ResolvedTarget::pattern_body_judged`]): an end
-/// (`stuck`, `trivial` or `terminal`) clean apart from the target matcher's own undecided
-/// verdict.
+/// ([`ResolvedTarget::pattern_body_matches`], [`ResolvedTarget::pattern_body_judged`]): a leaf
+/// clean apart from the target matcher's own undecided verdict and an undecided natural end.
+/// Only a `stuck` leaf, or a `terminal` one at the target's own stop rule, can be: every other
+/// halt, `trivial` (an undefined step) included, carries [`UncleanReason::Halt`]. The halt test
+/// is kept so that the filter does not rest on that.
 fn body_judged(leaf: &crate::exec::LeafReport) -> bool {
     matches!(
         leaf.halt,

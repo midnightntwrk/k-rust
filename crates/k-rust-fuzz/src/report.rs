@@ -100,8 +100,9 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 ///
 /// Within version 9 (UNNAMED-HOOK, the same wave): `totals.unsupported-hooks`,
 /// `totals.baseline-incomplete-hooks` and a witness case's `comparable.hooks` name the hooks
-/// behind each reason or condition that rests on one ([`ReasonHooks`]). A reader of the round's
-/// earlier version-9 reports refuses the new fields.
+/// behind each reason or condition that rests on one ([`ReasonHooks`]), and
+/// `totals.pattern-body-judged` counts the cases whose ends were judged against a final pattern.
+/// A reader of the round's earlier version-9 reports refuses the new fields.
 pub const REPORT_VERSION: u32 = 9;
 
 /// How many hooks a reason or condition names at most ([`ReasonHooks`]); the rest are counted.
@@ -166,6 +167,12 @@ pub struct ReasonHooks {
     /// Distinct hooks beyond the listed ones; absent when 0.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub omitted: u64,
+    /// In [`Totals::unsupported_hooks`] and [`Totals::baseline_incomplete_hooks`], how many of
+    /// the cases counted under the reason named a hook: a reason may also stand for facts that
+    /// name none (a contradicted claim off the leaves, conflicting equations), so the hooks need
+    /// not be behind every case. Absent (0) in [`Comparability::hooks`], which is one run's.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub cases: u64,
 }
 
 impl ReasonHooks {
@@ -179,6 +186,7 @@ impl ReasonHooks {
         Some(Self {
             hooks: hooks.iter().take(LISTED_HOOKS).cloned().collect(),
             omitted: u64::try_from(hooks.len().saturating_sub(LISTED_HOOKS)).unwrap_or(u64::MAX),
+            cases: 0,
         })
     }
 
@@ -201,12 +209,19 @@ impl ReasonHooks {
     }
 }
 
-/// `count` cases of `reason` as the reports' sentences name them: `3 implementation-chosen-value
-/// (hook MAP.keys_list [order])`, with the reason's hooks when it names any.
+/// `count` cases of `reason` as the reports' sentences name them, with the hooks the reason's
+/// cases named and how many of them named one ([`ReasonHooks::cases`]): `4
+/// implementation-chosen-value (hook MAP.keys_list [order] named in 4 of them)`, `5
+/// run-fact-off-leaves (hook MAP.keys_list [order] named in 1 of them)`.
 #[must_use]
 pub fn describe_reason(reason: UnjudgedReason, count: u64, hooks: Option<&ReasonHooks>) -> String {
     match hooks {
-        Some(hooks) => format!("{count} {} ({})", reason.name(), hooks.describe()),
+        Some(hooks) => format!(
+            "{count} {} ({} named in {} of them)",
+            reason.name(),
+            hooks.describe(),
+            hooks.cases
+        ),
         None => format!("{count} {}", reason.name()),
     }
 }
@@ -1133,7 +1148,9 @@ pub struct Totals {
     /// an implementation-chosen value for `implementation-chosen-value`, `run-fact-off-leaves`
     /// and `kill-without-evidence`, the unsupported hooks for `halt-unsupported-hook`,
     /// `halt-unsupported-construct` and `unsupported-hook`, and for `end-not-comparable:*` and
-    /// `query-not-confirmable:*` those of the condition (as [`Comparability::hooks`]). Each
+    /// `query-not-confirmable:*` those of the condition (as [`Comparability::hooks`], except
+    /// that `query-not-confirmable:unsupported-hook` reads the run's records only, as the query
+    /// condition does, never the load's). Each
     /// case's hooks are read from the run its reason was read from. Reasons whose cases name no
     /// hook are omitted; absent when empty.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -1155,6 +1172,13 @@ pub struct Totals {
     /// every other target, and when no case inside the determinism contract was executed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pattern_body_matches: Option<u64>,
+    /// For a pattern target at `final`, how many cases inside the determinism contract had an
+    /// end clean enough to be judged against the pattern's configuration (each such end is one
+    /// [`Self::pattern_body_matches`] would count if it matched): with it, a 0 there tells a
+    /// pattern no judged end holds (a misspelled key) from a campaign that judged no end at all.
+    /// Present exactly when [`Self::pattern_body_matches`] is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pattern_body_judged: Option<u64>,
     /// The best score the scored cases reached (ARCHITECTURE 6.4): present exactly when a
     /// proposer scores the campaign's cases (the climb or the solve proposer), so that a reader
     /// sees whether the guided search came near the target; `None` when no proposer scores.
@@ -2369,6 +2393,7 @@ mod tests {
                 },
                 target_blocked: 3,
                 pattern_body_matches: Some(4),
+                pattern_body_judged: Some(3),
                 best_score: Some(BestScore {
                     scored_cases: 3,
                     best: Some(ScoreValue {
@@ -2579,6 +2604,8 @@ mod tests {
                 "hooks?: Partial<Record<FuzzComparableCondition, FuzzReasonHooks>>",
                 "hooks: { hook: string; class?: string }[]",
                 "omitted?: number",
+                "cases?: number",
+                "'pattern-body-judged'?: number",
             ] {
                 assert!(declarations.contains(key), "{key} is not declared");
             }
@@ -2723,7 +2750,7 @@ mod tests {
             r#""coverage":{"applied":["a","b"],"matched":["c"],"names":{"a":{"kind":"rewrite","#,
             r#""label":"IMP.a","locations":[{"source":"/w/imp.k","reference":"imp.k","line":3,"#,
             r#""end-line":4}]}}},"#,
-            r#""target-blocked":3,"pattern-body-matches":4,"#,
+            r#""target-blocked":3,"pattern-body-matches":4,"pattern-body-judged":3,"#,
             r#""best-score":{"scored-cases":3,"best":{"case":1,"level":0,"#,
             r#""guard-distance":"2/3"}},"outside-determinism":0,"unconfirmed":1,"#,
             r#""case-sequence-digest":"CASES"},"normal-end":{"baseline":"every-k"},"#,

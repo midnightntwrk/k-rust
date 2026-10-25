@@ -82,7 +82,10 @@ pub struct RunHooks {
     /// [`CaseResult::run_facts_off_leaves`].
     pub chosen_off_leaves: Vec<ReasonHook>,
     /// For a run that matched its states (`at: any-state`), the implementation-chosen values on
-    /// the prefix of its first reach that was not clean, a reason of the case beside its leaves'.
+    /// the prefix of its first reach that was not clean, when the case's judgement read that
+    /// reach (no clean reach, inside the determinism contract; `target::any_state`), where it
+    /// is a reason of the case beside its leaves'; empty otherwise. Filled by the any-state
+    /// judgement, not by the run.
     pub chosen_on_reach: Vec<ReasonHook>,
 }
 
@@ -190,20 +193,41 @@ pub fn reason_hooks(result: &CaseResult, reason: UnjudgedReason) -> BTreeSet<Rea
             hooks = condition_hooks(result, condition.0);
         }
         UnjudgedReason::QueryNotConfirmable(condition) => {
-            hooks = condition_hooks(result, condition.0);
+            hooks = query_condition_hooks(result, condition.0);
         }
         _ => {}
     }
     hooks
 }
 
-/// The hooks the facts behind the comparable `condition` name in `result`
-/// (`crate::exec::comparable::end_conditions`, `query_conditions`). Empty for a condition whose
-/// facts name no hook.
+/// The hooks the facts behind the comparable `condition` of an all-paths end judgement name in
+/// `result` (`crate::exec::comparable::end_conditions`): `unsupported-hook` reads the run's and
+/// the load's records. Empty for a condition whose facts name no hook.
 #[must_use]
 pub fn condition_hooks(
     result: &CaseResult,
     condition: ComparableCondition,
+) -> BTreeSet<ReasonHook> {
+    hooks_of_condition(result, condition, true)
+}
+
+/// The hooks the facts behind the comparable `condition` of a query judgement name in `result`
+/// (`crate::exec::comparable::query_conditions`): as [`condition_hooks`], except that
+/// `unsupported-hook` reads the run's records only, since the query condition reads no load
+/// record of an unsupported hook.
+#[must_use]
+pub fn query_condition_hooks(
+    result: &CaseResult,
+    condition: ComparableCondition,
+) -> BTreeSet<ReasonHook> {
+    hooks_of_condition(result, condition, false)
+}
+
+/// [`condition_hooks`] (`load` true) or [`query_condition_hooks`] (`load` false).
+fn hooks_of_condition(
+    result: &CaseResult,
+    condition: ComparableCondition,
+    load: bool,
 ) -> BTreeSet<ReasonHook> {
     let mut hooks = BTreeSet::new();
     match condition {
@@ -224,7 +248,7 @@ pub fn condition_hooks(
                 .hooks
                 .unsupported
                 .iter()
-                .chain(&result.hooks.load_unsupported)
+                .chain(result.hooks.load_unsupported.iter().filter(|_| load))
                 .map(|hook| ReasonHook::unsupported(hook)),
         ),
         _ => {}
@@ -397,6 +421,50 @@ mod tests {
             ["INT.shl", "KRYPTO.keccak256"]
         );
         assert!(reason_hooks(&run, UnjudgedReason::ContradictedClaim).is_empty());
+    }
+
+    /// (Review S2) The query condition `unsupported-hook` reads the run's records only, the end
+    /// condition the load's too: the hooks follow each reading.
+    #[test]
+    fn the_query_condition_names_no_hook_of_the_load() {
+        use crate::{
+            exec::{
+                comparable::{end_conditions, query_conditions},
+                reasons::QueryNotConfirmable,
+            },
+            report::LoadRecord,
+        };
+        let load = || LoadRecord {
+            kind: "unsupported-hook".to_owned(),
+            detail: "KRYPTO.keccak256: no evaluator".to_owned(),
+        };
+        let mut loaded = result(
+            vec![leaf(HaltReasonOutput::Stuck, None, LeafHooks::default())],
+            RunHooks {
+                load_unsupported: vec!["KRYPTO.keccak256".to_owned()],
+                ..RunHooks::default()
+            },
+        );
+        loaded.leaves[0].unclean.clear();
+        loaded.leaves[0].data_end = Some(true);
+        loaded.load_records.push(load());
+        assert!(!query_conditions(&loaded, false).contains(&ComparableCondition::UnsupportedHook));
+        assert!(end_conditions(&loaded).contains(&ComparableCondition::UnsupportedHook));
+        let mut run = loaded.clone();
+        run.hooks.unsupported = vec!["INT.shl".to_owned()];
+        run.leaves[0].unclean = vec![UncleanReason::UnsupportedHook];
+        assert!(query_conditions(&run, false).contains(&ComparableCondition::UnsupportedHook));
+        let query = UnjudgedReason::QueryNotConfirmable(QueryNotConfirmable(
+            ComparableCondition::UnsupportedHook,
+        ));
+        let end = UnjudgedReason::EndNotComparable(EndNotComparable(
+            ComparableCondition::UnsupportedHook,
+        ));
+        assert_eq!(names(&reason_hooks(&run, query)), ["INT.shl"]);
+        assert_eq!(
+            names(&reason_hooks(&run, end)),
+            ["INT.shl", "KRYPTO.keccak256"]
+        );
     }
 
     /// A set of hooks lists its first [`LISTED_HOOKS`] in order and counts the rest, so the

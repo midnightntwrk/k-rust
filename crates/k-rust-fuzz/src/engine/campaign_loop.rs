@@ -2178,9 +2178,9 @@ struct State {
     /// `baseline-incomplete` reason, named (UNNAMED-HOOK): [`Totals::unsupported_hooks`] and
     /// [`Totals::baseline_incomplete_hooks`] list the first of each set.
     reason_hooks: [BTreeMap<UnjudgedReason, BTreeSet<ReasonHook>>; 2],
-    /// The cases inside the determinism contract with an end leaf judged against a final
-    /// pattern's configuration (`CaseRun::pattern_body_judged`).
-    pattern_body_judged: u64,
+    /// How many of the cases counted under each `unsupported` reason, then each
+    /// `baseline-incomplete` reason, named a hook ([`ReasonHooks::cases`]).
+    reason_hook_cases: [BTreeMap<UnjudgedReason, u64>; 2],
 }
 
 impl State {
@@ -2207,7 +2207,7 @@ impl State {
             crash_shrink_runs: 0,
             rebuild_failure: None,
             reason_hooks: [BTreeMap::new(), BTreeMap::new()],
-            pattern_body_judged: 0,
+            reason_hook_cases: [BTreeMap::new(), BTreeMap::new()],
             client_refusals: Vec::new(),
             filter_id: None,
         }
@@ -2574,15 +2574,17 @@ impl State {
                 &mut self.totals.unsupported_reasons,
                 &mut self.totals.unsupported_hooks,
                 &mut self.reason_hooks[0],
+                &mut self.reason_hook_cases[0],
             )),
             OutcomeClass::BaselineIncomplete => Some((
                 &mut self.totals.baseline_incomplete_reasons,
                 &mut self.totals.baseline_incomplete_hooks,
                 &mut self.reason_hooks[1],
+                &mut self.reason_hook_cases[1],
             )),
             _ => None,
         };
-        if let Some((reasons, listed, every)) = reasons {
+        if let Some((reasons, listed, every, naming)) = reasons {
             debug_assert!(run.unjudged.is_some(), "an unjudged case without a reason");
             let reason = run.unjudged.unwrap_or(UnjudgedReason::EngineDefect);
             *reasons.entry(reason).or_insert(0) += 1;
@@ -2593,7 +2595,10 @@ impl State {
             {
                 let every = every.entry(reason).or_default();
                 every.extend(hooks.iter().cloned());
-                if let Some(hooks) = ReasonHooks::of(every) {
+                let naming = naming.entry(reason).or_insert(0);
+                *naming += 1;
+                if let Some(mut hooks) = ReasonHooks::of(every) {
+                    hooks.cases = *naming;
                     listed.insert(reason, hooks);
                 }
             }
@@ -2617,8 +2622,11 @@ impl State {
             let total = self.totals.pattern_body_matches.get_or_insert(0);
             *total = total.saturating_add(count);
         }
-        if run.pattern_body_judged > 0 {
-            self.pattern_body_judged += 1;
+        if run.pattern_body_matches.is_some() {
+            let judged = self.totals.pattern_body_judged.get_or_insert(0);
+            if run.pattern_body_judged > 0 {
+                *judged = judged.saturating_add(1);
+            }
         }
         let coverage = &mut self.totals.coverage;
         coverage.applied.extend(run.applied.iter().cloned());
@@ -2661,7 +2669,7 @@ impl State {
         // Only a case with an end judged against the pattern's configuration can show that no
         // end holds it: a case whose every end is unclean (a chosen value, a contradicted claim,
         // an unsupported hook, ...) judged none, and its `unsupported` reason says why.
-        let judged = self.pattern_body_judged;
+        let judged = totals.pattern_body_judged.unwrap_or(0);
         if totals.pattern_body_matches == Some(0) && judged > 0 {
             let executed = totals
                 .cases

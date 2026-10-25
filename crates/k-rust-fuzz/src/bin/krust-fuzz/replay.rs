@@ -543,8 +543,9 @@ fn differences(recorded: &WitnessCase, report: &FuzzReport) -> Vec<String> {
 /// were made by a run that may end otherwise on another attempt (without `comparable-end`, the judgement
 /// of a one-path witness is made outside the case, whose determinism does not cover it), and
 /// they are not compared. A witness without the judgement (a differential or observer witness)
-/// compares nothing. The hooks the conditions name (UNNAMED-HOOK) are compared only when the
-/// recorded judgement lists some: a report written earlier in version 9 has none to compare.
+/// compares nothing. Every field is compared, the hooks the conditions name (UNNAMED-HOOK)
+/// included: they are a function of the same run, and an absent map is an empty one. The
+/// destructuring is exhaustive, so a field added to [`Comparability`] must be decided here.
 fn comparable_reproduced(
     recorded: Option<&Comparability>,
     replayed: Option<&Comparability>,
@@ -557,9 +558,12 @@ fn comparable_reproduced(
             true
         }
         (Some(recorded), Some(replayed)) => {
-            recorded.holds == replayed.holds
-                && recorded.reasons == replayed.reasons
-                && (recorded.hooks.is_empty() || recorded.hooks == replayed.hooks)
+            let Comparability {
+                holds,
+                reasons,
+                hooks,
+            } = recorded;
+            *holds == replayed.holds && *reasons == replayed.reasons && *hooks == replayed.hooks
         }
         (Some(_), None) => false,
     }
@@ -676,5 +680,27 @@ mod tests {
         assert!(comparable_reproduced(None, Some(&holds)));
         assert!(comparable_reproduced(Some(&failed), Some(&holds)));
         assert!(comparable_reproduced(Some(&holds), Some(&failed)));
+    }
+
+    /// (UNNAMED-HOOK, review S3) A reproducible judgement's hooks are compared exactly: a replay
+    /// that names other hooks, or names some where the recorded one named none, differs.
+    #[test]
+    fn a_changed_set_of_hooks_does_not_reproduce() {
+        use k_rust_fuzz::report::{ReasonHook, ReasonHooks};
+        let named = |hooks: &[ReasonHook]| {
+            let mut judged = judged(&[C::Halt]);
+            if let Some(hooks) = ReasonHooks::of(&hooks.iter().cloned().collect()) {
+                judged.hooks.insert(C::Halt, hooks);
+            }
+            judged
+        };
+        let none = named(&[]);
+        let shl = named(&[ReasonHook::unsupported("INT.shl")]);
+        let pow = named(&[ReasonHook::unsupported("INT.pow")]);
+        assert!(comparable_reproduced(Some(&shl), Some(&shl)));
+        assert!(comparable_reproduced(Some(&none), Some(&none)));
+        assert!(!comparable_reproduced(Some(&shl), Some(&pow)));
+        assert!(!comparable_reproduced(Some(&none), Some(&shl)));
+        assert!(!comparable_reproduced(Some(&shl), Some(&none)));
     }
 }

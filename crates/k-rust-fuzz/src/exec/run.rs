@@ -1157,9 +1157,6 @@ impl Judge<'_> {
                 // host, as the run's do: both put the case outside the determinism contract.
                 judged.smt_unknowns = judged.smt_unknowns.saturating_add(matches.smt_unknowns);
                 judged.stack_stops = judged.stack_stops.saturating_add(matches.stack_stops);
-                if let Some(reach) = &matches.first_dirty_reach {
-                    judged.hooks.chosen_on_reach = RunHooks::chosen_on(reach);
-                }
                 Some(AnyStateRun {
                     matches,
                     run_reasons: run_reasons(&result),
