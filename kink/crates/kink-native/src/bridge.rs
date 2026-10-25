@@ -527,6 +527,11 @@ fn split_state(
 ) -> Result<SplitState, BridgeFailure> {
     let state = codec::from_value(value)
         .map_err(|error| BridgeFailure::UndecodableState(error.to_string()))?;
+    split_pattern(state, sorts)
+}
+
+/// [`split_state`] of a state already decoded.
+fn split_pattern(state: Pattern, sorts: &SymbolSorts) -> Result<SplitState, BridgeFailure> {
     let sort = sorts
         .sort_of(&state)
         .ok_or(BridgeFailure::UndecidedStateSort)?;
@@ -673,6 +678,37 @@ pub fn leaf_terms(
                 .map_or(LeafTerm::Undecided, |term| LeafTerm::Term(term.clone())))
         })
         .collect()
+}
+
+/// The [`LeafTerm`] of one leaf known by its decoded `state` and its `halt` alone, its symbol
+/// sorts `sorts` read from the definition that ran it: a client that holds a leaf's configuration
+/// as KORE text and its halt, without the adapter's feasibility or diagnostics (kink-flow's
+/// in-campaign witness filter, fz26 FZ-COMPARABLE-B).
+///
+/// It selects the term as [`leaf_terms`] does for a leaf the adapter did not show feasible: the
+/// state's only term when the state is decided (no path predicate, no free variable), and
+/// [`LeafTerm::Undecided`] otherwise. A `Vacuous` leaf is [`LeafTerm::Discarded`]. Without the
+/// feasibility, a leaf the solver refutes ([`DiscardReason::Unsat`]), which [`leaf_terms`] would
+/// discard, gives its term here, so a judgement of it is stricter than the bridge's, never laxer;
+/// and a constrained leaf the solver shows feasible, whose term the bridge would read, is
+/// `Undecided` here.
+///
+/// # Errors
+///
+/// As [`leaf_terms`]: a halt outside the bridge's contract, or a state with no decided sort.
+pub fn leaf_term(
+    state: &Pattern,
+    halt: HaltClass,
+    sorts: &SymbolSorts,
+) -> Result<LeafTerm, BridgeFailure> {
+    halt_stop(halt)?;
+    if halt == HaltClass::Vacuous {
+        return Ok(LeafTerm::Discarded);
+    }
+    let split = split_pattern(state.clone(), sorts)?;
+    Ok(split
+        .valued_term(false)
+        .map_or(LeafTerm::Undecided, |term| LeafTerm::Term(term.clone())))
 }
 
 /// State-slot paths under construction, keyed by the raw leaf ordinal.
@@ -1905,6 +1941,50 @@ mod tests {
             None
         );
         assert!(matches!(split.path_predicate(), Pattern::Equals { .. }));
+    }
+
+    /// `leaf_term` reads a leaf known by its state and halt alone (fz26 FZ-COMPARABLE-B): a
+    /// decided state's term, `Undecided` for a constrained or symbolic one (no feasibility is
+    /// known), `Discarded` for a vacuous leaf, and the bridge's contract refusal for a halt outside
+    /// it. Where the adapter showed no feasibility, it agrees with `leaf_terms`.
+    #[test]
+    fn a_leaf_term_is_read_from_the_state_and_halt_alone() {
+        let sorts = sorts();
+        let term = |source: &str, halt| {
+            leaf_term(&parse_pattern(source).expect("test KORE"), halt, &sorts)
+        };
+        let ground = parse_pattern(GROUND).expect("ground term");
+        for halt in [H::Stuck, H::Trivial, H::DepthBound] {
+            assert_eq!(
+                term(GROUND, halt),
+                Ok(LeafTerm::Term(ground.clone())),
+                "{halt:?}"
+            );
+            assert_eq!(term(CONSTRAINED, halt), Ok(LeafTerm::Undecided), "{halt:?}");
+            assert_eq!(term(SYMBOLIC, halt), Ok(LeafTerm::Undecided), "{halt:?}");
+        }
+        assert_eq!(term(GROUND, H::Vacuous), Ok(LeafTerm::Discarded));
+        assert_eq!(
+            term(GROUND, H::Timeout),
+            Err(BridgeFailure::ContractViolation(H::Timeout))
+        );
+        // The bridge's own reading of the same leaves, with no feasibility shown.
+        let definition = k_rust::kore::parser::parse_definition(
+            r"[]
+            module MAIN
+                sort SortS{} []
+                sort SortInt{} []
+                symbol Lbla{}() : SortS{} [constructor{}()]
+            endmodule []",
+        )
+        .expect("test definition");
+        let leaves = [GROUND, CONSTRAINED]
+            .map(|source| leaf(H::Stuck, source, U, 1))
+            .to_vec();
+        assert_eq!(
+            leaf_terms(&leaves, &definition),
+            vec![Ok(LeafTerm::Term(ground)), Ok(LeafTerm::Undecided)]
+        );
     }
 
     /// A diagnosed leaf is never discarded, whatever the adapter proved about it.

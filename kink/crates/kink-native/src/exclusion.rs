@@ -850,6 +850,18 @@ pub struct DefinitionExclusions {
     pub equals_conditions: Vec<String>,
 }
 
+/// A compiled side loaded for one module on this thread, with the exclusions read from it
+/// ([`DefinitionExclusions::load_validated`]).
+pub struct ValidatedLoad {
+    /// The side's exclusions, as [`DefinitionExclusions::of_validated`] gives them.
+    pub exclusions: DefinitionExclusions,
+    /// The backend loaded from the side's compiled KORE for the module (`Backend::from_definition`
+    /// with default options), whose selected definition the exclusions were read from.
+    pub backend: k_rust::backend::Backend,
+    /// The side's compiled KORE, parsed.
+    pub kore: Definition,
+}
+
 impl DefinitionExclusions {
     /// The exclusions of `kore`, loaded as `definition` (the definition the backend selected for
     /// the default module, after the load). Only the definition's own sentences count for the
@@ -1034,6 +1046,17 @@ impl DefinitionExclusions {
     /// The exclusions of a compiled side loaded for `module` (its encoded KORE name) on this
     /// thread, as kink-campaign's runner computes them for a side it prepares.
     pub fn of_validated(side: &crate::ValidatedDefinition, module: &str) -> Result<Self, String> {
+        Self::load_validated(side, module).map(|load| load.exclusions)
+    }
+
+    /// [`Self::of_validated`], keeping the backend and the parsed KORE the exclusions were read
+    /// from ([`ValidatedLoad`]), for a client that judges further runs of the side on that load
+    /// (kink-flow's in-campaign witness filter, fz26 FZ-COMPARABLE-B). The exclusions are those
+    /// [`Self::of_validated`] gives.
+    pub fn load_validated(
+        side: &crate::ValidatedDefinition,
+        module: &str,
+    ) -> Result<ValidatedLoad, String> {
         let kore = k_rust::kore::parser::parse_definition(&side.artifacts().definition_kore)
             .map_err(|error| error.to_string())?;
         let mut backend = k_rust::backend::Backend::from_definition(
@@ -1045,11 +1068,16 @@ impl DefinitionExclusions {
         let selected = backend
             .select_definition(None)
             .map_err(|error| error.to_string())?;
-        Ok(Self::of(
+        let exclusions = Self::of(
             &kore,
             &selected,
             &side.compile_options().builtin_source_prefixes,
-        ))
+        );
+        Ok(ValidatedLoad {
+            exclusions,
+            backend,
+            kore,
+        })
     }
 
     /// The facts of two loads of one definition taken together, each exclusion holding when it
