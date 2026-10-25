@@ -373,6 +373,7 @@ The command writes a Lake project; nothing in it is ever regenerated, and the co
 | `EnvBound/Run.lean` | `init_holds`, `star`, `stepsN`, and `#k2l_assert_axioms` |
 
 The skeleton builds at once: `k2l_preserve: 79 of 79 rules closed`.
+Every command and module of this section was run as written on 2026-10-25 (Lean v4.34.0, kimp in the default arity-indexed encoding), with the results shown.
 `--name NAME` sets the project and namespace name (default: the last component of `--out`); `--prelude DIR` overrides the prelude the library names.
 
 ### 4.2 Write `P` and how it computes
@@ -871,7 +872,8 @@ How to find the strengthening: read the open goal of the failing rule, find wher
 | `owise` side conditions by simp | an `owise` equation rewrites only where simp proves that no other equation matches, from the argument's constructors; on `isId(kseq(inj_Value_KItem V, .K))` it applies only in closer 6's cases of `V` | a lemma of the injection, or a hand case |
 | recursive functions of a few shapes only | a recursive function that the invariant calls and that is neither a map walk, a list fold (`φ(X, P…) andBool f(L, P…)`, §3.1) nor structurally recursive with proved equations gets a note (`… is neither a map walk, a list fold nor structurally recursive with proved equations; its cases may need hand proofs`), and its cases usually become hand cases: a fold through `orBool`, mutual recursion, a fold whose recursive call changes a parameter, a recursion on an `Int` bounded by a `requires` other than a map built on a range (§3.1) | rewrite it in one of the two shapes, or write the invariant in Lean |
 | a variable as the whole content of a cell collection's parent | krust compiles `<T> <threads> Ts </threads> … </T>` in a function's argument (`<threads>` holds the `<thread>` cell map) as `<threads>` holding one `<thread>` cell `Ts` under a key unrelated to it, not as the cell map, so the equation applies only to one-thread configurations (measured 2026-10-25, krust at `main` 64c92a06a; an annotation `Ts:ThreadCellMap` there does not parse) | take the parent cell (`TS:ThreadsCell`) and walk it as `<threads> <thread> … </thread> Ts </threads>`, as `simple-envs.k` does; there `Ts` is the rest of the cell map |
-| no `<generatedTop>` through krust for a configuration with one top cell | for SIMPLE (whose configuration is the one cell `<T>`), krust declares the sort `GeneratedTopCell` and the production `<generatedTop>` only after parsing, in the compilation pass that adds the counter cell (`resolve_fresh_constants.rs`), whereas a configuration of several top cells (kimp's `<k> <env>`) gets them when the configuration declaration is expanded (`definition/configuration.rs`, `Generator::generate`, the `Cells` case): `f(GeneratedTopCell)` fails with ``Could not find sorts: [GeneratedTopCell]``, and with `syntax GeneratedTopCell` declared, the rule fails with ``unexpected token '<'`` | a function of the user's top cell (`tStoreOk@T`, §3.1), which reads every cell but the counter |
+| no `<generatedTop>` through krust for a configuration with one top cell | for SIMPLE (whose configuration is the one cell `<T>`), krust declares the sort `GeneratedTopCell` and the production `<generatedTop>` only after parsing, in the compilation pass that adds the counter cell (`resolve_fresh_constants.rs`), whereas a configuration of several top cells (kimp's `<k> <env>`) gets them when the configuration declaration is expanded (`definition/configuration.rs`, `Generator::generate`, the `Cells` case): `f(GeneratedTopCell)` fails with ``Could not find sorts: [GeneratedTopCell]``, and with `syntax GeneratedTopCell` declared, the rule fails with ``unexpected token '<'`` | a function of the user's top cell (`tStoreOk@T`, §3.1), which reads every cell but the counter; decided 2026-10-25: krust keeps a single top cell unwrapped, so this is the form to use, not a stopgap |
+| map walks on the arity-indexed encoding | the generated proof of a walk's element-wise form (`Invariant.f_walk`, §3.1) leaves open the fallback arm of a projection's match on a cell sort with one constructor, which the arity encoding's family adds (found by K6, 2026-10-25), so the library fails to build | generate the library with `--per-sort-terms`, as the gate's `walk` is |
 | a tree of cells, one equation | a function of a cell sort gets `Invariant.f_cells` only when it is not recursive and its one equation, without `requires` or `owise`, matches a tree of cells with distinct variables at the leaves; with any other pattern (a constructor inside a cell, two equations, a `requires`) it is unfolded by its K equations only, which rewrite a constructor term and not a rule's cell variables (on kimp, before `f_cells`: 2 of 79 cases and `init` open, measured) | state the invariant over the cell, or split it into cell functions |
 | Lake does not build the dependents of a module with an error | a broken hand case leaves `Run.lean` (kind 2) or `Invariants.lean` (kind 1) unchecked; Lake names only the module that failed, the gate prints the others (`gate:   failed: M; not built because they import it: …`, after the step's FAIL line) | keep hand cases in `Cases.lean` with `preserved`, as the skeleton does; fix the hand case first |
 | heartbeats | in the `Preserved` and hand modes the elaboration of the proof after the tactic counts every rule's heartbeats, so a definition with many rules can reach `maxHeartbeats` at `preserved` though each rule is within it (measured on SIMPLE) | `set_option maxHeartbeats 0` on the proof, with `set_option k2l.preserve.maxHeartbeats N` to keep each rule bounded (without it, `maxHeartbeats 0` leaves the rules unbounded too); ImpTypes' `Cases.lean` has the first |
@@ -918,8 +920,9 @@ The library `kimpkeys` of §3 is registered so (with `kimpkeys-hand`, the same l
    -  diffs kimpinv kimpfold kimptop kimpboth nested …
    +  diffs kimpinv kimpkeys kimpfold kimptop kimpboth nested …
    …
-   -  for d in ImpWrites KrsImpTyping SimpleEnv; do runs demo "$d" && dbuild "$d"; done
-   +  for d in ImpWrites KrsImpTyping SimpleEnv EnvBound; do runs demo "$d" && dbuild "$d"; done
+   -  for d in ImpWrites KrsImpTyping SimpleEnv InvBudget; do
+   +  for d in ImpWrites KrsImpTyping SimpleEnv InvBudget EnvBound; do
+        runs demo "$d" || continue
    --- a/k2lean/tests/areas/invariants.py
    +++ b/k2lean/tests/areas/invariants.py
     LIBS = {
@@ -933,6 +936,7 @@ The library `kimpkeys` of §3 is registered so (with `kimpkeys-hand`, the same l
    - `guard: False`: the library is built only as far as its invariant needs, so it has no `…Test.Axioms` guard; the invariant's own `#k2l_assert_axioms` is checked through `INVS`.
    - `inv_lib` (in `invariants.sh`) generates the library, builds its `Equations` and its `Invariants`, and turns a case that `k2l_preserve` does not close into an open case; `runs KIND NAME` holds when the tier being run includes the entry's tier.
    - A heavy invariant (SIMPLE-based) gets `"tier": "heavy"`; nothing else changes.
+   - Libraries are generated in the arity-indexed encoding by default (since 2026-10-25); an entry that must stay on the per-sort encoding gets `"encoding": "per-sort"` and `--per-sort-terms` in its generator call (`walk` has both, §9), and a demo on per-sort libraries `"encoding": "per-sort"` (SimpleEnv). EnvBound builds on the default kimp (checked 2026-10-25), so it needs neither.
    - `tests/gate.sh list` prints the registered entries, which checks the new ones.
 3. Run a tier, read its `FAIL` and `NOTE` lines, accept, and run again:
 
