@@ -1518,6 +1518,8 @@ stage_shape! {
             key: ProvenanceKey => [keep],
             /// Exact authored sort occurrence.
             sort: S::Sort => [sort],
+            /// Exact display-spelling provenance.
+            spelling_key: ProvenanceKey => [keep],
             /// Display spelling retained for K/native anonymous handling.
             spelling: String => [keep],
         },
@@ -1533,6 +1535,9 @@ stage_shape! {
         Cell {
             /// Complete macro-shell provenance.
             key: ProvenanceKey => [keep],
+            /// Compact named-path provenance of the cell's declaration path;
+            /// a cell value's names its head's node and carries its key.
+            path_key: ProvenanceKey => [keep],
             /// Exact nominal `#[k::cell]` declaration reference.
             declaration: S::Nominal => [nominal],
             /// Authored child values; semantic lowering validates completeness and order.
@@ -4385,6 +4390,7 @@ mod traversal_tests {
         Term::Anonymous {
             key: key(3),
             sort: sort(),
+            spelling_key: key(13),
             spelling: "_".to_owned(),
         }
     }
@@ -4476,6 +4482,7 @@ mod traversal_tests {
                 },
                 Term::Cell {
                     key: key(8),
+                    path_key: key(14),
                     declaration: nominal(),
                     fields: vec![CellTermField {
                         key: key(9),

@@ -642,7 +642,7 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
 /// Reads a readable record in a cell position as the group term it names
 /// when rustc resolved its head to a `#[k::cell]` struct (KF-016): `frame:
 /// Frame { pc: p, gas: g }` is `k::fragment![crate::Frame { .. }]`. The
-/// application's head and field keys become the cell term's, as the
+/// application's head, path and field keys become the cell term's, as the
 /// `fragment!` spelling numbers them. An alias `saved @ Frame { .. }` names
 /// the group it matches, and a result's `Frame { pc: e, ..saved }` updates
 /// it (F5).
@@ -693,6 +693,7 @@ fn readable_group_term(
     // `k::fragment!`, holds its fixed group children at theirs.
     let Term::Cell {
         key,
+        path_key,
         declaration,
         fields,
         open,
@@ -717,6 +718,7 @@ fn readable_group_term(
         .collect();
     Term::Cell {
         key,
+        path_key,
         declaration,
         fields,
         open,
@@ -771,6 +773,7 @@ fn group_record_term(
     let authored_open = *authored_open;
     let Term::Application {
         reference,
+        path_key,
         arguments,
         update,
         ..
@@ -790,8 +793,11 @@ fn group_record_term(
             krs_ir::TermArgument::Positional { .. } => None,
         })
         .collect::<Vec<_>>();
+    // The record's path names the group's declaration, as a fragment's
+    // does, and keeps its key.
     Term::Cell {
         key: reference.key,
+        path_key,
         open: open(declaration.key.resolve(), fields.len(), authored_open),
         declaration,
         fields,
@@ -1606,6 +1612,7 @@ mod tests {
         krs_ir::HostTerm::Anonymous {
             key: ProvenanceKey::new(krs_ir::ProvenanceRole::RulePattern, 0),
             sort: unresolved_sort(path),
+            spelling_key: ProvenanceKey::new(krs_ir::ProvenanceRole::ClaimAnonymousSpelling, 0),
             spelling: "_".to_owned(),
         }
     }
@@ -2202,6 +2209,7 @@ mod tests {
         // does not name unconstrained; a result names every child.
         let krs_ir::HostTerm::Cell {
             key,
+            path_key,
             declaration,
             fields,
             open,
@@ -2218,6 +2226,10 @@ mod tests {
         assert_eq!(
             key,
             ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftApplicationHead, 3)
+        );
+        assert_eq!(
+            path_key,
+            ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftPath, 3)
         );
         assert_eq!(declaration.key.resolve(), boolean_key());
         assert_eq!(fields.len(), 1);

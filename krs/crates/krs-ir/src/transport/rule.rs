@@ -2750,6 +2750,7 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         &mut self,
         key: &ProvenanceKey,
         sort: &S::Sort,
+        spelling_key: &ProvenanceKey,
         spelling: &str,
     ) -> Result<(), Self::Error> {
         if !matches!(self.side, ValidationSide::Left) || !spelling.starts_with('_') {
@@ -2762,9 +2763,8 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         self.keys.define(key, ProvenanceRole::ClaimAnonymous)?;
         self.keys
             .define(S::sort_key(sort), ProvenanceRole::ClaimAnonymousSort)?;
-        // The constant's spelling is a node of its own, which the term
-        // carries as text.
-        self.keys.implicit(ProvenanceRole::ClaimAnonymousSpelling);
+        self.keys
+            .define(spelling_key, ProvenanceRole::ClaimAnonymousSpelling)?;
         Ok(())
     }
 
@@ -2780,18 +2780,16 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
     fn cell(
         &mut self,
         key: &ProvenanceKey,
+        path_key: &ProvenanceKey,
         declaration: &S::Nominal,
         fields: &[CellTermField<S>],
         partial: bool,
     ) -> Result<(), Self::Error> {
         S::validate_fragment(declaration, fields.is_empty() && !partial)?;
+        // The fragment's path is keyed as an application's.
+        validate_term_path_key(self.keys, path_key, key, self.side)?;
         self.keys
             .define(key, TermRole::ApplicationHead.on_side(self.side))?;
-        // A condition keys the fragment's cell path, which the cell's
-        // declaration reference denotes; a cell value keys no path.
-        if let Some(path) = condition_path_role(self.side) {
-            self.keys.implicit(path);
-        }
         Ok(())
     }
 

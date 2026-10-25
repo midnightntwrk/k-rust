@@ -275,14 +275,6 @@ impl<E: From<KeyFailure> + From<TermRefusal>> TermKeys<'_, E> {
         Ok(())
     }
 
-    /// Records a node that carries no key of its own; a clone's is another
-    /// term's.
-    fn implicit(&mut self, role: ProvenanceRole) {
-        if self.keying != TermKeying::ReadableClone {
-            self.keys.implicit(role);
-        }
-    }
-
     /// Records the path of a variable or an application whose head is keyed
     /// `head`: a node of its own, except in a cell value, where it names the
     /// head's node.
@@ -382,13 +374,16 @@ where
         self.node(key, role)
     }
 
-    fn anonymous(&mut self, key: &ProvenanceKey, sort: &S::Sort, _: &str) -> Result<(), E> {
+    fn anonymous(
+        &mut self,
+        key: &ProvenanceKey,
+        sort: &S::Sort,
+        spelling_key: &ProvenanceKey,
+        _: &str,
+    ) -> Result<(), E> {
         self.node(key, ProvenanceRole::ClaimAnonymous)?;
         self.node(S::sort_key(sort), ProvenanceRole::ClaimAnonymousSort)?;
-        // The constant's spelling is a node of its own, which the term
-        // carries as text.
-        self.implicit(ProvenanceRole::ClaimAnonymousSpelling);
-        Ok(())
+        self.node(spelling_key, ProvenanceRole::ClaimAnonymousSpelling)
     }
 
     fn or_bool(&mut self, key: &ProvenanceKey, _: &crate::AtLeastTwo<Term<S>>) -> Result<(), E> {
@@ -403,17 +398,15 @@ where
     fn cell(
         &mut self,
         key: &ProvenanceKey,
+        path_key: &ProvenanceKey,
         _: &S::Nominal,
         _: &[CellTermField<S>],
         _: bool,
     ) -> Result<(), E> {
-        self.node(key, TermRole::ApplicationHead.on_side(self.side))?;
-        // The fragment's cell path is denoted by its declaration reference,
-        // which carries no key; a cell value keys none.
-        if self.keying != TermKeying::CellValue {
-            self.implicit(TermRole::Path.on_side(self.side));
-        }
-        Ok(())
+        // The fragment's path is its declaration's, keyed as an
+        // application's.
+        self.path(path_key, key)?;
+        self.node(key, TermRole::ApplicationHead.on_side(self.side))
     }
 
     fn sort_test(&mut self, key: &ProvenanceKey, _: SortTestKind, sort: &S::Sort) -> Result<(), E> {

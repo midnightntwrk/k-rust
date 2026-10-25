@@ -1076,9 +1076,7 @@ impl<'a> TermBuilder<'a> {
                 )?;
                 let key = node.key(ProvenanceRole::ClaimAnonymous)?;
                 let sort_key = node.key(ProvenanceRole::ClaimAnonymousSort)?;
-                // The `spelling` field is the spelling node, whose key the
-                // anonymous term's ordinal pairs it with.
-                node.key(ProvenanceRole::ClaimAnonymousSpelling)?;
+                let spelling_key = node.key(ProvenanceRole::ClaimAnonymousSpelling)?;
                 let path = call_site_path(sort)?;
                 let key_fn = format_ident!(
                     "__krs_claim_anonymous_sort_{:016x}_{}",
@@ -1104,6 +1102,7 @@ impl<'a> TermBuilder<'a> {
                             authored_path: spelling(sort),
                         },
                     },
+                    spelling_key,
                     spelling: display_literal.value(),
                 })
             }
@@ -1230,9 +1229,7 @@ impl<'a> TermBuilder<'a> {
                 Ok(WireTerm::OrBool { key, arguments })
             }
             TermTree::Cell(cell) => {
-                // The cell's declaration reference is its path, which
-                // carries no key of its own on the wire.
-                keys.path(cell.owner())?;
+                let path_key = keys.path(cell.owner())?;
                 let key = keys
                     .node(
                         NodeKind::ApplicationHead,
@@ -1253,6 +1250,7 @@ impl<'a> TermBuilder<'a> {
                 let update = self.expand_record_update(cell.update(), keys, side, slots)?;
                 Ok(WireTerm::Cell {
                     key,
+                    path_key,
                     declaration,
                     fields,
                     open: cell.is_open(),

@@ -121,6 +121,7 @@ mod tests {
                 key: key(ProvenanceRole::ClaimAnonymousSort, 0),
                 sort: DescriptorSortRef::Builtin(BuiltinSort::Int),
             },
+            spelling_key: key(ProvenanceRole::ClaimAnonymousSpelling, 0),
             spelling: "_x".into(),
         };
         assert_eq!(

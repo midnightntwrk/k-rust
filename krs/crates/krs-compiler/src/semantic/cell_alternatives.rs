@@ -187,6 +187,7 @@ mod tests {
     fn record(children: &[(&str, DescriptorTerm)], ordinal: u32) -> DescriptorTerm {
         DescriptorTerm::Cell {
             key: key(ordinal),
+            path_key: key(ordinal),
             declaration: group(),
             fields: children
                 .iter()

@@ -1083,9 +1083,6 @@ impl<'a> StateRuleBuilder<'a> {
                 self.terms.next_key += 1;
                 let cfg = self.terms.cfg;
                 self.terms.key_functions.push(quote! { #(#cfg)* #[doc(hidden)] fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() } });
-                // The `spelling` field is the spelling node, whose key the
-                // anonymous term's ordinal pairs it with.
-                node.key(ProvenanceRole::ClaimAnonymousSpelling)?;
                 Ok(WireTerm::Anonymous {
                     key: node.key(ProvenanceRole::ClaimAnonymous)?,
                     sort: WireSortReference {
@@ -1095,6 +1092,7 @@ impl<'a> StateRuleBuilder<'a> {
                             authored_path: spelling(sort),
                         },
                     },
+                    spelling_key: node.key(ProvenanceRole::ClaimAnonymousSpelling)?,
                     spelling: display_literal.value(),
                 })
             }
@@ -1169,8 +1167,10 @@ impl<'a> StateRuleBuilder<'a> {
                 if cell.is_open() || cell.update().is_some() {
                     return Err(reference_record_update(cell.range().first()));
                 }
+                // A cell value keys no path: the path names the head's node.
                 Ok(WireTerm::Cell {
-                    key,
+                    key: key.clone(),
+                    path_key: key,
                     declaration,
                     fields,
                     open: false,

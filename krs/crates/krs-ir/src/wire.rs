@@ -373,6 +373,7 @@ mod tests {
         WireTerm::Anonymous {
             key: key(),
             sort: sort(),
+            spelling_key: key(),
             spelling: "_".to_owned(),
         }
     }

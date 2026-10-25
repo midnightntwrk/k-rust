@@ -1963,6 +1963,7 @@ mod tests {
         WireTerm::Anonymous {
             key: ProvenanceKey::new(ProvenanceRole::RulePattern, 0),
             sort: wire_sort(),
+            spelling_key: ProvenanceKey::new(ProvenanceRole::ClaimAnonymousSpelling, 0),
             spelling: "_".to_owned(),
         }
     }
@@ -2066,6 +2067,7 @@ mod tests {
         DescriptorTerm::Anonymous {
             key: ProvenanceKey::new(ProvenanceRole::RulePattern, 0),
             sort: descriptor_sort(),
+            spelling_key: ProvenanceKey::new(ProvenanceRole::ClaimAnonymousSpelling, 0),
             spelling: "_".to_owned(),
         }
     }

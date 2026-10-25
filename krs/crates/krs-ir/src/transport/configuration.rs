@@ -1874,7 +1874,13 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
     }
 
     /// An unknown value has no place in the initial configuration a run starts from.
-    fn anonymous(&mut self, _: &ProvenanceKey, _: &S::Sort, _: &str) -> Result<(), Self::Error> {
+    fn anonymous(
+        &mut self,
+        _: &ProvenanceKey,
+        _: &S::Sort,
+        _: &ProvenanceKey,
+        _: &str,
+    ) -> Result<(), Self::Error> {
         Err(StateTransportError::InvalidTerm(
             StateTermReason::InitializerClaimTerm,
         ))
@@ -1989,6 +1995,7 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
 
     fn cell(
         &mut self,
+        _: &ProvenanceKey,
         _: &ProvenanceKey,
         _: &S::Nominal,
         _: &[CellTermField<S>],

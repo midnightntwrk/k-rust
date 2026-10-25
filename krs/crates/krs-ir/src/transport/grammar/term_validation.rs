@@ -126,6 +126,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
         &mut self,
         _: &ProvenanceKey,
         _: &DescriptorSortReference,
+        _: &ProvenanceKey,
         _: &str,
     ) -> Result<(), Self::Error> {
         unsupported_claim_term()
@@ -158,6 +159,7 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
 
     fn cell(
         &mut self,
+        _: &ProvenanceKey,
         _: &ProvenanceKey,
         _: &StableItemId,
         _: &[CellTermField<DescriptorStage>],

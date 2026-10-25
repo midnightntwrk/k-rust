@@ -1603,6 +1603,7 @@ impl Sample for DescriptorTerm {
                 Self::Anonymous {
                     key: sample::<ProvenanceKey>(),
                     sort: sample::<DescriptorSortReference>(),
+                    spelling_key: sample::<ProvenanceKey>(),
                     spelling: sample::<String>(),
                 },
                 Self::OrBool {
@@ -1615,6 +1616,7 @@ impl Sample for DescriptorTerm {
                 },
                 Self::Cell {
                     key: sample::<ProvenanceKey>(),
+                    path_key: sample::<ProvenanceKey>(),
                     declaration: sample::<StableItemId>(),
                     fields: sample::<Vec<DescriptorCellTermField>>(),
                     open: true,
@@ -2960,6 +2962,7 @@ impl Sample for WireTerm {
                 Self::Anonymous {
                     key: sample::<ProvenanceKey>(),
                     sort: sample::<WireSortReference>(),
+                    spelling_key: sample::<ProvenanceKey>(),
                     spelling: sample::<String>(),
                 },
                 Self::OrBool {
@@ -2972,6 +2975,7 @@ impl Sample for WireTerm {
                 },
                 Self::Cell {
                     key: sample::<ProvenanceKey>(),
+                    path_key: sample::<ProvenanceKey>(),
                     declaration: sample::<WireTypeReference>(),
                     fields: sample::<Vec<WireCellTermField>>(),
                     open: true,

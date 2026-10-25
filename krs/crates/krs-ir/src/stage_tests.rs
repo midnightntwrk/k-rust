@@ -58,6 +58,7 @@ fn term(ordinal: u32) -> DescriptorTerm {
     DescriptorTerm::Anonymous {
         key: key(ordinal),
         sort: sort(ordinal),
+        spelling_key: key(ordinal),
         spelling: "_".to_owned(),
     }
 }

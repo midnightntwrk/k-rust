@@ -11986,6 +11986,10 @@
         }
       },
       "spelling": "sample",
+      "spelling_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
       "term_kind": "anonymous"
     },
     {
@@ -12062,6 +12066,10 @@
         "role": "sort_declaration"
       },
       "open": true,
+      "path_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
       "term_kind": "cell",
       "update": {
         "key": {
@@ -34405,6 +34413,10 @@
         }
       },
       "spelling": "sample",
+      "spelling_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
       "term_kind": "anonymous"
     },
     {
@@ -34471,6 +34483,10 @@
         "role": "sort_declaration"
       },
       "open": true,
+      "path_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
       "term_kind": "cell",
       "update": {
         "key": {
