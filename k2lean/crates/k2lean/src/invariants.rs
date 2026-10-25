@@ -2675,7 +2675,7 @@ all_goals simp_all [{unfold}]\n\n",
 def Invariant.{b}_map : {cell} → {}\n  | {wrap} x => x\n\n\
 /-- `Invariant.{b}_walk` at any cell, through its map: it rewrites a rule's cell variable too. -/\n\
 theorem Invariant.{b}_walk_cell (w : {cell}){ps} :\n    {} = some true ↔\n      KPrelude.MapHook.WF (Invariant.{b}_map w) ∧ KPrelude.MapHook.EntriesOn (fun q => Invariant.{b}_test q.1 q.2{pa}) (Invariant.{b}_map w) := by\n  \
-cases w\n  exact Invariant.{b}_walk _{pa}\n\n",
+k2l_cases w\n  exact Invariant.{b}_walk _{pa}\n\n",
                 w.map,
                 w.call_at("w"),
             ));
