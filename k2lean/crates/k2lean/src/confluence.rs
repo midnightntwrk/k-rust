@@ -600,11 +600,17 @@ pub fn main(args: &[String]) {
     }
     if let Some(threads) = opt.get("threads") {
         let ns = get("ns");
-        let out = views::emit(&lib, &name, &ns, threads, &roles, &feet, &rank);
+        let (out, counts) = views::emit(&lib, &name, &ns, threads, &roles, &feet, &rank);
         write_file(&get("out"), &out);
         if let Some(p) = opt.get("report") {
-            write_file(p, &rep);
+            write_file(p, &(rep + &counts.report()));
         }
+        eprintln!(
+            "confluence: {} rules by threads, {} pairs left open, {} same-thread pairs",
+            counts.rules,
+            counts.open_global + counts.open_cells + counts.open_priority,
+            counts.same_thread
+        );
         return;
     }
     if lib.ranked && lib.prios.len() > 1 {
@@ -896,9 +902,12 @@ mod views {
         (k.starts_with('<') && k.ends_with('>')).then(|| c.clone())
     }
 
+    /// The Lean term of the top cell, given the term at each leaf.
+    pub(super) type TopTerm = Box<dyn Fn(&dyn Fn(usize) -> String) -> String>;
+
     /// The configuration's cells: the leaves under nested cells, in order, and the Lean term of
     /// the top cell with `leaf(i)` at each leaf.
-    pub(super) fn tree(lib: &Lib, name: &str) -> (Vec<Leaf>, Box<dyn Fn(&dyn Fn(usize) -> String) -> String>) {
+    pub(super) fn tree(lib: &Lib, name: &str) -> (Vec<Leaf>, TopTerm) {
         enum Node {
             Inner(String, Vec<Node>),
             Leaf(usize),
@@ -1025,7 +1034,7 @@ mod views {
         roles: &[MapRole],
         feet: &[BTreeMap<String, (bool, bool)>],
         rank: &dyn Fn(&Rule) -> usize,
-    ) -> String {
+    ) -> (String, super::Counts) {
         let (leaves, top) = tree(lib, name);
         let ti = leaves
             .iter()
@@ -1152,7 +1161,7 @@ mod views {
         let field_of = |key: &str| -> Option<usize> {
             shared.iter().position(|l| l.label == key || l.sort.trim_start_matches("Sort") == key)
         };
-        #[derive(PartialEq, Clone, Copy, Debug)]
+        #[derive(PartialEq, Clone, Copy)]
         enum Kind { Thread, Shared, Global }
         let mut kinds = vec![];
         let mut touches: Vec<Vec<Touch>> = vec![];
@@ -1274,8 +1283,8 @@ mod views {
         let safe_tbl = |j: usize, c: usize| -> bool {
             reads[j].as_ref().is_some_and(|fs| fs.iter().all(|&f| classes[c][f] == Touch::None))
         };
-        for j in 0..max_rank {
-            if reads[j].is_none() {
+        for (j, r) in reads.iter().enumerate() {
+            if r.is_none() {
                 writeln!(o, "\n/-- The rules of rank {j} read the threads. -/\ndef appSafe{j} (_ : Cls) : Bool := false").unwrap();
                 continue;
             }
@@ -1490,38 +1499,65 @@ def SameThreadJoins : Prop :=
         writeln!(o, "\n#k2l_assert_axioms tstep_comm compat_of app_back app_back_s view_of join_static joins_of terminal_unique_of").unwrap();
         // the count
         let safe = |c: usize, i: usize| (0..i).all(|j| j < max_rank && safe_tbl(j, c));
-        let mut open = 0usize;
-        let mut same = 0usize;
+        let mut c = super::Counts {
+            rules: rs.len(),
+            thread: kinds.iter().filter(|k| **k == Kind::Thread).count(),
+            shared: kinds.iter().filter(|k| **k == Kind::Shared).count(),
+            global: kinds.iter().filter(|k| **k == Kind::Global).count(),
+            classes: classes.len(),
+            ..super::Counts::default()
+        };
         for (i, r1) in rs.iter().enumerate() {
             for (j, r2) in rs.iter().enumerate() {
-                if rank(r1) == rank(r2) && kinds[i] == Kind::Thread && kinds[j] == Kind::Thread && !keyps[i].disj(&keyps[j]) {
-                    same += 1;
+                if rank(r1) != rank(r2) {
+                    continue;
                 }
-                let ok = rank(r1) != rank(r2) || match (kinds[i], kinds[j]) {
-                    (Kind::Global, _) | (_, Kind::Global) => false,
-                    _ => compat(&classes[cls[i]], &classes[cls[j]]) && safe(cls[i], rank(r2)) && safe(cls[j], rank(r1)),
-                };
-                if !ok {
-                    open += 1;
-                    if std::env::var("K2L_CNF_DEBUG").is_ok() {
-                        let why = match (kinds[i], kinds[j]) {
-                            (Kind::Global, _) | (_, Kind::Global) => "global".to_string(),
-                            _ => format!("compat={} disj={} safe12={} safe21={} kinds={:?}/{:?}",
-                                compat(&classes[cls[i]], &classes[cls[j]]), keyps[i].disj(&keyps[j]),
-                                safe(cls[i], rank(r2)), safe(cls[j], rank(r1)), kinds[i], kinds[j]),
-                        };
-                        eprintln!("open\t{}\t{}\t{}\t{}\t{}", rank(r1), why, keys[i], keys[j], cls[i]);
-                    }
+                if kinds[i] == Kind::Thread && kinds[j] == Kind::Thread && !keyps[i].disj(&keyps[j]) {
+                    c.same_thread += 1;
+                }
+                if kinds[i] == Kind::Global || kinds[j] == Kind::Global {
+                    c.open_global += 1;
+                } else if !compat(&classes[cls[i]], &classes[cls[j]]) {
+                    c.open_cells += 1;
+                } else if !(safe(cls[i], rank(r2)) && safe(cls[j], rank(r1))) {
+                    c.open_priority += 1;
                 }
             }
         }
-        eprintln!("confluence: {} rules ({} thread, {} shared, {} global), {} classes; of {} ordered pairs, {} left open, {} same-thread pairs left open", rs.len(),
-            kinds.iter().filter(|k| **k == Kind::Thread).count(), kinds.iter().filter(|k| **k == Kind::Shared).count(),
-            kinds.iter().filter(|k| **k == Kind::Global).count(), classes.len(), rs.len() * rs.len(), open, same);
         writeln!(o, "\nend {ns}").unwrap();
-        o
+        (o, c)
     }
 }
+
+/// What `--threads` leaves open, counted over ordered pairs of rules of one rank.
+#[derive(Default)]
+pub(crate) struct Counts {
+    rules: usize,
+    thread: usize,
+    shared: usize,
+    global: usize,
+    classes: usize,
+    /// a global rule (`OpenJoins`)
+    open_global: usize,
+    /// two rules touching one cell where one writes (`OpenJoins`)
+    open_cells: usize,
+    /// a rule that may enable one of a rank before the other's (`OpenJoins`)
+    open_priority: usize,
+    /// two thread rules whose keys may be equal, at one binding (`SameThreadJoins`)
+    same_thread: usize,
+}
+
+impl Counts {
+    fn report(&self) -> String {
+        format!(
+            "\n[threads]\nrules = {}\nthread = {}\nshared = {}\nglobal = {}\nclasses = {}\nopen = {}\nopen-global = {}\nopen-cells = {}\nopen-priority = {}\nsame-thread = {}\n",
+            self.rules, self.thread, self.shared, self.global, self.classes,
+            self.open_global + self.open_cells + self.open_priority,
+            self.open_global, self.open_cells, self.open_priority, self.same_thread
+        )
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

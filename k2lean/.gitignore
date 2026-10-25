@@ -32,6 +32,7 @@ lake-manifest.json
 /demos/ImpUnroll/refine.toml
 /demos/RaceConf/RaceConf/Confluence.lean
 /demos/RaceConf/confluence.toml
+/demos/SimpleConf/SimpleConf/Views.lean
 /demos/ImpNI/ImpNI/Tr.lean
 /demos/ImpNI/ImpNI/NI.lean
 /demos/ImpNI/ImpNI/Levels.lean
