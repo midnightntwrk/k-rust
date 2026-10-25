@@ -91,15 +91,19 @@ impl WireKeys {
     /// [`Self::close`], the anchors of `role` that no wire node defines pair,
     /// in their order, with the nodes recorded here, and the two counts must
     /// agree. The roles it covers, until the wire gains their key fields:
-    /// a sort's parents ([`ProvenanceRole::SortParent`]); a constructor's
-    /// sort and field sorts ([`ProvenanceRole::ConstructorSort`],
-    /// [`ProvenanceRole::ConstructorFieldSort`]); a constant's value
+    /// a sort's parents ([`ProvenanceRole::SortParent`]) and a constructor's
+    /// field sorts ([`ProvenanceRole::ConstructorFieldSort`]), whose host
+    /// references carry type keys only; a constant's value
     /// ([`ProvenanceRole::ConstantValue`]); the spelling of a claim's
     /// anonymous constant ([`ProvenanceRole::ClaimAnonymousSpelling`]); the
-    /// cell path of a `k::fragment!` (the `*_path` roles); and, in a
-    /// readable clause, the result type beside its head sort, the key and
-    /// value of a map read's entries, a spliced head result and its items,
-    /// and the configuration header.
+    /// cell path of a `k::fragment!` in a rule term (the `*_path` role of
+    /// its side); and, in a readable clause, the result type its header
+    /// denotes beside the subject's ([`ProvenanceRole::RuleResultType`]),
+    /// the key term and the value binder of a map read's entry
+    /// ([`ProvenanceRole::RuleLeftMapKey`],
+    /// [`ProvenanceRole::RuleLeftMapValue`]), and a spliced head result's
+    /// sequence and items ([`ProvenanceRole::RuleRightKSequencePayload`],
+    /// [`ProvenanceRole::RuleRightKSequenceItem`]).
     pub(crate) fn implicit(&mut self, role: ProvenanceRole) {
         *self.implicit.entry(role).or_default() += 1;
     }

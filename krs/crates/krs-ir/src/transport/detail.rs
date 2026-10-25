@@ -50,7 +50,6 @@ details! {
         Terminal => "terminal",
         FixedConfigurationDescriptor => "fixed configuration descriptor",
         NestedCellDescriptor => "nested cell descriptor",
-        RequiredGrammarPrimaryProvenanceKey => "required grammar primary provenance key",
         Color => "production color",
         Colors => "production colors",
         LexicalEntries => "lexical entries",
@@ -93,7 +92,6 @@ details! {
         MapItemContentOrPayloadProvenance => "map items require content or a frame and payload provenance",
         MapUpdateRequiresPayloadProvenance => "map update requires payload provenance",
         MapUpdateSideOrPayloadProvenance => "map updates are result-only and require payload provenance",
-        ProvenanceOrdinalExceedsU32 => "provenance ordinal exceeds u32",
         RuleSubjectAndResultConfigurationsDiffer => "rule subject and result configurations differ",
         RuleWrapperAndStateFamilyDisagree => "rule wrapper and state family disagree",
         InvalidStandaloneDotKShell => "standalone .K has an invalid shell",
@@ -159,13 +157,10 @@ details! {
         InvalidListCell => "a cons-list cell's provenance keys disagree, or its rests do not pair: the anonymous `..` is on both sides or neither",
         ResultFrameBindingKind => "result frame binding has the wrong structural kind",
         InvalidRuleApplicationKeysOrHeadClass => "rule application keys or head class are invalid",
-        RuleProvenanceOrdinalExceedsU32 => "rule provenance ordinal exceeds u32",
         RuleVariableBindingIsNotATerm => "rule variable binding is not a term",
         ConfigurationSimplification => "simplifications cannot have configuration rewrite bodies",
         ConfigurationStaticAlias => "static alias and desugar clauses cannot have configuration rewrite bodies",
         SubjectFrameBindingKind => "subject frame binding has the wrong structural kind",
-        TooManyClaimBinders => "too many claim binders",
-        TooManyClaimNodes => "too many claim nodes",
         UnsupportedCellMultiplicity => "unsupported cell multiplicity",
         UnsupportedRepeatedCellCollection => "unsupported repeated-cell collection type",
         VariableKeyOrBindingMismatch => "variable keys disagree or the binding is undeclared",
@@ -219,8 +214,6 @@ details! {
         BracketRegexItem => "bracket production cannot contain regex items",
         BracketConstructorTemplate => "bracket production cannot have a constructor-template key",
         BracketMetadataShape => "bracket production must contain only bracket metadata",
-        DuplicateConstructorFieldOrdinal => "constructor field declaration ordinals must be unique",
-        SparseConstructorFieldOrdinals => "constructor field declaration ordinals must form a dense permutation",
         ConstructorHasTokenOrBracketMetadata => "constructor has token or bracket metadata",
         MissingConstructorFieldKey => "constructor nonterminal lacks its field declaration key",
         ConstructorOwnerMetadata => "constructor owner cannot carry token or bracket metadata",
@@ -229,7 +222,6 @@ details! {
         HookWithoutTotalFunction => "hook metadata requires a total function production",
         NominalTokenRegexGuards => "nominal token regex cannot carry precede/follow guards",
         ShortPrecedenceChain => "precedence chain requires at least two groups",
-        ProvenanceOrdinalExceedsU32 => "provenance ordinal exceeds u32",
         TokenOrBracketOwnerKind => "token and bracket owners must be authored sorts",
         TokenOwnerShape => "token owner requires one regex or terminal item and token metadata",
         TokenSyntaxTemplate => "token production cannot have a syntax-template key",
@@ -335,10 +327,10 @@ mod tests {
     fn grammar_reason_displays_are_stable() {
         assert_eq!(
             GrammarTransportError::InvalidProduction(
-                GrammarProductionReason::SparseConstructorFieldOrdinals
+                GrammarProductionReason::MissingConstructorFieldKey
             )
             .to_string(),
-            "invalid production: constructor field declaration ordinals must form a dense permutation"
+            "invalid production: constructor nonterminal lacks its field declaration key"
         );
         assert_eq!(
             GrammarTransportError::InvalidApplication(
