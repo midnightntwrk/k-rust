@@ -681,7 +681,7 @@ fn constructor_like(
             smt.map(|smt| smt.attribute),
             underspecified.map(|underspecified| underspecified.attribute),
         ],
-        static_marker.as_ref().map(|(marker, _)| marker.clone()),
+        static_marker.as_ref().map(|(marker, _)| marker),
     )?;
 
     let factory_tokens = DescriptorFactory {
@@ -1177,7 +1177,7 @@ fn constructor_grammar(
     [memo, fresh_generator]: [bool; 2],
     hook: Option<&ExpandedHook>,
     [smt, underspecified]: [Option<WireProductionAttribute>; 2],
-    static_marker: Option<krs_syntax::StaticProductionAttribute>,
+    static_marker: Option<&krs_syntax::StaticProductionAttribute>,
 ) -> crate::Result<TokenStream> {
     let function_total_role = ProvenanceRole::FunctionTotal;
     let function_hook_role = ProvenanceRole::FunctionHook;
@@ -1315,7 +1315,7 @@ fn constructor_grammar(
     if let Some(underspecified) = underspecified {
         attributes.push(underspecified);
     }
-    if let Some(marker) = &static_marker {
+    if let Some(marker) = static_marker {
         attributes.insert(0, super::productions::static_mode_wire(marker));
     }
     if let Some(strict_attribute) =

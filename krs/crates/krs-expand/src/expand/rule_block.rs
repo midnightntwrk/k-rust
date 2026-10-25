@@ -76,8 +76,7 @@ fn expand_head_rule(
     let rule_result_role = ProvenanceRole::RuleResult;
     let facade = env.facade_path()?;
     let rule = clause.rule();
-    let mut anchors = clause.provenance()?;
-    anchors.extend(clause.attribute_provenance()?);
+    let anchors = clause.descriptor_provenance()?;
     let fallback = TokenRange::for_tokens(rule.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "head_rule", &rule.item().sig.ident, fallback);

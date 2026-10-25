@@ -214,6 +214,29 @@ impl KeyAllocator {
         }
     }
 
+    /// Records the anchors of a piece of a descriptor that was keyed as a
+    /// sentence of its own, after the pieces recorded so far.
+    ///
+    /// A descriptor combines pieces its item's parsers key separately (a rule
+    /// fn and its attribute, a struct and its helpers). A pass continuing
+    /// across the pieces hands a piece the keys it already holds when none of
+    /// its roles was keyed by an earlier piece, or when its ordinals continue
+    /// the earlier ones, so its anchors are recorded as they are.
+    pub fn append(&mut self, anchors: &[crate::ProvenanceAnchor]) {
+        debug_assert!(
+            anchors
+                .iter()
+                .all(|anchor| anchor.ordinal() >= self.next_ordinal(anchor.role())),
+            "a piece's keys follow the keys of the earlier pieces"
+        );
+        for anchor in anchors {
+            if let Some(next) = self.next.get_mut(&anchor.role()) {
+                *next = (*next).max(anchor.ordinal().saturating_add(1));
+            }
+        }
+        self.anchors.extend_from_slice(anchors);
+    }
+
     /// Hands out the next key of `role` to the node at `range` and records its
     /// anchor.
     ///

@@ -8,6 +8,7 @@
 mod attribute;
 mod configuration;
 mod constant;
+mod descriptor;
 mod enum_constructor;
 mod error;
 mod function_shorthand;
@@ -50,6 +51,7 @@ pub use configuration::{
     SortArgument, option_content,
 };
 pub use constant::ConstantItem;
+pub use descriptor::{RuleDescriptor, RuleSentence};
 pub use enum_constructor::{
     EnumConstructorDeclaration, EnumConstructorVariant, EnumPrecedenceDescriptor,
     EnumPrecedenceGroup,

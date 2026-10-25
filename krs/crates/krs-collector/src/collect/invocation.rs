@@ -10,9 +10,10 @@ use krs_syntax::surface::{
 };
 use krs_syntax::{
     ConfigurationDeclaration, ConstructorDeclaration, EnumConstructorDeclaration,
-    InitializerFunction, ProvenanceAnchor, ProvenanceRole, RuleItem, SortDeclaration, SortsEntry,
-    StateClaimItem, StateContextAliasItem, StateRuleItem, SubsortDeclaration, TokenDeclaration,
-    TokenRange, parse_seqstrict_attribute, parse_strict_attribute,
+    InitializerFunction, ProvenanceAnchor, ProvenanceRole, RuleDescriptor, RuleItem, RuleSentence,
+    SortDeclaration, SortsEntry, StateClaimItem, StateContextAliasItem, StateRuleItem,
+    SubsortDeclaration, TokenDeclaration, TokenRange, parse_seqstrict_attribute,
+    parse_strict_attribute,
 };
 use proc_macro2::TokenStream;
 use syn::ext::IdentExt;
@@ -799,8 +800,9 @@ fn collect_fn_invocations(
         let parsed = krs_syntax::ClaimAttribute::parse_tokens(attribute_tokens(attribute)?)
             .map_err(source_syntax)?;
         let claim = StateClaimItem::from_item(item_fn.clone()).map_err(source_syntax)?;
-        let mut anchors = claim.provenance().map_err(source_syntax)?;
-        anchors.extend(parsed.provenance().map_err(source_syntax)?);
+        let anchors = claim
+            .descriptor_provenance(&parsed)
+            .map_err(source_syntax)?;
         output.push(parsed_invocation(
             ProvenanceRole::ClaimDeclaration,
             item_fn.sig.ident.to_string(),
@@ -817,13 +819,9 @@ fn collect_fn_invocations(
             .map_err(source_syntax)?;
         let alias = StateContextAliasItem::from_item(item_fn.clone(), parsed.here())
             .map_err(source_syntax)?;
-        let mut anchors = parsed.provenance().map_err(source_syntax)?;
-        anchors.push(ProvenanceAnchor::new(
-            ProvenanceRole::ContextAliasDeclaration,
-            0,
-            TokenRange::for_tokens(&item_fn.sig.ident).map_err(source_syntax)?,
-        ));
-        anchors.extend(alias.provenance().map_err(source_syntax)?);
+        let anchors = alias
+            .descriptor_provenance(&parsed)
+            .map_err(source_syntax)?;
         output.push(parsed_invocation(
             ProvenanceRole::ContextAliasDeclaration,
             item_fn.sig.ident.to_string(),
@@ -847,17 +845,12 @@ fn collect_fn_invocations(
             .iter()
             .map(|binding| binding.unraw().to_string())
             .collect();
-        let mut anchors = rule.full_provenance().map_err(source_syntax)?;
-        anchors.push(ProvenanceAnchor::new(
-            ProvenanceRole::SimplificationMarker,
-            0,
-            TokenRange::for_tokens(&item_fn.sig.ident).map_err(source_syntax)?,
-        ));
-        anchors.extend(parsed.provenance().map_err(source_syntax)?);
+        let descriptor = RuleDescriptor::new(&rule, RuleSentence::Simplification(&parsed))
+            .map_err(source_syntax)?;
         output.push(parsed_invocation(
             ProvenanceRole::RuleDeclaration,
             item_fn.sig.ident.to_string(),
-            anchors,
+            descriptor.anchors().to_vec(),
             ParsedInvocationPayload::Rule { bindings },
         )?);
     }
@@ -933,17 +926,15 @@ fn collect_fn_rules(
             .iter()
             .map(|binding| binding.unraw().to_string())
             .collect();
-        let mut anchors = rule.full_provenance().map_err(source_syntax)?;
-        anchors.extend(desugar.provenance().map_err(source_syntax)?);
-        anchors.push(ProvenanceAnchor::new(
-            mode.clause_role(),
-            0,
-            TokenRange::for_tokens(&item_fn.sig.ident).map_err(source_syntax)?,
-        ));
+        let sentence = match mode {
+            krs_syntax::StaticMode::Alias => RuleSentence::Alias,
+            krs_syntax::StaticMode::Desugar => RuleSentence::Desugar(&desugar),
+        };
+        let descriptor = RuleDescriptor::new(&rule, sentence).map_err(source_syntax)?;
         output.push(parsed_invocation(
             ProvenanceRole::RuleDeclaration,
             item_fn.sig.ident.to_string(),
-            anchors,
+            descriptor.anchors().to_vec(),
             ParsedInvocationPayload::Rule { bindings },
         )?);
     }
@@ -955,12 +946,13 @@ fn collect_fn_rules(
         let rule_attribute = krs_syntax::RuleAttribute::parse_tokens(attribute_tokens(attribute)?)
             .map_err(source_syntax)?;
         if let Ok(rule) = StateRuleItem::from_item(item_fn.clone()) {
-            let mut anchors = rule.provenance().map_err(source_syntax)?;
-            anchors.extend(rule_attribute.provenance().map_err(source_syntax)?);
+            let descriptor =
+                RuleDescriptor::state(&rule, RuleSentence::Transition(&rule_attribute))
+                    .map_err(source_syntax)?;
             output.push(parsed_invocation(
                 ProvenanceRole::RuleDeclaration,
                 item_fn.sig.ident.to_string(),
-                anchors,
+                descriptor.anchors().to_vec(),
                 ParsedInvocationPayload::Declaration,
             )?);
             continue;
@@ -973,12 +965,12 @@ fn collect_fn_rules(
             .iter()
             .map(|binding| binding.unraw().to_string())
             .collect();
-        let mut anchors = rule.full_provenance().map_err(source_syntax)?;
-        anchors.extend(rule_attribute.provenance().map_err(source_syntax)?);
+        let descriptor = RuleDescriptor::new(&rule, RuleSentence::Transition(&rule_attribute))
+            .map_err(source_syntax)?;
         output.push(parsed_invocation(
             ProvenanceRole::RuleDeclaration,
             item_fn.sig.ident.to_string(),
-            anchors,
+            descriptor.anchors().to_vec(),
             ParsedInvocationPayload::Rule { bindings },
         )?);
     }
@@ -999,14 +991,13 @@ fn collect_fn_contexts(
     {
         let context = krs_syntax::ContextAttribute::parse_tokens(attribute_tokens(attribute)?)
             .map_err(source_syntax)?;
-        let rule_attribute = context.rule_attribute(&item_fn.sig.ident);
         if let Ok(rule) = StateRuleItem::from_context_item(item_fn.clone()) {
-            let mut anchors = rule.provenance().map_err(source_syntax)?;
-            anchors.extend(rule_attribute.provenance().map_err(source_syntax)?);
+            let descriptor = RuleDescriptor::state(&rule, RuleSentence::Context(&context))
+                .map_err(source_syntax)?;
             output.push(parsed_invocation(
                 ProvenanceRole::RuleDeclaration,
                 item_fn.sig.ident.to_string(),
-                anchors,
+                descriptor.anchors().to_vec(),
                 ParsedInvocationPayload::Declaration,
             )?);
             continue;
@@ -1019,12 +1010,12 @@ fn collect_fn_contexts(
             .iter()
             .map(|binding| binding.unraw().to_string())
             .collect();
-        let mut anchors = rule.full_provenance().map_err(source_syntax)?;
-        anchors.extend(rule_attribute.provenance().map_err(source_syntax)?);
+        let descriptor =
+            RuleDescriptor::new(&rule, RuleSentence::Context(&context)).map_err(source_syntax)?;
         output.push(parsed_invocation(
             ProvenanceRole::RuleDeclaration,
             item_fn.sig.ident.to_string(),
-            anchors,
+            descriptor.anchors().to_vec(),
             ParsedInvocationPayload::Rule { bindings },
         )?);
     }
@@ -1226,8 +1217,7 @@ fn collect_rule_block(
             })
             .partition(|(kind, _)| kind == "have");
         extras.extend(writes);
-        let mut anchors = clause.provenance().map_err(source_syntax)?;
-        anchors.extend(clause.attribute_provenance().map_err(source_syntax)?);
+        let anchors = clause.descriptor_provenance().map_err(source_syntax)?;
         output.push(parsed_invocation(
             declaration,
             rule.item()
@@ -1624,12 +1614,12 @@ fn push_rule_equation_invocation(
         .iter()
         .map(|binding| binding.unraw().to_string())
         .collect();
-    let mut anchors = rule.full_provenance().map_err(source_syntax)?;
-    anchors.extend(equation.provenance().map_err(source_syntax)?);
+    let descriptor =
+        RuleDescriptor::new(rule, RuleSentence::Equation(equation)).map_err(source_syntax)?;
     output.push(parsed_invocation(
         ProvenanceRole::RuleDeclaration,
         item_fn.sig.ident.to_string(),
-        anchors,
+        descriptor.anchors().to_vec(),
         ParsedInvocationPayload::Rule { bindings },
     )?);
     Ok(())

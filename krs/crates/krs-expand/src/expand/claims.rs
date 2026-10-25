@@ -48,8 +48,7 @@ fn configuration_claim(
     let claim = krs_syntax::StateClaimItem::parse_tokens(item)?;
     let rule = claim.rule();
     let facade = env.facade_path()?;
-    let mut anchors = claim.provenance()?;
-    anchors.extend(attribute.provenance()?);
+    let anchors = claim.descriptor_provenance(attribute)?;
     let fallback = TokenRange::for_tokens(rule.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "configuration_claim", &rule.item().sig.ident, fallback);

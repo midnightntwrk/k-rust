@@ -10,8 +10,8 @@ use krs_ir::{
     DescriptorSimplificationPriority, StableText,
 };
 use krs_syntax::KrsSyntax;
+use krs_syntax::ProvenanceRole;
 use krs_syntax::surface::{AttributeMacro, helper_entry};
-use krs_syntax::{ProvenanceAnchor, ProvenanceRole, TokenRange};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use syn::ext::IdentExt;
@@ -64,6 +64,7 @@ pub(crate) fn rule(
             env,
             item,
             &attribute,
+            krs_syntax::RuleSentence::Transition(&attribute),
             krs_ir::ConfigurationSentenceKind::Transition,
         );
     }
@@ -94,6 +95,7 @@ pub(crate) fn context(
             env,
             item,
             &attribute,
+            krs_syntax::RuleSentence::Context(&context),
             krs_ir::ConfigurationSentenceKind::Context,
         );
     }
@@ -103,7 +105,10 @@ pub(crate) fn context(
         &rule,
         &attribute,
         krs_ir::SentenceKind::Context,
-        OrdinaryRuleKeys::default(),
+        OrdinaryRuleKeys {
+            context: Some(&context),
+            ..OrdinaryRuleKeys::default()
+        },
         &[],
     )
 }
@@ -159,9 +164,7 @@ pub(crate) fn equation_item(
         krs_ir::SentenceKind::Equation,
         OrdinaryRuleKeys {
             equation: Some(&equation),
-            simplification: None,
-            desugar: None,
-            lexical_imports: None,
+            ..OrdinaryRuleKeys::default()
         },
         &[],
     )
@@ -183,9 +186,8 @@ pub(crate) fn equation_row(
         krs_ir::SentenceKind::Equation,
         OrdinaryRuleKeys {
             equation: Some(row.equation()),
-            simplification: None,
-            desugar: None,
             lexical_imports: Some(imports),
+            ..OrdinaryRuleKeys::default()
         },
         &[],
     )?;
@@ -369,8 +371,7 @@ fn ordinary_rule(
         OrdinaryRuleKeys {
             equation,
             simplification,
-            desugar: None,
-            lexical_imports: None,
+            ..OrdinaryRuleKeys::default()
         },
         &[],
     )
@@ -383,6 +384,9 @@ struct OrdinaryRuleKeys<'a> {
     simplification: Option<&'a krs_syntax::SimplificationAttribute>,
     /// `#[k::desugar(..)]` of a desugar clause (KF-046).
     desugar: Option<&'a krs_syntax::DesugarAttribute>,
+    /// `#[k::context(..)]` of a context (KF-021), whose rule-attribute view
+    /// the rule attribute is.
+    context: Option<&'a krs_syntax::ContextAttribute>,
     /// The `use` items of a `k::equations!` table, through which rustc
     /// resolves the row's one-segment paths.
     lexical_imports: Option<&'a [syn::ItemUse]>,
@@ -404,6 +408,7 @@ fn expand_ordinary_rule(
         equation,
         simplification,
         desugar,
+        context,
         lexical_imports,
     } = keys;
     // A single-body rule (KF-011) is a transition that is not an anywhere
@@ -438,38 +443,26 @@ fn expand_ordinary_rule(
     let rule_pattern_role = ProvenanceRole::RulePattern;
     let rule_result_role = ProvenanceRole::RuleResult;
     let facade = env.facade_path()?;
-    let mut anchors = rule.full_provenance()?;
-    anchors.extend(attribute.provenance()?);
-    if sentence_kind == krs_ir::SentenceKind::Alias {
-        anchors.push(ProvenanceAnchor::new(
-            ProvenanceRole::AliasClause,
-            0,
-            TokenRange::for_tokens(&rule.item().sig.ident)?,
-        ));
-    }
-    if sentence_kind == krs_ir::SentenceKind::Desugar {
-        anchors.push(ProvenanceAnchor::new(
-            ProvenanceRole::DesugarClause,
-            0,
-            TokenRange::for_tokens(&rule.item().sig.ident)?,
-        ));
-    }
-    if let Some(equation) = equation {
-        anchors.extend(equation.provenance()?);
-    }
-    if let Some(desugar) = desugar {
-        anchors.extend(desugar.provenance()?);
-    }
-    if let Some(simplification) = simplification {
-        anchors.push(ProvenanceAnchor::new(
-            ProvenanceRole::SimplificationMarker,
-            0,
-            TokenRange::for_tokens(&rule.item().sig.ident)?,
-        ));
-        anchors.extend(simplification.provenance()?);
-    }
+    let sentence = match sentence_kind {
+        krs_ir::SentenceKind::Transition => krs_syntax::RuleSentence::Transition(attribute),
+        krs_ir::SentenceKind::Context => krs_syntax::RuleSentence::Context(
+            context.expect("a context rule carries its context attribute"),
+        ),
+        krs_ir::SentenceKind::Equation => krs_syntax::RuleSentence::Equation(
+            equation.expect("an equation carries its equation attribute"),
+        ),
+        krs_ir::SentenceKind::Simplification => krs_syntax::RuleSentence::Simplification(
+            simplification.expect("a simplification carries its attribute"),
+        ),
+        krs_ir::SentenceKind::Alias => krs_syntax::RuleSentence::Alias,
+        krs_ir::SentenceKind::Desugar => krs_syntax::RuleSentence::Desugar(
+            desugar.expect("a desugar clause carries its attribute"),
+        ),
+        krs_ir::SentenceKind::Claim => unreachable!("claims have a separate authoring form"),
+    };
+    let descriptor = krs_syntax::RuleDescriptor::new(rule, sentence)?;
     let fallback = krs_syntax::TokenRange::for_tokens(rule.item())?;
-    let provenance = host_provenance(env, &facade, fallback, &anchors);
+    let provenance = host_provenance(env, &facade, fallback, descriptor.anchors());
     let sentence_name = match sentence_kind {
         krs_ir::SentenceKind::Transition => "rule",
         krs_ir::SentenceKind::Equation => "equation",
