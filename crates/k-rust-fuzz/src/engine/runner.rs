@@ -300,6 +300,24 @@ pub(crate) trait CaseRunner {
         None
     }
 
+    /// [`Self::comparability`] of `values` on fresh cases, built as a confirmation's are
+    /// ([`Self::confirm`]): the re-run of a crash of the comparable judgement (FZ-CRASH). `None`
+    /// when this runner cannot repeat the judgement, and by default.
+    fn confirm_comparability(
+        &mut self,
+        _values: &[Value],
+        _cancel: Option<&CancellationToken>,
+    ) -> Option<Result<JudgedComparability, ConfirmFailure>> {
+        None
+    }
+
+    /// Whether [`Self::comparability`] makes a judgement for this campaign's witness cases
+    /// (a rule or pattern target that judges comparability outside its cases), for a witness
+    /// whose judgement a failed rebuild stopped. `false` by default.
+    fn comparability_pending(&self) -> bool {
+        false
+    }
+
     /// Rebuild the campaign's own backends after a caught panic (FZ-CRASH): a panic may leave a
     /// backend, its session, its solver or an assembler half-changed, so the loop calls this
     /// after every panic it or a run caught, before the next execution on the campaign's

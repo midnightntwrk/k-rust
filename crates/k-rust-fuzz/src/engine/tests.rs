@@ -139,6 +139,10 @@ struct Scripted {
     judgement_work: Option<u64>,
     /// The values of every comparable judgement asked for, in order.
     judged: Vec<Vec<Value>>,
+    /// Every rebuild after a crash fails ([`CaseRunner::recover`]).
+    recover_fails: bool,
+    /// The kind of the abort at [`Self::abort_at`].
+    abort_kind: crate::report::AbortKind,
 }
 
 impl Scripted {
@@ -157,6 +161,8 @@ impl Scripted {
             kept: Vec::new(),
             judgement_work: None,
             judged: Vec::new(),
+            recover_fails: false,
+            abort_kind: crate::report::AbortKind::SolverPreludeInconsistent,
         }
     }
 }
@@ -168,10 +174,7 @@ impl CaseRunner for Scripted {
         _cancel: Option<&CancellationToken>,
     ) -> Result<CaseRun, Abort> {
         if self.abort_at == Some(self.cases.len()) {
-            return Err(Abort::new(
-                crate::report::AbortKind::SolverPreludeInconsistent,
-                "solver prelude failed",
-            ));
+            return Err(Abort::new(self.abort_kind, "solver prelude failed"));
         }
         self.cases.push(values.to_vec());
         Ok((self.case)(values))
@@ -198,6 +201,18 @@ impl CaseRunner for Scripted {
 
     fn incidental_kept(&mut self, class: OutcomeClass) {
         self.kept.push(class);
+    }
+
+    fn comparability_pending(&self) -> bool {
+        self.judgement_work.is_some()
+    }
+
+    fn recover(&mut self) -> Result<(), String> {
+        if self.recover_fails {
+            Err("the scripted rebuild fails".into())
+        } else {
+            Ok(())
+        }
     }
 
     fn comparability(
@@ -2822,5 +2837,242 @@ fn a_panicking_shrink_candidate_is_dropped_and_recorded_with_its_values() {
         crashes[0]["holes"][0]["value"]["int"], "0",
         "{}",
         crashes[0]
+    );
+}
+
+/// (Fix round, D3) A rebuild that fails after a hit's confirmation panicked keeps the crash that
+/// made the rebuild necessary.
+#[test]
+fn a_failed_rebuild_after_a_panicking_confirmation_keeps_its_crash() {
+    let mut runner = Scripted::new(
+        |values| {
+            if as_int(&values[0]) == 3 {
+                hit(values, 1, "end-3")
+            } else {
+                run(OutcomeClass::Miss, 1)
+            }
+        },
+        |_| panic!("the scripted confirmation panics"),
+    );
+    runner.recover_fails = true;
+    let report = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(5),
+        None,
+    );
+    let json = report_json(&report);
+    assert_eq!(
+        json["outcome"]["kind"], "rebuild-failed",
+        "{}",
+        json["outcome"]
+    );
+    let crashes = json["crashes"].as_array().expect("a crashes list");
+    assert_eq!(crashes.len(), 1, "{crashes:?}");
+    assert_eq!(crashes[0]["phase"], "confirmation", "{}", crashes[0]);
+}
+
+/// (Fix round, S2) A crash whose confirmation could not even build was not re-run: it is
+/// neither reproduced nor unreproduced, and its determinism stays unknown.
+#[test]
+fn a_crash_whose_confirmation_did_not_build_has_no_reproduced() {
+    let mut runner = Scripted::new(
+        |values| {
+            assert!(as_int(&values[0]) != 4, "the scripted runner panics at 4");
+            run(OutcomeClass::Miss, 1)
+        },
+        |_| Err("the fresh backend did not build".into()),
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(6),
+        None,
+    );
+    let json = report_json(&report);
+    let crash = &json["crashes"][0];
+    assert_eq!(crash.get("reproduced"), None, "{crash}");
+    assert_eq!(crash["determinism"], "unknown", "{crash}");
+    assert_eq!(json["totals"]["outside-determinism"], 0);
+}
+
+/// (Fix round, S4) When the runner did not rebuild while a witness was shrunk, the witness's
+/// comparable judgement, which no run made, says that a crash stopped it instead of being
+/// absent, which reads as judged or not applicable.
+#[test]
+fn a_witness_whose_judgement_a_failed_rebuild_stopped_names_the_crash() {
+    let mut runner = Scripted::new(
+        |values| {
+            let value = as_int(&values[0]);
+            assert!(value != 0, "the scripted runner panics at 0");
+            if value >= 10 {
+                hit(values, 1, "end")
+            } else {
+                run(OutcomeClass::Miss, 1)
+            }
+        },
+        |values| {
+            if as_int(&values[0]) >= 10 {
+                Ok(hit(values, 1, "end"))
+            } else {
+                Ok(run(OutcomeClass::Miss, 1))
+            }
+        },
+    );
+    runner.recover_fails = true;
+    runner.judgement_work = Some(5);
+    let mut schedule = Schedule::new(
+        1,
+        Vec::new(),
+        vec![(1, Counter::boxed(ProposerKind::Blind, 100, 0))],
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut schedule,
+        &settings(1),
+        Budget::Cases(1),
+        None,
+    );
+    let json = report_json(&report);
+    let first = &json["outcome"]["witness"]["first"];
+    assert_eq!(
+        first["comparable"],
+        serde_json::json!({"holds": false, "reasons": ["crash"]}),
+        "{first}"
+    );
+}
+
+/// Panics at one location, so that two closures share one crash signature.
+fn shared_panic() -> ! {
+    panic!("the shared location panics")
+}
+
+/// (Fix round, minor) A signature first kept from a confirmation is taken over by the first
+/// case that crashes with it: the finding then names that case's values and is examined as a
+/// case's crash.
+#[test]
+fn a_case_takes_over_a_signature_first_seen_in_a_confirmation() {
+    let mut runner = Scripted::new(
+        |values| {
+            let value = as_int(&values[0]);
+            if value == 5 {
+                shared_panic();
+            }
+            if value == 3 {
+                hit(values, 1, "end-3")
+            } else {
+                run(OutcomeClass::Miss, 1)
+            }
+        },
+        |_| shared_panic(),
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(6),
+        None,
+    );
+    let json = report_json(&report);
+    let crashes = json["crashes"].as_array().expect("a crashes list");
+    assert_eq!(crashes.len(), 1, "{crashes:?}");
+    let crash = &crashes[0];
+    assert_eq!(crash["phase"], "case", "{crash}");
+    assert_eq!(crash["case"], 4, "{crash}");
+    assert_eq!(crash["holes"][0]["value"]["int"], "5", "{crash}");
+    assert_eq!(crash["count"], 1, "{crash}");
+    assert_eq!(crash["reproduced"], true, "{crash}");
+}
+
+/// (Fix round, minor) The engine defects and warnings of a crash's shrink candidates are
+/// recorded, as a hit's are.
+#[test]
+fn a_crash_shrink_candidates_notes_are_recorded() {
+    let crashed = |_: &[Value]| CaseRun {
+        crash: Some(Box::new(super::runner::CaseCrash::engine(
+            "scripted".into(),
+            Some("k-rust/src/a.rs:1:1".into()),
+            false,
+        ))),
+        defects: vec!["a scripted self-check defect".into()],
+        unjudged: Some(crate::exec::UnjudgedReason::Panic),
+        ..run(OutcomeClass::Unsupported, 1)
+    };
+    let mut runner = Scripted::new(
+        move |values| {
+            if as_int(&values[0]) >= 5 {
+                crashed(values)
+            } else {
+                run(OutcomeClass::Miss, 1)
+            }
+        },
+        move |values| Ok(crashed(values)),
+    );
+    let mut schedule = Schedule::new(
+        1,
+        Vec::new(),
+        vec![(1, Counter::boxed(ProposerKind::Blind, 40, 0))],
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut schedule,
+        &settings(1),
+        Budget::Cases(1),
+        None,
+    );
+    assert_eq!(report.crashes.0.len(), 1);
+    assert!(
+        report
+            .engine_defects
+            .iter()
+            .any(|defect| defect.description.starts_with("crash shrink candidate")),
+        "{:?}",
+        report.engine_defects
+    );
+}
+
+/// (Fix round, D2) A client's observer that panics while a confirmed witness is shrunk aborts
+/// the campaign with the candidate's values, since the observer cannot be trusted after its
+/// panic; a warning keeps the confirmed witness's values.
+#[test]
+fn an_observer_panic_while_a_witness_shrinks_aborts_and_names_the_witness() {
+    let mut runner = Scripted::new(
+        |values| {
+            if as_int(&values[0]) >= 10 {
+                hit(values, 1, "end")
+            } else {
+                run(OutcomeClass::Miss, 1)
+            }
+        },
+        |values| Ok(hit(values, 1, "end")),
+    );
+    runner.abort_at = Some(1);
+    runner.abort_kind = crate::report::AbortKind::ClientPanic;
+    let mut schedule = Schedule::new(
+        1,
+        Vec::new(),
+        vec![(1, Counter::boxed(ProposerKind::Blind, 100, 0))],
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut schedule,
+        &settings(1),
+        Budget::Cases(1),
+        None,
+    );
+    let json = report_json(&report);
+    let outcome = &json["outcome"];
+    assert_eq!(outcome["status"], "aborted", "{outcome}");
+    assert_eq!(outcome["kind"], "client-panic", "{outcome}");
+    assert_eq!(outcome["holes"][0]["value"]["int"], "0", "{outcome}");
+    assert!(
+        report
+            .warnings
+            .iter()
+            .any(|warning| warning.contains("confirmed witness") && warning.contains("100")),
+        "{:?}",
+        report.warnings
     );
 }

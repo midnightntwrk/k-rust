@@ -2660,13 +2660,18 @@ impl Backend {
             })
         })
         .map_err(|cause| {
-            let kind = match &cause {
-                DefinitionError::StackSegmentRefused { .. } => {
-                    BackendErrorKind::StackSegmentRefused
+            let context = "the request is too deep for the backend";
+            match &cause {
+                DefinitionError::InsufficientStack { .. } => {
+                    kinded(context, BackendErrorKind::InsufficientStack)(cause)
                 }
-                _ => BackendErrorKind::InsufficientStack,
-            };
-            kinded("the request is too deep for the backend", kind)(cause)
+                DefinitionError::StackSegmentRefused { .. } => {
+                    kinded(context, BackendErrorKind::StackSegmentRefused)(cause)
+                }
+                // `nesting::with_stack` refuses only for stack; another refusal is no stack
+                // refusal, and keeps no kind.
+                _ => error(context)(cause),
+            }
         })
         .map_err(E::from)?
     }

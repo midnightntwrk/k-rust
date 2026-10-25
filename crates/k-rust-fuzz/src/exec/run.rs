@@ -1087,6 +1087,11 @@ impl Judge<'_> {
         // The catch site of `Backend::execute` (FZ-CRASH, stage `execute`).
         let executed = crash::catch(|| {
             #[cfg(test)]
+            seam::set_all_paths(matches!(
+                request.strategy,
+                k_rust::backend::ExecutionStrategy::All
+            ));
+            #[cfg(test)]
             if let Some(error) = seam::answer(&request.state, CrashStage::Execute) {
                 return Err(error);
             }
@@ -2056,6 +2061,17 @@ pub(crate) mod seam {
     thread_local! {
         static RULE: RefCell<Option<Rule>> = const { RefCell::new(None) };
         static RECOVER_FAILS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+        static ALL_PATHS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    /// Record whether the run the rule is asked about runs every path.
+    pub(crate) fn set_all_paths(all: bool) {
+        ALL_PATHS.with(|cell| cell.set(all));
+    }
+
+    /// Whether the run the rule is asked about runs every path (strategy `all`).
+    pub(crate) fn all_paths() -> bool {
+        ALL_PATHS.with(std::cell::Cell::get)
     }
 
     /// Install `rule` on this thread until the guard drops.

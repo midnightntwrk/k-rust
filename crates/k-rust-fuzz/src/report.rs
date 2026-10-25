@@ -1698,8 +1698,10 @@ pub struct CrashFinding {
     /// How many cases crashed with this signature (shrink candidates and confirmations not
     /// counted).
     pub count: u64,
-    /// Whether a re-run on a fresh backend crashed with the same signature; absent when it was
-    /// not re-run (the clock stopped the run, so the crash says nothing about the input).
+    /// Whether a re-run on a fresh backend crashed with the same signature (for a crash of the
+    /// comparability run, a re-run of that judgement on fresh cases); absent when no re-run was
+    /// made: the clock stopped the run, so the crash says nothing about the input, or the
+    /// fresh backend did not build, or the caller cancelled.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reproduced: Option<bool>,
     /// Whether the shrunk values' re-run on a fresh backend crashed with the same signature;

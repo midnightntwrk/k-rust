@@ -282,7 +282,8 @@ fn strip_version(name: &str) -> &str {
 }
 
 /// The class of a message, which stands for the site of a crash without a usable location: its
-/// first line, with every span between backticks, quotes or double quotes masked as `…`, cut
+/// first line, with every span between backticks, quotes or double quotes masked as `…` (an
+/// apostrophe after a letter or digit opens no span), cut
 /// before its first `:`, every run of digits masked as `N`, at most 200 characters. A message
 /// that formats a term, a number or a name into its text gives one class for one defect, so the
 /// signature cap is not spent on the values one defect printed.
@@ -290,6 +291,7 @@ pub(crate) fn message_class(message: &str) -> String {
     let line = message.lines().next().unwrap_or("");
     let mut masked = String::with_capacity(line.len());
     let mut open: Option<char> = None;
+    let mut previous: Option<char> = None;
     for c in line.chars() {
         match open {
             Some(delimiter) if c == delimiter => {
@@ -298,12 +300,15 @@ pub(crate) fn message_class(message: &str) -> String {
                 open = None;
             }
             Some(_) => {}
+            // An apostrophe after a letter or digit is part of a word (a possessive), no quote.
+            None if c == '\'' && previous.is_some_and(char::is_alphanumeric) => masked.push(c),
             None if matches!(c, '`' | '\'' | '"') => {
                 masked.push(c);
                 open = Some(c);
             }
             None => masked.push(c),
         }
+        previous = Some(c);
     }
     if open.is_some() {
         masked.push('…');
@@ -398,6 +403,21 @@ mod tests {
             message_class("could not encode KORE JSON: depth 9123 exceeds 4096"),
             message_class("could not encode KORE JSON: depth 17 exceeds 4096")
         );
+    }
+
+    /// (Fix round) An apostrophe inside a word is no quote: a possessive does not mask the rest
+    /// of the line.
+    #[test]
+    fn a_possessive_is_no_quote() {
+        assert_eq!(
+            message_class("the rule's head 12 is wrong: 'x'"),
+            "the rule's head N is wrong"
+        );
+        assert_eq!(
+            message_class("the rule's head 12 is wrong: 'x'"),
+            message_class("the rule's head 13 is wrong: 'y'")
+        );
+        assert_eq!(message_class("no rule for 'x::y': 42"), "no rule for '…'");
     }
 
     #[test]

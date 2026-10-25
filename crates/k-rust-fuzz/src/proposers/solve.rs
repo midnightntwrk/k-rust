@@ -433,6 +433,9 @@ enum Answer {
     Unsatisfiable,
     Unknown,
     Failed(String),
+    /// The query's thread panicked: a k-rust defect, counted, which gives no finding because
+    /// the query has no concrete input (FZ-CRASH, F4).
+    Panicked,
 }
 
 /// A symbolic run's answer, its work and whether it lies outside the determinism contract.
@@ -633,8 +636,8 @@ fn run_isolated(
                 thread::park_timeout(Duration::from_millis(5));
             }
         }
-        let mut outcome = worker.join().unwrap_or_else(|_| Outcome {
-            answer: Answer::Failed(QUERY_PANICKED.into()),
+        let mut outcome = worker.join().unwrap_or(Outcome {
+            answer: Answer::Panicked,
             work: 0,
             outside_determinism: false,
         });
@@ -916,20 +919,17 @@ impl SolveProposer {
                 None
             }
             Answer::Failed(message) => {
-                // A panic on the query's thread is a k-rust defect, counted; the query has no
-                // concrete input, so it is no crash finding (FZ-CRASH, F4).
-                if message == QUERY_PANICKED {
-                    self.totals.panicked += 1;
-                }
                 self.fail(message);
+                None
+            }
+            Answer::Panicked => {
+                self.totals.panicked += 1;
+                self.fail("the query panicked".to_owned());
                 None
             }
         }
     }
 }
-
-/// The failure of a query whose thread panicked ([`crate::report::SolveTotals::panicked`]).
-const QUERY_PANICKED: &str = "the query panicked";
 
 impl Proposer for SolveProposer {
     fn kind(&self) -> ProposerKind {

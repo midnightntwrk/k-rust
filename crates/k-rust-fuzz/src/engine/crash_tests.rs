@@ -641,3 +641,176 @@ fn measure_the_rebuild_cost() {
         &[Value::Int(1.into())],
     );
 }
+
+/// Panics when a configuration's `<state>` cell holds the integer 10: in `le.imp` exactly when
+/// the hole `X` is 10.
+struct PanicsAtTen;
+
+impl crate::target::Observer for PanicsAtTen {
+    type State = ();
+
+    fn start(&self) {}
+
+    fn branch(&self, (): &()) {}
+
+    fn step(
+        &self,
+        (): &mut (),
+        _pre: &crate::target::ConfigurationView,
+        post: &crate::target::ConfigurationView,
+    ) -> crate::target::ObserverVerdict {
+        let mut work: Vec<&k_rust::kore::ast::Pattern> = post.cell("state").into_iter().collect();
+        while let Some(next) = work.pop() {
+            if let k_rust::kore::ast::Pattern::DomainValue { value, .. } = next
+                && value.as_utf8().ok() == Some("10")
+            {
+                panic!("the observer met x = 10");
+            }
+            work.extend(k_rust::kore::walk::children(next));
+        }
+        crate::target::ObserverVerdict::Nothing
+    }
+}
+
+/// (Fix round, D2) An observer that panics while a crash is shrunk aborts the campaign with
+/// the candidate that made it panic, instead of the panic being swallowed by the shrinker.
+#[test]
+fn an_observer_panic_while_a_crash_shrinks_aborts_with_its_values() {
+    let mut spec = le_campaign(&[20], 0, None);
+    spec.target.kind = TargetKind::Observer(crate::target::ObserverTarget::new(
+        "panics-at-10",
+        PanicsAtTen,
+    ));
+    let _seam = seam::install(Box::new(|stage, ints| {
+        (stage == CrashStage::Execute && x_is(ints, |x| x >= 20))
+            .then_some(Action::PanicHere("the seam panics at x >= 20"))
+    }));
+    let report = json(&run(spec, Budget::Cases(5)));
+    let outcome = &report["outcome"];
+    assert_eq!(outcome["status"], "aborted", "{outcome}");
+    assert_eq!(outcome["kind"], "client-panic", "{outcome}");
+    assert_eq!(outcome["holes"][0]["value"]["int"], "10", "{outcome}");
+    assert_eq!(outcome["case"], 1, "{outcome}");
+    assert_eq!(report["crashes"][0]["holes"][0]["value"]["int"], "20");
+}
+
+/// `le.imp` with the target `r` ending as 1, which the anchor 3 reaches on its one path.
+fn le_reaching(comparable: bool) -> CampaignSpec {
+    let mut spec = le_campaign(&[], 0, None);
+    spec.target.kind = TargetKind::Pattern(PatternTarget {
+        pattern: concat!(
+            r#"<k> .K </k> <state> (#token("r", "Id") |-> R:Int) _:Map </state> "#,
+            "requires R ==Int 1"
+        )
+        .into(),
+        at: PatternAt::Final,
+    });
+    spec.target.comparable = comparable;
+    spec
+}
+
+/// A seam rule that panics on every run of every path.
+fn panics_on_every_path() -> seam::Rule {
+    Box::new(|stage, _| {
+        (stage == CrashStage::Execute && seam::all_paths())
+            .then_some(Action::PanicHere("the seam panics on every path"))
+    })
+}
+
+/// (Fix round, D1) A deterministic crash of the run of every path that judges a witness's
+/// comparability outside its case is confirmed by re-running that judgement on fresh cases:
+/// `reproduced` is true, as `--replay` finds it.
+#[test]
+fn a_crash_of_the_comparability_run_is_confirmed_by_that_run() {
+    let _seam = seam::install(panics_on_every_path());
+    let report = json(&run(le_reaching(false), Budget::Cases(3)));
+    assert_eq!(
+        report["outcome"]["status"], "witness-found",
+        "{}",
+        report["outcome"]
+    );
+    assert_eq!(
+        report["outcome"]["witness"]["first"]["comparable"],
+        serde_json::json!({"holds": false, "reasons": ["crash"]})
+    );
+    let crash = &report["crashes"][0];
+    assert_eq!(crash["phase"], "comparability", "{crash}");
+    assert_eq!(crash["reproduced"], true, "{crash}");
+    assert_eq!(crash["determinism"], "unknown", "{crash}");
+}
+
+/// (Fix round, S1) Under `comparable-end`, a case whose run of every path panics is unsupported
+/// with the reason `panic`, not `end-not-comparable:crash`.
+#[test]
+fn a_crash_of_the_comparable_end_run_has_the_reason_panic() {
+    let _seam = seam::install(panics_on_every_path());
+    let report = json(&run(le_reaching(true), Budget::Cases(1)));
+    let reasons = &report["totals"]["unsupported-reasons"];
+    assert_eq!(reasons["panic"], 1, "{reasons}");
+    assert_eq!(report["crashes"][0]["phase"], "case");
+}
+
+/// (Fix round, D4) In a differential case, a panic of the mutant's run is kept although the
+/// baseline refuses the state, which makes the case `rejected`.
+#[test]
+fn a_panic_on_one_side_is_kept_when_the_other_refuses_the_state() {
+    use crate::support::{IMP_ADD_COMMUTED, IMP_DIFF};
+    const DIV: &str = "imp-diff/div.imp";
+    let definition =
+        |fixture: &'static crate::support::Fixture| Arc::new(fixture.compiled().definition());
+    let spec = CampaignSpec {
+        definitions: Definitions {
+            baseline: definition(&IMP_DIFF),
+            mutant: Some(definition(&IMP_ADD_COMMUTED)),
+        },
+        program: ProgramInput::Source(IMP_DIFF.compiled().program_source(DIV)),
+        holes: vec![int_hole("B", DIV, "b = 7;", "7")],
+        target: Target {
+            kind: TargetKind::Differential(crate::target::DifferentialTarget::default()),
+            run_to_completion: false,
+            negated_property: false,
+            data_end: true,
+            comparable: false,
+            query_confirmable: false,
+        },
+        options: CaseOptions {
+            max_work: Some(10_000),
+            ..CaseOptions::default()
+        },
+        proposers: ProposerConfig {
+            anchors_first: true,
+            explicit: vec![BTreeMap::from([("B".to_owned(), Value::Int(77.into()))])],
+            weights: BTreeMap::new(),
+        },
+        bounds: GenerationBounds::default(),
+        rejection_cap: DEFAULT_REJECTION_CAP,
+        seed: 3,
+        identity: CallerIdentity::default(),
+    };
+    // Of each pair of runs on B = 77, the first (the baseline's) is refused and the second (the
+    // mutant's) panics.
+    let mut calls = 0;
+    let _seam = seam::install(Box::new(move |stage, ints| {
+        if stage != CrashStage::Execute || !x_is(ints, |b| b == 77) {
+            return None;
+        }
+        calls += 1;
+        Some(if calls % 2 == 1 {
+            Action::Error(BackendError::of_kind(
+                BackendErrorKind::InvalidState,
+                "invalid executable state: the seam's",
+            ))
+        } else {
+            Action::PanicHere("the seam panics on the mutant")
+        })
+    }));
+    let report = json(&run(spec, Budget::Cases(2)));
+    assert_eq!(
+        report["totals"]["classes"]["rejected"], 1,
+        "{} {}",
+        report["outcome"], report["totals"]
+    );
+    let crash = &report["crashes"][0];
+    assert_eq!(crash["signature"]["side"], "mutant", "{crash}");
+    assert_eq!(crash["holes"][0]["value"]["int"], "77", "{crash}");
+}

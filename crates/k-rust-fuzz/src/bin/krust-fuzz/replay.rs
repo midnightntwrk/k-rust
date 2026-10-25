@@ -376,23 +376,49 @@ pub fn crash_reproduced(then: &CrashFinding, now: &CrashFinding) -> bool {
 /// reproduces it ([`crash_reproduced`]). The words blame no one: a crash that does not repeat
 /// may have been decided by the host.
 fn crash_differences(recorded: &CrashFinding, report: &FuzzReport) -> Vec<String> {
-    if report
-        .crashes
-        .0
-        .iter()
-        .any(|now| crash_reproduced(recorded, now))
-    {
+    crash_difference(recorded, &report.crashes.0)
+}
+
+/// [`crash_differences`] against the replay's crashes `now`. A crash that differs from the
+/// recorded one only in the build's debug assertions is said to be the build profile's
+/// difference, which a debug assertion's panic depends on.
+fn crash_difference(recorded: &CrashFinding, now: &[CrashFinding]) -> Vec<String> {
+    if now.iter().any(|crash| crash_reproduced(recorded, crash)) {
         return Vec::new();
     }
-    let found = if report.crashes.is_empty() {
+    let profile_only = now.iter().any(|crash| {
+        crash.debug_assertions != recorded.debug_assertions
+            && crash_reproduced(
+                recorded,
+                &CrashFinding {
+                    debug_assertions: recorded.debug_assertions,
+                    ..crash.clone()
+                },
+            )
+    });
+    if profile_only {
+        return vec![format!(
+            "the replay's build {} debug assertions and the recorded one {}: the crash repeated, \
+             but a debug assertion's panic depends on the build profile, so the replay is not \
+             comparable",
+            if recorded.debug_assertions {
+                "has no"
+            } else {
+                "has"
+            },
+            if recorded.debug_assertions {
+                "had"
+            } else {
+                "had none"
+            }
+        )];
+    }
+    let found = if now.is_empty() {
         "the replay reported no crash".to_owned()
     } else {
         format!(
             "the replay reported other crashes ({})",
-            report
-                .crashes
-                .0
-                .iter()
+            now.iter()
                 .map(|crash| crash.signature.site.clone())
                 .collect::<Vec<_>>()
                 .join("; ")
@@ -518,6 +544,26 @@ mod tests {
             program: None,
             config_vars: std::collections::BTreeMap::new(),
         }
+    }
+
+    /// (Fix round) A crash that differs from the recorded one in the build's debug assertions
+    /// alone is said to be the profile's difference; one that does not repeat is said so without
+    /// blame.
+    #[test]
+    fn a_debug_assertions_only_difference_names_the_profile() {
+        let recorded = crash(SiteKind::Location, "k-rust/src/a.rs:1:2");
+        let mut release = recorded.clone();
+        release.debug_assertions = false;
+        let said = super::crash_difference(&recorded, &[release]);
+        assert_eq!(said.len(), 1);
+        assert!(said[0].contains("debug assertions"), "{said:?}");
+        assert!(said[0].contains("build profile"), "{said:?}");
+        let none = super::crash_difference(&recorded, &[]);
+        assert!(
+            none[0].starts_with("the replay reported no crash"),
+            "{none:?}"
+        );
+        assert!(super::crash_difference(&recorded, std::slice::from_ref(&recorded)).is_empty());
     }
 
     /// A replayed crash reproduces a recorded one with the same kind, side, stage and debug

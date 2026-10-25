@@ -89,6 +89,20 @@ struct Seed<'a> {
     data_heads: Option<&'a DataHeads>,
     normal_end: Option<&'a NormalEnd>,
     resolved: Option<(&'a ResolvedHoles, &'a Arc<RoundTripCheck>)>,
+    /// The program assembly a rebuild reuses: the runner's assemblers borrow it
+    /// ([`LiveRunner::recover`]); it is a function of the definition alone.
+    assembly: Option<&'a Arc<ProgramAssembly>>,
+}
+
+/// The program assembly of `definition`: `reused` when a rebuild gives one, else a new one.
+fn assembly_of(
+    definition: &CompiledDefinition,
+    reused: Option<&Arc<ProgramAssembly>>,
+) -> Result<Arc<ProgramAssembly>, CampaignError> {
+    match reused {
+        Some(assembly) => Ok(Arc::clone(assembly)),
+        None => Ok(Arc::new(ProgramAssembly::new(definition)?)),
+    }
 }
 
 impl Side {
@@ -98,7 +112,7 @@ impl Side {
         role: DefinitionRole,
         seed: Seed<'_>,
     ) -> Result<Self, CampaignError> {
-        let assembly = Arc::new(ProgramAssembly::new(definition)?);
+        let assembly = assembly_of(definition, seed.assembly)?;
         let (backend, internalized) = if let Some(internalized) = seed.internalized {
             // A fresh backend over a copy of the cached, immutable internalized definition.
             (
@@ -472,9 +486,14 @@ impl LiveCases {
         cache: Option<&DefinitionCache>,
         sessions: &Sessions,
     ) -> Result<Self, CampaignError> {
-        fn seeded<'a>(seed: Seed<'a>, session: Option<&'a Arc<BackendDefinition>>) -> Seed<'a> {
+        fn seeded<'a>(
+            seed: Seed<'a>,
+            session: Option<&'a Arc<BackendDefinition>>,
+            assembly: Option<&'a Arc<ProgramAssembly>>,
+        ) -> Seed<'a> {
             Seed {
                 internalized: seed.internalized.or(session),
+                assembly,
                 ..seed
             }
         }
@@ -485,6 +504,7 @@ impl LiveCases {
             seeded(
                 cache.map(|cache| cache.baseline.seed()).unwrap_or_default(),
                 sessions.baseline.as_ref(),
+                sessions.baseline_assembly.as_ref(),
             ),
         )?;
         let judge = if let TargetKind::Differential(_) = spec.target.kind {
@@ -504,6 +524,7 @@ impl LiveCases {
                         .map(SideCache::seed)
                         .unwrap_or_default(),
                     sessions.mutant.as_ref(),
+                    sessions.mutant_assembly.as_ref(),
                 ),
             )?;
             // A value the mutant's grammar cannot hold at a hole makes every case with it
@@ -569,7 +590,11 @@ impl LiveCases {
             Judge::Differential(mutant) => of(mutant),
             Judge::Target(_) => None,
         };
-        Sessions { baseline, mutant }
+        Sessions {
+            baseline,
+            mutant,
+            ..Sessions::default()
+        }
     }
 
     /// Each side's initial configuration for `values` (the baseline, then the mutant of a
@@ -1017,31 +1042,32 @@ impl LiveCases {
         let paths = self.spec.options.paths;
         let terminal_rules = target.needs(paths).terminal_rules;
         let definition = &self.spec.definitions.baseline;
-        run.crash = self
-            .crash_of(
-                &result,
-                CrashSide::Baseline,
-                definition,
-                "<definition-dir>",
-                paths,
-                &terminal_rules,
-                &prepared,
-                cancel,
-            )
-            .or_else(|| {
-                every_path.as_ref().and_then(|every_path| {
-                    self.crash_of(
-                        every_path,
-                        CrashSide::Baseline,
-                        definition,
-                        "<definition-dir>",
-                        PathMode::AllPaths,
-                        &[],
-                        &prepared,
-                        cancel,
-                    )
-                })
-            });
+        run.crash = Self::crash_of(
+            &self.spec,
+            &result,
+            CrashSide::Baseline,
+            definition,
+            "<definition-dir>",
+            paths,
+            &terminal_rules,
+            &prepared,
+            cancel,
+        )
+        .or_else(|| {
+            every_path.as_ref().and_then(|every_path| {
+                Self::crash_of(
+                    &self.spec,
+                    every_path,
+                    CrashSide::Baseline,
+                    definition,
+                    "<definition-dir>",
+                    PathMode::AllPaths,
+                    &[],
+                    &prepared,
+                    cancel,
+                )
+            })
+        });
         Ok(run)
     }
 
@@ -1091,6 +1117,53 @@ impl LiveCases {
         let sides: Vec<_> = [&baseline, &one_path].into_iter().chain(&rerun).collect();
         let mut run = run_of(mutated, &sides);
         run.baseline_ended_within = ended_within(&baseline);
+        // A crash of the baseline's run, else of the mutant's (FZ-CRASH), also of a case that
+        // either side's refusal makes `rejected`.
+        let spec = &*self.spec;
+        let mutant_definition = spec
+            .definitions
+            .mutant
+            .as_deref()
+            .unwrap_or(&spec.definitions.baseline);
+        run.crash = Self::crash_of(
+            spec,
+            &baseline,
+            CrashSide::Baseline,
+            &spec.definitions.baseline,
+            "<definition-dir>",
+            PathMode::AllPaths,
+            &[],
+            &baseline_case,
+            cancel,
+        )
+        .or_else(|| {
+            Self::crash_of(
+                spec,
+                &one_path,
+                CrashSide::Mutant,
+                mutant_definition,
+                "<mutant-dir>",
+                spec.options.paths,
+                &[],
+                &mutant_case,
+                cancel,
+            )
+        })
+        .or_else(|| {
+            rerun.as_ref().and_then(|rerun| {
+                Self::crash_of(
+                    spec,
+                    rerun,
+                    CrashSide::Mutant,
+                    mutant_definition,
+                    "<mutant-dir>",
+                    PathMode::AllPaths,
+                    &[],
+                    &mutant_case,
+                    cancel,
+                )
+            })
+        });
         // A value either side's backend refuses makes the case `rejected` (ARCHITECTURE 4.3,
         // 5.3), before the pair is judged: a refused baseline is not an incomplete one.
         if refused(&baseline) || refused(mutated) {
@@ -1162,50 +1235,6 @@ impl LiveCases {
         if run.class == OutcomeClass::Rejected {
             run.rejection = Some(RejectionReason::BackendRefused);
         }
-        // A crash of the baseline's run, else of the mutant's (FZ-CRASH).
-        let spec = &self.spec;
-        let mutant_definition = spec
-            .definitions
-            .mutant
-            .as_deref()
-            .unwrap_or(&spec.definitions.baseline);
-        run.crash = self
-            .crash_of(
-                &baseline,
-                CrashSide::Baseline,
-                &spec.definitions.baseline,
-                "<definition-dir>",
-                PathMode::AllPaths,
-                &[],
-                &baseline_case,
-                cancel,
-            )
-            .or_else(|| {
-                self.crash_of(
-                    &one_path,
-                    CrashSide::Mutant,
-                    mutant_definition,
-                    "<mutant-dir>",
-                    spec.options.paths,
-                    &[],
-                    &mutant_case,
-                    cancel,
-                )
-            })
-            .or_else(|| {
-                rerun.as_ref().and_then(|rerun| {
-                    self.crash_of(
-                        rerun,
-                        CrashSide::Mutant,
-                        mutant_definition,
-                        "<mutant-dir>",
-                        PathMode::AllPaths,
-                        &[],
-                        &mutant_case,
-                        cancel,
-                    )
-                })
-            });
         Ok(run)
     }
 }
@@ -1373,7 +1402,7 @@ impl LiveCases {
         reason = "what a krun line of the crashed run needs, beside the run"
     )]
     fn crash_of(
-        &self,
+        spec: &CampaignSpec,
         result: &CaseResult,
         side: CrashSide,
         definition: &CompiledDefinition,
@@ -1394,7 +1423,7 @@ impl LiveCases {
                 Self::krun_command(
                     definition,
                     directory,
-                    &self.spec.options,
+                    &spec.options,
                     paths,
                     terminal_rules,
                     &prepared.instantiated,
@@ -1804,6 +1833,7 @@ impl SideCache {
             data_heads: self.data_heads.as_ref(),
             normal_end: Some(&self.normal_end),
             resolved: Some((&self.holes, &self.round_trip)),
+            assembly: None,
         }
     }
 
@@ -2018,7 +2048,8 @@ pub(crate) struct LiveRunner<'a> {
     pub(crate) cases: LiveCases,
     /// The parts [`Self::assemblers`] borrow: [`Self::cases`]' first build's
     /// [`LiveCases::assembly_parts`], immutable functions of the definitions and the program
-    /// grammar, which a rebuild's fresh assemblers borrow too.
+    /// grammar, which a rebuild's sides reuse, so that its fresh assemblers are built from the
+    /// rebuilt sides' own assemblies.
     pub(crate) parts: &'a AssemblyParts,
     /// The assemblers of [`Self::cases`]' sides, built from [`Self::parts`].
     pub(crate) assemblers: RunAssemblers<'a>,
@@ -2064,6 +2095,9 @@ impl RunSetup {
 pub(crate) struct Sessions {
     baseline: Option<Arc<BackendDefinition>>,
     mutant: Option<Arc<BackendDefinition>>,
+    /// Each side's program assembly from the runner's parts, which a rebuild reuses.
+    baseline_assembly: Option<Arc<ProgramAssembly>>,
+    mutant_assembly: Option<Arc<ProgramAssembly>>,
 }
 
 impl CaseRunner for LiveRunner<'_> {
@@ -2097,7 +2131,15 @@ impl CaseRunner for LiveRunner<'_> {
             .get_or_init(|| DefinitionCache::build(&spec, cases).map_err(|error| error.to_string()))
             .as_ref()
             .map_err(|error| format!("the definition cache did not build: {error}"))?;
-        let sessions = self.sessions.get_or_insert_with(|| self.cases.sessions());
+        let parts = self.parts;
+        let sessions = self.sessions.get_or_insert_with(|| Sessions {
+            baseline_assembly: Some(Arc::clone(&parts.baseline.0)),
+            mutant_assembly: parts
+                .mutant
+                .as_ref()
+                .map(|(assembly, _)| Arc::clone(assembly)),
+            ..self.cases.sessions()
+        });
         let mut fresh = LiveCases::build_seeded(spec, Some(cache), sessions)
             .map_err(|error| error.to_string())?;
         self.setup.apply(&mut fresh);
@@ -2116,28 +2158,37 @@ impl CaseRunner for LiveRunner<'_> {
         values: &[Value],
         cancel: Option<&CancellationToken>,
     ) -> Result<CaseRun, ConfirmFailure> {
-        let spec = Arc::clone(&self.cases.spec);
-        let cases = &self.cases;
-        let cache = self
-            .cache
-            .get_or_init(|| DefinitionCache::build(&spec, cases).map_err(|error| error.to_string()))
-            .as_ref()
-            .map_err(|error| {
-                ConfirmFailure::Failed(format!(
-                    "the confirmation's definition cache did not build: {error}"
-                ))
-            })?;
-        let mut fresh = LiveCases::build_with(spec, Some(cache)).map_err(|error| {
-            ConfirmFailure::Failed(format!(
-                "the fresh backend or assembly did not build: {error}"
-            ))
-        })?;
+        let mut fresh = self.fresh()?;
         let parts = fresh.assembly_parts();
         let mut assemblers = parts.assemblers();
         let mut run =
             run_live(&mut fresh, &mut assemblers, values, cancel).map_err(ConfirmFailure::Abort)?;
         self.self_check(&mut run);
         Ok(run)
+    }
+
+    /// The comparable judgement of `values` on fresh cases built as a confirmation's
+    /// ([`Self::fresh`]), so that a crash of that judgement is re-run independently of the
+    /// campaign's backends.
+    fn confirm_comparability(
+        &mut self,
+        values: &[Value],
+        cancel: Option<&CancellationToken>,
+    ) -> Option<Result<JudgedComparability, ConfirmFailure>> {
+        let mut fresh = match self.fresh() {
+            Ok(fresh) => fresh,
+            Err(failure) => return Some(Err(failure)),
+        };
+        let parts = fresh.assembly_parts();
+        let mut assemblers = parts.assemblers();
+        comparability_on(&mut fresh, &mut assemblers, values, cancel).map(Ok)
+    }
+
+    fn comparability_pending(&self) -> bool {
+        match &self.cases.judge {
+            Judge::Target(target) => target.judges_outside_the_case(&self.cases.baseline.shape),
+            Judge::Differential(_) => false,
+        }
     }
 
     fn incidental_kept(&mut self, class: OutcomeClass) {
@@ -2149,35 +2200,7 @@ impl CaseRunner for LiveRunner<'_> {
         values: &[Value],
         cancel: Option<&CancellationToken>,
     ) -> Option<JudgedComparability> {
-        let cases = &mut self.cases;
-        let Judge::Target(target) = &cases.judge else {
-            return None;
-        };
-        let prepared = cases
-            .baseline
-            .prepare(&mut self.assemblers.baseline, &cases.spec.program, values)
-            .ok()?;
-        let side = &mut cases.baseline;
-        let (comparable, work, every_path) =
-            target.comparability(&mut side.executor, &prepared.assembled, &side.shape, cancel)?;
-        let crash = every_path.as_ref().and_then(|every_path| {
-            cases.crash_of(
-                every_path,
-                CrashSide::Baseline,
-                &cases.spec.definitions.baseline,
-                "<definition-dir>",
-                PathMode::AllPaths,
-                &[],
-                &prepared,
-                cancel,
-            )
-        });
-        Some(JudgedComparability {
-            comparable,
-            work,
-            crash,
-            poisoned: cases.poisoned(),
-        })
+        comparability_on(&mut self.cases, &mut self.assemblers, values, cancel)
     }
 
     fn admissible(&self, hole: usize, value: &Value) -> bool {
@@ -2192,7 +2215,68 @@ impl CaseRunner for LiveRunner<'_> {
     }
 }
 
+/// The comparable judgement of a witness case with `values` that its case did not make, on
+/// `cases` assembled by `assemblers` ([`CaseRunner::comparability`]), with the crash of its run
+/// of every path and whether a panic was caught.
+fn comparability_on(
+    cases: &mut LiveCases,
+    assemblers: &mut RunAssemblers<'_>,
+    values: &[Value],
+    cancel: Option<&CancellationToken>,
+) -> Option<JudgedComparability> {
+    let Judge::Target(target) = &cases.judge else {
+        return None;
+    };
+    let prepared = cases
+        .baseline
+        .prepare(&mut assemblers.baseline, &cases.spec.program, values)
+        .ok()?;
+    let side = &mut cases.baseline;
+    let (comparable, work, every_path) =
+        target.comparability(&mut side.executor, &prepared.assembled, &side.shape, cancel)?;
+    let crash = every_path.as_ref().and_then(|every_path| {
+        LiveCases::crash_of(
+            &cases.spec,
+            every_path,
+            CrashSide::Baseline,
+            &cases.spec.definitions.baseline,
+            "<definition-dir>",
+            PathMode::AllPaths,
+            &[],
+            &prepared,
+            cancel,
+        )
+    });
+    Some(JudgedComparability {
+        comparable,
+        work,
+        crash,
+        poisoned: cases.poisoned(),
+    })
+}
+
 impl LiveRunner<'_> {
+    /// Fresh cases as a confirmation builds them: a fresh `Backend` over a copy of the cached
+    /// internalized definition, with a fresh assembly, hole resolution and target.
+    fn fresh(&self) -> Result<LiveCases, ConfirmFailure> {
+        let spec = Arc::clone(&self.cases.spec);
+        let cases = &self.cases;
+        let cache = self
+            .cache
+            .get_or_init(|| DefinitionCache::build(&spec, cases).map_err(|error| error.to_string()))
+            .as_ref()
+            .map_err(|error| {
+                ConfirmFailure::Failed(format!(
+                    "the confirmation's definition cache did not build: {error}"
+                ))
+            })?;
+        LiveCases::build_with(spec, Some(cache)).map_err(|error| {
+            ConfirmFailure::Failed(format!(
+                "the fresh backend or assembly did not build: {error}"
+            ))
+        })
+    }
+
     /// The rule-graph self-check of an executed run: its engine defects and warnings are added
     /// to the run's.
     fn self_check(&self, run: &mut CaseRun) {

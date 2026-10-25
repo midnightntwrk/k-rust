@@ -133,6 +133,13 @@ impl ResolvedTarget {
         } else {
             return Ok((judgement, None, None));
         };
+        // A crash of the run of every path is the case's crash: its reason is the crash's
+        // (`panic`, `internal-error`), which precedes the condition it fails (FZ-CRASH).
+        let crashed = every_path
+            .as_ref()
+            .and_then(|run| run.failure.as_ref())
+            .filter(|failure| failure.crash_kind().is_some())
+            .map(UnjudgedReason::of_failure);
         if self.target.comparable
             && let Some(condition) = conditions.first()
         {
@@ -148,14 +155,20 @@ impl ResolvedTarget {
                     class: OutcomeClass::Unsupported,
                     hit_site: None,
                     blocked: hit.blocked,
-                    reason: Some(UnjudgedReason::EndNotComparable(EndNotComparable(
-                        *condition,
+                    reason: Some(crashed.unwrap_or(UnjudgedReason::EndNotComparable(
+                        EndNotComparable(*condition),
                     ))),
                 }
             };
             return Ok((Ok(refused), None, every_path));
         }
         Ok((judgement, Some(comparability(conditions)), every_path))
+    }
+
+    /// Whether a witness case of a case run with `shape` takes its comparable judgement outside
+    /// its case ([`Self::comparability`]).
+    pub(crate) fn judges_outside_the_case(&self, shape: &CaseRequestShape) -> bool {
+        self.judges_comparability() && !self.target.comparable && !own_run_of_every_path(shape)
     }
 
     /// The comparable judgement of a reported witness case that its case did not make
@@ -175,7 +188,7 @@ impl ResolvedTarget {
         shape: &CaseRequestShape,
         cancel: Option<&CancellationToken>,
     ) -> Option<(Comparability, u64, Option<CaseResult>)> {
-        if !self.judges_comparability() || self.target.comparable || own_run_of_every_path(shape) {
+        if !self.judges_outside_the_case(shape) {
             return None;
         }
         Some(
