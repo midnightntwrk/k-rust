@@ -23,6 +23,7 @@ The `nested` marker says that the field expands as that group rather than as one
 `k::fragment!` can then describe the named portion of a nested configuration needed by a rule without reconstructing its unrelated fields.
 
 The outer `account` field is repeated with `multiplicity = "*"` and represented by a `Map`-typed cell collection.
+Its template reads configuration variables such as `$ACCOUNTID`, so the collection starts with one account; `initial` says so.
 That shape has language-scale, end-to-end evidence; `Set` and `List` collections and optional (`Option`) cells run natively and in Java K on smaller fixtures, as described in [optional cells and cell collections](/reference/language#optional-cells-and-cell-collections).
 Cell bags are refused, because K's LLVM and Haskell backends do not support them.
 
