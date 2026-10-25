@@ -44,6 +44,7 @@ kimp_claims() {
       --spec "$KO/imp-ifs-uint64-spec/definition.kore" --spec "$KO/imp-two-sum-aux-spec/definition.kore" --spec "$KO/imp-div0-spec/definition.kore" \
       --spec "$KO/imp-inv-spec/definition.kore" \
       --induction "$T/demos/claims/kimp-expr-eval.toml" --induction "$T/demos/claims/kimp-expr-div.toml" \
+      --induction "$T/demos/claims/kimp-expr-vars.toml" \
       --out "$OUT" --name KImpClaims --semantics KImp --semantics-path ../kimp-ps --kclaims-path ../../lean/claims \
       --open "$T/demos/claims/kimp-open.txt" \
       --hand Hand --hand Replay.Addition2 --hand Replay.Branching --hand Replay.SumLoop > "$L/claims-gen.log" 2>&1; then

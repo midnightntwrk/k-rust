@@ -1,0 +1,102 @@
+# The termination of kimp's loop-free arithmetic and Boolean expressions with variables but
+# without division (`k2lean claims --induction`, `[[leaf]]`): every such expression, at the head of
+# `<k>`, reaches a value of its type, whatever the continuation and the other cells, when `<env>`
+# is a well-formed map that binds each of its variables to a value of the variable's type. A
+# variable is a leaf read from `<env>` (kimp's rule `var`), so `Sub`, `Inst` and `holds` take the
+# `<env>` cell as a parameter, and the evaluation of an expression must leave it unchanged.
+# Division is left out as in `kimp-expr-eval.toml` (`X / 0` has no successor).
+name = "ExprVars"
+sort = "SortExpr"
+
+[[class]]
+name = "AExp"
+value = "SortInt"
+
+[[class]]
+name = "BExp"
+value = "SortBool"
+
+[[ctor]]
+class = "AExp"
+ctor = "-_"
+args = ["AExp"]
+
+[[ctor]]
+class = "AExp"
+ctor = "_*_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "AExp"
+ctor = "_+_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "AExp"
+ctor = "_-_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "!_"
+args = ["BExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_>=_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_>_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_<=_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_<_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_==_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_==_"
+args = ["BExp", "BExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_!=_"
+args = ["AExp", "AExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_!=_"
+args = ["BExp", "BExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_&&_"
+args = ["BExp", "BExp"]
+
+[[ctor]]
+class = "BExp"
+ctor = "_||_"
+args = ["BExp", "BExp"]
+
+[[leaf]]
+class = "AExp"
+sort = "SortId"
+cell = "env"
+
+[[leaf]]
+class = "BExp"
+sort = "SortId"
+cell = "env"

@@ -901,20 +901,17 @@ pub fn main(args: &[String]) {
         let (text, proved, opened) = induction::emit(ns, &a.sem, &spec, &m, &fns, &top, &open)
             .unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         write(a.out.join(ns).join(format!("{}.lean", spec.name)), &text);
+        let n = spec.obligations.len() + spec.leaves.len();
         eprintln!(
-            "induction {}: {} obligations, {} generic proofs, open {:?}",
+            "induction {}: {n} obligations, {} generic proofs, open {:?}",
             spec.name,
-            spec.obligations.len(),
-            spec.obligations.len() - opened.len(),
+            n - opened.len(),
             opened
         );
         let _ = writeln!(
             report,
             "[[induction]]\nname = {:?}\nsort = {:?}\nobligations = {}\nopen = {:?}\n",
-            spec.name,
-            spec.sort,
-            spec.obligations.len(),
-            opened
+            spec.name, spec.sort, n, opened
         );
         modules.push(spec.name.clone());
         proved_all.extend(proved);
@@ -1484,6 +1481,10 @@ fn replay(args: &[String]) {
 //   class = "AExp"               arguments' classes (a constructor may have several typings)
 //   ctor = "_+_"
 //   args = ["AExp", "AExp"]
+//   [[leaf]]                     values of a subsort of `sort` typed by a cell (optional): `Sub x
+//   class = "AExp"               cl e` takes the cell `x` (a child of the top cell with a map
+//   sort = "SortId"              content) as a parameter, and `inj i` is in class `AExp` when the
+//   cell = "env"                 map is well formed and binds `i` to a value of the class's sort
 //
 // The generated module states, for the configuration `cfg e K …` with `e` (injected into `KItem`)
 // at the head of the `<k>` cell, the continuation `K` and every other cell arbitrary:
@@ -1507,6 +1508,17 @@ mod induction {
         /// (class, value sort)
         pub classes: Vec<(String, String)>,
         pub obligations: Vec<Obl>,
+        pub leaves: Vec<Leaf>,
+    }
+
+    pub struct Leaf {
+        pub class: String,
+        /// the Lean name component (`AExp.env`)
+        pub name: String,
+        /// the subsort of the syntax sort whose values the cell types
+        pub sort: String,
+        /// the cell's name (`env` for `<env>`)
+        pub cell: String,
     }
 
     pub struct Obl {
@@ -1614,11 +1626,45 @@ mod induction {
                 klabel: ci.klabel.clone(),
             });
         }
+        let mut leaves: Vec<Leaf> = vec![];
+        for c in tv
+            .get("leaf")
+            .and_then(|x| x.as_array())
+            .into_iter()
+            .flatten()
+        {
+            let (class, lsort, cell) = (strs(c, "class")?, strs(c, "sort")?, strs(c, "cell")?);
+            if !classes.iter().any(|(n, _)| *n == class) {
+                return Err(format!("leaf: unknown class {class}"));
+            }
+            if !m.subsorts.contains(&(lsort.clone(), sort.clone())) {
+                return Err(format!("leaf: {lsort} is not a subsort of {sort}"));
+            }
+            if let Some(l) = leaves.first()
+                && l.cell != cell
+            {
+                return Err(format!(
+                    "leaf: the leaves read the cells {} and {cell}; one cell only",
+                    l.cell
+                ));
+            }
+            let name = format!("{class}.{cell}");
+            if leaves.iter().any(|l| l.name == name) {
+                return Err(format!("leaf: two leaves of class {class}"));
+            }
+            leaves.push(Leaf {
+                class,
+                name,
+                sort: lsort,
+                cell,
+            });
+        }
         Ok(Spec {
             name,
             sort,
             classes,
             obligations,
+            leaves,
         })
     }
 
@@ -1711,6 +1757,46 @@ mod induction {
             .map(|(n, t)| format!(" ({n} : {t})"))
             .collect();
         let cell_args: String = cell_vars.iter().map(|(n, _)| format!(" {n}")).collect();
+        // with leaves, the cell they read is a parameter of `Sub`, `Inst` and `holds`: `(index in
+        // the cells, its constructor)`; the other cells stay quantified as before
+        let par = match spec.leaves.first() {
+            None => None,
+            Some(l) => {
+                let want = format!("<{}>", l.cell);
+                let j = cells
+                    .iter()
+                    .position(|(_, cs)| match m.sorts[cs].own.as_slice() {
+                        [c] => m.ctors[c].klabel == want && m.ctors[c].args == ["SortMap"],
+                        _ => false,
+                    })
+                    .ok_or(format!(
+                        "leaf: {top} has no cell {want} whose content is a Map"
+                    ))?;
+                Some((j, m.sorts[&cells[j].1].own[0].clone()))
+            }
+        };
+        let rest: Vec<&(String, String)> = cell_vars
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| par.as_ref().map(|p| p.0) != Some(*i))
+            .map(|(_, c)| c)
+            .collect();
+        let rest_bind: String = rest.iter().map(|(n, t)| format!(" ({n} : {t})")).collect();
+        let rest_args: String = rest.iter().map(|(n, _)| format!(" {n}")).collect();
+        let (par_bind, par_impl, par_intro, par_arg, sub, inst) = match &par {
+            None => Default::default(),
+            Some((j, _)) => {
+                let (pn, pt) = &cell_vars[*j];
+                (
+                    format!(" ({pn} : {pt})"),
+                    format!(" {{{pn} : {pt}}}"),
+                    format!("{pn} "),
+                    " _".to_string(),
+                    format!(" {pn}"),
+                    format!(" {pn}"),
+                )
+            }
+        };
         let mut targets = vec![];
         for (cl, vs) in &spec.classes {
             let v = name_of(&mut low, &format!("VarV{cl}"), "v", vs);
@@ -1720,6 +1806,48 @@ mod induction {
                 .expr(&inj(vs, sort, var(&format!("VarV{cl}"), vs)), sort)?
                 .render();
             targets.push((cl.clone(), v, vs.clone(), tl, leaf));
+        }
+        // each leaf: (name, class, the Lean names of its identifier, map and value, the leaf
+        // term, the cell's term, the key and the value in the map)
+        let mut leaves = vec![];
+        if let Some((j, csym)) = &par {
+            let li = name_of(&mut low, "VarLI", "i", &spec.leaves[0].sort);
+            let lm = name_of(&mut low, "VarLM", "m", "SortMap");
+            let ct = low
+                .expr(
+                    &P::App(csym.clone(), vec![], vec![var("VarLM", "SortMap")]),
+                    &cells[*j].1,
+                )?
+                .render();
+            for l in &spec.leaves {
+                let (_, v, vs, _, _) = targets.iter().find(|t| t.0 == l.class).unwrap();
+                let term = low
+                    .expr(&inj(&l.sort, sort, var("VarLI", &l.sort)), sort)?
+                    .render();
+                let key = low
+                    .expr(
+                        &inj(&l.sort, "SortKItem", var("VarLI", &l.sort)),
+                        "SortKItem",
+                    )?
+                    .render();
+                let val = low
+                    .expr(
+                        &inj(vs, "SortKItem", var(&format!("VarV{}", l.class), vs)),
+                        "SortKItem",
+                    )?
+                    .render();
+                leaves.push((
+                    l,
+                    li.clone(),
+                    lm.clone(),
+                    v.clone(),
+                    format!("{v} : {vs}"),
+                    term,
+                    ct.clone(),
+                    key,
+                    val,
+                ));
+            }
         }
         if !low.steps.is_empty() {
             return Err("the configuration needs a partial function".into());
@@ -1766,26 +1894,40 @@ mod induction {
         let _ = writeln!(s);
         let _ = writeln!(
             s,
-            "/-- The instances of the claim \"`{e}` reaches a value of class `cl`\". -/\ndef Inst (cl : Cls) ({e} : {sort}) (c : {top}) (Q : {top} → Prop) : Prop :=\n  ∃ ({k} : SortK){cell_bind}, c = cfg {e} {k}{cell_args} ∧ Q = Target cl {k}{cell_args}\n"
+            "/-- The instances of the claim \"`{e}` reaches a value of class `cl`\". -/\ndef Inst{par_bind} (cl : Cls) ({e} : {sort}) (c : {top}) (Q : {top} → Prop) : Prop :=\n  ∃ ({k} : SortK){rest_bind}, c = cfg {e} {k}{cell_args} ∧ Q = Target cl {k}{cell_args}\n"
         );
         let _ = writeln!(
             s,
-            "theorem Inst.of_forall {{cl : Cls}} {{{e} : {sort}}} (h : ∀ ({k} : SortK){cell_bind}, KClaims.Reach Step (Target cl {k}{cell_args}) (cfg {e} {k}{cell_args})) :\n    ∀ c Q, Inst cl {e} c Q → KClaims.Reach Step Q c := by\n  rintro c Q ⟨{k},{} rfl, rfl⟩\n  exact h {k}{cell_args}\n",
-            cell_vars
-                .iter()
+            "theorem Inst.of_forall{par_impl} {{cl : Cls}} {{{e} : {sort}}} (h : ∀ ({k} : SortK){rest_bind}, KClaims.Reach Step (Target cl {k}{cell_args}) (cfg {e} {k}{cell_args})) :\n    ∀ c Q, Inst{inst} cl {e} c Q → KClaims.Reach Step Q c := by\n  rintro c Q ⟨{k},{} rfl, rfl⟩\n  exact h {k}{rest_args}\n",
+            rest.iter()
                 .map(|(n, _)| format!(" {n},"))
                 .collect::<String>()
         );
         // the sublanguage
         let _ = writeln!(
             s,
-            "/-- The sublanguage: values of each class, and the listed constructor typings. -/\ninductive Sub : Cls → {sort} → Prop"
+            "/-- The sublanguage: values of each class, {}and the listed constructor typings. -/\ninductive Sub{par_bind} : Cls → {sort} → Prop",
+            if leaves.is_empty() {
+                ""
+            } else {
+                "the leaves the cell types, "
+            }
         );
         for (cl, v, vs, _, leaf) in &targets {
             let _ = writeln!(
                 s,
-                "  | {} ({v} : {vs}) : Sub .{cl} ({leaf})",
+                "  | {} ({v} : {vs}) : Sub{sub} .{cl} ({leaf})",
                 names::ident(&format!("{cl}.val"))
+            );
+        }
+        let pn = par_intro.trim_end();
+        for (l, li, lm, _, vb, term, ct, key, val) in &leaves {
+            let _ = writeln!(
+                s,
+                "  | {} ({li} : {}) ({lm} : SortMap) ({vb}) (hc : {pn} = {ct}) (hw : KPrelude.MapHook.WF {lm})\n      (hl : KPrelude.MapHook.lookup {lm} ({key}) = some ({val})) : Sub{sub} .{} ({term})",
+                names::ident(&l.name),
+                l.sort,
+                l.class
             );
         }
         let mut terms = vec![];
@@ -1809,11 +1951,11 @@ mod induction {
             let prem: String = avs
                 .iter()
                 .zip(&o.args)
-                .map(|(a, c)| format!("Sub .{c} {a} → "))
+                .map(|(a, c)| format!("Sub{sub} .{c} {a} → "))
                 .collect();
             let _ = writeln!(
                 s,
-                "  | {} {binders}: {prem}Sub .{} ({t})",
+                "  | {} {binders}: {prem}Sub{sub} .{} ({t})",
                 names::ident(&o.name),
                 o.class
             );
@@ -1828,18 +1970,18 @@ mod induction {
             let prem: String = avs
                 .iter()
                 .zip(&o.args)
-                .map(|(a, c)| format!(" Sub .{c} {a} →"))
+                .map(|(a, c)| format!(" Sub{sub} .{c} {a} →"))
                 .collect();
             let ihs: String = avs
                 .iter()
                 .zip(&o.args)
                 .map(|(a, c)| {
-                    format!("(∀ c Q, Inst .{c} {a} c Q → KClaims.Reach Step Q c) →\n    ")
+                    format!("(∀ c Q, Inst{inst} .{c} {a} c Q → KClaims.Reach Step Q c) →\n    ")
                 })
                 .collect();
             let _ = writeln!(
                 s,
-                "/-- `{}` (`{}`) in class `{}`, from its arguments' induction hypotheses. -/\ndef Obl.{on} : Prop :=\n  ∀{abind},{prem}\n    {ihs}∀ ({k} : SortK){cell_bind}, KClaims.Reach Step (Target .{} {k}{cell_args}) (cfg ({t}) {k}{cell_args})\n",
+                "/-- `{}` (`{}`) in class `{}`, from its arguments' induction hypotheses. -/\ndef Obl.{on} : Prop :=\n  ∀{par_bind}{abind},{prem}\n    {ihs}∀ ({k} : SortK){rest_bind}, KClaims.Reach Step (Target .{} {k}{cell_args}) (cfg ({t}) {k}{cell_args})\n",
                 o.name, o.klabel, o.class, o.class
             );
             let key = format!("{}.{}", spec.name, o.name);
@@ -1850,13 +1992,14 @@ mod induction {
             }
             let hs: Vec<String> = (0..avs.len()).map(|i| format!("h{i}")).collect();
             let is: Vec<String> = (0..avs.len()).map(|i| format!("ih{i}")).collect();
-            let intro: Vec<String> = avs
-                .iter()
-                .cloned()
+            let intro: Vec<String> = par_intro
+                .split_whitespace()
+                .map(|x| x.to_string())
+                .chain(avs.iter().cloned())
                 .chain(hs.clone())
                 .chain(is.clone())
                 .chain(std::iter::once(k.clone()))
-                .chain(cell_vars.iter().map(|(n, _)| n.clone()))
+                .chain(rest.iter().map(|(n, _)| n.clone()))
                 .collect();
             let using = if is.is_empty() {
                 String::new()
@@ -1870,6 +2013,31 @@ mod induction {
             );
             proved.push(format!("{ns}.{}.Obl.{on}.holds", spec.name));
         }
+        // the leaves: the value the cell binds, read by the semantics' lookup rule
+        for (l, li, lm, _, vb, term, ct, key, val) in &leaves {
+            let on = names::ident(&l.name);
+            let _ = writeln!(
+                s,
+                "/-- `{}` read from `<{}>`: a well-formed map that binds it to a value of class `{}`. -/\ndef Obl.{on} : Prop :=\n  ∀{par_bind} ({li} : {}) ({lm} : SortMap) ({vb}), {pn} = {ct} → KPrelude.MapHook.WF {lm} →\n    KPrelude.MapHook.lookup {lm} ({key}) = some ({val}) →\n    ∀ ({k} : SortK){rest_bind}, KClaims.Reach Step (Target .{} {k}{cell_args}) (cfg ({term}) {k}{cell_args})\n",
+                l.sort, l.cell, l.class, l.sort, l.class
+            );
+            let key = format!("{}.{}", spec.name, l.name);
+            if open.contains(&key) {
+                let _ = writeln!(s, "-- `{key}`: no generic proof (open list).\n");
+                opened.push(key);
+                continue;
+            }
+            // one step by the constructor of `Step` that unifies with the configuration (the
+            // semantics' lookup rule, `<k> X => V …</k> <env> X |-> V …</env>`), whose map pattern
+            // is the binding and the rest of a well-formed map; the value is then the target. The
+            // rule's matcher, which `kc_auto` evaluates, does not reduce on a map variable.
+            let v = vb.split(' ').next().unwrap();
+            let _ = writeln!(
+                s,
+                "theorem Obl.{on}.holds : Obl.{on} := by\n  intro {par_intro}{li} {lm} {v} hc hw hl {k}{rest_args}\n  subst hc\n  apply KClaims.Reach.step\n  · constructor\n    exact KPrelude.MapHook.concat_element_remove hw hl\n  · exact KClaims.Reach.here ⟨{v}, rfl⟩\n"
+            );
+            proved.push(format!("{ns}.{}.Obl.{on}.holds", spec.name));
+        }
         // the theorem
         let hyps: String = opened
             .iter()
@@ -1880,13 +2048,26 @@ mod induction {
             .collect();
         let _ = writeln!(
             s,
-            "/-- Every expression of the sublanguage reaches a value of its class (the open obligations, if\nany, are hypotheses). -/\ntheorem holds{hyps} {{cl : Cls}} {{{e} : {sort}}} (h : Sub cl {e}) :\n    ∀ ({k} : SortK){cell_bind}, KClaims.Reach Step (Target cl {k}{cell_args}) (cfg {e} {k}{cell_args}) := by\n  induction h with"
+            "/-- Every expression of the sublanguage reaches a value of its class (the open obligations, if\nany, are hypotheses). -/\ntheorem holds{hyps}{par_impl} {{cl : Cls}} {{{e} : {sort}}} (h : Sub{sub} cl {e}) :\n    ∀ ({k} : SortK){rest_bind}, KClaims.Reach Step (Target cl {k}{cell_args}) (cfg {e} {k}{cell_args}) := by\n  induction h with"
         );
         for (cl, v, _, _, _) in &targets {
             let _ = writeln!(
                 s,
-                "  | {} {v} =>\n    intro {k}{cell_args}\n    refine KClaims.Reach.here ?_\n    exact ⟨{v}, rfl⟩",
+                "  | {} {v} =>\n    intro {k}{rest_args}\n    refine KClaims.Reach.here ?_\n    exact ⟨{v}, rfl⟩",
                 names::ident(&format!("{cl}.val"))
+            );
+        }
+        for (l, li, lm, v, _, _, _, _, _) in &leaves {
+            let key = format!("{}.{}", spec.name, l.name);
+            let pf = if opened.contains(&key) {
+                format!("o_{}", sanitize(&l.name))
+            } else {
+                format!("Obl.{}.holds", names::ident(&l.name))
+            };
+            let _ = writeln!(
+                s,
+                "  | {} {li} {lm} {v} hc hw hl =>\n    intro {k}{rest_args}\n    exact {pf} _ {li} {lm} {v} hc hw hl {k}{rest_args}",
+                names::ident(&l.name)
             );
         }
         for (o, (avs, _)) in spec.obligations.iter().zip(&terms) {
@@ -1898,9 +2079,8 @@ mod induction {
             } else {
                 format!("Obl.{}.holds", names::ident(&o.name))
             };
-            let args: String = avs
-                .iter()
-                .map(|_| " _".to_string())
+            let args: String = std::iter::once(par_arg.clone())
+                .chain(avs.iter().map(|_| " _".to_string()))
                 .chain(hs.iter().map(|h| format!(" {h}")))
                 .chain(is.iter().map(|i| format!(" (Inst.of_forall {i})")))
                 .collect();

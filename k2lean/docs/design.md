@@ -414,6 +414,17 @@ The induction hypotheses are claims over strict subterms, so the tactic may appl
 An obligation is closed by `kc_auto using [ih…] split`: where no rule applies it splits a variable of a type with at most 8 constructors, none of which has a field of the type itself (an argument expression into value and compound), refutes the cases whose `Sub` hypothesis no constructor of `Sub` can prove (inversion), and drops the Boolean cases whose arithmetic hypotheses contradict each other.
 The `split` behaviour is off for the translated K claims, so their proofs and statistics are as before.
 
+**Leaves read from a cell** (`[[leaf]]` in FILE; `demos/claims/kimp-expr-vars.toml`: kimp's expressions with variables).
+A leaf `{ class = "AExp", sort = "SortId", cell = "env" }` types the values of a subsort of the syntax sort (kimp's identifiers) by a child cell of the top cell whose content is a map.
+`Sub x cl e` then takes that cell `x` as a parameter, and the leaf is a constructor `AExp.env`: `Sub x .AExp (inj i)` when `x = <env> m`, `m` is well formed and binds `i` to a value of the class's value sort (`lookup m (inj i) = some (inj v)`).
+`cfg` and `Target` are as before, with the cell among the other cells; `Inst` and `holds` fix it to the parameter: `holds : Sub x cl e → ∀ K cells, Reach Step (Target cl K x cells) (cfg e K x cells)`.
+The leaf is one more obligation, closed by one step and the target: the step is the constructor of `Step` that unifies with the configuration (kimp's `var`), whose map pattern holds since a well-formed map that binds `i` is `i |-> v` concatenated with its `remove` (`MapHook.concat_element_remove`).
+`kc_auto` does not find that step, because it evaluates each rule's matcher, which tests `wfb m` and `lookup m (inj i)` and does not reduce on the map variable `m`; a definition whose lookup rule has another premise has the leaf obligation fail, to be listed as open.
+The compound obligations close as before: an argument that is an identifier is a case of the split, and its induction hypothesis applies where it is evaluated.
+No separate check that an expression's rules leave the cell alone is needed, because `Target` states it: an obligation whose rules write the cell does not close, and is open.
+No invariant is assumed either: the leaf's premise is what types the value that `var` reads, so the theorem applies to any configuration whose cell gives the variables of `e` their classes (an invariant such as kimpinv's `envOk` is one way to establish that, outside the statement).
+Statements are the next sublanguage, not built: they write `<env>`, so their `Target` has the cell's new content existentially, with a typing of it for the statements after (a typing environment in `Sub`, as soundness's `kty` has).
+
 Measured on 2026-10-24 (Lean v4.30.0, shared 32-CPU host, load 15 to 35, each module built on its own after its dependencies):
 
 | statement | result | module build |
@@ -422,6 +433,7 @@ Measured on 2026-10-24 (Lean v4.30.0, shared 32-CPU host, load 15 to 35, each mo
 | `copy`, `copy-loop` under kimpinv's `envOk` (`generated/kimpinv-claims`) | both proved generically (10 and 47 configurations); both false over kimp (`krust kprove` fails them, `Hand.copy_false`, `Hand.copy_loop_false`) | 4.7 s, after the rest of kimpinv's library (138 s wall, 125 s CPU, 3.8 GB) |
 | kimp's expressions without variables or division (`ExprEval`) | 15 of 15 obligations closed, `holds` unconditional | 2.5 to 3.9 s |
 | with `_/_` (`ExprDiv`) | its obligation does not close (4 goals left at `i / j`), and is false (`Hand.expr_div_false` at `1 / 0`) | under 1 s |
+| with variables, read from `<env>` (`ExprVars`; 2026-10-25, Lean v4.34.0, load 19) | 17 of 17 obligations closed (the two leaves by one `var` step each), `holds` unconditional | 4.1 to 4.7 s |
 
 kimpinv's invariant now also conjoins `storeNoIds` (no store value is an `Id`), so the two claims assume both parts, though their truth needs only `envOk`.
 On Lean v4.34.0, with that invariant, the heavy gate of 2026-10-24 proved both generically in the same 10 and 47 configurations.
