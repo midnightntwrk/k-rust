@@ -572,13 +572,15 @@ impl Z3Solver {
         script: &str,
     ) -> Stoppable<SmtError> {
         self.check_prelude()?;
+        let translation_blamed = self.prelude.blames_the_translation(query, script);
         debug_assert!(
-            !self.prelude.blames_the_translation(query, script),
+            !translation_blamed,
             "Z3 rejected an SMT-LIB script k-rust's translation wrote by itself ({}):\n{script}",
             rejected.message
         );
         Ok(SmtError::MalformedScript {
             message: rejected.message,
+            translation_blamed,
         })
     }
 
@@ -1663,7 +1665,7 @@ mod tests {
         fn rejected<T>(answer: &Result<Result<T, SmtError>, StopCause>) -> bool {
             matches!(
                 answer,
-                Ok(Err(SmtError::MalformedScript { message })) if !message.is_empty()
+                Ok(Err(SmtError::MalformedScript { message, translation_blamed: false })) if !message.is_empty()
             )
         }
 
@@ -1722,7 +1724,7 @@ mod tests {
     /// Whether each kind of query of `predicates` fails because Z3 rejects its script.
     fn every_query_is_rejected(solver: &Z3Solver, predicates: &[Predicate]) -> bool {
         fn rejected<T>(answer: Result<Result<T, SmtError>, StopCause>) -> bool {
-            matches!(answer, Ok(Err(SmtError::MalformedScript { message })) if !message.is_empty())
+            matches!(answer, Ok(Err(SmtError::MalformedScript { message, translation_blamed: false })) if !message.is_empty())
         }
         rejected(cause(solver.is_sat(predicates, &Substitution::new())))
             && rejected(cause(solver.check_predicates(

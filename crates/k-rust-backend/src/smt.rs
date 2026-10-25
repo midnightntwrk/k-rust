@@ -1495,13 +1495,16 @@ pub enum SmtError {
     Unknown(String),
     InconsistentGroundTruth,
     /// The solver rejected the query's script (a parse or sort error, an undeclared or a
-    /// redeclared symbol), so it answered nothing about it; the payload is the solver's message.
+    /// redeclared symbol), so it answered nothing about it; `message` is the solver's message.
     /// The prelude is known to load when this is returned, so the query's own text is at fault:
     /// text the definition supplies (an `smt-hook`, an `smtlib` name clashing with a name the
-    /// query writes), the user prelude, or k-rust's translation. A debug build panics on the
-    /// last, a defect of k-rust (`SmtPrelude::blames_the_translation`). Never a stop.
+    /// query writes), the user prelude, or k-rust's translation. `translation_blamed` holds when
+    /// only the last can be (`SmtPrelude::blames_the_translation`): the script holds no text
+    /// k-rust did not write itself, so the rejection is a defect of k-rust. A debug build panics
+    /// on such a rejection instead of returning it. Never a stop.
     MalformedScript {
         message: String,
+        translation_blamed: bool,
     },
     MissingModel,
     MissingModelValue(Variable),

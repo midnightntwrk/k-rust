@@ -1068,10 +1068,16 @@ pub struct ExecutionLeaf<K = Value> {
     /// leaf's reason and state are the same with or without it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub contradicted_total: Option<ContradictedTotalOutput<K>>,
-    /// The stopped step's structured cause: for an indeterminate halt, and for a
-    /// `simplification-error` halt whose state ran out of native stack (`stack-exhausted`).
-    /// This uses the same encoding as `IncompleteSearchOutput::Indeterminate.reason` and the
-    /// failure of `IncompleteSearchOutput::Simplification`.
+    /// The stopped step's structured cause: on every `indeterminate`, `simplification-error`
+    /// and `unsupported-hook` halt, and on no other. For an indeterminate halt it is the reason
+    /// the step could not be decided; for a failed simplification (`simplification-error`, and
+    /// `unsupported-hook`, a simplification that met a hook k-rust does not evaluate) it is the
+    /// failure, and `stack-exhausted` for a state that ran out of native stack. A client tells a
+    /// bound (`iteration-limit`) or a query the solver did not answer from a defect of k-rust or
+    /// of a hook declaration (`builtin`, `invalid-builtin-result-symbol`, a `smt` failure such as
+    /// `missing-model`) by this field, never by `detail`. This uses the same encoding as
+    /// `IncompleteSearchOutput::Indeterminate.reason` and the failure of
+    /// `IncompleteSearchOutput::Simplification`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cause: Option<SearchFailureOutput<K>>,
     /// Legacy human-readable diagnostic context.
@@ -3619,6 +3625,115 @@ mod tests {
                 pair{}(I:SortS{}, I:SortS{})
             ) [label{}("duplicate")]
         endmodule []"#;
+
+    /// A hook declared at an arity its builtin does not take (`INT.add` of three arguments), and
+    /// a step to an application of it on values.
+    const WRONG_ARITY_HOOK_DEFINITION: &str = r#"[]
+        module MAIN
+            sort SortS{} []
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            symbol go{}(SortInt{}) : SortS{} [constructor{}()]
+            symbol done{}(SortInt{}) : SortS{} [constructor{}()]
+            hooked-symbol add3{}(SortInt{}, SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), total{}(), hook{}("INT.add")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(go{}(X:SortInt{}), \top{SortS{}}()),
+                done{}(add3{}(X:SortInt{}, \dv{SortInt{}}("1"), \dv{SortInt{}}("2")))
+            ) [label{}("go")]
+        endmodule []"#;
+
+    /// `IO.logString` in a definition without the `dotk` symbol its result needs.
+    const LOG_WITHOUT_DOTK_DEFINITION: &str = r#"[]
+        module MAIN
+            sort SortString{} [hasDomainValues{}()]
+            sort SortK{} []
+            sort SortS{} []
+            symbol go{}() : SortS{} [constructor{}()]
+            symbol done{}(SortK{}) : SortS{} [constructor{}()]
+            hooked-symbol log{}(SortString{}) : SortK{}
+                [function{}(), total{}(), hook{}("IO.logString")]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(go{}(), \top{SortS{}}()),
+                done{}(log{}(\dv{SortString{}}("x")))
+            ) [label{}("go")]
+        endmodule []"#;
+
+    /// (FZ-CRASH-CAUSE) A `simplification-error` leaf carries its structured cause, in the
+    /// encoding search uses for its failure, so that a client tells a builtin failure (a hook
+    /// declared at a signature its builtin does not take, a result symbol the definition lacks)
+    /// from a bound or an undecided query without reading the leaf's text.
+    #[test]
+    fn simplification_error_leaves_publish_their_cause() {
+        let cases = [
+            (WRONG_ARITY_HOOK_DEFINITION, r#"go{}(\dv{SortInt{}}("5"))"#),
+            (LOG_WITHOUT_DOTK_DEFINITION, "go{}()"),
+        ];
+        let mut causes = Vec::new();
+        for (definition, state) in cases {
+            let mut backend = Backend::new(definition, "MAIN", BackendOptions::default()).unwrap();
+            let result = backend.execute(ExecuteRequest::new(kore(state))).unwrap();
+            assert_eq!(result.leaves.len(), 1, "{state}");
+            let leaf = &result.leaves[0];
+            assert_eq!(
+                leaf.reason,
+                HaltReasonOutput::SimplificationError,
+                "{state}: {:?}",
+                leaf.detail
+            );
+            let encoded = serde_json::to_value(leaf).unwrap();
+            let decoded: ExecutionLeaf = serde_json::from_value(encoded.clone()).unwrap();
+            assert_eq!(serde_json::to_value(decoded).unwrap(), encoded);
+            causes.push(encoded["cause"].clone());
+        }
+        assert_eq!(
+            causes,
+            [
+                serde_json::json!({
+                    "kind": "builtin",
+                    "error": {"kind": "wrong-arity", "hook": "INT.add", "expected": 2, "actual": 3}
+                }),
+                serde_json::json!({
+                    "kind": "invalid-builtin-result-symbol",
+                    "hook": "IO.logString",
+                    "symbol": "dotk"
+                }),
+            ]
+        );
+    }
+
+    /// (FZ-CRASH-CAUSE) A rule condition over a function smt-hooked to an operator SMT-LIB lacks:
+    /// the solver rejects the script for text the definition supplied, so the leaf's cause is a
+    /// `malformed-script` failure that carries no `translationBlamed` (its JSON is what it was
+    /// before the field existed).
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn a_script_rejected_for_the_definitions_smt_text_is_not_blamed_on_the_wire() {
+        const DEFINITION: &str = r#"[]
+            module MAIN
+                sort SortS{} []
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol go{}(SortInt{}) : SortS{} [constructor{}()]
+                symbol done{}() : SortS{} [constructor{}()]
+                symbol bogus{}(SortInt{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("no-such-operator")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(
+                        go{}(X:SortInt{}),
+                        \equals{SortBool{}, SortS{}}(bogus{}(X:SortInt{}), \dv{SortBool{}}("true"))
+                    ), done{}()
+                ) [label{}("go")]
+            endmodule []"#;
+        let mut backend = Backend::new(DEFINITION, "MAIN", BackendOptions::default()).unwrap();
+        let result = backend
+            .execute(ExecuteRequest::new(kore(r#"go{}(\dv{SortInt{}}("5"))"#)))
+            .unwrap();
+        let encoded = serde_json::to_value(&result.leaves[0]).unwrap();
+        let error = &encoded["cause"]["error"];
+        assert_eq!(error["kind"], "malformed-script", "{encoded}");
+        assert!(error["message"].is_string(), "{encoded}");
+        assert!(error.get("translationBlamed").is_none(), "{encoded}");
+    }
 
     #[cfg(not(feature = "z3-inference"))]
     #[test]

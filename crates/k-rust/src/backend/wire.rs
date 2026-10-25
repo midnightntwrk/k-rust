@@ -758,9 +758,19 @@ pub enum SmtFailureOutput<K = Value> {
         reason: String,
     },
     InconsistentGroundTruth,
-    /// The solver rejected the query's script; `message` is the solver's.
+    /// The solver rejected the query's script; `message` is the solver's. `translationBlamed`,
+    /// present (and `true`) only when it holds, says that the script held no text but what
+    /// k-rust's translation wrote itself (no `smt-hook` or `smtlib` text of the definition, no
+    /// user prelude), so the rejection is a defect of k-rust; without it the definition's or
+    /// the user's SMT text may be at fault. A debug build panics on a blamed rejection instead.
     MalformedScript {
         message: String,
+        #[serde(
+            default,
+            rename = "translationBlamed",
+            skip_serializing_if = "std::ops::Not::not"
+        )]
+        translation_blamed: bool,
     },
     MissingModel,
     MissingModelValue {
@@ -1686,7 +1696,13 @@ fn smt_failure_output<K: WireKore>(
         SmtError::Unavailable => SmtFailureOutput::Unavailable,
         SmtError::Unknown(reason) => SmtFailureOutput::Unknown { reason },
         SmtError::InconsistentGroundTruth => SmtFailureOutput::InconsistentGroundTruth,
-        SmtError::MalformedScript { message } => SmtFailureOutput::MalformedScript { message },
+        SmtError::MalformedScript {
+            message,
+            translation_blamed,
+        } => SmtFailureOutput::MalformedScript {
+            message,
+            translation_blamed,
+        },
         SmtError::MissingModel => SmtFailureOutput::MissingModel,
         SmtError::MissingModelValue(variable) => SmtFailureOutput::MissingModelValue {
             variable: encode_variable(&variable)?,
@@ -1985,6 +2001,9 @@ pub(super) fn execution_response<K: WireKore>(
                     HaltReason::Indeterminate(reason) => {
                         Some(indeterminate_failure_output(reason.clone(), &result_sort)?)
                     }
+                    HaltReason::Simplification(error) => {
+                        Some(simplification_failure_output(error.clone(), &result_sort)?)
+                    }
                     HaltReason::Stopped(StopCause::StackExhausted(_)) => {
                         Some(SearchFailureOutput::StackExhausted)
                     }
@@ -1997,8 +2016,7 @@ pub(super) fn execution_response<K: WireKore>(
                     | HaltReason::TerminalRule { .. }
                     | HaltReason::DepthBound
                     | HaltReason::BreadthBound
-                    | HaltReason::WorkBound
-                    | HaltReason::Simplification(_) => None,
+                    | HaltReason::WorkBound => None,
                 };
                 let (candidates, remainder) = execution_candidates_output(leaf.halt_reason)?;
                 Ok(ExecutionLeaf {
