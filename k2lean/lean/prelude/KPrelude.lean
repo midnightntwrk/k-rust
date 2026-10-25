@@ -5,6 +5,7 @@ import KPrelude.Coll
 import KPrelude.Hooks
 import KPrelude.Run
 import KPrelude.Rules
+import KPrelude.FamilyCases
 import KPrelude.Tactic
 import KPrelude.LeafEq
 import KPrelude.Delab

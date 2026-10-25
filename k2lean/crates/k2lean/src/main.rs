@@ -705,6 +705,7 @@ fn main() {
                         (Ok(t), Some(p)) => Some((t, p)),
                         _ => None,
                     },
+                    arity,
                 };
                 let o = invariants::emit(&cx, &specs, &declared, &open_cases, hand.exists())
                     .unwrap_or_else(|e| panic!("invariants: {e}"));

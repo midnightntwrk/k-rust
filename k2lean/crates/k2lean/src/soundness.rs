@@ -52,16 +52,16 @@ fn write_file(path: &str, text: &str) {
 
 /// One generated library: its definition, term universe and functions (and, for the
 /// semantics, its rules).
-struct Lib {
-    def: Def,
-    m: Model,
-    fns: BTreeMap<String, FnSig>,
+pub(crate) struct Lib {
+    pub(crate) def: Def,
+    pub(crate) m: Model,
+    pub(crate) fns: BTreeMap<String, FnSig>,
     fn_text: String,
-    rules: Vec<Rule>,
-    ns: String,
+    pub(crate) rules: Vec<Rule>,
+    pub(crate) ns: String,
 }
 
-fn load(kore: &str, ns: &str, want_rules: bool, extra: &[String]) -> Lib {
+pub(crate) fn load(kore: &str, ns: &str, want_rules: bool, extra: &[String]) -> Lib {
     let text = std::fs::read_to_string(kore).unwrap_or_else(|e| fail(&format!("{kore}: {e}")));
     let def = ir::load(&text).unwrap_or_else(|e| fail(&format!("{kore}: {e}")));
     let m = Model::build(&def).unwrap_or_else(|e| fail(&e));
@@ -98,21 +98,21 @@ fn load(kore: &str, ns: &str, want_rules: bool, extra: &[String]) -> Lib {
 }
 
 /// A typing function of the checker.
-struct TFn {
-    sym: String,
+pub(crate) struct TFn {
+    pub(crate) sym: String,
     /// The name of its function at `A`'s terms (the K name up to `(`).
-    name: String,
+    pub(crate) name: String,
     /// The Lean name in `B`'s library.
-    lean_b: String,
+    pub(crate) lean_b: String,
     /// The syntax sort it types (the same sort name in `A` and `B`).
-    sort: String,
-    env: String,
-    result: String,
+    pub(crate) sort: String,
+    pub(crate) env: String,
+    pub(crate) result: String,
     /// `Bool`-valued: it accepts or rejects (a statement leaves nothing on `<k>`).
-    accepts: bool,
+    pub(crate) accepts: bool,
 }
 
-fn short_name(sym: &str) -> String {
+pub(crate) fn short_name(sym: &str) -> String {
     let l = names::demangle(sym);
     l.split('(').next().unwrap_or(&l).to_string()
 }
@@ -131,19 +131,19 @@ fn var_name(kore_var: &str) -> String {
     s
 }
 
-fn sname(s: &S) -> String {
+pub(crate) fn sname(s: &S) -> String {
     s.name()
         .map(|n| n.to_string())
         .unwrap_or_else(|| fail(&format!("parametric sort {s}")))
 }
 
 /// The Lean type of sort `s` of library `ns`.
-fn ty(ns: &str, s: &str) -> String {
+pub(crate) fn ty(ns: &str, s: &str) -> String {
     format!("{ns}.{s}")
 }
 
 /// `inj{A, B}(t)` → `(A, B, t)`.
-fn as_inj(p: &P) -> Option<(String, String, &P)> {
+pub(crate) fn as_inj(p: &P) -> Option<(String, String, &P)> {
     match p {
         P::App(f, ps, args) if f == "inj" && ps.len() == 2 && args.len() == 1 => {
             Some((sname(&ps[0]), sname(&ps[1]), &args[0]))
@@ -166,20 +166,23 @@ fn as_kitem(p: &P) -> Option<(String, &P)> {
     Some((s, t))
 }
 
-struct Ctx<'a> {
-    a: &'a Lib,
-    b: &'a Lib,
-    tfs: &'a [TFn],
-    ty_sort: String,
+pub(crate) struct Ctx<'a> {
+    pub(crate) a: &'a Lib,
+    pub(crate) b: &'a Lib,
+    pub(crate) tfs: &'a [TFn],
+    pub(crate) ty_sort: String,
+    /// The checker's equations as noninterference reads them (`inversions_merged`): a call of
+    /// another of the checker's functions, `orBool` and `==K` are values too.
+    pub(crate) ext: bool,
 }
 
 impl Ctx<'_> {
-    fn tf(&self, sym: &str) -> Option<&TFn> {
+    pub(crate) fn tf(&self, sym: &str) -> Option<&TFn> {
         self.tfs.iter().find(|t| t.sym == sym)
     }
 
     /// The value of sort `s` (of `A`) built by constructor `c` of `A` applied to `args`.
-    fn ctor_value(&self, c: &str, args: &[String], s: &str) -> String {
+    pub(crate) fn ctor_value(&self, c: &str, args: &[String], s: &str) -> String {
         let m = &self.a.m;
         let ci = &m.ctors[c];
         let mut own = format!("{}.{}", self.a.ns, m.ctor_path(c));
@@ -200,7 +203,7 @@ impl Ctx<'_> {
     }
 
     /// The value of sort `s` of `A` injected from a value `x` of leaf sort `l`.
-    fn leaf_value(&self, l: &str, x: &str, s: &str) -> String {
+    pub(crate) fn leaf_value(&self, l: &str, x: &str, s: &str) -> String {
         if l == s && self.a.m.sort(s).is_simple() {
             x.to_string()
         } else {
@@ -217,6 +220,9 @@ struct Ren<'c, 'a> {
     env: String,
     calls: Vec<(String, String)>,
     taken: BTreeSet<String>,
+    /// The variables of another equation of the same constructor, renamed to the first one's
+    /// (`inversion_merged`).
+    rename: BTreeMap<String, String>,
 }
 
 type R<T> = Result<T, String>;
@@ -242,6 +248,7 @@ impl Ren<'_, '_> {
         match p {
             P::Var(v, vs) => {
                 let x = var_name(v);
+                let x = self.rename.get(&x).cloned().unwrap_or(x);
                 let vs = sname(vs);
                 if vs == s {
                     Ok(x)
@@ -255,7 +262,11 @@ impl Ren<'_, '_> {
                     return Err(format!("injection into {to} at sort {s}"));
                 }
                 match t {
-                    P::Var(v, _) => Ok(self.cx.leaf_value(&from, &var_name(v), s)),
+                    P::Var(v, _) => {
+                        let x = var_name(v);
+                        let x = self.rename.get(&x).cloned().unwrap_or(x);
+                        Ok(self.cx.leaf_value(&from, &x, s))
+                    }
                     P::App(c, _, args) if self.cx.a.m.ctors.contains_key(c) => {
                         let xs = self.syn_args(c, args)?;
                         Ok(self.cx.ctor_value(c, &xs, s))
@@ -294,7 +305,13 @@ impl Ren<'_, '_> {
                 if let Some(t) = self.cx.tf(f) {
                     let (sort, name) = (t.sort.clone(), t.name.clone());
                     match &args[1] {
-                        P::Var(v, _) if var_name(v) == self.env => {}
+                        P::Var(v, _)
+                            if self
+                                .rename
+                                .get(&var_name(v))
+                                .cloned()
+                                .unwrap_or(var_name(v))
+                                == self.env => {}
                         _ => return Err("a typing call in another environment".into()),
                     }
                     let x = self.syn(&args[0], &sort)?;
@@ -317,6 +334,27 @@ impl Ren<'_, '_> {
                         self.val(&args[0])?,
                         self.val(&args[1])?
                     )),
+                    Some("BOOL.or") if self.cx.ext => Ok(format!(
+                        "({} || {})",
+                        self.val(&args[0])?,
+                        self.val(&args[1])?
+                    )),
+                    Some("KEQUAL.eq") if self.cx.ext => Ok(format!("(decide ({}))", self.prop(p)?)),
+                    None if self.cx.ext && b.fns.contains_key(f) => {
+                        // a call of another of the checker's functions on values, bound like a
+                        // typing call (its own equations compute it)
+                        let sig = &b.fns[f];
+                        let mut xs = Vec::new();
+                        for a in args {
+                            xs.push(self.val(a)?);
+                        }
+                        let call = format!("{}.{} {}", b.ns, sig.lean, xs.join(" "));
+                        if sig.partial {
+                            Ok(self.bind(call))
+                        } else {
+                            Ok(format!("({call})"))
+                        }
+                    }
                     _ => Err(format!("the value {}", names::demangle(f))),
                 }
             }
@@ -346,6 +384,11 @@ impl Ren<'_, '_> {
                     self.prop_arg(&args[0])?,
                     self.prop_arg(&args[1])?
                 )),
+                Some("BOOL.or") if self.cx.ext => Ok(format!(
+                    "{} ∨ {}",
+                    self.prop_arg(&args[0])?,
+                    self.prop_arg(&args[1])?
+                )),
                 _ => Err(format!("the condition {}", names::demangle(f))),
             },
             _ => Err(format!("the condition {}", crate::lower::short_dbg(p))),
@@ -354,7 +397,8 @@ impl Ren<'_, '_> {
 
     fn prop_arg(&mut self, p: &P) -> R<String> {
         let s = self.prop(p)?;
-        Ok(if s.contains(' ') && !s.contains(" = ") {
+        let compound = self.cx.ext && (s.contains(" ∨ ") || s.contains(" ∧ "));
+        Ok(if s.contains(' ') && (!s.contains(" = ") || compound) {
             format!("({s})")
         } else {
             s
@@ -402,7 +446,7 @@ fn head_key(p: &P) -> Option<String> {
     }
 }
 
-fn inversion(cx: &Ctx, t: &TFn, eqs: &[Equation], e: &Equation) -> R<Inv> {
+fn inversion(cx: &Ctx, t: &TFn, eqs: &[Equation], e: &Equation, merged: bool) -> R<Inv> {
     if e.owise || e.args.len() != 2 {
         return Err("not a constructor equation".into());
     }
@@ -415,7 +459,7 @@ fn inversion(cx: &Ctx, t: &TFn, eqs: &[Equation], e: &Equation) -> R<Inv> {
         .iter()
         .filter(|o| !o.owise && o.index != e.index)
         .any(|o| head_key(&o.args[0]).is_none_or(|k| k == key));
-    if others {
+    if others && !merged {
         return Err("another equation matches the same constructor".into());
     }
     // the first argument: a constructor of variables, or an injected variable
@@ -425,6 +469,7 @@ fn inversion(cx: &Ctx, t: &TFn, eqs: &[Equation], e: &Equation) -> R<Inv> {
         env: env.clone(),
         calls: vec![],
         taken: BTreeSet::new(),
+        rename: BTreeMap::new(),
     };
     let (name, lhs_arg) = {
         let (c, args, leaf) = match &e.args[0] {
@@ -496,6 +541,7 @@ fn inversion(cx: &Ctx, t: &TFn, eqs: &[Equation], e: &Equation) -> R<Inv> {
                 env: ren.env.clone(),
                 calls: vec![],
                 taken: BTreeSet::new(),
+                rename: BTreeMap::new(),
             };
             let v = r2.val(&o.rhs)?;
             if !r2.calls.is_empty() {
@@ -548,9 +594,220 @@ fn inversion(cx: &Ctx, t: &TFn, eqs: &[Equation], e: &Equation) -> R<Inv> {
     })
 }
 
+/// The arguments of an equation's first argument and its environment, renamed to `names` (the
+/// first equation's) and `G`: (constructor or leaf sort, argument variables, environment).
+fn eq_head(e: &Equation) -> R<(String, Vec<String>, String)> {
+    let P::Var(gv, _) = &e.args[1] else {
+        return Err("the environment is a pattern".into());
+    };
+    let (c, args) = match &e.args[0] {
+        P::App(c, _, args) if c != "inj" => (c.clone(), args.clone()),
+        p => {
+            let (from, _, inner) = as_inj(p).ok_or("the first argument is not a constructor")?;
+            match inner {
+                P::Var(..) => (format!("leaf:{from}"), vec![inner.clone()]),
+                P::App(c, _, args) => (c.clone(), args.clone()),
+                _ => return Err("a compound injection".into()),
+            }
+        }
+    };
+    let mut xs = Vec::new();
+    for a in &args {
+        let P::Var(v, _) = a else {
+            return Err("a constructor argument is a pattern".into());
+        };
+        xs.push(v.clone());
+    }
+    Ok((c, xs, gv.clone()))
+}
+
+/// One inversion lemma for all the equations of a typing function at one constructor (in their
+/// order, the `owise` equation last): the calls of the guards are matched once (every guard must
+/// call the same functions on the same terms), then the guards are tried in order, each value
+/// matching its own calls, and the `owise` value (or undefined) is what is left. A call of
+/// another of the checker's functions, `orBool` and `==K` are values (`Ctx::ext`).
+fn inversion_merged(cx: &Ctx, t: &TFn, eqs: &[Equation], group: &[&Equation]) -> R<Inv> {
+    let e0 = group[0];
+    let (_, xs0, _) = eq_head(e0)?;
+    // the first equation's names, and each other equation's variables renamed to them
+    let rename_of = |e: &Equation| -> R<BTreeMap<String, String>> {
+        let (_, xs, gv) = eq_head(e)?;
+        let mut r: BTreeMap<String, String> = xs
+            .iter()
+            .zip(&xs0)
+            .map(|(x, y)| (var_name(x), var_name(y)))
+            .collect();
+        r.insert(var_name(&gv), "G".into());
+        Ok(r)
+    };
+    let base = inversion(cx, t, eqs, e0, true)?;
+    let mut taken: BTreeSet<String> = base.binders.iter().map(|(b, _)| b.clone()).collect();
+    let mut gcalls: Vec<(String, String)> = Vec::new();
+    let mut arms: Vec<(Option<String>, String)> = Vec::new();
+    let mut call_sets: Vec<BTreeSet<String>> = Vec::new();
+    for e in group {
+        let rn = rename_of(e)?;
+        let mut ren = Ren {
+            cx,
+            env: "G".into(),
+            calls: gcalls.clone(),
+            taken: taken.clone(),
+            rename: rn,
+        };
+        let mut conds = Vec::new();
+        for q in &e.requires {
+            let qp = match q {
+                P::Equals(_, _, l, r) => match (&**l, &**r) {
+                    (x, P::Dv(_, v)) | (P::Dv(_, v), x) if v == "true" => x.clone(),
+                    _ => return Err("a requires clause that is not `= true`".into()),
+                },
+                other => other.clone(),
+            };
+            conds.push(ren.prop_arg(&qp)?);
+        }
+        let mine: BTreeSet<String> = ren
+            .calls
+            .iter()
+            .filter(|(_, n)| conds.iter().any(|q| mentions(q, n)))
+            .map(|(c, _)| c.clone())
+            .collect();
+        if !e.requires.is_empty() {
+            call_sets.push(mine);
+        }
+        gcalls = ren.calls.clone();
+        taken = ren.taken.clone();
+        // the value, with its own calls
+        let mut rv = Ren {
+            cx,
+            env: "G".into(),
+            calls: vec![],
+            taken: taken.clone(),
+            rename: rename_of(e)?,
+        };
+        let single_call = matches!(&e.rhs, P::App(f, _, _) if cx.tf(f).is_some());
+        let v = rv.val(&e.rhs)?;
+        taken = rv.taken.clone();
+        let value = if single_call && rv.calls.len() == 1 {
+            rv.calls[0].0.clone()
+        } else {
+            match_calls_nested(&rv.calls, &format!("some {v}"), "none", "        ")
+        };
+        let conds: Vec<String> = conds.into_iter().filter(|c| c != "True").collect();
+        arms.push(((!conds.is_empty()).then(|| conds.join(" ∧ ")), value));
+    }
+    if call_sets.windows(2).any(|w| w[0] != w[1]) {
+        return Err("the guards call different functions or terms".into());
+    }
+    let fall = match eqs.iter().find(|o| o.owise) {
+        Some(o) => {
+            let mut r2 = Ren {
+                cx,
+                env: "G".into(),
+                calls: vec![],
+                taken: BTreeSet::new(),
+                rename: rename_of(o).unwrap_or_default(),
+            };
+            let v = r2.val(&o.rhs)?;
+            if !r2.calls.is_empty() {
+                return Err("an `owise` value with calls".into());
+            }
+            format!("some {v}")
+        }
+        None => "none".into(),
+    };
+    let mut body = fall.clone();
+    for (cond, value) in arms.iter().rev() {
+        body = match cond {
+            Some(c) => format!("if {c} then {value} else {body}"),
+            None => value.clone(),
+        };
+    }
+    let rhs = match_calls_nested(&gcalls, &body, &fall, "      ");
+    let rhs = rhs
+        .strip_prefix('(')
+        .and_then(|s| s.strip_suffix(')'))
+        .filter(|_| !gcalls.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or(rhs);
+    Ok(Inv {
+        name: base.name,
+        binders: base.binders,
+        lhs: base.lhs,
+        rhs,
+    })
+}
+
+/// Whether `text` uses the name `n` as a whole word.
+fn mentions(text: &str, n: &str) -> bool {
+    text.split(|ch: char| !(ch.is_alphanumeric() || ch == '_' || ch == '\''))
+        .any(|w| w == n)
+}
+
+/// `match_calls`, nesting a call that uses the name bound by an earlier one in an inner `match`.
+fn match_calls_nested(calls: &[(String, String)], yes: &str, no: &str, indent: &str) -> String {
+    let k = (1..calls.len())
+        .find(|&i| calls[..i].iter().any(|(_, n)| mentions(&calls[i].0, n)))
+        .unwrap_or(calls.len());
+    if k == calls.len() {
+        return match_calls(calls, yes, no, indent);
+    }
+    let inner = match_calls_nested(&calls[k..], yes, no, &format!("{indent}  "));
+    match_calls(&calls[..k], &inner, no, indent)
+}
+
+/// The inversion lemmas of the checker's functions as noninterference states them
+/// (`inversion_merged`, one per constructor), written into `t`; the functions and constructors
+/// without one are returned as notes.
+pub(crate) fn inversions_merged(
+    cx: &Ctx,
+    eqs: &BTreeMap<String, Vec<Equation>>,
+    t: &mut String,
+) -> (Vec<String>, Vec<String>) {
+    let mut names_out = Vec::new();
+    let mut skipped = Vec::new();
+    for f in cx.tfs {
+        let Some(es) = eqs.get(&f.sym) else { continue };
+        let mut groups: Vec<(String, Vec<&Equation>)> = Vec::new();
+        for e in es.iter().filter(|e| !e.owise) {
+            let key = head_key(&e.args[0]).unwrap_or_default();
+            match groups.iter_mut().find(|(k, _)| *k == key) {
+                Some((_, g)) => g.push(e),
+                None => groups.push((key, vec![e])),
+            }
+        }
+        for (key, g) in &groups {
+            match inversion_merged(cx, f, es, g) {
+                Ok(inv) => {
+                    let bs: Vec<String> = inv
+                        .binders
+                        .iter()
+                        .map(|(x, ty)| format!("({x} : {ty})"))
+                        .collect();
+                    writeln!(
+                        t,
+                        "theorem {} {} :\n    {} =\n      {} := by k2l_ty_inv",
+                        inv.name,
+                        bs.join(" "),
+                        inv.lhs,
+                        inv.rhs
+                    )
+                    .unwrap();
+                    names_out.push(inv.name);
+                }
+                Err(why) => skipped.push(format!(
+                    "{} at {}: {why}",
+                    f.name,
+                    names::demangle(key.trim_start_matches("leaf:"))
+                )),
+            }
+        }
+    }
+    (names_out, skipped)
+}
+
 /// The Lean types reachable from `roots` in `A`'s term universe whose translation is a
 /// generated function `tr_…` of a plain sort (or of its own constructors).
-fn tr_names(m: &Model, roots: &[String]) -> Vec<String> {
+pub(crate) fn tr_names(m: &Model, roots: &[String]) -> Vec<String> {
     let mut seen = BTreeSet::new();
     let mut todo: Vec<String> = roots.to_vec();
     let mut out = Vec::new();
@@ -581,7 +838,7 @@ fn tr_names(m: &Model, roots: &[String]) -> Vec<String> {
 }
 
 /// The literal a value sort's placeholder is built from.
-fn literal(m: &Model, s: &str) -> Option<&'static str> {
+pub(crate) fn literal(m: &Model, s: &str) -> Option<&'static str> {
     match &m.sort(s).kind {
         Kind::Builtin(crate::model::Builtin::Int) => Some("0"),
         Kind::Builtin(crate::model::Builtin::Bool) => Some("true"),
@@ -623,8 +880,122 @@ fn proj_hyp(h: &str) -> Option<(String, String, String)> {
     (ok(s) && ok(y) && ok(x)).then(|| (s.to_string(), y.to_string(), x.to_string()))
 }
 
+/// A cell of the top cell: its sort, its constructor (qualified), its label and the sort of its
+/// content.
+pub(crate) struct Cell {
+    pub(crate) sort: String,
+    pub(crate) ctor: String,
+    pub(crate) label: String,
+    pub(crate) content: String,
+}
+
+/// The top cell of a library: its sort, its one constructor, its cells, and the position of the
+/// cell holding the K sequence.
+pub(crate) struct TopCells {
+    pub(crate) top: String,
+    pub(crate) top_ctor: String,
+    pub(crate) cells: Vec<Cell>,
+    pub(crate) kpos: usize,
+}
+
+pub(crate) fn top_cells(a: &Lib) -> TopCells {
+    let na = &a.ns;
+    let top = rules::top_sort(&a.def).unwrap_or_else(|e| fail(&e));
+    let top_info = a.m.sort(&top);
+    let [top_ctor] = top_info.own.as_slice() else {
+        fail("the top cell is expected to have one constructor")
+    };
+    let cells: Vec<Cell> = a.m.ctors[top_ctor]
+        .args
+        .iter()
+        .map(|c| {
+            let info = a.m.sort(c);
+            let [cc] = info.own.as_slice() else {
+                fail(&format!("the cell {c} is expected to have one constructor"))
+            };
+            let ci = &a.m.ctors[cc];
+            let label = ci
+                .klabel
+                .trim_start_matches('<')
+                .trim_end_matches('>')
+                .to_string();
+            Cell {
+                sort: c.clone(),
+                ctor: format!("{na}.{}", a.m.ctor_path(cc)),
+                label,
+                content: ci.args.first().cloned().unwrap_or_default(),
+            }
+        })
+        .collect();
+    let kpos = cells
+        .iter()
+        .position(|c| c.content == "SortK")
+        .unwrap_or_else(|| fail("no cell holds the K sequence"));
+    TopCells {
+        top: top.clone(),
+        top_ctor: top_ctor.clone(),
+        cells,
+        kpos,
+    }
+}
+
+/// The cooling rule of each freezer, and the one sort of their holes.
+pub(crate) fn coolings(a: &Lib, kpos: usize) -> (BTreeMap<String, Cool>, String) {
+    let mut cools: BTreeMap<String, Cool> = BTreeMap::new();
+    for r in &a.rules {
+        if let Some(c) = cooling(r, kpos) {
+            if cools.contains_key(&c.frz) {
+                fail(&format!("two cooling rules for {}", c.frz));
+            }
+            cools.insert(c.frz.clone(), c);
+        }
+    }
+    let hole_sorts: BTreeSet<String> = cools.values().map(|c| c.hole_sort.clone()).collect();
+    let hole_sort = match hole_sorts.iter().collect::<Vec<_>>().as_slice() {
+        [h] => (*h).clone(),
+        [] => fail("no cooling rules"),
+        _ => fail("holes of several sorts are not supported"),
+    };
+    (cools, hole_sort)
+}
+
+/// `plug`, the item that cooling makes of a value and a freezer (one case per cooling rule),
+/// written into `t`; the sorts its cases project to.
+pub(crate) fn plug_def(
+    a: &Lib,
+    cools: &BTreeMap<String, Cool>,
+    hole_sort: &str,
+    t: &mut String,
+) -> BTreeSet<String> {
+    let na = &a.ns;
+    let kitem_own = ty(na, &a.m.own_ty("SortKItem"));
+    writeln!(
+        t,
+        "\nopen {na} in\n/-- The item that cooling makes of `e ~> f`: each case is the right-hand side of `f`'s cooling\nrule, with the hole `e`. -/\ndef plug : {kitem_own} → {} → Option {}",
+        ty(na, hole_sort),
+        ty(na, "SortKItem")
+    )
+    .unwrap();
+    let mut projs: BTreeSet<String> = BTreeSet::new();
+    for c in cools.values() {
+        let mut body = format!("some {}", c.item);
+        for (s, y, x) in c.binds.iter().rev() {
+            projs.insert(s.clone());
+            body = format!("(proj_KItem_{s} {y}).bind fun {x} => {body}");
+        }
+        let pats = if c.pats.is_empty() {
+            String::new()
+        } else {
+            format!(" {}", c.pats.join(" "))
+        };
+        writeln!(t, "  | {}{pats}, {} => {body}", c.frz, c.hole).unwrap();
+    }
+    t.push_str("  | _, _ => none\n");
+    projs
+}
+
 /// One cooling rule: `HOLE ~> f(args) => item` (in `A`'s names, unqualified).
-struct Cool {
+pub(crate) struct Cool {
     frz: String,
     pats: Vec<String>,
     binds: Vec<(String, String, String)>,
@@ -867,6 +1238,7 @@ fn generate(a: &Lib, b: &Lib, syms: &[String], ns: &str, o: &Opts) -> (String, S
         b,
         tfs: &tfs,
         ty_sort: ty_sort.clone(),
+        ext: false,
     };
     let ty_ctor = |c: &str| format!("{nb}.{}", b.m.ctor_path(c));
     let eqs = funcs::equations(&b.def);
@@ -962,7 +1334,7 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
     for f in &tfs {
         let Some(es) = eqs.get(&f.sym) else { continue };
         for e in es.iter().filter(|e| !e.owise) {
-            match inversion(&cx, f, es, e) {
+            match inversion(&cx, f, es, e, false) {
                 Ok(inv) => {
                     let bs: Vec<String> = inv
                         .binders
@@ -1007,43 +1379,12 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
         eprintln!("soundness: no inversion lemma for {s}");
     }
     // ---- runtime typing
-    let top = rules::top_sort(&a.def).unwrap_or_else(|e| fail(&e));
-    let top_info = a.m.sort(&top);
-    let [top_ctor] = top_info.own.as_slice() else {
-        fail("the top cell is expected to have one constructor")
-    };
-    let cells: Vec<String> = a.m.ctors[top_ctor].args.clone();
-    struct Cell {
-        sort: String,
-        ctor: String,
-        label: String,
-        content: String,
-    }
-    let cells: Vec<Cell> = cells
-        .iter()
-        .map(|c| {
-            let info = a.m.sort(c);
-            let [cc] = info.own.as_slice() else {
-                fail(&format!("the cell {c} is expected to have one constructor"))
-            };
-            let ci = &a.m.ctors[cc];
-            let label = ci
-                .klabel
-                .trim_start_matches('<')
-                .trim_end_matches('>')
-                .to_string();
-            Cell {
-                sort: c.clone(),
-                ctor: format!("{na}.{}", a.m.ctor_path(cc)),
-                label,
-                content: ci.args.first().cloned().unwrap_or_default(),
-            }
-        })
-        .collect();
-    let kpos = cells
-        .iter()
-        .position(|c| c.content == "SortK")
-        .unwrap_or_else(|| fail("no cell holds the K sequence"));
+    let TopCells {
+        top,
+        top_ctor,
+        cells,
+        kpos,
+    } = top_cells(a);
     let store: Vec<usize> = o
         .store_cells
         .iter()
@@ -1054,23 +1395,9 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
                 .unwrap_or_else(|| fail(&format!("no cell <{l}> in the top cell")))
         })
         .collect();
-    let top_path = format!("{na}.{}", a.m.ctor_path(top_ctor));
+    let top_path = format!("{na}.{}", a.m.ctor_path(&top_ctor));
     // cooling rules → plug
-    let mut cools: BTreeMap<String, Cool> = BTreeMap::new();
-    for r in &a.rules {
-        if let Some(c) = cooling(r, kpos) {
-            if cools.contains_key(&c.frz) {
-                fail(&format!("two cooling rules for {}", c.frz));
-            }
-            cools.insert(c.frz.clone(), c);
-        }
-    }
-    let hole_sorts: BTreeSet<String> = cools.values().map(|c| c.hole_sort.clone()).collect();
-    let hole_sort = match hole_sorts.iter().collect::<Vec<_>>().as_slice() {
-        [h] => (*h).clone(),
-        [] => fail("no cooling rules"),
-        _ => fail("holes of several sorts are not supported"),
-    };
+    let (cools, hole_sort) = coolings(a, kpos);
     let ty_fn = tfs
         .iter()
         .find(|f| !f.accepts && f.sort == hole_sort)
@@ -1098,28 +1425,7 @@ Every lemma that computes the typing is `@[k2l_pres]`, so `k2l_preserve` unfolds
         writeln!(t, "  | {} => {v}", ty_ctor(c)).unwrap();
     }
     let kitem_own = ty(na, &a.m.own_ty("SortKItem"));
-    writeln!(
-        t,
-        "\nopen {na} in\n/-- The item that cooling makes of `e ~> f`: each case is the right-hand side of `f`'s cooling\nrule, with the hole `e`. -/\ndef plug : {kitem_own} → {} → Option {}",
-        ty(na, &hole_sort),
-        ty(na, "SortKItem")
-    )
-    .unwrap();
-    let mut projs: BTreeSet<String> = BTreeSet::new();
-    for c in cools.values() {
-        let mut body = format!("some {}", c.item);
-        for (s, y, x) in c.binds.iter().rev() {
-            projs.insert(s.clone());
-            body = format!("(proj_KItem_{s} {y}).bind fun {x} => {body}");
-        }
-        let pats = if c.pats.is_empty() {
-            String::new()
-        } else {
-            format!(" {}", c.pats.join(" "))
-        };
-        writeln!(t, "  | {}{pats}, {} => {body}", c.frz, c.hole).unwrap();
-    }
-    t.push_str("  | _, _ => none\n");
+    let projs = plug_def(a, &cools, &hole_sort, &mut t);
     // item0
     let kitem = a.m.sort("SortKItem");
     let mut item_arms: Vec<(String, String, String, String)> = Vec::new(); // (leaf, ctor, arg type, rhs)
@@ -1776,6 +2082,20 @@ theorem soundness {{G : TEnv}} {}\n    (hP : {} (tr_{} P) G = some true) {}\n   
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_call_on_names_bound_by_earlier_calls_is_matched_inside_them() {
+        let calls = [
+            ("lev G E1".to_string(), "r".to_string()),
+            ("lev G E2".to_string(), "r_1".to_string()),
+            ("K.join r r_1".to_string(), "r_2".to_string()),
+        ];
+        assert_eq!(
+            match_calls_nested(&calls, "some r_2", "none", ""),
+            "(match lev G E1, lev G E2 with\n  | some r, some r_1 => (match K.join r r_1 with\n    | some r_2 => some r_2\n    | _ => none)\n  | _, _ => none)"
+        );
+        assert!(mentions("K.join r r_1", "r_1") && !mentions("K.join r r_12", "r_1"));
+    }
 
     #[test]
     fn projection_hypotheses_are_read() {

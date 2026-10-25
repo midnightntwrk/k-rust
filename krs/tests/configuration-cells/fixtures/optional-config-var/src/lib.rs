@@ -1,5 +1,6 @@
 //! A `?` cell whose template reads the configuration variable `$START`
-//! starts present in K although it is not `initial`, which warns.
+//! starts present although it is not `initial`, which KRS refuses: the
+//! text says absent and the cell is present.
 
 use k::KResult;
 use k::builtin::{Int, KSequence};

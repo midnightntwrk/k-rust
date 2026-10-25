@@ -481,6 +481,9 @@ struct GeneratedNode {
     initializer: Term,
     leaf: bool,
     initializer_takes_map: bool,
+    /// Whether a leaf at or below the node holds a configuration or regular variable; a stream
+    /// or external cell below it makes its initializer take `Init` without one.
+    reads_variable: bool,
 }
 
 /// The sentences generated from one module's configurations, with what generating more asks
@@ -573,17 +576,20 @@ impl Generator<'_, '_> {
                 let mut child_sorts = Vec::new();
                 let mut initializers = Vec::new();
                 let mut initializer_takes_map = false;
+                let mut reads_variable = false;
                 for cell in cells {
                     let generated = self.generate(cell, None)?;
                     child_sorts.extend(generated.child_sorts);
                     initializers.push(generated.initializer);
                     initializer_takes_map |= generated.initializer_takes_map;
+                    reads_variable |= generated.reads_variable;
                 }
                 Ok(GeneratedNode {
                     child_sorts,
                     initializer: Term::apply(InternalLabel::Cells.as_str(), initializers),
                     leaf: false,
                     initializer_takes_map,
+                    reads_variable,
                 })
             }
             Term::Token { sort, .. } => Ok(GeneratedNode {
@@ -591,6 +597,7 @@ impl Generator<'_, '_> {
                 initializer: self.leaf_initializer(term)?,
                 leaf: true,
                 initializer_takes_map: has_configuration_or_regular_variable(term),
+                reads_variable: has_configuration_or_regular_variable(term),
             }),
             Term::Sequence(_) | Term::Variable { .. } | Term::InjectedLabel(_) => {
                 Ok(GeneratedNode {
@@ -598,6 +605,7 @@ impl Generator<'_, '_> {
                     initializer: self.leaf_initializer(term)?,
                     leaf: true,
                     initializer_takes_map: has_configuration_or_regular_variable(term),
+                    reads_variable: has_configuration_or_regular_variable(term),
                 })
             }
             Term::Apply { label, arguments } => {
@@ -644,6 +652,7 @@ impl Generator<'_, '_> {
                     initializer: self.leaf_initializer(term)?,
                     leaf: true,
                     initializer_takes_map: has_configuration_or_regular_variable(term),
+                    reads_variable: has_configuration_or_regular_variable(term),
                 })
             }
             Term::Rewrite { .. } | Term::As { .. } => {
@@ -728,6 +737,7 @@ impl Generator<'_, '_> {
             initializer,
             leaf: true,
             initializer_takes_map,
+            reads_variable: false,
         })
     }
 
@@ -831,12 +841,21 @@ impl Generator<'_, '_> {
             && has_variables
             && !properties.has(AttributeKey::Initial)
         {
+            let cause = if children.reads_variable {
+                format!(
+                    "Configuration variable found in declaration of collection cell <{cell_name}>."
+                )
+            } else {
+                format!(
+                    "Collection cell <{cell_name}> contains a stream cell, or an external cell whose initializer reads the configuration variables."
+                )
+            };
             self.diagnostics.push(Diagnostic::warning_at(
                 DiagnosticCode::CellCollectionVarWithoutInitial,
                 format!(
-                    "Configuration variable found in declaration of collection cell <{cell_name}>. Implicitly, this causes the initial configuration to start with one <{cell_name}> element instead of zero. Add the `initial=\"\"` attribute to make that behavior explicit."
+                    "{cause} Implicitly, this causes the initial configuration to start with one <{cell_name}> element instead of zero. Add the `initial=\"\"` attribute to make that behavior explicit."
                 ),
-                &Attributes::default(),
+                self.attributes,
             ));
         }
         let init_sort = if multiplicity == Multiplicity::Star {
@@ -930,6 +949,7 @@ impl Generator<'_, '_> {
             initializer,
             leaf: false,
             initializer_takes_map,
+            reads_variable: children.reads_variable,
         })
     }
 

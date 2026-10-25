@@ -931,7 +931,7 @@
       "error[krs::policy::raw-k-not-allowed]: `raw_k!` rule: raw K is an escape from A4; add `allow-raw-k = true` to [package.metadata.krs] to allow it in this package"
     ],
     "raw-strict": [
-      "error[krs::expand::raw-hook]: quoted hook `KRYPTO.keccak256`: raw K is an error under the strict profile (signature unchecked; native capability: implemented)",
+      "error[krs::expand::raw-hook]: quoted hook `KRYPTO.keccak256`: raw K is an error under the strict profile (signature unchecked; native capability: none on `--backend llvm`, which admits no plugin hook namespace, and implemented on `--backend haskell`)",
       "error[krs::semantic::raw-k]: `raw_k!` rule: raw K is an error under the strict profile (unchecked K text, opaque to KRS; K parses it with this package's grammar)"
     ],
     "raw-profile-strict": [
@@ -959,7 +959,7 @@
       "warning[krs::semantic::raw-k]: `raw_k!` rule: unchecked K text, opaque to KRS; K parses it with this package's grammar"
     ],
     "krs-builtin-raw-hook": [
-      "warning[krs::expand::raw-hook]: quoted hook `KRYPTO.keccak256`: signature unchecked; native capability: implemented",
+      "warning[krs::expand::raw-hook]: quoted hook `KRYPTO.keccak256`: signature unchecked; native capability: none on `--backend llvm`, which admits no plugin hook namespace, and implemented on `--backend haskell`",
       "warning[UnadmittedHookNamespace]: hook namespace `KRYPTO` of `hook(KRYPTO.keccak256)` is neither builtin nor selected with --hook-namespaces; the production compiles as an unhooked function"
     ]
   },

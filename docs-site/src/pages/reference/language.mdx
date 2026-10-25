@@ -300,7 +300,7 @@ A bracketed value reads by the cell's declared type, so `[Job { payload: p }, ..
 A bracketed value thus has up to four readings, the computation cell's head, a List collection's instances, a cons list's elements, and a builtin `List`'s elements, and the cell's declared type picks one: `[.., Job { payload: p }]` is the back instance of the collection `job` and, on a `List` cell, the list whose last element is the constructor `Job { payload: p }`.
 A value that reads only one way is read that way: a record with a shorthand field, `[.., Job { payload, .. }]`, reads only as elements, and `[Push(), ..]` or `[x, ..]` reads as a head or as elements; a rule has one computation cell, so when one cell's value reads only as a head, every other bracketed value is a collection or a list.
 The reference spelling `krs expand` prints writes the entry with the collection path, `Threads::thread: { me @ k::fragment![crate::Thread { .. }], instances0 @ .. }`, and the result `..instances0`.
-A `?` or `*` template that reads a configuration variable without `initial` warns (`krs::analysis::collection-config-var-without-initial`), because K then starts the cell present.
+A `?` or `*` cell whose template reads a configuration variable starts present, since the variable's input has to land in it, so the cell must say `initial`; without it the cell is rejected (`krs::analysis::collection-config-var-without-initial`), and every such cell is reported.
 Optional and collection entries are not allowed in a context alias or an equation's function context, which read fixed cells only (`krs::expand::cell-collection-placement`).
 
 ### Typed binders
@@ -1103,7 +1103,7 @@ A listed name must occur in the result and must not be bound by the clause's pat
 `#[k::cell(stream = "stdin")]` and `#[k::cell(stream = "stdout")]` connect a `List` cell to standard input or output, and the bare flag `#[k::cell(exit)]` makes an `Int` cell's final value the process exit status, like `std::process::exit`.
 I/O in K is configuration state: a rule reads by consuming the front of the input cell, `input: [x, ..] => input: [..]` (or `input: [x, rest @ ..] => input: rest`) with `where x: Int`, and prints by appending to the output cell, `output: out => output: [..out, x]`; K adds the rules that connect the cells to the process.
 K feeds input only to that read, so KRS emits it as K's `<input> ListItem(X:Int) => .List ... </input>` and rejects any other rule over a stdin cell.
-A stream cell starts as `list::empty()`, because K replaces its content with the stream; at most one cell connects to each stream, at most one cell is the exit cell and it is outside every repeated cell, and the computation cell is neither (`krs::analysis::console-cell`).
+A stream cell starts as `list::empty()`, because K replaces its content with the stream; at most one cell connects to each stream and it is outside every repeated cell, at most one cell is the exit cell and it is outside every repeated cell, and the computation cell is neither (`krs::analysis::console-cell`).
 Configuration initializers accept such ground terms directly: `input: list::empty()`, `status: 1`.
 `krs run` reads standard input to end of file before the first step, as `krun --io off` does, prints what the output cell holds when the run ends, and exits with the exit cell's value; give the program as a file, because FILE `-` and the stdin cell would both read standard input.
 Because I/O is state, search and rollback stay sound, but K's search has no console I/O, so `krs search` refuses a definition with stream cells; `krs prove` treats them as ordinary List cells.
@@ -1374,7 +1374,7 @@ Java K evaluates a hook outside its default namespaces only when `kompile` is gi
 `k::raw_k!(r#"rule <k> double(I:Int) => I +Int I ... </k> [label(raw-double)]"#)` is one K `rule`, `claim`, or `context`, with no `module`, `endmodule`, or `imports`; KRS prints it verbatim in the package's semantics module after a `// raw_k! src/lib.rs:L:C (opaque to KRS)` comment, and K parses it with that module's grammar, so a K parse error fails the build on every route.
 Treat a `raw_k!` as a TODO marker: KRS does not check it, its names are the emitted K names, it takes part in no overlap check, and it is the full module of every builtin sort the package uses that its text can see.
 A package admits either escape only with `allow-raw-k = true` in `[package.metadata.krs]`; without it each one is an error (`krs::policy::raw-k-not-allowed`).
-With it, every build warns once per use (`krs::expand::raw-hook`, naming the hook's native capability, and `krs::semantic::raw-k`), and `profile = "strict"` or `krs --profile strict` turns the warnings into errors.
+With it, every build warns once per use (`krs::expand::raw-hook`, naming the hook's native capability, per backend for a plugin hook such as `KRYPTO.*`, which `--backend llvm` does not admit, and `krs::semantic::raw-k`), and `profile = "strict"` or `krs --profile strict` turns the warnings into errors.
 
 ## Running a definition
 

@@ -36,13 +36,17 @@ relate_noninterference() {
 
 # libs_noninterference NS: the noninterference scaffold of demo NS (ImpNI: kimp, with the checker
 # demos/k/imp-sec.k in the hand module NS/Hand.lean; needs libs_relate NS for the translation of
-# programs), `NS/NI.lean`, and its report `NS/noninterference.toml`.
+# programs), `NS/NI.lean`, the relation generated from the checker (`NS/Levels.lean`,
+# `NS/Stack.lean`, `NS/Proof.lean`, around the hand module `NS/Store.lean` and the open list
+# `open.txt`), and its report `NS/noninterference.toml`.
 libs_noninterference() {
   case $1 in
     ImpNI) "$G" noninterference --kore "$(kore_dir kimp)/definition.kore" --name KImp --ns ImpNI \
         --store-cell env --program-sort SortStmt --params "(G : KImpSec.SortMap)" \
         --secure "secure G" --low-eq "lowEq G" \
-        --out "$DEMOS/ImpNI/ImpNI/NI.lean" --report "$DEMOS/ImpNI/noninterference.toml" ;;
+        --out "$DEMOS/ImpNI/ImpNI/NI.lean" --report "$DEMOS/ImpNI/noninterference.toml" \
+        --checker-kore "$(kore_dir imp-sec)/definition.kore" --checker-name KImpSec --lev lev --sec sec --conf conf \
+        --open "$DEMOS/ImpNI/open.txt" --out-dir "$DEMOS/ImpNI/ImpNI" ;;
     *) echo "libs_noninterference: unknown demo $1" >&2; return 2 ;;
   esac
 }

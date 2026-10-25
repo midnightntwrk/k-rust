@@ -16,6 +16,12 @@ pub struct Account {
 
 #[k::cell]
 pub struct Accounts {
-    #[k::cell(name = "account", multiplicity = "*", cell_type = "Map", nested)]
+    #[k::cell(
+        name = "account",
+        multiplicity = "*",
+        cell_type = "Map",
+        initial,
+        nested
+    )]
     pub account: Account,
 }

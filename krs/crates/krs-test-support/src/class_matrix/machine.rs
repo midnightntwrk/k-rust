@@ -1,6 +1,8 @@
 //! The configuration families: readable records, readable claims, initializers, and the
 //! strict-subsort axis over typed cells.
 
+use std::sync::LazyLock;
+
 use super::{
     Base, BaseText, Case, CaseSpec, CellKind, Command, Family, ItemBuilder, OwnReason, Packaging,
     Side,
@@ -107,6 +109,59 @@ pub(super) fn machine_base() -> BaseText {
         before_commands: MACHINE_BEFORE_COMMANDS,
         after_commands: MACHINE_AFTER_COMMANDS,
         initializer: MACHINE_INITIALIZER,
+        after_initializer: "",
+    }
+}
+
+/// The machine's one-child group, which the nested base replaces.
+const MACHINE_FRAME: &str = "/// A nested group with one child.
+#[k::cell]
+pub struct Frame {
+    #[k::cell]
+    pub ret: Int,
+}
+";
+
+/// The nested base's group: two children, `ret` declared first.
+const NESTED_FRAME: &str = "/// A nested group with two children.
+#[k::cell]
+pub struct Frame {
+    #[k::cell]
+    pub ret: Int,
+    #[k::cell]
+    pub aux: Int,
+}
+";
+
+/// The nested base's initializer, field by field: the machine's, with both children of `frame`
+/// in declaration order and distinct values, so that a K which swaps them shows it.
+const NESTED_FIELDS: [(&str, &str); 7] = [
+    ("k", "k::k![pgm]"),
+    ("pc", "0"),
+    ("stack", "list::empty()"),
+    ("env", "k::map![]"),
+    ("frame", "Frame { ret: 0, aux: 1 }"),
+    ("counter", "Some(0)"),
+    ("queue", "Queue { job: Job { payload: 0 } }"),
+];
+
+/// The machine base with [`NESTED_FRAME`] in place of its group.
+static NESTED_AFTER_COMMANDS: LazyLock<String> = LazyLock::new(|| {
+    assert!(
+        MACHINE_AFTER_COMMANDS.contains(MACHINE_FRAME),
+        "the machine base declares its group"
+    );
+    MACHINE_AFTER_COMMANDS.replacen(MACHINE_FRAME, NESTED_FRAME, 1)
+});
+
+static NESTED_INITIALIZER: LazyLock<String> =
+    LazyLock::new(|| base_initializer(MACHINE_HEADER, &NESTED_FIELDS));
+
+pub(super) fn nested_base() -> BaseText {
+    BaseText {
+        before_commands: MACHINE_BEFORE_COMMANDS,
+        after_commands: NESTED_AFTER_COMMANDS.as_str(),
+        initializer: NESTED_INITIALIZER.as_str(),
         after_initializer: "",
     }
 }
@@ -281,43 +336,56 @@ const INITIALIZER_VALUES: [&str; 16] = [
     "Job { payload: 0 }",
 ];
 
+/// A computation cell's value with a remainder: a command item, then the configuration
+/// variable's sequence after it, `Go ~> $PGM`. Only a `k!` takes a remainder, so the value
+/// stands in the computation cell alone.
+const COMPUTATION_REMAINDER: &str = "k::k![Cmd::Go(), ..pgm]";
+
 /// Initializers: 7 kinds × 16 values, each value in place of the base's value of that kind's
-/// cell (for the collection, in place of its parent's instance template), and the field-order
-/// axis: the base's initializer with its fields reordered.
+/// cell (for the collection, in place of its parent's instance template), the computation
+/// cell's remainder, and the field-order axis: the base's initializer with its fields
+/// reordered.
 pub(super) fn initializers(cases: &mut Vec<Case>) {
     for kind in CellKind::ALL {
         for value in INITIALIZER_VALUES {
-            let spec = CaseSpec {
-                family: Family::Init,
-                base: Base::Machine,
-                side: Side::Initializer,
-                kind: Some(kind),
-                slot: vec![machine_cell(kind).to_owned()],
-                construct: value.to_owned(),
-            };
-            let mut item = ItemBuilder::new();
-            initializer(
-                &mut item,
-                MACHINE_HEADER,
-                &MACHINE_FIELDS,
-                |item, cell, base_value| {
-                    if cell == machine_cell(kind) {
-                        item.entry(cell, value);
-                    } else if kind == CellKind::Collection && cell == "queue" {
-                        item.push("queue: Queue { ").entry("job", value).push(" }");
-                    } else {
-                        item.push(cell).push(": ").push(base_value);
-                    }
-                },
-            );
-            cases.push(spec.finish(Packaging::Own(OwnReason::Initializer), &item));
+            cases.push(cell_value(kind, value));
         }
     }
+    cases.push(cell_value(CellKind::KSequence, COMPUTATION_REMAINDER));
     field_order(cases);
 }
 
+/// The machine's initializer with `value` as the value of `kind`'s cell.
+fn cell_value(kind: CellKind, value: &str) -> Case {
+    let spec = CaseSpec {
+        family: Family::Init,
+        base: Base::Machine,
+        side: Side::Initializer,
+        kind: Some(kind),
+        slot: vec![machine_cell(kind).to_owned()],
+        construct: value.to_owned(),
+    };
+    let mut item = ItemBuilder::new();
+    initializer(
+        &mut item,
+        MACHINE_HEADER,
+        &MACHINE_FIELDS,
+        |item, cell, base_value| {
+            if cell == machine_cell(kind) {
+                item.entry(cell, value);
+            } else if kind == CellKind::Collection && cell == "queue" {
+                item.push("queue: Queue { ").entry("job", value).push(" }");
+            } else {
+                item.push(cell).push(": ").push(base_value);
+            }
+        },
+    );
+    spec.finish(Packaging::Own(OwnReason::Initializer), &item)
+}
+
 /// The field-order axis: a Rust struct literal's field order has no meaning, so every
-/// order is the base's initializer. The construct is the whole field list.
+/// order is the base's initializer. The construct is the whole field list; for the nested
+/// group's order, on the nested base, it is the group's field list.
 fn field_order(cases: &mut Vec<Case>) {
     let mut reversed = MACHINE_FIELDS;
     reversed.reverse();
@@ -351,6 +419,38 @@ fn field_order(cases: &mut Vec<Case>) {
         item.entry = Some(range);
         cases.push(spec.finish(Packaging::Own(OwnReason::Initializer), &item));
     }
+    cases.push(nested_reversed());
+}
+
+/// The nested base's initializer with its group's two children in the reverse of their
+/// declaration order. The spelling is the group's field list, the entry the group's cell entry.
+fn nested_reversed() -> Case {
+    let spec = CaseSpec {
+        family: Family::Init,
+        base: Base::Nested,
+        side: Side::Initializer,
+        kind: None,
+        slot: vec!["order".to_owned()],
+        construct: "nested-reversed".to_owned(),
+    };
+    let mut item = ItemBuilder::new();
+    initializer(
+        &mut item,
+        MACHINE_HEADER,
+        &NESTED_FIELDS,
+        |item, cell, value| {
+            if cell == "frame" {
+                let start = item.text.len();
+                item.push("frame: Frame { ")
+                    .spelling("aux: 1, ret: 0")
+                    .push(" }");
+                item.entry = Some(start..item.text.len());
+            } else {
+                item.push(cell).push(": ").push(value);
+            }
+        },
+    );
+    spec.finish(Packaging::Own(OwnReason::Initializer), &item)
 }
 
 /// The machine's initializer up to its first field.

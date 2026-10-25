@@ -12,8 +12,9 @@
 //!   result}, `readable/result/pc/Some(x)`;
 //! - `cells!` rules: 7 cell kinds × 13 subject and 11 result spellings of the reference form,
 //!   `cells/subject/stack/k::configuration::Cell(x)`;
-//! - initializers: 7 cell kinds × 16 values, `init/k/k::k![]`, and three field orders,
-//!   `init/order/reversed`;
+//! - initializers: 7 cell kinds × 16 values, `init/k/k::k![]`, a remainder after a computation
+//!   item, `init/k/k::k![Cmd::Go(), ..pgm]`, three field orders, `init/order/reversed`, and a
+//!   two-child group's children in reverse order, `init/order/nested-reversed`;
 //! - the strict-subsort axis (`Int ≤ Value ≤ Stmt ≤ KItem`): an `Int` literal, a `Value` and a
 //!   `Stmt` constructor and an `Int` binder in the `Value`, `Stmt` and `KItem` leaves, a typed
 //!   `List` element and `Map` value, a group child, an optional cell and a collection instance,
@@ -119,11 +120,20 @@ pub enum Base {
     Terms,
     /// The term base with its constructors imported at module level.
     Imported,
+    /// The machine base with a two-child group, `Frame { ret, aux }`, for the order of a nested
+    /// initializer's children: its only case is an initializer.
+    Nested,
 }
 
 impl Base {
     /// Every base.
-    pub const ALL: [Self; 4] = [Self::Machine, Self::Typed, Self::Terms, Self::Imported];
+    pub const ALL: [Self; 5] = [
+        Self::Machine,
+        Self::Typed,
+        Self::Terms,
+        Self::Imported,
+        Self::Nested,
+    ];
 
     /// The base's own source, with no case: its default initializer and no command.
     #[must_use]
@@ -137,6 +147,7 @@ impl Base {
             Self::Typed => machine::typed_base(),
             Self::Terms => terms::base(false),
             Self::Imported => terms::base(true),
+            Self::Nested => machine::nested_base(),
         }
     }
 }

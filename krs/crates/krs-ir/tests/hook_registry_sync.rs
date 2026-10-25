@@ -104,6 +104,18 @@ fn registry_matches_k_rust_hook_capabilities() {
 }
 
 #[test]
+fn the_crypto_hooks_are_the_plugin_namespaces() {
+    for hook in HOOK_REGISTRY {
+        assert_eq!(
+            hook.is_plugin(),
+            ["HASH", "KRYPTO", "SECP256K1"].contains(&hook.namespace()),
+            "{}",
+            hook.name
+        );
+    }
+}
+
+#[test]
 fn every_catalogued_hook_is_registered() {
     for operation in krs_ir::HookOperation::ALL {
         let name = operation.spec().k_hook;

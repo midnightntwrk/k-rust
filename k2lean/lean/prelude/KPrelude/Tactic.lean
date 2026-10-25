@@ -2,6 +2,7 @@ import Lean
 import KPrelude.Coll
 import KPrelude.Ext
 import KPrelude.HookLaws
+import KPrelude.FamilyCases
 
 /-!
 # Tactics used by generated proofs
@@ -93,18 +94,24 @@ elab "k2l_case_rec " "[" fs:ident,+ "]" : tactic => do
       let (_, g') ← s.mvarId.introNP fvs.size
       pure g'
 
-/-- `k2l_case_discr`: case on a variable of a generated sort (an inductive type `Sort…`) that a
-`match` in the goal inspects, so that the cascade of a function's equations reduces. -/
+/-- `k2l_case_discr`: case on a variable of a generated sort (an inductive type `Sort…`, or a
+term of the arity-indexed family, split by `familyCases`) that a `match` in the goal inspects, so
+that the cascade of a function's equations reduces. -/
 elab "k2l_case_discr" : tactic => do
   liftMetaTactic fun g => g.withContext do
     let env ← getEnv
     let tgt ← instantiateMVars (← g.getType)
     let lctx ← getLCtx
+    -- the family `Term`, or a sort's abbreviation `S := Term .S`
+    let family (n : Name) : Bool := isFamilyName env n ||
+      (match env.find? n with
+        | some (.defnInfo v) => v.value.getAppFn.constName?.any (isFamilyName env)
+        | _ => false)
     let sortVar (d : Expr) : Bool :=
       d.isFVar && (match lctx.find? d.fvarId! with
         | some decl => match decl.type.getAppFn with
-          | .const n _ => (match n with | .str _ s => s.startsWith "Sort" | _ => false) &&
-              (match env.find? n with | some (.inductInfo _) => true | _ => false)
+          | .const n _ => ((match n with | .str _ s => s.startsWith "Sort" | _ => false) &&
+              (match env.find? n with | some (.inductInfo _) => true | _ => false)) || family n
           | _ => false
         | none => false)
     let discrVar (s : Expr) : Option Expr := do
@@ -114,8 +121,7 @@ elab "k2l_case_discr" : tactic => do
       (args.extract (info.numParams + 1) (info.numParams + 1 + info.numDiscrs)).find? sortVar
     let some d := tgt.find? (fun s => (discrVar s).isSome) >>= discrVar
       | throwError "k2l_case_discr: no match on a variable"
-    let gs ← g.cases d.fvarId!
-    pure (gs.toList.map (·.mvarId))
+    return (← familyCases g d.fvarId!).toList.map (·.1)
 
 /-! ## Equations that need more than unfolding -/
 
@@ -135,23 +141,61 @@ macro "k2l_hook_law" : tactic => `(tactic| first
   | (with_reducible apply KPrelude.StringHook.replaceFirst_eqn2 <;> assumption)
   | (with_reducible apply KPrelude.StringHook.countAllOccurrences_eqn1 <;> assumption))
 
+declare_syntax_cat k2lPat
+syntax "_" : k2lPat
+syntax ident : k2lPat
+syntax "⟨" k2lPat,* "⟩" : k2lPat
+
+/-- Apply the pattern `pat` to the term `e` in goal `g`: `_` leaves it, a name renames a variable,
+`⟨p0, …⟩` cases on a variable by `familyCases` and applies `pi` to the `i`-th argument of each
+remaining goal's constructor. -/
+partial def applyK2lPat (g : MVarId) (e : Expr) (pat : TSyntax `k2lPat) : MetaM (List MVarId) := do
+  match pat with
+  | `(k2lPat| _) => return [g]
+  | `(k2lPat| $n:ident) =>
+    if e.isFVar then return [← g.rename e.fvarId! n.getId] else return [g]
+  | `(k2lPat| ⟨$ps,*⟩) =>
+    unless e.isFVar do return [g]
+    let ps := ps.getElems
+    let mut out := []
+    for (g', args) in ← familyCases g e.fvarId! do
+      let mut gs := [g']
+      for i in [0:ps.size] do
+        let some a := args[i]? | break
+        let mut next := []
+        for h in gs do
+          next := next ++ (← applyK2lPat h a ps[i]!)
+        gs := next
+      out := out ++ gs
+    return out
+  | _ => throwUnsupportedSyntax
+
+/-- `k2l_cases x` (or `k2l_cases x with ⟨p0, …⟩`): cases on `x`, nested as the pattern says, as
+`rcases` does on a type with one constructor per value shape, but on the arity-indexed family
+with the impossible constructors refuted (`familyCases`), so the goals left are exactly those
+of the K constructors and leaves of `x`'s sort, as in the one type per sort encoding. -/
+syntax (name := k2lCases) "k2l_cases " term (" with " k2lPat)? : tactic
+
+elab_rules : tactic
+  | `(tactic| k2l_cases $x $[with $p]?) => withMainContext do
+    let e ← elabTerm x none
+    let pat ← match p with
+      | some p => pure p
+      | none => `(k2lPat| ⟨⟩)
+    replaceMainGoal (← applyK2lPat (← getMainGoal) e pat)
+
 /-- `k2l_case_inj`: case on a variable of a generated sort that is the argument of an injection
 function `inj_…` in the goal. An injection is defined by cases on its argument, so after the split
 it reduces: a `match` of the cascade on the injected term (the pattern of another subsort) then
 reduces too, which `simp` cannot do on the variable. Fails when there is no such variable.
 
 A generated sort is an inductive type `Sort…` (one type per sort), or `Term t` of the
-arity-indexed family. In the family a value of a sort with subsorts is a leaf injection
-`Term.inj hs l h a`, whose leaf tag `l` is a variable after the split, constrained only by
-`h : leafOK t l = true`; the tag is split too, and every tag whose `leafOK` (or `hasLeaves`)
-hypothesis evaluates to `false` is closed, so the cases left are the sort's leaves. -/
+arity-indexed family; on the family the split is `familyCases` without the enumeration split. -/
 elab "k2l_case_inj" : tactic => do
   liftMetaTactic fun g => g.withContext do
     let env ← getEnv
     let tgt ← instantiateMVars (← g.getType)
     let lctx ← getLCtx
-    let isFamily (n : Name) : Bool := (match n with | .str _ "Term" => true | _ => false) &&
-      (match env.find? n with | some (.inductInfo _) => true | _ => false)
     let sortVar (d : Expr) : MetaM Bool := do
       if !d.isFVar then return false
       let some decl := lctx.find? d.fvarId! | return false
@@ -161,7 +205,7 @@ elab "k2l_case_inj" : tactic => do
             (match env.find? n with | some (.inductInfo _) => true | _ => false) then
           return true
         let t ← whnfR decl.type
-        return (match t.getAppFn with | .const m _ => isFamily m | _ => false)
+        return (match t.getAppFn with | .const m _ => isFamilyName env m | _ => false)
       | _ => return false
     let cands ← IO.mkRef (#[] : Array Expr)
     tgt.forEach fun e => match e.getAppFn with
@@ -177,35 +221,7 @@ elab "k2l_case_inj" : tactic => do
         found := some a.fvarId!
         break
     let some x := found | throwError "k2l_case_inj: no injected variable"
-    -- a goal of the family with a hypothesis `leafOK t l = true` or `hasLeaves t = true` that
-    -- evaluates to `false = true` is closed
-    let refuted (m : MVarId) : MetaM Bool := m.withContext do
-      for d in (← getLCtx) do
-        if d.isImplementationDetail then continue
-        let some (_, lhs, rhs) := (← instantiateMVars d.type).eq? | continue
-        unless rhs.isConstOf ``Bool.true do continue
-        unless (match lhs.getAppFn with
-          | .const (.str _ f) _ => f == "leafOK" || f == "hasLeaves" | _ => false) do continue
-        let v ← try whnfD lhs catch _ => pure lhs
-        if v.isConstOf ``Bool.false then
-          m.assign (← mkAbsurd (← m.getType) d.toExpr (mkConst ``Bool.false_ne_true))
-          return true
-      return false
-    let gs ← g.cases x
-    unless (← whnfR (← x.getType)).getAppFn.constName?.any isFamily do
-      return gs.toList.map (·.mvarId)
-    let mut out := #[]
-    for sg in gs do
-      let n := sg.fields.size
-      if (match sg.ctorName with | some (.str p "inj") => isFamily p | _ => false) && n ≥ 4 &&
-          sg.fields[n - 3]!.isFVar then
-        for lg in ← sg.mvarId.cases sg.fields[n - 3]!.fvarId! do
-          unless ← refuted lg.mvarId do out := out.push lg.mvarId
-      else
-        -- another constructor of the family: its enumeration `Ck t` is empty at most indices
-        unless ← (try (do sg.mvarId.contradiction; pure true) catch _ => pure false) do
-          out := out.push sg.mvarId
-    pure out.toList
+    return (← familyCases g x (splitEnum := false)).toList.map (·.1)
 
 end KPrelude
 

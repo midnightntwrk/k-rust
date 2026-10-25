@@ -2079,7 +2079,13 @@ pub struct Account {
 
 #[k::cell]
 pub struct Accounts {
-    #[k::cell(name = "account", multiplicity = "*", cell_type = "Map", nested)]
+    #[k::cell(
+        name = "account",
+        multiplicity = "*",
+        cell_type = "Map",
+        initial,
+        nested
+    )]
     pub account: Account,
 }
 
@@ -5605,7 +5611,7 @@ mod tests {
         assert!(
             source
                 .source()
-                .contains("<account multiplicity=\"*\" type=\"Map\">")
+                .contains("<account multiplicity=\"*\" type=\"Map\" initial=\"\">")
         );
         let storage_load = source
             .source()

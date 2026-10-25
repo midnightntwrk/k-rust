@@ -10,7 +10,10 @@ the generated `Invariant.preserved` gives `Typing.lean`'s `Step.wt`.
 The two predicates differ only in how they say that a key is an `Id`: the generated one by the
 projection (`∃ y, proj_KItem_Id k = some y`, the form it uses for every declared sort, since a
 sort with subsorts such as `Value` has no single injection constructor), `Typing.lean` by the
-constructor (`∃ y, k = SortKItem.inj_Id y`). `proj_eq_some_KItem_Id` makes them equal. -/
+constructor (`∃ y, k = SortKItem.inj_Id y`). `proj_eq_some_KItem_Id` makes them equal.
+
+The configuration is split by `k2l_cases`, which in the arity-indexed universe also refutes the
+constructors of the term family that no configuration has, and is `rcases` in the other. -/
 
 namespace KrsImpTypingSidecar
 
@@ -26,7 +29,7 @@ theorem entry_iff (p : SortKItem × SortKItem) : Invariant.entry_env p ↔ Typin
 
 /-- The generated invariant is `Typing.lean`'s `WT`. -/
 theorem inv_iff_wt (c : SortGeneratedTopCell) : Invariant c ↔ Typing.WT c := by
-  obtain ⟨_, ⟨m⟩, _⟩ := c
+  k2l_cases c with ⟨_, ⟨m⟩, _⟩
   simp only [Invariant, Invariant.declared_env, Invariant.cell_env, Invariant.content_env, Typing.WT, Typing.EnvOk,
     MapHook.EntriesOn, entry_iff]
 

@@ -17,7 +17,7 @@ use krs_ir_levels::{
 
 use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
 use super::collection_types::{CollectionTyping, Root, SortType, Walker};
-use super::error::DescriptorLoweringError;
+use super::error::{DescriptorLoweringError, ImplicitPresentCell};
 use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
 use super::origin::{generated_semantic_id, key_range, semantic_cell_id, semantic_origin};
 use super::references::require_cell_field;
@@ -100,6 +100,7 @@ pub(super) fn lower_fixed_configuration_descriptor(
         .collect::<Result<Vec<_>, _>>()?;
     console.check_initializers(&initializer)?;
     check_configuration_variables_read(descriptor, configuration, &initializer)?;
+    check_explicit_presence(&cells, &initializer, &binding_sorts)?;
     let initializer_id = SemanticId::new(format!("{}.init", configuration_id.as_str()))?;
     Ok(FixedConfiguration::new(
         semantic_origin(
@@ -173,6 +174,15 @@ struct CellScope<'a> {
     repeated: Option<String>,
 }
 
+/// How a `stream` or `exit` cell sits in its repeated ancestor, which may be the cell itself.
+fn within_repeated(name: &str, repeated: &str) -> String {
+    if name == repeated {
+        "is a repeated cell".to_owned()
+    } else {
+        format!("is inside the repeated cell `{repeated}`")
+    }
+}
+
 fn console_error(reason: String, origin: &NodeOrigin) -> DescriptorLoweringError {
     DescriptorLoweringError::InvalidConsoleCell {
         reason,
@@ -218,6 +228,17 @@ impl ConsoleCells {
                         origin,
                     ));
                 }
+                // A stream is one channel, and a cell below a `?` or `*` cell is not one cell: it
+                // has as many instances as its repeated ancestor, none when that is absent.
+                if let Some(repeated) = repeated {
+                    return Err(console_error(
+                        format!(
+                            "stream cell `{name}` {}; K connects a stream to one cell, so it must be outside every multiplicity cell",
+                            within_repeated(name, repeated)
+                        ),
+                        origin,
+                    ));
+                }
                 if let Some((first, ..)) = self.streams.get(value) {
                     return Err(console_error(
                         format!(
@@ -256,7 +277,8 @@ impl ConsoleCells {
                 if let Some(repeated) = repeated {
                     return Err(console_error(
                         format!(
-                            "exit cell `{name}` is inside the repeated cell `{repeated}`; K reads the exit status from one cell, so it must be outside every multiplicity cell"
+                            "exit cell `{name}` {}; K reads the exit status from one cell, so it must be outside every multiplicity cell",
+                            within_repeated(name, repeated)
                         ),
                         origin,
                     ));
@@ -525,13 +547,11 @@ fn initializer_typing(
     walker.run(&output)
 }
 
-/// Checks that some cell's initial content reads each configuration variable: one that none
-/// reads gives its input nowhere to go, and the parameter is what the author removes or places.
-fn check_configuration_variables_read(
-    descriptor: &Descriptor,
-    configuration: &krs_ir::DescriptorFixedConfiguration,
-    initializer: &[FixedInitializerCell<SemanticId, SemanticTerm>],
-) -> Result<(), DescriptorLoweringError> {
+/// Adds the variables the initial content of `cell` and the cells inside it reads to `read`.
+fn read_cell<'t>(
+    cell: &'t FixedInitializerCell<SemanticId, SemanticTerm>,
+    read: &mut BTreeSet<&'t str>,
+) {
     fn read_variables<'t>(term: &'t SemanticTerm, read: &mut BTreeSet<&'t str>) {
         if let IrTermKind::Variable { variable } = term.kind() {
             read.insert(variable.as_str());
@@ -540,19 +560,23 @@ fn check_configuration_variables_read(
             read_variables(child, read);
         }
     }
-    fn read_cell<'t>(
-        cell: &'t FixedInitializerCell<SemanticId, SemanticTerm>,
-        read: &mut BTreeSet<&'t str>,
-    ) {
-        match cell.content() {
-            FixedInitializerContent::Term { term } => read_variables(term, read),
-            FixedInitializerContent::Children { children } => {
-                for child in children {
-                    read_cell(child, read);
-                }
+    match cell.content() {
+        FixedInitializerContent::Term { term } => read_variables(term, read),
+        FixedInitializerContent::Children { children } => {
+            for child in children {
+                read_cell(child, read);
             }
         }
     }
+}
+
+/// Checks that some cell's initial content reads each configuration variable: one that none
+/// reads gives its input nowhere to go, and the parameter is what the author removes or places.
+fn check_configuration_variables_read(
+    descriptor: &Descriptor,
+    configuration: &krs_ir::DescriptorFixedConfiguration,
+    initializer: &[FixedInitializerCell<SemanticId, SemanticTerm>],
+) -> Result<(), DescriptorLoweringError> {
     let mut read = BTreeSet::new();
     for cell in initializer {
         read_cell(cell, &mut read);
@@ -571,6 +595,77 @@ fn check_configuration_variables_read(
             unused.binding, unused.external_name
         ),
         range: key_range(descriptor, &unused.binding_key).map(Box::new),
+        item: None,
+    })
+}
+
+/// Refuses every optional or collection cell that starts present without saying so (KF-023).
+///
+/// Such a cell starts absent unless it is `initial`, with one exception: a template that reads a
+/// configuration variable has to be instantiated at the start, or the variable's input would have
+/// nowhere to go, so that cell starts present whatever its attributes say. Its text then says
+/// absent and means present, and `initial` is the word that makes the two agree, without
+/// changing the meaning. Each cell lacks its own `initial`, so every such cell is reported,
+/// including one inside another.
+fn check_explicit_presence(
+    cells: &[FixedCell<SemanticSortRef, SemanticId>],
+    initializer: &[FixedInitializerCell<SemanticId, SemanticTerm>],
+    variables: &BTreeMap<String, SemanticSortRef>,
+) -> Result<(), DescriptorLoweringError> {
+    fn declared<'a>(
+        cells: &'a [FixedCell<SemanticSortRef, SemanticId>],
+        by_id: &mut BTreeMap<&'a SemanticId, &'a FixedCell<SemanticSortRef, SemanticId>>,
+    ) {
+        for cell in cells {
+            by_id.insert(cell.id(), cell);
+            if let krs_ir::FixedCellContent::Children { children } = cell.content() {
+                declared(children, by_id);
+            }
+        }
+    }
+    fn walk(
+        initializer: &FixedInitializerCell<SemanticId, SemanticTerm>,
+        cells: &BTreeMap<&SemanticId, &FixedCell<SemanticSortRef, SemanticId>>,
+        variables: &BTreeMap<String, SemanticSortRef>,
+        present: &mut Vec<ImplicitPresentCell>,
+    ) {
+        if let Some(cell) = cells.get(initializer.cell())
+            && let Some(multiplicity) = cell.multiplicity()
+            && !cell.is_initial()
+        {
+            let mut read = BTreeSet::new();
+            read_cell(initializer, &mut read);
+            if read
+                .into_iter()
+                .any(|variable| variables.contains_key(variable))
+            {
+                present.push(ImplicitPresentCell {
+                    reason: format!(
+                        "the `multiplicity = \"{}\"` cell `{}` reads a configuration variable, so it starts present although it is not `initial`; add `initial` to its `#[k::cell]` to say so",
+                        multiplicity.as_str(),
+                        cell.name(),
+                    ),
+                    range: cell.origin().origin().exact_authored_range().map(Box::new),
+                });
+            }
+        }
+        if let FixedInitializerContent::Children { children } = initializer.content() {
+            for child in children {
+                walk(child, cells, variables, present);
+            }
+        }
+    }
+    let mut by_id = BTreeMap::new();
+    declared(cells, &mut by_id);
+    let mut present = Vec::new();
+    for cell in initializer {
+        walk(cell, &by_id, variables, &mut present);
+    }
+    if present.is_empty() {
+        return Ok(());
+    }
+    Err(DescriptorLoweringError::ImplicitPresence {
+        cells: present,
         item: None,
     })
 }

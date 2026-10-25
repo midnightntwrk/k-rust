@@ -48,7 +48,11 @@ impl DiagnosticSources {
         let level = diagnostic_level(envelope.severity.into());
         let internal = envelope.kind == CodeKind::Internal;
         let title = if internal {
-            format!("internal error (a KRS bug): {}", envelope.message)
+            let what = match Severity::from(envelope.severity) {
+                Severity::Error => "error",
+                Severity::Warning => "warning",
+            };
+            format!("internal {what} (a KRS bug): {}", envelope.message)
         } else {
             envelope.message.clone()
         };
@@ -387,6 +391,21 @@ mod tests {
         assert_eq!(envelope.kind, CodeKind::Internal);
         expect![[r"
             error[krs::analysis::invalid-semantic-theory]: internal error (a KRS bug): declared variables must exactly match sentence uses
+              |
+              = help: this is a bug in KRS, not in the program: please report it with the source that reached it"]]
+        .assert_eq(&DiagnosticSources::default().render_envelope(&envelope, false));
+    }
+
+    #[test]
+    fn internal_warning_is_rendered_as_a_krs_bug() {
+        let mut envelope = DiagnosticEnvelope::unlocated(
+            DiagnosticStage::Native,
+            krs_diagnostic::Code::foreign("CellCollectionVarWithoutInitial", CodeKind::Internal),
+            "Configuration variable found in declaration of collection cell <counter>.",
+        );
+        envelope.severity = DiagnosticSeverity::Warning;
+        expect![[r"
+            warning[CellCollectionVarWithoutInitial]: internal warning (a KRS bug): Configuration variable found in declaration of collection cell <counter>.
               |
               = help: this is a bug in KRS, not in the program: please report it with the source that reached it"]]
         .assert_eq(&DiagnosticSources::default().render_envelope(&envelope, false));

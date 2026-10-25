@@ -57,6 +57,14 @@ pub struct RegisteredHook {
 }
 
 impl RegisteredHook {
+    /// Whether the hook is in a plugin hook namespace (`KRYPTO`, `HASH`, `SECP256K1`), outside
+    /// K's builtin ones: the pin classifies exactly those hooks as crypto hooks, which carry an
+    /// arity. A backend admits a plugin namespace only if it implements it.
+    #[must_use]
+    pub const fn is_plugin(&self) -> bool {
+        self.crypto_arity.is_some()
+    }
+
     /// The namespace before the first `.`.
     #[must_use]
     pub fn namespace(&self) -> &'static str {

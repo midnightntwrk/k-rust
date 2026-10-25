@@ -86,8 +86,9 @@ fn the_case_count_per_family_is_pinned_and_capped() {
             (Family::Claim, 182 + 64),
             // 7 kinds × (13 subject + 11 result spellings).
             (Family::Cells, 168),
-            // 7 kinds × 16 values, 3 field orders, and 8 typed cells × 4 contents.
-            (Family::Init, 112 + 3 + 32),
+            // 7 kinds × 16 values, the computation cell's remainder, 3 field orders and the
+            // nested group's, and 8 typed cells × 4 contents.
+            (Family::Init, 112 + 1 + 3 + 1 + 32),
             // 29 term positions × 26 constructs.
             (Family::Terms, 754),
             // 29 term positions × 2 bare variants.
@@ -134,7 +135,7 @@ fn ids_are_spelled_from_the_axes_and_commands_are_unique() {
 
 /// Check a placed case's ranges: they nest, the item is the case's item, and the spelling is
 /// the construct, except for a field-order case, whose construct names the order and whose
-/// spelling is the whole field list.
+/// spelling is the whole field list, or the nested group's.
 fn assert_placed(source: &str, placed: &Placed<'_>) {
     let case = placed.case;
     assert_eq!(&source[placed.item.clone()], case.item(), "{}", case.id);
@@ -148,17 +149,20 @@ fn assert_placed(source: &str, placed: &Placed<'_>) {
     );
     let written = &source[placed.spelling.clone()];
     if case.id.starts_with("init/order/") {
+        let (separator, declared) = if case.base == Base::Nested {
+            (", ", &["aux", "ret"][..])
+        } else {
+            (
+                ",\n",
+                &["counter", "env", "frame", "k", "pc", "queue", "stack"][..],
+            )
+        };
         let mut cells = written
-            .split(",\n")
+            .split(separator)
             .map(|field| field.trim().split_once(':').expect("a field").0)
             .collect::<Vec<_>>();
         cells.sort_unstable();
-        assert_eq!(
-            cells,
-            ["counter", "env", "frame", "k", "pc", "queue", "stack"],
-            "{}",
-            case.id
-        );
+        assert_eq!(cells, declared, "{}", case.id);
     } else {
         assert_eq!(written, case.construct, "{}", case.id);
     }
@@ -189,6 +193,11 @@ fn the_shared_cases_of_a_base_render_as_one_package() {
             .iter()
             .filter(|case| case.base == base && case.command().is_some())
             .collect::<Vec<&Case>>();
+        if base == Base::Nested {
+            // Its only case is an initializer, rendered alone.
+            assert!(shared.is_empty(), "{base:?} has no shared case");
+            continue;
+        }
         assert!(!shared.is_empty(), "{base:?} has shared cases");
         let rendered = render(&shared);
         assert_eq!(rendered.cases.len(), shared.len());

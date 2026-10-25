@@ -65,6 +65,16 @@ finding = "S0-8"
 deviation = "0 pairs only coverage holds; 14 pairs only k-rust-subsorts holds"
 step = "S4"
 
+["lattice/class-nested/coverage~k-rust-disambiguation/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 14 pairs only k-rust-disambiguation holds"
+step = "S4"
+
+["lattice/class-nested/coverage~k-rust-subsorts/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 14 pairs only k-rust-subsorts holds"
+step = "S4"
+
 ["lattice/class-terms/coverage~k-rust-disambiguation/s-kitem"]
 finding = "S0-8"
 deviation = "0 pairs only coverage holds; 13 pairs only k-rust-disambiguation holds"
@@ -2549,7 +2559,12 @@ finding = "N27"
 deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
-# X1: initializer fields out of declaration order are a collector error (at the first field out of order since S1)
+# X1: initializer fields out of declaration order are a collector error (at the first field out of order since S1); a nested group's children out of order are the internal `parser-reference-disagreement`, unlocated
+
+["init/order/nested-reversed"]
+finding = "X1"
+deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
+step = "S2"
 
 ["init/order/pc-first"]
 finding = "X1"
@@ -2564,4 +2579,11 @@ step = "S2"
 ["init/order/reversed"]
 finding = "X1"
 deviation = "krs::collect::invalid-configuration @ spelling"
+step = "S2"
+
+# S2-remainder: an initializer's `k!` remainder (`k::k![Cmd::Go(), ..pgm]`, `Go ~> $PGM`) is dropped by expansion, and the anchor nothing consumes is the internal `provenance-mismatch`
+
+["init/k/k::k![Cmd::Go(), ..pgm]"]
+finding = "S2-remainder"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S2"

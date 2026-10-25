@@ -153,12 +153,10 @@ const fn native_kind(code: NativeDiagnosticCode) -> CodeKind {
     use NativeDiagnosticCode as C;
     match code {
         // Properties of the author's program that KRS delegates: a function or projection in a
-        // pattern, a hook the selected backend does not implement, a collection cell started
-        // present by a configuration variable, an unused binder or constructor, and the value
-        // claims' verdicts on the author's equations.
+        // pattern, a hook the selected backend does not implement, an unused binder or
+        // constructor, and the value claims' verdicts on the author's equations.
         C::IllegalFunctionOnLhs
         | C::UnadmittedHookNamespace
-        | C::CellCollectionVarWithoutInitial
         | C::UnusedVariable
         | C::UnusedSymbol
         | C::UnjoinedCriticalPair
@@ -199,6 +197,11 @@ const fn native_kind(code: NativeDiagnosticCode) -> CodeKind {
         | C::SingletonOverload
         | C::InvalidAssociativity
         | C::UnsupportedExistentialVariable
+        // KRS refuses an optional or collection cell that starts present without `initial`, and
+        // a stream cell inside one, so on a lowered sentence this fires only where KRS's presence
+        // model and k-rust's disagree; at a `raw_k!` sentence it is the author's, as every code
+        // is.
+        | C::CellCollectionVarWithoutInitial
         // KRS produces the construct itself: labels and names, attributes, generated
         // productions, cells and sorts, references, modules and imports, the production a builtin
         // lowers to, substituted constants, simplifications, casts and search patterns, the one

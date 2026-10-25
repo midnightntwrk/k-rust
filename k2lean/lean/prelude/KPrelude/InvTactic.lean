@@ -1,6 +1,7 @@
 import KPrelude.Invariant
 import KPrelude.InvAttr
 import KPrelude.Hooks
+import KPrelude.FamilyCases
 
 /-!
 # `k2l_preserve`: one case per rule, closed generically or left tagged by the rule
@@ -478,10 +479,11 @@ partial def closeRule (k : Closers) (depth : Nat := 2) : TacticM Bool := do
     for (x, inj) in cands do
       let s ← saveState
       let closed ← try
-          let sgs ← g.cases x
+          -- on the arity-indexed family, only the cases of the sort's values (`familyCases`)
+          let sgs ← familyCases g x
           let mut all := true
-          for sg in sgs do
-            setGoals [sg.mvarId]
+          for (sg, _) in sgs do
+            setGoals [sg]
             try evalTactic (← `(tactic| simp only [$(mkCIdent inj):ident] at *)) catch _ => pure ()
             if (← getGoals).isEmpty then continue
             unless ← closeRule k (depth - 1) do

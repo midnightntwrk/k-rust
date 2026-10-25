@@ -2102,6 +2102,8 @@ configuration
 
 [accept."init/k/[pgm]"]
 
+[accept."init/k/k::k![Cmd::Go(), ..pgm]"]
+
 [accept."init/k/k::k![pgm]"]
 k = """
 configuration
@@ -2119,6 +2121,8 @@ configuration
 </job>
 </queue>
 """
+
+[accept."init/order/nested-reversed"]
 
 [accept."init/order/pc-first"]
 

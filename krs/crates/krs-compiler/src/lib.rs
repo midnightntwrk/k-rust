@@ -6,7 +6,6 @@
 
 pub mod artifacts;
 pub mod capability;
-mod cell_warnings;
 mod console;
 mod coverage;
 mod emit;
@@ -25,7 +24,6 @@ mod spec_tokens;
 pub mod testing;
 
 pub use artifacts::*;
-pub use cell_warnings::cell_collection_warnings;
 pub use coverage::coverage_warnings;
 pub use emit::{
     DeclaredCellType, EmitError, EmittedK, EmittedSpec, declared_cell_types,
@@ -39,8 +37,9 @@ pub use reference::{
     expand_reference_source,
 };
 pub use semantic::{
-    DescriptorLoweringError, FreshProblem, LexicalProblem, NondetGroupProblem, OpenSortAnalysis,
-    OperatorProblem, RawKPolicy, analyze_open_sorts, lower_descriptor_bundle, raw_k_policy,
+    DescriptorLoweringError, FreshProblem, ImplicitPresentCell, LexicalProblem, NondetGroupProblem,
+    OpenSortAnalysis, OperatorProblem, RawKPolicy, analyze_open_sorts, lower_descriptor_bundle,
+    raw_k_policy,
 };
 pub use sidecar::{
     GeneratedRange, MappedIdentity, SourceMap, SourceMapEntry, SourceMapNodeKind, SymbolMap,

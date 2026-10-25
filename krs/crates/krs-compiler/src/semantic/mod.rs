@@ -39,7 +39,8 @@ mod tokens;
 mod visibility;
 
 pub use error::{
-    DescriptorLoweringError, FreshProblem, LexicalProblem, NondetGroupProblem, OperatorProblem,
+    DescriptorLoweringError, FreshProblem, ImplicitPresentCell, LexicalProblem, NondetGroupProblem,
+    OperatorProblem,
 };
 
 use crate::overlap::OverlapViolation;

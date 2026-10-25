@@ -22,7 +22,7 @@ preserve = [{ where = "ImpTypes/Preserve.lean:19", closed = 77, total = 79, open
 
 [sources.sha256]
 "demos/ImpTypes/ImpTypes/Soundness.lean" = { tier = "light", sha256 = "0aaaa6c6b3c83e36e211f78005262faa5df0cba62e49843ed28ae06b10936697" }
-"demos/ImpTypes/ImpTypes/Tr.lean" = { tier = "light", sha256 = "65f2d2ad4d36233ea1d49e76fb069089dc0b7e216fc9e039a14e6e0658a79e81" }
+"demos/ImpTypes/ImpTypes/Tr.lean" = { tier = "light", sha256 = "34da4b258579403ecf6549cf658f01eedd2594ce60568005fac2c7c2f12eef99" }
 "demos/ImpTypes/ImpTypes/Typing.lean" = { tier = "light", sha256 = "957c208135f81a8cf2d4836b16d039baf63cc4bf4e856dea25a52f1c2f734ec4" }
 "demos/ImpTypes/correspondence.toml" = { tier = "light", sha256 = "d718a02a680fc8ebdc94898d98af4ef880e228e13fcbc185f1170668c8194572" }
 "generated/imptypes/KImpTypes.lean" = { tier = "light", sha256 = "ad949103cca9bbc3eba082ef541111a7c382edde0b0d3c09731e91a3087647a9" }
