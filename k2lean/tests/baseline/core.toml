@@ -7,7 +7,7 @@
 
 [unit]
 tier = "light"
-passed = 72
+passed = 74
 
 [lib.kimp]
 tier = "light"
@@ -219,6 +219,7 @@ allowed_axioms = []
 "generated/krsimp/KrsImpTest/Axioms.lean" = { tier = "light", sha256 = "71a092e0ca29d3c2c7e72360319263a082ff549dc7fdd3c676cd9bed55e7f992" }
 "generated/krsimp/KrsImpTest/DetAxioms.lean" = { tier = "light", sha256 = "5ac754ab41f33b561cb1fcee1f3cffdbe197e78097f8d2800b273cb97be05343" }
 "generated/krsimp/KrsImpTest/Main.lean" = { tier = "light", sha256 = "5eb4d2cf194b712180cdfbe9cb58ec6a03b1f2a8d4b77a0aff650fd0f7ea22d7" }
+"generated/krsimp/invariant-unfold.txt" = { tier = "light", sha256 = "c1ed3d116ec1e8a284d7783852be155126fe86e907a9a3797a94fa9589810ad5" }
 "generated/krsimp/lakefile.lean" = { tier = "light", sha256 = "f5bfc00695e6247aa358cd33b5f483f85dde2950a191083ac1910e0543bded13" }
 "generated/krsimp/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/kterm-ar/KTerm.lean" = { tier = "arity", sha256 = "a64e81095cc14b9a2428995b23bc55b01563400daa69fd4832bf1c9006209f54" }
