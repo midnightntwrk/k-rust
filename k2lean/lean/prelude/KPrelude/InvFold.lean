@@ -96,6 +96,32 @@ theorem all_iff_of_eqns' {f : L → Option Bool} {φ : E → Bool}
     rw [← concat_element_ofList, h2, bind_and'_eq_some_true, ih]
     simp
 
+private theorem bind_bind_and_eq_some_true' {a b : Option Bool} :
+    (a.bind fun r => b.bind fun r' => some (BoolHook.and r r')) = some true ↔
+      a = some true ∧ b = some true := by
+  cases a with
+  | none => simp
+  | some x => cases b with
+    | none => simp
+    | some y => cases x <;> cases y <;> simp [BoolHook.and]
+
+/-- As `all_iff_of_eqns`, for a fold whose test of one element is partial (a function of the
+fold's mutual group, well-founded and `Option`-valued: SIMPLE's `listIn` and `itemIn`), as its
+equation binds it: `f(ListItem(X) L) => g(X) andBool f(L)`. -/
+theorem all_iff_of_eqns_partial {f : L → Option Bool} {g : E → Option Bool}
+    (h1 : f unit = some true)
+    (h2 : ∀ (l : L) (x : E), f (concat (element x) l) = (g x).bind fun r => (f l).bind fun r' =>
+      some (BoolHook.and r r'))
+    (l : L) : f l = some true ↔ ElemsOn (fun x => g x = some true) l := by
+  rw [← ofList_toList l]
+  unfold ElemsOn
+  rw [toList_ofList]
+  induction toList l with
+  | nil => simpa [unit] using h1
+  | cons x xs ih =>
+    rw [← concat_element_ofList, h2, bind_bind_and_eq_some_true', ih]
+    simp
+
 /-- `values(M)` holds exactly the values of `M`'s bindings. -/
 @[k2l_pres] theorem elemsOn_values_iff {M K : Type} [Ord K] [ListIso M (K × E)] [MapRepr M K E]
     {Q : E → Prop} {m : M} :
