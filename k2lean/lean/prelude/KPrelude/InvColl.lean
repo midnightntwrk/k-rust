@@ -185,6 +185,42 @@ theorem entriesOn_foldl_update {l : List (K × V)} (hl : ∀ p ∈ l, Q p) :
   rw [toList_ofList] at hp
   exact ha p (List.mem_filter.1 hp).1
 
+/-- A map built by a recursion on an `Int` range, `.Map` above the bound `b` and `key a |-> v`
+added to the map from `a + 1` up to it (SIMPLE's array allocation `N ... M |-> K`), binds `v`
+at each of its keys, so it satisfies every `Q` that holds of `(key a, v)` for all `a`. By
+induction on the number of keys left, `(b + 1 - a).toNat`, which the second equation lowers by
+one; the hypotheses are the function's two equations, so the lemma holds of whatever the
+function does outside the range. -/
+theorem entriesOn_of_range {Q : K × V → Prop} {f : Int → Option M} {b : Int} {key : Int → K}
+    {v : V} (h1 : ∀ a, IntHook.gt a b = true → f a = some unit)
+    (h2 : ∀ a, IntHook.le a b = true →
+      f a = (f (IntHook.add a 1)).bind fun r => concat (element (key a) v) r)
+    (hq : ∀ a, Q (key a, v)) {a : Int} {r : M} (h : f a = some r) : EntriesOn Q r := by
+  suffices H : ∀ n a r, (b + 1 - a).toNat = n → f a = some r → EntriesOn Q r from
+    H _ a r rfl h
+  intro n
+  induction n using Nat.strongRecOn with
+  | ind n ih =>
+    intro a r hn h
+    by_cases hab : IntHook.gt a b = true
+    · rw [h1 a hab] at h
+      obtain rfl := Option.some.inj h
+      exact entriesOn_unit
+    · have hle : IntHook.le a b = true := by
+        simp only [IntHook.gt, IntHook.le, decide_eq_true_eq] at hab ⊢
+        omega
+      rw [h2 a hle] at h
+      cases hrest : f (IntHook.add a 1) with
+      | none => simp [hrest] at h
+      | some r' =>
+        simp only [hrest, Option.bind_some] at h
+        refine entriesOn_concat h (entriesOn_element (hq a)) ?_
+        have hlt : (b + 1 - IntHook.add a 1).toNat < n := by
+          simp only [IntHook.le, decide_eq_true_eq] at hle
+          simp only [IntHook.add]
+          omega
+        exact ih _ hlt _ _ rfl hrest
+
 end MapHook
 
 /-! ## Sets -/

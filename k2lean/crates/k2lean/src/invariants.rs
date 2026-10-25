@@ -53,6 +53,16 @@
 //! even(N)`), not mutually recursive, with proved equations, gets its equations: rewriting with
 //! them replaces a call on a constructor term by calls on its strict subterms, so it terminates.
 //!
+//! **Maps built on an `Int` range.** A function of the definition (called by a rule, not
+//! necessarily by the invariant) with the two equations `f(A, B, P…) => .Map requires A >Int B`
+//! and `f(A, B, P…) => K(A) |-> V f(A +Int 1, B, P…) requires A <=Int B` (SIMPLE's `N ... M |->
+//! K`) gets the `@[k2l_coll]` theorem `Invariant.range_f`: a result of `f` satisfies `EntriesOn
+//! Q` for every `Q` that holds of `(K(a), V)` for all `a`. Above the bound the result is `.Map`,
+//! within it the second equation adds `K(a) |-> V` to the result from `a + 1`, which has one key
+//! fewer left, so by induction on `(b + 1 - a).toNat` every binding is some `(K(a), V)`
+//! (`MapHook.entriesOn_of_range`, with the two proved equations as its hypotheses). The
+//! collections closer applies it to the map a rule's right-hand side binds to a call of `f`.
+//!
 //! **Initial configurations.** `init` (`{ns}/Init.lean`) has one parameter per configuration
 //! variable. A part whose cell holds a configuration variable in `init` holds there exactly when
 //! the part's predicate holds of that variable, which becomes a hypothesis of `Invariant.init_holds`; a
@@ -512,6 +522,191 @@ fn fold_of(m: &Model, fns: &Fns, eqs: &BTreeMap<String, Vec<Equation>>, f: &str)
             params,
         })
     })
+}
+
+/// A map built by recursion on an `Int` range, recognized among the functions of the definition.
+struct Range {
+    lean: String,
+    /// `Eqn.…` of the equation above the bound and of the one within it
+    above: String,
+    within: String,
+    /// the theorem's implicit binders after `a` and `b`: the other arguments' variables
+    binders: Vec<(String, String)>,
+    /// the arguments after the two bounds, the key (of `a`) and the value, rendered
+    rest: Vec<String>,
+    key: String,
+    val: String,
+    map: String,
+    entry: String,
+}
+
+/// The condition `h(X, Y) = true` of a requires clause, with `h` a hook: `(h, X, Y)`.
+fn hook_test<'a>(m: &'a Model, p: &'a P) -> Option<(&'a str, &'a P, &'a P)> {
+    let P::Equals(_, _, l, r) = p else {
+        return None;
+    };
+    let (P::App(h, _, a), P::Dv(_, t)) = (&**l, &**r) else {
+        return None;
+    };
+    if t != "true" || a.len() != 2 {
+        return None;
+    }
+    Some((hook(m, h)?, &a[0], &a[1]))
+}
+
+/// `f(A, B, P…) => .Map requires A >Int B` and `f(A, B, P…) => K(A) |-> V f(A +Int 1, B, P…)
+/// requires A <=Int B` (SIMPLE's `N ... M |-> K`), the recursive call passing the other
+/// arguments unchanged, `V` mentioning neither `A` nor `f`, `K(A)` no variable but `A`, both
+/// equations proved. Their instances for `a` from a start up to `b + 1` determine the result,
+/// which binds `V` at every key `K(a)` (`MapHook.entriesOn_of_range`).
+fn range_of(
+    m: &Model,
+    fns: &Fns,
+    eqs: &BTreeMap<String, Vec<Equation>>,
+    proved: &dyn Fn(&str) -> bool,
+    f: &str,
+) -> Option<Range> {
+    let sig = fns.get(f)?;
+    let es = eqs.get(f)?;
+    if es.len() != 2
+        || !sig.partial
+        || sig.args.len() < 2
+        || sig.args[0] != "SortInt"
+        || sig.args[1] != "SortInt"
+        || m.sorts.get(&sig.result)?.kind != Kind::Coll(Coll::Map)
+        || es.iter().any(|e| e.owise || e.requires.len() != 1)
+    {
+        return None;
+    }
+    let bounds = |e: &Equation, h: &str| -> Option<(String, String)> {
+        let (P::Var(a, _), P::Var(b, _)) = (&e.args[0], &e.args[1]) else {
+            return None;
+        };
+        let (t, x, y) = hook_test(m, &e.requires[0])?;
+        let ok = t == h
+            && matches!(x, P::Var(v, _) if v == a)
+            && matches!(y, P::Var(v, _) if v == b)
+            && a != b;
+        ok.then(|| (a.clone(), b.clone()))
+    };
+    let is_unit =
+        |p: &P| matches!(p, P::App(u, _, a) if a.is_empty() && hook(m, u) == Some("MAP.unit"));
+    let i_above = es.iter().position(|e| is_unit(&e.rhs))?;
+    let (above, within) = (&es[i_above], &es[1 - i_above]);
+    bounds(above, "INT.gt")?;
+    // the other arguments of the equation above the bound must be variables, so that it applies
+    // to the other equation's arguments
+    if above.args[2..].iter().any(|p| !matches!(p, P::Var(..))) {
+        return None;
+    }
+    let (a, b) = bounds(within, "INT.le")?;
+    let P::App(c, _, ca) = &within.rhs else {
+        return None;
+    };
+    if hook(m, c) != Some("MAP.concat") || ca.len() != 2 {
+        return None;
+    }
+    let (P::App(el, _, ea), P::App(g, _, ra)) = (&ca[0], &ca[1]) else {
+        return None;
+    };
+    if hook(m, el) != Some("MAP.element") || ea.len() != 2 || g != f || ra.len() != sig.args.len() {
+        return None;
+    }
+    let succ = matches!(&ra[0], P::App(add, _, xa) if hook(m, add) == Some("INT.add")
+        && matches!(xa.as_slice(), [P::Var(v, _), P::Dv(_, one)] if v == &a && one == "1"));
+    if !succ || !matches!(&ra[1], P::Var(v, _) if v == &b) {
+        return None;
+    }
+    // the other arguments: a pattern, or a pattern named by an alias (`P #as X`, which the
+    // recursive call may pass as `X`); the recursive call passes each unchanged
+    let mut pats: Vec<(&P, Option<&String>)> = Vec::new();
+    for (j, p) in within.args.iter().enumerate().skip(2) {
+        let (pat, alias) = match p {
+            P::And(_, xs) if xs.len() == 2 => match (&xs[0], &xs[1]) {
+                (q, P::Var(x, _)) | (P::Var(x, _), q) => (q, Some(x)),
+                _ => return None,
+            },
+            _ => (p, None),
+        };
+        let same = &ra[j] == p || matches!((&ra[j], alias), (P::Var(v, _), Some(x)) if v == x);
+        if !same {
+            return None;
+        }
+        pats.push((pat, alias));
+    }
+    let aliases: Vec<&String> = pats.iter().filter_map(|(_, x)| *x).collect();
+    let (key, val) = (&ea[0], &ea[1]);
+    let mut kv = Vec::new();
+    free_vars(key, &mut kv);
+    if mentions(val, f, &a) || mentions(key, f, "") || kv.iter().any(|v| v != &a) {
+        return None;
+    }
+    let eq_name = |i: usize| {
+        format!(
+            "Eqn.{}",
+            names::ident(&format!("{}_{}", names::demangle(f), i + 1))
+        )
+    };
+    let (n_above, n_within) = (eq_name(i_above), eq_name(1 - i_above));
+    if !proved(&n_above) || !proved(&n_within) {
+        return None;
+    }
+    let elems = m.elems(&sig.result);
+    let (ks, vs) = (elems.first()?.clone(), elems.get(1)?.clone());
+    let mut lw = Lower::new(m, fns, &["a", "b", "Q", "r", "h", "hq", "ha"]);
+    lw.vars.insert(a.clone(), "a".into());
+    lw.vars.insert(b.clone(), "b".into());
+    let mut vars = Vec::new();
+    for p in pats.iter().map(|(p, _)| *p).chain([val]) {
+        free_vars(p, &mut vars);
+    }
+    let mut binders = Vec::new();
+    for v in vars
+        .iter()
+        .filter(|v| **v != a && **v != b && !aliases.contains(v))
+    {
+        let sort = pats
+            .iter()
+            .map(|(p, _)| *p)
+            .chain([val])
+            .find_map(|p| var_sort(p, v))?;
+        let n = lw.param(&crate::lower::sanitize(v), &sort);
+        lw.vars.insert(v.clone(), n.clone());
+        binders.push((n, sort));
+    }
+    let mut rest = Vec::new();
+    for (j, (p, alias)) in pats.iter().enumerate() {
+        let e = lw.expr(p, &sig.args[j + 2]).ok()?.render_arg();
+        if let Some(x) = alias {
+            lw.vars.insert((*x).clone(), e.clone());
+        }
+        rest.push(e);
+    }
+    let key = lw.expr(key, &ks).ok()?.render();
+    let val = lw.expr(val, &vs).ok()?.render_arg();
+    if !lw.steps.is_empty() {
+        return None;
+    }
+    Some(Range {
+        lean: sig.lean.clone(),
+        above: n_above,
+        within: n_within,
+        binders,
+        rest,
+        key,
+        val,
+        map: sig.result.clone(),
+        entry: format!("{ks} × {vs}"),
+    })
+}
+
+/// The sort of the variable `v` in `p`.
+fn var_sort(p: &P, v: &str) -> Option<String> {
+    match p {
+        P::Var(n, s) if n == v => crate::model::sort_name(s),
+        P::App(_, _, a) => a.iter().find_map(|q| var_sort(q, v)),
+        _ => None,
+    }
 }
 
 /// Whether the K equations of the recursive function `f` can join the unfolding set as rewrite
@@ -1599,6 +1794,16 @@ pub fn emit(
     }
     simp.push("Option.bind_fun_some".into());
 
+    // maps built by recursion on an `Int` range, wherever a rule calls them: a `@[k2l_coll]`
+    // lemma for each (below), proved from the function's two equations
+    let proved = |n: &str| cx.stated.contains(n) && !cx.open_eqns.contains(n);
+    let ranges: Vec<(&String, Range)> = cx
+        .eqs
+        .keys()
+        .filter_map(|g| range_of(m, cx.fns, cx.eqs, &proved, g).map(|r| (g, r)))
+        .collect();
+    uses_eqns |= !ranges.is_empty();
+
     // ---------------------------------------------------------------- InvariantDefs.lean
     let mut d = String::new();
     d.push_str(&format!("import {ns}.Preserves\n"));
@@ -1679,6 +1884,44 @@ theorem Invariant.{b}_iff (l : {}){ps} :\n    {} = some true ↔ KPrelude.ListHo
             f.list,
             at("l"),
             f.phi
+        ));
+    }
+    // the lemmas of the maps built on an `Int` range, which the collections closer applies to
+    // the map a rule binds
+    for (g, r) in &ranges {
+        let call = |a: &str| {
+            let mut s = format!("{} {a} b", r.lean);
+            for x in &r.rest {
+                s.push(' ');
+                s.push_str(x);
+            }
+            s
+        };
+        let binders: String = r
+            .binders
+            .iter()
+            .map(|(n, t)| format!(" {{{n} : {t}}}"))
+            .collect();
+        d.push_str(&format!(
+            "/-- `{}` (a map built by recursion on an `Int` range) binds `{}` at each of its keys, from its two\n\
+equations. -/\n\
+@[k2l_coll] theorem Invariant.{} {{Q : {} → Prop}} {{a b : SortInt}}{binders} {{r : {}}}\n    \
+(h : {} = some r) (hq : ∀ a, Q ({}, {})) : KPrelude.MapHook.EntriesOn Q r :=\n  \
+KPrelude.MapHook.entriesOn_of_range (f := fun a => {}) (key := fun a => {})\n    \
+(fun a ha => by rw [{}]; exact ha)\n    \
+(fun a ha => by rw [{}]; (try simp only [Option.bind_fun_some]); exact ha) hq h\n\n",
+            names::demangle(g),
+            r.val,
+            names::ident(&format!("range_{}", names::demangle(g))),
+            r.entry,
+            r.map,
+            call("a"),
+            r.key,
+            r.val,
+            call("a"),
+            r.key,
+            r.above,
+            r.within,
         ));
     }
     let cell_trees: Vec<&CellTree> = parts.iter().filter_map(|p| p.cells.as_ref()).collect();
