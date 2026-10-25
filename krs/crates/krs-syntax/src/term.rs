@@ -1022,10 +1022,7 @@ impl TermKeys {
     /// of the node the key names (an application head or one of its
     /// turbofish instances, a `let` or its sort, an island's shell or one of
     /// its parts) is the role's to say, not the key's place among the
-    /// node's keys. A sentence that keys a node more than once in one role
-    /// (a claim literal in a readable state nested in another, which the
-    /// claim's literal order visits once per enclosing state) gave it the
-    /// first of them on its first visit.
+    /// node's keys.
     #[must_use]
     pub fn node_key(&self, index: usize, role: ProvenanceRole) -> Option<&ProvenanceKey> {
         self.node_keys(index, role).next()

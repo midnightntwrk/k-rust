@@ -92,8 +92,7 @@ fn expand_head_rule(
     let mut builder = TermBuilder::new(&facade, nonce, &cfg, &binding_idents)
         .with_lexical_imports((!imports.is_empty()).then_some(imports))
         .with_lexical_rule_head(imports.is_empty())
-        .with_readable_instances()
-        .with_readable_literals();
+        .with_readable_instances();
     // A claim's records may hold the claim-only literals (`k::bytes!(..)`).
     if clause.claim().is_some() {
         builder = builder.for_claim();

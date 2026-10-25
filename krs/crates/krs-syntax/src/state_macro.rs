@@ -601,20 +601,6 @@ impl StateTerm {
         }
     }
 
-    /// Every directly nested state, mutably, in [`Self::nested_states`]
-    /// order.
-    pub(crate) fn nested_states_mut(&mut self) -> Vec<&mut Self> {
-        match self {
-            Self::Present(inner) => vec![inner],
-            Self::Instances(list) => list.nested_states_mut(),
-            Self::Term(_)
-            | Self::KSequence(_)
-            | Self::Map(_)
-            | Self::Group(_)
-            | Self::Absent(_) => Vec::new(),
-        }
-    }
-
     /// Every directly nested state: the inside of `Some(..)` and the
     /// children of collection instances, in source order.
     #[must_use]

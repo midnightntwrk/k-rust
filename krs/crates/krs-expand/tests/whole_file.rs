@@ -73,6 +73,36 @@ fn table_start(expansion: &FileExpansion) -> usize {
         .expect("the registration table is appended")
 }
 
+/// The anchors of the `nth` descriptor anchor table in `text`, each as
+/// `Role#ordinal line:column-line:column`.
+fn authored_anchors(text: &str, nth: usize) -> Vec<String> {
+    let table = text
+        .match_indices("const __KRS_AUTHORED")
+        .nth(nth)
+        .map(|(start, _)| &text[start..])
+        .expect("the descriptor has an anchor table");
+    let table = &table[..table.find("__KRS_AUTHORED ,)").unwrap()];
+    table
+        .split("(:: k :: ProvenanceRole :: ")
+        .skip(1)
+        .map(|entry| {
+            let numbers = entry
+                .replace("u32", "")
+                .replace("usize", "")
+                .split(|ch: char| !ch.is_ascii_digit())
+                .filter(|part| !part.is_empty())
+                .map(|part| part.parse::<u32>().unwrap())
+                .collect::<Vec<_>>();
+            let role = entry.split(' ').next().unwrap();
+            // The ordinal, the file index, then the start and end.
+            format!(
+                "{role}#{} {}:{}-{}:{}",
+                numbers[0], numbers[2], numbers[3], numbers[4], numbers[5]
+            )
+        })
+        .collect()
+}
+
 #[test]
 fn tour_minimal_matches_the_support_driver() {
     let expansion = expand(TOUR_MINIMAL).expect("tour-minimal expands");
@@ -477,31 +507,8 @@ fn a_function_struct_keys_its_strictness_helper_and_refuses_a_symbol() {
     let source = "use crate as k;\n#[k::function(total, sort = Int, syntax = \"f({value})\")]\n#[k::strict(sequence = [value], result = KResult)]\npub struct F {\n    pub value: Term<Int>,\n}\n";
     let expansion = expand(source).expect("a strict function struct expands");
     let text = &expansion.generated.text;
-    let grammar = text
-        .match_indices("const __KRS_AUTHORED")
-        .nth(1)
-        .map(|(start, _)| &text[start..])
-        .expect("the grammar descriptor has an anchor table");
-    let grammar = &grammar[..grammar.find("__KRS_AUTHORED ,)").unwrap()];
-    let anchors = grammar
-        .split("(:: k :: ProvenanceRole :: ")
-        .skip(1)
-        .map(|entry| {
-            let numbers = entry
-                .replace("u32", "")
-                .replace("usize", "")
-                .split(|ch: char| !ch.is_ascii_digit())
-                .filter(|part| !part.is_empty())
-                .map(|part| part.parse::<u32>().unwrap())
-                .collect::<Vec<_>>();
-            let role = entry.split(' ').next().unwrap();
-            // The ordinal, the file index, then the start and end.
-            format!(
-                "{role}#{} {}:{}-{}:{}",
-                numbers[0], numbers[2], numbers[3], numbers[4], numbers[5]
-            )
-        })
-        .collect::<Vec<_>>();
+    // The grammar descriptor's table follows the constructor's.
+    let anchors = authored_anchors(text, 1);
     assert_eq!(anchors.len(), 15);
     assert_eq!(
         anchors[10..],
@@ -524,5 +531,65 @@ fn a_function_struct_keys_its_strictness_helper_and_refuses_a_symbol() {
             krs_diagnostic::codes::expand::SYMBOL_ATTRIBUTE_ORDER,
             "{source}"
         );
+    }
+}
+
+/// A readable clause keys each `k::id!` literal once, at its own token,
+/// however deep in optional and collection states it is nested, and the
+/// wire node of each literal carries the key anchored at it.
+#[test]
+fn a_readable_clause_keys_each_nested_literal_once_at_its_token() {
+    for source in [
+        // Depth 1: a literal under `Some(..)`.
+        "k::claims! {\n    for Machine;\n\n    #[k::claim(all_paths)]\n    x: { k: [Go(), ..], counter: Some(k::id!(\"$a\")), other: k::id!(\"$b\") } => { k: [..], counter: Some(k::id!(\"$c\")), other: k::id!(\"$d\") };\n}\n",
+        // Depth 2: a literal under `Some(..)` in a collection instance.
+        "k::claims! {\n    for Machine;\n\n    #[k::claim(all_paths)]\n    x: { k: [Go(), ..], thread: { Thread { name: k::id!(\"$a\"), slot: Some(k::id!(\"$b\")) }, .. } } => { k: [..], thread: { Thread { name: k::id!(\"$c\"), slot: Some(k::id!(\"$d\")) }, .. } };\n}\n",
+    ] {
+        let expansion = expand(source).expect("a readable claim expands");
+        let text = &expansion.generated.text;
+        let anchors = authored_anchors(text, 0);
+        // The wire key each literal's node carries, by the literal's text.
+        let wire = text
+            .split(r#"\"claim_id_token\",\"ordinal\":"#)
+            .skip(1)
+            .map(|entry| {
+                let ordinal = &entry[..entry.find('}').unwrap()];
+                let value = r#"\"value\":\""#;
+                let value = &entry[entry.find(value).unwrap() + value.len()..];
+                (
+                    value[..value.find('\\').unwrap()].to_owned(),
+                    ordinal.to_owned(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let literals = ["$a", "$b", "$c", "$d"];
+        assert_eq!(wire.len(), literals.len(), "{source}");
+        assert_eq!(
+            anchors
+                .iter()
+                .filter(|anchor| anchor.starts_with("ClaimIdToken#"))
+                .count(),
+            literals.len(),
+            "one anchor per literal: {anchors:?}"
+        );
+        for literal in literals {
+            let quoted = format!("\"{literal}\"");
+            let (line, column) = source
+                .lines()
+                .enumerate()
+                .find_map(|(line, text)| text.find(&quoted).map(|column| (line + 1, column + 1)))
+                .unwrap();
+            let at = format!(" {line}:{column}-{line}:{}", column + quoted.len());
+            let anchored = anchors
+                .iter()
+                .filter(|anchor| anchor.starts_with("ClaimIdToken#") && anchor.ends_with(&at))
+                .collect::<Vec<_>>();
+            let (_, ordinal) = wire.iter().find(|(value, _)| value == literal).unwrap();
+            assert_eq!(
+                anchored,
+                [&format!("ClaimIdToken#{ordinal}{at}")],
+                "{literal} in {source}"
+            );
+        }
     }
 }
