@@ -246,7 +246,8 @@ enum EdgeKind {
     Effect(bool),
     /// `n{from} => n{to}` under a condition no solver decides, which leaves a remainder.
     Guarded,
-    /// `n{from} => node(\bottom)`, an undefined step.
+    /// `n{from} => node(\bottom)`, an undefined step, or (for every other edge)
+    /// `n{from} => num(undef(1))`, one that also contradicts a `total` claim.
     Undefined,
 }
 
@@ -329,7 +330,8 @@ fn graph_case() -> impl Strategy<Value = GraphCase> {
 /// (`exploration_merge::assert_merged_state_set_agrees`), where the path-set run stays within
 /// its breadth bound; every third case also runs observed, and returns the unobserved run's
 /// leaves. A fixed seed makes the cases the same on every run, and at least a quarter of them
-/// must merge, so the property is not met by runs that never merge.
+/// must merge, so the property is not met by runs that never merge; some merging case must have
+/// an undefined step that contradicts a claim, so the leaves' rules and claims are compared.
 #[test]
 fn a_merged_state_set_execution_of_a_rule_graph_is_its_deduplicated_path_set() {
     use std::cell::Cell;
@@ -342,12 +344,14 @@ fn a_merged_state_set_execution_of_a_rule_graph_is_its_deduplicated_path_set() {
     use proptest::test_runner::{Config, RngAlgorithm, TestRng, TestRunner};
 
     use crate::exploration_merge::{
-        assert_merged_state_set_agrees, edge, graph_definition, guarded_edge, logging, node,
-        pattern, reaches_breadth_bound, seq_edge,
+        BOTTOM_NODE, CONTRADICTING_NODE, assert_merged_state_set_agrees, edge, graph_definition,
+        guarded_edge, logging, node, pattern, reaches_breadth_bound, seq_edge,
     };
 
     const CASES: u32 = 256;
     let (cases, merging, beyond_breadth) = (Cell::new(0), Cell::new(0), Cell::new(0));
+    // Merging cases whose state set has an undefined step that names a contradicted claim.
+    let merged_claims = Cell::new(0);
     let mut runner = TestRunner::new_with_rng(
         Config {
             cases: CASES,
@@ -374,7 +378,10 @@ fn a_merged_state_set_execution_of_a_rule_graph_is_its_deduplicated_path_set() {
                     &logging(if *left { "a" } else { "b" }, "x", &to),
                 ),
                 EdgeKind::Guarded => guarded_edge(&label, &from, &node(&to)),
-                EdgeKind::Undefined => edge(&label, &from, r#"node{}(\bottom{SortString{}}())"#),
+                // Every other undefined edge also contradicts `undef`'s `total` claim, so the
+                // leaves' claims are compared too; the generated cases stay the same.
+                EdgeKind::Undefined if index % 2 == 1 => edge(&label, &from, BOTTOM_NODE),
+                EdgeKind::Undefined => edge(&label, &from, CONTRADICTING_NODE),
             };
             match mark {
                 Some(true) => terminal_rules.push(label),
@@ -401,6 +408,21 @@ fn a_merged_state_set_execution_of_a_rule_graph_is_its_deduplicated_path_set() {
             assert_merged_state_set_agrees(&definition, &initial, &options, &format!("{case:?}"));
         cases.set(cases.get() + 1);
         merging.set(merging.get() + usize::from(state_set.merged > 0));
+        merged_claims.set(
+            merged_claims.get()
+                + usize::from(
+                    state_set.merged > 0
+                        && state_set.result.leaves.iter().any(|leaf| {
+                            matches!(
+                                leaf.halt_reason,
+                                HaltReason::Trivial {
+                                    contradicted_total: Some(_),
+                                    ..
+                                }
+                            )
+                        }),
+                ),
+        );
         beyond_breadth
             .set(beyond_breadth.get() + usize::from(reaches_breadth_bound(&path_set.result)));
         if cases.get() % 3 == 0 {
@@ -442,10 +464,16 @@ fn a_merged_state_set_execution_of_a_rule_graph_is_its_deduplicated_path_set() {
         panic!("{failure}");
     }
     eprintln!(
-        "rule graphs: {} cases, {} merging, {} beyond the path-set breadth bound",
+        "rule graphs: {} cases, {} merging ({} with a contradicted claim on an undefined step), \
+         {} beyond the path-set breadth bound",
         cases.get(),
         merging.get(),
+        merged_claims.get(),
         beyond_breadth.get()
+    );
+    assert!(
+        merged_claims.get() > 0,
+        "no merging case names a contradicted claim"
     );
     assert!(
         4 * merging.get() >= cases.get(),

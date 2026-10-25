@@ -11,6 +11,7 @@ use k_rust_backend::{
     },
     rule::Predicate,
     search::{ResultModality, SearchOptions, SearchType, search_graph},
+    simplify::ContradictedTotal,
     transition::{ConsoleObservation, ExecutionIoState, ObservationOptions},
 };
 use k_rust_kore::{
@@ -21,7 +22,9 @@ use k_rust_kore::{
 use crate::support::{rule, search_definition};
 
 /// A definition whose states are `node(name)` and `seq(effect, state)`, with the console and
-/// log hooks, `cond`, a condition no rule or solver decides, and the rewrite rules `rules`.
+/// log hooks, `cond`, a condition no rule or solver decides, `undef`, a `total` function whose
+/// one equation divides by zero (so every application of it contradicts the attribute), and the
+/// rewrite rules `rules`.
 pub(crate) fn graph_definition(rules: &str) -> BackendDefinition {
     let source = format!(
         r#"[]
@@ -39,6 +42,23 @@ pub(crate) fn graph_definition(rules: &str) -> BackendDefinition {
                     [function{{}}(), total{{}}(), hook{{}}("IO.write")]
                 symbol cond{{}}(SortString{{}}) : SortBool{{}}
                     [function{{}}(), total{{}}(), no-evaluators{{}}()]
+                symbol num{{}}(SortInt{{}}) : SortK{{}} [constructor{{}}()]
+                hooked-symbol tdiv{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}}
+                    [function{{}}(), hook{{}}("INT.tdiv")]
+                symbol undef{{}}(SortInt{{}}) : SortInt{{}} [function{{}}(), total{{}}()]
+                axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \top{{R}}(),
+                        \and{{R}}(\in{{SortInt{{}}, R}}(X0:SortInt{{}}, X:SortInt{{}}), \top{{R}}())
+                    ),
+                    \equals{{SortInt{{}}, R}}(
+                        undef{{}}(X0:SortInt{{}}),
+                        \and{{SortInt{{}}}}(
+                            tdiv{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("0")),
+                            \top{{SortInt{{}}}}()
+                        )
+                    )
+                ) [label{{}}("undef")]
                 {rules}
             endmodule []"#
     );
@@ -128,6 +148,13 @@ pub(crate) fn diamond_chain(diamonds: usize) -> String {
         .collect()
 }
 
+/// The state `node(\bottom)`, which a rule's right-hand side builds for an undefined step.
+pub(crate) const BOTTOM_NODE: &str = r#"node{}(\bottom{SortString{}}())"#;
+
+/// The state `num(undef(1))`, which a rule's right-hand side builds for an undefined step that
+/// contradicts `undef`'s `total` attribute.
+pub(crate) const CONTRADICTING_NODE: &str = r#"num{}(undef{}(\dv{SortInt{}}("1")))"#;
+
 pub(crate) fn pattern(definition: &BackendDefinition, source: &str) -> Pattern {
     definition
         .admit_unverified(&parse_pattern(source).expect("pattern should parse"), &[])
@@ -193,16 +220,58 @@ fn key(leaf: &ExecutionLeaf) -> Key {
     )
 }
 
-/// What a leaf without a configuration denotes: its depth, state, and obligation or false
-/// constraint. The rule it names is witness metadata under merging.
-fn bottom(leaf: &ExecutionLeaf) -> Option<(u64, Pattern, Predicate)> {
+/// A leaf without a configuration: its kind, depth, state, obligation or false constraint, the
+/// rule it names (id and label) and the `total` claim it contradicts.
+type Bottom = (
+    &'static str,
+    u64,
+    Pattern,
+    Predicate,
+    Option<String>,
+    Option<String>,
+    Option<Box<ContradictedTotal>>,
+);
+
+/// What a leaf without a configuration denotes and names, field by field. The `Trivial` leaf of
+/// an undefined step is the configuration the step was taken from, naming the rule of that step
+/// and the claim its undefined result contradicts: the step on equal configurations at one depth
+/// is the same step, so a merged run names what every path to that configuration names. A leaf
+/// of a remainder that its own normalization refutes names instead the rule that produced the
+/// remainder's parent, which a merged run names only for its witness path
+/// (`a_refuted_remainder_below_a_merged_state_names_the_witness_paths_producing_rule`); the
+/// fixtures that compare this key run without a solver, so they have no such remainder.
+fn bottom(leaf: &ExecutionLeaf) -> Option<Bottom> {
     match &leaf.halt_reason {
         HaltReason::Trivial {
-            depth, obligation, ..
-        } => Some((*depth, leaf.pattern.clone(), obligation.clone())),
+            depth,
+            rule_id,
+            label,
+            obligation,
+            contradicted_total,
+        } => Some((
+            "trivial",
+            *depth,
+            leaf.pattern.clone(),
+            obligation.clone(),
+            rule_id.clone(),
+            label.clone(),
+            contradicted_total.clone(),
+        )),
         HaltReason::Vacuous {
-            depth, constraint, ..
-        } => Some((*depth, leaf.pattern.clone(), constraint.clone())),
+            depth,
+            rule_id,
+            label,
+            constraint,
+            contradicted_total,
+        } => Some((
+            "vacuous",
+            *depth,
+            leaf.pattern.clone(),
+            constraint.clone(),
+            rule_id.clone(),
+            label.clone(),
+            contradicted_total.clone(),
+        )),
         _ => None,
     }
 }
@@ -260,8 +329,14 @@ fn same_set<T: PartialEq + std::fmt::Debug>(left: &[T], right: &[T], what: &str,
 ///   path-set leaves', and each has the depth and halt reason of a path-set leaf of its key;
 /// - in order, they are the path-set leaves the final merge keeps (each retained leaf the first of
 ///   the leaves it stands for, [`stands_for`]), with that leaf's depth, halt reason and trace;
-/// - leaves without a configuration denote the same (depth, state, obligation) set;
-/// - the union of the leaves' diagnostics is the same;
+/// - leaves without a configuration denote and name the same set of (kind, depth, state,
+///   obligation, rule id, label, contradicted claim), and each such state-set leaf equals a
+///   path-set leaf field for field;
+/// - the union of the leaves' diagnostics other than path facts (contradicted claims and values
+///   the definition leaves open) is the same;
+/// - the run's lists of contradicted claims and of open values are the same sets, and each holds
+///   every such fact a leaf of its run carries: a state-set run lists an absorbed arrival's facts,
+///   and a state-set leaf that a leaf of another halt may stand for carries every fact of the run;
 /// - the run's coverage (`ExecutionOptions::collect_coverage`) is the same;
 /// - the state-set run pops no more states than the path-set run.
 ///
@@ -352,21 +427,70 @@ pub(crate) fn assert_merged_state_set_agrees(
         "leaves without a configuration",
         context,
     );
-    let diagnostics = |result: &ExecutionResult| {
+    for leaf in state_set
+        .result
+        .leaves
+        .iter()
+        .filter(|leaf| bottom(leaf).is_some())
+    {
+        assert!(
+            path_set.result.leaves.contains(leaf),
+            "{context}: no path-set leaf equals the state-set leaf without a configuration: \
+             {leaf:#?}"
+        );
+    }
+    let is_fact = |diagnostic: &BackendDiagnostic| {
+        matches!(
+            diagnostic,
+            BackendDiagnostic::ContradictedClaim(_)
+                | BackendDiagnostic::ImplementationChosenValue { .. }
+        )
+    };
+    let diagnostics = |result: &ExecutionResult, facts: bool| {
         distinct(
             result
                 .leaves
                 .iter()
-                .flat_map(|leaf| leaf.diagnostics.iter().cloned()),
+                .flat_map(|leaf| leaf.diagnostics.iter())
+                .filter(|diagnostic| is_fact(diagnostic) == facts)
+                .cloned(),
         )
     };
-    let state_diagnostics: Vec<BackendDiagnostic> = diagnostics(&state_set.result);
+    let state_diagnostics: Vec<BackendDiagnostic> = diagnostics(&state_set.result, false);
     same_set(
         &state_diagnostics,
-        &diagnostics(&path_set.result),
+        &diagnostics(&path_set.result, false),
         "diagnostics",
         context,
     );
+    same_set(
+        &state_set.result.contradicted_claims,
+        &path_set.result.contradicted_claims,
+        "contradicted claims",
+        context,
+    );
+    same_set(
+        &state_set.result.implementation_chosen_values,
+        &path_set.result.implementation_chosen_values,
+        "open values",
+        context,
+    );
+    for result in [&state_set.result, &path_set.result] {
+        for fact in diagnostics(result, true) {
+            assert!(
+                match &fact {
+                    BackendDiagnostic::ContradictedClaim(claim) =>
+                        result.contradicted_claims.contains(claim),
+                    BackendDiagnostic::ImplementationChosenValue { hook, class } => result
+                        .implementation_chosen_values
+                        .iter()
+                        .any(|value| value.hook.as_ref() == hook && value.class == *class),
+                    _ => false,
+                },
+                "{context}: a leaf's fact is not on its run's list: {fact:#?}"
+            );
+        }
+    }
     assert!(
         state_set.steps <= path_set.steps,
         "{context}: {} state-set steps against {} path-set steps",
@@ -381,6 +505,12 @@ pub(crate) fn assert_merged_state_set_agrees(
 /// diamonds; diamonds of unequal lengths, which meet at different depths; distinct final
 /// states; a cycle; an undefined step after a diamond; a remainder after a diamond; a diamond
 /// whose branches log and write alike, and one whose branches log differently.
+///
+/// The undefined steps on a merged state: two different rules produce the merged state, whose
+/// own step is undefined (the leaf names that step's rule, never a producing one); the merged
+/// state's producing step has an undefined sibling, which a defined candidate covers; two
+/// undefined candidates of the merged state's step (one leaf, naming the first); an undefined
+/// step that contradicts a `total` claim; and an undefined step two steps below the merge.
 #[test]
 fn a_merged_state_set_result_is_the_deduplicated_path_set_result() {
     let mut fixtures = Vec::<(String, String)>::new();
@@ -421,7 +551,68 @@ fn a_merged_state_set_result_is_the_deduplicated_path_set_result() {
             edge("a-r", "a", &node("r")),
             edge("l-m", "l", &node("m")),
             edge("r-m", "r", &node("m")),
-            edge("m-undefined", "m", r#"node{}(\bottom{SortString{}}())"#),
+            edge("m-undefined", "m", BOTTOM_NODE),
+        ]
+        .concat(),
+    ));
+    fixtures.push((
+        "two producing rules into one undefined step".into(),
+        [
+            edge("a-l", "a", &node("l")),
+            edge("a-r", "a", &node("r")),
+            edge("g1", "l", &node("p")),
+            edge("g2", "r", &node("p")),
+            edge("pd", "p", BOTTOM_NODE),
+        ]
+        .concat(),
+    ));
+    fixtures.push((
+        "producing step with an undefined sibling".into(),
+        [
+            edge("a-l", "a", &node("l")),
+            edge("a-r", "a", &node("r")),
+            edge("l-m", "l", &node("m")),
+            edge("l-undefined", "l", BOTTOM_NODE),
+            edge("r-m", "r", &node("m")),
+            edge("r-undefined", "r", BOTTOM_NODE),
+            edge("m-undefined", "m", BOTTOM_NODE),
+        ]
+        .concat(),
+    ));
+    fixtures.push((
+        "two undefined candidates after a diamond".into(),
+        [
+            edge("a-l", "a", &node("l")),
+            edge("a-r", "a", &node("r")),
+            edge("l-m", "l", &node("m")),
+            edge("r-m", "r", &node("m")),
+            edge("m-u1", "m", BOTTOM_NODE),
+            edge("m-u2", "m", CONTRADICTING_NODE),
+        ]
+        .concat(),
+    ));
+    fixtures.push((
+        "contradicted total after a diamond".into(),
+        [
+            edge("a-l", "a", &node("l")),
+            edge("a-r", "a", &node("r")),
+            edge("l-m", "l", &node("m")),
+            edge("r-m", "r", &node("m")),
+            edge("m-total", "m", CONTRADICTING_NODE),
+        ]
+        .concat(),
+    ));
+    fixtures.push((
+        "undefined step below a merge, beside a defined one".into(),
+        [
+            edge("a-l", "a", &node("l")),
+            edge("a-r", "a", &node("r")),
+            edge("l-m", "l", &node("m")),
+            edge("r-m", "r", &node("m")),
+            edge("m-n", "m", &node("n")),
+            edge("m-o", "m", &node("o")),
+            edge("n-total", "n", CONTRADICTING_NODE),
+            edge("o-undefined", "o", BOTTOM_NODE),
         ]
         .concat(),
     ));
@@ -511,6 +702,236 @@ fn a_merged_state_set_result_is_the_deduplicated_path_set_result() {
                 &format!("{rules:?}, max_depth {max_depth}"),
             );
         }
+    }
+}
+
+/// An undefined step on a merged state is one `Trivial` leaf in the state set and one per path
+/// in the path set, and every one of them is the configuration the step was taken from, naming
+/// that step's rule and the claim its undefined result contradicts: never a rule that produced
+/// the merged state, whichever path the state set keeps.
+#[test]
+fn a_trivial_leaf_on_a_merged_state_names_the_undefined_step_of_its_configuration() {
+    // `p` is produced by `g1` on one path and by `g2` on the other; its step `pd` is undefined,
+    // and `pt`, a second candidate of it, contradicts `undef`'s `total` claim.
+    for (producers, expected_label) in [(["g1", "g2"], "pd"), (["g2", "g1"], "pd")] {
+        let rules = [
+            edge("a-l", "a", &node("l")),
+            edge("a-r", "a", &node("r")),
+            edge(producers[0], "l", &node("p")),
+            edge(producers[1], "r", &node("p")),
+            edge("pd", "p", BOTTOM_NODE),
+            edge("pt", "p", CONTRADICTING_NODE),
+        ]
+        .concat();
+        let definition = graph_definition(&rules);
+        let initial = pattern(&definition, &node("a"));
+        let (state_set, path_set) = assert_merged_state_set_agrees(
+            &definition,
+            &initial,
+            &ExecutionOptions::default(),
+            &format!("{producers:?}"),
+        );
+        assert_eq!(state_set.merged, 1);
+        let named = |run: &Run| {
+            run.result
+                .leaves
+                .iter()
+                .map(|leaf| match &leaf.halt_reason {
+                    HaltReason::Trivial {
+                        depth,
+                        label,
+                        contradicted_total,
+                        ..
+                    } => (
+                        leaf.pattern == pattern(&definition, &node("p")),
+                        *depth,
+                        label.clone(),
+                        contradicted_total.is_some(),
+                    ),
+                    other => panic!("{producers:?}: not an undefined step: {other:?}"),
+                })
+                .collect::<Vec<_>>()
+        };
+        let leaf = (true, 3, Some(expected_label.to_owned()), false);
+        assert_eq!(named(&state_set), std::slice::from_ref(&leaf));
+        assert_eq!(named(&path_set), [leaf.clone(), leaf]);
+        // `pt` is a part of the step too: its record is on the run's list in both modalities.
+        assert!(
+            [&state_set, &path_set].iter().all(|run| run
+                .result
+                .contradicted_claims
+                .iter()
+                .any(|claim| format!("{claim:?}").contains("undef"))),
+            "{producers:?}"
+        );
+    }
+    // With `pt` alone the leaf carries the contradicted claim, in both modalities.
+    let rules = [
+        edge("a-l", "a", &node("l")),
+        edge("a-r", "a", &node("r")),
+        edge("g1", "l", &node("p")),
+        edge("g2", "r", &node("p")),
+        edge("pt", "p", CONTRADICTING_NODE),
+    ]
+    .concat();
+    let definition = graph_definition(&rules);
+    let initial = pattern(&definition, &node("a"));
+    let (state_set, path_set) = assert_merged_state_set_agrees(
+        &definition,
+        &initial,
+        &ExecutionOptions::default(),
+        "pt alone",
+    );
+    assert_eq!(state_set.merged, 1);
+    for (run, leaves) in [(&state_set, 1), (&path_set, 2)] {
+        assert_eq!(run.result.leaves.len(), leaves);
+        for leaf in &run.result.leaves {
+            assert!(
+                matches!(
+                    &leaf.halt_reason,
+                    HaltReason::Trivial { label: Some(label), contradicted_total: Some(_), .. }
+                        if label == "pt"
+                ),
+                "{leaf:#?}"
+            );
+        }
+    }
+}
+
+/// A remainder takes no step of its own, so when its normalization refutes it, its leaf names the
+/// latest rewrite of its path: the rule that produced its parent. Below a merged state that rule
+/// is the witness path's, so the state set names one producing rule where the path set names
+/// each path's (docs/backend-port.md, "the rule such a leaf names, when it is the rule that
+/// produced the merged state, is the witness path's"). Here `p(X)` is produced by `g1` and by
+/// `g2`; `pr: p(X) => q(X) requires X =/=Int 0` leaves the remainder `X ==Int 0`, which the
+/// solver finds satisfiable beside the path's `h(X) =/=Int 3` (it does not know `h`), and whose
+/// normalization evaluates `h(0)`, undefined, so the remainder is a `Trivial` leaf of `\ceil`
+/// `h(X)`; with `g`, a total function that is `3` at `0`, it is a `Vacuous` leaf.
+#[cfg(feature = "z3")]
+#[test]
+fn a_refuted_remainder_below_a_merged_state_names_the_witness_paths_producing_rule() {
+    use k_rust_backend::{rewrite::execute_with_solver, smt::Z3Solver};
+
+    let source = r#"[]
+        module MAIN
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            sort SortK{} []
+            symbol x{}(SortInt{}) : SortK{} [constructor{}()]
+            symbol a{}(SortInt{}) : SortK{} [constructor{}()]
+            symbol b{}(SortInt{}) : SortK{} [constructor{}()]
+            symbol p{}(SortInt{}) : SortK{} [constructor{}()]
+            symbol q{}(SortInt{}) : SortK{} [constructor{}()]
+            hooked-symbol neInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.ne"), smt-hook{}("distinct")]
+            hooked-symbol tdiv{}(SortInt{}, SortInt{}) : SortInt{}
+                [function{}(), hook{}("INT.tdiv"), smt-hook{}("div")]
+            symbol g{}(SortInt{}) : SortInt{} [function{}(), total{}()]
+            symbol h{}(SortInt{}) : SortInt{} [function{}()]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("0")), \top{R}())
+                ),
+                \equals{SortInt{}, R}(
+                    g{}(X0:SortInt{}),
+                    \and{SortInt{}}(\dv{SortInt{}}("3"), \top{SortInt{}}())
+                )
+            ) [label{}("g0")]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(\in{SortInt{}, R}(X0:SortInt{}, \dv{SortInt{}}("0")), \top{R}())
+                ),
+                \equals{SortInt{}, R}(
+                    h{}(X0:SortInt{}),
+                    \and{SortInt{}}(
+                        tdiv{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("0")),
+                        \top{SortInt{}}()
+                    )
+                )
+            ) [label{}("h0")]
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(x{}(X:SortInt{}), \top{SortK{}}()),
+                \and{SortK{}}(a{}(X:SortInt{}), \top{SortK{}}())
+            ) [label{}("xa")]
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(x{}(X:SortInt{}), \top{SortK{}}()),
+                \and{SortK{}}(b{}(X:SortInt{}), \top{SortK{}}())
+            ) [label{}("xb")]
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(a{}(X:SortInt{}), \top{SortK{}}()),
+                \and{SortK{}}(p{}(X:SortInt{}), \top{SortK{}}())
+            ) [label{}("g1")]
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(b{}(X:SortInt{}), \top{SortK{}}()),
+                \and{SortK{}}(p{}(X:SortInt{}), \top{SortK{}}())
+            ) [label{}("g2")]
+            axiom{} \rewrites{SortK{}}(
+                \and{SortK{}}(
+                    p{}(X:SortInt{}),
+                    \equals{SortBool{}, SortK{}}(
+                        neInt{}(X:SortInt{}, \dv{SortInt{}}("0")),
+                        \dv{SortBool{}}("true")
+                    )
+                ),
+                \and{SortK{}}(q{}(X:SortInt{}), \top{SortK{}}())
+            ) [label{}("pr")]
+        endmodule []"#;
+    let syntax = parse_definition(source).expect("definition should parse");
+    let definition =
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+    let solver = Z3Solver::new(&definition).expect("the solver starts");
+    let leaves = |function: &str, modality| {
+        let initial = pattern(
+            &definition,
+            &format!(
+                r#"\and{{SortK{{}}}}(
+                    x{{}}(X:SortInt{{}}),
+                    \equals{{SortBool{{}}, SortK{{}}}}(
+                        neInt{{}}({function}{{}}(X:SortInt{{}}), \dv{{SortInt{{}}}}("3")),
+                        \dv{{SortBool{{}}}}("true")
+                    )
+                )"#
+            ),
+        );
+        let result = execute_with_solver(
+            &definition,
+            initial,
+            ExecutionOptions {
+                result_modality: modality,
+                ..ExecutionOptions::default()
+            },
+            &solver,
+        );
+        result
+            .leaves
+            .iter()
+            .map(|leaf| match &leaf.halt_reason {
+                HaltReason::Stuck => ("stuck", leaf.depth, None),
+                HaltReason::Trivial { label, .. } => ("trivial", leaf.depth, label.clone()),
+                HaltReason::Vacuous { label, .. } => ("vacuous", leaf.depth, label.clone()),
+                other => panic!("{function} {modality:?}: {other:?}"),
+            })
+            .collect::<Vec<_>>()
+    };
+    for (function, kind) in [("h", "trivial"), ("g", "vacuous")] {
+        let named = |rule: &str| (kind, 2, Some(rule.to_owned()));
+        assert_eq!(
+            leaves(function, ResultModality::StateSet),
+            [("stuck", 3, None), named("g1")],
+            "{function}"
+        );
+        assert_eq!(
+            leaves(function, ResultModality::PathSet),
+            [
+                ("stuck", 3, None),
+                named("g1"),
+                ("stuck", 3, None),
+                named("g2")
+            ],
+            "{function}"
+        );
     }
 }
 
@@ -783,7 +1204,7 @@ fn a_merged_run_without_traces_reports_the_same_leaves() {
                 edge("a-r", "a", &node("r")),
                 edge("l-m", "l", &node("m")),
                 edge("r-m", "r", &node("m")),
-                edge("m-undefined", "m", r#"node{}(\bottom{SortString{}}())"#),
+                edge("m-undefined", "m", BOTTOM_NODE),
             ]
             .concat(),
         ),
