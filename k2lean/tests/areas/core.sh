@@ -40,8 +40,8 @@ gen_core() {
             --det2 --det2-overlap "IMP.if-true,IMP.if-false" --equations-part-weight 30) ;;
     krsimp) GEN_ARGS=(--kore "$KRS/definition.kore" --out "$o" --name KrsImp --prelude ../../lean/prelude
             --open-obligations "$o/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json") ;;
-    # a definition with one genuine overlap (witnessed), one joinable pair and exclusive pairs
-    # (demos/k/overlap.k): `Step.deterministic_of` with `overlaps_witnessed`
+    # a definition with two genuine overlaps (witnessed; one reads a map cell), one joinable pair
+    # and exclusive pairs (demos/k/overlap.k): `Step.deterministic_of` with `overlaps_witnessed`
     ovl) GEN_ARGS=(--kore "$(kore_dir ovl)/definition.kore" --runtime "$(kore_dir ovl)/runtime.json"
             --out "$o" --name KOvl --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
     # rules with `ensures` clauses (demos/k/ensures.k): steps only where the ensures holds, apart
