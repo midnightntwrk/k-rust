@@ -352,7 +352,7 @@ On Lean v4.34.0, with that invariant, the heavy gate of 2026-10-24 proved both g
 | `new-invariant` | the skeleton of a kind 2 invariant project (`invariants.md`, §4) |
 | `diff OLD NEW [--hand PATH]…` | the rules whose `Step.Case` changed between two generations, the generated functions whose definitions changed with the rules that call them, and the hand-written references to both (`invariants.md`, §7) |
 
-The flags of each command are in its module under `crates/k2lean/src/` and in the calls of `tests/libs.sh`.
+The flags of each command are in its module under `crates/k2lean/src/` and in the calls of `tests/libs.sh` and `tests/areas/*.sh`.
 
 ## 5. Rule names
 

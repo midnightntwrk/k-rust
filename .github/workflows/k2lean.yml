@@ -5,7 +5,7 @@ name: k2lean
 # (`k2lean/tests/gate.sh light`, the `k2lean-light` entry of scripts/gates.toml): it compiles
 # kimp and the IMP demos with krust, regenerates their Lean libraries with the generator, builds
 # them and the demos with Lean, compares kimp's step traces with the K release's LLVM backend,
-# and compares every count, output and generated file with k2lean/tests/baseline.toml.
+# and compares every count, output and generated file with k2lean/tests/baseline/ (one file per area).
 
 on:
   schedule:

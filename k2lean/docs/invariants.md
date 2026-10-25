@@ -112,8 +112,8 @@ cp $K/generated/kimp/open-obligations.txt $GEN/kimp/
 ### 2.4 Generating a library
 
 A library is generated in two steps: krust compiles the K definition to KORE, and `k2lean gen` writes a Lake project from the KORE.
-`$K/tests/libs.sh` holds the exact calls for every library of the gate; source it, set the variables it reads, and define `kore_dir NAME` to say where the compiled KORE goes.
-This generates kimp in your work tree; the gate checks that these files do not change without a reviewed baseline (`tests/baseline.toml`, `[sources]`):
+`$K/tests/libs.sh` gives the exact calls for every library of the gate (each area's are in `$K/tests/areas/AREA.sh`, which it sources); source it, set the variables it reads, and define `kore_dir NAME` to say where the compiled KORE goes.
+This generates kimp in your work tree; the gate checks that these files do not change without a reviewed baseline (`tests/baseline/core.toml`, `[sources]`):
 
 ```sh
 . $K/tests/libs.sh
@@ -870,9 +870,9 @@ How to find the strengthening: read the open goal of the failing rule, find wher
 
 ## 10. Checking with the gate
 
-`$K/tests/gate.sh light|heavy` regenerates every library and demo of `k2lean/` from the K sources, builds them in a work tree of its own, and compares what it measures with `$K/tests/baseline.toml`: open sets may only shrink, `k2l_preserve` counts may not drop, axiom guards may not lose theorems, no `sorry`, and regenerated sources must equal the last accepted generation.
+`$K/tests/gate.sh light|heavy` regenerates every library and demo of `k2lean/` from the K sources, builds them in a work tree of its own, and compares what it measures with its baseline (`$K/tests/baseline/AREA.toml`, one file per area): open sets may only shrink, `k2l_preserve` counts may not drop, axiom guards may not lose theorems, no `sorry`, and regenerated sources must equal the last accepted generation.
 `docs/testing.md` of the repository says when it is owed and how it runs in CI (`k2lean-light`, `k2lean-heavy`).
-To have it ratchet a new invariant, register it in three scripts, put its inputs in the tree, run a tier, and accept.
+To have it ratchet a new invariant, register it in the two files of the invariants area, put its inputs in the tree, run a tier, and accept.
 The library `kimpkeys` of §3 is registered so (with `kimpkeys-hand`, the same library with `CALC.assign` listed as a hand case, §3.4); the kind 2 project `EnvBound` of §4 is not, and the steps below add it.
 
 1. The inputs, in the k2lean directory `T` the gate checks (`T=$K` for real; git tracks exactly these files):
@@ -887,64 +887,48 @@ The library `kimpkeys` of §3 is registered so (with `kimpkeys-hand`, the same l
    ```
 
    A kind 2 project under `demos/` must require `../../lean/prelude` and `../../generated/kimp`; copy the three modules first and then run `$G new-invariant --lib $T/generated/kimp --out $T/demos/EnvBound` with a generated kimp in `$T/generated/kimp` (from `demos/regen.sh`), which writes the lakefile with those paths and keeps the modules.
-2. The registrations: `tests/libs.sh` (how to compile and generate), `tests/gate.sh` (the phases), `tests/gate-check.py` (what is measured).
-   The `kimpkeys` lines show the shape of a kind 1 library's registration (the tree has them, with one loop in `gate.sh` for `kimpkeys` and `kimpkeys-hand`); the `EnvBound` lines are the ones to add:
+2. The registrations, in the two files of the gate's invariants area (`docs/testing.md` of the repository lists the areas): `tests/areas/invariants.sh` (how to compile and generate, and the phase that builds the entry) and `tests/areas/invariants.py` (what is measured, and the entry's tier).
+   The `kimpkeys` lines show the shape of a kind 1 library's registration (the tree has them, with `kimpkeys-hand` beside them); the `EnvBound` lines are the ones to add:
 
    ```diff
-   --- a/k2lean/tests/libs.sh
-   +++ b/k2lean/tests/libs.sh
-   @@ libs_kcompile
+   --- a/k2lean/tests/areas/invariants.sh
+   +++ b/k2lean/tests/areas/invariants.sh
+   @@ kore_invariants
         kimp-inv) f=$DEMOS/k/kimp-inv/imp-inv.k m=IMP-INV s=IMP-SYNTAX inc=$KIMP ;;
    +    kimp-keys) f=$DEMOS/k/kimp-keys/imp-keys.k m=IMP-KEYS s=IMP-SYNTAX inc=$KIMP ;;
-   @@ libs_name
-   -    kimp) echo KImp ;; kimpinv) echo KImpInv ;; krsimp) …
-   +    kimp) echo KImp ;; kimpinv) echo KImpInv ;; kimpkeys) echo KImpKeys ;; krsimp) …
-   @@ libs_gen
-   +    kimpkeys) "$G" gen --kore "$(kore_dir kimp-keys)/definition.kore" --runtime "$(kore_dir kimp-keys)/runtime.json" \
-   +            --out "$o" --name KImpKeys --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
-   +            --invariant envKeysOk@env ;;
-        krsimp) "$G" gen --kore "$KRS/definition.kore" …
-   --- a/k2lean/tests/gate.sh
-   +++ b/k2lean/tests/gate.sh
-    kc kimp-inv
-   +kc kimp-keys
+   @@ name_invariants
+   +    kimpkeys|kimpkeys-hand) echo KImpKeys ;;
+   @@ gen_invariants
+   +    kimpkeys|kimpkeys-hand) GEN_ARGS=(--kore "$(kore_dir kimp-keys)/definition.kore" --runtime "$(kore_dir kimp-keys)/runtime.json"
+   +            --out "$o" --name KImpKeys --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+   +            --invariant envKeysOk@env) ;;
+   @@ gate_invariants
+   +  runs lib kimpkeys && kc kimp-keys && inv_lib kimpkeys KImpKeys
    …
-   +phase "lib kimpkeys"
-   +if [ -f "$KO/kimp-keys/definition.kore" ]; then
-   +  mkdir -p "$GEN/kimpkeys"; touch "$GEN/kimpkeys/open-obligations.txt"
-   +  inv_reset kimpkeys
-   +  if genlib kimpkeys; then
-   +    eqns kimpkeys KImpKeys && invcases kimpkeys KImpKeys
-   +  else bad "gen kimpkeys" "$L/gen-kimpkeys.log"; fi
-   +fi
-    phase "negative"
+   -  diffs kimpinv kimpfold kimptop nested …
+   +  diffs kimpinv kimpkeys kimpfold kimptop nested …
    …
-   -diffs kimp krsimp kmut imptypes kimpinv
-   +diffs kimp krsimp kmut imptypes kimpinv kimpkeys
-   …
-   -for p in ImpRel ImpTypes ImpMut KrsImpTyping; do
-   +for p in ImpRel ImpTypes ImpMut KrsImpTyping EnvBound; do
-   --- a/k2lean/tests/gate-check.py
-   +++ b/k2lean/tests/gate-check.py
-   -LIBS = {… "simpleinv": ("KSimpleInv", "heavy")}
-   +LIBS = {… "simpleinv": ("KSimpleInv", "heavy"), "kimpkeys": ("KImpKeys", "light")}
-   -NO_GUARD = {"kimpinv", "simpleinv"}
-   +NO_GUARD = {"kimpinv", "simpleinv", "kimpkeys"}
-   -INVS = {… "simpleinv": ("KSimpleInv", "heavy")}
-   +INVS = {… "simpleinv": ("KSimpleInv", "heavy"), "kimpkeys": ("KImpKeys", "light")}
-   -DEMOS = {… "Kind2Template": "light", "SimpleEnv": "heavy"}
-   +DEMOS = {… "Kind2Template": "light", "SimpleEnv": "heavy", "EnvBound": "light"}
-   -SOURCE_DIRS = {"light": [… "generated/kimpinv"],
-   +SOURCE_DIRS = {"light": [… "generated/kimpinv", "generated/kimpkeys"],
+   -  for d in ImpWrites KrsImpTyping SimpleEnv; do runs demo "$d" && dbuild "$d"; done
+   +  for d in ImpWrites KrsImpTyping SimpleEnv EnvBound; do runs demo "$d" && dbuild "$d"; done
+   --- a/k2lean/tests/areas/invariants.py
+   +++ b/k2lean/tests/areas/invariants.py
+    LIBS = {
+   +    "kimpkeys": {"ns": "KImpKeys", "tier": "light", "guard": False},
+    INVS = {
+   +    "kimpkeys": {"ns": "KImpKeys", "tier": "light"},
+    DEMOS = {
+   +    "EnvBound": {"tier": "light"},
    ```
 
-   - `NO_GUARD`: the library is built only as far as its invariant needs, so it has no `…Test.Axioms` guard; the invariant's own `#k2l_assert_axioms` is checked through `INVS`.
-   - A heavy invariant (SIMPLE-based) goes in the `heavy` branch of `gate.sh` and gets `"heavy"` in `gate-check.py`.
+   - `guard: False`: the library is built only as far as its invariant needs, so it has no `…Test.Axioms` guard; the invariant's own `#k2l_assert_axioms` is checked through `INVS`.
+   - `inv_lib` (in `invariants.sh`) generates the library, builds its `Equations` and its `Invariants`, and turns a case that `k2l_preserve` does not close into an open case; `runs KIND NAME` holds when the tier being run includes the entry's tier.
+   - A heavy invariant (SIMPLE-based) gets `"tier": "heavy"`; nothing else changes.
+   - `tests/gate.sh list` prints the registered entries, which checks the new ones.
 3. Run a tier, read its `FAIL` and `NOTE` lines, accept, and run again:
 
    ```text
    $T/tests/gate.sh light
-   $T/tests/gate.sh accept
+   $T/tests/gate.sh accept --area invariants
    $T/tests/gate.sh light
    ```
 
@@ -955,7 +939,7 @@ The library `kimpkeys` of §3 is registered so (with `kimpkeys-hand`, the same l
    gate: light passed
    ```
 
-   `accept` (which refuses a run with failed steps, banned items or failing unit tests) writes the new entries to `T/tests/baseline.toml`: for EnvBound, 78 of 79 closed with hand `[«CALC.assign»]`, 5 guarded (for kimpkeys the baseline has 79 cases, 79 automatic, open `[]`, 4 guarded).
+   `accept --area invariants` (which refuses a run with failed steps, banned items or failing unit tests, and a run in which another area's measured entries differ from that area's baseline) writes the new entries to `T/tests/baseline/invariants.toml`: for EnvBound, 78 of 79 closed with hand `[«CALC.assign»]`, 5 guarded (for kimpkeys the baseline has 79 cases, 79 automatic, open `[]`, 4 guarded).
    The second run passes with no `NOTE`.
    From then on the gate fails if a hand case breaks (`FAIL step build EnvBound`, `FAIL demo.EnvBound: not built`), an open set grows, or a `k2l_preserve` count drops.
    A kind 1 hand module (`generated/kimpkeys-hand/KImpKeys/InvariantsHand.lean`) is, like the open lists, an input that a person writes: the sources check does not hash it, and the build of the invariant checks it, so an edit that still proves its cases passes and one that does not fails (`FAIL step invariant kimpkeys-hand`).
