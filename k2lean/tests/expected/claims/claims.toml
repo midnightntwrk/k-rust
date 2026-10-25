@@ -136,3 +136,9 @@ sort = "SortExpr"
 obligations = 1
 open = ["ExprDiv.AExp._/_"]
 
+[[induction]]
+name = "ExprVars"
+sort = "SortExpr"
+obligations = 17
+open = []
+
