@@ -221,6 +221,117 @@ theorem entriesOn_of_range {Q : K × V → Prop} {f : Int → Option M} {b : Int
           omega
         exact ih _ hlt _ _ rfl hrest
 
+
+section
+
+variable [Std.TransOrd K] [Std.LawfulEqOrd K]
+
+/-! ### Map walks: `f(.Map) => true`, `f((K |-> V) REST) => φ(K, V) andBool f(REST)` -/
+
+/-- Erasing a bound key shortens a sorted association list. -/
+theorem _root_.KPrelude.SAL.length_erase_lt {α β : Type} [Ord α] {k : α} {v : β} :
+    ∀ {m : List (α × β)}, SAL.lookup k m = some v → (SAL.erase k m).length < m.length
+  | [], h => by simp [SAL.lookup] at h
+  | (k', v') :: t, h => by
+    cases hc : compare k k' with
+    | lt => simp [SAL.lookup, hc] at h
+    | eq => simp [SAL.erase, hc]
+    | gt =>
+      simp only [SAL.lookup, hc] at h
+      simp only [SAL.erase, hc, List.length_cons]
+      have := SAL.length_erase_lt h
+      omega
+
+/-- The first nonempty list of one list is that list. -/
+theorem _root_.KPrelude.firstNonempty_singleton {β : Type} (l : List β) : firstNonempty [l] = l := by
+  cases l <;> rfl
+
+/-- A function on maps that satisfies the equations of a K walk `f(.Map) => true`,
+`f((K |-> V) REST) => φ(K, V) andBool f(REST)`, read through the walk's instances (a value
+`true` at a nonempty map comes from a binding whose test `ψ` holds and whose rest is `true`; a
+well-formed nonempty map whose every binding passes and has a `true` rest is `true`), is `true`
+exactly on the well-formed maps whose every binding passes. By induction on the number of
+bindings, the rest at a binding having one fewer. -/
+theorem all_iff_of_walk {f : M → Option Bool} {ψ : K → V → Prop}
+    (h1 : f unit = some true)
+    (h2 : ∀ m, m ≠ unit → f m = some true →
+      WF m ∧ ∃ k v, (k, v) ∈ toList m ∧ ψ k v ∧ f (remove m k) = some true)
+    (h3 : ∀ m, m ≠ unit → WF m →
+      (∀ k v, (k, v) ∈ toList m → ψ k v ∧ f (remove m k) = some true) → f m = some true)
+    (m : M) : f m = some true ↔ WF m ∧ EntriesOn (fun p => ψ p.1 p.2) m := by
+  suffices H : ∀ n (m : M), (toList m).length = n →
+      (f m = some true ↔ WF m ∧ EntriesOn (fun p => ψ p.1 p.2) m) from H _ m rfl
+  intro n
+  induction n using Nat.strongRecOn with
+  | ind n ih =>
+    intro m hn
+    have shorter : ∀ {k v}, WF m → (k, v) ∈ toList m → (toList (remove m k)).length < n := by
+      intro k v hw hk
+      rw [remove_def, toList_ofList, ← hn]
+      exact SAL.length_erase_lt (by rw [← lookup_def]; exact lookup_of_mem_toList hw hk)
+    by_cases hu : m = unit
+    · subst hu
+      exact ⟨fun _ => ⟨wf_unit, entriesOn_unit⟩, fun _ => h1⟩
+    constructor
+    · intro h
+      obtain ⟨hw, k, v, hk, hψ, hr⟩ := h2 m hu h
+      have hl := lookup_of_mem_toList hw hk
+      obtain ⟨-, hrest⟩ := (ih _ (shorter hw hk) (remove m k) rfl).1 hr
+      exact ⟨hw, entriesOn_concat (concat_element_remove hw hl) (entriesOn_element hψ) hrest⟩
+    · rintro ⟨hw, he⟩
+      refine h3 m hu hw fun k v hk => ⟨he (k, v) hk, ?_⟩
+      exact (ih _ (shorter hw hk) (remove m k) rfl).2 ⟨wf_remove hw, entriesOn_remove he⟩
+
+
+/-- A nonempty map has a binding. -/
+theorem toList_ne_nil_of_ne_unit {m : M} (h : m ≠ unit) : toList m ≠ [] := by
+  intro hl
+  apply h
+  rw [← ofList_toList m, hl]
+  rfl
+
+/-- The first instance of a free-key equation is an instance at some binding. -/
+theorem mem_of_head?_chooseAll {β : Type} {m : M} {g : K → V → List β} {b : β}
+    (h : (chooseAll m g).head? = some b) : ∃ k v, (k, v) ∈ toList m ∧ b ∈ g k v := by
+  unfold chooseAll at h
+  obtain ⟨p, hp, hb⟩ := List.mem_flatMap.1 (List.mem_of_mem_head? h)
+  exact ⟨p.1, p.2, hp, hb⟩
+
+/-- A nonempty map at whose every binding the instances are `[b]` has the first instance `b`. -/
+theorem head?_chooseAll_of_forall {β : Type} {m : M} {g : K → V → List β} {b : β}
+    (hm : toList m ≠ []) (h : ∀ k v, (k, v) ∈ toList m → g k v = [b]) :
+    (chooseAll m g).head? = some b := by
+  unfold chooseAll
+  cases hl : toList m with
+  | nil => exact absurd hl hm
+  | cons p t =>
+    rw [List.flatMap_cons, h p.1 p.2 (by rw [hl]; exact List.mem_cons_self ..)]
+    rfl
+
+
+/-- A defined `M₁ M₂` is well formed: `concat` is defined only on sorted operands with disjoint
+keys, and inserts the bindings of one into the other. -/
+theorem wf_of_concat {a b m : M} (h : concat a b = some m) : WF m := by
+  unfold concat SAL.concat at h
+  split at h
+  · rename_i hc
+    simp only [Option.map_some, Option.some.injEq] at h
+    subst h
+    unfold WF
+    rw [toList_ofList]
+    simp only [Bool.and_eq_true] at hc
+    have hb : SAL.Sorted (toList b) := (SAL.sortedb_iff _).1 hc.1.2
+    induction toList a with
+    | nil => exact hb
+    | cons p t ih => exact SAL.sorted_insert ih
+  · simp at h
+
+/- The facts that a rule's rebuilt map is well formed, for the collections closer (a map walk's
+element-wise form, `all_iff_of_walk`, states it). -/
+attribute [k2l_coll] wf_of_concat wf_rest_of_concat_element wf_update wf_remove wf_unit wf_element
+
+end
+
 end MapHook
 
 /-! ## Sets -/
