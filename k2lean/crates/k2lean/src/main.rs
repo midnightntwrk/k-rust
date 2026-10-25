@@ -3,6 +3,7 @@
 //! Commands: `gen` (the library), `open-from-log`, `goldens`, `cases`, `configs`, `survey`,
 //! `relate`, `soundness`, `claims`, `new-invariant` and `diff`; `k2lean/docs/design.md` describes them.
 
+mod agree;
 mod casediff;
 mod cases;
 mod claims;
@@ -745,10 +746,12 @@ fn main() {
                     &drivers::test_main(ns, &top),
                 );
             }
+            // and the instance theorems of the functions with a free-key equation (`agree.rs`)
             let proved: Vec<String> = stated
                 .iter()
                 .filter(|s| !open.contains(&s.name))
                 .map(|s| s.name.clone())
+                .chain(fgen.agree_thms.iter().cloned())
                 .collect();
             write(
                 &out.join(format!("{ns}Test")).join("Axioms.lean"),
@@ -834,7 +837,11 @@ fn main() {
 /// generated definitions. The termination proofs of recursive functions (`decreasing_by`) use
 /// `KPrelude.Termination`; they are elaborated without a heartbeat bound, as the term universe.
 fn functions_module(ns: &str, fgen: &funcs::Generated, extra: &str) -> String {
-    let (import, opts) = if fgen.recursive.is_empty() && extra.is_empty() {
+    // the instance theorems of free-key functions (`agree.rs`) use `KPrelude.Ext`'s tactic
+    let (import, opts) = if fgen.recursive.is_empty()
+        && extra.is_empty()
+        && fgen.agree_thms.is_empty()
+    {
         ("", "")
     } else {
         (

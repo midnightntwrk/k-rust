@@ -275,6 +275,9 @@ pub struct Generated {
     pub measures: BTreeMap<String, Measure>,
     /// The functions with an equation whose map pattern has a free key (`MapHook.chooseFirst`).
     pub choose_fns: BTreeSet<String>,
+    /// The theorems about the instances of the functions with a free-key equation (`agree.rs`),
+    /// for the axiom guard.
+    pub agree_thms: Vec<String>,
     pub notes: Vec<String>,
 }
 
@@ -620,6 +623,7 @@ fn gen_recursive(
     list_rec_out: &mut BTreeSet<String>,
     ctx: &mut crate::termination::Ctx,
     measures: &mut BTreeMap<String, Measure>,
+    free_key: &mut Vec<crate::agree::FreeKeyFn>,
 ) -> Result<String, String> {
     let mut o = String::new();
     // declarations before the group: the file's `before` texts, rank functions of the measures
@@ -830,6 +834,37 @@ fn gen_recursive(
             ));
         } else {
             body.push_str(&format!("{pad}none\n"));
+        }
+        if lowered
+            .iter()
+            .any(|(_, st, _, _)| crate::agree::has_free_key(st))
+        {
+            free_key.push(crate::agree::FreeKeyFn {
+                label: label.clone(),
+                lean: fn_name(f),
+                params: params.clone(),
+                arg_tys: sig.args.clone(),
+                result: sig.result.clone(),
+                pure: false,
+                recursive: true,
+                eqns: lowered
+                    .iter()
+                    .enumerate()
+                    .map(|(li, (i, st, l, r))| crate::agree::Eqn {
+                        n: i + 1,
+                        priority: eqs[f][*i].priority,
+                        steps: st.clone(),
+                        lhs_len: *l,
+                        rhs: r.clone(),
+                        matcher: crate::agree::Matcher::Inline,
+                        named: named.contains(&li),
+                    })
+                    .collect(),
+                fallback: m
+                    .anywhere
+                    .contains(f)
+                    .then(|| format!("some {}", anywhere_ctor(m, f, params).render_arg())),
+            });
         }
         if let Some(p) = plan {
             pre.push_str(&p.rank_defs);
@@ -1290,6 +1325,7 @@ pub fn generate_with(
     let mut unfold = Vec::new();
     let mut measures = BTreeMap::new();
     let mut choose_fns = BTreeSet::new();
+    let mut free_key: Vec<crate::agree::FreeKeyFn> = Vec::new();
     let is_choose = |st: &[crate::lower::Step]| {
         st.iter()
             .any(|x| matches!(x, crate::lower::Step::MapChoose { .. }))
@@ -1317,6 +1353,7 @@ pub fn generate_with(
                 &mut list_recursive,
                 &mut ctx,
                 &mut measures,
+                &mut free_key,
             )?;
             lean.push_str(&text);
             for f in scc {
@@ -1428,6 +1465,41 @@ pub fn generate_with(
             ps.join(" ")
         ));
         unfold.push(name.clone());
+        if choose_fns.contains(f) {
+            let n = bodies.len();
+            free_key.push(crate::agree::FreeKeyFn {
+                label: names::demangle(f),
+                lean: name.clone(),
+                params: params.clone(),
+                arg_tys: sig.args.clone(),
+                result: sig.result.clone(),
+                pure,
+                recursive: false,
+                eqns: bodies
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, (i, st, l, r, _, _))| crate::agree::Eqn {
+                        n: i + 1,
+                        // the `anywhere` constructor applies where no equation does
+                        priority: if m.anywhere.contains(f) && idx == n - 1 {
+                            i64::MAX
+                        } else {
+                            es[*i].priority
+                        },
+                        steps: st.clone(),
+                        lhs_len: *l,
+                        rhs: r.clone(),
+                        matcher: if pure && idx == n - 1 {
+                            crate::agree::Matcher::CatchAll
+                        } else {
+                            crate::agree::Matcher::Rule
+                        },
+                        named: false,
+                    })
+                    .collect(),
+                fallback: None,
+            });
+        }
         let def = crate::termination::FnDef {
             lean: name.clone(),
             params: params.clone(),
@@ -1455,6 +1527,15 @@ pub fn generate_with(
         (Some(defs), true) => format!("{helpers}{defs}{lean}"),
         _ => format!("{helpers}{lean}"),
     };
+    // the instances of the functions with a free-key equation, once every function is defined
+    let mut agree_thms = Vec::new();
+    let mut lean = lean;
+    for fk in &free_key {
+        let (text, thms) = crate::agree::emit(fk);
+        lean.push_str(&text);
+        agree_thms.extend(thms);
+        notes.push(crate::agree::note(fk));
+    }
     let recursive = recursive.iter().map(|f| fns[f].lean.clone()).collect();
     Ok(Generated {
         fns,
@@ -1466,6 +1547,7 @@ pub fn generate_with(
         groups: sccs,
         measures,
         choose_fns,
+        agree_thms,
         notes,
     })
 }

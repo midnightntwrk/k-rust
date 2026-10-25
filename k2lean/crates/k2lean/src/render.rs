@@ -265,6 +265,7 @@ pub fn exec(
     let r = Render {
         cert: certified,
         first: false,
+        all: false,
         fail,
         leaf,
     };
@@ -289,6 +290,29 @@ pub fn exec_first(
     let r = Render {
         cert: certified,
         first: true,
+        all: false,
+        fail,
+        leaf,
+    };
+    r.from(steps, 0, indent, &mut out);
+    out
+}
+
+/// Render the instances of a function equation: `List`-valued, one element per match, and a
+/// free-key map pattern enumerates every binding of the map, in the map's order
+/// (`MapHook.chooseAll`, without certificates): `fail(i)` is `[]` for the steps of the left-hand
+/// side and `[none]` (an instance whose value is `⊥`) for the right-hand side's (`agree.rs`).
+pub fn exec_all(
+    steps: &[Step],
+    fail: &dyn Fn(usize) -> String,
+    leaf: &str,
+    indent: usize,
+) -> String {
+    let mut out = String::new();
+    let r = Render {
+        cert: false,
+        first: false,
+        all: true,
         fail,
         leaf,
     };
@@ -319,6 +343,8 @@ struct Render<'a> {
     cert: bool,
     /// A function equation's matcher (`exec_first`), not a rule's list-valued one.
     first: bool,
+    /// A function equation's instances (`exec_all`): every match, without certificates.
+    all: bool,
     fail: &'a dyn Fn(usize) -> String,
     leaf: &'a str,
 }
@@ -427,9 +453,21 @@ impl Render<'_> {
                 ..
             } => {
                 assert!(
-                    cert || self.first,
+                    cert || self.first || self.all,
                     "a free-key map pattern of a rule needs the certified, list-valued matcher"
                 );
+                if self.all {
+                    out.push_str(&format!("{p}if KPrelude.MapHook.wfb {map} = true then\n"));
+                    out.push_str(&format!(
+                        "{p}  KPrelude.MapHook.chooseAll {map} fun {key} {val} =>\n"
+                    ));
+                    out.push_str(&format!(
+                        "{p}    let {rest} := KPrelude.MapHook.remove {map} {key}\n"
+                    ));
+                    self.from(steps, i + 1, ind + 4, out);
+                    out.push_str(&format!("{p}else {}\n", fail(i)));
+                    return;
+                }
                 // the certificate is a binder of the continuation; unnamed when nothing reads it
                 let hc = if cert { hc.as_str() } else { "_" };
                 let comb = if self.first { "chooseFirst" } else { "choose" };

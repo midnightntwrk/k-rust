@@ -115,5 +115,196 @@ decreasing_by all_goals first
   | k2l_decreasing []
   | (simp_wf; (try subst_vars); (try simp_all [KPrelude.IntHook.le, KPrelude.IntHook.lt, KPrelude.IntHook.add, KPrelude.IntHook.ge, KPrelude.IntHook.gt]); (try omega))
 
+/-! `allNat(_)_FREEKEY_Bool_Map`: the instances of its equations (`docs/design.md` §2, "Free-key map patterns") -/
+/-- The matcher of equation 1 in `allNat(_)_FREEKEY_Bool_Map`'s cascade. -/
+def K.«allNat(_)_FREEKEY_Bool_Map».eqn1 (x0 : SortMap) : Option (Option SortBool) :=
+  if hu : x0 = KPrelude.MapHook.unit then
+    some (some true)
+  else none
+/-- The matcher of equation 2 in `allNat(_)_FREEKEY_Bool_Map`'s cascade. -/
+def K.«allNat(_)_FREEKEY_Bool_Map».eqn2 (x0 : SortMap) : Option (Option SortBool) :=
+  if hwf : KPrelude.MapHook.wfb x0 = true then
+    KPrelude.MapHook.chooseFirst x0 ((KPrelude.MapHook.wfb_iff _).1 hwf) fun k v hc =>
+      let M := KPrelude.MapHook.remove x0 k
+      match hr : K.«allNat(_)_FREEKEY_Bool_Map» M with
+      | some r =>
+        some (some (KPrelude.BoolHook.and (K.«isNat(_)_FREEKEY_Bool_KItem» v) r))
+      | none => some none
+  else none
+/-- The instances of equation 1 of `allNat(_)_FREEKEY_Bool_Map` at the arguments. -/
+def K.«allNat(_)_FREEKEY_Bool_Map».inst1 (x0 : SortMap) : List (Option SortBool) :=
+  if x0 = KPrelude.MapHook.unit then
+    [some true]
+  else []
+/-- The instances of equation 2 of `allNat(_)_FREEKEY_Bool_Map` at the arguments. -/
+def K.«allNat(_)_FREEKEY_Bool_Map».inst2 (x0 : SortMap) : List (Option SortBool) :=
+  if KPrelude.MapHook.wfb x0 = true then
+    KPrelude.MapHook.chooseAll x0 fun k v =>
+      let M := KPrelude.MapHook.remove x0 k
+      match K.«allNat(_)_FREEKEY_Bool_Map» M with
+      | some r =>
+        [some (KPrelude.BoolHook.and (K.«isNat(_)_FREEKEY_Bool_KItem» v) r)]
+      | none => [none]
+  else []
+/-- The instances of `allNat(_)_FREEKEY_Bool_Map` at the arguments that K's axioms equate with its value: those of the
+first priority group of its equations that has one (one per matching binding of a free-key map
+pattern, in the map's order), or the value where no equation applies. -/
+def K.«allNat(_)_FREEKEY_Bool_Map».instances (x0 : SortMap) : List (Option SortBool) :=
+  KPrelude.firstNonempty [K.«allNat(_)_FREEKEY_Bool_Map».inst1 x0 ++ K.«allNat(_)_FREEKEY_Bool_Map».inst2 x0]
+/-- K's axioms determine `allNat(_)_FREEKEY_Bool_Map` at the arguments: its instances there agree. -/
+abbrev K.«allNat(_)_FREEKEY_Bool_Map».Agrees (x0 : SortMap) : Prop :=
+  KPrelude.Agree (K.«allNat(_)_FREEKEY_Bool_Map».instances x0)
+theorem K.«allNat(_)_FREEKEY_Bool_Map».inst1_head (x0 : SortMap) :
+    (K.«allNat(_)_FREEKEY_Bool_Map».inst1 x0).head? = K.«allNat(_)_FREEKEY_Bool_Map».eqn1 x0 := by
+  unfold K.«allNat(_)_FREEKEY_Bool_Map».inst1 K.«allNat(_)_FREEKEY_Bool_Map».eqn1
+  k2l_inst_head
+theorem K.«allNat(_)_FREEKEY_Bool_Map».inst2_head (x0 : SortMap) :
+    (K.«allNat(_)_FREEKEY_Bool_Map».inst2 x0).head? = K.«allNat(_)_FREEKEY_Bool_Map».eqn2 x0 := by
+  unfold K.«allNat(_)_FREEKEY_Bool_Map».inst2 K.«allNat(_)_FREEKEY_Bool_Map».eqn2
+  k2l_inst_head
+/-- The value of `allNat(_)_FREEKEY_Bool_Map` is its first instance (`chooseFirst`: the first matching binding in the
+map's order). -/
+theorem K.«allNat(_)_FREEKEY_Bool_Map».eq_instances (x0 : SortMap) :
+    K.«allNat(_)_FREEKEY_Bool_Map» x0 = (K.«allNat(_)_FREEKEY_Bool_Map».instances x0).head?.join := by
+  rw [K.«allNat(_)_FREEKEY_Bool_Map».eq_def]
+  show (
+    match K.«allNat(_)_FREEKEY_Bool_Map».eqn1 x0 with
+    | some r => r
+    | none =>
+      match K.«allNat(_)_FREEKEY_Bool_Map».eqn2 x0 with
+      | some r => r
+      | none =>
+        none) = _
+  rw [← K.«allNat(_)_FREEKEY_Bool_Map».inst1_head x0, ← K.«allNat(_)_FREEKEY_Bool_Map».inst2_head x0]
+  unfold K.«allNat(_)_FREEKEY_Bool_Map».instances
+  cases K.«allNat(_)_FREEKEY_Bool_Map».inst1 x0 <;> try rfl
+  cases K.«allNat(_)_FREEKEY_Bool_Map».inst2 x0 <;> try rfl
+/-- Where K's axioms determine `allNat(_)_FREEKEY_Bool_Map` (its instances agree), the generated value is the value of
+every instance. -/
+theorem K.«allNat(_)_FREEKEY_Bool_Map».eq_of_agrees (x0 : SortMap) (h : K.«allNat(_)_FREEKEY_Bool_Map».Agrees x0) {v : Option SortBool}
+    (hv : v ∈ K.«allNat(_)_FREEKEY_Bool_Map».instances x0) : K.«allNat(_)_FREEKEY_Bool_Map» x0 = v := by
+  exact (K.«allNat(_)_FREEKEY_Bool_Map».eq_instances x0).trans (KPrelude.Agree.head?_join_eq h hv)
+
+/-! `hasNeg(_)_FREEKEY_Bool_Map`: the instances of its equations (`docs/design.md` §2, "Free-key map patterns") -/
+/-- The instances of equation 1 of `hasNeg(_)_FREEKEY_Bool_Map` at the arguments. -/
+def K.«hasNeg(_)_FREEKEY_Bool_Map».inst1 (x0 : SortMap) : List (SortBool) :=
+  if KPrelude.MapHook.wfb x0 = true then
+    KPrelude.MapHook.chooseAll x0 fun k v =>
+      let Gen1 := KPrelude.MapHook.remove x0 k
+      match v with
+      | SortKItem.inj_Int V =>
+        if KPrelude.IntHook.lt V (0 : Int) = true then
+          [true]
+        else []
+      | _ => []
+  else []
+/-- The instances of `hasNeg(_)_FREEKEY_Bool_Map` at the arguments that K's axioms equate with its value: those of the
+first priority group of its equations that has one (one per matching binding of a free-key map
+pattern, in the map's order), or the value where no equation applies. -/
+def K.«hasNeg(_)_FREEKEY_Bool_Map».instances (x0 : SortMap) : List (SortBool) :=
+  KPrelude.firstNonempty [K.«hasNeg(_)_FREEKEY_Bool_Map».inst1 x0, [false]]
+/-- K's axioms determine `hasNeg(_)_FREEKEY_Bool_Map` at the arguments: its instances there agree. -/
+abbrev K.«hasNeg(_)_FREEKEY_Bool_Map».Agrees (x0 : SortMap) : Prop :=
+  KPrelude.Agree (K.«hasNeg(_)_FREEKEY_Bool_Map».instances x0)
+theorem K.«hasNeg(_)_FREEKEY_Bool_Map».inst1_head (x0 : SortMap) :
+    (K.«hasNeg(_)_FREEKEY_Bool_Map».inst1 x0).head? = K.«hasNeg(_)_FREEKEY_Bool_Map».rule1 x0 := by
+  unfold K.«hasNeg(_)_FREEKEY_Bool_Map».inst1 K.«hasNeg(_)_FREEKEY_Bool_Map».rule1
+  k2l_inst_head
+/-- The value of `hasNeg(_)_FREEKEY_Bool_Map` is its first instance (`chooseFirst`: the first matching binding in the
+map's order). -/
+theorem K.«hasNeg(_)_FREEKEY_Bool_Map».eq_instances (x0 : SortMap) :
+    (K.«hasNeg(_)_FREEKEY_Bool_Map».instances x0).head? = some (K.«hasNeg(_)_FREEKEY_Bool_Map» x0) := by
+  unfold K.«hasNeg(_)_FREEKEY_Bool_Map»
+  rw [← K.«hasNeg(_)_FREEKEY_Bool_Map».inst1_head x0]
+  unfold K.«hasNeg(_)_FREEKEY_Bool_Map».instances
+  cases K.«hasNeg(_)_FREEKEY_Bool_Map».inst1 x0 <;> try rfl
+/-- Where K's axioms determine `hasNeg(_)_FREEKEY_Bool_Map` (its instances agree), the generated value is the value of
+every instance. -/
+theorem K.«hasNeg(_)_FREEKEY_Bool_Map».eq_of_agrees (x0 : SortMap) (h : K.«hasNeg(_)_FREEKEY_Bool_Map».Agrees x0) {v : SortBool}
+    (hv : v ∈ K.«hasNeg(_)_FREEKEY_Bool_Map».instances x0) : K.«hasNeg(_)_FREEKEY_Bool_Map» x0 = v := by
+  exact Option.some.inj ((K.«hasNeg(_)_FREEKEY_Bool_Map».eq_instances x0).symm.trans (KPrelude.Agree.head?_eq h hv))
+
+/-! `total(_)_FREEKEY_Int_WorkerCellMap`: the instances of its equations (`docs/design.md` §2, "Free-key map patterns") -/
+/-- The matcher of equation 1 in `total(_)_FREEKEY_Int_WorkerCellMap`'s cascade. -/
+def K.«total(_)_FREEKEY_Int_WorkerCellMap».eqn1 (x0 : SortWorkerCellMap) : Option (Option SortInt) :=
+  if hu : x0 = KPrelude.MapHook.unit then
+    some (some (0 : Int))
+  else none
+/-- The matcher of equation 2 in `total(_)_FREEKEY_Int_WorkerCellMap`'s cascade. -/
+def K.«total(_)_FREEKEY_Int_WorkerCellMap».eqn2 (x0 : SortWorkerCellMap) : Option (Option SortInt) :=
+  if hwf : KPrelude.MapHook.wfb x0 = true then
+    KPrelude.MapHook.chooseFirst x0 ((KPrelude.MapHook.wfb_iff _).1 hwf) fun k v hc =>
+      let W := KPrelude.MapHook.remove x0 k
+      match hd : k with
+      | SortWidCell.«<wid>» Gen0 =>
+        match hd_1 : v with
+        | SortWorkerCell.«<worker>» (SortWidCell.«<wid>» y) (SortCntCell.«<cnt>» C) =>
+          if heq : y = Gen0 then
+            match hr : K.«total(_)_FREEKEY_Int_WorkerCellMap» W with
+            | some r =>
+              some (some (KPrelude.IntHook.add C r))
+            | none => some none
+          else none
+  else none
+/-- The instances of equation 1 of `total(_)_FREEKEY_Int_WorkerCellMap` at the arguments. -/
+def K.«total(_)_FREEKEY_Int_WorkerCellMap».inst1 (x0 : SortWorkerCellMap) : List (Option SortInt) :=
+  if x0 = KPrelude.MapHook.unit then
+    [some (0 : Int)]
+  else []
+/-- The instances of equation 2 of `total(_)_FREEKEY_Int_WorkerCellMap` at the arguments. -/
+def K.«total(_)_FREEKEY_Int_WorkerCellMap».inst2 (x0 : SortWorkerCellMap) : List (Option SortInt) :=
+  if KPrelude.MapHook.wfb x0 = true then
+    KPrelude.MapHook.chooseAll x0 fun k v =>
+      let W := KPrelude.MapHook.remove x0 k
+      match k with
+      | SortWidCell.«<wid>» Gen0 =>
+        match v with
+        | SortWorkerCell.«<worker>» (SortWidCell.«<wid>» y) (SortCntCell.«<cnt>» C) =>
+          if y = Gen0 then
+            match K.«total(_)_FREEKEY_Int_WorkerCellMap» W with
+            | some r =>
+              [some (KPrelude.IntHook.add C r)]
+            | none => [none]
+          else []
+  else []
+/-- The instances of `total(_)_FREEKEY_Int_WorkerCellMap` at the arguments that K's axioms equate with its value: those of the
+first priority group of its equations that has one (one per matching binding of a free-key map
+pattern, in the map's order), or the value where no equation applies. -/
+def K.«total(_)_FREEKEY_Int_WorkerCellMap».instances (x0 : SortWorkerCellMap) : List (Option SortInt) :=
+  KPrelude.firstNonempty [K.«total(_)_FREEKEY_Int_WorkerCellMap».inst1 x0 ++ K.«total(_)_FREEKEY_Int_WorkerCellMap».inst2 x0]
+/-- K's axioms determine `total(_)_FREEKEY_Int_WorkerCellMap` at the arguments: its instances there agree. -/
+abbrev K.«total(_)_FREEKEY_Int_WorkerCellMap».Agrees (x0 : SortWorkerCellMap) : Prop :=
+  KPrelude.Agree (K.«total(_)_FREEKEY_Int_WorkerCellMap».instances x0)
+theorem K.«total(_)_FREEKEY_Int_WorkerCellMap».inst1_head (x0 : SortWorkerCellMap) :
+    (K.«total(_)_FREEKEY_Int_WorkerCellMap».inst1 x0).head? = K.«total(_)_FREEKEY_Int_WorkerCellMap».eqn1 x0 := by
+  unfold K.«total(_)_FREEKEY_Int_WorkerCellMap».inst1 K.«total(_)_FREEKEY_Int_WorkerCellMap».eqn1
+  k2l_inst_head
+theorem K.«total(_)_FREEKEY_Int_WorkerCellMap».inst2_head (x0 : SortWorkerCellMap) :
+    (K.«total(_)_FREEKEY_Int_WorkerCellMap».inst2 x0).head? = K.«total(_)_FREEKEY_Int_WorkerCellMap».eqn2 x0 := by
+  unfold K.«total(_)_FREEKEY_Int_WorkerCellMap».inst2 K.«total(_)_FREEKEY_Int_WorkerCellMap».eqn2
+  k2l_inst_head
+/-- The value of `total(_)_FREEKEY_Int_WorkerCellMap` is its first instance (`chooseFirst`: the first matching binding in the
+map's order). -/
+theorem K.«total(_)_FREEKEY_Int_WorkerCellMap».eq_instances (x0 : SortWorkerCellMap) :
+    K.«total(_)_FREEKEY_Int_WorkerCellMap» x0 = (K.«total(_)_FREEKEY_Int_WorkerCellMap».instances x0).head?.join := by
+  rw [K.«total(_)_FREEKEY_Int_WorkerCellMap».eq_def]
+  show (
+    match K.«total(_)_FREEKEY_Int_WorkerCellMap».eqn1 x0 with
+    | some r => r
+    | none =>
+      match K.«total(_)_FREEKEY_Int_WorkerCellMap».eqn2 x0 with
+      | some r => r
+      | none =>
+        none) = _
+  rw [← K.«total(_)_FREEKEY_Int_WorkerCellMap».inst1_head x0, ← K.«total(_)_FREEKEY_Int_WorkerCellMap».inst2_head x0]
+  unfold K.«total(_)_FREEKEY_Int_WorkerCellMap».instances
+  cases K.«total(_)_FREEKEY_Int_WorkerCellMap».inst1 x0 <;> try rfl
+  cases K.«total(_)_FREEKEY_Int_WorkerCellMap».inst2 x0 <;> try rfl
+/-- Where K's axioms determine `total(_)_FREEKEY_Int_WorkerCellMap` (its instances agree), the generated value is the value of
+every instance. -/
+theorem K.«total(_)_FREEKEY_Int_WorkerCellMap».eq_of_agrees (x0 : SortWorkerCellMap) (h : K.«total(_)_FREEKEY_Int_WorkerCellMap».Agrees x0) {v : Option SortInt}
+    (hv : v ∈ K.«total(_)_FREEKEY_Int_WorkerCellMap».instances x0) : K.«total(_)_FREEKEY_Int_WorkerCellMap» x0 = v := by
+  exact (K.«total(_)_FREEKEY_Int_WorkerCellMap».eq_instances x0).trans (KPrelude.Agree.head?_join_eq h hv)
+
 
 end FreeKey
