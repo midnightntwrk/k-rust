@@ -99,6 +99,10 @@ code = "krs::analysis::function-in-pattern"
 doc = "a function application below the root of a rewrite rule's or equation's pattern, outside a collection's key, value or element: a pattern matches terms as written, and an application is evaluated"
 proposed = true
 
+[class.initializer-remainder]
+code = "krs::syntax::unsupported-initializer-body"
+doc = "a remainder (`..v`) in an initializer's `k!` or `map!`: an initializer gives the initial state in full"
+
 [class.instance-list-shape]
 code = "krs::analysis::collection-entry"
 doc = "an instance list a List collection does not admit: braced, matching a back instance in place, or changing both ends"
@@ -544,6 +548,12 @@ at = "spelling"
 [[refuse]]
 match = 'terms/{equation,readable,rule,sort-rule,table}/{subject,subject-depth-2}/{Size(x),k::builtin::int::add(1\, 2)}'
 class = "function-in-pattern"
+at = "spelling"
+
+# initializer-remainder
+[[refuse]]
+match = 'init/k/k::k![Cmd::Go()\, ..pgm]'
+class = "initializer-remainder"
 at = "spelling"
 
 # instance-list-shape
@@ -2101,8 +2111,6 @@ configuration
 """
 
 [accept."init/k/[pgm]"]
-
-[accept."init/k/k::k![Cmd::Go(), ..pgm]"]
 
 [accept."init/k/k::k![pgm]"]
 k = """

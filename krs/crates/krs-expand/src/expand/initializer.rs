@@ -514,15 +514,15 @@ impl<'a> InitializerBuilder<'a> {
             let value = self.expand_term(item)?;
             items.push(ProtocolKSequenceItem { key, value });
         }
-        // `..pgm` after the items denotes `items ~> $PGM`, the variable's
-        // sequence after them, which the initializer's sequence has no
-        // place for yet: the remainder is refused where it is written
-        // rather than dropped.
+        // `..pgm` after the items would denote `items ~> $PGM`, the
+        // variable's sequence after them. An initializer gives the initial
+        // state in full, item by item, so the remainder is refused where it
+        // is written rather than dropped.
         if let Some(range) = sequence.tail().range() {
             return Err(ExpandError::at_range(
                 codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
                 range,
-                "unsupported declarative initializer body: an initializer's `k!` does not yet take a remainder; list the sequence's items",
+                "unsupported declarative initializer body: an initializer's `k!` takes no remainder, since it gives the initial state in full; list the sequence's items",
             ));
         }
         Ok(ProtocolKSequence {
@@ -556,16 +556,17 @@ impl<'a> InitializerBuilder<'a> {
                         value,
                     });
                 }
-                // `..pgm` after the items denotes `items $PGM`, the items
-                // joined with the variable's map, which the initializer's
-                // map has no place for: its body holds the items only. The
+                // `..m` after the items would denote the items joined with
+                // the variable's map, which is partial: it has no value
+                // where the two share a key, which only a run would find. An
+                // initializer gives the initial state in full, so the
                 // remainder is refused where it is written rather than
                 // dropped.
                 if let Some(range) = remainder.range() {
                     return Err(ExpandError::at_range(
                         codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
                         range,
-                        "unsupported declarative initializer body: an initializer's `map!` does not take a remainder; list the map's items",
+                        "unsupported declarative initializer body: an initializer's `map!` takes no remainder, since joining its items with another map has no value where the two share a key; list the map's items",
                     ));
                 }
                 ProtocolMapBody::Items { items: output }
