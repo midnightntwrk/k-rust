@@ -119,7 +119,78 @@ theorem chooseFirst_eq_of_agree {β : Type} {m : M} {hw : WF m}
     obtain ⟨k, v, hc, hb⟩ := chooseFirst_eq_some h
     rw [hall k v hc b' hb]
 
+/-- The values of `g` at every binding of `m`, in the map's order: the instances of a function
+equation with a free-key map pattern `K |-> V REST`, one per binding at which the rest of its
+left-hand side and its requires hold (`docs/design.md`, §2). Unlike `choose`, the continuation
+gets no certificate, so that an instance list is a plain term of its arguments. -/
+def chooseAll {β : Type} (m : M) (g : K → V → List β) : List β :=
+  (toList m).flatMap fun p => g p.1 p.2
+
+theorem findSome?_eq_head?_flatMap {α β : Type} (l : List α) (F : α → Option β) (G : α → List β)
+    (h : ∀ a, F a = (G a).head?) : l.findSome? F = (l.flatMap G).head? := by
+  induction l with
+  | nil => rfl
+  | cons a t ih =>
+    rw [List.findSome?_cons, List.flatMap_cons, h a]
+    cases G a with
+    | nil => simpa using ih
+    | cons b bs => simp
+
+/-- `chooseFirst` is the first of the instances `chooseAll` enumerates, when its continuation is
+the first of theirs at every binding. -/
+theorem head?_chooseAll {β : Type} {m : M} {hw : WF m}
+    {f : (k : K) → (v : V) → concat (element k v) (remove m k) = some m → Option β}
+    {g : K → V → List β} (h : ∀ k v hc, (g k v).head? = f k v hc) :
+    (chooseAll m g).head? = chooseFirst m hw f := by
+  have hl : (toList m).attach.flatMap (fun p => g p.1.1 p.1.2) =
+      (toList m).flatMap (fun p => g p.1 p.2) := by
+    conv => rhs; rw [← List.attach_map_subtype_val (toList m)]
+    rw [List.flatMap_map]
+  unfold chooseFirst chooseAll
+  rw [← hl]
+  exact (findSome?_eq_head?_flatMap _ _ _ fun p => (h _ _ _).symm).symm
+
 end MapHook
+
+/-! ## Instances of function equations and their agreement -/
+
+/-- Every two elements of `l` are equal: the instances of a function's equations at some
+arguments agree, which is where K's axioms determine its value (`docs/design.md`, §2). -/
+def Agree {β : Type} (l : List β) : Prop := ∀ a ∈ l, ∀ b ∈ l, a = b
+
+instance {β : Type} [DecidableEq β] (l : List β) : Decidable (Agree l) :=
+  inferInstanceAs (Decidable (∀ a ∈ l, ∀ b ∈ l, a = b))
+
+/-- Under agreement, the first instance is every instance. -/
+theorem Agree.head?_eq {β : Type} {l : List β} (h : Agree l) {b : β} (hb : b ∈ l) :
+    l.head? = some b := by
+  cases l with
+  | nil => simp at hb
+  | cons a t => rw [List.head?_cons, h a (List.mem_cons_self ..) b hb]
+
+/-- `Agree.head?_eq` for the instances of a partial function (`none` is `⊥`). -/
+theorem Agree.head?_join_eq {β : Type} {l : List (Option β)} (h : Agree l) {b : Option β}
+    (hb : b ∈ l) : l.head?.join = b := by
+  rw [h.head?_eq hb]; rfl
+
+/-- The first nonempty list: the instances of the first priority group of a function's equations
+that has one. -/
+def firstNonempty {β : Type} : List (List β) → List β
+  | [] => []
+  | [] :: ls => firstNonempty ls
+  | (a :: t) :: _ => a :: t
+
+/-- The first instance of a function equation is the value of the equation's matcher
+(`F.instN_head`): the instance list (`MapHook.chooseAll`, on the left) and the matcher
+(`MapHook.chooseFirst`) are the same steps, so each `match` and `if` is split on the left, and
+the right one reduces or is refuted by the left one's hypotheses. -/
+macro "k2l_inst_head" : tactic => `(tactic| (
+  repeat' (first
+    | rfl
+    | (apply KPrelude.MapHook.head?_chooseAll; intro _ _ _)
+    | dsimp only
+    | split)
+  all_goals simp_all))
 
 /-! ## More `MAP` hooks -/
 
