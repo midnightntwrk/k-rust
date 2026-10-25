@@ -217,14 +217,6 @@ impl RulePattern {
         }
     }
 
-    /// A copy without keys, for a producer that computes its anchors on
-    /// demand; the copy's keys are discarded with it.
-    pub(crate) fn unkeyed(&self) -> Self {
-        let mut copy = self.clone();
-        copy.clear_keys();
-        copy
-    }
-
     /// Keys each constructor and binding path in preorder (the term's symbol
     /// paths for a `term!` pattern), as the next of `role`.
     pub(super) fn allocate_path_keys(

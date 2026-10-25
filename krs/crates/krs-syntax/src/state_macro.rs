@@ -598,6 +598,20 @@ impl StateTerm {
         }
     }
 
+    /// Every directly nested state, mutably, in [`Self::nested_states`]
+    /// order.
+    pub(crate) fn nested_states_mut(&mut self) -> Vec<&mut Self> {
+        match self {
+            Self::Present(inner) => vec![inner],
+            Self::Instances(list) => list.nested_states_mut(),
+            Self::Term(_)
+            | Self::KSequence(_)
+            | Self::Map(_)
+            | Self::Group(_)
+            | Self::Absent(_) => Vec::new(),
+        }
+    }
+
     /// Every directly nested state: the inside of `Some(..)` and the
     /// children of collection instances, in source order.
     #[must_use]
@@ -693,6 +707,23 @@ pub struct InstanceItem {
 }
 
 impl InstanceItem {
+    /// Keys the instance record, then each child's name under the roles of
+    /// `position`, each followed by what `child` keys in that child's state.
+    pub(crate) fn allocate_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        position: StatePosition,
+        child: &mut dyn FnMut(&mut KeyAllocator, &mut StateTerm) -> Result<(), SyntaxError>,
+    ) -> Result<(), SyntaxError> {
+        self.key = Some(key_at(keys, position, RuleRole::CellsInstance, self.range)?);
+        for field in &mut self.fields {
+            let range = TokenRange::for_tokens(&field.name)?;
+            field.name_key = Some(key_at(keys, position, RuleRole::CellsInstanceField, range)?);
+            child(keys, &mut field.value)?;
+        }
+        Ok(())
+    }
+
     pub(crate) const fn new(
         range: TokenRange,
         label: Option<Ident>,
@@ -883,24 +914,36 @@ impl InstanceList {
         keys: &mut KeyAllocator,
         position: StatePosition,
     ) -> Result<(), SyntaxError> {
-        let key_item = |item: &mut InstanceItem, keys: &mut KeyAllocator| {
-            item.key = Some(key_at(keys, position, RuleRole::CellsInstance, item.range)?);
-            for field in &mut item.fields {
-                let range = TokenRange::for_tokens(&field.name)?;
-                field.name_key = Some(key_at(keys, position, RuleRole::CellsInstanceField, range)?);
-            }
-            Ok::<_, SyntaxError>(())
-        };
         for item in &mut self.front {
-            key_item(item, keys)?;
+            item.allocate_keys(keys, position, &mut |_, _| Ok(()))?;
         }
+        self.allocate_rest_key(keys, position)?;
+        for item in &mut self.back {
+            item.allocate_keys(keys, position, &mut |_, _| Ok(()))?;
+        }
+        Ok(())
+    }
+
+    /// Keys the collection rest, if any, under the role of `position`.
+    pub(crate) fn allocate_rest_key(
+        &mut self,
+        keys: &mut KeyAllocator,
+        position: StatePosition,
+    ) -> Result<(), SyntaxError> {
         if let Some(range) = self.rest.range() {
             self.rest_key = Some(key_at(keys, position, RuleRole::CellsInstancesRest, range)?);
         }
-        for item in &mut self.back {
-            key_item(item, keys)?;
-        }
         Ok(())
+    }
+
+    /// The instances before the rest, for a pass that keys them.
+    pub(crate) fn front_mut(&mut self) -> &mut [InstanceItem] {
+        &mut self.front
+    }
+
+    /// The instances after the rest, for a pass that keys them.
+    pub(crate) fn back_mut(&mut self) -> &mut [InstanceItem] {
+        &mut self.back
     }
 
     /// Every instance's children's states, mutably, in [`Self::instances`]

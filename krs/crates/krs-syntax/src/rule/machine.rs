@@ -7,8 +7,8 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Expr, Ident, ItemFn, Pat, Path, Token, Type, braced, bracketed};
 
 use super::block::{
-    BracketAlternative, ReadableSentence, RuleClause, RuleClauseLayout, RuleHead, RuleHeadItem,
-    RuleHeadResult, RuleListPattern, RuleListRest, RuleListResult, RuleNarrowing,
+    BracketAlternative, ClauseKeys, ReadableSentence, RuleClause, RuleClauseLayout, RuleHead,
+    RuleHeadItem, RuleHeadResult, RuleListPattern, RuleListRest, RuleListResult, RuleNarrowing,
     take_claim_clause_attribute, take_rule_clause_attribute,
 };
 use super::condition::{RuleExtra, RuleMapEntry, condition_token_range};
@@ -784,7 +784,7 @@ pub(super) fn parse_machine_clause(
                 )
                 .into());
             }
-            narrowings.push(RuleNarrowing { binding, sort });
+            narrowings.push(RuleNarrowing::new(binding, sort));
             if !input.peek(Token![,]) {
                 break;
             }
@@ -1409,6 +1409,8 @@ impl BracketAlternative {
                 result_cell,
                 after: after.map(|after| *after),
                 bindings: bindings.clone(),
+                cell_key: None,
+                result_cell_key: None,
             })),
             _ => None,
         })
@@ -1490,10 +1492,10 @@ fn assemble_machine_clause(
                     entries: entries
                         .iter()
                         .map(|(key, value)| {
-                            Ok(RuleMapEntry {
-                                key: Box::new(map_read_key(key)?),
-                                value: value.clone(),
-                            })
+                            Ok(RuleMapEntry::new(
+                                Box::new(map_read_key(key)?),
+                                value.clone(),
+                            ))
                         })
                         .collect::<Result<_, ParseError>>()?,
                 });
@@ -1795,6 +1797,8 @@ fn assemble_machine_clause(
         layout,
         bracket_alternative: None,
         claim,
+        keys: ClauseKeys::default(),
+        anchors: Vec::new(),
     };
     clause.check_existentials()?;
     Ok(clause)

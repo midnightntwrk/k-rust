@@ -12,6 +12,8 @@ use crate::parse::{
 };
 use crate::path::is_plain_path;
 use crate::term::allocate_record_field_keys;
+use krs_ir::ProvenanceKey;
+
 use crate::{
     ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, TermExpression,
     TermSymbolKind, TermTree, TokenRange,
@@ -215,10 +217,27 @@ pub(super) fn condition_token_range(input: ParseStream<'_>) -> syn::Result<Token
 /// entry for `key`, and `value` binds what that entry maps to.
 #[derive(Clone, Debug)]
 pub struct RuleMapEntry {
-    /// Required key term.
+    /// Required key term; its key is the term's payload key.
     pub key: Box<TermExpression>,
     /// Value binder introduced only when the map item is present.
     pub value: Ident,
+    pub(super) value_key: Option<ProvenanceKey>,
+}
+
+impl RuleMapEntry {
+    pub(super) const fn new(key: Box<TermExpression>, value: Ident) -> Self {
+        Self {
+            key,
+            value,
+            value_key: None,
+        }
+    }
+
+    /// The key of the value binder, given by the clause that reads the entry.
+    #[must_use]
+    pub const fn value_key(&self) -> Option<&ProvenanceKey> {
+        self.value_key.as_ref()
+    }
 }
 
 /// One validated ordinary three-argument map update.
@@ -226,6 +245,7 @@ pub struct RuleMapEntry {
 pub struct RuleMapUpdate {
     term: TermExpression,
     arguments: [Expr; 3],
+    argument_keys: [Option<ProvenanceKey>; 3],
 }
 
 impl RuleMapUpdate {
@@ -235,10 +255,34 @@ impl RuleMapUpdate {
         &self.term
     }
 
+    /// Returns the update term, for a pass that keys it.
+    pub(super) const fn term_mut(&mut self) -> &mut TermExpression {
+        &mut self.term
+    }
+
     /// Returns the authored base, key, and value expressions.
     #[must_use]
     pub fn arguments(&self) -> [&Expr; 3] {
         self.arguments.each_ref()
+    }
+
+    /// The keys of the base, key, and value expressions, given by the clause
+    /// that writes the update; each has the ordinal of the updated cell's
+    /// result field.
+    #[must_use]
+    pub fn argument_keys(&self) -> [Option<&ProvenanceKey>; 3] {
+        self.argument_keys.each_ref().map(Option::as_ref)
+    }
+
+    /// Records the keys of the base, key, and value expressions.
+    pub(super) fn set_argument_keys(&mut self, keys: [ProvenanceKey; 3]) {
+        self.argument_keys = keys.map(Some);
+    }
+
+    /// Forgets the keys of the update, before a clause's pass keys it.
+    pub(super) fn clear_keys(&mut self) {
+        self.term.clear_keys();
+        self.argument_keys = [None, None, None];
     }
 }
 
@@ -252,10 +296,7 @@ impl From<HaveMapExtra> for RuleExtra {
     fn from(extra: HaveMapExtra) -> Self {
         Self::HaveMap {
             cell: extra.cell,
-            entries: vec![RuleMapEntry {
-                key: extra.key,
-                value: extra.value,
-            }],
+            entries: vec![RuleMapEntry::new(extra.key, extra.value)],
         }
     }
 }
@@ -373,6 +414,7 @@ pub(super) fn parse_map_update(
         update: Box::new(RuleMapUpdate {
             term: update,
             arguments: [base_expression.clone(), (*key).clone(), (*value).clone()],
+            argument_keys: [None, None, None],
         }),
     })
 }

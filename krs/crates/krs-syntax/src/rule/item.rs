@@ -123,6 +123,42 @@ pub struct RuleItem {
     full_anchors: Vec<ProvenanceAnchor>,
 }
 
+/// Which sentence keys a rule item.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ItemView {
+    /// The rule is a sentence of its own.
+    Rule,
+    /// The item of a readable clause, which keys the item's nodes it anchors
+    /// in the item's order: the declaration under `declaration`, the
+    /// subject only when it is the clause's first computation item
+    /// (`subject`; otherwise it is a placeholder and the clause anchors its
+    /// whole subject record), the types and binders, the function context
+    /// and the conditions. The clause keys the islands of every term across
+    /// all its cells, and its own head result: the item's result term (and
+    /// a placeholder subject) is no node of the clause and keeps the keys of
+    /// the rule's own keying.
+    Clause {
+        declaration: ProvenanceRole,
+        subject: bool,
+    },
+}
+
+impl ItemView {
+    const fn declaration(self) -> ProvenanceRole {
+        match self {
+            Self::Rule => ProvenanceRole::RuleDeclaration,
+            Self::Clause { declaration, .. } => declaration,
+        }
+    }
+
+    const fn keys_subject(self) -> bool {
+        match self {
+            Self::Rule => true,
+            Self::Clause { subject, .. } => subject,
+        }
+    }
+}
+
 /// Which fn sentence a rule item is parsed as.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum ClauseForm {
@@ -664,25 +700,54 @@ impl RuleItem {
     fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
         self.clear_keys();
-        self.allocate_catalog_keys(&mut keys)?;
+        self.allocate_catalog_keys(&mut keys, ItemView::Rule)?;
         self.anchors = keys.anchors().to_vec();
-        self.allocate_term_keys(&mut keys)?;
+        self.allocate_term_keys(&mut keys, ItemView::Rule)?;
         self.full_anchors = keys.into_anchors();
         Ok(self)
     }
 
+    /// Keys the rule as the item of a readable clause, with the clause's
+    /// allocator: the declaration under `declaration` (`RuleDeclaration`, or
+    /// `ClaimDeclaration` for a claim clause), then, in the rule's own order,
+    /// every node of the item that the clause anchors (see
+    /// [`ItemView::Clause`]).
+    pub(super) fn allocate_clause_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        declaration: ProvenanceRole,
+        subject: bool,
+    ) -> Result<(), SyntaxError> {
+        let view = ItemView::Clause {
+            declaration,
+            subject,
+        };
+        self.clear_view_keys(view);
+        self.allocate_catalog_keys(keys, view)?;
+        self.allocate_term_keys(keys, view)
+    }
+
     /// Forgets every key of the rule, before a sentence's pass keys it.
     pub(crate) fn clear_keys(&mut self) {
+        self.clear_view_keys(ItemView::Rule);
+    }
+
+    /// Forgets the keys a keying in `view` writes.
+    fn clear_view_keys(&mut self, view: ItemView) {
         self.declaration_key = None;
         self.result_type_key = None;
-        self.parameter.pattern_key = None;
         self.parameter.type_key = None;
-        self.parameter.pattern.clear_keys();
+        if view.keys_subject() {
+            self.parameter.pattern_key = None;
+            self.parameter.pattern.clear_keys();
+        }
         for binder in &mut self.binders {
             binder.parameter_key = None;
             binder.sort_key = None;
         }
-        if let Some(result) = &mut self.result {
+        if view == ItemView::Rule
+            && let Some(result) = &mut self.result
+        {
             result.clear_keys();
         }
         if let Some(requires) = &mut self.requires {
@@ -706,14 +771,20 @@ impl RuleItem {
 
     /// Keys the declaration, pattern, and types, the result, each binder's
     /// parameter and type, then the subject's and the result's paths.
-    fn allocate_catalog_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+    fn allocate_catalog_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        view: ItemView,
+    ) -> Result<(), SyntaxError> {
         self.declaration_key = Some(keys.key(
-            ProvenanceRole::RuleDeclaration,
+            view.declaration(),
             TokenRange::for_tokens(&self.item.sig.ident)?,
         )?);
         let parameter = &mut self.parameter;
-        parameter.pattern_key =
-            Some(keys.key(ProvenanceRole::RulePattern, parameter.pattern.range()?)?);
+        if view.keys_subject() {
+            parameter.pattern_key =
+                Some(keys.key(ProvenanceRole::RulePattern, parameter.pattern.range()?)?);
+        }
         parameter.type_key = Some(keys.key(
             ProvenanceRole::RuleType,
             TokenRange::for_tokens(parameter.term_sort.ty())?,
@@ -723,7 +794,9 @@ impl RuleItem {
                 ProvenanceRole::RuleResultType,
                 TokenRange::for_tokens(result_sort.ty())?,
             )?);
-            result.allocate_payload_key(keys, ProvenanceRole::RuleResult)?;
+            if view == ItemView::Rule {
+                result.allocate_payload_key(keys, ProvenanceRole::RuleResult)?;
+            }
         }
         for binder in &mut self.binders {
             binder.parameter_key = Some(keys.key(
@@ -735,10 +808,14 @@ impl RuleItem {
                 TokenRange::for_tokens(binder.term_sort.sort())?,
             )?);
         }
-        self.parameter
-            .pattern
-            .allocate_path_keys(keys, ProvenanceRole::RuleLeftPath)?;
-        if let Some(result) = &mut self.result {
+        if view.keys_subject() {
+            self.parameter
+                .pattern
+                .allocate_path_keys(keys, ProvenanceRole::RuleLeftPath)?;
+        }
+        if view == ItemView::Rule
+            && let Some(result) = &mut self.result
+        {
             result.allocate_symbol_keys(keys, ProvenanceRole::RuleRightPath)?;
         }
         Ok(())
@@ -760,41 +837,49 @@ impl RuleItem {
         &mut self,
         keys: &mut KeyAllocator,
     ) -> Result<(), SyntaxError> {
-        self.allocate_catalog_keys(keys)?;
-        self.allocate_term_keys(keys)
+        self.allocate_catalog_keys(keys, ItemView::Rule)?;
+        self.allocate_term_keys(keys, ItemView::Rule)
     }
 
     /// Keys the subject's nodes, record field names and wildcards, the
     /// function context, the result's, the conditions, then the islands of
     /// every term in expansion order.
-    fn allocate_term_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
-        let (nodes, term_keys) = self.parameter.pattern.keying();
-        allocate_term_node_keys(
-            keys,
-            nodes,
-            term_keys,
-            ProvenanceRole::RuleLeftApplicationHead,
-            ProvenanceRole::RuleLeftReference,
-            ProvenanceRole::RuleLeftLiteral,
-        )?;
-        allocate_record_field_keys(
-            keys,
-            &self.subject_tree,
-            term_keys,
-            ProvenanceRole::RuleLeftRecordFieldName,
-        )?;
-        allocate_wildcard_keys(
-            keys,
-            &self.subject_tree,
-            term_keys,
-            ProvenanceRole::RuleLeftWildcard,
-        )?;
+    fn allocate_term_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        view: ItemView,
+    ) -> Result<(), SyntaxError> {
+        if view.keys_subject() {
+            let (nodes, term_keys) = self.parameter.pattern.keying();
+            allocate_term_node_keys(
+                keys,
+                nodes,
+                term_keys,
+                ProvenanceRole::RuleLeftApplicationHead,
+                ProvenanceRole::RuleLeftReference,
+                ProvenanceRole::RuleLeftLiteral,
+            )?;
+            allocate_record_field_keys(
+                keys,
+                &self.subject_tree,
+                term_keys,
+                ProvenanceRole::RuleLeftRecordFieldName,
+            )?;
+            allocate_wildcard_keys(
+                keys,
+                &self.subject_tree,
+                term_keys,
+                ProvenanceRole::RuleLeftWildcard,
+            )?;
+        }
         // A function context's cells continue the subject's left-hand
         // ordinals: they are expanded right after it (KF-025).
         if let Some(context) = &mut self.function_context {
             context.allocate_keys(keys)?;
         }
-        if let Some(result) = &mut self.result {
+        if view == ItemView::Rule
+            && let Some(result) = &mut self.result
+        {
             let (nodes, tree, term_keys) = result.keying();
             allocate_term_node_keys(
                 keys,
@@ -816,7 +901,21 @@ impl RuleItem {
             requires.allocate_keys(keys)?;
         }
         self.existentials.allocate_keys(keys)?;
-        self.allocate_island_keys(keys)
+        if view == ItemView::Rule {
+            self.allocate_island_keys(keys)?;
+        }
+        Ok(())
+    }
+
+    /// The `#[k::requires]` condition, for a pass that keys it.
+    pub(super) const fn requires_mut(&mut self) -> Option<&mut RuleCondition> {
+        self.requires.as_mut()
+    }
+
+    /// The `#[k::exists]`, `#[k::fresh]` and `#[k::ensures]` helpers, for a
+    /// pass that keys them.
+    pub(super) const fn existentials_mut(&mut self) -> &mut RuleExistentials {
+        &mut self.existentials
     }
 
     /// Keys the islands of the subject, the function context, the result,
