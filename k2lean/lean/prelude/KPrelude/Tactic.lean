@@ -135,23 +135,175 @@ macro "k2l_hook_law" : tactic => `(tactic| first
   | (with_reducible apply KPrelude.StringHook.replaceFirst_eqn2 <;> assumption)
   | (with_reducible apply KPrelude.StringHook.countAllOccurrences_eqn1 <;> assumption))
 
+/-! ## Cases on the arity-indexed family
+
+`cases` on a variable `x : Term t` of the arity-indexed family (design.md §2.1) gives one goal per
+constructor of the family whose index can be `t`: every `ck (c : Ck t)`, also those whose
+enumeration `Ck t` is empty, and the leaf injection `inj hs l h a`, whose leaf tag `l` is a
+variable constrained only by `h : leafOK t l = true` (and `hs : hasLeaves t = true`). A value of
+sort `t` is one of `t`'s constructors applied to arguments or one injection of a leaf of `t`, so
+those goals are the cases of `t`'s values only once the empty enumerations, the false `hasLeaves`
+and the leaf tags with a false `leafOK` are refuted. `familyCases` does that; in the one type per
+sort encoding it is plain `cases`. -/
+
+/-- Whether `n` is the arity-indexed family of a generated library (`NS.Term`). -/
+def isFamilyName (env : Environment) (n : Name) : Bool :=
+  (match n with | .str _ "Term" => true | _ => false) &&
+    (match env.find? n with | some (.inductInfo _) => true | _ => false)
+
+/-- Close goal `m` when it has a hypothesis `leafOK t l = true` or `hasLeaves t = true` whose
+left-hand side evaluates to `false`. -/
+def refuteLeaf (m : MVarId) : MetaM Bool := m.withContext do
+  for d in (← getLCtx) do
+    if d.isImplementationDetail then continue
+    let some (_, lhs, rhs) := (← instantiateMVars d.type).eq? | continue
+    unless rhs.isConstOf ``Bool.true do continue
+    unless (match lhs.getAppFn with
+      | .const (.str _ f) _ => f == "leafOK" || f == "hasLeaves" | _ => false) do continue
+    let v ← try whnfD lhs catch _ => pure lhs
+    if v.isConstOf ``Bool.false then
+      m.assign (← mkAbsurd (← m.getType) d.toExpr (mkConst ``Bool.false_ne_true))
+      return true
+  return false
+
+/-- When the term `a` of the family has a builtin carrier's tag (its only possible constructor is
+`b_… v`): the goal after splitting it, and `v`. -/
+def builtinLeaf (g : MVarId) (a : FVarId) : MetaM (Option (MVarId × Expr)) := do
+  let st ← saveState
+  let gs ← try g.cases a catch _ => st.restore; return none
+  let mut kept := #[]
+  for sg in gs do
+    match sg.ctorName with
+    | some (.str _ "inj") => unless ← refuteLeaf sg.mvarId do kept := kept.push sg
+    | some (.str _ c) =>
+      if c.startsWith "b_" then kept := kept.push sg
+      else unless ← (try (do sg.mvarId.contradiction; pure true) catch _ => pure false) do
+        kept := kept.push sg
+    | _ => kept := kept.push sg
+  match kept with
+  | #[sg] =>
+    if (match sg.ctorName with | some (.str _ c) => c.startsWith "b_" | _ => false) &&
+        sg.fields.size == 1 then
+      return some (sg.mvarId, sg.fields[0]!)
+    st.restore; return none
+  | _ => st.restore; return none
+
+/-- One level of cases on `x`, with each remaining goal and the arguments of its constructor. On a
+variable of the family: the constructors `ck` with an empty enumeration are refuted, the others
+are split on their enumeration (one goal per constructor of the sort of arity `k`, whose arguments
+are `a0 … a(k-1)`), and an injection is refuted by a false `hasLeaves` or split on its leaf tag,
+each tag with a false `leafOK` refuted (its argument is the injected term). When `splitEnum` is
+false the enumeration is not split and the arguments of `ck` are `c, a0, …`. On another inductive
+type it is `cases`, the arguments being the constructor's fields. -/
+def familyCases (g : MVarId) (x : FVarId) (splitEnum := true) :
+    MetaM (Array (MVarId × Array Expr)) := g.withContext do
+  let env ← getEnv
+  let fam := (← whnfR (← x.getType)).getAppFn.constName?.any (isFamilyName env)
+  let gs ← g.cases x
+  unless fam do return gs.map fun sg => (sg.mvarId, sg.fields)
+  let mut out := #[]
+  for sg in gs do
+    let n := sg.fields.size
+    match sg.ctorName with
+    | some (.str p "inj") =>
+      if isFamilyName env p && n ≥ 4 && sg.fields[n - 3]!.isFVar then
+        if ← refuteLeaf sg.mvarId then continue
+        for lg in ← sg.mvarId.cases sg.fields[n - 3]!.fvarId! do
+          unless ← refuteLeaf lg.mvarId do
+            let a := lg.subst.apply sg.fields[n - 1]!
+            -- a leaf of a builtin carrier has one form, `b_… v`: split it when enumerating
+            -- (`splitEnum`), so the case shows the carrier's value as the one type per sort
+            -- encoding does (`inj_Int v`), and functions of it reduce
+            let leafCase ← if splitEnum && a.isFVar then builtinLeaf lg.mvarId a.fvarId!
+              else pure none
+            match leafCase with
+            | some (bg, v) => out := out.push (bg, #[v])
+            | none => out := out.push (lg.mvarId, #[a])
+      else
+        out := out.push (sg.mvarId, sg.fields)
+    | some (.str p c) =>
+      let k := if isFamilyName env p && c.startsWith "c" then (c.drop 1).toNat? else none
+      match k with
+      | some k =>
+        -- `ck`: its enumeration `Ck t` is empty at most indices
+        if ← (try (do sg.mvarId.contradiction; pure true) catch _ => pure false) then continue
+        let args := sg.fields.extract (n - k) n
+        let e := sg.fields[n - k - 1]!
+        if splitEnum && e.isFVar then
+          for eg in ← sg.mvarId.cases e.fvarId! do
+            -- an argument of a builtin carrier's tag is `b_… v`: split it, so the case is the
+            -- constructor applied to the carrier's values, as in the one type per sort encoding
+            let mut g' := eg.mvarId
+            let mut args' := #[]
+            for a in args.map eg.subst.apply do
+              if a.isFVar then
+                if let some (bg, v) ← builtinLeaf g' a.fvarId! then
+                  g' := bg
+                  args' := args'.push v
+                  continue
+              args' := args'.push a
+            out := out.push (g', args')
+        else
+          out := out.push (sg.mvarId, sg.fields.extract (n - k - 1) n)
+      | none => out := out.push (sg.mvarId, sg.fields)
+    | _ => out := out.push (sg.mvarId, sg.fields)
+  return out
+
+declare_syntax_cat k2lPat
+syntax "_" : k2lPat
+syntax ident : k2lPat
+syntax "⟨" k2lPat,* "⟩" : k2lPat
+
+/-- Apply the pattern `pat` to the term `e` in goal `g`: `_` leaves it, a name renames a variable,
+`⟨p0, …⟩` cases on a variable by `familyCases` and applies `pi` to the `i`-th argument of each
+remaining goal's constructor. -/
+partial def applyK2lPat (g : MVarId) (e : Expr) (pat : TSyntax `k2lPat) : MetaM (List MVarId) := do
+  match pat with
+  | `(k2lPat| _) => return [g]
+  | `(k2lPat| $n:ident) =>
+    if e.isFVar then return [← g.rename e.fvarId! n.getId] else return [g]
+  | `(k2lPat| ⟨$ps,*⟩) =>
+    unless e.isFVar do return [g]
+    let ps := ps.getElems
+    let mut out := []
+    for (g', args) in ← familyCases g e.fvarId! do
+      let mut gs := [g']
+      for i in [0:ps.size] do
+        let some a := args[i]? | break
+        let mut next := []
+        for h in gs do
+          next := next ++ (← applyK2lPat h a ps[i]!)
+        gs := next
+      out := out ++ gs
+    return out
+  | _ => throwUnsupportedSyntax
+
+/-- `k2l_cases x` (or `k2l_cases x with ⟨p0, …⟩`): cases on `x`, nested as the pattern says, as
+`rcases` does on a type with one constructor per value shape, but on the arity-indexed family
+with the impossible constructors refuted (`familyCases`), so the goals left are exactly those
+of the K constructors and leaves of `x`'s sort, as in the one type per sort encoding. -/
+syntax (name := k2lCases) "k2l_cases " term (" with " k2lPat)? : tactic
+
+elab_rules : tactic
+  | `(tactic| k2l_cases $x $[with $p]?) => withMainContext do
+    let e ← elabTerm x none
+    let pat ← match p with
+      | some p => pure p
+      | none => `(k2lPat| ⟨⟩)
+    replaceMainGoal (← applyK2lPat (← getMainGoal) e pat)
+
 /-- `k2l_case_inj`: case on a variable of a generated sort that is the argument of an injection
 function `inj_…` in the goal. An injection is defined by cases on its argument, so after the split
 it reduces: a `match` of the cascade on the injected term (the pattern of another subsort) then
 reduces too, which `simp` cannot do on the variable. Fails when there is no such variable.
 
 A generated sort is an inductive type `Sort…` (one type per sort), or `Term t` of the
-arity-indexed family. In the family a value of a sort with subsorts is a leaf injection
-`Term.inj hs l h a`, whose leaf tag `l` is a variable after the split, constrained only by
-`h : leafOK t l = true`; the tag is split too, and every tag whose `leafOK` (or `hasLeaves`)
-hypothesis evaluates to `false` is closed, so the cases left are the sort's leaves. -/
+arity-indexed family; on the family the split is `familyCases` without the enumeration split. -/
 elab "k2l_case_inj" : tactic => do
   liftMetaTactic fun g => g.withContext do
     let env ← getEnv
     let tgt ← instantiateMVars (← g.getType)
     let lctx ← getLCtx
-    let isFamily (n : Name) : Bool := (match n with | .str _ "Term" => true | _ => false) &&
-      (match env.find? n with | some (.inductInfo _) => true | _ => false)
     let sortVar (d : Expr) : MetaM Bool := do
       if !d.isFVar then return false
       let some decl := lctx.find? d.fvarId! | return false
@@ -161,7 +313,7 @@ elab "k2l_case_inj" : tactic => do
             (match env.find? n with | some (.inductInfo _) => true | _ => false) then
           return true
         let t ← whnfR decl.type
-        return (match t.getAppFn with | .const m _ => isFamily m | _ => false)
+        return (match t.getAppFn with | .const m _ => isFamilyName env m | _ => false)
       | _ => return false
     let cands ← IO.mkRef (#[] : Array Expr)
     tgt.forEach fun e => match e.getAppFn with
@@ -177,35 +329,7 @@ elab "k2l_case_inj" : tactic => do
         found := some a.fvarId!
         break
     let some x := found | throwError "k2l_case_inj: no injected variable"
-    -- a goal of the family with a hypothesis `leafOK t l = true` or `hasLeaves t = true` that
-    -- evaluates to `false = true` is closed
-    let refuted (m : MVarId) : MetaM Bool := m.withContext do
-      for d in (← getLCtx) do
-        if d.isImplementationDetail then continue
-        let some (_, lhs, rhs) := (← instantiateMVars d.type).eq? | continue
-        unless rhs.isConstOf ``Bool.true do continue
-        unless (match lhs.getAppFn with
-          | .const (.str _ f) _ => f == "leafOK" || f == "hasLeaves" | _ => false) do continue
-        let v ← try whnfD lhs catch _ => pure lhs
-        if v.isConstOf ``Bool.false then
-          m.assign (← mkAbsurd (← m.getType) d.toExpr (mkConst ``Bool.false_ne_true))
-          return true
-      return false
-    let gs ← g.cases x
-    unless (← whnfR (← x.getType)).getAppFn.constName?.any isFamily do
-      return gs.toList.map (·.mvarId)
-    let mut out := #[]
-    for sg in gs do
-      let n := sg.fields.size
-      if (match sg.ctorName with | some (.str p "inj") => isFamily p | _ => false) && n ≥ 4 &&
-          sg.fields[n - 3]!.isFVar then
-        for lg in ← sg.mvarId.cases sg.fields[n - 3]!.fvarId! do
-          unless ← refuted lg.mvarId do out := out.push lg.mvarId
-      else
-        -- another constructor of the family: its enumeration `Ck t` is empty at most indices
-        unless ← (try (do sg.mvarId.contradiction; pure true) catch _ => pure false) do
-          out := out.push sg.mvarId
-    pure out.toList
+    return (← familyCases g x (splitEnum := false)).toList.map (·.1)
 
 end KPrelude
 
