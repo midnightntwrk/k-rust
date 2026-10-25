@@ -984,10 +984,15 @@ pub struct Totals {
     pub crash_work: u64,
 }
 
-/// Whether a count is 0, for the counts a report leaves out when they are.
-#[expect(
-    clippy::trivially_copy_pass_by_ref,
-    reason = "serde's `skip_serializing_if` passes a reference"
+/// Whether a count is 0, for the counts a report leaves out when they are. (A `u64` is
+/// "trivially copied" only where it is no wider than a pointer, so the lint fires on 64-bit
+/// targets alone.)
+#[cfg_attr(
+    target_pointer_width = "64",
+    expect(
+        clippy::trivially_copy_pass_by_ref,
+        reason = "serde's `skip_serializing_if` passes a reference"
+    )
 )]
 fn is_zero(count: &u64) -> bool {
     *count == 0

@@ -501,3 +501,143 @@ fn a_from_definition_rebuild_copies_the_sessions_definition() {
     assert_eq!(after.class, before.class);
     assert_eq!(after.applied, before.applied);
 }
+
+/// The cost of a rebuild after a crash (FZ-CRASH design section 8), on both routes: IMP's
+/// `le.imp` from the fixtures, and, when `FZ_CRASH_KEVM` names a compiled KEVM directory
+/// (`krust kcompile` of `driver.md`), KEVM's `store4.json` from `FZ_CRASH_KEVM_PROGRAM` with
+/// `CHAINID` as the hole. For each it prints the time of a case, of the first rebuild (which
+/// also builds the confirmations' definition cache) and of a second rebuild. A measurement,
+/// not a check: run it with `--ignored --nocapture` in a release-like build.
+#[cfg(feature = "cli")]
+#[test]
+#[ignore = "measurement"]
+#[expect(
+    clippy::too_many_lines,
+    reason = "one measurement: IMP on both routes, then KEVM's definition, program and hole"
+)]
+fn measure_the_rebuild_cost() {
+    use std::time::Instant;
+
+    use super::{
+        live::{LiveCases, LiveRunner, RunSetup},
+        runner::CaseRunner as _,
+    };
+    use crate::spec::{CompiledDefinition, ProgramSource, ProgramText};
+
+    fn measure(name: &str, spec: CampaignSpec, values: &[Value]) {
+        let spec = Arc::new(spec);
+        let started = Instant::now();
+        let cases = LiveCases::build(Arc::clone(&spec)).expect("the campaign builds");
+        let built = started.elapsed();
+        let parts = cases.assembly_parts();
+        let mut runner = LiveRunner {
+            cases,
+            parts: &parts,
+            assemblers: parts.assemblers(),
+            cache: Arc::default(),
+            graph: None,
+            setup: RunSetup::default(),
+            sessions: None,
+        };
+        let started = Instant::now();
+        let run = runner.run_case(values, None).expect("runs");
+        let case = started.elapsed();
+        let started = Instant::now();
+        runner.recover().expect("the first rebuild");
+        let first = started.elapsed();
+        let started = Instant::now();
+        runner.recover().expect("the second rebuild");
+        let second = started.elapsed();
+        let again = runner.run_case(values, None).expect("runs");
+        assert_eq!(again.class, run.class);
+        println!(
+            "REBUILD {name}: build {built:?}, case {case:?} ({:?}), first rebuild {first:?}, \
+             second rebuild {second:?}",
+            run.class
+        );
+    }
+
+    for route in [None, Some(BackendRoute::FromDefinition)] {
+        let name = format!(
+            "imp {}",
+            if route.is_some() {
+                "from-definition"
+            } else {
+                "source"
+            }
+        );
+        measure(&name, le_campaign(&[], 0, route), &[Value::Int(4.into())]);
+    }
+    let (Ok(directory), Ok(program)) = (
+        std::env::var("FZ_CRASH_KEVM"),
+        std::env::var("FZ_CRASH_KEVM_PROGRAM"),
+    ) else {
+        println!("REBUILD kevm: FZ_CRASH_KEVM or FZ_CRASH_KEVM_PROGRAM unset, skipped");
+        return;
+    };
+    let directory = std::path::Path::new(&directory);
+    let artifact = k_rust::native::load_runnable_artifact(directory).expect("loads");
+    let companions = k_rust::native::load_kore_companions(directory).expect("loads");
+    let execution_definition = artifact.execution.decode().expect("decodes");
+    let kore = k_rust::kore::parser::parse_definition(&artifact.definition_kore).expect("parses");
+    let source = CompiledDefinition {
+        main_module: artifact.main_module,
+        syntax_module: artifact.syntax_module,
+        frontend_definition: artifact.frontend_definition,
+        execution_definition,
+        source_table: artifact.source_table,
+        configuration_variables: artifact.configuration_variables,
+        kore,
+        syntax_definition_kore: companions.syntax_definition_kore,
+        macros_kore: companions.macros_kore,
+        route: BackendRoute::SourceExecution {
+            execution_rewrite_order: artifact.execution_rewrite_order,
+        },
+    };
+    let text = std::fs::read_to_string(&program).expect("the program");
+    let kevm = |definition: CompiledDefinition| {
+        let mut spec = le_campaign(&[], 0, None);
+        spec.definitions.baseline = Arc::new(definition);
+        spec.program = ProgramInput::Source(ProgramSource {
+            program: Some(ProgramText {
+                name: "store4.json".into(),
+                text: text.clone(),
+                start_sort: "EthereumSimulation".into(),
+            }),
+            config_vars: [
+                ("MODE", "VMTESTS"),
+                ("SCHEDULE", "LONDON"),
+                ("CHAINID", "1"),
+                ("USEGAS", "true"),
+            ]
+            .iter()
+            .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+            .collect(),
+        });
+        let mut hole = int_hole("C", "store4.json", "", "");
+        hole.location = HoleLocation::ConfigVar {
+            name: "CHAINID".into(),
+        };
+        hole.constraints.range = Some(IntRange {
+            min: Some(0.into()),
+            max: Some(10.into()),
+        });
+        spec.holes = vec![hole];
+        spec.target.kind = TargetKind::Pattern(PatternTarget {
+            pattern: "<mode> SUCCESS </mode>".into(),
+            at: PatternAt::Final,
+        });
+        spec.options.max_work = Some(200_000);
+        spec
+    };
+    let from_definition = CompiledDefinition {
+        route: BackendRoute::FromDefinition,
+        ..source.clone()
+    };
+    measure("kevm source", kevm(source), &[Value::Int(1.into())]);
+    measure(
+        "kevm from-definition",
+        kevm(from_definition),
+        &[Value::Int(1.into())],
+    );
+}
