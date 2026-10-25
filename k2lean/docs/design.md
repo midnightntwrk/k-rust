@@ -205,6 +205,11 @@ When every rule of `A` pairs, it states and proves `bisim : Bisimulation A.Step 
 The light gate builds two self-relations of the generator's fixtures under two namespaces: `demos/PeanoRel` (an `owise` priority, recursive and mutual functions) and `demos/CellMapRel` (a free-key rule over a typed cell map), 5 s each once their libraries' `Rules` are built (2026-10-24, Lean v4.30.0).
 SIMPLE against a variant of it (`tests/simple-variant.py`: three constructors under other symbols, the rules in another order; `demos/SimpleRel`, `pipelines/simple-rel.sh`) is generated, 226 symbols and 169 rule pairs in 0.2 s, but does not build within a gate tier's cost; §9 has the measurements.
 
+With `--arity-terms true` (both libraries generated with `gen --arity-terms`, §2.1) the translation is one function `tr : {s : A.Tag} → A.Term s → TrTy s`, by structural recursion on `A`'s family, where the motive `TrTy s` is `B.Term s` on the tags it translates (the covered sorts and the builtin carriers) and `Unit` elsewhere; each family constructor is rebuilt by a builder per arity (`mkK`, a match on the sort and its enumeration) and a leaf injection by `mkInj` (the same leaf of `B`'s sort), and the per-sort names `tr_S` are `tr` at sort `S`, with their equations `k2l_tr`, so the statements above read as on the per-sort encoding and none of them changes.
+On the family, `ser` writes a constructor's position in its enumeration, a leaf injection's leaf tag by its position in `Tag` and a collection by its position among the collection sorts; `ser (tr a) = ser a` is one theorem by structural recursion on `A`'s family, with the per-sort statements as its instances.
+Case splits on a family variable use `k2l_cases` (`KPrelude.FamilyCases`), which refutes the family's constructors that no value of the sort has.
+The default stays the per-sort encoding (`--arity-terms` absent or `false`); the per-sort output is byte-identical to that before the option existed.
+
 ### 3.3 Type soundness (`soundness`)
 
 `k2lean soundness` generates the part of a type-soundness proof that follows from two K definitions: a semantics `A`, and a type checker `B` written as a second K definition over `A`'s syntax (`demos/k/imp-typing.k`), each generated into its own library, with the translation of programs `tr : A → B` that `relate --roots` writes.

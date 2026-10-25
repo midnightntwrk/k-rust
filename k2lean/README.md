@@ -125,6 +125,7 @@ target/release/k2lean noninterference --kore A/definition.kore --name A --ns ANI
 
 | option | does |
 |---|---|
+| `relate --arity-terms true` | the two libraries are in the arity-indexed universe (`gen --arity-terms`): the translation is one function over `A`'s term family (`docs/design.md`, §3.2) |
 | `relate --per-rule true` | when not every rule pairs: one simulation lemma per pair of corresponding rules (`fwd.r`, `bwd.r`) instead of the bisimulation |
 | `refine --open FILE` | the case parts the hand module proves (`KIND RULE`, `KIND` one of `fwd_tr`, `fwd_x`, `bwd_tr`, `bwd_x`); `--hand-module` (default `NS.Relation`), `--extra`, `--measure-a`, `--measure-b` name what it supplies (default `X`, `μ`, `ν`) |
 | `confluence --open FILE` | the pairs of rules the hand module joins (`RULE \| RULE`); `--hand-module` (default `NS.Hand`) and `--hyp` (default `H`) name the program hypothesis, `--join local` asks for `μ` and `μ_dec` |
