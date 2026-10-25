@@ -18,6 +18,7 @@ use syn::{Attribute, Ident, Meta, Path};
 use super::pattern::{allocate_term_node_keys, push_term_reference_candidates};
 use crate::attribute::{ClaimBinder, ExistsAttribute};
 use crate::parse::{KeyAllocator, KrsSyntax, checked_ordinal, unsupported_rule_signature};
+use crate::term::TermKeys;
 use crate::term::allocate_record_field_keys;
 use crate::{
     ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, SyntaxErrorKind,
@@ -296,6 +297,7 @@ impl RuleExistentials {
             allocate_term_node_keys(
                 keys,
                 ensures.nodes(),
+                &mut TermKeys::default(),
                 ProvenanceRole::RuleEnsuresApplicationHead,
                 ProvenanceRole::RuleEnsuresReference,
                 ProvenanceRole::RuleEnsuresLiteral,
@@ -303,6 +305,7 @@ impl RuleExistentials {
             allocate_record_field_keys(
                 keys,
                 ensures.tree(),
+                &mut TermKeys::default(),
                 ProvenanceRole::RuleEnsuresRecordFieldName,
             )?;
         }

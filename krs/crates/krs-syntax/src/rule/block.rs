@@ -20,6 +20,7 @@ use crate::parse::{
     unsupported_rule_signature as unsupported_signature,
 };
 use crate::path::{is_plain_path, parametric_collection_error};
+use crate::term::TermKeys;
 use crate::term_sort::{TermSort, parse_readable_sort};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, SyntaxError, TermExpression, TermNode, TermTree, TokenRange,
@@ -487,7 +488,10 @@ impl RuleClause {
         if let Some(ensures) = self.rule.existentials().ensures() {
             nodes.push(ensures.nodes());
         }
-        crate::state_rule::allocate_claim_node_keys(keys, nodes)
+        crate::state_rule::allocate_claim_node_keys(
+            keys,
+            nodes.into_iter().map(|nodes| (nodes, TermKeys::default())),
+        )
     }
 
     /// Returns the provenance of the clause's metadata attribute:
@@ -683,7 +687,7 @@ impl RuleClause {
         match &self.head_result {
             None | Some(RuleHeadResult::Erase(_)) => {}
             Some(RuleHeadResult::Replace(term)) => {
-                allocate_rule_term_keys(&mut keys, term, RuleTermSide::Right)?;
+                allocate_rule_term_keys(&mut keys, &mut term.unkeyed(), RuleTermSide::Right)?;
             }
             Some(RuleHeadResult::Splice { range, items }) => {
                 keys.key(ProvenanceRole::RuleRightKSequencePayload, *range)?;
@@ -692,13 +696,18 @@ impl RuleClause {
                         ProvenanceRole::RuleRightKSequenceItem,
                         TokenRange::for_tokens(item.expression())?,
                     )?;
-                    allocate_rule_term_keys(&mut keys, item, RuleTermSide::Right)?;
+                    allocate_rule_term_keys(&mut keys, &mut item.unkeyed(), RuleTermSide::Right)?;
                 }
             }
         }
         for item in self.head.iter().flat_map(|head| &head.following) {
-            allocate_rule_pattern_keys(&mut keys, &item.pattern, &item.tree)?;
-            allocate_wildcard_keys(&mut keys, &item.tree, ProvenanceRole::RuleLeftWildcard)?;
+            allocate_rule_pattern_keys(&mut keys, &mut item.pattern.unkeyed(), &item.tree)?;
+            allocate_wildcard_keys(
+                &mut keys,
+                &item.tree,
+                &mut TermKeys::default(),
+                ProvenanceRole::RuleLeftWildcard,
+            )?;
         }
         for extra in &self.extras {
             allocate_extra_keys(&mut keys, extra)?;
@@ -738,28 +747,28 @@ impl RuleClause {
         use crate::term::{allocate_lexeme_keys, allocate_sort_test_keys};
         let terms = self.expansion_order_nodes();
         for nodes in &terms {
-            allocate_lexeme_keys(keys, nodes)?;
+            allocate_lexeme_keys(keys, nodes, &mut TermKeys::default())?;
         }
         for nodes in &terms {
-            allocate_sort_test_keys(keys, nodes)?;
+            allocate_sort_test_keys(keys, nodes, &mut TermKeys::default())?;
         }
         for nodes in &terms {
-            crate::term::allocate_application_instance_keys(keys, nodes)?;
+            crate::term::allocate_application_instance_keys(keys, nodes, &mut TermKeys::default())?;
         }
         for nodes in &terms {
-            crate::term::allocate_pattern_as_keys(keys, nodes)?;
+            crate::term::allocate_pattern_as_keys(keys, nodes, &mut TermKeys::default())?;
         }
         for nodes in &terms {
-            crate::term::allocate_pattern_or_keys(keys, nodes)?;
+            crate::term::allocate_pattern_or_keys(keys, nodes, &mut TermKeys::default())?;
         }
         for nodes in &terms {
-            crate::term::allocate_matches_keys(keys, nodes)?;
+            crate::term::allocate_matches_keys(keys, nodes, &mut TermKeys::default())?;
         }
         for nodes in &terms {
-            crate::term::allocate_let_keys(keys, nodes)?;
+            crate::term::allocate_let_keys(keys, nodes, &mut TermKeys::default())?;
         }
         for nodes in &terms {
-            crate::term::allocate_ml_binder_keys(keys, nodes)?;
+            crate::term::allocate_ml_binder_keys(keys, nodes, &mut TermKeys::default())?;
         }
         Ok(())
     }
@@ -850,9 +859,14 @@ fn allocate_extra_keys(keys: &mut KeyAllocator, extra: &RuleExtra) -> Result<(),
                     ProvenanceRole::RuleLeftMapValue,
                     TokenRange::for_tokens(value)?,
                 )?;
-                allocate_rule_term_keys(keys, key, RuleTermSide::Left)?;
+                allocate_rule_term_keys(keys, &mut key.unkeyed(), RuleTermSide::Left)?;
                 // A `_` key matches any entry's key.
-                allocate_wildcard_keys(keys, key.tree(), ProvenanceRole::RuleLeftWildcard)?;
+                allocate_wildcard_keys(
+                    keys,
+                    key.tree(),
+                    &mut TermKeys::default(),
+                    ProvenanceRole::RuleLeftWildcard,
+                )?;
             }
         }
         RuleExtra::UpdateMap { cell, update, .. } => {
@@ -876,7 +890,7 @@ fn allocate_extra_keys(keys: &mut KeyAllocator, extra: &RuleExtra) -> Result<(),
                 &field,
                 TokenRange::for_tokens(value)?,
             );
-            allocate_rule_term_keys(keys, update.term(), RuleTermSide::Right)?;
+            allocate_rule_term_keys(keys, &mut update.term().unkeyed(), RuleTermSide::Right)?;
         }
         RuleExtra::RewriteState {
             cell,
@@ -908,8 +922,13 @@ fn allocate_extra_keys(keys: &mut KeyAllocator, extra: &RuleExtra) -> Result<(),
                 TokenRange::for_tokens(cell)?,
             )?;
             for item in before.patterns() {
-                allocate_rule_pattern_keys(keys, &item.pattern, &item.tree)?;
-                allocate_wildcard_keys(keys, &item.tree, ProvenanceRole::RuleLeftWildcard)?;
+                allocate_rule_pattern_keys(keys, &mut item.pattern.unkeyed(), &item.tree)?;
+                allocate_wildcard_keys(
+                    keys,
+                    &item.tree,
+                    &mut TermKeys::default(),
+                    ProvenanceRole::RuleLeftWildcard,
+                )?;
             }
             if let (Some(result_cell), Some(after)) = (result_cell, after) {
                 keys.key(
@@ -917,7 +936,7 @@ fn allocate_extra_keys(keys: &mut KeyAllocator, extra: &RuleExtra) -> Result<(),
                     TokenRange::for_tokens(result_cell)?,
                 )?;
                 for term in after.terms() {
-                    allocate_rule_term_keys(keys, term, RuleTermSide::Right)?;
+                    allocate_rule_term_keys(keys, &mut term.unkeyed(), RuleTermSide::Right)?;
                 }
             }
         }
@@ -931,8 +950,13 @@ fn allocate_extra_keys(keys: &mut KeyAllocator, extra: &RuleExtra) -> Result<(),
                 ProvenanceRole::RuleLeftCellsField,
                 TokenRange::for_tokens(cell)?,
             )?;
-            allocate_rule_pattern_keys(keys, before, before_tree)?;
-            allocate_wildcard_keys(keys, before_tree, ProvenanceRole::RuleLeftWildcard)?;
+            allocate_rule_pattern_keys(keys, &mut before.unkeyed(), before_tree)?;
+            allocate_wildcard_keys(
+                keys,
+                before_tree,
+                &mut TermKeys::default(),
+                ProvenanceRole::RuleLeftWildcard,
+            )?;
             // A cell the result leaves out is read only and has no
             // result keys.
             if let Some(after) = after {
@@ -940,7 +964,7 @@ fn allocate_extra_keys(keys: &mut KeyAllocator, extra: &RuleExtra) -> Result<(),
                     ProvenanceRole::RuleRightCellsField,
                     TokenRange::for_tokens(cell)?,
                 )?;
-                allocate_rule_term_keys(keys, after, RuleTermSide::Right)?;
+                allocate_rule_term_keys(keys, &mut after.unkeyed(), RuleTermSide::Right)?;
             }
         }
     }
@@ -1133,9 +1157,14 @@ fn allocate_readable_term_keys(
     term: &TermExpression,
     side: RuleTermSide,
 ) -> Result<(), SyntaxError> {
-    allocate_rule_term_keys(keys, term, side)?;
+    allocate_rule_term_keys(keys, &mut term.unkeyed(), side)?;
     if matches!(side, RuleTermSide::Left) {
-        allocate_wildcard_keys(keys, term.tree(), ProvenanceRole::RuleLeftWildcard)?;
+        allocate_wildcard_keys(
+            keys,
+            term.tree(),
+            &mut TermKeys::default(),
+            ProvenanceRole::RuleLeftWildcard,
+        )?;
     }
     Ok(())
 }

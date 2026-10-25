@@ -11,6 +11,7 @@ use crate::parse::{
     validate_authored_binder,
 };
 use crate::path::is_plain_path;
+use crate::term::TermKeys;
 use crate::term::allocate_record_field_keys;
 use crate::{
     ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, TermExpression,
@@ -57,6 +58,7 @@ impl RuleCondition {
         allocate_term_node_keys(
             keys,
             self.term.nodes(),
+            &mut TermKeys::default(),
             ProvenanceRole::RuleRequiresApplicationHead,
             ProvenanceRole::RuleRequiresReference,
             ProvenanceRole::RuleRequiresLiteral,
@@ -64,6 +66,7 @@ impl RuleCondition {
         allocate_record_field_keys(
             keys,
             self.term.tree(),
+            &mut TermKeys::default(),
             ProvenanceRole::RuleRequiresRecordFieldName,
         )
     }

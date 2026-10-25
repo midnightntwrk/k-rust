@@ -103,8 +103,8 @@ pub use syntax_list::{
     SyntaxListAttribute, SyntaxListCons, SyntaxListDeclaration, SyntaxListTerminator,
 };
 pub use term::{
-    CellTerm, IntegerLiteral, TermApplication, TermArguments, TermExpression, TermLiteral,
-    TermNamedArgument, TermNode, TermRootKind, TermSymbol, TermSymbolKind, TermTree,
+    CellTerm, IntegerLiteral, TermApplication, TermArguments, TermExpression, TermKeys,
+    TermLiteral, TermNamedArgument, TermNode, TermRootKind, TermSymbol, TermSymbolKind, TermTree,
     is_constant_island_macro, is_island_macro, parse_lexeme_arguments, parse_matches_arguments,
     parse_sort_test_arguments,
 };

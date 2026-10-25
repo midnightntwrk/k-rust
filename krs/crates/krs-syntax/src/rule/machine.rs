@@ -1380,6 +1380,7 @@ fn readable_cell_pattern(
                     paths: Vec::new(),
                     bindings: Vec::new(),
                     nodes: Vec::new(),
+                    keys: crate::term::TermKeys::default(),
                 },
                 tree,
             )

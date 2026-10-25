@@ -19,6 +19,7 @@ use syn::{Expr, Ident, ItemConst};
 
 use crate::parse::KeyAllocator;
 use crate::term::TermExpression;
+use crate::term::TermKeys;
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TermSort, TokenRange};
 
 /// A parsed `#[k::constant]` item.
@@ -108,6 +109,7 @@ impl ConstantItem {
         crate::rule::allocate_term_node_keys(
             &mut keys,
             self.value.nodes(),
+            &mut TermKeys::default(),
             ProvenanceRole::RuleRightApplicationHead,
             ProvenanceRole::RuleRightReference,
             ProvenanceRole::RuleRightLiteral,
@@ -115,6 +117,7 @@ impl ConstantItem {
         crate::term::allocate_record_field_keys(
             &mut keys,
             self.value.tree(),
+            &mut TermKeys::default(),
             ProvenanceRole::RuleRightRecordFieldName,
         )?;
         Ok(keys.into_anchors())

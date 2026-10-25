@@ -12,6 +12,7 @@ use super::pattern::{
 };
 use crate::parse::{KeyAllocator, KrsSyntax, unsupported_rule_signature as unsupported_signature};
 use crate::state_rule::{FUNCTION_CONTEXT_ONLY_ON_EQUATIONS, FunctionContext, is_cells_parameter};
+use crate::term::TermKeys;
 use crate::term::{
     allocate_lexeme_keys, allocate_record_field_keys, allocate_sort_test_keys, is_term_macro,
     unexpected_macro,
@@ -669,11 +670,18 @@ impl RuleItem {
 
     /// Keys the compact catalog, then the subject, the function context, the
     /// result, and the conditions, in provenance order.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One pass keys every node of the sentence in provenance order."
+    )]
     pub(crate) fn allocate_full_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        // Not keyed at parse yet: the keys this view hands out are discarded.
+        let scratch = &mut TermKeys::default();
         self.allocate_catalog_keys(keys)?;
         allocate_term_node_keys(
             keys,
             self.parameter.pattern.nodes(),
+            &mut TermKeys::default(),
             ProvenanceRole::RuleLeftApplicationHead,
             ProvenanceRole::RuleLeftReference,
             ProvenanceRole::RuleLeftLiteral,
@@ -681,9 +689,15 @@ impl RuleItem {
         allocate_record_field_keys(
             keys,
             &self.subject_tree,
+            &mut TermKeys::default(),
             ProvenanceRole::RuleLeftRecordFieldName,
         )?;
-        allocate_wildcard_keys(keys, &self.subject_tree, ProvenanceRole::RuleLeftWildcard)?;
+        allocate_wildcard_keys(
+            keys,
+            &self.subject_tree,
+            &mut TermKeys::default(),
+            ProvenanceRole::RuleLeftWildcard,
+        )?;
         // A function context's cells continue the subject's left-hand
         // ordinals: they are expanded right after it (KF-025).
         if let Some(context) = &self.function_context {
@@ -698,6 +712,7 @@ impl RuleItem {
         allocate_term_node_keys(
             keys,
             result_nodes,
+            &mut TermKeys::default(),
             ProvenanceRole::RuleRightApplicationHead,
             ProvenanceRole::RuleRightReference,
             ProvenanceRole::RuleRightLiteral,
@@ -706,24 +721,30 @@ impl RuleItem {
             allocate_record_field_keys(
                 keys,
                 result.tree(),
+                &mut TermKeys::default(),
                 ProvenanceRole::RuleRightRecordFieldName,
             )?;
-            allocate_wildcard_keys(keys, result.tree(), ProvenanceRole::RuleRightWildcard)?;
+            allocate_wildcard_keys(
+                keys,
+                result.tree(),
+                &mut TermKeys::default(),
+                ProvenanceRole::RuleRightWildcard,
+            )?;
         }
         if let Some(requires) = &self.requires {
             requires.allocate_keys(keys)?;
         }
         self.existentials.allocate_keys(keys)?;
-        allocate_lexeme_keys(keys, self.parameter.pattern.nodes())?;
+        allocate_lexeme_keys(keys, self.parameter.pattern.nodes(), scratch)?;
         for term in &context_terms {
-            allocate_lexeme_keys(keys, term.nodes())?;
+            allocate_lexeme_keys(keys, term.nodes(), scratch)?;
         }
-        allocate_lexeme_keys(keys, result_nodes)?;
+        allocate_lexeme_keys(keys, result_nodes, scratch)?;
         if let Some(requires) = &self.requires {
-            allocate_lexeme_keys(keys, requires.term().nodes())?;
+            allocate_lexeme_keys(keys, requires.term().nodes(), scratch)?;
         }
         if let Some(ensures) = self.existentials.ensures() {
-            allocate_lexeme_keys(keys, ensures.nodes())?;
+            allocate_lexeme_keys(keys, ensures.nodes(), scratch)?;
         }
         // `name @ ..` and `A | B` occur in the subject, the function context,
         // and in `k::matches!` patterns; with `k::matches!` shells and pattern
@@ -742,34 +763,37 @@ impl RuleItem {
         // Builtin `Id` and `Bytes` literals, each kind numbered in one
         // sequence in expansion order (the claim-only islands never reach a
         // rule's descriptor: expansion rejects them).
-        crate::state_rule::allocate_claim_node_keys(keys, sides.iter().copied())?;
+        crate::state_rule::allocate_claim_node_keys(
+            keys,
+            sides.iter().map(|nodes| (*nodes, TermKeys::default())),
+        )?;
         for nodes in &sides {
-            crate::term::allocate_pattern_as_keys(keys, nodes)?;
+            crate::term::allocate_pattern_as_keys(keys, nodes, scratch)?;
         }
         for nodes in &sides {
-            crate::term::allocate_pattern_or_keys(keys, nodes)?;
+            crate::term::allocate_pattern_or_keys(keys, nodes, scratch)?;
         }
         for nodes in &sides {
-            crate::term::allocate_matches_keys(keys, nodes)?;
+            crate::term::allocate_matches_keys(keys, nodes, scratch)?;
         }
         for nodes in &sides {
-            crate::term::allocate_let_keys(keys, nodes)?;
+            crate::term::allocate_let_keys(keys, nodes, scratch)?;
         }
         for nodes in &sides {
-            crate::term::allocate_ml_binder_keys(keys, nodes)?;
+            crate::term::allocate_ml_binder_keys(keys, nodes, scratch)?;
         }
-        allocate_sort_test_keys(keys, self.parameter.pattern.nodes())?;
+        allocate_sort_test_keys(keys, self.parameter.pattern.nodes(), scratch)?;
         for term in &context_terms {
-            allocate_sort_test_keys(keys, term.nodes())?;
+            allocate_sort_test_keys(keys, term.nodes(), scratch)?;
         }
-        allocate_sort_test_keys(keys, result_nodes)?;
+        allocate_sort_test_keys(keys, result_nodes, scratch)?;
         // `k::rewrite!` shells and sides of a single-body rule (KF-011).
-        crate::term::allocate_rewrite_keys(keys, self.parameter.pattern.nodes())?;
+        crate::term::allocate_rewrite_keys(keys, self.parameter.pattern.nodes(), scratch)?;
         if let Some(requires) = &self.requires {
-            allocate_sort_test_keys(keys, requires.term().nodes())?;
+            allocate_sort_test_keys(keys, requires.term().nodes(), scratch)?;
         }
         if let Some(ensures) = self.existentials.ensures() {
-            allocate_sort_test_keys(keys, ensures.nodes())?;
+            allocate_sort_test_keys(keys, ensures.nodes(), scratch)?;
         }
         let instance_sides = std::iter::once(self.parameter.pattern.nodes())
             .chain(context_terms.iter().map(|term| term.nodes()))
@@ -777,7 +801,7 @@ impl RuleItem {
             .chain(self.requires.iter().map(|requires| requires.term().nodes()))
             .chain(self.existentials.ensures().map(TermExpression::nodes));
         for nodes in instance_sides {
-            crate::term::allocate_application_instance_keys(keys, nodes)?;
+            crate::term::allocate_application_instance_keys(keys, nodes, scratch)?;
         }
         Ok(())
     }

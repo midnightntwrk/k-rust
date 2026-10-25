@@ -9,7 +9,7 @@ use crate::parse::{
     KeyAllocator, checked_ordinal, unsupported_rule_pattern as unsupported_pattern,
 };
 use crate::path::is_plain_path;
-use crate::term::{allocate_record_field_keys, is_term_macro, unexpected_macro};
+use crate::term::{TermKeys, allocate_record_field_keys, is_term_macro, unexpected_macro};
 use crate::{
     CellTerm, IntegerLiteral, ProvenanceRole, ReferenceCandidate, SyntaxError, TermApplication,
     TermArguments, TermExpression, TermLiteral, TermNamedArgument, TermNode, TermSymbolKind,
@@ -129,6 +129,10 @@ pub enum RulePattern {
         bindings: Vec<Ident>,
         /// Typed application/reference/literal nodes in pattern preorder.
         nodes: Vec<TermNode>,
+        /// The keys the enclosing sentence's pass gave the pattern, indexed
+        /// as `paths` (symbols), `nodes`, and the subject tree's record field
+        /// names and wildcards; read them through [`RulePattern::keys`].
+        keys: TermKeys,
     },
     /// `term![RustExpression]` in Rust pattern position.
     TermMacro {
@@ -182,6 +186,60 @@ impl RulePattern {
         }
     }
 
+    /// Returns the keys the enclosing sentence gave the pattern: its symbols
+    /// are indexed as its paths ([`TermExpression::symbols`] for a `term!`
+    /// pattern), its nodes as [`Self::nodes`], and its record field names and
+    /// wildcards as the subject tree's.
+    #[must_use]
+    pub const fn keys(&self) -> &TermKeys {
+        match self {
+            Self::Native { keys, .. } => keys,
+            Self::TermMacro { term, .. } => term.keys(),
+        }
+    }
+
+    /// The pattern's nodes with its keys, for a pass that keys them.
+    pub(crate) fn keying(&mut self) -> (&[TermNode], &mut TermKeys) {
+        match self {
+            Self::Native { nodes, keys, .. } => (nodes, keys),
+            Self::TermMacro { term, .. } => {
+                let (nodes, _, keys) = term.keying();
+                (nodes, keys)
+            }
+        }
+    }
+
+    /// Forgets the pattern's keys, before a sentence's pass keys it.
+    pub(crate) fn clear_keys(&mut self) {
+        match self {
+            Self::Native { keys, .. } => keys.clear(),
+            Self::TermMacro { term, .. } => term.clear_keys(),
+        }
+    }
+
+    /// A copy without keys, for a producer that computes its anchors on
+    /// demand; the copy's keys are discarded with it.
+    pub(crate) fn unkeyed(&self) -> Self {
+        let mut copy = self.clone();
+        copy.clear_keys();
+        copy
+    }
+
+    /// Keys each constructor and binding path in preorder (the term's symbol
+    /// paths for a `term!` pattern), as the next of `role`.
+    pub(super) fn allocate_path_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        role: ProvenanceRole,
+    ) -> Result<(), SyntaxError> {
+        let ranges = self.path_ranges()?;
+        let (_, term_keys) = self.keying();
+        for (index, range) in ranges.into_iter().enumerate() {
+            term_keys.set_symbol(index, keys.key(role, range)?);
+        }
+        Ok(())
+    }
+
     /// Returns the deterministic reference-surface spelling.
     #[must_use]
     pub fn spelling(&self) -> String {
@@ -211,17 +269,16 @@ impl RulePattern {
 }
 
 /// Keys a left-hand pattern's paths, then its application head, reference,
-/// and literal nodes, then its record field names, each as the next of its
-/// left-hand role.
+/// and literal nodes, then its record field names (those of `tree`, the
+/// subject tree), each as the next of its left-hand role.
 pub(super) fn allocate_rule_pattern_keys(
     keys: &mut KeyAllocator,
-    pattern: &RulePattern,
+    pattern: &mut RulePattern,
     tree: &TermTree,
 ) -> Result<(), SyntaxError> {
-    for range in pattern.path_ranges()? {
-        keys.key(ProvenanceRole::RuleLeftPath, range)?;
-    }
-    for node in pattern.nodes() {
+    pattern.allocate_path_keys(keys, ProvenanceRole::RuleLeftPath)?;
+    let (nodes, term_keys) = pattern.keying();
+    for (index, node) in nodes.iter().enumerate() {
         let role = match node {
             TermNode::ApplicationHead(_) => ProvenanceRole::RuleLeftApplicationHead,
             TermNode::Reference(_) => ProvenanceRole::RuleLeftReference,
@@ -241,9 +298,14 @@ pub(super) fn allocate_rule_pattern_keys(
             | TermNode::LetWildcard(_)
             | TermNode::Rewrite { .. } => continue,
         };
-        keys.key(role, node.range()?)?;
+        term_keys.push_node(index, keys.key(role, node.range()?)?);
     }
-    allocate_record_field_keys(keys, tree, ProvenanceRole::RuleLeftRecordFieldName)
+    allocate_record_field_keys(
+        keys,
+        tree,
+        term_keys,
+        ProvenanceRole::RuleLeftRecordFieldName,
+    )
 }
 
 #[derive(Clone, Copy)]
@@ -257,7 +319,7 @@ pub(super) enum RuleTermSide {
 /// on `side`.
 pub(super) fn allocate_rule_term_keys(
     keys: &mut KeyAllocator,
-    term: &TermExpression,
+    term: &mut TermExpression,
     side: RuleTermSide,
 ) -> Result<(), SyntaxError> {
     let (path_role, application_role, reference_role, literal_role, field_role) = match side {
@@ -276,17 +338,17 @@ pub(super) fn allocate_rule_term_keys(
             ProvenanceRole::RuleRightRecordFieldName,
         ),
     };
-    for symbol in term.symbols() {
-        keys.key(path_role, TokenRange::for_tokens(symbol.path())?)?;
-    }
+    term.allocate_symbol_keys(keys, path_role)?;
+    let (nodes, tree, term_keys) = term.keying();
     allocate_term_node_keys(
         keys,
-        term.nodes(),
+        nodes,
+        term_keys,
         application_role,
         reference_role,
         literal_role,
     )?;
-    allocate_record_field_keys(keys, term.tree(), field_role)
+    allocate_record_field_keys(keys, tree, term_keys, field_role)
 }
 
 /// What a rule pattern's root is, which decides how the root reads.
@@ -406,6 +468,7 @@ pub(super) fn parse_rule_pattern(
                     paths,
                     bindings,
                     nodes,
+                    keys: TermKeys::default(),
                 },
                 tree,
             ))
@@ -970,15 +1033,16 @@ pub(super) fn is_bound_path(path: &Path, bindings: &[Ident]) -> bool {
 }
 
 /// Keys each application head, reference, and literal node of `nodes`, as
-/// the next of its role.
+/// the next of its role, into `term_keys`.
 pub(crate) fn allocate_term_node_keys(
     keys: &mut KeyAllocator,
     nodes: &[TermNode],
+    term_keys: &mut TermKeys,
     application_role: ProvenanceRole,
     reference_role: ProvenanceRole,
     literal_role: ProvenanceRole,
 ) -> Result<(), SyntaxError> {
-    for node in nodes {
+    for (index, node) in nodes.iter().enumerate() {
         let role = match node {
             TermNode::ApplicationHead(_) => application_role,
             TermNode::Reference(_) => reference_role,
@@ -998,21 +1062,22 @@ pub(crate) fn allocate_term_node_keys(
             | TermNode::LetWildcard(_)
             | TermNode::Rewrite { .. } => continue,
         };
-        keys.key(role, term_node_range(node)?)?;
+        term_keys.push_node(index, keys.key(role, term_node_range(node)?)?);
     }
     Ok(())
 }
 
-/// Keys each `_` of `tree` in preorder.
-pub(super) fn allocate_wildcard_keys(
+/// Keys each `_` of `tree` in preorder, into `term_keys`.
+pub(crate) fn allocate_wildcard_keys(
     keys: &mut KeyAllocator,
     tree: &TermTree,
+    term_keys: &mut TermKeys,
     role: ProvenanceRole,
 ) -> Result<(), SyntaxError> {
     let mut ranges = Vec::new();
     tree.wildcard_ranges_preorder(&mut ranges);
-    for range in ranges {
-        keys.key(role, range)?;
+    for (index, range) in ranges.into_iter().enumerate() {
+        term_keys.set_wildcard(index, keys.key(role, range)?);
     }
     Ok(())
 }

@@ -17,6 +17,7 @@ use crate::parse::{
     unsupported_initializer_signature as unsupported_signature,
 };
 use crate::path::{is_plain_path, plain_path_last, without_last_arguments};
+use crate::term::TermKeys;
 use crate::term_sort::{TermSort, parse_typed_term_sort};
 use crate::{
     MapBody, ProvenanceAnchor, ProvenanceRole, StateTerm, SyntaxError, SyntaxErrorKind,
@@ -378,16 +379,17 @@ impl InitializerFunction {
         collect_initializer_terms(&self.cells, &mut terms);
         crate::state_rule::allocate_claim_node_keys(
             &mut keys,
-            terms.iter().map(|term| term.nodes()),
+            terms.iter().map(|term| (term.nodes(), TermKeys::default())),
         )?;
         for term in &terms {
-            crate::term::allocate_lexeme_keys(&mut keys, term.nodes())?;
+            crate::term::allocate_lexeme_keys(&mut keys, term.nodes(), &mut TermKeys::default())?;
         }
         // Record field names, numbered in preorder across the terms.
         for term in &terms {
             crate::term::allocate_record_field_keys(
                 &mut keys,
                 term.tree(),
+                &mut TermKeys::default(),
                 ProvenanceRole::InitializerRecordFieldName,
             )?;
         }

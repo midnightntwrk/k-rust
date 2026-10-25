@@ -14,6 +14,7 @@ use crate::parse::{
 use crate::path::{is_plain_path, unqualified_path_ident as bare_ident};
 use crate::provenance::RuleSide;
 use crate::rule::{BINDER_LIST_CONTRACT, RuleCondition, RuleExistentials, take_requires_helper};
+use crate::term::TermKeys;
 use crate::term::{
     allocate_lexeme_keys, allocate_record_field_keys, allocate_sort_test_keys, local_rewrite_error,
 };
@@ -260,12 +261,13 @@ impl StateClaimItem {
             }
         }
         if let Some(ensures) = &self.ensures {
-            ensures.term.allocate_keys(
+            let mut term = ensures.term.unkeyed();
+            term.allocate_keys(
                 &mut keys,
                 ProvenanceRole::ClaimEnsures,
                 ProvenanceRole::ClaimEnsuresPath,
             )?;
-            ensures.term.allocate_node_keys(
+            term.allocate_node_keys(
                 &mut keys,
                 ProvenanceRole::ClaimEnsuresApplicationHead,
                 ProvenanceRole::ClaimEnsuresReference,
@@ -277,7 +279,7 @@ impl StateClaimItem {
             &mut keys,
             claim_terms(&self.rule, self.ensures.as_ref())
                 .into_iter()
-                .map(TermExpression::nodes),
+                .map(|term| (term.nodes(), TermKeys::default())),
         )?;
         if let Some(ensures) = &self.ensures {
             allocate_claim_ensures_keys(&mut keys, ensures)?;
@@ -758,6 +760,8 @@ impl StateRuleItem {
     ///
     /// Returns endpoint or ordinal-overflow errors only.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        // Not keyed at parse yet: the keys this view hands out are discarded.
+        let scratch = &mut TermKeys::default();
         let mut keys = KeyAllocator::default();
         keys.key(
             ProvenanceRole::RuleDeclaration,
@@ -798,56 +802,56 @@ impl StateRuleItem {
         let ensures = self.existentials.ensures();
         // `k::rewrite!` shells and sides (KF-011), in subject order.
         for term in claim_terms(self, None) {
-            crate::term::allocate_rewrite_keys(&mut keys, term.nodes())?;
+            crate::term::allocate_rewrite_keys(&mut keys, term.nodes(), scratch)?;
         }
         for term in claim_terms(self, None) {
-            allocate_lexeme_keys(&mut keys, term.nodes())?;
+            allocate_lexeme_keys(&mut keys, term.nodes(), scratch)?;
         }
         if let Some(ensures) = ensures {
-            allocate_lexeme_keys(&mut keys, ensures.nodes())?;
+            allocate_lexeme_keys(&mut keys, ensures.nodes(), scratch)?;
         }
         for term in claim_terms(self, None) {
-            allocate_sort_test_keys(&mut keys, term.nodes())?;
+            allocate_sort_test_keys(&mut keys, term.nodes(), scratch)?;
         }
         for term in claim_terms(self, None) {
-            crate::term::allocate_pattern_as_keys(&mut keys, term.nodes())?;
+            crate::term::allocate_pattern_as_keys(&mut keys, term.nodes(), scratch)?;
         }
         for term in claim_terms(self, None) {
-            crate::term::allocate_pattern_or_keys(&mut keys, term.nodes())?;
+            crate::term::allocate_pattern_or_keys(&mut keys, term.nodes(), scratch)?;
         }
         if let Some(ensures) = ensures {
-            allocate_sort_test_keys(&mut keys, ensures.nodes())?;
-            crate::term::allocate_pattern_as_keys(&mut keys, ensures.nodes())?;
-            crate::term::allocate_pattern_or_keys(&mut keys, ensures.nodes())?;
+            allocate_sort_test_keys(&mut keys, ensures.nodes(), scratch)?;
+            crate::term::allocate_pattern_as_keys(&mut keys, ensures.nodes(), scratch)?;
+            crate::term::allocate_pattern_or_keys(&mut keys, ensures.nodes(), scratch)?;
         }
         // Turbofish sort markers (KF-027), in expansion order, like sort tests.
         for term in claim_terms(self, None) {
-            crate::term::allocate_application_instance_keys(&mut keys, term.nodes())?;
+            crate::term::allocate_application_instance_keys(&mut keys, term.nodes(), scratch)?;
         }
         if let Some(ensures) = ensures {
-            crate::term::allocate_application_instance_keys(&mut keys, ensures.nodes())?;
+            crate::term::allocate_application_instance_keys(&mut keys, ensures.nodes(), scratch)?;
         }
         // `k::matches!` shells and pattern wildcards (KF-031), in expansion
         // order: the cells, the condition, then the ensures condition.
         for term in claim_terms(self, None) {
-            crate::term::allocate_matches_keys(&mut keys, term.nodes())?;
+            crate::term::allocate_matches_keys(&mut keys, term.nodes(), scratch)?;
         }
         if let Some(ensures) = ensures {
-            crate::term::allocate_matches_keys(&mut keys, ensures.nodes())?;
+            crate::term::allocate_matches_keys(&mut keys, ensures.nodes(), scratch)?;
         }
         // `let` statements and their pattern wildcards (KF-032), likewise.
         for term in claim_terms(self, None) {
-            crate::term::allocate_let_keys(&mut keys, term.nodes())?;
+            crate::term::allocate_let_keys(&mut keys, term.nodes(), scratch)?;
         }
         if let Some(ensures) = ensures {
-            crate::term::allocate_let_keys(&mut keys, ensures.nodes())?;
+            crate::term::allocate_let_keys(&mut keys, ensures.nodes(), scratch)?;
         }
         // `ml::exists` closures (KF-039), likewise.
         for term in claim_terms(self, None) {
-            crate::term::allocate_ml_binder_keys(&mut keys, term.nodes())?;
+            crate::term::allocate_ml_binder_keys(&mut keys, term.nodes(), scratch)?;
         }
         if let Some(ensures) = ensures {
-            crate::term::allocate_ml_binder_keys(&mut keys, ensures.nodes())?;
+            crate::term::allocate_ml_binder_keys(&mut keys, ensures.nodes(), scratch)?;
         }
         // Builtin `Id` and `Bytes` literals, each kind numbered across the
         // cells, the condition, then the ensures condition (a claim numbers
@@ -856,8 +860,8 @@ impl StateRuleItem {
             &mut keys,
             claim_terms(self, None)
                 .into_iter()
-                .map(TermExpression::nodes)
-                .chain(ensures.map(TermExpression::nodes)),
+                .map(|term| (term.nodes(), TermKeys::default()))
+                .chain(ensures.map(|term| (term.nodes(), TermKeys::default()))),
         )?;
         Ok(keys.into_anchors())
     }
@@ -1844,11 +1848,12 @@ fn allocate_term_keys(
     crate::rule::allocate_term_node_keys(
         keys,
         term.nodes(),
+        &mut TermKeys::default(),
         application_role,
         reference_role,
         literal_role,
     )?;
-    allocate_record_field_keys(keys, term.tree(), field_role)?;
+    allocate_record_field_keys(keys, term.tree(), &mut TermKeys::default(), field_role)?;
     if matches!(side, RuleSide::Left) {
         let mut wildcards = Vec::new();
         term.tree().wildcard_ranges_preorder(&mut wildcards);
@@ -2090,14 +2095,14 @@ fn allocate_claim_ensures_keys(
     ensures: &ClaimEnsures,
 ) -> Result<(), SyntaxError> {
     let nodes = ensures.term.nodes();
-    allocate_lexeme_keys(keys, nodes)?;
-    allocate_sort_test_keys(keys, nodes)?;
-    crate::term::allocate_pattern_as_keys(keys, nodes)?;
-    crate::term::allocate_pattern_or_keys(keys, nodes)?;
-    crate::term::allocate_matches_keys(keys, nodes)?;
-    crate::term::allocate_let_keys(keys, nodes)?;
-    crate::term::allocate_ml_binder_keys(keys, nodes)?;
-    crate::term::allocate_application_instance_keys(keys, nodes)
+    allocate_lexeme_keys(keys, nodes, &mut TermKeys::default())?;
+    allocate_sort_test_keys(keys, nodes, &mut TermKeys::default())?;
+    crate::term::allocate_pattern_as_keys(keys, nodes, &mut TermKeys::default())?;
+    crate::term::allocate_pattern_or_keys(keys, nodes, &mut TermKeys::default())?;
+    crate::term::allocate_matches_keys(keys, nodes, &mut TermKeys::default())?;
+    crate::term::allocate_let_keys(keys, nodes, &mut TermKeys::default())?;
+    crate::term::allocate_ml_binder_keys(keys, nodes, &mut TermKeys::default())?;
+    crate::term::allocate_application_instance_keys(keys, nodes, &mut TermKeys::default())
 }
 
 fn claim_terms<'a>(
@@ -2140,36 +2145,41 @@ fn append_state_terms<'a>(state: &'a StateTerm, output: &mut Vec<&'a TermExpress
 /// Keys the claim-only nodes (`k::id!`, `k::bytes!`, `k::anonymous!`,
 /// `k::or_bool!`) of a claim's terms, each kind numbered in one sequence in
 /// the order of `terms`, which is the order expansion visits them.
-pub(crate) fn allocate_claim_node_keys<'a>(
+pub(crate) fn allocate_claim_node_keys<'a, K: std::borrow::BorrowMut<TermKeys>>(
     keys: &mut KeyAllocator,
-    terms: impl IntoIterator<Item = &'a [TermNode]>,
+    terms: impl IntoIterator<Item = (&'a [TermNode], K)>,
 ) -> Result<(), SyntaxError> {
-    for nodes in terms {
-        for node in nodes {
+    for (nodes, mut term_keys) in terms {
+        let term_keys = term_keys.borrow_mut();
+        for (index, node) in nodes.iter().enumerate() {
             match node {
                 TermNode::IdToken(literal) => {
-                    keys.key(
+                    let key = keys.key(
                         ProvenanceRole::ClaimIdToken,
                         TokenRange::for_tokens(literal)?,
                     )?;
+                    term_keys.push_node(index, key);
                 }
                 TermNode::BytesToken(literal) => {
-                    keys.key(
+                    let key = keys.key(
                         ProvenanceRole::ClaimBytesToken,
                         TokenRange::for_tokens(literal)?,
                     )?;
+                    term_keys.push_node(index, key);
                 }
                 TermNode::Anonymous { sort, spelling } => {
                     let spelling = TokenRange::for_tokens(spelling)?;
-                    keys.key(ProvenanceRole::ClaimAnonymous, spelling)?;
-                    keys.key(
+                    term_keys.push_node(index, keys.key(ProvenanceRole::ClaimAnonymous, spelling)?);
+                    let sort = keys.key(
                         ProvenanceRole::ClaimAnonymousSort,
                         TokenRange::for_tokens(sort)?,
                     )?;
-                    keys.key(ProvenanceRole::ClaimAnonymousSpelling, spelling)?;
+                    term_keys.push_node(index, sort);
+                    let spelling = keys.key(ProvenanceRole::ClaimAnonymousSpelling, spelling)?;
+                    term_keys.push_node(index, spelling);
                 }
                 TermNode::OrBool(range) => {
-                    keys.key(ProvenanceRole::ClaimOrBool, *range)?;
+                    term_keys.push_node(index, keys.key(ProvenanceRole::ClaimOrBool, *range)?);
                 }
                 TermNode::ApplicationHead(_)
                 | TermNode::Reference(_)

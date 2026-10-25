@@ -12,6 +12,7 @@ use syn::{
 use crate::parse::{KeyAllocator, KrsSyntax};
 use crate::path::{is_plain_path, path_text};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
+use krs_ir::ProvenanceKey;
 
 /// Syntactic shape at the root of an accepted term.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -955,6 +956,103 @@ impl TermSymbol {
     }
 }
 
+/// The keys one sentence's keying pass gave the nodes of a term, indexed as
+/// the term's own lists.
+///
+/// A term is keyed by the sentence it stands in, with the roles of its
+/// position there: a term parsed alone carries the standalone `term_*` keys,
+/// and a sentence that embeds a term re-keys it, so the keys a caller sees are
+/// those of the outermost sentence. A slot is empty exactly when that sentence
+/// anchors no such node.
+///
+/// The pass clears a term's keys before it keys the term, and each
+/// `allocate_*_keys` helper it calls writes the key it hands out into the slot
+/// of the node the key names.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct TermKeys {
+    payload: Option<ProvenanceKey>,
+    symbols: Vec<Option<ProvenanceKey>>,
+    nodes: Vec<Vec<ProvenanceKey>>,
+    record_fields: Vec<Option<ProvenanceKey>>,
+    wildcards: Vec<Option<ProvenanceKey>>,
+}
+
+impl TermKeys {
+    /// The key of the whole term: its payload, or the item, key, value, result
+    /// or condition the enclosing sentence names it as.
+    #[must_use]
+    pub const fn payload(&self) -> Option<&ProvenanceKey> {
+        self.payload.as_ref()
+    }
+
+    /// The key of the path at `index` in [`TermExpression::symbols`] (for a
+    /// native rule pattern, in its constructor and binding paths).
+    #[must_use]
+    pub fn symbol(&self, index: usize) -> Option<&ProvenanceKey> {
+        self.symbols.get(index).and_then(Option::as_ref)
+    }
+
+    /// Every key the sentence gave the node at `index` in
+    /// [`TermExpression::nodes`], in allocation order: an application head's
+    /// own key before its turbofish instances', and an island's shell before
+    /// its parts.
+    #[must_use]
+    pub fn node(&self, index: usize) -> &[ProvenanceKey] {
+        self.nodes.get(index).map_or(&[], Vec::as_slice)
+    }
+
+    /// The key of the record field name at `index` in the term tree's
+    /// preorder of record field names.
+    #[must_use]
+    pub fn record_field(&self, index: usize) -> Option<&ProvenanceKey> {
+        self.record_fields.get(index).and_then(Option::as_ref)
+    }
+
+    /// The key of the `_` at `index` in the term tree's preorder of
+    /// wildcards.
+    #[must_use]
+    pub fn wildcard(&self, index: usize) -> Option<&ProvenanceKey> {
+        self.wildcards.get(index).and_then(Option::as_ref)
+    }
+
+    /// Forgets every key, before a sentence's pass keys the term again.
+    pub(crate) fn clear(&mut self) {
+        *self = Self::default();
+    }
+
+    pub(crate) fn set_payload(&mut self, key: ProvenanceKey) {
+        debug_assert!(self.payload.is_none(), "a pass keys a term once");
+        self.payload = Some(key);
+    }
+
+    pub(crate) fn set_symbol(&mut self, index: usize, key: ProvenanceKey) {
+        set_slot(&mut self.symbols, index, key);
+    }
+
+    pub(crate) fn push_node(&mut self, index: usize, key: ProvenanceKey) {
+        if self.nodes.len() <= index {
+            self.nodes.resize_with(index + 1, Vec::new);
+        }
+        self.nodes[index].push(key);
+    }
+
+    pub(crate) fn set_record_field(&mut self, index: usize, key: ProvenanceKey) {
+        set_slot(&mut self.record_fields, index, key);
+    }
+
+    pub(crate) fn set_wildcard(&mut self, index: usize, key: ProvenanceKey) {
+        set_slot(&mut self.wildcards, index, key);
+    }
+}
+
+fn set_slot(slots: &mut Vec<Option<ProvenanceKey>>, index: usize, key: ProvenanceKey) {
+    if slots.len() <= index {
+        slots.resize(index + 1, None);
+    }
+    debug_assert!(slots[index].is_none(), "a pass keys a node once");
+    slots[index] = Some(key);
+}
+
 /// A validated Rust-expression term in the deliberately small term grammar.
 ///
 /// Accepted nodes are plain paths, named calls, named record construction,
@@ -970,6 +1068,10 @@ pub struct TermExpression {
     symbols: Vec<TermSymbol>,
     nodes: Vec<TermNode>,
     tree: TermTree,
+    keys: TermKeys,
+    /// The anchors of the term's standalone keying, which both provenance
+    /// views project.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl TermExpression {
@@ -1040,13 +1142,16 @@ impl TermExpression {
         let mut symbols = Vec::new();
         let mut nodes = Vec::new();
         let tree = validate_expression(&expression, context, &mut symbols, &mut nodes)?;
-        Ok(Self {
+        Self {
             expression: TermSource::Expression(expression),
             root_kind,
             symbols,
             nodes,
             tree,
-        })
+            keys: TermKeys::default(),
+            anchors: Vec::new(),
+        }
+        .keyed_standalone()
     }
 
     /// Parses and validates a pattern payload (PAT-1): the tokens are a Rust
@@ -1101,13 +1206,16 @@ impl TermExpression {
         let mut symbols = Vec::new();
         let mut nodes = Vec::new();
         let tree = validate_pattern(&pattern, &mut signs, &mut symbols, &mut nodes)?;
-        Ok(Self {
+        Self {
             expression: TermSource::Pattern { pattern, tokens },
             root_kind,
             symbols,
             nodes,
             tree,
-        })
+            keys: TermKeys::default(),
+            anchors: Vec::new(),
+        }
+        .keyed_standalone()
     }
 
     /// Returns the original span-preserving Rust expression or pattern, as
@@ -1166,33 +1274,41 @@ impl TermExpression {
         self.expression.to_token_stream().to_string()
     }
 
-    /// Returns standalone term-payload provenance anchors.
-    ///
-    /// # Errors
-    ///
-    /// Returns an endpoint error only if a parsed Rust node emits no leaves.
-    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+    /// Returns the keys the term's sentence gave its nodes.
+    #[must_use]
+    pub const fn keys(&self) -> &TermKeys {
+        &self.keys
+    }
+
+    /// The term's nodes with its keys, for a pass that keys them.
+    pub(crate) fn keying(&mut self) -> (&[TermNode], &TermTree, &mut TermKeys) {
+        (&self.nodes, &self.tree, &mut self.keys)
+    }
+
+    /// Forgets the term's keys, before an enclosing sentence's pass keys it
+    /// with the roles of its position.
+    pub(crate) fn clear_keys(&mut self) {
+        self.keys.clear();
+    }
+
+    /// A copy without keys, for a producer that computes its anchors on
+    /// demand instead of keying the term it embeds; the copy's keys are
+    /// discarded with it.
+    pub(crate) fn unkeyed(&self) -> Self {
+        let mut copy = self.clone();
+        copy.clear_keys();
+        copy
+    }
+
+    /// Keys the term as a sentence of its own: its payload, its paths, its
+    /// application head, reference and literal nodes, then its record field
+    /// names, under the standalone roles.
+    fn keyed_standalone(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
         self.allocate_keys(
             &mut keys,
             ProvenanceRole::TermPayload,
             ProvenanceRole::TermPath,
-        )?;
-        Ok(keys.into_anchors())
-    }
-
-    /// Returns payload plus typed application/reference/literal anchors for
-    /// protocol-v6 lowering. The compact path catalog remains available via
-    /// [`Self::provenance`].
-    ///
-    /// # Errors
-    ///
-    /// Returns an endpoint or occurrence-overflow error.
-    pub fn full_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut keys = KeyAllocator::default();
-        keys.key(
-            ProvenanceRole::TermPayload,
-            TokenRange::for_tokens(&self.expression)?,
         )?;
         self.allocate_node_keys(
             &mut keys,
@@ -1201,20 +1317,58 @@ impl TermExpression {
             ProvenanceRole::TermLiteral,
             ProvenanceRole::TermRecordFieldName,
         )?;
-        Ok(keys.into_anchors())
+        self.anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// The standalone anchors of the given roles, in allocation order.
+    fn standalone_anchors(&self, roles: &[ProvenanceRole]) -> Vec<ProvenanceAnchor> {
+        self.anchors
+            .iter()
+            .filter(|anchor| roles.contains(&anchor.role()))
+            .cloned()
+            .collect()
+    }
+
+    /// Returns standalone term-payload provenance anchors: the payload and
+    /// the paths of the term's standalone keying.
+    ///
+    /// # Errors
+    ///
+    /// None: the term was keyed when it was parsed.
+    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.standalone_anchors(&[ProvenanceRole::TermPayload, ProvenanceRole::TermPath]))
+    }
+
+    /// Returns payload plus typed application/reference/literal anchors for
+    /// protocol-v6 lowering: the payload, nodes and record field names of the
+    /// term's standalone keying. The compact path catalog remains available
+    /// via [`Self::provenance`].
+    ///
+    /// # Errors
+    ///
+    /// None: the term was keyed when it was parsed.
+    pub fn full_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.standalone_anchors(&[
+            ProvenanceRole::TermPayload,
+            ProvenanceRole::TermApplicationHead,
+            ProvenanceRole::TermReference,
+            ProvenanceRole::TermLiteral,
+            ProvenanceRole::TermRecordFieldName,
+        ]))
     }
 
     /// Keys each application head, reference, and literal node in preorder,
     /// then each record field name.
     pub(crate) fn allocate_node_keys(
-        &self,
+        &mut self,
         keys: &mut KeyAllocator,
         application_role: ProvenanceRole,
         reference_role: ProvenanceRole,
         literal_role: ProvenanceRole,
         record_field_role: ProvenanceRole,
     ) -> Result<(), SyntaxError> {
-        for node in &self.nodes {
+        for (index, node) in self.nodes.iter().enumerate() {
             let role = match node {
                 TermNode::ApplicationHead(_) => application_role,
                 TermNode::Reference(_) => reference_role,
@@ -1236,21 +1390,44 @@ impl TermExpression {
                     continue;
                 }
             };
-            keys.key(role, node.range()?)?;
+            self.keys.push_node(index, keys.key(role, node.range()?)?);
         }
-        allocate_record_field_keys(keys, &self.tree, record_field_role)
+        allocate_record_field_keys(keys, &self.tree, &mut self.keys, record_field_role)
     }
 
     /// Keys the payload, then each symbol path in preorder.
     pub(crate) fn allocate_keys(
-        &self,
+        &mut self,
         keys: &mut KeyAllocator,
         payload_role: ProvenanceRole,
         path_role: ProvenanceRole,
     ) -> Result<(), SyntaxError> {
-        keys.key(payload_role, TokenRange::for_tokens(&self.expression)?)?;
-        for symbol in &self.symbols {
-            keys.key(path_role, TokenRange::for_tokens(&symbol.path)?)?;
+        self.allocate_payload_key(keys, payload_role)?;
+        self.allocate_symbol_keys(keys, path_role)
+    }
+
+    /// Keys the whole term as the next of `role`.
+    pub(crate) fn allocate_payload_key(
+        &mut self,
+        keys: &mut KeyAllocator,
+        role: ProvenanceRole,
+    ) -> Result<(), SyntaxError> {
+        self.keys
+            .set_payload(keys.key(role, TokenRange::for_tokens(&self.expression)?)?);
+        Ok(())
+    }
+
+    /// Keys each symbol path in preorder, as the next of `role`.
+    pub(crate) fn allocate_symbol_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        role: ProvenanceRole,
+    ) -> Result<(), SyntaxError> {
+        for (index, symbol) in self.symbols.iter().enumerate() {
+            self.keys.set_symbol(
+                index,
+                keys.key(role, TokenRange::for_tokens(&symbol.path)?)?,
+            );
         }
         Ok(())
     }
@@ -2527,17 +2704,21 @@ pub(crate) fn check_rewrite_right_bindings(
 pub(crate) fn allocate_rewrite_keys(
     keys: &mut KeyAllocator,
     nodes: &[TermNode],
+    term_keys: &mut TermKeys,
 ) -> Result<(), SyntaxError> {
-    for node in nodes {
+    for (index, node) in nodes.iter().enumerate() {
         let TermNode::Rewrite {
             range, from, to, ..
         } = node
         else {
             continue;
         };
-        keys.key(ProvenanceRole::RuleLocalRewrite, *range)?;
-        keys.key(ProvenanceRole::RuleLocalRewriteFrom, *from)?;
-        keys.key(ProvenanceRole::RuleLocalRewriteTo, *to)?;
+        term_keys.push_node(index, keys.key(ProvenanceRole::RuleLocalRewrite, *range)?);
+        term_keys.push_node(
+            index,
+            keys.key(ProvenanceRole::RuleLocalRewriteFrom, *from)?,
+        );
+        term_keys.push_node(index, keys.key(ProvenanceRole::RuleLocalRewriteTo, *to)?);
     }
     Ok(())
 }
@@ -2758,23 +2939,25 @@ fn reject_let_pattern_forms(pattern: &TermTree) -> Result<(), SyntaxError> {
 pub(crate) fn allocate_let_keys(
     keys: &mut KeyAllocator,
     nodes: &[TermNode],
+    term_keys: &mut TermKeys,
 ) -> Result<(), SyntaxError> {
-    for node in nodes {
+    for (index, node) in nodes.iter().enumerate() {
         match node {
             TermNode::Let { range, sort } => {
                 // The sort precedes its statement.
                 if let Some(sort) = sort {
                     let statement = keys.next_key(ProvenanceRole::Let);
-                    keys.paired(
+                    let sort = keys.paired(
                         ProvenanceRole::LetSort,
                         &statement,
                         TokenRange::for_tokens(sort)?,
                     );
+                    term_keys.push_node(index, sort);
                 }
-                keys.key(ProvenanceRole::Let, *range)?;
+                term_keys.push_node(index, keys.key(ProvenanceRole::Let, *range)?);
             }
             TermNode::LetWildcard(range) => {
-                keys.key(ProvenanceRole::LetWildcard, *range)?;
+                term_keys.push_node(index, keys.key(ProvenanceRole::LetWildcard, *range)?);
             }
             _ => {}
         }
@@ -2792,17 +2975,20 @@ pub(crate) fn allocate_let_keys(
 pub(crate) fn allocate_ml_binder_keys(
     keys: &mut KeyAllocator,
     nodes: &[TermNode],
+    term_keys: &mut TermKeys,
 ) -> Result<(), SyntaxError> {
-    for node in nodes {
+    for (index, node) in nodes.iter().enumerate() {
         if let TermNode::Closure {
             range,
             binder,
             sort,
         } = node
         {
-            keys.key(ProvenanceRole::MlBinderSort, TokenRange::for_tokens(sort)?)?;
-            keys.key(ProvenanceRole::MlBinder, TokenRange::for_tokens(binder)?)?;
-            keys.key(ProvenanceRole::MlConnective, *range)?;
+            let sort = keys.key(ProvenanceRole::MlBinderSort, TokenRange::for_tokens(sort)?)?;
+            term_keys.push_node(index, sort);
+            let binder = keys.key(ProvenanceRole::MlBinder, TokenRange::for_tokens(binder)?)?;
+            term_keys.push_node(index, binder);
+            term_keys.push_node(index, keys.key(ProvenanceRole::MlConnective, *range)?);
         }
     }
     Ok(())
@@ -2818,14 +3004,15 @@ pub(crate) fn allocate_ml_binder_keys(
 pub(crate) fn allocate_matches_keys(
     keys: &mut KeyAllocator,
     nodes: &[TermNode],
+    term_keys: &mut TermKeys,
 ) -> Result<(), SyntaxError> {
-    for node in nodes {
+    for (index, node) in nodes.iter().enumerate() {
         let (role, range) = match node {
             TermNode::Matches(range) => (ProvenanceRole::Matches, range),
             TermNode::MatchesWildcard(range) => (ProvenanceRole::MatchesWildcard, range),
             _ => continue,
         };
-        keys.key(role, *range)?;
+        term_keys.push_node(index, keys.key(role, *range)?);
     }
     Ok(())
 }
@@ -2842,11 +3029,14 @@ pub(crate) fn allocate_matches_keys(
 pub(crate) fn allocate_lexeme_keys(
     keys: &mut KeyAllocator,
     nodes: &[TermNode],
+    term_keys: &mut TermKeys,
 ) -> Result<(), SyntaxError> {
-    for node in nodes {
+    for (index, node) in nodes.iter().enumerate() {
         if let TermNode::Lexeme { sort, text } = node {
-            keys.key(ProvenanceRole::LexemeSort, TokenRange::for_tokens(sort)?)?;
-            keys.key(ProvenanceRole::LexemeText, TokenRange::for_tokens(text)?)?;
+            let sort = keys.key(ProvenanceRole::LexemeSort, TokenRange::for_tokens(sort)?)?;
+            term_keys.push_node(index, sort);
+            let text = keys.key(ProvenanceRole::LexemeText, TokenRange::for_tokens(text)?)?;
+            term_keys.push_node(index, text);
         }
     }
     Ok(())
@@ -2889,11 +3079,13 @@ fn validate_sort_test(
 pub(crate) fn allocate_sort_test_keys(
     keys: &mut KeyAllocator,
     nodes: &[TermNode],
+    term_keys: &mut TermKeys,
 ) -> Result<(), SyntaxError> {
-    for node in nodes {
+    for (index, node) in nodes.iter().enumerate() {
         if let TermNode::SortTest { range, sort } = node {
-            keys.key(ProvenanceRole::SortTest, *range)?;
-            keys.key(ProvenanceRole::SortTestSort, TokenRange::for_tokens(sort)?)?;
+            term_keys.push_node(index, keys.key(ProvenanceRole::SortTest, *range)?);
+            let sort = keys.key(ProvenanceRole::SortTestSort, TokenRange::for_tokens(sort)?)?;
+            term_keys.push_node(index, sort);
         }
     }
     Ok(())
@@ -2909,8 +3101,9 @@ pub(crate) fn allocate_sort_test_keys(
 pub(crate) fn allocate_application_instance_keys(
     keys: &mut KeyAllocator,
     nodes: &[TermNode],
+    term_keys: &mut TermKeys,
 ) -> Result<(), SyntaxError> {
-    for node in nodes {
+    for (index, node) in nodes.iter().enumerate() {
         let TermNode::ApplicationHead(path) = node else {
             continue;
         };
@@ -2920,10 +3113,11 @@ pub(crate) fn allocate_application_instance_keys(
             continue;
         };
         for argument in &arguments.args {
-            keys.key(
+            let instance = keys.key(
                 ProvenanceRole::ApplicationInstance,
                 TokenRange::for_tokens(argument)?,
             )?;
+            term_keys.push_node(index, instance);
         }
     }
     Ok(())
@@ -2939,14 +3133,16 @@ pub(crate) fn allocate_application_instance_keys(
 pub(crate) fn allocate_pattern_as_keys(
     keys: &mut KeyAllocator,
     nodes: &[TermNode],
+    term_keys: &mut TermKeys,
 ) -> Result<(), SyntaxError> {
-    for node in nodes {
+    for (index, node) in nodes.iter().enumerate() {
         if let TermNode::As { binding, range } = node {
-            keys.key(ProvenanceRole::PatternAs, *range)?;
-            keys.key(
+            term_keys.push_node(index, keys.key(ProvenanceRole::PatternAs, *range)?);
+            let binding = keys.key(
                 ProvenanceRole::PatternAsBinding,
                 TokenRange::for_tokens(binding)?,
             )?;
+            term_keys.push_node(index, binding);
         }
     }
     Ok(())
@@ -2961,10 +3157,11 @@ pub(crate) fn allocate_pattern_as_keys(
 pub(crate) fn allocate_pattern_or_keys(
     keys: &mut KeyAllocator,
     nodes: &[TermNode],
+    term_keys: &mut TermKeys,
 ) -> Result<(), SyntaxError> {
-    for node in nodes {
+    for (index, node) in nodes.iter().enumerate() {
         if let TermNode::Or(range) = node {
-            keys.key(ProvenanceRole::PatternOr, *range)?;
+            term_keys.push_node(index, keys.key(ProvenanceRole::PatternOr, *range)?);
         }
     }
     Ok(())
@@ -3779,16 +3976,17 @@ fn validate_literal(literal: &ExprLit, nodes: &mut Vec<TermNode>) -> Result<Term
     Ok(TermTree::Literal(literal))
 }
 
-/// Keys each record field name of `tree` in preorder.
+/// Keys each record field name of `tree` in preorder, into `term_keys`.
 pub(crate) fn allocate_record_field_keys(
     keys: &mut KeyAllocator,
     tree: &TermTree,
+    term_keys: &mut TermKeys,
     role: ProvenanceRole,
 ) -> Result<(), SyntaxError> {
     let mut fields = Vec::new();
     tree.record_field_names_preorder(&mut fields);
-    for field in &fields {
-        keys.key(role, TokenRange::for_tokens(field)?)?;
+    for (index, field) in fields.iter().enumerate() {
+        term_keys.set_record_field(index, keys.key(role, TokenRange::for_tokens(field)?)?);
     }
     Ok(())
 }
