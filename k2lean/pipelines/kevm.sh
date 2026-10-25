@@ -51,6 +51,8 @@
 #   RULE_MODULES     matcher modules (default 4); EQ_WEIGHT the bound on one Equations module's
 #                    weight, EQ_HB the heartbeat budget of an Equations proof (defaults: the
 #                    generator's; the theorems of kevm-heartbeats.txt keep their own)
+#   GEN_ARGS         further arguments of the gen step's `k2lean gen` (split on spaces), such as
+#                    `--det2-long-literal N`
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../.." && pwd)
@@ -89,7 +91,7 @@ case $step in
         --name KEvm --prelude "$root/k2lean/lean/prelude" --arity-terms --termination "$term" \
         --open-obligations "$OUT/open-obligations.txt" ${EQ_WEIGHT:+--equations-part-weight "$EQ_WEIGHT"} \
         --equations-heartbeats-file "$hb" ${EQ_HB:+--equations-heartbeats "$EQ_HB"} \
-        > "$logs/gen.log" 2>&1
+        ${GEN_ARGS:-} > "$logs/gen.log" 2>&1
     }
     # the driver's functions are not in the EVM module: drop their entries from the termination
     # file and from the heartbeat overrides, which `gen` names when it refuses either, and generate

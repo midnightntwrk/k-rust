@@ -55,6 +55,11 @@ pub fn emit(m: &Model, ns: &str) -> String {
 constructor per arity of the sorts' own constructors (`Ck s` enumerates sort `s`'s constructors\n\
 of arity k), one per builtin carrier, one per collection sort (a nested list), and the leaf\n\
 injection `inj`; each K constructor is a reducible `@[match_pattern]` definition.",
+    )
+    .replacen(
+        "import KPrelude.Ext\n",
+        "import KPrelude.Ext\nimport KPrelude.Delab\n",
+        1,
     );
     let types = block_types(m);
     let names: BTreeSet<String> = types.iter().map(|(t, _)| t.clone()).collect();
@@ -648,11 +653,11 @@ injection `inj`; each K constructor is a reducible `@[match_pattern]` definition
         "theorem compare_append_ser_Term {{s : Tag}} (a b : Term s) (r r' : List Tok) :\n    compare (ser a ++ r) (ser b ++ r') = (compare (ser a) (ser b)).then (compare r r') :=\n  compare_append_ser (@ser s) (fun n t => dec n s t) (fun a r n h => dec_ser a r n h) a b r r'\n"
     )
     .unwrap();
-    writeln!(
-        o,
-        "instance (s : Tag) : DecidableEq (Term s) := fun a b =>\n  if h : compare (ser a) (ser b) = .eq then isTrue (ser_inj a b (Std.LawfulEqOrd.eq_of_compare h))\n  else isFalse (fun e => h (by subst e; exact Std.ReflOrd.compare_self))\n"
-    )
-    .unwrap();
+    let tokens: Vec<&String> = builtins
+        .iter()
+        .filter(|b| matches!(m.sorts.get(*b).map(|s| &s.kind), Some(Kind::Token)))
+        .collect();
+    emit_beq(&mut o, &names, &builtins, &tokens, &by, &colls);
     // per-type names used by the rest of the generated code
     for (t, _) in &types {
         let f = fsuffix(t);
@@ -929,11 +934,294 @@ injection `inj`; each K constructor is a reducible `@[match_pattern]` definition
         )
         .unwrap();
     }
+    // goals print as K (`KPrelude.Delab`): checked for every constructor and leaf injection
+    writeln!(
+        o,
+        "\n/-! Goals print family terms by their K constructors (`KPrelude.Delab`), checked for every\n\
+constructor and leaf injection. -/\n#k2l_check_delab {ns}"
+    )
+    .unwrap();
     writeln!(o, "\nend {ns}").unwrap();
     o
 }
 
 /// `a ++ (b ++ (c ++ …))`
+/// `Term.beq`, a Boolean equality on terms by structural recursion, its two laws, and the
+/// `DecidableEq (Term s)` instance it gives.
+///
+/// The instance is what `==K` and `decide (a = b)` evaluate, the kernel included (the witnesses
+/// of overlaps are checked by it). Every step of `Term.beq` is a constructor split, a comparison
+/// of two enumeration indices or tags (literals), or `LeafEq.beq` on a builtin value, so the
+/// kernel never meets a definition by well-founded recursion on the way to `isTrue`/`isFalse`;
+/// a `String` or `Bytes` leaf compares as the list of its bytes, without decoding. The
+/// conjunctions nest to the right, so a recursive call on the last argument (a list's tail) is
+/// the last thing evaluated.
+///
+/// `Term.beq` is heterogeneous in the index (`Term s → Term t → Bool`, `s` and `t` compared
+/// first): its soundness `Term.eq_of_beq` then needs no cast and gives `s = t ∧ HEq a b`.
+fn emit_beq(
+    o: &mut String,
+    names: &BTreeSet<String>,
+    builtins: &[String],
+    tokens: &[&String],
+    by: &BTreeMap<usize, Vec<(&String, Vec<&LCtor>)>>,
+    colls: &[Coll1],
+) {
+    let rconj = |parts: &[String]| -> String {
+        let mut acc = parts.last().cloned().unwrap_or_else(|| "true".into());
+        for p in parts.iter().rev().skip(1) {
+            acc = format!("{p} && ({acc})");
+        }
+        acc
+    };
+    let elem_beq = |e: &(String, String), x: &str, y: &str| {
+        if names.contains(&e.1) {
+            format!("Term.beq {x} {y}")
+        } else {
+            format!("LeafEq.beq {x} {y}")
+        }
+    };
+    let elem_eq = |e: &(String, String), h: &str, x: &str, y: &str| {
+        if names.contains(&e.1) {
+            format!("eq_of_heq (Term.eq_of_beq {x} {y} {h}).2")
+        } else {
+            format!("LeafEq.eq_of_beq {h}")
+        }
+    };
+    let elem_self = |e: &(String, String), x: &str| {
+        if names.contains(&e.1) {
+            format!("Term.beq_self {x}")
+        } else {
+            format!("LeafEq.beq_self {x}")
+        }
+    };
+    let coll_ty = |c: &Coll1| -> String {
+        match c.kind {
+            Coll::Map => format!("List ({} × {})", c.elems[0].0, c.elems[1].0),
+            Coll::Set => format!("List ({} × Unit)", c.elems[0].0),
+            Coll::List => format!("List {}", c.elems[0].0),
+        }
+    };
+    // (pattern of an entry, of the other entry, the comparisons of their elements)
+    let entry = |c: &Coll1| -> (&str, &str, Vec<(usize, &str, &str)>) {
+        match c.kind {
+            Coll::Map => ("(k, v)", "(k', v')", vec![(0, "k", "k'"), (1, "v", "v'")]),
+            Coll::Set => ("(k, ())", "(k', ())", vec![(0, "k", "k'")]),
+            Coll::List => ("k", "k'", vec![(0, "k", "k'")]),
+        }
+    };
+    writeln!(
+        o,
+        "/-! Equality by structural recursion (`Term.beq`): the kernel decides `a = b` on closed terms\n\
+without unfolding a definition by well-founded recursion; builtin values compare by `LeafEq`. -/\n"
+    )
+    .unwrap();
+    for t in tokens {
+        writeln!(
+            o,
+            "instance : LeafEq {t} := LeafEq.ofVal {t}.val (fun a b h => by cases a; cases b; cases h; rfl)"
+        )
+        .unwrap();
+    }
+    if !tokens.is_empty() {
+        writeln!(o).unwrap();
+    }
+    for k in by.keys() {
+        writeln!(o, "theorem idx{k}_inj {{s : Tag}} {{c d : C{k} s}} (h : idx{k} s c = idx{k} s d) : c = d := by\n  have e := ofIdx{k}_idx{k} s c\n  rw [h, ofIdx{k}_idx{k}] at e\n  exact (Option.some.inj e).symm").unwrap();
+    }
+    writeln!(o).unwrap();
+    // the definition
+    writeln!(o, "mutual").unwrap();
+    writeln!(o, "def Term.beq : {{s t : Tag}} → Term s → Term t → Bool").unwrap();
+    for b in builtins {
+        let c = q(&format!("b_{b}"));
+        writeln!(
+            o,
+            "  | _, _, .{c} v, b => match b with | .{c} w => LeafEq.beq v w | _ => false"
+        )
+        .unwrap();
+    }
+    for k in by.keys() {
+        let vs: String = (0..*k).map(|i| format!(" a{i}")).collect();
+        let ws: String = (0..*k).map(|i| format!(" b{i}")).collect();
+        let mut parts = vec![
+            "decide (s = t)".to_string(),
+            format!("idx{k} s c == idx{k} t d"),
+        ];
+        parts.extend((0..*k).map(|i| format!("Term.beq a{i} b{i}")));
+        writeln!(
+            o,
+            "  | _, _, @Term.c{k} s c{vs}, b => match b with\n    | @Term.c{k} t d{ws} => {}\n    | _ => false",
+            rconj(&parts)
+        )
+        .unwrap();
+    }
+    for c in colls {
+        let n = q(&format!("coll_{}", fsuffix(&c.sort)));
+        writeln!(
+            o,
+            "  | _, _, .{n} l, b => match b with | .{n} l' => beqL_{} l l' | _ => false",
+            fsuffix(&c.sort)
+        )
+        .unwrap();
+    }
+    writeln!(o, "  | _, _, @Term.inj s _ l _ a, b => match b with\n    | @Term.inj t _ l' _ b' => decide (s = t) && (decide (l = l') && (Term.beq a b'))\n    | _ => false\ntermination_by structural _ _ a _ => a").unwrap();
+    for c in colls {
+        let f = fsuffix(&c.sort);
+        let (p, p2, es) = entry(c);
+        let mut parts: Vec<String> = es
+            .iter()
+            .map(|(i, x, y)| elem_beq(&c.elems[*i], x, y))
+            .collect();
+        parts.push(format!("beqL_{f} t t'"));
+        writeln!(
+            o,
+            "def beqL_{f} : {ty} → {ty} → Bool\n  | [], [] => true\n  | {p} :: t, {p2} :: t' => {}\n  | _, _ => false\ntermination_by structural l _ => l",
+            rconj(&parts),
+            ty = coll_ty(c)
+        )
+        .unwrap();
+    }
+    writeln!(o, "end\n").unwrap();
+    // soundness
+    let other = "cases b <;> first | exact absurd h Bool.false_ne_true | skip";
+    writeln!(o, "mutual").unwrap();
+    writeln!(o, "theorem Term.eq_of_beq : ∀ {{s t : Tag}} (a : Term s) (b : Term t), Term.beq a b = true → s = t ∧ HEq a b").unwrap();
+    for b in builtins {
+        let c = q(&format!("b_{b}"));
+        writeln!(
+            o,
+            "  | _, _, .{c} v, b, h => by\n    {other}\n    rename_i w\n    obtain rfl : v = w := LeafEq.eq_of_beq h\n    exact ⟨rfl, HEq.rfl⟩"
+        )
+        .unwrap();
+    }
+    for k in by.keys() {
+        let vs: String = (0..*k).map(|i| format!(" a{i}")).collect();
+        let ws: String = (0..*k).map(|i| format!(" b{i}")).collect();
+        let mut parts = vec![
+            "decide (s = t)".to_string(),
+            format!("idx{k} s c == idx{k} t d"),
+        ];
+        parts.extend((0..*k).map(|i| format!("Term.beq a{i} b{i}")));
+        let hs: String = (0..*k).map(|i| format!(", h{i}")).collect();
+        let recs: String = (0..*k)
+            .map(|i| format!("    obtain rfl := eq_of_heq (Term.eq_of_beq a{i} b{i} h{i}).2\n"))
+            .collect();
+        writeln!(
+            o,
+            "  | _, _, @Term.c{k} s c{vs}, b, h => by\n    {other}\n    rename_i t d{ws}\n    have h' : ({}) = true := h\n    simp only [Bool.and_eq_true, decide_eq_true_eq, beq_iff_eq] at h'\n    obtain ⟨rfl, hi{hs}⟩ := h'\n    obtain rfl := idx{k}_inj hi\n{recs}    exact ⟨rfl, HEq.rfl⟩",
+            rconj(&parts)
+        )
+        .unwrap();
+    }
+    for c in colls {
+        let n = q(&format!("coll_{}", fsuffix(&c.sort)));
+        writeln!(
+            o,
+            "  | _, _, .{n} l, b, h => by\n    {other}\n    rename_i l'\n    obtain rfl := beqL_{}_sound l l' h\n    exact ⟨rfl, HEq.rfl⟩",
+            fsuffix(&c.sort)
+        )
+        .unwrap();
+    }
+    writeln!(o, "  | _, _, @Term.inj s hs l hl a, b, h => by\n    {other}\n    rename_i t l' b' _ _\n    have h' : (decide (s = t) && (decide (l = l') && (Term.beq a b'))) = true := h\n    simp only [Bool.and_eq_true, decide_eq_true_eq] at h'\n    obtain ⟨rfl, rfl, h0⟩ := h'\n    obtain rfl := eq_of_heq (Term.eq_of_beq a b' h0).2\n    exact ⟨rfl, HEq.rfl⟩\ntermination_by structural _ _ a _ _ => a").unwrap();
+    for c in colls {
+        let f = fsuffix(&c.sort);
+        let (p, p2, es) = entry(c);
+        let mut parts: Vec<String> = es
+            .iter()
+            .map(|(i, x, y)| elem_beq(&c.elems[*i], x, y))
+            .collect();
+        parts.push(format!("beqL_{f} t t'"));
+        let hs: Vec<String> = es.iter().map(|(_, x, _)| format!("h{x}")).collect();
+        let recs: String = es
+            .iter()
+            .map(|(i, x, y)| {
+                format!(
+                    "    obtain rfl := {}\n",
+                    elem_eq(&c.elems[*i], &format!("h{x}"), x, y)
+                )
+            })
+            .collect();
+        writeln!(
+            o,
+            "theorem beqL_{f}_sound : ∀ l l' : {ty}, beqL_{f} l l' = true → l = l'\n  | [], [], _ => rfl\n  | [], _ :: _, h => absurd h Bool.false_ne_true\n  | _ :: _, [], h => absurd h Bool.false_ne_true\n  | {p} :: t, {p2} :: t', h => by\n    have h' : ({}) = true := h\n    simp only [Bool.and_eq_true] at h'\n    obtain ⟨{}, ht⟩ := h'\n{recs}    obtain rfl := beqL_{f}_sound t t' ht\n    rfl\ntermination_by structural l _ _ => l",
+            rconj(&parts),
+            hs.join(", "),
+            ty = coll_ty(c)
+        )
+        .unwrap();
+    }
+    writeln!(o, "end\n").unwrap();
+    // reflexivity
+    writeln!(o, "mutual").unwrap();
+    writeln!(
+        o,
+        "theorem Term.beq_self : ∀ {{s : Tag}} (a : Term s), Term.beq a a = true"
+    )
+    .unwrap();
+    for b in builtins {
+        writeln!(o, "  | _, .{} v => LeafEq.beq_self v", q(&format!("b_{b}"))).unwrap();
+    }
+    for k in by.keys() {
+        let vs: String = (0..*k).map(|i| format!(" a{i}")).collect();
+        let mut parts = vec![
+            "decide (s = s)".to_string(),
+            format!("idx{k} s c == idx{k} s c"),
+        ];
+        parts.extend((0..*k).map(|i| format!("Term.beq a{i} a{i}")));
+        let rws: Vec<String> = (0..*k).map(|i| format!("Term.beq_self a{i}")).collect();
+        let rw = if rws.is_empty() {
+            String::new()
+        } else {
+            format!("rw [{}]; ", rws.join(", "))
+        };
+        writeln!(
+            o,
+            "  | _, @Term.c{k} s c{vs} => by\n    show ({}) = true\n    {rw}simp",
+            rconj(&parts)
+        )
+        .unwrap();
+    }
+    for c in colls {
+        writeln!(
+            o,
+            "  | _, .{} l => beqL_{}_self l",
+            q(&format!("coll_{}", fsuffix(&c.sort))),
+            fsuffix(&c.sort)
+        )
+        .unwrap();
+    }
+    writeln!(o, "  | _, @Term.inj s _ l _ a => by\n    show (decide (s = s) && (decide (l = l) && (Term.beq a a))) = true\n    rw [Term.beq_self a]; simp\ntermination_by structural _ a => a").unwrap();
+    for c in colls {
+        let f = fsuffix(&c.sort);
+        let (p, _, es) = entry(c);
+        let mut parts: Vec<String> = es
+            .iter()
+            .map(|(i, x, _)| elem_beq(&c.elems[*i], x, x))
+            .collect();
+        parts.push(format!("beqL_{f} t t"));
+        let mut rws: Vec<String> = es
+            .iter()
+            .map(|(i, x, _)| elem_self(&c.elems[*i], x))
+            .collect();
+        rws.push(format!("beqL_{f}_self t"));
+        writeln!(
+            o,
+            "theorem beqL_{f}_self : ∀ l : {}, beqL_{f} l l = true\n  | [] => rfl\n  | {p} :: t => by\n    show ({}) = true\n    rw [{}]; rfl\ntermination_by structural l => l",
+            coll_ty(c),
+            rconj(&parts),
+            rws.join(", ")
+        )
+        .unwrap();
+    }
+    writeln!(o, "end\n").unwrap();
+    writeln!(
+        o,
+        "instance (s : Tag) : DecidableEq (Term s) := fun a b =>\n  if h : Term.beq a b = true then isTrue (eq_of_heq (Term.eq_of_beq a b h).2)\n  else isFalse (fun e => h (e ▸ Term.beq_self a))\n"
+    )
+    .unwrap();
+}
+
 fn nest(parts: &[String]) -> String {
     let mut body = parts.last().unwrap().clone();
     for p in parts.iter().rev().skip(1) {

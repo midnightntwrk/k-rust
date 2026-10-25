@@ -135,30 +135,77 @@ macro "k2l_hook_law" : tactic => `(tactic| first
   | (with_reducible apply KPrelude.StringHook.replaceFirst_eqn2 <;> assumption)
   | (with_reducible apply KPrelude.StringHook.countAllOccurrences_eqn1 <;> assumption))
 
-/-- `k2l_case_inj`: case on a variable of a generated sort (an inductive type `Sort…`) that is the
-argument of an injection function `inj_…` in the goal. An injection is defined by cases on its
-argument, so after the split it reduces: a `match` of the cascade on the injected term (the
-pattern of another subsort) then reduces too, which `simp` cannot do on the variable. Fails when
-there is no such variable. -/
+/-- `k2l_case_inj`: case on a variable of a generated sort that is the argument of an injection
+function `inj_…` in the goal. An injection is defined by cases on its argument, so after the split
+it reduces: a `match` of the cascade on the injected term (the pattern of another subsort) then
+reduces too, which `simp` cannot do on the variable. Fails when there is no such variable.
+
+A generated sort is an inductive type `Sort…` (one type per sort), or `Term t` of the
+arity-indexed family. In the family a value of a sort with subsorts is a leaf injection
+`Term.inj hs l h a`, whose leaf tag `l` is a variable after the split, constrained only by
+`h : leafOK t l = true`; the tag is split too, and every tag whose `leafOK` (or `hasLeaves`)
+hypothesis evaluates to `false` is closed, so the cases left are the sort's leaves. -/
 elab "k2l_case_inj" : tactic => do
   liftMetaTactic fun g => g.withContext do
     let env ← getEnv
     let tgt ← instantiateMVars (← g.getType)
     let lctx ← getLCtx
-    let sortVar (d : Expr) : Bool :=
-      d.isFVar && (match lctx.find? d.fvarId! with
-        | some decl => match decl.type.getAppFn with
-          | .const n _ => (match n with | .str _ s => s.startsWith "Sort" | _ => false) &&
-              (match env.find? n with | some (.inductInfo _) => true | _ => false)
-          | _ => false
-        | none => false)
-    let injOfVar (e : Expr) : Bool := match e.getAppFn with
-      | .const n@(.str _ s) _ => s.startsWith "inj_" && e.getAppNumArgs == 1 &&
-          (match env.find? n with | some (.defnInfo _) => true | _ => false) && sortVar e.appArg!
-      | _ => false
-    let some e := tgt.find? injOfVar | throwError "k2l_case_inj: no injected variable"
-    let gs ← g.cases e.appArg!.fvarId!
-    pure (gs.toList.map (·.mvarId))
+    let isFamily (n : Name) : Bool := (match n with | .str _ "Term" => true | _ => false) &&
+      (match env.find? n with | some (.inductInfo _) => true | _ => false)
+    let sortVar (d : Expr) : MetaM Bool := do
+      if !d.isFVar then return false
+      let some decl := lctx.find? d.fvarId! | return false
+      match decl.type.getAppFn with
+      | .const n _ =>
+        if (match n with | .str _ s => s.startsWith "Sort" | _ => false) &&
+            (match env.find? n with | some (.inductInfo _) => true | _ => false) then
+          return true
+        let t ← whnfR decl.type
+        return (match t.getAppFn with | .const m _ => isFamily m | _ => false)
+      | _ => return false
+    let cands ← IO.mkRef (#[] : Array Expr)
+    tgt.forEach fun e => match e.getAppFn with
+      | .const n@(.str _ s) _ =>
+        if s.startsWith "inj_" && e.getAppNumArgs == 1 &&
+            (match env.find? n with | some (.defnInfo _) => true | _ => false) then
+          cands.modify (·.push e.appArg!)
+        else pure ()
+      | _ => pure ()
+    let mut found : Option FVarId := none
+    for a in (← cands.get) do
+      if ← sortVar a then
+        found := some a.fvarId!
+        break
+    let some x := found | throwError "k2l_case_inj: no injected variable"
+    -- a goal of the family with a hypothesis `leafOK t l = true` or `hasLeaves t = true` that
+    -- evaluates to `false = true` is closed
+    let refuted (m : MVarId) : MetaM Bool := m.withContext do
+      for d in (← getLCtx) do
+        if d.isImplementationDetail then continue
+        let some (_, lhs, rhs) := (← instantiateMVars d.type).eq? | continue
+        unless rhs.isConstOf ``Bool.true do continue
+        unless (match lhs.getAppFn with
+          | .const (.str _ f) _ => f == "leafOK" || f == "hasLeaves" | _ => false) do continue
+        let v ← try whnfD lhs catch _ => pure lhs
+        if v.isConstOf ``Bool.false then
+          m.assign (← mkAbsurd (← m.getType) d.toExpr (mkConst ``Bool.false_ne_true))
+          return true
+      return false
+    let gs ← g.cases x
+    unless (← whnfR (← x.getType)).getAppFn.constName?.any isFamily do
+      return gs.toList.map (·.mvarId)
+    let mut out := #[]
+    for sg in gs do
+      let n := sg.fields.size
+      if (match sg.ctorName with | some (.str p "inj") => isFamily p | _ => false) && n ≥ 4 &&
+          sg.fields[n - 3]!.isFVar then
+        for lg in ← sg.mvarId.cases sg.fields[n - 3]!.fvarId! do
+          unless ← refuted lg.mvarId do out := out.push lg.mvarId
+      else
+        -- another constructor of the family: its enumeration `Ck t` is empty at most indices
+        unless ← (try (do sg.mvarId.contradiction; pure true) catch _ => pure false) do
+          out := out.push sg.mvarId
+    pure out.toList
 
 end KPrelude
 

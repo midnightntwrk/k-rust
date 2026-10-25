@@ -194,10 +194,12 @@ pub struct Opts {
     /// The cost bound of one lemma module (`--det2-module-cost N`, default 2000): the sum over
     /// its lemmas of the constructors each inverts, and 2 per certificate beyond a literal clash.
     pub module_cost: usize,
-    /// The length above which a `String` or `Bytes` literal makes an overlap witness unchecked
+    /// The length above which a `String` or token literal makes an overlap witness unchecked
     /// (`--det2-long-literal N`, default [`LONG_LITERAL`]): such a witness is reported and its
     /// pair stays listed in `overlaps` without a witness.
     pub long_literal: usize,
+    /// The same bound for a `Bytes` literal (`--det2-long-bytes N`, default [`LONG_BYTES`]).
+    pub long_bytes: usize,
 }
 
 impl Opts {
@@ -208,6 +210,7 @@ impl Opts {
             heartbeats: 400_000,
             module_cost: 2000,
             long_literal: LONG_LITERAL,
+            long_bytes: LONG_BYTES,
             disjoint: rest.iter().any(|x| x == "--det2-disjoint"),
         };
         let mut it = rest.iter();
@@ -235,6 +238,12 @@ impl Opts {
                         .next()
                         .and_then(|n| n.parse().ok())
                         .expect("--det2-long-literal N");
+                }
+                "--det2-long-bytes" => {
+                    o.long_bytes = it
+                        .next()
+                        .and_then(|n| n.parse().ok())
+                        .expect("--det2-long-bytes N");
                 }
                 _ => {}
             }
@@ -1240,22 +1249,25 @@ step budget)"
                 continue;
             };
             let i = if ranked { rank(&rs[*a]) } else { 0 };
-            // a cost bound, not a proof failure: over a long literal the kernel's attempt at a
-            // fact does not end (it reduces a definition by well-founded recursion through its
-            // accessibility proof), and neither did the evaluation of every fact, whose `==K`
-            // compares `ser` values and decodes the literal (design.md §9); such a witness is
-            // reported, not checked, and its pair stays in `overlaps`
-            let longest = [&w.config, &w.next.0, &w.next.1]
-                .into_iter()
-                .map(longest_literal)
-                .max()
-                .unwrap_or(0);
-            if longest > opts.long_literal {
+            // a cost bound, not a proof failure: a witness is checked by evaluation, and the
+            // kernel's cost of a literal grows with its length (design.md §3.1); a witness over
+            // the bound is reported, not checked, and its pair stays in `overlaps`
+            let (mut text, mut bytes) = (0, 0);
+            for p in [&w.config, &w.next.0, &w.next.1] {
+                longest_literal(m, p, &mut text, &mut bytes);
+            }
+            let over = if text > opts.long_literal {
+                Some(("characters", text, opts.long_literal, "--det2-long-literal"))
+            } else if bytes > opts.long_bytes {
+                Some(("bytes", bytes, opts.long_bytes, "--det2-long-bytes"))
+            } else {
+                None
+            };
+            if let Some((unit, n, bound, flag)) = over {
                 missing.push(format!(
-                    "{} / {}: the witness holds a literal of {longest} characters, longer than {} (--det2-long-literal), and is not checked",
+                    "{} / {}: the witness holds a literal of {n} {unit}, longer than {bound} ({flag}), and is not checked",
                     display_name(&rs[*a]),
                     display_name(&rs[*b]),
-                    opts.long_literal
                 ));
                 continue;
             }
@@ -1457,22 +1469,45 @@ theorem step_iff_of_noOverlap {{c c' : {top}}} (h : noOverlap c = true) : step c
     }
 }
 
-/// The default of `--det2-long-literal`: the kernel decodes a `String` literal of 400 characters
-/// through well-founded recursion in 9.9 s (100 in 0.84 s, 2026-10-24), a cost quadratic in its
-/// length, and `==K` over a `String` or `Bytes` value compares `ser` values, which decodes it.
+/// The default of `--det2-long-literal`: the kernel encodes a `String` literal of 400 characters
+/// in 9.9 s (100 in 0.84 s, 2026-10-24), a cost quadratic in its length, and a string hook may
+/// decode it by well-founded recursion.
 pub const LONG_LITERAL: usize = 256;
 
-/// The length of the longest domain value (`String`, `Bytes` literal) in `p`.
-fn longest_literal(p: &crate::ir::P) -> usize {
+/// The default of `--det2-long-bytes`, 2^17: a witness writes a `Bytes` value as the list of its
+/// bytes, which the kernel compares in time and memory linear in its length, but with a large
+/// constant in memory (`==` on equal lists of 2^16 bytes: 4.6 s, 1.7 GB; of 2^18 bytes: 21 s,
+/// 5.3 GB, and 26 s, 7.4 GB for lists that differ at the end; 2026-10-25), so the bound keeps one
+/// comparison near 15 s and 4 GB, and a fact that compares or measures the value a few times to
+/// tens of seconds, while a larger value is reported instead of filling the build's memory.
+pub const LONG_BYTES: usize = 1 << 17;
+
+/// The longest `String` or token literal (`text`) and `Bytes` literal (`bytes`) in `p`, joined
+/// into the running maxima.
+fn longest_literal(m: &crate::model::Model, p: &crate::ir::P, text: &mut usize, bytes: &mut usize) {
     use crate::ir::P;
+    use crate::model::{Builtin, Kind};
     match p {
-        P::Dv(_, v) => v.chars().count(),
-        P::App(_, _, args) | P::And(_, args) | P::Or(_, args) => {
-            args.iter().map(longest_literal).max().unwrap_or(0)
+        P::Dv(s, v) => {
+            let n = v.chars().count();
+            let is_bytes = s
+                .name()
+                .and_then(|s| m.sorts.get(s))
+                .is_some_and(|i| matches!(i.kind, Kind::Builtin(Builtin::Bytes)));
+            let max = if is_bytes { bytes } else { text };
+            *max = (*max).max(n);
         }
-        P::Not(_, a) => longest_literal(a),
-        P::Implies(_, a, b) | P::Iff(_, a, b) => longest_literal(a).max(longest_literal(b)),
-        _ => 0,
+        P::App(_, _, args) | P::And(_, args) | P::Or(_, args) => {
+            for a in args {
+                longest_literal(m, a, text, bytes);
+            }
+        }
+        P::Not(_, a) => longest_literal(m, a, text, bytes),
+        P::Implies(_, a, b) | P::Iff(_, a, b) => {
+            longest_literal(m, a, text, bytes);
+            longest_literal(m, b, text, bytes);
+        }
+        _ => {}
     }
 }
 
