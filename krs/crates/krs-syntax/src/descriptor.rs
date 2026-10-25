@@ -3,10 +3,13 @@
 //! An item's parsers key each piece as a sentence of its own: a rule fn and
 //! its attribute, a struct and its helper attributes. The descriptor the item
 //! declares is one sentence over all of them. Its keying continues across the
-//! pieces in descriptor order ([`KeyAllocator::append`]) and keys the nodes no
-//! piece holds, such as the name of a clause fn. The macro and the
-//! collector's reparse both take a descriptor's anchors from here, so the two
-//! agree key for key by construction.
+//! pieces in descriptor order ([`KeyAllocator::append`], and
+//! [`KeyAllocator::held`] for a piece's node the descriptor orders apart from
+//! the rest of the piece), refuses a key that two pieces hold, and keys the
+//! nodes no piece holds, such as the name of a clause fn, whose keys the
+//! descriptor returns. The macro and the collector's reparse both take a
+//! descriptor's anchors from here, from the same pieces, so the two agree
+//! key for key by construction.
 
 use krs_ir::ProvenanceKey;
 use syn::Ident;
