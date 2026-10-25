@@ -3996,6 +3996,15 @@ configuration
 """
 
 [accept."terms/init/item-depth-2/k::builtin::int::add(1, 2)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( hold ( 1 +Int 2 ) ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
 
 [accept."terms/init/item-depth-2/k::bytes!(b\"ab\")"]
 k = '''
@@ -4108,6 +4117,15 @@ configuration
 """
 
 [accept."terms/init/item/k::builtin::int::add(1, 2)"]
+k = """
+configuration
+<k> $PGM:Stmt ~> hold ( 1 +Int 2 ) </k>
+<env> .Map </env>
+<stack> .List </stack>
+<frame>
+<ret> 0 </ret>
+</frame>
+"""
 
 [accept."terms/init/item/k::bytes!(b\"ab\")"]
 k = '''

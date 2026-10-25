@@ -12,7 +12,7 @@ use krs_ir::{
     BuiltinSort, CellWrapper, DescriptorApplicationHeadClass, DescriptorKSequenceNotation,
     ProductionFieldId, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
     ProtocolInitializerTerm, ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap,
-    ProtocolMapBody, ProtocolMapItem, ProvenanceKey,
+    ProtocolMapBody, ProtocolMapItem,
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
@@ -479,7 +479,7 @@ impl<'a> InitializerBuilder<'a> {
                 unreachable!("initializers hold templates only")
             }
             StateTerm::Term(term) | StateTerm::Group(term) => {
-                let term = self.expand_term(term, None)?;
+                let term = self.expand_term(term)?;
                 Ok(ProtocolInitializerStateTerm::Term(term))
             }
             StateTerm::KSequence(sequence) => {
@@ -510,12 +510,9 @@ impl<'a> InitializerBuilder<'a> {
         };
         let mut items = Vec::new();
         for item in sequence.items() {
-            let structural = ledger.define(item.keys().payload())?;
-            let value = self.expand_term(item, Some(structural.clone()))?;
-            items.push(ProtocolKSequenceItem {
-                key: structural,
-                value,
-            });
+            let key = ledger.define(item.keys().payload())?;
+            let value = self.expand_term(item)?;
+            items.push(ProtocolKSequenceItem { key, value });
         }
         // `..pgm` after the items denotes `items ~> $PGM`, the variable's
         // sequence after them, which the initializer's sequence has no
@@ -550,8 +547,8 @@ impl<'a> InitializerBuilder<'a> {
                 for item in items {
                     let key_key = ledger.define(item.key().keys().payload())?;
                     let value_key = ledger.define(item.value().keys().payload())?;
-                    let key = self.expand_term(item.key(), Some(key_key.clone()))?;
-                    let value = self.expand_term(item.value(), Some(value_key.clone()))?;
+                    let key = self.expand_term(item.key())?;
+                    let value = self.expand_term(item.value())?;
                     output.push(ProtocolMapItem {
                         key_key,
                         key,
@@ -577,9 +574,9 @@ impl<'a> InitializerBuilder<'a> {
                 let base_key = ledger.define(base.keys().payload())?;
                 let key_key = ledger.define(key.keys().payload())?;
                 let value_key = ledger.define(value.keys().payload())?;
-                let base = self.expand_term(base, Some(base_key.clone()))?;
-                let key = self.expand_term(key, Some(key_key.clone()))?;
-                let value = self.expand_term(value, Some(value_key.clone()))?;
+                let base = self.expand_term(base)?;
+                let key = self.expand_term(key)?;
+                let value = self.expand_term(value)?;
                 ProtocolMapBody::Update {
                     base_key,
                     base,
@@ -596,18 +593,10 @@ impl<'a> InitializerBuilder<'a> {
     fn expand_term(
         &mut self,
         term: &TermExpression,
-        structural_key: Option<ProvenanceKey>,
     ) -> crate::Result<ProtocolInitializerTerm<WireTerm>> {
         let key = self.terms.ledger.define(term.keys().term())?;
-        // A literal of the term takes the key of the place the term stands
-        // in: the `k!` item, map key or value, or the term itself (N26).
-        let structural = structural_key.unwrap_or_else(|| key.clone());
         let keyed = KeyedTerm::of(term);
-        let term = self.expand_term_tree(
-            keyed.tree(),
-            &mut keyed.reader(self.terms.ledger),
-            structural,
-        )?;
+        let term = self.expand_term_tree(keyed.tree(), &mut keyed.reader(self.terms.ledger))?;
         Ok(ProtocolInitializerTerm { key, term })
     }
 
@@ -619,7 +608,6 @@ impl<'a> InitializerBuilder<'a> {
         &mut self,
         tree: &TermTree,
         keys: &mut TermKeyReader<'_>,
-        structural_key: ProvenanceKey,
     ) -> crate::Result<WireTerm> {
         match tree {
             TermTree::Application(application) => {
@@ -649,10 +637,7 @@ impl<'a> InitializerBuilder<'a> {
                     TermArguments::Positional(values) => krs_ir::Arguments::Positional(
                         values
                             .iter()
-                            .map(|value| {
-                                self.expand_term_tree(value, keys, structural_key.clone())
-                                    .map(Box::new)
-                            })
+                            .map(|value| self.expand_term_tree(value, keys).map(Box::new))
                             .collect::<crate::Result<Vec<_>>>()?,
                     ),
                     // A record constructor denotes the same application as
@@ -665,11 +650,7 @@ impl<'a> InitializerBuilder<'a> {
                             arguments.push(krs_ir::NamedTermArgument {
                                 key: keys.record_field(argument.name())?,
                                 field,
-                                value: Box::new(self.expand_term_tree(
-                                    argument.value(),
-                                    keys,
-                                    structural_key.clone(),
-                                )?),
+                                value: Box::new(self.expand_term_tree(argument.value(), keys)?),
                             });
                         }
                         krs_ir::Arguments::named(arguments)
@@ -729,10 +710,10 @@ impl<'a> InitializerBuilder<'a> {
                     })
                 }
             }
-            // The literal names the place its term stands in, whose own
-            // wire node defines that key (N26).
             TermTree::Literal(literal) => Ok(WireTerm::Literal {
-                key: self.terms.ledger.refer_key(structural_key)?,
+                key: keys
+                    .node(NodeKind::Literal, literal.range()?)?
+                    .key(ProvenanceRole::InitializerTermLiteral)?,
                 literal: wire_literal(literal),
             }),
             TermTree::Wildcard(range) => Err(ExpandError::at_range(

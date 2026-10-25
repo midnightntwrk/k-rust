@@ -1682,13 +1682,13 @@ fn validate_state_term<S: ConfigurationValidationStage>(
 ) -> Result<(), StateTransportError> {
     match value {
         ProtocolInitializerStateTerm::Term(term) => {
-            validate_initializer_term::<S>(term, bindings, keys, None)
+            validate_initializer_term::<S>(term, bindings, keys)
         }
         ProtocolInitializerStateTerm::KSequence(sequence) => {
             validate_k_sequence_shell(sequence, keys)?;
             for item in &sequence.items {
                 keys.define(&item.key, ProvenanceRole::KSequenceItem)?;
-                validate_initializer_term::<S>(&item.value, bindings, keys, Some(&item.key))?;
+                validate_initializer_term::<S>(&item.value, bindings, keys)?;
             }
             Ok(())
         }
@@ -1710,8 +1710,8 @@ fn validate_initializer_map<S: ConfigurationValidationStage>(
             for item in items {
                 keys.define(&item.key_key, ProvenanceRole::MapKey)?;
                 keys.define(&item.value_key, ProvenanceRole::MapValue)?;
-                validate_initializer_term::<S>(&item.key, bindings, keys, Some(&item.key_key))?;
-                validate_initializer_term::<S>(&item.value, bindings, keys, Some(&item.value_key))?;
+                validate_initializer_term::<S>(&item.key, bindings, keys)?;
+                validate_initializer_term::<S>(&item.value, bindings, keys)?;
             }
             Ok(())
         }
@@ -1726,9 +1726,9 @@ fn validate_initializer_map<S: ConfigurationValidationStage>(
             keys.define(base_key, ProvenanceRole::MapUpdateBase)?;
             keys.define(key_key, ProvenanceRole::MapKey)?;
             keys.define(value_key, ProvenanceRole::MapValue)?;
-            validate_initializer_term::<S>(base, bindings, keys, Some(base_key))?;
-            validate_initializer_term::<S>(key, bindings, keys, Some(key_key))?;
-            validate_initializer_term::<S>(value, bindings, keys, Some(value_key))
+            validate_initializer_term::<S>(base, bindings, keys)?;
+            validate_initializer_term::<S>(key, bindings, keys)?;
+            validate_initializer_term::<S>(value, bindings, keys)
         }
     }
 }
@@ -1804,23 +1804,17 @@ fn validate_initializer_term<S: ConfigurationValidationStage>(
     term: &ProtocolInitializerTerm<Term<S>>,
     bindings: &BTreeSet<String>,
     keys: &mut WireKeys,
-    structural_key: Option<&ProvenanceKey>,
 ) -> Result<(), StateTransportError> {
     keys.define(&term.key, ProvenanceRole::InitializerTerm)?;
     validate_term(
         &term.term,
-        &mut InitializerTermValidation {
-            bindings,
-            keys,
-            structural_key: structural_key.unwrap_or(&term.key),
-        },
+        &mut InitializerTermValidation { bindings, keys },
     )
 }
 
 struct InitializerTermValidation<'a> {
     bindings: &'a BTreeSet<String>,
     keys: &'a mut WireKeys,
-    structural_key: &'a ProvenanceKey,
 }
 
 impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
@@ -1871,18 +1865,11 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
         key: &ProvenanceKey,
         literal: &DescriptorLiteral,
     ) -> Result<(), Self::Error> {
-        // A literal has no key of its own yet: it names the node it stands
-        // in, a sequence item, a map entry's key or value, or its term.
-        if key != self.structural_key {
-            return Err(StateTransportError::MismatchedProvenance {
-                expected: self.structural_key.clone(),
-                actual: key.clone(),
-            });
-        }
         literal.validate().map_err(|_| {
             StateTransportError::InvalidTerm(StateTermReason::NonCanonicalIntegerLiteral)
         })?;
-        self.keys.refer(key, self.structural_key.role())?;
+        self.keys
+            .define(key, ProvenanceRole::InitializerTermLiteral)?;
         Ok(())
     }
 

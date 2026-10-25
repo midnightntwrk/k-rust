@@ -3238,6 +3238,27 @@ pub(crate) fn allocate_lexeme_keys(
     Ok(())
 }
 
+/// Keys every literal node in `nodes` under `role`, over the literal's
+/// tokens: an initializer's literals, which a pass numbers in preorder across
+/// the initializer's terms.
+///
+/// # Errors
+///
+/// Returns an endpoint or occurrence-overflow error.
+pub(crate) fn allocate_literal_keys(
+    keys: &mut KeyAllocator,
+    nodes: &[TermNode],
+    term_keys: &mut TermKeys,
+    role: ProvenanceRole,
+) -> Result<(), SyntaxError> {
+    for (index, node) in nodes.iter().enumerate() {
+        if let TermNode::Literal(literal) = node {
+            term_keys.push_node(index, keys.key(role, literal.range()?)?);
+        }
+    }
+    Ok(())
+}
+
 /// Validates `k::is!(Sort, t)` or `k::project!(Sort, t)`; the macro shell
 /// node precedes the operand's nodes.
 fn validate_sort_test(

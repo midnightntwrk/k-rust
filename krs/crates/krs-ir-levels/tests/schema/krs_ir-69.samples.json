@@ -22421,7 +22421,8 @@
     "constant_value",
     "inlined_constant",
     "initializer_record_field_name",
-    "configuration_variable_type_argument"
+    "configuration_variable_type_argument",
+    "initializer_term_literal"
   ],
   "RawSentence": [
     {

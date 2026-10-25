@@ -577,6 +577,9 @@ provenance_roles! {
     /// collection type (`Value` of `xs: List<Value>`), nested ones included,
     /// in preorder across the initializer's variables.
     ConfigurationVariableTypeArgument => "configuration_variable_type_argument",
+    /// Integer, Boolean, float, or string literal in an initializer's terms,
+    /// in preorder across the terms in expansion order.
+    InitializerTermLiteral => "initializer_term_literal",
 }
 
 impl Serialize for ProvenanceRole {

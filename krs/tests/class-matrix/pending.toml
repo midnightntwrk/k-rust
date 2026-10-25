@@ -2480,28 +2480,6 @@ finding = "N22"
 deviation = "E0573 @ spelling"
 step = "S3"
 
-# N26: two literals in one initializer term give one semantic key twice
-
-["k1/terms/init/item-depth-2/k::builtin::int::add(1, 2)"]
-finding = "N26"
-deviation = "the semantic key sem.term-literal is not injective"
-step = "S2"
-
-["k1/terms/init/item/k::builtin::int::add(1, 2)"]
-finding = "N26"
-deviation = "the semantic key sem.term-literal is not injective"
-step = "S2"
-
-["terms/init/item-depth-2/k::builtin::int::add(1, 2)"]
-finding = "N26"
-deviation = "krs::analysis::invalid-semantic-theory @ item"
-step = "S2"
-
-["terms/init/item/k::builtin::int::add(1, 2)"]
-finding = "N26"
-deviation = "krs::analysis::invalid-semantic-theory @ item"
-step = "S2"
-
 # N27: an initializer value of a strict subsort of its cell's sort is refused by the IR validator (located at the value since S1)
 
 ["init/typed/any/1"]
