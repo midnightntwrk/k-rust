@@ -523,6 +523,8 @@ fn execute_request(state: Pattern, max_depth: u64) -> ExecuteRequest {
         max_work: None,
         trace: false,
         cancelled_result: CancelledResultOutput::Error,
+        match_states: None,
+        collect_committed: false,
         schema_version: BACKEND_SCHEMA_VERSION,
     }
 }

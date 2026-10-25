@@ -101,6 +101,8 @@ fn single_path(backend: &mut Backend, state: &Pattern, budget: ExecutionBudget) 
             max_work: None,
             trace: false,
             cancelled_result: CancelledResultOutput::Error,
+            match_states: None,
+            collect_committed: false,
             schema_version: BACKEND_SCHEMA_VERSION,
         })
         .unwrap();

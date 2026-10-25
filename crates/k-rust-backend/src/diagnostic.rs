@@ -1127,6 +1127,19 @@ impl PathDiagnostics {
         !self.facts.is_empty()
     }
 
+    /// Whether some diagnostic of the path satisfies `predicate`, walking the list without
+    /// copying it.
+    pub(crate) fn any(&self, mut predicate: impl FnMut(&BackendDiagnostic) -> bool) -> bool {
+        let mut node = self.newest.as_deref();
+        while let Some(current) = node {
+            if predicate(&current.diagnostic) {
+                return true;
+            }
+            node = current.parent.as_deref();
+        }
+        false
+    }
+
     pub(crate) fn to_vec(&self) -> Vec<BackendDiagnostic> {
         let mut diagnostics = Vec::new();
         let mut node = self.newest.as_deref();

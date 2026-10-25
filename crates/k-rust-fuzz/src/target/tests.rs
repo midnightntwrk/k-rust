@@ -362,6 +362,7 @@ fn case(leaves: Vec<LeafReport>, applied: &[&str], matched: &[&str]) -> CaseResu
             offered: None,
             conditions: None,
             applied_counts: None,
+            committed: None,
         }),
         stack_stops: 0,
         smt_unknowns: 0,

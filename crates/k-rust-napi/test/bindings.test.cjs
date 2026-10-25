@@ -388,6 +388,8 @@ test('searches and observes the persistent native backend graph', () => {
   assert.equal(backend.capabilities.coverageOffered, true)
   assert.equal(backend.capabilities.coverageCounts, true)
   assert.equal(backend.capabilities.coverageConditions, true)
+  assert.equal(backend.capabilities.coverageCommitted, true)
+  assert.equal(backend.capabilities.stateMatches, true)
   assert.equal(backend.capabilities.stackStops, true)
   assert.equal(backend.capabilities.smtUnknowns, true)
   assert.equal(backend.capabilities.implementationChosenValues, true)
@@ -436,6 +438,23 @@ test('searches and observes the persistent native backend graph', () => {
     () => backend.execute({ state: a, collectConditions: { rules: ['a-to-b'] } }),
     /collectConditions requires collectCoverage/,
   )
+  assert.deepEqual(
+    backend.execute({ state: a, collectCoverage: true, collectCommitted: true }).coverage,
+    {
+      applied: ['a-to-b', 'b-to-c'],
+      matched: ['a-to-b', 'b-to-c'],
+      committed: ['a-to-b', 'b-to-c'],
+    },
+  )
+  assert.throws(
+    () => backend.execute({ state: a, collectCommitted: true }),
+    /collectCommitted requires collectCoverage/,
+  )
+  assert.equal(backend.execute({ state: a }).stateMatches, undefined)
+  const matched = backend.execute({ state: a, matchStates: { pattern: c } }).stateMatches
+  assert.equal(matched.firstCleanReach.depth, 2)
+  assert.equal(matched.matched, 3)
+  assert.equal(matched.refuted, 2)
   assert.ok(backend.execute({ state: a }).leaves.every(({ trace }) => trace.length > 0))
   assert.ok(backend.execute({ state: a, trace: false }).leaves.every(({ trace }) => trace.length === 0))
 

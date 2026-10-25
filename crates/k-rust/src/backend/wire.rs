@@ -2061,6 +2061,60 @@ pub(super) fn execution_response<K: WireKore>(
             .collect::<Result<_, _>>()?,
         allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
         unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
+        state_matches: result.state_matches.map(state_matches_output).transpose()?,
+    })
+}
+
+/// The wire form of a run's state matches ([`super::StateMatchesOutput`]).
+fn state_matches_output<K: WireKore>(
+    found: k_rust_backend::rewrite::StateMatches,
+) -> Result<super::StateMatchesOutput<K>, BackendError> {
+    Ok(super::StateMatchesOutput {
+        first_clean_reach: found
+            .first_clean_reach
+            .map(state_match_output)
+            .transpose()?,
+        first_dirty_reach: found
+            .first_dirty_reach
+            .map(state_match_output)
+            .transpose()?,
+        dirty_reaches: found.dirty_reaches,
+        undecided: found
+            .undecided
+            .into_iter()
+            .map(|entry| {
+                Ok(super::UndecidedStateMatchesOutput {
+                    reason: match entry.reason {
+                        k_rust_backend::rewrite::UndecidedMatchReason::UndecidedState => {
+                            super::UndecidedMatchReasonOutput::UndecidedState
+                        }
+                        k_rust_backend::rewrite::UndecidedMatchReason::NotCeilFree => {
+                            super::UndecidedMatchReasonOutput::NotCeilFree
+                        }
+                        k_rust_backend::rewrite::UndecidedMatchReason::UndecidedMatch => {
+                            super::UndecidedMatchReasonOutput::UndecidedMatch
+                        }
+                    },
+                    count: entry.count,
+                    first: state_match_output(entry.first)?,
+                })
+            })
+            .collect::<Result<_, BackendError>>()?,
+        matched: found.matched,
+        refuted: found.refuted,
+        smt_unknowns: found.smt_unknowns,
+    })
+}
+
+fn state_match_output<K: WireKore>(
+    found: k_rust_backend::rewrite::StateMatch,
+) -> Result<super::StateMatchOutput<K>, BackendError> {
+    let result_sort = found.pattern.term.sort();
+    Ok(super::StateMatchOutput {
+        depth: found.depth,
+        state: encode_constrained(&found.pattern)?,
+        diagnostics: diagnostics_output(found.diagnostics, &result_sort)?,
+        term_conjunction: found.term_conjunction,
     })
 }
 
@@ -2078,6 +2132,9 @@ fn run_coverage_output<K: WireKore>(
             .map(|rules| rules.into_iter().map(rule_conditions_output).collect())
             .transpose()?,
         applied_counts: coverage.applied_counts,
+        committed: coverage
+            .committed
+            .map(|committed| committed.into_iter().collect()),
     })
 }
 

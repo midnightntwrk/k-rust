@@ -1541,6 +1541,8 @@ impl AlphaComparable for ExecutionResult {
             contradicted_claims: self.contradicted_claims.clone(),
             allowance_refusals: self.allowance_refusals.clone(),
             unsupported_hooks: self.unsupported_hooks.clone(),
+            // Its states are compared by the tests of `state_match`, not up to renaming here.
+            state_matches: self.state_matches.clone(),
         })
     }
 }
@@ -1595,6 +1597,7 @@ fn result_with_transition(name: &str) -> ExecutionResult {
         contradicted_claims: Vec::new(),
         allowance_refusals: Vec::new(),
         unsupported_hooks: Vec::new(),
+        state_matches: None,
         modality: crate::search::ResultModality::StateSet,
         leaves: vec![ExecutionLeaf {
             pattern: after.clone(),

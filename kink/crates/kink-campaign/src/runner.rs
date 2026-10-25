@@ -3725,6 +3725,7 @@ mod tests {
                     contradicted_claims: Vec::new(),
                     allowance_refusals: Vec::new(),
                     unsupported_hooks: Vec::new(),
+                    state_matches: None,
                 };
                 let executed = |result: k_rust::backend::ExecutionResult| {
                     let feasibility = vec![LeafFeasibility::Syntactic; result.leaves.len()];
@@ -4000,6 +4001,7 @@ mod tests {
                     contradicted_claims: Vec::new(),
                     allowance_refusals: Vec::new(),
                     unsupported_hooks: Vec::new(),
+                    state_matches: None,
                 };
                 let feasibility = execution
                     .leaves()

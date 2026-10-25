@@ -944,7 +944,7 @@ fn a_counting_collection_counts_each_report_to_applied() {
         assert!(unwound.is_err());
         replay(&inner);
     };
-    let ((), counted) = collect_recording(false, true, None, action);
+    let ((), counted) = collect_recording(false, true, false, None, action);
     assert_eq!(counted.applied, ids(&["a", "b", "c"]));
     assert_eq!(counted.matched, ids(&["a", "b", "c", "m"]));
     assert_eq!(

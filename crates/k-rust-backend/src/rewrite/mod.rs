@@ -19,6 +19,7 @@ mod predicates;
 mod recover;
 mod refutation_memo;
 mod roles;
+mod state_match;
 mod step;
 mod work;
 
@@ -50,6 +51,9 @@ pub(crate) use recover::{
     recover_indeterminate_match,
 };
 use roles::{Applicability, Remainder};
+pub use state_match::{
+    StateMatch, StateMatchOptions, StateMatches, UndecidedMatchReason, UndecidedStateMatches,
+};
 #[cfg(test)]
 pub(crate) use step::rewrite_step_all_first_group_for_tests;
 use step::{rewrite_step_all, rewrite_step_any};
@@ -695,6 +699,20 @@ pub struct ExecutionOptions {
     /// merge) polls for a stop once per state or leaf, so a cancellation that arrives during it
     /// ends it the same way. Without it nothing polls there.
     pub discard_stopped: bool,
+    /// Match every state the run reaches against a target pattern, and report the verdicts'
+    /// summary as [`ExecutionResult::state_matches`] (`None`, the default: nothing is matched
+    /// and the result has no summary). The states matched, the verdicts, what makes a reach
+    /// clean, and the isolation that leaves every other field of the result unchanged are
+    /// stated in `state_match`'s module documentation. Matching stops after the first clean
+    /// reach; the run never stops for a match. It costs one match per state matched (two when
+    /// [`StateMatchOptions::proof_agreement`] is set), off the run's clock, and holds at most a
+    /// few matched states.
+    pub match_states: Option<StateMatchOptions>,
+    /// With [`Self::collect_coverage`], also report
+    /// [`crate::coverage::RunCoverage::committed`]: the rewrite rules whose successor the run
+    /// committed to (off by default; ignored without `collect_coverage`). Asking costs one set
+    /// insert per normalized successor and changes nothing else in the result.
+    pub collect_committed: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -732,6 +750,8 @@ impl Default for ExecutionOptions {
             collect_conditions: None,
             max_work: None,
             discard_stopped: false,
+            match_states: None,
+            collect_committed: false,
         }
     }
 }
@@ -1033,6 +1053,10 @@ pub struct ExecutionResult {
     /// of the work that met it (the `UnsupportedHookUnevaluated` reports and the unsupported-hook
     /// failures, kept or dropped).
     pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
+    /// The summary of the run's state matches when [`ExecutionOptions::match_states`] asked for
+    /// them, `None` otherwise. A run that a stop, a bound or the work budget cut short reports
+    /// the states it matched before it ended.
+    pub state_matches: Option<StateMatches>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

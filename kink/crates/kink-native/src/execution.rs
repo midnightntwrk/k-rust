@@ -614,6 +614,9 @@ pub enum ExecutionAdapterFailure {
 ///   k-rust reports only when asked, and asking changes no other field of the result).
 /// - `collect_conditions: None`: no condition records are asked for (they are part of the
 ///   coverage k-rust reports only when asked, and asking changes no other field of the result).
+/// - `match_states: None`, `collect_committed: false`: kink matches no reached state inside the
+///   run and reads no committed transitions; asking for either changes no other field of the
+///   result, so their absence keeps every run as before.
 ///
 /// Step timeouts stay off: a step deadline is host-dependent, which an Execute-promise run must
 /// not be (finding A-03).
@@ -639,6 +642,8 @@ fn request(state: Pattern, budget: ExecutionBudget, run: ResultRun) -> ExecuteRe
         max_work: run.max_work,
         trace: false,
         cancelled_result: CancelledResultOutput::Error,
+        match_states: None,
+        collect_committed: false,
         schema_version: BACKEND_SCHEMA_VERSION,
     }
 }
@@ -1135,6 +1140,7 @@ fn settle(
                 contradicted_claims: Vec::new(),
                 allowance_refusals: Vec::new(),
                 unsupported_hooks: Vec::new(),
+                state_matches: None,
             },
             true,
         )),
@@ -1699,6 +1705,7 @@ mod tests {
             contradicted_claims: Vec::new(),
             allowance_refusals: Vec::new(),
             unsupported_hooks: Vec::new(),
+            state_matches: None,
         };
         let one = NonZeroUsize::new(1).expect("nonzero");
         for (max_depth, max_breadth) in [

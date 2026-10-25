@@ -578,6 +578,11 @@ fn trusted_claims_are_pinned() {
 /// arguments, an author axiom; lemmas and `concrete` or `symbolic` equations are theorems of the
 /// executable equations) are byte-identical and still unchecked; no line moved. Only 1143's
 /// digest is re-pinned.
+///
+/// Re-pin FZ-STATESET-MATCH (fz26/stateset-match): the "Committed transitions" subsection of
+/// "Run coverage" and the "State matches" section after "Work budget" add 42 lines between 2279
+/// and 2833, which move the definedness-faithful passage down 42 to 2875-2876, byte-identical:
+/// only its lines, and `TRUSTED_CLAIMS`' citations of them, are re-pinned.
 const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
     (
         "docs/compatibility.md",
@@ -641,8 +646,8 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
     ),
     (
         "docs/compatibility.md",
-        2833,
-        2834,
+        2875,
+        2876,
         "a7acad142464656d166719394614b9f7f621cc98c7470fa539a0e208ebf74c82",
     ),
     (

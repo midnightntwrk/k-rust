@@ -172,8 +172,8 @@ use k_rust_backend::{
     implication::{ImplicationFailure, ImplicationStatus},
     proof::{ProofError, ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
     rewrite::{
-        ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, TraceKind,
-        execute_observed_with_solver, execute_with_solver,
+        ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, StateMatchOptions,
+        TraceKind, execute_observed_with_solver, execute_with_solver,
     },
     rule::ClassifiedAxiom,
     search::{
@@ -288,6 +288,12 @@ pub struct BackendCapabilities {
     /// ([`RunCoverageOutput::conditions`]) when the request sets `collect_conditions` beside
     /// `collect_coverage` ([`ExecuteRequest::collect_conditions`]).
     pub coverage_conditions: bool,
+    /// `execute` and `execute_observed` accept `collect_committed` beside `collect_coverage`
+    /// ([`RunCoverageOutput::committed`]).
+    pub coverage_committed: bool,
+    /// `execute` and `execute_observed` accept `match_states` ([`ExecuteRequest::match_states`])
+    /// and report [`ExecutionResult::state_matches`].
+    pub state_matches: bool,
     /// `execute` and `execute_observed` report the stack stops the run met
     /// ([`ExecutionResult::stack_stops`]).
     pub stack_stops: bool,
@@ -459,8 +465,50 @@ pub struct ExecuteRequest {
     /// [Bounding an operation](crate::backend#bounding-an-operation), point 2.
     #[serde(default)]
     pub cancelled_result: CancelledResultOutput,
+    /// Match every state the run reaches against a pattern, and report a summary of the verdicts
+    /// as [`ExecutionResult::state_matches`] (wire `matchStates`; absent by default: nothing is
+    /// matched and the result has no `stateMatches` key). The run is never stopped by a match:
+    /// leaves, coverage, work and the run's lists are those of the same request without it,
+    /// within the execution determinism contract (docs/compatibility.md, "State matches").
+    #[serde(default)]
+    pub match_states: Option<StateMatchRequest>,
+    /// With [`Self::collect_coverage`], also report [`RunCoverageOutput::committed`] (wire
+    /// `collectCommitted`): the rewrite rules whose successor the run committed to. Off by
+    /// default; a request that sets it without `collect_coverage` is refused. Asking changes no
+    /// other field of the result and costs one set insert per normalized successor
+    /// (docs/compatibility.md, "Committed transitions").
+    #[serde(default)]
+    pub collect_committed: bool,
     #[serde(default = "default_backend_schema_version")]
     pub schema_version: u32,
+}
+
+/// The pattern an execute request matches every reached state against
+/// ([`ExecuteRequest::match_states`], wire `matchStates`).
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct StateMatchRequest {
+    /// The target, internalized as `searchPattern` internalizes its pattern; it may carry
+    /// constraints (a `requires`). A KORE JSON envelope on the wire.
+    #[serde(deserialize_with = "deserialize_kore_pattern")]
+    pub pattern: KorePattern,
+    /// Whether a verdict must also hold in proof mode, where a value the definition leaves to
+    /// the implementation stays unevaluated (wire `proofAgreement`, default `false`): a state
+    /// then reaches only when both modes match it, and is refuted only when both refute it. A
+    /// target that evaluates nothing (no constraint, every application a free constructor) has
+    /// the same verdict in every mode and needs no agreement.
+    #[serde(default)]
+    pub proof_agreement: bool,
+}
+
+impl StateMatchRequest {
+    /// A request for `pattern` without proof agreement.
+    pub fn new(pattern: KorePattern) -> Self {
+        Self {
+            pattern,
+            proof_agreement: false,
+        }
+    }
 }
 
 impl ExecuteRequest {
@@ -487,6 +535,8 @@ impl ExecuteRequest {
             max_work: None,
             trace: true,
             cancelled_result: CancelledResultOutput::Partial,
+            match_states: None,
+            collect_committed: false,
             schema_version: BACKEND_SCHEMA_VERSION,
         }
     }
@@ -587,6 +637,94 @@ pub struct ExecutionResult<K = Value> {
     /// in first-met order, whatever became of the work that met it; absent when empty.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub unsupported_hooks: Vec<UnevaluatedHookOutput>,
+    /// The summary of the run's state matches, present exactly when the request set
+    /// [`ExecuteRequest::match_states`] (wire `stateMatches`; docs/compatibility.md, "State
+    /// matches").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state_matches: Option<StateMatchesOutput<K>>,
+}
+
+/// The summary of an execution's state matches ([`ExecutionResult::state_matches`]), in the
+/// run's depth-first order (docs/compatibility.md, "State matches").
+///
+/// The states matched are every state the run reached in normal form and did not merge into a
+/// recorded state of its depth: the initial configuration, every state it stepped or the depth
+/// bound stopped, and every successor a terminal rule ended. A state *reaches* when it is decided
+/// (no constraint, no variable), ceil-free and matched with empty constraints, in execution mode
+/// and also in proof mode under [`StateMatchRequest::proof_agreement`]; it is *refuted* when
+/// every required mode refutes it; otherwise it is undecided with a reason. A reach is *clean*
+/// when the diagnostics of its path up to the state carry no `implementation-chosen-value`,
+/// `contradicted-claim`, `simplification-budget-exhausted`, `rule-condition-unsimplified`,
+/// `rule-condition-failed` or `undefined-initial-instances`. Matching stops after the first
+/// clean reach.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct StateMatchesOutput<K = Value> {
+    /// The first state that reaches the pattern on a clean prefix; absent when none did. A state
+    /// merged into a recorded reaching state whose own prefix was not clean is reported with its
+    /// own clean prefix, since equal states have one verdict.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_clean_reach: Option<StateMatchOutput<K>>,
+    /// The first state that reaches the pattern on a prefix that is not clean.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_dirty_reach: Option<StateMatchOutput<K>>,
+    /// How many matched states reached on a prefix that is not clean.
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub dirty_reaches: u64,
+    /// For each reason a matched state's verdict was undecided, the first such state and the
+    /// count, in the order `undecided-state`, `not-ceil-free`, `undecided-match`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub undecided: Vec<UndecidedStateMatchesOutput<K>>,
+    /// The states matched.
+    pub matched: u64,
+    /// The states every required mode refuted.
+    pub refuted: u64,
+    /// The undecided answers the solver gave the matcher; the run's `smtUnknowns` leaves them
+    /// out. Absent when zero.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub smt_unknowns: usize,
+}
+
+/// One matched state: the committed rewrite steps from the initial configuration to it, the
+/// state, and the diagnostics of the path that reached it, up to it.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct StateMatchOutput<K = Value> {
+    pub depth: u64,
+    pub state: K,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub diagnostics: Vec<BackendDiagnosticOutput<K>>,
+    /// The state's term holds a term-level `\and` (present only when true).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub term_conjunction: bool,
+}
+
+/// The first matched state left undecided for one reason, and how many were.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct UndecidedStateMatchesOutput<K = Value> {
+    pub reason: UndecidedMatchReasonOutput,
+    pub count: u64,
+    pub first: StateMatchOutput<K>,
+}
+
+/// Why a matched state is undecided: it has a constraint or a variable (`undecided-state`), the
+/// pattern matches a term that is not ceil-free (`not-ceil-free`), or the matcher did not decide
+/// (`undecided-match`: undecided, matched under constraints, the modes disagreed, or a stop
+/// interrupted it).
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum UndecidedMatchReasonOutput {
+    UndecidedState,
+    NotCeilFree,
+    UndecidedMatch,
+}
+
+fn is_zero_u64(value: &u64) -> bool {
+    *value == 0
 }
 
 /// A hook application a run left unevaluated: the hook and why, in the text of the
@@ -684,6 +822,15 @@ impl From<&k_rust_backend::builtin::ChosenValue> for ChosenValueOutput {
 ///   Unlike the lists, the counts grow with the states explored (a `state-set` run that skips a
 ///   twin subtree counts less than the `path-set` run) and count attempts later undone as
 ///   often as they ran; they are a deterministic function of the same inputs.
+///
+/// - `committed`, present exactly when the request set `collect_committed`: every rewrite rule
+///   whose successor the run committed to, its own normalization having shown it defined (a
+///   transition of some path); a candidate rolled back because its successor was undefined, an
+///   undefined-step entry, a cut-point rule's proposed successor and a successor a stop or the
+///   work budget cut before its normalization are left out, and a successor a `state-set` merge
+///   absorbed is in it. On a run whose explored paths all end in leaves it is the union of the
+///   rewrite entries of every explored path's trace, absorbed paths included; it is a subset of
+///   `applied` (docs/compatibility.md, "Committed transitions").
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
@@ -696,6 +843,8 @@ pub struct RunCoverageOutput<K = Value> {
     pub conditions: Option<Vec<RuleConditionsOutput<K>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub applied_counts: Option<BTreeMap<String, u64>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub committed: Option<Vec<String>>,
 }
 
 /// Which rules' condition entries an execute request records (wire `collectConditions`), and
@@ -1713,6 +1862,8 @@ impl Backend {
             coverage_offered: true,
             coverage_counts: true,
             coverage_conditions: true,
+            coverage_committed: true,
+            state_matches: true,
             stack_stops: true,
             smt_unknowns: true,
             implementation_chosen_values: true,
@@ -1870,6 +2021,11 @@ impl Backend {
                 "collectConditions requires collectCoverage: the condition records are part of the run's coverage",
             ));
         }
+        if request.collect_committed && !request.collect_coverage {
+            return Err(BackendError::new(
+                "collectCommitted requires collectCoverage: the committed transitions are part of the run's coverage",
+            ));
+        }
         #[cfg(target_arch = "wasm32")]
         if request.step_timeout_ms.is_some() || request.moving_average_timeout {
             return Err(BackendError::new(
@@ -1878,7 +2034,10 @@ impl Backend {
         }
         let syntax = request.state;
         let module = request.module_name.as_deref();
-        self.with_solver_over(module, &[&syntax], |definition, solver| {
+        let match_request = request.match_states;
+        let mut patterns = vec![&syntax];
+        patterns.extend(match_request.as_ref().map(|matching| &matching.pattern));
+        self.with_solver_over(module, &patterns, |definition, solver| {
             definition
                 .validate_executable_pattern(&syntax)
                 .map_err(kinded(
@@ -1892,6 +2051,23 @@ impl Backend {
                     "could not internalize execution state",
                     BackendErrorKind::StateNotInternalized,
                 ))?;
+            // The target is internalized as `search_pattern` internalizes its pattern. It is not
+            // added to the run's request names: the matcher matches only states without
+            // variables, so no name of the run can meet one of the target's, and the run mints
+            // the names it would mint without the option.
+            let match_states = match_request
+                .as_ref()
+                .map(|matching| {
+                    definition
+                        .admit_unverified(&matching.pattern, &[])
+                        .internalize_pattern()
+                        .map(|target| StateMatchOptions {
+                            target,
+                            proof_agreement: matching.proof_agreement,
+                        })
+                        .map_err(error("could not internalize the state-match pattern"))
+                })
+                .transpose()?;
             let options = ExecutionOptions {
                 max_depth: request.max_depth.unwrap_or(u64::MAX),
                 max_breadth: request.max_breadth,
@@ -1926,6 +2102,8 @@ impl Backend {
                 collect_conditions: request.collect_conditions.map(Into::into),
                 max_work: request.max_work,
                 discard_stopped: request.cancelled_result == CancelledResultOutput::Error,
+                match_states,
+                collect_committed: request.collect_committed,
             };
             let result = match observation_rules {
                 Some(rules) => {
@@ -3168,6 +3346,60 @@ mod tests {
         .unwrap();
         let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
         assert_eq!(capabilities["coverageCounts"], true);
+    }
+
+    /// State matches and committed transitions are declared where the facade reads and writes
+    /// them: the request's options, the result's summary and the coverage's list, the summary's
+    /// types and reasons, and two capability flags, true in every build.
+    #[test]
+    fn the_state_matches_match_typescript_declarations() {
+        assert_typescript_member("ExecuteOptions", "matchStates?: StateMatchRequest");
+        assert_typescript_member("ExecuteOptions", "collectCommitted?: boolean");
+        assert_typescript_member("StateMatchRequest", "pattern: Kore");
+        assert_typescript_member("StateMatchRequest", "proofAgreement?: boolean");
+        assert_typescript_member("ExecutionResult", "stateMatches?: StateMatches");
+        assert_typescript_member("RunCoverage", "committed?: string[]");
+        assert_typescript_member("StateMatches", "firstCleanReach?: StateMatch");
+        assert_typescript_member("StateMatches", "firstDirtyReach?: StateMatch");
+        assert_typescript_member("StateMatches", "dirtyReaches?: number");
+        assert_typescript_member("StateMatches", "undecided?: UndecidedStateMatches[]");
+        assert_typescript_member("StateMatches", "matched: number");
+        assert_typescript_member("StateMatches", "refuted: number");
+        assert_typescript_member("StateMatches", "smtUnknowns?: number");
+        assert_typescript_member("StateMatch", "depth: number");
+        assert_typescript_member("StateMatch", "state: Kore");
+        assert_typescript_member("StateMatch", "diagnostics?: BackendDiagnostic[]");
+        assert_typescript_member("StateMatch", "termConjunction?: boolean");
+        assert_typescript_member("UndecidedStateMatches", "reason: UndecidedMatchReason");
+        assert_typescript_member("UndecidedStateMatches", "count: number");
+        assert_typescript_member("UndecidedStateMatches", "first: StateMatch");
+        assert_typescript_member("BackendCapabilities", "coverageCommitted: boolean");
+        assert_typescript_member("BackendCapabilities", "stateMatches: boolean");
+        for package in ["k-rust-napi", "k-rust-wasm"] {
+            let path = format!(
+                "{}/../{package}/typescript/index.ts",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let declaration = std::fs::read_to_string(&path).unwrap();
+            for reason in [
+                UndecidedMatchReasonOutput::UndecidedState,
+                UndecidedMatchReasonOutput::NotCeilFree,
+                UndecidedMatchReasonOutput::UndecidedMatch,
+            ] {
+                let spelling = serde_json::to_value(reason).unwrap();
+                let quoted = format!("'{}'", spelling.as_str().unwrap());
+                assert!(declaration.contains(&quoted), "{path} lacks {quoted}");
+            }
+        }
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["coverageCommitted"], true);
+        assert_eq!(capabilities["stateMatches"], true);
     }
 
     /// The condition records of run coverage are declared where the facade reads and writes

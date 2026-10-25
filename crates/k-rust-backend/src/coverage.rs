@@ -181,6 +181,21 @@ pub(crate) use conditions::{record as record_condition, verdict as condition_ver
 /// memoization, since an evaluation the run is served from a memo reports nothing again. They
 /// are a deterministic function of the same inputs as the sets.
 ///
+/// `committed`, present exactly when the collection was asked to report it
+/// (`collect_recording`), holds the id of every rewrite rule a step built a successor of that
+/// the run committed to: a successor whose own normalization showed it defined
+/// ([`note_committed`], at its sites in `rewrite::execute`), so that it is a configuration
+/// some path reached by that rule. A candidate the step rolled back (its successor normalized
+/// to `\bottom`, so it denotes no configuration and its instances belong to the step's
+/// undefined step or to its siblings) is in `applied` and not here, and so is an undefined-step
+/// entry, a cut-point rule's proposed successor, and a successor a stop or the work budget cut
+/// before its normalization finished. A successor that a state-set merge then absorbed was
+/// committed (its path is real, and its continuation is the recorded state's explored
+/// subtree), so on a run that every explored path ends in a leaf of, the set is the union of
+/// the rewrite entries of every explored path's trace, absorbed paths included. It is a subset
+/// of `applied`, does not depend on the result modality where the explored paths agree, and is
+/// a deterministic function of the same inputs as the other sets.
+///
 /// The type is `non_exhaustive` so that further sets of the run can be added beside these.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 #[non_exhaustive]
@@ -190,6 +205,7 @@ pub struct RunCoverage {
     pub offered: Option<BTreeSet<String>>,
     pub conditions: Option<Vec<RuleConditions>>,
     pub applied_counts: Option<BTreeMap<String, u64>>,
+    pub committed: Option<BTreeSet<String>>,
 }
 
 /// The ids reported to the open collection, inserted once each; `applied` also counts its
@@ -200,6 +216,7 @@ struct Sink {
     applied: FxHashMap<String, u64>,
     matched: FxHashSet<String>,
     offered: FxHashSet<String>,
+    committed: FxHashSet<String>,
 }
 
 impl Sink {
@@ -209,13 +226,14 @@ impl Sink {
         }
         self.matched.extend(inner.matched.iter().cloned());
         self.offered.extend(inner.offered.iter().cloned());
+        self.committed.extend(inner.committed.iter().cloned());
     }
 
     fn holds(&self, id: &str) -> bool {
         self.offered.contains(id) || self.matched.contains(id) || self.applied.contains_key(id)
     }
 
-    fn into_coverage(self, offering: bool, counting: bool) -> RunCoverage {
+    fn into_coverage(self, offering: bool, counting: bool, committing: bool) -> RunCoverage {
         let mut matched = self.matched;
         matched.extend(self.applied.keys().cloned());
         let offered = offering.then(|| {
@@ -229,12 +247,14 @@ impl Sink {
                 .map(|(id, n)| (id.clone(), *n))
                 .collect()
         });
+        let committed = committing.then(|| self.committed.into_iter().collect());
         RunCoverage {
             applied: self.applied.into_keys().collect(),
             matched: matched.into_iter().collect(),
             offered,
             conditions: None,
             applied_counts,
+            committed,
         }
     }
 }
@@ -253,6 +273,8 @@ thread_local! {
     static OPEN: Cell<bool> = const { Cell::new(false) };
     /// Whether the innermost open collection offers.
     static OFFERING: Cell<bool> = const { Cell::new(false) };
+    /// Whether the innermost open collection reports committed successors.
+    static COMMITTING: Cell<bool> = const { Cell::new(false) };
     /// What the innermost open collection has received.
     static SINK: RefCell<Sink> = RefCell::new(Sink::default());
 }
@@ -270,17 +292,19 @@ pub(crate) fn collect<T>(action: impl FnOnce() -> T) -> (T, RunCoverage) {
 /// ([`RunCoverage::offered`]). A collection opened inside does not offer unless it asks, and its
 /// offered ids feed this one when it closes.
 pub(crate) fn collect_offering<T>(offering: bool, action: impl FnOnce() -> T) -> (T, RunCoverage) {
-    collect_recording(offering, false, None, action)
+    collect_recording(offering, false, false, None, action)
 }
 
 /// [`collect_offering`], with the reports to `applied` counted when `counting` holds
-/// ([`RunCoverage::applied_counts`]), and the condition entries of the rules `conditions` names
+/// ([`RunCoverage::applied_counts`]), the committed successors reported when `committing` holds
+/// ([`RunCoverage::committed`]), and the condition entries of the rules `conditions` names
 /// recorded when it is given ([`RunCoverage::conditions`]). A collection opened inside records no
-/// conditions unless it asks, and its records stay its own; its counts are added to this one's
-/// when it closes.
+/// conditions unless it asks, and its records stay its own; its counts and committed ids are
+/// added to this one's when it closes.
 pub(crate) fn collect_recording<T>(
     offering: bool,
     counting: bool,
+    committing: bool,
     conditions: Option<ConditionCollection>,
     action: impl FnOnce() -> T,
 ) -> (T, RunCoverage) {
@@ -288,6 +312,7 @@ pub(crate) fn collect_recording<T>(
     struct Restore {
         was_open: bool,
         was_offering: bool,
+        was_committing: bool,
         outer: Option<Sink>,
         outer_conditions: Option<Option<conditions::Sink>>,
     }
@@ -306,6 +331,7 @@ pub(crate) fn collect_recording<T>(
         fn drop(&mut self) {
             OPEN.set(self.was_open);
             OFFERING.set(self.was_offering);
+            COMMITTING.set(self.was_committing);
             if let Some(outer) = self.outer.take() {
                 // Unwinding: the inner reports are dropped with the action.
                 SINK.set(outer);
@@ -319,12 +345,13 @@ pub(crate) fn collect_recording<T>(
     let restore = Restore {
         was_open: OPEN.replace(true),
         was_offering: OFFERING.replace(offering),
+        was_committing: COMMITTING.replace(committing),
         outer: Some(SINK.take()),
         outer_conditions: Some(conditions::replace(conditions.map(conditions::Sink::new))),
     };
     let result = action();
     let (inner, inner_conditions) = restore.close();
-    let mut coverage = inner.into_coverage(offering, counting);
+    let mut coverage = inner.into_coverage(offering, counting, committing);
     coverage.conditions = inner_conditions.map(conditions::Sink::finish);
     (result, coverage)
 }
@@ -340,6 +367,7 @@ pub(crate) fn replay(coverage: &RunCoverage) {
         offered,
         conditions: _,
         applied_counts: _,
+        committed: _,
     } = coverage;
     for id in applied {
         note_applied(id);
@@ -372,6 +400,24 @@ pub(crate) fn suspend<T>(action: impl FnOnce() -> T) -> T {
 pub(crate) fn note_applied(id: &str) {
     if OPEN.get() {
         SINK.with_borrow_mut(|sink| add(&mut sink.applied, id, 1));
+    }
+}
+
+/// Whether an open collection reports committed successors and no [`suspend`] is in effect:
+/// only then does a site look up the rule to report ([`note_committed`]), so a run that does not
+/// ask pays one flag read per normalized successor.
+#[inline]
+pub(crate) fn committing() -> bool {
+    OPEN.get() && COMMITTING.get()
+}
+
+/// Report that the run committed to a successor of the rewrite rule `id`: its own
+/// normalization showed it defined ([`RunCoverage::committed`]); nothing unless
+/// [`committing`]. One set lookup, and an insert the first time.
+#[inline]
+pub(crate) fn note_committed(id: &str) {
+    if committing() {
+        SINK.with_borrow_mut(|sink| insert(&mut sink.committed, id));
     }
 }
 

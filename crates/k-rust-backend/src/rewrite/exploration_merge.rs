@@ -37,7 +37,7 @@ use crate::{
     transition::{EffectJournal, ExecutionIoState},
 };
 
-use super::Pattern;
+use super::{Pattern, state_match::MatchMark};
 
 /// A state that arrives at a depth, as the table compares and records it.
 pub(super) struct Arrival {
@@ -47,6 +47,9 @@ pub(super) struct Arrival {
     pub(super) io: ExecutionIoState,
     pub(super) io_enabled: bool,
     pub(super) diagnostics: PathDiagnostics,
+    /// What the state matcher keeps of this state's verdict, once it is recorded
+    /// (`state_match::MatchMark`): an arrival merged into it has the same verdict.
+    pub(super) mark: MatchMark,
     /// The pattern's shape hash, once a state of its depth was met.
     shape: Option<u64>,
     /// The pattern's key, once a recorded state of its shape was met.
@@ -69,6 +72,7 @@ impl Arrival {
             io,
             io_enabled,
             diagnostics,
+            mark: MatchMark::Other,
             shape: None,
             key: OnceCell::new(),
         }
@@ -128,12 +132,15 @@ impl ExplorationMerge {
         self.len == 0
     }
 
-    /// Whether a recorded state of `arrival`'s depth absorbs it. When the depth holds a
-    /// recorded state, `arrival` and every state of the depth not yet hashed are hashed.
-    pub(super) fn absorbs(&mut self, arrival: &mut Arrival, names: &RequestNames) -> bool {
-        let Some(depth) = self.depths.get_mut(&arrival.depth) else {
-            return false;
-        };
+    /// The match mark of a recorded state of `arrival`'s depth that absorbs it, if one does.
+    /// When the depth holds a recorded state, `arrival` and every state of the depth not yet
+    /// hashed are hashed.
+    pub(super) fn absorbs(
+        &mut self,
+        arrival: &mut Arrival,
+        names: &RequestNames,
+    ) -> Option<MatchMark> {
+        let depth = self.depths.get_mut(&arrival.depth)?;
         for mut recorded in depth.unhashed.drain(..) {
             let shape = names.shape_hash(&recorded.pattern);
             recorded.shape = Some(shape);
@@ -142,10 +149,11 @@ impl ExplorationMerge {
         let shape = *arrival
             .shape
             .get_or_insert_with(|| names.shape_hash(&arrival.pattern));
-        depth.by_shape.get(&shape).is_some_and(|recorded| {
+        depth.by_shape.get(&shape).and_then(|recorded| {
             recorded
                 .iter()
-                .any(|recorded| arrival.absorbed_by(recorded, names))
+                .find(|recorded| arrival.absorbed_by(recorded, names))
+                .map(|recorded| recorded.mark)
         })
     }
 

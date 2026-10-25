@@ -212,6 +212,10 @@ export interface BackendCapabilities {
   coverageCounts: boolean
   /** `execute` and `executeObserved` accept `collectConditions` beside `collectCoverage`. */
   coverageConditions: boolean
+  /** `execute` and `executeObserved` accept `collectCommitted` beside `collectCoverage`. */
+  coverageCommitted: boolean
+  /** `execute` and `executeObserved` accept `matchStates` and report `stateMatches`. */
+  stateMatches: boolean
   /** `execute` and `executeObserved` report `stackStops`. */
   stackStops: boolean
   /** `execute` and `executeObserved` report `smtUnknowns`. */
@@ -305,8 +309,79 @@ export interface ExecuteOptions {
    * `CancellationToken`) gets the error shape.
    */
   cancelledResult?: 'partial' | 'error'
+  /**
+   * Match every state the run reaches against `pattern` and report a summary of the verdicts as
+   * `ExecutionResult.stateMatches`. The run is never stopped by a match: every other field is the
+   * field of the same request without it (docs/compatibility.md, "State matches").
+   */
+  matchStates?: StateMatchRequest
+  /**
+   * With `collectCoverage`, also report `RunCoverage.committed`: the rewrite rules whose
+   * successor the run committed to. A request that sets it without `collectCoverage` is refused;
+   * asking changes no other field (docs/compatibility.md, "Committed transitions").
+   */
+  collectCommitted?: boolean
   schemaVersion?: number
 }
+
+/** The pattern an execute request matches every reached state against (`matchStates`). */
+export interface StateMatchRequest {
+  /** The target, internalized as `searchPattern` internalizes its pattern; it may carry a `requires`. */
+  pattern: Kore
+  /**
+   * Whether a verdict must also hold in proof mode, where a value the definition leaves to the
+   * implementation stays unevaluated (default false): a state then reaches only when both modes
+   * match it, and is refuted only when both refute it.
+   */
+  proofAgreement?: boolean
+}
+
+/**
+ * The summary of an execution's state matches, in the run's depth-first order. A state reaches
+ * when it is decided (no constraint, no variable), ceil-free and matched with empty constraints
+ * (in both modes under `proofAgreement`); a reach is clean when the diagnostics of its path up to
+ * it carry no 'implementation-chosen-value', 'contradicted-claim',
+ * 'simplification-budget-exhausted', 'rule-condition-unsimplified', 'rule-condition-failed' or
+ * 'undefined-initial-instances'. Matching stops after the first clean reach.
+ */
+export interface StateMatches {
+  /** The first state that reaches on a clean prefix (a merged arrival's own clean prefix included). */
+  firstCleanReach?: StateMatch
+  /** The first state that reaches on a prefix that is not clean. */
+  firstDirtyReach?: StateMatch
+  /** How many matched states reached on a prefix that is not clean; absent when none. */
+  dirtyReaches?: number
+  /** For each reason, the first undecided state and the count; absent when none. */
+  undecided?: UndecidedStateMatches[]
+  /** The states matched. */
+  matched: number
+  /** The states every required mode refuted. */
+  refuted: number
+  /** The undecided solver answers of the matcher, which the run's `smtUnknowns` leaves out; absent when none. */
+  smtUnknowns?: number
+}
+
+/** One matched state: its depth (committed steps from the initial configuration), the state, and its path's diagnostics up to it. */
+export interface StateMatch {
+  depth: number
+  state: Kore
+  diagnostics?: BackendDiagnostic[]
+  /** Present (true) when the state's term holds a term-level `\and`. */
+  termConjunction?: boolean
+}
+
+export interface UndecidedStateMatches {
+  reason: UndecidedMatchReason
+  count: number
+  first: StateMatch
+}
+
+/**
+ * 'undecided-state' (a constraint or a variable), 'not-ceil-free' (the pattern matches a term
+ * that may denote nothing), 'undecided-match' (the matcher did not decide, matched only under
+ * constraints, the modes disagreed, or a stop interrupted it).
+ */
+export type UndecidedMatchReason = 'undecided-state' | 'not-ceil-free' | 'undecided-match'
 
 export interface BackendTraceEntry {
   depth: number
@@ -452,6 +527,8 @@ export interface ExecutionResult {
    * the work that met it; absent when none.
    */
   unsupportedHooks?: UnevaluatedHook[]
+  /** Present exactly when the request set `matchStates` (docs/compatibility.md, "State matches"). */
+  stateMatches?: StateMatches
 }
 
 /** A hook application a run left unevaluated, with the reason the 'unsupported-hook-unevaluated' diagnostic gives, and who met it. */
@@ -546,6 +623,12 @@ export interface RunCoverage {
    * undefined-step entries its steps built; for an equation, the instances that gave a result.
    */
   appliedCounts?: Record<string, number>
+  /**
+   * Present exactly when the request set `collectCommitted`: every rewrite rule whose successor
+   * the run committed to (its own normalization showed it defined); a candidate rolled back for an
+   * undefined successor is left out, and a successor a `state-set` merge absorbed is in it.
+   */
+  committed?: string[]
 }
 
 /** Which rules' condition entries an execute request records (`collectConditions`). */

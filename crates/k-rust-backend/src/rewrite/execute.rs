@@ -96,7 +96,9 @@ use super::{
     initial_definedness, normalize_pattern_substitution,
     path_trace::PathTrace,
     predicate_truth, predicates_truth, retain_substitution_predicates,
-    rewrite_step_with_optional_execution, stuck, trivial_halt, vacuous_halt,
+    rewrite_step_with_optional_execution,
+    state_match::{MatchMark, StateMatcher},
+    stuck, trivial_halt, vacuous_halt,
 };
 
 pub(super) fn execute_using(
@@ -118,6 +120,7 @@ pub(super) fn execute_using(
             initial,
             options,
             &counting,
+            solver,
             initial_io,
             observation,
             observe,
@@ -128,12 +131,16 @@ pub(super) fn execute_using(
     (result, status)
 }
 
-/// [`execute_using`] inside its count of stack stops.
+/// [`execute_using`] inside its count of stack stops. `solver` counts the run's undecided
+/// answers; `match_solver`, the same solver without that count, answers the state matcher,
+/// which counts its own (`state_match`).
+#[allow(clippy::too_many_arguments)]
 fn execute_counted(
     definition: &BackendDefinition,
     initial: Vec<Pattern>,
     options: ExecutionOptions,
     solver: &dyn SmtSolver,
+    match_solver: &dyn SmtSolver,
     initial_io: Option<ExecutionIoState>,
     observation: Option<&ObservationOptions>,
     mut observe: impl FnMut(&BuiltinEffect),
@@ -154,6 +161,7 @@ fn execute_counted(
     let collect_offered = options.collect_offered;
     let collect_counts = options.collect_counts;
     let collect_conditions = options.collect_conditions.clone();
+    let collect_committed = options.collect_committed;
     // Whether a bound that counts the whole run's exploration can end it: then every leaf rests
     // on the work of every path, off its own included.
     let bounded_by_run = options.max_work.is_some() || options.max_breadth.is_some();
@@ -166,6 +174,7 @@ fn execute_counted(
             initial,
             options,
             solver,
+            match_solver,
             initial_io,
             observation,
             &mut observe,
@@ -228,6 +237,7 @@ fn execute_counted(
     let ((mut result, status), coverage) = crate::coverage::collect_recording(
         collect_offered,
         collect_counts,
+        collect_committed,
         collect_conditions,
         run,
     );
@@ -277,6 +287,8 @@ struct Execution<'a> {
     arrival: Option<Arrival>,
     /// Whether the state being expanded was merged ([`Execution::merged`]).
     merged_arrival: bool,
+    /// The state matcher of a run that asks for state matches ([`ExecutionOptions::match_states`]).
+    matcher: Option<StateMatcher<'a>>,
     /// After each expansion: the merge table's size, its shallowest recorded depth, and the
     /// depth of the back of `pending`.
     #[cfg(test)]
@@ -286,11 +298,13 @@ struct Execution<'a> {
 impl<'a> Execution<'a> {
     /// E0: `pending` holds the initial patterns at depth 0 in input order, each marked as an
     /// initial input.
+    #[allow(clippy::too_many_arguments)]
     fn seed(
         definition: &'a BackendDefinition,
         initial: Vec<Pattern>,
-        options: ExecutionOptions,
+        mut options: ExecutionOptions,
         solver: &'a dyn SmtSolver,
+        match_solver: &'a dyn SmtSolver,
         initial_io: Option<ExecutionIoState>,
         observation: Option<&'a ObservationOptions>,
         observe: &'a mut dyn FnMut(&BuiltinEffect),
@@ -364,6 +378,13 @@ impl<'a> Execution<'a> {
             }
         }
         let work = Work::new(options.max_work);
+        let matcher = options.match_states.take().map(|match_states| {
+            StateMatcher::new(
+                match_states,
+                match_solver,
+                options.max_simplification_iterations,
+            )
+        });
         let merge = (options.result_modality == ResultModality::StateSet
             && options.branch_mode == ExecutionBranchMode::ExploreAll)
             .then(ExplorationMerge::default);
@@ -387,6 +408,7 @@ impl<'a> Execution<'a> {
             merge,
             arrival: None,
             merged_arrival: false,
+            matcher,
             #[cfg(test)]
             merge_census: Vec::new(),
         }
@@ -414,6 +436,7 @@ impl<'a> Execution<'a> {
                 contradicted_claims: Vec::new(),
                 allowance_refusals: Vec::new(),
                 unsupported_hooks: Vec::new(),
+                state_matches: self.matcher.map(StateMatcher::finish),
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: false,
@@ -539,13 +562,49 @@ impl<'a> Execution<'a> {
             state.io_enabled,
             state.diagnostics.clone(),
         );
-        if merge.absorbs(&mut arrival, self.fresh_counter.request()) {
+        if let Some(mark) = merge.absorbs(&mut arrival, self.fresh_counter.request()) {
             measure::bump(Counter::ExecutionStatesMerged);
             self.merged_arrival = true;
+            if let Some(matcher) = &mut self.matcher {
+                matcher.absorbed(mark, state.depth, &state.pattern, &state.diagnostics);
+            }
             return true;
         }
         self.arrival = Some(arrival);
         false
+    }
+
+    /// Match a reached, normalized state against the target of
+    /// [`ExecutionOptions::match_states`] (`state_match`), when the run asks for it; returns what
+    /// the merge table keeps of the verdict.
+    fn match_state(&mut self, state: &ExecutionState) -> MatchMark {
+        match &mut self.matcher {
+            Some(matcher) => matcher.observe(
+                self.definition,
+                state.depth,
+                &state.pattern,
+                &state.diagnostics,
+            ),
+            None => MatchMark::Other,
+        }
+    }
+
+    /// Report a successor whose own normalization showed it defined: the rule of its step is
+    /// committed ([`crate::coverage::note_committed`]). The rule is the path's last rewrite
+    /// entry, the one at the state's depth, which every trace keeps (`commit_applied`); an
+    /// initial state and a remainder were built by no rule of this depth.
+    fn note_committed(state: &ExecutionState) {
+        if !crate::coverage::committing()
+            || state.is_initial_input
+            || !matches!(state.kind, ExecutionStateKind::Rewritable)
+        {
+            return;
+        }
+        if let Some(entry) = state.trace.last_rewrite()
+            && entry.depth == state.depth
+        {
+            crate::coverage::note_committed(&entry.unique_id);
+        }
     }
 
     /// Record the expanded state, if it takes part in merging.
@@ -619,6 +678,12 @@ impl<'a> Execution<'a> {
         };
         if self.merged(&state) {
             return Ok(Vec::new());
+        }
+        if let ExecutionStateKind::Rewritable = state.kind {
+            let mark = self.match_state(&state);
+            if let Some(arrival) = &mut self.arrival {
+                arrival.mark = mark;
+            }
         }
         // A `Finished` or `Branch` step attributes its diagnostics to its candidates; any other
         // result halts the state, whose leaf takes the step's whole collection.
@@ -1147,7 +1212,13 @@ impl<'a> Execution<'a> {
             state.io = io;
         }
         state.io_enabled &= pattern_supports_execution_io(&state.pattern);
+        // The successor is normalized and defined: its step is a transition of the run.
+        Self::note_committed(&state);
         if state.depth >= self.options.max_depth {
+            // A state the depth bound stops is reached; it takes no part in merging.
+            if let ExecutionStateKind::Rewritable = state.kind {
+                self.match_state(&state);
+            }
             let pattern = state.pattern.clone();
             return Err(externalise_leaf(
                 self.definition,
@@ -1478,6 +1549,9 @@ impl<'a> Execution<'a> {
                     .report_undefined_successor(next, halt_reason)
                     .map(|()| Vec::new());
             }
+            // The successor is normalized and defined: committed and reached.
+            Self::note_committed(&next);
+            self.match_state(&next);
             return Err(next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log));
         }
         Ok(vec![next])
@@ -2011,6 +2085,9 @@ impl<'a> Execution<'a> {
                             selected_stop_rule(&applied, &self.options.terminal_rules);
                         let next = commit_applied(state, applied, observation);
                         if let Some(rule) = terminal_rule {
+                            // Normalized within the step and not bottom: committed and reached.
+                            Self::note_committed(&next);
+                            self.match_state(&next);
                             return Err(
                                 next.leaf(HaltReason::TerminalRule { rule }, &self.observation_log)
                             );
@@ -2428,6 +2505,7 @@ impl<'a> Execution<'a> {
                 contradicted_claims: Vec::new(),
                 allowance_refusals: Vec::new(),
                 unsupported_hooks: Vec::new(),
+                state_matches: self.matcher.map(StateMatcher::finish),
             },
             InitialSimplificationStatus {
                 simplified_to_bottom: self.initial_input_count != 0
@@ -4371,6 +4449,99 @@ mod tests {
         }
     }
 
+    /// A solver that answers every query `unknown`.
+    struct Undecided;
+
+    impl SmtSolver for Undecided {
+        fn is_sat(
+            &self,
+            _predicates: &[Predicate],
+            _substitution: &crate::substitution::Substitution,
+        ) -> Stoppable<Result<crate::smt::Satisfiability, crate::smt::SmtError>> {
+            Ok(Ok(crate::smt::Satisfiability::Unknown("test".to_owned())))
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[Predicate],
+            _substitution: &crate::substitution::Substitution,
+            _checked: &[Predicate],
+        ) -> Stoppable<Result<crate::smt::Validity, crate::smt::SmtError>> {
+            Ok(Ok(crate::smt::Validity::Unknown("test".to_owned())))
+        }
+    }
+
+    /// The state matcher's undecided solver answers are its own: a ground run that asks the
+    /// solver nothing reports no `smt_unknowns`, while matching its end against a target whose
+    /// constraint only the solver could decide (`done /\ Y >Int 0`, `Y` unbound) counts the
+    /// matcher's `unknown`s on the summary and leaves the match undecided. Every other field is
+    /// the run's without matching.
+    #[test]
+    fn the_matcher_s_undecided_answers_are_kept_off_the_run_s_count() {
+        let source = r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                sort SortS{} []
+                symbol start{}() : SortS{} [constructor{}()]
+                symbol done{}() : SortS{} [constructor{}()]
+                hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+                axiom{} \rewrites{SortS{}}(
+                    \and{SortS{}}(start{}(), \top{SortS{}}()),
+                    done{}()
+                ) [label{}("go")]
+            endmodule []"#;
+        let definition = BackendDefinition::internalize(
+            &parse_definition(source).expect("definition should parse"),
+            "MAIN",
+        )
+        .expect("definition should internalize");
+        let internal = |text: &str| {
+            definition
+                .admit_unverified(&parse_pattern(text).expect("pattern should parse"), &[])
+                .internalize_pattern()
+                .expect("pattern should internalize")
+        };
+        let start = internal("start{}()");
+        let target = internal(
+            r#"\and{SortS{}}(done{}(), \equals{SortBool{}, SortS{}}(gtInt{}(Y:SortInt{}, \dv{SortInt{}}("0")), \dv{SortBool{}}("true")))"#,
+        );
+        let run = |match_states| {
+            execute_using(
+                &definition,
+                vec![start.clone()],
+                ExecutionOptions {
+                    match_states,
+                    ..ExecutionOptions::default()
+                },
+                &Undecided,
+                None,
+                None,
+                |_| {},
+            )
+            .0
+        };
+        let plain = run(None);
+        let mut matched = run(Some(crate::rewrite::StateMatchOptions {
+            target,
+            proof_agreement: false,
+        }));
+        let found = matched
+            .state_matches
+            .take()
+            .expect("the run matched states");
+        assert_eq!(plain.smt_unknowns, 0);
+        assert!(found.smt_unknowns > 0, "{found:?}");
+        assert_eq!(found.matched, 2);
+        assert_eq!(found.undecided.len(), 1, "{found:?}");
+        assert_eq!(
+            found.undecided[0].reason,
+            crate::rewrite::UndecidedMatchReason::UndecidedMatch
+        );
+        assert_eq!(matched, plain);
+    }
+
     /// An inconsistent prelude found by the first solver query of an execution ends it with one
     /// `Stopped(SolverPrelude(Inconsistent))` leaf, although its other states would go on
     /// without asking the solver (`wrap` loops; the depth bound only guards against a hang). The
@@ -5088,8 +5259,9 @@ mod tests {
             manual: None,
             moving_average: false,
         });
-        let mut execution =
-            Execution::seed(definition, initial, options, solver, None, None, observe);
+        let mut execution = Execution::seed(
+            definition, initial, options, solver, solver, None, None, observe,
+        );
         execution.run(&timeout_controller);
         execution
     }
@@ -5252,6 +5424,7 @@ mod tests {
             &definition,
             vec![subject(&definition, "s0")],
             ExecutionOptions::default(),
+            &crate::smt::NoSolver,
             &crate::smt::NoSolver,
             None,
             None,
