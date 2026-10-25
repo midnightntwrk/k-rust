@@ -3,9 +3,10 @@
 
 use k_rust::{
     backend::{
-        Backend, BackendDiagnosticOutput, BackendError, CancellationToken, ChosenValueOutput,
-        ContradictedClaimOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult, HaltReasonOutput,
-        ObservedInOutput, ObservedRequest, StopCause, search::prepare_backend_match_target,
+        Backend, BackendDiagnosticOutput, BackendError, BackendErrorKind, CancellationToken,
+        ChosenValueOutput, ContradictedClaimOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult,
+        HaltReasonOutput, ObservedInOutput, ObservedRequest, StopCause,
+        search::prepare_backend_match_target,
     },
     definition::{AttributeKey, Attributes, ProductionItem, ResolvedDefinition, Sentence},
     k_rust_backend::{
@@ -30,8 +31,9 @@ use super::{
 };
 use crate::{
     assemble::ProgramAssembly,
+    crash,
     error::CampaignError,
-    report::LoadRecord,
+    report::{AbortKind, CrashStage, LoadRecord, PanicRecord},
     spec::{CaseOptions, CompiledDefinition},
 };
 
@@ -534,6 +536,10 @@ pub(crate) struct Executor {
     safety_limit_ms: Option<u64>,
     #[cfg(not(target_arch = "wasm32"))]
     watchdog: Option<super::watchdog::Watchdog>,
+    /// A run or its judgement panicked on this executor (FZ-CRASH): its backend, session and
+    /// solver may be half-changed, so no case may run on it again; the campaign rebuilds it
+    /// (`CaseRunner::recover`).
+    poisoned: bool,
 }
 
 impl Executor {
@@ -647,6 +653,7 @@ impl Executor {
             max_simplification_iterations: options.max_simplification_iterations,
             load_stack_stops,
             data_heads: None,
+            poisoned: false,
             assume_joined: Vec::new(),
             #[cfg(not(target_arch = "wasm32"))]
             safety_limit_ms: options.safety_limit_ms,
@@ -733,6 +740,11 @@ impl Executor {
     /// The backend, for target resolution (`rule_catalog`) and pattern compilation.
     pub(crate) fn backend_mut(&mut self) -> &mut Backend {
         &mut self.backend
+    }
+
+    /// Whether a run or its judgement panicked on this executor ([`Self::poisoned`]'s field).
+    pub(crate) fn poisoned(&self) -> bool {
+        self.poisoned
     }
 
     /// Execute `initial` with `shape` through `Backend::execute`, within `cancel`'s scope and
@@ -827,8 +839,18 @@ impl Executor {
     ) -> Result<Executed, Abort> {
         let request = shape.request(initial.clone());
         if shape.data_end {
-            // A main module that does not load fails the run itself.
-            let _ = self.data_heads();
+            // A main module that does not load fails the run itself. The data heads run the
+            // definition's full critical-pair check, which the judgement reads: a panic there is
+            // the judgement's.
+            if let Err(record) = crash::catch(|| {
+                let _ = self.data_heads();
+            }) {
+                self.poisoned = true;
+                let failure = panic_failure(record, CrashStage::Judge);
+                let mut result = failed_result(failure, self.load_stack_stops);
+                result.safety_limit_hit = false;
+                return Ok((result, Vec::new(), Vec::new()));
+            }
         }
         let judge = Judge {
             normal_end: &self.normal_end,
@@ -848,6 +870,7 @@ impl Executor {
             load_stack_stops: self.load_stack_stops,
             forward: None,
             any_state,
+            panicked: std::cell::Cell::new(false),
         };
         let backend = &mut self.backend;
         #[cfg(not(target_arch = "wasm32"))]
@@ -870,17 +893,21 @@ impl Executor {
             };
             let outcome = token.scope(|| judge.execute(backend, request, execution));
             // A deadline that passes after the run returned and before this disarm still marks
-            // the case `timeout` though its result is complete: conservative (review N3).
+            // the case `timeout` though its result is complete: conservative (review N3). A run
+            // or judgement that panicked was caught inside `execute`, so the disarm still runs.
             let fired = armed.disarm();
+            self.poisoned |= judge.panicked.get();
             return outcome.map(|(mut result, leaves, verdicts)| {
                 result.safety_limit_hit = fired;
                 (result, leaves, verdicts)
             });
         }
-        match cancel {
+        let outcome = match cancel {
             Some(token) => token.scope(|| judge.execute(backend, request, execution)),
             None => judge.execute(backend, request, execution),
-        }
+        };
+        self.poisoned |= judge.panicked.get();
+        outcome
     }
 }
 
@@ -918,6 +945,7 @@ impl Executor {
             load_stack_stops: 0,
             forward: None,
             any_state: None,
+            panicked: std::cell::Cell::new(false),
         };
         let mut internal = judge
             .judge_internally(&mut self.backend, std::slice::from_ref(&leaf))
@@ -1013,6 +1041,8 @@ struct Judge<'a> {
     /// For an `at: any-state` pattern target, its matcher and the plan of the configurations it
     /// judges.
     any_state: Option<AnyState<'a>>,
+    /// The run or its judgement panicked (FZ-CRASH): the executor is poisoned.
+    panicked: std::cell::Cell<bool>,
 }
 
 /// A leaf pattern's verdict on one leaf.
@@ -1052,46 +1082,98 @@ impl Judge<'_> {
         let probe = (self.normal_end_kind == NormalEndKind::EveryK
             && self.initial_has_k.get().is_none())
         .then(|| request.state.clone());
-        let executed = match execution {
-            Execution::Plain => backend.execute(request),
-            Execution::Observed { rules } => {
-                backend.execute_observed(ObservedRequest { request, rules })
+        #[cfg(test)]
+        let seam_state = request.state.clone();
+        // The catch site of `Backend::execute` (FZ-CRASH, stage `execute`).
+        let executed = crash::catch(|| {
+            #[cfg(test)]
+            if let Some(error) = seam::answer(&request.state, CrashStage::Execute) {
+                return Err(error);
             }
-        };
+            match execution {
+                Execution::Plain => backend.execute(request),
+                Execution::Observed { rules } => {
+                    backend.execute_observed(ObservedRequest { request, rules })
+                }
+            }
+        });
         if let Some((caller, case)) = &self.forward
             && caller.is_cancelled()
         {
             case.cancel();
         }
+        let executed = match executed {
+            Ok(executed) => executed,
+            Err(record) => return Ok(self.panicked(record, CrashStage::Execute)),
+        };
         match executed {
-            Ok(result) => {
-                let mut judged = self.judge(backend, &result, probe.as_ref())?;
-                let verdicts = match self.any_state {
-                    // A case outside the determinism contract is judged without its
-                    // configurations (`crate::target`), so they are not matched.
-                    Some(any_state)
-                        if judged.failure.is_none() && judged.determinism_breaks().is_empty() =>
-                    {
-                        match self.judge_configurations(backend, any_state, &result.leaves) {
-                            Ok((verdicts, unknowns)) => {
-                                judged.smt_unknowns = judged.smt_unknowns.saturating_add(unknowns);
-                                verdicts
-                            }
-                            Err(error) => {
-                                return Ok((
-                                    self.failed(failure_of(&error)?),
-                                    Vec::new(),
-                                    Vec::new(),
-                                ));
-                            }
-                        }
-                    }
-                    Some(_) | None => Vec::new(),
-                };
-                Ok((judged, result.leaves, verdicts))
-            }
-            Err(error) => Ok((self.failed(failure_of(&error)?), Vec::new(), Vec::new())),
+            // The catch site of the judgement (FZ-CRASH, stage `judge`).
+            Ok(result) => match crash::catch(|| {
+                #[cfg(test)]
+                if let Some(error) = seam::answer(&seam_state, CrashStage::Judge) {
+                    return Ok((
+                        self.failed(failure_of(&error, CrashStage::Judge)?),
+                        Vec::new(),
+                        Vec::new(),
+                    ));
+                }
+                self.judge_result(backend, result, probe.as_ref())
+            }) {
+                Ok(judged) => judged,
+                Err(record) => Ok(self.panicked(record, CrashStage::Judge)),
+            },
+            Err(error) => Ok((
+                self.failed(failure_of(&error, CrashStage::Execute)?),
+                Vec::new(),
+                Vec::new(),
+            )),
         }
+    }
+
+    /// A case whose execution or judgement panicked with `record` at `stage`: the executor is
+    /// poisoned, and the case fails with the panic, or, for `stacker`'s refusal to map a stack
+    /// segment, as a host refusal.
+    fn panicked(&self, record: PanicRecord, stage: CrashStage) -> Executed {
+        self.panicked.set(true);
+        (
+            self.failed(panic_failure(record, stage)),
+            Vec::new(),
+            Vec::new(),
+        )
+    }
+
+    /// Judge a successful run's `result`: every leaf, then for an any-state target every shown
+    /// configuration.
+    fn judge_result(
+        &self,
+        backend: &mut Backend,
+        result: ExecutionResult,
+        probe: Option<&KorePattern>,
+    ) -> Result<Executed, Abort> {
+        let mut judged = self.judge(backend, &result, probe)?;
+        let verdicts = match self.any_state {
+            // A case outside the determinism contract is judged without its
+            // configurations (`crate::target`), so they are not matched.
+            Some(any_state)
+                if judged.failure.is_none() && judged.determinism_breaks().is_empty() =>
+            {
+                match self.judge_configurations(backend, any_state, &result.leaves) {
+                    Ok((verdicts, unknowns)) => {
+                        judged.smt_unknowns = judged.smt_unknowns.saturating_add(unknowns);
+                        verdicts
+                    }
+                    Err(error) => {
+                        return Ok((
+                            self.failed(failure_of(&error, CrashStage::Judge)?),
+                            Vec::new(),
+                            Vec::new(),
+                        ));
+                    }
+                }
+            }
+            Some(_) | None => Vec::new(),
+        };
+        Ok((judged, result.leaves, verdicts))
     }
 
     /// Judge the configurations `any_state`'s plan places on the path tree of `leaves`, parents
@@ -1186,30 +1268,13 @@ impl Judge<'_> {
         })
     }
 
-    /// A case whose execution or judgement answered `Err`.
+    /// A case whose execution or judgement answered `Err` or panicked.
     fn failed(&self, failure: CaseFailure) -> CaseResult {
-        CaseResult {
-            leaves: Vec::new(),
-            work: 0,
-            coverage: None,
-            stack_stops: 0,
-            smt_unknowns: 0,
-            run_allowance_refusals: 0,
-            load_records: self.load_stack_stop_record().into_iter().collect(),
-            safety_limit_hit: false,
-            failure: Some(failure),
-            run_facts_off_leaves: false,
-        }
+        failed_result(failure, self.load_stack_stops)
     }
 
     fn load_stack_stop_record(&self) -> Option<LoadRecord> {
-        (self.load_stack_stops > 0).then(|| LoadRecord {
-            kind: LOAD_STACK_STOP.to_owned(),
-            detail: format!(
-                "{} stops for lack of stack in the definition's load",
-                self.load_stack_stops
-            ),
-        })
+        load_stack_stop_record(self.load_stack_stops)
     }
 
     fn judge(
@@ -1246,9 +1311,11 @@ impl Judge<'_> {
         let mut leaves = Vec::with_capacity(result.leaves.len());
         for (index, leaf) in result.leaves.iter().enumerate() {
             let Ok(state) = codec::from_value(&leaf.state) else {
-                return Ok(self.failed(CaseFailure::other(format!(
-                    "the state of leaf {index} does not decode as KORE"
-                ))));
+                return Ok(self.failed(CaseFailure::new(
+                    format!("the state of leaf {index} does not decode as KORE"),
+                    FailureCause::Other,
+                    CrashStage::Judge,
+                )));
             };
             let mut unclean = run_reasons.clone();
             unclean.extend(self.leaf_reasons(leaf));
@@ -1267,7 +1334,7 @@ impl Judge<'_> {
         }
         let mut internal = match self.judge_internally(backend, &leaves) {
             Ok(internal) => internal,
-            Err(error) => return Ok(self.failed(failure_of(&error)?)),
+            Err(error) => return Ok(self.failed(failure_of(&error, CrashStage::Judge)?)),
         };
         // A leaf with no `<k>` cell left is a natural end only when the initial configuration
         // held one: otherwise no thread ever ran there, and the program may have stopped
@@ -1811,21 +1878,73 @@ fn stopped_unnormalised(halt: HaltReasonOutput) -> bool {
     )
 }
 
-/// The failure an `Err` stands for, or [`Abort`] for a failed solver prelude.
-fn failure_of(error: &BackendError) -> Result<CaseFailure, Abort> {
+/// The failure an `Err` at `stage` stands for, read from its stop cause and its typed kind
+/// (`BackendError::kind`), never from its text; or [`Abort`] for a failed solver prelude and a
+/// solver that did not start, which every case would repeat.
+fn failure_of(error: &BackendError, stage: CrashStage) -> Result<CaseFailure, Abort> {
     let message = error.message().to_owned();
-    let cause = match error.stop_cause() {
-        Some(StopCause::SolverPrelude(_)) => return Err(Abort { reason: message }),
-        Some(cause) => FailureCause::Stop(cause.clone()),
+    let cause = match (error.stop_cause(), error.kind()) {
+        (Some(StopCause::SolverPrelude(failure)), _) => {
+            let kind = match failure {
+                k_rust::backend::PreludeFailure::Inconsistent => {
+                    AbortKind::SolverPreludeInconsistent
+                }
+                k_rust::backend::PreludeFailure::Malformed(_) => AbortKind::SolverPreludeMalformed,
+                k_rust::backend::PreludeFailure::Unknown(_) => AbortKind::SolverPreludeUnknown,
+            };
+            return Err(Abort::new(kind, message));
+        }
+        (Some(cause), _) => FailureCause::Stop(cause.clone()),
+        (None, Some(BackendErrorKind::SolverInit)) => {
+            return Err(Abort::new(AbortKind::SolverInit, message));
+        }
         // `Backend::execute` validates and internalizes the state before it runs it.
-        None if message.starts_with("invalid executable state")
-            || message.starts_with("could not internalize execution state") =>
-        {
+        (None, Some(BackendErrorKind::InvalidState | BackendErrorKind::StateNotInternalized)) => {
             FailureCause::StateRefused
         }
-        None => FailureCause::Other,
+        (None, Some(BackendErrorKind::InsufficientStack)) => FailureCause::TooDeep,
+        (None, Some(BackendErrorKind::StackSegmentRefused)) => FailureCause::StackMappingRefused,
+        // A kind added after this build: its text is all that is known, as for no kind.
+        (None, Some(_) | None) => FailureCause::Other,
     };
-    Ok(CaseFailure { message, cause })
+    Ok(CaseFailure::new(message, cause, stage))
+}
+
+/// The failure a panic at `stage` stands for: [`FailureCause::StackMappingRefused`] for
+/// `stacker`'s refusal to map a stack segment (the host's), [`FailureCause::Panic`] otherwise.
+fn panic_failure(record: PanicRecord, stage: CrashStage) -> CaseFailure {
+    let message = record.message.clone();
+    let cause = if crash::is_stack_mapping_refusal(&record.message) {
+        FailureCause::StackMappingRefused
+    } else {
+        FailureCause::Panic(record)
+    };
+    CaseFailure::new(message, cause, stage)
+}
+
+/// A failed case's result: no leaf, no work, and the load's stack stops.
+fn failed_result(failure: CaseFailure, load_stack_stops: usize) -> CaseResult {
+    CaseResult {
+        leaves: Vec::new(),
+        work: 0,
+        coverage: None,
+        stack_stops: 0,
+        smt_unknowns: 0,
+        run_allowance_refusals: 0,
+        load_records: load_stack_stop_record(load_stack_stops)
+            .into_iter()
+            .collect(),
+        safety_limit_hit: false,
+        failure: Some(failure),
+        run_facts_off_leaves: false,
+    }
+}
+
+fn load_stack_stop_record(load_stack_stops: usize) -> Option<LoadRecord> {
+    (load_stack_stops > 0).then(|| LoadRecord {
+        kind: LOAD_STACK_STOP.to_owned(),
+        detail: format!("{load_stack_stops} stops for lack of stack in the definition's load"),
+    })
 }
 
 /// The run-level records the definition's load observed (T-5), in the result's order.
@@ -1901,4 +2020,106 @@ where
             })
         });
     chosen_off || claim_off
+}
+
+/// The live seam of the crash tests (FZ-CRASH design section 8): a test installs, for its own
+/// thread, a rule that reads the Int literals of a case's initial state and may make the
+/// execution or the judgement panic at one of two fixed locations, panic with `stacker`'s
+/// mapping text, or answer an error. Every case and confirmation of a campaign runs on the
+/// calling thread, so the rule reaches all of them and no other test's.
+#[cfg(test)]
+pub(crate) mod seam {
+    use std::cell::RefCell;
+
+    use k_rust::{backend::BackendError, kore::ast::Pattern as KorePattern};
+
+    use crate::report::CrashStage;
+
+    /// What the seam does to a run.
+    pub(crate) enum Action {
+        /// Panic at the seam's first location, with this payload.
+        PanicHere(&'static str),
+        /// Panic at the seam's second location, with this payload.
+        PanicThere(&'static str),
+        /// Panic as `stacker` does when the host refuses a stack segment.
+        StackerPanic,
+        /// Answer this error.
+        Error(BackendError),
+        /// Run a panic inside the stage and catch it there, then run normally.
+        HandledPanic,
+    }
+
+    /// The rule: the stage and the initial state's Int literals (those that fit an `i64`), to
+    /// the action, if any.
+    pub(crate) type Rule = Box<dyn FnMut(CrashStage, &[i64]) -> Option<Action>>;
+
+    thread_local! {
+        static RULE: RefCell<Option<Rule>> = const { RefCell::new(None) };
+        static RECOVER_FAILS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    }
+
+    /// Install `rule` on this thread until the guard drops.
+    pub(crate) fn install(rule: Rule) -> Guard {
+        RULE.with(|slot| *slot.borrow_mut() = Some(rule));
+        Guard
+    }
+
+    /// Make every rebuild after a crash on this thread fail until the guard drops.
+    pub(crate) fn fail_recover() -> Guard {
+        RECOVER_FAILS.with(|fails| fails.set(true));
+        Guard
+    }
+
+    /// Whether rebuilds fail on this thread ([`fail_recover`]).
+    pub(crate) fn recover_fails() -> bool {
+        RECOVER_FAILS.with(std::cell::Cell::get)
+    }
+
+    /// Removes the thread's rule and the rebuild failure when dropped.
+    pub(crate) struct Guard;
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            RULE.with(|slot| *slot.borrow_mut() = None);
+            RECOVER_FAILS.with(|fails| fails.set(false));
+        }
+    }
+
+    fn ints(state: &KorePattern) -> Vec<i64> {
+        let mut found = Vec::new();
+        let mut work = vec![state];
+        while let Some(next) = work.pop() {
+            if let KorePattern::DomainValue { sort, value } = next
+                && sort.to_string() == "SortInt{}"
+                && let Some(value) = value.as_utf8().ok().and_then(|text| text.parse().ok())
+            {
+                found.push(value);
+            }
+            work.extend(k_rust::kore::walk::children(next));
+        }
+        found
+    }
+
+    /// The seam's answer for a run of `state` at `stage`: `None` to run normally; an error to
+    /// answer; or a panic raised here.
+    pub(crate) fn answer(initial: &KorePattern, stage: CrashStage) -> Option<BackendError> {
+        let action = RULE.with(|slot| {
+            let mut slot = slot.borrow_mut();
+            let rule = slot.as_mut()?;
+            rule(stage, &ints(initial))
+        })?;
+        match action {
+            Action::PanicHere(payload) => panic!("{payload}"),
+            Action::PanicThere(payload) => panic!("at the seam's second location: {payload}"),
+            Action::StackerPanic => {
+                panic!("mmap failed to allocate stack: Cannot allocate memory (os error 12)")
+            }
+            Action::Error(error) => Some(error),
+            Action::HandledPanic => {
+                let handled = std::panic::catch_unwind(|| panic!("handled by the stage itself"));
+                assert!(handled.is_err());
+                None
+            }
+        }
+    }
 }

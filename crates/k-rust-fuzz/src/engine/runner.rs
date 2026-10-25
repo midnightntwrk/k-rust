@@ -12,8 +12,8 @@ use k_rust::backend::CancellationToken;
 use crate::{
     exec::{Abort, OutcomeClass, UnjudgedReason},
     report::{
-        Comparability, HoleValue, IncidentalCase, KillKind, LoadRecord, Reaching, RejectionReason,
-        WitnessSide,
+        Comparability, CrashKind, CrashSide, CrashSignature, CrashStage, HoleValue, IncidentalCase,
+        KillKind, LoadRecord, Reaching, RejectionReason, WitnessSide,
     },
     score::{Guards, records::Compared},
     values::Value,
@@ -80,6 +80,65 @@ pub(crate) struct CaseRun {
     /// without its `requires` ([`crate::report::Totals::pattern_body_matches`]); `None` for
     /// every other target.
     pub(crate) pattern_body_matches: Option<u64>,
+    /// The case crashed: a panic or an internal error of a run or its judgement
+    /// ([`crate::exec::CaseFailure::crash_kind`]), or of the engine around them (FZ-CRASH).
+    pub(crate) crash: Option<Box<CaseCrash>>,
+    /// A panic was caught while the case ran, so the runner's backends may be half-changed and
+    /// must be rebuilt before another case runs on them ([`CaseRunner::recover`]).
+    pub(crate) poisoned: bool,
+}
+
+/// What a crashed case tells of its crash (FZ-CRASH): what crashed, where, and how to re-run it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct CaseCrash {
+    /// A panic or an internal error.
+    pub(crate) kind: CrashKind,
+    /// Which run, or the engine.
+    pub(crate) side: CrashSide,
+    /// Which stage.
+    pub(crate) stage: CrashStage,
+    /// The panic's or the error's message.
+    pub(crate) message: String,
+    /// The panic's location, when the hook saw it.
+    pub(crate) location: Option<String>,
+    /// The clock stopped the run: the per-case safety limit fired, or the caller's token was
+    /// cancelled.
+    pub(crate) clock: bool,
+    /// The `krun` command line equivalent to the crashed run, for a crash in `execute` on a
+    /// route `krun` runs.
+    pub(crate) krun_command: Option<String>,
+    /// The instantiated program text, when the case assembled one.
+    pub(crate) program: Option<String>,
+    /// The instantiated configuration-variable bindings.
+    pub(crate) config_vars: BTreeMap<String, String>,
+}
+
+impl CaseCrash {
+    /// A crash of the engine around the runs: a panic the loop caught outside every run.
+    pub(crate) fn engine(message: String, location: Option<String>, clock: bool) -> Self {
+        Self {
+            kind: CrashKind::Panic,
+            side: CrashSide::Engine,
+            stage: CrashStage::Engine,
+            message,
+            location,
+            clock,
+            krun_command: None,
+            program: None,
+            config_vars: BTreeMap::new(),
+        }
+    }
+
+    /// The crash's signature (`crate::crash::signature`).
+    pub(crate) fn signature(&self) -> CrashSignature {
+        crate::crash::signature(
+            self.kind,
+            self.side,
+            self.stage,
+            &self.message,
+            self.location.as_deref(),
+        )
+    }
 }
 
 /// Which bounds stopped some path of the result a case's class rests on: the judged result of a
@@ -122,6 +181,8 @@ impl CaseRun {
             cut: Cut::default(),
             baseline_ended_within: None,
             pattern_body_matches: None,
+            crash: None,
+            poisoned: false,
         }
     }
 }
@@ -159,6 +220,20 @@ pub(crate) struct HitDetail {
     pub(crate) comparable: Option<Comparability>,
     /// The instantiated configuration-variable bindings ([`crate::report::WitnessCase::config_vars`]).
     pub(crate) config_vars: BTreeMap<String, String>,
+}
+
+/// The comparable judgement of a witness case made outside its case
+/// ([`CaseRunner::comparability`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct JudgedComparability {
+    /// The judgement.
+    pub(crate) comparable: Comparability,
+    /// The work of the run of every path that made it.
+    pub(crate) work: u64,
+    /// That run crashed ([`CaseRun::crash`]).
+    pub(crate) crash: Option<Box<CaseCrash>>,
+    /// A panic was caught while it ran ([`CaseRun::poisoned`]).
+    pub(crate) poisoned: bool,
 }
 
 /// Why a confirmation gave no run.
@@ -221,8 +296,21 @@ pub(crate) trait CaseRunner {
         &mut self,
         _values: &[Value],
         _cancel: Option<&CancellationToken>,
-    ) -> Option<(Comparability, u64)> {
+    ) -> Option<JudgedComparability> {
         None
+    }
+
+    /// Rebuild the campaign's own backends after a caught panic (FZ-CRASH): a panic may leave a
+    /// backend, its session, its solver or an assembler half-changed, so the loop calls this
+    /// after every panic it or a run caught, before the next execution on the campaign's
+    /// runner. The rebuilt runner must run every later case as the campaign's own would have
+    /// run it. Nothing to do by default.
+    ///
+    /// # Errors
+    ///
+    /// Why the backends did not rebuild: the campaign then aborts (`rebuild-failed`).
+    fn recover(&mut self) -> Result<(), String> {
+        Ok(())
     }
 
     /// The loop kept an incidental finding of `class` ([`CaseRun::incidental`]): later cases

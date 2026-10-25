@@ -61,12 +61,16 @@ use crate::{
         self, Abort, CaseRequestShape, CaseResult, DeterminismBreak, Executor, OutcomeClass,
         UnjudgedReason,
     },
-    report::{Comparability, EngineDefect},
+    report::{AbortKind, Comparability, EngineDefect},
 };
 
 #[cfg(test)]
 #[path = "observer_tests.rs"]
 mod tests;
+
+/// An observer case's judgement, the hit leaf's hit step, and the greatest progress the
+/// observer answered.
+type ObservedJudgement = (Judgement, Option<u64>, Option<u32>);
 
 /// A client's acceptor over the steps of a run (ARCHITECTURE 9.2), for example kink's step
 /// events and sequence-pattern monitor.
@@ -437,7 +441,7 @@ impl ResolvedTarget {
                     rules.clone(),
                 )?;
                 let (judgement, hit_step, progress) =
-                    match self.judge_observed(&result, &leaves, cancel) {
+                    match self.judge_observed(&result, &leaves, cancel)? {
                         Ok((judgement, hit_step, progress)) => (Ok(judgement), hit_step, progress),
                         Err(defect) => (Err(defect), None, None),
                     };
@@ -491,17 +495,41 @@ impl ResolvedTarget {
 
     /// Judge an observer case from its judged `result` and the raw observed `leaves` of the
     /// same run ([`Self::run_and_judge`]), with the hit leaf's hit step for a hit.
+    ///
+    /// The observer is the client's code, the only client callback in a case, and it is shared
+    /// by every case and confirmation, so it cannot be rebuilt: a panic in it (its `start`,
+    /// `branch`, `step` or its state's `clone`) is the client's defect, not k-rust's, and aborts
+    /// the campaign with the kind `client-panic` and the panic's record (FZ-CRASH review S2).
+    ///
+    /// # Errors
+    ///
+    /// [`Abort`] of kind `client-panic` when the observer panicked.
     fn judge_observed(
         &self,
         result: &CaseResult,
         leaves: &[ExecutionLeaf],
         cancel: Option<&CancellationToken>,
-    ) -> Result<(Judgement, Option<u64>, Option<u32>), EngineDefect> {
+    ) -> Result<Result<ObservedJudgement, EngineDefect>, Abort> {
+        Ok(match self.judge_observed_by(result, leaves, cancel) {
+            Ok(judged) => Ok(judged),
+            Err(Ok(defect)) => Err(defect),
+            Err(Err(abort)) => return Err(abort),
+        })
+    }
+
+    /// [`Self::judge_observed`], with the abort of a panicking observer as `Err(Err(_))`.
+    fn judge_observed_by(
+        &self,
+        result: &CaseResult,
+        leaves: &[ExecutionLeaf],
+        cancel: Option<&CancellationToken>,
+    ) -> Result<ObservedJudgement, Result<EngineDefect, Abort>> {
         let run_to_completion = self.target.run_to_completion;
         if result.failure.is_some() {
             // A failed run is classed by its failure alone.
             return exec::classify_explained(result, &[], run_to_completion)
-                .map(|(class, reason)| (explained(class, reason), None, None));
+                .map(|(class, reason)| (explained(class, reason), None, None))
+                .map_err(Ok);
         }
         let cancelled = cancel.is_some_and(CancellationToken::is_cancelled);
         let breaks = result.determinism_breaks();
@@ -509,24 +537,38 @@ impl ResolvedTarget {
             let clock =
                 result.safety_limit_hit || breaks.contains(&DeterminismBreak::Clock) || cancelled;
             return unobserved(result, run_to_completion, clock)
-                .map(|judgement| (judgement, None, None));
+                .map(|judgement| (judgement, None, None))
+                .map_err(Ok);
         }
         let super::TargetKind::Observer(target) = &self.target.kind else {
-            return Err(defect("an observer resolution of another target kind"));
+            return Err(Ok(defect("an observer resolution of another target kind")));
         };
         let Some(handle) = &target.observer.0 else {
-            return Err(defect("an observer target resolved without its observer"));
+            return Err(Ok(defect(
+                "an observer target resolved without its observer",
+            )));
         };
         if leaves.len() != result.leaves.len() {
-            return Err(defect(&format!(
+            return Err(Ok(defect(&format!(
                 "the observed run returned {} leaves where its judged result has {}",
                 leaves.len(),
                 result.leaves.len()
-            )));
+            ))));
         }
-        let paths = walk_paths(&**handle, leaves);
+        let paths = crate::crash::catch(|| walk_paths(&**handle, leaves)).map_err(|record| {
+            Err(Abort {
+                kind: AbortKind::ClientPanic,
+                reason: format!(
+                    "the client's observer `{}` panicked: {}; it is shared by every case and \
+                     cannot be rebuilt, so the campaign cannot go on",
+                    target.name, record.message
+                ),
+                panic: Some(record),
+            })
+        })?;
         let reached: Vec<bool> = paths.hit_steps.iter().map(Option::is_some).collect();
-        let (class, reason) = exec::classify_explained(result, &reached, run_to_completion)?;
+        let (class, reason) =
+            exec::classify_explained(result, &reached, run_to_completion).map_err(Ok)?;
         if class != OutcomeClass::Hit && paths.unobservable {
             // A configuration the observer could not be shown may lead to the target: never a
             // `miss`.
@@ -546,9 +588,9 @@ impl ResolvedTarget {
                     *reached && leaf.is_clean() && (!run_to_completion || leaf.natural_end)
                 });
             let Some(leaf) = leaf else {
-                return Err(defect(
+                return Err(Ok(defect(
                     "a case classed `hit` has no clean leaf that reaches the target",
-                ));
+                )));
             };
             (Some(HitSite::Leaf(leaf)), paths.hit_steps[leaf])
         } else {

@@ -70,7 +70,15 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// (FZ-COMPARABLE-AQ); and adds a witness case's `config-vars`, the
 /// instantiated bindings (KF-T3b). A version-6 reader refuses the new fields, key values and
 /// reasons.
-pub const REPORT_VERSION: u32 = 7;
+///
+/// Version 8 (FZ-CRASH) adds the top-level `crashes` and `crashes-omitted` (a k-rust or engine
+/// panic or internal error during a case is a finding with its input), `totals.crash-work`,
+/// `totals.solve.panicked`, an aborted outcome's `kind` (and, for a panicking observer, its
+/// `case`, `holes` and `panic`), the reasons `panic`, `internal-error`, `too-deep` and
+/// `stack-mapping-refused` in place of `backend-error`, and the comparable condition `crash`
+/// (`docs/compatibility.md`, "Format versions"). A version-7 reader refuses the new fields,
+/// reasons and condition.
+pub const REPORT_VERSION: u32 = 8;
 
 /// A campaign's report (ARCHITECTURE 9.3).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -95,6 +103,15 @@ pub struct FuzzReport {
     /// class.
     #[serde(default, skip_serializing_if = "Incidentals::is_empty")]
     pub incidental: Incidentals,
+    /// The first case of each crash signature: a panic or internal error of k-rust or of the
+    /// engine during a case, kept with its input ([`CrashFindings`]); absent when no case
+    /// crashed.
+    #[serde(default, skip_serializing_if = "CrashFindings::is_empty")]
+    pub crashes: CrashFindings,
+    /// The crashed cases whose signature was not kept, beyond the first
+    /// [`crate::crash::MAX_CRASH_SIGNATURES`] signatures; absent when 0.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub crashes_omitted: u64,
     /// Records the definitions' loads observed, reported once per campaign; they taint no leaf
     /// (T-5).
     pub load_records: Vec<LoadRecord>,
@@ -458,6 +475,10 @@ pub struct SolveTotals {
     /// The message of the first failed run, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_failure: Option<String>,
+    /// Of the failed runs, those whose query panicked: a k-rust defect, which gives no finding
+    /// because the query has no concrete input. Absent when 0.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub panicked: u64,
 }
 
 /// The fixed parameters of the corpus proposer (ARCHITECTURE 8.5), which with the definitions,
@@ -750,10 +771,23 @@ pub enum CampaignOutcome {
         /// The bounded statement.
         no_witness: NoWitness,
     },
-    /// A failure every case would repeat ended the campaign (a failed solver prelude).
+    /// A failure every case would repeat ended the campaign (a failed solver prelude, a solver
+    /// that does not start), the client's observer panicked, or the campaign's backends did not
+    /// rebuild.
     Aborted {
+        /// What kind of failure.
+        kind: AbortKind,
         /// Why.
         reason: String,
+        /// For a panicking observer, the case it panicked in.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        case: Option<u64>,
+        /// For a panicking observer, the case's hole values, in declaration order.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        holes: Vec<CrashHole>,
+        /// For a panicking observer, what panicked.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        panic: Option<PanicRecord>,
         /// The bounded statement.
         no_witness: NoWitness,
     },
@@ -942,6 +976,21 @@ pub struct Totals {
     /// the JSON otherwise.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub solve: Option<SolveTotals>,
+    /// The backend work of the runs that examined crashes: each new crash signature's
+    /// confirmation, its shrinking and the shrunk case's confirmation. Charged to no budget and
+    /// not part of [`Self::work`], so crash findings move no case of the campaign. Absent
+    /// when 0.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub crash_work: u64,
+}
+
+/// Whether a count is 0, for the counts a report leaves out when they are.
+#[expect(
+    clippy::trivially_copy_pass_by_ref,
+    reason = "serde's `skip_serializing_if` passes a reference"
+)]
+fn is_zero(count: &u64) -> bool {
+    *count == 0
 }
 
 /// The best score of a campaign whose proposers score its cases ([`Totals::best_score`];
@@ -1154,7 +1203,11 @@ impl Comparability {
     #[must_use]
     pub fn reproducible(&self) -> bool {
         !self.reasons.iter().any(|condition| {
-            condition.breaks_determinism() || *condition == ComparableCondition::RunFailed
+            condition.breaks_determinism()
+                || matches!(
+                    condition,
+                    ComparableCondition::RunFailed | ComparableCondition::Crash
+                )
         })
     }
 }
@@ -1483,6 +1536,259 @@ impl IncidentalCase {
     }
 }
 
+/// What a panic left: its message and, when the campaign's panic hook saw it, its location
+/// (`file:line:column`, as the compiler wrote it).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct PanicRecord {
+    /// The panic's message (its payload's text).
+    pub message: String,
+    /// Where it was raised; absent when the hook did not run (a hook an embedder installed
+    /// after the campaign's replaced it, or a re-raised panic whose hook was not the campaign's).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub location: Option<String>,
+}
+
+/// Why a campaign aborted ([`CampaignOutcome::Aborted`]).
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum AbortKind {
+    /// The solver's prelude is unsatisfiable: the definition's SMT text, a user prelude, or
+    /// k-rust's SMT translation of them.
+    SolverPreludeInconsistent,
+    /// The solver rejected the prelude's text: the definition's SMT text, a user prelude, or
+    /// k-rust's SMT translation of them.
+    SolverPreludeMalformed,
+    /// The solver could not decide the prelude.
+    SolverPreludeUnknown,
+    /// The solver did not start for this definition: its SMT declarations, k-rust's translation
+    /// of them, or the host.
+    SolverInit,
+    /// The client's observer panicked: its state cannot be rebuilt, so no case can run after it.
+    ClientPanic,
+    /// The campaign's backends did not rebuild (after a crash, or for a second run).
+    RebuildFailed,
+}
+
+/// What crashed: a panic, or an error k-rust or the engine answered that a correct build never
+/// answers for its input (a request it built that its own schema refuses, a result it cannot
+/// encode or decode).
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CrashKind {
+    /// A panic.
+    Panic,
+    /// An error without a typed kind that is not a stop or a refused state.
+    InternalError,
+}
+
+/// Where a crash happened: a definition's run (with its judgement), or the engine around it.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CrashSide {
+    /// The baseline's (the only definition's, outside a differential campaign) run.
+    Baseline,
+    /// A differential campaign's mutant's run.
+    Mutant,
+    /// The engine around the runs: assembly, the target's judgement of a whole case, the
+    /// incidental findings, or a fresh confirmation's build.
+    Engine,
+}
+
+/// The stage of a crash.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CrashStage {
+    /// `Backend::execute`.
+    Execute,
+    /// The judgement of the run's leaves (clean leaves, natural ends, leaf patterns, data ends).
+    Judge,
+    /// The engine around the runs ([`CrashSide::Engine`]).
+    Engine,
+}
+
+/// What a crash signature's site is.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SiteKind {
+    /// The panic's location, normalized to start at its crate's directory.
+    Location,
+    /// The message's class: its first line before its first `:`, with quoted spans and digits
+    /// masked (an internal error, or a panic without a usable location).
+    Message,
+}
+
+/// The identity of a crash: crashes with equal signatures are counted as one finding.
+#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct CrashSignature {
+    /// A panic or an internal error.
+    pub kind: CrashKind,
+    /// Which run, or the engine.
+    pub side: CrashSide,
+    /// Which stage.
+    pub stage: CrashStage,
+    /// What [`Self::site`] is.
+    pub site_kind: SiteKind,
+    /// The normalized location, or the message's class.
+    pub site: String,
+}
+
+/// When a crash happened.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CrashPhase {
+    /// A case.
+    Case,
+    /// A candidate's confirmation on a fresh backend.
+    Confirmation,
+    /// The screening of a shrink candidate.
+    Shrink,
+    /// The run of every path that judged a witness case's comparability outside its case.
+    Comparability,
+}
+
+/// Whether a crash repeats on every run of its input. It is never known to: after a panic or an
+/// error the run's counts of solver `unknown`s, stack stops and allowance refusals are lost, so
+/// whether one of them led to it is unknown.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CrashDeterminism {
+    /// Outside the determinism contract: the clock stopped the run (the safety limit, a
+    /// cancellation), or the confirmation did not repeat the crash.
+    Outside,
+    /// Unknown: a solver timeout or a stack stop may have decided it.
+    Unknown,
+}
+
+/// A hole and its value in a crash finding.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct CrashHole {
+    /// The hole's name.
+    pub name: String,
+    /// Its value.
+    pub value: Value,
+}
+
+/// The first case of one crash signature ([`CrashFindings`]).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct CrashFinding {
+    /// What crashed, where.
+    pub signature: CrashSignature,
+    /// When it first crashed.
+    pub phase: CrashPhase,
+    /// The panic's or the error's message, at most 1 KiB.
+    pub message: String,
+    /// The number of the case it first crashed in (for a crash in a confirmation, a shrink
+    /// candidate or a comparability run, the case whose candidate or witness that was).
+    pub case: u64,
+    /// The hole values it first crashed on (for a shrink candidate, the candidate's), in
+    /// declaration order.
+    pub holes: Vec<CrashHole>,
+    /// The values the crash shrank to under the same signature, when shrinking moved them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shrunk_holes: Option<Vec<CrashHole>>,
+    /// How many cases crashed with this signature (shrink candidates and confirmations not
+    /// counted).
+    pub count: u64,
+    /// Whether a re-run on a fresh backend crashed with the same signature; absent when it was
+    /// not re-run (the clock stopped the run, so the crash says nothing about the input).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reproduced: Option<bool>,
+    /// Whether the shrunk values' re-run on a fresh backend crashed with the same signature;
+    /// absent without shrunk values.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shrunk_reproduced: Option<bool>,
+    /// Whether the crash repeats on every run of its input ([`CrashDeterminism`]).
+    pub determinism: CrashDeterminism,
+    /// The clock stopped the run: the per-case safety limit or a cancellation.
+    pub clock: bool,
+    /// The build that crashed has debug assertions, whose panics a release build does not
+    /// raise (the build identity names the sources, not the profile).
+    pub debug_assertions: bool,
+    /// The `krun` command line equivalent to the crashed run, when the crash is in `execute`
+    /// and one is: expected to reproduce it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub krun_command: Option<String>,
+    /// The instantiated program text, when the case assembled one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub program: Option<String>,
+    /// The instantiated configuration-variable bindings, when the case assembled them.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub config_vars: BTreeMap<String, String>,
+}
+
+/// The first case of each crash signature of a campaign (FZ-CRASH, D30, D32): a panic or an
+/// internal error of k-rust or of the engine during a case. The case keeps its class
+/// (`unsupported`, or `baseline-incomplete` when a differential baseline crashed) with the
+/// reason `panic` or `internal-error`; the campaign goes on. A crash is a defect of k-rust or of
+/// the engine: the definition may have triggered it, but k-rust should have rejected or reported
+/// it. Crashes are incidental: no target looks for one, and keeping one moves no case, class or
+/// budget. Environment refusals (a stack segment the host refused to map, a request deeper than
+/// the backend's stack) are no crash.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(transparent)]
+pub struct CrashFindings(pub Vec<CrashFinding>);
+
+impl CrashFindings {
+    /// Whether no case crashed.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// One line per finding, worded for a reader (the summary of `krust fuzz` prints them).
+    #[must_use]
+    pub fn lines(&self) -> Vec<String> {
+        self.0
+            .iter()
+            .enumerate()
+            .map(|(index, crash)| {
+                let holes = if crash.holes.is_empty() {
+                    String::new()
+                } else {
+                    let values = crash
+                        .holes
+                        .iter()
+                        .map(|hole| {
+                            format!(
+                                "{} = {}",
+                                hole.name,
+                                serde_json::to_string(&hole.value).unwrap_or_default()
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    format!(" ({values})")
+                };
+                let what = match crash.signature.kind {
+                    CrashKind::Panic => "panicked",
+                    CrashKind::InternalError => "answered an internal error",
+                };
+                let count = if crash.count > 1 {
+                    format!(", {} cases in all", crash.count)
+                } else {
+                    String::new()
+                };
+                format!(
+                    "crash: case {}{holes} {what} at {} ({}{count}): k-rust crashed on this \
+                     input: a k-rust defect (the definition may have triggered it, but k-rust \
+                     should have rejected or reported it); please report it with the report's \
+                     `crashes[{index}]`",
+                    crash.case,
+                    crash.signature.site,
+                    serde_json::to_value(crash.signature.side)
+                        .ok()
+                        .and_then(|side| side.as_str().map(str::to_owned))
+                        .unwrap_or_default(),
+                )
+            })
+            .collect()
+    }
+}
+
 /// Serialize a `u64` as a decimal string, which JavaScript reads exactly at any size.
 pub(crate) mod decimal_u64 {
     use serde::{Deserialize, Deserializer, Serializer, de::Error};
@@ -1716,12 +2022,15 @@ mod tests {
                 unconfirmed: 1,
                 case_sequence_digest: digest_hex(b"cases"),
                 solve: None,
+                crash_work: 0,
             },
             normal_end: Some(NormalEnds {
                 baseline: NormalEndKind::EveryK,
                 mutant: None,
             }),
             incidental: Incidentals::default(),
+            crashes: CrashFindings::default(),
+            crashes_omitted: 0,
             load_records: vec![LoadRecord {
                 kind: "contradicted-claim".into(),
                 detail: "total".into(),
@@ -1740,6 +2049,98 @@ mod tests {
         }
     }
 
+    /// Both bindings declare what a version-8 report holds (FZ-CRASH): every unjudged reason and
+    /// comparable condition by its serde name, every abort kind, and every key of a crash
+    /// finding; and no longer `backend-error`.
+    #[test]
+    fn typescript_declarations_name_the_crash_keys_and_reasons() {
+        let finding = CrashFinding {
+            signature: CrashSignature {
+                kind: CrashKind::Panic,
+                side: CrashSide::Engine,
+                stage: CrashStage::Engine,
+                site_kind: SiteKind::Message,
+                site: "s".into(),
+            },
+            phase: CrashPhase::Case,
+            message: "m".into(),
+            case: 0,
+            holes: Vec::new(),
+            shrunk_holes: Some(Vec::new()),
+            count: 1,
+            reproduced: Some(true),
+            shrunk_reproduced: Some(true),
+            determinism: CrashDeterminism::Unknown,
+            clock: false,
+            debug_assertions: false,
+            krun_command: Some("k".into()),
+            program: Some("p".into()),
+            config_vars: BTreeMap::from([("A".into(), "1".into())]),
+        };
+        let json = serde_json::to_value(&finding).expect("a finding is JSON");
+        let keys: Vec<String> = json
+            .as_object()
+            .expect("an object")
+            .keys()
+            .chain(json["signature"].as_object().expect("an object").keys())
+            .cloned()
+            .collect();
+        for declarations in [
+            include_str!("../../k-rust-napi/typescript/index.ts"),
+            include_str!("../../k-rust-wasm/typescript/index.ts"),
+        ] {
+            for key in &keys {
+                let quoted = format!("'{key}'");
+                let bare = format!("  {key}");
+                assert!(
+                    declarations.contains(&quoted) || declarations.contains(&bare),
+                    "the crash finding key `{key}` is not declared"
+                );
+            }
+            let names = UnjudgedReason::ALL
+                .iter()
+                .map(|reason| reason.name())
+                .chain(
+                    ComparableCondition::ALL
+                        .iter()
+                        .map(|condition| condition.name()),
+                )
+                .chain(
+                    [
+                        AbortKind::SolverPreludeInconsistent,
+                        AbortKind::SolverPreludeMalformed,
+                        AbortKind::SolverPreludeUnknown,
+                        AbortKind::SolverInit,
+                        AbortKind::ClientPanic,
+                        AbortKind::RebuildFailed,
+                    ]
+                    .iter()
+                    .map(|kind| {
+                        serde_json::to_value(kind)
+                            .ok()
+                            .and_then(|kind| kind.as_str().map(str::to_owned))
+                            .unwrap_or_default()
+                    }),
+                );
+            for name in names {
+                assert!(
+                    declarations.contains(&format!("| '{name}'")),
+                    "`{name}` is not declared"
+                );
+            }
+            for key in [
+                "'crash-work'",
+                "'crashes-omitted'",
+                "crashes?:",
+                "panicked?:",
+            ] {
+                assert!(declarations.contains(key), "{key} is not declared");
+            }
+            assert!(!declarations.contains("'backend-error'"));
+            assert!(declarations.contains("version 8 (docs/compatibility.md)"));
+        }
+    }
+
     #[test]
     fn report_round_trips_through_canonical_json() {
         let report = fixed_report();
@@ -1750,7 +2151,11 @@ mod tests {
 
         let mut cancelled = report;
         cancelled.outcome = CampaignOutcome::Aborted {
+            kind: AbortKind::SolverPreludeInconsistent,
             reason: "prelude".into(),
+            case: None,
+            holes: Vec::new(),
+            panic: None,
             no_witness: NoWitness {
                 statement: "No witness.".into(),
                 path_mode: PathMode::AllPaths,
@@ -1759,7 +2164,8 @@ mod tests {
         let text = cancelled.to_canonical_json();
         assert!(
             text.contains(concat!(
-                r#""outcome":{"status":"aborted","reason":"prelude","no-witness":"#,
+                r#""outcome":{"status":"aborted","kind":"solver-prelude-inconsistent","#,
+                r#""reason":"prelude","no-witness":"#,
                 r#"{"statement":"No witness.","path-mode":"all-paths"}}"#
             )),
             "{text}"
@@ -1810,7 +2216,7 @@ mod tests {
     fn report_bytes_are_stable_for_a_fixed_value() {
         let text = fixed_report().to_canonical_json();
         let expected = concat!(
-            r#"{"schema":"krust-fuzz-report","version":7,"identity":{"engine-version":6,"#,
+            r#"{"schema":"krust-fuzz-report","version":8,"identity":{"engine-version":6,"#,
             r#""k-rust-revision":"b322de1ab","definitions":[{"role":"baseline","#,
             r#""main-module":"IMP","syntax-module":"IMP-SYNTAX","#,
             r#""execution-digest":"0123","route":"source-execution","#,

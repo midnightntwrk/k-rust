@@ -130,7 +130,7 @@ return `Z3InferenceRequired`.
 library in one call: it compiles the definition, crafts values for the program's holes until the
 budget is spent or a concrete re-run confirms a witness, and returns the report. The campaign
 specification is the library's JSON, with kebab-case fields; `json` is the report's canonical text
-(schema `krust-fuzz-report`, version 7), and `report` the same document parsed.
+(schema `krust-fuzz-report`, version 8), and `report` the same document parsed.
 
 ```typescript
 import init, { runFuzzCampaign } from '@midnightntwrk/k-rust-wasm'
@@ -194,5 +194,7 @@ package links (`<version>+src.<digest of its sources>`, as `krust-fuzz --version
 compile the definition as `krust kcompile` and the native package do. WebAssembly has no stack
 probe, so a recursion deep enough to exhaust the module's 8 MiB stack traps instead of stopping
 the step for lack of stack, as a native run does; and a panic inside the campaign, which would be
-a k-rust defect, traps too. A trap throws a `RuntimeError` from the call; the instance may be
-inconsistent afterwards, so initialize a fresh one before calling it again.
+a k-rust defect, traps too: WebAssembly aborts on a panic, so the crash findings a native campaign
+reports for a panicking case (the report's `crashes`) are not made here, while an internal error
+still is one. A trap throws a `RuntimeError` from the call; the instance may be inconsistent
+afterwards, so initialize a fresh one before calling it again.

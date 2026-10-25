@@ -33,6 +33,7 @@ extern crate self as k_rust_fuzz;
 mod support;
 
 pub(crate) mod assemble;
+pub(crate) mod crash;
 mod engine;
 pub mod error;
 pub mod exec;
@@ -118,6 +119,12 @@ pub use values::{Constraints, Value};
 /// (FZ-COMPARABLE-AQ). `query-confirmable` runs nothing more. A campaign with neither option keeps
 /// its case sequence: its witness cases' comparable judgement is made after the search, outside
 /// every case, and its run adds to `totals.work` alone.
+///
+/// Crash findings (FZ-CRASH, report version 8) came in within version 6: a crashed case keeps
+/// its class, its confirmation and shrinking are charged to `totals.crash-work` alone, and the
+/// campaign's backends are rebuilt after a panic with the requests the run made of them, so the
+/// case sequence of every campaign is unchanged, except one whose solver does not start, which
+/// now aborts at its first case (`solver-init`) where it ran every case as an error.
 pub const ENGINE_VERSION: u32 = 6;
 
 #[cfg(test)]

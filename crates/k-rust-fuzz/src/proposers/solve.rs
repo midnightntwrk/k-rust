@@ -634,7 +634,7 @@ fn run_isolated(
             }
         }
         let mut outcome = worker.join().unwrap_or_else(|_| Outcome {
-            answer: Answer::Failed("the query panicked".into()),
+            answer: Answer::Failed(QUERY_PANICKED.into()),
             work: 0,
             outside_determinism: false,
         });
@@ -916,12 +916,20 @@ impl SolveProposer {
                 None
             }
             Answer::Failed(message) => {
+                // A panic on the query's thread is a k-rust defect, counted; the query has no
+                // concrete input, so it is no crash finding (FZ-CRASH, F4).
+                if message == QUERY_PANICKED {
+                    self.totals.panicked += 1;
+                }
                 self.fail(message);
                 None
             }
         }
     }
 }
+
+/// The failure of a query whose thread panicked ([`crate::report::SolveTotals::panicked`]).
+const QUERY_PANICKED: &str = "the query panicked";
 
 impl Proposer for SolveProposer {
     fn kind(&self) -> ProposerKind {

@@ -2,6 +2,8 @@
 //! confirmation, shrinking and the report (ARCHITECTURE 1, 7, 8, 9.2, 9.3). Owner: FZ-06.
 
 mod campaign_loop;
+#[cfg(test)]
+mod crash_tests;
 mod incidental;
 mod live;
 pub(crate) mod proposer;
@@ -25,7 +27,7 @@ use self::{
     campaign_loop::{
         Cuts, Ending, FiniteDomain, LoopSettings, no_witness, report_without_cases, run_loop,
     },
-    live::{GraphCheck, LiveCases, LiveRunner},
+    live::{GraphCheck, LiveCases, LiveRunner, RunSetup},
     proposer::{BlindProposer, Proposer},
     schedule::Schedule,
 };
@@ -40,9 +42,9 @@ use crate::{
         dictionary::{self, DictionaryProposer, Harvest, HolePool},
     },
     report::{
-        CampaignOutcome, ClimbParameters, CorpusParameters, DefinitionIdentity, DefinitionRole,
-        DictionaryParameters, EffectiveConstraints, FuzzReport, GenerationCaps, HitLabel,
-        ReportIdentity, SolveParameters, Totals, digest_hex,
+        AbortKind, CampaignOutcome, ClimbParameters, CorpusParameters, DefinitionIdentity,
+        DefinitionRole, DictionaryParameters, EffectiveConstraints, FuzzReport, GenerationCaps,
+        HitLabel, ReportIdentity, SolveParameters, Totals, digest_hex,
     },
     score::{RuleScorer, Scorer},
     spec::{
@@ -186,6 +188,7 @@ impl Campaign {
             label: hit_label(&spec.target),
             clean_leaf_facts: clean_leaf_facts(&spec),
             constraints: holes.iter().map(|hole| hole.constraints.clone()).collect(),
+            hole_names: names.clone(),
             sort_overrides: holes
                 .iter()
                 .flat_map(ResolvedHole::sort_overrides)
@@ -274,7 +277,11 @@ impl Campaign {
                         &self.settings,
                         budget,
                         CampaignOutcome::Aborted {
+                            kind: AbortKind::RebuildFailed,
                             reason: format!("the campaign's backends did not rebuild: {error}"),
+                            case: None,
+                            holes: Vec::new(),
+                            panic: None,
                             no_witness,
                         },
                     );
@@ -283,15 +290,15 @@ impl Campaign {
         };
         // The climb's and the solve proposer's scores and the corpus's pools of run-time
         // literals read condition entries; only a campaign that weighs one of them asks for
-        // them, so no other campaign's cases change.
-        if !self.condition_rules.is_empty() {
-            cases.request_conditions(self.condition_rules.clone());
-        }
-        // The corpus keeps a case whose counted coverage gains a (rule, count bucket); only a
-        // campaign that weighs it asks for counts, so no other campaign's requests change.
-        if self.corpus.is_some() {
-            cases.request_counts();
-        }
+        // them, so no other campaign's cases change. The corpus keeps a case whose counted
+        // coverage gains a (rule, count bucket); only a campaign that weighs it asks for
+        // counts, so no other campaign's requests change. A rebuild after a crash asks the same
+        // (`RunSetup`).
+        let setup = RunSetup {
+            condition_rules: self.condition_rules.clone(),
+            counts: self.corpus.is_some(),
+        };
+        setup.apply(&mut cases);
         let generators = generators(&cases, &self.spec).expect("Campaign::new built them");
         // Campaign::new refused every other weighted proposer; the schedule takes them in
         // ProposerKind order when there are several.
@@ -340,9 +347,12 @@ impl Campaign {
         let parts = cases.assembly_parts();
         let mut runner = LiveRunner {
             cases,
+            parts: &parts,
             assemblers: parts.assemblers(),
             cache: Arc::clone(&self.definition_cache),
             graph: self.graph.clone(),
+            setup,
+            sessions: None,
         };
         run_loop(
             &mut runner,

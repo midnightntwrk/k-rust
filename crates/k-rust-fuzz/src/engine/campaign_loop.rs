@@ -6,17 +6,20 @@ use std::{collections::BTreeSet, fmt::Write as _, sync::Arc};
 use k_rust::backend::CancellationToken;
 
 use super::{
-    proposer::{CoverageFeedback, Feedback as _, Observation, Proposal},
-    runner::{CaseRun, CaseRunner, ConfirmFailure, Cut, HitDetail},
+    proposer::{CoverageFeedback, Feedback as _, Observation, Proposal, ValueShrinker},
+    runner::{CaseCrash, CaseRun, CaseRunner, ConfirmFailure, Cut, HitDetail},
     schedule::Schedule,
     shrink::{Verdict, shrink},
 };
 use crate::{
-    exec::{Abort, NormalEndKind, OutcomeClass, UnjudgedReason},
+    crash::{self, MAX_CAMPAIGN_CRASH_SHRINK_RUNS, MAX_CRASH_SHRINK_RUNS, MAX_CRASH_SIGNATURES},
+    exec::{Abort, ComparableCondition, NormalEndKind, OutcomeClass, UnjudgedReason},
     report::{
-        BestScore, CampaignOutcome, EngineDefect, FuzzReport, HitLabel, Incidentals, KillKind,
-        LoadRecord, NoWitness, NormalEnds, REPORT_SCHEMA, REPORT_VERSION, RejectionReason,
-        ReportIdentity, SortOverride, Totals, Witness, WitnessCase, digest_hex,
+        AbortKind, BestScore, CampaignOutcome, Comparability, CrashDeterminism, CrashFinding,
+        CrashFindings, CrashHole, CrashPhase, CrashSignature, CrashStage, EngineDefect, FuzzReport,
+        HitLabel, Incidentals, KillKind, LoadRecord, NoWitness, NormalEnds, PanicRecord,
+        REPORT_SCHEMA, REPORT_VERSION, RejectionReason, ReportIdentity, SortOverride, Totals,
+        Witness, WitnessCase, digest_hex,
     },
     score::{Score, Scorer, Signals},
     spec::{Budget, CaseOptions, PathMode},
@@ -42,6 +45,8 @@ pub(crate) struct LoopSettings {
     pub(crate) clean_leaf_facts: Vec<String>,
     /// Each hole's constraints, in hole order, which bound shrink moves.
     pub(crate) constraints: Vec<Constraints>,
+    /// Each hole's name, in hole order, which crash findings name their values by.
+    pub(crate) hole_names: Vec<String>,
     /// Holes whose refused sort an override admitted.
     pub(crate) sort_overrides: Vec<SortOverride>,
     /// Campaign-level warnings known before the first case (the rule graph's), which every
@@ -274,6 +279,10 @@ impl FiniteDomain {
 /// `unsupported`, never `hit` (ARCHITECTURE 7). The run of every path that judges a witness
 /// case's comparability outside its case ([`CaseRunner::comparability`]) is charged after
 /// shrinking, when no execution is left for the budget to stop.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the loop over cases, each case's crash, confirmation and witness in order"
+)]
 pub(crate) fn run_loop(
     runner: &mut dyn CaseRunner,
     schedule: &mut Schedule,
@@ -303,22 +312,59 @@ pub(crate) fn run_loop(
             break Ending::Exhausted;
         };
         // An assignment of a finite domain runs at most once (FZ-POLISH N-T1).
-        let proposal = state.unrepeated(settings, proposal);
+        let mut proposal = state.unrepeated(settings, proposal);
         let case = state.totals.cases;
         state.sequence(&proposal.values);
         let mut run = match run_proposal(runner, &mut state, &proposal, cancel) {
             Ok(run) => run,
             Err(abort) => {
-                state.abort = Some(abort.reason);
+                state.aborted(abort, case, settings, &proposal.values);
                 break Ending::Aborted;
             }
         };
         state.charge(run.work);
         state.totals.cases += 1;
         state.notes(case, None, &run);
+        // A crashed case is a finding, examined before it is counted: its confirmation can put
+        // it outside the determinism contract (FZ-CRASH).
+        if let Err(reason) = examine(
+            runner,
+            &mut state,
+            settings,
+            case,
+            &mut proposal,
+            &mut run,
+            cancel,
+        ) {
+            let class = run.class;
+            state.record(&run, class);
+            state.rebuild_failed(case, &reason);
+            break Ending::Aborted;
+        }
         let mut class = run.class;
         if class == OutcomeClass::Hit {
-            match confirm(runner, &mut state, case, &proposal.values, &run, cancel) {
+            let confirmed = match confirm_noting(
+                runner,
+                &mut state,
+                settings,
+                case,
+                &proposal.values,
+                &run,
+                cancel,
+            ) {
+                Ok(confirmed) => confirmed,
+                Err(reason) => {
+                    state.unconfirmed(case, &proposal.values, "crashed");
+                    let unconfirmed = CaseRun {
+                        unjudged: Some(UnjudgedReason::Unconfirmed),
+                        ..run
+                    };
+                    state.record(&unconfirmed, OutcomeClass::Unsupported);
+                    state.rebuild_failed(case, &reason);
+                    break Ending::Aborted;
+                }
+            };
+            match confirmed {
                 Confirmed::Agrees(detail) => {
                     state.record(&run, OutcomeClass::Hit);
                     let witness = finish_witness(
@@ -348,7 +394,7 @@ pub(crate) fn run_loop(
                     class = OutcomeClass::Unsupported;
                     run.unjudged = Some(UnjudgedReason::Unconfirmed);
                 }
-                Confirmed::Aborted(reason) => {
+                Confirmed::Aborted(abort) => {
                     // The fresh backend failed as every run would: the campaign aborts, and the
                     // candidate stays unconfirmed (ARCHITECTURE 5.3).
                     state.unconfirmed(case, &proposal.values, "aborted");
@@ -357,7 +403,7 @@ pub(crate) fn run_loop(
                         ..run
                     };
                     state.record(&aborted, OutcomeClass::Unsupported);
-                    state.abort = Some(reason);
+                    state.aborted(abort, case, settings, &proposal.values);
                     break Ending::Aborted;
                 }
             }
@@ -390,18 +436,404 @@ pub(crate) fn run_loop(
 
 /// The outcome of a campaign that ended without a witness, for `ending`; `abort` is why an
 /// aborted one aborted.
-fn outcome(ending: Ending, no_witness: NoWitness, abort: Option<String>) -> CampaignOutcome {
+fn outcome(ending: Ending, no_witness: NoWitness, abort: Option<AbortInfo>) -> CampaignOutcome {
     match ending {
         Ending::Budget | Ending::Exhausted | Ending::DomainExhausted { .. } => {
             CampaignOutcome::NoWitnessFound { no_witness }
         }
         Ending::RejectedOut => CampaignOutcome::RejectedOut { no_witness },
         Ending::Cancelled => CampaignOutcome::Cancelled { no_witness },
-        Ending::Aborted => CampaignOutcome::Aborted {
-            reason: abort.unwrap_or_default(),
-            no_witness,
-        },
+        Ending::Aborted => {
+            let abort = abort.unwrap_or_else(|| AbortInfo {
+                kind: AbortKind::RebuildFailed,
+                reason: String::new(),
+                case: None,
+                holes: Vec::new(),
+                panic: None,
+            });
+            CampaignOutcome::Aborted {
+                kind: abort.kind,
+                reason: abort.reason,
+                case: abort.case,
+                holes: abort.holes,
+                panic: abort.panic,
+                no_witness,
+            }
+        }
     }
+}
+
+/// Why a campaign aborted, for its outcome.
+struct AbortInfo {
+    kind: AbortKind,
+    reason: String,
+    case: Option<u64>,
+    holes: Vec<CrashHole>,
+    panic: Option<PanicRecord>,
+}
+
+/// The hole values `values` with the names of `settings`' holes.
+fn crash_holes(settings: &LoopSettings, values: &[Value]) -> Vec<CrashHole> {
+    values
+        .iter()
+        .enumerate()
+        .map(|(index, value)| CrashHole {
+            name: settings
+                .hole_names
+                .get(index)
+                .cloned()
+                .unwrap_or_else(|| format!("#{index}")),
+            value: value.clone(),
+        })
+        .collect()
+}
+
+/// Rebuild the campaign's runner after a caught panic ([`CaseRunner::recover`]); a panic of
+/// the rebuild itself is a failed rebuild.
+fn recover(runner: &mut dyn CaseRunner) -> Result<(), String> {
+    match crash::catch(|| runner.recover()) {
+        Ok(rebuilt) => rebuilt,
+        Err(record) => Err(format!("the rebuild panicked: {}", record.message)),
+    }
+}
+
+/// Run one case on the campaign's runner, catching a panic of the engine around the runs (the
+/// loop's catch site, FZ-CRASH): such a panic makes the case `unsupported` with the reason
+/// `panic` and a crash of the engine, or, for `stacker`'s refusal to map a stack segment, with
+/// the reason `stack-mapping-refused` outside the determinism contract and no crash. Either way
+/// the runner must be rebuilt.
+fn run_caught(
+    runner: &mut dyn CaseRunner,
+    values: &[Value],
+    cancel: Option<&CancellationToken>,
+) -> Result<CaseRun, Abort> {
+    match crash::catch(|| runner.run_case(values, cancel)) {
+        Ok(run) => run,
+        Err(record) => Ok(engine_crash_run(record, is_cancelled(cancel))),
+    }
+}
+
+/// The run of a case whose engine panicked with `record` ([`run_caught`]).
+fn engine_crash_run(record: PanicRecord, clock: bool) -> CaseRun {
+    let mut run = CaseRun::rejected(RejectionReason::Generation, 0);
+    run.class = OutcomeClass::Unsupported;
+    run.rejection = None;
+    run.poisoned = true;
+    if crash::is_stack_mapping_refusal(&record.message) {
+        run.unjudged = Some(UnjudgedReason::StackMappingRefused);
+        run.outside_determinism = true;
+    } else {
+        run.unjudged = Some(UnjudgedReason::Panic);
+        run.crash = Some(Box::new(CaseCrash::engine(
+            record.message,
+            record.location,
+            clock,
+        )));
+    }
+    run
+}
+
+/// Examine case `case`'s run after it ran (FZ-CRASH): rebuild the runner when a panic was
+/// caught, and note its crash, taking the proposal's value trees for shrinking it. The crash
+/// moves the case outside the determinism contract when it is.
+///
+/// # Errors
+///
+/// Why the runner did not rebuild.
+fn examine(
+    runner: &mut dyn CaseRunner,
+    state: &mut State,
+    settings: &LoopSettings,
+    case: u64,
+    proposal: &mut Proposal,
+    run: &mut CaseRun,
+    cancel: Option<&CancellationToken>,
+) -> Result<(), String> {
+    if run.poisoned
+        && let Err(reason) = recover(runner)
+    {
+        // The finding is kept, unexamined: no run is made on the poisoned runner.
+        if let Some(crash) = run.crash.take() {
+            keep_crash(
+                state,
+                settings,
+                case,
+                &proposal.values,
+                &crash,
+                CrashPhase::Case,
+            );
+        }
+        return Err(reason);
+    }
+    let Some(crash) = run.crash.take() else {
+        return Ok(());
+    };
+    let trees = std::mem::replace(
+        &mut proposal.trees,
+        proposal.values.iter().map(|_| None).collect(),
+    );
+    let outside = note_crash(
+        runner,
+        state,
+        settings,
+        cancel,
+        Found {
+            case,
+            values: &proposal.values,
+            crash: &crash,
+            phase: CrashPhase::Case,
+            trees: Some(trees),
+        },
+    )?;
+    run.outside_determinism |= outside;
+    Ok(())
+}
+
+/// A crash the loop found: in case `case`, on `values` (a candidate's or a shrink candidate's
+/// for those phases), in `phase`, with the value trees that shrink it for a case.
+struct Found<'a> {
+    case: u64,
+    values: &'a [Value],
+    crash: &'a CaseCrash,
+    phase: CrashPhase,
+    trees: Option<Vec<Option<Box<dyn ValueShrinker>>>>,
+}
+
+/// Note a crash (FZ-CRASH): count it under its signature, or keep it as the first case of a new
+/// signature while fewer than [`MAX_CRASH_SIGNATURES`] are kept. A new signature's crash is
+/// re-run once on a fresh backend unless the clock stopped its run (`reproduced`); a reproduced
+/// crash of a case is shrunk under the same signature when the campaign shrinks, and the shrunk
+/// values re-run once more (`shrunk-reproduced`). That work is charged to `crash-work` alone.
+/// Whether this crash is outside the determinism contract: the clock stopped it, or its
+/// confirmation did not repeat it.
+///
+/// # Errors
+///
+/// Why the runner did not rebuild after a panic one of these runs raised.
+fn note_crash(
+    runner: &mut dyn CaseRunner,
+    state: &mut State,
+    settings: &LoopSettings,
+    cancel: Option<&CancellationToken>,
+    found: Found<'_>,
+) -> Result<bool, String> {
+    let Found {
+        case,
+        values,
+        crash,
+        phase,
+        trees,
+    } = found;
+    let signature = crash.signature();
+    let Some(index) = keep_crash(state, settings, case, values, crash, phase) else {
+        return Ok(crash.clock);
+    };
+    if crash.clock {
+        state.crashes[index].determinism = CrashDeterminism::Outside;
+        return Ok(true);
+    }
+    let reproduced = confirm_crash(runner, state, values, &signature, cancel)?;
+    state.crashes[index].reproduced = Some(reproduced);
+    if !reproduced {
+        state.crashes[index].determinism = CrashDeterminism::Outside;
+        return Ok(true);
+    }
+    if phase == CrashPhase::Case
+        && settings.options.shrink
+        && let Some(trees) = trees
+    {
+        let shrunk = shrink_crash(
+            runner, state, settings, case, values, trees, &signature, cancel,
+        )?;
+        if shrunk != values {
+            let again = confirm_crash(runner, state, &shrunk, &signature, cancel)?;
+            let entry = &mut state.crashes[index];
+            entry.shrunk_holes = Some(crash_holes(settings, &shrunk));
+            entry.shrunk_reproduced = Some(again);
+        }
+    }
+    Ok(false)
+}
+
+/// Count `crash` under its signature, or keep it as the first case of a new signature while
+/// fewer than [`MAX_CRASH_SIGNATURES`] are kept: the new finding's index, `None` otherwise.
+/// Only a crash of phase `case` is counted.
+fn keep_crash(
+    state: &mut State,
+    settings: &LoopSettings,
+    case: u64,
+    values: &[Value],
+    crash: &CaseCrash,
+    phase: CrashPhase,
+) -> Option<usize> {
+    let signature = crash.signature();
+    let counted = u64::from(phase == CrashPhase::Case);
+    if let Some(entry) = state
+        .crashes
+        .iter_mut()
+        .find(|entry| entry.signature == signature)
+    {
+        entry.count += counted;
+        return None;
+    }
+    if state.crashes.len() >= MAX_CRASH_SIGNATURES {
+        state.crashes_omitted += counted;
+        return None;
+    }
+    let index = state.crashes.len();
+    let krun_command = crash
+        .krun_command
+        .as_ref()
+        .filter(|_| crash.stage == CrashStage::Execute)
+        .map(|line| {
+            let note = "expected to reproduce the crash";
+            if line.contains("  # ") {
+                format!("{line}; {note}")
+            } else {
+                format!("{line}  # {note}")
+            }
+        });
+    state.crashes.push(CrashFinding {
+        signature: signature.clone(),
+        phase,
+        message: crash::bounded_message(&crash.message),
+        case,
+        holes: crash_holes(settings, values),
+        shrunk_holes: None,
+        count: counted,
+        reproduced: None,
+        shrunk_reproduced: None,
+        determinism: CrashDeterminism::Unknown,
+        clock: crash.clock,
+        debug_assertions: cfg!(debug_assertions),
+        krun_command,
+        program: crash.program.clone(),
+        config_vars: crash.config_vars.clone(),
+    });
+    if crash.clock {
+        state.crashes[index].determinism = CrashDeterminism::Outside;
+    }
+    Some(index)
+}
+
+/// Re-run `values` once on a fresh backend ([`CaseRunner::confirm`]), charged to `crash-work`:
+/// whether it crashed with `signature`.
+///
+/// # Errors
+///
+/// Why the runner did not rebuild after a panic of the confirmation's engine.
+fn confirm_crash(
+    runner: &mut dyn CaseRunner,
+    state: &mut State,
+    values: &[Value],
+    signature: &CrashSignature,
+    cancel: Option<&CancellationToken>,
+) -> Result<bool, String> {
+    match crash::catch(|| runner.confirm(values, cancel)) {
+        Ok(Ok(confirmation)) => {
+            state.charge_crash(confirmation.work);
+            Ok(confirmation
+                .crash
+                .as_ref()
+                .is_some_and(|crash| crash.signature() == *signature))
+        }
+        Ok(Err(_)) => {
+            state.charge_crash(0);
+            Ok(false)
+        }
+        Err(record) => {
+            state.charge_crash(0);
+            recover(runner)?;
+            let crash = CaseCrash::engine(record.message, record.location, is_cancelled(cancel));
+            Ok(crash.signature() == *signature)
+        }
+    }
+}
+
+/// Shrink a crash of case `case` on `values` under its `signature` (FZ-CRASH): candidates are
+/// screened on the campaign's runner as a hit's are, and one that crashes with the same
+/// signature is kept; one that crashes otherwise is noted as a crash of phase `shrink` with its
+/// own values. At most [`MAX_CRASH_SHRINK_RUNS`] candidates per signature and
+/// [`MAX_CAMPAIGN_CRASH_SHRINK_RUNS`] per campaign, each crashing one costing a rebuild.
+///
+/// # Errors
+///
+/// Why the runner did not rebuild.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the loop's state, the crash and its values, and the token"
+)]
+fn shrink_crash(
+    runner: &mut dyn CaseRunner,
+    state: &mut State,
+    settings: &LoopSettings,
+    case: u64,
+    values: &[Value],
+    trees: Vec<Option<Box<dyn ValueShrinker>>>,
+    signature: &CrashSignature,
+    cancel: Option<&CancellationToken>,
+) -> Result<Vec<Value>, String> {
+    let mut runs = 0_u64;
+    let mut failure: Option<String> = None;
+    let mut others: Vec<(Vec<Value>, CaseCrash)> = Vec::new();
+    let shrunk = {
+        let mut test = |candidate: &[Value]| -> Verdict {
+            if failure.is_some()
+                || is_cancelled(cancel)
+                || runs >= MAX_CRASH_SHRINK_RUNS
+                || state.crash_shrink_runs >= MAX_CAMPAIGN_CRASH_SHRINK_RUNS
+            {
+                return Verdict::Stop;
+            }
+            if candidate
+                .iter()
+                .enumerate()
+                .any(|(hole, value)| !runner.admissible(hole, value))
+            {
+                return Verdict::Miss;
+            }
+            runs += 1;
+            state.crash_shrink_runs += 1;
+            let Ok(screened) = run_caught(runner, candidate, cancel) else {
+                return Verdict::Stop;
+            };
+            state.charge_crash(screened.work);
+            if screened.poisoned
+                && let Err(reason) = recover(runner)
+            {
+                failure = Some(reason);
+                return Verdict::Stop;
+            }
+            match screened.crash {
+                Some(crash) if crash.signature() == *signature => Verdict::Hit,
+                Some(crash) => {
+                    others.push((candidate.to_vec(), *crash));
+                    Verdict::Miss
+                }
+                None => Verdict::Miss,
+            }
+        };
+        shrink(values, trees, &settings.constraints, &mut test)
+    };
+    if let Some(reason) = failure {
+        return Err(reason);
+    }
+    for (candidate, crash) in others {
+        note_crash(
+            runner,
+            state,
+            settings,
+            cancel,
+            Found {
+                case,
+                values: &candidate,
+                crash: &crash,
+                phase: CrashPhase::Shrink,
+                trees: None,
+            },
+        )?;
+    }
+    Ok(shrunk)
 }
 
 /// The observation of case `case` of `class` with `run`'s signals. Only `miss` cases are scored
@@ -457,7 +889,7 @@ fn run_proposal(
         ));
         return Ok(CaseRun::rejected(RejectionReason::Generation, 0));
     }
-    runner.run_case(&proposal.values, cancel)
+    run_caught(runner, &proposal.values, cancel)
 }
 
 /// The report of a run that executes no case (an equivalent differential pair, a failed
@@ -484,11 +916,51 @@ enum Confirmed {
     Cancelled,
     /// It failed or disagreed: an engine defect, described.
     Disagrees(String),
-    /// It aborted as every run would (a failed solver prelude on the fresh backend); why.
-    Aborted(String),
+    /// It aborted as every run would (a failed solver prelude on the fresh backend), or the
+    /// client's observer panicked; why.
+    Aborted(Abort),
 }
 
-/// Confirm a candidate (ARCHITECTURE 7), charging its work.
+/// [`confirm`], noting a crash of the confirmation as a crash of phase `confirmation` with the
+/// candidate's values (FZ-CRASH): a panic of the confirmation's engine (the loop's catch site)
+/// leaves the candidate unconfirmed, as a confirmation that failed does.
+///
+/// # Errors
+///
+/// Why the runner did not rebuild after a panic.
+fn confirm_noting(
+    runner: &mut dyn CaseRunner,
+    state: &mut State,
+    settings: &LoopSettings,
+    case: u64,
+    values: &[Value],
+    candidate: &CaseRun,
+    cancel: Option<&CancellationToken>,
+) -> Result<Confirmed, String> {
+    let (confirmed, crash, poisoned) = confirm(runner, state, case, values, candidate, cancel);
+    if poisoned {
+        recover(runner)?;
+    }
+    if let Some(crash) = crash {
+        note_crash(
+            runner,
+            state,
+            settings,
+            cancel,
+            Found {
+                case,
+                values,
+                crash: &crash,
+                phase: CrashPhase::Confirmation,
+                trees: None,
+            },
+        )?;
+    }
+    Ok(confirmed)
+}
+
+/// Confirm a candidate (ARCHITECTURE 7), charging its work, with the confirmation's crash and
+/// whether the loop caught a panic of its engine (FZ-CRASH).
 ///
 /// The confirmation's own engine defects (its rule-graph self-check) and warnings are recorded
 /// under `case`, whatever the verdict.
@@ -499,7 +971,7 @@ fn confirm(
     values: &[Value],
     candidate: &CaseRun,
     cancel: Option<&CancellationToken>,
-) -> Confirmed {
+) -> (Confirmed, Option<Box<CaseCrash>>, bool) {
     // Where the target was reached: the state, the side, leaf and (for an observer) hit step,
     // and the kind of kill. Under the determinism contract all of them repeat; a confirmation
     // that differs in any is an engine defect, never the witness's source (ARCHITECTURE 7).
@@ -507,25 +979,46 @@ fn confirm(
         .hit
         .as_ref()
         .map(|detail| (detail.reaching_state.clone(), detail.reaching, detail.kill));
-    match runner.confirm(values, cancel) {
+    let confirmed = match crash::catch(|| runner.confirm(values, cancel)) {
+        Ok(confirmed) => confirmed,
+        Err(record) => {
+            state.charge(0);
+            let description = format!(
+                "the case reached the target, but its confirmation panicked: {}",
+                record.message
+            );
+            if crash::is_stack_mapping_refusal(&record.message) {
+                return (Confirmed::Disagrees(description), None, true);
+            }
+            let crash = CaseCrash::engine(record.message, record.location, is_cancelled(cancel));
+            return (
+                Confirmed::Disagrees(description),
+                Some(Box::new(crash)),
+                true,
+            );
+        }
+    };
+    match confirmed {
         Err(failure) => {
             state.charge(0);
-            match failure {
+            let confirmed = match failure {
                 _ if is_cancelled(cancel) => Confirmed::Cancelled,
-                ConfirmFailure::Abort(abort) => Confirmed::Aborted(abort.reason),
+                ConfirmFailure::Abort(abort) => Confirmed::Aborted(abort),
                 ConfirmFailure::Failed(message) => Confirmed::Disagrees(format!(
                     "the case reached the target, but its confirmation failed: {message}"
                 )),
-            }
+            };
+            (confirmed, None, false)
         }
-        Ok(confirmation) => {
+        Ok(mut confirmation) => {
             state.charge(confirmation.work);
             let prefix = format!("confirmation of {}", render(values));
             state.notes(case, Some(&prefix), &confirmation);
+            let crash = confirmation.crash.take();
             if is_cancelled(cancel) && confirmation.class != OutcomeClass::Hit {
-                return Confirmed::Cancelled;
+                return (Confirmed::Cancelled, crash, false);
             }
-            match confirmation.hit {
+            let confirmed = match confirmation.hit {
                 Some(detail)
                     if confirmation.class == OutcomeClass::Hit
                         && reaching.as_ref()
@@ -546,12 +1039,17 @@ fn confirm(
                     "the case reached the target, but its confirmation classed it `{}`",
                     confirmation.class.name()
                 )),
-            }
+            };
+            (confirmed, crash, false)
         }
     }
 }
 
 /// Shrink a confirmed witness and build the report's witness (ARCHITECTURE 7).
+#[expect(
+    clippy::too_many_lines,
+    reason = "one shrink test: screening, crash, confirmation and the kept candidate"
+)]
 fn finish_witness(
     runner: &mut dyn CaseRunner,
     state: &mut State,
@@ -569,7 +1067,7 @@ fn finish_witness(
             krun_command: first.krun_command.clone(),
             mutant_krun_command: first.mutant_krun_command.clone(),
             clean_leaf_facts: witness_facts(&settings.clean_leaf_facts, kind),
-            first: judged_case(runner, state, &values, first, cancel),
+            first: judged_case(runner, state, settings, case, &values, first, cancel),
             shrunk: None,
         };
     }
@@ -591,7 +1089,7 @@ fn finish_witness(
                 return Verdict::Stop;
             }
             runs += 1;
-            let screened = match runner.run_case(candidate, cancel) {
+            let mut screened = match run_caught(runner, candidate, cancel) {
                 Ok(run) => run,
                 Err(abort) => {
                     state
@@ -603,6 +1101,33 @@ fn finish_witness(
             state.charge(screened.work);
             let prefix = format!("shrink candidate {}", render(candidate));
             state.notes(case, Some(&prefix), &screened);
+            // A candidate that crashed is dropped, and noted with its own values (FZ-CRASH).
+            if screened.poisoned
+                && let Err(reason) = recover(runner)
+            {
+                state.stop_on_failed_rebuild(case, &reason);
+                return Verdict::Stop;
+            }
+            if let Some(crash) = screened.crash.take() {
+                let noted = note_crash(
+                    runner,
+                    state,
+                    settings,
+                    cancel,
+                    Found {
+                        case,
+                        values: candidate,
+                        crash: &crash,
+                        phase: CrashPhase::Shrink,
+                        trees: None,
+                    },
+                );
+                if let Err(reason) = noted {
+                    state.stop_on_failed_rebuild(case, &reason);
+                    return Verdict::Stop;
+                }
+                return Verdict::Miss;
+            }
             // A shrink keeps the witness's kind of kill: a removed end never shrinks into an
             // added one, which is another behaviour (FZ-08 review S1).
             if screened.class != OutcomeClass::Hit
@@ -610,14 +1135,24 @@ fn finish_witness(
             {
                 return Verdict::Miss;
             }
-            match confirm(runner, state, case, candidate, &screened, cancel) {
+            let confirmed =
+                match confirm_noting(runner, state, settings, case, candidate, &screened, cancel) {
+                    Ok(confirmed) => confirmed,
+                    Err(reason) => {
+                        state.stop_on_failed_rebuild(case, &reason);
+                        return Verdict::Stop;
+                    }
+                };
+            match confirmed {
                 Confirmed::Agrees(detail) => {
                     last = Some(*detail);
                     Verdict::Hit
                 }
                 Confirmed::Cancelled => Verdict::Stop,
-                Confirmed::Aborted(reason) => {
-                    state.warnings.push(format!("shrinking stopped: {reason}"));
+                Confirmed::Aborted(abort) => {
+                    state
+                        .warnings
+                        .push(format!("shrinking stopped: {}", abort.reason));
                     Verdict::Stop
                 }
                 Confirmed::Disagrees(description) => {
@@ -637,7 +1172,7 @@ fn finish_witness(
                 detail.krun_command.clone(),
                 detail.mutant_krun_command.clone(),
             );
-            let judged = judged_case(runner, state, &shrunk, detail, cancel);
+            let judged = judged_case(runner, state, settings, case, &shrunk, detail, cancel);
             (Some(judged), commands.0, commands.1)
         }
         _ => (
@@ -648,7 +1183,7 @@ fn finish_witness(
     };
     Witness {
         label: settings.label,
-        first: judged_case(runner, state, &values, first, cancel),
+        first: judged_case(runner, state, settings, case, &values, first, cancel),
         shrunk,
         clean_leaf_facts: witness_facts(&settings.clean_leaf_facts, kind),
         krun_command,
@@ -660,19 +1195,76 @@ fn finish_witness(
 /// judgement its case did not make ([`CaseRunner::comparability`]). That judgement's run is
 /// part of no case, and it runs after shrinking: its work goes to the campaign's total alone,
 /// so it moves no case's class, determinism or coverage, the case count or shrinking.
+///
+/// A crash of that run is noted as a crash of phase `comparability` (FZ-CRASH), and the
+/// judgement then names the condition `crash`; after a failed rebuild no run is made.
 fn judged_case(
     runner: &mut dyn CaseRunner,
     state: &mut State,
+    settings: &LoopSettings,
+    number: u64,
     values: &[Value],
     detail: HitDetail,
     cancel: Option<&CancellationToken>,
 ) -> WitnessCase {
     let mut case = witness_case(detail);
-    if case.comparable.is_none()
-        && let Some((comparable, work)) = runner.comparability(values, cancel)
+    if case.comparable.is_some() || state.rebuild_failure.is_some() {
+        return case;
+    }
+    let judged = match crash::catch(|| runner.comparability(values, cancel)) {
+        Ok(judged) => judged,
+        Err(record) => {
+            let crash = (!crash::is_stack_mapping_refusal(&record.message)).then(|| {
+                Box::new(CaseCrash::engine(
+                    record.message,
+                    record.location,
+                    is_cancelled(cancel),
+                ))
+            });
+            let reason = if crash.is_some() {
+                ComparableCondition::Crash
+            } else {
+                ComparableCondition::StackStops
+            };
+            Some(super::runner::JudgedComparability {
+                comparable: Comparability {
+                    holds: false,
+                    reasons: vec![reason],
+                },
+                work: 0,
+                crash,
+                poisoned: true,
+            })
+        }
+    };
+    let Some(judged) = judged else {
+        return case;
+    };
+    state.charge_extra(judged.work);
+    case.comparable = Some(judged.comparable);
+    if judged.poisoned
+        && let Err(reason) = recover(runner)
     {
-        state.charge_extra(work);
-        case.comparable = Some(comparable);
+        state.stop_on_failed_rebuild(number, &reason);
+        return case;
+    }
+    if let Some(crash) = judged.crash {
+        let noted = note_crash(
+            runner,
+            state,
+            settings,
+            cancel,
+            Found {
+                case: number,
+                values,
+                crash: &crash,
+                phase: CrashPhase::Comparability,
+                trees: None,
+            },
+        );
+        if let Err(reason) = noted {
+            state.stop_on_failed_rebuild(number, &reason);
+        }
     }
     case
 }
@@ -789,9 +1381,18 @@ struct State {
     load_records: BTreeSet<LoadRecord>,
     warnings: Vec<String>,
     defects: Vec<EngineDefect>,
-    abort: Option<String>,
+    abort: Option<AbortInfo>,
     /// The first `stuck` and the first `undefined` case (FZ-INCIDENTAL).
     incidental: Incidentals,
+    /// The first case of each crash signature, in the order they were found (FZ-CRASH).
+    crashes: Vec<CrashFinding>,
+    /// Crashed cases whose signature was not kept.
+    crashes_omitted: u64,
+    /// The crash shrink candidates screened so far.
+    crash_shrink_runs: u64,
+    /// Why the runner did not rebuild, once it did not while a witness was finished: no run
+    /// is made on it after that.
+    rebuild_failure: Option<String>,
 }
 
 impl State {
@@ -813,6 +1414,57 @@ impl State {
             defects: Vec::new(),
             abort: None,
             incidental: Incidentals::default(),
+            crashes: Vec::new(),
+            crashes_omitted: 0,
+            crash_shrink_runs: 0,
+            rebuild_failure: None,
+        }
+    }
+
+    /// Charge the work of a run that examined a crash to `crash-work` alone, at least 1.
+    fn charge_crash(&mut self, work: u64) {
+        self.totals.crash_work = self.totals.crash_work.saturating_add(work.max(1));
+    }
+
+    /// The campaign aborts for `abort`, in case `case` with `values`: a panicking observer
+    /// names the case and its values.
+    fn aborted(&mut self, abort: Abort, case: u64, settings: &LoopSettings, values: &[Value]) {
+        let client = abort.kind == AbortKind::ClientPanic;
+        self.abort = Some(AbortInfo {
+            kind: abort.kind,
+            reason: abort.reason,
+            case: client.then_some(case),
+            holes: if client {
+                crash_holes(settings, values)
+            } else {
+                Vec::new()
+            },
+            panic: abort.panic,
+        });
+    }
+
+    /// The campaign aborts because its runner did not rebuild after a crash at case `case`.
+    fn rebuild_failed(&mut self, case: u64, reason: &str) {
+        self.abort = Some(AbortInfo {
+            kind: AbortKind::RebuildFailed,
+            reason: format!(
+                "the campaign's backends did not rebuild after a crash at case {case}: {reason}"
+            ),
+            case: None,
+            holes: Vec::new(),
+            panic: None,
+        });
+    }
+
+    /// While a confirmed witness is finished, its runner did not rebuild after a crash: no run
+    /// is made on it after this, and a warning says what was not done.
+    fn stop_on_failed_rebuild(&mut self, case: u64, reason: &str) {
+        if self.rebuild_failure.is_none() {
+            self.warn(format!(
+                "the campaign's backends did not rebuild after a crash at case {case} ({reason}), \
+                 so the witness was not shrunk further and no more runs were made"
+            ));
+            self.rebuild_failure = Some(reason.to_owned());
         }
     }
 
@@ -1072,6 +1724,13 @@ impl State {
         if let Some(warning) = every_k_warning(settings.normal_end, &totals) {
             self.warn(warning);
         }
+        if let Some(solve) = totals.solve.as_ref().filter(|solve| solve.panicked > 0) {
+            self.warn(format!(
+                "the solve proposer's query panicked {} {} (a k-rust defect; no concrete input)",
+                solve.panicked,
+                if solve.panicked == 1 { "time" } else { "times" }
+            ));
+        }
         FuzzReport {
             schema: REPORT_SCHEMA.into(),
             version: REPORT_VERSION,
@@ -1084,6 +1743,8 @@ impl State {
             load_records: self.load_records.into_iter().collect(),
             normal_end: settings.normal_end,
             incidental: self.incidental,
+            crashes: CrashFindings(self.crashes),
+            crashes_omitted: self.crashes_omitted,
             sort_overrides: settings.sort_overrides.clone(),
             warnings: self.warnings,
             definition_findings: settings.definition_findings.clone(),

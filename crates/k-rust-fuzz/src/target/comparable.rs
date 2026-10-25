@@ -165,13 +165,16 @@ impl ResolvedTarget {
     /// judgement with that run's work (at least 1) for the campaign's total. A failed solver
     /// prelude, which the witness's own run passed, reads as `run-failed`. `None` when the case
     /// made the judgement or the target carries none.
+    ///
+    /// The run of every path is returned beside the judgement, so that a crash of it is noted
+    /// (FZ-CRASH); `None` for a run that aborted.
     pub(crate) fn comparability(
         &self,
         executor: &mut Executor,
         initial: &KorePattern,
         shape: &CaseRequestShape,
         cancel: Option<&CancellationToken>,
-    ) -> Option<(Comparability, u64)> {
+    ) -> Option<(Comparability, u64, Option<CaseResult>)> {
         if !self.judges_comparability() || self.target.comparable || own_run_of_every_path(shape) {
             return None;
         }
@@ -180,8 +183,9 @@ impl ResolvedTarget {
                 Ok(every_path) => (
                     comparability(conditions_here(executor, &every_path)),
                     every_path.work.max(1),
+                    Some(every_path),
                 ),
-                Err(_) => (comparability(vec![ComparableCondition::RunFailed]), 0),
+                Err(_) => (comparability(vec![ComparableCondition::RunFailed]), 0, None),
             },
         )
     }

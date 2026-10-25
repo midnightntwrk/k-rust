@@ -1,19 +1,25 @@
 //! Witness files and `--replay` (ARCHITECTURE 9.4).
 //!
-//! A witness file holds the resolved campaign and the report that found the witness. Replaying
-//! it rebuilds the campaign's specification from the recorded inputs, checks that the replay's
-//! identity is the witness's (every field of the report's identity but the five that only
-//! choose cases or that the replay sets itself; [`identity_mismatches`]), refuses on a mismatch
-//! unless forced, and runs each recorded witness case as the campaign's only explicit
-//! assignment. A case reproduces when the replay confirms a hit whose witness case,
-//! with its class and final configurations, equals the recorded one.
+//! A witness file holds the resolved campaign and the report that found the witness, or the
+//! report of a campaign whose cases crashed (FZ-CRASH). Replaying it rebuilds the campaign's
+//! specification from the recorded inputs, checks that the replay's identity is the witness's
+//! (every field of the report's identity but the five that only choose cases or that the replay
+//! sets itself; [`identity_mismatches`]), refuses on a mismatch unless forced, and runs each
+//! recorded witness case, and each crash's first and shrunk values, as the campaign's only
+//! explicit assignment. A witness case reproduces when the replay confirms a hit whose witness
+//! case, with its class and final configurations, equals the recorded one. A crash reproduces
+//! when the replay reports a crash of the same kind, side and stage, from a build with the same
+//! debug assertions, at the same site when both sites are locations ([`crash_reproduced`]); a
+//! crash of a confirmation or a comparability run re-enters through its own path, since the
+//! replay of its values confirms them and judges their comparability as the campaign did.
 
 use std::path::Path;
 
 use k_rust_fuzz::{
     Budget, Campaign, ProposerConfig,
     report::{
-        Comparability, FuzzReport, REPORT_SCHEMA, REPORT_VERSION, ReportIdentity, WitnessCase,
+        Comparability, CrashFinding, CrashHole, FuzzReport, REPORT_SCHEMA, REPORT_VERSION,
+        ReportIdentity, SiteKind, WitnessCase,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -23,10 +29,12 @@ use crate::campaign::{LoadedCampaign, ResolvedCampaign};
 /// The witness file's `schema` field.
 pub const WITNESS_SCHEMA: &str = "krust-fuzz-witness";
 
-/// The witness file's `version` field.
-pub const WITNESS_VERSION: u32 = 1;
+/// The witness file's `version` field. Version 2 (FZ-CRASH) holds a version-8 report, and is also
+/// written for a campaign that found no witness but whose cases crashed.
+pub const WITNESS_VERSION: u32 = 2;
 
-/// A witness file: the campaign as resolved and the report that found the witness.
+/// A witness file: the campaign as resolved and the report that found the witness or the
+/// crashes.
 #[derive(Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct WitnessFile {
@@ -101,9 +109,9 @@ impl WitnessFile {
             ));
         }
         let file: WitnessFile = read_deep(&text).map_err(not_a_witness)?;
-        if file.report.witness().is_none() {
+        if file.report.witness().is_none() && file.report.crashes.is_empty() {
             return Err(format!(
-                "`{}` records a campaign that found no witness",
+                "`{}` records a campaign that found no witness and no crash",
                 path.display()
             ));
         }
@@ -226,10 +234,10 @@ fn differ(
     }
 }
 
-/// The result of replaying one recorded witness case.
+/// The result of replaying one recorded witness case or crash.
 pub struct CaseReplay {
-    /// `first` or `shrunk`.
-    pub which: &'static str,
+    /// `first witness`, `shrunk witness`, `crash 0 (first)`, `crash 0 (shrunk)`, ...
+    pub which: String,
     /// The differences from the recorded case; empty when it reproduced.
     pub differences: Vec<String>,
     /// The replay's report.
@@ -251,28 +259,58 @@ pub fn replay(
     force: bool,
     thread_stack_size: u64,
 ) -> Result<Replay, String> {
-    let witness = file
-        .report
-        .witness()
-        .ok_or("the witness file records no witness")?;
-    let recorded = [
-        ("first", Some(&witness.first)),
-        ("shrunk", witness.shrunk.as_ref()),
-    ];
+    let mut recorded: Vec<(String, Recorded<'_>, Assignment)> = Vec::new();
+    let named = |holes: &[k_rust_fuzz::report::HoleValue]| {
+        holes
+            .iter()
+            .map(|hole| (hole.name.clone(), hole.value.clone()))
+            .collect::<Vec<_>>()
+    };
+    let crash_named = |holes: &[CrashHole]| {
+        holes
+            .iter()
+            .map(|hole| (hole.name.clone(), hole.value.clone()))
+            .collect::<Vec<_>>()
+    };
+    if let Some(witness) = file.report.witness() {
+        recorded.push((
+            "first witness".into(),
+            Recorded::Witness(&witness.first),
+            named(&witness.first.holes),
+        ));
+        if let Some(shrunk) = &witness.shrunk {
+            recorded.push((
+                "shrunk witness".into(),
+                Recorded::Witness(shrunk),
+                named(&shrunk.holes),
+            ));
+        }
+    }
+    for (index, crash) in file.report.crashes.0.iter().enumerate() {
+        recorded.push((
+            format!("crash {index} (first)"),
+            Recorded::Crash(crash),
+            crash_named(&crash.holes),
+        ));
+        if let Some(shrunk) = &crash.shrunk_holes {
+            recorded.push((
+                format!("crash {index} (shrunk)"),
+                Recorded::Crash(crash),
+                crash_named(shrunk),
+            ));
+        }
+    }
+    if recorded.is_empty() {
+        return Err("the witness file records no witness and no crash".into());
+    }
     let mut options = loaded.resolved.options.clone();
     options.shrink = false;
     let mut cases = Vec::new();
     let mut mismatches = None;
-    for (which, case) in recorded {
-        let Some(case) = case else { continue };
+    for (which, case, values) in recorded {
         let proposers = ProposerConfig {
             anchors_first: false,
-            explicit: vec![
-                case.holes
-                    .iter()
-                    .map(|hole| (hole.name.clone(), hole.value.clone()))
-                    .collect(),
-            ],
+            explicit: vec![values.into_iter().collect()],
             weights: std::collections::BTreeMap::new(),
         };
         let spec = loaded.spec(proposers, options.clone(), thread_stack_size);
@@ -291,7 +329,10 @@ pub fn replay(
             mismatches = Some(found);
         }
         let report = campaign.run(Budget::Cases(1), None);
-        let differences = differences(case, &report);
+        let differences = match case {
+            Recorded::Witness(case) => differences(case, &report),
+            Recorded::Crash(crash) => crash_differences(crash, &report),
+        };
         cases.push(CaseReplay {
             which,
             differences,
@@ -302,6 +343,65 @@ pub fn replay(
         mismatches: mismatches.unwrap_or_default(),
         cases,
     })
+}
+
+/// The hole values of one replayed case, by hole name.
+type Assignment = Vec<(String, k_rust_fuzz::Value)>;
+
+/// What a replayed assignment was recorded as.
+#[derive(Clone, Copy)]
+enum Recorded<'a> {
+    /// A witness case.
+    Witness(&'a WitnessCase),
+    /// A crash's first or shrunk values.
+    Crash(&'a CrashFinding),
+}
+
+/// Whether the replay's crash `now` reproduces the recorded `then`: the same kind, side and
+/// stage, from a build with the same debug assertions (whose panics a release build does not
+/// raise), and the same site when both sites are locations (a site that is a message class
+/// depends on no location, and a location the hook did not see falls back to one).
+pub fn crash_reproduced(then: &CrashFinding, now: &CrashFinding) -> bool {
+    let (then_signature, now_signature) = (&then.signature, &now.signature);
+    then_signature.kind == now_signature.kind
+        && then_signature.side == now_signature.side
+        && then_signature.stage == now_signature.stage
+        && then.debug_assertions == now.debug_assertions
+        && (then_signature.site_kind != SiteKind::Location
+            || now_signature.site_kind != SiteKind::Location
+            || then_signature.site == now_signature.site)
+}
+
+/// How the replay's report differs from the recorded crash: empty when one of its crashes
+/// reproduces it ([`crash_reproduced`]). The words blame no one: a crash that does not repeat
+/// may have been decided by the host.
+fn crash_differences(recorded: &CrashFinding, report: &FuzzReport) -> Vec<String> {
+    if report
+        .crashes
+        .0
+        .iter()
+        .any(|now| crash_reproduced(recorded, now))
+    {
+        return Vec::new();
+    }
+    let found = if report.crashes.is_empty() {
+        "the replay reported no crash".to_owned()
+    } else {
+        format!(
+            "the replay reported other crashes ({})",
+            report
+                .crashes
+                .0
+                .iter()
+                .map(|crash| crash.signature.site.clone())
+                .collect::<Vec<_>>()
+                .join("; ")
+        )
+    };
+    vec![format!(
+        "{found}: the crash did not repeat here; its determinism is unknown: a solver timeout \
+         or a stack stop may have decided it"
+    )]
 }
 
 /// How the replay's report differs from the recorded witness case.
@@ -384,9 +484,66 @@ fn comparable_reproduced(
 
 #[cfg(test)]
 mod tests {
-    use k_rust_fuzz::{exec::ComparableCondition as C, report::Comparability};
+    use k_rust_fuzz::{
+        exec::ComparableCondition as C,
+        report::{
+            Comparability, CrashDeterminism, CrashFinding, CrashKind, CrashPhase, CrashSide,
+            CrashSignature, CrashStage, SiteKind,
+        },
+    };
 
-    use super::comparable_reproduced;
+    use super::{comparable_reproduced, crash_reproduced};
+
+    fn crash(site_kind: SiteKind, site: &str) -> CrashFinding {
+        CrashFinding {
+            signature: CrashSignature {
+                kind: CrashKind::Panic,
+                side: CrashSide::Baseline,
+                stage: CrashStage::Execute,
+                site_kind,
+                site: site.into(),
+            },
+            phase: CrashPhase::Case,
+            message: "boom".into(),
+            case: 3,
+            holes: Vec::new(),
+            shrunk_holes: None,
+            count: 1,
+            reproduced: Some(true),
+            shrunk_reproduced: None,
+            determinism: CrashDeterminism::Unknown,
+            clock: false,
+            debug_assertions: true,
+            krun_command: None,
+            program: None,
+            config_vars: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// A replayed crash reproduces a recorded one with the same kind, side, stage and debug
+    /// assertions; the sites are compared only when both are locations.
+    #[test]
+    fn a_crash_reproduces_by_kind_side_stage_and_located_site() {
+        let located = crash(SiteKind::Location, "k-rust/src/a.rs:1:2");
+        assert!(crash_reproduced(&located, &located.clone()));
+        let moved = crash(SiteKind::Location, "k-rust/src/a.rs:9:2");
+        assert!(!crash_reproduced(&located, &moved));
+        let message = crash(SiteKind::Message, "boom");
+        assert!(crash_reproduced(&located, &message));
+        assert!(crash_reproduced(&message, &located));
+        let mut mutant = located.clone();
+        mutant.signature.side = CrashSide::Mutant;
+        assert!(!crash_reproduced(&located, &mutant));
+        let mut judged = located.clone();
+        judged.signature.stage = CrashStage::Judge;
+        assert!(!crash_reproduced(&located, &judged));
+        let mut release = located.clone();
+        release.debug_assertions = false;
+        assert!(!crash_reproduced(&located, &release));
+        let mut error = located.clone();
+        error.signature.kind = CrashKind::InternalError;
+        assert!(!crash_reproduced(&located, &error));
+    }
 
     fn judged(reasons: &[C]) -> Comparability {
         Comparability {

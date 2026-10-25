@@ -69,6 +69,8 @@ fn run(class: OutcomeClass, work: u64) -> CaseRun {
         cut: Cut::default(),
         baseline_ended_within: None,
         pattern_body_matches: None,
+        crash: None,
+        poisoned: false,
     }
 }
 
@@ -166,9 +168,10 @@ impl CaseRunner for Scripted {
         _cancel: Option<&CancellationToken>,
     ) -> Result<CaseRun, Abort> {
         if self.abort_at == Some(self.cases.len()) {
-            return Err(Abort {
-                reason: "solver prelude failed".into(),
-            });
+            return Err(Abort::new(
+                crate::report::AbortKind::SolverPreludeInconsistent,
+                "solver prelude failed",
+            ));
         }
         self.cases.push(values.to_vec());
         Ok((self.case)(values))
@@ -181,9 +184,10 @@ impl CaseRunner for Scripted {
     ) -> Result<CaseRun, ConfirmFailure> {
         self.confirmed.push(values.to_vec());
         if self.confirm_aborts {
-            return Err(ConfirmFailure::Abort(Abort {
-                reason: "the fresh backend's solver prelude failed".into(),
-            }));
+            return Err(ConfirmFailure::Abort(Abort::new(
+                crate::report::AbortKind::SolverPreludeInconsistent,
+                "the fresh backend's solver prelude failed",
+            )));
         }
         (self.confirm)(values).map_err(ConfirmFailure::Failed)
     }
@@ -200,16 +204,18 @@ impl CaseRunner for Scripted {
         &mut self,
         values: &[Value],
         _cancel: Option<&CancellationToken>,
-    ) -> Option<(Comparability, u64)> {
+    ) -> Option<super::runner::JudgedComparability> {
         let work = self.judgement_work?;
         self.judged.push(values.to_vec());
-        Some((
-            Comparability {
+        Some(super::runner::JudgedComparability {
+            comparable: Comparability {
                 holds: false,
                 reasons: vec![ComparableCondition::Clock],
             },
             work,
-        ))
+            crash: None,
+            poisoned: false,
+        })
     }
 }
 
@@ -303,6 +309,7 @@ fn settings(holes: usize) -> LoopSettings {
         label: HitLabel::Hit,
         clean_leaf_facts: vec!["ceil-free".into()],
         constraints: vec![Constraints::default(); holes],
+        hole_names: (0..holes).map(|hole| format!("H{hole}")).collect(),
         sort_overrides: Vec::new(),
         warnings: Vec::new(),
         definition_findings: Vec::new(),
@@ -1866,10 +1873,11 @@ fn a_state_the_backend_refuses_is_recognized_on_either_side() {
         run_allowance_refusals: 0,
         load_records: Vec::new(),
         safety_limit_hit: false,
-        failure: Some(CaseFailure {
-            message: "refused".into(),
+        failure: Some(CaseFailure::new(
+            "refused",
             cause,
-        }),
+            crate::report::CrashStage::Execute,
+        )),
         run_facts_off_leaves: false,
     };
     assert!(super::live::refused(&result(FailureCause::StateRefused)));
@@ -2675,4 +2683,144 @@ fn a_finite_domain_is_the_product_of_the_holes_finite_domains() {
         .collect();
     assert_eq!(assignments.len(), 10);
     assert!(assignments.contains(&vec![int(-2), Value::Bool(true)]));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Crash findings (FZ-CRASH): a panic in the runner is a finding with its input, and the
+// campaign goes on. These tests read the report as JSON, the form every client reads.
+
+fn report_json(report: &FuzzReport) -> serde_json::Value {
+    serde_json::from_str(&report.to_canonical_json()).expect("a report is JSON")
+}
+
+/// (B) A panic while the campaign's runner runs case 3 of 10 is one crash finding of the
+/// engine, with the case's values; the case is `unsupported` with the reason `panic`, and the
+/// other nine cases run.
+#[test]
+fn a_panicking_case_is_a_crash_finding_and_the_campaign_goes_on() {
+    let mut runner = Scripted::new(
+        |values| {
+            assert!(as_int(&values[0]) != 4, "the scripted runner panics at 4");
+            run(OutcomeClass::Miss, 1)
+        },
+        |_| Ok(run(OutcomeClass::Miss, 1)),
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(10),
+        None,
+    );
+    let json = report_json(&report);
+    assert_eq!(json["totals"]["cases"], 10, "{}", json["totals"]);
+    assert_eq!(json["totals"]["classes"]["unsupported"], 1);
+    assert_eq!(json["totals"]["unsupported-reasons"]["panic"], 1);
+    let crashes = json["crashes"].as_array().expect("a crashes list");
+    assert_eq!(crashes.len(), 1, "{crashes:?}");
+    let crash = &crashes[0];
+    assert_eq!(crash["signature"]["kind"], "panic", "{crash}");
+    assert_eq!(crash["signature"]["side"], "engine", "{crash}");
+    assert_eq!(crash["phase"], "case", "{crash}");
+    assert_eq!(crash["case"], 3, "{crash}");
+    assert_eq!(crash["holes"][0]["value"]["int"], "4", "{crash}");
+    assert!(
+        crash["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("panics at 4")),
+        "{crash}"
+    );
+}
+
+/// (B) A panic in a candidate's confirmation leaves the candidate unconfirmed, and is a crash
+/// finding of phase `confirmation`.
+#[test]
+fn a_panicking_confirmation_leaves_the_candidate_unconfirmed() {
+    let mut runner = Scripted::new(
+        |values| {
+            if as_int(&values[0]) == 3 {
+                hit(values, 1, "end-3")
+            } else {
+                run(OutcomeClass::Miss, 1)
+            }
+        },
+        |_| panic!("the scripted confirmation panics"),
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(5),
+        None,
+    );
+    let json = report_json(&report);
+    assert_eq!(
+        json["outcome"]["status"], "no-witness-found",
+        "{}",
+        json["outcome"]
+    );
+    assert_eq!(json["totals"]["unconfirmed"], 1, "{}", json["totals"]);
+    assert_eq!(json["totals"]["cases"], 5, "{}", json["totals"]);
+    let crashes = json["crashes"].as_array().expect("a crashes list");
+    assert_eq!(crashes.len(), 1, "{crashes:?}");
+    assert_eq!(crashes[0]["phase"], "confirmation", "{}", crashes[0]);
+    assert_eq!(crashes[0]["case"], 2, "{}", crashes[0]);
+    assert_eq!(
+        crashes[0]["holes"][0]["value"]["int"], "3",
+        "{}",
+        crashes[0]
+    );
+}
+
+/// (B) A panic while a shrink candidate is screened drops the candidate, and is a crash finding
+/// of phase `shrink` with the candidate's values, not the witness's.
+#[test]
+fn a_panicking_shrink_candidate_is_dropped_and_recorded_with_its_values() {
+    let mut runner = Scripted::new(
+        |values| {
+            let value = as_int(&values[0]);
+            assert!(value != 0, "the scripted runner panics at 0");
+            if value >= 10 {
+                hit(values, 1, "end")
+            } else {
+                run(OutcomeClass::Miss, 1)
+            }
+        },
+        |values| {
+            if as_int(&values[0]) >= 10 {
+                Ok(hit(values, 1, "end"))
+            } else {
+                Ok(run(OutcomeClass::Miss, 1))
+            }
+        },
+    );
+    let mut schedule = Schedule::new(
+        1,
+        Vec::new(),
+        vec![(1, Counter::boxed(ProposerKind::Blind, 100, 0))],
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut schedule,
+        &settings(1),
+        Budget::Cases(1),
+        None,
+    );
+    let json = report_json(&report);
+    assert_eq!(
+        json["outcome"]["status"], "witness-found",
+        "{}",
+        json["outcome"]
+    );
+    let shrunk = &json["outcome"]["witness"]["shrunk"];
+    assert_eq!(shrunk["holes"][0]["value"]["int"], "10", "{shrunk}");
+    let crashes = json["crashes"].as_array().expect("a crashes list");
+    assert_eq!(crashes.len(), 1, "{crashes:?}");
+    assert_eq!(crashes[0]["phase"], "shrink", "{}", crashes[0]);
+    assert_eq!(crashes[0]["case"], 0, "{}", crashes[0]);
+    assert_eq!(
+        crashes[0]["holes"][0]["value"]["int"], "0",
+        "{}",
+        crashes[0]
+    );
 }

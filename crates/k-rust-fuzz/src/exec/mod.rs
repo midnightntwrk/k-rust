@@ -36,7 +36,7 @@ pub(crate) use run::{
 };
 
 use crate::{
-    report::{EngineDefect, LoadRecord},
+    report::{AbortKind, CrashKind, CrashStage, EngineDefect, LoadRecord, PanicRecord},
     spec::{CaseOptions, PathMode},
 };
 
@@ -373,27 +373,56 @@ impl LeafReport {
     }
 }
 
-/// Why `Backend::execute`, or the judgement of its leaves, answered `Err` (FZ-01 review S8).
+/// Why `Backend::execute`, or the judgement of its leaves, answered `Err` or panicked (FZ-01
+/// review S8, FZ-CRASH).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CaseFailure {
-    /// The error's text.
+    /// The error's text (a panic's message).
     pub message: String,
     /// What kind of failure it is.
     pub cause: FailureCause,
+    /// Whether it happened in `Backend::execute` or in the judgement of the run's leaves.
+    pub stage: CrashStage,
 }
 
 impl CaseFailure {
-    /// A failure that is neither a stop nor a refused state; the case is `unsupported`.
+    /// An internal error ([`FailureCause::Other`]) of `Backend::execute`; the case is
+    /// `unsupported`.
     #[must_use]
     pub fn other(message: impl Into<String>) -> Self {
         Self {
             message: message.into(),
             cause: FailureCause::Other,
+            stage: CrashStage::Execute,
+        }
+    }
+
+    /// A failure of `cause` with `message` at `stage`.
+    #[must_use]
+    pub fn new(message: impl Into<String>, cause: FailureCause, stage: CrashStage) -> Self {
+        Self {
+            message: message.into(),
+            cause,
+            stage,
+        }
+    }
+
+    /// Whether this failure is a crash finding (FZ-CRASH): a panic or an internal error, a
+    /// defect of k-rust or of the engine.
+    #[must_use]
+    pub fn crash_kind(&self) -> Option<CrashKind> {
+        match self.cause {
+            FailureCause::Panic(_) => Some(CrashKind::Panic),
+            FailureCause::Other => Some(CrashKind::InternalError),
+            FailureCause::Stop(_)
+            | FailureCause::StateRefused
+            | FailureCause::TooDeep
+            | FailureCause::StackMappingRefused => None,
         }
     }
 }
 
-/// The kind of an `Err` result (FZ-01 review S8).
+/// The kind of an `Err` result or a panic (FZ-01 review S8, FZ-CRASH).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum FailureCause {
     /// The operation stopped (`BackendError::stop_cause`): a cancellation or step deadline is
@@ -401,10 +430,25 @@ pub enum FailureCause {
     /// a [`DeterminismBreak::StackStops`]. A failed solver prelude never reaches a case: it
     /// aborts the campaign.
     Stop(StopCause),
-    /// The backend refused the initial state (`invalid executable state`, or it could not be
-    /// internalized): the case is `rejected`.
+    /// The backend refused the initial state (`BackendErrorKind::InvalidState`, or
+    /// `StateNotInternalized`): the case is `rejected`.
     StateRefused,
-    /// Any other failure: the case is `unsupported`.
+    /// The request is nested deeper than the largest stack the backend provides for one
+    /// operation (`BackendErrorKind::InsufficientStack`): a bound the build fixes, so a
+    /// function of the input, like `max-depth`. The case is `unsupported`, inside the
+    /// determinism contract, and no crash.
+    TooDeep,
+    /// The host refused to map a stack segment (`BackendErrorKind::StackSegmentRefused`, or a
+    /// panic with one of `stacker`'s mapping texts, `crate::crash::STACKER_MAPPING_TEXTS`): the
+    /// environment, so a [`DeterminismBreak::StackStops`]. The case is `unsupported`, and no
+    /// crash.
+    StackMappingRefused,
+    /// The run or its judgement panicked: a crash finding of kind `panic`. The case is
+    /// `unsupported`.
+    Panic(PanicRecord),
+    /// Any other failure, an error without a typed kind that a correct k-rust never answers for
+    /// a request the engine built: a crash finding of kind `internal-error`. The case is
+    /// `unsupported`.
     Other,
 }
 
@@ -457,7 +501,11 @@ impl CaseResult {
             .as_ref()
             .and_then(|failure| match &failure.cause {
                 FailureCause::Stop(cause) => Some(cause),
-                FailureCause::StateRefused | FailureCause::Other => None,
+                FailureCause::StateRefused
+                | FailureCause::TooDeep
+                | FailureCause::StackMappingRefused
+                | FailureCause::Panic(_)
+                | FailureCause::Other => None,
             });
         if self.safety_limit_hit
             || matches!(stop, Some(StopCause::Cancelled | StopCause::Deadline(_)))
@@ -475,6 +523,10 @@ impl CaseResult {
         }
         if self.stack_stops > 0
             || matches!(stop, Some(StopCause::StackExhausted(_)))
+            || self
+                .failure
+                .as_ref()
+                .is_some_and(|failure| failure.cause == FailureCause::StackMappingRefused)
             || self
                 .load_records
                 .iter()
@@ -494,12 +546,28 @@ impl CaseResult {
     }
 }
 
-/// A failure that ends the campaign rather than classing a case: a failed solver prelude,
-/// which the backend would repeat for every case (ARCHITECTURE 5.3).
+/// A failure that ends the campaign rather than classing a case: a failed solver prelude or a
+/// solver that does not start, which the backend would repeat for every case (ARCHITECTURE
+/// 5.3), or a panic in the client's observer, which no rebuild replaces.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct Abort {
+    /// What kind of failure.
+    pub(crate) kind: AbortKind,
     /// Why.
     pub(crate) reason: String,
+    /// For a panicking observer, what panicked.
+    pub(crate) panic: Option<PanicRecord>,
+}
+
+impl Abort {
+    /// An abort of `kind` for `reason`, without a panic.
+    pub(crate) fn new(kind: AbortKind, reason: impl Into<String>) -> Self {
+        Self {
+            kind,
+            reason: reason.into(),
+            panic: None,
+        }
+    }
 }
 
 /// What a target needs from every execute request (ARCHITECTURE 5.1).
@@ -812,6 +880,9 @@ fn failure_class(result: &CaseResult, failure: &CaseFailure) -> OutcomeClass {
         FailureCause::Stop(StopCause::Cancelled | StopCause::Deadline(_)) => OutcomeClass::Timeout,
         FailureCause::StateRefused => OutcomeClass::Rejected,
         FailureCause::Stop(StopCause::StackExhausted(_) | StopCause::SolverPrelude(_))
+        | FailureCause::TooDeep
+        | FailureCause::StackMappingRefused
+        | FailureCause::Panic(_)
         | FailureCause::Other => OutcomeClass::Unsupported,
     }
 }

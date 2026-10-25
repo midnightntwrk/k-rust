@@ -1487,6 +1487,8 @@ export interface FuzzSolveTotals {
   work: number
   'outside-determinism': number
   'first-failure'?: string
+  /** Failed runs whose query panicked (a k-rust defect, no finding: no concrete input); absent when 0. */
+  panicked?: number
 }
 
 export interface FuzzHoleValue {
@@ -1549,7 +1551,76 @@ export type FuzzCampaignOutcome =
   | { status: 'not-comparable'; sides: ('baseline' | 'mutant')[]; statement: string }
   | { status: 'rejected-out'; 'no-witness': FuzzNoWitness }
   | { status: 'cancelled'; 'no-witness': FuzzNoWitness }
-  | { status: 'aborted'; reason: string; 'no-witness': FuzzNoWitness }
+  | {
+      status: 'aborted'
+      kind: FuzzAbortKind
+      reason: string
+      /** For `client-panic`: the case the observer panicked in, its hole values, and the panic. */
+      case?: number
+      holes?: FuzzCrashHole[]
+      panic?: FuzzPanicRecord
+      'no-witness': FuzzNoWitness
+    }
+
+/** Why a campaign aborted (report version 8). */
+export type FuzzAbortKind =
+  | 'solver-prelude-inconsistent'
+  | 'solver-prelude-malformed'
+  | 'solver-prelude-unknown'
+  | 'solver-init'
+  | 'client-panic'
+  | 'rebuild-failed'
+
+/** What a panic left: its message and, when the campaign's hook saw it, its `file:line:column`. */
+export interface FuzzPanicRecord {
+  message: string
+  location?: string
+}
+
+/** A hole and its value in a crash finding. */
+export interface FuzzCrashHole {
+  name: string
+  value: FuzzValue
+}
+
+/** The identity of a crash; crashes with equal signatures count as one finding. */
+export interface FuzzCrashSignature {
+  kind: 'panic' | 'internal-error'
+  side: 'baseline' | 'mutant' | 'engine'
+  stage: 'execute' | 'judge' | 'engine'
+  /** `location`: the panic's location from its crate's `src`; `message`: the message's class. */
+  'site-kind': 'location' | 'message'
+  site: string
+}
+
+/**
+ * The first case of one crash signature: a panic or internal error of k-rust or k-rust-fuzz during
+ * a case, a k-rust defect (the definition may have triggered it, but k-rust should have rejected or
+ * reported it). The case keeps its class (`unsupported`, or `baseline-incomplete`) with the reason
+ * `panic` or `internal-error` (k-rust-fuzz README, "Crash findings").
+ */
+export interface FuzzCrashFinding {
+  signature: FuzzCrashSignature
+  phase: 'case' | 'confirmation' | 'shrink' | 'comparability'
+  /** At most 1 KiB. */
+  message: string
+  case: number
+  holes: FuzzCrashHole[]
+  /** The values the crash shrank to under the same signature, when shrinking moved them. */
+  'shrunk-holes'?: FuzzCrashHole[]
+  /** Cases of the campaign with this signature. */
+  count: number
+  /** Whether a re-run on a fresh backend crashed alike; absent when the clock stopped the run. */
+  reproduced?: boolean
+  'shrunk-reproduced'?: boolean
+  /** Never known to repeat: `outside` (the clock, or no reproduction) or `unknown`. */
+  determinism: 'outside' | 'unknown'
+  clock: boolean
+  'debug-assertions': boolean
+  'krun-command'?: string
+  program?: string
+  'config-vars'?: Record<string, string>
+}
 
 export type FuzzRejectionReason =
   | 'generation'
@@ -1564,7 +1635,10 @@ export type FuzzRejectionReason =
  * once, under the first of its reasons in this order.
  */
 export type FuzzUnjudgedReason =
-  | 'backend-error'
+  | 'panic'
+  | 'internal-error'
+  | 'too-deep'
+  | 'stack-mapping-refused'
   | 'stack-exhausted'
   | 'clock'
   | 'cancelled'
@@ -1605,6 +1679,7 @@ export type FuzzUnjudgedReason =
 /** A condition kink's comparability or query hit rests on that a run fails, in report order. */
 export type FuzzComparableCondition =
   | 'run-failed'
+  | 'crash'
   | 'clock'
   | 'work-bound'
   | 'depth-bound'
@@ -1687,6 +1762,8 @@ export interface FuzzTotals {
   'case-sequence-digest': string
   /** The solve proposer's runs; present exactly when its weight is positive. */
   solve?: FuzzSolveTotals
+  /** The work of the runs that examined crashes (charged to no budget, not in `work`); absent when 0. */
+  'crash-work'?: number
 }
 
 /**
@@ -1716,7 +1793,7 @@ export interface FuzzIncidentalCase {
   'baseline-run'?: boolean
 }
 
-/** A campaign's report: schema `krust-fuzz-report`, version 7 (docs/compatibility.md). */
+/** A campaign's report: schema `krust-fuzz-report`, version 8 (docs/compatibility.md). */
 export interface FuzzReport {
   schema: 'krust-fuzz-report'
   version: number
@@ -1727,6 +1804,10 @@ export interface FuzzReport {
   'normal-end'?: { baseline: FuzzNormalEndKind; mutant?: FuzzNormalEndKind }
   /** The first `stuck` and the first `undefined` case; absent when no case had either class. */
   incidental?: { stuck?: FuzzIncidentalCase; undefined?: FuzzIncidentalCase }
+  /** The first case of each crash signature (at most 16); absent when no case crashed. */
+  crashes?: FuzzCrashFinding[]
+  /** Crashed cases of signatures beyond those kept; absent when 0. */
+  'crashes-omitted'?: number
   'load-records': { kind: string; detail: string }[]
   'sort-overrides': { hole: string; sort: string; refusal: string }[]
   warnings: string[]

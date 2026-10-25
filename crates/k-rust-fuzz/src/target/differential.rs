@@ -1518,10 +1518,11 @@ mod tests {
     fn a_baseline_that_refuses_the_initial_state_is_rejected() {
         let mutant = result(vec![natural(config(5, 0), Some(true))]);
         let mut refused = result(Vec::new());
-        refused.failure = Some(CaseFailure {
-            message: "refused".to_owned(),
-            cause: FailureCause::StateRefused,
-        });
+        refused.failure = Some(CaseFailure::new(
+            "refused",
+            FailureCause::StateRefused,
+            crate::report::CrashStage::Execute,
+        ));
         let mut vacuous = leaf(
             HaltReasonOutput::Vacuous,
             config(0, 0),

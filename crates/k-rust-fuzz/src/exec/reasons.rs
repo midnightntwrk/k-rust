@@ -34,9 +34,19 @@ use super::{
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum UnjudgedReason {
-    /// The backend answered `Err` for a reason other than a clock, a lack of stack or a refused
-    /// initial state ([`FailureCause::Other`]); the engine defects or the message say why.
-    BackendError,
+    /// The run or its judgement panicked ([`FailureCause::Panic`]): a defect of k-rust or of the
+    /// engine, reported among the report's `crashes`.
+    Panic,
+    /// The backend answered an error without a typed kind that is not a clock, a lack of stack
+    /// or a refused initial state ([`FailureCause::Other`]): a defect of k-rust or of the engine,
+    /// reported among the report's `crashes`.
+    InternalError,
+    /// The request is nested deeper than the largest stack the backend provides for one
+    /// operation ([`FailureCause::TooDeep`]): a bound the build fixes, a function of the input.
+    TooDeep,
+    /// The host refused to map a stack segment ([`FailureCause::StackMappingRefused`]): the
+    /// environment, outside the determinism contract.
+    StackMappingRefused,
     /// The run stopped for lack of stack ([`StopCause::StackExhausted`]).
     StackExhausted,
     /// A clock stopped the run or a path: the per-case safety limit or a step deadline
@@ -254,8 +264,11 @@ impl UnjudgedReason {
     /// Every reason that names no condition, in declaration order: the reasons that name one
     /// ([`Self::EndNotComparable`], [`Self::QueryNotConfirmable`]) are one per
     /// [`ComparableCondition`].
-    pub const ALL: [Self; 35] = [
-        Self::BackendError,
+    pub const ALL: [Self; 38] = [
+        Self::Panic,
+        Self::InternalError,
+        Self::TooDeep,
+        Self::StackMappingRefused,
         Self::StackExhausted,
         Self::Clock,
         Self::Cancelled,
@@ -380,7 +393,14 @@ impl UnjudgedReason {
             }
             Self::EndNotComparable(_) => END_NOT_COMPARABLE_REMEDY,
             Self::QueryNotConfirmable(_) => QUERY_NOT_CONFIRMABLE_REMEDY,
-            Self::BackendError
+            Self::TooDeep => {
+                "the case's configuration is nested deeper than the backend's stack holds; \
+                 choose a smaller hole range or program, or run krust-fuzz on a thread with a \
+                 larger stack (library `CallerIdentity::thread_stack_size`)"
+            }
+            Self::Panic
+            | Self::InternalError
+            | Self::StackMappingRefused
             | Self::StackExhausted
             | Self::HaltIndeterminate
             | Self::HaltUnsupportedHook
@@ -445,14 +465,20 @@ impl UnjudgedReason {
 
     /// The reason an `Err` result stands for, when it makes the case unjudged.
     #[must_use]
+    ///
+    /// A refused state and a failed solver prelude make no case unjudged (the first is
+    /// `rejected`, the second aborts the campaign); they read as an internal error.
     pub fn of_failure(failure: &CaseFailure) -> Self {
         match &failure.cause {
             FailureCause::Stop(StopCause::StackExhausted(_)) => Self::StackExhausted,
             FailureCause::Stop(StopCause::Deadline(_)) => Self::Clock,
             FailureCause::Stop(StopCause::Cancelled) => Self::Cancelled,
+            FailureCause::TooDeep => Self::TooDeep,
+            FailureCause::StackMappingRefused => Self::StackMappingRefused,
+            FailureCause::Panic(_) => Self::Panic,
             FailureCause::Stop(StopCause::SolverPrelude(_))
             | FailureCause::StateRefused
-            | FailureCause::Other => Self::BackendError,
+            | FailureCause::Other => Self::InternalError,
         }
     }
 

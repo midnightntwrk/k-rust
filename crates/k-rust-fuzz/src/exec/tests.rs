@@ -1000,10 +1000,11 @@ fn a_hit_outside_the_determinism_contract_is_not_a_hit() {
 #[test]
 fn an_err_result_is_classed_by_its_cause() {
     let failed = |cause: FailureCause| CaseResult {
-        failure: Some(CaseFailure {
-            message: "m".to_owned(),
+        failure: Some(CaseFailure::new(
+            "m",
             cause,
-        }),
+            crate::report::CrashStage::Execute,
+        )),
         ..result(Vec::new())
     };
     let cases = [
@@ -1542,7 +1543,7 @@ fn reasons_of_halts_failures_and_natural_ends() {
         failure: Some(CaseFailure::other("boom")),
         ..result(Vec::new())
     };
-    assert_eq!(reason(&failed, &[], false), UnjudgedReason::BackendError);
+    assert_eq!(reason(&failed, &[], false), UnjudgedReason::InternalError);
     // A hit candidate outside the determinism contract without a clock (a load stack stop).
     let unstable = CaseResult {
         load_records: vec![LoadRecord {

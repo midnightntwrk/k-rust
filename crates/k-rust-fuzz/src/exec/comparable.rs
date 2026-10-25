@@ -126,8 +126,11 @@ impl LeafDiagnostic {
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum ComparableCondition {
-    /// P1: the run answered `Err` for a reason other than a clock or a lack of stack.
+    /// P1: the run answered `Err` for a reason other than a clock, a lack of stack or a crash.
     RunFailed,
+    /// P1: the run or its judgement crashed (a panic or an internal error of k-rust or of the
+    /// engine, FZ-CRASH): the report's `crashes` hold it.
+    Crash,
     /// P1: a clock or a cancellation stopped the run or a path (the per-case safety limit, a
     /// step deadline, a cancelled token).
     Clock,
@@ -191,8 +194,9 @@ pub enum ComparableCondition {
 
 impl ComparableCondition {
     /// Every condition, in declaration order.
-    pub const ALL: [Self; 24] = [
+    pub const ALL: [Self; 25] = [
         Self::RunFailed,
+        Self::Crash,
         Self::Clock,
         Self::WorkBound,
         Self::DepthBound,
@@ -261,10 +265,12 @@ pub fn end_conditions(result: &CaseResult) -> Vec<ComparableCondition> {
     if let Some(failure) = &result.failure {
         conditions.push(match &failure.cause {
             FailureCause::Stop(StopCause::Cancelled | StopCause::Deadline(_)) => C::Clock,
-            FailureCause::Stop(StopCause::StackExhausted(_)) => C::StackStops,
+            FailureCause::Stop(StopCause::StackExhausted(_))
+            | FailureCause::StackMappingRefused => C::StackStops,
+            FailureCause::Panic(_) | FailureCause::Other => C::Crash,
             FailureCause::Stop(StopCause::SolverPrelude(_))
             | FailureCause::StateRefused
-            | FailureCause::Other => C::RunFailed,
+            | FailureCause::TooDeep => C::RunFailed,
         });
     } else if result.leaves.is_empty() {
         conditions.push(C::Halt);
@@ -533,7 +539,16 @@ mod tests {
             failure: Some(CaseFailure::other("no".to_owned())),
             ..result(Vec::new())
         };
-        assert_eq!(end_conditions(&failed), [C::RunFailed]);
+        assert_eq!(end_conditions(&failed), [C::Crash]);
+        let too_deep = CaseResult {
+            failure: Some(CaseFailure::new(
+                "deep",
+                FailureCause::TooDeep,
+                crate::report::CrashStage::Execute,
+            )),
+            ..result(Vec::new())
+        };
+        assert_eq!(end_conditions(&too_deep), [C::RunFailed]);
     }
 
     /// The load's records refuse comparability (kink D-6), though they taint no fuzz leaf (T-5);

@@ -5,7 +5,8 @@
 //! The campaign is the library's ([`k_rust_fuzz::Campaign`]): the campaign file and the flags
 //! map onto its specification. Compiled directories are loaded as `krust krun --definition`
 //! loads them, and every backend is built on krun's route. The exit status is 0 when a witness
-//! was found and confirmed (or, with `--replay`, when every recorded witness case reproduced), 1
+//! was found and confirmed (or, with `--replay`, when every recorded witness case and crash
+//! reproduced), 1
 //! when not, and 2 on an error or a refused replay.
 
 mod campaign;
@@ -229,13 +230,13 @@ struct Args {
     #[arg(long, value_name = "FILE")]
     report: Option<PathBuf>,
 
-    /// When a witness is found, write it with the campaign to FILE, for --replay; when none is
-    /// found, remove FILE if it exists, so that it never holds an older run's witness.
+    /// When a witness is found, or a case crashed, write the report with the campaign to FILE,
+    /// for --replay; otherwise remove FILE if it exists, so that it never holds an older run's.
     #[arg(long, value_name = "FILE")]
     witness: Option<PathBuf>,
 
-    /// Replay a witness file: check its identity and re-run its witness cases. --definition,
-    /// --mutant and --program then relocate the recorded inputs.
+    /// Replay a witness file: check its identity and re-run its witness cases and its crashes'
+    /// values. --definition, --mutant and --program then relocate the recorded inputs.
     #[arg(
         long,
         value_name = "FILE",
@@ -439,7 +440,7 @@ fn run(args: Args) -> Result<u8, String> {
             .map_err(|error| format!("cannot write the report `{}`: {error}", path.display()))?;
     }
     if let Some(path) = &args.witness {
-        if report.witness().is_some() {
+        if report.witness().is_some() || !report.crashes.is_empty() {
             WitnessFile::write(path, &loaded.resolved, &report)?;
         } else if path.exists() {
             std::fs::remove_file(path).map_err(|error| {
@@ -629,10 +630,10 @@ fn replay_command(path: &Path, args: &Args) -> Result<u8, String> {
     let mut reproduced = true;
     for case in &replay.cases {
         if case.differences.is_empty() {
-            println!("{} witness: reproduced", case.which);
+            println!("{}: reproduced", case.which);
         } else {
             reproduced = false;
-            println!("{} witness: not reproduced", case.which);
+            println!("{}: not reproduced", case.which);
             for difference in &case.differences {
                 println!("  {difference}");
             }
@@ -694,8 +695,8 @@ fn summary(report: &FuzzReport, printers: Option<&EndPrinters>) -> String {
     if let Some(best) = &report.totals.best_score {
         let _ = writeln!(text, "{}", best_score_line(best));
     }
-    if let CampaignOutcome::Aborted { reason, .. } = &report.outcome {
-        let _ = writeln!(text, "reason: {reason}");
+    if let CampaignOutcome::Aborted { kind, reason, .. } = &report.outcome {
+        let _ = writeln!(text, "reason ({}): {reason}", serde_name(kind));
     }
     if let CampaignOutcome::NotComparable { statement, .. } = &report.outcome {
         let _ = writeln!(text, "{statement}");
@@ -732,6 +733,7 @@ fn summary(report: &FuzzReport, printers: Option<&EndPrinters>) -> String {
     for line in report.incidental.lines() {
         let _ = writeln!(text, "{line}");
     }
+    write_crashes(&mut text, report);
     write_findings(&mut text, report);
     for warning in &report.warnings {
         let _ = writeln!(text, "warning: {warning}");
@@ -740,6 +742,28 @@ fn summary(report: &FuzzReport, printers: Option<&EndPrinters>) -> String {
         let _ = writeln!(text, "engine defect: {}", defect.description);
     }
     text
+}
+
+/// The summary's crash lines: the first case of each crash signature, one line each, and the
+/// crashed cases of signatures beyond those kept (FZ-CRASH).
+fn write_crashes(text: &mut String, report: &FuzzReport) {
+    use std::fmt::Write as _;
+    for line in report.crashes.lines() {
+        let _ = writeln!(text, "{line}");
+    }
+    if report.crashes_omitted > 0 {
+        let _ = writeln!(
+            text,
+            "crash: {} more crashed {} of signatures beyond the first {} (`crashes-omitted`)",
+            report.crashes_omitted,
+            if report.crashes_omitted == 1 {
+                "case"
+            } else {
+                "cases"
+            },
+            report.crashes.0.len()
+        );
+    }
 }
 
 /// The summary's line for the best score of the scored cases (`totals.best-score`).
