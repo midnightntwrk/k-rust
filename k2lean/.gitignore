@@ -23,6 +23,9 @@ lake-manifest.json
 # What `k2lean soundness` writes into the demo ImpTypes, around its hand module Store.lean.
 /demos/ImpTypes/ImpTypes/Typing.lean
 /demos/ImpTypes/ImpTypes/Soundness.lean
+/demos/ExprTypes/ExprTypes/Tr.lean
+/demos/ExprTypes/ExprTypes/Typing.lean
+/demos/ExprTypes/ExprTypes/Soundness.lean
 /demos/ImpMut/ImpMut/Tr.lean
 /demos/ImpUnroll/ImpUnroll/Tr.lean
 /demos/ImpUnroll/ImpUnroll/Refine.lean

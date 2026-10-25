@@ -4,6 +4,7 @@
 # both, except each library's open lists and hand module). The demos:
 #   ImpRel        the KRS IMP port (k/krs-imp) is bisimilar to kimp (`k2lean relate`, `Bisim.lean`)
 #   ImpTypes      kimp is type-sound for the K type checker k/imp-typing.k
+#   ExprTypes     kimp's expression language EXPR is type-sound for the checker k/expr-typing.k
 #   ImpMut        a mutant of kimp (k/kimp-mutant) diverges from kimp
 #   KrsImpTyping  every KRS IMP rule preserves the declared cell type `env: Map<Id, Value>`
 #   SimpleEnv     (heavy only) a kind 2 invariant of SIMPLE: every environment maps into the store
@@ -88,7 +89,7 @@ export DEMOS=$D KRS=$D/k/krs-imp GEN
 kore_dir() { echo "$S/kore/$1"; }
 
 # 1. compiled KORE (krust): kimp and its lemma module, the type checker, the mutant, SIMPLE
-kores=(kimp kimp-verif imp-typing kmut kimp-unroll imp-sec)
+kores=(kimp kimp-verif imp-typing kmut kimp-unroll imp-sec expr expr-typing)
 [ "$TIER" = heavy ] && kores+=(simple)
 for k in "${kores[@]}"; do libs_kcompile "$k" > "$S/kcompile-$k.log" 2>&1 || { tail -5 "$S/kcompile-$k.log"; exit 1; }; done
 
@@ -120,6 +121,8 @@ lib kimp KImp
 lib krsimp KrsImp
 lib kmut KMut
 lib imptypes KImpTypes
+lib kexpr KExpr
+lib exprtypes KExprTypes
 lib freekey FreeKey
 # the two sides of each fixture self-relation; the demo's build builds them as far as it needs
 for d in peano peanob cellmap cellmapb; do mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"; gen "$d"; done
@@ -129,9 +132,9 @@ if [ "$TIER" = heavy ]; then lib simple KSimple; fi
 
 # 4. the relations (generated files of ImpRel, ImpTypes, ImpMut, PeanoRel, CellMapRel) and the
 #    soundness modules of ImpTypes
-for ns in ImpRel ImpTypes ImpMut PeanoRel CellMapRel ImpUnroll ImpNI; do libs_relate "$ns" > "$S/relate-$ns.log" 2>&1 || { tail -5 "$S/relate-$ns.log"; exit 1; }; done
+for ns in ImpRel ImpTypes ExprTypes ImpMut PeanoRel CellMapRel ImpUnroll ImpNI; do libs_relate "$ns" > "$S/relate-$ns.log" 2>&1 || { tail -5 "$S/relate-$ns.log"; exit 1; }; done
 # the generated modules of ImpTypes' type-soundness proof (`k2lean soundness`)
-libs_soundness ImpTypes > "$S/soundness-ImpTypes.log" 2>&1 || { tail -5 "$S/soundness-ImpTypes.log"; exit 1; }
+for ns in ImpTypes ExprTypes; do libs_soundness "$ns" > "$S/soundness-$ns.log" 2>&1 || { tail -5 "$S/soundness-$ns.log"; exit 1; }; done
 # the scaffolds' generated modules (`k2lean refine`, `confluence`, `noninterference`)
 libs_refine ImpUnroll > "$S/refine-ImpUnroll.log" 2>&1 || { tail -5 "$S/refine-ImpUnroll.log"; exit 1; }
 libs_confluence RaceConf > "$S/confluence-RaceConf.log" 2>&1 || { tail -5 "$S/confluence-RaceConf.log"; exit 1; }
@@ -141,7 +144,7 @@ libs_noninterference ImpNI > "$S/noninterference-ImpNI.log" 2>&1 || { tail -5 "$
 #    that passes has checked them; `sorry` is rejected below
 printf 'module\tbuild\n' > "$S/modules.tsv"
 : > "$S/preserve.txt"
-projects=(ImpRel ImpTypes ImpMut KrsImpTyping PeanoRel CellMapRel ImpUnroll RaceConf ImpNI)
+projects=(ImpRel ImpTypes ExprTypes ImpMut KrsImpTyping PeanoRel CellMapRel ImpUnroll RaceConf ImpNI)
 [ "$TIER" = heavy ] && projects+=(SimpleEnv)
 for p in "${projects[@]}"; do
   [ "${CLEAN:-0}" = 1 ] && rm -rf "$D/$p/.lake"
