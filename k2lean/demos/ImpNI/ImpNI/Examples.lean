@@ -5,7 +5,7 @@ identifier the checker accepts a program whose high branch writes only the high 
 rejects an explicit flow, an implicit flow through `if` and one through `while`, and the empty
 stores are low-equal. The checker's functions are defined by well-founded recursion, which the
 kernel does not reduce, so its verdicts are computed through the inversion lemmas of
-`Levels.lean`. -/
+`Levels.lean` (generated) and `lev_id` (`Store.lean`). -/
 
 namespace ImpNI.Examples
 
@@ -43,10 +43,11 @@ theorem levId_l : levId G0 l = some .lo := by decide
 
 /-- Compute the checker's verdict on a closed program by its inversion lemmas. -/
 macro "k2l_sec_eval" : tactic => `(tactic| (
-  simp only [ok, explicitFlow, ifFlow, whileFlow, var, num, sec_seq, sec_assign, sec_if, sec_while,
-    sec_block, conf_seq, conf_assign, conf_block, conf_if, lev_id, lev_int, lev_bin_0, lev_bin_1,
-    lev_bin_2, lev_bin_3, lev_bin_4, lev_bin_5, lev_bin_6, lev_bin_7, lev_bin_8, lev_bin_9,
-    lev_bin_10, lev_bin_11, join, levId_h, levId_l] <;> decide))
+  simp only [ok, explicitFlow, ifFlow, whileFlow, var, num, sec.__, sec.«_=_;», sec.«if(_)_»,
+    sec.«while(_)_», sec.«{_}», conf.__, conf.«_=_;», conf.«{_}», conf.«if(_)_», lev_id, lev.inj_Int,
+    lev.«_+_», lev.«_>_», KImpSec.K.«join(_,_)_IMP-SEC_Level_Level_Level»,
+    KImpSec.K.«join(_,_)_IMP-SEC_Level_Level_Level».rule1,
+    KImpSec.K.«join(_,_)_IMP-SEC_Level_Level_Level».rule2, levId_h, levId_l] <;> decide))
 
 set_option linter.unusedSimpArgs false in
 theorem secure_ok : secure G0 ok := by change sec G0 _ = some true; k2l_sec_eval

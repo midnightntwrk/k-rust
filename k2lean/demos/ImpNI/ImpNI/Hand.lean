@@ -6,7 +6,8 @@ import KPrelude.Scaffold
 `k2lean noninterference`) is about. A program is `secure` at a labelling `G` (identifiers to
 `lo`, `hi`) when the security checker `k/imp-sec.k` accepts its translation; two stores are
 `lowEq` when they are stores (canonical maps whose identifiers hold values, `Good`) that agree on
-every identifier `G` labels `lo`. -/
+every identifier `G` labels `lo`. The generated relation (`Stack.lean`) also reads `HiOnly`: a store
+that changes only at identifiers not labelled `lo`. -/
 
 namespace ImpNI
 
@@ -32,5 +33,13 @@ def lowEq (G : KImpSec.SortMap) (E₁ E₂ : KImp.SortMap) : Prop :=
     MapHook.lookup G (KImpSec.SortKItem.inj_Id (tr_SortId X)) =
       some (KImpSec.SortKItem.inj_Level KImpSec.SortLevel.lo) →
     MapHook.lookup E₁ (KImp.SortKItem.inj_Id X) = MapHook.lookup E₂ (KImp.SortKItem.inj_Id X)
+
+/-- `X` is labelled `lo`. -/
+def Low (G : KImpSec.SortMap) (X : KImp.SortId) : Prop :=
+  MapHook.lookup G (KImpSec.SortKItem.inj_Id (tr_SortId X)) = some (KImpSec.SortKItem.inj_Level .lo)
+
+/-- The store changes only at high identifiers, and stays a store. -/
+def HiOnly (G : KImpSec.SortMap) (E E' : KImp.SortMap) : Prop :=
+  Good E' ∧ ∀ X, Low G X → MapHook.lookup E (KImp.SortKItem.inj_Id X) = MapHook.lookup E' (KImp.SortKItem.inj_Id X)
 
 end ImpNI
