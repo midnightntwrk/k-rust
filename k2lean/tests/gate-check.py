@@ -82,10 +82,10 @@ def measured_in(e, tier):
     return e["tier"] in tiers(tier) or tier in e.get("compare_in", [])
 
 
-def load_registry():
+def load_registry(adir=None):
     """The areas (in LIBS_AREAS order) and their entries: {area: {"LIBS": …, …}}, each entry with
-    its defaults filled in; a name registered by two areas is an error."""
-    adir = Path(os.environ.get("GATE_AREAS") or Path(__file__).resolve().parent / "areas")
+    its defaults filled in; a name registered by two areas is an error. ADIR overrides GATE_AREAS."""
+    adir = Path(adir or os.environ.get("GATE_AREAS") or Path(__file__).resolve().parent / "areas")
     libs_sh = (adir.parent / "libs.sh").read_text()
     order = re.search(r'^LIBS_AREAS="([^"]*)"', libs_sh, re.M).group(1).split()
     reg, seen = {}, {}
@@ -782,30 +782,70 @@ def accept(work, baseline, area=None):
         print(f"gate: not accepted: failed steps {bad}, banned {m['banned'][:3]}, unit failures {uf}", file=sys.stderr)
         return 1
     olds = load_baseline(baseline, reg)
-    news, texts, outs = {}, {}, {}
+    news, texts = {}, {}
     exp = baseline.parent / "expected"
-    for a in reg:
-        texts[a] = dump(to_baseline(m, a, reg, olds[a]), header(a))
-        news[a] = as_doc(texts[a])
+
+    def changed_outputs(m, reg, expdir, a):
         # only a change the comparison sees rewrites a recorded copy, so the fields it normalizes
         # away (times, the order of logged lines) do not churn expected/
-        outs[a] = []
+        out = []
         for name, (oa, t, how) in m["outputs"].items():
             if oa != a or t not in tiers(tier) or not (meas / name).exists() or same_as(reg, name) != name:
                 continue
-            e = exp / a / name
+            e = expdir / a / name
             if not e.exists() or normalize(e.read_text(), how) != normalize((meas / name).read_text(), how):
-                outs[a].append(name)
+                out.append(name)
+        return out
+
+    for a in reg:
+        texts[a] = dump(to_baseline(m, a, reg, olds[a]), header(a))
+        news[a] = as_doc(texts[a])
+    outs = {a: changed_outputs(m, reg, exp, a) for a in reg}
     if area is not None:
-        # another area's difference is that area's regression or acceptance, not this one's
-        others = {b: doc_diff(olds[b], news[b]) + [f"expected/{b}/{n}" for n in outs[b]] for b in reg if b != area}
-        others = {b: d for b, d in others.items() if d}
+        # the baseline the run started from (gate.sh copies it; a run from before that has none)
+        against = meas / "against"
+        start = None
+        if (against / "baseline").is_dir() and (against / "registry" / "areas").is_dir():
+            # the run measured with the registry it started with (main may have registered entries since)
+            sreg = load_registry(against / "registry" / "areas")
+            sm = measure(work, tier, sreg)
+            start = load_baseline(against / "baseline", sreg)
+
+        def as_started(b):
+            # does the run measure area b exactly as the baseline it started from records it
+            return (b in start
+                    and not doc_diff(start[b], as_doc(dump(to_baseline(sm, b, sreg, start[b]), header(b))))
+                    and not changed_outputs(sm, sreg, against / "expected", b))
+
+        # another area's difference is that area's regression or acceptance, not this one's, unless
+        # the run measured the area as its starting baseline records it: then the difference is that
+        # baseline's own move since the run started (another landing), and the current one stays
+        others, moved = {}, []
+        for b in reg:
+            d = [] if b == area else doc_diff(olds[b], news[b]) + [f"expected/{b}/{n}" for n in outs[b]]
+            if d and start is not None and as_started(b):
+                moved.append(b)
+            elif d:
+                others[b] = d
         if others:
             for b, d in others.items():
                 print(f"gate: not accepted: area {b} measured entries that differ from its baseline: {', '.join(d[:12])}"
                       + (" …" if len(d) > 12 else ""), file=sys.stderr)
             print(f"gate: accept them with `accept --area` of their area, or all areas with `accept`", file=sys.stderr)
             return 1
+        # the area's own baseline moved since the run started: the run was compared with a stale one
+        # (unless what would be written is already the current text)
+        since = doc_diff(start[area], olds[area]) if start is not None and area in start else []
+        own = baseline / f"{area}.toml"
+        if since and not (own.exists() and own.read_text() == texts[area]):
+            print(f"gate: not accepted: area {area}'s baseline changed since this run started "
+                  f"({', '.join(since[:12])}{' …' if len(since) > 12 else ''}); rerun the tier on the current tree",
+                  file=sys.stderr)
+            return 1
+        if moved:
+            print(f"gate: kept the current baseline of {', '.join(moved)}: it changed since this run started, which "
+                  f"measured it as it was then; a change since then that reaches area {area} without moving "
+                  f"its entries (the prelude, a tactic) still needs a rerun")
     written = []
     for a in ([area] if area is not None else list(reg)):
         f = baseline / f"{a}.toml"
