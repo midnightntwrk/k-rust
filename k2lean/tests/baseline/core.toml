@@ -7,7 +7,7 @@
 
 [unit]
 tier = "light"
-passed = 75
+passed = 76
 
 [lib.kimp]
 tier = "light"
