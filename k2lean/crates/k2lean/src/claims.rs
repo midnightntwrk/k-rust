@@ -63,24 +63,16 @@ struct Inv {
     unfold: Vec<String>,
 }
 
-/// The unfolding set of an invariant: the list of the `k2l_inv` macro of a generated
-/// `Invariants.lean` (`gen --invariant`), or else the names in the file, separated by commas,
-/// spaces or new lines.
+/// The unfolding set of an invariant: the Lean names of a file such as the
+/// `invariant-unfold.txt` that `gen --invariant` writes beside the library, separated by commas,
+/// spaces or new lines; a line whose first character other than a space is `#` is a comment.
 fn read_unfold(path: &PathBuf) -> Vec<String> {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
-    let list = match text.lines().find(|l| l.contains("macro \"k2l_inv\"")) {
-        Some(l) => {
-            let (Some(a), Some(b)) = (l.find("k2l_preserve ["), l.rfind(']')) else {
-                panic!("{}: the k2l_inv macro has no list", path.display())
-            };
-            l[a + "k2l_preserve [".len()..b].to_string()
-        }
-        None => text
-            .lines()
-            .map(|l| l.split('#').next().unwrap_or(""))
-            .collect::<Vec<_>>()
-            .join("\n"),
-    };
+    let list = text
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#'))
+        .collect::<Vec<_>>()
+        .join("\n");
     split_names(&list)
 }
 
@@ -161,7 +153,10 @@ fn parse(args: &[String]) -> Args {
         a.inv = Some(Inv {
             preserved: inv_preserved.unwrap_or(format!("{name}.preserved")),
             module: inv_module.unwrap_or(format!("{}.Invariants", a.sem)),
-            unfold: inv_unfold.as_ref().map(read_unfold).unwrap_or_default(),
+            // by default, the file `gen --invariant` writes in the semantics' library
+            unfold: read_unfold(
+                &inv_unfold.unwrap_or_else(|| a.out.join(&a.sem_path).join("invariant-unfold.txt")),
+            ),
             name,
         });
     } else if inv_preserved.is_some() || inv_module.is_some() || inv_unfold.is_some() {
@@ -1929,7 +1924,25 @@ mod induction {
 
 #[cfg(test)]
 mod tests {
-    use super::split_names;
+    use super::{read_unfold, split_names};
+
+    /// `invariant-unfold.txt` as `gen --invariant` writes it: comment lines, then one name per
+    /// line; a `#` inside a name is part of it.
+    #[test]
+    fn unfold_file_skips_comment_lines_only() {
+        let p = std::env::temp_dir().join(format!("k2lean-unfold-{}.txt", std::process::id()));
+        std::fs::write(
+            &p,
+            "# The unfolding set …\n# one per line.\nInvariant.envOk\nEqn.«#if_#then_#else_#fi_K_1»\n",
+        )
+        .unwrap();
+        let names = read_unfold(&p);
+        let _ = std::fs::remove_file(&p);
+        assert_eq!(
+            names,
+            vec!["Invariant.envOk", "Eqn.«#if_#then_#else_#fi_K_1»"]
+        );
+    }
 
     #[test]
     fn unfold_names_split_outside_guillemets() {

@@ -623,6 +623,20 @@ both apply at one configuration ({} pairs)",
             }
         }
     }
+    // and for the projections a rule without a key tests: such a rule, whose item is a variable
+    // `X:S` injected into `A`, is a case of every rule's determinism theorem, and it matches
+    // another rule's `inj{T, A}(…)` only where the projection from `A` to `S` of that injection
+    // is defined, which it is not when `T` and `S` have no common leaf (KMIR's `ERR:MIRError`
+    // against a cooling rule's `HOLE:Evaluation`). In the arity universe only: there the
+    // projection of an injection is a test of the term's leaf, which the generic closers do not
+    // decide at a variable term of a sort with many leaves (KMIR's `Evaluation`); the per-sort
+    // libraries of the gate close these cases without the lemmas, so they are not added there
+    // (design.md §9)
+    for (r, k) in rs.iter().zip(&keys) {
+        if opts.arity && k.is_none() {
+            injections(&r.kore.0, true, &mut tested);
+        }
+    }
     let leaves_of = |x: &str| -> BTreeSet<String> {
         m.sorts
             .get(x)

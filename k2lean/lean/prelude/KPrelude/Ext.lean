@@ -284,6 +284,15 @@ def get (l : L) (i : Int) : Option E :=
 def update (l : L) (i : Int) (v : E) : Option L :=
   let xs := toList l
   if 0 ≤ i ∧ i < xs.length then some (ofList (xs.set i.toNat v)) else none
+/-- `updateList(D, I, S)`: `D` with its `size(S)` elements from index `I` on replaced by those of
+`S`; undefined where they do not fit (`I + size(S) > size(D)`, which `domains.md` makes an
+exception) and, a choice of the model, at a negative `I`. -/
+def updateAll (d : L) (i : Int) (s : L) : Option L :=
+  let xs := toList d
+  let ys := toList s
+  if 0 ≤ i ∧ i + ys.length ≤ xs.length then
+    some (ofList (xs.take i.toNat ++ ys ++ xs.drop (i.toNat + ys.length)))
+  else none
 /-- `makeList(N, V)` (undefined for `N < 0`) -/
 def make (n : Int) (v : E) : Option L := if 0 ≤ n then some (ofList (List.replicate n.toNat v)) else none
 /-- `range(L, A, B)`: drop `A` elements at the front and `B` at the back (undefined if too many). -/
@@ -701,6 +710,22 @@ model returns the empty sequence (a model choice, like `substrString`'s clamping
 def int2bytes (len i : Int) (big : Bool) : List UInt8 :=
   let l := int2bytesLE len.toNat i
   if big then l.reverse else l
+
+-- Edge cases of the two conversions, checked when the prelude builds: the empty sequence, both
+-- byte orders, signedness, length 0, a negative length, negative values (sign extension), and a
+-- value wider than the length (truncation).
+#guard bytes2int [] true true = 0 ∧ bytes2int [] false false = 0
+#guard bytes2int [0xFF] true true = -1 ∧ bytes2int [0xFF] true false = 255
+#guard bytes2int [0x01, 0x00] true false = 256 ∧ bytes2int [0x01, 0x00] false false = 1
+#guard bytes2int [0x80, 0x00] true true = -32768 ∧ bytes2int [0x80, 0x00] false true = 128
+#guard int2bytes 0 5 true = [] ∧ int2bytes 0 (-5) false = []
+#guard int2bytes (-1) 5 true = []
+#guard int2bytes 1 0 true = [0]
+#guard int2bytes 2 258 true = [1, 2] ∧ int2bytes 2 258 false = [2, 1]
+#guard int2bytes 2 (-1) true = [0xFF, 0xFF] ∧ int2bytes 3 (-2) false = [0xFE, 0xFF, 0xFF]
+#guard int2bytes 1 256 true = [0] ∧ int2bytes 1 (-257) true = [0xFF]
+#guard bytes2int (int2bytes 4 (-12345) true) true true = -12345
+#guard bytes2int (int2bytes 4 (-12345) false) false false = 2 ^ 32 - 12345
 
 def empty : List UInt8 := []
 def concat (a b : List UInt8) : List UInt8 := a ++ b

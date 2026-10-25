@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The core area: kimp (goldens and step traces), KRS IMP, determinism along the rule index
-# (kimp-d2, ovl), the fixture freekey, SIMPLE and its acceptance against krust, and the libraries
+# (kimp-d2, ovl), rules with `ensures` (ens), the fixture freekey, SIMPLE and its acceptance against krust, and the libraries
 # in the arity-indexed term universe (kimp-ar, simple-ar, kterm-ar). Registry: core.py.
 
 kore_core() {
@@ -8,6 +8,7 @@ kore_core() {
     kimp) f=$KIMP/imp.k m=IMP s=IMP-SYNTAX inc=$KIMP ;;
     kimp-verif) f=$KIMP/imp-verification.k m=IMP-VERIFICATION s=IMP-VERIFICATION-SYNTAX inc=$KIMP ;;
     ovl) f=$DEMOS/k/overlap.k m=OVERLAP s=OVERLAP-SYNTAX inc=$DEMOS/k ;;
+    ens) f=$DEMOS/k/ensures.k m=ENSURES s=ENSURES-SYNTAX inc=$DEMOS/k ;;
     simple) f=$SD/simple-untyped.md m=SIMPLE-UNTYPED s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
     kterm) f=$DEMOS/k/term/term.k m=TERM s=TERM-SYNTAX inc=$DEMOS/k/term ;;
     *) return 1 ;;
@@ -16,7 +17,7 @@ kore_core() {
 
 name_core() {
   case $1 in
-    kimp|kimp-d2|kimp-ar) echo KImp ;; krsimp) echo KrsImp ;; ovl) echo KOvl ;;
+    kimp|kimp-d2|kimp-ar) echo KImp ;; krsimp) echo KrsImp ;; ovl) echo KOvl ;; ens) echo KEns ;;
     simple|simple-ar) echo KSimple ;; freekey) echo FreeKey ;; kterm-ar) echo KTerm ;;
     *) return 1 ;;
   esac
@@ -39,10 +40,14 @@ gen_core() {
             --det2 --det2-overlap "IMP.if-true,IMP.if-false" --equations-part-weight 30) ;;
     krsimp) GEN_ARGS=(--kore "$KRS/definition.kore" --out "$o" --name KrsImp --prelude ../../lean/prelude
             --open-obligations "$o/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json") ;;
-    # a definition with one genuine overlap (witnessed), one joinable pair and exclusive pairs
-    # (demos/k/overlap.k): `Step.deterministic_of` with `overlaps_witnessed`
+    # a definition with two genuine overlaps (witnessed; one reads a map cell), one joinable pair
+    # and exclusive pairs (demos/k/overlap.k): `Step.deterministic_of` with `overlaps_witnessed`
     ovl) GEN_ARGS=(--kore "$(kore_dir ovl)/definition.kore" --runtime "$(kore_dir ovl)/runtime.json"
             --out "$o" --name KOvl --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
+    # rules with `ensures` clauses (demos/k/ensures.k): steps only where the ensures holds, apart
+    # by their ensures, and an overlap where both hold (witnessed)
+    ens) GEN_ARGS=(--kore "$(kore_dir ens)/definition.kore" --runtime "$(kore_dir ens)/runtime.json"
+            --out "$o" --name KEns --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
     simple) GEN_ARGS=(--kore "$(kore_dir simple)/definition.kore" --runtime "$(kore_dir simple)/runtime.json"
             --out "$o" --name KSimple --prelude ../../lean/prelude --linear-terms
             --open-obligations "$o/open-obligations.txt") ;;
@@ -51,10 +56,11 @@ gen_core() {
             --open-obligations "$o/open-obligations.txt") ;;
     # the generator's fixture whose functions walk maps by free-key patterns (tests/fixtures/freekey)
     freekey) libs_fixture_args "$1" ;;
-    # recursive functions whose termination measures the generator synthesizes (demos/k/term)
+    # recursive functions whose termination measures the generator synthesizes (demos/k/term),
+    # and least fixed points where K's rewriting diverges (term-termination.toml)
     kterm-ar) GEN_ARGS=(--kore "$(kore_dir kterm)/definition.kore" --runtime "$(kore_dir kterm)/runtime.json"
             --out "$o" --name KTerm --prelude ../../lean/prelude --arity-terms
-            --open-obligations "$o/open-obligations.txt") ;;
+            --termination "$DEMOS/k/term/term-termination.toml" --open-obligations "$o/open-obligations.txt") ;;
     *) return 1 ;;
   esac
   return 0
@@ -175,13 +181,18 @@ gate_core() {
   fi
   runs lib krsimp && lib krsimp KrsImp
   runs lib ovl && kc ovl && lib ovl KOvl
+  runs lib ens && kc ens && lib ens KEns
   # the fixture whose function equations match maps by free-key patterns (`MapHook.chooseFirst`)
   runs lib freekey && lib freekey FreeKey
   if runs lib kimp-ar; then
     kc kimp && kc kimp-verif && lib kimp-ar KImp kimp_goldens kimp-ar && kimp_tests kimp-ar
   fi
-  # recursive functions whose termination measures the generator synthesizes (demos/k/term)
-  runs lib kterm-ar && kc kterm && lib kterm-ar KTerm
+  # recursive functions whose termination measures the generator synthesizes (demos/k/term);
+  # its least fixed points have no value where K's rewriting diverges (term-diverges.lean)
+  if runs lib kterm-ar && kc kterm && lib kterm-ar KTerm; then
+    if (cd "$GEN/kterm-ar" && "$RT" lake env lean "$D/k/term/term-diverges.lean") > "$L/kterm-diverges.log" 2>&1
+    then ok "kterm diverges" "$L/kterm-diverges.log"; else bad "kterm diverges" "$L/kterm-diverges.log"; fi
+  fi
   if runs lib simple-ar; then
     phase "lib simple-ar"
     kc simple && libs_simple_cases && lib_simple simple-ar && ok "simple-ar acceptance" "$MEAS/simple-acceptance.md"

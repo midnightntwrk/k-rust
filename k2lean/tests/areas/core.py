@@ -6,6 +6,7 @@ LIBS = {
     "kimp-d2": {"ns": "KImp", "tier": "light", "not_regenerated": ["KImpBench/Programs.lean"]},
     "krsimp": {"ns": "KrsImp", "tier": "light"},
     "ovl": {"ns": "KOvl", "tier": "light", "not_regenerated": ["KOvlBench/Programs.lean"]},
+    "ens": {"ns": "KEns", "tier": "light"},
     "freekey": {"ns": "FreeKey", "tier": "light"},
     "simple": {"ns": "KSimple", "tier": "heavy"},
     "kimp-ar": {"ns": "KImp", "tier": "arity", "encoding": "arity", "not_regenerated": ["KImpBench/Programs.lean"]},

@@ -154,7 +154,7 @@ enum Deferred {
 
 pub type R<T> = Result<T, String>;
 
-fn sanitize(kore_var: &str) -> String {
+pub(crate) fn sanitize(kore_var: &str) -> String {
     let d = names::demangle(kore_var);
     let d = d.strip_prefix("Var").unwrap_or(&d).to_string();
     let mut s: String = d

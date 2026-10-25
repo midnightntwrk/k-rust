@@ -61,6 +61,8 @@ struct CRule {
     aliases: Vec<(T, T)>,
     req: Vec<(T, bool)>,
     rhs: T,
+    /// the Boolean connectives that split the requires clause into `req`
+    conns: BTreeSet<String>,
 }
 
 /// An equation template: patterns over `PVar`s.
@@ -324,13 +326,17 @@ impl<'a> Cx<'a> {
         let mut aliases = Vec::new();
         let lhs = self.conv(l, &mut names, &mut aliases, None);
         let mut req = Vec::new();
+        let before = std::mem::take(&mut self.used);
         self.atoms(q, &mut names, &mut aliases, &mut req, None);
+        let conns = std::mem::replace(&mut self.used, before);
+        self.used.extend(conns.iter().cloned());
         let rhs = self.conv(rh, &mut names, &mut aliases, None);
         CRule {
             lhs,
             aliases,
             req,
             rhs,
+            conns,
         }
     }
 
@@ -467,6 +473,23 @@ impl Un {
         }
     }
 
+    /// Whether `v` occurs in `t` outside the arguments of function calls (a collection's
+    /// element and concatenation count as constructors: a collection is not a proper part of
+    /// itself).
+    fn occurs_ctor(&self, cx: &Cx, v: usize, t: &T) -> bool {
+        match self.walk(t) {
+            T::Var(i) => i == v,
+            T::Ctor(_, a) => a.iter().any(|x| self.occurs_ctor(cx, v, x)),
+            T::Fn(f, a) => {
+                matches!(
+                    cx.hook(&f).and_then(|h| h.split_once('.')),
+                    Some(("MAP" | "SET" | "LIST", "concat" | "element"))
+                ) && a.iter().any(|x| self.occurs_ctor(cx, v, x))
+            }
+            _ => false,
+        }
+    }
+
     fn fresh(&mut self, cx: &Cx, l: Leaves) -> usize {
         self.ext.push(l);
         cx.vleaves.len() + self.ext.len() - 1
@@ -516,6 +539,13 @@ impl Un {
             }
         }
         if self.occurs(v, &t) {
+            // through constructors only, `v` is a proper part of `t` and differs from it; under
+            // a function call the two may be equal (`X = f(X)`), which is left undecided
+            if !self.occurs_ctor(cx, v, &t) {
+                self.unknown
+                    .insert("function of the variable itself".into());
+                return Ok(());
+            }
             return Err(Clash {
                 depth: d,
                 kind: "occurs",
@@ -685,9 +715,22 @@ impl Un {
     /// Unify two collection terms as far as decidable: `Ok(1)` done, `Ok(2)` progressed (retry),
     /// `Ok(0)` undecided.
     fn coll_unify(&mut self, cx: &Cx, a: &T, b: &T, d: usize) -> Result<u8, Clash> {
-        let (Some((ka, ea, ra)), Some((kb, eb, rb))) =
-            (self.coll_items(cx, a), self.coll_items(cx, b))
-        else {
+        let (ca, cb) = (self.coll_items(cx, a), self.coll_items(cx, b));
+        // a collection value against a constructor term or a builtin literal: a value of a
+        // collection sort is built by its hooks only, so the two have different leaves (they
+        // meet at a position of a supersort, `KItem`, through different injections)
+        for (c, other) in [(&ca, b), (&cb, a)] {
+            if let Some((k, _, _)) = c
+                && matches!(other, T::Ctor(..) | T::Lit(..))
+            {
+                return Err(Clash {
+                    depth: d,
+                    kind: "sort",
+                    at: format!("collection {k} / {}", head_name(other)),
+                });
+            }
+        }
+        let (Some((ka, ea, ra)), Some((kb, eb, rb))) = (ca, cb) else {
             return Ok(0);
         };
         if ka != kb {
@@ -1311,6 +1354,36 @@ impl Un {
                     T::Fn(_, x) if x[0] == a[1] => Some(x[1].clone()),
                     _ => None,
                 })?
+            }
+            "MAP.lookupOrDefault" => {
+                // `M[K] orDefault D`: the value bound to `K`, or `D` when no binding has the key
+                // `K` (the map has no unknown rest, and every key it has differs from `K`)
+                let (_, el, rest) = self.coll_items(cx, &a[0])?;
+                let mut keys = Vec::new();
+                for e in &el {
+                    let T::Fn(_, x) = e else { return None };
+                    if x.len() != 2 {
+                        return None;
+                    }
+                    keys.push((self.resolve(&x[0]), &x[1]));
+                }
+                let others_differ = |n: usize| {
+                    keys.iter()
+                        .filter(|(k, _)| *k != a[1])
+                        .all(|(k, _)| self.differ(cx, k, &a[1]))
+                        && keys.iter().filter(|(k, _)| *k == a[1]).count() == n
+                };
+                if let Some((_, v)) = keys.iter().find(|(k, _)| *k == a[1]) {
+                    // a map with two bindings of one key is undefined, so the others must differ
+                    if !others_differ(1) {
+                        return None;
+                    }
+                    self.resolve(v)
+                } else if rest.is_empty() && others_differ(0) {
+                    a[2].clone()
+                } else {
+                    return None;
+                }
             }
             _ => return None,
         })
@@ -2021,22 +2094,22 @@ fn classify0(cx: &mut Cx, a: &CRule, b: &CRule, same_rank: bool) -> PairOut {
     }
     for vs in tries {
         match case_split(cx, &un, &vs, a, b) {
-            Some((label, qs)) if qs.is_empty() => {
-                closed = Some(label);
+            Some((label, qs, refuting)) if qs.is_empty() => {
+                closed = Some((label, refuting));
                 break;
             }
-            Some((label, qs)) => cases.push((label, qs)),
+            Some((label, qs, _)) => cases.push((label, qs)),
             None => {}
         }
     }
-    if let Some(label) = closed {
+    if let Some((label, refuting)) = closed {
         return PairOut {
             class: "exclusive".into(),
             detail: format!("case split: {label}, every case by eval"),
             depth: 0,
             smt: None,
             cases: vec![],
-            used: None,
+            used: Some(refuting),
         };
     }
     PairOut {
@@ -2188,14 +2261,17 @@ fn cases_of(cx: &Cx, u: &mut Un, l: &BTreeSet<String>) -> Vec<T> {
 
 /// The case split on `vs` (the product of their cases): in each case the requires clauses are
 /// re-evaluated; `None` if some case leaves no condition to refute. Returns (label, SMT queries of
-/// the cases that evaluation did not close).
+/// the cases that evaluation did not close, and the definitions that refute the closed cases).
+/// A case is closed by one atom of the requires evaluating to the opposite truth value (or to
+/// undefined); the definitions that evaluation applied, with the connectives that split the
+/// requires into atoms, are all a proof of that case unfolds.
 fn case_split(
     cx: &mut Cx,
     un: &Un,
     vs: &[usize],
     a: &CRule,
     b: &CRule,
-) -> Option<(String, Vec<String>)> {
+) -> Option<(String, Vec<String>, BTreeSet<String>)> {
     let mut combos: Vec<Un> = vec![un.clone()];
     let mut label = Vec::new();
     for &v in vs {
@@ -2222,6 +2298,7 @@ fn case_split(
     }
     let n_cases = combos.len();
     let mut qs = Vec::new();
+    let mut refuting: BTreeSet<String> = a.conns.union(&b.conns).cloned().collect();
     for u in combos {
         let mut fuel = 20_000usize;
         let mut closed = false;
@@ -2229,19 +2306,28 @@ fn case_split(
         let mut qb = Vec::new();
         for (req, out) in [(&a.req, &mut qa), (&b.req, &mut qb)] {
             for (e, bv) in req.iter() {
+                let saved = std::mem::take(&mut cx.used);
                 let val = u.eval(cx, e, &mut fuel);
                 let mut parts = Vec::new();
                 cx.push_atom(val, *bv, &mut parts);
+                let mut refutes = false;
                 for (p, pb) in parts {
                     if is_undef(&p) {
-                        closed = true;
+                        refutes = true;
                         continue;
                     }
                     match Un::as_bool(&p) {
-                        Some(x) if x != pb => closed = true,
+                        Some(x) if x != pb => refutes = true,
                         Some(_) => {}
                         None => out.push((p, pb)),
                     }
+                }
+                let atom = std::mem::replace(&mut cx.used, saved);
+                cx.used.extend(atom.iter().cloned());
+                // the first refuting atom of the case
+                if refutes && !closed {
+                    closed = true;
+                    refuting.extend(atom);
                 }
             }
         }
@@ -2254,7 +2340,11 @@ fn case_split(
         }
         qs.push(q);
     }
-    Some((format!("{} = {n_cases} cases", label.join(" × ")), qs))
+    Some((
+        format!("{} = {n_cases} cases", label.join(" × ")),
+        qs,
+        refuting,
+    ))
 }
 
 /// The node at `path` in a lowered left-hand side, as the index reads it.
@@ -3447,6 +3537,133 @@ impl WSearch<'_> {
         None
     }
 
+    /// A small value of one of the sorts `l` that holds the integer `n`: `n` itself, or a
+    /// constructor with an `Int` argument `n` and the smallest values elsewhere (`ty(n)`); else
+    /// the smallest value.
+    fn nth_value(&self, cx: &Cx, l: &BTreeSet<String>, n: usize) -> Option<T> {
+        if l.contains("SortInt") {
+            return Some(T::Lit("SortInt".into(), n.to_string()));
+        }
+        let mut best: Option<T> = None;
+        for s in l {
+            let Some(info) = cx.m.sorts.get(s) else {
+                continue;
+            };
+            for c in &info.own {
+                let Some(ci) = cx.m.ctors.get(c) else {
+                    continue;
+                };
+                if !ci.args.iter().any(|a| a == "SortInt") {
+                    continue;
+                }
+                let args: Option<Vec<T>> = ci
+                    .args
+                    .iter()
+                    .map(|a| {
+                        if a == "SortInt" {
+                            Some(T::Lit(a.clone(), n.to_string()))
+                        } else {
+                            self.inh.get(a).cloned()
+                        }
+                    })
+                    .collect();
+                if let Some(args) = args {
+                    let t = T::Ctor(c.clone(), args);
+                    if best.as_ref().is_none_or(|b| t_size(&t) < t_size(b)) {
+                        best = Some(t);
+                    }
+                }
+            }
+        }
+        best.or_else(|| {
+            l.iter()
+                .filter_map(|s| self.inh.get(s).cloned())
+                .min_by_key(t_size)
+        })
+    }
+
+    /// The witness chooses the bindings of a map that a stuck lookup `M[K] orDefault D` reads
+    /// (the map's rest is a variable, and none of its bindings has the key `K`): `K` is one of
+    /// the keys bound so far, or the map gets a new binding `K |-> V`, with the variables of `K`
+    /// given small values different from the other keys' and `V` a new variable of the sort of
+    /// `D` (the values the lookup's caller expects), which the search then refines as any other
+    /// variable. `None` when no lookup is stuck that way (or its key gets no value); otherwise
+    /// the search's result.
+    fn extend_map(
+        &mut self,
+        cx: &mut Cx,
+        u: &Un,
+        atoms: &[(T, bool)],
+        depth: usize,
+    ) -> Option<Option<(T, T, T)>> {
+        use crate::model::{Coll, Kind};
+        let (m, keys, k, d) = atoms
+            .iter()
+            .find_map(|(t, _)| stuck_lookup(cx, u, &u.resolve(t)))?;
+        for k2 in &keys {
+            let mut u1 = u.clone();
+            if u1.unify(cx, &k, k2, 0).is_ok()
+                && let Some(w) = self.search(cx, u1, depth + 1)
+            {
+                return Some(Some(w));
+            }
+            if self.budget == 0 {
+                return Some(None);
+            }
+        }
+        let ml = cx.var_leaves(m, &u.ext);
+        let msort = ml
+            .iter()
+            .find(|s| {
+                cx.m.sorts
+                    .get(*s)
+                    .is_some_and(|i| matches!(i.kind, Kind::Coll(Coll::Map)))
+            })?
+            .clone();
+        let el_sym = cx
+            .coll_sym
+            .get(&("MAP.element".into(), msort.clone()))?
+            .clone();
+        let cat_sym = cx.coll_sym.get(&("MAP.concat".into(), msort))?.clone();
+        let vl = match &d {
+            T::Var(i) => cx.var_leaves(*i, &u.ext),
+            t => cx.leaves_of_sort(&cx.ground_sort(t)?),
+        };
+        let mut kvs = Vec::new();
+        vars_of(&k, &mut kvs);
+        let mut chosen = None;
+        'n: for n in keys.len()..keys.len() + 8 {
+            let mut u1 = u.clone();
+            for &v in &kvs {
+                let l = cx.var_leaves(v, &u1.ext);
+                let Some(t) = self.nth_value(cx, &l, n) else {
+                    continue 'n;
+                };
+                if u1.unify(cx, &T::Var(v), &t, 0).is_err() {
+                    continue 'n;
+                }
+            }
+            let k1 = u1.resolve(&k);
+            if is_ground(&k1, cx) && keys.iter().all(|k2| u1.resolve(k2) != k1) {
+                chosen = Some((u1, k1));
+                break;
+            }
+        }
+        let Some((mut u1, k1)) = chosen else {
+            // the other strategies may still find one
+            self.last = format!("no key for a binding of {}", shown(&k, cx));
+            return None;
+        };
+        let v = T::Var(u1.fresh(cx, vl));
+        let rest = T::Var(u1.fresh(cx, ml));
+        let map = T::Fn(cat_sym, vec![T::Fn(el_sym, vec![k1, v]), rest]);
+        if u1.unify(cx, &T::Var(m), &map, 0).is_err() {
+            self.last = "a binding does not fit the map".into();
+            return Some(None);
+        }
+        Some(self.search(cx, u1, depth))
+    }
+
     /// A small value of a builtin sort other than the zero, for the `variant`-th attempt.
     fn alt(sort: &str, variant: usize) -> Option<T> {
         let pool: &[&str] = match sort {
@@ -3576,6 +3793,10 @@ impl WSearch<'_> {
             return self.concrete(cx, &u);
         }
         let atoms: Vec<(T, bool)> = qa.iter().chain(&qb).cloned().collect();
+        // a lookup in a map whose bindings are not known yet: choose the binding
+        if let Some(r) = self.extend_map(cx, &u, &atoms, depth) {
+            return r;
+        }
         // a variable that a stuck call destructs: try its constructors
         if depth < 6 {
             let mut cands = split_candidates(cx, &u, &qa, &qb);
@@ -3773,6 +3994,58 @@ fn stuck_call_vars(cx: &Cx, t: &T, out: &mut Vec<usize>) {
         for x in a {
             stuck_call_vars(cx, x, out);
         }
+    }
+}
+
+/// Whether `t` has a function call other than a collection's constructors, or an unmodelled
+/// part.
+fn has_call(cx: &Cx, t: &T) -> bool {
+    match t {
+        T::Unk(_) => true,
+        T::Ctor(_, a) => a.iter().any(|x| has_call(cx, x)),
+        T::Fn(f, a) => {
+            !matches!(
+                cx.hook(f).and_then(|h| h.split_once('.')),
+                Some(("MAP" | "SET" | "LIST", "concat" | "element" | "unit"))
+            ) || a.iter().any(|x| has_call(cx, x))
+        }
+        _ => false,
+    }
+}
+
+/// The innermost lookup `M[K] orDefault D` of `t` that is stuck on the map's unknown rest: the
+/// rest is one variable and no binding of the map has the key `K`. Returns (the rest variable,
+/// the keys bound, `K`, `D`).
+fn stuck_lookup(cx: &Cx, u: &Un, t: &T) -> Option<(usize, Vec<T>, T, T)> {
+    match t {
+        T::Fn(f, a) => {
+            if let Some(r) = a.iter().find_map(|x| stuck_lookup(cx, u, x)) {
+                return Some(r);
+            }
+            if cx.hook(f) != Some("MAP.lookupOrDefault") || a.len() != 3 {
+                return None;
+            }
+            // a map variable, or bindings and a variable rest
+            let (el, rest) = match u.walk(&a[0]) {
+                T::Var(m) => (vec![], vec![T::Var(m)]),
+                m => {
+                    let (_, el, rest) = u.coll_items(cx, &m)?;
+                    (el, rest)
+                }
+            };
+            let [r] = rest.as_slice() else { return None };
+            let T::Var(m) = u.walk(r) else { return None };
+            let mut keys = Vec::new();
+            for e in &el {
+                let T::Fn(_, x) = e else { return None };
+                keys.push(u.resolve(x.first()?));
+            }
+            // a key that is a call waits until the search has made it a value
+            let k = u.resolve(&a[1]);
+            (!keys.contains(&k) && !has_call(cx, &k)).then(|| (m, keys, k, u.resolve(&a[2])))
+        }
+        T::Ctor(_, a) => a.iter().find_map(|x| stuck_lookup(cx, u, x)),
+        _ => None,
     }
 }
 

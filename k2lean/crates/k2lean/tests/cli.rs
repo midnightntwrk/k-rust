@@ -284,6 +284,42 @@ fn invariant_inside_two_nested_cell_maps_is_lifted_twice() {
     assert!(!thms.contains("Invariant.hand.init"), "{thms}");
 }
 
+/// `gen --invariant storeNat@store` on the `range` fixture, whose `alloc` extends the store by
+/// `fill(A, B, V)`, a map built by recursion on an `Int` range (`.Map` above `B`, `A |-> V` added
+/// below): the definitions get the `@[k2l_coll]` lemma that its result binds `V` at each key,
+/// from its two equations, which the collections closer applies to the map a rule binds.
+#[test]
+fn a_map_built_on_an_int_range_gets_its_entries_lemma() {
+    let d = tmp("cli-range");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/range");
+    let out = d.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("gen")
+        .arg("--kore")
+        .arg(fx.join("definition.kore"))
+        .arg("--runtime")
+        .arg(fx.join("runtime.json"))
+        .arg("--out")
+        .arg(&out)
+        .args([
+            "--name",
+            "KRange",
+            "--prelude",
+            "../../prelude",
+            "--invariant",
+            "storeNat@store",
+        ])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let defs = std::fs::read_to_string(out.join("KRange/InvariantDefs.lean")).unwrap();
+    let f = "K.«fill(_,_,_)_RANGE_Map_Int_Int_Int»";
+    assert!(defs.contains(&format!("@[k2l_coll] theorem Invariant.«range_fill(_,_,_)_RANGE_Map_Int_Int_Int» {{Q : SortKItem × SortKItem → Prop}} {{a b : SortInt}} {{V : SortInt}} {{r : SortMap}}\n    (h : {f} a b V = some r) (hq : ∀ a, Q (SortKItem.inj_Int a, (SortKItem.inj_Int V))) : KPrelude.MapHook.EntriesOn Q r :=\n  KPrelude.MapHook.entriesOn_of_range (f := fun a => {f} a b V) (key := fun a => SortKItem.inj_Int a)\n    (fun a ha => by rw [Eqn.«fill(_,_,_)_RANGE_Map_Int_Int_Int_1»]; exact ha)\n    (fun a ha => by rw [Eqn.«fill(_,_,_)_RANGE_Map_Int_Int_Int_2»]; (try simp only [Option.bind_fun_some]); exact ha) hq h")), "{defs}");
+    // `natVals` is a list fold, `storeNat` and `isNat` are not recursive: no other lemma
+    assert_eq!(defs.matches("@[k2l_coll]").count(), 1, "{defs}");
+}
+
 fn gen_fixture(dir: &Path, out: &Path, ns: &str) {
     let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
         .arg("gen")

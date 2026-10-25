@@ -308,6 +308,15 @@ fn lower_equation(
         lw.cond(r).map_err(err)?;
     }
     let lhs_len = lw.steps.len();
+    // `f(ps) = r ∧ ⌈e = true⌉` (an `ensures e`): the value is `r` only where `e` holds, and the
+    // equation's statement would need `e` too (`docs/design.md`, §2, "`ensures`")
+    if let P::And(_, parts) = &e.rhs
+        && parts.len() == 2
+    {
+        return Err(err(
+            "`ensures` in a function equation is not supported".into()
+        ));
+    }
     let rhs = lw.expr(&e.rhs, &sig.result).map_err(err)?;
     Ok((lw.steps, lhs_len, rhs))
 }
@@ -421,8 +430,9 @@ fn sccs(nodes: &[String], calls: &BTreeMap<String, BTreeSet<String>>) -> Vec<Vec
 /// (`partial_fixpoint`, flat order on `Option`), which is `none` exactly where the rewriting
 /// diverges and the value of the equations wherever it terminates. Lean proves the equations
 /// monotone only in a direct form, so the function is rendered as an `if` chain over the
-/// equations' guards with `do` binds on the right-hand sides; this needs every left-hand side
-/// to be guards only (no patterns).
+/// equations' left-hand sides with binds on the right-hand sides (`render_fixpoint`); this needs
+/// left-hand sides that do not call a function of the group, and, in a mutual group, an entry
+/// for every member (Lean defines the group by one fixed point).
 #[derive(Default, Clone, Debug)]
 pub struct SideEntry {
     pub termination_by: Option<String>,
@@ -551,16 +561,36 @@ pub fn map_size_instances(m: &Model) -> String {
 /// The equations of one function, lowered: (equation index, steps, left-hand-side steps, result).
 type Lowered = Vec<(usize, Vec<crate::lower::Step>, usize, L)>;
 
+/// Whether `l` applies one of the Lean functions `names`.
+fn mentions(l: &L, names: &BTreeSet<String>) -> bool {
+    match l {
+        L::App(h, args) => names.contains(h) || args.iter().any(|a| mentions(a, names)),
+        L::Typed(e, _) => mentions(e, names),
+        L::Var(_) | L::Raw(_) => false,
+    }
+}
+
 /// The body of a function defined as a least fixed point: an `if` chain over the equations'
 /// guards (in cascade order), each right-hand side a `do` block over its partial calls. Lean's
 /// `partial_fixpoint` proves this form monotone (`Option`'s bind); the cascade form is not.
+/// Equations that match patterns get the form of `render_fixpoint_matching`; `group` is the
+/// Lean names of the functions defined together.
 fn render_fixpoint(
     m: &Model,
     f: &str,
     params: &[String],
     lowered: &Lowered,
+    group: &BTreeSet<String>,
 ) -> Result<String, String> {
     use crate::lower::Step;
+    let guards_only = lowered.iter().all(|(_, steps, lhs_len, _)| {
+        steps[..*lhs_len]
+            .iter()
+            .all(|s| matches!(s, Step::Cond { .. } | Step::CondEq { .. }))
+    });
+    if !guards_only {
+        return render_fixpoint_matching(m, f, params, lowered, group);
+    }
     let mut o = String::new();
     for (k, (_, steps, lhs_len, rhs)) in lowered.iter().enumerate() {
         let mut conds = Vec::new();
@@ -598,12 +628,80 @@ fn render_fixpoint(
         }
         o.push_str(&format!("{kw} {} then\n    {d}", conds.join(" ∧ ")));
     }
-    let fallback = if m.anywhere.contains(f) {
+    o.push_str(&format!("  else {}\n", fixpoint_fallback(m, f, params)));
+    Ok(o)
+}
+
+/// The value of a least fixed point where no equation applies: `⊥`, or the constructor term of
+/// an `anywhere` function.
+fn fixpoint_fallback(m: &Model, f: &str, params: &[String]) -> String {
+    if m.anywhere.contains(f) {
         format!("some {}", anywhere_ctor(m, f, params).render_arg())
     } else {
         "none".to_string()
-    };
-    o.push_str(&format!("  else {fallback}\n"));
+    }
+}
+
+/// A least fixed point whose equations match patterns. Each equation is two expressions over the
+/// same left-hand side: whether it applies (`a{k} : Bool`, the match and the requires, `false`
+/// where either fails), and, where it does, its right-hand side, its partial calls chained by
+/// `>>=` (`⊥` if one is `⊥`). The function is then an `if` chain over the `a{k}`, in cascade
+/// order: the equation that applies first gives the value, as in the cascade. Lean proves this
+/// form monotone because the recursive calls are only in the right-hand sides' binds, and the
+/// matches and `if`s around them test arguments only, never a recursive call's value; so a
+/// left-hand side (a requires) that calls a function of the group is refused: whether the
+/// equation applies would depend on the function being defined, which is not monotone.
+fn render_fixpoint_matching(
+    m: &Model,
+    f: &str,
+    params: &[String],
+    lowered: &Lowered,
+    group: &BTreeSet<String>,
+) -> Result<String, String> {
+    use crate::lower::Step;
+    let own = "partial_fixpoint: a left-hand side (a requires) calls a function of its own group";
+    let mut o = String::new();
+    for (k, (_, steps, lhs_len, rhs)) in lowered.iter().enumerate() {
+        let lhs = &steps[..*lhs_len];
+        for s in lhs {
+            let calls = match s {
+                Step::MapChoose { .. } => {
+                    return Err(
+                        "partial_fixpoint: a free-key map pattern in a left-hand side".into(),
+                    );
+                }
+                Step::Bind { expr, .. } => mentions(expr, group),
+                Step::Cond { cond, .. } => mentions(cond, group),
+                Step::CondEq { lhs, rhs, .. } => mentions(lhs, group) || mentions(rhs, group),
+                _ => false,
+            };
+            if calls {
+                return Err(own.into());
+            }
+        }
+        let mut leaf = String::from("(");
+        for s in &steps[*lhs_len..] {
+            match s {
+                Step::Bind { expr, var, .. } => {
+                    leaf.push_str(&format!("{} >>= fun {var} => ", expr.render_arg()))
+                }
+                _ => {
+                    return Err(
+                        "partial_fixpoint: a right-hand side step that is not a partial call"
+                            .into(),
+                    );
+                }
+            }
+        }
+        leaf.push_str(&format!("pure {})", rhs.render_arg()));
+        let app = crate::render::exec_first(lhs, false, &|_| "false".to_string(), "true", 4);
+        let body = crate::render::exec_first(lhs, false, &|_| "none".to_string(), &leaf, 4);
+        o.push_str(&format!(
+            "  let a{n} : Bool :=\n{app}  if a{n} = true then\n{body}  else\n",
+            n = k + 1
+        ));
+    }
+    o.push_str(&format!("  {}\n", fixpoint_fallback(m, f, params)));
     Ok(o)
 }
 
@@ -769,15 +867,22 @@ fn gen_recursive(
             .map(|(p, s)| format!("({p} : {s})"))
             .collect();
         if entry.is_some_and(|e| e.partial_fixpoint) {
-            if multi {
+            // Lean defines a mutual block by one fixed point: every member is a least fixed point
+            if let Some(o) = members
+                .iter()
+                .find(|o| !o.entry.is_some_and(|e| e.partial_fixpoint))
+            {
                 return Err(format!(
-                    "{label}: partial_fixpoint in a mutual group is not supported"
+                    "{label}: partial_fixpoint in a mutual group needs it for every member of the group, and `{}` has none",
+                    o.label
                 ));
             }
-            let body =
-                render_fixpoint(m, f, params, lowered).map_err(|e| format!("{label}: {e}"))?;
+            let group: BTreeSet<String> = members.iter().map(|o| fn_name(o.f)).collect();
+            let body = render_fixpoint(m, f, params, lowered, &group)
+                .map_err(|e| format!("{label}: {e}"))?;
+            let note = if multi { "/--" } else { "/-!" };
             o.push_str(&format!(
-                "/-! `{label}` (recursive; least fixed point) -/\n"
+                "{note} `{label}` (recursive; least fixed point) -/\n"
             ));
             o.push_str(&format!(
                 "def {} {} : Option {} :=\n{body}partial_fixpoint\n\n",
@@ -1132,6 +1237,9 @@ fn bytes_adapter(
     result: &str,
 ) -> Option<(String, String)> {
     let ctor = |k: &str| m.ctors.get(k).map(|_| m.ctor_path(k));
+    if !crate::hooks::adapted(hook?, |c| m.ctors.contains_key(c)) {
+        return None;
+    }
     let big = ctor("LblbigEndianBytes")?;
     match (hook?, args) {
         ("BYTES.int2bytes", [l, i, e]) => Some((
@@ -1162,6 +1270,50 @@ def K.hook_bytes2int (b : {b}) (e : {e}) (s : {sg}) : {result} :=
     }
 }
 
+/// For each simplification rule: the functions its left-hand side applies, and those its
+/// condition and right-hand side apply. Only rules whose callees can be generated without a new
+/// library parameter are kept: each callee has equations or a hook implementation and fixed
+/// sorts, so generating it for the rule's sake never adds a field to `Hooks`.
+fn simplification_calls(
+    def: &Def,
+    eqs: &BTreeMap<String, Vec<Equation>>,
+) -> Vec<(BTreeSet<String>, BTreeSet<String>)> {
+    let mut out = Vec::new();
+    for a in &def.axioms {
+        if !a.attrs.has("simplification") {
+            continue;
+        }
+        let (req, eq) = match &a.pattern {
+            P::Implies(_, l, r) => (Some(&**l), &**r),
+            other => (None, other),
+        };
+        let P::Equals(_, _, lhs, rhs) = eq else {
+            continue;
+        };
+        let mut l = BTreeSet::new();
+        applied(lhs, def, &mut l);
+        if l.is_empty() {
+            continue;
+        }
+        let mut rest = BTreeSet::new();
+        applied(rhs, def, &mut rest);
+        if let Some(r) = req {
+            applied(r, def, &mut rest);
+        }
+        let generable = rest.iter().all(|f| {
+            let sym = &def.symbols[f];
+            hooks::for_symbol(sym).is_some()
+                || (eqs.contains_key(f)
+                    && sym.args.iter().all(|s| sort_name(s).is_some())
+                    && sort_name(&sym.result).is_some())
+        });
+        if generable {
+            out.push((l, rest));
+        }
+    }
+    out
+}
+
 pub fn generate(def: &Def, m: &Model, roots: &BTreeSet<String>) -> Result<Generated, String> {
     generate_with(def, m, roots, &Sidecar::default())
 }
@@ -1178,30 +1330,44 @@ pub fn generate_with(
     let mut used: BTreeSet<String> = BTreeSet::new();
     let mut todo: Vec<String> = roots.iter().cloned().collect();
     let mut calls: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    while let Some(f) = todo.pop() {
-        if !used.insert(f.clone()) {
-            continue;
-        }
-        let sym = &def.symbols[&f];
-        if hooks::for_symbol(sym).is_some() {
-            continue;
-        }
-        let mut cs = BTreeSet::new();
-        for e in eqs.get(&f).into_iter().flatten() {
-            applied(&e.rhs, def, &mut cs);
-            for r in &e.requires {
-                applied(r, def, &mut cs);
+    let simpls = simplification_calls(def, &eqs);
+    loop {
+        while let Some(f) = todo.pop() {
+            if !used.insert(f.clone()) {
+                continue;
             }
-            for a in &e.args {
-                applied(a, def, &mut cs);
+            let sym = &def.symbols[&f];
+            if hooks::for_symbol(sym).is_some() {
+                continue;
             }
-            // normalized constructors (`anywhere`, overloads) are calls in right-hand sides
-            applied_ctors(&e.rhs, &m.anywhere, &mut cs);
+            let mut cs = BTreeSet::new();
+            for e in eqs.get(&f).into_iter().flatten() {
+                applied(&e.rhs, def, &mut cs);
+                for r in &e.requires {
+                    applied(r, def, &mut cs);
+                }
+                for a in &e.args {
+                    applied(a, def, &mut cs);
+                }
+                // normalized constructors (`anywhere`, overloads) are calls in right-hand sides
+                applied_ctors(&e.rhs, &m.anywhere, &mut cs);
+            }
+            for c in &cs {
+                todo.push(c.clone());
+            }
+            calls.insert(f, cs);
         }
-        for c in &cs {
-            todo.push(c.clone());
+        // a simplification whose left-hand side applies only generated functions is a fact about
+        // the library, stated in `Equations`; the functions its condition and right-hand side
+        // apply are generated too, so that it can be stated (they are not calls of any function)
+        for (lhs, rest) in &simpls {
+            if lhs.is_subset(&used) {
+                todo.extend(rest.difference(&used).cloned());
+            }
         }
-        calls.insert(f, cs);
+        if todo.is_empty() {
+            break;
+        }
     }
     // signatures
     let mut fns: Fns = BTreeMap::new();

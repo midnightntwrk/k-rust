@@ -1,0 +1,13 @@
+import Lake
+open Lake DSL
+
+/-- A rule whose closers reach `k2l_preserve`'s per-rule heartbeat budget is left open, and the
+other rules are still proved (`k2lean/docs/invariants.md`, §5.1; the light library `range`). -/
+package «InvBudget» where
+  leanOptions := #[⟨`autoImplicit, false⟩]
+
+require KPrelude from "../../lean/prelude"
+require «KRange» from "../../generated/range"
+
+@[default_target]
+lean_lib InvBudget

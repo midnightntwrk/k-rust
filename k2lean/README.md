@@ -85,7 +85,7 @@ target/release/k2lean claims --kore out/my/definition.kore --spec out/my-spec/de
 | option | does |
 |---|---|
 | `--open FILE` | claims (and induction obligations) that get no generic proof: false ones, or ones proved by hand in a `--hand` module |
-| `--assume-invariant NAME` | every claim is stated for the configurations satisfying the preserved invariant `NAME` (`NAME.preserved : Preserved Step NAME`; `--invariant-preserved`, `--invariant-module`), which its proof carries along every step; `--invariant-unfold FILE` gives the unfolding set (a kind 1 library's `Invariants.lean`) |
+| `--assume-invariant NAME` | every claim is stated for the configurations satisfying the preserved invariant `NAME` (`NAME.preserved : Preserved Step NAME`; `--invariant-preserved`, `--invariant-module`), which its proof carries along every step; `--invariant-unfold FILE` gives the unfolding set, one Lean name per line (default: the `invariant-unfold.txt` that `gen --invariant` writes in the semantics' library, `--semantics-path`) |
 | `--induction FILE` | the termination of a sublanguage of a syntax sort (TOML: classes and constructor typings), by structural induction, one obligation per typing |
 
 A claim proved on one definition holds on another that `k2lean relate` proves bisimilar: `KClaims.AF.of_bisim` and its `EF` and `Reach` forms (`demos/ImpRelClaims`).

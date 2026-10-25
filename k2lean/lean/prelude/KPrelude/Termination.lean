@@ -20,8 +20,10 @@ proofs need and the tactic the generator emits:
   a bound key and, through the certificate `MapHook.chooseFirst` passes, for a free one
   (`MapSizeOf`, which the per-sort carriers also have).
 * Facts about defined partial hooks, for `omega`: an index accepted by `BytesHook.get` or
-  `BytesHook.substr` is in range, a defined `IntHook.tdiv`/`IntHook.emod` by a literal is a
-  Euclidean division (`tdiv` of a nonnegative dividend), and a quotient `a * n / m` is smaller
+  `BytesHook.substr` is in range, a defined `StringHook.find` is `-1` or an index at which the
+  needle fits, the length of a `StringHook.substr` is at most what follows its start, a defined `IntHook.tdiv`/`IntHook.emod` by a literal is a
+  Euclidean division (`tdiv` of a nonnegative dividend), a defined `IntHook.shr` of a positive
+  operand by at least one bit is smaller than it, and a quotient `a * n / m` is smaller
   than `a` in absolute value when `n` is smaller than `m`.
 * `Shape`, `ListShape`: the shape of a term (its constructors and builtin values, each counting
   one), a termination measure that ignores the magnitude of integers and byte arrays; the
@@ -41,7 +43,8 @@ proofs need and the tactic the generator emits:
 * `k2l_decreasing [r₁, …]` closes a goal of `decreasing_by`: the facts, each failed guard
   (`(if h : c then … else none) = none`) turned into `¬ c`, the integer and Boolean hooks
   unfolded, lexicographic goals split by `Prod.lex_def`, the given rank functions unfolded,
-  then `omega`; `k2l_decreasing_m [m₁, …] using [d₁, …]` first unfolds and splits the measures
+  then `omega`, and where that fails `simp_all` (which knows the `sizeOf` of the generated
+  constructors) and `omega`; `k2l_decreasing_m [m₁, …] using [d₁, …]` first unfolds and splits the measures
   that are definitions by cases (`f.k2l_measure`) and unfolds the shapes and constructors `dᵢ`.
 
 No statement here depends on the exact `sizeOf` of an injection (`Term.inj`): the size laws are
@@ -282,6 +285,55 @@ theorem substr_facts {b r : List UInt8} {i j : Int} (h : substr b i j = some r) 
 
 end BytesHook
 
+namespace StringHook
+
+theorem length_nonneg (s : String) : 0 ≤ length s := by unfold length; omega
+
+/-- The length of `substrString(S, I, J)` (the range clamped to `S`): at most `S`'s, and at most
+what follows `I` when `I` is in range. -/
+theorem substr_facts (s : String) (i j : Int) :
+    0 ≤ length (substr s i j) ∧ length (substr s i j) ≤ length s ∧
+      (0 ≤ i → i ≤ length s → length (substr s i j) + i ≤ length s) := by
+  unfold substr length
+  simp only []
+  split
+  · simp only [String.length_ofList, List.length_take, List.length_drop, String.length_toList]
+    omega
+  · simp <;> omega
+
+theorem find_go {ns : List Char} {hs : List Char} : ∀ (t : List Char) (k : Nat) (r : Int),
+    k + t.length = hs.length → find.go hs ns k t = some r →
+      -1 ≤ r ∧ r ≤ hs.length ∧ (r = -1 ∨ r + ns.length ≤ hs.length)
+  | [], k, r, hk, h => by
+    simp only [find.go] at h
+    split at h <;> simp only [Option.some.injEq] at h <;> subst h
+    · next he => simp [List.isEmpty_iff] at he; subst he; simp
+    · simp
+  | c :: t, k, r, hk, h => by
+    simp only [find.go] at h
+    split at h
+    · next hp =>
+      simp only [Option.some.injEq] at h; subst h
+      have := List.IsPrefix.length_le (List.isPrefixOf_iff_prefix.1 hp)
+      simp at hk this; omega
+    · exact find_go t (k + 1) r (by simp at hk; omega) h
+
+/-- A defined `findString(H, N, I)`: `-1`, or an index at which `N` fits in `H`. -/
+theorem find_facts {h n : String} {i r : Int} (hf : find h n i = some r) :
+    -1 ≤ r ∧ r ≤ length h ∧ (r = -1 ∨ r + length n ≤ length h) := by
+  unfold find at hf
+  split at hf
+  · simp at hf
+  · simp only at hf
+    unfold length
+    split at hf
+    · simp only [Option.some.injEq] at hf; subst hf; simp
+    · have := find_go (ns := n.toList) (hs := h.toList) _ _ r (by simp; omega) hf
+      simp only [String.length_toList] at this
+      exact this
+
+end StringHook
+
 namespace IntHook
 
 /-- A defined `/Int`: the divisor is not zero, and on a nonnegative dividend it is `Int.ediv`
@@ -301,6 +353,26 @@ theorem emod_facts {a b r : Int} (h : emod a b = some r) : b ≠ 0 ∧ r = a % b
   · simp at h
   · simp only [Option.some.injEq] at h
     exact ⟨by assumption, h.symm⟩
+
+/-- A defined `>>Int`: the shift is not negative, a nonnegative operand gives a result between `0`
+and itself, and a shift of at least one bit makes a positive operand smaller (`a >>> n` is
+`a / 2 ^ n`). -/
+theorem shr_facts {a b r : Int} (h : shr a b = some r) :
+    0 ≤ b ∧ (0 ≤ a → 0 ≤ r ∧ r ≤ a) ∧ (1 ≤ b → 0 < a → r < a) := by
+  unfold shr at h
+  split at h
+  · simp at h
+  · simp only [Option.some.injEq] at h
+    subst h
+    rw [Int.shiftRight_eq_div_pow]
+    have hp : 0 < 2 ^ b.toNat := Nat.two_pow_pos _
+    refine ⟨by omega, fun ha => ⟨Int.ediv_nonneg ha (by omega), Int.ediv_le_self _ ha⟩, fun h1 ha => ?_⟩
+    have h2 : (2 : Int) ≤ ((2 ^ b.toNat : Nat) : Int) := by
+      have : 2 ^ 1 ≤ 2 ^ b.toNat := Nat.pow_le_pow_right (by omega) (by omega)
+      omega
+    apply Int.ediv_lt_of_lt_mul (by omega)
+    have := Int.mul_le_mul_of_nonneg_left h2 (Int.le_of_lt ha)
+    omega
 
 /-- A quotient `a * n / m` is smaller than `a` in absolute value when `n` is smaller than `m`. -/
 theorem tdiv_mul_facts {a n m r : Int} (h : tdiv (mul a n) m = some r) :
@@ -470,6 +542,12 @@ def factLemmasRegistered : CoreM (Array FactLemma) := return factExt.getState (�
 
 open Lean Meta Elab Tactic
 
+/-- The facts about every application of a total hook (`k2l_facts`): the lemma, applied to the
+application's last `arity` arguments. -/
+private def totalHookLemmas : Array FactLemma :=
+  #[{ fn := ``StringHook.length, lemma := ``StringHook.length_nonneg, byHyp := false, arity := 1 },
+    { fn := ``StringHook.substr, lemma := ``StringHook.substr_facts, byHyp := false, arity := 3 }]
+
 /-- The fact lemmas `k2l_facts` applies, keyed by the head of an equation's left-hand side. -/
 private def factLemmas : List (Name × List Name) :=
   [(``ListHook.uncons, [``ListHook.sizeOf_uncons, ``ListHook.shape_uncons, ``ListHook.length_uncons]),
@@ -478,8 +556,10 @@ private def factLemmas : List (Name × List Name) :=
    (``MapHook.concat, [``MapHook.sizeOf_of_concat_element]),
    (``BytesHook.get, [``BytesHook.get_facts]),
    (``BytesHook.substr, [``BytesHook.substr_facts]),
+   (``StringHook.find, [``StringHook.find_facts]),
    (``IntHook.tdiv, [``IntHook.tdiv_facts, ``IntHook.tdiv_mul_facts, ``IntHook.tdiv_mul_divisor_facts]),
-   (``IntHook.emod, [``IntHook.emod_facts])]
+   (``IntHook.emod, [``IntHook.emod_facts]),
+   (``IntHook.shr, [``IntHook.shr_facts])]
 
 /-- The applications in `e` (without loose bound variables) of the functions `fns`. -/
 private def appsOf (fns : Std.HashSet Name) (e : Expr) : MetaM (Array Expr) := do
@@ -518,8 +598,9 @@ elab "k2l_facts" : tactic => withMainContext do
     for l in reg do
       unless l.byHyp && lhs.isAppOf l.fn do continue
       try (facts, seen) ← push facts seen (← mkAppM l.lemma #[d.toExpr]) catch _ => pure ()
-  -- total functions: every application in the goal or a hypothesis
-  let total := reg.filter (!·.byHyp)
+  -- total functions: every application in the goal or a hypothesis (the registered lemmas
+  -- about generated functions, and the prelude's about total hooks)
+  let total := reg.filter (!·.byHyp) ++ totalHookLemmas
   if !total.isEmpty then
     let fns : Std.HashSet Name := total.foldl (fun s l => s.insert l.fn) {}
     for ty in types do
@@ -529,6 +610,14 @@ elab "k2l_facts" : tactic => withMainContext do
           unless a.isAppOf l.fn && args.size ≥ l.arity do continue
           try (facts, seen) ← push facts seen (← mkAppM l.lemma (args.extract (args.size - l.arity) args.size))
           catch _ => pure ()
+  -- the length of a string literal, which `omega` does not compute: `length "…" = n` by `rfl`
+  -- (in the goal, the hypotheses and the facts above, such as `find_facts`'s needle length)
+  let factTypes ← facts.mapM fun p => do instantiateMVars (← inferType p)
+  for ty in types ++ factTypes do
+    for a in ← appsOf ({``StringHook.length} : Std.HashSet Name) ty do
+      if let some (Expr.lit (Literal.strVal str)) := a.getAppArgs.back?.map (·.consumeMData) then
+        let eq ← mkEq a (toExpr (str.length : Int))
+        (facts, seen) ← push facts seen (← mkExpectedTypeHint (← mkEqRefl a) eq)
   liftMetaTactic fun g => do
     let mut g := g
     for p in facts do
@@ -734,7 +823,10 @@ macro_rules
       (try simp only [Prod.lex_def] at ⊢)
       (try dsimp only [$ranks,*] at ⊢)
       (try simp only [true_and, and_true, Nat.lt_irrefl, false_or, or_false] at ⊢)
-      first | done | omega)))
+      -- last, the default simp set, which has the `sizeOf` equations of the generated
+      -- constructors: a call on the payload of an injected list element needs
+      -- `sizeOf (inj x) = n + sizeOf x` beside the list's fact (simp's step bound ends it)
+      first | done | omega | ((try simp_all) <;> omega))))
 
 end KPrelude
 

@@ -676,7 +676,8 @@ fn main() {
                     format!("{} parts", eq_modules - 1)
                 }
             );
-            // kind 1 invariants: `InvariantDefs.lean`, `Invariants.lean`, `open-invariant-cases.txt`
+            // kind 1 invariants: `InvariantDefs.lean`, `Invariants.lean`, `open-invariant-cases.txt`,
+            // `invariant-unfold.txt`
             if specs.is_empty() && declared.is_empty() {
                 for f in ["InvariantDefs.lean", "Invariants.lean"] {
                     let _ = std::fs::remove_file(out.join(ns).join(f));
@@ -721,6 +722,7 @@ fn main() {
                     &with_hooks(o.theorems.clone(), ns, &fgen.params),
                 );
                 write(&open_path, &o.open_list);
+                write(&out.join("invariant-unfold.txt"), &o.unfold_list);
                 if let Some(sk) = &o.hand_skeleton {
                     write(&hand, sk);
                     eprintln!(

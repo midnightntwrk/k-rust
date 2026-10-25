@@ -10,6 +10,7 @@ LIBS = {
     "kimptop": {"ns": "KImpInv", "tier": "light", "guard": False},
     "kimpboth": {"ns": "KImpInv", "tier": "light", "guard": False},
     "nested": {"ns": "KNested", "tier": "light", "guard": False},
+    "range": {"ns": "KRange", "tier": "light", "guard": False},
     "simpleinv": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
     "simplestore": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
     "simplet": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
@@ -25,6 +26,7 @@ INVS = {
     "kimptop": {"ns": "KImpInv", "tier": "light"},
     "kimpboth": {"ns": "KImpInv", "tier": "light"},
     "nested": {"ns": "KNested", "tier": "light"},
+    "range": {"ns": "KRange", "tier": "light"},
     "simpleinv": {"ns": "KSimpleInv", "tier": "heavy"},
     "simplestore": {"ns": "KSimpleInv", "tier": "heavy"},
     "simplet": {"ns": "KSimpleInv", "tier": "heavy"},
@@ -34,6 +36,7 @@ DEMOS = {
     "KrsImpTyping": {"tier": "light"},
     "ImpWrites": {"tier": "light"},
     "Kind2Template": {"tier": "light"},
+    "InvBudget": {"tier": "light"},
     "SimpleEnv": {"tier": "heavy"},
 }
 
