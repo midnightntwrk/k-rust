@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The invariants area: kind 1 invariant libraries (kimpinv, kimpkeys, kimpkeys-hand, kimpfold,
-# kimptop, nested, and SIMPLE's simpleinv, simplestore, simplet), KRS IMP's sidecar invariant, the
+# kimptop, kimpboth, nested, and SIMPLE's simpleinv, simplestore, simplet), KRS IMP's sidecar invariant, the
 # negative check, the kind 2 demos (ImpWrites, KrsImpTyping, SimpleEnv) and template. Registry:
 # invariants.py.
 
@@ -8,6 +8,7 @@ kore_invariants() {
   case $1 in
     kimp-inv) f=$DEMOS/k/kimp-inv/imp-inv.k m=IMP-INV s=IMP-SYNTAX inc=$KIMP ;;
     kimp-keys) f=$DEMOS/k/kimp-keys/imp-keys.k m=IMP-KEYS s=IMP-SYNTAX inc=$KIMP ;;
+    kimp-both) f=$DEMOS/k/kimp-inv/imp-both.k m=IMP-BOTH s=IMP-SYNTAX inc=$KIMP ;;
     simple-inv) f=$DEMOS/k/simple-inv/simple-inv.k m=SIMPLE-INV s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
     *) return 1 ;;
   esac
@@ -15,7 +16,7 @@ kore_invariants() {
 
 name_invariants() {
   case $1 in
-    kimpinv|kimpfold|kimptop) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;;
+    kimpinv|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;;
     simpleinv|simplestore|simplet) echo KSimpleInv ;;
     *) return 1 ;;
   esac
@@ -40,6 +41,10 @@ gen_invariants() {
     kimptop) GEN_ARGS=(--kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json"
             --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
             --invariant topEnvOk) ;;
+    # the top-cell form whose right-hand side conjoins two partial calls (demos/k/kimp-inv/imp-both.k)
+    kimpboth) GEN_ARGS=(--kore "$(kore_dir kimp-both)/definition.kore" --runtime "$(kore_dir kimp-both)/runtime.json"
+            --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+            --invariant topBoth) ;;
     # a cell inside two nested cell maps (tests/fixtures/nested, whose compiled KORE is committed)
     nested) GEN_ARGS=(--kore "$FIXTURES/nested/definition.kore" --runtime "$FIXTURES/nested/runtime.json"
             --out "$o" --name KNested --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
@@ -193,6 +198,12 @@ gate_invariants() {
     seed_lake "$d" kimpinv
     kc kimp-inv && inv_lib "$d" KImpInv
   done
+  # the top-cell form with two partial calls conjoined (demos/k/kimp-inv/imp-both.k), over
+  # kimpinv's definition and one more function, so it starts from kimpinv's build too
+  if runs lib kimpboth; then
+    seed_lake kimpboth kimpinv
+    kc kimp-both && inv_lib kimpboth KImpInv
+  fi
   # a cell inside two nested cell maps (tests/fixtures/nested)
   runs lib nested && inv_lib nested KNested
   runs negative krsimp-ill-typed && negative_ill_typed
@@ -206,7 +217,7 @@ gate_invariants() {
     kc simple-inv && inv_lib "$d" KSimpleInv
   done
   phase "diff invariants"
-  diffs kimpinv kimpkeys kimpfold kimptop nested simpleinv simplestore simplet
+  diffs kimpinv kimpkeys kimpfold kimptop kimpboth nested simpleinv simplestore simplet
   # kind 2 invariants, built like demos: a walk over <k> (ImpWrites), KRS IMP's declared cell type
   # (KrsImpTyping), a Lean invariant over KSimple's configuration (SimpleEnv, needs SIMPLE)
   phase "demos invariants"
