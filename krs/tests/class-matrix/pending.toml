@@ -2505,17 +2505,17 @@ step = "S2"
 
 ["init/typed/any/1"]
 finding = "N27"
-deviation = "krs::analysis::unused-configuration-variable @ item"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/any/Cmd::Go()"]
 finding = "N27"
-deviation = "krs::analysis::unused-configuration-variable @ item"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/any/Val::Unit()"]
 finding = "N27"
-deviation = "krs::analysis::unused-configuration-variable @ item"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/boxed/1"]

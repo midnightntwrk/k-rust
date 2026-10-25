@@ -661,12 +661,19 @@ fn typed_initializer(cell: &str, content: &str) -> Case {
         construct: content.to_owned(),
     };
     let field_of_cell = if cell == "slot" { "slots" } else { cell };
+    // A case that replaces the content of the `any` cell would leave the configuration variable
+    // `any` unread, a second mistake; the computation cell reads it instead.
+    let any_moved = cell == "any" && content != "any";
     let mut item = ItemBuilder::new();
     initializer(
         &mut item,
         TYPED_HEADER,
         &TYPED_FIELDS,
         |item, field, value| {
+            if field == "k" && any_moved {
+                item.push(field).push(": k::k![pgm, any]");
+                return;
+            }
             if field != field_of_cell {
                 item.push(field).push(": ").push(value);
                 return;
