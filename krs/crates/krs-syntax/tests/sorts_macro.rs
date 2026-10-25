@@ -24,8 +24,10 @@ fn declarations_bounds_brackets_and_memberships_preserve_order() {
     assert_eq!(expr.name(), "Expr");
     assert_eq!(expr.brackets().len(), 1);
     assert_eq!(
-        expr.bracket_provenance(&expr.brackets()[0])
+        expr.bracket_descriptors()
+            .next()
             .unwrap()
+            .1
             .iter()
             .filter(|anchor| anchor.role() == ProvenanceRole::BracketValueReference)
             .count(),
@@ -50,8 +52,7 @@ fn declarations_bounds_brackets_and_memberships_preserve_order() {
         panic!("fourth entry must be Value membership")
     };
     assert_eq!(membership.members().len(), 2);
-    for member in membership.members() {
-        let anchors = membership.member_provenance(member).unwrap();
+    for (_, anchors) in membership.member_descriptors() {
         assert_eq!(anchors[0].role(), ProvenanceRole::SubsortDeclaration);
         assert_eq!(anchors[1].role(), ProvenanceRole::SubsortSuperSort);
         assert_eq!(anchors[2].role(), ProvenanceRole::SubsortSubSort);

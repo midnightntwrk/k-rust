@@ -125,14 +125,14 @@ lib kexpr KExpr
 lib exprtypes KExprTypes
 lib freekey FreeKey
 # the two sides of each fixture self-relation; the demo's build builds them as far as it needs
-for d in peano peanob cellmap cellmapb; do mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"; gen "$d"; done
+for d in peano peanob cellmap cellmapb pick pickb; do mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"; gen "$d"; done
 # the libraries of the scaffolds' demos, built by the demos as far as they need
 for d in kunroll impsec race; do mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"; gen "$d"; done
 if [ "$TIER" = heavy ]; then lib simple KSimple; fi
 
 # 4. the relations (generated files of ImpRel, ImpTypes, ImpMut, PeanoRel, CellMapRel) and the
 #    soundness modules of ImpTypes
-for ns in ImpRel ImpTypes ExprTypes ImpMut PeanoRel CellMapRel ImpUnroll ImpNI; do libs_relate "$ns" > "$S/relate-$ns.log" 2>&1 || { tail -5 "$S/relate-$ns.log"; exit 1; }; done
+for ns in ImpRel ImpTypes ExprTypes ImpMut PeanoRel CellMapRel PickRel ImpUnroll ImpNI; do libs_relate "$ns" > "$S/relate-$ns.log" 2>&1 || { tail -5 "$S/relate-$ns.log"; exit 1; }; done
 # the generated modules of ImpTypes' type-soundness proof (`k2lean soundness`)
 for ns in ImpTypes ExprTypes; do libs_soundness "$ns" > "$S/soundness-$ns.log" 2>&1 || { tail -5 "$S/soundness-$ns.log"; exit 1; }; done
 # the scaffolds' generated modules (`k2lean refine`, `confluence`, `noninterference`)
@@ -144,7 +144,7 @@ libs_noninterference ImpNI > "$S/noninterference-ImpNI.log" 2>&1 || { tail -5 "$
 #    that passes has checked them; `sorry` is rejected below
 printf 'module\tbuild\n' > "$S/modules.tsv"
 : > "$S/preserve.txt"
-projects=(ImpRel ImpTypes ExprTypes ImpMut KrsImpTyping PeanoRel CellMapRel ImpUnroll RaceConf ImpNI)
+projects=(ImpRel ImpTypes ExprTypes ImpMut KrsImpTyping PeanoRel CellMapRel PickRel ImpUnroll RaceConf ImpNI)
 [ "$TIER" = heavy ] && projects+=(SimpleEnv)
 for p in "${projects[@]}"; do
   [ "${CLEAN:-0}" = 1 ] && rm -rf "$D/$p/.lake"

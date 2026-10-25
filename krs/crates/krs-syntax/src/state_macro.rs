@@ -6,12 +6,61 @@ use syn::parse::ParseStream;
 use syn::spanned::Spanned;
 use syn::{Expr, Ident, Path, Token, parenthesized};
 
-use crate::parse::{KrsSyntax, checked_ordinal, structured_with};
+use crate::parse::{KeyAllocator, KrsSyntax, structured_with};
 use crate::path::{path_text, plain_path_last};
 use crate::{
-    ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TermExpression, TermNode,
-    TermTree, TokenRange,
+    ProvenanceAnchor, ProvenanceRole, RuleRole, RuleSide, SyntaxError, SyntaxErrorKind,
+    TermExpression, TermNode, TermTree, TokenRange,
 };
+use krs_ir::ProvenanceKey;
+
+/// Where a state macro stands in its sentence, which decides the roles of its
+/// nodes: alone, under the standalone `cells_*`, `k_sequence_*` and `map_*`
+/// roles, or on one side of a rule, under that side's roles.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum StatePosition {
+    /// The state macro is its own sentence.
+    Standalone,
+    /// The state macro is one side's cells, or a state inside them.
+    Rule(RuleSide),
+}
+
+impl StatePosition {
+    /// The role of a node in `slot` at this position.
+    pub(crate) const fn role(self, slot: RuleRole) -> ProvenanceRole {
+        match self {
+            Self::Standalone => match slot {
+                RuleRole::CellsPayload => ProvenanceRole::CellsPayload,
+                RuleRole::CellsField => ProvenanceRole::CellsField,
+                RuleRole::CellsWrapper => ProvenanceRole::CellsWrapper,
+                RuleRole::CellsRemainder => ProvenanceRole::CellsRemainder,
+                RuleRole::KSequencePayload => ProvenanceRole::KSequencePayload,
+                RuleRole::KSequenceItem => ProvenanceRole::KSequenceItem,
+                RuleRole::KSequenceTail => ProvenanceRole::KSequenceTail,
+                RuleRole::MapPayload => ProvenanceRole::MapPayload,
+                RuleRole::MapKey => ProvenanceRole::MapKey,
+                RuleRole::MapValue => ProvenanceRole::MapValue,
+                RuleRole::MapRemainder => ProvenanceRole::MapRemainder,
+                RuleRole::MapUpdateBase => ProvenanceRole::MapUpdateBase,
+                RuleRole::CellsInstance => ProvenanceRole::CellsInstance,
+                RuleRole::CellsInstanceField => ProvenanceRole::CellsInstanceField,
+                RuleRole::CellsInstancesRest => ProvenanceRole::CellsInstancesRest,
+            },
+            Self::Rule(side) => slot.on_side(side),
+        }
+    }
+}
+
+/// Hands out the next key of `slot`'s role at `position` to the node at
+/// `range`.
+fn key_at(
+    keys: &mut KeyAllocator,
+    position: StatePosition,
+    slot: RuleRole,
+    range: TokenRange,
+) -> Result<ProvenanceKey, SyntaxError> {
+    keys.key(position.role(slot), range)
+}
 
 /// Whether a compiler-owned state island occurs in pattern or expression position.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -85,21 +134,41 @@ pub struct KSequence {
     items: Vec<TermExpression>,
     tail: StateMacroRemainder,
     notation: KSequenceNotation,
+    payload_key: Option<ProvenanceKey>,
+    tail_key: Option<ProvenanceKey>,
+    /// The anchors of the sequence's standalone keying.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl KSequence {
     /// A readable `[items.., ..]` sequence (KF-023): `tokens` is the bracket
     /// payload and `tail` is exact or anonymous.
-    pub(crate) const fn readable(
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint or ordinal-overflow error of its standalone keying.
+    pub(crate) fn readable(
         tokens: TokenStream,
         items: Vec<TermExpression>,
         tail: StateMacroRemainder,
+    ) -> Result<Self, SyntaxError> {
+        Self::new(tokens, items, tail, KSequenceNotation::Comma).keyed_standalone()
+    }
+
+    const fn new(
+        tokens: TokenStream,
+        items: Vec<TermExpression>,
+        tail: StateMacroRemainder,
+        notation: KSequenceNotation,
     ) -> Self {
         Self {
             tokens,
             items,
             tail,
-            notation: KSequenceNotation::Comma,
+            notation,
+            payload_key: None,
+            tail_key: None,
+            anchors: Vec::new(),
         }
     }
 
@@ -107,6 +176,11 @@ impl KSequence {
     #[must_use]
     pub fn items(&self) -> &[TermExpression] {
         &self.items
+    }
+
+    /// Ordered K items before the tail, for a pass that keys them.
+    pub(crate) fn items_mut(&mut self) -> &mut [TermExpression] {
+        &mut self.items
     }
 
     /// Exact or framed sequence tail.
@@ -127,48 +201,78 @@ impl KSequence {
         self.items.is_empty() && matches!(self.tail, StateMacroRemainder::Exact)
     }
 
-    /// Returns payload, item, and tail anchors.
+    /// The key of the payload, absent for empty `k![]`; an item's key is the
+    /// payload key of its term ([`crate::TermKeys::payload`]).
+    #[must_use]
+    pub const fn payload_key(&self) -> Option<&ProvenanceKey> {
+        self.payload_key.as_ref()
+    }
+
+    /// The key of the tail: the remainder, or the authored `.K`.
+    #[must_use]
+    pub const fn tail_key(&self) -> Option<&ProvenanceKey> {
+        self.tail_key.as_ref()
+    }
+
+    /// Returns payload, item, and tail anchors of the sequence's standalone
+    /// keying.
     ///
     /// Empty `k![]` has no inner token endpoint; its enclosing macro node owns
     /// that shell range, so this method returns no payload anchor for it.
     ///
     /// # Errors
     ///
-    /// Returns an endpoint or ordinal-overflow error.
+    /// None: the sequence was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = Vec::new();
+        Ok(self.anchors.clone())
+    }
+
+    fn keyed_standalone(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.clear_keys();
+        self.allocate_keys(&mut keys, StatePosition::Standalone)?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// Forgets the keys of the sequence and of its items, and the anchors
+    /// of its standalone keying, before an enclosing sentence's pass keys
+    /// them.
+    pub(crate) fn clear_keys(&mut self) {
+        self.payload_key = None;
+        self.tail_key = None;
+        self.anchors.clear();
+        for item in &mut self.items {
+            item.clear_keys();
+        }
+    }
+
+    /// Keys the payload, each item (as its term's payload), then the tail,
+    /// under the roles of `position`. The items' own nodes are the enclosing
+    /// sentence's to key.
+    pub(crate) fn allocate_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        position: StatePosition,
+    ) -> Result<(), SyntaxError> {
         if !self.tokens.is_empty() {
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::KSequencePayload,
-                0,
-                TokenRange::for_tokens(&self.tokens)?,
-            ));
+            let range = TokenRange::for_tokens(&self.tokens)?;
+            self.payload_key = Some(key_at(keys, position, RuleRole::KSequencePayload, range)?);
         }
-        for (index, item) in self.items.iter().enumerate() {
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::KSequenceItem,
-                checked_ordinal(
-                    index,
-                    ProvenanceRole::KSequenceItem,
-                    item.expression().span(),
-                )?,
-                TokenRange::for_tokens(item.expression())?,
-            ));
+        for item in &mut self.items {
+            item.allocate_payload_key(keys, position.role(RuleRole::KSequenceItem))?;
         }
-        if let Some(range) = self.tail.range() {
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::KSequenceTail,
-                0,
-                range,
-            ));
-        } else if self.notation == KSequenceNotation::DotK {
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::KSequenceTail,
-                0,
-                TokenRange::for_tokens(&self.tokens)?,
-            ));
+        let tail = match self.tail.range() {
+            Some(range) => Some(range),
+            None if self.notation == KSequenceNotation::DotK => {
+                Some(TokenRange::for_tokens(&self.tokens)?)
+            }
+            None => None,
+        };
+        if let Some(range) = tail {
+            self.tail_key = Some(key_at(keys, position, RuleRole::KSequenceTail, range)?);
         }
-        Ok(output)
+        Ok(())
     }
 }
 
@@ -256,6 +360,10 @@ pub struct MapExpression {
     tokens: TokenStream,
     body: MapBody,
     pattern_bindings: Option<MapPatternBindings>,
+    payload_key: Option<ProvenanceKey>,
+    remainder_key: Option<ProvenanceKey>,
+    /// The anchors of the map's standalone keying.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl MapExpression {
@@ -266,11 +374,25 @@ impl MapExpression {
     }
 
     fn empty(tokens: TokenStream, explicit_dot: bool, context: StateMacroContext) -> Self {
+        Self::new(
+            tokens,
+            MapBody::Empty { explicit_dot },
+            (context == StateMacroContext::Pattern).then(MapPatternBindings::default),
+        )
+    }
+
+    const fn new(
+        tokens: TokenStream,
+        body: MapBody,
+        pattern_bindings: Option<MapPatternBindings>,
+    ) -> Self {
         Self {
             tokens,
-            body: MapBody::Empty { explicit_dot },
-            pattern_bindings: (context == StateMacroContext::Pattern)
-                .then(MapPatternBindings::default),
+            body,
+            pattern_bindings,
+            payload_key: None,
+            remainder_key: None,
+            anchors: Vec::new(),
         }
     }
 
@@ -282,11 +404,11 @@ impl MapExpression {
     ) -> Self {
         let pattern_bindings = (context == StateMacroContext::Pattern)
             .then(|| MapPatternBindings::from_items(&items, &remainder));
-        Self {
+        Self::new(
             tokens,
-            body: MapBody::Items { items, remainder },
+            MapBody::Items { items, remainder },
             pattern_bindings,
-        }
+        )
     }
 
     pub(crate) const fn pattern_bindings(&self) -> Option<&MapPatternBindings> {
@@ -299,67 +421,95 @@ impl MapExpression {
         &self.body
     }
 
-    /// Returns payload and structural map anchors.
+    /// The key of the payload, absent for empty `map![]`; an item's key and
+    /// value, and an update's base, key and value, are keyed as their terms'
+    /// payloads ([`crate::TermKeys::payload`]).
+    #[must_use]
+    pub const fn payload_key(&self) -> Option<&ProvenanceKey> {
+        self.payload_key.as_ref()
+    }
+
+    /// The key of the items' remainder.
+    #[must_use]
+    pub const fn remainder_key(&self) -> Option<&ProvenanceKey> {
+        self.remainder_key.as_ref()
+    }
+
+    /// Returns payload and structural map anchors of the map's standalone
+    /// keying.
     ///
     /// # Errors
     ///
-    /// Returns endpoint or ordinal-overflow errors only.
+    /// None: the map was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = Vec::new();
-        if !self.tokens.is_empty() {
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::MapPayload,
-                0,
-                TokenRange::for_tokens(&self.tokens)?,
-            ));
+        Ok(self.anchors.clone())
+    }
+
+    fn keyed_standalone(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.clear_keys();
+        self.allocate_keys(&mut keys, StatePosition::Standalone)?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// The map's terms in key order: each item's key and value, or an
+    /// update's base, key and value.
+    pub(crate) fn terms_mut(&mut self) -> Vec<&mut TermExpression> {
+        match &mut self.body {
+            MapBody::Empty { .. } => Vec::new(),
+            MapBody::Items { items, .. } => items
+                .iter_mut()
+                .flat_map(|item| [&mut item.key, &mut item.value])
+                .collect(),
+            MapBody::Update { base, key, value } => vec![base, key, value],
         }
-        match &self.body {
+    }
+
+    /// Forgets the keys of the map and of its terms, and the anchors of its
+    /// standalone keying, before an enclosing sentence's pass keys them.
+    pub(crate) fn clear_keys(&mut self) {
+        self.payload_key = None;
+        self.remainder_key = None;
+        self.anchors.clear();
+        for term in self.terms_mut() {
+            term.clear_keys();
+        }
+    }
+
+    /// Keys the payload, then each item's key and value and the remainder, or
+    /// an update's base, key and value, under the roles of `position`. The
+    /// terms' own nodes are the enclosing sentence's to key.
+    pub(crate) fn allocate_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        position: StatePosition,
+    ) -> Result<(), SyntaxError> {
+        if !self.tokens.is_empty() {
+            let range = TokenRange::for_tokens(&self.tokens)?;
+            self.payload_key = Some(key_at(keys, position, RuleRole::MapPayload, range)?);
+        }
+        let key_role = position.role(RuleRole::MapKey);
+        let value_role = position.role(RuleRole::MapValue);
+        match &mut self.body {
             MapBody::Empty { .. } => {}
             MapBody::Items { items, remainder } => {
-                for (index, item) in items.iter().enumerate() {
-                    let ordinal = checked_ordinal(
-                        index,
-                        ProvenanceRole::MapKey,
-                        item.key.expression().span(),
-                    )?;
-                    output.push(ProvenanceAnchor::new(
-                        ProvenanceRole::MapKey,
-                        ordinal,
-                        TokenRange::for_tokens(item.key.expression())?,
-                    ));
-                    output.push(ProvenanceAnchor::new(
-                        ProvenanceRole::MapValue,
-                        ordinal,
-                        TokenRange::for_tokens(item.value.expression())?,
-                    ));
+                for item in items {
+                    item.key.allocate_payload_key(keys, key_role)?;
+                    item.value.allocate_payload_key(keys, value_role)?;
                 }
                 if let Some(range) = remainder.range() {
-                    output.push(ProvenanceAnchor::new(
-                        ProvenanceRole::MapRemainder,
-                        0,
-                        range,
-                    ));
+                    self.remainder_key =
+                        Some(key_at(keys, position, RuleRole::MapRemainder, range)?);
                 }
             }
             MapBody::Update { base, key, value } => {
-                output.push(ProvenanceAnchor::new(
-                    ProvenanceRole::MapUpdateBase,
-                    0,
-                    TokenRange::for_tokens(base.expression())?,
-                ));
-                output.push(ProvenanceAnchor::new(
-                    ProvenanceRole::MapKey,
-                    0,
-                    TokenRange::for_tokens(key.expression())?,
-                ));
-                output.push(ProvenanceAnchor::new(
-                    ProvenanceRole::MapValue,
-                    0,
-                    TokenRange::for_tokens(value.expression())?,
-                ));
+                base.allocate_payload_key(keys, position.role(RuleRole::MapUpdateBase))?;
+                key.allocate_payload_key(keys, key_role)?;
+                value.allocate_payload_key(keys, value_role)?;
             }
         }
-        Ok(output)
+        Ok(())
     }
 }
 
@@ -422,6 +572,49 @@ impl StateTerm {
         }
     }
 
+    /// Every term of the state, mutably, in [`Self::terms`] order.
+    pub(crate) fn terms_mut(&mut self) -> Vec<&mut TermExpression> {
+        match self {
+            Self::Term(term) | Self::Group(term) => vec![term],
+            Self::KSequence(sequence) => sequence.items.iter_mut().collect(),
+            Self::Map(map) => map.terms_mut(),
+            Self::Present(inner) => inner.terms_mut(),
+            Self::Absent(_) => Vec::new(),
+            Self::Instances(list) => list
+                .nested_states_mut()
+                .into_iter()
+                .flat_map(Self::terms_mut)
+                .collect(),
+        }
+    }
+
+    /// Forgets the keys of the state and of everything inside it, before an
+    /// enclosing sentence's pass keys them.
+    pub(crate) fn clear_keys(&mut self) {
+        match self {
+            Self::Term(term) | Self::Group(term) => term.clear_keys(),
+            Self::KSequence(sequence) => sequence.clear_keys(),
+            Self::Map(map) => map.clear_keys(),
+            Self::Present(inner) => inner.clear_keys(),
+            Self::Absent(_) => {}
+            Self::Instances(list) => list.clear_keys(),
+        }
+    }
+
+    /// Every directly nested state, mutably, in [`Self::nested_states`]
+    /// order.
+    pub(crate) fn nested_states_mut(&mut self) -> Vec<&mut Self> {
+        match self {
+            Self::Present(inner) => vec![inner],
+            Self::Instances(list) => list.nested_states_mut(),
+            Self::Term(_)
+            | Self::KSequence(_)
+            | Self::Map(_)
+            | Self::Group(_)
+            | Self::Absent(_) => Vec::new(),
+        }
+    }
+
     /// Every directly nested state: the inside of `Some(..)` and the
     /// children of collection instances, in source order.
     #[must_use]
@@ -471,11 +664,23 @@ pub enum InstanceRest {
 pub struct InstanceField {
     name: Ident,
     value: StateTerm,
+    name_key: Option<ProvenanceKey>,
 }
 
 impl InstanceField {
     pub(crate) const fn new(name: Ident, value: StateTerm) -> Self {
-        Self { name, value }
+        Self {
+            name,
+            value,
+            name_key: None,
+        }
+    }
+
+    /// The key of the child's field name, given by the rule side that
+    /// anchors the collection.
+    #[must_use]
+    pub const fn name_key(&self) -> Option<&ProvenanceKey> {
+        self.name_key.as_ref()
     }
 
     /// The child's Rust field name.
@@ -501,9 +706,27 @@ pub struct InstanceItem {
     fields: Vec<InstanceField>,
     rest: InstanceRest,
     fragment: bool,
+    key: Option<ProvenanceKey>,
 }
 
 impl InstanceItem {
+    /// Keys the instance record, then each child's name under the roles of
+    /// `position`, each followed by what `child` keys in that child's state.
+    pub(crate) fn allocate_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        position: StatePosition,
+        child: &mut dyn FnMut(&mut KeyAllocator, &mut StateTerm) -> Result<(), SyntaxError>,
+    ) -> Result<(), SyntaxError> {
+        self.key = Some(key_at(keys, position, RuleRole::CellsInstance, self.range)?);
+        for field in &mut self.fields {
+            let range = TokenRange::for_tokens(&field.name)?;
+            field.name_key = Some(key_at(keys, position, RuleRole::CellsInstanceField, range)?);
+            child(keys, &mut field.value)?;
+        }
+        Ok(())
+    }
+
     pub(crate) const fn new(
         range: TokenRange,
         label: Option<Ident>,
@@ -518,7 +741,15 @@ impl InstanceItem {
             fields,
             rest,
             fragment: false,
+            key: None,
         }
+    }
+
+    /// The key of the instance record, given by the rule side that anchors
+    /// the collection.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
     }
 
     /// The complete instance-record range.
@@ -565,6 +796,7 @@ pub struct InstanceList {
     front: Vec<InstanceItem>,
     rest: StateMacroRemainder,
     back: Vec<InstanceItem>,
+    rest_key: Option<ProvenanceKey>,
 }
 
 impl InstanceList {
@@ -579,7 +811,15 @@ impl InstanceList {
             front,
             rest,
             back,
+            rest_key: None,
         }
+    }
+
+    /// The key of the collection rest, given by the rule side that anchors
+    /// the collection.
+    #[must_use]
+    pub const fn rest_key(&self) -> Option<&ProvenanceKey> {
+        self.rest_key.as_ref()
     }
 
     /// Braces (Set, Map) or brackets (List).
@@ -611,44 +851,67 @@ impl InstanceList {
         self.front.iter().chain(&self.back)
     }
 
-    /// Returns the instance, child-field, and rest anchors in traversal
-    /// order: front instances (each followed by its children), the rest,
-    /// then back instances.
-    ///
-    /// # Errors
-    ///
-    /// Returns endpoint or ordinal-overflow errors only.
-    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = Vec::new();
-        let push_item = |item: &InstanceItem, output: &mut Vec<ProvenanceAnchor>| {
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::CellsInstance,
-                0,
-                item.range,
-            ));
-            for field in &item.fields {
-                output.push(ProvenanceAnchor::new(
-                    ProvenanceRole::CellsInstanceField,
-                    0,
-                    TokenRange::for_tokens(&field.name)?,
-                ));
+    /// Forgets the keys of the list and of its instances' children, before
+    /// an enclosing sentence's pass keys them.
+    pub(crate) fn clear_keys(&mut self) {
+        self.rest_key = None;
+        for item in self.front.iter_mut().chain(&mut self.back) {
+            item.key = None;
+            for field in &mut item.fields {
+                field.name_key = None;
+                field.value.clear_keys();
             }
-            Ok::<_, SyntaxError>(())
-        };
-        for item in &self.front {
-            push_item(item, &mut output)?;
         }
+    }
+
+    /// Keys the front instances (each followed by its children's names), the
+    /// rest, then the back instances, under the roles of `position`. The
+    /// children's states are the enclosing sentence's to key.
+    pub(crate) fn allocate_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        position: StatePosition,
+    ) -> Result<(), SyntaxError> {
+        for item in &mut self.front {
+            item.allocate_keys(keys, position, &mut |_, _| Ok(()))?;
+        }
+        self.allocate_rest_key(keys, position)?;
+        for item in &mut self.back {
+            item.allocate_keys(keys, position, &mut |_, _| Ok(()))?;
+        }
+        Ok(())
+    }
+
+    /// Keys the collection rest, if any, under the role of `position`.
+    pub(crate) fn allocate_rest_key(
+        &mut self,
+        keys: &mut KeyAllocator,
+        position: StatePosition,
+    ) -> Result<(), SyntaxError> {
         if let Some(range) = self.rest.range() {
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::CellsInstancesRest,
-                0,
-                range,
-            ));
+            self.rest_key = Some(key_at(keys, position, RuleRole::CellsInstancesRest, range)?);
         }
-        for item in &self.back {
-            push_item(item, &mut output)?;
-        }
-        Ok(output)
+        Ok(())
+    }
+
+    /// The instances before the rest, for a pass that keys them.
+    pub(crate) fn front_mut(&mut self) -> &mut [InstanceItem] {
+        &mut self.front
+    }
+
+    /// The instances after the rest, for a pass that keys them.
+    pub(crate) fn back_mut(&mut self) -> &mut [InstanceItem] {
+        &mut self.back
+    }
+
+    /// Every instance's children's states, mutably, in [`Self::instances`]
+    /// order.
+    pub(crate) fn nested_states_mut(&mut self) -> Vec<&mut StateTerm> {
+        self.front
+            .iter_mut()
+            .chain(&mut self.back)
+            .flat_map(|instance| instance.fields.iter_mut().map(|field| &mut field.value))
+            .collect()
     }
 }
 
@@ -660,6 +923,8 @@ pub struct CellsEntry {
     owner: Option<Path>,
     wrapper: Option<Path>,
     value: StateTerm,
+    name_key: Option<ProvenanceKey>,
+    wrapper_key: Option<ProvenanceKey>,
 }
 
 impl CellsEntry {
@@ -692,6 +957,23 @@ impl CellsEntry {
     pub const fn value(&self) -> &StateTerm {
         &self.value
     }
+
+    /// Returns the compiler-parsed leaf contents, for a pass that keys them.
+    pub(crate) const fn value_mut(&mut self) -> &mut StateTerm {
+        &mut self.value
+    }
+
+    /// The key of the field name.
+    #[must_use]
+    pub const fn name_key(&self) -> Option<&ProvenanceKey> {
+        self.name_key.as_ref()
+    }
+
+    /// The key of the `Cell`/`KCell` wrapper.
+    #[must_use]
+    pub const fn wrapper_key(&self) -> Option<&ProvenanceKey> {
+        self.wrapper_key.as_ref()
+    }
 }
 
 /// Parsed `cells!` pattern or expression payload.
@@ -701,6 +983,10 @@ pub struct CellsExpression {
     context: StateMacroContext,
     entries: Vec<CellsEntry>,
     remainder: StateMacroRemainder,
+    payload_key: Option<ProvenanceKey>,
+    remainder_key: Option<ProvenanceKey>,
+    /// The anchors of the cells' standalone keying.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl CellsExpression {
@@ -722,42 +1008,90 @@ impl CellsExpression {
         &self.remainder
     }
 
-    /// Returns payload, field, wrapper, and remainder anchors.
+    /// Selected cells in authored order, for a pass that keys them.
+    pub(crate) fn entries_mut(&mut self) -> &mut [CellsEntry] {
+        &mut self.entries
+    }
+
+    /// The key of the payload.
+    #[must_use]
+    pub const fn payload_key(&self) -> Option<&ProvenanceKey> {
+        self.payload_key.as_ref()
+    }
+
+    /// The key of the configuration remainder.
+    #[must_use]
+    pub const fn remainder_key(&self) -> Option<&ProvenanceKey> {
+        self.remainder_key.as_ref()
+    }
+
+    /// Returns payload, field, wrapper, and remainder anchors of the cells'
+    /// standalone keying.
     ///
     /// Nested `k!`/`map!` provenance is returned by each entry's [`StateTerm`].
     ///
     /// # Errors
     ///
-    /// Returns endpoint or ordinal-overflow errors only.
+    /// None: the cells were keyed when they were parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = vec![ProvenanceAnchor::new(
-            ProvenanceRole::CellsPayload,
-            0,
-            TokenRange::for_tokens(&self.tokens)?,
-        )];
-        for (index, entry) in self.entries.iter().enumerate() {
-            let ordinal = checked_ordinal(index, ProvenanceRole::CellsField, entry.name.span())?;
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::CellsField,
-                ordinal,
+        Ok(self.anchors.clone())
+    }
+
+    /// Keys the cells as a sentence of their own. Their entries' states are
+    /// not part of it: each `k!` or `map!` among them is keyed as its own.
+    fn keyed_standalone(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys, StatePosition::Standalone)?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// Forgets the keys of the cells and of every entry's state, and the
+    /// anchors of its standalone keying, before an enclosing sentence's pass
+    /// keys them.
+    pub(crate) fn clear_keys(&mut self) {
+        self.payload_key = None;
+        self.remainder_key = None;
+        self.anchors.clear();
+        for entry in &mut self.entries {
+            entry.name_key = None;
+            entry.wrapper_key = None;
+            entry.value.clear_keys();
+        }
+    }
+
+    /// Keys the payload, each field with its wrapper, then the remainder,
+    /// under the roles of `position`. A standalone wrapper is numbered as its
+    /// field is; a rule side numbers its wrappers on their own. The entries'
+    /// states are the enclosing sentence's to key.
+    pub(crate) fn allocate_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        position: StatePosition,
+    ) -> Result<(), SyntaxError> {
+        let range = TokenRange::for_tokens(&self.tokens)?;
+        self.payload_key = Some(key_at(keys, position, RuleRole::CellsPayload, range)?);
+        for entry in &mut self.entries {
+            let field = key_at(
+                keys,
+                position,
+                RuleRole::CellsField,
                 TokenRange::for_tokens(&entry.name)?,
-            ));
+            )?;
             if let Some(wrapper) = &entry.wrapper {
-                output.push(ProvenanceAnchor::new(
-                    ProvenanceRole::CellsWrapper,
-                    ordinal,
-                    TokenRange::for_tokens(wrapper)?,
-                ));
+                let range = TokenRange::for_tokens(wrapper)?;
+                let role = position.role(RuleRole::CellsWrapper);
+                entry.wrapper_key = Some(match position {
+                    StatePosition::Standalone => keys.paired(role, &field, range)?,
+                    StatePosition::Rule(_) => keys.key(role, range)?,
+                });
             }
+            entry.name_key = Some(field);
         }
         if let Some(range) = self.remainder.range() {
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::CellsRemainder,
-                0,
-                range,
-            ));
+            self.remainder_key = Some(key_at(keys, position, RuleRole::CellsRemainder, range)?);
         }
-        Ok(output)
+        Ok(())
     }
 }
 
@@ -890,12 +1224,12 @@ fn parse_k_sequence(
         tokens,
         move |input| {
             if input.is_empty() {
-                return Ok(KSequence {
-                    tokens: original.clone(),
-                    items: Vec::new(),
-                    tail: StateMacroRemainder::Exact,
-                    notation: KSequenceNotation::Comma,
-                });
+                return Ok(KSequence::new(
+                    original.clone(),
+                    Vec::new(),
+                    StateMacroRemainder::Exact,
+                    KSequenceNotation::Comma,
+                ));
             }
             if starts_remainder(input) {
                 let tail = parse_remainder(input, context, "k")?;
@@ -906,12 +1240,12 @@ fn parse_k_sequence(
                         input.span(),
                     ));
                 }
-                return Ok(KSequence {
-                    tokens: original.clone(),
-                    items: Vec::new(),
+                return Ok(KSequence::new(
+                    original.clone(),
+                    Vec::new(),
                     tail,
-                    notation: KSequenceNotation::Comma,
-                });
+                    KSequenceNotation::Comma,
+                ));
             }
             if input.peek(Token![.]) {
                 let range = parse_dot_unit(input, "K")?;
@@ -923,12 +1257,12 @@ fn parse_k_sequence(
                     ));
                 }
                 let _ = range;
-                return Ok(KSequence {
-                    tokens: original.clone(),
-                    items: Vec::new(),
-                    tail: StateMacroRemainder::Exact,
-                    notation: KSequenceNotation::DotK,
-                });
+                return Ok(KSequence::new(
+                    original.clone(),
+                    Vec::new(),
+                    StateMacroRemainder::Exact,
+                    KSequenceNotation::DotK,
+                ));
             }
 
             let mut items = Vec::new();
@@ -993,22 +1327,31 @@ fn parse_k_sequence(
                     input.span(),
                 ));
             }
-            Ok(KSequence {
-                tokens: original.clone(),
+            Ok(KSequence::new(
+                original.clone(),
                 items,
                 tail,
-                notation: notation.unwrap_or(KSequenceNotation::Comma),
-            })
+                notation.unwrap_or(KSequenceNotation::Comma),
+            ))
         },
         |error| state_error("k", "malformed compiler-owned state syntax", error.span()),
     )
+    .and_then(KSequence::keyed_standalone)
+}
+
+/// Parses a `map!` payload and keys it as a sentence of its own.
+fn parse_map(
+    tokens: TokenStream,
+    context: StateMacroContext,
+) -> Result<MapExpression, SyntaxError> {
+    parse_unkeyed_map(tokens, context).and_then(MapExpression::keyed_standalone)
 }
 
 #[expect(
     clippy::too_many_lines,
     reason = "One closed grammar keeps update/item diagnostics local."
 )]
-fn parse_map(
+fn parse_unkeyed_map(
     tokens: TokenStream,
     context: StateMacroContext,
 ) -> Result<MapExpression, SyntaxError> {
@@ -1027,11 +1370,11 @@ fn parse_map(
         }
         let base = TermExpression::parse_tokens(base)?;
         let (key, value) = parse_update_inner(bracket.stream())?;
-        return Ok(MapExpression {
+        return Ok(MapExpression::new(
             tokens,
-            body: MapBody::Update { base, key, value },
-            pattern_bindings: None,
-        });
+            MapBody::Update { base, key, value },
+            None,
+        ));
     }
     if let Some((base_tokens, update_tokens)) = split_once_punct(&tokens, ';') {
         if context == StateMacroContext::Pattern {
@@ -1043,11 +1386,11 @@ fn parse_map(
         }
         let base = TermExpression::parse_tokens(base_tokens)?;
         let (key, value) = parse_update_inner(update_tokens)?;
-        return Ok(MapExpression {
+        return Ok(MapExpression::new(
             tokens,
-            body: MapBody::Update { base, key, value },
-            pattern_bindings: None,
-        });
+            MapBody::Update { base, key, value },
+            None,
+        ));
     }
     let original = tokens.clone();
     structured_with(
@@ -1167,7 +1510,15 @@ fn parse_map_item_key(input: ParseStream<'_>) -> Result<TokenStream, SyntaxError
     Ok(tokens)
 }
 
+/// Parses a `cells!` payload and keys it as a sentence of its own.
 fn parse_cells(
+    tokens: TokenStream,
+    context: StateMacroContext,
+) -> Result<CellsExpression, SyntaxError> {
+    parse_unkeyed_cells(tokens, context).and_then(CellsExpression::keyed_standalone)
+}
+
+fn parse_unkeyed_cells(
     tokens: TokenStream,
     context: StateMacroContext,
 ) -> Result<CellsExpression, SyntaxError> {
@@ -1229,6 +1580,8 @@ fn parse_cells(
                     owner,
                     wrapper,
                     value,
+                    name_key: None,
+                    wrapper_key: None,
                 });
                 if input.is_empty() {
                     break;
@@ -1247,6 +1600,9 @@ fn parse_cells(
                 context,
                 entries,
                 remainder,
+                payload_key: None,
+                remainder_key: None,
+                anchors: Vec::new(),
             })
         },
         |error| {
@@ -1404,12 +1760,12 @@ fn parse_instance_list(
                 }
                 input.parse::<Token![,]>().map_err(SyntaxError::from)?;
             }
-            Ok(InstanceList {
+            Ok(InstanceList::new(
                 delimiter,
                 front,
-                rest: rest.unwrap_or(StateMacroRemainder::Exact),
+                rest.unwrap_or(StateMacroRemainder::Exact),
                 back,
-            })
+            ))
         },
         |error| state_error("cells", "malformed collection entry", error.span()),
     )
@@ -1523,6 +1879,7 @@ fn parse_instance_item(
         fields,
         rest,
         fragment,
+        key: None,
     })
 }
 
@@ -1585,10 +1942,10 @@ fn parse_instance_record(
                         name.span(),
                     ));
                 }
-                fields.push(InstanceField {
+                fields.push(InstanceField::new(
                     name,
-                    value: parse_instance_child(tokens, context)?,
-                });
+                    parse_instance_child(tokens, context)?,
+                ));
                 if input.is_empty() {
                     break;
                 }
@@ -1948,4 +2305,131 @@ fn state_error(macro_name: &'static str, reason: &'static str, span: Span) -> Sy
         SyntaxErrorKind::InvalidStateMacro { macro_name, reason },
         span,
     )
+}
+
+#[cfg(test)]
+mod keyed {
+    use super::{
+        CellsExpression, InstanceItem, InstanceList, KSequence, KSequenceNotation, MapBody,
+        MapExpression, StateTerm,
+    };
+    use crate::SyntaxError;
+    use crate::keyed_nodes::KeyedNodes;
+
+    impl KSequence {
+        /// Records the sequence's keyed nodes: the payload, each item and
+        /// its nodes, then the tail (its remainder, or the authored `.K`).
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.payload_key.as_ref(), &self.tokens)?;
+            for item in &self.items {
+                item.keyed_nodes(nodes)?;
+            }
+            if let Some(range) = self.tail.range() {
+                nodes.push(self.tail_key.as_ref(), range);
+            } else if self.notation == KSequenceNotation::DotK {
+                nodes.push_tokens(self.tail_key.as_ref(), &self.tokens)?;
+            } else {
+                assert!(self.tail_key.is_none(), "a tail key without a tail");
+            }
+            Ok(())
+        }
+    }
+
+    impl MapExpression {
+        /// Records the map's keyed nodes: the payload, each key and value
+        /// (or update base, key and value) and their nodes, then the
+        /// remainder.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.payload_key.as_ref(), &self.tokens)?;
+            match &self.body {
+                MapBody::Empty { .. } => {}
+                MapBody::Items { items, remainder } => {
+                    for item in items {
+                        item.key.keyed_nodes(nodes)?;
+                        item.value.keyed_nodes(nodes)?;
+                    }
+                    if let Some(range) = remainder.range() {
+                        nodes.push(self.remainder_key.as_ref(), range);
+                    }
+                }
+                MapBody::Update { base, key, value } => {
+                    for term in [base, key, value] {
+                        term.keyed_nodes(nodes)?;
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+
+    impl StateTerm {
+        /// Records the keyed nodes of the state: its term, sequence or map,
+        /// the state under `Some(..)`, or each instance of a collection.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            match self {
+                Self::Term(term) | Self::Group(term) => term.keyed_nodes(nodes),
+                Self::KSequence(sequence) => sequence.keyed_nodes(nodes),
+                Self::Map(map) => map.keyed_nodes(nodes),
+                Self::Present(inner) => inner.keyed_nodes(nodes),
+                Self::Absent(_) => Ok(()),
+                Self::Instances(list) => list.keyed_nodes(nodes),
+            }
+        }
+    }
+
+    impl InstanceItem {
+        /// Records the instance's keyed nodes: the instance record, then
+        /// each field's name and value.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push(self.key.as_ref(), self.range);
+            for field in &self.fields {
+                nodes.push_tokens(field.name_key.as_ref(), &field.name)?;
+                field.value.keyed_nodes(nodes)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl InstanceList {
+        /// Records the collection's keyed nodes: its instances and its rest.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            for item in self.instances() {
+                item.keyed_nodes(nodes)?;
+            }
+            if let Some(range) = self.rest.range() {
+                nodes.push(self.rest_key.as_ref(), range);
+            }
+            Ok(())
+        }
+    }
+
+    impl CellsExpression {
+        /// Records the configuration's keyed nodes: the payload, each
+        /// entry's cell name and wrapper, then the remainder. The entries'
+        /// values are keyed by the sentence that holds the configuration (a
+        /// configuration standing alone does not key them: each value keeps
+        /// the keys of its own parse).
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.payload_key.as_ref(), &self.tokens)?;
+            for entry in &self.entries {
+                nodes.push_tokens(entry.name_key.as_ref(), &entry.name)?;
+                if let Some(wrapper) = &entry.wrapper {
+                    nodes.push_tokens(entry.wrapper_key.as_ref(), wrapper)?;
+                }
+            }
+            if let Some(range) = self.remainder.range() {
+                nodes.push(self.remainder_key.as_ref(), range);
+            }
+            Ok(())
+        }
+
+        /// Records the keyed nodes of the entries' values, which the sentence
+        /// that holds the configuration keyed.
+        pub(crate) fn keyed_values(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            for entry in &self.entries {
+                entry.value.keyed_nodes(nodes)?;
+            }
+            Ok(())
+        }
+    }
 }

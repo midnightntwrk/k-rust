@@ -41,6 +41,11 @@ tier = "light"
 guarded = 10
 preserve = []
 
+[demo.PickRel]
+tier = "light"
+guarded = 10
+preserve = []
+
 [demo.ImpUnroll]
 tier = "light"
 guarded = 327
@@ -49,18 +54,20 @@ preserve = []
 [sources]
 
 [sources.sha256]
-"demos/CellMapRel/CellMapRel/Bisim.lean" = { tier = "light", sha256 = "efc880b1f3e3ea3b9b721cdfb5518e8bb8038ae0871438ba6a75337a4bcd7722" }
+"demos/CellMapRel/CellMapRel/Bisim.lean" = { tier = "light", sha256 = "ff0c0367e4100fc4ecac8c16a5fecca38f0d6aaffedb3ef427beb7fb992d40fb" }
 "demos/CellMapRel/correspondence.toml" = { tier = "light", sha256 = "9d35655de40c76d9e76a185e71c9235314e068f30649518adb7f22f567c962a3" }
 "demos/ImpMut/ImpMut/Tr.lean" = { tier = "light", sha256 = "3eccd567c378d50f1ef809837f6351d519388baeb12c972c16cc7f84f8247bd5" }
 "demos/ImpMut/correspondence.toml" = { tier = "light", sha256 = "9dc529cbcde609dab9109f23f750bfed4acae18f51628905b4fdf5c6ee60acec" }
 "demos/ImpRel/ImpRel/Bisim.lean" = { tier = "light", sha256 = "e8ac8c9f8bfb951e539d6c7b23d6d99efb77e8a8fba0c32371ab9e989b4b9f2d" }
 "demos/ImpRel/correspondence.toml" = { tier = "light", sha256 = "3dc0d320c634fe05568a639cf181b83f224a8c2fe0f3d819f85bd34f193e6397" }
 "demos/ImpUnroll/ImpUnroll/Refine.lean" = { tier = "light", sha256 = "65db16b3a7f4fe5bd8a6f844bd3015d62d27d12fd037ec524096d0bd6f3b8575" }
-"demos/ImpUnroll/ImpUnroll/Tr.lean" = { tier = "light", sha256 = "5d076b61655b5a0ea84518d1d72658f36f148934f461757bd3217c5e35ec30ce" }
+"demos/ImpUnroll/ImpUnroll/Tr.lean" = { tier = "light", sha256 = "bf980f7954da902395f91c26abee5e3226c09165ef0910d76b20ffebf9cee53f" }
 "demos/ImpUnroll/correspondence.toml" = { tier = "light", sha256 = "d7ad4a218b46827ec050dcf32d699b82beec603d33a09e64d53a0402e2ad9c2a" }
 "demos/ImpUnroll/refine.toml" = { tier = "light", sha256 = "105780b13186c7e6662680806ad1d65bd10c79658950b0b69670ae4cfe426474" }
-"demos/PeanoRel/PeanoRel/Bisim.lean" = { tier = "light", sha256 = "03c0341364eebdbc6c833eaf61e5bc264ac421371a522ae9225a6c5517158ad1" }
+"demos/PeanoRel/PeanoRel/Bisim.lean" = { tier = "light", sha256 = "2e0913dfe07d02e2cb8972af694c06c12175f95ec75c8a56c2770631e0505786" }
 "demos/PeanoRel/correspondence.toml" = { tier = "light", sha256 = "ec93744c1bb8c5205b1bc62647c8da15c829ace831a2906c49f4c7f6e9254cf8" }
+"demos/PickRel/PickRel/Bisim.lean" = { tier = "light", sha256 = "ca19656038d4eed79aaee243ffa1be0ac1ff9b57e3d97257c5afd068227aa657" }
+"demos/PickRel/correspondence.toml" = { tier = "light", sha256 = "84627f7c1d4bb8cbb2162f78f2119c67e0a05f7d175cc3ebded1f81c77f22ba7" }
 "generated/cellmap/CellMap.lean" = { tier = "light", sha256 = "15487a532e866436bce110b7c86cf16028c20a9c5acdb1b40df06636f94a997f" }
 "generated/cellmap/CellMap/Adequacy.lean" = { tier = "light", sha256 = "aeef4f85ba30207eae9bd14e987919ce906353479c0ab2aee7a89511455bb001" }
 "generated/cellmap/CellMap/Determinism.lean" = { tier = "light", sha256 = "0f715198a01fd8170bca4447694fd19f7401faf3bb2881b3773d34b351413687" }
@@ -188,3 +195,31 @@ preserve = []
 "generated/peanob/PeanoBTest/Main.lean" = { tier = "light", sha256 = "eec2d95b792f8765355d6109d7b6a81e72eeedba7c63211629c68b5288ed0f04" }
 "generated/peanob/lakefile.lean" = { tier = "light", sha256 = "24ce0206b9c9af8d684c68d6bb9c80db6e440c8d267dd3514faea746f61da3ee" }
 "generated/peanob/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/pick/Pick.lean" = { tier = "light", sha256 = "ff8646db2213e441fde95731ba49979455c3867c63563c955e8ac883c4cd94e7" }
+"generated/pick/Pick/Adequacy.lean" = { tier = "light", sha256 = "e98bb16e3b539f49bb7d600a7ecef710503c0eca1806a1b3232c577cbe939d5a" }
+"generated/pick/Pick/Determinism.lean" = { tier = "light", sha256 = "ec903acc83a973d8431c1340bf51a022b35bd44143eb591643a996f52b9d7ca6" }
+"generated/pick/Pick/Equations.lean" = { tier = "light", sha256 = "51ecee67339ed109823fb0d99af92272c73823290204cb8d81f8345e8d0c1f7e" }
+"generated/pick/Pick/Functions.lean" = { tier = "light", sha256 = "0e22ee6fbd2809cb52a42332e86c4c152927a90a356e9217bdedcb06ab0adb1a" }
+"generated/pick/Pick/Preserves.lean" = { tier = "light", sha256 = "d2219f53e1b993a75d5fd51104f1a651cce975c937264edd6be240a0789d74ad" }
+"generated/pick/Pick/Rules.lean" = { tier = "light", sha256 = "ff82fa658c95da81028a712cb8f50a5330e1b53953a2f467811327016c2ce030" }
+"generated/pick/Pick/Terms.lean" = { tier = "light", sha256 = "349d200b2fc73bdf67297b91a6b3bb3662c014be8cb2543c0f998775bef3f639" }
+"generated/pick/PickBench/Main.lean" = { tier = "light", sha256 = "aaa5741626c9b2a0fcb42ee039bc5199c8ecb1eeed7a6ed8f9754ef9617da2a1" }
+"generated/pick/PickBench/Programs.lean" = { tier = "light", sha256 = "58cac8f746af21564a288d5f2d474ff807dda650fc225a4c1e3ca09264c985a3" }
+"generated/pick/PickTest/Axioms.lean" = { tier = "light", sha256 = "2de6fd87700945713100cfd5a9043b8063c181d2a91eb779bcd05f6e5dd4da2d" }
+"generated/pick/PickTest/Main.lean" = { tier = "light", sha256 = "6d2e4afbb13ef9018060c391a5270d655284a1ccd0f2039ebe2efd01eaae6a78" }
+"generated/pick/lakefile.lean" = { tier = "light", sha256 = "776a11193eeb1ec30198467ebe7cd534e7f955264d4503342e1baaf92e844103" }
+"generated/pick/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
+"generated/pickb/PickB.lean" = { tier = "light", sha256 = "fbf2a59f6ebe6ee1133609e50be5879beb71096de1685704c0fd0b5549d3e6ae" }
+"generated/pickb/PickB/Adequacy.lean" = { tier = "light", sha256 = "531c745aab01ecfc3c147d0a3ff9a0b42a8b86910e4933a881b652646ad6e3c0" }
+"generated/pickb/PickB/Determinism.lean" = { tier = "light", sha256 = "7701504b95ba0f0caa9fbce825822513255acc0e3ba166c17b6133baffec54ca" }
+"generated/pickb/PickB/Equations.lean" = { tier = "light", sha256 = "7a6433a0cab73f79d4e5d1a15916a60727617c2b43edde76ed67b49b1ddffc26" }
+"generated/pickb/PickB/Functions.lean" = { tier = "light", sha256 = "c48ce32f88b8ddd61f3d843bf80ee6d61c29ee1c204dc5acb4995020070538cf" }
+"generated/pickb/PickB/Preserves.lean" = { tier = "light", sha256 = "89f8de7ea7c82716814325d85243e73571d949369ce7ba77c7fb3c839e403918" }
+"generated/pickb/PickB/Rules.lean" = { tier = "light", sha256 = "37f9649dd21b2bc4fc0dc6b98dd6b572d143991a8eafbeef84711e6501ba8b81" }
+"generated/pickb/PickB/Terms.lean" = { tier = "light", sha256 = "4c4085a319436a1fffb2bc478c10bfa4e7b81852d663c20118a4d27fd4ca820c" }
+"generated/pickb/PickBBench/Main.lean" = { tier = "light", sha256 = "2441036b2c03c17e487fbda42b115b778eda3c548da95326c8b597edd40eb5a7" }
+"generated/pickb/PickBBench/Programs.lean" = { tier = "light", sha256 = "3ae4768820ca64fd09d27745a5b0648c0b50c7f26248f7509073dce51e274f61" }
+"generated/pickb/PickBTest/Axioms.lean" = { tier = "light", sha256 = "51c9ce2498d215a1c96fc059a8bff5b84fba13441ac9756f3f4bcccb1954344a" }
+"generated/pickb/PickBTest/Main.lean" = { tier = "light", sha256 = "381da7b851df34e843bc0da2f2e4e21d59349398d0c42f42423a0286a7623d98" }
+"generated/pickb/lakefile.lean" = { tier = "light", sha256 = "d6198f39664ecb15bfe2f017f874fcb4cb110e25f30f88ddeeb82d6c2f2c4f6b" }
+"generated/pickb/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }

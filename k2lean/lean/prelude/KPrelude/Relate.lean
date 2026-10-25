@@ -457,6 +457,25 @@ theorem chooseFirst_pointwise [DecidableEq M] [DecidableEq M'] {β β' : Type}
   simp only [Function.comp, dif_pos hc, dif_pos hc']
   exact h _ _ hc hc'
 
+/-- A free-key equation as the generated function writes it (`chooseFirst` behind the
+well-formedness test) on a map `m'` that is the translation of `m`, with a continuation that agrees
+with the translation of the original one at every binding. -/
+theorem dite_chooseFirst_pointwise [DecidableEq M] [DecidableEq M'] {β β' : Type}
+    (hT : Pointwise f g T) (hf : SAL.Pres f) {m : M} {m' : M'} (hm : m' = T m)
+    {F : (k : K) → (v : V) → concat (element k v) (remove m k) = some m → Option β}
+    {F' : (k : K') → (v : V') → concat (element k v) (remove m' k) = some m' → Option β'}
+    {φ : β → β'} (h : ∀ k v hc hc', F' (f k) (g v) hc' = (F k v hc).map φ) :
+    (if hw : wfb m' = true then chooseFirst m' ((wfb_iff _).1 hw) F' else none) =
+      (if hw : wfb m = true then chooseFirst m ((wfb_iff _).1 hw) F else none).map φ := by
+  subst hm
+  by_cases hw : wfb m = true
+  · have hw' : wfb (T m) = true := by rw [wfb_pointwise hT hf]; exact hw
+    rw [dif_pos hw', dif_pos hw]
+    exact chooseFirst_pointwise hT hf h
+  · have hw' : ¬ wfb (T m) = true := by rw [wfb_pointwise hT hf]; exact hw
+    rw [dif_neg hw', dif_neg hw]
+    rfl
+
 /-- A match `k' |-> v' r'` of a translated map, with a free key, is the translation of a match
 of the map. -/
 theorem concat_element_pointwise_inv_free (hT : Pointwise f g T) (hf : SAL.Pres f) {k' : K'} {v' : V'}
@@ -599,10 +618,25 @@ end KEqHook
 
 open Lean Meta Elab Tactic in
 /-- `k2l_inv`: repeatedly (1) substitute variables, (2) split conjunctions, (3) for a hypothesis
-`h : e = f x` (or `f x = e`) where `f` is a translation function (its name has a component
-starting with `tr_`), `x` a local variable and `e` not a variable, case on `x` and simplify `h`
-with `f`'s equations (on the arity-indexed family, the `k2l_tr` equations after `familyCases`):
-constructor clashes close the goal, matching constructors give equations between the arguments. Terminates because `e` gets smaller. -/
+`h : f a = f b` where `f` is a translation function (its name has a component starting with
+`tr_`), rewrite it to `a = b` by `f`'s injectivity (`tr_eq_iff_S` beside `f`), or, for a token sort
+(a structure over its string, with no such lemma), destructure both sides and inject, and (4) for a
+hypothesis `h : e = f x` (or `f x = e`) where `x` is a local variable and `e` is not a variable nor
+a translation, case on `x` (on the arity-indexed family, its sort's values by `familyCases`, then
+`h` simplified by the `k2l_tr` equations) and simplify `h` with `f`'s equations, read off its folding lemmas
+`fold_S_k : B.C (tr a) = tr (A.C a)` reversed (else `f`'s own equations): constructor clashes close
+the goal, matching constructors give equations between the arguments. Terminates because `e`
+gets smaller; when `e` is an application of a function (an injection between sorts, a
+collection operation), fold it into a translation by the `k2l_rel` lemmas first, for (3), and
+never case split against a collection operation of the prelude. (5) A list match `ListItem(x') t' = f l` (or `t' ListItem(x')`) becomes
+`x' = f x`, `t' = f t` and the match on `l`, by the lemmas `list_bwd_S`/`list_bwd_back_S` beside
+`f`: a rule's hypothesis `ListItem(X) T = L` is substituted by (1) wherever `L` was bound, so the
+match is found where it lands rather than by its name. (6) Two hypotheses `e = a` and `e = b`
+with one left-hand side (two hypotheses of a rule on one call, `f x = some r`, `f x = some r'`)
+give `a = b` (by `Option.some.inj` between `some`s), and the second is dropped: a function has one
+value, and a later step that reads one of the results then sees the other.
+The folding lemmas are `rfl` lemmas of the relation's module; `f`'s own equations would be derived
+on first use (`f.eq_def` of the mutual block of translations, seconds each on SIMPLE). -/
 partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
   if fuel = 0 then return
   if (← getGoals).isEmpty then return
@@ -618,23 +652,89 @@ partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
       else none
     | _ => none
   let found ← withMainContext do
+    -- injectivity: `f a = f b` gives `a = b`
+    for ldecl in (← getLCtx) do
+      if ldecl.isImplementationDetail then continue
+      let ty ← instantiateMVars ldecl.type
+      let some (_, l, r) := ty.eq? | continue
+      let (some (f1, a), some (f2, b)) := (isTr l, isTr r) | continue
+      unless f1 == f2 do continue
+      let hid := mkIdent ldecl.userName
+      let lem := f1.getPrefix ++ Name.mkSimple ("tr_eq_iff_" ++ (f1.components.getLast!.toString.drop 3))
+      let s ← saveState
+      try
+        evalTactic (← `(tactic| rw [$(mkIdent lem):ident] at $hid:ident))
+        return true
+      catch _ => s.restore
+      unless a.isFVar && b.isFVar do continue
+      let s ← saveState
+      try
+        let ha ← Term.exprToSyntax a
+        let hb ← Term.exprToSyntax b
+        evalTactic (← `(tactic| (cases $ha:term; cases $hb:term; simp only [$(mkIdent f1):ident] at $hid:ident; injection $hid:ident)))
+        return true
+      catch _ => s.restore
+    -- one call, two results: `e = a` and `e = b` (`some a`, `some b`) give `a = b`
+    let eqs ← (← getLCtx).foldlM (init := #[]) fun acc ldecl => do
+      if ldecl.isImplementationDetail then return acc
+      let ty ← instantiateMVars ldecl.type
+      let some (_, l, r) := ty.eq? | return acc
+      if l.isFVar || l.hasMVar then return acc
+      return acc.push (ldecl.userName, l, r)
+    for i in [0:eqs.size] do
+      for j in [i+1:eqs.size] do
+        let (n₁, l₁, r₁) := eqs[i]!
+        let (n₂, l₂, r₂) := eqs[j]!
+        unless l₁ == l₂ && r₁ != r₂ do continue
+        let s ← saveState
+        try
+          let (h₁, h₂) := (mkIdent n₁, mkIdent n₂)
+          if r₁.isAppOfArity ``Option.some 2 && r₂.isAppOfArity ``Option.some 2 then
+            evalTactic (← `(tactic| (have := Option.some.inj ((Eq.symm $h₁).trans $h₂); clear $h₂:ident)))
+          else
+            evalTactic (← `(tactic| (have := (Eq.symm $h₁).trans $h₂; clear $h₂:ident)))
+          return true
+        catch _ => s.restore
+    -- a list match: `ListItem(x') t' = f l` (or `t' ListItem(x')`) by `list_bwd_S` beside `f`
+    for ldecl in (← getLCtx) do
+      if ldecl.isImplementationDetail then continue
+      let ty ← instantiateMVars ldecl.type
+      let some (_, l, r) := ty.eq? | continue
+      let some (side, flip, fn) := (match isTr r, isTr l with
+        | some (f, _), none => some (l, false, f)
+        | none, some (f, _) => some (r, true, f)
+        | _, _ => none) | continue
+      unless side.getAppFn.constName? == some ``ListHook.concat do continue
+      let sfx := fn.components.getLast!.toString.drop 3
+      let hid := mkIdent ldecl.userName
+      let h ← if flip then `(Eq.symm $hid) else `($hid)
+      let mut done := false
+      for nm in [s!"list_bwd_{sfx}", s!"list_bwd_back_{sfx}"] do
+        let lem := mkIdent (fn.getPrefix ++ Name.mkSimple nm)
+        let s ← saveState
+        try
+          evalTactic (← `(tactic| (obtain ⟨_, _, _, _, _⟩ := $lem $h; clear $hid:ident)))
+          done := true
+          break
+        catch _ => s.restore
+      if done then return true
+    -- a case split where the other side is a constructor term
     for ldecl in (← getLCtx) do
       if ldecl.isImplementationDetail then continue
       let ty ← instantiateMVars ldecl.type
       let some (_, l, r) := ty.eq? | continue
       let cand := match isTr r, isTr l with
-        | some t, _ => if l.isFVar then none else some t
+        | some t, none => if l.isFVar then none else some t
         | none, some t => if r.isFVar then none else some t
-        | none, none => none
+        | _, _ => none
       let some (fn, x) := cand | continue
       unless x.isFVar do continue
-      let s ← saveState
-      try
-        let hx ← Term.exprToSyntax x
-        let hid := mkIdent ldecl.userName
-        let fid := mkIdent fn
-        if (← whnfR (← inferType x)).getAppFn.constName?.any (isFamilyName (← getEnv)) then
-          -- on the arity-indexed family: the cases of the sort's values only (`familyCases`)
+      let other := if (isTr r).isSome then l else r
+      let hid := mkIdent ldecl.userName
+      if (← whnfR (← inferType x)).getAppFn.constName?.any (isFamilyName (← getEnv)) then
+        -- on the arity-indexed family: the cases of the sort's values only (`familyCases`)
+        let s ← saveState
+        try
           let gs ← familyCases (← getMainGoal) x.fvarId!
           let mut out := #[]
           for (g, _) in gs do
@@ -642,8 +742,37 @@ partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
             evalTactic (← `(tactic| simp [k2l_tr] at $hid:ident))
             out := out ++ (← getGoals)
           setGoals out.toList
+          return true
+        catch _ => s.restore
+        continue
+      unless other.isLit || (← isConstructorApp other) do
+        -- a function (an injection between sorts, a collection operation, a constructor of the
+        -- arity universe's term family): fold it into a translation (`fold_inj_*`, `comm_*`,
+        -- `k2l_rel`), which injectivity then removes; else case split as against a constructor,
+        -- except on a collection operation of the prelude, whose cases would not reduce it (a list
+        -- match is inverted by (5), a map's by the relation's map lemmas)
+        let s ← saveState
+        try
+          evalTactic (← `(tactic| simp only [k2l_rel] at $hid:ident))
+          return true
+        catch _ => s.restore
+        if other.getAppFn.constName?.any (`KPrelude).isPrefixOf then continue
+      let s ← saveState
+      try
+        let hx ← Term.exprToSyntax x
+        let sfx := fn.components.getLast!.toString.drop 3
+        let env ← getEnv
+        let mut lems : Array (TSyntax `Lean.Parser.Tactic.simpLemma) := #[]
+        let mut k := 0
+        while true do
+          let n := fn.getPrefix ++ Name.mkSimple s!"fold_{sfx}_{k}"
+          unless env.contains n do break
+          lems := lems.push (← `(Lean.Parser.Tactic.simpLemma| ← $(mkIdent n):ident))
+          k := k + 1
+        if lems.isEmpty then
+          evalTactic (← `(tactic| cases $hx:term <;> simp [$(mkIdent fn):ident] at $hid:ident))
         else
-          evalTactic (← `(tactic| cases $hx:term <;> simp [$fid:ident] at $hid:ident))
+          evalTactic (← `(tactic| cases $hx:term <;> simp only [$lems,*, reduceCtorEq] at $hid:ident <;> (try injection $hid:ident)))
         return true
       catch _ => s.restore
     return false
@@ -657,6 +786,22 @@ partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
     setGoals out.toList
 
 elab "k2l_inv" : tactic => k2lInvLoop 64
+
+open Lean Meta Elab Tactic in
+/-- `k2l_assumption`: close the goal by a hypothesis, instantiating the goal's metavariables that
+other goals stand for (`apply` makes them synthetic opaque, which `assumption` leaves alone): the
+variables of a rule that occur only in a side hypothesis, such as the value matched in a map, are
+read off the hypothesis that matches it. -/
+elab "k2l_assumption" : tactic => liftMetaTactic fun g => g.withContext do
+  let ty ← g.getType
+  for ldecl in (← getLCtx) do
+    if ldecl.isImplementationDetail then continue
+    let s ← saveState
+    if ← withAssignableSyntheticOpaque (isDefEq ldecl.type ty) then
+      g.assign ldecl.toExpr
+      return []
+    s.restore
+  throwError "k2l_assumption: no hypothesis matches the goal"
 
 
 
@@ -730,6 +875,33 @@ elab "k2l_ctor_search " i:ident " => " tac:tacticSeq : tactic => do
       s.restore
     catch _ => s.restore
   throwError "k2l_ctor_search: no constructor of {n} applies"
+
+end KPrelude
+
+namespace KPrelude
+
+open Lean Meta Elab Tactic in
+/-- `k2l_choose pw pres φ`: in a goal `… = …`, the first well-formedness test around a
+`chooseFirst` on each side (`if hw : wfb m = true then chooseFirst m _ F else none`, the free-key
+equation of a generated function) are one equation on a translated map and on the map: rewrite the
+left one into the right one mapped by `φ` (`MapHook.dite_chooseFirst_pointwise`, the maps related by
+`rfl` or the `k2l_rel` set), leaving the agreement of the two continuations at every binding as
+the next goal. -/
+elab "k2l_choose " pw:term:max pres:term:max phi:term:max : tactic => do
+  let g ← getMainGoal
+  let some (_, l, r) := (← instantiateMVars (← g.getType)).eq?
+    | throwError "k2l_choose: not an equation"
+  let isChoose (e : Expr) : Bool :=
+    e.isAppOfArity ``dite 5 && (e.getArg! 1).isAppOf ``Eq &&
+      ((e.getArg! 1).getArg! 1).isAppOf ``KPrelude.MapHook.wfb
+  let some e' := l.find? isChoose | throwError "k2l_choose: no free-key equation on the left"
+  let some e := r.find? isChoose | throwError "k2l_choose: no free-key equation on the right"
+  let (s', s) ← g.withContext do return (← Term.exprToSyntax e', ← Term.exprToSyntax e)
+  evalTactic (← `(tactic| (
+    have hX : $s' = Option.map $phi $s :=
+      KPrelude.MapHook.dite_chooseFirst_pointwise $pw $pres
+        (by first | rfl | (simp only [k2l_rel]; done)) ?h
+    rw [hX])))
 
 end KPrelude
 

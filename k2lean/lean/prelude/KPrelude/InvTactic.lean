@@ -223,13 +223,19 @@ def isEnumType (ty : Expr) : MetaM Bool := do
 def splitAnds : TacticM Unit := do
   tryRec (liftMetaTactic fun g => return [← g.casesAnd]) (pure ())
 
+/-- `EntriesOn Q m` (a `KPrelude.MapHook.EntriesOn` application): `(Q, m)`. -/
+def entriesOn? (ty : Expr) : Option (Expr × Expr) :=
+  let n := ty.getAppNumArgs
+  if ty.isAppOf `KPrelude.MapHook.EntriesOn && n ≥ 2 then some (ty.getArg! (n - 2), ty.getArg! (n - 1))
+  else none
+
 /-- The *collections* closer: conjunctions, hypotheses, `@[k2l_coll]` lemmas, and a
 discharger for the leaves. When no lemma applies to a goal, it is normalized by `norm` (the
 unfolding set, `simp only`) and the closer starts again on the result, at most `norms` times on
 one path: a goal about one element of a collection (`Q (k, v)`, the invariant of a thread) unfolds
 to a goal about a collection inside it (the thread's `<holds>` map), which the lemmas address. -/
 partial def collClose (disch : TSyntax `tactic) (lemmas : Array Name) (norm : TSyntax `tactic)
-    (norms : Nat) : Nat → TacticM Bool
+    (U : Array SimpArg) (norms : Nat) : Nat → TacticM Bool
   | depth => do
     if (← getGoals).isEmpty then return true
     splitAnds
@@ -241,7 +247,7 @@ partial def collClose (disch : TSyntax `tactic) (lemmas : Array Name) (norm : TS
       for g' in gs do
         if ← g'.isAssigned then continue
         setGoals [g']
-        unless ← collClose disch lemmas norm norms depth do return false
+        unless ← collClose disch lemmas norm U norms depth do return false
       return true
     if tgt.isAppOfArity ``And 2 then
       let s ← saveState
@@ -252,6 +258,36 @@ partial def collClose (disch : TSyntax `tactic) (lemmas : Array Name) (norm : TS
         setGoals []
         return true
       s.restore
+    -- monotonicity: a goal `EntriesOn Q' m` from a hypothesis `EntriesOn Q m` on the same map
+    -- (the pre-state's, where a rule changes what the predicate reads, not the map), by
+    -- `entriesOn_mono`: `Q' p` from `Q p` for a binding `p`, by this closer one level down
+    if depth > 0 && (← getEnv).contains `KPrelude.MapHook.entriesOn_mono then
+      if let some (_, m) := entriesOn? tgt then
+        let hyps ← g.withContext do
+          let mut acc : Array FVarId := #[]
+          for d in (← getLCtx) do
+            if d.isImplementationDetail then continue
+            if let some (_, m') := entriesOn? (← instantiateMVars d.type) then
+              if m' == m then acc := acc.push d.fvarId
+          return acc
+        for h in hyps do
+          let s ← saveState
+          let ok ← tryRec (do
+              let gs ← g.apply (← mkConstWithFreshMVarLevels `KPrelude.MapHook.entriesOn_mono)
+                { newGoals := .nonDependentOnly }
+              let [gh, gq] := gs | return false
+              let fits ← gh.withContext do isDefEq (← gh.getType) (← inferType (.fvar h))
+              unless fits do return false
+              gh.assign (.fvar h)
+              setGoals [gq]
+              -- the binding's fact, normalized as the goal will be (its parts are what closes it)
+              evalTactic (← `(tactic| (intro p hp; try dsimp only at hp ⊢; try simp only [$U,*] at hp)))
+              splitAnds
+              collClose disch lemmas norm U norms (depth - 1)) (pure false)
+          if ok then
+            setGoals []
+            return true
+          s.restore
     if depth > 0 then
       for L in lemmas do
         let s ← saveState
@@ -264,21 +300,17 @@ partial def collClose (disch : TSyntax `tactic) (lemmas : Array Name) (norm : TS
         s.restore
     if norms > 0 then
       let s ← saveState
+      -- without progress too: the goal is then attacked again with the depth renewed (a goal on
+      -- one collection, reached at depth 0 through another, needs the lemmas again)
       let ok ← tryRec (do
-          evalTactic norm
+          tryRec (evalTactic norm) (pure ())
           if (← getGoals).isEmpty then return true
-          collClose disch lemmas norm (norms - 1) 3) (pure false)
+          collClose disch lemmas norm U (norms - 1) 3) (pure false)
       if ok then
         setGoals []
         return true
       s.restore
     closes disch
-
-/-- `EntriesOn Q m` (a `KPrelude.MapHook.EntriesOn` application): `(Q, m)`. -/
-def entriesOn? (ty : Expr) : Option (Expr × Expr) :=
-  let n := ty.getAppNumArgs
-  if ty.isAppOf `KPrelude.MapHook.EntriesOn && n ≥ 2 then some (ty.getArg! (n - 2), ty.getArg! (n - 1))
-  else none
 
 /-- `MapHook.concat a b = some m`: `(a, b, m)`. -/
 def concatEq? (ty : Expr) : Option (Expr × Expr × Expr) := do
@@ -340,6 +372,46 @@ partial def forwardColl (norm : Array Name → TacticM Unit) (rounds : Nat)
   -- that its collection facts take part in the next round
   splitAnds
   forwardColl norm (rounds - 1) done (next + new.size)
+
+/-- `KeysIncl m m'` and `KeysIncl m' m` for each two hypotheses `concat (element k w) r = some m`,
+`concat (element k v) r = some m'` with the same `k` and `r`: a map rebound at one key has the same
+keys (prototype, INV-8). -/
+def forwardKeysIncl : TacticM Unit := do
+  let env ← getEnv
+  unless env.contains `KPrelude.MapHook.keysIncl_rebind do return
+  let g ← getMainGoal
+  let new ← g.withContext do
+    let mut cats : Array (FVarId × Expr × Expr × Expr) := #[]
+    for d in (← getLCtx) do
+      if d.isImplementationDetail then continue
+      if let some (a, b, m) := concatEq? (← instantiateMVars d.type) then
+        if a.isAppOf `KPrelude.MapHook.element then cats := cats.push (d.fvarId, a, b, m)
+    let mut out : Array (Expr × Expr) := #[]
+    -- each operand of a defined `concat` has its keys in the result
+    for d in (← getLCtx) do
+      if d.isImplementationDetail then continue
+      if (concatEq? (← instantiateMVars d.type)).isSome then
+        for lem in [`KPrelude.MapHook.keysIncl_concat_left, `KPrelude.MapHook.keysIncl_concat_right,
+            `KPrelude.MapHook.inKeys_of_concat_element_self] do
+          let fact ← tryRec (do
+              let pf ← mkAppM lem #[.fvar d.fvarId]
+              pure (some (← instantiateMVars (← inferType pf), pf))) (pure none)
+          if let some f := fact then out := out.push f
+    for (h1, a1, b1, m1) in cats do
+      for (h2, a2, b2, m2) in cats do
+        if h1 == h2 || m1 == m2 || b1 != b2 then continue
+        let n := a1.getAppNumArgs
+        unless n ≥ 2 && a2.getAppNumArgs == n && a1.getArg! (n - 2) == a2.getArg! (n - 2) do continue
+        let fact ← tryRec (do
+            let pf ← mkAppM `KPrelude.MapHook.keysIncl_rebind #[.fvar h1, .fvar h2]
+            pure (some (← instantiateMVars (← inferType pf), pf))) (pure none)
+        if let some f := fact then out := out.push f
+    return out
+  if new.isEmpty then return
+  let hs : Array Hypothesis := new.mapIdx fun i (ty, pf) =>
+    { userName := Name.mkSimple s!"k2l_incl_{i}", type := ty, value := pf }
+  let (_, g') ← g.assertHypotheses hs
+  setGoals [g']
 
 /-- The *compute* closer. -/
 partial def splitLoop (simpU : TSyntax `tactic) (simpAllU : TSyntax `tactic)
@@ -465,8 +537,9 @@ partial def closeRuleAux (k : Closers) (depth : Nat := 2) : TacticM Bool := do
           for h in hs do
             tryRec (evalTactic (← `(tactic| simp only [$U,*] at $(mkIdent h):ident))) (pure ())
             if (← getGoals).isEmpty then return) 4
+        forwardKeysIncl
         if (← getGoals).isEmpty then return true
-        collClose k.disch k.coll k.norm 2 3) (pure false)
+        collClose k.disch k.coll k.norm k.U 2 3) (pure false)
     if ok then setGoals [] else s1.restore
   -- 4. simp
   unless ok do
@@ -708,7 +781,7 @@ syntax (name := k2lCollClose) "k2l_coll_close"
     | ((try simp only [$Ua,*] at *) <;> omega))
   let coll ← labelled `k2l_coll
   let norm ← `(tactic| simp only [$U,*])
-  unless ← collClose disch coll norm 2 3 do
+  unless ← collClose disch coll norm U 2 3 do
     throwError "k2l_coll_close: failed"
 
 end K2LPreserve

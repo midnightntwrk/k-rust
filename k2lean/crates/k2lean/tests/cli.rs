@@ -330,7 +330,9 @@ fn a_map_built_on_an_int_range_gets_its_entries_lemma() {
 /// and each worker's `<env>` map by free-key patterns: each walk gets its test of one binding,
 /// read through projections (the cell map's key and the worker's `<wid>` read equal), and its
 /// element-wise form `Invariant.f_walk`, and both join the unfolding set, instead of the note
-/// that the recursion is neither a fold nor structural.
+/// that the recursion is neither a fold nor structural; the walk of the `<workers>` cell's map
+/// also gets the form at any cell (`Invariant.f_walk_cell`, through `Invariant.f_map`), which
+/// rewrites the cell where a rule leaves it as a variable (the fixture's store rules).
 #[test]
 fn map_walks_by_free_key_patterns_get_their_element_wise_form() {
     let d = tmp("cli-walk");
@@ -362,8 +364,11 @@ fn map_walks_by_free_key_patterns_get_their_element_wise_form() {
     assert!(defs.contains("def Invariant.allIn_test (k : SortKItem) (v : SortKItem) (S : SortMap) : Prop :=\n  KPrelude.MapHook.inKeys v S = true"), "{defs}");
     assert!(defs.contains("def Invariant.workersIn_test (k : SortWidCell) (v : SortWorkerCell) (S : SortMap) : Prop :=\n  (Invariant.content_wid (Invariant.cell_wid v)) = (Invariant.content_wid k) ∧ (K.«allIn(_,_)_WALK_Bool_Map_Map» (Invariant.content_env (Invariant.cell_env v)) S) = some true"), "{defs}");
     assert!(defs.contains("theorem Invariant.workersIn_walk (m : SortWorkerCellMap) (S : SortMap) :\n    K.«workersIn(_,_)_WALK_Bool_WorkersCell_Map» (SortWorkersCell.«<workers>» m) S = some true ↔\n      KPrelude.MapHook.WF m ∧ KPrelude.MapHook.EntriesOn (fun q => Invariant.workersIn_test q.1 q.2 S) m := by"), "{defs}");
+    assert!(defs.contains("def Invariant.workersIn_map : SortWorkersCell → SortWorkerCellMap\n  | SortWorkersCell.«<workers>» x => x"), "{defs}");
+    assert!(defs.contains("theorem Invariant.workersIn_walk_cell (w : SortWorkersCell) (S : SortMap) :\n    K.«workersIn(_,_)_WALK_Bool_WorkersCell_Map» w S = some true ↔"), "{defs}");
+    assert!(!defs.contains("Invariant.allIn_walk_cell"), "{defs}");
     let thms = std::fs::read_to_string(out.join("KWalk/Invariants.lean")).unwrap();
-    assert!(thms.contains("Invariant.allIn_walk, Invariant.allIn_test, Invariant.workersIn_walk, Invariant.workersIn_test"), "{thms}");
+    assert!(thms.contains("Invariant.allIn_walk, Invariant.allIn_test, Invariant.workersIn_walk, Invariant.workersIn_test, Invariant.workersIn_walk_cell, Invariant.workersIn_map"), "{thms}");
 }
 
 fn gen_fixture(dir: &Path, out: &Path, ns: &str) {
@@ -637,16 +642,16 @@ fn relate_with_kept_positions_states_the_bisimulation_without_a_key_invariant() 
     );
 }
 
-/// A function with a free-key equation (`MapHook.chooseFirst`) gets no commutation lemma, so
-/// `relate` refuses the bisimulation with an error naming it (exit status 2), not a panic.
+/// A recursive function with a free-key equation (`MapHook.chooseFirst`) gets no commutation
+/// lemma, so `relate` refuses the bisimulation with an error naming it (exit status 2), not a panic.
 #[test]
-fn relate_refuses_a_function_with_a_free_key_equation() {
+fn relate_refuses_a_recursive_function_with_a_free_key_equation() {
     let d = tmp("cli-relate-freekey");
     let o = relate_fixture("freekey", &d);
     assert_eq!(o.status.code(), Some(2));
     let err = String::from_utf8_lossy(&o.stderr);
     assert!(
-        err.contains("relate: the function allNat(_)_FREEKEY_Bool_Map has an equation with a free-key map pattern"),
+        err.contains("relate: the function allNat(_)_FREEKEY_Bool_Map has an equation with a free-key map pattern; its commutation with the translation is generated only for a non-recursive function"),
         "{err}"
     );
 }
@@ -679,6 +684,44 @@ fn confluence_separates_a_thread_end_matched_at_a_constructor_key_at_one_binding
     );
 }
 
+/// `relate --split true` on the `peano` fixture: the bisimulation cut into a base module, one
+/// module per simulation importing only what it uses, and the bisimulation module importing the
+/// forward and backward simulations; the proof macros move to the base module, scoped.
+#[test]
+fn relate_split_writes_one_module_per_simulation() {
+    let d = tmp("cli-relate-split");
+    let fx =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/peano/definition.kore");
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("relate")
+        .arg("--kore-a")
+        .arg(&fx)
+        .args(["--name-a", "A", "--kore-b"])
+        .arg(&fx)
+        .args(["--name-b", "B", "--ns", "Rel", "--split", "true", "--out"])
+        .arg(d.join("Bisim.lean"))
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let read = |f: &str| std::fs::read_to_string(d.join(f)).unwrap();
+    let base = read("Bisim/Base.lean");
+    assert!(base.contains("theorem inv_step") && base.contains("scoped macro \"hpri_bwd\""));
+    assert!(!base.contains("local macro"));
+    for (m, import, thm) in [
+        ("AppFwd", "Rel.Bisim.Base", "theorem app_fwd"),
+        ("AppBwd", "Rel.Bisim.Base", "theorem app_bwd"),
+        ("Forward", "Rel.Bisim.AppBwd", "theorem forward"),
+        ("Backward", "Rel.Bisim.AppFwd", "theorem backward"),
+    ] {
+        let t = read(&format!("Bisim/{m}.lean"));
+        assert!(t.starts_with(&format!("import {import}\n")), "{m}");
+        assert!(t.contains(thm) && t.trim_end().ends_with("end Rel"), "{m}");
+    }
+    let main = read("Bisim.lean");
+    assert!(main.starts_with("import Rel.Bisim.Forward\nimport Rel.Bisim.Backward\n"));
+    assert!(main.contains("theorem bisim : Bisimulation A.Step B.Step R"));
+}
+
 /// `confluence --threads` on the `threadend` fixture: `step` updates one thread, `end` removes one
 /// (a global rule); the module states `terminal_unique_of` from the two hypotheses, and the report
 /// counts the pairs with `end` (3 ordered) as open and `step` against itself at one thread.
@@ -692,7 +735,17 @@ fn confluence_threads_leaves_the_global_and_same_thread_pairs_open() {
         .arg("confluence")
         .arg("--kore")
         .arg(&fx)
-        .args(["--name", "T", "--ns", "TV", "--threads", "threads", "--obs", "ended", "--out"])
+        .args([
+            "--name",
+            "T",
+            "--ns",
+            "TV",
+            "--threads",
+            "threads",
+            "--obs",
+            "ended",
+            "--out",
+        ])
         .arg(&out)
         .arg("--report")
         .arg(&report)
@@ -713,4 +766,32 @@ fn confluence_threads_leaves_the_global_and_same_thread_pairs_open() {
         v.contains("theorem terminal_unique_of (O : OpenJoins) (S : SameThreadJoins)"),
         "{v}"
     );
+}
+
+/// The non-recursive functions with free-key equations of the `pick` fixture (one free key, two,
+/// and a partial one) commute with a translation that keeps every constructor's position: each
+/// lemma rewrites the two free-key equations by `MapHook.dite_chooseFirst_pointwise`
+/// (`k2l_choose`) and compares the continuations binding by binding (`choose_cont`).
+#[test]
+fn relate_proves_the_commutation_of_non_recursive_free_key_functions() {
+    let d = tmp("cli-relate-pick");
+    let o = relate_fixture("pick", &d);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let lean = std::fs::read_to_string(d.join("Bisim.lean")).unwrap();
+    for f in [
+        "hasNeg(_)_PICK_Bool_Map",
+        "twoPos(_)_PICK_Bool_Map",
+        "anyPos(_)_PICK_Int_Map",
+    ] {
+        assert!(
+            lean.contains(&format!("B.K.«{f}» (tr_SortMap x0)")),
+            "missing the lemma of {f}"
+        );
+    }
+    assert_eq!(
+        lean.matches("  k2l_choose pw_SortMap pres_SortKItem id\n")
+            .count(),
+        3
+    );
+    assert!(lean.contains("theorem bisim : Bisimulation A.Step B.Step R"));
 }

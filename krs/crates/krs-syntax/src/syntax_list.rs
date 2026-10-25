@@ -14,6 +14,7 @@
 //! writes `k::Term<..>` field types and puts `result` on the strictness
 //! attribute.
 
+use krs_ir::ProvenanceKey;
 use proc_macro2::{Span, TokenStream};
 use syn::parse::ParseStream;
 use syn::spanned::Spanned;
@@ -22,7 +23,7 @@ use syn::{Attribute, Fields, Ident, ItemEnum, LitStr, Meta, Path, Token, Variant
 use crate::grammar::{StrictnessAttribute, StrictnessKind, push_terminal};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
 use crate::parse::{
-    KrsSyntax, ParseError, checked_ordinal, duplicate, first_non_doc_attribute, structured, unknown,
+    KeyAllocator, KrsSyntax, ParseError, duplicate, first_non_doc_attribute, structured, unknown,
 };
 use crate::term_sort::{parse_readable_sort, parse_term_sort};
 use crate::{
@@ -37,6 +38,12 @@ pub struct SyntaxListAttribute {
     result: Option<Path>,
     reference: Option<Ident>,
     range: TokenRange,
+    key: Option<ProvenanceKey>,
+    separator_key: Option<ProvenanceKey>,
+    non_empty_key: Option<ProvenanceKey>,
+    /// The anchors of the attribute's standalone keying, which
+    /// [`Self::provenance`] returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl SyntaxListAttribute {
@@ -65,24 +72,60 @@ impl SyntaxListAttribute {
     }
 
     /// Returns the list-declaration, separator, and `non_empty` anchors.
+    ///
+    /// # Errors
+    ///
+    /// None: the attribute was keyed when it was parsed.
+    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the list declaration, the same in the attribute alone and
+    /// in both of its list's productions.
     #[must_use]
-    pub fn provenance(&self) -> Vec<ProvenanceAnchor> {
-        let mut anchors = vec![
-            ProvenanceAnchor::new(ProvenanceRole::ListDeclaration, 0, self.range),
-            ProvenanceAnchor::new(
-                ProvenanceRole::ListSeparator,
-                0,
-                TokenRange::new(self.separator.span(), self.separator.span()),
-            ),
-        ];
-        if let Some(flag) = &self.non_empty {
-            anchors.push(ProvenanceAnchor::new(
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// The key of the separator literal.
+    #[must_use]
+    pub const fn separator_key(&self) -> Option<&ProvenanceKey> {
+        self.separator_key.as_ref()
+    }
+
+    /// The key of the `non_empty` flag, when authored.
+    #[must_use]
+    pub const fn non_empty_key(&self) -> Option<&ProvenanceKey> {
+        self.non_empty_key.as_ref()
+    }
+
+    /// Keys the attribute as a sentence of its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys)?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// Keys the list declaration, the separator, then the `non_empty` flag.
+    /// The anchors of the attribute's own keying are forgotten here and
+    /// recorded again by that keying: an enclosing sentence's pass leaves
+    /// the attribute with that sentence's keys and no anchors of its own.
+    fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.anchors.clear();
+        self.key = Some(keys.key(ProvenanceRole::ListDeclaration, self.range)?);
+        self.separator_key = Some(keys.key(
+            ProvenanceRole::ListSeparator,
+            TokenRange::new(self.separator.span(), self.separator.span()),
+        )?);
+        self.non_empty_key = match &self.non_empty {
+            Some(flag) => Some(keys.key(
                 ProvenanceRole::ListNonEmpty,
-                0,
                 TokenRange::new(flag.span(), flag.span()),
-            ));
-        }
-        anchors
+            )?),
+            None => None,
+        };
+        Ok(())
     }
 }
 
@@ -103,7 +146,7 @@ impl KrsSyntax for SyntaxListAttribute {
         })?;
         let mut parsed = structured(tokens, parse_attribute_stream)?;
         parsed.range = range;
-        Ok(parsed)
+        parsed.keyed()
     }
 }
 
@@ -170,6 +213,10 @@ fn parse_attribute_stream(input: ParseStream<'_>) -> Result<SyntaxListAttribute,
         result,
         reference,
         range: TokenRange::new(missing_span, missing_span),
+        key: None,
+        separator_key: None,
+        non_empty_key: None,
+        anchors: Vec::new(),
     })
 }
 
@@ -199,9 +246,16 @@ pub struct SyntaxListCons {
     tail: ConstructorField,
     strictness: Option<StrictnessAttribute>,
     documentation: Vec<ProductionDocumentation>,
+    key: Option<ProvenanceKey>,
 }
 
 impl SyntaxListCons {
+    /// The key of the variant name, the cons production's declaration.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
     /// Returns the variant with its KRS helpers removed.
     #[must_use]
     pub const fn variant(&self) -> &Variant {
@@ -249,9 +303,17 @@ impl SyntaxListCons {
 #[derive(Clone, Debug)]
 pub struct SyntaxListTerminator {
     variant: Variant,
+    key: Option<ProvenanceKey>,
 }
 
 impl SyntaxListTerminator {
+    /// The key of the variant name, the terminator production's
+    /// declaration.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
     /// Returns the variant.
     #[must_use]
     pub const fn variant(&self) -> &Variant {
@@ -272,6 +334,14 @@ pub struct SyntaxListDeclaration {
     item: ItemEnum,
     cons: SyntaxListCons,
     terminator: SyntaxListTerminator,
+    sort_key: Option<ProvenanceKey>,
+    declaration_key: Option<ProvenanceKey>,
+    /// The anchors of the list sort's declaration.
+    sort_anchors: Vec<ProvenanceAnchor>,
+    /// The anchors of the cons production's keying.
+    cons_anchors: Vec<ProvenanceAnchor>,
+    /// The anchors of the terminator production's keying.
+    terminator_anchors: Vec<ProvenanceAnchor>,
 }
 
 impl SyntaxListDeclaration {
@@ -360,47 +430,36 @@ impl SyntaxListDeclaration {
         &self.terminator
     }
 
+    /// The key of the enum name as the list sort, the same in both
+    /// productions.
+    #[must_use]
+    pub const fn sort_key(&self) -> Option<&ProvenanceKey> {
+        self.sort_key.as_ref()
+    }
+
+    /// The key of the enum name as the declaration of the list sort.
+    #[must_use]
+    pub const fn declaration_key(&self) -> Option<&ProvenanceKey> {
+        self.declaration_key.as_ref()
+    }
+
+    /// Returns the anchors of the list sort's declaration: the enum name.
+    ///
+    /// # Errors
+    ///
+    /// None: the list was keyed when it was parsed.
+    pub fn sort_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.sort_anchors.clone())
+    }
+
     /// Returns the cons production's anchors: the list sort, the variant,
     /// its fields, its rustdoc, its strictness, and the list attribute.
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only for a tokenless parsed Rust node.
+    /// None: the list was keyed when it was parsed.
     pub fn cons_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = self.variant_anchors(&self.cons.variant)?;
-        for (ordinal, field) in self.cons.fields().into_iter().enumerate() {
-            let range = TokenRange::for_tokens(field.term_sort().sort())?;
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorFieldSort,
-                checked_ordinal(ordinal, ProvenanceRole::ConstructorFieldSort, range.first())?,
-                range,
-            ));
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorFieldDeclaration,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::ConstructorFieldDeclaration,
-                    field.name().span(),
-                )?,
-                TokenRange::for_tokens(field.name())?,
-            ));
-        }
-        for (ordinal, documentation) in self.cons.documentation.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorDocumentation,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::ConstructorDocumentation,
-                    documentation.literal().span(),
-                )?,
-                TokenRange::for_tokens(documentation.literal())?,
-            ));
-        }
-        if let Some(strictness) = &self.cons.strictness {
-            anchors.extend(strictness.provenance()?);
-        }
-        anchors.extend(self.attribute.provenance());
-        Ok(anchors)
+        Ok(self.cons_anchors.clone())
     }
 
     /// Returns the terminator production's anchors: the list sort, the
@@ -408,31 +467,62 @@ impl SyntaxListDeclaration {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only for a tokenless parsed Rust node.
+    /// None: the list was keyed when it was parsed.
     pub fn terminator_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = self.variant_anchors(&self.terminator.variant)?;
-        anchors.extend(
-            self.attribute
-                .provenance()
-                .into_iter()
-                .filter(|anchor| anchor.role() == ProvenanceRole::ListDeclaration),
-        );
-        Ok(anchors)
+        Ok(self.terminator_anchors.clone())
     }
 
-    fn variant_anchors(&self, variant: &Variant) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(vec![
-            ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorSort,
-                0,
-                TokenRange::for_tokens(&self.item.ident)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorDeclaration,
-                0,
-                TokenRange::for_tokens(&variant.ident)?,
-            ),
-        ])
+    /// Keys the list sort's declaration and the list's two productions, each
+    /// a sentence of its own. The declaration keys the enum name. The
+    /// cons production keys the list sort, the variant, each field's sort
+    /// and name, each rustdoc line, the strictness and the list attribute;
+    /// the terminator the list sort, the variant and the attribute's
+    /// declaration. The list sort and the attribute's declaration are the
+    /// first of their roles in both, so they hold one key.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let sort = TokenRange::for_tokens(&self.item.ident)?;
+        let mut keys = KeyAllocator::default();
+        self.declaration_key = Some(keys.key(ProvenanceRole::SortDeclaration, sort)?);
+        self.sort_anchors = keys.into_anchors();
+
+        let mut keys = KeyAllocator::default();
+        self.sort_key = Some(keys.key(ProvenanceRole::ConstructorSort, sort)?);
+        self.cons.key = Some(keys.key(
+            ProvenanceRole::ConstructorDeclaration,
+            TokenRange::for_tokens(&self.cons.variant.ident)?,
+        )?);
+        for field in [&mut self.cons.head, &mut self.cons.tail] {
+            field.sort_key = Some(keys.key(
+                ProvenanceRole::ConstructorFieldSort,
+                TokenRange::for_tokens(field.term_sort().sort())?,
+            )?);
+            field.name_key = Some(keys.key(
+                ProvenanceRole::ConstructorFieldDeclaration,
+                TokenRange::for_tokens(field.name())?,
+            )?);
+        }
+        for documentation in &mut self.cons.documentation {
+            documentation.key = Some(keys.key(
+                ProvenanceRole::ConstructorDocumentation,
+                TokenRange::for_tokens(documentation.literal())?,
+            )?);
+        }
+        if let Some(strictness) = &mut self.cons.strictness {
+            strictness.allocate_keys(&mut keys)?;
+        }
+        self.attribute.allocate_keys(&mut keys)?;
+        self.cons_anchors = keys.into_anchors();
+
+        let mut keys = KeyAllocator::default();
+        keys.key(ProvenanceRole::ConstructorSort, sort)?;
+        self.terminator.key = Some(keys.key(
+            ProvenanceRole::ConstructorDeclaration,
+            TokenRange::for_tokens(&self.terminator.variant.ident)?,
+        )?);
+        // Of the list attribute, the terminator carries the declaration alone.
+        keys.key(ProvenanceRole::ListDeclaration, self.attribute.range)?;
+        self.terminator_anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -555,6 +645,7 @@ fn validate(
                 }
                 terminator = Some(SyntaxListTerminator {
                     variant: variant.clone(),
+                    key: None,
                 });
             }
             Fields::Named(named) if named.named.len() == 2 => {
@@ -583,6 +674,8 @@ fn validate(
                         name,
                         term_sort,
                         parameter: None,
+                        sort_key: None,
+                        name_key: None,
                     });
                 }
                 let tail = fields.pop().expect("two fields");
@@ -628,6 +721,7 @@ fn validate(
                     head,
                     tail,
                     strictness,
+                    key: None,
                 });
             }
             _ => {
@@ -650,10 +744,76 @@ fn validate(
             attribute.range.first(),
         ));
     }
-    Ok(SyntaxListDeclaration {
+    SyntaxListDeclaration {
         attribute,
         item,
         cons,
         terminator,
-    })
+        sort_key: None,
+        declaration_key: None,
+        sort_anchors: Vec::new(),
+        cons_anchors: Vec::new(),
+        terminator_anchors: Vec::new(),
+    }
+    .keyed()
+}
+
+#[cfg(test)]
+mod keyed {
+    use super::{SyntaxListAttribute, SyntaxListDeclaration};
+    use crate::SyntaxError;
+    use crate::keyed_nodes::KeyedNodes;
+
+    impl SyntaxListAttribute {
+        /// Records the keys of the list declaration, the separator and the
+        /// `non_empty` flag.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push(self.key.as_ref(), self.range);
+            nodes.push_tokens(self.separator_key.as_ref(), &self.separator)?;
+            if let Some(flag) = &self.non_empty {
+                nodes.push_tokens(self.non_empty_key.as_ref(), flag)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl SyntaxListDeclaration {
+        /// Records the key of the enum's name as the list sort's
+        /// declaration.
+        pub(crate) fn keyed_sort_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.declaration_key.as_ref(), &self.item.ident)
+        }
+
+        /// Records the keys of the cons production: the list sort, the
+        /// variant, each field's sort and name, each rustdoc line, the
+        /// strictness and the list attribute.
+        pub(crate) fn keyed_cons_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.sort_key.as_ref(), &self.item.ident)?;
+            nodes.push_tokens(self.cons.key.as_ref(), &self.cons.variant.ident)?;
+            for field in [&self.cons.head, &self.cons.tail] {
+                nodes.push_tokens(field.sort_key.as_ref(), field.term_sort().sort())?;
+                nodes.push_tokens(field.name_key.as_ref(), field.name())?;
+            }
+            for documentation in &self.cons.documentation {
+                nodes.push_tokens(documentation.key.as_ref(), documentation.literal())?;
+            }
+            if let Some(strictness) = &self.cons.strictness {
+                strictness.keyed_nodes(nodes)?;
+            }
+            self.attribute.keyed_nodes(nodes)
+        }
+
+        /// Records the keys of the terminator production: the list sort,
+        /// the variant and the list attribute's declaration, of which the
+        /// list sort and the declaration hold the cons production's keys.
+        pub(crate) fn keyed_terminator_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.sort_key.as_ref(), &self.item.ident)?;
+            nodes.push_tokens(self.terminator.key.as_ref(), &self.terminator.variant.ident)?;
+            nodes.push(self.attribute.key.as_ref(), self.attribute.range);
+            Ok(())
+        }
+    }
 }

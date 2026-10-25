@@ -132,6 +132,8 @@ The areas run in that order, and an area's phase may use a library an earlier ar
 
 A tier fails on any regression and passes when an open set shrinks, printing what to lower; after a deliberate change, read the `FAIL` and `NOTE` lines and record the new baseline with `k2lean/tests/gate.sh accept --area AREA`, which refuses a run with a failed step.
 It writes only that area's baseline file and recorded outputs, and refuses, naming the entries, when another area's measured entries differ from that area's baseline; `accept` without `--area` writes every area.
+A run keeps a copy of the baseline and registry it started from (`measured/against/`), so another area's difference that is only that area's baseline moving since the run started (another branch landing) does not refuse: when the run measured that area exactly as its starting baseline records it, the current baseline of that area stays.
+`accept --area AREA` refuses when AREA's own baseline changed since the run started; a change since then that reaches AREA without moving any entry (the prelude, a tactic) is the rerun's job, not the check's.
 A recorded output is rewritten only when its content differs after the normalization the comparison applies.
 The gate starts every library from its tracked open-obligation list (`k2lean/generated/*/open-obligations.txt`), so it finds a proof that stopped working but not one that started working; `GATE_RETRY_OPEN=1` attempts every open obligation again.
 `k2lean/tests/gate.sh` with no argument lists its environment variables, and `k2lean/docs/invariants.md` (section 10) shows how to put a new invariant under the gate.

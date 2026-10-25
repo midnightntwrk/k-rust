@@ -8,12 +8,15 @@
 mod attribute;
 mod configuration;
 mod constant;
+mod descriptor;
 mod enum_constructor;
 mod error;
 mod function_shorthand;
 mod grammar;
 mod initializer;
 mod item;
+#[cfg(test)]
+mod keyed_nodes;
 pub mod keyword;
 mod lexical;
 mod list_notation;
@@ -34,21 +37,25 @@ mod term_sort;
 pub mod trivia;
 
 pub use attribute::{
-    ANYWHERE_NOT_TERM_SHAPED, AliasAttribute, CellAttributePayload, ClaimAttribute, ClaimBinder,
-    ClaimModality, ConfigurationAttribute, ConstructorAttribute, ConstructorsAttribute,
-    ContextAliasAttribute, ContextAttribute, DesugarAttribute, EquationAttribute, ExistsAttribute,
-    FunctionAttribute, FunctionHook, FunctionSmt, FunctionTotality, InitAttribute,
-    MatchRestriction, PlacementFlag, PriorityAttribute, RECURSIVE_ON_CLAUSE,
-    REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey, RuleAttribute, SimplificationAttribute,
-    SortAttribute, SpecModuleAttribute, SpecModuleItem, StaticMode, StaticProductionAttribute,
-    SubsortAttribute, SymbolAttribute, UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable,
-    UnboundVariables, VariantSyntaxAttribute, default_function_syntax, validate_spec_module_name,
+    ANYWHERE_NOT_TERM_SHAPED, AliasAttribute, CellAttributeKeys, CellAttributePayload,
+    ClaimAttribute, ClaimBinder, ClaimModality, ConfigurationAttribute, ConstructorAttribute,
+    ConstructorsAttribute, ContextAliasAttribute, ContextAttribute, DesugarAttribute,
+    EquationAttribute, ExistsAttribute, FunctionAttribute, FunctionHook, FunctionSmt,
+    FunctionTotality, InitAttribute, MatchRestriction, PlacementFlag, PriorityAttribute,
+    ProductionKeys, RECURSIVE_ON_CLAUSE, REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey, RuleAttribute,
+    SimplificationAttribute, SortAttribute, SpecModuleAttribute, SpecModuleItem, StaticMode,
+    StaticProductionAttribute, SubsortAttribute, SymbolAttribute,
+    UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable, UnboundVariables,
+    VariantSyntaxAttribute, default_function_syntax, validate_spec_module_name,
 };
 pub use configuration::{
     ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,
     SortArgument, option_content,
 };
 pub use constant::ConstantItem;
+pub use descriptor::{
+    ProductionAttribute, ProductionDescriptor, ProductionItem, RuleDescriptor, RuleSentence,
+};
 pub use enum_constructor::{
     EnumConstructorDeclaration, EnumConstructorVariant, EnumPrecedenceDescriptor,
     EnumPrecedenceGroup,
@@ -77,10 +84,11 @@ pub use range::TokenRange;
 pub use rule::{
     BINDER_LIST_CONTRACT, BracketAlternative, ClaimBlock, EquationRow, EquationTable,
     ReadableStateCounters, RuleBinder, RuleBlock, RuleClause, RuleClauseLayout, RuleCondition,
-    RuleExistentials, RuleExtra, RuleHead, RuleHeadItem, RuleHeadResult, RuleItem, RuleListPattern,
-    RuleListRest, RuleListResult, RuleMapEntry, RuleMapUpdate, RuleNarrowing, RuleParameter,
-    RulePattern, desugar_bit_templates, is_hidden_binder, parse_claim_block_source_with_trivia,
-    parse_equation_table_source_with_trivia, parse_rule_block_source_with_trivia,
+    RuleExistentials, RuleExtra, RuleExtraKeys, RuleHead, RuleHeadItem, RuleHeadResult, RuleItem,
+    RuleListPattern, RuleListRest, RuleListResult, RuleMapEntry, RuleMapUpdate, RuleNarrowing,
+    RuleParameter, RulePattern, desugar_bit_templates, is_hidden_binder,
+    parse_claim_block_source_with_trivia, parse_equation_table_source_with_trivia,
+    parse_rule_block_source_with_trivia,
 };
 pub use sorts::{SortsDeclaration, SortsEntry, SortsMembership, SortsSort};
 pub use state_macro::{
@@ -103,8 +111,8 @@ pub use syntax_list::{
     SyntaxListAttribute, SyntaxListCons, SyntaxListDeclaration, SyntaxListTerminator,
 };
 pub use term::{
-    CellTerm, IntegerLiteral, TermApplication, TermArguments, TermExpression, TermLiteral,
-    TermNamedArgument, TermNode, TermRootKind, TermSymbol, TermSymbolKind, TermTree,
+    CellTerm, IntegerLiteral, TermApplication, TermArguments, TermExpression, TermKeys,
+    TermLiteral, TermNamedArgument, TermNode, TermRootKind, TermSymbol, TermSymbolKind, TermTree,
     is_constant_island_macro, is_island_macro, parse_lexeme_arguments, parse_matches_arguments,
     parse_sort_test_arguments,
 };

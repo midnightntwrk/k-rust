@@ -15,13 +15,13 @@ use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Meta, Path};
 
-use super::pattern::{push_term_node_anchors, push_term_reference_candidates};
+use super::pattern::{allocate_term_node_keys, push_term_reference_candidates};
 use crate::attribute::{ClaimBinder, ExistsAttribute};
-use crate::parse::{KrsSyntax, checked_ordinal, unsupported_rule_signature};
-use crate::term::push_record_field_anchors;
+use crate::parse::{KeyAllocator, KrsSyntax, unsupported_rule_signature};
+use crate::term::allocate_record_field_keys;
 use crate::{
     ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, SyntaxErrorKind,
-    TermExpression, TermSymbolKind, TokenRange,
+    TermExpression, TermSymbolKind,
 };
 use krs_ir::ProvenanceKey;
 
@@ -32,6 +32,8 @@ pub struct RuleExistentials {
     fresh: Option<ExistsAttribute>,
     ensures: Option<TermExpression>,
     attributes: Vec<Attribute>,
+    /// The anchors of the helpers' standalone keying.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 /// Whether `attribute` is the `exists`, `fresh` or `ensures` helper (any path prefix).
@@ -112,6 +114,10 @@ impl RuleExistentials {
             output.attributes.push(attribute);
         }
         *attributes = retained;
+        let mut keys = KeyAllocator::default();
+        output.clear_keys();
+        output.allocate_keys(&mut keys)?;
+        output.anchors = keys.into_anchors();
         Ok(output)
     }
 
@@ -249,106 +255,105 @@ impl RuleExistentials {
         Ok(())
     }
 
-    /// Exact binder and postcondition anchors under the transition roles.
+    /// Exact binder and postcondition anchors under the transition roles, of
+    /// the helpers' standalone keying.
     ///
     /// # Errors
     ///
-    /// Returns an endpoint or occurrence-overflow error.
+    /// None: the helpers were keyed when they were parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = Vec::new();
-        for (index, binder) in self.binders().iter().enumerate() {
-            let ordinal = checked_ordinal(
-                index,
+        Ok(self.anchors.clone())
+    }
+
+    /// Forgets the keys of the binders and of the ensures condition, before
+    /// a sentence's pass keys them.
+    pub(crate) fn clear_keys(&mut self) {
+        self.anchors.clear();
+        for helper in self.exists.iter_mut().chain(&mut self.fresh) {
+            helper.clear_keys();
+        }
+        if let Some(ensures) = &mut self.ensures {
+            ensures.clear_keys();
+        }
+    }
+
+    /// Keys each existential binder with its name and sort, each fresh binder
+    /// with its name and sort, then the ensures condition (its term's
+    /// payload) with its paths, nodes, and record field names.
+    pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        for binder in self
+            .exists
+            .iter_mut()
+            .flat_map(ExistsAttribute::binders_mut)
+        {
+            binder.allocate_keys(
+                keys,
                 ProvenanceRole::RuleExistentialBinder,
-                binder.name().span(),
-            )?;
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleExistentialBinder,
-                ordinal,
-                TokenRange::for_tokens(binder.name())?,
-            ));
-            output.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleExistentialBinderName,
-                ordinal,
-                TokenRange::for_tokens(binder.name())?,
-            ));
-            output.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleExistentialBinderSort,
-                ordinal,
-                TokenRange::for_tokens(binder.sort())?,
-            ));
+            )?;
         }
-        for (index, binder) in self.fresh().iter().enumerate() {
-            let ordinal =
-                checked_ordinal(index, ProvenanceRole::RuleFreshBinder, binder.name().span())?;
-            output.push(ProvenanceAnchor::new(
+        for binder in self.fresh.iter_mut().flat_map(ExistsAttribute::binders_mut) {
+            binder.allocate_keys(
+                keys,
                 ProvenanceRole::RuleFreshBinder,
-                ordinal,
-                TokenRange::for_tokens(binder.name())?,
-            ));
-            output.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleFreshBinderName,
-                ordinal,
-                TokenRange::for_tokens(binder.name())?,
-            ));
-            output.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleFreshBinderSort,
-                ordinal,
-                TokenRange::for_tokens(binder.sort())?,
-            ));
+            )?;
         }
-        if let Some(ensures) = &self.ensures {
-            output.push(ProvenanceAnchor::new(
+        if let Some(ensures) = &mut self.ensures {
+            ensures.allocate_keys(
+                keys,
                 ProvenanceRole::RuleEnsures,
-                0,
-                TokenRange::for_tokens(ensures.expression())?,
-            ));
-            for (ordinal, symbol) in ensures.symbols().iter().enumerate() {
-                output.push(ProvenanceAnchor::new(
-                    ProvenanceRole::RuleEnsuresPath,
-                    checked_ordinal(
-                        ordinal,
-                        ProvenanceRole::RuleEnsuresPath,
-                        symbol.path().span(),
-                    )?,
-                    TokenRange::for_tokens(symbol.path())?,
-                ));
-            }
-            push_term_node_anchors(
-                &mut output,
-                ensures.nodes(),
+                ProvenanceRole::RuleEnsuresPath,
+            )?;
+            let (nodes, tree, term_keys) = ensures.keying();
+            allocate_term_node_keys(
+                keys,
+                nodes,
+                term_keys,
                 ProvenanceRole::RuleEnsuresApplicationHead,
                 ProvenanceRole::RuleEnsuresReference,
                 ProvenanceRole::RuleEnsuresLiteral,
             )?;
-            push_record_field_anchors(
-                &mut output,
-                ensures.tree(),
+            allocate_record_field_keys(
+                keys,
+                tree,
+                term_keys,
                 ProvenanceRole::RuleEnsuresRecordFieldName,
             )?;
         }
-        Ok(output)
+        Ok(())
     }
 
-    /// The binder sort paths, keyed by `RuleExistentialBinderSort` ordinals,
-    /// then by `RuleFreshBinderSort` ordinals.
+    /// The ensures condition, for a pass that keys it.
+    pub(crate) const fn ensures_mut(&mut self) -> Option<&mut TermExpression> {
+        self.ensures.as_mut()
+    }
+
+    /// The binder sort paths, keyed as their sentence keyed them: by
+    /// `RuleExistentialBinderSort` ordinals, then by `RuleFreshBinderSort`
+    /// ordinals.
     ///
     /// # Errors
     ///
-    /// Returns an occurrence-overflow error.
+    /// None: the binders were keyed when they were parsed.
+    ///
+    /// # Panics
+    ///
+    /// Never: parsing keys every binder sort.
     pub fn sort_candidates(&self) -> Result<Vec<(ProvenanceKey, Path)>, SyntaxError> {
-        let roles = [
-            (ProvenanceRole::RuleExistentialBinderSort, self.binders()),
-            (ProvenanceRole::RuleFreshBinderSort, self.fresh()),
-        ];
-        let mut output = Vec::new();
-        for (role, binders) in roles {
-            for (index, binder) in binders.iter().enumerate() {
-                let ordinal = checked_ordinal(index, role, binder.sort().span())?;
-                output.push((ProvenanceKey::new(role, ordinal), binder.sort().clone()));
-            }
-        }
-        Ok(output)
+        Ok(self
+            .binders()
+            .iter()
+            .chain(self.fresh())
+            .map(|binder| {
+                let key = binder
+                    .sort_key()
+                    .expect("a keyed sentence keys every binder sort");
+                (key.clone(), binder.sort().clone())
+            })
+            .collect())
     }
 
     /// Ensures-condition application and reference candidates; `bindings`
@@ -366,10 +371,9 @@ impl RuleExistentials {
             push_term_reference_candidates(
                 &mut candidates,
                 ensures.nodes(),
+                ensures.keys(),
                 bindings,
-                ProvenanceRole::RuleEnsuresApplicationHead,
-                ProvenanceRole::RuleEnsuresReference,
-            )?;
+            );
         }
         Ok(candidates)
     }
@@ -387,4 +391,27 @@ pub(super) fn references(term: &TermExpression, name: &Ident) -> bool {
         crate::TermNode::As { binding, .. } => binding.unraw() == name.unraw(),
         _ => false,
     })
+}
+
+#[cfg(test)]
+impl RuleExistentials {
+    /// Records the keys of the existential and fresh binders, then of the
+    /// ensures condition.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        for binder in self
+            .exists
+            .iter()
+            .chain(&self.fresh)
+            .flat_map(ExistsAttribute::binders)
+        {
+            binder.keyed_nodes(nodes)?;
+        }
+        if let Some(ensures) = &self.ensures {
+            ensures.keyed_nodes(nodes)?;
+        }
+        Ok(())
+    }
 }

@@ -13,13 +13,14 @@
 //! `<k-namespace>-<UPPER-KEBAB(mod name)>`; `imports` lists Rust paths (`crate`,
 //! a dependency crate root, or another spec module), which rustc checks.
 
+use krs_ir::ProvenanceKey;
 use proc_macro2::{Span, TokenStream};
 use syn::parse::ParseStream;
 use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{Ident, Item, ItemMod, LitStr, Path, Token};
 
-use crate::parse::{KrsSyntax, ParseError, duplicate, structured, unknown};
+use crate::parse::{KeyAllocator, KrsSyntax, ParseError, duplicate, structured, unknown};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// The reserved suffix of program-syntax modules (X12).
@@ -30,6 +31,11 @@ const PROGRAM_SYNTAX_SUFFIX: &str = "-SYNTAX";
 pub struct SpecModuleAttribute {
     name: Option<LitStr>,
     imports: Vec<Path>,
+    name_key: Option<ProvenanceKey>,
+    import_keys: Vec<ProvenanceKey>,
+    /// The anchors of the attribute's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl SpecModuleAttribute {
@@ -49,32 +55,45 @@ impl SpecModuleAttribute {
     ///
     /// # Errors
     ///
-    /// Returns a syntax error when an import path has no tokens.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::new();
-        if let Some(name) = &self.name {
-            anchors.push(ProvenanceAnchor::new(
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the module name, when authored.
+    #[must_use]
+    pub const fn name_key(&self) -> Option<&ProvenanceKey> {
+        self.name_key.as_ref()
+    }
+
+    /// The keys of the import paths, indexed as [`Self::imports`].
+    #[must_use]
+    pub fn import_keys(&self) -> &[ProvenanceKey] {
+        &self.import_keys
+    }
+
+    /// Keys the name, then each import.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.name_key = match &self.name {
+            Some(name) => Some(keys.key(
                 ProvenanceRole::SpecModuleName,
-                0,
                 TokenRange::new(name.span(), name.span()),
-            ));
-        }
-        for (ordinal, import) in self.imports.iter().enumerate() {
-            let ordinal = u32::try_from(ordinal).map_err(|_| {
-                SyntaxError::new(
-                    SyntaxErrorKind::TooManyProvenanceOccurrences {
-                        role: "spec_module_import",
-                    },
-                    import.span(),
+            )?),
+            None => None,
+        };
+        self.import_keys = self
+            .imports
+            .iter()
+            .map(|import| {
+                keys.key(
+                    ProvenanceRole::SpecModuleImport,
+                    TokenRange::for_tokens(import)?,
                 )
-            })?;
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::SpecModuleImport,
-                ordinal,
-                TokenRange::for_tokens(import)?,
-            ));
-        }
-        Ok(anchors)
+            })
+            .collect::<Result<_, _>>()?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -132,7 +151,11 @@ fn parse_attribute_stream(input: ParseStream<'_>) -> Result<SpecModuleAttribute,
     Ok(SpecModuleAttribute {
         name,
         imports: imports.unwrap_or_default(),
-    })
+        name_key: None,
+        import_keys: Vec::new(),
+        anchors: Vec::new(),
+    }
+    .keyed()?)
 }
 
 fn parse_import_list(input: ParseStream<'_>) -> syn::Result<Vec<Path>> {
@@ -195,6 +218,9 @@ fn invalid(reason: impl Into<String>, span: Span) -> SyntaxError {
 pub struct SpecModuleItem {
     item: ItemMod,
     items: Vec<Item>,
+    key: Option<ProvenanceKey>,
+    /// The anchors of the item's keying, which [`Self::provenance`] returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl SpecModuleItem {
@@ -219,11 +245,24 @@ impl SpecModuleItem {
     /// Returns the declaration anchor: the module name.
     #[must_use]
     pub fn provenance(&self) -> Vec<ProvenanceAnchor> {
-        vec![ProvenanceAnchor::new(
+        self.anchors.clone()
+    }
+
+    /// The key of the module name, the spec module's declaration.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// Keys the module name as a sentence of its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.key = Some(keys.key(
             ProvenanceRole::SpecModuleDeclaration,
-            0,
             TokenRange::new(self.item.ident.span(), self.item.ident.span()),
-        )]
+        )?);
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -263,6 +302,40 @@ impl SpecModuleItem {
             ));
         };
         let items = items.clone();
-        Ok(Self { item, items })
+        Self {
+            item,
+            items,
+            key: None,
+            anchors: Vec::new(),
+        }
+        .keyed()
+    }
+}
+
+#[cfg(test)]
+mod keyed {
+    use super::{SpecModuleAttribute, SpecModuleItem};
+    use crate::SyntaxError;
+    use crate::keyed_nodes::KeyedNodes;
+
+    impl SpecModuleAttribute {
+        /// Records the keys of the module name and of each import path.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            if let Some(name) = &self.name {
+                nodes.push_tokens(self.name_key.as_ref(), name)?;
+            }
+            assert!(self.import_keys.len() <= self.imports.len());
+            for (key, import) in self.import_keys.iter().zip(&self.imports) {
+                nodes.push_tokens(Some(key), import)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl SpecModuleItem {
+        /// Records the key of the module's name.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.key.as_ref(), &self.item.ident)
+        }
     }
 }

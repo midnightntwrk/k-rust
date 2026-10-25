@@ -10,8 +10,8 @@ use krs_ir::wire::{
 use krs_syntax::KrsSyntax;
 use krs_syntax::surface::{AttributeMacro, helper_entry, last_segment_entry};
 use krs_syntax::{
-    ProvenanceAnchor, ProvenanceRole, StrictnessAttribute, SyntaxTemplateItem, TokenRange,
-    parse_seqstrict_attribute, parse_strict_attribute,
+    ProvenanceRole, StrictnessAttribute, SyntaxTemplateItem, TokenRange, parse_seqstrict_attribute,
+    parse_strict_attribute,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
@@ -87,7 +87,7 @@ pub(crate) fn constructor(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::ConstructorAttribute::parse_tokens(attributes)?;
-    constructor_like(env, attribute, item, None, [None, None], None, [None, None])
+    constructor_like(env, attribute, None, item, None, [None, None])
 }
 
 pub(crate) fn function(
@@ -138,85 +138,31 @@ fn function_production(
     function: &krs_syntax::FunctionAttribute,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    let totality_anchor = function
-        .provenance()?
-        .into_iter()
-        .find(|anchor| {
-            matches!(
-                anchor.role(),
-                ProvenanceRole::FunctionTotal | ProvenanceRole::FunctionPartial
-            )
-        })
-        .expect("a parsed function retains its totality marker");
     let hook = function
         .hook()
-        .map(|hook| -> crate::Result<(ProvenanceAnchor, ExpandedHook)> {
-            let expanded = match hook {
-                krs_syntax::FunctionHook::Catalog(path) => {
-                    ExpandedHook::Catalog(catalog_hook(path)?)
-                }
-                krs_syntax::FunctionHook::Quoted(literal) => quoted_hook(literal, &item)?,
-            };
-            Ok((
-                ProvenanceAnchor::new(ProvenanceRole::FunctionHook, 0, hook.range()?),
-                expanded,
-            ))
-        })
-        .transpose()?;
-    let memo = function
-        .memo()
-        .map(|flag| -> crate::Result<ProvenanceAnchor> {
-            Ok(ProvenanceAnchor::new(
-                ProvenanceRole::FunctionMemo,
-                0,
-                TokenRange::for_tokens(flag)?,
-            ))
-        })
-        .transpose()?;
-    let fresh_generator = function
-        .fresh_generator()
-        .map(|flag| -> crate::Result<ProvenanceAnchor> {
-            Ok(ProvenanceAnchor::new(
-                ProvenanceRole::FunctionFreshGenerator,
-                0,
-                TokenRange::for_tokens(flag)?,
-            ))
+        .map(|hook| match hook {
+            krs_syntax::FunctionHook::Catalog(path) => {
+                catalog_hook(path).map(ExpandedHook::Catalog)
+            }
+            krs_syntax::FunctionHook::Quoted(literal) => quoted_hook(literal, &item),
         })
         .transpose()?;
     let smt = expanded_smt(function, &item)?;
-    let underspecified = function
-        .underspecified()
-        .map(|reason| -> crate::Result<ExpandedSmt> {
-            Ok(ExpandedSmt {
-                anchors: vec![ProvenanceAnchor::new(
-                    ProvenanceRole::FunctionUnderspecified,
-                    0,
-                    TokenRange::for_tokens(reason)?,
-                )],
-                attribute: WireProductionAttribute::Underspecified {
-                    key: wire_key(ProvenanceRole::FunctionUnderspecified, 0),
-                    reason: reason.value(),
-                },
-            })
-        })
-        .transpose()?;
+    let underspecified =
+        function
+            .underspecified()
+            .map(|reason| WireProductionAttribute::Underspecified {
+                key: wire_key(ProvenanceRole::FunctionUnderspecified, 0),
+                reason: reason.value(),
+            });
     constructor_like(
         env,
         function.production().clone(),
+        Some(function),
         item,
-        Some((totality_anchor, function.is_total())),
-        [memo, fresh_generator],
         hook,
         [smt, underspecified],
     )
-}
-
-/// A function key that becomes one wire attribute, with its provenance
-/// anchors: the `smtlib` or `smt_hook` of a function production (KF-044), or
-/// its `underspecified` reason.
-pub(super) struct ExpandedSmt {
-    anchors: Vec<ProvenanceAnchor>,
-    attribute: WireProductionAttribute,
 }
 
 /// Checks `smt_hook` placeholders against the struct's fields and lowers the
@@ -224,22 +170,10 @@ pub(super) struct ExpandedSmt {
 fn expanded_smt(
     function: &krs_syntax::FunctionAttribute,
     item: &TokenStream,
-) -> crate::Result<Option<ExpandedSmt>> {
+) -> crate::Result<Option<WireProductionAttribute>> {
     let Some(smt) = function.smt() else {
         return Ok(None);
     };
-    let anchors = function
-        .provenance()?
-        .into_iter()
-        .filter(|anchor| {
-            matches!(
-                anchor.role(),
-                ProvenanceRole::FunctionSmtlib
-                    | ProvenanceRole::FunctionSmtHook
-                    | ProvenanceRole::SmtHookPlaceholder
-            )
-        })
-        .collect();
     let attribute = match smt {
         krs_syntax::FunctionSmt::Smtlib(literal) => WireProductionAttribute::Smtlib {
             key: wire_key(ProvenanceRole::FunctionSmtlib, 0),
@@ -283,7 +217,7 @@ fn expanded_smt(
             }
         }
     };
-    Ok(Some(ExpandedSmt { anchors, attribute }))
+    Ok(Some(attribute))
 }
 
 /// The resolved `hook` value of a function production.
@@ -403,14 +337,13 @@ fn quoted_hook(literal: &syn::LitStr, item: &TokenStream) -> crate::Result<Expan
 fn constructor_like(
     env: &dyn MacroEnvironment,
     attribute: krs_syntax::ConstructorAttribute,
+    function: Option<&krs_syntax::FunctionAttribute>,
     item: TokenStream,
-    totality: Option<(ProvenanceAnchor, bool)>,
-    [memo, fresh_generator]: [Option<ProvenanceAnchor>; 2],
-    hook: Option<(ProvenanceAnchor, ExpandedHook)>,
-    [smt, underspecified]: [Option<ExpandedSmt>; 2],
+    hook: Option<ExpandedHook>,
+    [smt, underspecified]: [Option<WireProductionAttribute>; 2],
 ) -> crate::Result<TokenStream> {
-    let functional = totality.is_some();
-    let total = totality.as_ref().is_some_and(|(_, total)| *total);
+    let functional = function.is_some();
+    let total = function.is_some_and(krs_syntax::FunctionAttribute::is_total);
     let mut raw_item: ItemStruct = syn::parse2(item)?;
     reject_unexpanded_symbol(&raw_item.attrs)?;
     let explicit_symbol = take_explicit_symbol_helper(&mut raw_item.attrs)?;
@@ -445,19 +378,23 @@ fn constructor_like(
         )?;
     }
     let facade = env.facade_path()?;
-    let mut declaration_anchors = attribute.provenance()?;
-    declaration_anchors.extend(declaration.provenance()?);
+    let pieces = krs_syntax::ProductionItem {
+        attribute: match function {
+            Some(function) => krs_syntax::ProductionAttribute::Function(function),
+            None => krs_syntax::ProductionAttribute::Constructor(&attribute),
+        },
+        declaration: &declaration,
+        symbol: explicit_symbol.as_ref(),
+        static_markers: static_marker.as_slice(),
+        strictness: strictness.as_slice(),
+    };
     // Element types reach only the constructor descriptor, not the grammar.
-    declaration_anchors.extend(attribute.sort_argument_provenance()?);
-    declaration_anchors.extend(declaration.argument_provenance()?);
-    if let Some(symbol) = &explicit_symbol {
-        declaration_anchors.extend(symbol.provenance()?);
-    }
+    let declaration_anchors = pieces.constructor_provenance()?;
     let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())?;
     let provenance = host_provenance(env, &facade, fallback, &declaration_anchors);
-    let mut grammar_anchors = attribute.full_provenance()?;
     if !attribute.avoid
-        && grammar_anchors
+        && attribute
+            .full_provenance()?
             .iter()
             .any(|anchor| anchor.role() == ProvenanceRole::ConstructorAvoid)
     {
@@ -467,46 +404,8 @@ fn constructor_like(
             "`avoid = false` is not metadata; omit the argument instead",
         ));
     }
-    grammar_anchors.extend(declaration.full_provenance()?);
-    if let Some(symbol) = &explicit_symbol {
-        grammar_anchors.extend(symbol.provenance()?);
-    }
-    if let Some((marker, anchor)) = &static_marker {
-        grammar_anchors.push(anchor.clone());
-        grammar_anchors.extend(marker.provenance());
-    }
-    if functional {
-        if total {
-            grammar_anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::FunctionDeclaration,
-                0,
-                TokenRange::for_tokens(declaration.name())?,
-            ));
-        }
-        grammar_anchors.push(
-            totality
-                .as_ref()
-                .expect("functional constructors retain totality provenance")
-                .0
-                .clone(),
-        );
-    }
-    if let Some(anchor) = &memo {
-        grammar_anchors.push(anchor.clone());
-    }
-    if let Some(anchor) = &fresh_generator {
-        grammar_anchors.push(anchor.clone());
-    }
-    if let Some((anchor, _)) = &hook {
-        grammar_anchors.push(anchor.clone());
-    }
-    for extra in [&smt, &underspecified].into_iter().flatten() {
-        grammar_anchors.extend(extra.anchors.iter().cloned());
-    }
-    if let Some(strictness) = &strictness {
-        grammar_anchors.extend(strictness.provenance()?);
-    }
-    let grammar_provenance = host_provenance(env, &facade, fallback, &grammar_anchors);
+    let grammar = pieces.grammar_descriptor()?;
+    let grammar_provenance = host_provenance(env, &facade, fallback, grammar.anchors());
     let nonce = expansion_nonce(env, "constructor", declaration.name(), fallback);
     let factory = format_ident!(
         "__krs_constructor_descriptor_{nonce:016x}",
@@ -675,13 +574,13 @@ fn constructor_like(
         "",
         functional,
         total,
-        [memo.is_some(), fresh_generator.is_some()],
-        hook.as_ref().map(|(_, operation)| operation),
         [
-            smt.map(|smt| smt.attribute),
-            underspecified.map(|underspecified| underspecified.attribute),
+            function.is_some_and(|function| function.memo().is_some()),
+            function.is_some_and(|function| function.fresh_generator().is_some()),
         ],
-        static_marker.as_ref().map(|(marker, _)| *marker),
+        hook.as_ref(),
+        [smt, underspecified],
+        static_marker.as_ref().map(|(marker, _)| marker),
     )?;
 
     let factory_tokens = DescriptorFactory {
@@ -877,11 +776,11 @@ fn take_strictness_helpers(
 }
 
 /// Takes the struct's `#[k::alias]` or `#[k::desugar]` production marker
-/// (KF-028), with the anchor of its name.
+/// (KF-028), with the name of its helper, which anchors it.
 fn take_static_helper(
     attributes: &mut Vec<Attribute>,
-) -> crate::Result<Option<(krs_syntax::StaticProductionAttribute, ProvenanceAnchor)>> {
-    let mut found: Option<(krs_syntax::StaticProductionAttribute, ProvenanceAnchor)> = None;
+) -> crate::Result<Option<(krs_syntax::StaticProductionAttribute, Ident)>> {
+    let mut found: Option<(krs_syntax::StaticProductionAttribute, Ident)> = None;
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
         let mode = match helper_entry(attribute.path()) {
@@ -920,12 +819,7 @@ fn take_static_helper(
                 },
             ));
         }
-        let anchor = ProvenanceAnchor::new(
-            mode.production_role(),
-            0,
-            TokenRange::for_tokens(&name.ident)?,
-        );
-        found = Some((marker, anchor));
+        found = Some((marker, name.ident.clone()));
     }
     *attributes = retained;
     Ok(found)
@@ -1028,8 +922,7 @@ pub(crate) fn token(
     let name = declaration.name().to_string();
     let declared = call_site_ident(declaration.name())?;
 
-    let mut grammar_anchors = stack.provenance()?;
-    grammar_anchors.extend(declaration.provenance()?);
+    let grammar_anchors = stack.descriptor_provenance(&declaration)?;
     let grammar_provenance = host_provenance(env, &facade, fallback, &grammar_anchors);
     let grammar_name = format!("__krs_grammar_token_{name}");
     let mut slots = WireSlots::new(&facade);
@@ -1103,12 +996,8 @@ pub(crate) fn token(
     // productions to the sort it names and declares nothing else.
     let (sort_factory_tokens, field_check) = match declaration.carrier() {
         krs_syntax::TokenCarrier::Struct(item_struct) => {
-            let sort_anchor = ProvenanceAnchor::new(
-                ProvenanceRole::SortDeclaration,
-                0,
-                TokenRange::for_tokens(declaration.name())?,
-            );
-            let sort_provenance = host_provenance(env, &facade, fallback, &[sort_anchor]);
+            let sort_provenance =
+                host_provenance(env, &facade, fallback, &declaration.sort_provenance()?);
             let sort_wire =
                 serde_json::to_string(&WirePayload::Sort(krs_ir::wire::WireSortDescriptor {
                     parents: Vec::new(),
@@ -1177,7 +1066,7 @@ fn constructor_grammar(
     [memo, fresh_generator]: [bool; 2],
     hook: Option<&ExpandedHook>,
     [smt, underspecified]: [Option<WireProductionAttribute>; 2],
-    static_marker: Option<krs_syntax::StaticProductionAttribute>,
+    static_marker: Option<&krs_syntax::StaticProductionAttribute>,
 ) -> crate::Result<TokenStream> {
     let function_total_role = ProvenanceRole::FunctionTotal;
     let function_hook_role = ProvenanceRole::FunctionHook;
@@ -1315,7 +1204,7 @@ fn constructor_grammar(
     if let Some(underspecified) = underspecified {
         attributes.push(underspecified);
     }
-    if let Some(marker) = &static_marker {
+    if let Some(marker) = static_marker {
         attributes.insert(0, super::productions::static_mode_wire(marker));
     }
     if let Some(strict_attribute) =

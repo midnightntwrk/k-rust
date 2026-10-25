@@ -67,11 +67,19 @@ fn typed_requires_preserves_complete_and_nested_provenance() {
     let condition = rule.requires().expect("guard is retained as a term");
     assert_eq!(condition.term().symbols().len(), 2);
 
-    let keys = condition
-        .provenance()
+    // The rule keys its condition: the condition's anchors are the rule's
+    // anchors of the requires roles.
+    assert!(condition.provenance().unwrap().is_empty());
+    let keys = rule
+        .full_provenance()
         .unwrap()
         .into_iter()
         .map(|anchor| anchor.key())
+        .filter(|key| {
+            key.role()
+                .as_str()
+                .starts_with(ProvenanceRole::RuleRequires.as_str())
+        })
         .collect::<Vec<_>>();
     assert_eq!(
         keys.iter()

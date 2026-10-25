@@ -14,7 +14,9 @@
 #   k2lean/tests/gate.sh accept [--area NAME]
 #                                 make the last run's measurements the baseline, of every area, or of
 #                                 area NAME only, which is refused (naming the entries) when another
-#                                 area's measured entries differ from that area's baseline; entries
+#                                 area's measured entries differ from that area's baseline, unless the
+#                                 run measured that area as the baseline it started from records it
+#                                 (the baseline moved since), or when NAME's own baseline moved; entries
 #                                 of the tiers the run did not include are kept, and a recorded output
 #                                 is rewritten only when its normalized content changes
 #
@@ -155,6 +157,13 @@ TIMES=$MEAS/times.tsv
 printf 'step\tresult\tlog\n' > "$STATUS"
 printf 'phase\twall_s\tcpu_s\tload_at_start\n' > "$TIMES"
 printf 'tier = "%s"\nroot = "%s"\nkimp = "%s"\nstarted = "%s"\n' "$TIER" "$ROOT" "$KIMP" "$(date -Is)" > "$MEAS/run.toml"
+# the baseline and registry this run starts from, so that `accept --area` can tell an area this run
+# measured differently from one whose baseline moved after the run started (another session's landing)
+mkdir -p "$MEAS/against/registry"
+cp -a "$BASE" "$MEAS/against/baseline"
+cp -a "$GATE_AREAS" "$MEAS/against/registry/areas"
+cp -a "$TESTS/libs.sh" "$MEAS/against/registry/libs.sh"
+[ ! -d "$(dirname "$BASE")/expected" ] || cp -a "$(dirname "$BASE")/expected" "$MEAS/against/expected"
 
 echo "gate: $TIER, root $ROOT, kimp $KIMP"
 echo "gate: work tree $W, load $(cut -d' ' -f1-3 /proc/loadavg)"

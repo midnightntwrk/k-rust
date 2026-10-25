@@ -18,9 +18,9 @@ use krs_ir::{
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
-    KSequence, KSequenceNotation, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole,
-    RuleRole, RuleSide, StateMacroRemainder, StateRuleBindingKind, StateRuleReferenceKind,
-    StateTerm, TermArguments, TermTree, TokenRange, parse_state_context_alias_item,
+    KSequence, KSequenceNotation, MapBody, MapExpression, ProvenanceRole, RuleRole, RuleSide,
+    StateMacroRemainder, StateRuleBindingKind, StateRuleReferenceKind, StateTerm, TermArguments,
+    TermTree, TokenRange, parse_state_context_alias_item,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -35,8 +35,8 @@ use super::island_checks::{consumed_state_island_import_checks, wrapper_type_che
 use super::nonce::expansion_nonce;
 use super::terms::{TermBuilder, TermRole, TermSide, WireSlots, wire_key, wire_sort_reference};
 use super::tokens::{
-    call_site_cfg_attributes, call_site_path, is_bound_ident_path, map_has_role, sequence_has_role,
-    sort_type_tokens, spelling, take_counter, wire_literal,
+    call_site_cfg_attributes, call_site_path, is_bound_ident_path, sort_type_tokens, spelling,
+    take_counter, wire_literal,
 };
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -54,13 +54,7 @@ pub(crate) fn context_alias(
     super::rules::reject_fresh_helper(&item)?;
     let alias = parse_state_context_alias_item(item, attribute.here())?;
     let facade = env.facade_path()?;
-    let mut anchors = attribute.provenance()?;
-    anchors.push(ProvenanceAnchor::new(
-        ProvenanceRole::ContextAliasDeclaration,
-        0,
-        TokenRange::for_tokens(&alias.item().sig.ident)?,
-    ));
-    anchors.extend(alias.provenance()?);
+    let anchors = alias.descriptor_provenance(&attribute)?;
     let fallback = TokenRange::for_tokens(alias.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "context_alias", &alias.item().sig.ident, fallback);
@@ -241,6 +235,7 @@ pub(super) fn configuration_rule(
     env: &dyn MacroEnvironment,
     item: TokenStream,
     attribute: &krs_syntax::RuleAttribute,
+    sentence: krs_syntax::RuleSentence<'_>,
     sentence_kind: krs_ir::ConfigurationSentenceKind,
 ) -> crate::Result<TokenStream> {
     // A `cells!` context (KF-021) shares the rule expansion.
@@ -251,10 +246,9 @@ pub(super) fn configuration_rule(
         krs_syntax::StateRuleItem::parse_tokens(item)?
     };
     let facade = env.facade_path()?;
-    let mut anchors = rule.provenance()?;
-    anchors.extend(attribute.provenance()?);
+    let descriptor = krs_syntax::RuleDescriptor::state(&rule, sentence)?;
     let fallback = TokenRange::for_tokens(rule.item())?;
-    let provenance = host_provenance(env, &facade, fallback, &anchors);
+    let provenance = host_provenance(env, &facade, fallback, descriptor.anchors());
     let nonce = expansion_nonce(env, "configuration_rule", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_configuration_rule_{nonce:016x}");
     let subject_key = format_ident!("__krs_rule_configuration_left_{nonce:016x}");
@@ -788,7 +782,7 @@ impl<'a> StateRuleBuilder<'a> {
         sequence: &KSequence,
         slots: &mut WireSlots,
     ) -> crate::Result<ProtocolRuleKSequence<WireTerm>> {
-        let payload_key = if sequence_has_role(sequence, ProvenanceRole::KSequencePayload)? {
+        let payload_key = if sequence.payload_key().is_some() {
             let ordinal = take_counter(&mut self.counters.k_payload)?;
             Some(self.key(RuleRole::KSequencePayload, ordinal))
         } else {
@@ -832,7 +826,7 @@ impl<'a> StateRuleBuilder<'a> {
         map: &MapExpression,
         slots: &mut WireSlots,
     ) -> crate::Result<ProtocolRuleMap<WireTerm>> {
-        let payload_key = if map_has_role(map, ProvenanceRole::MapPayload)? {
+        let payload_key = if map.payload_key().is_some() {
             let ordinal = take_counter(&mut self.counters.map_payload)?;
             Some(self.key(RuleRole::MapPayload, ordinal))
         } else {

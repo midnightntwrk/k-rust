@@ -9,7 +9,7 @@ use syn::{
 };
 
 use crate::ReferenceCandidate;
-use crate::parse::{KrsSyntax, checked_ordinal};
+use crate::parse::{KeyAllocator, KrsSyntax};
 use crate::path::{is_plain_path, without_last_arguments};
 use crate::{
     CellAttributePayload, ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind,
@@ -58,9 +58,39 @@ pub struct SortArgument {
     pub dynamic: bool,
     /// The arguments of a collection argument, in order.
     pub arguments: Vec<SortArgument>,
+    key: Option<ProvenanceKey>,
 }
 
 impl SortArgument {
+    /// The key of the argument's path, from the sentence that holds it.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// Forgets the keys of `arguments` and of every nested one, before a
+    /// sentence's pass keys them.
+    pub(crate) fn clear_keys(arguments: &mut [Self]) {
+        for argument in arguments {
+            argument.key = None;
+            Self::clear_keys(&mut argument.arguments);
+        }
+    }
+
+    /// Keys the path of each of `arguments` and of every nested one, in
+    /// preorder, as the next of `role`.
+    pub(crate) fn allocate_keys(
+        arguments: &mut [Self],
+        keys: &mut KeyAllocator,
+        role: ProvenanceRole,
+    ) -> Result<(), SyntaxError> {
+        for argument in arguments {
+            argument.key = Some(keys.key(role, TokenRange::for_tokens(&argument.path)?)?);
+            Self::allocate_keys(&mut argument.arguments, keys, role)?;
+        }
+        Ok(())
+    }
+
     /// This argument and every nested one, in preorder: the order of their
     /// `configuration_cell_content_argument` provenance ordinals.
     #[must_use]
@@ -71,31 +101,6 @@ impl SortArgument {
             output.extend(Self::preorder(&argument.arguments));
         }
         output
-    }
-
-    /// One `role` anchor per argument of every list in `lists`, in preorder
-    /// within a list and in list order across them, numbered from 0: the
-    /// anchors of a constructor's typed field or result sorts.
-    ///
-    /// # Errors
-    ///
-    /// Returns an endpoint error only if an argument path emits no tokens.
-    pub fn anchors<'a>(
-        lists: impl IntoIterator<Item = &'a [Self]>,
-        role: ProvenanceRole,
-    ) -> Result<Vec<crate::ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::new();
-        for arguments in lists {
-            for argument in Self::preorder(arguments) {
-                let range = TokenRange::for_tokens(&argument.path)?;
-                anchors.push(crate::ProvenanceAnchor::new(
-                    role,
-                    crate::parse::checked_ordinal(anchors.len(), role, range.first())?,
-                    range,
-                ));
-            }
-        }
-        Ok(anchors)
     }
 }
 
@@ -109,12 +114,87 @@ pub struct FixedCellField {
     content: ConfigurationCellContent,
     cell_helper_present: bool,
     optional: bool,
+    key: Option<ProvenanceKey>,
+    wrapper_key: Option<ProvenanceKey>,
+    content_key: Option<ProvenanceKey>,
 }
 
 /// Name of the computation-cell field type in the single-cell configuration surface.
 pub type ComputationCellField = FixedCellField;
 
 impl FixedCellField {
+    /// The key of the field name, the cell itself.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// The key of a leaf's wrapper, numbered as the field is: its
+    /// `Cell`/`KCell` path, or its whole type when the wrapper is inferred;
+    /// `None` for a nested cell.
+    #[must_use]
+    pub const fn wrapper_key(&self) -> Option<&ProvenanceKey> {
+        self.wrapper_key.as_ref()
+    }
+
+    /// The key of the content: a leaf's type or a nested cell's declaration
+    /// path.
+    #[must_use]
+    pub const fn content_key(&self) -> Option<&ProvenanceKey> {
+        self.content_key.as_ref()
+    }
+
+    /// Keys the field name, the attribute's values at the field's ordinal,
+    /// a leaf's wrapper at the field's ordinal, the content, then a leaf's
+    /// collection arguments in preorder.
+    fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.wrapper_key = None;
+        let field = keys.key(
+            ProvenanceRole::ConfigurationField,
+            TokenRange::for_tokens(&self.name)?,
+        )?;
+        // Cell-attribute anchors in the payload's order (name, color, multiplicity,
+        // type, stream, exit), at this field's ordinal.
+        self.attribute.allocate_keys(keys, Some(&field))?;
+        match &mut self.content {
+            ConfigurationCellContent::Leaf {
+                wrapper,
+                ty,
+                arguments,
+                inferred_wrapper,
+                ..
+            } => {
+                self.wrapper_key = Some(keys.paired(
+                    ProvenanceRole::ConfigurationCellWrapper,
+                    &field,
+                    if *inferred_wrapper {
+                        TokenRange::for_tokens(&*ty)?
+                    } else {
+                        TokenRange::for_tokens(&*wrapper)?
+                    },
+                )?);
+                self.content_key = Some(keys.key(
+                    ProvenanceRole::ConfigurationCellContent,
+                    TokenRange::for_tokens(&*ty)?,
+                )?);
+                SortArgument::clear_keys(arguments);
+                SortArgument::allocate_keys(
+                    arguments,
+                    keys,
+                    ProvenanceRole::ConfigurationCellContentArgument,
+                )?;
+            }
+            ConfigurationCellContent::Nested { declaration } => {
+                self.content_key = Some(keys.key(
+                    ProvenanceRole::ConfigurationCellContent,
+                    TokenRange::for_tokens(&*declaration)?,
+                )?);
+            }
+        }
+        self.key = Some(field);
+        Ok(())
+    }
+
     /// Returns the original authored Rust field.
     #[must_use]
     pub const fn field(&self) -> &Field {
@@ -200,6 +280,10 @@ impl FixedCellField {
 pub struct ConfigurationDeclaration {
     item: ItemStruct,
     cells: Vec<FixedCellField>,
+    name_key: Option<ProvenanceKey>,
+    /// The anchors of the declaration's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl ConfigurationDeclaration {
@@ -281,7 +365,35 @@ impl ConfigurationDeclaration {
                 field.field.ty.span(),
             ));
         }
-        Ok(Self { item, cells })
+        Self {
+            item,
+            cells,
+            name_key: None,
+            anchors: Vec::new(),
+        }
+        .keyed()
+    }
+
+    /// Keys the declaration, as a sentence of its own: its name, then each
+    /// field in authored order with its attribute values, wrapper, content
+    /// and collection arguments.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.name_key = Some(keys.key(
+            ProvenanceRole::ConfigurationDeclaration,
+            TokenRange::for_tokens(&self.item.ident)?,
+        )?);
+        for cell in &mut self.cells {
+            cell.allocate_keys(&mut keys)?;
+        }
+        self.anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// The key of the declaration name.
+    #[must_use]
+    pub const fn name_key(&self) -> Option<&ProvenanceKey> {
+        self.name_key.as_ref()
     }
 
     /// Returns the original span-preserving Rust struct.
@@ -312,90 +424,22 @@ impl ConfigurationDeclaration {
     ///
     /// # Errors
     ///
-    /// Returns endpoint/ordinal errors only for invalid token metadata.
+    /// None: the declaration was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![ProvenanceAnchor::new(
-            ProvenanceRole::ConfigurationDeclaration,
-            0,
-            TokenRange::for_tokens(&self.item.ident)?,
-        )];
-        let mut argument_ordinal = 0_usize;
-        for (ordinal, cell) in self.cells.iter().enumerate() {
-            let ordinal = checked_ordinal(
-                ordinal,
-                ProvenanceRole::ConfigurationField,
-                cell.name.span(),
-            )?;
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConfigurationField,
-                ordinal,
-                TokenRange::for_tokens(&cell.name)?,
-            ));
-            // Cell-attribute anchors in the payload's order (name, color, multiplicity,
-            // type, stream, exit), at this field's ordinal.
-            for anchor in cell.attribute.provenance()? {
-                anchors.push(ProvenanceAnchor::new(
-                    anchor.role(),
-                    ordinal,
-                    anchor.range(),
-                ));
-            }
-            match &cell.content {
-                ConfigurationCellContent::Leaf {
-                    wrapper,
-                    ty,
-                    arguments,
-                    inferred_wrapper,
-                    ..
-                } => {
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::ConfigurationCellWrapper,
-                        ordinal,
-                        if *inferred_wrapper {
-                            TokenRange::for_tokens(ty)?
-                        } else {
-                            TokenRange::for_tokens(wrapper)?
-                        },
-                    ));
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::ConfigurationCellContent,
-                        ordinal,
-                        TokenRange::for_tokens(ty)?,
-                    ));
-                    for argument in SortArgument::preorder(arguments) {
-                        anchors.push(ProvenanceAnchor::new(
-                            ProvenanceRole::ConfigurationCellContentArgument,
-                            checked_ordinal(
-                                argument_ordinal,
-                                ProvenanceRole::ConfigurationField,
-                                argument.path.span(),
-                            )?,
-                            TokenRange::for_tokens(&argument.path)?,
-                        ));
-                        argument_ordinal += 1;
-                    }
-                }
-                ConfigurationCellContent::Nested { declaration } => {
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::ConfigurationCellContent,
-                        ordinal,
-                        TokenRange::for_tokens(declaration)?,
-                    ));
-                }
-            }
-        }
-        Ok(anchors)
+        Ok(self.anchors.clone())
     }
 
     /// Returns wrapper/content/nested paths with keys matching [`Self::provenance`].
+    ///
+    /// # Panics
+    ///
+    /// Never: parsing keys every wrapper, content and argument a candidate
+    /// names.
     #[must_use]
     pub fn reference_candidates(&self) -> Vec<ReferenceCandidate> {
+        let keyed = "a configuration is keyed when it is parsed";
         let mut output = Vec::new();
-        let mut argument_ordinal = 0_u32;
-        for (ordinal, cell) in self.cells.iter().enumerate() {
-            let Ok(ordinal) = u32::try_from(ordinal) else {
-                break;
-            };
+        for cell in &self.cells {
             match &cell.content {
                 ConfigurationCellContent::Leaf {
                     wrapper,
@@ -406,34 +450,27 @@ impl ConfigurationDeclaration {
                 } => {
                     if !inferred_wrapper {
                         output.push(ReferenceCandidate {
-                            key: key(ProvenanceRole::ConfigurationCellWrapper, ordinal),
+                            key: cell.wrapper_key.clone().expect(keyed),
                             path: wrapper.clone(),
                             kind: (),
                         });
                     }
                     output.push(ReferenceCandidate {
-                        key: key(ProvenanceRole::ConfigurationCellContent, ordinal),
+                        key: cell.content_key.clone().expect(keyed),
                         path: sort.clone(),
                         kind: (),
                     });
                     for argument in SortArgument::preorder(arguments) {
                         output.push(ReferenceCandidate {
-                            key: key(
-                                ProvenanceRole::ConfigurationCellContentArgument,
-                                argument_ordinal,
-                            ),
+                            key: argument.key.clone().expect(keyed),
                             path: argument.path.clone(),
                             kind: (),
                         });
-                        let Some(next) = argument_ordinal.checked_add(1) else {
-                            break;
-                        };
-                        argument_ordinal = next;
                     }
                 }
                 ConfigurationCellContent::Nested { declaration } => {
                     output.push(ReferenceCandidate {
-                        key: key(ProvenanceRole::ConfigurationCellContent, ordinal),
+                        key: cell.content_key.clone().expect(keyed),
                         path: declaration.clone(),
                         kind: (),
                     });
@@ -490,6 +527,9 @@ fn parse_cell_field(field: Field, infer_plain_leaf: bool) -> Result<FixedCellFie
         content,
         cell_helper_present,
         optional,
+        key: None,
+        wrapper_key: None,
+        content_key: None,
     })
 }
 
@@ -741,6 +781,7 @@ fn sort_argument(
         path: sort,
         dynamic: false,
         arguments: collection_arguments(ty, invalid)?,
+        key: None,
     })
 }
 
@@ -774,6 +815,7 @@ fn term_sort_argument(
                 path: term.sort().clone(),
                 dynamic: true,
                 arguments: Vec::new(),
+                key: None,
             })
         }
         Some(inner) => sort_argument(inner, invalid),
@@ -797,10 +839,6 @@ fn is_cell_attribute(attribute: &Attribute) -> bool {
             .is_some_and(|segment| segment.ident == "cell")
 }
 
-fn key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
-    role.key(ordinal)
-}
-
 fn unsupported_declaration(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
     SyntaxError::new(
         SyntaxErrorKind::UnsupportedConfigurationDeclaration { reason },
@@ -813,4 +851,68 @@ fn unsupported_field(reason: &'static str, span: proc_macro2::Span) -> SyntaxErr
         SyntaxErrorKind::UnsupportedConfigurationField { reason },
         span,
     )
+}
+
+#[cfg(test)]
+mod keyed {
+    use super::{ConfigurationCellContent, ConfigurationDeclaration, FixedCellField, SortArgument};
+    use crate::SyntaxError;
+    use crate::keyed_nodes::KeyedNodes;
+
+    impl SortArgument {
+        /// Records the key of the path of each of `arguments` and of every
+        /// nested one.
+        pub(crate) fn keyed_nodes(
+            arguments: &[Self],
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            for argument in arguments {
+                nodes.push_tokens(argument.key.as_ref(), &argument.path)?;
+                Self::keyed_nodes(&argument.arguments, nodes)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl FixedCellField {
+        /// Records the keys of the field, its cell attribute's values, its
+        /// wrapper, its content and the content's sort arguments.
+        fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.key.as_ref(), &self.name)?;
+            self.attribute.keyed_nodes(nodes)?;
+            match &self.content {
+                ConfigurationCellContent::Leaf {
+                    wrapper,
+                    ty,
+                    arguments,
+                    inferred_wrapper,
+                    ..
+                } => {
+                    if *inferred_wrapper {
+                        nodes.push_tokens(self.wrapper_key.as_ref(), ty)?;
+                    } else {
+                        nodes.push_tokens(self.wrapper_key.as_ref(), wrapper)?;
+                    }
+                    nodes.push_tokens(self.content_key.as_ref(), ty)?;
+                    SortArgument::keyed_nodes(arguments, nodes)?;
+                }
+                ConfigurationCellContent::Nested { declaration } => {
+                    assert!(self.wrapper_key.is_none());
+                    nodes.push_tokens(self.content_key.as_ref(), declaration)?;
+                }
+            }
+            Ok(())
+        }
+    }
+
+    impl ConfigurationDeclaration {
+        /// Records the keys of the struct's name, then of each cell field.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.name_key.as_ref(), &self.item.ident)?;
+            for cell in &self.cells {
+                cell.keyed_nodes(nodes)?;
+            }
+            Ok(())
+        }
+    }
 }

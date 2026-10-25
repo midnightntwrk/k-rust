@@ -196,12 +196,29 @@ fn claim_item_accepts_readable_sort_aliases_for_binders() {
         .unwrap();
     assert_eq!(body.term_sort().unwrap().sort().segments[0].ident, "Stmt");
     assert_eq!(claim.existentials()[0].sort().segments[0].ident, "Value");
+    let candidates = claim.sort_candidates().unwrap();
     assert!(
-        claim
-            .sort_candidates()
-            .unwrap()
+        candidates
             .iter()
             .all(|candidate| candidate.path().segments[0].ident == "Value")
+    );
+    // Each candidate's key is the one its sort holds in the claim's
+    // anchors: the existential sort follows the universal binder's.
+    let anchors = claim.provenance().unwrap();
+    for candidate in &candidates {
+        let anchor = anchors
+            .iter()
+            .find(|anchor| anchor.key() == *candidate.key())
+            .unwrap();
+        let path = krs_syntax::TokenRange::for_tokens(candidate.path()).unwrap();
+        assert_eq!(
+            (anchor.range().start(), anchor.range().end()),
+            (path.start(), path.end())
+        );
+    }
+    assert_eq!(
+        candidates[0].key(),
+        &krs_ir::ProvenanceRole::ClaimBinderSort.key(1)
     );
 }
 

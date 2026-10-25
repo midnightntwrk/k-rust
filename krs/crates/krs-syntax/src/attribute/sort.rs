@@ -1,9 +1,10 @@
+use krs_ir::ProvenanceKey;
 use proc_macro2::TokenStream;
 use syn::ext::IdentExt as _;
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::{Expr, Ident, LitInt, LitStr, Path, Token};
 
-use crate::parse::{KrsSyntax, ParseError, structured};
+use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 use super::rule::{
@@ -26,6 +27,10 @@ use super::value::{
 pub struct SortAttribute {
     alias: Option<Ident>,
     parents: Vec<Path>,
+    alias_key: Option<ProvenanceKey>,
+    parent_keys: Vec<ProvenanceKey>,
+    /// The anchors of the sort's keying, which [`Self::provenance`] returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl SortAttribute {
@@ -87,26 +92,41 @@ impl SortAttribute {
     /// Rejects a missing alias as [`Self::checked_alias`] does, and returns
     /// an endpoint error only if a parsed node emits no leaves.
     pub fn provenance(&self, marker: &Ident) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let alias = self.checked_alias(marker)?;
-        let mut anchors = Vec::with_capacity(self.parents.len() + 1);
-        anchors.push(ProvenanceAnchor::new(
+        self.checked_alias(marker)?;
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the alias, the sort declaration.
+    #[must_use]
+    pub const fn alias_key(&self) -> Option<&ProvenanceKey> {
+        self.alias_key.as_ref()
+    }
+
+    /// The keys of the parent paths, indexed as [`Self::parents`].
+    #[must_use]
+    pub fn parent_keys(&self) -> &[ProvenanceKey] {
+        &self.parent_keys
+    }
+
+    /// Keys the alias and each parent path, as the sort's descriptor. The
+    /// marker trait [`Self::provenance`] takes only checks the alias, so an
+    /// attribute without one keys nothing: it has no descriptor.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let Some(alias) = &self.alias else {
+            return Ok(self);
+        };
+        let mut keys = KeyAllocator::default();
+        self.alias_key = Some(keys.key(
             ProvenanceRole::SortDeclaration,
-            0,
             TokenRange::for_tokens(alias)?,
-        ));
-        for (ordinal, parent) in self.parents.iter().enumerate() {
-            let ordinal = crate::parse::checked_ordinal(
-                ordinal,
-                ProvenanceRole::SortParent,
-                syn::spanned::Spanned::span(parent),
-            )?;
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::SortParent,
-                ordinal,
-                TokenRange::for_tokens(parent)?,
-            ));
-        }
-        Ok(anchors)
+        )?);
+        self.parent_keys = self
+            .parents
+            .iter()
+            .map(|parent| keys.key(ProvenanceRole::SortParent, TokenRange::for_tokens(parent)?))
+            .collect::<Result<_, _>>()?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -114,6 +134,7 @@ impl SortAttribute {
 #[derive(Clone, Debug)]
 pub struct SubsortAttribute {
     sort: Path,
+    sort_key: Option<ProvenanceKey>,
 }
 
 impl SubsortAttribute {
@@ -122,6 +143,24 @@ impl SubsortAttribute {
     pub const fn sort(&self) -> &Path {
         &self.sort
     }
+
+    /// The key of the supersort alias in its subsort's descriptor, where it
+    /// is the first of its role.
+    #[must_use]
+    pub const fn sort_key(&self) -> Option<&ProvenanceKey> {
+        self.sort_key.as_ref()
+    }
+
+    /// Keys the supersort alias as the first of its role, which no other
+    /// piece of the subsort's descriptor keys; the descriptor records it
+    /// between the impl's keys ([`crate::SubsortDeclaration::provenance`]).
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        self.sort_key = Some(KeyAllocator::default().key(
+            ProvenanceRole::SubsortSuperSort,
+            TokenRange::for_tokens(&self.sort)?,
+        )?);
+        Ok(self)
+    }
 }
 
 /// Checked payload of `#[k::symbol("...")]`.
@@ -129,6 +168,10 @@ impl SubsortAttribute {
 pub struct SymbolAttribute {
     literal: LitStr,
     value: krs_ir::ExplicitSymbol,
+    key: Option<ProvenanceKey>,
+    /// The anchors of the attribute's standalone keying, which
+    /// [`Self::provenance`] returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl SymbolAttribute {
@@ -148,13 +191,36 @@ impl SymbolAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if the literal has no tokens.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(vec![ProvenanceAnchor::new(
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the override literal.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// Keys the attribute as a sentence of its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys)?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// Keys the override literal.
+    /// The anchors of the attribute's own keying are forgotten here and
+    /// recorded again by that keying: an enclosing sentence's pass leaves
+    /// the attribute with that sentence's keys and no anchors of its own.
+    pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.anchors.clear();
+        self.key = Some(keys.key(
             ProvenanceRole::StableSymbol,
-            0,
             TokenRange::for_tokens(&self.literal)?,
-        )])
+        )?);
+        Ok(())
     }
 }
 
@@ -163,6 +229,8 @@ impl SymbolAttribute {
 pub struct RestrictionKey {
     key: Ident,
     variables: Option<Vec<Ident>>,
+    provenance_key: Option<ProvenanceKey>,
+    variable_keys: Vec<ProvenanceKey>,
 }
 
 impl RestrictionKey {
@@ -170,6 +238,18 @@ impl RestrictionKey {
     #[must_use]
     pub const fn key(&self) -> &Ident {
         &self.key
+    }
+
+    /// The key of the `concrete` or `symbolic` identifier.
+    #[must_use]
+    pub const fn provenance_key(&self) -> Option<&ProvenanceKey> {
+        self.provenance_key.as_ref()
+    }
+
+    /// The keys of the listed binders, in order.
+    #[must_use]
+    pub fn variable_keys(&self) -> &[ProvenanceKey] {
+        &self.variable_keys
     }
 
     /// Returns the listed binders, or `None` for the bare key (every binder).
@@ -190,6 +270,7 @@ pub struct MatchRestriction {
     concrete: Option<RestrictionKey>,
     symbolic: Option<RestrictionKey>,
     smt_lemma: Option<Ident>,
+    smt_lemma_key: Option<ProvenanceKey>,
 }
 
 impl MatchRestriction {
@@ -217,45 +298,44 @@ impl MatchRestriction {
         self.concrete.is_none() && self.symbolic.is_none() && self.smt_lemma.is_none()
     }
 
-    /// Returns exact provenance: each key under its role, and each listed
-    /// binder under [`ProvenanceRole::RestrictionVariable`], numbered across
-    /// `concrete` then `symbolic`.
-    ///
-    /// # Errors
-    ///
-    /// Returns an endpoint error only if an authored token has no range.
-    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::new();
-        let mut ordinal = 0_u32;
+    /// The key of the `smt_lemma` flag.
+    #[must_use]
+    pub const fn smt_lemma_key(&self) -> Option<&ProvenanceKey> {
+        self.smt_lemma_key.as_ref()
+    }
+
+    /// Keys each written restriction key with its variables, numbered across
+    /// both restrictions, then the `smt_lemma` key.
+    pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
         for (restriction, role) in [
-            (&self.concrete, ProvenanceRole::RestrictionConcrete),
-            (&self.symbolic, ProvenanceRole::RestrictionSymbolic),
+            (&mut self.concrete, ProvenanceRole::RestrictionConcrete),
+            (&mut self.symbolic, ProvenanceRole::RestrictionSymbolic),
         ] {
             let Some(restriction) = restriction else {
                 continue;
             };
-            anchors.push(ProvenanceAnchor::new(
-                role,
-                0,
-                TokenRange::for_tokens(&restriction.key)?,
-            ));
-            for variable in restriction.variables().unwrap_or_default() {
-                anchors.push(ProvenanceAnchor::new(
-                    ProvenanceRole::RestrictionVariable,
-                    ordinal,
-                    TokenRange::for_tokens(variable)?,
-                ));
-                ordinal += 1;
+            restriction.provenance_key =
+                Some(keys.key(role, TokenRange::for_tokens(&restriction.key)?)?);
+            restriction.variable_keys = restriction
+                .variables
+                .as_deref()
+                .unwrap_or_default()
+                .iter()
+                .map(|variable| {
+                    keys.key(
+                        ProvenanceRole::RestrictionVariable,
+                        TokenRange::for_tokens(variable)?,
+                    )
+                })
+                .collect::<Result<_, _>>()?;
+        }
+        self.smt_lemma_key = match &self.smt_lemma {
+            Some(smt_lemma) => {
+                Some(keys.key(ProvenanceRole::SmtLemma, TokenRange::for_tokens(smt_lemma)?)?)
             }
-        }
-        if let Some(smt_lemma) = &self.smt_lemma {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::SmtLemma,
-                0,
-                TokenRange::for_tokens(smt_lemma)?,
-            ));
-        }
-        Ok(anchors)
+            None => None,
+        };
+        Ok(())
     }
 
     /// Parses `key` when it is `concrete`, `symbolic`, or `smt_lemma`, with
@@ -340,6 +420,8 @@ impl MatchRestriction {
         *slot = Some(RestrictionKey {
             key: key.clone(),
             variables,
+            provenance_key: None,
+            variable_keys: Vec::new(),
         });
         Ok(true)
     }
@@ -369,6 +451,11 @@ pub struct EquationAttribute {
     owise: Option<Ident>,
     priority: Option<PriorityValue>,
     restriction: MatchRestriction,
+    owise_key: Option<ProvenanceKey>,
+    priority_key: Option<ProvenanceKey>,
+    /// The anchors of the attribute's standalone keying, which
+    /// [`Self::provenance`] returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl EquationAttribute {
@@ -407,25 +494,48 @@ impl EquationAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if an authored token has no range.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::new();
-        if let Some(owise) = &self.owise {
-            anchors.push(ProvenanceAnchor::new(
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the `owise` flag.
+    #[must_use]
+    pub const fn owise_key(&self) -> Option<&ProvenanceKey> {
+        self.owise_key.as_ref()
+    }
+
+    /// The key of the `priority` value.
+    #[must_use]
+    pub const fn priority_key(&self) -> Option<&ProvenanceKey> {
+        self.priority_key.as_ref()
+    }
+
+    /// Keys the attribute as a sentence of its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys)?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// Keys `owise`, the priority, then the restriction.
+    pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.owise_key = match &self.owise {
+            Some(owise) => Some(keys.key(
                 ProvenanceRole::EquationOwise,
-                0,
                 TokenRange::for_tokens(owise)?,
-            ));
-        }
-        if let Some(priority) = &self.priority {
-            anchors.push(ProvenanceAnchor::new(
+            )?),
+            None => None,
+        };
+        self.priority_key = match &self.priority {
+            Some(priority) => Some(keys.key(
                 ProvenanceRole::EquationPriority,
-                0,
                 TokenRange::for_tokens(&priority.literal)?,
-            ));
-        }
-        anchors.extend(self.restriction.provenance()?);
-        Ok(anchors)
+            )?),
+            None => None,
+        };
+        self.restriction.allocate_keys(keys)
     }
 }
 
@@ -435,6 +545,10 @@ impl EquationAttribute {
 pub struct SimplificationAttribute {
     priority: Option<(LitInt, u32)>,
     restriction: MatchRestriction,
+    priority_key: Option<ProvenanceKey>,
+    /// The anchors of the attribute's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl SimplificationAttribute {
@@ -454,18 +568,30 @@ impl SimplificationAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if an authored literal has no tokens.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::new();
-        if let Some((literal, _)) = &self.priority {
-            anchors.push(ProvenanceAnchor::new(
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the `priority` value.
+    #[must_use]
+    pub const fn priority_key(&self) -> Option<&ProvenanceKey> {
+        self.priority_key.as_ref()
+    }
+
+    /// Keys the priority, then the restriction.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.priority_key = match &self.priority {
+            Some((literal, _)) => Some(keys.key(
                 ProvenanceRole::SimplificationPriority,
-                0,
                 TokenRange::for_tokens(literal)?,
-            ));
-        }
-        anchors.extend(self.restriction.provenance()?);
-        Ok(anchors)
+            )?),
+            None => None,
+        };
+        self.restriction.allocate_keys(&mut keys)?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -484,6 +610,9 @@ pub struct AliasAttribute;
 #[derive(Clone, Debug, Default)]
 pub struct DesugarAttribute {
     unbound_variables: Option<UnboundVariables>,
+    /// The anchors of the attribute's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl DesugarAttribute {
@@ -498,32 +627,32 @@ impl DesugarAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if an authored token has no range.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let Some(unbound) = &self.unbound_variables else {
-            return Ok(Vec::new());
+        Ok(self.anchors.clone())
+    }
+
+    /// Keys the `unbound_variables` identifier, then each entry.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let Some(unbound) = &mut self.unbound_variables else {
+            return Ok(self);
         };
-        let mut anchors = vec![ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        unbound.provenance_keys = vec![keys.key(
             ProvenanceRole::UnboundVariables,
-            0,
             TokenRange::for_tokens(&unbound.key)?,
-        )];
-        for (ordinal, variable) in unbound.variables.iter().enumerate() {
+        )?];
+        for variable in &unbound.variables {
             let range = match variable {
                 UnboundVariable::Named(name) => TokenRange::for_tokens(name)?,
                 UnboundVariable::Wildcard(wildcard) => TokenRange::for_tokens(wildcard)?,
             };
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::UnboundVariable,
-                crate::parse::checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::UnboundVariable,
-                    unbound.key.span(),
-                )?,
-                range,
-            ));
+            unbound
+                .provenance_keys
+                .push(keys.key(ProvenanceRole::UnboundVariable, range)?);
         }
-        Ok(anchors)
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -535,6 +664,7 @@ impl DesugarAttribute {
 pub struct UnboundVariables {
     key: Ident,
     variables: Vec<UnboundVariable>,
+    provenance_keys: Vec<ProvenanceKey>,
 }
 
 /// One entry of `unbound_variables = [..]`.
@@ -547,6 +677,13 @@ pub enum UnboundVariable {
 }
 
 impl UnboundVariables {
+    /// The key of the `unbound_variables` identifier, then the key of each
+    /// entry in order.
+    #[must_use]
+    pub fn provenance_keys(&self) -> &[ProvenanceKey] {
+        &self.provenance_keys
+    }
+
     /// Returns the authored `unbound_variables` identifier.
     #[must_use]
     pub const fn key(&self) -> &Ident {
@@ -635,6 +772,7 @@ fn parse_unbound_variables(
     Ok(UnboundVariables {
         key,
         variables: list.into_iter().collect(),
+        provenance_keys: Vec::new(),
     })
 }
 
@@ -687,10 +825,14 @@ pub const REQUIRES_ON_DESUGAR_CLAUSE: &str = "a desugar clause has no `#[k::requ
 /// Validated payload of a static production marker (KF-028): `#[k::alias]`,
 /// `#[k::alias(recursive)]`, `#[k::desugar]`, or `#[k::desugar(recursive)]`
 /// on a variant or after `#[k::constructor(...)]`.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct StaticProductionAttribute {
     mode: StaticMode,
     recursive: Option<TokenRange>,
+    recursive_key: Option<ProvenanceKey>,
+    /// The anchors of the marker's standalone keying, which
+    /// [`Self::provenance`] returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl StaticProductionAttribute {
@@ -703,10 +845,13 @@ impl StaticProductionAttribute {
     pub fn parse_marker(mode: StaticMode, tokens: TokenStream) -> Result<Self, SyntaxError> {
         let mut iter = crate::parse::strip_trailing_comma(tokens).into_iter();
         let Some(first) = iter.next() else {
-            return Ok(Self {
+            return Self {
                 mode,
                 recursive: None,
-            });
+                recursive_key: None,
+                anchors: Vec::new(),
+            }
+            .keyed();
         };
         if let proc_macro2::TokenTree::Ident(ident) = &first {
             if ident == "priority" || ident == "owise" {
@@ -729,10 +874,13 @@ impl StaticProductionAttribute {
                         extra.span(),
                     ));
                 }
-                return Ok(Self {
+                return Self {
                     mode,
                     recursive: Some(TokenRange::for_tokens(ident)?),
-                });
+                    recursive_key: None,
+                    anchors: Vec::new(),
+                }
+                .keyed();
             }
             return Err(SyntaxError::new(
                 SyntaxErrorKind::UnknownArgument {
@@ -764,10 +912,34 @@ impl StaticProductionAttribute {
     /// The anchor of the `recursive` keyword, when written.
     #[must_use]
     pub fn provenance(&self) -> Vec<ProvenanceAnchor> {
-        self.recursive
-            .map(|range| ProvenanceAnchor::new(ProvenanceRole::StaticRecursive, 0, range))
-            .into_iter()
-            .collect()
+        self.anchors.clone()
+    }
+
+    /// The key of the `recursive` flag.
+    #[must_use]
+    pub const fn recursive_key(&self) -> Option<&ProvenanceKey> {
+        self.recursive_key.as_ref()
+    }
+
+    /// Keys the marker as a sentence of its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys)?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// Keys the `recursive` keyword, when written.
+    /// The anchors of the attribute's own keying are forgotten here and
+    /// recorded again by that keying: an enclosing sentence's pass leaves
+    /// the attribute with that sentence's keys and no anchors of its own.
+    pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.anchors.clear();
+        self.recursive_key = match self.recursive {
+            Some(range) => Some(keys.key(ProvenanceRole::StaticRecursive, range)?),
+            None => None,
+        };
+        Ok(())
     }
 }
 
@@ -778,6 +950,12 @@ pub struct ContextAliasAttribute {
     name: Ident,
     here: Ident,
     result: Option<syn::Path>,
+    name_key: Option<ProvenanceKey>,
+    here_key: Option<ProvenanceKey>,
+    result_key: Option<ProvenanceKey>,
+    /// The anchors of the attribute's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl ContextAliasAttribute {
@@ -803,28 +981,49 @@ impl ContextAliasAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed identifier emits no tokens.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![
-            ProvenanceAnchor::new(
-                ProvenanceRole::ContextAliasName,
-                0,
-                TokenRange::for_tokens(&self.name)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::ContextAliasHere,
-                0,
-                TokenRange::for_tokens(&self.here)?,
-            ),
-        ];
-        if let Some(result) = &self.result {
-            anchors.push(ProvenanceAnchor::new(
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the alias name.
+    #[must_use]
+    pub const fn name_key(&self) -> Option<&ProvenanceKey> {
+        self.name_key.as_ref()
+    }
+
+    /// The key of the `here` identifier.
+    #[must_use]
+    pub const fn here_key(&self) -> Option<&ProvenanceKey> {
+        self.here_key.as_ref()
+    }
+
+    /// The key of the result sort, when authored.
+    #[must_use]
+    pub const fn result_key(&self) -> Option<&ProvenanceKey> {
+        self.result_key.as_ref()
+    }
+
+    /// Keys the name, `here`, then the result sort.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.name_key = Some(keys.key(
+            ProvenanceRole::ContextAliasName,
+            TokenRange::for_tokens(&self.name)?,
+        )?);
+        self.here_key = Some(keys.key(
+            ProvenanceRole::ContextAliasHere,
+            TokenRange::for_tokens(&self.here)?,
+        )?);
+        self.result_key = match &self.result {
+            Some(result) => Some(keys.key(
                 ProvenanceRole::ContextAliasResult,
-                0,
                 TokenRange::for_tokens(result)?,
-            ));
-        }
-        Ok(anchors)
+            )?),
+            None => None,
+        };
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -894,7 +1093,14 @@ impl KrsSyntax for SymbolAttribute {
             }
             let value = krs_ir::ExplicitSymbol::new(literal.value())
                 .map_err(|error| syn::Error::new(literal.span(), error))?;
-            Ok(SymbolAttribute { literal, value })
+            SymbolAttribute {
+                literal,
+                value,
+                key: None,
+                anchors: Vec::new(),
+            }
+            .keyed()
+            .map_err(syn::Error::from)
         };
         parser.parse2(tokens).map_err(SyntaxError::from)
     }
@@ -973,7 +1179,11 @@ fn parse_equation_stream(input: ParseStream<'_>) -> Result<EquationAttribute, Pa
         owise,
         priority,
         restriction,
-    })
+        owise_key: None,
+        priority_key: None,
+        anchors: Vec::new(),
+    }
+    .keyed()?)
 }
 
 impl KrsSyntax for SimplificationAttribute {
@@ -1034,7 +1244,10 @@ fn parse_simplification_stream(
     Ok(SimplificationAttribute {
         priority,
         restriction,
-    })
+        priority_key: None,
+        anchors: Vec::new(),
+    }
+    .keyed()?)
 }
 
 /// Rejects the payload of a static clause marker at its first token.
@@ -1111,7 +1324,9 @@ impl KrsSyntax for DesugarAttribute {
                 }
                 Ok(DesugarAttribute {
                     unbound_variables: Some(unbound),
-                })
+                    anchors: Vec::new(),
+                }
+                .keyed()?)
             },
         )
     }
@@ -1163,6 +1378,9 @@ fn parse_sort_stream(input: ParseStream<'_>) -> Result<SortAttribute, ParseError
         return Ok(SortAttribute {
             alias: None,
             parents: Vec::new(),
+            alias_key: None,
+            parent_keys: Vec::new(),
+            anchors: Vec::new(),
         });
     }
 
@@ -1222,7 +1440,11 @@ fn parse_sort_stream(input: ParseStream<'_>) -> Result<SortAttribute, ParseError
     Ok(SortAttribute {
         alias,
         parents: parents.unwrap_or_default(),
-    })
+        alias_key: None,
+        parent_keys: Vec::new(),
+        anchors: Vec::new(),
+    }
+    .keyed()?)
 }
 
 fn parse_subsort_stream(input: ParseStream<'_>) -> Result<SubsortAttribute, ParseError> {
@@ -1265,7 +1487,9 @@ fn parse_subsort_stream(input: ParseStream<'_>) -> Result<SubsortAttribute, Pars
                 missing_span,
             )
         })?,
-    })
+        sort_key: None,
+    }
+    .keyed()?)
 }
 
 fn parse_context_alias_stream(input: ParseStream<'_>) -> Result<ContextAliasAttribute, ParseError> {
@@ -1348,5 +1572,143 @@ fn parse_context_alias_stream(input: ParseStream<'_>) -> Result<ContextAliasAttr
             )
         })?,
         result,
-    })
+        name_key: None,
+        here_key: None,
+        result_key: None,
+        anchors: Vec::new(),
+    }
+    .keyed()?)
+}
+
+#[cfg(test)]
+mod keyed {
+    use super::{
+        ContextAliasAttribute, DesugarAttribute, EquationAttribute, MatchRestriction,
+        SimplificationAttribute, SortAttribute, StaticProductionAttribute, SubsortAttribute,
+        SymbolAttribute, UnboundVariable,
+    };
+    use crate::SyntaxError;
+    use crate::keyed_nodes::KeyedNodes;
+
+    impl SortAttribute {
+        /// Records the keys of the alias and of each parent path.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            if let Some(alias) = &self.alias {
+                nodes.push_tokens(self.alias_key.as_ref(), alias)?;
+            }
+            assert!(self.parent_keys.len() <= self.parents.len());
+            for (key, parent) in self.parent_keys.iter().zip(&self.parents) {
+                nodes.push_tokens(Some(key), parent)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl SortAttribute {
+        /// Records the key of the alias, which names the sort in the
+        /// descriptor of a bracket on the sort's marker trait.
+        pub(crate) fn keyed_alias_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            if let Some(alias) = &self.alias {
+                nodes.push_tokens(self.alias_key.as_ref(), alias)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl SubsortAttribute {
+        /// Records the key of the supersort alias.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.sort_key.as_ref(), &self.sort)
+        }
+    }
+
+    impl SymbolAttribute {
+        /// Records the key of the override literal.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.key.as_ref(), &self.literal)
+        }
+    }
+
+    impl MatchRestriction {
+        /// Records the keys of the `concrete` and `symbolic` identifiers and
+        /// their variables, then of `smt_lemma`.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            for restriction in self.concrete.iter().chain(&self.symbolic) {
+                nodes.push_tokens(restriction.provenance_key.as_ref(), &restriction.key)?;
+                let variables = restriction.variables.as_deref().unwrap_or_default();
+                assert!(restriction.variable_keys.len() <= variables.len());
+                for (key, variable) in restriction.variable_keys.iter().zip(variables) {
+                    nodes.push_tokens(Some(key), variable)?;
+                }
+            }
+            if let Some(smt_lemma) = &self.smt_lemma {
+                nodes.push_tokens(self.smt_lemma_key.as_ref(), smt_lemma)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl EquationAttribute {
+        /// Records the keys of `owise`, the priority and the restriction.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            if let Some(owise) = &self.owise {
+                nodes.push_tokens(self.owise_key.as_ref(), owise)?;
+            }
+            if let Some(priority) = &self.priority {
+                nodes.push_tokens(self.priority_key.as_ref(), &priority.literal)?;
+            }
+            self.restriction.keyed_nodes(nodes)
+        }
+    }
+
+    impl SimplificationAttribute {
+        /// Records the keys of the priority and the restriction.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            if let Some((literal, _)) = &self.priority {
+                nodes.push_tokens(self.priority_key.as_ref(), literal)?;
+            }
+            self.restriction.keyed_nodes(nodes)
+        }
+    }
+
+    impl DesugarAttribute {
+        /// Records the keys of the `unbound_variables` key and of each
+        /// variable it lists.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            let Some(unbound) = &self.unbound_variables else {
+                return Ok(());
+            };
+            let mut keys = unbound.provenance_keys.iter();
+            nodes.push_tokens(keys.next(), &unbound.key)?;
+            assert!(keys.len() <= unbound.variables.len());
+            for (key, variable) in keys.zip(&unbound.variables) {
+                match variable {
+                    UnboundVariable::Named(name) => nodes.push_tokens(Some(key), name),
+                    UnboundVariable::Wildcard(wildcard) => nodes.push_tokens(Some(key), wildcard),
+                }?;
+            }
+            Ok(())
+        }
+    }
+
+    impl StaticProductionAttribute {
+        /// Records the key of the `recursive` flag.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) {
+            if let Some(range) = self.recursive {
+                nodes.push(self.recursive_key.as_ref(), range);
+            }
+        }
+    }
+
+    impl ContextAliasAttribute {
+        /// Records the keys of the name, `here` and the result sort.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.name_key.as_ref(), &self.name)?;
+            nodes.push_tokens(self.here_key.as_ref(), &self.here)?;
+            if let Some(result) = &self.result {
+                nodes.push_tokens(self.result_key.as_ref(), result)?;
+            }
+            Ok(())
+        }
+    }
 }

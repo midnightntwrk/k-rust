@@ -1,3 +1,4 @@
+use krs_ir::ProvenanceKey;
 use proc_macro2::TokenStream;
 use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
@@ -5,7 +6,7 @@ use syn::spanned::Spanned;
 use syn::{Expr, Ident, LitBool, LitStr, Path, Token};
 
 use crate::grammar::{StructuredFormat, SyntaxTemplate};
-use crate::parse::{KrsSyntax, ParseError, structured};
+use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
 use crate::{
     ConstructorDeclaration, ProvenanceAnchor, ProvenanceRole, SortArgument, SyntaxError,
     SyntaxErrorKind, TokenRange,
@@ -40,6 +41,141 @@ pub struct ConstructorAttribute {
     placement: PlacementFlags,
     overload: Option<Path>,
     colors: ProductionColors,
+    sort_key: Option<ProvenanceKey>,
+    keys: ProductionKeys,
+    /// The anchors of the full view's keying, whose first `compact` anchors
+    /// are the compact view's.
+    anchors: Vec<ProvenanceAnchor>,
+    compact: usize,
+    /// The anchors of the sort-argument view's keying.
+    sort_argument_anchors: Vec<ProvenanceAnchor>,
+}
+
+/// The keys of a production's syntax and metadata values, one slot per
+/// value; a template's items and a format's fragments hold their own.
+#[derive(Clone, Debug, Default)]
+pub struct ProductionKeys {
+    syntax: Option<ProvenanceKey>,
+    group: Option<ProvenanceKey>,
+    avoid: Option<ProvenanceKey>,
+    prefer: Option<ProvenanceKey>,
+    placement: Option<ProvenanceKey>,
+    overload: Option<ProvenanceKey>,
+    color: Option<ProvenanceKey>,
+    color_entries: Vec<ProvenanceKey>,
+    format: Option<ProvenanceKey>,
+}
+
+impl ProductionKeys {
+    /// The key of the `syntax` literal.
+    #[must_use]
+    pub const fn syntax(&self) -> Option<&ProvenanceKey> {
+        self.syntax.as_ref()
+    }
+
+    /// The key of the `group` literal.
+    #[must_use]
+    pub const fn group(&self) -> Option<&ProvenanceKey> {
+        self.group.as_ref()
+    }
+
+    /// The key of the `avoid` literal.
+    #[must_use]
+    pub const fn avoid(&self) -> Option<&ProvenanceKey> {
+        self.avoid.as_ref()
+    }
+
+    /// The key of the `prefer` literal.
+    #[must_use]
+    pub const fn prefer(&self) -> Option<&ProvenanceKey> {
+        self.prefer.as_ref()
+    }
+
+    /// The key of the `internal` or `program` flag.
+    #[must_use]
+    pub const fn placement(&self) -> Option<&ProvenanceKey> {
+        self.placement.as_ref()
+    }
+
+    /// The key of the `overload` path.
+    #[must_use]
+    pub const fn overload(&self) -> Option<&ProvenanceKey> {
+        self.overload.as_ref()
+    }
+
+    /// The key of the `color` literal or of the `colors` array.
+    #[must_use]
+    pub const fn color(&self) -> Option<&ProvenanceKey> {
+        self.color.as_ref()
+    }
+
+    /// The keys of the `colors` array's entries, in order.
+    #[must_use]
+    pub fn color_entries(&self) -> &[ProvenanceKey] {
+        &self.color_entries
+    }
+
+    /// The key of the `format` literal.
+    #[must_use]
+    pub const fn format(&self) -> Option<&ProvenanceKey> {
+        self.format.as_ref()
+    }
+
+    /// Keys the production metadata after its syntax: the template's items,
+    /// the group, avoid and prefer literals, the placement flag, the
+    /// overload, the colours, then the format and its fragments.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "The two production attributes hold the same metadata in their own fields."
+    )]
+    fn allocate_metadata(
+        &mut self,
+        keys: &mut KeyAllocator,
+        template: Option<&mut SyntaxTemplate>,
+        group: Option<&LitStr>,
+        avoid: Option<&LitBool>,
+        prefer: Option<&LitBool>,
+        placement: &PlacementFlags,
+        overload: Option<&Path>,
+        colors: &ProductionColors,
+        format: Option<&mut StructuredFormat>,
+    ) -> Result<(), SyntaxError> {
+        if let Some(template) = template {
+            template.allocate_keys(
+                keys,
+                ProvenanceRole::ConstructorSyntaxItem,
+                ProvenanceRole::ConstructorSyntaxFieldReference,
+            )?;
+        }
+        self.group = optional_key(keys, ProvenanceRole::ConstructorGroup, group)?;
+        self.avoid = optional_key(keys, ProvenanceRole::ConstructorAvoid, avoid)?;
+        self.prefer = optional_key(keys, ProvenanceRole::ConstructorPrefer, prefer)?;
+        self.placement = placement.allocate_keys(keys)?;
+        self.overload = optional_key(keys, ProvenanceRole::ConstructorOverload, overload)?;
+        (self.color, self.color_entries) = colors.allocate_keys(keys)?;
+        self.format = match format {
+            Some(format) => {
+                let key = keys.key(
+                    ProvenanceRole::ConstructorFormat,
+                    TokenRange::for_tokens(format.literal())?,
+                )?;
+                format.allocate_keys(keys, ProvenanceRole::ConstructorFormatFragment)?;
+                Some(key)
+            }
+            None => None,
+        };
+        Ok(())
+    }
+}
+
+/// Hands out the next key of `role` to `node`, when it is authored.
+fn optional_key(
+    keys: &mut KeyAllocator,
+    role: ProvenanceRole,
+    node: Option<&impl quote::ToTokens>,
+) -> Result<Option<ProvenanceKey>, SyntaxError> {
+    node.map(|node| keys.key(role, TokenRange::for_tokens(node)?))
+        .transpose()
 }
 
 /// Which module a production asks to be placed in.
@@ -160,17 +296,15 @@ impl PlacementFlags {
         self.flag.as_ref().map(|(_, key)| key)
     }
 
-    pub(crate) fn anchors(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+    /// Keys the placement flag's key, if any.
+    pub(crate) fn allocate_keys(
+        &self,
+        keys: &mut KeyAllocator,
+    ) -> Result<Option<ProvenanceKey>, SyntaxError> {
         self.flag
-            .iter()
-            .map(|(flag, key)| {
-                Ok(ProvenanceAnchor::new(
-                    flag.role(),
-                    0,
-                    TokenRange::for_tokens(key)?,
-                ))
-            })
-            .collect()
+            .as_ref()
+            .map(|(flag, key)| keys.key(flag.role(), TokenRange::for_tokens(key)?))
+            .transpose()
     }
 }
 
@@ -300,34 +434,34 @@ impl ProductionColors {
             .map(|(_, literals)| literals.as_slice())
     }
 
-    pub(crate) fn anchors(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::new();
-        if let Some(color) = &self.color {
-            anchors.push(ProvenanceAnchor::new(
+    /// Keys the `color` value or the `colors` array and each of its entries;
+    /// a production has at most one of the two.
+    /// Returns the key of the value or array and the keys of the entries.
+    pub(crate) fn allocate_keys(
+        &self,
+        keys: &mut KeyAllocator,
+    ) -> Result<(Option<ProvenanceKey>, Vec<ProvenanceKey>), SyntaxError> {
+        let mut color = None;
+        if let Some(literal) = &self.color {
+            color = Some(keys.key(
                 ProvenanceRole::ConstructorColor,
-                0,
-                TokenRange::for_tokens(color)?,
-            ));
+                TokenRange::for_tokens(literal)?,
+            )?);
         }
+        let mut entries = Vec::new();
         if let Some((array, literals)) = &self.colors {
-            anchors.push(ProvenanceAnchor::new(
+            color = Some(keys.key(
                 ProvenanceRole::ConstructorColor,
-                0,
                 TokenRange::for_tokens(array)?,
-            ));
-            for (ordinal, literal) in literals.iter().enumerate() {
-                anchors.push(ProvenanceAnchor::new(
+            )?);
+            for literal in literals {
+                entries.push(keys.key(
                     ProvenanceRole::ConstructorColorsEntry,
-                    crate::parse::checked_ordinal(
-                        ordinal,
-                        ProvenanceRole::ConstructorColorsEntry,
-                        literal.span(),
-                    )?,
                     TokenRange::for_tokens(literal)?,
-                ));
+                )?);
             }
         }
-        Ok(anchors)
+        Ok((color, entries))
     }
 }
 
@@ -360,6 +494,17 @@ pub struct FunctionAttribute {
     /// `underspecified = "reason"`: the equations leave some arguments of
     /// this total function without a value on purpose.
     underspecified: Option<LitStr>,
+    totality_key: Option<ProvenanceKey>,
+    memo_key: Option<ProvenanceKey>,
+    fresh_generator_key: Option<ProvenanceKey>,
+    hook_key: Option<ProvenanceKey>,
+    smtlib_key: Option<ProvenanceKey>,
+    underspecified_key: Option<ProvenanceKey>,
+    /// The anchors of the function's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
+    /// How many of [`Self::anchors`] are the production's full view.
+    production: usize,
 }
 
 /// A function's SMT-LIB translation (KF-044): `smtlib` and `smt_hook` are
@@ -431,6 +576,7 @@ impl FunctionAttribute {
             parse_function_keys(input, Some(sort.clone()))
         })?;
         attribute.constructor.sort_arguments = sort_arguments.to_vec();
+        attribute.rekey()?;
         Ok(attribute)
     }
 
@@ -480,7 +626,7 @@ impl FunctionAttribute {
         self.constructor.syntax_template = Some(SyntaxTemplate::parse(literal.clone())?);
         self.constructor.syntax = Some(literal);
         self.default_syntax = true;
-        Ok(())
+        self.rekey()
     }
 
     /// Returns the shared checked production arguments.
@@ -545,57 +691,106 @@ impl FunctionAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed token-bearing node emits no
-    /// leaves.
+    /// None: the function was keyed when it was parsed, and again when its
+    /// syntax or result arguments were completed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = self.constructor.full_provenance()?;
+        Ok(self.anchors.clone())
+    }
+
+    /// The anchors of the function's own keys, which follow its
+    /// production's full view: the totality marker, `memo`,
+    /// `fresh_generator`, `hook`, the SMT translation and `underspecified`.
+    pub(crate) fn function_anchors(&self) -> &[ProvenanceAnchor] {
+        &self.anchors[self.production..]
+    }
+
+    /// The key of the `total` or `partial` marker.
+    #[must_use]
+    pub const fn totality_key(&self) -> Option<&ProvenanceKey> {
+        self.totality_key.as_ref()
+    }
+
+    /// The key of the `memo` flag.
+    #[must_use]
+    pub const fn memo_key(&self) -> Option<&ProvenanceKey> {
+        self.memo_key.as_ref()
+    }
+
+    /// The key of the `fresh_generator` flag.
+    #[must_use]
+    pub const fn fresh_generator_key(&self) -> Option<&ProvenanceKey> {
+        self.fresh_generator_key.as_ref()
+    }
+
+    /// The key of the `hook` value.
+    #[must_use]
+    pub const fn hook_key(&self) -> Option<&ProvenanceKey> {
+        self.hook_key.as_ref()
+    }
+
+    /// The key of the `smtlib` literal; an `smt_hook` template holds its
+    /// own keys.
+    #[must_use]
+    pub const fn smtlib_key(&self) -> Option<&ProvenanceKey> {
+        self.smtlib_key.as_ref()
+    }
+
+    /// The key of the `underspecified` reason.
+    #[must_use]
+    pub const fn underspecified_key(&self) -> Option<&ProvenanceKey> {
+        self.underspecified_key.as_ref()
+    }
+
+    /// The function keyed as a sentence of its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        self.rekey()?;
+        Ok(self)
+    }
+
+    /// Keys the function as a sentence of its own: its production's full
+    /// view, then the totality marker, `memo`, `fresh_generator`, `hook`,
+    /// the SMT translation and `underspecified`. The production is keyed
+    /// alone, which gives its compact and sort-argument views; its full view
+    /// starts the function's sentence, whose keying records the keys the
+    /// production's nodes hold and continues after them.
+    fn rekey(&mut self) -> Result<(), SyntaxError> {
+        self.constructor.rekey()?;
+        let mut keys = KeyAllocator::default();
+        keys.append(&self.constructor.full_provenance()?)?;
+        self.production = keys.anchors().len();
         let (role, marker) = match &self.totality {
             FunctionTotality::Total(marker) => (ProvenanceRole::FunctionTotal, marker),
             FunctionTotality::Partial(marker) => (ProvenanceRole::FunctionPartial, marker),
         };
-        anchors.push(ProvenanceAnchor::new(
-            role,
-            0,
-            TokenRange::for_tokens(marker)?,
-        ));
-        if let Some(memo) = &self.memo {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::FunctionMemo,
-                0,
-                TokenRange::for_tokens(memo)?,
-            ));
-        }
-        if let Some(flag) = &self.fresh_generator {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::FunctionFreshGenerator,
-                0,
-                TokenRange::for_tokens(flag)?,
-            ));
-        }
-        if let Some(hook) = &self.hook {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::FunctionHook,
-                0,
-                hook.range()?,
-            ));
-        }
-        match &self.smt {
-            Some(FunctionSmt::Smtlib(literal)) => anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::FunctionSmtlib,
-                0,
-                TokenRange::for_tokens(literal)?,
-            )),
-            Some(FunctionSmt::Hook(template)) => anchors.extend(template.provenance()?),
+        self.totality_key = Some(keys.key(role, TokenRange::for_tokens(marker)?)?);
+        self.memo_key = optional_key(&mut keys, ProvenanceRole::FunctionMemo, self.memo.as_ref())?;
+        self.fresh_generator_key = optional_key(
+            &mut keys,
+            ProvenanceRole::FunctionFreshGenerator,
+            self.fresh_generator.as_ref(),
+        )?;
+        self.hook_key = match &self.hook {
+            Some(hook) => Some(keys.key(ProvenanceRole::FunctionHook, hook.range()?)?),
+            None => None,
+        };
+        self.smtlib_key = None;
+        match &mut self.smt {
+            Some(FunctionSmt::Smtlib(literal)) => {
+                self.smtlib_key = Some(keys.key(
+                    ProvenanceRole::FunctionSmtlib,
+                    TokenRange::for_tokens(&*literal)?,
+                )?);
+            }
+            Some(FunctionSmt::Hook(template)) => template.allocate_keys(&mut keys)?,
             None => {}
         }
-        if let Some(reason) = &self.underspecified {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::FunctionUnderspecified,
-                0,
-                TokenRange::for_tokens(reason)?,
-            ));
-        }
-        Ok(anchors)
+        self.underspecified_key = optional_key(
+            &mut keys,
+            ProvenanceRole::FunctionUnderspecified,
+            self.underspecified.as_ref(),
+        )?;
+        self.anchors = keys.into_anchors();
+        Ok(())
     }
 }
 
@@ -685,9 +880,34 @@ pub struct VariantSyntaxAttribute {
     placement: PlacementFlags,
     overload: Option<Path>,
     colors: ProductionColors,
+    keys: ProductionKeys,
+    /// The anchors of the attribute's standalone keying, which
+    /// [`Self::provenance`] returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl VariantSyntaxAttribute {
+    /// The keys of the syntax and metadata values, from the attribute alone
+    /// or from its variant's production.
+    #[must_use]
+    pub const fn keys(&self) -> &ProductionKeys {
+        &self.keys
+    }
+
+    /// Keys the attribute as a sentence of its own.
+    fn rekey(&mut self) -> Result<(), SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys)?;
+        self.anchors = keys.into_anchors();
+        Ok(())
+    }
+
+    /// The attribute keyed as a sentence of its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        self.rekey()?;
+        Ok(self)
+    }
+
     /// Returns the authored syntax literal.
     #[must_use]
     pub const fn syntax(&self) -> &LitStr {
@@ -760,7 +980,8 @@ impl VariantSyntaxAttribute {
         flag: PlacementFlag,
         key: Ident,
     ) -> Result<(), SyntaxError> {
-        self.placement.inherit(flag, key)
+        self.placement.inherit(flag, key)?;
+        self.rekey()
     }
 
     /// Returns the parsed structured unparse format, when present.
@@ -784,7 +1005,7 @@ impl VariantSyntaxAttribute {
             self.syntax.span(),
         )?;
         self.structured_format = Some(format);
-        Ok(())
+        self.rekey()
     }
 
     /// Checks template fields and structured-format positions.
@@ -811,57 +1032,34 @@ impl VariantSyntaxAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed token-bearing node emits no
-    /// leaves.
+    /// None: the attribute was keyed when it was parsed, and again when its
+    /// placement or format was completed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![ProvenanceAnchor::new(
+        Ok(self.anchors.clone())
+    }
+
+    /// Keys the syntax, its template, then the metadata.
+    /// The anchors of the attribute's own keying are forgotten here and
+    /// recorded again by that keying: an enclosing sentence's pass leaves
+    /// the attribute with that sentence's keys and no anchors of its own.
+    pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.anchors.clear();
+        self.keys = ProductionKeys::default();
+        self.keys.syntax = Some(keys.key(
             ProvenanceRole::ConstructorSyntax,
-            0,
             TokenRange::for_tokens(&self.syntax)?,
-        )];
-        anchors.extend(self.syntax_template.provenance(
-            ProvenanceRole::ConstructorSyntaxItem,
-            ProvenanceRole::ConstructorSyntaxFieldReference,
         )?);
-        if let Some(group) = &self.group {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorGroup,
-                0,
-                TokenRange::for_tokens(group)?,
-            ));
-        }
-        if let Some(avoid) = &self.avoid_literal {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorAvoid,
-                0,
-                TokenRange::for_tokens(avoid)?,
-            ));
-        }
-        if let Some(prefer) = &self.prefer_literal {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorPrefer,
-                0,
-                TokenRange::for_tokens(prefer)?,
-            ));
-        }
-        anchors.extend(self.placement.anchors()?);
-        if let Some(overload) = &self.overload {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorOverload,
-                0,
-                TokenRange::for_tokens(overload)?,
-            ));
-        }
-        anchors.extend(self.colors.anchors()?);
-        if let Some(format) = &self.structured_format {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorFormat,
-                0,
-                TokenRange::for_tokens(format.literal())?,
-            ));
-            anchors.extend(format.provenance(ProvenanceRole::ConstructorFormatFragment)?);
-        }
-        Ok(anchors)
+        self.keys.allocate_metadata(
+            keys,
+            Some(&mut self.syntax_template),
+            self.group.as_ref(),
+            self.avoid_literal.as_ref(),
+            self.prefer_literal.as_ref(),
+            &self.placement,
+            self.overload.as_ref(),
+            &self.colors,
+            self.structured_format.as_mut(),
+        )
     }
 }
 
@@ -951,21 +1149,77 @@ impl ConstructorAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed Rust node emits no tokens.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![ProvenanceAnchor::new(
+        Ok(self.anchors[..self.compact].to_vec())
+    }
+
+    /// The key of the sort path.
+    #[must_use]
+    pub const fn sort_key(&self) -> Option<&ProvenanceKey> {
+        self.sort_key.as_ref()
+    }
+
+    /// The keys of the syntax and metadata values.
+    #[must_use]
+    pub const fn keys(&self) -> &ProductionKeys {
+        &self.keys
+    }
+
+    /// Keys the attribute's two descriptors, each a sentence of its own. The
+    /// full view starts with the compact one, the sort and the syntax, so one
+    /// pass keys both; the sort-argument view keys the result's element
+    /// types on its own.
+    fn rekey(&mut self) -> Result<(), SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys)?;
+        self.compact = keys.anchors().len();
+        self.allocate_metadata_keys(&mut keys)?;
+        self.anchors = keys.into_anchors();
+        let mut keys = KeyAllocator::default();
+        SortArgument::allocate_keys(
+            &mut self.sort_arguments,
+            &mut keys,
+            ProvenanceRole::ConstructorSortArgument,
+        )?;
+        self.sort_argument_anchors = keys.into_anchors();
+        Ok(())
+    }
+
+    /// The attribute keyed as a sentence of its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        self.rekey()?;
+        Ok(self)
+    }
+
+    /// Keys the sort and the optional syntax.
+    fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.keys = ProductionKeys::default();
+        self.sort_key = Some(keys.key(
             ProvenanceRole::ConstructorSort,
-            0,
             TokenRange::for_tokens(&self.sort)?,
-        )];
-        if let Some(syntax) = &self.syntax {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorSyntax,
-                0,
-                TokenRange::for_tokens(syntax)?,
-            ));
-        }
-        Ok(anchors)
+        )?);
+        self.keys.syntax = optional_key(
+            keys,
+            ProvenanceRole::ConstructorSyntax,
+            self.syntax.as_ref(),
+        )?;
+        Ok(())
+    }
+
+    /// Keys the syntax template and the metadata, after the compact catalog.
+    fn allocate_metadata_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.keys.allocate_metadata(
+            keys,
+            self.syntax_template.as_mut(),
+            self.group.as_ref(),
+            self.avoid_literal.as_ref(),
+            self.prefer_literal.as_ref(),
+            &self.placement,
+            self.overload.as_ref(),
+            &self.colors,
+            self.structured_format.as_mut(),
+        )
     }
 
     /// Returns one anchor per element type of a function's typed collection
@@ -973,12 +1227,9 @@ impl ConstructorAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed Rust node emits no tokens.
+    /// None: the attribute was keyed when it was parsed.
     pub fn sort_argument_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        SortArgument::anchors(
-            [self.sort_arguments.as_slice()],
-            ProvenanceRole::ConstructorSortArgument,
-        )
+        Ok(self.sort_argument_anchors.clone())
     }
 
     /// Returns the complete anchor catalog, including syntax-template, group,
@@ -986,54 +1237,9 @@ impl ConstructorAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed Rust node emits no tokens.
+    /// None: the attribute was keyed when it was parsed.
     pub fn full_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = self.provenance()?;
-        if let Some(template) = &self.syntax_template {
-            anchors.extend(template.provenance(
-                ProvenanceRole::ConstructorSyntaxItem,
-                ProvenanceRole::ConstructorSyntaxFieldReference,
-            )?);
-        }
-        if let Some(group) = &self.group {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorGroup,
-                0,
-                TokenRange::for_tokens(group)?,
-            ));
-        }
-        if let Some(avoid) = &self.avoid_literal {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorAvoid,
-                0,
-                TokenRange::for_tokens(avoid)?,
-            ));
-        }
-        if let Some(prefer) = &self.prefer_literal {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorPrefer,
-                0,
-                TokenRange::for_tokens(prefer)?,
-            ));
-        }
-        anchors.extend(self.placement.anchors()?);
-        if let Some(overload) = &self.overload {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorOverload,
-                0,
-                TokenRange::for_tokens(overload)?,
-            ));
-        }
-        anchors.extend(self.colors.anchors()?);
-        if let Some(format) = &self.structured_format {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorFormat,
-                0,
-                TokenRange::for_tokens(format.literal())?,
-            ));
-            anchors.extend(format.provenance(ProvenanceRole::ConstructorFormatFragment)?);
-        }
-        Ok(anchors)
+        Ok(self.anchors.clone())
     }
 }
 
@@ -1307,7 +1513,13 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
         overload,
         placement,
         colors,
-    })
+        sort_key: None,
+        keys: ProductionKeys::default(),
+        anchors: Vec::new(),
+        compact: 0,
+        sort_argument_anchors: Vec::new(),
+    }
+    .keyed()?)
 }
 
 /// K applies `prefer` and `avoid` as one pair of parse-forest filters and
@@ -1541,6 +1753,11 @@ fn parse_function_keys(
             overload: None,
             placement,
             colors: ProductionColors::default(),
+            sort_key: None,
+            keys: ProductionKeys::default(),
+            anchors: Vec::new(),
+            compact: 0,
+            sort_argument_anchors: Vec::new(),
         },
         default_syntax: false,
         totality,
@@ -1549,7 +1766,16 @@ fn parse_function_keys(
         hook,
         smt,
         underspecified,
-    })
+        totality_key: None,
+        memo_key: None,
+        fresh_generator_key: None,
+        hook_key: None,
+        smtlib_key: None,
+        underspecified_key: None,
+        anchors: Vec::new(),
+        production: 0,
+    }
+    .keyed()?)
 }
 
 /// Parses the `sort` of `#[k::function]`: a plain path, or a typed
@@ -1995,7 +2221,10 @@ fn parse_variant_syntax_stream(
         overload,
         placement,
         colors,
-    })
+        keys: ProductionKeys::default(),
+        anchors: Vec::new(),
+    }
+    .keyed()?)
 }
 
 /// The default syntax template of a function production that is not program
@@ -2017,4 +2246,179 @@ pub fn default_function_syntax<'a>(
         .collect::<Vec<_>>()
         .join(", ");
     format!("{symbol}({fields})")
+}
+
+#[cfg(test)]
+mod keyed {
+    use super::{
+        ConstructorAttribute, FunctionAttribute, FunctionSmt, FunctionTotality, PlacementFlags,
+        ProductionColors, ProductionKeys, VariantSyntaxAttribute,
+    };
+    use crate::grammar::{StructuredFormat, SyntaxTemplate};
+    use crate::keyed_nodes::KeyedNodes;
+    use crate::{SortArgument, SyntaxError};
+    use syn::{LitBool, LitStr, Path};
+
+    /// A production's metadata, with the keys its sentence gave it.
+    struct Metadata<'a> {
+        keys: &'a ProductionKeys,
+        syntax: Option<&'a LitStr>,
+        template: Option<&'a SyntaxTemplate>,
+        group: Option<&'a LitStr>,
+        avoid: Option<&'a LitBool>,
+        prefer: Option<&'a LitBool>,
+        placement: &'a PlacementFlags,
+        overload: Option<&'a Path>,
+        colors: &'a ProductionColors,
+        format: Option<&'a StructuredFormat>,
+    }
+
+    impl Metadata<'_> {
+        /// Records the keys of the syntax, its template, the group,
+        /// `avoid`, `prefer`, the placement flag, the overload, the colours
+        /// and the format with its fragments.
+        fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            let keys = self.keys;
+            if let Some(syntax) = self.syntax {
+                nodes.push_tokens(keys.syntax.as_ref(), syntax)?;
+            }
+            if let Some(template) = self.template {
+                template.keyed_nodes(nodes)?;
+            }
+            if let Some(group) = self.group {
+                nodes.push_tokens(keys.group.as_ref(), group)?;
+            }
+            if let Some(avoid) = self.avoid {
+                nodes.push_tokens(keys.avoid.as_ref(), avoid)?;
+            }
+            if let Some(prefer) = self.prefer {
+                nodes.push_tokens(keys.prefer.as_ref(), prefer)?;
+            }
+            if let Some(placement) = self.placement.key() {
+                nodes.push_tokens(keys.placement.as_ref(), placement)?;
+            }
+            if let Some(overload) = self.overload {
+                nodes.push_tokens(keys.overload.as_ref(), overload)?;
+            }
+            if let Some(color) = &self.colors.color {
+                nodes.push_tokens(keys.color.as_ref(), color)?;
+            }
+            if let Some((array, literals)) = &self.colors.colors {
+                nodes.push_tokens(keys.color.as_ref(), array)?;
+                assert!(keys.color_entries.len() <= literals.len());
+                for (key, literal) in keys.color_entries.iter().zip(literals) {
+                    nodes.push_tokens(Some(key), literal)?;
+                }
+            } else {
+                assert!(keys.color_entries.is_empty());
+            }
+            if let Some(format) = self.format {
+                nodes.push_tokens(keys.format.as_ref(), format.literal())?;
+                format.keyed_nodes(nodes)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl ConstructorAttribute {
+        /// Records the keys of the compact view: the sort and the syntax.
+        pub(crate) fn keyed_compact_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.sort_key.as_ref(), &self.sort)?;
+            if let Some(syntax) = &self.syntax {
+                nodes.push_tokens(self.keys.syntax.as_ref(), syntax)?;
+            }
+            Ok(())
+        }
+
+        /// Records the keys of the full view: the compact view's, then the
+        /// metadata.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            self.keyed_compact_nodes(nodes)?;
+            Metadata {
+                keys: &self.keys,
+                syntax: None,
+                template: self.syntax_template.as_ref(),
+                group: self.group.as_ref(),
+                avoid: self.avoid_literal.as_ref(),
+                prefer: self.prefer_literal.as_ref(),
+                placement: &self.placement,
+                overload: self.overload.as_ref(),
+                colors: &self.colors,
+                format: self.structured_format.as_ref(),
+            }
+            .keyed_nodes(nodes)
+        }
+
+        /// Records the keys of the sort arguments, the sentence of
+        /// [`Self::sort_argument_provenance`].
+        pub(crate) fn keyed_sort_argument_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            SortArgument::keyed_nodes(&self.sort_arguments, nodes)
+        }
+    }
+
+    impl FunctionAttribute {
+        /// Records the keys of the production's full view, then the
+        /// function's own.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            self.constructor.keyed_nodes(nodes)?;
+            self.keyed_function_nodes(nodes)
+        }
+
+        /// Records the keys of the function's own nodes: its totality
+        /// marker, `memo`, `fresh_generator`, the hook, the SMT translation
+        /// and `underspecified`.
+        pub(crate) fn keyed_function_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            let (FunctionTotality::Total(marker) | FunctionTotality::Partial(marker)) =
+                &self.totality;
+            nodes.push_tokens(self.totality_key.as_ref(), marker)?;
+            if let Some(memo) = &self.memo {
+                nodes.push_tokens(self.memo_key.as_ref(), memo)?;
+            }
+            if let Some(fresh_generator) = &self.fresh_generator {
+                nodes.push_tokens(self.fresh_generator_key.as_ref(), fresh_generator)?;
+            }
+            if let Some(hook) = &self.hook {
+                nodes.push(self.hook_key.as_ref(), hook.range()?);
+            }
+            match &self.smt {
+                Some(FunctionSmt::Smtlib(literal)) => {
+                    nodes.push_tokens(self.smtlib_key.as_ref(), literal)?;
+                }
+                Some(FunctionSmt::Hook(template)) => template.keyed_nodes(nodes)?,
+                None => {}
+            }
+            if let Some(underspecified) = &self.underspecified {
+                nodes.push_tokens(self.underspecified_key.as_ref(), underspecified)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl VariantSyntaxAttribute {
+        /// Records the keys of the syntax, its template, then the metadata.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            Metadata {
+                keys: &self.keys,
+                syntax: Some(&self.syntax),
+                template: Some(&self.syntax_template),
+                group: self.group.as_ref(),
+                avoid: self.avoid_literal.as_ref(),
+                prefer: self.prefer_literal.as_ref(),
+                placement: &self.placement,
+                overload: self.overload.as_ref(),
+                colors: &self.colors,
+                format: self.structured_format.as_ref(),
+            }
+            .keyed_nodes(nodes)
+        }
+    }
 }

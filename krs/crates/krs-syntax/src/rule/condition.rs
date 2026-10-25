@@ -5,13 +5,15 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Expr, ExprCall, Ident, Meta, Token, bracketed};
 
 use super::machine::parse_expression_before_arrow;
-use super::pattern::{RulePattern, push_term_node_anchors, push_term_reference_candidates};
+use super::pattern::{RulePattern, allocate_term_node_keys, push_term_reference_candidates};
 use crate::parse::{
-    KrsSyntax, ParseError, checked_ordinal, unsupported_rule_signature as unsupported_signature,
+    KeyAllocator, KrsSyntax, ParseError, unsupported_rule_signature as unsupported_signature,
     validate_authored_binder,
 };
 use crate::path::is_plain_path;
-use crate::term::push_record_field_anchors;
+use crate::term::allocate_record_field_keys;
+use krs_ir::ProvenanceKey;
+
 use crate::{
     ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, TermExpression,
     TermSymbolKind, TermTree, TokenRange,
@@ -21,50 +23,76 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct RuleCondition {
     term: TermExpression,
+    /// The anchors of the condition's standalone keying.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl RuleCondition {
+    /// A condition over `term`, keyed as a sentence of its own.
+    fn keyed(term: TermExpression) -> Result<Self, SyntaxError> {
+        let mut condition = Self {
+            term,
+            anchors: Vec::new(),
+        };
+        let mut keys = KeyAllocator::default();
+        condition.clear_keys();
+        condition.allocate_keys(&mut keys)?;
+        condition.anchors = keys.into_anchors();
+        Ok(condition)
+    }
+
     /// Returns the complete structured condition term.
     #[must_use]
     pub const fn term(&self) -> &TermExpression {
         &self.term
     }
 
-    /// Returns complete and nested parser-owned condition anchors.
+    /// Returns the condition term, for a pass that keys it.
+    pub(crate) const fn term_mut(&mut self) -> &mut TermExpression {
+        &mut self.term
+    }
+
+    /// Returns complete and nested parser-owned condition anchors of the
+    /// condition's standalone keying.
     ///
     /// # Errors
     ///
-    /// Returns endpoint or occurrence-overflow errors only.
+    /// None: the condition was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![ProvenanceAnchor::new(
+        Ok(self.anchors.clone())
+    }
+
+    /// Forgets the keys of the condition's term, before a sentence's pass
+    /// keys it.
+    pub(crate) fn clear_keys(&mut self) {
+        self.term.clear_keys();
+        self.anchors.clear();
+    }
+
+    /// Keys the condition (its term's payload), then its paths, its
+    /// application head, reference, and literal nodes, and its record field
+    /// names.
+    pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.term.allocate_keys(
+            keys,
             ProvenanceRole::RuleRequires,
-            0,
-            TokenRange::for_tokens(self.term.expression())?,
-        )];
-        for (ordinal, symbol) in self.term.symbols().iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleRequiresPath,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::RuleRequiresPath,
-                    symbol.path().span(),
-                )?,
-                TokenRange::for_tokens(symbol.path())?,
-            ));
-        }
-        push_term_node_anchors(
-            &mut anchors,
-            self.term.nodes(),
+            ProvenanceRole::RuleRequiresPath,
+        )?;
+        let (nodes, tree, term_keys) = self.term.keying();
+        allocate_term_node_keys(
+            keys,
+            nodes,
+            term_keys,
             ProvenanceRole::RuleRequiresApplicationHead,
             ProvenanceRole::RuleRequiresReference,
             ProvenanceRole::RuleRequiresLiteral,
         )?;
-        push_record_field_anchors(
-            &mut anchors,
-            self.term.tree(),
+        allocate_record_field_keys(
+            keys,
+            tree,
+            term_keys,
             ProvenanceRole::RuleRequiresRecordFieldName,
-        )?;
-        Ok(anchors)
+        )
     }
 
     /// Returns rustc-resolvable condition references, excluding pre-bindings.
@@ -80,10 +108,9 @@ impl RuleCondition {
         push_term_reference_candidates(
             &mut candidates,
             self.term.nodes(),
+            self.term.keys(),
             bindings,
-            ProvenanceRole::RuleRequiresApplicationHead,
-            ProvenanceRole::RuleRequiresReference,
-        )?;
+        );
         Ok(candidates)
     }
 }
@@ -183,10 +210,27 @@ pub(super) fn condition_token_range(input: ParseStream<'_>) -> syn::Result<Token
 /// entry for `key`, and `value` binds what that entry maps to.
 #[derive(Clone, Debug)]
 pub struct RuleMapEntry {
-    /// Required key term.
+    /// Required key term; its key is the term's payload key.
     pub key: Box<TermExpression>,
     /// Value binder introduced only when the map item is present.
     pub value: Ident,
+    pub(super) value_key: Option<ProvenanceKey>,
+}
+
+impl RuleMapEntry {
+    pub(super) const fn new(key: Box<TermExpression>, value: Ident) -> Self {
+        Self {
+            key,
+            value,
+            value_key: None,
+        }
+    }
+
+    /// The key of the value binder, given by the clause that reads the entry.
+    #[must_use]
+    pub const fn value_key(&self) -> Option<&ProvenanceKey> {
+        self.value_key.as_ref()
+    }
 }
 
 /// One validated ordinary three-argument map update.
@@ -194,6 +238,7 @@ pub struct RuleMapEntry {
 pub struct RuleMapUpdate {
     term: TermExpression,
     arguments: [Expr; 3],
+    argument_keys: [Option<ProvenanceKey>; 3],
 }
 
 impl RuleMapUpdate {
@@ -203,10 +248,34 @@ impl RuleMapUpdate {
         &self.term
     }
 
+    /// Returns the update term, for a pass that keys it.
+    pub(super) const fn term_mut(&mut self) -> &mut TermExpression {
+        &mut self.term
+    }
+
     /// Returns the authored base, key, and value expressions.
     #[must_use]
     pub fn arguments(&self) -> [&Expr; 3] {
         self.arguments.each_ref()
+    }
+
+    /// The keys of the base, key, and value expressions, given by the clause
+    /// that writes the update; each has the ordinal of the updated cell's
+    /// result field.
+    #[must_use]
+    pub fn argument_keys(&self) -> [Option<&ProvenanceKey>; 3] {
+        self.argument_keys.each_ref().map(Option::as_ref)
+    }
+
+    /// Records the keys of the base, key, and value expressions.
+    pub(super) fn set_argument_keys(&mut self, keys: [ProvenanceKey; 3]) {
+        self.argument_keys = keys.map(Some);
+    }
+
+    /// Forgets the keys of the update, before a clause's pass keys it.
+    pub(super) fn clear_keys(&mut self) {
+        self.term.clear_keys();
+        self.argument_keys = [None, None, None];
     }
 }
 
@@ -220,10 +289,7 @@ impl From<HaveMapExtra> for RuleExtra {
     fn from(extra: HaveMapExtra) -> Self {
         Self::HaveMap {
             cell: extra.cell,
-            entries: vec![RuleMapEntry {
-                key: extra.key,
-                value: extra.value,
-            }],
+            entries: vec![RuleMapEntry::new(extra.key, extra.value)],
         }
     }
 }
@@ -341,6 +407,7 @@ pub(super) fn parse_map_update(
         update: Box::new(RuleMapUpdate {
             term: update,
             arguments: [base_expression.clone(), (*key).clone(), (*value).clone()],
+            argument_keys: [None, None, None],
         }),
     })
 }
@@ -380,7 +447,7 @@ pub(crate) fn take_requires_helper(
                 term.expression().span(),
             ));
         }
-        condition = Some(RuleCondition { term });
+        condition = Some(RuleCondition::keyed(term)?);
     }
     *attributes = retained;
     Ok(condition)

@@ -1215,7 +1215,7 @@ module WALK
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(12,18,12,37)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,18,14,37)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/walk/walk.k)"
     )
@@ -1228,7 +1228,7 @@ module WALK
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(13,18,13,32)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,18,15,32)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/walk/walk.k)"
     )
@@ -1238,7 +1238,7 @@ module WALK
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(14,18,14,27)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,18,16,27)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/walk/walk.k)"
     )
@@ -1251,7 +1251,40 @@ module WALK
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(15,18,15,34)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(17,18,17,34)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/walk/walk.k)"
+    )
+  ]
+  symbol Lblset'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+    SortInt{},
+    SortInt{}
+  ) : SortCmd{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(18,18,18,31)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/walk/walk.k)"
+    )
+  ]
+  symbol Lblgrow'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(SortInt{}) : SortCmd{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,18,19,27)"),
+    org'Stop'kframework'Stop'attributes'Stop'Source{}(
+      "Source(k2lean/tests/fixtures/walk/walk.k)"
+    )
+  ]
+  symbol Lblbump'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(SortInt{}) : SortCmd{}
+  [
+    constructor{}(),
+    functional{}(),
+    injective{}(),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(20,18,20,27)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/walk/walk.k)"
     )
@@ -1264,7 +1297,7 @@ module WALK
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(16,18,16,31)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(21,18,21,31)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/walk/walk.k)"
     )
@@ -1275,7 +1308,7 @@ module WALK
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(35,19,35,61)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,19,40,61)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/walk/walk.k)"
     ),
@@ -1288,7 +1321,7 @@ module WALK
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(36,19,36,64)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,19,41,64)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/walk/walk.k)"
     ),
@@ -1298,7 +1331,7 @@ module WALK
   [
     function{}(),
     functional{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(37,19,37,52)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(42,19,42,52)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/walk/walk.k)"
     ),
@@ -1310,7 +1343,7 @@ module WALK
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,33,26)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,38,26)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/walk/walk.k)"
     )
@@ -1322,7 +1355,7 @@ module WALK
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,33,26)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,38,26)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/walk/walk.k)"
     )
@@ -1334,7 +1367,7 @@ module WALK
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,33,26)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,38,26)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/walk/walk.k)"
     )
@@ -1346,7 +1379,7 @@ module WALK
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,33,26)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,38,26)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/walk/walk.k)"
     )
@@ -1376,7 +1409,7 @@ module WALK
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,33,26)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,38,26)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/walk/walk.k)"
     )
@@ -1390,7 +1423,7 @@ module WALK
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,33,26)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,38,26)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/walk/walk.k)"
     )
@@ -1407,7 +1440,7 @@ module WALK
     constructor{}(),
     functional{}(),
     injective{}(),
-    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(25,3,33,26)"),
+    org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(30,3,38,26)"),
     org'Stop'kframework'Stop'attributes'Stop'Source{}(
       "Source(k2lean/tests/fixtures/walk/walk.k)"
     )
@@ -2077,6 +2110,45 @@ module WALK
           X1:SortInt{},
           X2:SortInt{}
         ),
+        Lblset'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          Y0:SortInt{},
+          Y1:SortInt{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblbind'LParUndsCommUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{},
+          X2:SortInt{}
+        ),
+        Lblgrow'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblbind'LParUndsCommUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{},
+          X2:SortInt{}
+        ),
+        Lblbump'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblbind'LParUndsCommUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{},
+          X2:SortInt{}
+        ),
         Lblseq'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Cmd'Unds'Cmd{}(
           Y0:SortCmd{},
           Y1:SortCmd{}
@@ -2146,6 +2218,42 @@ module WALK
           X0:SortInt{},
           X1:SortInt{}
         ),
+        Lblset'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          Y0:SortInt{},
+          Y1:SortInt{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblfork'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{}
+        ),
+        Lblgrow'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblfork'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{}
+        ),
+        Lblbump'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblfork'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{}
+        ),
         Lblseq'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Cmd'Unds'Cmd{}(
           Y0:SortCmd{},
           Y1:SortCmd{}
@@ -2181,6 +2289,33 @@ module WALK
           Y0:SortInt{},
           Y1:SortInt{}
         )
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lbldrop'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{}),
+        Lblset'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          Y0:SortInt{},
+          Y1:SortInt{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lbldrop'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{}),
+        Lblgrow'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lbldrop'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{}),
+        Lblbump'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
       )
     )
     [constructor{}()]
@@ -2232,6 +2367,178 @@ module WALK
           X0:SortInt{},
           X1:SortInt{}
         ),
+        Lblset'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          Y0:SortInt{},
+          Y1:SortInt{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblforget'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{}
+        ),
+        Lblgrow'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblforget'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{}
+        ),
+        Lblbump'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblforget'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{}
+        ),
+        Lblseq'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Cmd'Unds'Cmd{}(
+          Y0:SortCmd{},
+          Y1:SortCmd{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortCmd{},
+      \equals{SortCmd{}, R}(
+        Val:SortCmd{},
+        Lblset'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          K0:SortInt{},
+          K1:SortInt{}
+        )
+      )
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblset'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{}
+        ),
+        Lblset'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          Y0:SortInt{},
+          Y1:SortInt{}
+        )
+      ),
+      Lblset'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+        \and{SortInt{}}(X0:SortInt{}, Y0:SortInt{}),
+        \and{SortInt{}}(X1:SortInt{}, Y1:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblset'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{}
+        ),
+        Lblgrow'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblset'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{}
+        ),
+        Lblbump'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblset'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+          X0:SortInt{},
+          X1:SortInt{}
+        ),
+        Lblseq'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Cmd'Unds'Cmd{}(
+          Y0:SortCmd{},
+          Y1:SortCmd{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortCmd{},
+      \equals{SortCmd{}, R}(
+        Val:SortCmd{},
+        Lblgrow'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(K0:SortInt{})
+      )
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblgrow'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{}),
+        Lblgrow'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      ),
+      Lblgrow'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(
+        \and{SortInt{}}(X0:SortInt{}, Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblgrow'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{}),
+        Lblbump'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblgrow'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{}),
+        Lblseq'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Cmd'Unds'Cmd{}(
+          Y0:SortCmd{},
+          Y1:SortCmd{}
+        )
+      )
+    )
+    [constructor{}()]
+  axiom{R}
+    \exists{R}(
+      Val:SortCmd{},
+      \equals{SortCmd{}, R}(
+        Val:SortCmd{},
+        Lblbump'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(K0:SortInt{})
+      )
+    )
+    [functional{}()]
+  axiom{}
+    \implies{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblbump'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{}),
+        Lblbump'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(Y0:SortInt{})
+      ),
+      Lblbump'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(
+        \and{SortInt{}}(X0:SortInt{}, Y0:SortInt{})
+      )
+    )
+    [constructor{}()]
+  axiom{}
+    \not{SortCmd{}}(
+      \and{SortCmd{}}(
+        Lblbump'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{}),
         Lblseq'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Cmd'Unds'Cmd{}(
           Y0:SortCmd{},
           Y1:SortCmd{}
@@ -2961,6 +3268,24 @@ module WALK
             X1:SortInt{}
           )
         )
+      ),
+      \exists{SortCmd{}}(
+        X0:SortInt{},
+        \exists{SortCmd{}}(
+          X1:SortInt{},
+          Lblset'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+            X0:SortInt{},
+            X1:SortInt{}
+          )
+        )
+      ),
+      \exists{SortCmd{}}(
+        X0:SortInt{},
+        Lblgrow'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{})
+      ),
+      \exists{SortCmd{}}(
+        X0:SortInt{},
+        Lblbump'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(X0:SortInt{})
       ),
       \exists{SortCmd{}}(
         X0V2:SortCmd{},
@@ -5811,7 +6136,7 @@ module WALK
     )
     [
       UNIQUE'Unds'ID{}("cee8916a9ef4c4671e70729a269b5637fe84568b875fee1f7d35f65c148d9906"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(38,3,39,24)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,3,44,24)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/walk/walk.k)"
       )
@@ -5838,7 +6163,7 @@ module WALK
     )
     [
       UNIQUE'Unds'ID{}("30f608d5a7c6610f442a1c6dbeba03d87d345074020d26ebd76535cb1c1295a7"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(40,3,40,55)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(45,3,45,55)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/walk/walk.k)"
       )
@@ -5888,7 +6213,7 @@ module WALK
     )
     [
       UNIQUE'Unds'ID{}("43332945ce305405b7b1eb8a7569617ad1925539ff8e245dcf341fc742654fa6"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(41,3,42,65)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(46,3,47,65)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/walk/walk.k)"
       )
@@ -5912,7 +6237,7 @@ module WALK
     )
     [
       UNIQUE'Unds'ID{}("c93a458efb3abc7d5ba8cd1ee81c5281db40138ef8744742a9d79c44a1edd889"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(43,3,43,30)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(48,3,48,30)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/walk/walk.k)"
       )
@@ -5954,7 +6279,7 @@ module WALK
     )
     [
       UNIQUE'Unds'ID{}("418fb7de542cde3e05f368d25fcd704e7afd252cd12544f51d4773f42ac14d01"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(44,3,44,65)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(49,3,49,65)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/walk/walk.k)"
       )
@@ -5997,7 +6322,7 @@ module WALK
     )
     [
       UNIQUE'Unds'ID{}("36c38a4689f346c31f258972b8051f12ba34ec2007eb2d3cd82b64eae892d26d"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(46,3,46,44)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,3,51,44)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/walk/walk.k)"
       )
@@ -6074,7 +6399,7 @@ module WALK
     [
       UNIQUE'Unds'ID{}("0a5d8f7a3dde2470e86366b67c6ff88a1ce696f82fabee218d781f4ddeccb0b5"),
       label{}("bind"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(47,3,50,40)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(52,3,55,40)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/walk/walk.k)"
       )
@@ -6144,7 +6469,7 @@ module WALK
     [
       UNIQUE'Unds'ID{}("ed0a5e322d110bd5fb840ce862fabc78266e92e59f4d54a97efa63f21fc53262"),
       label{}("fork"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(51,3,53,80)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(56,3,58,80)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/walk/walk.k)"
       )
@@ -6191,7 +6516,7 @@ module WALK
     [
       UNIQUE'Unds'ID{}("8a5b37bdc99496badb91af7621db7f3781a501004a79271a9ae2ecac1cee4d80"),
       label{}("drop"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(54,3,55,80)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(59,3,60,80)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/walk/walk.k)"
       )
@@ -6257,7 +6582,158 @@ module WALK
     [
       UNIQUE'Unds'ID{}("a7b121dfc87ea1a42a21626e7b82effef81942fb587a10c8308dd161ca4d9439"),
       label{}("forget"),
-      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(56,3,57,89)"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(61,3,62,89)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/walk/walk.k)"
+      )
+    ]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortCmd{}, SortKItem{}}(
+                Lblset'LParUndsCommUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int'Unds'Int{}(
+                  VarL:SortInt{},
+                  VarV:SortInt{}
+                )
+              ),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Var'Unds'Gen3:SortWorkersCell{},
+          Lbl'-LT-'store'-GT-'{}(VarS:SortMap{}),
+          Var'Unds'Gen2:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar1:SortK{}),
+          Var'Unds'Gen3:SortWorkersCell{},
+          Lbl'-LT-'store'-GT-'{}(
+            LblMap'Coln'update{}(
+              VarS:SortMap{},
+              inj{SortInt{}, SortKItem{}}(VarL:SortInt{}),
+              inj{SortInt{}, SortKItem{}}(VarV:SortInt{})
+            )
+          ),
+          Var'Unds'Gen2:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("b255576a551ce55a663c94e6e8e8fe41a82013e8dd90114c6753df7ba9aba8fe"),
+      label{}("set"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(63,3,64,52)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/walk/walk.k)"
+      )
+    ]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortCmd{}, SortKItem{}}(
+                Lblgrow'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(VarL:SortInt{})
+              ),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Var'Unds'Gen3:SortWorkersCell{},
+          Lbl'-LT-'store'-GT-'{}(VarS:SortMap{}),
+          Var'Unds'Gen2:SortGeneratedCounterCell{}
+        ),
+        \equals{SortBool{}, SortGeneratedTopCell{}}(
+          LblnotBool'Unds'{}(
+            Lbl'Unds'in'Unds'keys'LParUndsRParUnds'MAP'Unds'Bool'Unds'KItem'Unds'Map{}(
+              inj{SortInt{}, SortKItem{}}(VarL:SortInt{}),
+              VarS:SortMap{}
+            )
+          ),
+          \dv{SortBool{}}("true")
+        )
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar1:SortK{}),
+          Var'Unds'Gen3:SortWorkersCell{},
+          Lbl'-LT-'store'-GT-'{}(
+            Lbl'Unds'Map'Unds'{}(
+              VarS:SortMap{},
+              Lbl'UndsPipe'-'-GT-Unds'{}(
+                inj{SortInt{}, SortKItem{}}(VarL:SortInt{}),
+                inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0"))
+              )
+            )
+          ),
+          Var'Unds'Gen2:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("967facf8a9f1260abcf71c9fc21c9f91e5ef6bab35352cc424b4b3e102455c18"),
+      label{}("grow"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(65,3,67,50)"),
+      org'Stop'kframework'Stop'attributes'Stop'Source{}(
+        "Source(k2lean/tests/fixtures/walk/walk.k)"
+      )
+    ]
+  axiom{}
+    \rewrites{SortGeneratedTopCell{}}(
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(
+            kseq{}(
+              inj{SortCmd{}, SortKItem{}}(
+                Lblbump'LParUndsRParUnds'WALK-SYNTAX'Unds'Cmd'Unds'Int{}(VarL:SortInt{})
+              ),
+              Var'Unds'DotVar1:SortK{}
+            )
+          ),
+          Var'Unds'Gen4:SortWorkersCell{},
+          Lbl'-LT-'store'-GT-'{}(
+            Lbl'Unds'Map'Unds'{}(
+              Lbl'UndsPipe'-'-GT-Unds'{}(
+                inj{SortInt{}, SortKItem{}}(VarL:SortInt{}),
+                inj{SortInt{}, SortKItem{}}(VarI:SortInt{})
+              ),
+              Var'Unds'DotVar2:SortMap{}
+            )
+          ),
+          Var'Unds'Gen3:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      ),
+      \and{SortGeneratedTopCell{}}(
+        Lbl'-LT-'generatedTop'-GT-'{}(
+          Lbl'-LT-'k'-GT-'{}(Var'Unds'DotVar1:SortK{}),
+          Var'Unds'Gen4:SortWorkersCell{},
+          Lbl'-LT-'store'-GT-'{}(
+            Lbl'Unds'Map'Unds'{}(
+              Lbl'UndsPipe'-'-GT-Unds'{}(
+                inj{SortInt{}, SortKItem{}}(VarL:SortInt{}),
+                inj{SortInt{}, SortKItem{}}(
+                  Lbl'UndsPlus'Int'Unds'{}(VarI:SortInt{}, \dv{SortInt{}}("1"))
+                )
+              ),
+              Var'Unds'DotVar2:SortMap{}
+            )
+          ),
+          Var'Unds'Gen3:SortGeneratedCounterCell{}
+        ),
+        \top{SortGeneratedTopCell{}}()
+      )
+    )
+    [
+      UNIQUE'Unds'ID{}("d512c07a0a041fbe751728d3769208b1a9fa1c44762de03fb5c9ce8037cc5fce"),
+      label{}("bump"),
+      org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(68,3,69,68)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(
         "Source(k2lean/tests/fixtures/walk/walk.k)"
       )
@@ -7733,7 +8209,7 @@ module WALK
       simplification{}("")
     ]
 endmodule [
-  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(19,1,58,10)"),
+  org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(24,1,70,10)"),
   org'Stop'kframework'Stop'attributes'Stop'Source{}(
     "Source(k2lean/tests/fixtures/walk/walk.k)"
   )

@@ -4,8 +4,9 @@ use syn::parse::{Parse, ParseStream, Parser};
 use syn::spanned::Spanned;
 use syn::{Expr, ExprLit, Ident, Lit, LitInt, LitStr, Path, Token};
 
-use crate::parse::{KrsSyntax, ParseError, checked_ordinal, structured};
+use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
+use krs_ir::ProvenanceKey;
 
 use super::value::parse_rule_label_value;
 
@@ -21,6 +22,27 @@ pub struct RuleAttribute {
     evaluation: Option<(krs_ir::EvaluationKind, Ident)>,
     hole: Option<Ident>,
     result: Option<Path>,
+    label_key: Option<ProvenanceKey>,
+    owise_key: Option<ProvenanceKey>,
+    priority_key: Option<ProvenanceKey>,
+    nondet_key: Option<ProvenanceKey>,
+    anywhere_key: Option<ProvenanceKey>,
+    evaluation_key: Option<ProvenanceKey>,
+    hole_key: Option<ProvenanceKey>,
+    result_key: Option<ProvenanceKey>,
+    /// The anchors of the attribute's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
+}
+
+/// Hands out the next key of `role` to `node`, when it is authored.
+fn optional_key(
+    keys: &mut KeyAllocator,
+    role: ProvenanceRole,
+    node: Option<&impl quote::ToTokens>,
+) -> Result<Option<ProvenanceKey>, SyntaxError> {
+    node.map(|node| keys.key(role, TokenRange::for_tokens(node)?))
+        .transpose()
 }
 
 /// One authored `priority = N` integer and its parsed value.
@@ -117,6 +139,13 @@ pub struct ClaimAttribute {
     label: LitStr,
     circularity: Option<Ident>,
     trusted: Option<Ident>,
+    modality_key: Option<ProvenanceKey>,
+    label_key: Option<ProvenanceKey>,
+    circularity_key: Option<ProvenanceKey>,
+    trusted_key: Option<ProvenanceKey>,
+    /// The anchors of the attribute's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl ClaimAttribute {
@@ -145,35 +174,58 @@ impl ClaimAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error if an authored token has no recoverable range.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![
-            ProvenanceAnchor::new(
-                ProvenanceRole::ClaimModality,
-                0,
-                TokenRange::for_tokens(&self.modality_ident)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::ClaimLabel,
-                0,
-                TokenRange::for_tokens(&self.label)?,
-            ),
-        ];
-        if let Some(marker) = &self.circularity {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ClaimCircularity,
-                0,
-                TokenRange::for_tokens(marker)?,
-            ));
-        }
-        if let Some(marker) = &self.trusted {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ClaimTrusted,
-                0,
-                TokenRange::for_tokens(marker)?,
-            ));
-        }
-        Ok(anchors)
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the modality identifier.
+    #[must_use]
+    pub const fn modality_key(&self) -> Option<&ProvenanceKey> {
+        self.modality_key.as_ref()
+    }
+
+    /// The key of the label.
+    #[must_use]
+    pub const fn label_key(&self) -> Option<&ProvenanceKey> {
+        self.label_key.as_ref()
+    }
+
+    /// The key of the `circularity` marker.
+    #[must_use]
+    pub const fn circularity_key(&self) -> Option<&ProvenanceKey> {
+        self.circularity_key.as_ref()
+    }
+
+    /// The key of the `trusted` marker.
+    #[must_use]
+    pub const fn trusted_key(&self) -> Option<&ProvenanceKey> {
+        self.trusted_key.as_ref()
+    }
+
+    /// Keys the modality, the label, then the modifiers.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.modality_key = Some(keys.key(
+            ProvenanceRole::ClaimModality,
+            TokenRange::for_tokens(&self.modality_ident)?,
+        )?);
+        self.label_key = Some(keys.key(
+            ProvenanceRole::ClaimLabel,
+            TokenRange::for_tokens(&self.label)?,
+        )?);
+        self.circularity_key = optional_key(
+            &mut keys,
+            ProvenanceRole::ClaimCircularity,
+            self.circularity.as_ref(),
+        )?;
+        self.trusted_key = optional_key(
+            &mut keys,
+            ProvenanceRole::ClaimTrusted,
+            self.trusted.as_ref(),
+        )?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -182,6 +234,9 @@ impl ClaimAttribute {
 pub struct ClaimBinder {
     name: Ident,
     sort: Path,
+    key: Option<ProvenanceKey>,
+    name_key: Option<ProvenanceKey>,
+    sort_key: Option<ProvenanceKey>,
 }
 
 impl ClaimBinder {
@@ -195,12 +250,78 @@ impl ClaimBinder {
     pub const fn sort(&self) -> &Path {
         &self.sort
     }
+
+    /// The key of the binder declaration, given by the sentence that
+    /// declares it (a rule's existential or fresh binder).
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// The key of the binder's name.
+    #[must_use]
+    pub const fn name_key(&self) -> Option<&ProvenanceKey> {
+        self.name_key.as_ref()
+    }
+
+    /// The key of the binder's sort.
+    #[must_use]
+    pub const fn sort_key(&self) -> Option<&ProvenanceKey> {
+        self.sort_key.as_ref()
+    }
+
+    /// Forgets the binder's keys, before a sentence's pass keys it.
+    pub(crate) fn clear_keys(&mut self) {
+        self.key = None;
+        self.name_key = None;
+        self.sort_key = None;
+    }
+
+    /// Keys the binder declaration as the next of `role`.
+    pub(crate) fn allocate_binder_key(
+        &mut self,
+        keys: &mut KeyAllocator,
+        role: ProvenanceRole,
+    ) -> Result<(), SyntaxError> {
+        self.key = Some(keys.key(role, TokenRange::for_tokens(&self.name)?)?);
+        Ok(())
+    }
+
+    /// Keys the binder's name, then its sort, each as the next of its role.
+    pub(crate) fn allocate_name_and_sort_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        name_role: ProvenanceRole,
+        sort_role: ProvenanceRole,
+    ) -> Result<(), SyntaxError> {
+        self.name_key = Some(keys.key(name_role, TokenRange::for_tokens(&self.name)?)?);
+        self.sort_key = Some(keys.key(sort_role, TokenRange::for_tokens(&self.sort)?)?);
+        Ok(())
+    }
+
+    /// Keys the binder, its name and its sort, each as the next of its role.
+    pub(crate) fn allocate_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        binder_role: ProvenanceRole,
+        name_role: ProvenanceRole,
+        sort_role: ProvenanceRole,
+    ) -> Result<(), SyntaxError> {
+        let name = TokenRange::for_tokens(&self.name)?;
+        self.key = Some(keys.key(binder_role, name)?);
+        self.name_key = Some(keys.key(name_role, name)?);
+        self.sort_key = Some(keys.key(sort_role, TokenRange::for_tokens(&self.sort)?)?);
+        Ok(())
+    }
 }
 
 /// Checked existential-binder helper payload.
 #[derive(Clone, Debug)]
 pub struct ExistsAttribute {
     binders: Vec<ClaimBinder>,
+    /// The anchors of the attribute's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl ExistsAttribute {
@@ -209,37 +330,43 @@ impl ExistsAttribute {
     pub fn binders(&self) -> &[ClaimBinder] {
         &self.binders
     }
+
+    /// Declared binders in source order, for a pass that keys them.
+    pub(crate) fn binders_mut(&mut self) -> &mut [ClaimBinder] {
+        &mut self.binders
+    }
+
+    /// Forgets the binders' keys and the attribute's anchors, before the
+    /// sentence that declares the binders keys them.
+    pub(crate) fn clear_keys(&mut self) {
+        for binder in &mut self.binders {
+            binder.clear_keys();
+        }
+        self.anchors.clear();
+    }
+
     /// Returns exact declaration/name/sort anchors.
     ///
     /// # Errors
     ///
-    /// Returns an endpoint or occurrence-overflow error if exact provenance
-    /// cannot be represented.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = Vec::new();
-        for (index, binder) in self.binders.iter().enumerate() {
-            let ordinal = checked_ordinal(
-                index,
+        Ok(self.anchors.clone())
+    }
+
+    /// Keys each binder, its name and its sort, as a sentence of its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        for binder in &mut self.binders {
+            binder.allocate_keys(
+                &mut keys,
                 ProvenanceRole::ClaimExistentialBinder,
-                binder.name.span(),
-            )?;
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::ClaimExistentialBinder,
-                ordinal,
-                TokenRange::for_tokens(&binder.name)?,
-            ));
-            output.push(ProvenanceAnchor::new(
                 ProvenanceRole::ClaimBinderName,
-                ordinal,
-                TokenRange::for_tokens(&binder.name)?,
-            ));
-            output.push(ProvenanceAnchor::new(
                 ProvenanceRole::ClaimBinderSort,
-                ordinal,
-                TokenRange::for_tokens(&binder.sort)?,
-            ));
+            )?;
         }
-        Ok(output)
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -311,73 +438,100 @@ impl RuleAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if the parsed literal emits no tokens.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::with_capacity(2);
-        // A context (KF-021) anchors its keys under the context roles.
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the label.
+    #[must_use]
+    pub const fn label_key(&self) -> Option<&ProvenanceKey> {
+        self.label_key.as_ref()
+    }
+
+    /// The key of the `owise` flag.
+    #[must_use]
+    pub const fn owise_key(&self) -> Option<&ProvenanceKey> {
+        self.owise_key.as_ref()
+    }
+
+    /// The key of the `priority` value.
+    #[must_use]
+    pub const fn priority_key(&self) -> Option<&ProvenanceKey> {
+        self.priority_key.as_ref()
+    }
+
+    /// The key of the `nondet` group.
+    #[must_use]
+    pub const fn nondet_key(&self) -> Option<&ProvenanceKey> {
+        self.nondet_key.as_ref()
+    }
+
+    /// The key of the `anywhere` flag.
+    #[must_use]
+    pub const fn anywhere_key(&self) -> Option<&ProvenanceKey> {
+        self.anywhere_key.as_ref()
+    }
+
+    /// The key of the `heat`/`cool` marker, or of a context's name.
+    #[must_use]
+    pub const fn evaluation_key(&self) -> Option<&ProvenanceKey> {
+        self.evaluation_key.as_ref()
+    }
+
+    /// The key of the `hole` binder.
+    #[must_use]
+    pub const fn hole_key(&self) -> Option<&ProvenanceKey> {
+        self.hole_key.as_ref()
+    }
+
+    /// The key of the `result` sort.
+    #[must_use]
+    pub const fn result_key(&self) -> Option<&ProvenanceKey> {
+        self.result_key.as_ref()
+    }
+
+    /// Keys the label, `owise`, the priority, `nondet`, `anywhere`, the
+    /// evaluation marker, the hole and the result, as a sentence of its own.
+    /// A context (KF-021) keys its label, hole and result under the context
+    /// roles.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
         let kind = self.evaluation.as_ref().map(|(kind, _)| *kind);
-        if let Some(label) = &self.label {
-            anchors.push(ProvenanceAnchor::new(
-                if kind == Some(krs_ir::EvaluationKind::Context) {
-                    ProvenanceRole::ContextLabel
-                } else {
-                    ProvenanceRole::RuleLabel
-                },
-                0,
-                TokenRange::for_tokens(label)?,
-            ));
-        }
-        if let Some(owise) = &self.owise {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleOwise,
-                0,
-                TokenRange::for_tokens(owise)?,
-            ));
-        }
-        if let Some(priority) = &self.priority {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RulePriority,
-                0,
-                TokenRange::for_tokens(&priority.literal)?,
-            ));
-        }
-        if let Some(nondet) = &self.nondet {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleNondetGroup,
-                0,
-                TokenRange::for_tokens(nondet)?,
-            ));
-        }
-        if let Some(anywhere) = &self.anywhere {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleAnywhere,
-                0,
-                TokenRange::for_tokens(anywhere)?,
-            ));
-        }
-        if let Some((kind, marker)) = &self.evaluation {
-            anchors.push(ProvenanceAnchor::new(
-                kind.role(),
-                0,
-                TokenRange::for_tokens(marker)?,
-            ));
-        }
+        self.label_key = optional_key(
+            &mut keys,
+            if kind == Some(krs_ir::EvaluationKind::Context) {
+                ProvenanceRole::ContextLabel
+            } else {
+                ProvenanceRole::RuleLabel
+            },
+            self.label.as_ref(),
+        )?;
+        self.owise_key = optional_key(&mut keys, ProvenanceRole::RuleOwise, self.owise.as_ref())?;
+        self.priority_key = optional_key(
+            &mut keys,
+            ProvenanceRole::RulePriority,
+            self.priority.as_ref().map(|priority| &priority.literal),
+        )?;
+        self.nondet_key = optional_key(
+            &mut keys,
+            ProvenanceRole::RuleNondetGroup,
+            self.nondet.as_ref(),
+        )?;
+        self.anywhere_key = optional_key(
+            &mut keys,
+            ProvenanceRole::RuleAnywhere,
+            self.anywhere.as_ref(),
+        )?;
+        self.evaluation_key = match &self.evaluation {
+            Some((kind, marker)) => Some(keys.key(kind.role(), TokenRange::for_tokens(marker)?)?),
+            None => None,
+        };
         let kind = kind.unwrap_or(krs_ir::EvaluationKind::Heat);
-        if let Some(hole) = &self.hole {
-            anchors.push(ProvenanceAnchor::new(
-                kind.hole_role(),
-                0,
-                TokenRange::for_tokens(hole)?,
-            ));
-        }
-        if let Some(result) = &self.result {
-            anchors.push(ProvenanceAnchor::new(
-                kind.result_role(),
-                0,
-                TokenRange::for_tokens(result)?,
-            ));
-        }
-        Ok(anchors)
+        self.hole_key = optional_key(&mut keys, kind.hole_role(), self.hole.as_ref())?;
+        self.result_key = optional_key(&mut keys, kind.result_role(), self.result.as_ref())?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -573,7 +727,13 @@ impl ClaimAttribute {
                 label,
                 circularity,
                 trusted,
-            })
+                modality_key: None,
+                label_key: None,
+                circularity_key: None,
+                trusted_key: None,
+                anchors: Vec::new(),
+            }
+            .keyed()?)
         };
         structured(tokens, parser)
     }
@@ -605,7 +765,13 @@ impl KrsSyntax for ExistsAttribute {
                 {
                     return Err(syn::Error::new(name.span(), "duplicate existential binder"));
                 }
-                binders.push(ClaimBinder { name, sort });
+                binders.push(ClaimBinder {
+                    name,
+                    sort,
+                    key: None,
+                    name_key: None,
+                    sort_key: None,
+                });
                 if input.is_empty() {
                     break;
                 }
@@ -614,13 +780,16 @@ impl KrsSyntax for ExistsAttribute {
             if binders.is_empty() {
                 return Err(input.error("exists requires at least one `name: Sort` binder"));
             }
-            Ok(ExistsAttribute { binders })
+            Ok(ExistsAttribute {
+                binders,
+                anchors: Vec::new(),
+            })
         };
         let exists = parser.parse2(tokens).map_err(SyntaxError::from)?;
         for binder in &exists.binders {
             crate::parse::validate_authored_binder(&binder.name.to_string(), binder.name.span())?;
         }
-        Ok(exists)
+        exists.keyed()
     }
 }
 
@@ -772,10 +941,11 @@ fn parse_rule_stream(input: ParseStream<'_>) -> Result<RuleAttribute, ParseError
         evaluation,
         hole,
         result,
+        ..RuleAttribute::default()
     };
     attribute.check_evaluation()?;
     attribute.reject_ordered_anywhere()?;
-    Ok(attribute)
+    Ok(attribute.keyed()?)
 }
 
 /// Typed metadata of `#[k::context(hole = x, result = S, label = "...")]`
@@ -785,6 +955,9 @@ pub struct ContextAttribute {
     hole: Ident,
     result: Option<Path>,
     label: Option<LitStr>,
+    label_key: Option<ProvenanceKey>,
+    hole_key: Option<ProvenanceKey>,
+    result_key: Option<ProvenanceKey>,
 }
 
 impl ContextAttribute {
@@ -806,9 +979,34 @@ impl ContextAttribute {
         self.label.as_ref()
     }
 
+    /// The key of the label, in the context's rule-attribute view.
+    #[must_use]
+    pub const fn label_key(&self) -> Option<&ProvenanceKey> {
+        self.label_key.as_ref()
+    }
+
+    /// The key of the hole binder, in the context's rule-attribute view.
+    #[must_use]
+    pub const fn hole_key(&self) -> Option<&ProvenanceKey> {
+        self.hole_key.as_ref()
+    }
+
+    /// The key of the result sort, in the context's rule-attribute view.
+    #[must_use]
+    pub const fn result_key(&self) -> Option<&ProvenanceKey> {
+        self.result_key.as_ref()
+    }
+
     /// The rule-attribute view of this context, whose evaluation step is
     /// marked by the context fn's name: the expansion of a context shares
-    /// the rule expansion, under the context roles.
+    /// the rule expansion, under the context roles. The view is keyed as a
+    /// sentence of its own; the label, hole and result hold the same keys
+    /// there as in the context, each the first of its role.
+    ///
+    /// # Panics
+    ///
+    /// Never: the label, the hole, the result and `name` are parsed tokens,
+    /// and each is the first of its role.
     #[must_use]
     pub fn rule_attribute(&self, name: &Ident) -> RuleAttribute {
         RuleAttribute {
@@ -818,6 +1016,20 @@ impl ContextAttribute {
             result: self.result.clone(),
             ..RuleAttribute::default()
         }
+        .keyed()
+        .expect("a context's rule attribute keys parsed tokens")
+    }
+
+    /// Keys the label, the hole and the result under the context roles, as
+    /// the context's rule-attribute view keys them.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        let kind = krs_ir::EvaluationKind::Context;
+        self.label_key =
+            optional_key(&mut keys, ProvenanceRole::ContextLabel, self.label.as_ref())?;
+        self.hole_key = Some(keys.key(kind.hole_role(), TokenRange::for_tokens(&self.hole)?)?);
+        self.result_key = optional_key(&mut keys, kind.result_role(), self.result.as_ref())?;
+        Ok(self)
     }
 }
 
@@ -893,7 +1105,11 @@ fn parse_context_stream(input: ParseStream<'_>) -> Result<ContextAttribute, Pars
         })?,
         result,
         label,
-    })
+        label_key: None,
+        hole_key: None,
+        result_key: None,
+    }
+    .keyed()?)
 }
 
 /// Parses the sort path of `result = S`: a plain Rust path, as in
@@ -913,5 +1129,107 @@ pub(super) fn parse_result_sort(value: Expr) -> Result<Path, ParseError> {
             value.span(),
         )
         .into()),
+    }
+}
+
+#[cfg(test)]
+impl ClaimBinder {
+    /// Records the keys of the binder and its name, at the name, and of its
+    /// sort.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        nodes.push_tokens(self.key.as_ref(), &self.name)?;
+        nodes.push_tokens(self.name_key.as_ref(), &self.name)?;
+        nodes.push_tokens(self.sort_key.as_ref(), &self.sort)
+    }
+}
+
+#[cfg(test)]
+impl RuleAttribute {
+    /// Records the keys of the label, `owise`, the priority, `nondet`,
+    /// `anywhere`, the evaluation marker, the hole and the result.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        if let Some(label) = &self.label {
+            nodes.push_tokens(self.label_key.as_ref(), label)?;
+        }
+        if let Some(owise) = &self.owise {
+            nodes.push_tokens(self.owise_key.as_ref(), owise)?;
+        }
+        if let Some(priority) = &self.priority {
+            nodes.push_tokens(self.priority_key.as_ref(), &priority.literal)?;
+        }
+        if let Some(nondet) = &self.nondet {
+            nodes.push_tokens(self.nondet_key.as_ref(), nondet)?;
+        }
+        if let Some(anywhere) = &self.anywhere {
+            nodes.push_tokens(self.anywhere_key.as_ref(), anywhere)?;
+        }
+        if let Some((_, marker)) = &self.evaluation {
+            nodes.push_tokens(self.evaluation_key.as_ref(), marker)?;
+        }
+        if let Some(hole) = &self.hole {
+            nodes.push_tokens(self.hole_key.as_ref(), hole)?;
+        }
+        if let Some(result) = &self.result {
+            nodes.push_tokens(self.result_key.as_ref(), result)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl ClaimAttribute {
+    /// Records the keys of the modality, the label and the modifiers.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        nodes.push_tokens(self.modality_key.as_ref(), &self.modality_ident)?;
+        nodes.push_tokens(self.label_key.as_ref(), &self.label)?;
+        if let Some(circularity) = &self.circularity {
+            nodes.push_tokens(self.circularity_key.as_ref(), circularity)?;
+        }
+        if let Some(trusted) = &self.trusted {
+            nodes.push_tokens(self.trusted_key.as_ref(), trusted)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl ExistsAttribute {
+    /// Records the keys of each binder, its name and its sort.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        for binder in &self.binders {
+            binder.keyed_nodes(nodes)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl ContextAttribute {
+    /// Records the keys of the label, the hole and the result, which they
+    /// hold in the context's rule-attribute view.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        if let Some(label) = &self.label {
+            nodes.push_tokens(self.label_key.as_ref(), label)?;
+        }
+        nodes.push_tokens(self.hole_key.as_ref(), &self.hole)?;
+        if let Some(result) = &self.result {
+            nodes.push_tokens(self.result_key.as_ref(), result)?;
+        }
+        Ok(())
     }
 }

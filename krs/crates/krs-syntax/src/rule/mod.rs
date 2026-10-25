@@ -13,8 +13,9 @@ pub(crate) use bits::{
 };
 pub use block::{
     BracketAlternative, ClaimBlock, ReadableStateCounters, RuleBlock, RuleClause, RuleClauseLayout,
-    RuleHead, RuleHeadItem, RuleHeadResult, RuleListPattern, RuleListRest, RuleListResult,
-    RuleNarrowing, parse_claim_block_source_with_trivia, parse_rule_block_source_with_trivia,
+    RuleExtraKeys, RuleHead, RuleHeadItem, RuleHeadResult, RuleListPattern, RuleListRest,
+    RuleListResult, RuleNarrowing, parse_claim_block_source_with_trivia,
+    parse_rule_block_source_with_trivia,
 };
 pub(crate) use condition::take_requires_helper;
 pub use condition::{RuleCondition, RuleExtra, RuleMapEntry, RuleMapUpdate};
@@ -23,6 +24,6 @@ pub use existentials::RuleExistentials;
 pub use item::{BINDER_LIST_CONTRACT, RuleBinder, RuleItem, RuleParameter};
 pub use pattern::RulePattern;
 pub(crate) use pattern::{
-    NegativeLiteralSpans, parse_pattern_with_signs, push_term_node_anchors,
-    validate_pattern_literal,
+    NegativeLiteralSpans, allocate_term_node_keys, allocate_wildcard_keys,
+    parse_pattern_with_signs, validate_pattern_literal,
 };

@@ -1,3 +1,4 @@
+use krs_ir::ProvenanceKey;
 use proc_macro2::TokenStream;
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
@@ -6,16 +7,14 @@ use syn::{Expr, FnArg, Ident, ItemFn, Pat, PatType, ReturnType, Stmt, Type};
 use super::condition::{RuleCondition, take_requires_helper};
 use super::existentials::RuleExistentials;
 use super::pattern::{
-    NegativeLiteralSpans, PatternRoot, RulePattern, canonical_key, is_bound_path,
-    is_bound_reference, parse_rule_pattern, push_candidate, push_term_node_anchors,
-    push_term_reference_candidates, push_wildcard_anchors,
+    NegativeLiteralSpans, PatternRoot, RulePattern, allocate_term_node_keys,
+    allocate_wildcard_keys, is_bound_path, is_bound_reference, parse_rule_pattern, push_candidate,
+    push_term_reference_candidates,
 };
-use crate::parse::{
-    KrsSyntax, checked_ordinal, unsupported_rule_signature as unsupported_signature,
-};
+use crate::parse::{KeyAllocator, KrsSyntax, unsupported_rule_signature as unsupported_signature};
 use crate::state_rule::{FUNCTION_CONTEXT_ONLY_ON_EQUATIONS, FunctionContext, is_cells_parameter};
 use crate::term::{
-    is_term_macro, push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors,
+    allocate_lexeme_keys, allocate_record_field_keys, allocate_sort_test_keys, is_term_macro,
     unexpected_macro,
 };
 use crate::term_sort::{
@@ -34,6 +33,23 @@ pub struct RuleParameter {
     pub pattern: RulePattern,
     /// Rust-resolved term sort.
     pub term_sort: TermSort,
+    pattern_key: Option<ProvenanceKey>,
+    type_key: Option<ProvenanceKey>,
+}
+
+impl RuleParameter {
+    /// The key of the whole subject pattern; its nodes hold their own keys
+    /// ([`RulePattern::keys`]).
+    #[must_use]
+    pub const fn pattern_key(&self) -> Option<&ProvenanceKey> {
+        self.pattern_key.as_ref()
+    }
+
+    /// The key of the subject's type.
+    #[must_use]
+    pub const fn type_key(&self) -> Option<&ProvenanceKey> {
+        self.type_key.as_ref()
+    }
 }
 
 /// The binder-list contract shared by every fn-shaped sentence (X5), as a
@@ -47,6 +63,8 @@ pub struct RuleBinder {
     name: Ident,
     term_sort: TermSort,
     parameter: PatType,
+    parameter_key: Option<ProvenanceKey>,
+    sort_key: Option<ProvenanceKey>,
 }
 
 impl RuleBinder {
@@ -67,6 +85,18 @@ impl RuleBinder {
     pub const fn parameter(&self) -> &PatType {
         &self.parameter
     }
+
+    /// The key of the `name: Type` parameter.
+    #[must_use]
+    pub const fn parameter_key(&self) -> Option<&ProvenanceKey> {
+        self.parameter_key.as_ref()
+    }
+
+    /// The key of the declared sort path.
+    #[must_use]
+    pub const fn sort_key(&self) -> Option<&ProvenanceKey> {
+        self.sort_key.as_ref()
+    }
 }
 
 /// Validated one-clause rule function.
@@ -85,6 +115,48 @@ pub struct RuleItem {
     /// Result names a desugar clause's `unbound_variables` lists (KF-046).
     unbound: Vec<Ident>,
     function_context: Option<FunctionContext>,
+    declaration_key: Option<ProvenanceKey>,
+    result_type_key: Option<ProvenanceKey>,
+    /// The anchors of the catalog view ([`Self::provenance`]).
+    anchors: Vec<ProvenanceAnchor>,
+    /// The anchors of the full view ([`Self::full_provenance`]).
+    full_anchors: Vec<ProvenanceAnchor>,
+}
+
+/// Which sentence keys a rule item.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ItemView {
+    /// The rule is a sentence of its own.
+    Rule,
+    /// The item of a readable clause, which keys the item's nodes it anchors
+    /// in the item's order: the declaration under `declaration`, the
+    /// subject only when it is the clause's first computation item
+    /// (`subject`; otherwise it is a placeholder and the clause anchors its
+    /// whole subject record), the types and binders, the function context
+    /// and the conditions. The clause keys the islands of every term across
+    /// all its cells, and its own head result: the item's result term (and
+    /// a placeholder subject) is no node of the clause and keeps the keys of
+    /// the rule's own keying.
+    Clause {
+        declaration: ProvenanceRole,
+        subject: bool,
+    },
+}
+
+impl ItemView {
+    const fn declaration(self) -> ProvenanceRole {
+        match self {
+            Self::Rule => ProvenanceRole::RuleDeclaration,
+            Self::Clause { declaration, .. } => declaration,
+        }
+    }
+
+    const fn keys_subject(self) -> bool {
+        match self {
+            Self::Rule => true,
+            Self::Clause { subject, .. } => subject,
+        }
+    }
 }
 
 /// Which fn sentence a rule item is parsed as.
@@ -451,12 +523,14 @@ impl RuleItem {
             )?;
         }
 
-        Ok(Self {
+        Self {
             item: item.clone(),
             binders,
             parameter: RuleParameter {
                 pattern,
                 term_sort: parameter_sort,
+                pattern_key: None,
+                type_key: None,
             },
             result_sort,
             result,
@@ -465,7 +539,12 @@ impl RuleItem {
             existentials,
             unbound: Vec::new(),
             function_context,
-        })
+            declaration_key: None,
+            result_type_key: None,
+            anchors: Vec::new(),
+            full_anchors: Vec::new(),
+        }
+        .keyed()
     }
 
     /// Checks a desugar clause's `unbound_variables = [x, _]` against the
@@ -602,236 +681,302 @@ impl RuleItem {
         bindings
     }
 
-    /// Returns canonical rule node anchors and nested path anchors.
+    /// The key of the rule's name, its declaration.
+    #[must_use]
+    pub const fn declaration_key(&self) -> Option<&ProvenanceKey> {
+        self.declaration_key.as_ref()
+    }
+
+    /// The key of the result type; the result term's key is its payload key.
+    #[must_use]
+    pub const fn result_type_key(&self) -> Option<&ProvenanceKey> {
+        self.result_type_key.as_ref()
+    }
+
+    /// Keys the rule as a sentence of its own. The catalog view is a prefix
+    /// of the full view, so one pass keys both: every node holds the same key
+    /// in each view, and the catalog's anchors are those recorded before the
+    /// subject's nodes.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.clear_keys();
+        self.allocate_catalog_keys(&mut keys, ItemView::Rule)?;
+        self.anchors = keys.anchors().to_vec();
+        self.allocate_term_keys(&mut keys, ItemView::Rule)?;
+        self.full_anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// Keys the rule as the item of a readable clause, with the clause's
+    /// allocator: the declaration under `declaration` (`RuleDeclaration`, or
+    /// `ClaimDeclaration` for a claim clause), then, in the rule's own order,
+    /// every node of the item that the clause anchors (see
+    /// [`ItemView::Clause`]).
+    pub(super) fn allocate_clause_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        declaration: ProvenanceRole,
+        subject: bool,
+    ) -> Result<(), SyntaxError> {
+        let view = ItemView::Clause {
+            declaration,
+            subject,
+        };
+        self.clear_keys();
+        self.allocate_catalog_keys(keys, view)?;
+        self.allocate_term_keys(keys, view)
+    }
+
+    /// Forgets every key of the rule and the anchors of its keying, before a
+    /// sentence's pass keys it. A readable clause's pass leaves the nodes it
+    /// does not anchor without keys (the result term and a placeholder
+    /// subject), and the rule without anchors of its own: the clause's are
+    /// the anchors of its keys.
+    pub(crate) fn clear_keys(&mut self) {
+        self.anchors.clear();
+        self.full_anchors.clear();
+        self.declaration_key = None;
+        self.result_type_key = None;
+        self.parameter.type_key = None;
+        self.parameter.pattern_key = None;
+        self.parameter.pattern.clear_keys();
+        for binder in &mut self.binders {
+            binder.parameter_key = None;
+            binder.sort_key = None;
+        }
+        if let Some(result) = &mut self.result {
+            result.clear_keys();
+        }
+        if let Some(requires) = &mut self.requires {
+            requires.clear_keys();
+        }
+        self.existentials.clear_keys();
+        if let Some(context) = &mut self.function_context {
+            context.clear_keys();
+        }
+    }
+
+    /// Returns canonical rule node anchors and nested path anchors: the
+    /// catalog view of the rule's keying.
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed Rust node emits no leaves.
+    /// None: the rule was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![
-            ProvenanceAnchor::new(
-                ProvenanceRole::RuleDeclaration,
-                0,
-                TokenRange::for_tokens(&self.item.sig.ident)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::RulePattern,
-                0,
-                self.parameter.pattern.range()?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::RuleType,
-                0,
-                TokenRange::for_tokens(self.parameter.term_sort.ty())?,
-            ),
-        ];
-        if let (Some(result_sort), Some(result)) = (&self.result_sort, &self.result) {
-            anchors.push(ProvenanceAnchor::new(
+        Ok(self.anchors.clone())
+    }
+
+    /// Keys the declaration, pattern, and types, the result, each binder's
+    /// parameter and type, then the subject's and the result's paths.
+    fn allocate_catalog_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        view: ItemView,
+    ) -> Result<(), SyntaxError> {
+        self.declaration_key = Some(keys.key(
+            view.declaration(),
+            TokenRange::for_tokens(&self.item.sig.ident)?,
+        )?);
+        let parameter = &mut self.parameter;
+        if view.keys_subject() {
+            parameter.pattern_key =
+                Some(keys.key(ProvenanceRole::RulePattern, parameter.pattern.range()?)?);
+        }
+        parameter.type_key = Some(keys.key(
+            ProvenanceRole::RuleType,
+            TokenRange::for_tokens(parameter.term_sort.ty())?,
+        )?);
+        if let (Some(result_sort), Some(result)) = (&self.result_sort, &mut self.result) {
+            self.result_type_key = Some(keys.key(
                 ProvenanceRole::RuleResultType,
-                0,
                 TokenRange::for_tokens(result_sort.ty())?,
-            ));
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleResult,
-                0,
-                TokenRange::for_tokens(result.expression())?,
-            ));
+            )?);
+            if view == ItemView::Rule {
+                result.allocate_payload_key(keys, ProvenanceRole::RuleResult)?;
+            }
         }
-        for (ordinal, binder) in self.binders.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
+        for binder in &mut self.binders {
+            binder.parameter_key = Some(keys.key(
                 ProvenanceRole::RuleBindingParameter,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::RuleBindingParameter,
-                    binder.name.span(),
-                )?,
                 TokenRange::for_tokens(&binder.parameter)?,
-            ));
-            anchors.push(ProvenanceAnchor::new(
+            )?);
+            binder.sort_key = Some(keys.key(
                 ProvenanceRole::RuleBindingType,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::RuleBindingType,
-                    binder.term_sort.sort().span(),
-                )?,
                 TokenRange::for_tokens(binder.term_sort.sort())?,
-            ));
+            )?);
         }
-        for (ordinal, range) in self
-            .parameter
-            .pattern
-            .path_ranges()?
-            .into_iter()
-            .enumerate()
+        if view.keys_subject() {
+            self.parameter
+                .pattern
+                .allocate_path_keys(keys, ProvenanceRole::RuleLeftPath)?;
+        }
+        if view == ItemView::Rule
+            && let Some(result) = &mut self.result
         {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleLeftPath,
-                checked_ordinal(ordinal, ProvenanceRole::RuleLeftPath, range.first())?,
-                range,
-            ));
+            result.allocate_symbol_keys(keys, ProvenanceRole::RuleRightPath)?;
         }
-        for (ordinal, symbol) in self
-            .result
-            .iter()
-            .flat_map(TermExpression::symbols)
-            .enumerate()
-        {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleRightPath,
-                checked_ordinal(ordinal, ProvenanceRole::RuleRightPath, symbol.path().span())?,
-                TokenRange::for_tokens(symbol.path())?,
-            ));
-        }
-        Ok(anchors)
+        Ok(())
     }
 
     /// Returns the compact catalog plus typed subject/result term-node
-    /// anchors required by protocol v6.
+    /// anchors required by protocol v6: the full view of the rule's keying.
     ///
     /// # Errors
     ///
-    /// Returns endpoint or occurrence-overflow errors.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "One pass over the subject, function context, result, and conditions in provenance order."
-    )]
+    /// None: the rule was keyed when it was parsed.
     pub fn full_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = self.provenance()?;
-        push_term_node_anchors(
-            &mut anchors,
-            self.parameter.pattern.nodes(),
-            ProvenanceRole::RuleLeftApplicationHead,
-            ProvenanceRole::RuleLeftReference,
-            ProvenanceRole::RuleLeftLiteral,
-        )?;
-        push_record_field_anchors(
-            &mut anchors,
-            &self.subject_tree,
-            ProvenanceRole::RuleLeftRecordFieldName,
-        )?;
-        push_wildcard_anchors(
-            &mut anchors,
-            &self.subject_tree,
-            ProvenanceRole::RuleLeftWildcard,
-        )?;
+        Ok(self.full_anchors.clone())
+    }
+
+    /// Keys the subject's nodes, record field names and wildcards, the
+    /// function context, the result's, the conditions, then the islands of
+    /// every term in expansion order.
+    fn allocate_term_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        view: ItemView,
+    ) -> Result<(), SyntaxError> {
+        if view.keys_subject() {
+            let (nodes, term_keys) = self.parameter.pattern.keying();
+            allocate_term_node_keys(
+                keys,
+                nodes,
+                term_keys,
+                ProvenanceRole::RuleLeftApplicationHead,
+                ProvenanceRole::RuleLeftReference,
+                ProvenanceRole::RuleLeftLiteral,
+            )?;
+            allocate_record_field_keys(
+                keys,
+                &self.subject_tree,
+                term_keys,
+                ProvenanceRole::RuleLeftRecordFieldName,
+            )?;
+            allocate_wildcard_keys(
+                keys,
+                &self.subject_tree,
+                term_keys,
+                ProvenanceRole::RuleLeftWildcard,
+            )?;
+        }
         // A function context's cells continue the subject's left-hand
         // ordinals: they are expanded right after it (KF-025).
-        if let Some(context) = &self.function_context {
-            let context_anchors = context.provenance(&anchors)?;
-            anchors.extend(context_anchors);
+        if let Some(context) = &mut self.function_context {
+            context.allocate_keys(keys)?;
         }
-        let context_terms = self
-            .function_context
-            .as_ref()
-            .map(FunctionContext::terms)
-            .unwrap_or_default();
-        let result_nodes = self.result.as_ref().map_or(&[][..], TermExpression::nodes);
-        push_term_node_anchors(
-            &mut anchors,
-            result_nodes,
-            ProvenanceRole::RuleRightApplicationHead,
-            ProvenanceRole::RuleRightReference,
-            ProvenanceRole::RuleRightLiteral,
-        )?;
-        if let Some(result) = &self.result {
-            push_record_field_anchors(
-                &mut anchors,
-                result.tree(),
+        if view == ItemView::Rule
+            && let Some(result) = &mut self.result
+        {
+            let (nodes, tree, term_keys) = result.keying();
+            allocate_term_node_keys(
+                keys,
+                nodes,
+                term_keys,
+                ProvenanceRole::RuleRightApplicationHead,
+                ProvenanceRole::RuleRightReference,
+                ProvenanceRole::RuleRightLiteral,
+            )?;
+            allocate_record_field_keys(
+                keys,
+                tree,
+                term_keys,
                 ProvenanceRole::RuleRightRecordFieldName,
             )?;
-            push_wildcard_anchors(
-                &mut anchors,
-                result.tree(),
-                ProvenanceRole::RuleRightWildcard,
-            )?;
+            allocate_wildcard_keys(keys, tree, term_keys, ProvenanceRole::RuleRightWildcard)?;
         }
-        if let Some(requires) = &self.requires {
-            anchors.extend(requires.provenance()?);
+        if let Some(requires) = &mut self.requires {
+            requires.allocate_keys(keys)?;
         }
-        anchors.extend(self.existentials.provenance()?);
-        let mut lexemes = 0_usize;
-        push_lexeme_anchors(&mut anchors, self.parameter.pattern.nodes(), &mut lexemes)?;
-        for term in &context_terms {
-            push_lexeme_anchors(&mut anchors, term.nodes(), &mut lexemes)?;
+        self.existentials.allocate_keys(keys)?;
+        if view == ItemView::Rule {
+            self.allocate_island_keys(keys)?;
         }
-        push_lexeme_anchors(&mut anchors, result_nodes, &mut lexemes)?;
-        if let Some(requires) = &self.requires {
-            push_lexeme_anchors(&mut anchors, requires.term().nodes(), &mut lexemes)?;
+        Ok(())
+    }
+
+    /// The `#[k::requires]` condition, for a pass that keys it.
+    pub(super) const fn requires_mut(&mut self) -> Option<&mut RuleCondition> {
+        self.requires.as_mut()
+    }
+
+    /// The `#[k::exists]`, `#[k::fresh]` and `#[k::ensures]` helpers, for a
+    /// pass that keys them.
+    pub(super) const fn existentials_mut(&mut self) -> &mut RuleExistentials {
+        &mut self.existentials
+    }
+
+    /// Keys the islands of the subject, the function context, the result,
+    /// the condition, then the ensures condition, which is the order they
+    /// expand in.
+    fn allocate_island_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        // Each term's nodes with its keys, in expansion order; the subject,
+        // the function context, and the result come before the conditions.
+        let mut sides = vec![self.parameter.pattern.keying()];
+        if let Some(context) = &mut self.function_context {
+            sides.extend(context.terms_mut().into_iter().map(|term| {
+                let (nodes, _, term_keys) = term.keying();
+                (nodes, term_keys)
+            }));
         }
-        if let Some(ensures) = self.existentials.ensures() {
-            push_lexeme_anchors(&mut anchors, ensures.nodes(), &mut lexemes)?;
+        if let Some(result) = &mut self.result {
+            let (nodes, _, term_keys) = result.keying();
+            sides.push((nodes, term_keys));
+        }
+        let before_conditions = sides.len();
+        if let Some(requires) = &mut self.requires {
+            let (nodes, _, term_keys) = requires.term_mut().keying();
+            sides.push((nodes, term_keys));
+        }
+        if let Some(ensures) = self.existentials.ensures_mut() {
+            let (nodes, _, term_keys) = ensures.keying();
+            sides.push((nodes, term_keys));
+        }
+        for (nodes, term_keys) in &mut sides {
+            allocate_lexeme_keys(keys, nodes, term_keys)?;
         }
         // `name @ ..` and `A | B` occur in the subject, the function context,
         // and in `k::matches!` patterns; with `k::matches!` shells and pattern
         // wildcards (KF-031) they are numbered in expansion order: the
         // subject, the function context, the result, the condition, then the
         // ensures condition.
-        let mut sides = vec![self.parameter.pattern.nodes()];
-        sides.extend(context_terms.iter().map(|term| term.nodes()));
-        sides.push(result_nodes);
-        if let Some(requires) = &self.requires {
-            sides.push(requires.term().nodes());
-        }
-        if let Some(ensures) = self.existentials.ensures() {
-            sides.push(ensures.nodes());
-        }
         // Builtin `Id` and `Bytes` literals, each kind numbered in one
         // sequence in expansion order (the claim-only islands never reach a
         // rule's descriptor: expansion rejects them).
-        crate::state_rule::append_claim_node_anchors(sides.iter().copied(), &mut anchors)?;
-        let mut aliases = 0_usize;
-        for nodes in &sides {
-            crate::term::push_pattern_as_anchors(&mut anchors, nodes, &mut aliases)?;
-        }
-        let mut alternatives = 0_usize;
-        for nodes in &sides {
-            crate::term::push_pattern_or_anchors(&mut anchors, nodes, &mut alternatives)?;
-        }
-        let (mut matches, mut wildcards) = (0_usize, 0_usize);
-        for nodes in &sides {
-            crate::term::push_matches_anchors(&mut anchors, nodes, &mut matches, &mut wildcards)?;
-        }
-        let (mut lets, mut let_wildcards) = (0_usize, 0_usize);
-        for nodes in &sides {
-            crate::term::push_let_anchors(&mut anchors, nodes, &mut lets, &mut let_wildcards)?;
-        }
-        let mut closures = 0_usize;
-        for nodes in &sides {
-            crate::term::push_ml_binder_anchors(&mut anchors, nodes, &mut closures)?;
-        }
-        let mut sort_tests = 0_usize;
-        push_sort_test_anchors(
-            &mut anchors,
-            self.parameter.pattern.nodes(),
-            &mut sort_tests,
+        crate::state_rule::allocate_claim_node_keys(
+            keys,
+            sides
+                .iter_mut()
+                .map(|(nodes, term_keys)| (*nodes, &mut **term_keys)),
         )?;
-        for term in &context_terms {
-            push_sort_test_anchors(&mut anchors, term.nodes(), &mut sort_tests)?;
+        for (nodes, term_keys) in &mut sides {
+            crate::term::allocate_pattern_as_keys(keys, nodes, term_keys)?;
         }
-        push_sort_test_anchors(&mut anchors, result_nodes, &mut sort_tests)?;
+        for (nodes, term_keys) in &mut sides {
+            crate::term::allocate_pattern_or_keys(keys, nodes, term_keys)?;
+        }
+        for (nodes, term_keys) in &mut sides {
+            crate::term::allocate_matches_keys(keys, nodes, term_keys)?;
+        }
+        for (nodes, term_keys) in &mut sides {
+            crate::term::allocate_let_keys(keys, nodes, term_keys)?;
+        }
+        for (nodes, term_keys) in &mut sides {
+            crate::term::allocate_ml_binder_keys(keys, nodes, term_keys)?;
+        }
+        let (unconditioned, conditions) = sides.split_at_mut(before_conditions);
+        for (nodes, term_keys) in unconditioned.iter_mut() {
+            allocate_sort_test_keys(keys, nodes, term_keys)?;
+        }
         // `k::rewrite!` shells and sides of a single-body rule (KF-011).
-        let mut rewrites = 0_usize;
-        crate::term::push_rewrite_anchors(
-            &mut anchors,
-            self.parameter.pattern.nodes(),
-            &mut rewrites,
-        )?;
-        if let Some(requires) = &self.requires {
-            push_sort_test_anchors(&mut anchors, requires.term().nodes(), &mut sort_tests)?;
+        let (subject_nodes, subject_keys) = &mut unconditioned[0];
+        crate::term::allocate_rewrite_keys(keys, subject_nodes, subject_keys)?;
+        for (nodes, term_keys) in conditions.iter_mut() {
+            allocate_sort_test_keys(keys, nodes, term_keys)?;
         }
-        if let Some(ensures) = self.existentials.ensures() {
-            push_sort_test_anchors(&mut anchors, ensures.nodes(), &mut sort_tests)?;
+        for (nodes, term_keys) in &mut sides {
+            crate::term::allocate_application_instance_keys(keys, nodes, term_keys)?;
         }
-        let mut instances = 0_usize;
-        let instance_sides = std::iter::once(self.parameter.pattern.nodes())
-            .chain(context_terms.iter().map(|term| term.nodes()))
-            .chain(self.result.iter().map(TermExpression::nodes))
-            .chain(self.requires.iter().map(|requires| requires.term().nodes()))
-            .chain(self.existentials.ensures().map(TermExpression::nodes));
-        for nodes in instance_sides {
-            crate::term::push_application_instance_anchors(&mut anchors, nodes, &mut instances)?;
-        }
-        Ok(anchors)
+        Ok(())
     }
 
     /// Returns rustc-resolvable type and constructor references in canonical order.
@@ -845,15 +990,20 @@ impl RuleItem {
     ///
     /// Returns a structured overflow error if one path role has more than
     /// `u32::MAX` occurrences.
+    ///
+    /// # Panics
+    ///
+    /// Never: parsing keys every type, sort and path a candidate names.
     pub fn reference_candidates(&self) -> Result<Vec<ReferenceCandidate>, SyntaxError> {
+        let keyed = "a rule is keyed when it is parsed";
         let mut candidates = vec![ReferenceCandidate {
-            key: canonical_key(ProvenanceRole::RuleType, 0),
+            key: self.parameter.type_key().expect(keyed).clone(),
             path: self.parameter.term_sort.sort().clone(),
             kind: (),
         }];
         if let Some(result_sort) = &self.result_sort {
             candidates.push(ReferenceCandidate {
-                key: canonical_key(ProvenanceRole::RuleResultType, 0),
+                key: self.result_type_key().expect(keyed).clone(),
                 path: result_sort.sort().clone(),
                 kind: (),
             });
@@ -902,44 +1052,19 @@ impl RuleItem {
                 }
             }
             RulePattern::TermMacro { term, bindings, .. } => {
-                for (ordinal, symbol) in term.symbols().iter().enumerate() {
-                    if is_bound_reference(symbol, bindings) {
-                        continue;
-                    }
-                    push_candidate(
-                        &mut candidates,
-                        ProvenanceRole::RuleLeftPath,
-                        ordinal,
-                        symbol.path(),
-                    )?;
-                }
+                push_symbol_candidates(&mut candidates, term, bindings);
             }
         }
 
-        let bindings = self.result_bindings();
-        for (ordinal, symbol) in self
-            .result
-            .iter()
-            .flat_map(TermExpression::symbols)
-            .enumerate()
-        {
-            if is_bound_reference(symbol, &bindings) {
-                continue;
-            }
-            push_candidate(
-                &mut candidates,
-                ProvenanceRole::RuleRightPath,
-                ordinal,
-                symbol.path(),
-            )?;
+        if let Some(result) = &self.result {
+            push_symbol_candidates(&mut candidates, result, &self.result_bindings());
         }
-        for (ordinal, binder) in self.binders.iter().enumerate() {
-            push_candidate(
-                &mut candidates,
-                ProvenanceRole::RuleBindingType,
-                ordinal,
-                binder.term_sort.sort(),
-            )?;
+        for binder in &self.binders {
+            candidates.push(ReferenceCandidate {
+                key: binder.sort_key().expect(keyed).clone(),
+                path: binder.term_sort.sort().clone(),
+                kind: (),
+            });
         }
         Ok(candidates)
     }
@@ -961,23 +1086,46 @@ impl RuleItem {
         push_term_reference_candidates(
             &mut candidates,
             self.parameter.pattern.nodes(),
+            self.parameter.pattern.keys(),
             self.parameter.pattern.bindings(),
-            ProvenanceRole::RuleLeftApplicationHead,
-            ProvenanceRole::RuleLeftReference,
-        )?;
+        );
         let result_bindings = self.result_bindings();
-        push_term_reference_candidates(
-            &mut candidates,
-            self.result.as_ref().map_or(&[][..], TermExpression::nodes),
-            &result_bindings,
-            ProvenanceRole::RuleRightApplicationHead,
-            ProvenanceRole::RuleRightReference,
-        )?;
+        if let Some(result) = &self.result {
+            push_term_reference_candidates(
+                &mut candidates,
+                result.nodes(),
+                result.keys(),
+                &result_bindings,
+            );
+        }
         if let Some(requires) = &self.requires {
             candidates.extend(requires.reference_candidates(self.parameter.pattern.bindings())?);
         }
         candidates.extend(self.existentials.reference_candidates(&result_bindings)?);
         Ok(candidates)
+    }
+}
+
+/// Pushes a candidate for each path of `term` that is not a bare reference
+/// to one of `bindings`, keyed as the rule keyed the path.
+fn push_symbol_candidates(
+    candidates: &mut Vec<ReferenceCandidate>,
+    term: &TermExpression,
+    bindings: &[Ident],
+) {
+    for (index, symbol) in term.symbols().iter().enumerate() {
+        if is_bound_reference(symbol, bindings) {
+            continue;
+        }
+        let key = term
+            .keys()
+            .symbol(index)
+            .expect("a rule keys every path of its subject and result");
+        candidates.push(ReferenceCandidate {
+            key: key.clone(),
+            path: symbol.path().clone(),
+            kind: (),
+        });
     }
 }
 
@@ -1123,6 +1271,8 @@ fn parse_rule_binders(item: &ItemFn, trailing: usize) -> Result<Vec<RuleBinder>,
             name: pattern.ident.clone(),
             term_sort,
             parameter: argument.clone(),
+            parameter_key: None,
+            sort_key: None,
         });
     }
     Ok(binders)
@@ -1299,5 +1449,44 @@ fn parse_rule_body_context(item: &ItemFn, wildcards: bool) -> Result<TermExpress
             ))?)
         }
         expression => term(expression.clone()),
+    }
+}
+
+#[cfg(test)]
+impl RuleItem {
+    /// Records the rule's keyed nodes: those of the full view, of which the
+    /// catalog view is a prefix, or, in a readable clause, those the clause
+    /// keys (its result term and a placeholder subject hold no keys).
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        nodes.push_tokens(self.declaration_key.as_ref(), &self.item.sig.ident)?;
+        let parameter = &self.parameter;
+        // A readable clause's placeholder subject has no authored tokens and
+        // no keys.
+        if let Some(key) = &parameter.pattern_key {
+            nodes.push(Some(key), parameter.pattern.range()?);
+        }
+        parameter.pattern.keyed_nodes(nodes, &self.subject_tree)?;
+        nodes.push_tokens(parameter.type_key.as_ref(), parameter.term_sort.ty())?;
+        if let Some(result_sort) = &self.result_sort {
+            nodes.push_tokens(self.result_type_key.as_ref(), result_sort.ty())?;
+        }
+        for binder in &self.binders {
+            nodes.push_tokens(binder.parameter_key.as_ref(), &binder.parameter)?;
+            nodes.push_tokens(binder.sort_key.as_ref(), binder.term_sort.sort())?;
+        }
+        if let Some(context) = &self.function_context {
+            context.keyed_nodes(nodes)?;
+        }
+        if let Some(requires) = &self.requires {
+            requires.term().keyed_nodes(nodes)?;
+        }
+        self.existentials.keyed_nodes(nodes)?;
+        if let Some(result) = &self.result {
+            result.keyed_nodes(nodes)?;
+        }
+        Ok(())
     }
 }

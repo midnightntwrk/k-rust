@@ -42,3 +42,4 @@ lake-manifest.json
 /demos/SimpleRel/SimpleRel/Bisim.lean
 /demos/PeanoRel/PeanoRel/Bisim.lean
 /demos/CellMapRel/CellMapRel/Bisim.lean
+/demos/PickRel/PickRel/Bisim.lean

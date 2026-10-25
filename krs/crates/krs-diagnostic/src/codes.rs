@@ -370,6 +370,7 @@ register_codes! {
         INVALID_LOCAL_REWRITE: "krs::syntax::invalid-local-rewrite" => "A `k::rewrite!` (K's local `=>`) occurs outside the subject of a single-body `#[k::rule]` fn, inside another rewrite, in a map key, or with a right-side name the left image does not bind, or a single-body rule has no rewrite.",
         MISSING_TOKEN_ENDPOINT: "krs::syntax::missing-token-endpoint" [Internal] => "A token-bearing semantic node unexpectedly emitted no token leaves.",
         TOO_MANY_PROVENANCE_OCCURRENCES: "krs::syntax::too-many-provenance-occurrences" => "A single invocation contained more same-role nodes than `u32` can key.",
+        REPEATED_PROVENANCE_KEY: "krs::syntax::repeated-provenance-key" [Internal] => "A descriptor's pieces, or two nodes of one piece, held the same provenance key; the macro refuses the authored input that does this first.",
         INVALID_RULE_KEY: "krs::syntax::invalid-rule-key" => "A rule, equation, simplification, alias, or desugar attribute combines keys K does not accept together, or a desugar clause carries `recursive` or `#[k::requires]`.",
         RETIRED_ATTRIBUTE: "krs::syntax::retired-attribute" => "A retired KRS attribute was used; its replacement is named in the message.",
         INVALID_TOKEN_ATTRIBUTE: "krs::syntax::invalid-token-attribute" => "A token attribute or `k::lexeme!` term was malformed: a token attribute takes exactly one nonempty `regex` or single-terminal `terminal`, `prec` only with `regex`, and no stacked duplicate.",

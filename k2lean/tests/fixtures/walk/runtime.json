@@ -6,15 +6,15 @@
   "syntax_module": "WALK-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "279acbd0b38129e86a40b32bf468f3a40d4130250dedcfc749bd456c164fae2b"
+    "sha256": "d60e2667c85c5c9387c0c052663c9bda53a2c68179e0f8f4c8a82782fb5b710e"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "d9cf640fc71fc8cdcdd2b1648f6b8be0a44f37a44e01e2cde49432d85e0fcb60"
+    "sha256": "7d1626dad50f507e0097c083c3acd79d484967a9fc81b45185e67d4190d2ab88"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "95b5d999decdeeb90de92b6ecdce49d91aded2ac68d25a01d613cb9c6d6ee1d4"
+    "sha256": "415d15e01a835aae784549b3489dad92185d0700264a54c79df1a7a872f94cf8"
   },
   "configuration_variables": {
     "PGM": "Cmd"
@@ -147,6 +147,9 @@
     "ed0a5e322d110bd5fb840ce862fabc78266e92e59f4d54a97efa63f21fc53262",
     "8a5b37bdc99496badb91af7621db7f3781a501004a79271a9ae2ecac1cee4d80",
     "a7b121dfc87ea1a42a21626e7b82effef81942fb587a10c8308dd161ca4d9439",
+    "b255576a551ce55a663c94e6e8e8fe41a82013e8dd90114c6753df7ba9aba8fe",
+    "967facf8a9f1260abcf71c9fc21c9f91e5ef6bab35352cc424b4b3e102455c18",
+    "d512c07a0a041fbe751728d3769208b1a9fa1c44762de03fb5c9ce8037cc5fce",
     "7cdfbb2d9bc90faa21c538111bc74a448158b35f9b24a7412ccceac30fce3ab9",
     "48a3b38a4b8294615688afbd9c97b94c5ba4b4a7b4add88c4b024959cbf0214b",
     "00d428bbba5e1be4a85aba1c6d8e92413cb67f2b9e9b8fc00940b647db49b07a",

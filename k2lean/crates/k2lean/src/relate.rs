@@ -63,6 +63,10 @@ impl Side {
 
 /// Stop with a message (exit status 2): a definition or a correspondence `relate` does not support.
 /// Write `text` to `path`, creating its directory; a failure is reported, not a panic.
+/// `--split true`: the arms of `app_bwd` and `backward` become lemmas of their own (`appbwd.r`,
+/// `bwd.r`), so that no declaration holds every inversion of a large definition.
+static ARM_LEMMAS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 fn write_file(path: &str, text: &str) {
     let p = std::path::Path::new(path);
     if let Some(d) = p.parent().filter(|d| !d.as_os_str().is_empty()) {
@@ -587,6 +591,9 @@ pub fn main(args: &[String]) {
     // `--per-rule true`: when not every rule pairs, one simulation lemma per paired rule instead of
     // the bisimulation (what `k2lean refine` builds a stuttering bisimulation from)
     let per_rule = opt.get("per-rule").is_some_and(|v| v == "true");
+    if opt.get("split").is_some_and(|v| v == "true") {
+        ARM_LEMMAS.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
     if per_rule && !full {
         fail("--per-rule needs the whole correspondence (not --roots)");
     }
@@ -901,7 +908,13 @@ pub fn main(args: &[String]) {
         &refined,
     )
     .unwrap_or_else(|e| fail(&e));
-    write_file(&get("out"), &lean);
+    if opt.get("split").is_some_and(|v| v == "true") {
+        for (path, text) in split_modules(&lean, &get("out"), &ns).unwrap_or_else(|e| fail(&e)) {
+            write_file(&path, &text);
+        }
+    } else {
+        write_file(&get("out"), &lean);
+    }
     eprintln!(
         "relate: {} symbols matched ({} unmatched in {}, {} in {}); {} rule pairs, {} + {} unmatched rules",
         sm.map.len(),
@@ -1271,14 +1284,22 @@ fn emit(
             .map(|f| vec![f.clone()])
             .collect()
     };
-    if ordered_lemmas.is_some()
-        && let Some(f) = groups.iter().flatten().find(|f| a.choose_fns.contains(*f))
-    {
+    // a function with a free-key equation commutes with an order-preserving translation through
+    // `MapHook.dite_chooseFirst_pointwise` (`k2l_choose`); a recursive one, or one whose result is
+    // not builtin, gets no lemma, and the bisimulation is refused
+    if let Some(f) = groups.iter().flatten().find(|f| {
+        a.choose_fns.contains(*f)
+            && (ordered_lemmas.is_none()
+                || a.recursive.contains(&a.fns[*f].lean)
+                || !is_builtin(&a.m, &a.fns[*f].result)
+                || choose_map(&uni, &a.fns[*f].args).is_none())
+    }) {
         return Err(format!(
-            "the function {} has an equation with a free-key map pattern; its commutation with the translation is not generated",
+            "the function {} has an equation with a free-key map pattern; its commutation with the translation is generated only for a non-recursive function with a builtin result and a map argument, under a translation that keeps every constructor's position",
             names::demangle(f)
         ));
     }
+    let mut cont_emitted = false;
     for group in &groups {
         let rec_group =
             ordered_lemmas.is_some() && group.iter().any(|f| a.recursive.contains(&a.fns[f].lean));
@@ -1320,7 +1341,25 @@ fn emit(
                 .filter(|u| u.starts_with(&sig.lean))
                 .flat_map(|u| [format!("{na}.{u}"), format!("{nb}.{u}")])
                 .collect();
-            if rec_group {
+            if a.choose_fns.contains(sym) {
+                let (pw, pres) = choose_map(&uni, &sig.args).expect("checked above");
+                if !cont_emitted {
+                    writeln!(
+                        o,
+                        "/-- The continuations of a free-key equation agree at every binding: case on the bound value (`k2l_cases`: on the arity family, its sort's values only), push `tr`, and\ncompute, through a nested free-key equation too. -/\nlocal syntax \"choose_cont \" term:max term:max term:max : tactic\nmacro_rules\n  | `(tactic| choose_cont $pw $pres $phi) => `(tactic| (\n    intro k v hc hc'\n    k2l_cases v <;> (try push_ctor) <;> first\n      | rfl\n      | (split <;> first | rfl | (simp only [k2l_rel]; done))\n      | (k2l_choose $pw $pres $phi <;> first | rfl | choose_cont $pw $pres $phi)))"
+                    )
+                    .unwrap();
+                    cont_emitted = true;
+                }
+                writeln!(
+                    o,
+                    "@[k2l_rel] theorem comm_fn_{fn_count} {binders} : {nb}.{} {} = {rhs} := by\n  simp only [{}]\n  k2l_choose {pw} {pres} id\n  case h => choose_cont {pw} {pres} id\n  first | rfl | (rw [Option.map_id]; rfl)",
+                    sb.lean,
+                    vs.join(" "),
+                    unf.join(", ")
+                )
+                .unwrap();
+            } else if rec_group {
                 // a well-founded definition: unfolded once on both sides, both cascades split
                 // in step; a recursive call of `B` is rewritten by the lemma of its function
                 // (this one or one of its group), which is the induction: the lemma is defined by
@@ -2579,7 +2618,7 @@ fn emit_ordered_terms(
     o: &mut String,
     covered: &BTreeSet<String>,
     fold_names: &[String],
-) -> (Vec<String>, Vec<String>, Vec<String>) {
+) -> (Vec<String>, Vec<String>) {
     let (na, nb) = (&a.ns, &b.ns);
     let block: Vec<(String, Vec<terms::LCtor>)> = terms::block_types(&a.m)
         .into_iter()
@@ -2716,7 +2755,6 @@ fn emit_ordered_terms(
     // `tr (A.op x) = B.op (tr x)` lemmas, pushed inward on a configuration
     let mut push_ops: Vec<String> = Vec::new();
     let mut map_bwd: Vec<String> = Vec::new();
-    let mut list_bwd: Vec<String> = Vec::new();
     // the pointwise translations first: the commutation lemmas of one collection sort use those
     // of another (`keys` of a map is a set)
     for pass in [0, 1] {
@@ -3007,10 +3045,8 @@ fn emit_ordered_terms(
                             push_ops.push(format!("comm_{n}_{f}"));
                         }
                     }
-                    writeln!(*o, "theorem list_bwd_{f} {{x' : {nb}.{}}} {{t' l' : {nb}.{t}}} {{l : {na}.{t}}} (h : ListHook.concat (ListHook.element x') t' = {tr} l) :\n    ∃ x t, x' = {te} x ∧ t' = {tr} t ∧ ListHook.concat (ListHook.element x) t = l :=\n  ListHook.concat_element_pointwise_inv pw_{f} h\n", es[0]).unwrap();
+                    writeln!(*o, "theorem list_bwd_{f} {{x' : {nb}.{}}} {{t' : {nb}.{t}}} {{l : {na}.{t}}} (h : ListHook.concat (ListHook.element x') t' = {tr} l) :\n    ∃ x t, x' = {te} x ∧ t' = {tr} t ∧ ListHook.concat (ListHook.element x) t = l :=\n  ListHook.concat_element_pointwise_inv pw_{f} h\n", es[0]).unwrap();
                     writeln!(*o, "theorem list_bwd_back_{f} {{x' : {nb}.{}}} {{t' : {nb}.{t}}} {{l : {na}.{t}}} (h : ListHook.concat t' (ListHook.element x') = {tr} l) :\n    ∃ x t, x' = {te} x ∧ t' = {tr} t ∧ ListHook.concat t (ListHook.element x) = l :=\n  ListHook.concat_element_pointwise_inv_back pw_{f} h\n", es[0]).unwrap();
-                    list_bwd.push(format!("list_bwd_{f}"));
-                    list_bwd.push(format!("list_bwd_back_{f}"));
                 }
             }
             writeln!(o).unwrap();
@@ -3033,7 +3069,7 @@ fn emit_ordered_terms(
         .collect();
     writeln!(o, "set_option hygiene false in\n/-- Push `tr` into constructors, injections and collection operations, in the goal and the hypotheses. -/\nlocal macro \"push_ctor\" : tactic => `(tactic| simp only [{}] at *)\n", push.join(", ")).unwrap();
     writeln!(o, "set_option hygiene false in\n/-- `B.f (tr x…) = (A.f x…).map tr` for a recursive `f`, after unfolding both once: case the parameters generalized (so that a split keeps `x = pattern`, which the termination proof reads), split `A`'s cascade and `B`'s (inverting `tr x = pattern`, pushing `tr` in, so that both reduce), rewrite `B`'s calls by the group's lemmas (`ls`, the induction; `rw`, not under binders), in rounds, since a call on the result of another (`f (f x y) z`) is a translation only once the inner call's value is identified; then identify the values, or refute a case where one cascade falls through a pattern that the other's translated scrutinee matches. -/\nlocal macro \"comm_rec\" \"[\" ls:ident,* \"]\" : tactic => do\n  let rw ← ls.getElems.foldlM (fun acc l => `(tactic| first | rw [$l:ident] at * | $acc:tactic)) (← `(tactic| fail))\n  `(tactic| (\n  symm\n  repeat' (first | (split <;> (try k2l_inv) <;> (try push_ctor)) | (k2l_split_hyps <;> (try k2l_inv) <;> (try push_ctor)))\n  all_goals (try simp only [k2l_rel] at *)\n  all_goals (repeat ($rw:tactic))\n  all_goals (iterate 4 ((try subst_vars); (try simp only [Option.some.injEq, Option.map_some, Option.map_none, reduceCtorEq] at *)))\n  all_goals (first\n    | (simp_all [k2l_rel]; done)\n    | (exfalso; solve_by_elim; done)\n    | (iterate 2 ((try simp only [@eq_comm _ none] at *); (try simp_all only [Option.some.injEq, Option.map_some, Option.map_none, reduceCtorEq]); (repeat ($rw:tactic)); (try subst_vars))\n       first | (simp_all [k2l_rel]; done) | (exfalso; solve_by_elim; done) | (simp_all; subst_vars; simp_all [k2l_rel]))\n    | (simp_all; subst_vars; simp_all [k2l_rel]))))\n").unwrap();
-    (push_ops, map_bwd, list_bwd)
+    (push_ops, map_bwd)
 }
 
 /// The constructor of `B`'s rule applied for a step of `A`'s: its variables are the translations
@@ -3138,6 +3174,119 @@ fn emit_per_rule(
     writeln!(o, "#k2l_assert_axioms {}\n", names.join(" ")).unwrap();
 }
 
+/// `--split true`: the bisimulation module cut into modules that Lean builds in separate processes
+/// (`OUT.lean` and `OUT/Base.lean`, `AppFwd.lean`, `AppBwd.lean`, `Forward.lean`, `Backward.lean`),
+/// so that no process holds every simulation of a large definition: the translation and its
+/// lemmas, then each simulation importing what it uses (`forward` reads `app_bwd`, `backward`
+/// `app_fwd`), then the bisimulation. The proof macros move to the first module, scoped to the
+/// namespace instead of local to the file.
+fn split_modules(lean: &str, out: &str, ns: &str) -> Result<Vec<(String, String)>, String> {
+    let out_path = std::path::Path::new(out);
+    let stem = out_path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or("--split: --out names no module")?;
+    let dir = out_path.with_extension("");
+    let module = format!("{ns}.{stem}");
+    let head_end = lean
+        .find("\nopen KPrelude\n")
+        .map(|i| i + "\nopen KPrelude\n".len())
+        .ok_or("--split: no `open KPrelude` in the module")?;
+    let options: String = lean[..head_end]
+        .lines()
+        .filter(|l| l.starts_with("set_option "))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let find = |m: &str| lean.find(m).ok_or(format!("--split: no section `{m}`"));
+    let app = find("/-! ## A rule applies in")?;
+    let fwd = find("/-! ## Forward simulation")?;
+    let bwd = find("/-! ## Backward simulation")?;
+    let bis = find("/-! ## The bisimulation")?;
+    let app_bwd = app
+        + lean[app..fwd]
+            .find("\nopen ")
+            .filter(|&i| {
+                lean[app + i..].starts_with("\nopen ")
+                    && lean[app + i..fwd].contains("theorem appbwd.")
+            })
+            .or_else(|| lean[app..fwd].find("\ntheorem app_bwd"))
+            .ok_or("--split: no `app_bwd`")?
+        + 1;
+    let end = lean
+        .rfind(&format!("\nend {ns}"))
+        .ok_or("--split: no `end`")?;
+    // the macros a section opens with move to the first module
+    let mut macros = String::new();
+    let mut body = |a: usize, b: usize| -> String {
+        let t = &lean[a..b];
+        match (
+            t.find("\nset_option hygiene false in"),
+            t.find("\ntheorem "),
+        ) {
+            (Some(m), Some(th)) if m < th => {
+                macros.push_str(&t[m + 1..th + 1]);
+                format!("{}{}", &t[..m + 1], &t[th + 1..])
+            }
+            _ => t.to_string(),
+        }
+    };
+    let parts = [
+        ("AppFwd", body(app, app_bwd), vec!["Base"]),
+        ("AppBwd", body(app_bwd, fwd), vec!["Base"]),
+        ("Forward", body(fwd, bwd), vec!["AppBwd"]),
+        ("Backward", body(bwd, bis), vec!["AppFwd"]),
+    ];
+    let scoped = |t: &str| {
+        t.replace("\nlocal macro ", "\nscoped macro ")
+            .replace("\nlocal syntax ", "\nscoped syntax ")
+    };
+    let head = |imports: &[String], what: &str| {
+        let imp: String = imports.iter().map(|i| format!("import {i}\n")).collect();
+        format!(
+            "{imp}\n/-! Generated by `k2lean relate`; do not edit. Part of `{module}` (`--split true`): {what}. -/\n\n{options}\nnamespace {ns}\n\nopen KPrelude\n\n"
+        )
+    };
+    let mut files = vec![(
+        dir.join("Base.lean").display().to_string(),
+        scoped(&format!("{}{}\n{macros}\nend {ns}\n", &lean[..app], "")),
+    )];
+    for (name, text, deps) in &parts {
+        let imports: Vec<String> = deps.iter().map(|d| format!("{module}.{d}")).collect();
+        files.push((
+            dir.join(format!("{name}.lean")).display().to_string(),
+            scoped(&format!(
+                "{}{text}\nend {ns}\n",
+                head(&imports, &format!("the simulation `{}`", name))
+            )),
+        ));
+    }
+    let main_imports = vec![format!("{module}.Forward"), format!("{module}.Backward")];
+    files.push((
+        out.to_string(),
+        scoped(&format!(
+            "{}{}",
+            head(&main_imports, "the bisimulation from the simulations"),
+            &lean[bis..]
+        )),
+    ));
+    let _ = end;
+    Ok(files)
+}
+
+/// The map argument of a function with a free-key equation, as the names of its pointwise lemma
+/// and of the order-preservation lemma of its keys (`pw_S`, `pres_K`).
+fn choose_map(uni: &[(String, String, TyKind)], args: &[String]) -> Option<(String, String)> {
+    args.iter().find_map(|s| {
+        uni.iter().find_map(|(t, _, k)| match k {
+            TyKind::Coll(Coll::Map, es) if t == s => Some((
+                format!("pw_{}", terms::fsuffix(t)),
+                format!("pres_{}", terms::fsuffix(&es[0])),
+            )),
+            _ => None,
+        })
+    })
+}
+
 /// The folding lemmas of the injections that both libraries have, on the covered sorts.
 fn inj_fold_names(a: &Side, b: &Side, covered: &BTreeSet<String>) -> Vec<String> {
     let pairs_b: BTreeSet<(String, String)> = terms::inj_pairs(&b.m).into_iter().collect();
@@ -3177,7 +3326,7 @@ fn emit_ordered(
     refined: &BTreeMap<usize, Vec<String>>,
     fold_names: &[String],
     pure_fns: &[String],
-    (push_ops, map_bwd, list_bwd): (Vec<String>, Vec<String>, Vec<String>),
+    (push_ops, map_bwd): (Vec<String>, Vec<String>),
     per_rule: bool,
 ) -> Result<String, String> {
     let (na, nb) = (&a.ns, &b.ns);
@@ -3213,7 +3362,7 @@ fn emit_ordered(
     )
     .unwrap();
     writeln!(o, "local macro \"hyp_fwd\" : tactic => `(tactic| first\n  | assumption\n  | rfl\n  | (simp only [k2l_rel, *]; done)\n  | (simp only [k2l_rel] <;> assumption)\n  | (simp only [k2l_rel, *] <;> rfl)\n  | (simp only [k2l_rel] at * <;> simp_all <;> done))\n").unwrap();
-    writeln!(o, "local macro \"hyp_bwd\" : tactic => `(tactic| first\n  | assumption\n  | rfl\n  | (simp only [k2l_rel] at * <;> assumption)\n  | (simp only [k2l_rel] at * <;> simp_all <;> done))\n").unwrap();
+    writeln!(o, "local macro \"hyp_bwd\" : tactic => `(tactic| first\n  | assumption\n  | rfl\n  | (simp only [k2l_rel] at * <;> assumption)\n  | (simp only [k2l_rel] at * <;> simp_all <;> done)\n  | k2l_assumption)\n").unwrap();
     let alts = |names: &[String], pat: &str| -> String {
         if names.is_empty() {
             return "fail".to_string();
@@ -3225,7 +3374,6 @@ fn emit_ordered(
             .join(" | ")
     };
     writeln!(o, "set_option hygiene false in\n/-- A map pattern of `{nb}` on a translated map is the translation of a match: its key, value and rest are translations. -/\nlocal macro \"map_bwd\" h:ident : tactic => `(tactic| first | {})\n", alts(&map_bwd, "⟨_, _, _, _, _, _, _⟩")).unwrap();
-    writeln!(o, "set_option hygiene false in\n/-- A list pattern of `{nb}` on a translated list. -/\nlocal macro \"list_bwd\" h:ident : tactic => `(tactic| first | {})\n", alts(&list_bwd, "⟨_, _, _, _, _⟩")).unwrap();
     writeln!(o, "set_option hygiene false in\n/-- A partial operation of `{nb}` defined on translations is the translation of `{na}`'s. -/\nlocal macro \"bind_bwd\" h:ident : tactic => `(tactic| first | (simp only [k2l_rel, Option.map_eq_some_iff] at $h:ident; obtain ⟨_, _, rfl⟩ := $h:ident) | skip)\n").unwrap();
     let (jb, ja) = if a.ranked {
         ("{j : Nat} ", " j")
@@ -3233,16 +3381,12 @@ fn emit_ordered(
         ("", "")
     };
     let is_map_hyp = |hp: &str| hp.starts_with("KPrelude.MapHook.concat (KPrelude.MapHook.element");
-    let is_list_hyp =
-        |hp: &str| hp.starts_with("KPrelude.ListHook.concat") && !hp.contains("= some");
     let back_of: BTreeMap<usize, usize> = pairs.iter().map(|(i, j)| (*j, *i)).collect();
     let bwd_hyps = |o: &mut String, rb: &Rule, rel: &crate::render::Rel| {
         let lhs: BTreeSet<&String> = rb.app.hyps.iter().map(|(h, _)| h).collect();
         for (hn, hp) in &rel.hyps {
             if lhs.contains(hn) && is_map_hyp(hp) {
                 writeln!(o, "    all_goals map_bwd {hn}\n    all_goals k2l_inv").unwrap();
-            } else if lhs.contains(hn) && is_list_hyp(hp) {
-                writeln!(o, "    all_goals list_bwd {hn}\n    all_goals k2l_inv").unwrap();
             } else if hp.contains("= some") {
                 writeln!(o, "    all_goals bind_bwd {hn}").unwrap();
             }
@@ -3274,24 +3418,76 @@ fn emit_ordered(
         .unwrap();
     }
     writeln!(o).unwrap();
-    writeln!(o, "theorem app_bwd {jb}{{c : {na}.{top}}} (hi : Inv c) (h : {nb}.App{ja} ({trt} c)) : {na}.App{ja} c := by\n  generalize hd : {trt} c = d0 at h\n  cases h with").unwrap();
+    let arm_lemmas = ARM_LEMMAS.load(std::sync::atomic::Ordering::Relaxed);
+    // the statement of a per-rule lemma: `B`'s binders and hypotheses, read in `B`'s namespace
+    let arm_binders = |rel: &crate::render::Rel, hpri: Option<String>| -> String {
+        let mut bs: String = rel
+            .binders
+            .iter()
+            .map(|(x, t)| format!(" ({x} : {t})"))
+            .collect();
+        for (h, p) in &rel.hyps {
+            write!(bs, "\n    ({h} : {p})").unwrap();
+        }
+        if let Some(hp) = hpri {
+            write!(bs, "\n    (hpri : {hp})").unwrap();
+        }
+        bs
+    };
+    let mut app_arms = String::new();
     for (j, rb) in b.rules.iter().enumerate() {
+        let Some(i) = back_of.get(&j) else {
+            writeln!(
+                app_arms,
+                "  | {} {} =>\n    k2l_inv",
+                rb.lean,
+                rules::ctor_args(&rb.app).join(" ")
+            )
+            .unwrap();
+            continue;
+        };
+        let mut body = String::from("    k2l_inv\n");
+        bwd_hyps(&mut body, rb, &rb.app);
         writeln!(
-            o,
-            "  | {} {} =>\n    k2l_inv",
-            rb.lean,
-            rules::ctor_args(&rb.app).join(" ")
-        )
-        .unwrap();
-        let Some(i) = back_of.get(&j) else { continue };
-        bwd_hyps(&mut o, rb, &rb.app);
-        writeln!(
-            o,
+            body,
             "    all_goals (apply {na}.App.{} <;> hyp_bwd)",
             a.rules[*i].lean
         )
         .unwrap();
+        if arm_lemmas {
+            let app = if b.ranked {
+                format!("{na}.App {}", b.rank(rb))
+            } else {
+                format!("{na}.App")
+            };
+            writeln!(
+                o,
+                "open {nb} in\ntheorem appbwd.{} {{c : {na}.{top}}} (hi : Inv c){}\n    (hd : {trt} c = {}) : {app} c := by\n{body}",
+                rb.lean,
+                arm_binders(&rb.app, None),
+                rb.app.index.render_arg()
+            )
+            .unwrap();
+            let args = rules::ctor_args(&rb.app).join(" ");
+            writeln!(
+                app_arms,
+                "  | {} {args} =>\n    exact appbwd.{} hi {args} hd",
+                rb.lean, rb.lean
+            )
+            .unwrap();
+        } else {
+            writeln!(
+                app_arms,
+                "  | {} {} =>\n{body}",
+                rb.lean,
+                rules::ctor_args(&rb.app).join(" ")
+            )
+            .unwrap();
+        }
     }
+    writeln!(o, "theorem app_bwd {jb}{{c : {na}.{top}}} (hi : Inv c) (h : {nb}.App{ja} ({trt} c)) : {na}.App{ja} c := by\n  generalize hd : {trt} c = d0 at h\n  cases h with").unwrap();
+    o.push_str(app_arms.trim_end_matches('\n'));
+    o.push('\n');
     writeln!(o).unwrap();
     // forward, backward
     writeln!(
@@ -3299,8 +3495,8 @@ fn emit_ordered(
         "/-! ## Forward simulation: every step of `{na}` is a step of `{nb}` -/\n"
     )
     .unwrap();
-    writeln!(o, "set_option hygiene false in\n/-- The priority hypothesis of a step of `{nb}` from that of `{na}`. -/\nlocal macro \"hpri_fwd\" : tactic => `(tactic| (intro j hj hb; exact hpri j hj (app_bwd trivial (by simpa only [k2l_rel] using hb))))\n").unwrap();
-    writeln!(o, "set_option hygiene false in\n/-- The priority hypothesis of a step of `{na}` from that of `{nb}`. -/\nlocal macro \"hpri_bwd\" : tactic => `(tactic| (intro j hj ha; exact hpri j hj (by simpa only [{push}] using app_fwd trivial ha)))\n").unwrap();
+    writeln!(o, "set_option hygiene false in\n/-- The priority hypothesis of a step of `{nb}` from that of `{na}`. -/\nlocal macro \"hpri_fwd\" : tactic => `(tactic| first\n  | (intro j hj hb; exact hpri j hj (app_bwd trivial hb))\n  | (intro j hj hb; exact hpri j hj (app_bwd trivial (by simpa only [k2l_rel] using hb))))\n").unwrap();
+    writeln!(o, "set_option hygiene false in\n/-- The priority hypothesis of a step of `{na}` from that of `{nb}`: directly while it reads the translation\nof the configuration, else after folding it back into one. -/\nlocal macro \"hpri_bwd\" : tactic => `(tactic| first\n  | (intro j hj ha; exact hpri j hj (app_fwd trivial ha))\n  | (intro j hj ha; exact hpri j hj (by simpa only [{push}] using app_fwd trivial ha)))\n").unwrap();
     let hpri_arg = |side: &Side, r: &Rule| {
         if side.ranked && side.rank(r) > 0 {
             " hpri"
@@ -3329,23 +3525,46 @@ fn emit_ordered(
     }
     writeln!(o).unwrap();
     writeln!(o, "/-! ## Backward simulation: every step of `{nb}` from a translation is the translation of a step of `{na}` -/\n").unwrap();
-    writeln!(o, "theorem backward {{c : {na}.{top}}} {{d : {nb}.{top}}} (hi : Inv c) (h : {nb}.Step ({trt} c) d) :\n    ∃ c', {na}.Step c c' ∧ d = {trt} c' := by\n  generalize hd : {trt} c = d0 at h\n  cases h with").unwrap();
+    let mut bwd_arms = String::new();
     for (j, rb) in b.rules.iter().enumerate() {
-        writeln!(
-            o,
-            "  | {} {}{} =>\n    k2l_inv",
-            rb.lean,
+        let args = format!(
+            "{}{}",
             rules::ctor_args(&rb.step).join(" "),
             hpri_arg(b, rb)
-        )
-        .unwrap();
+        );
         let Some(i) = back_of.get(&j) else {
             assert!(unmatched_b.contains(&j));
+            writeln!(bwd_arms, "  | {} {args} =>\n    k2l_inv", rb.lean).unwrap();
             continue;
         };
-        bwd_hyps(&mut o, rb, &rb.step);
-        writeln!(o, "    all_goals exact ⟨_, by apply {na}.Step.{} <;> first | hpri_bwd | hyp_bwd, by fin_bwd⟩", a.rules[*i].lean).unwrap();
+        let mut body = String::from("    k2l_inv\n");
+        bwd_hyps(&mut body, rb, &rb.step);
+        writeln!(body, "    all_goals exact ⟨_, by apply {na}.Step.{} <;> first | hpri_bwd | hyp_bwd, by fin_bwd⟩", a.rules[*i].lean).unwrap();
+        if arm_lemmas {
+            let lhs = rb.step.index.render_arg();
+            let hpri = (b.ranked && b.rank(rb) > 0)
+                .then(|| format!("∀ j, j < {} → ¬ App j {lhs}", b.rank(rb)));
+            writeln!(
+                o,
+                "open {nb} in\ntheorem bwd.{} {{c : {na}.{top}}} (hi : Inv c){}\n    (hd : {trt} c = {lhs}) :\n    ∃ c', {na}.Step c c' ∧ {} = {trt} c' := by\n{body}",
+                rb.lean,
+                arm_binders(&rb.step, hpri),
+                rb.rhs.subst(&rb.step.subst).render_arg()
+            )
+            .unwrap();
+            writeln!(
+                bwd_arms,
+                "  | {} {args} =>\n    exact bwd.{} hi {args} hd",
+                rb.lean, rb.lean
+            )
+            .unwrap();
+        } else {
+            writeln!(bwd_arms, "  | {} {args} =>\n{body}", rb.lean).unwrap();
+        }
     }
+    writeln!(o, "theorem backward {{c : {na}.{top}}} {{d : {nb}.{top}}} (hi : Inv c) (h : {nb}.Step ({trt} c) d) :\n    ∃ c', {na}.Step c c' ∧ d = {trt} c' := by\n  generalize hd : {trt} c = d0 at h\n  cases h with").unwrap();
+    o.push_str(bwd_arms.trim_end_matches('\n'));
+    o.push('\n');
     writeln!(o).unwrap();
     // the bisimulation and its corollaries: the statements of the other regime
     writeln!(o, "/-! ## The bisimulation -/\n").unwrap();

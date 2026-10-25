@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The relational area: `relate` (ImpRel, ImpMut with the mutant library kmut, the fixture
-# self-relations PeanoRel and CellMapRel, SimpleRel outside the gate) and `refine` (ImpUnroll, with
+# self-relations PeanoRel, CellMapRel and PickRel, SimpleRel outside the gate) and `refine` (ImpUnroll, with
 # the library kunroll). Registry: relational.py.
 
 kore_relational() {
@@ -24,6 +24,7 @@ name_relational() {
   case $1 in
     kmut|kmut-ps) echo KMut ;; kunroll) echo KUnroll ;; simplev) echo KSimpleV ;;
     peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;;
+    pick) echo Pick ;; pickb) echo PickB ;;
     *) return 1 ;;
   esac
 }
@@ -42,9 +43,9 @@ gen_relational() {
     simplev) GEN_ARGS=(--kore "$(kore_dir simple-variant)/definition.kore" --runtime "$(kore_dir simple-variant)/runtime.json"
             --out "$o" --name KSimpleV --prelude ../../lean/prelude --linear-terms
             --open-obligations "$o/open-obligations.txt") ;;
-    # the generator's fixtures peano and cellmap, each generated twice under two namespaces: the two
-    # sides of the self-relations demos/PeanoRel and demos/CellMapRel
-    peano|peanob|cellmap|cellmapb) libs_fixture_args "$1" ;;
+    # the generator's fixtures peano, cellmap and pick, each generated twice under two namespaces:
+    # the two sides of the self-relations demos/PeanoRel, demos/CellMapRel and demos/PickRel
+    peano|peanob|cellmap|cellmapb|pick|pickb) libs_fixture_args "$1" ;;
     *) return 1 ;;
   esac
   return 0
@@ -52,15 +53,17 @@ gen_relational() {
 
 # ImpRel: `Bisim.lean`, kimp to KRS IMP; ImpMut: `Tr.lean`, kimp to its mutant; ImpUnroll: the
 # per-rule lemmas that `refine` reads; SimpleRel: `Bisim.lean`, SIMPLE to its variant; PeanoRel,
-# CellMapRel: `Bisim.lean`, a fixture to itself (libraries peano and peanob, cellmap and cellmapb)
+# CellMapRel, PickRel: `Bisim.lean`, a fixture to itself (libraries peano and peanob, cellmap and
+# cellmapb, pick and pickb)
 relate_relational() {
   case $1 in
     ImpRel) nb=KrsImp kd=$KRS f=Bisim extra=(--per-sort-terms true) ;;
     ImpMut) nb=KMut kd=$(kore_dir kmut) extra=(--per-sort-terms true) ;;
     ImpUnroll) nb=KUnroll kd=$(kore_dir kimp-unroll) extra=(--per-rule true --per-sort-terms true) ;;
-    SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim ;;
+    SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim extra=(--split true) ;;
     PeanoRel) na=Peano ka=$(libs_fixture peano) nb=PeanoB kd=$ka f=Bisim ;;
     CellMapRel) na=CellMap ka=$(libs_fixture cellmap) nb=CellMapB kd=$ka f=Bisim ;;
+    PickRel) na=Pick ka=$(libs_fixture pick) nb=PickB kd=$ka f=Bisim ;;
     *) return 1 ;;
   esac
 }
@@ -87,9 +90,10 @@ gate_relational() {
   phase "demos relational"
   runs demo ImpRel && { rel ImpRel; dbuild ImpRel; }
   runs demo ImpMut && kc kmut && { rel ImpMut; dbuild ImpMut; }
-  # two fixtures related to themselves: PeanoRel (an `owise` priority, recursive and mutual
-  # functions) and CellMapRel (a free-key rule over a typed cell map); each side generated under
-  # its own namespace and built only as far as the relation needs (Rules)
+  # three fixtures related to themselves: PeanoRel (an `owise` priority, recursive and mutual
+  # functions), CellMapRel (a free-key rule over a typed cell map) and PickRel (functions with
+  # free-key map patterns); each side generated under its own namespace and built only as far as
+  # the relation needs (Rules)
   local d
   if runs demo PeanoRel; then
     for d in peano peanob; do partlib "$d" "$(libs_name "$d").Rules"; done
@@ -98,6 +102,10 @@ gate_relational() {
   if runs demo CellMapRel; then
     for d in cellmap cellmapb; do partlib "$d" "$(libs_name "$d").Rules"; done
     rel CellMapRel; dbuild CellMapRel
+  fi
+  if runs demo PickRel; then
+    for d in pick pickb; do partlib "$d" "$(libs_name "$d").Rules"; done
+    rel PickRel; dbuild PickRel
   fi
   # a stuttering bisimulation (docs/design.md, section 3.5): kimp against tests/kimp-unroll.py's
   # variant, library kunroll built only as far as the demo needs

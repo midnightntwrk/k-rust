@@ -28,7 +28,7 @@ use super::item::RuleItem;
 use super::pattern::NegativeLiteralSpans;
 use crate::parse::{KrsSyntax, ParseError, structured};
 use crate::surface::{AttributeMacro, helper_entry};
-use crate::{EquationAttribute, ProvenanceAnchor, SyntaxError, SyntaxErrorKind, TokenRange};
+use crate::{EquationAttribute, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// K's default rule priority, which an equation without `owise` or
 /// `priority = N` has.
@@ -98,15 +98,16 @@ impl EquationRow {
         self.arity
     }
 
-    /// The row's anchors: the equation's and its `#[k::equation]` keys'.
+    /// The row's descriptor: its equation's, keyed as an `#[k::equation]`
+    /// fn's is, then its `#[k::equation]` keys, each keyed when the row was
+    /// parsed.
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed node emits no tokens.
-    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = self.rule.full_provenance()?;
-        anchors.extend(self.equation.provenance()?);
-        Ok(anchors)
+    /// Returns an endpoint error only if the label emits no token leaves,
+    /// and a repeated-key error if the two pieces hold one key.
+    pub fn descriptor(&self) -> Result<crate::RuleDescriptor, SyntaxError> {
+        crate::RuleDescriptor::new(&self.rule, crate::RuleSentence::Equation(&self.equation))
     }
 }
 
@@ -634,6 +635,19 @@ fn table_error(reason: &str, span: Span) -> SyntaxError {
         },
         span,
     )
+}
+
+#[cfg(test)]
+impl EquationRow {
+    /// Records the row's keyed nodes: its equation's, then its
+    /// `#[k::equation]` keys'.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        self.rule.keyed_nodes(nodes)?;
+        self.equation.keyed_nodes(nodes)
+    }
 }
 
 #[cfg(test)]

@@ -82,7 +82,16 @@ fn imp_expression_table_reuses_the_structured_rule_grammar() {
         1
     );
 
-    let anchors = block.clauses()[0].rule().full_provenance().unwrap();
+    // The clause keys its item's nodes; the item holds no anchors of its
+    // own.
+    assert!(
+        block.clauses()[0]
+            .rule()
+            .full_provenance()
+            .unwrap()
+            .is_empty()
+    );
+    let anchors = block.clauses()[0].provenance().unwrap();
     assert!(
         anchors
             .iter()
@@ -725,7 +734,7 @@ fn readable_patterns_and_results_accept_negative_int_literals() {
     .unwrap();
     let pattern = &block.clauses()[0].rule().parameter().pattern;
     assert_eq!(pattern.bindings(), ["lhs"]);
-    let anchors = block.clauses()[1].rule().full_provenance().unwrap();
+    let anchors = block.clauses()[1].provenance().unwrap();
     let literal = |role| {
         anchors
             .iter()

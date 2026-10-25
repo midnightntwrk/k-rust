@@ -12,7 +12,9 @@ use crate::attribute::{
 };
 use crate::grammar::{GroupAssociativity, StrictnessAttribute, StrictnessKind};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
-use crate::parse::{KrsSyntax, checked_ordinal, first_non_doc_attribute};
+use krs_ir::ProvenanceKey;
+
+use crate::parse::{KeyAllocator, KrsSyntax, first_non_doc_attribute};
 use crate::term_sort::{parse_typed_readable_sort, parse_typed_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
@@ -24,6 +26,8 @@ pub struct EnumPrecedenceGroup {
     associativity: Option<GroupAssociativity>,
     name: Option<Ident>,
     variants: Vec<Ident>,
+    precedence_key: Option<ProvenanceKey>,
+    associativity_keys: Vec<ProvenanceKey>,
 }
 
 impl EnumPrecedenceGroup {
@@ -60,6 +64,20 @@ impl EnumPrecedenceGroup {
         )
     }
 
+    /// The key of the tier's reference in its family's precedence
+    /// descriptor; `None` outside a chain.
+    #[must_use]
+    pub const fn precedence_key(&self) -> Option<&ProvenanceKey> {
+        self.precedence_key.as_ref()
+    }
+
+    /// The keys of the tier in its family's associativity descriptor: its
+    /// sentence, then its reference; empty for a bare tier.
+    #[must_use]
+    pub fn associativity_keys(&self) -> &[ProvenanceKey] {
+        &self.associativity_keys
+    }
+
     /// Returns the complete tier's exact authored range.
     #[must_use]
     pub const fn range(&self) -> TokenRange {
@@ -83,6 +101,15 @@ pub struct EnumConstructorVariant {
     explicit_symbol: Option<SymbolAttribute>,
     /// The enum's `#[k::cons_list]` marker, on its cons variant (F6).
     cons_list_range: Option<TokenRange>,
+    sort_key: Option<ProvenanceKey>,
+    key: Option<ProvenanceKey>,
+    group_key: Option<ProvenanceKey>,
+    cons_list_key: Option<ProvenanceKey>,
+    static_key: Option<ProvenanceKey>,
+    /// The anchors of the variant's production descriptor.
+    anchors: Vec<ProvenanceAnchor>,
+    /// The anchors of the variant's field-sort argument view.
+    argument_anchors: Vec<ProvenanceAnchor>,
 }
 
 impl EnumConstructorVariant {
@@ -91,14 +118,110 @@ impl EnumConstructorVariant {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed node emits no leaves.
+    /// None: the variant was keyed when it was parsed.
     pub fn argument_provenance(&self) -> Result<Vec<crate::ProvenanceAnchor>, SyntaxError> {
-        crate::SortArgument::anchors(
-            self.fields
-                .iter()
-                .map(|field| field.term_sort().arguments()),
-            crate::ProvenanceRole::ConstructorFieldSortArgument,
-        )
+        Ok(self.argument_anchors.clone())
+    }
+
+    /// The key of the constructed sort, the first of its role in the
+    /// variant's descriptor.
+    #[must_use]
+    pub const fn sort_key(&self) -> Option<&ProvenanceKey> {
+        self.sort_key.as_ref()
+    }
+
+    /// The key of the variant name, the production's declaration.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// The key of the variant's membership in a precedence tier.
+    #[must_use]
+    pub const fn group_key(&self) -> Option<&ProvenanceKey> {
+        self.group_key.as_ref()
+    }
+
+    /// The key of the enum's `#[k::cons_list]` marker, on its cons variant.
+    #[must_use]
+    pub const fn cons_list_key(&self) -> Option<&ProvenanceKey> {
+        self.cons_list_key.as_ref()
+    }
+
+    /// The key of the `#[k::alias]` or `#[k::desugar]` marker.
+    #[must_use]
+    pub const fn static_key(&self) -> Option<&ProvenanceKey> {
+        self.static_key.as_ref()
+    }
+
+    /// Keys the variant's two descriptors, each a sentence of its own. The
+    /// production keys the constructed sort, the syntax attribute, the
+    /// variant, each field's sort, each field's name, each rustdoc line, the
+    /// tier membership, the cons-list marker, the strictness, the static
+    /// marker and its payload, and the symbol override; the argument view
+    /// keys each element type of the field sorts.
+    fn rekey(&mut self) -> Result<(), SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.sort_key = Some(keys.key(
+            ProvenanceRole::ConstructorSort,
+            TokenRange::for_tokens(&self.constructor_sort)?,
+        )?);
+        if let Some(syntax) = &mut self.syntax {
+            syntax.allocate_keys(&mut keys)?;
+        }
+        self.key = Some(keys.key(
+            ProvenanceRole::ConstructorDeclaration,
+            TokenRange::for_tokens(&self.variant.ident)?,
+        )?);
+        for field in &mut self.fields {
+            field.sort_key = Some(keys.key(
+                ProvenanceRole::ConstructorFieldSort,
+                TokenRange::for_tokens(field.term_sort().sort())?,
+            )?);
+        }
+        for field in &mut self.fields {
+            field.name_key = Some(keys.key(
+                ProvenanceRole::ConstructorFieldDeclaration,
+                TokenRange::for_tokens(field.name())?,
+            )?);
+        }
+        for documentation in &mut self.documentation {
+            documentation.key = Some(keys.key(
+                ProvenanceRole::ConstructorDocumentation,
+                TokenRange::for_tokens(documentation.literal())?,
+            )?);
+        }
+        self.group_key = self
+            .precedence_member_range
+            .map(|range| keys.key(ProvenanceRole::ConstructorGroup, range))
+            .transpose()?;
+        self.cons_list_key = self
+            .cons_list_range
+            .map(|range| keys.key(ProvenanceRole::ConsListDeclaration, range))
+            .transpose()?;
+        if let Some(strictness) = &mut self.strictness {
+            strictness.allocate_keys(&mut keys)?;
+        }
+        self.static_key = None;
+        if let Some(marker) = &mut self.static_marker {
+            self.static_key =
+                Some(keys.key(marker.attribute.mode().production_role(), marker.range)?);
+            marker.attribute.allocate_keys(&mut keys)?;
+        }
+        if let Some(symbol) = &mut self.explicit_symbol {
+            symbol.allocate_keys(&mut keys)?;
+        }
+        self.anchors = keys.into_anchors();
+        let mut keys = KeyAllocator::default();
+        for field in &mut self.fields {
+            crate::SortArgument::allocate_keys(
+                field.term_sort.arguments_mut(),
+                &mut keys,
+                ProvenanceRole::ConstructorFieldSortArgument,
+            )?;
+        }
+        self.argument_anchors = keys.into_anchors();
+        Ok(())
     }
 
     /// Returns the variant's `#[k::symbol("path::Name")]` override: a pinned
@@ -190,81 +313,9 @@ impl EnumConstructorVariant {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed token-bearing node emits no
-    /// leaves, or if an invocation exceeds the `u32` occurrence catalog.
+    /// None: the variant was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![ProvenanceAnchor::new(
-            ProvenanceRole::ConstructorSort,
-            0,
-            TokenRange::for_tokens(&self.constructor_sort)?,
-        )];
-        if let Some(syntax) = &self.syntax {
-            anchors.extend(syntax.provenance()?);
-        }
-        anchors.push(ProvenanceAnchor::new(
-            ProvenanceRole::ConstructorDeclaration,
-            0,
-            TokenRange::for_tokens(&self.variant.ident)?,
-        ));
-        for (ordinal, field) in self.fields.iter().enumerate() {
-            let range = TokenRange::for_tokens(field.term_sort().sort())?;
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorFieldSort,
-                checked_ordinal(ordinal, ProvenanceRole::ConstructorFieldSort, range.first())?,
-                range,
-            ));
-        }
-        for (ordinal, field) in self.fields.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorFieldDeclaration,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::ConstructorFieldDeclaration,
-                    field.name().span(),
-                )?,
-                TokenRange::for_tokens(field.name())?,
-            ));
-        }
-        for (ordinal, documentation) in self.documentation.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorDocumentation,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::ConstructorDocumentation,
-                    documentation.literal().span(),
-                )?,
-                TokenRange::for_tokens(documentation.literal())?,
-            ));
-        }
-        if let Some(range) = self.precedence_member_range {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorGroup,
-                0,
-                range,
-            ));
-        }
-        if let Some(range) = self.cons_list_range {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConsListDeclaration,
-                0,
-                range,
-            ));
-        }
-        if let Some(strictness) = &self.strictness {
-            anchors.extend(strictness.provenance()?);
-        }
-        if let Some(marker) = &self.static_marker {
-            anchors.push(ProvenanceAnchor::new(
-                marker.attribute.mode().production_role(),
-                0,
-                marker.range,
-            ));
-            anchors.extend(marker.attribute.provenance());
-        }
-        if let Some(symbol) = &self.explicit_symbol {
-            anchors.extend(symbol.provenance()?);
-        }
-        Ok(anchors)
+        Ok(self.anchors.clone())
     }
 }
 
@@ -294,6 +345,16 @@ impl EnumPrecedenceGroups {
             .chain(chain.into_iter().flat_map(AtLeastTwo::iter))
     }
 
+    fn into_vec(self) -> Vec<EnumPrecedenceGroup> {
+        match self {
+            Self::Single(group) => vec![*group],
+            Self::Chain(groups) => {
+                let (first, rest) = groups.into_head_tail();
+                std::iter::once(first).chain(rest).collect()
+            }
+        }
+    }
+
     fn from_vec(groups: Vec<EnumPrecedenceGroup>) -> Option<Self> {
         let mut groups = groups.into_iter();
         let first = groups.next()?;
@@ -318,6 +379,14 @@ pub struct EnumConstructorDeclaration {
     /// The indices of the cons and the empty variant of a `#[k::cons_list]`
     /// enum (F6).
     cons_list: Option<(usize, usize)>,
+    precedence_declaration_key: Option<ProvenanceKey>,
+    precedence_chain_key: Option<ProvenanceKey>,
+    associativity_declaration_key: Option<ProvenanceKey>,
+    /// The anchors of the family's precedence descriptor, when it has one.
+    precedence_anchors: Option<Vec<ProvenanceAnchor>>,
+    /// The anchors of the family's associativity descriptor, when it has
+    /// one.
+    associativity_anchors: Option<Vec<ProvenanceAnchor>>,
 }
 
 impl EnumConstructorDeclaration {
@@ -481,6 +550,13 @@ impl EnumConstructorDeclaration {
                 precedence_member_range: None,
                 explicit_symbol: helpers.symbol,
                 cons_list_range: None,
+                sort_key: None,
+                key: None,
+                group_key: None,
+                cons_list_key: None,
+                static_key: None,
+                anchors: Vec::new(),
+                argument_anchors: Vec::new(),
             });
         }
         if variants.is_empty() {
@@ -523,7 +599,7 @@ impl EnumConstructorDeclaration {
             None => None,
         };
 
-        Ok(Self {
+        Self {
             item,
             sort: attribute.sort().clone(),
             variants,
@@ -532,7 +608,86 @@ impl EnumConstructorDeclaration {
             precedence_declaration_range,
             precedence_chain_range,
             cons_list,
-        })
+            precedence_declaration_key: None,
+            precedence_chain_key: None,
+            associativity_declaration_key: None,
+            precedence_anchors: None,
+            associativity_anchors: None,
+        }
+        .keyed()
+    }
+
+    /// Keys the family's descriptors, each a sentence of its own: every
+    /// variant's production and argument views, then the precedence chain
+    /// (its declaration, the chain, each tier's reference) and the
+    /// associativity sentences (the declaration, then each associative
+    /// tier's sentence and reference).
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        for variant in &mut self.variants {
+            variant.rekey()?;
+        }
+        let Some(declaration) = self.precedence_declaration_range else {
+            return Ok(self);
+        };
+        let Some(groups) = self.precedence_groups.take() else {
+            return Ok(self);
+        };
+        let chain = matches!(groups, EnumPrecedenceGroups::Chain(_));
+        let mut groups = groups.into_vec();
+        if chain && let Some(chain_range) = self.precedence_chain_range {
+            let mut keys = KeyAllocator::default();
+            self.precedence_declaration_key =
+                Some(keys.key(ProvenanceRole::PrecedenceDeclaration, declaration)?);
+            self.precedence_chain_key =
+                Some(keys.key(ProvenanceRole::PrecedenceChain, chain_range)?);
+            for group in &mut groups {
+                group.precedence_key = Some(keys.key(
+                    ProvenanceRole::PrecedenceGroupReference,
+                    group.reference_range,
+                )?);
+            }
+            self.precedence_anchors = Some(keys.into_anchors());
+        }
+        if groups.iter().any(|group| group.associativity.is_some()) {
+            let mut keys = KeyAllocator::default();
+            self.associativity_declaration_key =
+                Some(keys.key(ProvenanceRole::AssociativityDeclaration, declaration)?);
+            for group in &mut groups {
+                if group.associativity.is_none() {
+                    continue;
+                }
+                group.associativity_keys = vec![
+                    keys.key(ProvenanceRole::AssociativitySentence, group.range)?,
+                    keys.key(
+                        ProvenanceRole::AssociativityGroupReference,
+                        group.reference_range,
+                    )?,
+                ];
+            }
+            self.associativity_anchors = Some(keys.into_anchors());
+        }
+        self.precedence_groups = EnumPrecedenceGroups::from_vec(groups);
+        Ok(self)
+    }
+
+    /// The key of the precedence chain's declaration, when the family has
+    /// a chain.
+    #[must_use]
+    pub const fn precedence_declaration_key(&self) -> Option<&ProvenanceKey> {
+        self.precedence_declaration_key.as_ref()
+    }
+
+    /// The key of the precedence chain.
+    #[must_use]
+    pub const fn precedence_chain_key(&self) -> Option<&ProvenanceKey> {
+        self.precedence_chain_key.as_ref()
+    }
+
+    /// The key of the associativity declaration, when a tier is
+    /// associative.
+    #[must_use]
+    pub const fn associativity_declaration_key(&self) -> Option<&ProvenanceKey> {
+        self.associativity_declaration_key.as_ref()
     }
 
     /// Returns the indices, in [`Self::variants`], of the cons and the empty
@@ -596,8 +751,7 @@ impl EnumConstructorDeclaration {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint or occurrence-overflow error from a token-bearing
-    /// production node.
+    /// None: the family was keyed when it was parsed.
     pub fn variant_provenance(
         &self,
         variant: &EnumConstructorVariant,
@@ -610,8 +764,7 @@ impl EnumConstructorDeclaration {
     ///
     /// # Errors
     ///
-    /// Returns an occurrence-overflow error for an unrepresentable number of
-    /// groups.
+    /// None: the family was keyed when it was parsed.
     pub fn precedence_provenance(&self) -> Result<Option<Vec<ProvenanceAnchor>>, SyntaxError> {
         Ok(self
             .precedence_descriptor()?
@@ -621,85 +774,30 @@ impl EnumConstructorDeclaration {
     /// Returns the refined precedence chain and its descriptor provenance.
     ///
     /// # Errors
-    /// Returns an occurrence-overflow error for an unrepresentable number of groups.
+    ///
+    /// None: the family was keyed when it was parsed.
     pub fn precedence_descriptor(
         &self,
     ) -> Result<Option<EnumPrecedenceDescriptor<'_>>, SyntaxError> {
-        let (Some(declaration_range), Some(chain_range)) = (
-            self.precedence_declaration_range,
-            self.precedence_chain_range,
-        ) else {
+        let (Some(groups), Some(anchors)) =
+            (self.precedence_chain_groups(), &self.precedence_anchors)
+        else {
             return Ok(None);
         };
-        let Some(groups) = self.precedence_chain_groups() else {
-            return Ok(None);
-        };
-        let mut anchors = vec![
-            ProvenanceAnchor::new(ProvenanceRole::PrecedenceDeclaration, 0, declaration_range),
-            ProvenanceAnchor::new(ProvenanceRole::PrecedenceChain, 0, chain_range),
-        ];
-        let group_anchors = groups
-            .iter()
-            .enumerate()
-            .map(|(ordinal, group)| {
-                Ok(ProvenanceAnchor::new(
-                    ProvenanceRole::PrecedenceGroupReference,
-                    checked_ordinal(
-                        ordinal,
-                        ProvenanceRole::PrecedenceGroupReference,
-                        group.range.first(),
-                    )?,
-                    group.reference_range,
-                ))
-            })
-            .collect::<Result<Vec<_>, SyntaxError>>()?;
-        anchors.extend(group_anchors);
         Ok(Some(EnumPrecedenceDescriptor {
             groups,
-            provenance: anchors,
+            provenance: anchors.clone(),
         }))
     }
 
-    /// Returns associativity provenance derived from the enum-level tiers.
+    /// Returns the associativity descriptor's anchors, when a tier is
+    /// associative.
     ///
     /// # Errors
     ///
-    /// Returns an occurrence-overflow error for an unrepresentable number of
-    /// associated groups.
+    /// None: the family was keyed when it was parsed.
     pub fn associativity_provenance(&self) -> Result<Option<Vec<ProvenanceAnchor>>, SyntaxError> {
-        let Some(declaration_range) = self.precedence_declaration_range else {
-            return Ok(None);
-        };
-        let associated = self
-            .precedence_groups()
-            .filter(|group| group.associativity.is_some())
-            .collect::<Vec<_>>();
-        if associated.is_empty() {
-            return Ok(None);
-        }
-        let mut anchors = vec![ProvenanceAnchor::new(
-            ProvenanceRole::AssociativityDeclaration,
-            0,
-            declaration_range,
-        )];
-        for (ordinal, group) in associated.into_iter().enumerate() {
-            let ordinal = checked_ordinal(
-                ordinal,
-                ProvenanceRole::AssociativitySentence,
-                group.range.first(),
-            )?;
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::AssociativitySentence,
-                ordinal,
-                group.range,
-            ));
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::AssociativityGroupReference,
-                ordinal,
-                group.reference_range,
-            ));
-        }
-        Ok(Some(anchors))
+        Ok(self.associativity_anchors.clone())
     }
 }
 
@@ -814,6 +912,8 @@ fn parse_enum_precedence_group(input: ParseStream<'_>) -> syn::Result<EnumPreced
         associativity,
         name,
         variants,
+        precedence_key: None,
+        associativity_keys: Vec::new(),
     })
 }
 
@@ -1312,6 +1412,8 @@ fn parse_variant_fields(
                     name,
                     term_sort,
                     parameter: None,
+                    sort_key: None,
+                    name_key: None,
                 });
             }
             Ok(parsed)
@@ -1387,4 +1489,92 @@ fn invalid_enum_precedence(reason: impl Into<String>, span: Span) -> SyntaxError
         },
         span,
     )
+}
+
+#[cfg(test)]
+mod keyed {
+    use super::{EnumConstructorDeclaration, EnumConstructorVariant};
+    use crate::keyed_nodes::KeyedNodes;
+    use crate::{SortArgument, SyntaxError};
+
+    impl EnumConstructorVariant {
+        /// Records the keys of the production view: the constructed sort,
+        /// the syntax attribute, the variant, each field's sort and name,
+        /// each rustdoc line, the tier membership, the cons-list marker, the
+        /// strictness, the static marker and its payload, and the symbol
+        /// override.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.sort_key.as_ref(), &self.constructor_sort)?;
+            if let Some(syntax) = &self.syntax {
+                syntax.keyed_nodes(nodes)?;
+            }
+            nodes.push_tokens(self.key.as_ref(), &self.variant.ident)?;
+            for field in &self.fields {
+                nodes.push_tokens(field.sort_key.as_ref(), field.term_sort().sort())?;
+                nodes.push_tokens(field.name_key.as_ref(), field.name())?;
+            }
+            for documentation in &self.documentation {
+                nodes.push_tokens(documentation.key.as_ref(), documentation.literal())?;
+            }
+            if let Some(range) = self.precedence_member_range {
+                nodes.push(self.group_key.as_ref(), range);
+            }
+            if let Some(range) = self.cons_list_range {
+                nodes.push(self.cons_list_key.as_ref(), range);
+            }
+            if let Some(strictness) = &self.strictness {
+                strictness.keyed_nodes(nodes)?;
+            }
+            if let Some(marker) = &self.static_marker {
+                nodes.push(self.static_key.as_ref(), marker.range);
+                marker.attribute.keyed_nodes(nodes);
+            }
+            if let Some(symbol) = &self.explicit_symbol {
+                symbol.keyed_nodes(nodes)?;
+            }
+            Ok(())
+        }
+
+        /// Records the keys of the element types of the field sorts, the
+        /// sentence of [`Self::argument_provenance`].
+        pub(crate) fn keyed_argument_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            for field in &self.fields {
+                SortArgument::keyed_nodes(field.term_sort().arguments(), nodes)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl EnumConstructorDeclaration {
+        /// Records the keys of the precedence descriptor: its declaration,
+        /// the chain and each tier's reference.
+        pub(crate) fn keyed_precedence_nodes(&self, nodes: &mut KeyedNodes) {
+            if let Some(range) = self.precedence_declaration_range {
+                nodes.push(self.precedence_declaration_key.as_ref(), range);
+            }
+            if let Some(range) = self.precedence_chain_range {
+                nodes.push(self.precedence_chain_key.as_ref(), range);
+            }
+            for group in self.precedence_groups() {
+                nodes.push(group.precedence_key.as_ref(), group.reference_range);
+            }
+        }
+
+        /// Records the keys of the associativity descriptor: its
+        /// declaration, then each associative tier's sentence and reference.
+        pub(crate) fn keyed_associativity_nodes(&self, nodes: &mut KeyedNodes) {
+            if let Some(range) = self.precedence_declaration_range {
+                nodes.push(self.associativity_declaration_key.as_ref(), range);
+            }
+            for group in self.precedence_groups() {
+                let mut keys = group.associativity_keys.iter();
+                nodes.push(keys.next(), group.range);
+                nodes.push(keys.next(), group.reference_range);
+                assert!(keys.next().is_none());
+            }
+        }
+    }
 }
