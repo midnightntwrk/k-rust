@@ -603,11 +603,13 @@ open Lean Meta Elab Tactic in
 `tr_`), rewrite it to `a = b` by `f`'s injectivity (`tr_eq_iff_S` beside `f`), or, for a token sort
 (a structure over its string, with no such lemma), destructure both sides and inject, and (4) for a
 hypothesis `h : e = f x` (or `f x = e`) where `x` is a local variable and `e` is not a variable nor
-a translation but a constructor term (or a literal), case on `x` and simplify `h` with `f`'s equations, read off its folding lemmas
+a translation, case on `x` (on the arity-indexed family, its sort's values by `familyCases`, then
+`h` simplified by the `k2l_tr` equations) and simplify `h` with `f`'s equations, read off its folding lemmas
 `fold_S_k : B.C (tr a) = tr (A.C a)` reversed (else `f`'s own equations): constructor clashes close
 the goal, matching constructors give equations between the arguments. Terminates because `e`
 gets smaller; when `e` is an application of a function (an injection between sorts, a
-collection operation), fold it into a translation by the `k2l_rel` lemmas instead, for (3). (5) A list match `ListItem(x') t' = f l` (or `t' ListItem(x')`) becomes
+collection operation), fold it into a translation by the `k2l_rel` lemmas first, for (3), and
+never case split against a collection operation of the prelude. (5) A list match `ListItem(x') t' = f l` (or `t' ListItem(x')`) becomes
 `x' = f x`, `t' = f t` and the match on `l`, by the lemmas `list_bwd_S`/`list_bwd_back_S` beside
 `f`: a rule's hypothesis `ListItem(X) T = L` is substituted by (1) wherever `L` was bound, so the
 match is found where it lands rather than by its name. (6) Two hypotheses `e = a` and `e = b`
@@ -710,16 +712,32 @@ partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
       unless x.isFVar do continue
       let other := if (isTr r).isSome then l else r
       let hid := mkIdent ldecl.userName
+      if (← whnfR (← inferType x)).getAppFn.constName?.any (isFamilyName (← getEnv)) then
+        -- on the arity-indexed family: the cases of the sort's values only (`familyCases`)
+        let s ← saveState
+        try
+          let gs ← familyCases (← getMainGoal) x.fvarId!
+          let mut out := #[]
+          for (g, _) in gs do
+            setGoals [g]
+            evalTactic (← `(tactic| simp [k2l_tr] at $hid:ident))
+            out := out ++ (← getGoals)
+          setGoals out.toList
+          return true
+        catch _ => s.restore
+        continue
       unless other.isLit || (← isConstructorApp other) do
-        -- a function (an injection between sorts, a collection operation): fold it into a
-        -- translation (`fold_inj_*`, `comm_*`, `k2l_rel`), which injectivity then removes; never a
-        -- case split, whose cases would not reduce it
+        -- a function (an injection between sorts, a collection operation, a constructor of the
+        -- arity universe's term family): fold it into a translation (`fold_inj_*`, `comm_*`,
+        -- `k2l_rel`), which injectivity then removes; else case split as against a constructor,
+        -- except on a collection operation of the prelude, whose cases would not reduce it (a list
+        -- match is inverted by (5), a map's by the relation's map lemmas)
         let s ← saveState
         try
           evalTactic (← `(tactic| simp only [k2l_rel] at $hid:ident))
           return true
         catch _ => s.restore
-        continue
+        if other.getAppFn.constName?.any (`KPrelude).isPrefixOf then continue
       let s ← saveState
       try
         let hx ← Term.exprToSyntax x
