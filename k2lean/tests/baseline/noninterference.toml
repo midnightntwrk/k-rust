@@ -7,7 +7,7 @@
 
 [demo.ImpNI]
 tier = "light"
-guarded = 3
+guarded = 8
 preserve = []
 
 [sources]
