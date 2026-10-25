@@ -294,8 +294,9 @@ fn lower_sort_descriptor(
         declaration.visibility.clone(),
         declaration.explicit_symbol.clone(),
     ));
-    // The parents are ordered by sort: a sort named twice is one subsort,
-    // located at its first reference.
+    // The parents are ordered by sort, then by key (`DescriptorSortParent`'s
+    // order): a sort named twice is one subsort, located at its first
+    // reference.
     let mut previous = None;
     for parent in &sort.parents {
         if previous.replace(&parent.sort) == Some(&parent.sort) {

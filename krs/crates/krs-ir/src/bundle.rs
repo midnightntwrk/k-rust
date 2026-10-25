@@ -1144,9 +1144,15 @@ stage_shape! {
 pub type SortDescriptor = SortPayload<DescriptorStage>;
 
 /// One direct parent of a resolved sort, with the key of the reference that
-/// names it, `sort_parent`. A sort's parents are a set of sorts, so the
-/// collection orders them by sort, then by key: a parent named twice is two
-/// references to one sort.
+/// names it, `sort_parent`. A parent named twice, by two paths or by one
+/// path written again, is two entries: each reference is a node of the
+/// sort's descriptor, with its own key.
+///
+/// The derived order compares `sort` first, then `key`, so the field order
+/// is part of the contract: a sort's parent set holds the references to one
+/// sort together, its first reference (the lowest `sort_parent` ordinal)
+/// first. Lowering relies on both to emit one subsort per parent sort,
+/// located at its first reference.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DescriptorSortParent {

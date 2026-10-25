@@ -603,10 +603,14 @@ impl RuleClause {
     /// cell; the label; the subject record when the subject is no
     /// computation item; the result and the head result's terms; the
     /// computation items after the first; the extra cells; the List reading
-    /// of a bracketed cell; the narrowings; then the islands of every term in
-    /// expansion order. The clause numbers its literals and islands across
-    /// all its cells, not across the item's alone, and it keys its own
-    /// result, so the item's result term holds no keys.
+    /// of a bracketed cell; the narrowings; the islands of every term in
+    /// expansion order; then the computation cell's names, in the subject
+    /// record and in the result record. The clause numbers its literals and
+    /// islands across all its cells, not across the item's alone, and it
+    /// keys its own result, so the item's result term holds no keys. The
+    /// computation cell's names come last so that keying them moves no other
+    /// node's key or anchor: the extra cells' names share their roles, and
+    /// keyed before them they would shift those cells' ordinals.
     fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
         use crate::term::{
             allocate_application_instance_keys, allocate_let_keys, allocate_lexeme_keys,
