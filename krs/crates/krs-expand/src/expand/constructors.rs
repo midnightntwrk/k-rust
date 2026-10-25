@@ -1028,8 +1028,7 @@ pub(crate) fn token(
     let name = declaration.name().to_string();
     let declared = call_site_ident(declaration.name())?;
 
-    let mut grammar_anchors = stack.provenance()?;
-    grammar_anchors.extend(declaration.provenance()?);
+    let grammar_anchors = stack.descriptor_provenance(&declaration)?;
     let grammar_provenance = host_provenance(env, &facade, fallback, &grammar_anchors);
     let grammar_name = format!("__krs_grammar_token_{name}");
     let mut slots = WireSlots::new(&facade);
@@ -1103,12 +1102,8 @@ pub(crate) fn token(
     // productions to the sort it names and declares nothing else.
     let (sort_factory_tokens, field_check) = match declaration.carrier() {
         krs_syntax::TokenCarrier::Struct(item_struct) => {
-            let sort_anchor = ProvenanceAnchor::new(
-                ProvenanceRole::SortDeclaration,
-                0,
-                TokenRange::for_tokens(declaration.name())?,
-            );
-            let sort_provenance = host_provenance(env, &facade, fallback, &[sort_anchor]);
+            let sort_provenance =
+                host_provenance(env, &facade, fallback, &declaration.sort_provenance()?);
             let sort_wire =
                 serde_json::to_string(&WirePayload::Sort(krs_ir::wire::WireSortDescriptor {
                     parents: Vec::new(),

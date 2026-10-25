@@ -151,11 +151,7 @@ fn syntax_list_inner(
     }
 
     let sort_factory = format_ident!("__krs_list_sort_descriptor_{nonce:016x}");
-    let sort_anchors = vec![ProvenanceAnchor::new(
-        ProvenanceRole::SortDeclaration,
-        0,
-        TokenRange::for_tokens(context.declaration.name())?,
-    )];
+    let sort_anchors = context.declaration.sort_provenance()?;
     let sort_provenance = host_provenance(env, facade, context.fallback, &sort_anchors);
     let sort_wire = serde_json::to_string(&WirePayload::Sort(krs_ir::wire::WireSortDescriptor {
         parents: Vec::new(),

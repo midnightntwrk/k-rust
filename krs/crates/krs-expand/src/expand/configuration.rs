@@ -34,8 +34,7 @@ pub(crate) fn configuration(
     let attribute = krs_syntax::ConfigurationAttribute::parse_tokens(attributes)?;
     let declaration = krs_syntax::ConfigurationDeclaration::parse_tokens(item)?;
     let facade = env.facade_path()?;
-    let mut anchors = declaration.provenance()?;
-    anchors.extend(attribute.provenance()?);
+    let anchors = declaration.descriptor_provenance(&attribute)?;
     let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "configuration", declaration.name(), fallback);

@@ -24,10 +24,6 @@ use super::tokens::{
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "The sort, its parents, brackets, and descriptor expand in one pass."
-)]
 pub(crate) fn sort(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
@@ -48,11 +44,8 @@ pub(crate) fn sort(
             "a reference sort must materialize one semantic parent path for each Rust marker supertrait",
         ));
     }
-    let semantic_sort_range = TokenRange::for_tokens(alias)?;
-    let mut anchors = attribute.provenance(&declaration.item().ident)?;
-    if let Some(symbol) = &explicit_symbol {
-        anchors.extend(symbol.provenance()?);
-    }
+    let anchors =
+        attribute.descriptor_provenance(&declaration.item().ident, explicit_symbol.as_ref())?;
     let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "sort", &declaration.item().ident, fallback);
@@ -96,7 +89,7 @@ pub(crate) fn sort(
             env,
             &facade,
             &name,
-            semantic_sort_range,
+            &bracket.sort_descriptor_provenance(Some(&attribute), &declaration.item().ident)?,
             bracket,
             nonce,
             index,
@@ -175,7 +168,7 @@ pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
                 output.push(expand_readable_sort(env, &facade, sort, Registration::Inventory)?.0);
             }
             krs_syntax::SortsEntry::Membership(membership) => {
-                for member in membership.members() {
+                for (member, anchors) in membership.member_descriptors() {
                     let identity = ReadableMembershipIdentity::new(membership.supersort(), member);
                     if let Some(first_span) =
                         readable_memberships.insert(identity.item_name.clone(), member.span())
@@ -212,8 +205,8 @@ pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
                         }
                     }
                     output.push(expand_readable_membership(
-                        env, &facade, membership, member, &identity,
-                    )?);
+                        env, &facade, membership, member, anchors, &identity,
+                    ));
                 }
             }
         }
@@ -364,15 +357,14 @@ fn expand_readable_sort(
     }
 
     let mut brackets = Vec::new();
-    for (index, bracket) in declaration.brackets().iter().enumerate() {
-        let anchors = declaration.bracket_provenance(bracket)?;
+    for (index, (bracket, anchors)) in declaration.bracket_descriptors().enumerate() {
         brackets.push(expand_bracket_grammar_parts(
             env,
             facade,
             &name,
             &declared_key,
             bracket,
-            &anchors,
+            anchors,
             nonce,
             index,
             &[],
@@ -430,12 +422,12 @@ fn expand_readable_membership(
     facade: &Path,
     declaration: &krs_syntax::SortsMembership,
     member: &Path,
+    anchors: &[ProvenanceAnchor],
     identity: &ReadableMembershipIdentity,
-) -> crate::Result<TokenStream> {
+) -> TokenStream {
     let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
-    let anchors = declaration.member_provenance(member)?;
     let fallback = anchors[0].range();
-    let provenance = host_provenance(env, facade, fallback, &anchors);
+    let provenance = host_provenance(env, facade, fallback, anchors);
     let rust_key = &identity.rust_key;
     let super_key = format_ident!("__krs_subsort_super_{rust_key}", span = Span::call_site());
     let sub_key = format_ident!("__krs_subsort_sub_{rust_key}", span = Span::call_site());
@@ -493,7 +485,7 @@ fn expand_readable_membership(
     }
     .render();
 
-    Ok(quote! {
+    quote! {
         #[doc(hidden)]
         fn #super_key() -> ::core::any::TypeId {
             ::core::any::TypeId::of::<#supersort_alias>()
@@ -505,7 +497,7 @@ fn expand_readable_membership(
         }
 
         #factory_tokens
-    })
+    }
 }
 
 struct ReadableMembershipIdentity {
@@ -694,18 +686,12 @@ fn expand_bracket_grammar(
     env: &dyn MacroEnvironment,
     facade: &Path,
     semantic_sort_name: &str,
-    semantic_sort_range: TokenRange,
+    anchors: &[ProvenanceAnchor],
     bracket: &krs_syntax::BracketAttribute,
     nonce: u64,
     index: usize,
     cfg: &[Attribute],
 ) -> crate::Result<TokenStream> {
-    let mut anchors = bracket.provenance()?;
-    anchors.push(ProvenanceAnchor::new(
-        ProvenanceRole::SortDeclaration,
-        0,
-        semantic_sort_range,
-    ));
     let sort_key = format_ident!("__krs_sort_type_{nonce:016x}");
     expand_bracket_grammar_parts(
         env,
@@ -713,7 +699,7 @@ fn expand_bracket_grammar(
         semantic_sort_name,
         &sort_key,
         bracket,
-        &anchors,
+        anchors,
         nonce,
         index,
         cfg,

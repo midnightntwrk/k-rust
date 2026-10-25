@@ -331,6 +331,9 @@ pub struct SyntaxListDeclaration {
     cons: SyntaxListCons,
     terminator: SyntaxListTerminator,
     sort_key: Option<ProvenanceKey>,
+    declaration_key: Option<ProvenanceKey>,
+    /// The anchors of the list sort's declaration.
+    sort_anchors: Vec<ProvenanceAnchor>,
     /// The anchors of the cons production's keying.
     cons_anchors: Vec<ProvenanceAnchor>,
     /// The anchors of the terminator production's keying.
@@ -430,6 +433,21 @@ impl SyntaxListDeclaration {
         self.sort_key.as_ref()
     }
 
+    /// The key of the enum name as the declaration of the list sort.
+    #[must_use]
+    pub const fn declaration_key(&self) -> Option<&ProvenanceKey> {
+        self.declaration_key.as_ref()
+    }
+
+    /// Returns the anchors of the list sort's declaration: the enum name.
+    ///
+    /// # Errors
+    ///
+    /// None: the list was keyed when it was parsed.
+    pub fn sort_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.sort_anchors.clone())
+    }
+
     /// Returns the cons production's anchors: the list sort, the variant,
     /// its fields, its rustdoc, its strictness, and the list attribute.
     ///
@@ -450,15 +468,20 @@ impl SyntaxListDeclaration {
         Ok(self.terminator_anchors.clone())
     }
 
-    /// Keys the list's two productions, each a sentence of its own. The
+    /// Keys the list sort's declaration and the list's two productions, each
+    /// a sentence of its own. The declaration keys the enum name. The
     /// cons production keys the list sort, the variant, each field's sort
     /// and name, each rustdoc line, the strictness and the list attribute;
     /// the terminator the list sort, the variant and the attribute's
     /// declaration. The list sort and the attribute's declaration are the
     /// first of their roles in both, so they hold one key.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
-        let mut keys = KeyAllocator::default();
         let sort = TokenRange::for_tokens(&self.item.ident)?;
+        let mut keys = KeyAllocator::default();
+        self.declaration_key = Some(keys.key(ProvenanceRole::SortDeclaration, sort)?);
+        self.sort_anchors = keys.into_anchors();
+
+        let mut keys = KeyAllocator::default();
         self.sort_key = Some(keys.key(ProvenanceRole::ConstructorSort, sort)?);
         self.cons.key = Some(keys.key(
             ProvenanceRole::ConstructorDeclaration,
@@ -723,6 +746,8 @@ fn validate(
         cons,
         terminator,
         sort_key: None,
+        declaration_key: None,
+        sort_anchors: Vec::new(),
         cons_anchors: Vec::new(),
         terminator_anchors: Vec::new(),
     }

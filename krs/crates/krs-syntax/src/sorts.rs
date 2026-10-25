@@ -25,6 +25,9 @@ pub struct SortsSort {
     parent_keys: Vec<ProvenanceKey>,
     /// The anchors of the sort's keying, which [`Self::provenance`] returns.
     anchors: Vec<ProvenanceAnchor>,
+    /// The anchors of each bracket's descriptor, indexed as
+    /// [`Self::brackets`].
+    bracket_anchors: Vec<Vec<ProvenanceAnchor>>,
 }
 
 impl SortsSort {
@@ -68,7 +71,9 @@ impl SortsSort {
         Ok(self.anchors.clone())
     }
 
-    /// Keys the sort name, then each parent path, as a sentence of its own.
+    /// Keys the sort name, then each parent path, as a sentence of its own,
+    /// and each bracket's descriptor: the bracket's own keying, continued by
+    /// the sort name, which is the first of its role there too.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
         self.name_key = Some(keys.key(
@@ -81,25 +86,22 @@ impl SortsSort {
                 .push(keys.key(ProvenanceRole::SortParent, TokenRange::for_tokens(parent)?)?);
         }
         self.anchors = keys.into_anchors();
+        self.bracket_anchors = Vec::with_capacity(self.brackets.len());
+        for bracket in &self.brackets {
+            self.bracket_anchors
+                .push(crate::descriptor::bracket_anchors(bracket, &self.name)?);
+        }
         Ok(self)
     }
 
-    /// Returns one bracket descriptor's anchors plus its owning sort anchor:
-    /// the bracket's own keying, continued by the sort name's key.
-    ///
-    /// # Errors
-    ///
-    /// Returns an endpoint error only if a parsed node emits no token leaves.
-    pub fn bracket_provenance(
+    /// Returns each bracket with its descriptor's anchors: the bracket's own
+    /// keying, continued by the sort name's key.
+    pub fn bracket_descriptors(
         &self,
-        bracket: &BracketAttribute,
-    ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut keys = KeyAllocator::continuing(bracket.provenance()?);
-        keys.key(
-            ProvenanceRole::SortDeclaration,
-            TokenRange::for_tokens(&self.name)?,
-        )?;
-        Ok(keys.into_anchors())
+    ) -> impl Iterator<Item = (&BracketAttribute, &[ProvenanceAnchor])> {
+        self.brackets
+            .iter()
+            .zip(self.bracket_anchors.iter().map(Vec::as_slice))
     }
 }
 
@@ -110,6 +112,9 @@ pub struct SortsMembership {
     members: Vec<Path>,
     supersort_key: Option<ProvenanceKey>,
     member_keys: Vec<Vec<ProvenanceKey>>,
+    /// The anchors of each member's descriptor, indexed as
+    /// [`Self::members`].
+    member_anchors: Vec<Vec<ProvenanceAnchor>>,
 }
 
 impl SortsMembership {
@@ -145,6 +150,7 @@ impl SortsMembership {
     /// subsort, which is the member's declaration key's ordinal.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
         self.member_keys = Vec::with_capacity(self.members.len());
+        self.member_anchors = Vec::with_capacity(self.members.len());
         for member in &self.members {
             let mut keys = KeyAllocator::default();
             let range = TokenRange::for_tokens(member)?;
@@ -155,33 +161,20 @@ impl SortsMembership {
             )?);
             let subsort_key = keys.key(ProvenanceRole::SubsortSubSort, range)?;
             self.member_keys.push(vec![member_key, subsort_key]);
+            self.member_anchors.push(keys.into_anchors());
         }
         Ok(self)
     }
 
-    /// Returns the three explicit-subsort anchors for one comma-list member.
+    /// Returns each member with its descriptor's three explicit-subsort
+    /// anchors.
     ///
     /// The member path is the declaration anchor because it is the unique leaf
     /// for each relation in a compressed sentence.
-    ///
-    /// # Errors
-    ///
-    /// Returns an endpoint error only if a parsed path emits no token leaves.
-    pub fn member_provenance(&self, member: &Path) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut keys = KeyAllocator::default();
-        keys.key(
-            ProvenanceRole::SubsortDeclaration,
-            TokenRange::for_tokens(member)?,
-        )?;
-        keys.key(
-            ProvenanceRole::SubsortSuperSort,
-            TokenRange::for_tokens(&self.supersort)?,
-        )?;
-        keys.key(
-            ProvenanceRole::SubsortSubSort,
-            TokenRange::for_tokens(member)?,
-        )?;
-        Ok(keys.into_anchors())
+    pub fn member_descriptors(&self) -> impl Iterator<Item = (&Path, &[ProvenanceAnchor])> {
+        self.members
+            .iter()
+            .zip(self.member_anchors.iter().map(Vec::as_slice))
     }
 }
 
@@ -274,6 +267,7 @@ fn parse_sort(input: ParseStream<'_>, attributes: Vec<Attribute>) -> syn::Result
         name_key: None,
         parent_keys: Vec::new(),
         anchors: Vec::new(),
+        bracket_anchors: Vec::new(),
     }
     .keyed()?)
 }
@@ -301,6 +295,7 @@ impl Parse for SortsMembership {
             members,
             supersort_key: None,
             member_keys: Vec::new(),
+            member_anchors: Vec::new(),
         }
         .keyed()?)
     }

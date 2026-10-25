@@ -1271,9 +1271,12 @@ pub enum TokenCarrier {
 pub struct TokenDeclaration {
     carrier: TokenCarrier,
     name_key: Option<ProvenanceKey>,
+    sort_key: Option<ProvenanceKey>,
     /// The anchors of the declaration's keying, which [`Self::provenance`]
     /// returns.
     anchors: Vec<ProvenanceAnchor>,
+    /// The anchors of a struct carrier's sort declaration.
+    sort_anchors: Vec<ProvenanceAnchor>,
 }
 
 impl TokenDeclaration {
@@ -1337,7 +1340,9 @@ impl TokenDeclaration {
         Self {
             carrier: TokenCarrier::Struct(item),
             name_key: None,
+            sort_key: None,
             anchors: Vec::new(),
+            sort_anchors: Vec::new(),
         }
         .keyed()
     }
@@ -1369,7 +1374,9 @@ impl TokenDeclaration {
         Self {
             carrier: TokenCarrier::Alias(item),
             name_key: None,
+            sort_key: None,
             anchors: Vec::new(),
+            sort_anchors: Vec::new(),
         }
         .keyed()
     }
@@ -1422,14 +1429,36 @@ impl TokenDeclaration {
         self.name_key.as_ref()
     }
 
-    /// Keys the carrier's name, as a sentence of its own.
+    /// The key of a struct carrier's name as the declaration of the token
+    /// sort it introduces.
+    #[must_use]
+    pub const fn sort_key(&self) -> Option<&ProvenanceKey> {
+        self.sort_key.as_ref()
+    }
+
+    /// Returns the anchors of the token sort a struct carrier declares: its
+    /// name. A type alias adds productions to an existing sort and declares
+    /// none, so it has no such anchors.
+    ///
+    /// # Errors
+    ///
+    /// None: the declaration was keyed when it was parsed.
+    pub fn sort_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.sort_anchors.clone())
+    }
+
+    /// Keys the carrier's name, as a sentence of its own, and a struct
+    /// carrier's name as the declaration of its sort, another.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let name = TokenRange::for_tokens(self.name())?;
         let mut keys = KeyAllocator::default();
-        self.name_key = Some(keys.key(
-            ProvenanceRole::TokenDeclaration,
-            TokenRange::for_tokens(self.name())?,
-        )?);
+        self.name_key = Some(keys.key(ProvenanceRole::TokenDeclaration, name)?);
         self.anchors = keys.into_anchors();
+        if let TokenCarrier::Struct(_) = &self.carrier {
+            let mut keys = KeyAllocator::default();
+            self.sort_key = Some(keys.key(ProvenanceRole::SortDeclaration, name)?);
+            self.sort_anchors = keys.into_anchors();
+        }
         Ok(self)
     }
 }

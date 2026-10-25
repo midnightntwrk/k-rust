@@ -13,9 +13,11 @@ use syn::Ident;
 
 use crate::parse::KeyAllocator;
 use crate::{
-    ClaimAttribute, ContextAliasAttribute, ContextAttribute, DesugarAttribute, EquationAttribute,
-    ProvenanceAnchor, ProvenanceRole, RuleAttribute, RuleClause, RuleItem, SimplificationAttribute,
-    StateClaimItem, StateContextAliasItem, StateRuleItem, SyntaxError, TokenRange,
+    BracketAttribute, ClaimAttribute, ConfigurationAttribute, ConfigurationDeclaration,
+    ContextAliasAttribute, ContextAttribute, DesugarAttribute, EquationAttribute, ProvenanceAnchor,
+    ProvenanceRole, RuleAttribute, RuleClause, RuleItem, SimplificationAttribute, SortAttribute,
+    SpecModuleAttribute, SpecModuleItem, StateClaimItem, StateContextAliasItem, StateRuleItem,
+    SymbolAttribute, SyntaxError, TokenDeclaration, TokenRange, TokenStack,
 };
 
 /// The attribute that makes a rule fn one kind of sentence.
@@ -181,6 +183,114 @@ impl RuleClause {
         let mut keys = KeyAllocator::default();
         keys.append(&self.provenance()?);
         keys.append(&self.attribute_provenance()?);
+        Ok(keys.into_anchors())
+    }
+}
+
+impl SortAttribute {
+    /// Returns the anchors of the sort's descriptor: the sort attribute,
+    /// then the explicit symbol override, when the marker trait has one.
+    ///
+    /// # Errors
+    ///
+    /// Rejects a missing alias as [`Self::checked_alias`] does.
+    pub fn descriptor_provenance(
+        &self,
+        marker: &Ident,
+        symbol: Option<&SymbolAttribute>,
+    ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        keys.append(&self.provenance(marker)?);
+        if let Some(symbol) = symbol {
+            keys.append(&symbol.provenance()?);
+        }
+        Ok(keys.into_anchors())
+    }
+}
+
+impl BracketAttribute {
+    /// Returns the anchors of the descriptor of a bracket on a sort's marker
+    /// trait: the bracket, then the sort it brackets, named by the sort
+    /// attribute's alias, or by the marker trait when no alias names it.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only if the sort's name emits no token
+    /// leaves.
+    pub fn sort_descriptor_provenance(
+        &self,
+        sort: Option<&SortAttribute>,
+        marker: &Ident,
+    ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        bracket_anchors(self, sort.and_then(SortAttribute::alias).unwrap_or(marker))
+    }
+}
+
+/// The anchors of a bracket's descriptor: the bracket's own keying, then the
+/// name of the sort it brackets, which is the first of its role.
+pub(crate) fn bracket_anchors(
+    bracket: &BracketAttribute,
+    sort: &Ident,
+) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+    let mut keys = KeyAllocator::default();
+    keys.append(&bracket.provenance()?);
+    keys.key(
+        ProvenanceRole::SortDeclaration,
+        TokenRange::for_tokens(sort)?,
+    )?;
+    Ok(keys.into_anchors())
+}
+
+impl TokenStack {
+    /// Returns the anchors of the token grammar's descriptor: the stack's
+    /// productions, then the carrier's name.
+    ///
+    /// # Errors
+    ///
+    /// None: the stack and the carrier were keyed when they were parsed.
+    pub fn descriptor_provenance(
+        &self,
+        declaration: &TokenDeclaration,
+    ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        keys.append(&self.provenance()?);
+        keys.append(&declaration.provenance()?);
+        Ok(keys.into_anchors())
+    }
+}
+
+impl SpecModuleItem {
+    /// Returns the anchors of the spec module's descriptor: the module, then
+    /// its `#[k::spec_module(..)]` attribute.
+    ///
+    /// # Errors
+    ///
+    /// None: the module and its attribute were keyed when they were parsed.
+    pub fn descriptor_provenance(
+        &self,
+        attribute: &SpecModuleAttribute,
+    ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        keys.append(&self.provenance());
+        keys.append(&attribute.provenance()?);
+        Ok(keys.into_anchors())
+    }
+}
+
+impl ConfigurationDeclaration {
+    /// Returns the anchors of the configuration's descriptor: the struct,
+    /// then its `#[k::configuration(..)]` attribute.
+    ///
+    /// # Errors
+    ///
+    /// None: the struct and its attribute were keyed when they were parsed.
+    pub fn descriptor_provenance(
+        &self,
+        attribute: &ConfigurationAttribute,
+    ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        keys.append(&self.provenance()?);
+        keys.append(&attribute.provenance()?);
         Ok(keys.into_anchors())
     }
 }

@@ -319,8 +319,7 @@ fn descriptor_factory(
     module: &SpecModuleItem,
 ) -> crate::Result<(Ident, TokenStream)> {
     let ident = module.ident();
-    let mut anchors = module.provenance();
-    anchors.extend(attribute.provenance()?);
+    let anchors = module.descriptor_provenance(attribute)?;
     let fallback = TokenRange::new(ident.span(), ident.span());
     let provenance = host_provenance(env, facade, fallback, &anchors);
     let nonce = expansion_nonce(env, "spec_module", ident, fallback);

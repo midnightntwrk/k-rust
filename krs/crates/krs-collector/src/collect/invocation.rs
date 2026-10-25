@@ -166,8 +166,7 @@ fn collect_spec_module_invocation(
         let parsed = krs_syntax::SpecModuleAttribute::parse_tokens(attribute_tokens(attribute)?)
             .map_err(source_syntax)?;
         let item = krs_syntax::SpecModuleItem::from_item(module.clone()).map_err(source_syntax)?;
-        let mut anchors = item.provenance();
-        anchors.extend(parsed.provenance().map_err(source_syntax)?);
+        let anchors = item.descriptor_provenance(&parsed).map_err(source_syntax)?;
         output.push(parsed_invocation(
             ProvenanceRole::SpecModuleDeclaration,
             module.ident.to_string(),
@@ -207,12 +206,9 @@ fn collect_trait_invocations(
             )
             .with_span(attribute.span()));
         }
-        let mut anchors = sort_attribute
-            .provenance(&item_trait.ident)
+        let anchors = sort_attribute
+            .descriptor_provenance(&item_trait.ident, sort_symbol.as_ref())
             .map_err(source_syntax)?;
-        if let Some(symbol) = &sort_symbol {
-            anchors.extend(symbol.provenance().map_err(source_syntax)?);
-        }
         output.push(with_declaration_metadata(
             parsed_invocation(
                 ProvenanceRole::SortDeclaration,
@@ -257,20 +253,9 @@ fn collect_trait_brackets(
                     .map_or_else(|| item_trait.ident.to_string(), ToString::to_string)
             },
         );
-        let mut anchors = bracket.provenance().map_err(source_syntax)?;
-        let semantic_anchor = sort_attribute
-            .as_ref()
-            .and_then(krs_syntax::SortAttribute::alias)
-            .map_or_else(
-                || TokenRange::for_tokens(&item_trait.ident),
-                TokenRange::for_tokens,
-            )
+        let anchors = bracket
+            .sort_descriptor_provenance(sort_attribute.as_ref(), &item_trait.ident)
             .map_err(source_syntax)?;
-        anchors.push(ProvenanceAnchor::new(
-            ProvenanceRole::SortDeclaration,
-            0,
-            semantic_anchor,
-        ));
         output.push(parsed_invocation(
             ProvenanceRole::BracketDeclaration,
             semantic_name,
@@ -546,8 +531,7 @@ fn push_token_invocation(
     visibility: &syn::Visibility,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
-    let mut anchors = stack.provenance().map_err(source_syntax)?;
-    anchors.extend(token.provenance().map_err(source_syntax)?);
+    let anchors = stack.descriptor_provenance(token).map_err(source_syntax)?;
     output.push(with_visibility(
         parsed_invocation(
             ProvenanceRole::TokenDeclaration,
@@ -611,11 +595,7 @@ fn collect_struct_remaining(
         output.push(parsed_invocation(
             ProvenanceRole::SortDeclaration,
             item_struct.ident.to_string(),
-            vec![ProvenanceAnchor::new(
-                ProvenanceRole::SortDeclaration,
-                0,
-                TokenRange::for_tokens(token.name()).map_err(source_syntax)?,
-            )],
+            token.sort_provenance().map_err(source_syntax)?,
             ParsedInvocationPayload::Declaration,
         )?);
         push_token_invocation(&token, &stack, &item_struct.vis, output)?;
@@ -629,8 +609,9 @@ fn collect_struct_remaining(
             .map_err(source_syntax)?;
         let declaration =
             ConfigurationDeclaration::from_item(item_struct.clone()).map_err(source_syntax)?;
-        let mut anchors = parsed.provenance().map_err(source_syntax)?;
-        anchors.extend(declaration.provenance().map_err(source_syntax)?);
+        let anchors = declaration
+            .descriptor_provenance(&parsed)
+            .map_err(source_syntax)?;
         output.push(parsed_invocation(
             ProvenanceRole::ConfigurationDeclaration,
             item_struct.ident.to_string(),
@@ -751,11 +732,7 @@ fn collect_syntax_list_invocations(
     output.push(parsed_invocation(
         ProvenanceRole::SortDeclaration,
         declaration.name().to_string(),
-        vec![krs_syntax::ProvenanceAnchor::new(
-            ProvenanceRole::SortDeclaration,
-            0,
-            krs_syntax::TokenRange::for_tokens(declaration.name()).map_err(source_syntax)?,
-        )],
+        declaration.sort_provenance().map_err(source_syntax)?,
         ParsedInvocationPayload::Declaration,
     )?);
     let visibility = rust_visibility(&item_enum.vis)?;
@@ -1262,23 +1239,21 @@ fn collect_sorts_macro(
                     )?,
                     RustVisibility::Public,
                 ));
-                for bracket in sort.brackets() {
+                for (_, anchors) in sort.bracket_descriptors() {
                     output.push(parsed_invocation(
                         ProvenanceRole::BracketDeclaration,
                         sort.name().to_string(),
-                        sort.bracket_provenance(bracket).map_err(source_syntax)?,
+                        anchors.to_vec(),
                         ParsedInvocationPayload::Declaration,
                     )?);
                 }
             }
             SortsEntry::Membership(membership) => {
-                for member in membership.members() {
+                for (_, anchors) in membership.member_descriptors() {
                     output.push(parsed_invocation(
                         ProvenanceRole::SubsortDeclaration,
                         String::new(),
-                        membership
-                            .member_provenance(member)
-                            .map_err(source_syntax)?,
+                        anchors.to_vec(),
                         ParsedInvocationPayload::Declaration,
                     )?);
                 }
