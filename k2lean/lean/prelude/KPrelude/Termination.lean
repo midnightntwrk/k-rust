@@ -21,7 +21,8 @@ proofs need and the tactic the generator emits:
   (`MapSizeOf`, which the per-sort carriers also have).
 * Facts about defined partial hooks, for `omega`: an index accepted by `BytesHook.get` or
   `BytesHook.substr` is in range, a defined `IntHook.tdiv`/`IntHook.emod` by a literal is a
-  Euclidean division (`tdiv` of a nonnegative dividend), and a quotient `a * n / m` is smaller
+  Euclidean division (`tdiv` of a nonnegative dividend), a defined `IntHook.shr` of a positive
+  operand by at least one bit is smaller than it, and a quotient `a * n / m` is smaller
   than `a` in absolute value when `n` is smaller than `m`.
 * `Shape`, `ListShape`: the shape of a term (its constructors and builtin values, each counting
   one), a termination measure that ignores the magnitude of integers and byte arrays; the
@@ -302,6 +303,26 @@ theorem emod_facts {a b r : Int} (h : emod a b = some r) : b ≠ 0 ∧ r = a % b
   · simp only [Option.some.injEq] at h
     exact ⟨by assumption, h.symm⟩
 
+/-- A defined `>>Int`: the shift is not negative, a nonnegative operand gives a result between `0`
+and itself, and a shift of at least one bit makes a positive operand smaller (`a >>> n` is
+`a / 2 ^ n`). -/
+theorem shr_facts {a b r : Int} (h : shr a b = some r) :
+    0 ≤ b ∧ (0 ≤ a → 0 ≤ r ∧ r ≤ a) ∧ (1 ≤ b → 0 < a → r < a) := by
+  unfold shr at h
+  split at h
+  · simp at h
+  · simp only [Option.some.injEq] at h
+    subst h
+    rw [Int.shiftRight_eq_div_pow]
+    have hp : 0 < 2 ^ b.toNat := Nat.two_pow_pos _
+    refine ⟨by omega, fun ha => ⟨Int.ediv_nonneg ha (by omega), Int.ediv_le_self _ ha⟩, fun h1 ha => ?_⟩
+    have h2 : (2 : Int) ≤ ((2 ^ b.toNat : Nat) : Int) := by
+      have : 2 ^ 1 ≤ 2 ^ b.toNat := Nat.pow_le_pow_right (by omega) (by omega)
+      omega
+    apply Int.ediv_lt_of_lt_mul (by omega)
+    have := Int.mul_le_mul_of_nonneg_left h2 (Int.le_of_lt ha)
+    omega
+
 /-- A quotient `a * n / m` is smaller than `a` in absolute value when `n` is smaller than `m`. -/
 theorem tdiv_mul_facts {a n m r : Int} (h : tdiv (mul a n) m = some r) :
     n.natAbs < m.natAbs → r.natAbs < a.natAbs ∨ a = 0 := by
@@ -479,7 +500,8 @@ private def factLemmas : List (Name × List Name) :=
    (``BytesHook.get, [``BytesHook.get_facts]),
    (``BytesHook.substr, [``BytesHook.substr_facts]),
    (``IntHook.tdiv, [``IntHook.tdiv_facts, ``IntHook.tdiv_mul_facts, ``IntHook.tdiv_mul_divisor_facts]),
-   (``IntHook.emod, [``IntHook.emod_facts])]
+   (``IntHook.emod, [``IntHook.emod_facts]),
+   (``IntHook.shr, [``IntHook.shr_facts])]
 
 /-- The applications in `e` (without loose bound variables) of the functions `fns`. -/
 private def appsOf (fns : Std.HashSet Name) (e : Expr) : MetaM (Array Expr) := do

@@ -574,6 +574,21 @@ fn hook_facts(h: &str, args: &[L], var: &str, facts: &mut Vec<Fact>) {
                 }
             }
         }
+        ("KPrelude.IntHook.shr", [a, L::Raw(c)]) => {
+            if let (Some(a), Some(c)) = (lin(a), int_lit(c))
+                && c >= 1
+            {
+                // r = a >> c for a ≥ 0 (`IntHook.shr_facts`): 0 ≤ r ≤ a, and r < a for a ≥ 1
+                let r = Lin::atom(var);
+                if implied(&a, facts) {
+                    facts.push(r.clone());
+                    facts.push(a.add(&r, -1));
+                }
+                if implied(&a.plus(-1), facts) {
+                    facts.push(a.add(&r, -1).plus(-1));
+                }
+            }
+        }
         ("KPrelude.IntHook.emod", [_, L::Raw(c)]) => {
             if let Some(c) = int_lit(c)
                 && c > 0
@@ -1304,9 +1319,11 @@ impl Ctx {
                     Step::Bind { expr, var, .. } => {
                         let e = subst_sim(expr, &alias);
                         if let L::App(h, args) = &e {
-                            let mut v = Vec::new();
+                            // the facts so far, for the hook's conditional facts
+                            let mut v = facts.base.clone();
+                            let n0 = v.len();
                             hook_facts(h, args, var, &mut v);
-                            facts.extend(v);
+                            facts.extend(v.split_off(n0));
                             hook_dnf(h, args, var, &mut facts);
                             if let Some(g) = self.fns.get(h)
                                 && !g.recursive
@@ -2194,9 +2211,11 @@ impl Ctx {
                                 });
                                 continue;
                             }
-                            let mut v = Vec::new();
+                            // the facts so far, for the hook's conditional facts
+                            let mut v = facts.base.clone();
+                            let n0 = v.len();
                             hook_facts(h, args, var, &mut v);
-                            facts.extend(v);
+                            facts.extend(v.split_off(n0));
                             hook_dnf(h, args, var, &mut facts);
                             if let Some(g) = self.fns.get(h)
                                 && !g.recursive
@@ -2642,6 +2661,7 @@ impl Ctx {
             for (fb, vb) in &b {
                 let facts = e.facts.and(extra).and(fa).and(fb);
                 let r = self.cmp(&facts, vb, va);
+
                 worst = match (worst, r) {
                     (_, Rel::Unknown) | (Rel::Unknown, _) => Rel::Unknown,
                     (Rel::Le, _) | (_, Rel::Le) => Rel::Le,
@@ -3286,7 +3306,7 @@ impl Ctx {
                     }
                 }
             }
-            let (choice, rels) = found?;
+                let (choice, rels) = found?;
             for f in 0..n {
                 comps[f].push(choice[f].clone());
             }

@@ -9,7 +9,7 @@ module TERM-SYNTAX
   imports BYTES-SYNTAX
   imports LIST
   syntax Ints ::= ".Ints" | Int ";" Ints
-  syntax Pgm ::= run(Bytes, Ints, List, Int)
+  syntax Pgm ::= run(Bytes, Ints, List, Int) | runN(Int)
 endmodule
 
 module TERM
@@ -100,5 +100,13 @@ module TERM
   rule decSeq(_, _) => .Trees [owise]
   rule decSeqHdr(B, S, _:Kind(L, P)) => dec(substrBytes(B, S, L +Int P)) :: decSeq(B, L +Int P)
 
+  // Shifting right towards zero, after a sign flip: the distance of the negation, then of the
+  // value, which `>>Int 1` makes smaller while it is positive (`IntHook.shr_facts`).
+  syntax Int ::= popcount(Int) [function, total, symbol(popcount)]
+  rule popcount(0) => 0
+  rule popcount(N) => (N &Int 1) +Int popcount(N >>Int 1) requires N >Int 0
+  rule popcount(N) => popcount(N *Int -1) requires N <Int 0
+
   rule <k> run(B, L, Xs, N) => scan(B, 0, 0) ~> isort(L) ~> total(Xs, 0) ~> series(1, 0, N, N) ~> dec(B) </k>
+  rule <k> runN(N) => popcount(N) </k>
 endmodule
