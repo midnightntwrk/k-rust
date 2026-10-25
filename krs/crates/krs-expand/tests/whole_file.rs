@@ -623,10 +623,9 @@ fn an_empty_readable_instance_child_reaches_the_wire_with_its_key() {
     );
 }
 
-/// An initializer's `k!` takes no remainder (`..pgm`, the variable's
-/// sequence after the items), since it gives the initial state in full: the
-/// remainder is refused with an author code where it is written, not
-/// dropped from the expansion.
+/// An initializer's `k!` lists its items and takes no remainder (`..pgm`,
+/// the variable's sequence after the items): the remainder is refused with
+/// an author code where it is written, not dropped from the expansion.
 #[test]
 fn an_initializer_remainder_is_refused_at_its_spelling() {
     let source = "impl Machine {\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {\n        Self { k: k::k![Go(), ..pgm] }\n    }\n}\n";
@@ -636,7 +635,7 @@ fn an_initializer_remainder_is_refused_at_its_spelling() {
         diagnostics,
         [ExpandDiagnostic {
             code: krs_diagnostic::codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
-            message: "unsupported declarative initializer body: an initializer's `k!` takes no remainder, since it gives the initial state in full; list the sequence's items".to_owned(),
+            message: "unsupported declarative initializer body: an initializer's `k!` lists its items and takes no remainder; write a configuration variable of an item sort as an item, `k::k![.., pgm]`".to_owned(),
             class: MappingClass::ExactAuthored,
             // The diagnostic stands at the remainder's first token.
             authored: Some(br(start, start + 1)),
@@ -646,7 +645,7 @@ fn an_initializer_remainder_is_refused_at_its_spelling() {
 }
 
 /// An initializer's `map!` takes no remainder (`..env`, the items joined
-/// with the variable's map, which has no value where the two share a key):
+/// with the variable's map, a join undefined when the two share a key):
 /// it is refused with an author code where it is written, not dropped from
 /// the expansion.
 #[test]
@@ -658,7 +657,7 @@ fn an_initializer_map_remainder_is_refused_at_its_spelling() {
         diagnostics,
         [ExpandDiagnostic {
             code: krs_diagnostic::codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
-            message: "unsupported declarative initializer body: an initializer's `map!` takes no remainder, since joining its items with another map has no value where the two share a key; list the map's items".to_owned(),
+            message: "unsupported declarative initializer body: an initializer's `map!` takes no remainder, since joining its items with another map is undefined when the two share a key, which only a run would find; list the map's items".to_owned(),
             class: MappingClass::ExactAuthored,
             // The diagnostic stands at the remainder's first token.
             authored: Some(br(start, start + 1)),

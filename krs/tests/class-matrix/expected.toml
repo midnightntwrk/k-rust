@@ -101,7 +101,7 @@ proposed = true
 
 [class.initializer-remainder]
 code = "krs::syntax::unsupported-initializer-body"
-doc = "a remainder (`..v`) in an initializer's `k!` or `map!`: an initializer gives the initial state in full"
+doc = "a remainder (`..v`) in an initializer's `k!` or `map!`, which lists its items and takes no remainder"
 
 [class.instance-list-shape]
 code = "krs::analysis::collection-entry"

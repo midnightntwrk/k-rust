@@ -188,7 +188,7 @@ pub enum TermNode {
     ApplicationHead(Path),
     /// Bare path awaiting binder/constructor resolution.
     Reference(Path),
-    /// Integer or Boolean literal.
+    /// Integer, Boolean, string, or float literal.
     Literal(TermLiteral),
     /// Compiler-owned concrete token of builtin sort `Id`.
     IdToken(LitStr),
@@ -593,7 +593,7 @@ pub enum TermTree {
     Application(TermApplication),
     /// Bare path awaiting binder or zero-argument constructor resolution.
     Reference(Path),
-    /// Integer or Boolean literal.
+    /// Integer, Boolean, string, or float literal.
     Literal(TermLiteral),
     /// Native Rust pattern wildcard.
     Wildcard(TokenRange),
