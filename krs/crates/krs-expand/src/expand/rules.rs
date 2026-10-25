@@ -60,7 +60,7 @@ pub(crate) fn rule(
             )
             .into());
         }
-        return configuration_rule(env, item, &attribute, None);
+        return configuration_rule(env, item, krs_syntax::RuleSentence::Transition(&attribute));
     }
     ordinary_rule(env, item, krs_syntax::RuleSentence::Transition(&attribute))
 }
@@ -76,9 +76,8 @@ pub(crate) fn context(
     let context = krs_syntax::ContextAttribute::parse_tokens(attributes)?;
     reject_fresh_helper(&item)?;
     let parsed: ItemFn = syn::parse2(item.clone())?;
-    let attribute = context.rule_attribute(&parsed.sig.ident);
     if has_cells_subject(&parsed) {
-        return configuration_rule(env, item, &attribute, Some(&context));
+        return configuration_rule(env, item, krs_syntax::RuleSentence::Context(&context));
     }
     let rule = krs_syntax::RuleItem::parse_context_tokens(item)?;
     expand_ordinary_rule(
@@ -309,13 +308,13 @@ fn ordinary_rule(
     expand_ordinary_rule(env, &rule, sentence, None, &[])
 }
 
+/// Expands a rule fn whose sides are terms, as the sentence its attribute
+/// makes it; `lexical_imports` are the `use` items of a `k::equations!`
+/// table, through which rustc resolves the row's one-segment paths.
 #[expect(
     clippy::too_many_lines,
     reason = "Rule lowering keeps the declaration context and both sides together."
 )]
-/// Expands a rule fn whose sides are terms, as the sentence its attribute
-/// makes it; `lexical_imports` are the `use` items of a `k::equations!`
-/// table, through which rustc resolves the row's one-segment paths.
 fn expand_ordinary_rule(
     env: &dyn MacroEnvironment,
     rule: &krs_syntax::RuleItem,
@@ -327,26 +326,27 @@ fn expand_ordinary_rule(
     use krs_syntax::RuleSentence;
     // Only `#[k::rule]` and `#[k::context]` carry rule metadata; a
     // context's is its rule-attribute view.
-    let metadata = match sentence {
-        RuleSentence::Context(context) => context.rule_attribute(&rule.item().sig.ident),
-        _ => krs_syntax::RuleAttribute::default(),
-    };
+    let no_metadata = krs_syntax::RuleAttribute::default();
+    let context_metadata;
+    let (mut equation, mut simplification, mut desugar) = (None, None, None);
     let (sentence_kind, sentence_name, attribute) = match sentence {
         RuleSentence::Transition(attribute) => (SentenceKind::Transition, "rule", attribute),
-        RuleSentence::Context(_) => (SentenceKind::Context, "context", &metadata),
-        RuleSentence::Equation(_) => (SentenceKind::Equation, "equation", &metadata),
-        RuleSentence::Simplification(_) => {
-            (SentenceKind::Simplification, "simplification", &metadata)
+        RuleSentence::Context(context) => {
+            context_metadata = context.rule_attribute(&rule.item().sig.ident);
+            (SentenceKind::Context, "context", &context_metadata)
         }
-        RuleSentence::Alias => (SentenceKind::Alias, "alias", &metadata),
-        RuleSentence::Desugar(_) => (SentenceKind::Desugar, "desugar", &metadata),
-    };
-    let (equation, simplification, desugar) = match sentence {
-        RuleSentence::Equation(equation) => (Some(equation), None, None),
-        RuleSentence::Simplification(simplification) => (None, Some(simplification), None),
-        RuleSentence::Desugar(desugar) => (None, None, Some(desugar)),
-        RuleSentence::Transition(_) | RuleSentence::Context(_) | RuleSentence::Alias => {
-            (None, None, None)
+        RuleSentence::Equation(attribute) => {
+            equation = Some(attribute);
+            (SentenceKind::Equation, "equation", &no_metadata)
+        }
+        RuleSentence::Simplification(attribute) => {
+            simplification = Some(attribute);
+            (SentenceKind::Simplification, "simplification", &no_metadata)
+        }
+        RuleSentence::Alias => (SentenceKind::Alias, "alias", &no_metadata),
+        RuleSentence::Desugar(attribute) => {
+            desugar = Some(attribute);
+            (SentenceKind::Desugar, "desugar", &no_metadata)
         }
     };
     // A single-body rule (KF-011) is a transition that is not an anywhere

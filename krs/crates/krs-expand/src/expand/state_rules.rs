@@ -227,36 +227,47 @@ pub(crate) fn context_alias(
     })
 }
 
+/// Expands a rule fn whose sides are `cells!` configurations: a
+/// transition, or a context (KF-021), which shares the rule expansion
+/// through its rule-attribute view.
+///
+/// # Panics
+///
+/// For another sentence than a transition or a context: no other sentence
+/// has a `cells!` subject, and the callers dispatch on it.
 #[expect(
     clippy::too_many_lines,
     reason = "The configuration rule and its complete provenance are expanded together."
 )]
-/// Expands a rule fn whose sides are `cells!` configurations: a transition
-/// with `attribute`, or the context `context` (KF-021), whose rule-attribute
-/// view `attribute` then is.
 pub(super) fn configuration_rule(
     env: &dyn MacroEnvironment,
     item: TokenStream,
-    attribute: &krs_syntax::RuleAttribute,
-    context: Option<&krs_syntax::ContextAttribute>,
+    sentence: krs_syntax::RuleSentence<'_>,
 ) -> crate::Result<TokenStream> {
-    // A `cells!` context (KF-021) shares the rule expansion.
-    let (sentence, sentence_kind) = match context {
-        Some(context) => (
-            krs_syntax::RuleSentence::Context(context),
-            krs_ir::ConfigurationSentenceKind::Context,
-        ),
-        None => (
-            krs_syntax::RuleSentence::Transition(attribute),
+    let context_view;
+    let (rule, attribute, sentence_kind) = match sentence {
+        krs_syntax::RuleSentence::Transition(attribute) => (
+            krs_syntax::StateRuleItem::parse_tokens(item)?,
+            attribute,
             krs_ir::ConfigurationSentenceKind::Transition,
         ),
+        krs_syntax::RuleSentence::Context(context) => {
+            let rule = krs_syntax::StateRuleItem::parse_context_tokens(item)?;
+            context_view = context.rule_attribute(&rule.item().sig.ident);
+            (
+                rule,
+                &context_view,
+                krs_ir::ConfigurationSentenceKind::Context,
+            )
+        }
+        krs_syntax::RuleSentence::Equation(_)
+        | krs_syntax::RuleSentence::Simplification(_)
+        | krs_syntax::RuleSentence::Alias
+        | krs_syntax::RuleSentence::Desugar(_) => {
+            unreachable!("only a transition or a context has a `cells!` subject")
+        }
     };
-    let context = context.is_some();
-    let rule = if context {
-        krs_syntax::StateRuleItem::parse_context_tokens(item)?
-    } else {
-        krs_syntax::StateRuleItem::parse_tokens(item)?
-    };
+    let context = sentence_kind == krs_ir::ConfigurationSentenceKind::Context;
     let facade = env.facade_path()?;
     let descriptor = krs_syntax::RuleDescriptor::state(&rule, sentence)?;
     let fallback = TokenRange::for_tokens(rule.item())?;
