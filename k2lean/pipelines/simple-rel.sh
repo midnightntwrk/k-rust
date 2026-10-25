@@ -21,6 +21,12 @@
 #
 # The generator calls are tests/libs.sh's, shared with the gate and demos/regen.sh.
 #
+# Encoding: per-sort. Both libraries and the relation are generated in the per-sort encoding
+# (`gen --per-sort-terms`, `relate --per-sort-terms true`), a holdout of the arity universe that is
+# otherwise the default (k2lean/docs/design.md, section 2.1): session C (k-rust-c1) is proving
+# SimpleRel's simulations (REL-1) against the per-sort form, and moving SimpleRel to the arity
+# universe is that session's decision.
+#
 # Environment (paths may be relative to the checkout root):
 #   KRUST, K2LEAN    the binaries (default target/release/krust, target/release/k2lean)
 #   K_BUILTIN        K's builtin modules (default k/k-distribution/include/kframework/builtin)
@@ -40,8 +46,16 @@ RT=$root/k2lean/tests/rtime.py
 mkdir -p "$OUT/logs"
 OUT=$(cd "$OUT" && pwd)
 logs=$OUT/logs T=$OUT/k2lean
-# what tests/libs.sh reads
-G=$K2LEAN GEN=$T/generated DEMOS=$T/demos
+# what tests/libs.sh reads; G adds the per-sort flags (see Encoding above) to gen and relate
+k2lean_per_sort() {
+  local c=$1; shift
+  case $c in
+    gen) "$K2LEAN" gen "$@" --per-sort-terms ;;
+    relate) "$K2LEAN" relate "$@" --per-sort-terms true ;;
+    *) "$K2LEAN" "$c" "$@" ;;
+  esac
+}
+G=k2lean_per_sort GEN=$T/generated DEMOS=$T/demos
 kore_dir() { echo "$OUT/kore/$1"; }
 # shellcheck source=../tests/libs.sh
 . "$root/k2lean/tests/libs.sh"

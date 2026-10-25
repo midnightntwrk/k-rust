@@ -124,6 +124,7 @@ A library or demo whose arity form would lose a count stays per-sort, with `enco
 - `SimpleEnv` (on `simple-ps`): its hand-written modules match on per-sort constructors (`KSimple.Term.nil`, `inj_FstackCell`);
 - `ImpNI` and its library `impsec`: hand-written modules over the per-sort names of `KImp` and `KImpSec`;
 - `RaceConf` and its library `race`, and SIMPLE's confluence: `confluence` writes per-sort rule text (SIMPLE's confluence is a report from the KORE and builds no library, so the switch does not reach it);
+- `SimpleRel` (`pipelines/simple-rel.sh`, outside the gate; `simple`, `simplev` and the relation generated per-sort there): its simulations (REL-1) are being proved against the per-sort form;
 - six snapshot tests of the generator (params, measure, peano, counter, freekey, counter_det2), which keep the per-sort output under test (`--per-sort-terms` in `tests/snapshots.rs`).
 
 Two choices in the family follow from its match compilation (measured 2026-10-23 on KEVM, load 2 to 10):
