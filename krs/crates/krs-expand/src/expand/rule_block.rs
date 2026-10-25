@@ -450,6 +450,11 @@ fn expand_head_rule(
         None => None,
         Some(alternative) => {
             let name = alternative.cell().unraw().to_string();
+            // The parser attaches an alternative only beside a reading that
+            // holds its records: the cell read as a list's elements, which
+            // is a `RewriteList` extra of the cell, or the cell read as the
+            // computation cell, which is the head. Without either, the
+            // alternative's nodes would reach no wire node.
             let records = update_extras
                 .iter()
                 .find_map(|extra| match extra {
@@ -463,16 +468,20 @@ fn expand_head_rule(
                     }
                     _ => None,
                 })
-                .or_else(|| head.as_ref().map(AlternativeRecords::head));
-            match records {
-                Some(records) => Some(bracket_alternative_wire(
-                    &ledger,
-                    alternative,
-                    &records,
-                    &bindings,
-                )?),
-                None => None,
-            }
+                .or_else(|| head.as_ref().map(AlternativeRecords::head))
+                .ok_or_else(|| {
+                    ExpandError::new(
+                        expand::UNCONSUMED_PROVENANCE_KEY,
+                        alternative.cell().span(),
+                        "the List reading of this bracketed cell value stands beside no head and no list reading of the cell, so the descriptor would drop it; this is a bug in KRS, not in the definition",
+                    )
+                })?;
+            Some(bracket_alternative_wire(
+                &ledger,
+                alternative,
+                &records,
+                &bindings,
+            )?)
         }
     };
     let mut extras = have_extras;
