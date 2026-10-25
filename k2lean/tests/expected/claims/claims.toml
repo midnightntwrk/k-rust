@@ -129,12 +129,14 @@ relation = "ImpRel"
 kind = "bisim"
 target = "KrsImp"
 carried = 18
+all_path = 18
 
 [[transfer]]
 relation = "ImpUnroll"
 kind = "stutter"
 target = "KUnroll"
 carried = 18
+all_path = 18
 
 [[induction]]
 name = "ExprEval"
