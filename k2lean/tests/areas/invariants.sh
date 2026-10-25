@@ -87,6 +87,43 @@ needs_invariants() {
   return 0
 }
 
+# The modules of a Lean project that a failed build left unchecked: Lake names only the modules
+# whose build failed (a broken hand case), not those it then did not build because they import
+# one, directly or not (the `Invariants.lean` of a kind 1 library, the `Run.lean` of a demo).
+unbuilt() { # DIR LOG MODULE...: of the import closure of MODULEs (all of DIR's when none), printed
+  python3 -I - "$@" <<'EOF'
+import re, sys
+from pathlib import Path
+root, log, want = Path(sys.argv[1]), Path(sys.argv[2]), sys.argv[3:]
+text = log.read_text(errors="replace") if log.exists() else ""
+failed = set(re.findall(r"^✖ \[\d+/\d+\] Building (\S+)", text, re.M))
+imports = {}
+for f in root.rglob("*.lean"):
+    rel = f.relative_to(root)
+    if rel.parts[0].startswith(".") or rel.name == "lakefile.lean":
+        continue
+    mod = ".".join(rel.with_suffix("").parts)
+    imports[mod] = re.findall(r"^import\s+(\S+)", f.read_text(errors="replace"), re.M)
+todo, need = list(want or imports), set()
+while todo:
+    m = todo.pop()
+    if m in imports and m not in need:
+        need.add(m)
+        todo += imports[m]
+broken = set(failed)
+grew = True
+while grew:
+    grew = False
+    for m in need - broken:
+        if any(i in broken for i in imports[m]):
+            broken.add(m)
+            grew = True
+left = sorted(broken - failed)
+if failed:
+    print(f"gate:   failed: {', '.join(sorted(failed))}; not built because they import it: {', '.join(left) or 'none'}")
+EOF
+}
+
 # kind 1 invariants: `{ns}/Invariants.lean`. A rule case that `k2l_preserve` does not close becomes
 # an open case (`open-from-log` into open-invariant-cases.txt) and the library is regenerated, so
 # the case is then taken from the hand module, as for equations.
@@ -101,7 +138,7 @@ invcases() { # DIR NAME: build NAME.Invariants, at most three attempts; the last
     "$G" open-from-log "$o/$n/Invariants.lean" "$L/build-$d-inv-$k.log" "$o/open-invariant-cases.txt" >> "$L/gen-$d.log" 2>&1
     genlib "$d" >> "$L/gen-$d.log" 2>&1 || { bad "gen $d" "$L/gen-$d.log"; return 1; }
   done
-  bad "invariant $d" "$L/build-$d-inv.log"; return 1
+  bad "invariant $d" "$L/build-$d-inv.log"; unbuilt "$o" "$L/build-$d-inv.log" "$n.Invariants"; return 1
 }
 inv_reset() { # DIR: GATE_RETRY_OPEN also retries the open invariant cases
   [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/$1/open-invariant-cases.txt"
@@ -225,8 +262,13 @@ gate_invariants() {
   phase "diff invariants"
   diffs kimpinv kimpkeys kimpfold kimptop kimpboth nested range simpleinv simplestore simplet
   # kind 2 invariants, built like demos: a walk over <k> (ImpWrites), KRS IMP's declared cell type
-  # (KrsImpTyping), a Lean invariant over KSimple's configuration (SimpleEnv, needs SIMPLE)
+  # (KrsImpTyping), a Lean invariant over KSimple's configuration (SimpleEnv, needs SIMPLE), and
+  # k2l_preserve's per-rule heartbeat budget over the range library (InvBudget)
   phase "demos invariants"
-  for d in ImpWrites KrsImpTyping SimpleEnv; do runs demo "$d" && dbuild "$d"; done
+  for d in ImpWrites KrsImpTyping SimpleEnv InvBudget; do
+    runs demo "$d" || continue
+    dbuild "$d"
+    grep -q '^✖' "$L/build-$d.log" && unbuilt "$D/$d" "$L/build-$d.log"
+  done
   runs demo Kind2Template && kind2_template
 }

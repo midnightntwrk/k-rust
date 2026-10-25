@@ -75,9 +75,14 @@ reference to the generated `Step.Case.r`, a K edit to rule `r` changes the state
 proof must prove, and so reopens that hand case and no other.
 
 *Heartbeats.* In the `Preserved` and hand modes every rule's closers run with a fresh heartbeat
-count (`withCurrHeartbeats`), so `maxHeartbeats` bounds the work on one rule, as it bounds one
-per-case theorem of a kind 1 `Invariants.lean`, and a definition with many rules (SIMPLE's 169)
-does not need a larger limit for the whole proof.
+count and the budget `k2l.preserve.maxHeartbeats` (by default `maxHeartbeats`), as
+`maxHeartbeats` bounds one per-case theorem of a kind 1 `Invariants.lean`, so a definition with
+many rules (SIMPLE's 169) does not need a larger limit per rule. The elaboration of the proof
+after the tactic counts every rule's heartbeats, so a proof with many rules sets
+`maxHeartbeats 0` and bounds the rules by `k2l.preserve.maxHeartbeats`. A closer that reaches the
+budget (a runtime exception, which `try … catch` rethrows) leaves its rule open, restored, with
+the log line `k2l_preserve: rule r reached the heartbeat limit …`; the other rules are still
+attempted, and in the per-case mode the case is reported not closed.
 
 The unfolding set is: the head constant of `P` (for `OnCell proj Q`, also the heads of `proj`
 and `Q`; for `fun c => A c ∧ B c`, the heads of `A` and `B`), the `@[k2l_pres]` simp set, and
@@ -429,7 +434,7 @@ partial def injVars (e : Expr) (acc : Array (FVarId × Name) := #[]) :
 /-- Run the closers on the main goal `P lhs → P rhs` (the only goal); true when one of them
 closes it. Otherwise the goal is restored to its state on entry. `depth` bounds the case splits
 of closer 6 along one path. -/
-partial def closeRule (k : Closers) (depth : Nat := 2) : TacticM Bool := do
+partial def closeRuleAux (k : Closers) (depth : Nat := 2) : TacticM Bool := do
   let s0 ← saveState
   -- 1. untouched
   if ← closes (← `(tactic| (intro h; $(k.unfoldBoth); first | exact h | assumption))) then
@@ -487,7 +492,7 @@ partial def closeRule (k : Closers) (depth : Nat := 2) : TacticM Bool := do
             setGoals [sg]
             try evalTactic (← `(tactic| simp only [$(mkCIdent inj):ident] at *)) catch _ => pure ()
             if (← getGoals).isEmpty then continue
-            unless ← closeRule k (depth - 1) do
+            unless ← closeRuleAux k (depth - 1) do
               all := false
               break
           pure all
@@ -499,6 +504,28 @@ partial def closeRule (k : Closers) (depth : Nat := 2) : TacticM Bool := do
       s.restore
   unless ok do s0.restore
   return ok
+
+/-- `closeRuleAux`, where a closer that reaches the heartbeat limit (`maxHeartbeats`) leaves the
+goal open instead of ending the tactic: the limit is a runtime exception, which `try … catch`
+rethrows, so without this one expensive rule would end the proof of every rule after it (in
+the `Preserved` and hand modes) and turn a per-case theorem's "not closed" into a timeout. The
+goal is restored to its state on entry, as for any rule the closers do not close. -/
+def closeRule (k : Closers) : TacticM Bool := do
+  let s0 ← saveState
+  tryCatchRuntimeEx (closeRuleAux k) fun e => do
+    unless e.isMaxHeartbeat do throw e
+    s0.restore
+    logInfo m!"k2l_preserve: rule {← (← getMainGoal).getTag} reached the heartbeat limit in its closers; it is left open"
+    return false
+
+/-- Run `x`, one rule's work in the `Preserved` and hand modes, with a fresh heartbeat count and
+the budget `k2l.preserve.maxHeartbeats` (`maxHeartbeats` when it is `0`). -/
+def withRuleBudget {α : Type} (x : TacticM α) : TacticM α := do
+  let n := k2l.preserve.maxHeartbeats.get (← getOptions)
+  let now ← IO.getNumHeartbeats
+  withTheReader Core.Context
+    (fun ctx => { ctx with initHeartbeats := now
+                           maxHeartbeats := if n == 0 then ctx.maxHeartbeats else n * 1000 }) x
 
 /-- A goal `Step.Case.r P` of a generated `Preserves.lean` (any constant `….Step.Case.r` applied
 to `P` last): the constant, the rule name `r`, and `P`. -/
@@ -624,7 +651,7 @@ def perCase (k : Closers) (n : Name) (r : Name) (g : MVarId) : TacticM Bool := d
       | some c =>
         handNames := handNames.push r
         let ok ← try
-            let rest ← withCurrHeartbeats do cg.apply (← mkConstWithFreshMVarLevels c)
+            let rest ← withRuleBudget do cg.apply (← mkConstWithFreshMVarLevels c)
             pure rest.isEmpty
           catch e =>
             logError m!"k2l_preserve: the hand case {c} does not prove the case of rule {r}: {e.toMessageData}"
@@ -634,7 +661,7 @@ def perCase (k : Closers) (n : Name) (r : Name) (g : MVarId) : TacticM Bool := d
           residual := residual.push cg
           openNames := openNames.push r
       | none =>
-        if ← withCurrHeartbeats (perCase k n r cg) then
+        if ← withRuleBudget (perCase k n r cg) then
           closed := closed + 1
         else
           residual := residual ++ (← getGoals).toArray
@@ -653,7 +680,7 @@ def perCase (k : Closers) (n : Name) (r : Name) (g : MVarId) : TacticM Bool := d
   for rg in goals do
     let tag ← rg.getTag
     setGoals [rg]
-    if ← withCurrHeartbeats (closeRule k) then
+    if ← withRuleBudget (closeRule k) then
       closed := closed + 1
     else
       residual := residual.push rg

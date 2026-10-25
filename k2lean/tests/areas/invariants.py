@@ -36,6 +36,7 @@ DEMOS = {
     "KrsImpTyping": {"tier": "light"},
     "ImpWrites": {"tier": "light"},
     "Kind2Template": {"tier": "light"},
+    "InvBudget": {"tier": "light"},
     "SimpleEnv": {"tier": "heavy"},
 }
 
