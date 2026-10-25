@@ -38,7 +38,7 @@ pub const USAGE: &str = "usage: kink-flow check FLOW.toml | kink-flow results FL
                          TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS.toml \
                          | --reach RULE [--fired] | --pattern ID --patterns PATTERNS.toml) \
                          [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
-                         [--assume-joined NAME]... [--one-path] [--cache DIR] --no-confirm";
+                         [--assume-joined NAME]... [--one-path] [--cache DIR] [--no-confirm]";
 
 /// Run one command; returns the process exit status.
 pub fn execute(args: Vec<OsString>) -> u8 {
@@ -378,7 +378,9 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
             }
             "--attempts" => {
                 return Err(
-                    "--attempts: retries come with confirmation, which is not built yet".into(),
+                    "--attempts: there is no seed retry; when kink refuses the shrunk witness the \
+                     unshrunk one is confirmed, and nothing more (fz26 D33)"
+                        .into(),
                 );
             }
             "--cases" if budget.is_none() => {
@@ -467,13 +469,7 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
         }
         _ => return Err("give one job: --kill, --reach or --pattern".into()),
     };
-    if !no_confirm {
-        return Err(
-            "confirmation by kink's own run is not built yet: pass --no-confirm, then append the \
-             printed fragment and run `kink-flow run`"
-                .into(),
-        );
-    }
+    options.confirm = !no_confirm;
     if let Some(budget) = budget {
         options.budget = budget;
     }
@@ -492,7 +488,7 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
 
 /// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations
 /// MUTATIONS.toml | --reach RULE [--fired] | --pattern ID --patterns PATTERNS.toml) [options]
-/// --no-confirm`: the fuzz document ([`crate::fuzz`]) and the exit
+/// [--no-confirm]`: the fuzz document ([`crate::fuzz`]) and the exit
 /// status: [`EXIT_OK`] when the job was done (a witness printed as a `[[program]]` fragment, or
 /// none within the budget or the time limit); [`EXIT_CORPUS`] when an input, the template or the
 /// mutation is refused, the campaign is `not-comparable`, or a run failed.

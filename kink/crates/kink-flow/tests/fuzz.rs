@@ -200,8 +200,7 @@ fn the_command_line_refuses_what_t3a_does_not_build() {
         "--mutations",
         mutations,
     ];
-    // Confirmation is T4's: without --no-confirm the command refuses to run.
-    assert_eq!(run_cli(&base), EXIT_USAGE);
+    // Confirmation (KF-T4) is the default; --no-confirm turns it off, and there is no seed retry.
     for extra in [
         // One job per command.
         &["--no-confirm", "--reach", "imp.k:47"][..],
@@ -252,6 +251,47 @@ fn the_command_line_refuses_what_t3a_does_not_build() {
     unknown[6] = "no-such-mutation";
     unknown.push("--no-confirm");
     assert_eq!(run_cli(&unknown), EXIT_USAGE);
+}
+
+/// R2-REFRESH's M2 probe: every end holds a non-ASCII string, a domain value kink's end check
+/// refuses and k-rust's data judgement accepts.
+const NA_K: &str = "module NA-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= go(Int)
+endmodule
+
+module NA
+  imports NA-SYNTAX
+  imports INT
+  imports STRING
+  configuration <k> $PGM:Pgm </k> <out> \"\" </out>
+  rule <k> go(I) => .K </k> <out> _ => \"\u{e9}\" +String Int2String(I) </out>
+endmodule
+";
+const NA_FLOW: &str = "[spec]\nentry = \"na.k\"\nmain_module = \"NA\"\nsyntax_module = \
+                       \"NA-SYNTAX\"\n\n[[program]]\nid = \"one\"\ntext = \"go(1)\"\n";
+const NA_MUTATIONS: &str = "[[mutation]]\nid = \"plus-one\"\n[[mutation.edit]]\nline = 11\nfind = \
+                            \"Int2String(I)\"\nreplace = \"Int2String(I +Int 1)\"\n";
+const NA_TEMPLATES: &str = "[[template]]\nid = \"one-holes\"\nprogram = \"one\"\n\
+                            [[template.hole]]\nname = \"I\"\nsort = \"Int\"\nfind = \"go(1)\"\n\
+                            literal = \"1\"\nrange = { min = 0, max = 3 }\n";
+
+/// Every path under `dir` with its size, sorted.
+fn listing(dir: &Path) -> Vec<(PathBuf, u64)> {
+    let mut entries = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(next) = stack.pop() {
+        for entry in fs::read_dir(&next).unwrap() {
+            let entry = entry.unwrap();
+            let metadata = entry.metadata().unwrap();
+            if metadata.is_dir() {
+                stack.push(entry.path());
+            }
+            entries.push((entry.path(), metadata.len()));
+        }
+    }
+    entries.sort();
+    entries
 }
 
 /// A small definition for the reach and pattern jobs (T5): `run(X)` steps to `step(dbl(X))`,
@@ -581,10 +621,25 @@ mod kink_tier {
                 None,
                 template,
                 mutation,
-                imp_options(300),
+                FuzzOptions {
+                    confirm: true,
+                    ..imp_options(300)
+                },
             );
             assert!(ok, "{mutation}: {:#}", document["action"]);
             assert_eq!(document["stopped"], Value::Null, "{mutation}");
+            // kink's own run (KF-T4), on the flow with the fragment alone, kills with it.
+            let confirmation = &document["attempts"][0]["confirmation"];
+            assert_eq!(
+                confirmation["confirmed"], true,
+                "{mutation}: {confirmation:#}"
+            );
+            assert_eq!(confirmation["status"], "killed", "{mutation}");
+            assert_eq!(
+                confirmation["killer"], document["program"]["id"],
+                "{mutation}"
+            );
+            assert_eq!(document["program"]["confirmed"], true, "{mutation}");
             assert_eq!(document["job"]["outcome"], "fuzzed");
             assert_eq!(document["job"]["path_mode"], "all-paths");
             let fragment = document["program"]["fragment"].as_str().unwrap();
@@ -1143,6 +1198,144 @@ mod kink_tier {
         }
     }
 
+    /// A witness kink's own run refuses is not offered (KF-T4): on NA every end holds a non-ASCII
+    /// string, which the fuzz's data judgement accepts and kink's end check does not, so the
+    /// confirmation is refused with kink's cause, the job stops `unconfirmed` and prints no
+    /// program. The confirmation writes nothing under the flow's directory.
+    #[test]
+    #[ignore = "kink"]
+    fn a_witness_kink_refuses_is_unconfirmed_with_kinks_cause() {
+        let dir = scratch_flow("nonascii", "na.k", NA_K, NA_FLOW, NA_MUTATIONS);
+        let before = listing(&dir);
+        let (document, ok) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(NA_TEMPLATES),
+            "one-holes",
+            "plus-one",
+            FuzzOptions {
+                confirm: true,
+                ..imp_options(20)
+            },
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(document["stopped"], "unconfirmed", "{document:#}");
+        assert_eq!(document["program"], Value::Null);
+        let confirmation = &document["attempts"][0]["confirmation"];
+        assert_eq!(confirmation["confirmed"], false, "{confirmation:#}");
+        assert_ne!(confirmation["status"], "killed", "{confirmation:#}");
+        assert!(!confirmation["cause"].is_null(), "{confirmation:#}");
+        assert_eq!(listing(&dir), before, "nothing is written under the flow");
+        // Without confirmation the same candidate is offered, unconfirmed.
+        let (unconfirmed, ok) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(NA_TEMPLATES),
+            "one-holes",
+            "plus-one",
+            imp_options(20),
+        );
+        assert!(ok);
+        assert_eq!(
+            unconfirmed["program"]["confirmed"], false,
+            "{unconfirmed:#}"
+        );
+        assert_eq!(unconfirmed["attempts"][0]["confirmation"], Value::Null);
+    }
+
+    /// When kink refuses the shrunk witness, the unshrunk one is confirmed (KF-T4): only `go(0)`
+    /// writes the non-ASCII string, the shrunk case is `I = 0`, and the first case (the template's
+    /// own `go(2)`) kills under kink's run.
+    #[test]
+    #[ignore = "kink"]
+    fn the_unshrunk_witness_is_confirmed_when_the_shrunk_one_is_refused() {
+        let spec = "module NA-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= go(Int)
+endmodule
+
+module NA
+  imports NA-SYNTAX
+  imports INT
+  imports STRING
+  configuration <k> $PGM:Pgm </k> <out> \"\" </out>
+  rule <k> go(0) => .K </k> <out> _ => \"\u{e9}\" </out>
+  rule <k> go(I) => .K </k> <out> _ => Int2String(I) </out> requires I =/=Int 0
+endmodule
+";
+        let mutations = "[[mutation]]\nid = \"both\"\n[[mutation.edit]]\nline = 11\nfind = \
+                         \"\\\"\u{e9}\\\"\"\nreplace = \"\\\"\u{e8}\\\"\"\n[[mutation.edit]]\nline = \
+                         12\nfind = \"Int2String(I)\"\nreplace = \"Int2String(I +Int 1)\"\n";
+        let flow_toml = NA_FLOW.replace("go(1)", "go(2)");
+        let templates = NA_TEMPLATES
+            .replace("go(1)", "go(2)")
+            .replace("\"1\"", "\"2\"");
+        let dir = scratch_flow("unshrunk", "na.k", spec, &flow_toml, mutations);
+        let (document, ok) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(&templates),
+            "one-holes",
+            "both",
+            FuzzOptions {
+                confirm: true,
+                ..imp_options(20)
+            },
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(document["stopped"], Value::Null, "{document:#}");
+        let attempt = &document["attempts"][0];
+        assert_eq!(attempt["candidate"]["case"], "first", "{attempt:#}");
+        assert_eq!(attempt["confirmation"]["confirmed"], true, "{attempt:#}");
+        let refused = attempt["refused_confirmations"].as_array().unwrap();
+        assert_eq!(refused.len(), 1, "{attempt:#}");
+        assert_eq!(refused[0]["case"], "shrunk");
+        assert_eq!(document["program"]["confirmed"], true);
+    }
+
+    /// A premise given on the command line only confirms under the overlay (KF-T4): r3-plainq's
+    /// finding, named with `--assume-joined` and absent from `FLOW.toml`, lets kink's run kill;
+    /// the premise is printed as not in the flow.
+    #[test]
+    #[ignore = "kink"]
+    fn a_premise_given_on_the_command_line_confirms_under_the_overlay() {
+        let dir = flow("findings/r3-plainq");
+        let (strict, _) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(REPRO_TEMPLATE),
+            "go",
+            "store-changed",
+            FuzzOptions::default(),
+        );
+        let names = strict["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["name"].as_str().unwrap().to_owned())
+            .collect::<BTreeSet<_>>();
+        let (document, ok) = fuzz_kill(
+            &dir,
+            "MUTATIONS.toml",
+            Some(REPRO_TEMPLATE),
+            "go",
+            "store-changed",
+            FuzzOptions {
+                assume_joined: names.into_iter().collect(),
+                confirm: true,
+                ..FuzzOptions::default()
+            },
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(
+            document["attempts"][0]["confirmation"]["status"], "killed",
+            "{document:#}"
+        );
+        assert_eq!(document["program"]["confirmed"], true);
+        let premises = document["program"]["premises"].as_array().unwrap();
+        assert!(!premises.is_empty() && premises.iter().all(|p| p["in_flow"] == false));
+    }
+
     /// The reach job (T5) finds a program whose comparable all-paths run applies `big` (`--fired`:
     /// `dbl(X) > 10`, so `X >= 6`), and kink's own `results`, with the fragment appended, lists
     /// it in the rule's `fired_by`; without `--fired` any program reaches `big`'s condition. The
@@ -1162,6 +1355,20 @@ mod kink_tier {
         };
         let (document, ok) = fired();
         assert!(ok, "{document:#}");
+        let (confirmed, _) = run_job(
+            &dir,
+            STEPS_TEMPLATES,
+            "run-holes",
+            Job::Reach("big".into(), true),
+            FuzzOptions {
+                confirm: true,
+                ..imp_options(40)
+            },
+        );
+        let confirmation = &confirmed["attempts"][0]["confirmation"];
+        assert_eq!(confirmation["confirmed"], true, "{confirmation:#}");
+        assert_eq!(confirmation["status"], "reached");
+        assert_eq!(confirmation["class"], "comparable");
         assert_eq!(
             document["stopped"],
             Value::Null,
@@ -1316,6 +1523,20 @@ mod kink_tier {
         );
         assert!(ok, "{document:#}");
         assert_eq!(document["job"]["kind"], "pattern");
+        let (confirmed, _) = run_job(
+            &dir,
+            STEPS_TEMPLATES,
+            "run-holes",
+            Job::Pattern(list.clone(), "big-step".into()),
+            FuzzOptions {
+                confirm: true,
+                ..imp_options(40)
+            },
+        );
+        let confirmation = &confirmed["attempts"][0]["confirmation"];
+        assert_eq!(confirmation["confirmed"], true, "{confirmation:#}");
+        assert_eq!(confirmation["status"], "confirmed");
+        assert_eq!(confirmation["answer"], "hit");
         assert_eq!(document["assumed"], Value::Array(Vec::new()));
         assert!(
             document["job"]["pattern"]["kore"].is_string(),

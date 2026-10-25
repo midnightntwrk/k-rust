@@ -57,8 +57,13 @@
 //!
 //! **Output.** One document ([`FUZZ_SCHEMA`]): the fuzz report of the attempt, the candidate (the
 //! shrunk witness case, else the first), and the `[[program]]` fragment, printed, never written.
-//! T3a has no confirmation (`--no-confirm` is the only mode): kink's `run` proves the program once
-//! it is in the corpus. Nothing is cached and nothing under the flow's directory is written.
+//! **Confirmation** (T4). Unless `--no-confirm` is given ([`FuzzOptions::confirm`]), kink's own
+//! code confirms the candidate on an overlay of the flow held in memory, with the fragment as its
+//! only program and a scratch cache removed on every path (`confirm`): `run` for a kill,
+//! `results` for a reach, `query` for a pattern. When kink refuses the shrunk case and the first
+//! is another program, the first is confirmed too; there is no seed retry. A candidate kink
+//! refuses is not offered (`stopped: unconfirmed`). Nothing under the flow's directory or the
+//! cache is written.
 
 use crate::{
     admit::{AdmittedSpec, ProgramInputs, admit_spec},
@@ -69,6 +74,7 @@ use crate::{
     report::claims_value,
     results::kebab,
     search::status_name,
+    search::{ProgramOrder, RunMode, RunOptions},
 };
 use k_rust::kore::{
     ast::{Pattern as KorePattern, Sentence},
@@ -114,7 +120,7 @@ use toml::{Table, Value as Toml};
 /// The document's `schema`.
 pub const FUZZ_SCHEMA: &str = "kink-flow-fuzz";
 /// The document's `version`.
-pub const FUZZ_VERSION: u32 = 1;
+pub const FUZZ_VERSION: u32 = 2;
 /// The cases of a campaign that names neither `--cases` nor `--work`.
 pub const DEFAULT_CASES: u64 = 1000;
 /// The `max_work` of every case when `--max-work` is not given.
@@ -439,6 +445,9 @@ pub struct FuzzOptions {
     /// `--cache DIR`: where the last `run` document is read from (default `.kink-flow` beside
     /// `FLOW.toml`); only read, for the template's class and the mutation's reaching programs.
     pub cache: Option<PathBuf>,
+    /// Confirm each candidate with kink's own code (KF-T4; the command line's default, off with
+    /// `--no-confirm`). Off in [`FuzzOptions::default`], so a library caller asks for it.
+    pub confirm: bool,
 }
 
 impl Default for FuzzOptions {
@@ -451,6 +460,7 @@ impl Default for FuzzOptions {
             assume_joined: Vec::new(),
             paths: PathMode::AllPaths,
             cache: None,
+            confirm: false,
         }
     }
 }
@@ -1378,7 +1388,8 @@ pub fn fuzz_job(
             "--time-limit-ms bounds the campaign's run only: kink's admission, the mutant's \
              preparation, the definition exclusions and the campaign's setup (k-rust-fuzz \
              Campaign::new: both grammars and backends, and both definitions' full critical-pair \
-             checks) run before the watchdog starts, and no time limit bounds them",
+             checks) run before the watchdog starts, and the confirmation by kink's own code runs \
+             after it (kink's `time_ms` bounds each of its runs); no time limit bounds them",
         ));
     }
     if let FuzzJob::Kill { mutation, .. } = job {
@@ -1801,46 +1812,107 @@ pub fn fuzz_job(
     };
     let ok = match &report.outcome {
         CampaignOutcome::WitnessFound { witness } => {
-            let (case, which) = witness
-                .shrunk
-                .as_ref()
-                .map_or((&witness.first, "first"), |shrunk| (shrunk, "shrunk"));
-            let mut candidate = serde_json::to_value(case).expect("a witness case encodes");
-            candidate["case"] = json!(which);
-            let fragment = fragment(template, &instance, case);
-            let assembly =
-                check_assembly(&spec, &mut inputs, &fragment.program, &fragment.text, case);
-            candidate["assembly"] = assembly.value();
-            attempt["candidate"] = candidate;
-            if assembly != AssemblyCheck::Match {
-                document["stopped"] = json!("assembly-mismatch");
-                document["action"] = json!(format!(
-                    "the witness is no kink witness: kink's assembly of its program does not \
-                     give the input the campaign judged ({}); nothing is offered. Report it, or \
-                     try another seed or template",
-                    match &assembly {
-                        AssemblyCheck::Mismatch { detail, .. } => detail.clone(),
-                        AssemblyCheck::Refused { reason, detail } => {
-                            format!("kink refuses the program's input, {reason}: {detail}")
-                        }
-                        AssemblyCheck::Match => unreachable!(),
-                    }
-                ));
-                document["attempts"] = json!([attempt]);
-                return (document, true);
+            // The candidates, in order: the shrunk case (else the first), then the first when
+            // kink refuses the shrunk one and the first is another program (KF-T4).
+            let mut cases = vec![
+                witness
+                    .shrunk
+                    .as_ref()
+                    .map_or((&witness.first, "first"), |shrunk| (shrunk, "shrunk")),
+            ];
+            if witness.shrunk.is_some() && options.confirm {
+                cases.push((&witness.first, "first"));
             }
-            let (id, file) = (fragment.id.clone(), fragment.file.clone());
             let premises = if reads_data {
                 premises(manifest, options, &report)
             } else {
                 Vec::new()
             };
+            let mut refused = Vec::new();
+            let mut offered = None;
+            for (case, which) in cases {
+                let fragment = fragment(template, &instance, case);
+                if refused
+                    .iter()
+                    .any(|(id, _): &(String, Value)| id == &fragment.id)
+                {
+                    continue;
+                }
+                let mut candidate = serde_json::to_value(case).expect("a witness case encodes");
+                candidate["case"] = json!(which);
+                let assembly =
+                    check_assembly(&spec, &mut inputs, &fragment.program, &fragment.text, case);
+                candidate["assembly"] = assembly.value();
+                if assembly != AssemblyCheck::Match {
+                    if offered.is_none() && refused.is_empty() {
+                        attempt["candidate"] = candidate;
+                        document["stopped"] = json!("assembly-mismatch");
+                        document["action"] = json!(format!(
+                            "the witness is no kink witness: kink's assembly of its program does \
+                             not give the input the campaign judged ({}); nothing is offered. \
+                             Report it, or try another seed or template",
+                            match &assembly {
+                                AssemblyCheck::Mismatch { detail, .. } => detail.clone(),
+                                AssemblyCheck::Refused { reason, detail } => {
+                                    format!("kink refuses the program's input, {reason}: {detail}")
+                                }
+                                AssemblyCheck::Match => unreachable!(),
+                            }
+                        ));
+                        document["attempts"] = json!([attempt]);
+                        return (document, true);
+                    }
+                    continue;
+                }
+                if !options.confirm {
+                    attempt["candidate"] = candidate;
+                    offered = Some((fragment, false));
+                    break;
+                }
+                let mut confirmation = confirm(manifest, options, job, &fragment);
+                confirmation["case"] = json!(which);
+                let confirmed = confirmation["confirmed"] == true;
+                attempt["candidate"] = candidate;
+                attempt["confirmation"] = confirmation.clone();
+                if confirmed {
+                    offered = Some((fragment, true));
+                    break;
+                }
+                refused.push((fragment.id.clone(), confirmation));
+            }
+            if refused.len() > 1 {
+                attempt["refused_confirmations"] =
+                    Value::Array(refused.iter().map(|(_, c)| c.clone()).collect());
+            } else if let (Some(_), [(_, earlier)]) = (&offered, refused.as_slice()) {
+                attempt["refused_confirmations"] = json!([earlier]);
+            }
+            let Some((fragment, confirmed)) = offered else {
+                // Every candidate kink was asked about was refused.
+                let (_, last) = refused.last().expect("a refused candidate");
+                document["stopped"] = json!("unconfirmed");
+                document["action"] = json!(format!(
+                    "kink's own {} does not confirm the witness ({}: {}); nothing is offered. \
+                     Try another template, seed or hole range",
+                    match job {
+                        FuzzJob::Kill { .. } => "run",
+                        FuzzJob::Reach { .. } => "results",
+                        FuzzJob::Pattern { .. } => "query",
+                    },
+                    last["status"].as_str().unwrap_or("refused"),
+                    last["cause"]
+                        .as_str()
+                        .map_or_else(|| last["reason"].to_string(), str::to_owned),
+                ));
+                document["attempts"] = json!([attempt]);
+                return (document, true);
+            };
+            let (id, file) = (fragment.id.clone(), fragment.file.clone());
             document["program"] = json!({
                 "id": id,
                 "fragment": fragment.toml,
                 "file": file,
                 "premises": premises,
-                "confirmed": false,
+                "confirmed": confirmed,
             });
             let missing = premises
                 .iter()
@@ -1852,23 +1924,35 @@ pub fn fuzz_job(
                  and give it as file)",
                 file.as_deref().unwrap_or("a file")
             );
-            let mut action = match job {
-                FuzzJob::Kill { mutation, .. } => format!(
-                    "{append}, then run `kink-flow run FLOW.toml MUTATIONS.toml --only \
-                     {mutation}`: kink's own run proves the kill and writes the hint"
-                ),
-                FuzzJob::Reach { fired, .. } => format!(
-                    "{append}, then run `kink-flow results FLOW.toml`: the rule's {} lists the \
-                     program once kink's own run of it is comparable",
-                    if fired { "fired_by" } else { "reached_by" }
-                ),
-                FuzzJob::Pattern { id: pattern, .. } => format!(
-                    "{append}, add {id:?} to the `programs` of pattern {pattern:?} in \
-                     PATTERNS.toml, then run `kink-flow query FLOW.toml PATTERNS.toml --only \
-                     {pattern}`: kink's own search confirms the claim"
-                ),
+            let mut action = if confirmed {
+                format!(
+                    "{append}: kink's own {} confirmed it on the flow with this program alone",
+                    match job {
+                        FuzzJob::Kill { .. } => "run (killed, with the fragment as killer)",
+                        FuzzJob::Reach { .. } => "results (comparable, and listed for the rule)",
+                        FuzzJob::Pattern { .. } => "query (the claim is confirmed)",
+                    }
+                )
+            } else {
+                let mut action = match job {
+                    FuzzJob::Kill { mutation, .. } => format!(
+                        "{append}, then run `kink-flow run FLOW.toml MUTATIONS.toml --only \
+                         {mutation}`: kink's own run proves the kill and writes the hint"
+                    ),
+                    FuzzJob::Reach { fired, .. } => format!(
+                        "{append}, then run `kink-flow results FLOW.toml`: the rule's {} lists \
+                         the program once kink's own run of it is comparable",
+                        if fired { "fired_by" } else { "reached_by" }
+                    ),
+                    FuzzJob::Pattern { id: pattern, .. } => format!(
+                        "{append}, add {id:?} to the `programs` of pattern {pattern:?} in \
+                         PATTERNS.toml, then run `kink-flow query FLOW.toml PATTERNS.toml --only \
+                         {pattern}`: kink's own search confirms the claim"
+                    ),
+                };
+                action.push_str(". This command did not confirm it (--no-confirm)");
+                action
             };
-            action.push_str(". This command did not confirm it (--no-confirm)");
             if !missing.is_empty() {
                 action.push_str(&format!(
                     "; first add to [spec] assume_joined the premises FLOW.toml lacks: {}",
@@ -2175,4 +2259,191 @@ fn lower_pattern(
         .lower(text, searcher.definition())
         .map(|lowered| lowered.kore())
         .map_err(|detail| Refusal::new("pattern", INVALID_PATTERN, detail))
+}
+
+/// A scratch directory, removed when dropped.
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn new() -> std::io::Result<Self> {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos());
+        let path = std::env::temp_dir().join(format!(
+            "kink-flow-fuzz-confirm-{}-{nanos}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&path)?;
+        Ok(Self(path))
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// kink's own verdict on a candidate (KF-T4), by kink's code on an overlay of the flow: its
+/// `[spec]` with the flow's names and the command line's assumed (sorted, without repeats), its
+/// `[budget]`, and the fragment as the only `[[program]]`, with a fresh scratch cache removed on
+/// every path, so nothing under the flow's directory or `--cache` changes. A kill is confirmed
+/// when `run` kills the mutation with the fragment as killer; a reach when `results` gives the
+/// fragment class `comparable` and lists it in the rule's `reached_by` (`fired_by`); a pattern
+/// when `query`, asked with `programs = [fragment]`, confirms the claim. The value is
+/// `{confirmed, status, reason, cause}` and the job's `killer`, `class` or `answer`.
+fn confirm(
+    manifest: &FlowManifest,
+    options: &FuzzOptions,
+    job: FuzzJob<'_>,
+    fragment: &Fragment,
+) -> Value {
+    let scratch = match Scratch::new() {
+        Ok(scratch) => scratch,
+        Err(error) => {
+            return json!({
+                "confirmed": false,
+                "status": "error",
+                "reason": "scratch-directory",
+                "cause": format!("no scratch cache for the confirmation: {error}"),
+            });
+        }
+    };
+    let mut overlay = manifest.clone();
+    overlay.programs = vec![fragment.program.clone()];
+    let mut names = manifest.spec.assume_joined.clone();
+    names.extend(options.assume_joined.iter().cloned());
+    names.sort();
+    names.dedup();
+    overlay.spec.assume_joined = names;
+    let cache = Some(scratch.0.clone());
+    let id = fragment.id.as_str();
+    match job {
+        FuzzJob::Kill { list, mutation } => {
+            let list = MutationList {
+                mutations: list
+                    .mutations
+                    .iter()
+                    .filter(|m| m.id == mutation)
+                    .cloned()
+                    .collect(),
+            };
+            let (run, _) = crate::search::run_with(
+                &overlay,
+                &list,
+                &RunOptions {
+                    only: vec![mutation.to_owned()],
+                    cache,
+                    order: ProgramOrder::Corpus,
+                    compile_workers: Some(1),
+                    ..RunOptions::default()
+                },
+                RunMode::Search,
+            );
+            let row = run["mutations"]
+                .as_array()
+                .and_then(|rows| rows.iter().find(|row| row["id"] == mutation))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let program = run["programs"]
+                .as_array()
+                .and_then(|rows| rows.iter().find(|row| row["id"] == id))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let killed = row["status"] == "killed" && row["killer"] == id;
+            let cause = if killed {
+                Value::Null
+            } else if program["cause"].is_null() {
+                run["spec"]["detail"].clone()
+            } else {
+                program["cause"].clone()
+            };
+            json!({
+                "confirmed": killed,
+                "status": row["status"],
+                "reason": row["reason"],
+                "killer": row["killer"],
+                "class": program["class"],
+                "cause": cause,
+            })
+        }
+        FuzzJob::Reach { fired, .. } => {
+            let (document, _) = crate::results::results(
+                &overlay,
+                &crate::results::ResultsOptions {
+                    cache,
+                    ..crate::results::ResultsOptions::default()
+                },
+            );
+            let program = document["programs"]
+                .as_array()
+                .and_then(|rows| rows.iter().find(|row| row["id"] == id))
+                .cloned()
+                .unwrap_or(Value::Null);
+            let key = if fired { "fired_by" } else { "reached_by" };
+            let listed = document["rules"].as_array().is_some_and(|rules| {
+                rules.iter().any(|rule| {
+                    rule[key]
+                        .as_array()
+                        .is_some_and(|programs| programs.iter().any(|p| p == id))
+                })
+            });
+            let comparable = program["class"] == "comparable";
+            json!({
+                "confirmed": comparable && listed,
+                "status": if comparable && listed { "reached" } else { "unreached" },
+                "reason": if !comparable {
+                    "not-comparable"
+                } else if listed {
+                    "listed"
+                } else {
+                    "not-listed"
+                },
+                "class": program["class"],
+                "cause": if program["cause"].is_null() {
+                    document["spec"]["detail"].clone()
+                } else {
+                    program["cause"].clone()
+                },
+            })
+        }
+        FuzzJob::Pattern { list, id: pattern } => {
+            let claimed = PatternList {
+                patterns: list
+                    .patterns
+                    .iter()
+                    .filter(|p| p.id == pattern)
+                    .map(|p| crate::pattern::PatternEntry {
+                        programs: Some(vec![id.to_owned()]),
+                        ..p.clone()
+                    })
+                    .collect(),
+            };
+            let (document, _) = crate::query::query(
+                &overlay,
+                &claimed,
+                &crate::query::QueryOptions {
+                    only: vec![pattern.to_owned()],
+                    cache,
+                    verify: false,
+                },
+            );
+            let row = document["rows"]
+                .as_array()
+                .and_then(|rows| rows.iter().find(|row| row["program"] == id))
+                .cloned()
+                .unwrap_or(Value::Null);
+            json!({
+                "confirmed": row["claim"] == "confirmed",
+                "status": row["claim"],
+                "reason": row["answer"],
+                "answer": row["answer"],
+                "cause": if row.is_null() {
+                    document["spec"]["detail"].clone()
+                } else {
+                    row["cause"].clone()
+                },
+            })
+        }
+    }
 }
