@@ -256,6 +256,37 @@ fn collection_cell_with_config_variable_warns_without_initial() {
         warnings[0].message,
         "Configuration variable found in declaration of collection cell <bad>. Implicitly, this causes the initial configuration to start with one <bad> element instead of zero. Add the `initial=\"\"` attribute to make that behavior explicit."
     );
+    // The warning is located at the configuration that declares the cell.
+    let configuration = definition.modules[0]
+        .local_sentences
+        .iter()
+        .find(|sentence| matches!(***sentence, Sentence::Configuration { .. }))
+        .unwrap();
+    assert!(warnings[0].location.is_some());
+    assert_eq!(warnings[0].location, configuration.attributes().location());
+}
+
+#[test]
+fn collection_cell_with_a_stream_cell_names_the_stream_cause() {
+    let definition = parsed(indoc! {r#"
+        module MAIN
+          configuration
+            <top>
+              <k> $PGM:K </k>
+              <console multiplicity="?"> <out stream="stdout"> .K </out> </console>
+            </top>
+        endmodule
+    "#});
+    let (_, diagnostics) = expand_configurations_with_diagnostics(&definition).unwrap();
+    let warnings = diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.code == DiagnosticCode::CellCollectionVarWithoutInitial)
+        .collect::<Vec<_>>();
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(
+        warnings[0].message,
+        "Collection cell <console> contains a stream cell, or an external cell whose initializer reads the configuration variables. Implicitly, this causes the initial configuration to start with one <console> element instead of zero. Add the `initial=\"\"` attribute to make that behavior explicit."
+    );
 }
 
 fn attributes(attributes: &Attributes) -> String {
