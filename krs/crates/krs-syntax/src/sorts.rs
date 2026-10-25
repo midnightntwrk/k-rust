@@ -315,3 +315,55 @@ fn parse_plain_path(input: ParseStream<'_>, role: &str) -> syn::Result<Path> {
     }
     Ok(path)
 }
+
+#[cfg(test)]
+mod keyed {
+    use super::{SortsMembership, SortsSort};
+    use crate::SyntaxError;
+    use crate::keyed_nodes::KeyedNodes;
+
+    impl SortsSort {
+        /// Records the keys of the sort's name and of each parent path.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.name_key.as_ref(), &self.name)?;
+            assert!(self.parent_keys.len() <= self.parents.len());
+            for (key, parent) in self.parent_keys.iter().zip(&self.parents) {
+                nodes.push_tokens(Some(key), parent)?;
+            }
+            Ok(())
+        }
+
+        /// Records the keys of the descriptor of the bracket at `index`: the
+        /// bracket's, then the sort's name, which holds the first key of its
+        /// role in both descriptors.
+        pub(crate) fn keyed_bracket_nodes(
+            &self,
+            index: usize,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            self.brackets[index].keyed_nodes(nodes)?;
+            nodes.push_tokens(self.name_key.as_ref(), &self.name)
+        }
+    }
+
+    impl SortsMembership {
+        /// Records the keys of the descriptor of the member at `index`: the
+        /// member, as the subsort declaration and its sub-sort, and the
+        /// supersort, which holds the first key of its role in every
+        /// member's descriptor.
+        pub(crate) fn keyed_member_nodes(
+            &self,
+            index: usize,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            assert!(self.member_keys.len() <= self.members.len());
+            if let Some(keys) = self.member_keys.get(index) {
+                assert_eq!(keys.len(), 2);
+                for key in keys {
+                    nodes.push_tokens(Some(key), &self.members[index])?;
+                }
+            }
+            nodes.push_tokens(self.supersort_key.as_ref(), &self.supersort)
+        }
+    }
+}

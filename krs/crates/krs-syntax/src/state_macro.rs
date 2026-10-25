@@ -2346,3 +2346,146 @@ fn state_error(macro_name: &'static str, reason: &'static str, span: Span) -> Sy
         span,
     )
 }
+
+#[cfg(test)]
+mod keyed {
+    use super::{
+        CellsExpression, InstanceItem, InstanceList, KSequence, KSequenceNotation, MapBody,
+        MapExpression, StateTerm,
+    };
+    use crate::SyntaxError;
+    use crate::keyed_nodes::KeyedNodes;
+
+    impl KSequence {
+        /// Records the sequence's keyed nodes: the payload, each item and
+        /// its nodes, then the tail (its remainder, or the authored `.K`).
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.payload_key.as_ref(), &self.tokens)?;
+            for item in &self.items {
+                item.keyed_nodes(nodes)?;
+            }
+            if let Some(range) = self.tail.range() {
+                nodes.push(self.tail_key.as_ref(), range);
+            } else if self.notation == KSequenceNotation::DotK {
+                nodes.push_tokens(self.tail_key.as_ref(), &self.tokens)?;
+            } else {
+                assert!(self.tail_key.is_none(), "a tail key without a tail");
+            }
+            Ok(())
+        }
+    }
+
+    impl MapExpression {
+        /// Records the map's keyed nodes: the payload, each key and value
+        /// (or update base, key and value) and their nodes, then the
+        /// remainder.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.payload_key.as_ref(), &self.tokens)?;
+            match &self.body {
+                MapBody::Empty { .. } => {}
+                MapBody::Items { items, remainder } => {
+                    for item in items {
+                        item.key.keyed_nodes(nodes)?;
+                        item.value.keyed_nodes(nodes)?;
+                    }
+                    if let Some(range) = remainder.range() {
+                        nodes.push(self.remainder_key.as_ref(), range);
+                    }
+                }
+                MapBody::Update { base, key, value } => {
+                    for term in [base, key, value] {
+                        term.keyed_nodes(nodes)?;
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+
+    impl StateTerm {
+        /// Records the keyed nodes of the state: its term, sequence or map,
+        /// the state under `Some(..)`, or each instance of a collection.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            match self {
+                Self::Term(term) | Self::Group(term) => term.keyed_nodes(nodes),
+                Self::KSequence(sequence) => sequence.keyed_nodes(nodes),
+                Self::Map(map) => map.keyed_nodes(nodes),
+                Self::Present(inner) => inner.keyed_nodes(nodes),
+                Self::Absent(_) => Ok(()),
+                Self::Instances(list) => list.keyed_nodes(nodes),
+            }
+        }
+    }
+
+    impl InstanceItem {
+        /// Records the instance's keyed nodes: the instance record, then
+        /// each field's name and value.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push(self.key.as_ref(), self.range);
+            for field in &self.fields {
+                nodes.push_tokens(field.name_key.as_ref(), &field.name)?;
+                field.value.keyed_nodes(nodes)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl InstanceList {
+        /// Records the collection's keyed nodes: its instances and its rest.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            for item in self.instances() {
+                item.keyed_nodes(nodes)?;
+            }
+            if let Some(range) = self.rest.range() {
+                nodes.push(self.rest_key.as_ref(), range);
+            }
+            Ok(())
+        }
+
+        /// Records the keys of the collection's structure: each instance
+        /// record and child name, and the rest, without the children's
+        /// states.
+        pub(crate) fn keyed_structure(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            for item in self.instances() {
+                nodes.push(item.key.as_ref(), item.range);
+                for field in &item.fields {
+                    nodes.push_tokens(field.name_key.as_ref(), &field.name)?;
+                }
+            }
+            if let Some(range) = self.rest.range() {
+                nodes.push(self.rest_key.as_ref(), range);
+            }
+            Ok(())
+        }
+    }
+
+    impl CellsExpression {
+        /// Records the configuration's keyed nodes: the payload, each
+        /// entry's cell name and wrapper, then the remainder. The entries'
+        /// values are keyed by the sentence that holds the configuration (a
+        /// configuration standing alone does not key them: each value keeps
+        /// the keys of its own parse).
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.payload_key.as_ref(), &self.tokens)?;
+            for entry in &self.entries {
+                nodes.push_tokens(entry.name_key.as_ref(), &entry.name)?;
+                if let Some(wrapper) = &entry.wrapper {
+                    nodes.push_tokens(entry.wrapper_key.as_ref(), wrapper)?;
+                }
+            }
+            if let Some(range) = self.remainder.range() {
+                nodes.push(self.remainder_key.as_ref(), range);
+            }
+            Ok(())
+        }
+
+        /// Records the keyed nodes of the entries' values, which the sentence
+        /// that holds the configuration keyed.
+        pub(crate) fn keyed_values(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            for entry in &self.entries {
+                entry.value.keyed_nodes(nodes)?;
+            }
+            Ok(())
+        }
+    }
+}

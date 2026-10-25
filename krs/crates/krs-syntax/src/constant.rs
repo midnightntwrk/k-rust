@@ -241,3 +241,19 @@ fn check_ground(expression: &Expr, name: &Ident) -> Result<(), SyntaxError> {
         other => not_ground("this expression", other.span()),
     }
 }
+
+#[cfg(test)]
+impl ConstantItem {
+    /// Records the keys of the name, the type, the value (its payload, at
+    /// the item's value expression) and the value's nodes.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        nodes.push_tokens(self.name_key.as_ref(), &self.item.ident)?;
+        nodes.push_tokens(self.type_key.as_ref(), self.sort.ty())?;
+        nodes.push_tokens(self.value.keys().payload(), &self.item.expr)?;
+        assert!(self.value.keys().term().is_none());
+        self.value.keyed_parts(nodes)
+    }
+}

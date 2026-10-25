@@ -15,6 +15,8 @@ mod function_shorthand;
 mod grammar;
 mod initializer;
 mod item;
+#[cfg(test)]
+mod keyed_nodes;
 pub mod keyword;
 mod lexical;
 mod list_notation;

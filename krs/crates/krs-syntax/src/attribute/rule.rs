@@ -1122,3 +1122,105 @@ pub(super) fn parse_result_sort(value: Expr) -> Result<Path, ParseError> {
         .into()),
     }
 }
+
+#[cfg(test)]
+impl ClaimBinder {
+    /// Records the keys of the binder and its name, at the name, and of its
+    /// sort.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        nodes.push_tokens(self.key.as_ref(), &self.name)?;
+        nodes.push_tokens(self.name_key.as_ref(), &self.name)?;
+        nodes.push_tokens(self.sort_key.as_ref(), &self.sort)
+    }
+}
+
+#[cfg(test)]
+impl RuleAttribute {
+    /// Records the keys of the label, `owise`, the priority, `nondet`,
+    /// `anywhere`, the evaluation marker, the hole and the result.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        if let Some(label) = &self.label {
+            nodes.push_tokens(self.label_key.as_ref(), label)?;
+        }
+        if let Some(owise) = &self.owise {
+            nodes.push_tokens(self.owise_key.as_ref(), owise)?;
+        }
+        if let Some(priority) = &self.priority {
+            nodes.push_tokens(self.priority_key.as_ref(), &priority.literal)?;
+        }
+        if let Some(nondet) = &self.nondet {
+            nodes.push_tokens(self.nondet_key.as_ref(), nondet)?;
+        }
+        if let Some(anywhere) = &self.anywhere {
+            nodes.push_tokens(self.anywhere_key.as_ref(), anywhere)?;
+        }
+        if let Some((_, marker)) = &self.evaluation {
+            nodes.push_tokens(self.evaluation_key.as_ref(), marker)?;
+        }
+        if let Some(hole) = &self.hole {
+            nodes.push_tokens(self.hole_key.as_ref(), hole)?;
+        }
+        if let Some(result) = &self.result {
+            nodes.push_tokens(self.result_key.as_ref(), result)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl ClaimAttribute {
+    /// Records the keys of the modality, the label and the modifiers.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        nodes.push_tokens(self.modality_key.as_ref(), &self.modality_ident)?;
+        nodes.push_tokens(self.label_key.as_ref(), &self.label)?;
+        if let Some(circularity) = &self.circularity {
+            nodes.push_tokens(self.circularity_key.as_ref(), circularity)?;
+        }
+        if let Some(trusted) = &self.trusted {
+            nodes.push_tokens(self.trusted_key.as_ref(), trusted)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl ExistsAttribute {
+    /// Records the keys of each binder, its name and its sort.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        for binder in &self.binders {
+            binder.keyed_nodes(nodes)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl ContextAttribute {
+    /// Records the keys of the label, the hole and the result, which they
+    /// hold in the context's rule-attribute view.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        if let Some(label) = &self.label {
+            nodes.push_tokens(self.label_key.as_ref(), label)?;
+        }
+        nodes.push_tokens(self.hole_key.as_ref(), &self.hole)?;
+        if let Some(result) = &self.result {
+            nodes.push_tokens(self.result_key.as_ref(), result)?;
+        }
+        Ok(())
+    }
+}

@@ -393,3 +393,26 @@ pub(super) fn references(term: &TermExpression, name: &Ident) -> bool {
         _ => false,
     })
 }
+
+#[cfg(test)]
+impl RuleExistentials {
+    /// Records the keys of the existential and fresh binders, then of the
+    /// ensures condition.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        for binder in self
+            .exists
+            .iter()
+            .chain(&self.fresh)
+            .flat_map(ExistsAttribute::binders)
+        {
+            binder.keyed_nodes(nodes)?;
+        }
+        if let Some(ensures) = &self.ensures {
+            ensures.keyed_nodes(nodes)?;
+        }
+        Ok(())
+    }
+}

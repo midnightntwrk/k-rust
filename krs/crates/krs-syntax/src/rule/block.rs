@@ -1754,6 +1754,139 @@ pub(super) fn take_claim_clause_attribute(
 }
 
 #[cfg(test)]
+impl RuleClause {
+    /// Records the clause's keyed nodes: those it keys on its item, its
+    /// label, subject record, result and head result's terms, the
+    /// computation items after the first, its extra cells, the List
+    /// reading's instance structure, and its narrowings.
+    ///
+    /// The item's result term and a placeholder subject are no nodes of the
+    /// clause: they keep the keys of the item's own keying, and the walk
+    /// leaves them out. It leaves out the List reading's instance children
+    /// too: they are copies of the head record's terms that keep their own
+    /// keys, and the clause keys the head record's terms themselves.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        let subject = self.head.as_ref().is_some_and(|head| head.subject);
+        self.rule.keyed_clause_nodes(nodes, subject)?;
+        nodes.push_tokens(self.keys.label.as_ref(), &self.rule.item.sig.ident)?;
+        nodes.push(self.keys.pattern.as_ref(), self.layout.pattern);
+        let result = self
+            .head_result
+            .as_ref()
+            .map_or(Ok(self.layout.result), RuleHeadResult::range)?;
+        nodes.push(self.keys.result.as_ref(), result);
+        match &self.head_result {
+            Some(RuleHeadResult::Replace(term)) => term.keyed_nodes(nodes)?,
+            Some(RuleHeadResult::Splice { range, items }) => {
+                nodes.push(self.keys.splice.as_ref(), *range);
+                for item in items {
+                    item.keyed_nodes(nodes)?;
+                }
+            }
+            Some(RuleHeadResult::Erase(_)) | None => {}
+        }
+        for item in self.head.iter().flat_map(|head| &head.following) {
+            item.pattern.keyed_nodes(nodes, &item.tree)?;
+        }
+        assert!(self.keys.extras.len() <= self.extras.len());
+        for (extra, names) in self.extras.iter().zip(&self.keys.extras) {
+            keyed_extra_nodes(nodes, extra, names)?;
+        }
+        if let Some(alternative) = &self.bracket_alternative {
+            nodes.push_tokens(alternative.cell_key.as_ref(), &alternative.cell)?;
+            if let crate::StateTerm::Instances(list) = &alternative.before {
+                list.keyed_structure(nodes)?;
+            }
+            if let Some(result_cell) = &alternative.result_cell {
+                nodes.push_tokens(alternative.result_cell_key.as_ref(), result_cell)?;
+            }
+            if let Some(crate::StateTerm::Instances(list)) = &alternative.after {
+                list.keyed_structure(nodes)?;
+            }
+        }
+        for narrowing in &self.narrowings {
+            nodes.push_tokens(narrowing.sort_key.as_ref(), &narrowing.sort)?;
+        }
+        Ok(())
+    }
+}
+
+/// Records the keyed nodes of one extra cell: its names, with the keys the
+/// clause gave them, and its terms and states.
+#[cfg(test)]
+fn keyed_extra_nodes(
+    nodes: &mut crate::keyed_nodes::KeyedNodes,
+    extra: &RuleExtra,
+    names: &RuleExtraKeys,
+) -> Result<(), SyntaxError> {
+    match extra {
+        RuleExtra::HaveMap { cell, entries } => {
+            nodes.push_tokens(names.cell.as_ref(), cell)?;
+            for entry in entries {
+                entry.key.keyed_nodes(nodes)?;
+                nodes.push_tokens(entry.value_key.as_ref(), &entry.value)?;
+            }
+        }
+        RuleExtra::UpdateMap { cell, update, .. } => {
+            nodes.push_tokens(names.result_cell.as_ref(), cell)?;
+            for (key, argument) in update.argument_keys().into_iter().zip(update.arguments()) {
+                nodes.push_tokens(key, argument)?;
+            }
+            update.term().keyed_nodes(nodes)?;
+        }
+        RuleExtra::RewriteState {
+            cell,
+            before,
+            result_cell,
+            after,
+        } => {
+            nodes.push_tokens(names.cell.as_ref(), cell)?;
+            before.keyed_nodes(nodes)?;
+            if let Some(result_cell) = result_cell {
+                nodes.push_tokens(names.result_cell.as_ref(), result_cell)?;
+            }
+            if let Some(after) = after {
+                after.keyed_nodes(nodes)?;
+            }
+        }
+        RuleExtra::RewriteList {
+            cell,
+            before,
+            result_cell,
+            after,
+        } => {
+            nodes.push_tokens(names.cell.as_ref(), cell)?;
+            for item in before.patterns() {
+                item.pattern.keyed_nodes(nodes, &item.tree)?;
+            }
+            if let Some(result_cell) = result_cell {
+                nodes.push_tokens(names.result_cell.as_ref(), result_cell)?;
+            }
+            for term in after.iter().flat_map(|after| after.terms()) {
+                term.keyed_nodes(nodes)?;
+            }
+        }
+        RuleExtra::RewriteCell {
+            cell,
+            before,
+            before_tree,
+            after,
+        } => {
+            nodes.push_tokens(names.cell.as_ref(), cell)?;
+            before.keyed_nodes(nodes, before_tree)?;
+            nodes.push_tokens(names.result_cell.as_ref(), cell)?;
+            if let Some(after) = after {
+                after.keyed_nodes(nodes)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
 mod tests {
     use super::{RuleBlock, TokenRange};
     use crate::KrsSyntax;

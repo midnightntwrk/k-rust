@@ -651,6 +651,19 @@ fn table_error(reason: &str, span: Span) -> SyntaxError {
 }
 
 #[cfg(test)]
+impl EquationRow {
+    /// Records the row's keyed nodes: its equation's, then its
+    /// `#[k::equation]` keys'.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        self.rule.keyed_nodes(nodes)?;
+        self.equation.keyed_nodes(nodes)
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 

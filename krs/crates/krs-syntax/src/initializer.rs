@@ -1478,3 +1478,82 @@ fn collect_computation_variable_uses(
         }
     }
 }
+
+#[cfg(test)]
+mod keyed {
+    use super::{
+        ConfigurationVariable, FixedCellInitializer, InitializerCellContent, InitializerFunction,
+    };
+    use crate::keyed_nodes::KeyedNodes;
+    use crate::{SortArgument, SyntaxError};
+
+    impl ConfigurationVariable {
+        /// Records the keys of the variable and its name, at its binding or
+        /// authored name, its type and type arguments, and `main`.
+        fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.key.as_ref(), &self.binding)?;
+            if self.attribute.inferred_name {
+                nodes.push_tokens(self.name_key.as_ref(), &self.binding)?;
+            } else {
+                nodes.push_tokens(self.name_key.as_ref(), &self.attribute.name)?;
+            }
+            nodes.push_tokens(self.type_key.as_ref(), &*self.parameter.ty)?;
+            SortArgument::keyed_nodes(&self.arguments, nodes)?;
+            if let Some(main) = &self.attribute.main {
+                nodes.push_tokens(self.main_key.as_ref(), main)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl FixedCellInitializer {
+        /// Records the keys of the cell and its field, at the field's name,
+        /// of its constructor, then of its state or its children.
+        fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.key.as_ref(), &self.field.member)?;
+            nodes.push_tokens(self.field_key.as_ref(), &self.field.member)?;
+            match &self.content {
+                InitializerCellContent::Leaf {
+                    constructor,
+                    value,
+                    inferred_constructor,
+                    ..
+                } => {
+                    if *inferred_constructor {
+                        nodes.push_tokens(self.constructor_key.as_ref(), &self.field.expr)?;
+                    } else {
+                        nodes.push_tokens(self.constructor_key.as_ref(), constructor)?;
+                    }
+                    value.keyed_nodes(nodes)?;
+                }
+                InitializerCellContent::Nested {
+                    constructor,
+                    children,
+                } => {
+                    nodes.push_tokens(self.constructor_key.as_ref(), constructor)?;
+                    for child in children {
+                        child.keyed_nodes(nodes)?;
+                    }
+                }
+            }
+            Ok(())
+        }
+    }
+
+    impl InitializerFunction {
+        /// Records the keys of the declaration, the result type, each
+        /// configuration variable, the body, then each cell.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.declaration_key.as_ref(), &self.item.sig.ident)?;
+            nodes.push_tokens(self.result_type_key.as_ref(), &self.result_type)?;
+            for variable in &self.variables {
+                variable.keyed_nodes(nodes)?;
+            }
+            nodes.push_tokens(self.body_key.as_ref(), &self.body)?;
+            for cell in &self.cells {
+                cell.keyed_nodes(nodes)?;
+            }
+            Ok(())
+        }
+    }
+}

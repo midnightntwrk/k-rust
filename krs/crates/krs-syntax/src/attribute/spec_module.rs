@@ -311,3 +311,31 @@ impl SpecModuleItem {
         .keyed()
     }
 }
+
+#[cfg(test)]
+mod keyed {
+    use super::{SpecModuleAttribute, SpecModuleItem};
+    use crate::SyntaxError;
+    use crate::keyed_nodes::KeyedNodes;
+
+    impl SpecModuleAttribute {
+        /// Records the keys of the module name and of each import path.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            if let Some(name) = &self.name {
+                nodes.push_tokens(self.name_key.as_ref(), name)?;
+            }
+            assert!(self.import_keys.len() <= self.imports.len());
+            for (key, import) in self.import_keys.iter().zip(&self.imports) {
+                nodes.push_tokens(Some(key), import)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl SpecModuleItem {
+        /// Records the key of the module's name.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.key.as_ref(), &self.item.ident)
+        }
+    }
+}

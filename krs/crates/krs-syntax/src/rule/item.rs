@@ -1464,3 +1464,50 @@ fn parse_rule_body_context(item: &ItemFn, wildcards: bool) -> Result<TermExpress
         expression => term(expression.clone()),
     }
 }
+
+#[cfg(test)]
+impl RuleItem {
+    /// Records the rule's keyed nodes as a sentence of its own: those of
+    /// the full view, of which the catalog view is a prefix.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        self.keyed_clause_nodes(nodes, true)?;
+        if let Some(result) = &self.result {
+            result.keyed_nodes(nodes)?;
+        }
+        Ok(())
+    }
+
+    /// Records the nodes a readable clause keys on its item: those of
+    /// [`Self::keyed_nodes`] but the result term, and the subject only when
+    /// it is the clause's first computation item (`subject`).
+    pub(crate) fn keyed_clause_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+        subject: bool,
+    ) -> Result<(), SyntaxError> {
+        nodes.push_tokens(self.declaration_key.as_ref(), &self.item.sig.ident)?;
+        let parameter = &self.parameter;
+        if subject {
+            nodes.push(parameter.pattern_key.as_ref(), parameter.pattern.range()?);
+            parameter.pattern.keyed_nodes(nodes, &self.subject_tree)?;
+        }
+        nodes.push_tokens(parameter.type_key.as_ref(), parameter.term_sort.ty())?;
+        if let Some(result_sort) = &self.result_sort {
+            nodes.push_tokens(self.result_type_key.as_ref(), result_sort.ty())?;
+        }
+        for binder in &self.binders {
+            nodes.push_tokens(binder.parameter_key.as_ref(), &binder.parameter)?;
+            nodes.push_tokens(binder.sort_key.as_ref(), binder.term_sort.sort())?;
+        }
+        if let Some(context) = &self.function_context {
+            context.keyed_nodes(nodes)?;
+        }
+        if let Some(requires) = &self.requires {
+            requires.term().keyed_nodes(nodes)?;
+        }
+        self.existentials.keyed_nodes(nodes)
+    }
+}

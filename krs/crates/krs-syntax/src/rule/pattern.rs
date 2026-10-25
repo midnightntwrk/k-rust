@@ -1163,3 +1163,21 @@ pub(super) fn push_candidate(
 pub(super) fn canonical_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
     role.key(ordinal)
 }
+
+#[cfg(test)]
+impl RulePattern {
+    /// Records the keys of the pattern's paths and nodes, and of the record
+    /// field names and wildcards of `tree`, the subject tree they index.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+        tree: &TermTree,
+    ) -> Result<(), SyntaxError> {
+        if let Self::TermMacro { term, .. } = self {
+            // The whole pattern is keyed on the parameter, never on its term.
+            assert!(term.keys().payload().is_none() && term.keys().term().is_none());
+        }
+        self.keys()
+            .keyed_nodes(nodes, &self.path_ranges()?, self.nodes(), tree)
+    }
+}

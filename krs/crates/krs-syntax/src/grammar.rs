@@ -2642,3 +2642,170 @@ fn parse_optional_trailing_comma(input: ParseStream<'_>) -> ParseResult<()> {
     input.parse::<Token![,]>()?;
     Ok(())
 }
+
+#[cfg(test)]
+mod keyed {
+    use super::{
+        AssociativityDeclaration, BracketAttribute, PrecedenceDeclaration, SmtTemplate,
+        SmtTemplateFragment, StrictnessAttribute, StructuredFormat, SubsortDeclaration,
+        SyntaxTemplate, SyntaxTemplateItem, TokenAttribute, TokenCarrier, TokenDeclaration,
+        TokenStack,
+    };
+    use crate::keyed_nodes::KeyedNodes;
+    use crate::{SyntaxError, TokenRange};
+
+    impl SyntaxTemplate {
+        /// Records the keys of each item, and of each field's value
+        /// reference, at the template literal.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            assert!(self.item_keys.len() <= self.items.len());
+            let range = TokenRange::for_tokens(&self.literal)?;
+            for (item, keys) in self.items.iter().zip(&self.item_keys) {
+                let expected = 1 + usize::from(matches!(item, SyntaxTemplateItem::Field(_)));
+                assert_eq!(keys.len(), expected, "an item's keys are its own");
+                nodes.push_all(keys, range);
+            }
+            Ok(())
+        }
+    }
+
+    impl SmtTemplate {
+        /// Records the keys of the hook and of each placeholder, at the
+        /// template literal.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            let range = TokenRange::for_tokens(&self.literal)?;
+            nodes.push(self.hook_key.as_ref(), range);
+            let placeholders = self
+                .fragments
+                .iter()
+                .filter(|fragment| matches!(fragment, SmtTemplateFragment::Field(_)))
+                .count();
+            assert!(self.placeholder_keys.len() <= placeholders);
+            nodes.push_all(&self.placeholder_keys, range);
+            Ok(())
+        }
+    }
+
+    impl StructuredFormat {
+        /// Records the keys of the fragments, at the format literal.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            assert!(self.fragment_keys.len() <= self.fragments.len());
+            nodes.push_all(&self.fragment_keys, TokenRange::for_tokens(&self.literal)?);
+            Ok(())
+        }
+    }
+
+    impl TokenAttribute {
+        /// Records the keys of the content literal and of its lexical
+        /// precedence.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.content_key.as_ref(), self.content.literal())?;
+            if let Some((literal, _)) = &self.lexical_precedence {
+                nodes.push_tokens(self.precedence_key.as_ref(), literal)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl TokenStack {
+        /// Records the keys of each attribute of the stack.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            for attribute in &self.attributes {
+                attribute.keyed_nodes(nodes)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl TokenDeclaration {
+        /// Records the key of the carrier's name as the token declaration.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.name_key.as_ref(), self.name())
+        }
+
+        /// Records the key of a token struct's name as its sort's
+        /// declaration.
+        pub(crate) fn keyed_sort_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            if let TokenCarrier::Struct(_) = &self.carrier {
+                nodes.push_tokens(self.sort_key.as_ref(), self.name())?;
+            } else {
+                assert!(self.sort_key.is_none(), "an alias declares no sort");
+            }
+            Ok(())
+        }
+    }
+
+    impl BracketAttribute {
+        /// Records the keys of the bracket and of its delimiters and value,
+        /// all at the delimiter pair, or of its template.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            if let Some(tokens) = &self.delimiter_tokens {
+                let range = TokenRange::for_tokens(tokens)?;
+                nodes.push(self.key.as_ref(), range);
+                assert!(self.delimiter_keys.len() <= 4);
+                nodes.push_all(&self.delimiter_keys, range);
+            } else {
+                nodes.push_tokens(self.key.as_ref(), self.template.literal())?;
+                assert!(self.delimiter_keys.is_empty());
+                self.template.keyed_nodes(nodes)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl StrictnessAttribute {
+        /// Records the keys of the declaration, the context alias, each
+        /// field reference and the result sort.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push(self.key.as_ref(), self.range);
+            if let Some(using) = &self.using {
+                nodes.push_tokens(self.using_key.as_ref(), using)?;
+            }
+            assert!(self.field_keys.len() <= self.fields.len());
+            for (key, field) in self.field_keys.iter().zip(&self.fields) {
+                nodes.push_tokens(Some(key), field)?;
+            }
+            nodes.push_tokens(self.result_sort_key.as_ref(), &self.result_sort)
+        }
+    }
+
+    impl PrecedenceDeclaration {
+        /// Records the keys of the declaration, then of each chain and its
+        /// group references.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push(self.key.as_ref(), self.range);
+            for chain in &self.chains {
+                nodes.push(chain.key.as_ref(), chain.range);
+                assert!(chain.group_keys.len() <= chain.groups.iter().count());
+                for (key, group) in chain.group_keys.iter().zip(chain.groups.iter()) {
+                    nodes.push_tokens(Some(key), group)?;
+                }
+            }
+            Ok(())
+        }
+    }
+
+    impl AssociativityDeclaration {
+        /// Records the keys of the declaration, then of each sentence and
+        /// its group references.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push(self.key.as_ref(), self.range);
+            for sentence in &self.sentences {
+                nodes.push(sentence.key.as_ref(), sentence.range);
+                assert!(sentence.group_keys.len() <= sentence.groups.len());
+                for (key, group) in sentence.group_keys.iter().zip(&sentence.groups) {
+                    nodes.push_tokens(Some(key), group)?;
+                }
+            }
+            Ok(())
+        }
+    }
+
+    impl SubsortDeclaration {
+        /// Records the keys of the impl and of its sub-sort.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.key.as_ref(), &self.item)?;
+            nodes.push_tokens(self.sub_sort_key.as_ref(), &self.sub_sort)
+        }
+    }
+}

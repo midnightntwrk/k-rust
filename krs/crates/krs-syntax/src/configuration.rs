@@ -852,3 +852,67 @@ fn unsupported_field(reason: &'static str, span: proc_macro2::Span) -> SyntaxErr
         span,
     )
 }
+
+#[cfg(test)]
+mod keyed {
+    use super::{ConfigurationCellContent, ConfigurationDeclaration, FixedCellField, SortArgument};
+    use crate::SyntaxError;
+    use crate::keyed_nodes::KeyedNodes;
+
+    impl SortArgument {
+        /// Records the key of the path of each of `arguments` and of every
+        /// nested one.
+        pub(crate) fn keyed_nodes(
+            arguments: &[Self],
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            for argument in arguments {
+                nodes.push_tokens(argument.key.as_ref(), &argument.path)?;
+                Self::keyed_nodes(&argument.arguments, nodes)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl FixedCellField {
+        /// Records the keys of the field, its cell attribute's values, its
+        /// wrapper, its content and the content's sort arguments.
+        fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.key.as_ref(), &self.name)?;
+            self.attribute.keyed_nodes(nodes)?;
+            match &self.content {
+                ConfigurationCellContent::Leaf {
+                    wrapper,
+                    ty,
+                    arguments,
+                    inferred_wrapper,
+                    ..
+                } => {
+                    if *inferred_wrapper {
+                        nodes.push_tokens(self.wrapper_key.as_ref(), ty)?;
+                    } else {
+                        nodes.push_tokens(self.wrapper_key.as_ref(), wrapper)?;
+                    }
+                    nodes.push_tokens(self.content_key.as_ref(), ty)?;
+                    SortArgument::keyed_nodes(arguments, nodes)?;
+                }
+                ConfigurationCellContent::Nested { declaration } => {
+                    assert!(self.wrapper_key.is_none());
+                    nodes.push_tokens(self.content_key.as_ref(), declaration)?;
+                }
+            }
+            Ok(())
+        }
+    }
+
+    impl ConfigurationDeclaration {
+        /// Records the keys of the struct's name, then of each cell field.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.name_key.as_ref(), &self.item.ident)?;
+            for cell in &self.cells {
+                cell.keyed_nodes(nodes)?;
+            }
+            Ok(())
+        }
+    }
+}

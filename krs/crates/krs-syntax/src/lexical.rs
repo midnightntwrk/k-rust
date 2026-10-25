@@ -320,3 +320,32 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod keyed {
+    use super::{LayoutDeclaration, LexicalDeclaration};
+    use crate::SyntaxError;
+    use crate::keyed_nodes::KeyedNodes;
+
+    impl LexicalDeclaration {
+        /// Records the keys of each entry and its regex.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            for entry in &self.entries {
+                nodes.push(entry.key.as_ref(), entry.range);
+                nodes.push_tokens(entry.regex_key.as_ref(), &entry.regex)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl LayoutDeclaration {
+        /// Records the key of each regex.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            assert!(self.regex_keys.len() <= self.regexes.len());
+            for (key, regex) in self.regex_keys.iter().zip(&self.regexes) {
+                nodes.push_tokens(Some(key), regex)?;
+            }
+            Ok(())
+        }
+    }
+}

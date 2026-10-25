@@ -2251,3 +2251,178 @@ pub fn default_function_syntax<'a>(
         .join(", ");
     format!("{symbol}({fields})")
 }
+
+#[cfg(test)]
+mod keyed {
+    use super::{
+        ConstructorAttribute, FunctionAttribute, FunctionSmt, FunctionTotality, PlacementFlags,
+        ProductionColors, ProductionKeys, VariantSyntaxAttribute,
+    };
+    use crate::grammar::{StructuredFormat, SyntaxTemplate};
+    use crate::keyed_nodes::KeyedNodes;
+    use crate::{SortArgument, SyntaxError};
+    use syn::{LitBool, LitStr, Path};
+
+    /// A production's metadata, with the keys its sentence gave it.
+    struct Metadata<'a> {
+        keys: &'a ProductionKeys,
+        syntax: Option<&'a LitStr>,
+        template: Option<&'a SyntaxTemplate>,
+        group: Option<&'a LitStr>,
+        avoid: Option<&'a LitBool>,
+        prefer: Option<&'a LitBool>,
+        placement: &'a PlacementFlags,
+        overload: Option<&'a Path>,
+        colors: &'a ProductionColors,
+        format: Option<&'a StructuredFormat>,
+    }
+
+    impl Metadata<'_> {
+        /// Records the keys of the syntax, its template, the group,
+        /// `avoid`, `prefer`, the placement flag, the overload, the colours
+        /// and the format with its fragments.
+        fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            let keys = self.keys;
+            if let Some(syntax) = self.syntax {
+                nodes.push_tokens(keys.syntax.as_ref(), syntax)?;
+            }
+            if let Some(template) = self.template {
+                template.keyed_nodes(nodes)?;
+            }
+            if let Some(group) = self.group {
+                nodes.push_tokens(keys.group.as_ref(), group)?;
+            }
+            if let Some(avoid) = self.avoid {
+                nodes.push_tokens(keys.avoid.as_ref(), avoid)?;
+            }
+            if let Some(prefer) = self.prefer {
+                nodes.push_tokens(keys.prefer.as_ref(), prefer)?;
+            }
+            if let Some(placement) = self.placement.key() {
+                nodes.push_tokens(keys.placement.as_ref(), placement)?;
+            }
+            if let Some(overload) = self.overload {
+                nodes.push_tokens(keys.overload.as_ref(), overload)?;
+            }
+            if let Some(color) = &self.colors.color {
+                nodes.push_tokens(keys.color.as_ref(), color)?;
+            }
+            if let Some((array, literals)) = &self.colors.colors {
+                nodes.push_tokens(keys.color.as_ref(), array)?;
+                assert!(keys.color_entries.len() <= literals.len());
+                for (key, literal) in keys.color_entries.iter().zip(literals) {
+                    nodes.push_tokens(Some(key), literal)?;
+                }
+            } else {
+                assert!(keys.color_entries.is_empty());
+            }
+            if let Some(format) = self.format {
+                nodes.push_tokens(keys.format.as_ref(), format.literal())?;
+                format.keyed_nodes(nodes)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl ConstructorAttribute {
+        /// Records the keys of the compact view: the sort and the syntax.
+        pub(crate) fn keyed_compact_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.sort_key.as_ref(), &self.sort)?;
+            if let Some(syntax) = &self.syntax {
+                nodes.push_tokens(self.keys.syntax.as_ref(), syntax)?;
+            }
+            Ok(())
+        }
+
+        /// Records the keys of the full view: the compact view's, then the
+        /// metadata.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            self.keyed_compact_nodes(nodes)?;
+            Metadata {
+                keys: &self.keys,
+                syntax: None,
+                template: self.syntax_template.as_ref(),
+                group: self.group.as_ref(),
+                avoid: self.avoid_literal.as_ref(),
+                prefer: self.prefer_literal.as_ref(),
+                placement: &self.placement,
+                overload: self.overload.as_ref(),
+                colors: &self.colors,
+                format: self.structured_format.as_ref(),
+            }
+            .keyed_nodes(nodes)
+        }
+
+        /// Records the keys of the sort arguments, the sentence of
+        /// [`Self::sort_argument_provenance`].
+        pub(crate) fn keyed_sort_argument_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            SortArgument::keyed_nodes(&self.sort_arguments, nodes)
+        }
+    }
+
+    impl FunctionAttribute {
+        /// Records the keys of the production's full view, then the
+        /// function's own.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            self.constructor.keyed_nodes(nodes)?;
+            self.keyed_function_nodes(nodes)
+        }
+
+        /// Records the keys of the function's own nodes: its totality
+        /// marker, `memo`, `fresh_generator`, the hook, the SMT translation
+        /// and `underspecified`.
+        pub(crate) fn keyed_function_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            let (FunctionTotality::Total(marker) | FunctionTotality::Partial(marker)) =
+                &self.totality;
+            nodes.push_tokens(self.totality_key.as_ref(), marker)?;
+            if let Some(memo) = &self.memo {
+                nodes.push_tokens(self.memo_key.as_ref(), memo)?;
+            }
+            if let Some(fresh_generator) = &self.fresh_generator {
+                nodes.push_tokens(self.fresh_generator_key.as_ref(), fresh_generator)?;
+            }
+            if let Some(hook) = &self.hook {
+                nodes.push(self.hook_key.as_ref(), hook.range()?);
+            }
+            match &self.smt {
+                Some(FunctionSmt::Smtlib(literal)) => {
+                    nodes.push_tokens(self.smtlib_key.as_ref(), literal)?;
+                }
+                Some(FunctionSmt::Hook(template)) => template.keyed_nodes(nodes)?,
+                None => {}
+            }
+            if let Some(underspecified) = &self.underspecified {
+                nodes.push_tokens(self.underspecified_key.as_ref(), underspecified)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl VariantSyntaxAttribute {
+        /// Records the keys of the syntax, its template, then the metadata.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            Metadata {
+                keys: &self.keys,
+                syntax: Some(&self.syntax),
+                template: Some(&self.syntax_template),
+                group: self.group.as_ref(),
+                avoid: self.avoid_literal.as_ref(),
+                prefer: self.prefer_literal.as_ref(),
+                placement: &self.placement,
+                overload: self.overload.as_ref(),
+                colors: &self.colors,
+                format: self.structured_format.as_ref(),
+            }
+            .keyed_nodes(nodes)
+        }
+    }
+}

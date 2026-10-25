@@ -753,3 +753,63 @@ fn validate(
     }
     .keyed()
 }
+
+#[cfg(test)]
+mod keyed {
+    use super::{SyntaxListAttribute, SyntaxListDeclaration};
+    use crate::SyntaxError;
+    use crate::keyed_nodes::KeyedNodes;
+
+    impl SyntaxListAttribute {
+        /// Records the keys of the list declaration, the separator and the
+        /// `non_empty` flag.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push(self.key.as_ref(), self.range);
+            nodes.push_tokens(self.separator_key.as_ref(), &self.separator)?;
+            if let Some(flag) = &self.non_empty {
+                nodes.push_tokens(self.non_empty_key.as_ref(), flag)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl SyntaxListDeclaration {
+        /// Records the key of the enum's name as the list sort's
+        /// declaration.
+        pub(crate) fn keyed_sort_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.declaration_key.as_ref(), &self.item.ident)
+        }
+
+        /// Records the keys of the cons production: the list sort, the
+        /// variant, each field's sort and name, each rustdoc line, the
+        /// strictness and the list attribute.
+        pub(crate) fn keyed_cons_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.sort_key.as_ref(), &self.item.ident)?;
+            nodes.push_tokens(self.cons.key.as_ref(), &self.cons.variant.ident)?;
+            for field in [&self.cons.head, &self.cons.tail] {
+                nodes.push_tokens(field.sort_key.as_ref(), field.term_sort().sort())?;
+                nodes.push_tokens(field.name_key.as_ref(), field.name())?;
+            }
+            for documentation in &self.cons.documentation {
+                nodes.push_tokens(documentation.key.as_ref(), documentation.literal())?;
+            }
+            if let Some(strictness) = &self.cons.strictness {
+                strictness.keyed_nodes(nodes)?;
+            }
+            self.attribute.keyed_nodes(nodes)
+        }
+
+        /// Records the keys of the terminator production: the list sort,
+        /// the variant and the list attribute's declaration, of which the
+        /// list sort and the declaration hold the cons production's keys.
+        pub(crate) fn keyed_terminator_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.sort_key.as_ref(), &self.item.ident)?;
+            nodes.push_tokens(self.terminator.key.as_ref(), &self.terminator.variant.ident)?;
+            nodes.push(self.attribute.key.as_ref(), self.attribute.range);
+            Ok(())
+        }
+    }
+}

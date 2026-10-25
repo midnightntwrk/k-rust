@@ -683,3 +683,61 @@ impl KrsSyntax for RawKItem {
         .keyed()
     }
 }
+
+#[cfg(test)]
+mod keyed {
+    use super::{ConstructorDeclaration, RawKItem};
+    use crate::keyed_nodes::KeyedNodes;
+    use crate::{SortArgument, SyntaxError};
+
+    impl ConstructorDeclaration {
+        /// Records the keys of the compact view: the declaration, each sort
+        /// parameter and each field sort.
+        pub(crate) fn keyed_compact_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.name_key.as_ref(), &self.item.ident)?;
+            assert!(self.parameter_keys.len() <= self.parameters.len());
+            for (key, parameter) in self.parameter_keys.iter().zip(&self.parameters) {
+                nodes.push_tokens(Some(key), parameter)?;
+            }
+            for field in &self.fields {
+                nodes.push_tokens(field.sort_key.as_ref(), field.term_sort.sort())?;
+            }
+            Ok(())
+        }
+
+        /// Records the keys of the full view: the compact view's, then each
+        /// field name and each documentation line.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            self.keyed_compact_nodes(nodes)?;
+            for field in &self.fields {
+                nodes.push_tokens(field.name_key.as_ref(), &field.name)?;
+            }
+            for documentation in &self.documentation {
+                nodes.push_tokens(documentation.key.as_ref(), &documentation.literal)?;
+            }
+            Ok(())
+        }
+
+        /// Records the keys of the element types of the field sorts, the
+        /// sentence of [`Self::argument_provenance`].
+        pub(crate) fn keyed_argument_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            for field in &self.fields {
+                SortArgument::keyed_nodes(field.term_sort.arguments(), nodes)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl RawKItem {
+        /// Records the key of the sentence literal.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.key.as_ref(), &self.literal)
+        }
+    }
+}

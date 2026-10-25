@@ -2393,3 +2393,108 @@ fn key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
 fn body_error(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
     SyntaxError::new(SyntaxErrorKind::UnsupportedRuleBody { reason }, span)
 }
+
+#[cfg(test)]
+impl FunctionContext {
+    /// Records the keys of the parameter's pattern and configuration type,
+    /// then of its cells and their states.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        nodes.push_tokens(self.key.as_ref(), &self.pattern_macro)?;
+        nodes.push_tokens(self.type_key.as_ref(), &self.configuration_type)?;
+        self.pattern.keyed_nodes(nodes)?;
+        self.pattern.keyed_values(nodes)
+    }
+}
+
+#[cfg(test)]
+impl StateRuleBinding {
+    /// Records the keys of the binding's sort and, in a claim, of the
+    /// universal binder and its name, at the name, and of its sort.
+    fn keyed_nodes(&self, nodes: &mut crate::keyed_nodes::KeyedNodes) -> Result<(), SyntaxError> {
+        if let Some(sort) = &self.sort {
+            nodes.push_tokens(self.sort_key.as_ref(), sort.sort())?;
+            nodes.push_tokens(self.binder_sort_key.as_ref(), sort.sort())?;
+        }
+        nodes.push_tokens(self.universal_key.as_ref(), &self.name)?;
+        nodes.push_tokens(self.binder_name_key.as_ref(), &self.name)
+    }
+}
+
+#[cfg(test)]
+impl StateRuleItem {
+    /// Records the rule's keyed nodes: its declaration, subject and result
+    /// shells and types, its bindings, its cells and their states, then its
+    /// conditions and binders.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        nodes.push_tokens(self.declaration_key.as_ref(), &self.item.sig.ident)?;
+        nodes.push_tokens(self.pattern_key.as_ref(), &self.subject_macro)?;
+        nodes.push_tokens(self.type_key.as_ref(), &self.subject_type)?;
+        for binding in &self.bindings {
+            binding.keyed_nodes(nodes)?;
+        }
+        self.subject.keyed_nodes(nodes)?;
+        self.subject.keyed_values(nodes)?;
+        if let Some(result) = &self.result {
+            nodes.push_tokens(result.type_key.as_ref(), &result.result_type)?;
+            nodes.push_tokens(result.key.as_ref(), &result.result_macro)?;
+            result.result.keyed_nodes(nodes)?;
+            result.result.keyed_values(nodes)?;
+        }
+        if let Some(requires) = &self.requires {
+            requires.term().keyed_nodes(nodes)?;
+        }
+        self.existentials.keyed_nodes(nodes)
+    }
+}
+
+#[cfg(test)]
+impl StateClaimItem {
+    /// Records the claim's keyed nodes: its rule's, then its existential
+    /// binders and its ensures condition.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        self.rule.keyed_nodes(nodes)?;
+        for binder in self.existentials() {
+            binder.keyed_nodes(nodes)?;
+        }
+        if let Some(ensures) = &self.ensures {
+            ensures.term.keyed_nodes(nodes)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl StateContextAliasItem {
+    /// Records the alias's keyed nodes: its pattern and type, its bindings'
+    /// sorts, then its cells and their states.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        nodes.push_tokens(self.pattern_key.as_ref(), &self.pattern_macro)?;
+        nodes.push_tokens(self.type_key.as_ref(), &self.configuration_type)?;
+        for binding in &self.bindings {
+            binding.keyed_nodes(nodes)?;
+        }
+        self.pattern.keyed_nodes(nodes)?;
+        self.pattern.keyed_values(nodes)
+    }
+
+    /// Records the key of the fn's name, which the alias's descriptor
+    /// anchors.
+    pub(crate) fn keyed_declaration_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        nodes.push_tokens(self.declaration_key.as_ref(), &self.item.sig.ident)
+    }
+}

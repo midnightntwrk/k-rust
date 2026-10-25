@@ -602,3 +602,46 @@ fn validate_multiplicity(
     }
     Ok(())
 }
+
+#[cfg(test)]
+impl ConfigurationAttribute {
+    /// Records the key of the root cell's name.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        if let Some(root) = &self.root {
+            nodes.push_tokens(self.root_key.as_ref(), root)?;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl CellAttributePayload {
+    /// Records the keys of the name, colour, multiplicity, type, stream,
+    /// exit and initial values.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        let keys = &self.keys;
+        for (key, value) in [
+            (&keys.name, &self.name),
+            (&keys.color, &self.color),
+            (&keys.multiplicity, &self.multiplicity),
+            (&keys.cell_type, &self.cell_type),
+            (&keys.stream, &self.stream),
+        ] {
+            if let Some(value) = value {
+                nodes.push_tokens(key.as_ref(), value)?;
+            }
+        }
+        for (key, value) in [(&keys.exit, &self.exit), (&keys.initial, &self.initial)] {
+            if let Some(value) = value {
+                nodes.push_tokens(key.as_ref(), value)?;
+            }
+        }
+        Ok(())
+    }
+}

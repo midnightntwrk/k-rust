@@ -1075,6 +1075,145 @@ fn set_slot(slots: &mut Vec<Option<ProvenanceKey>>, index: usize, key: Provenanc
     slots[index] = Some(key);
 }
 
+#[cfg(test)]
+impl TermKeys {
+    /// Records the keys of a term's nodes: each path's at the path, each
+    /// node's at the part of the node its role names, and each record field
+    /// name's and wildcard's at the name or `_` of `tree` in preorder. The
+    /// whole term's keys are its sentence's to place.
+    ///
+    /// A slot past the last node it indexes is a key no node holds, and
+    /// fails the walk.
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+        paths: &[TokenRange],
+        term_nodes: &[TermNode],
+        tree: &TermTree,
+    ) -> Result<(), SyntaxError> {
+        assert!(
+            self.symbols.len() <= paths.len(),
+            "a path key past the paths"
+        );
+        for (key, range) in self.symbols.iter().zip(paths) {
+            nodes.push(key.as_ref(), *range);
+        }
+        assert!(
+            self.nodes.len() <= term_nodes.len(),
+            "a node key past the nodes"
+        );
+        for (node, node_keys) in term_nodes.iter().zip(&self.nodes) {
+            let mut instances = 0;
+            for key in node_keys {
+                let range = node.keyed_range(key.role(), &mut instances)?;
+                nodes.push(Some(key), range);
+            }
+        }
+        let mut fields = Vec::new();
+        tree.record_field_names_preorder(&mut fields);
+        let mut wildcards = Vec::new();
+        tree.wildcard_ranges_preorder(&mut wildcards);
+        assert!(
+            self.record_fields.len() <= fields.len(),
+            "a field key past the fields"
+        );
+        for (key, field) in self.record_fields.iter().zip(&fields) {
+            nodes.push_tokens(key.as_ref(), field)?;
+        }
+        assert!(
+            self.wildcards.len() <= wildcards.len(),
+            "a wildcard key past the wildcards"
+        );
+        for (key, range) in self.wildcards.iter().zip(wildcards) {
+            nodes.push(key.as_ref(), range);
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+impl TermNode {
+    /// The part of the node that a key of `role` names: an island's sort,
+    /// binder, text, or rewrite side, the `instances`-th turbofish argument
+    /// of an application head, or else the node itself.
+    fn keyed_range(
+        &self,
+        role: ProvenanceRole,
+        instances: &mut usize,
+    ) -> Result<TokenRange, SyntaxError> {
+        use ProvenanceRole as Role;
+        match (self, role) {
+            (
+                Self::Let {
+                    sort: Some(sort), ..
+                },
+                Role::LetSort,
+            )
+            | (Self::Closure { sort, .. }, Role::MlBinderSort)
+            | (Self::Lexeme { sort, .. }, Role::LexemeSort)
+            | (Self::SortTest { sort, .. }, Role::SortTestSort)
+            | (Self::Anonymous { sort, .. }, Role::ClaimAnonymousSort) => {
+                TokenRange::for_tokens(sort)
+            }
+            (Self::Closure { binder, .. }, Role::MlBinder)
+            | (
+                Self::As {
+                    binding: binder, ..
+                },
+                Role::PatternAsBinding,
+            ) => TokenRange::for_tokens(binder),
+            (Self::Lexeme { text, .. }, Role::LexemeText) => TokenRange::for_tokens(text),
+            (Self::Rewrite { from, .. }, Role::RuleLocalRewriteFrom) => Ok(*from),
+            (Self::Rewrite { to, .. }, Role::RuleLocalRewriteTo) => Ok(*to),
+            (Self::ApplicationHead(path), Role::ApplicationInstance) => {
+                let Some(syn::PathArguments::AngleBracketed(arguments)) =
+                    path.segments.last().map(|segment| &segment.arguments)
+                else {
+                    panic!("an application instance key on a head without a turbofish");
+                };
+                let argument = &arguments.args[*instances];
+                *instances += 1;
+                TokenRange::for_tokens(argument)
+            }
+            _ => self.range(),
+        }
+    }
+}
+
+#[cfg(test)]
+impl TermExpression {
+    /// The ranges of the term's symbol paths, which its path keys index.
+    pub(crate) fn path_ranges(&self) -> Result<Vec<TokenRange>, SyntaxError> {
+        self.symbols
+            .iter()
+            .map(|symbol| TokenRange::for_tokens(&symbol.path))
+            .collect()
+    }
+
+    /// Records the term's keyed nodes: the whole term's keys at the term,
+    /// then its nodes' ([`TermKeys::keyed_nodes`]).
+    pub(crate) fn keyed_nodes(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        if self.keys.payload.is_some() || self.keys.term.is_some() {
+            let range = TokenRange::for_tokens(&self.expression)?;
+            nodes.push(self.keys.payload(), range);
+            nodes.push(self.keys.term(), range);
+        }
+        self.keyed_parts(nodes)
+    }
+
+    /// Records the keys of the term's nodes, without the whole term's.
+    pub(crate) fn keyed_parts(
+        &self,
+        nodes: &mut crate::keyed_nodes::KeyedNodes,
+    ) -> Result<(), SyntaxError> {
+        self.keys
+            .keyed_nodes(nodes, &self.path_ranges()?, &self.nodes, &self.tree)
+    }
+}
+
 /// A validated Rust-expression term in the deliberately small term grammar.
 ///
 /// Accepted nodes are plain paths, named calls, named record construction,

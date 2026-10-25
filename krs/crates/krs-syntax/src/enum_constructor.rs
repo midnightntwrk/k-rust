@@ -1490,3 +1490,91 @@ fn invalid_enum_precedence(reason: impl Into<String>, span: Span) -> SyntaxError
         span,
     )
 }
+
+#[cfg(test)]
+mod keyed {
+    use super::{EnumConstructorDeclaration, EnumConstructorVariant};
+    use crate::keyed_nodes::KeyedNodes;
+    use crate::{SortArgument, SyntaxError};
+
+    impl EnumConstructorVariant {
+        /// Records the keys of the production view: the constructed sort,
+        /// the syntax attribute, the variant, each field's sort and name,
+        /// each rustdoc line, the tier membership, the cons-list marker, the
+        /// strictness, the static marker and its payload, and the symbol
+        /// override.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.sort_key.as_ref(), &self.constructor_sort)?;
+            if let Some(syntax) = &self.syntax {
+                syntax.keyed_nodes(nodes)?;
+            }
+            nodes.push_tokens(self.key.as_ref(), &self.variant.ident)?;
+            for field in &self.fields {
+                nodes.push_tokens(field.sort_key.as_ref(), field.term_sort().sort())?;
+                nodes.push_tokens(field.name_key.as_ref(), field.name())?;
+            }
+            for documentation in &self.documentation {
+                nodes.push_tokens(documentation.key.as_ref(), documentation.literal())?;
+            }
+            if let Some(range) = self.precedence_member_range {
+                nodes.push(self.group_key.as_ref(), range);
+            }
+            if let Some(range) = self.cons_list_range {
+                nodes.push(self.cons_list_key.as_ref(), range);
+            }
+            if let Some(strictness) = &self.strictness {
+                strictness.keyed_nodes(nodes)?;
+            }
+            if let Some(marker) = &self.static_marker {
+                nodes.push(self.static_key.as_ref(), marker.range);
+                marker.attribute.keyed_nodes(nodes);
+            }
+            if let Some(symbol) = &self.explicit_symbol {
+                symbol.keyed_nodes(nodes)?;
+            }
+            Ok(())
+        }
+
+        /// Records the keys of the element types of the field sorts, the
+        /// sentence of [`Self::argument_provenance`].
+        pub(crate) fn keyed_argument_nodes(
+            &self,
+            nodes: &mut KeyedNodes,
+        ) -> Result<(), SyntaxError> {
+            for field in &self.fields {
+                SortArgument::keyed_nodes(field.term_sort().arguments(), nodes)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl EnumConstructorDeclaration {
+        /// Records the keys of the precedence descriptor: its declaration,
+        /// the chain and each tier's reference.
+        pub(crate) fn keyed_precedence_nodes(&self, nodes: &mut KeyedNodes) {
+            if let Some(range) = self.precedence_declaration_range {
+                nodes.push(self.precedence_declaration_key.as_ref(), range);
+            }
+            if let Some(range) = self.precedence_chain_range {
+                nodes.push(self.precedence_chain_key.as_ref(), range);
+            }
+            for group in self.precedence_groups() {
+                nodes.push(group.precedence_key.as_ref(), group.reference_range);
+            }
+        }
+
+        /// Records the keys of the associativity descriptor: its
+        /// declaration, then each associative tier's sentence and reference.
+        pub(crate) fn keyed_associativity_nodes(&self, nodes: &mut KeyedNodes) {
+            if let Some(range) = self.precedence_declaration_range {
+                nodes.push(self.associativity_declaration_key.as_ref(), range);
+            }
+            for group in self.precedence_groups() {
+                let mut keys = group.associativity_keys.iter();
+                nodes.push(keys.next(), group.range);
+                nodes.push(keys.next(), group.reference_range);
+                assert!(keys.next().is_none());
+            }
+        }
+    }
+}

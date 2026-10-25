@@ -1598,3 +1598,136 @@ fn parse_context_alias_stream(input: ParseStream<'_>) -> Result<ContextAliasAttr
     }
     .keyed()?)
 }
+
+#[cfg(test)]
+mod keyed {
+    use super::{
+        ContextAliasAttribute, DesugarAttribute, EquationAttribute, MatchRestriction,
+        SimplificationAttribute, SortAttribute, StaticProductionAttribute, SubsortAttribute,
+        SymbolAttribute, UnboundVariable,
+    };
+    use crate::SyntaxError;
+    use crate::keyed_nodes::KeyedNodes;
+
+    impl SortAttribute {
+        /// Records the keys of the alias and of each parent path.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            if let Some(alias) = &self.alias {
+                nodes.push_tokens(self.alias_key.as_ref(), alias)?;
+            }
+            assert!(self.parent_keys.len() <= self.parents.len());
+            for (key, parent) in self.parent_keys.iter().zip(&self.parents) {
+                nodes.push_tokens(Some(key), parent)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl SortAttribute {
+        /// Records the key of the alias, which names the sort in the
+        /// descriptor of a bracket on the sort's marker trait.
+        pub(crate) fn keyed_alias_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            if let Some(alias) = &self.alias {
+                nodes.push_tokens(self.alias_key.as_ref(), alias)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl SubsortAttribute {
+        /// Records the key of the supersort alias.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.sort_key.as_ref(), &self.sort)
+        }
+    }
+
+    impl SymbolAttribute {
+        /// Records the key of the override literal.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.key.as_ref(), &self.literal)
+        }
+    }
+
+    impl MatchRestriction {
+        /// Records the keys of the `concrete` and `symbolic` identifiers and
+        /// their variables, then of `smt_lemma`.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            for restriction in self.concrete.iter().chain(&self.symbolic) {
+                nodes.push_tokens(restriction.provenance_key.as_ref(), &restriction.key)?;
+                let variables = restriction.variables.as_deref().unwrap_or_default();
+                assert!(restriction.variable_keys.len() <= variables.len());
+                for (key, variable) in restriction.variable_keys.iter().zip(variables) {
+                    nodes.push_tokens(Some(key), variable)?;
+                }
+            }
+            if let Some(smt_lemma) = &self.smt_lemma {
+                nodes.push_tokens(self.smt_lemma_key.as_ref(), smt_lemma)?;
+            }
+            Ok(())
+        }
+    }
+
+    impl EquationAttribute {
+        /// Records the keys of `owise`, the priority and the restriction.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            if let Some(owise) = &self.owise {
+                nodes.push_tokens(self.owise_key.as_ref(), owise)?;
+            }
+            if let Some(priority) = &self.priority {
+                nodes.push_tokens(self.priority_key.as_ref(), &priority.literal)?;
+            }
+            self.restriction.keyed_nodes(nodes)
+        }
+    }
+
+    impl SimplificationAttribute {
+        /// Records the keys of the priority and the restriction.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            if let Some((literal, _)) = &self.priority {
+                nodes.push_tokens(self.priority_key.as_ref(), literal)?;
+            }
+            self.restriction.keyed_nodes(nodes)
+        }
+    }
+
+    impl DesugarAttribute {
+        /// Records the keys of the `unbound_variables` key and of each
+        /// variable it lists.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            let Some(unbound) = &self.unbound_variables else {
+                return Ok(());
+            };
+            let mut keys = unbound.provenance_keys.iter();
+            nodes.push_tokens(keys.next(), &unbound.key)?;
+            assert!(keys.len() <= unbound.variables.len());
+            for (key, variable) in keys.zip(&unbound.variables) {
+                match variable {
+                    UnboundVariable::Named(name) => nodes.push_tokens(Some(key), name),
+                    UnboundVariable::Wildcard(wildcard) => nodes.push_tokens(Some(key), wildcard),
+                }?;
+            }
+            Ok(())
+        }
+    }
+
+    impl StaticProductionAttribute {
+        /// Records the key of the `recursive` flag.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) {
+            if let Some(range) = self.recursive {
+                nodes.push(self.recursive_key.as_ref(), range);
+            }
+        }
+    }
+
+    impl ContextAliasAttribute {
+        /// Records the keys of the name, `here` and the result sort.
+        pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
+            nodes.push_tokens(self.name_key.as_ref(), &self.name)?;
+            nodes.push_tokens(self.here_key.as_ref(), &self.here)?;
+            if let Some(result) = &self.result {
+                nodes.push_tokens(self.result_key.as_ref(), result)?;
+            }
+            Ok(())
+        }
+    }
+}
