@@ -27,7 +27,7 @@ preserve = []
 "generated/race/Race.lean" = { tier = "light", sha256 = "b8730ce086f1156a15a41234a7b1614c2b14a61721db04e569ccf3562a8cd403" }
 "generated/race/Race/Adequacy.lean" = { tier = "light", sha256 = "827719d9a7befb183f1788652aac51a72570967c59db42fe658dae525e7b9577" }
 "generated/race/Race/Determinism.lean" = { tier = "light", sha256 = "52be43ddc62f4bcba653d03c572e05763d36f0f9df02c55d18eb5d0177359276" }
-"generated/race/Race/Equations.lean" = { tier = "light", sha256 = "326db12e2a233ae8e3f27887025776075f2fb4501ce71725fd07d28b80f9fe58" }
+"generated/race/Race/Equations.lean" = { tier = "light", sha256 = "296c1c26354e03041292bade431f2ae76c5042b0a577a09ce64ce426ddb029e7" }
 "generated/race/Race/Functions.lean" = { tier = "light", sha256 = "b42bc29ebe94e1afe8d5ba64e0d4ffe6c388366802ccd8bdfdda4206dd00c69b" }
 "generated/race/Race/Init.lean" = { tier = "light", sha256 = "ec0d05b43394bb747197dc217b7f3e0584119cc1e6a9e9d96358a9e7e087754d" }
 "generated/race/Race/Preserves.lean" = { tier = "light", sha256 = "bf2b2f049b791549cf92f875ba01effe841fd806e3e200e80dd4dee58b9da240" }
