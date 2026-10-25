@@ -718,8 +718,12 @@ def accept(work, baseline):
     old = tomllib.loads(baseline.read_text()) if baseline.exists() else {}
     baseline.write_text(dump(to_baseline(m, old), HEADER))
     exp = baseline.parent / "expected"
-    for name, (t, _) in OUTPUTS.items():
+    for name, (t, how) in OUTPUTS.items():
         if t in tiers(tier) and (meas / name).exists():
+            # only a change the comparison sees rewrites the recorded copy, so the fields it
+            # normalizes away (times, the order of logged lines) do not churn expected/
+            if (exp / name).exists() and normalize((exp / name).read_text(), how) == normalize((meas / name).read_text(), how):
+                continue
             (exp / name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(meas / name, exp / name)
     print(f"gate: accepted the {tier} measurements of {work} into {baseline} and {exp}/")
