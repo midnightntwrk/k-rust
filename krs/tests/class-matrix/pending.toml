@@ -2548,19 +2548,19 @@ finding = "N27"
 deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
-# X1: initializer fields out of declaration order are a collector error (at the initializer body since S1)
+# X1: initializer fields out of declaration order are a collector error (at the first field out of order since S1)
 
 ["init/order/pc-first"]
 finding = "X1"
-deviation = "krs::collect::invalid-configuration @ item"
+deviation = "krs::collect::invalid-configuration @ spelling"
 step = "S2"
 
 ["init/order/queue-first"]
 finding = "X1"
-deviation = "krs::collect::invalid-configuration @ item"
+deviation = "krs::collect::invalid-configuration @ spelling"
 step = "S2"
 
 ["init/order/reversed"]
 finding = "X1"
-deviation = "krs::collect::invalid-configuration @ item"
+deviation = "krs::collect::invalid-configuration @ spelling"
 step = "S2"
