@@ -213,11 +213,22 @@ fn fixed_configuration_validates_exact_closed_provenance() {
 fn fixed_configuration_rejects_wrong_keys_duplicates_and_tree_drift() {
     let (owner, configuration) = fixed_configuration();
 
+    // The first field defines that key already.
+    let mut repeated_key = configuration.clone();
+    repeated_key.declaration.fields[1].reference.key = key(ProvenanceRole::ConfigurationField, 0);
+    assert!(matches!(
+        repeated_key.validate(&owner),
+        Err(StateTransportError::DuplicateProvenance(repeated))
+            if repeated == key(ProvenanceRole::ConfigurationField, 0)
+    ));
     let mut wrong_key = configuration.clone();
-    wrong_key.declaration.fields[1].reference.key = key(ProvenanceRole::ConfigurationField, 0);
+    wrong_key.declaration.fields[1].reference.key = key(ProvenanceRole::ConfigurationCellName, 1);
     assert!(matches!(
         wrong_key.validate(&owner),
-        Err(StateTransportError::UnexpectedProvenance { .. })
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::ConfigurationField,
+            ..
+        })
     ));
 
     let mut duplicate_external = configuration.clone();
@@ -897,10 +908,13 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
     let ProtocolRuleBindingKind::Term { sort } = &mut wrong_sort_key.bindings[2].kind else {
         unreachable!()
     };
-    sort.key = key(ProvenanceRole::RuleBindingType, 2);
+    sort.key = key(ProvenanceRole::RuleExistentialBinderSort, 0);
     assert!(matches!(
         wrong_sort_key.validate(ItemKind::Rule),
-        Err(StateTransportError::UnexpectedProvenance { .. })
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::RuleBindingType,
+            ..
+        })
     ));
 
     let mut wrong_sort_kind = rule.clone();
@@ -1004,16 +1018,19 @@ fn stable_configuration_rule_accepts_only_exact_subject_wildcards() {
     let keys = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
     assert!(keys.contains(&key(ProvenanceRole::RuleLeftWildcard, 0)));
 
-    let mut wrong_ordinal = rule.clone();
+    let mut wrong_role = rule.clone();
     let ProtocolRuleStateTerm::Term(DescriptorTerm::Wildcard { key: wildcard }) =
-        &mut wrong_ordinal.subject.cells[0].value
+        &mut wrong_role.subject.cells[0].value
     else {
         unreachable!()
     };
-    *wildcard = key(ProvenanceRole::RuleLeftWildcard, 1);
+    *wildcard = key(ProvenanceRole::RuleLeftLiteral, 0);
     assert!(matches!(
-        wrong_ordinal.validate(ItemKind::Rule),
-        Err(StateTransportError::UnexpectedProvenance { .. })
+        wrong_role.validate(ItemKind::Rule),
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::RuleLeftWildcard,
+            ..
+        })
     ));
 
     let mut result_wildcard = rule;
@@ -1189,10 +1206,13 @@ fn host_configuration_rule_requires_exact_typed_binding_catalog() {
     let ProtocolRuleBindingKind::Term { sort } = &mut wrong_sort_key.bindings[0].kind else {
         unreachable!()
     };
-    sort.key = key(ProvenanceRole::RuleBindingType, 1);
+    sort.key = key(ProvenanceRole::RuleType, 0);
     assert!(matches!(
         wrong_sort_key.validate(ItemKind::Rule),
-        Err(StateTransportError::UnexpectedProvenance { .. })
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::RuleBindingType,
+            ..
+        })
     ));
 }
 

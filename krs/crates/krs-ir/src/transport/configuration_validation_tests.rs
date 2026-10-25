@@ -386,8 +386,7 @@ fn initializer_field_joins_check_stable_spelling_only_for_descriptors() {
             &descriptor.fields,
             &item(ItemKind::Configuration),
             &BTreeSet::new(),
-            &mut InitializerCounters::default(),
-            &mut BTreeSet::new(),
+            &mut WireKeys::default(),
         ),
         Err(StateTransportError::InitializerDeclarationMismatch { .. })
     ));
@@ -405,8 +404,7 @@ fn initializer_field_joins_check_stable_spelling_only_for_descriptors() {
             &host.fields,
             &type_key::<Owner>(),
             &BTreeSet::new(),
-            &mut InitializerCounters::default(),
-            &mut BTreeSet::new(),
+            &mut WireKeys::default(),
         ),
         Ok(())
     );
@@ -429,7 +427,7 @@ fn initializer_variable_sorts_are_checked_only_for_descriptors() {
     let mut sort = descriptor_sort(ProvenanceRole::ConfigurationVariableType);
     sort.sort = DescriptorSortRef::Declared(item(ItemKind::Cell));
     assert_eq!(
-        validate_variables::<DescriptorStage>(&[variable(sort)], &mut BTreeSet::new()),
+        validate_variables::<DescriptorStage>(&[variable(sort)], &mut WireKeys::default()),
         Err(StateTransportError::InvalidCellContent(
             StateCellContentReason::InvalidVariableSort
         ))
@@ -439,7 +437,7 @@ fn initializer_variable_sorts_are_checked_only_for_descriptors() {
             &[variable(host_sort(
                 ProvenanceRole::ConfigurationVariableType
             ))],
-            &mut BTreeSet::new()
+            &mut WireKeys::default()
         ),
         Ok(BTreeSet::from(["input".into()]))
     );
@@ -454,8 +452,7 @@ fn initializer_term<S: ConfigurationValidationStage>(
             term,
         },
         &BTreeSet::new(),
-        &mut InitializerCounters::default(),
-        &mut BTreeSet::new(),
+        &mut WireKeys::default(),
         None,
     )
 }
@@ -553,8 +550,8 @@ fn initializer_context_preserves_restrictions_and_first_errors_on_both_stages() 
     assert_initializer_context::<HostStage>();
 }
 
-/// A builtin literal and a lexeme are constants: an initializer term with
-/// its own provenance ordinal, and the literal must be valid for its sort.
+/// A builtin literal and a lexeme are constants: an initializer term keyed
+/// with its constant's role, and the literal must be valid for its sort.
 fn assert_initializer_constants<S: ConfigurationValidationStage>(sort: impl Fn() -> S::Sort) {
     for (sort_of_token, value, role) in [
         (BuiltinSort::Id, "$main", ProvenanceRole::ClaimIdToken),
@@ -574,13 +571,13 @@ fn assert_initializer_constants<S: ConfigurationValidationStage>(sort: impl Fn()
         );
         assert_eq!(
             initializer_term::<S>(Term::BuiltinToken {
-                key: ProvenanceKey::new(role, 1),
+                key: key(ProvenanceRole::LexemeText),
                 sort: sort_of_token,
                 value: value.into(),
             }),
             Err(StateTransportError::UnexpectedProvenance {
                 expected: role,
-                actual: ProvenanceKey::new(role, 1),
+                actual: key(ProvenanceRole::LexemeText),
             })
         );
     }
@@ -644,7 +641,7 @@ fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Appli
             actual: key(ProvenanceRole::InitializerTermPath),
         })
     );
-    // A record argument names its field with its own provenance ordinal.
+    // A record argument names its field with a key of its own.
     let field = |ordinal, name| TermArgument::Named {
         key: ProvenanceKey::new(ProvenanceRole::InitializerRecordFieldName, ordinal),
         field: ProductionFieldId::new(name).unwrap(),
@@ -658,11 +655,10 @@ fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Appli
         Ok(())
     );
     assert_eq!(
-        initializer_term::<S>(application(vec![field(1, "value")])),
-        Err(StateTransportError::UnexpectedProvenance {
-            expected: ProvenanceRole::InitializerRecordFieldName,
-            actual: ProvenanceKey::new(ProvenanceRole::InitializerRecordFieldName, 1),
-        })
+        initializer_term::<S>(application(vec![field(0, "value"), field(0, "other")])),
+        Err(StateTransportError::DuplicateProvenance(key(
+            ProvenanceRole::InitializerRecordFieldName
+        )))
     );
     assert_eq!(
         initializer_term::<S>(application(vec![field(0, "value"), field(1, "value")])),
@@ -746,13 +742,7 @@ fn assert_duplicate_nested_children<S: ConfigurationValidationStage>(
         initializer_cell::<S>(reference),
     ];
     assert!(matches!(
-        validate_nested_children::<S>(
-            &cells,
-            owner,
-            &BTreeSet::new(),
-            &mut InitializerCounters::default(),
-            &mut BTreeSet::new(),
-        ),
+        validate_nested_children::<S>(&cells, owner, &BTreeSet::new(), &mut WireKeys::default(),),
         Err(StateTransportError::InitializerDeclarationMismatch { .. })
     ));
 }
@@ -815,32 +805,26 @@ fn k_sequence_shell(ordinal: u32) -> ProtocolInitializerStateTerm<Term<Descripto
     })
 }
 
-/// The `k!` shells of one initializer are numbered across it: a second shell
-/// continues at payload 1, and one that repeats payload 0 is rejected.
+/// The `k!` shells of one initializer each define their payload key: a
+/// second shell with a payload key of its own is accepted, at any ordinal of
+/// the role, and one that repeats the first's is a second definition.
 #[test]
-fn k_sequence_shells_are_numbered_across_the_initializer() {
+fn k_sequence_shells_define_their_payload_keys_once() {
     let validate = |second| {
-        let mut counters = InitializerCounters::default();
-        let mut keys = BTreeSet::new();
-        validate_state_term::<DescriptorStage>(
-            &k_sequence_shell(0),
-            &BTreeSet::new(),
-            &mut counters,
-            &mut keys,
-        )?;
+        let mut keys = WireKeys::default();
+        validate_state_term::<DescriptorStage>(&k_sequence_shell(0), &BTreeSet::new(), &mut keys)?;
         validate_state_term::<DescriptorStage>(
             &k_sequence_shell(second),
             &BTreeSet::new(),
-            &mut counters,
             &mut keys,
         )
     };
     assert_eq!(validate(1), Ok(()));
+    assert_eq!(validate(7), Ok(()));
     assert_eq!(
         validate(0),
-        Err(StateTransportError::UnexpectedProvenance {
-            expected: ProvenanceRole::KSequencePayload,
-            actual: key(ProvenanceRole::KSequencePayload),
-        })
+        Err(StateTransportError::DuplicateProvenance(key(
+            ProvenanceRole::KSequencePayload
+        )))
     );
 }

@@ -49,8 +49,8 @@ fn check_term<S: ValidationStage>(term: &Term<S>) -> Result<(), StateTransportEr
         ValidationSide::Left,
         &[],
         &mut Vec::new(),
-        &mut RuleCounters::default(),
-        &mut BTreeSet::new(),
+        &mut RuleWalk::default(),
+        &mut WireKeys::default(),
     )
 }
 
@@ -85,8 +85,7 @@ fn claim_binders_validate_descriptor_sort_after_its_provenance() {
             std::slice::from_ref(&descriptor),
             &descriptor_catalog,
             ProvenanceRole::ClaimUniversalBinder,
-            0,
-            &mut BTreeSet::new()
+            &mut WireKeys::default()
         ),
         Err(StateTransportError::InvalidTerm(
             StateTermReason::InvalidClaimBinderSort
@@ -97,8 +96,7 @@ fn claim_binders_validate_descriptor_sort_after_its_provenance() {
             &[host],
             &host_catalog,
             ProvenanceRole::ClaimUniversalBinder,
-            0,
-            &mut BTreeSet::new()
+            &mut WireKeys::default()
         )
         .is_ok()
     );
@@ -109,8 +107,7 @@ fn claim_binders_validate_descriptor_sort_after_its_provenance() {
             &[malformed],
             &descriptor_catalog,
             ProvenanceRole::ClaimUniversalBinder,
-            0,
-            &mut BTreeSet::new()
+            &mut WireKeys::default()
         ),
         Err(StateTransportError::UnexpectedProvenance {
             expected: ProvenanceRole::ClaimBinderSort,
@@ -134,14 +131,14 @@ fn rule_binding_catalog_preserves_descriptor_only_declared_sort_check() {
         },
     }];
     assert_eq!(
-        validate_rule_binding_catalog::<DescriptorStage>(&descriptor, &mut BTreeSet::new()),
+        validate_rule_binding_catalog::<DescriptorStage>(&descriptor, &mut WireKeys::default()),
         Err(StateTransportError::ItemKind {
             field: TransportField::RuleBindingSort,
             expected: TransportItemKind::Sort,
             actual: ItemKind::Constructor,
         })
     );
-    assert!(validate_rule_binding_catalog::<HostStage>(&host, &mut BTreeSet::new()).is_ok());
+    assert!(validate_rule_binding_catalog::<HostStage>(&host, &mut WireKeys::default()).is_ok());
 }
 
 #[test]
@@ -395,8 +392,8 @@ fn selected_cells_preserve_descriptor_identity_and_owner_checks() {
             RuleSide::Left,
             &[],
             &mut Vec::new(),
-            &mut RuleCounters::default(),
-            &mut BTreeSet::new()
+            &mut RuleWalk::default(),
+            &mut WireKeys::default()
         ),
         Err(StateTransportError::CellOwnerMismatch)
     );
@@ -407,8 +404,8 @@ fn selected_cells_preserve_descriptor_identity_and_owner_checks() {
             RuleSide::Left,
             &[],
             &mut Vec::new(),
-            &mut RuleCounters::default(),
-            &mut BTreeSet::new()
+            &mut RuleWalk::default(),
+            &mut WireKeys::default()
         )
         .is_ok()
     );
@@ -419,8 +416,8 @@ fn selected_cells_preserve_descriptor_identity_and_owner_checks() {
             RuleSide::Left,
             &[],
             &mut Vec::new(),
-            &mut RuleCounters::default(),
-            &mut BTreeSet::new()
+            &mut RuleWalk::default(),
+            &mut WireKeys::default()
         )
         .is_ok()
     );
@@ -431,8 +428,8 @@ fn selected_cells_preserve_descriptor_identity_and_owner_checks() {
             RuleSide::Left,
             &[],
             &mut Vec::new(),
-            &mut RuleCounters::default(),
-            &mut BTreeSet::new()
+            &mut RuleWalk::default(),
+            &mut WireKeys::default()
         ),
         Err(StateTransportError::ItemKind {
             field: TransportField::CellIdentityOwner,
@@ -455,8 +452,8 @@ fn assert_duplicate_selected_cells<S: RuleValidationStage>(
             RuleSide::Left,
             &[],
             &mut Vec::new(),
-            &mut RuleCounters::default(),
-            &mut BTreeSet::new(),
+            &mut RuleWalk::default(),
+            &mut WireKeys::default(),
         ),
         Err(StateTransportError::DuplicateValue(
             TransportField::SelectedRuleCells
@@ -677,10 +674,11 @@ fn rule_key_collection_preserves_stage_specific_label_and_declaration_ownership(
             configuration: host_type::<()>(),
         },
     );
-    let mut descriptor_keys = BTreeSet::new();
-    let mut host_keys = BTreeSet::new();
+    let mut descriptor_keys = WireKeys::default();
+    let mut host_keys = WireKeys::default();
     validate_configuration_rule(&descriptor, ItemKind::Rule, &mut descriptor_keys).unwrap();
     validate_configuration_rule(&host, ItemKind::Rule, &mut host_keys).unwrap();
+    let (descriptor_keys, host_keys) = (descriptor_keys.into_defined(), host_keys.into_defined());
     assert_eq!(
         descriptor_keys
             .difference(&host_keys)

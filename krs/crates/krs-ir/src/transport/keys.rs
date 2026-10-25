@@ -104,10 +104,16 @@ impl WireKeys {
         *self.implicit.entry(role).or_default() += 1;
     }
 
-    /// The keys defined so far, fixed and implicit ones aside.
+    /// The keys defined so far, fixed ones included, implicit ones aside.
     #[cfg(test)]
     pub(crate) const fn defined(&self) -> &BTreeSet<ProvenanceKey> {
         &self.defined
+    }
+
+    /// The defined keys, fixed ones included: the anchors a payload needs
+    /// besides those of its implicit nodes, which carry no key to name.
+    pub(crate) fn into_defined(self) -> BTreeSet<ProvenanceKey> {
+        self.defined
     }
 
     /// Checks that the payload's keys are exactly `anchors`: every defined
