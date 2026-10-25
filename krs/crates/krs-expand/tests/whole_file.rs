@@ -593,3 +593,25 @@ fn a_readable_clause_keys_each_nested_literal_once_at_its_token() {
         }
     }
 }
+
+/// An initializer's `k!` remainder (`..pgm`, the variable's sequence after
+/// the items) has no place in the initializer's sequence yet: it is refused
+/// with an author code where it is written, not dropped from the
+/// expansion.
+#[test]
+fn an_initializer_remainder_is_refused_at_its_spelling() {
+    let source = "impl Machine {\n    #[k::init]\n    pub fn init(#[k::config_var(name = \"PGM\", main)] pgm: Stmt) -> Self {\n        Self { k: k::k![Go(), ..pgm] }\n    }\n}\n";
+    let diagnostics = expand(source).expect_err("the remainder is refused");
+    let start = source.find("..pgm").unwrap();
+    assert_eq!(
+        diagnostics,
+        [ExpandDiagnostic {
+            code: krs_diagnostic::codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
+            message: "unsupported declarative initializer body: an initializer's `k!` does not yet take a remainder; list the sequence's items".to_owned(),
+            class: MappingClass::ExactAuthored,
+            // The diagnostic stands at the remainder's first token.
+            authored: Some(br(start, start + 1)),
+            invocation: Some(InvocationId(0)),
+        }]
+    );
+}

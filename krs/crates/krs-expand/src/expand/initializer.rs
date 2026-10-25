@@ -1,7 +1,7 @@
 //! Configuration initializers: `#[k::init]`.
 
 use crate::ExpandError;
-use krs_diagnostic::codes::expand;
+use krs_diagnostic::codes::{self, expand};
 use krs_ir::bytes_token;
 use krs_ir::wire::{
     WireApplicationReference, WireCellDeclarationReference, WireCellIdentity, WireCellReference,
@@ -518,6 +518,18 @@ impl<'a> InitializerBuilder<'a> {
                 key: structural,
                 value,
             });
+        }
+        // `..pgm` after the items denotes `items ~> $PGM`, the variable's
+        // sequence after them, which the initializer's sequence has no
+        // place for yet: the remainder is refused where it is written
+        // rather than dropped.
+        if let Some(range) = sequence.tail().range() {
+            ledger.define(sequence.tail_key())?;
+            return Err(ExpandError::at_range(
+                codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
+                range,
+                "unsupported declarative initializer body: an initializer's `k!` does not yet take a remainder; list the sequence's items",
+            ));
         }
         Ok(ProtocolKSequence {
             payload_key,
