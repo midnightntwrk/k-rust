@@ -300,7 +300,7 @@ A bracketed value reads by the cell's declared type, so `[Job { payload: p }, ..
 A bracketed value thus has up to four readings, the computation cell's head, a List collection's instances, a cons list's elements, and a builtin `List`'s elements, and the cell's declared type picks one: `[.., Job { payload: p }]` is the back instance of the collection `job` and, on a `List` cell, the list whose last element is the constructor `Job { payload: p }`.
 A value that reads only one way is read that way: a record with a shorthand field, `[.., Job { payload, .. }]`, reads only as elements, and `[Push(), ..]` or `[x, ..]` reads as a head or as elements; a rule has one computation cell, so when one cell's value reads only as a head, every other bracketed value is a collection or a list.
 The reference spelling `krs expand` prints writes the entry with the collection path, `Threads::thread: { me @ k::fragment![crate::Thread { .. }], instances0 @ .. }`, and the result `..instances0`.
-A `?` or `*` template that reads a configuration variable without `initial` warns (`krs::analysis::collection-config-var-without-initial`), because K then starts the cell present.
+A `?` or `*` cell whose template reads a configuration variable starts present, since the variable's input has to land in it, so the cell must say `initial`; without it the cell is rejected (`krs::analysis::collection-config-var-without-initial`), and every such cell is reported.
 Optional and collection entries are not allowed in a context alias or an equation's function context, which read fixed cells only (`krs::expand::cell-collection-placement`).
 
 ### Typed binders

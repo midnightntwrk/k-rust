@@ -261,8 +261,7 @@ struct PreparedDefinition {
     /// can evaluate (`smt_hook` without equations), reported by every
     /// command that lowers the definition ([`definition_warnings`]).
     raw_k_warnings: Vec<krs_diagnostic::Diagnostic>,
-    /// `k::is!` and `k::project!` terms that test nothing, optional or
-    /// collection cells K starts present without `initial`, and total
+    /// `k::is!` and `k::project!` terms that test nothing, and total
     /// functions with arguments no equation defines, reported by every
     /// command that lowers the definition ([`definition_warnings`]).
     sort_test_warnings: Vec<krs_diagnostic::Diagnostic>,
@@ -563,7 +562,6 @@ fn prepare_bundle(
         raw_k_warnings: raw_k.warnings,
         sort_test_warnings: krs_compiler::sort_test_warnings(lowered.definition())
             .into_iter()
-            .chain(krs_compiler::cell_collection_warnings(lowered.definition()))
             .chain(coverage)
             .collect(),
         bundle,
@@ -823,7 +821,6 @@ fn push_trusted_claim_warnings(
 /// that collects and lowers it reports (all but `fmt`): the
 /// `krs::expand::raw-hook` and `krs::semantic::raw-k` warnings of the
 /// package's allowed raw K, the `krs::analysis::trivial-sort-test`,
-/// `krs::analysis::collection-config-var-without-initial`,
 /// `krs::analysis::uncovered-total-function`, and
 /// `krs::analysis::stale-underspecified` warnings, then
 /// `warning[krs::partition::not-program-syntax]` for each `program`
@@ -1457,7 +1454,6 @@ impl CommandError {
             ),
             Self::Planning(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
             Self::Generation(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
-            Self::DescriptorLowering(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
             Self::Lowering(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
             Self::Emission(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
             Self::Facade(error) => (error.to_diagnostic(), DiagnosticStage::Analysis),
@@ -1502,6 +1498,18 @@ impl CommandError {
             Self::Diagnostics(diagnostics) => return Some(Cow::Borrowed(diagnostics)),
             Self::NativeDiagnostics { reports, .. } => {
                 return Some(Cow::Borrowed(&reports.envelopes));
+            }
+            // A lowering error may be several mistakes, each its own diagnostic.
+            Self::DescriptorLowering(error) => {
+                return Some(Cow::Owned(
+                    error
+                        .to_diagnostics()
+                        .into_iter()
+                        .map(|diagnostic| {
+                            diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None)
+                        })
+                        .collect(),
+                ));
             }
             _ => {}
         }

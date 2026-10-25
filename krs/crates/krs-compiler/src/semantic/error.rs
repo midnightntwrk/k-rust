@@ -624,6 +624,15 @@ pub enum DescriptorLoweringError {
         /// The item the error arose in: the innermost enclosing frame that knows one names it.
         item: Option<Box<StableItemId>>,
     },
+    /// The optional and collection cells that start present although they are not `initial`
+    /// (KF-023), each its own diagnostic: each cell's text lacks its own `initial`.
+    ImplicitPresence {
+        /// The cells, in declaration order, an enclosing cell before the cells inside it; never
+        /// empty.
+        cells: Vec<ImplicitPresentCell>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
+    },
     /// A configuration variable no cell's initial content reads.
     UnusedConfigurationVariable {
         /// Stable reason naming the variable.
@@ -653,6 +662,15 @@ pub enum DescriptorLoweringError {
     },
 }
 
+/// One cell of [`DescriptorLoweringError::ImplicitPresence`].
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ImplicitPresentCell {
+    /// Stable reason naming the cell.
+    pub reason: String,
+    /// The exact authored range of the cell's declaration.
+    pub range: Option<Box<SourceRange>>,
+}
+
 /// How a `nondet = group` key fails group validation (F2 amendment, clause 3).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NondetGroupProblem {
@@ -679,14 +697,16 @@ pub enum NondetGroupProblem {
 /// authored-range slot and the item it is about. A variant names its item by construction
 /// (`named`: an overlap names its second rule, the primary) or has a slot its enclosing frames
 /// fill (`open`); two overlapping match arms are located by construction and have no range slot
-/// (`arms`, which names the second equation). Explicit for every variant, so a new one cannot be
-/// added without deciding where it is located and which item it is about.
+/// (`arms`, which names the second equation); the cells that start present without `initial`
+/// have a range slot each and one item slot (`cells`). Explicit for every variant, so a new one
+/// cannot be added without deciding where it is located and which item it is about.
 macro_rules! by_subject_slots {
     (
         $error:expr,
         named($named_range:pat, $named_item:pat) => $named:expr,
         open($open_range:pat, $open_item:pat) => $open:expr,
-        arms($arms_item:pat) => $arms:expr $(,)?
+        arms($arms_item:pat) => $arms:expr,
+        cells($cells:pat, $cells_item:pat) => $each:expr $(,)?
     ) => {
         match $error {
             DescriptorLoweringError::OverlappingRules {
@@ -982,6 +1002,10 @@ macro_rules! by_subject_slots {
             DescriptorLoweringError::OverlappingMatchArms {
                 second: $arms_item, ..
             } => $arms,
+            DescriptorLoweringError::ImplicitPresence {
+                cells: $cells,
+                item: $cells_item,
+            } => $each,
         }
     };
 }
@@ -995,6 +1019,7 @@ impl DescriptorLoweringError {
             named(range, _item) => range.as_deref(),
             open(range, _item) => range.as_deref(),
             arms(_item) => None,
+            cells(cells, _item) => cells.first().and_then(|cell| cell.range.as_deref()),
         )
     }
 
@@ -1019,6 +1044,14 @@ impl DescriptorLoweringError {
                 }
             },
             arms(_item) => (),
+            cells(cells, subject) => {
+                for cell in cells {
+                    fill_range(&mut cell.range);
+                }
+                if subject.is_none() {
+                    *subject = Some(Box::new(item.clone()));
+                }
+            },
         );
         self
     }
@@ -1032,7 +1065,27 @@ impl DescriptorLoweringError {
             named(_range, item) => Some(&**item),
             open(_range, item) => item.as_deref(),
             arms(item) => Some(&**item),
+            cells(_cells, item) => item.as_deref(),
         )
+    }
+
+    /// The error's diagnostics: one for each cell of [`Self::ImplicitPresence`], since each cell
+    /// is its own mistake, and the one of [`ToDiagnostic::to_diagnostic`] for any other error.
+    #[must_use]
+    pub fn to_diagnostics(&self) -> Vec<Diagnostic> {
+        let Self::ImplicitPresence { cells, item } = self else {
+            return vec![self.to_diagnostic()];
+        };
+        cells
+            .iter()
+            .map(|cell| {
+                Self::ImplicitPresence {
+                    cells: vec![cell.clone()],
+                    item: item.clone(),
+                }
+                .to_diagnostic()
+            })
+            .collect()
     }
 
     /// A wrapper error about the cell `name` (this cell, when no name is at hand), which takes
@@ -1263,6 +1316,13 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::CellCollection { reason, .. }
             | Self::CellWrapper { reason, .. }
             | Self::UnusedConfigurationVariable { reason, .. } => formatter.write_str(reason),
+            Self::ImplicitPresence { cells, .. } => formatter.write_str(
+                &cells
+                    .iter()
+                    .map(|cell| cell.reason.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n"),
+            ),
             Self::InvalidGeneratedIdentity { detail, .. } => formatter.write_str(detail),
             Self::InvalidSemanticTheory { error, .. } => error.fmt(formatter),
         }
@@ -1359,6 +1419,7 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::UnusedConfigurationVariable { .. } => {
                 codes::analysis::UNUSED_CONFIGURATION_VARIABLE
             }
+            Self::ImplicitPresence { .. } => codes::analysis::COLLECTION_CONFIG_VAR_WITHOUT_INITIAL,
             Self::InvalidGeneratedIdentity { .. } => codes::analysis::INVALID_GENERATED_IDENTITY,
             // The validators state two language rules a front stage has not checked yet; their
             // failures are the author's mistakes, and only the rest are KRS's.

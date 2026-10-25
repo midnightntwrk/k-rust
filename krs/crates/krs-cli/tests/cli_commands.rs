@@ -922,6 +922,109 @@ fn a_rule_without_the_computation_cell_that_only_reads_changes_no_cell() {
     }
 }
 
+/// A machine whose optional cells' templates read configuration variables: `{cells}` are
+/// `Machine`'s optional fields, `{templates}` their initial content, and `{initial}` is
+/// `, initial` or nothing.
+const PRESENT_CELLS: &str = r#"
+use krs::KResult;
+use krs::builtin::{Int, KSequence};
+
+krs::sorts! { Step: krs::KItem; }
+
+#[krs::constructors(sort = Step, result = KResult)]
+#[krs::precedence((Tick))]
+pub enum Op {
+    #[krs::syntax("tick")]
+    Tick,
+}
+
+#[krs::cell]
+pub struct Frame {
+    #[krs::cell(multiplicity = "?"{initial})]
+    pub saved: Option<Int>,
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+    {cells}
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init(
+        #[krs::config_var(name = "PGM", main)] program: Step,
+        #[krs::config_var(name = "START")] start: Int,
+    ) -> Self {
+        Self { k: krs::k![program], {templates} }
+    }
+}
+"#;
+
+#[test]
+fn an_optional_cell_that_reads_a_configuration_variable_says_initial() {
+    let target = shared_fixture_target();
+    let present = |cells: &str, templates: &str, initial: &str| {
+        let source = PRESENT_CELLS
+            .replace("{cells}", cells)
+            .replace("{templates}", templates)
+            .replace("{initial}", initial);
+        let temporary = temp_dir();
+        let manifest = materialize_fixture(temporary.path(), &source);
+        let check = command(target.path(), &manifest, "check", None, &[]);
+        let stderr = String::from_utf8(check.stderr).unwrap();
+        let diagnostics = krs_cli::DiagnosticEnvelope::from_json_lines(&stderr).unwrap();
+        (check.status.success(), diagnostics, stderr)
+    };
+    let program = r#"#[krs::cell(multiplicity = "?"{initial})] pub program: Option<Step>,"#;
+    let count = r#"#[krs::cell(multiplicity = "?"{initial})] pub count: Option<Int>,"#;
+    let frame = r#"#[krs::cell(multiplicity = "?", nested{initial})] pub frame: Option<Frame>,"#;
+
+    // One cell that lacks `initial`, reading `$PGM`, is one KRS error, at the cell, and no
+    // native diagnostic.
+    let cells = format!("{} {count}", program.replace("{initial}", ""));
+    let templates = "program: Some(program), count: Some(start)";
+    let (accepted, diagnostics, stderr) = present(&cells, templates, ", initial");
+    assert!(!accepted, "accepted:\n{stderr}");
+    assert_eq!(diagnostics.len(), 1, "{stderr}");
+    let error = &diagnostics[0];
+    assert_eq!(
+        error.code,
+        "krs::analysis::collection-config-var-without-initial"
+    );
+    assert_eq!(error.severity, krs_cli::DiagnosticSeverity::Error);
+    assert_eq!(error.kind, krs_diagnostic::codes::CodeKind::Author);
+    assert_eq!(
+        error.message,
+        "the `multiplicity = \"?\"` cell `program` reads a configuration variable, so it starts present although it is not `initial`; add `initial` to its `#[k::cell]` to say so"
+    );
+    assert!(error.authored_range.is_some(), "{stderr}");
+
+    // Each cell lacks its own `initial`, so a cell inside another is reported too.
+    let cells = format!("{program} {count} {frame}");
+    let templates =
+        "program: Some(program), count: Some(start), frame: Some(Frame { saved: Some(start) })";
+    let (accepted, diagnostics, stderr) = present(&cells, templates, "");
+    assert!(!accepted, "accepted:\n{stderr}");
+    let named = diagnostics
+        .iter()
+        .map(|diagnostic| {
+            assert_eq!(
+                diagnostic.code,
+                "krs::analysis::collection-config-var-without-initial"
+            );
+            diagnostic.message.split('`').nth(3).unwrap()
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(named, ["program", "count", "frame", "saved"], "{stderr}");
+
+    // With `initial`, KRS accepts the cells and k-rust has nothing to warn about.
+    let (accepted, diagnostics, stderr) = present(&cells, templates, ", initial");
+    assert!(accepted, "rejected:\n{stderr}");
+    assert!(diagnostics.is_empty(), "{stderr}");
+}
+
 /// A machine whose rules read several computation items; `{rules}` are the
 /// clauses of one readable table.
 const K_PATTERNS: &str = r#"
