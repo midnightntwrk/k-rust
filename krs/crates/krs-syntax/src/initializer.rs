@@ -17,11 +17,11 @@ use crate::parse::{
     unsupported_initializer_signature as unsupported_signature,
 };
 use crate::path::{is_plain_path, plain_path_last, without_last_arguments};
-use crate::state_macro::StatePosition;
+use crate::state_macro::{StateMacroContext, StatePosition, parse_k_sequence, parse_map};
 use crate::term_sort::{TermSort, parse_typed_term_sort};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, StateTerm, SyntaxError, SyntaxErrorKind, TermExpression,
-    TermSymbolKind, TokenRange, parse_k_sequence_expression, parse_map_expression,
+    TermSymbolKind, TokenRange,
 };
 
 /// Parsed payload of one `#[k::config_var(name = "...", main)]` helper.
@@ -1208,11 +1208,20 @@ fn parse_initializer_state_term(
             ));
         };
         let name = last.ident.to_string();
+        // An empty shell is anchored at its invocation, path to closing
+        // delimiter.
+        let invocation = || TokenRange::for_tokens(mac).map(Some);
         return match name.as_str() {
-            "k" if computation => Ok(StateTerm::KSequence(parse_k_sequence_expression(
+            "k" if computation => Ok(StateTerm::KSequence(parse_k_sequence(
                 mac.tokens.clone(),
+                StateMacroContext::Expression,
+                invocation()?,
             )?)),
-            "map" if !computation => Ok(StateTerm::Map(parse_map_expression(mac.tokens.clone())?)),
+            "map" if !computation => Ok(StateTerm::Map(parse_map(
+                mac.tokens.clone(),
+                StateMacroContext::Expression,
+                invocation()?,
+            )?)),
             _ => Err(unsupported_body(
                 "`KCell` requires `k!`; `Cell` accepts ordinary terms or `map!`",
                 expression.span(),

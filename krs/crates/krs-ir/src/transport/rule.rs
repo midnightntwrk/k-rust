@@ -12,7 +12,7 @@ use super::validation::{TermValidation, ValidationStage, validate_term};
 use crate::host::HostTypeReference;
 use crate::transport::configuration::{
     CellWrapper, DescriptorCellReference, DescriptorKSequenceNotation, HostCellReference,
-    StateTransportError,
+    StateTransportError, shell_payload_key,
 };
 use crate::transport::grammar::{
     CellTermField, DescriptorApplicationHeadClass, DescriptorRuleLabel, DescriptorSortRef,
@@ -310,8 +310,8 @@ protocol_shape! {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct ProtocolRuleKSequence<T => term_map => T2> {
-        /// Complete payload provenance.
-        /// Empty `k![]` alone has no inner endpoint.
+        /// Complete payload provenance, at the invocation of an empty
+        /// `k![]`; every sequence has it.
         pub payload_key: Option<ProvenanceKey> => [keep],
         /// Exact standalone `.K` provenance.
         pub dot_k_key: Option<ProvenanceKey> => [keep],
@@ -380,8 +380,8 @@ protocol_shape! {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct ProtocolRuleMap<T => term_map => T2> {
-        /// Complete map payload provenance.
-        /// Empty `map![]` has no inner endpoint.
+        /// Complete map payload provenance, at the invocation of an empty
+        /// `map![]`; every map has it.
         pub payload_key: Option<ProvenanceKey> => [keep],
         /// Classified map operation.
         pub body: ProtocolRuleMapBody<T> => [nested term_map],
@@ -2361,12 +2361,10 @@ fn validate_rule_instances<S: RuleValidationStage>(
 }
 
 fn validate_k_shell<T>(sequence: &ProtocolRuleKSequence<T>) -> Result<(), StateTransportError> {
+    shell_payload_key(sequence.payload_key.as_ref())?;
     match sequence.notation {
         DescriptorKSequenceNotation::DotK => {
-            if !sequence.items.is_empty()
-                || sequence.payload_key.is_none()
-                || !matches!(sequence.tail, ProtocolRuleFrame::Exact)
-            {
+            if !sequence.items.is_empty() || !matches!(sequence.tail, ProtocolRuleFrame::Exact) {
                 return Err(StateTransportError::InvalidCellContent(
                     StateCellContentReason::InvalidStandaloneDotKShell,
                 ));
@@ -2379,7 +2377,6 @@ fn validate_k_shell<T>(sequence: &ProtocolRuleKSequence<T>) -> Result<(), StateT
         }
         DescriptorKSequenceNotation::Comma | DescriptorKSequenceNotation::Operator => {
             if sequence.dot_k_key.is_some()
-                || (!sequence.items.is_empty() && sequence.payload_key.is_none())
                 || (sequence.notation == DescriptorKSequenceNotation::Operator
                     && sequence.items.len() < 2)
             {
@@ -2396,27 +2393,20 @@ fn validate_map_shell<T>(
     map: &ProtocolRuleMap<T>,
     side: RuleSide,
 ) -> Result<(), StateTransportError> {
+    shell_payload_key(map.payload_key.as_ref())?;
     match &map.body {
-        ProtocolRuleMapBody::Empty { explicit_dot } => {
-            if *explicit_dot != map.payload_key.is_some() {
-                return Err(StateTransportError::InvalidCellContent(
-                    StateCellContentReason::EmptyMapProvenanceMismatch,
-                ));
-            }
-        }
+        ProtocolRuleMapBody::Empty { .. } => {}
         ProtocolRuleMapBody::Items { items, remainder } => {
-            if map.payload_key.is_none()
-                || (items.is_empty() && matches!(remainder, ProtocolRuleFrame::Exact))
-            {
+            if items.is_empty() && matches!(remainder, ProtocolRuleFrame::Exact) {
                 return Err(StateTransportError::InvalidCellContent(
-                    StateCellContentReason::MapItemContentOrPayloadProvenance,
+                    StateCellContentReason::MapItemsWithoutContent,
                 ));
             }
         }
         ProtocolRuleMapBody::Update { .. } => {
-            if matches!(side, RuleSide::Left) || map.payload_key.is_none() {
+            if matches!(side, RuleSide::Left) {
                 return Err(StateTransportError::InvalidCellContent(
-                    StateCellContentReason::MapUpdateSideOrPayloadProvenance,
+                    StateCellContentReason::MapUpdateOnLeftSide,
                 ));
             }
         }

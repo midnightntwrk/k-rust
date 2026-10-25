@@ -462,8 +462,8 @@ protocol_shape! {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct ProtocolKSequence<T => term_map => T2> {
-        /// Complete payload provenance.
-        /// Empty `k![]` alone has no inner endpoint.
+        /// Complete payload provenance, at the invocation of an empty
+        /// `k![]`; every sequence has it.
         pub payload_key: Option<ProvenanceKey> => [keep],
         /// Exact `.K` provenance for standalone dot notation.
         pub dot_k_key: Option<ProvenanceKey> => [keep],
@@ -529,8 +529,8 @@ protocol_shape! {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct ProtocolMap<T => term_map => T2> {
-        /// Complete payload provenance.
-        /// Empty `map![]` alone has no inner endpoint.
+        /// Complete payload provenance, at the invocation of an empty
+        /// `map![]`; every map has it.
         pub payload_key: Option<ProvenanceKey> => [keep],
         /// Typed map operation.
         pub body: ProtocolMapBody<T> => [nested term_map],
@@ -1718,12 +1718,13 @@ fn validate_k_sequence_shell<T>(
     sequence: &ProtocolKSequence<T>,
     keys: &mut WireKeys,
 ) -> Result<(), StateTransportError> {
-    if let Some(payload_key) = &sequence.payload_key {
-        keys.define(payload_key, ProvenanceRole::KSequencePayload)?;
-    }
+    keys.define(
+        shell_payload_key(sequence.payload_key.as_ref())?,
+        ProvenanceRole::KSequencePayload,
+    )?;
     match sequence.notation {
         DescriptorKSequenceNotation::DotK => {
-            if !sequence.items.is_empty() || sequence.payload_key.is_none() {
+            if !sequence.items.is_empty() {
                 return Err(StateTransportError::InvalidCellContent(
                     StateCellContentReason::InvalidStandaloneDotKPayload,
                 ));
@@ -1739,7 +1740,6 @@ fn validate_k_sequence_shell<T>(
         }
         DescriptorKSequenceNotation::Comma | DescriptorKSequenceNotation::Operator => {
             if sequence.dot_k_key.is_some()
-                || (!sequence.items.is_empty() && sequence.payload_key.is_none())
                 || (sequence.notation == DescriptorKSequenceNotation::Operator
                     && sequence.items.len() < 2)
             {
@@ -1756,32 +1756,29 @@ fn validate_map_shell<T>(
     map: &ProtocolMap<T>,
     keys: &mut WireKeys,
 ) -> Result<(), StateTransportError> {
-    if let Some(payload_key) = &map.payload_key {
-        keys.define(payload_key, ProvenanceRole::MapPayload)?;
-    }
-    match &map.body {
-        ProtocolMapBody::Empty { explicit_dot } => {
-            if *explicit_dot != map.payload_key.is_some() {
-                return Err(StateTransportError::InvalidCellContent(
-                    StateCellContentReason::EmptyMapPayloadProvenanceMismatch,
-                ));
-            }
-        }
-        ProtocolMapBody::Items { items } => {
-            if items.is_empty() || map.payload_key.is_none() {
-                return Err(StateTransportError::InvalidCellContent(
-                    StateCellContentReason::EmptyMapItemPayload,
-                ));
-            }
-        }
-        ProtocolMapBody::Update { .. } if map.payload_key.is_none() => {
-            return Err(StateTransportError::InvalidCellContent(
-                StateCellContentReason::MapUpdateRequiresPayloadProvenance,
-            ));
-        }
-        ProtocolMapBody::Update { .. } => {}
+    keys.define(
+        shell_payload_key(map.payload_key.as_ref())?,
+        ProvenanceRole::MapPayload,
+    )?;
+    if let ProtocolMapBody::Items { items } = &map.body
+        && items.is_empty()
+    {
+        return Err(StateTransportError::InvalidCellContent(
+            StateCellContentReason::EmptyMapItemPayload,
+        ));
     }
     Ok(())
+}
+
+/// A `k!` or `map!` shell's payload key, which every shell has: it is
+/// anchored at the payload, or at the invocation of an empty shell. The
+/// wire field stays optional until the next schema bump.
+pub(super) fn shell_payload_key(
+    payload_key: Option<&ProvenanceKey>,
+) -> Result<&ProvenanceKey, StateTransportError> {
+    payload_key.ok_or(StateTransportError::InvalidCellContent(
+        StateCellContentReason::MissingShellPayloadProvenance,
+    ))
 }
 
 fn validate_initializer_term<S: ConfigurationValidationStage>(

@@ -766,13 +766,9 @@ fn readable_state_wire(
                 .expand_wire(KeyedTerm::of(term), term_side, context.slots)?,
         ),
         StateTerm::KSequence(sequence) => {
-            let payload_key = if sequence.items().is_empty()
-                && matches!(sequence.tail(), StateMacroRemainder::Exact)
-            {
-                None
-            } else {
-                Some(ledger.define(sequence.payload_key())?)
-            };
+            // Every `[..]` has its payload key: an empty one is anchored at
+            // its brackets.
+            let payload_key = Some(ledger.define(sequence.payload_key())?);
             let mut items = Vec::new();
             for item in sequence.items() {
                 let key = ledger.define(item.keys().payload())?;

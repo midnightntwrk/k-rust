@@ -481,3 +481,30 @@ fn structure_anchors_are_numbered_across_the_initializer() {
         );
     }
 }
+
+/// An empty shell is an authored node whose text is its invocation: its
+/// payload key is anchored there, path to closing delimiter, and numbered
+/// with the payloads of the other shells of its role.
+#[test]
+fn empty_shells_are_keyed_at_their_invocation() {
+    let source =
+        "fn init(n: Id) -> Self { Self { k: k::k![], env: k::map![], store: k::map![n -> 1] } }";
+    let initializer = krs_syntax::InitializerFunction::parse_source(source).unwrap();
+    let anchors = initializer.provenance().unwrap();
+    let payloads = |role| {
+        anchors
+            .iter()
+            .filter(|anchor| anchor.role() == role)
+            .map(|anchor| {
+                let (start, end) = (anchor.range().start(), anchor.range().end());
+                assert_eq!((start.line, end.line), (1, 1));
+                (anchor.ordinal(), &source[start.column..end.column])
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(payloads(ProvenanceRole::KSequencePayload), [(0, "k::k![]")]);
+    assert_eq!(
+        payloads(ProvenanceRole::MapPayload),
+        [(0, "k::map![]"), (1, "n -> 1")]
+    );
+}
