@@ -606,11 +606,14 @@ hypothesis `h : e = f x` (or `f x = e`) where `x` is a local variable and `e` is
 a translation but a constructor term (or a literal), case on `x` and simplify `h` with `f`'s equations, read off its folding lemmas
 `fold_S_k : B.C (tr a) = tr (A.C a)` reversed (else `f`'s own equations): constructor clashes close
 the goal, matching constructors give equations between the arguments. Terminates because `e`
-gets smaller; when `e` is a function of the other library (an injection between sorts), fold
-it into a translation by the `k2l_rel` lemmas instead, for (3). (5) A list match `ListItem(x') t' = f l` (or `t' ListItem(x')`) becomes
+gets smaller; when `e` is an application of a function (an injection between sorts, a
+collection operation), fold it into a translation by the `k2l_rel` lemmas instead, for (3). (5) A list match `ListItem(x') t' = f l` (or `t' ListItem(x')`) becomes
 `x' = f x`, `t' = f t` and the match on `l`, by the lemmas `list_bwd_S`/`list_bwd_back_S` beside
 `f`: a rule's hypothesis `ListItem(X) T = L` is substituted by (1) wherever `L` was bound, so the
-match is found where it lands rather than by its name.
+match is found where it lands rather than by its name. (6) Two hypotheses `e = a` and `e = b`
+with one left-hand side (two hypotheses of a rule on one call, `f x = some r`, `f x = some r'`)
+give `a = b` (by `Option.some.inj` between `some`s), and the second is dropped: a function has one
+value, and a later step that reads one of the results then sees the other.
 The folding lemmas are `rfl` lemmas of the relation's module; `f`'s own equations would be derived
 on first use (`f.eq_def` of the mutual block of translations, seconds each on SIMPLE). -/
 partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
@@ -650,6 +653,27 @@ partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
         evalTactic (← `(tactic| (cases $ha:term; cases $hb:term; simp only [$(mkIdent f1):ident] at $hid:ident; injection $hid:ident)))
         return true
       catch _ => s.restore
+    -- one call, two results: `e = a` and `e = b` (`some a`, `some b`) give `a = b`
+    let eqs ← (← getLCtx).foldlM (init := #[]) fun acc ldecl => do
+      if ldecl.isImplementationDetail then return acc
+      let ty ← instantiateMVars ldecl.type
+      let some (_, l, r) := ty.eq? | return acc
+      if l.isFVar || l.hasMVar then return acc
+      return acc.push (ldecl.userName, l, r)
+    for i in [0:eqs.size] do
+      for j in [i+1:eqs.size] do
+        let (n₁, l₁, r₁) := eqs[i]!
+        let (n₂, l₂, r₂) := eqs[j]!
+        unless l₁ == l₂ && r₁ != r₂ do continue
+        let s ← saveState
+        try
+          let (h₁, h₂) := (mkIdent n₁, mkIdent n₂)
+          if r₁.isAppOfArity ``Option.some 2 && r₂.isAppOfArity ``Option.some 2 then
+            evalTactic (← `(tactic| (have := Option.some.inj ((Eq.symm $h₁).trans $h₂); clear $h₂:ident)))
+          else
+            evalTactic (← `(tactic| (have := (Eq.symm $h₁).trans $h₂; clear $h₂:ident)))
+          return true
+        catch _ => s.restore
     -- a list match: `ListItem(x') t' = f l` (or `t' ListItem(x')`) by `list_bwd_S` beside `f`
     for ldecl in (← getLCtx) do
       if ldecl.isImplementationDetail then continue
@@ -687,11 +711,9 @@ partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
       let other := if (isTr r).isSome then l else r
       let hid := mkIdent ldecl.userName
       unless other.isLit || (← isConstructorApp other) do
-        -- a function of the other side's library (an injection between sorts): fold it into a
-        -- translation (`fold_inj_*`, `k2l_rel`), which injectivity then removes; never a case split,
-        -- whose cases would not reduce it (nor a collection operation's, inverted by (5) or the
-        -- relation's map lemmas)
-        if other.getAppFn.constName?.any (`KPrelude).isPrefixOf then continue
+        -- a function (an injection between sorts, a collection operation): fold it into a
+        -- translation (`fold_inj_*`, `comm_*`, `k2l_rel`), which injectivity then removes; never a
+        -- case split, whose cases would not reduce it
         let s ← saveState
         try
           evalTactic (← `(tactic| simp only [k2l_rel] at $hid:ident))
