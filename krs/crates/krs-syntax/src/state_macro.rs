@@ -149,8 +149,9 @@ pub struct KSequence {
     items: Vec<TermExpression>,
     tail: StateMacroRemainder,
     notation: KSequenceNotation,
-    /// The delimited text that holds the payload (`k::k![..]`, `KCell(..)`,
-    /// a readable `[..]`), when the parser of an enclosing form read it.
+    /// The delimited text that holds the payload (the `k::k![..]`
+    /// invocation, `KCell(..)`'s parentheses, a readable `[..]`), when the
+    /// parser of an enclosing form read it.
     invocation: Option<TokenRange>,
     payload_key: Option<ProvenanceKey>,
     tail_key: Option<ProvenanceKey>,

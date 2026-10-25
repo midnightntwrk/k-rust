@@ -310,8 +310,10 @@ protocol_shape! {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct ProtocolRuleKSequence<T => term_map => T2> {
-        /// Complete payload provenance, at the invocation of an empty
-        /// `k![]`; every sequence has it.
+        /// Complete payload provenance; every sequence has it. An empty
+        /// sequence's is at its own delimiters: an empty `k![]`'s
+        /// invocation, `KCell()`'s parentheses, or a readable instance
+        /// child's `[]`.
         pub payload_key: Option<ProvenanceKey> => [keep],
         /// Exact standalone `.K` provenance.
         pub dot_k_key: Option<ProvenanceKey> => [keep],
