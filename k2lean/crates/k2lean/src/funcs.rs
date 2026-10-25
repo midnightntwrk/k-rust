@@ -1270,6 +1270,50 @@ def K.hook_bytes2int (b : {b}) (e : {e}) (s : {sg}) : {result} :=
     }
 }
 
+/// For each simplification rule: the functions its left-hand side applies, and those its
+/// condition and right-hand side apply. Only rules whose callees can be generated without a new
+/// library parameter are kept: each callee has equations or a hook implementation and fixed
+/// sorts, so generating it for the rule's sake never adds a field to `Hooks`.
+fn simplification_calls(
+    def: &Def,
+    eqs: &BTreeMap<String, Vec<Equation>>,
+) -> Vec<(BTreeSet<String>, BTreeSet<String>)> {
+    let mut out = Vec::new();
+    for a in &def.axioms {
+        if !a.attrs.has("simplification") {
+            continue;
+        }
+        let (req, eq) = match &a.pattern {
+            P::Implies(_, l, r) => (Some(&**l), &**r),
+            other => (None, other),
+        };
+        let P::Equals(_, _, lhs, rhs) = eq else {
+            continue;
+        };
+        let mut l = BTreeSet::new();
+        applied(lhs, def, &mut l);
+        if l.is_empty() {
+            continue;
+        }
+        let mut rest = BTreeSet::new();
+        applied(rhs, def, &mut rest);
+        if let Some(r) = req {
+            applied(r, def, &mut rest);
+        }
+        let generable = rest.iter().all(|f| {
+            let sym = &def.symbols[f];
+            hooks::for_symbol(sym).is_some()
+                || (eqs.contains_key(f)
+                    && sym.args.iter().all(|s| sort_name(s).is_some())
+                    && sort_name(&sym.result).is_some())
+        });
+        if generable {
+            out.push((l, rest));
+        }
+    }
+    out
+}
+
 pub fn generate(def: &Def, m: &Model, roots: &BTreeSet<String>) -> Result<Generated, String> {
     generate_with(def, m, roots, &Sidecar::default())
 }
@@ -1286,30 +1330,44 @@ pub fn generate_with(
     let mut used: BTreeSet<String> = BTreeSet::new();
     let mut todo: Vec<String> = roots.iter().cloned().collect();
     let mut calls: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    while let Some(f) = todo.pop() {
-        if !used.insert(f.clone()) {
-            continue;
-        }
-        let sym = &def.symbols[&f];
-        if hooks::for_symbol(sym).is_some() {
-            continue;
-        }
-        let mut cs = BTreeSet::new();
-        for e in eqs.get(&f).into_iter().flatten() {
-            applied(&e.rhs, def, &mut cs);
-            for r in &e.requires {
-                applied(r, def, &mut cs);
+    let simpls = simplification_calls(def, &eqs);
+    loop {
+        while let Some(f) = todo.pop() {
+            if !used.insert(f.clone()) {
+                continue;
             }
-            for a in &e.args {
-                applied(a, def, &mut cs);
+            let sym = &def.symbols[&f];
+            if hooks::for_symbol(sym).is_some() {
+                continue;
             }
-            // normalized constructors (`anywhere`, overloads) are calls in right-hand sides
-            applied_ctors(&e.rhs, &m.anywhere, &mut cs);
+            let mut cs = BTreeSet::new();
+            for e in eqs.get(&f).into_iter().flatten() {
+                applied(&e.rhs, def, &mut cs);
+                for r in &e.requires {
+                    applied(r, def, &mut cs);
+                }
+                for a in &e.args {
+                    applied(a, def, &mut cs);
+                }
+                // normalized constructors (`anywhere`, overloads) are calls in right-hand sides
+                applied_ctors(&e.rhs, &m.anywhere, &mut cs);
+            }
+            for c in &cs {
+                todo.push(c.clone());
+            }
+            calls.insert(f, cs);
         }
-        for c in &cs {
-            todo.push(c.clone());
+        // a simplification whose left-hand side applies only generated functions is a fact about
+        // the library, stated in `Equations`; the functions its condition and right-hand side
+        // apply are generated too, so that it can be stated (they are not calls of any function)
+        for (lhs, rest) in &simpls {
+            if lhs.is_subset(&used) {
+                todo.extend(rest.difference(&used).cloned());
+            }
         }
-        calls.insert(f, cs);
+        if todo.is_empty() {
+            break;
+        }
     }
     // signatures
     let mut fns: Fns = BTreeMap::new();
