@@ -7,9 +7,9 @@ import { Stage, usePlayer } from './player'
 import styles from './Story.module.css'
 
 const groups = [
-  { id: 'constructors', label: 'Constructors', k: ['symbol(succ)', 'symbol(zero)'],
+  { id: 'constructors', label: 'Constructors', k: ['syntax Nat ::= "s" "(" Nat ")"', 'syntax Nat ::= "zero"'],
     caption: 'Each enum variant becomes a K production: the syntax programs are written in, and the term the parser builds.' },
-  { id: 'function', label: 'Function', k: ['symbol(plus)'], caption: 'The struct declares plus as a K function symbol, with its syntax.' },
+  { id: 'function', label: 'Function', k: ['syntax Nat ::= "plus"'], caption: 'The struct declares plus as a K function symbol, with its syntax.' },
   { id: 'plus-zero', label: 'plus_zero', k: ['rule plus ( zero'], caption: 'Each rule of the specification becomes a K rule. Rust variables become K variables: n is N:Nat.' },
   { id: 'plus-succ', label: 'plus_succ', k: ['rule plus ( s ('], caption: 'The same for plus_succ. This K text is what every K tool reads, and what the mutation tool edits.' },
 ]
