@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # The claims area: `claims` over kimp's specifications (krust kprove verdicts, kc_auto, replays,
 # induction skeletons), claims under kimpinv's invariant (`--assume-invariant`), and a claim
-# transferred along ImpRel's bisimulation (ImpRelClaims). Registry: claims.py.
+# transferred along ImpRel's bisimulation (ImpRelClaims, by hand and `--transfer`). Registry: claims.py.
 
 # ---------------------------------------------------------------- gate phases (tests/gate.sh)
 
@@ -47,6 +47,7 @@ kimp_claims() {
       --induction "$T/demos/claims/kimp-expr-vars.toml" \
       --out "$OUT" --name KImpClaims --semantics KImp --semantics-path ../kimp-ps --kclaims-path ../../lean/claims \
       --open "$T/demos/claims/kimp-open.txt" \
+      --transfer ImpRel --transfer-target KrsImp --transfer-out "$D/ImpRelClaims/ImpRelClaims/Transfers.lean" \
       --hand Hand --hand Replay.Addition2 --hand Replay.Branching --hand Replay.SumLoop > "$L/claims-gen.log" 2>&1; then
     ok "claims gen"
     cp "$T/demos/claims/hand/Hand.lean" "$OUT/KImpClaims/Hand.lean"
@@ -112,8 +113,9 @@ gate_claims() {
     kimp_claims
     kimpinv_claims
   fi
-  # a kimp claim transferred to the KRS IMP port along ImpRel's bisimulation (demos/ImpRelClaims),
-  # built like a demo
+  # kimp's claims transferred to the KRS IMP port along ImpRel's bisimulation (demos/ImpRelClaims:
+  # one by hand, Transfer.lean, and every proved one by `claims --transfer`, Transfers.lean), built
+  # like a demo
   if runs demo ImpRelClaims; then
     phase "demo ImpRelClaims"
     dbuild ImpRelClaims

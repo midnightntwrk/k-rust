@@ -458,6 +458,9 @@ A strong bisimulation `R` between `S₁` and `S₂` relates states whose success
 The all-path transfer needs both directions of the bisimulation (`fwd` gives the related state a successor, `bwd` sends each of its successors back), the one-path and reachability transfers only `fwd`.
 `demos/ImpRelClaims` carries kimp's `sum-N` (proved by the generated claims, with `sum-loop` as a lemma) to the KRS IMP port through `relate`'s `ImpRel.bisim`, with the port's program written in the port's own constructors and no step of the port explored.
 The continuation is a translated kimp continuation: `bisim` relates only translations, and the port has constructs kimp lacks.
+`claims --transfer REL --transfer-target B --transfer-out FILE` carries every claim it proves the same way, one theorem per claim (`demos/ImpRelClaims/ImpRelClaims/Transfers.lean`: 18 of kimp's claims to the port): `∀ vars, hyps → REL.Inv lhs → AF B.Step (fun d => ∃ a, REL.R a d ∧ Q a) (REL.tr lhs)`, by `AF.image_of_bisim` (`EF.image_of_bisim` for a one-path claim) and the claim's own proof, where `REL.R a b` is `relate`'s relation `REL.Inv a ∧ b = REL.tr a`.
+The target is the image of the claim's target, so no translation of the target predicate is needed; a statement in the port's own terms, as `sumN_holds`, is then a step of the same shape with the target's correspondence proved by hand.
+The invariant at the left-hand side is a hypothesis: whether it holds depends on the left-hand side's store (an empty one satisfies it, `inv_unit`).
 
 **Claims under a preserved invariant** (`--assume-invariant NAME`).
 A claim generated with it is `∀ vars, hyps → NAME lhs → AF Step Q lhs`: it says nothing of a left-hand side outside `NAME`, so it is weaker than the K claim, and holds for every configuration reachable from one that satisfies `NAME`.
