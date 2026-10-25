@@ -4,7 +4,9 @@
 // cell map's key is the worker's `<wid>`, read twice), and each environment is walked by `allIn`
 // with `(_ |-> V) E`. `k2lean gen --invariant envsOk` turns both walks into element-wise forms
 // (`Invariant.workersIn_walk`, `Invariant.allIn_walk`), which the collection lemmas read. The
-// store does not change, so the invariant is inductive without monotonicity of its keys.
+// store is updated (`set`), grows by a fresh key (`grow`) and has a binding rebound (`bump`): the
+// environments do not change there, and the invariant holds because every key of the store stays a
+// key, which the collections closer derives from the store's terms (`MapHook.KeysIncl`).
 requires "domains.md"
 
 module WALK-SYNTAX
@@ -13,6 +15,9 @@ module WALK-SYNTAX
                | fork(Int, Int)       // worker W forks a worker V with a copy of its environment
                | drop(Int)            // worker W ends
                | forget(Int, Int)     // worker W unbinds X
+               | set(Int, Int)        // store V at location L
+               | grow(Int)            // add the fresh location L, bound to 0
+               | bump(Int)            // increment the value at location L
                | seq(Cmd, Cmd)
 endmodule
 
@@ -55,4 +60,11 @@ module WALK
        (<worker> <wid> W </wid> <env> _ </env> </worker> => .Bag) [label(drop)]
   rule <k> forget(W, X) => .K ... </k>
        <worker> <wid> W </wid> <env> E => E[X <- undef] </env> </worker> [label(forget)]
+  rule <k> set(L, V) => .K ... </k>
+       <store> S => S[L <- V] </store> [label(set)]
+  rule <k> grow(L) => .K ... </k>
+       <store> S => S (L |-> 0) </store>
+    requires notBool (L in_keys(S)) [label(grow)]
+  rule <k> bump(L) => .K ... </k>
+       <store> ... L |-> (I => I +Int 1) ... </store> [label(bump)]
 endmodule
