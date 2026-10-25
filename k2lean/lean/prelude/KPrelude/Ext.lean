@@ -1,3 +1,4 @@
+import KPrelude.LeafEq
 import KPrelude.Coll
 import KPrelude.Hooks
 import KPrelude.Rules
