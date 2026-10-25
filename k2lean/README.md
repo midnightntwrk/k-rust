@@ -72,6 +72,7 @@ target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime
 | `demos/k/kimp-inv`, `demos/k/kimp-keys`, `demos/k/simple-inv` | kind 1 invariants written as K functions |
 | `demos/claims` | K claims of kimp proved in Lean, generically or by hand; claims under an invariant; the termination of kimp's expressions |
 | `demos/ImpRelClaims` | a K claim proved on kimp holds for the KRS IMP port, through `relate`'s bisimulation |
+| `demos/ImpUnrollClaims` | kimp's claims hold for its unrolling variant, through `refine`'s stuttering bisimulation |
 
 ## Claims
 
@@ -88,8 +89,10 @@ target/release/k2lean claims --kore out/my/definition.kore --spec out/my-spec/de
 | `--open FILE` | claims (and induction obligations) that get no generic proof: false ones, or ones proved by hand in a `--hand` module |
 | `--assume-invariant NAME` | every claim is stated for the configurations satisfying the preserved invariant `NAME` (`NAME.preserved : Preserved Step NAME`; `--invariant-preserved`, `--invariant-module`), which its proof carries along every step; `--invariant-unfold FILE` gives the unfolding set, one Lean name per line (default: the `invariant-unfold.txt` that `gen --invariant` writes in the semantics' library, `--semantics-path`) |
 | `--induction FILE` | the termination of a sublanguage of a syntax sort (TOML: classes and constructor typings), by structural induction, one obligation per typing |
+| `--transfer REL` | every proved claim carried to the definition `--transfer-target B` along `REL.bisim`, one theorem per claim, into the module `--transfer-out FILE` (namespace `--transfer-ns`); repeatable, the other `--transfer-…` options apply to the last one |
+| `--transfer-kind stutter` | `REL.bisim` is `refine`'s stuttering bisimulation, not `relate`'s: one-path claims carry, and all-path ones only as one-path claims unless `--transfer-det MODULE` names `B`'s determinism module (`B.Step.deterministic`), on which every claim keeps its modality |
 
-A claim proved on one definition holds on another that `k2lean relate` proves bisimilar: `KClaims.AF.of_bisim` and its `EF` and `Reach` forms (`demos/ImpRelClaims`).
+A claim proved on one definition holds on another that `k2lean relate` proves bisimilar: `KClaims.AF.of_bisim` and its `EF` and `Reach` forms (`demos/ImpRelClaims`); along `refine`'s stuttering bisimulations, `KClaims.EF.of_stutter` (`demos/ImpUnrollClaims`).
 `docs/design.md`, §3.8, says what each statement means and how it is proved.
 
 ## Type soundness

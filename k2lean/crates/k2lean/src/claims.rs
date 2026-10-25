@@ -57,7 +57,11 @@ struct Args {
 /// FILE` (namespace `--transfer-ns`, default `RELClaims.Transfers`). With `--transfer-kind
 /// stutter`, along the stuttering bisimulation `REL.bisim` that `k2lean refine --ns REL` writes
 /// (`REL.Refine`, relation `Stutter.Rel REL.tr_Top X`, named `REL.R` by its hand module): one-path
-/// claims carry along it, an all-path claim as its one-path weakening (`KClaims/Stutter.lean`).
+/// claims carry along it, an all-path claim as its one-path weakening (`KClaims/Stutter.lean`),
+/// unless `--transfer-det MODULE` names the target's determinism module: `B.Step` is then a
+/// function (`B.Step.deterministic`, which `gen` states for a definition without overlapping
+/// rules), on which the two modalities coincide (`AF_iff_EF_of_det`), so an all-path claim
+/// carries as an all-path claim.
 /// Each `--transfer` starts an entry; the other `--transfer-…` flags apply to the last one.
 struct Transfer {
     rel: String,
@@ -65,6 +69,7 @@ struct Transfer {
     out: PathBuf,
     ns: String,
     stutter: bool,
+    det: Option<String>,
 }
 
 /// `--assume-invariant NAME`: the claims are stated and proved for the configurations satisfying
@@ -137,13 +142,14 @@ fn parse(args: &[String]) -> Args {
         induction: vec![],
         transfers: vec![],
     };
-    // the `--transfer` entries: relation, target, output, namespace, stutter
+    // the `--transfer` entries: relation, target, output, namespace, stutter, determinism module
     type Tr = (
         String,
         Option<String>,
         Option<PathBuf>,
         Option<String>,
         bool,
+        Option<String>,
     );
     let mut trs: Vec<Tr> = vec![];
     let (mut inv_name, mut inv_preserved, mut inv_module, mut inv_unfold) =
@@ -174,8 +180,9 @@ fn parse(args: &[String]) -> Args {
             // a structural-induction skeleton over a syntax sort (TOML, `induction` below)
             "--induction" => a.induction.push(v().into()),
             // the claims carried along a bisimulation of `relate` (`Transfer`)
-            "--transfer" => trs.push((v(), None, None, None, false)),
-            "--transfer-target" | "--transfer-out" | "--transfer-ns" | "--transfer-kind" => {
+            "--transfer" => trs.push((v(), None, None, None, false, None)),
+            "--transfer-target" | "--transfer-out" | "--transfer-ns" | "--transfer-kind"
+            | "--transfer-det" => {
                 let val = v();
                 let t = trs
                     .last_mut()
@@ -184,6 +191,7 @@ fn parse(args: &[String]) -> Args {
                     "--transfer-target" => t.1 = Some(val),
                     "--transfer-out" => t.2 = Some(PathBuf::from(val)),
                     "--transfer-ns" => t.3 = Some(val),
+                    "--transfer-det" => t.5 = Some(val),
                     _ => {
                         t.4 = match val.as_str() {
                             "bisim" => false,
@@ -211,7 +219,7 @@ fn parse(args: &[String]) -> Args {
             "claims: --invariant-preserved, --invariant-module and --invariant-unfold need --assume-invariant"
         );
     }
-    for (rel, target, out, ns, stutter) in trs {
+    for (rel, target, out, ns, stutter, det) in trs {
         if a.inv.is_some() {
             panic!(
                 "claims: --transfer carries claims of the semantics, not under --assume-invariant"
@@ -220,12 +228,17 @@ fn parse(args: &[String]) -> Args {
         let (Some(target), Some(out)) = (target, out) else {
             panic!("claims: --transfer {rel} needs --transfer-target and --transfer-out");
         };
+        if det.is_some() && !stutter {
+            // along a bisimulation every claim already carries with its own modality
+            panic!("claims: --transfer-det applies to --transfer-kind stutter");
+        }
         a.transfers.push(Transfer {
             ns: ns.unwrap_or(format!("{rel}Claims.Transfers")),
             rel,
             target,
             out,
             stutter,
+            det,
         });
     }
     a
@@ -598,8 +611,12 @@ fn translate(raw: &RawClaim, m: &Model, fns: &Fns, top: &str) -> Result<Claim, S
 /// from its translation, reaches a state related to one in the claim's target
 /// (`AF.image_of_bisim`, `EF.image_of_bisim`). The target is the image of the claim's, so the
 /// statement needs no translation of the target predicate.
+/// One transfer's output: the claim modules it imports, its text, its theorems, and how many
+/// of them are all-path.
+type TransferOut = (Vec<String>, String, Vec<String>, usize);
+
 fn transfer_claims(
-    out: &mut (Vec<String>, String, Vec<String>),
+    out: &mut TransferOut,
     t: &Transfer,
     ns: &str,
     mns: &str,
@@ -607,15 +624,18 @@ fn transfer_claims(
     proved: &[String],
     top: &str,
 ) {
-    let (imports, text, names) = out;
+    let (imports, text, names, all_paths) = out;
     for c in cs {
         let holds = format!("{ns}.{mns}.Claim.{}.holds", c.lean);
         if !proved.contains(&holds) {
             continue;
         }
         if t.stutter {
-            // one-path, along the simulation alone; `Stutter.Rel tr X c (tr c)` by its first case
+            // one-path, along the simulation alone; `Stutter.Rel tr X c (tr c)` by its first case;
+            // an all-path claim back to all-path on a deterministic target
             let rel = &t.rel;
+            let all = c.all_path && t.det.is_some();
+            *all_paths += usize::from(all);
             let hyps: String = c.hyps.iter().map(|h| format!("\n    {h} →")).collect();
             let args: String = c
                 .univ
@@ -628,11 +648,25 @@ fn transfer_claims(
             } else {
                 format!("({holds}{args})")
             };
+            let carried =
+                format!("KClaims.EF.image_of_stutter {rel}.bisim.fwd (Or.inl rfl) {claim}");
+            let (modality, what, proof) = if all {
+                let tg = &t.target;
+                (
+                    "KClaims.AF",
+                    "an all-path claim (the target is deterministic)",
+                    format!(
+                        "(KClaims.AF_iff_EF_of_det (R := {tg}.Step)\n    (fun _ _ _ h₁ h₂ => {tg}.Step.deterministic h₁ h₂)).2\n    ({carried})"
+                    ),
+                )
+            } else {
+                ("KClaims.EF", "a one-path claim", carried)
+            };
             let _ = writeln!(
                 text,
-                "/-- `claim [{}]` ({mns}) carried to `{}` along `{rel}.bisim`, as a one-path claim. -/\n\
-theorem {mns}.{}.transfer : ∀ {},{hyps}\n    KClaims.EF {}.Step\n      (fun d => ∃ a, {rel}.R a d ∧ ({}) a)\n      ({rel}.tr_{top} ({})) :=\n  \
-fun{args} => KClaims.EF.image_of_stutter {rel}.bisim.fwd (Or.inl rfl) {claim}\n",
+                "/-- `claim [{}]` ({mns}) carried to `{}` along `{rel}.bisim`, as {what}. -/\n\
+theorem {mns}.{}.transfer : ∀ {},{hyps}\n    {modality} {}.Step\n      (fun d => ∃ a, {rel}.R a d ∧ ({}) a)\n      ({rel}.tr_{top} ({})) :=\n  \
+fun{args} => {proof}\n",
                 c.label,
                 t.target,
                 c.lean,
@@ -648,6 +682,7 @@ fun{args} => KClaims.EF.image_of_stutter {rel}.bisim.fwd (Or.inl rfl) {claim}\n"
             }
             continue;
         }
+        *all_paths += usize::from(c.all_path);
         let (modality, lemma) = if c.all_path {
             ("KClaims.AF", "KClaims.AF.image_of_bisim")
         } else {
@@ -1016,10 +1051,10 @@ pub fn main(args: &[String]) {
     let mut modules = vec![];
     let mut proved_all = vec![];
     // the transfers (`--transfer`): the claim modules they import, and their theorems
-    let mut transfers: Vec<(Vec<String>, String, Vec<String>)> = a
+    let mut transfers: Vec<TransferOut> = a
         .transfers
         .iter()
-        .map(|_| (vec![], String::new(), vec![]))
+        .map(|_| (vec![], String::new(), vec![], 0))
         .collect();
     let mut report = String::from("# claims translated by `k2lean claims` (generated)\n");
     for spec in &a.specs {
@@ -1061,16 +1096,30 @@ pub fn main(args: &[String]) {
             proved_all.extend(proved);
         }
     }
-    for (t, (imports, text, names)) in a.transfers.iter().zip(&transfers) {
+    for (t, (imports, text, names, all_paths)) in a.transfers.iter().zip(&transfers) {
         let mut f = if t.stutter {
-            format!("import {}.Refine\nimport KClaims.Stutter\n", t.rel)
+            let mut f = format!("import {}.Refine\nimport KClaims.Stutter\n", t.rel);
+            if let Some(m) = &t.det {
+                let _ = writeln!(f, "import {m}");
+            }
+            f
         } else {
             format!("import {}.Bisim\nimport KClaims.Bisim\n", t.rel)
         };
         for i in imports {
             let _ = writeln!(f, "import {i}");
         }
-        let doc = if t.stutter {
+        let doc = if t.stutter && t.det.is_some() {
+            format!(
+                "Every claim that `{ns}` proves for `{}`, carried to `{}` along the stuttering bisimulation\n\
+`{}.bisim` that `k2lean refine` writes: from the translation of its left-hand side, some run of `{}`\n\
+reaches a state related to one in the claim's target (`EF.image_of_stutter`). `{}.Step` is\n\
+deterministic (`{}.Step.deterministic`), and on a deterministic relation every run does what some run\n\
+does (`AF_iff_EF_of_det`), so an all-path claim stays all-path and a one-path claim one-path.\n\
+No step of `{}` is explored.",
+                a.sem, t.target, t.rel, t.target, t.target, t.target, t.target
+            )
+        } else if t.stutter {
             format!(
                 "Every claim that `{ns}` proves for `{}`, carried to `{}` along the stuttering bisimulation\n\
 `{}.bisim` that `k2lean refine` writes, as a one-path claim: from the translation of its left-hand\n\
@@ -1107,11 +1156,12 @@ explored.",
         );
         let _ = writeln!(
             report,
-            "[[transfer]]\nrelation = {:?}\nkind = {:?}\ntarget = {:?}\ncarried = {}\n",
+            "[[transfer]]\nrelation = {:?}\nkind = {:?}\ntarget = {:?}\ncarried = {}\nall_path = {}\n",
             t.rel,
             if t.stutter { "stutter" } else { "bisim" },
             t.target,
-            names.len()
+            names.len(),
+            all_paths
         );
     }
     for path in &a.induction {
