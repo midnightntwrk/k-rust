@@ -30,16 +30,23 @@ local macro "k2l_eqn_a" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `
 uses an equation `t = x` only from left to right). -/
 local macro "k2l_eqn_b" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((repeat' (first | split | k2l_split_hyps)) <;> (try subst_vars) <;> simp_all [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.StringHook.eq, KPrelude.StringHook.ne, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_B, proj_eq_some_KItem_Bool, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_Nat, proj_eq_some_KItem_Pgm, proj_eq_some_KItem_Set, $xs,*]))
 
+/-- The generic proof by cases on the partial calls that the cascade matches (`k2l_case_call`),
+which the statement binds with `Option.bind`: after each case both sides reduce, and the cases
+are closed as `k2l_eqn_a` does. Fails unless there is such a call. -/
+local macro "k2l_eqn_c" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((try simp only []); (k2l_case_call <;> try simp only [Option.bind]); (repeat' (k2l_case_call <;> try simp only [Option.bind])); all_goals k2l_eqn_a [$xs,*]))
+
 /-- The generic proof of an equation of a recursive function `f`, which `simp` does not
 unfold: unfold `f` once on the left-hand side (`f.eq_def`), reduce the cascade of its equations,
-case on the variables that the cascade matches, on the recursive calls and on the projections,
+case on the variables that the cascade matches, on the recursive calls, on the projections and on
+the other partial calls that its matches inspect (`k2l_case_call`: hooks and functions that are
+not recursive, after which a recursive call whose argument is such a call's value is cased too),
 then close each case as the generic tactics do. -/
 local macro "k2l_eqn_r " f:ident " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => do
   let e := Lean.mkIdent (f.getId.str "eq_def")
   `(tactic| (
     (conv => lhs; rw [$e:ident])
     try simp only []
-    try (repeat' (first | (k2l_case_discr <;> try simp only []) | (k2l_case_rec [K.«even(_)_PEANO_B_Nat», K.«odd(_)_PEANO_B_Nat», K.«plus(_,_)_PEANO_Nat_Nat_Nat», proj_KItem_B, proj_KItem_Bool, proj_GeneratedCounterCellOpt_GeneratedCounterCell, proj_KItem_GeneratedCounterCell, proj_KItem_GeneratedCounterCellOpt, proj_KItem_GeneratedTopCell, proj_KItem_GeneratedTopCellFragment, proj_KItem_Int, proj_KCellOpt_KCell, proj_KItem_KCell, proj_KItem_KCellOpt, proj_KItem_KConfigVar, proj_KItem_List, proj_KItem_Map, proj_KItem_Nat, proj_KItem_Pgm, proj_KItem_Set] <;> try simp only [Option.bind])))
+    try (repeat' (first | (k2l_case_discr <;> try simp only []) | (k2l_case_rec [K.«even(_)_PEANO_B_Nat», K.«odd(_)_PEANO_B_Nat», K.«plus(_,_)_PEANO_Nat_Nat_Nat», proj_KItem_B, proj_KItem_Bool, proj_GeneratedCounterCellOpt_GeneratedCounterCell, proj_KItem_GeneratedCounterCell, proj_KItem_GeneratedCounterCellOpt, proj_KItem_GeneratedTopCell, proj_KItem_GeneratedTopCellFragment, proj_KItem_Int, proj_KCellOpt_KCell, proj_KItem_KCell, proj_KItem_KCellOpt, proj_KItem_KConfigVar, proj_KItem_List, proj_KItem_Map, proj_KItem_Nat, proj_KItem_Pgm, proj_KItem_Set] <;> try simp only [Option.bind]) | (k2l_case_call <;> try simp only [Option.bind])))
     all_goals first
       | (simp_all [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.StringHook.eq, KPrelude.StringHook.ne, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_B, proj_eq_some_KItem_Bool, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_Nat, proj_eq_some_KItem_Pgm, proj_eq_some_KItem_Set, $xs,*]; done)
       | ((repeat' (first | split | k2l_split_hyps)) <;> (try simp_all [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.StringHook.eq, KPrelude.StringHook.ne, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_B, proj_eq_some_KItem_Bool, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_Nat, proj_eq_some_KItem_Pgm, proj_eq_some_KItem_Set, $xs,*]) <;> omega)))
@@ -52,6 +59,7 @@ theorem Eqn.«_|Set__SET_Set_Set_Set_1» (S1 : SortSet) (S2 : SortSet) :
   | k2l_eqn_a []
   | (k2l_eqn_b []; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
 
 /-- double(_)_PEANO_Nat_Nat equation 1 -/
 theorem Eqn.«double(_)_PEANO_Nat_Nat_1» (N : SortNat) :
@@ -61,6 +69,7 @@ theorem Eqn.«double(_)_PEANO_Nat_Nat_1» (N : SortNat) :
   | k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»]
   | (unfold K.«double(_)_PEANO_Nat_Nat» K.«double(_)_PEANO_Nat_Nat».rule1; k2l_eqn_b [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»]; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»])
+  | (unfold K.«double(_)_PEANO_Nat_Nat» K.«double(_)_PEANO_Nat_Nat».rule1; k2l_eqn_c [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat»])
 
 /-- even(_)_PEANO_B_Nat equation 1 -/
 theorem Eqn.«even(_)_PEANO_B_Nat_1» :
@@ -94,6 +103,7 @@ theorem Eqn.«pick(_,_)_PEANO_Nat_B_Nat_1» (N : SortNat) :
   | k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]
   | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_b [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
+  | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_c [K.«double(_)_PEANO_Nat_Nat».rule1, K.«double(_)_PEANO_Nat_Nat», K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
 
 /-- pick(_,_)_PEANO_Nat_B_Nat equation 2 -/
 theorem Eqn.«pick(_,_)_PEANO_Nat_B_Nat_2» (Gen0 : SortB) (N : SortNat)
@@ -104,6 +114,7 @@ theorem Eqn.«pick(_,_)_PEANO_Nat_B_Nat_2» (Gen0 : SortB) (N : SortNat)
   | k2l_eqn_a [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]
   | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_b [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»]; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
+  | (unfold K.«pick(_,_)_PEANO_Nat_B_Nat» K.«pick(_,_)_PEANO_Nat_B_Nat».rule1 K.«pick(_,_)_PEANO_Nat_B_Nat».rule2; k2l_eqn_c [K.«pick(_,_)_PEANO_Nat_B_Nat».rule1, K.«pick(_,_)_PEANO_Nat_B_Nat».rule2, K.«pick(_,_)_PEANO_Nat_B_Nat»])
 
 /-- plus(_,_)_PEANO_Nat_Nat_Nat equation 1 -/
 theorem Eqn.«plus(_,_)_PEANO_Nat_Nat_Nat_1» (M : SortNat) :
@@ -125,5 +136,6 @@ theorem Eqn.pushList_1 (K_1 : SortKItem) (L1 : SortList) :
   | k2l_eqn_a []
   | (k2l_eqn_b []; done)
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
+  | (k2l_eqn_c [])
 
 end Peano

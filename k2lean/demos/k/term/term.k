@@ -11,7 +11,7 @@ module TERM-SYNTAX
   imports MAP
   syntax Ints ::= ".Ints" | Int ";" Ints
   syntax Ty ::= ty(Int)
-  syntax Pgm ::= run(Bytes, Ints, List, Int) | runT(Map, Ty)
+  syntax Pgm ::= run(Bytes, Ints, List, Int) | runN(Int) | runT(Map, Ty)
 endmodule
 
 module TERM
@@ -103,6 +103,18 @@ module TERM
   rule decSeq(_, _) => .Trees [owise]
   rule decSeqHdr(B, S, _:Kind(L, P)) => dec(substrBytes(B, S, L +Int P)) :: decSeq(B, L +Int P)
 
+  // Shifting right towards zero, after a sign flip: the distance of the negation, then of the
+  // value, which `>>Int 1` makes smaller while it is positive (`IntHook.shr_facts`).
+  syntax Int ::= popcount(Int) [function, total, symbol(popcount)]
+  rule popcount(0) => 0
+  rule popcount(N) => (N &Int 1) +Int popcount(N >>Int 1) requires N >Int 0
+  rule popcount(N) => popcount(N *Int -1) requires N <Int 0
+
+  // Two partial calls in one right-hand side: the definition matches on the value of the first call
+  // and then of the second, and the equation binds both (cased on by `k2l_case_call`).
+  syntax Int ::= popcounts(Int, Int) [function, total, symbol(popcounts)]
+  rule popcounts(M, N) => popcount(M) +Int popcount(N)
+
   // Types read from a table: an array's alignment is its element's, its size the element's size
   // times its length, and the element's description is read from the table. The table is an
   // arbitrary map, so on a table whose entry for a type mentions that type (`ty(0) |-> arr(ty(0),
@@ -124,5 +136,6 @@ module TERM
   rule sizeTy(M, T) => size(M, info(M, T))
 
   rule <k> run(B, L, Xs, N) => scan(B, 0, 0) ~> isort(L) ~> total(Xs, 0) ~> series(1, 0, N, N) ~> dec(B) </k>
+  rule <k> runN(N) => popcount(N) ~> popcounts(N, 0 -Int N) </k>
   rule <k> runT(M, T) => sizeTy(M, T) ~> align(M, info(M, T)) </k>
 endmodule
