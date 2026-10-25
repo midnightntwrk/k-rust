@@ -1100,10 +1100,13 @@ fn confirm(
     // Where the target was reached: the state, the side, leaf and (for an observer) hit step,
     // and the kind of kill. Under the determinism contract all of them repeat; a confirmation
     // that differs in any is an engine defect, never the witness's source (ARCHITECTURE 7).
-    let reaching = candidate
-        .hit
-        .as_ref()
-        .map(|detail| (detail.reaching_state.clone(), detail.reaching, detail.kill));
+    let reaching = candidate.hit.as_ref().map(|detail| {
+        (
+            detail.reaching_state.clone(),
+            detail.reaching.clone(),
+            detail.kill,
+        )
+    });
     let confirmed = match crash::catch(|| runner.confirm(values, cancel)) {
         Ok(confirmed) => confirmed,
         Err(record) => {
@@ -1149,7 +1152,7 @@ fn confirm(
                         && reaching.as_ref()
                             == Some(&(
                                 detail.reaching_state.clone(),
-                                detail.reaching,
+                                detail.reaching.clone(),
                                 detail.kill,
                             )) =>
                 {

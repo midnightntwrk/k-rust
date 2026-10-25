@@ -54,7 +54,7 @@ use k_rust::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use super::{HitSite, Judgement, Resolved, ResolvedTarget, any_state};
+use super::{HitSite, Judgement, Resolved, ResolvedTarget};
 use crate::{
     error::{CampaignError, TargetProblem},
     exec::{
@@ -369,11 +369,14 @@ pub(crate) struct JudgedRun {
     /// For an observer target's hit, the step of the hit leaf's path at which the observer
     /// answered [`ObserverVerdict::Hit`]: the number of committed rewrite steps from the
     /// initial configuration to the configuration that step reached, at least 1 and at most the
-    /// leaf's depth. For a pattern target `at: any-state`, the step of the first reaching
-    /// configuration on that path, counted the same way, from 0 (`super::any_state`). A function
-    /// of the leaf's path, so the same under the execution contract whichever run computes it.
-    /// `None` for every other judgement and target.
+    /// leaf's depth. For a pattern target `at: any-state`, the depth of the reaching
+    /// configuration, counted the same way, from 0 (`super::any_state`). A function of the case
+    /// under the execution contract, whichever run computes it. `None` for every other
+    /// judgement and target.
     pub(crate) hit_step: Option<u64>,
+    /// For a pattern target `at: any-state`'s hit, the reaching configuration and its depth
+    /// ([`super::HitSite::StateMatch`]); `None` for every other judgement and target.
+    pub(crate) state_match: Option<super::any_state::StateMatchHit>,
     /// For an observer target, the greatest [`ObserverVerdict::Progress`] the observer answered
     /// on any path of the run before a hit; `None` when it answered none, and for every other
     /// target. The climb's score of an observer target (ARCHITECTURE 6.4).
@@ -400,7 +403,7 @@ impl ResolvedTarget {
     /// Run one case with `executor` and judge it: [`Executor::run`] with this target's matchers,
     /// then [`Self::judge_run`]; for an observer target [`Executor::run_observed`] and the
     /// observer's walk over the leaves' paths (module documentation); for a pattern
-    /// `at: any-state`, [`Executor::run_any_state`] and the walk over its configuration verdicts
+    /// `at: any-state`, [`Executor::run_any_state`] and the run's state matches
     /// (`super::any_state`). The engine's entry point for rule, pattern and observer targets.
     ///
     /// An observer case runs once, through `Backend::execute_observed`, under the same
@@ -449,28 +452,28 @@ impl ResolvedTarget {
                     result,
                     judgement,
                     hit_step,
+                    state_match: None,
                     progress,
                     comparable: None,
                     every_path: None,
                 })
             }
             Resolved::PatternAnyState => {
-                // The resolution keeps the target's one matcher, and no informational one.
-                let matcher = &self.matchers[0];
-                let (result, leaves, verdicts) =
-                    executor.run_any_state(initial, shape, matcher, any_state::plan, cancel)?;
-                let (judgement, hit_step) =
-                    match self.judge_any_state(&result, &leaves, &verdicts, cancel) {
-                        Ok((judgement, hit_step)) => (Ok(judgement), hit_step),
+                let (result, run) = executor.run_any_state(initial, shape, cancel)?;
+                let (judgement, state_match) =
+                    match self.judge_any_state(&result, run.as_ref(), cancel) {
+                        Ok((judgement, state_match)) => (Ok(judgement), state_match),
                         Err(defect) => (Err(defect), None),
                     };
                 let (judgement, comparable, every_path) =
                     self.judge_comparable(executor, initial, shape, cancel, &result, judgement)?;
                 let hit = matches!(&judgement, Ok(judged) if judged.class == OutcomeClass::Hit);
+                let state_match = state_match.filter(|_| hit);
                 Ok(JudgedRun {
                     result,
                     judgement,
-                    hit_step: hit_step.filter(|_| hit),
+                    hit_step: state_match.as_ref().map(|hit| hit.depth),
+                    state_match,
                     progress: None,
                     comparable,
                     every_path,
@@ -485,6 +488,7 @@ impl ResolvedTarget {
                     result,
                     judgement,
                     hit_step: None,
+                    state_match: None,
                     progress: None,
                     comparable,
                     every_path,

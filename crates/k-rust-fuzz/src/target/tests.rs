@@ -563,12 +563,21 @@ fn judge(target: &ResolvedTarget, result: &CaseResult) -> Judgement {
 
 #[test]
 fn needs_follow_the_resolved_rule() {
-    // All paths run a state set (FZ-STATESET); `fired` keeps its terminal rule there (D36).
+    // All paths run a state set (FZ-STATESET); `fired` keeps its terminal rule there (D36),
+    // and reads the committed transitions (FZ-STATESET-MATCH); the coverage modes do not.
     assert_eq!(
         rule_target("id-div", RuleMode::Fired, false).needs(PathMode::AllPaths),
         TargetNeeds {
             state_set: true,
+            collect_committed: true,
             ..rule_needs("id-div", RuleMode::Fired, false)
+        }
+    );
+    assert_eq!(
+        rule_target("id-div", RuleMode::Covered, false).needs(PathMode::AllPaths),
+        TargetNeeds {
+            state_set: true,
+            ..TargetNeeds::default()
         }
     );
     assert_eq!(

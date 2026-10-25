@@ -152,7 +152,8 @@ fn a_mutant_that_adds_an_end_is_killed_by_a_confirmed_witness() {
             Reaching {
                 role: DefinitionRole::Mutant,
                 leaf: Some(0),
-                step: None
+                step: None,
+                configuration: None,
             }
         );
         let roles: Vec<DefinitionRole> = case.sides.iter().map(|side| side.role).collect();

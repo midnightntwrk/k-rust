@@ -1,6 +1,7 @@
-//! Pattern targets `at: any-state` on real runs (ARCHITECTURE 4.1; FZ-ANYSTATE): FZ-FIX's
-//! fixtures (`tests/support`) compiled in-process, each case run once through observed execution
-//! by [`ResolvedTarget::run_and_judge`] and classed by [`crate::exec::classify`].
+//! Pattern targets `at: any-state` on real runs (ARCHITECTURE 4.1; FZ-ANYSTATE,
+//! FZ-STATESET-MATCH): FZ-FIX's fixtures (`tests/support`) compiled in-process, each case run
+//! once with its state matches by [`ResolvedTarget::run_and_judge`]. The step a hit names is read
+//! off an observed run of the same program, independently of the matcher.
 //!
 //! - IMP `commute.imp` looks `x` (3) up for `x + y`, so `<k>` holds `3` at its head mid-run;
 //!   `div.imp` with `y = 0` looks `x` (10) up, then stops abnormally at `10 / 0`.
@@ -52,11 +53,12 @@ struct Harness {
     options: CaseOptions,
 }
 
-/// A judged case: its result, judgement and hit step.
+/// A judged case: its result, judgement, hit step and reaching configuration.
 struct Judged {
     result: CaseResult,
     judgement: Judgement,
     hit_step: Option<u64>,
+    state_match: Option<super::StateMatchHit>,
 }
 
 impl Harness {
@@ -110,6 +112,7 @@ impl Harness {
             result,
             judgement,
             hit_step: judged.hit_step,
+            state_match: judged.state_match,
         }
     }
 
@@ -226,8 +229,19 @@ fn an_imp_configuration_holding_3_mid_run_is_a_hit_at_its_step() {
         "{:#?}",
         judged.result
     );
-    assert_eq!(judged.judgement.hit_site, Some(HitSite::Leaf(0)));
     let step = judged.hit_step.expect("an any-state hit names its step");
+    assert_eq!(
+        judged.judgement.hit_site,
+        Some(HitSite::StateMatch { depth: step })
+    );
+    assert!(k_head_is(
+        &judged
+            .state_match
+            .as_ref()
+            .expect("a reaching configuration")
+            .configuration,
+        "3"
+    ));
     // Read the step off the run itself: the first configuration whose `<k>` head is 3.
     let initial = imp.initial("imp/commute.imp", None);
     let configurations = configurations(&imp.observed(&initial));
@@ -323,8 +337,11 @@ fn a_configuration_holding_an_undefined_application_does_not_reach() {
     }
 }
 
+/// Under all paths and `run-to-completion`, a reached state names no leaf: `flip(3)`'s `tails`
+/// configuration holds `<out> 4` at depth 1, and both leaves (`heads` and `tails`) are clean
+/// natural ends, so the reach is a hit, whichever path it is on (S4).
 #[test]
-fn a_hit_under_all_paths_rests_on_the_reaching_leaf() {
+fn a_hit_under_all_paths_names_the_reaching_configuration() {
     let mut coin = Harness::new(COIN.compiled(), all_paths());
     let judged = coin.judge(
         &any_state("<out> 4 </out>", true),
@@ -339,14 +356,12 @@ fn a_hit_under_all_paths_rests_on_the_reaching_leaf() {
         "{:#?}",
         judged.result
     );
-    let Some(HitSite::Leaf(leaf)) = judged.judgement.hit_site else {
-        panic!("a leaf hit: {:?}", judged.judgement);
-    };
-    assert!(
-        out_holds(&judged.result.leaves[leaf].state, "4"),
-        "the hit rests on the `tails` leaf: {:#?}",
-        judged.result
+    assert_eq!(
+        judged.judgement.hit_site,
+        Some(HitSite::StateMatch { depth: 1 })
     );
+    let hit = judged.state_match.expect("a reaching configuration");
+    assert!(out_holds(&hit.configuration, "4"), "{hit:?}");
     assert_eq!(judged.hit_step, Some(1));
     let none = coin.judge(
         &any_state("<out> 5 </out>", false),
@@ -362,10 +377,14 @@ fn a_hit_under_all_paths_rests_on_the_reaching_leaf() {
     );
 }
 
+/// Design test 2 (FZ-STATESET-MATCH, CUT-PATH-HIT): a configuration reached on a path that a
+/// bound later cuts was reached, and what follows it cannot unmake that; only its prefix's facts
+/// bear on it. `count(2)` is reached at step 1, and the run is cut at depth 2, or by the work
+/// budget, before its end: a hit (at the base, `unsupported` with `reached-cut-path`). Under
+/// `run-to-completion` the cut leaf is no clean natural end and the reach names no leaf:
+/// `any-state-unattributed`. Nothing before the cut matching leaves the bound's class.
 #[test]
-fn a_reaching_path_cut_by_a_bound_is_no_hit() {
-    // `count(2)` is reached at step 1; the run is cut at depth 2, or by the work budget, before
-    // its end.
+fn a_reaching_path_cut_by_a_bound_is_a_hit() {
     let reaching = |run_to_completion| any_state("<k> count(2) ~> _ </k>", run_to_completion);
     for options in [
         CaseOptions {
@@ -376,25 +395,28 @@ fn a_reaching_path_cut_by_a_bound_is_no_hit() {
             max_work: Some(3),
             ..CaseOptions::default()
         },
+        CaseOptions {
+            max_work: Some(3),
+            paths: PathMode::AllPaths,
+            ..CaseOptions::default()
+        },
     ] {
         let mut coin = Harness::new(COIN.compiled(), options);
         let judged = coin.judge(&reaching(false), "coin/count.pgm", "count(3)", "count(3)");
         assert_eq!(
-            judged.judgement.class,
-            OutcomeClass::Unsupported,
+            (judged.judgement.class, judged.judgement.reason),
+            (OutcomeClass::Hit, None),
             "{:#?}",
             judged.result
         );
-        assert_eq!(
-            judged.judgement.reason,
-            Some(UnjudgedReason::ReachedCutPath),
-            "{:#?}",
-            judged.result
-        );
+        assert_eq!(judged.hit_step, Some(1));
         let judged = coin.judge(&reaching(true), "coin/count.pgm", "count(3)", "count(3)");
         assert_eq!(
-            judged.judgement.class,
-            OutcomeClass::ReachedUnfinished,
+            (judged.judgement.class, judged.judgement.reason),
+            (
+                OutcomeClass::Unsupported,
+                Some(UnjudgedReason::AnyStateUnattributed)
+            ),
             "{:#?}",
             judged.result
         );

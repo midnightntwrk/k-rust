@@ -1,66 +1,61 @@
-//! Pattern targets `at: any-state` (ARCHITECTURE 4.1): the target is reached on a path when one
-//! of its normalized configurations matches the pattern. Owner: FZ-ANYSTATE.
+//! Pattern targets `at: any-state` (ARCHITECTURE 4.1): the target is reached when a
+//! configuration the run reaches matches the pattern. Owners: FZ-ANYSTATE, FZ-STATESET-MATCH.
 //!
-//! A case runs once, through `Backend::execute_observed` with every observation event
+//! A case runs once, through `Backend::execute` with `matchStates` set to the target's pattern
 //! ([`Executor::run_any_state`]), under the same cancellation scope, per-case safety limit and
-//! work budget as every case. The leaves' paths are merged into the observer target's path tree
-//! (`super::observer`), and the configurations shown are the ones an observer is shown, plus the
-//! initial one:
-//! - at the root, the initial configuration after normalization (the `before` of the first
-//!   transition, or the state of a leaf that took no step);
-//! - at every other node, the configuration its transition reached, after normalization (the
-//!   `before` of the next transition, or the state of a leaf that ends there);
-//! - never the state of a `work-bound`, `timeout` or `cancelled` leaf, which is the stopped,
-//!   unnormalised state the worklist held, not a reached configuration (`classify`'s cut-leaf
-//!   contract).
+//! work budget as every case; under all paths as a state set. k-rust matches every state the
+//! run reaches in normal form and does not merge into an equal state of its depth, as it reaches
+//! it, and reports a summary (`ExecutionResult::state_matches`, docs/compatibility.md "State
+//! matches"):
+//! - a state *reaches* when it is decided (no constraint, no variable), ceil-free and matched
+//!   with empty constraints, in execution mode and, unless the pattern evaluates nothing, in
+//!   proof mode too (D16, review B1), exactly as an end leaf's state is judged (ARCHITECTURE
+//!   5.2);
+//! - a reach is *clean* when the diagnostics of the path that reached it, up to it, carry none of
+//!   the leaf facts of ARCHITECTURE 5.2 (an implementation-chosen value, a contradicted claim,
+//!   iteration exhaustion, a failed condition simplification, undecided initial definedness);
+//! - a state merged into an equal recorded state has that state's verdict (a pattern reads only
+//!   the configuration and its constraints), and an arrival on a clean path merged into a
+//!   reaching state with a dirty one is reported as the clean reach, with its own prefix.
 //!
-//! Where a leaf ends at a node that another path leaves (an undefined step's leaf, under its
-//! own path condition `#Not(#Ceil(...))`, beside the defined step), the configuration judged
-//! there is the `before` of the transition that leaves it, the one the run went on from.
+//! The case is a hit when the summary has a first clean reach and the run has no run-level
+//! reason (an unsupported hook observed in the run, D21; the clock, stack and solver reasons put
+//! the case outside the determinism contract, below). What follows the reaching state on its
+//! path cannot unmake the reach, so a reaching path a bound later cuts is still a hit
+//! (CUT-PATH-HIT); only its prefix's facts bear on it. Under `run-to-completion` the hit also
+//! needs the reaching path to end cleanly and naturally (and in data with `data-end`), and a
+//! reached state names no leaf: it is a hit only when every leaf of the run is such an end and no
+//! run fact lies off the leaves, and `reached-unfinished` when no path ends naturally at all
+//! (`no_path_ends_naturally`); otherwise `unsupported` with `any-state-unattributed` (S4).
 //!
-//! Each shown configuration is judged as an end leaf's state is (ARCHITECTURE 5.2): it *reaches*
-//! when it is decided (no constraint, no variable), ceil-free and matches with empty constraints
-//! ([`ConfigurationVerdict`]). A leaf *reaches* the target when a configuration on its path
-//! reaches; its hit step is the depth of the first such configuration, the number of committed
-//! steps from the initial configuration, 0 for the initial configuration itself, which the
-//! witness records ([`crate::report::Reaching::step`]). Nothing below a reaching configuration
-//! is matched.
+//! Without a clean reach, a dirty reach or an undecided state may hide a hit: the case is then
+//! `unsupported`, with the first reason in [`UnjudgedReason`]'s order among theirs and the
+//! leaves'. Otherwise every matched state was refuted, and the case is classed by its leaves as
+//! a case whose leaves reach nothing ([`crate::exec::classify_ends_explained`]): a state the
+//! matcher did not see is the stopped state of a `work-bound`, `timeout` or `cancelled` leaf, or
+//! lies on a vanished path whose facts are off the leaves, and either keeps the case from `miss`.
 //!
-//! The case is then classed by [`crate::exec::classify_ends_explained`], as every leaf-judged
-//! target's is: a hit needs a reaching leaf that is clean (ARCHITECTURE 5.2) and, under
-//! `run-to-completion`, a natural end (and a data end with `data-end`). The leaf's diagnostics
-//! hold the facts of its whole path, so of the path up to the reaching configuration too, and the
-//! run's facts are on every leaf. A reaching path later cut by a bound is therefore `unsupported`
-//! (`reached-cut-path`), or `reached-unfinished` under `run-to-completion`, never a hit, as an
-//! observer's accepted path is (P7-ADDENDUM open question 4, taken as recommended until KINK-27
-//! tells a leaf's own facts from budget copies).
+//! The witness records the reaching configuration and its depth ([`HitSite::StateMatch`]); the
+//! depth is the first clean reach's in the run's depth-first order, not the least depth at which
+//! some path reaches the pattern (kink's query may find a shallower one). Below a merged state a
+//! reach keeps the prefix of the arrival the run expanded, so such a reach can be a hit or
+//! `unsupported` by the depth-first order, never `miss` (V8). The order is a function of the
+//! definition and the request, so the verdict is deterministic.
 //!
-//! A configuration that cannot be decided (it matches but is not ceil-free, its match is
-//! undecided, it is not a decided state, or it does not decode or internalize), or a node the
-//! tree shows no configuration at (a path without complete observation events, whose subtree
-//! is then not walked), may hide a reaching configuration: the case is then `unsupported` unless
-//! some leaf is a hit, with the first reason in [`UnjudgedReason`]'s order.
-//!
-//! Cost: observed execution carries two configurations per step and an event per equation
-//! evaluated, and each configuration shown before the first reach on its path is decoded,
-//! internalized and matched once (twice when the target evaluates something, in both evaluation
-//! modes). Observed execution dominates: on IMP's `loop.imp` (306 steps) a case takes about 4 ms
-//! through `execute`, 140 ms through observed execution with the observer's rewrite-rule filter,
-//! 176 ms with every event, and 237 ms with the configurations matched (FZ-ANYSTATE report). A
-//! syntactic prefilter could save at most the matching's quarter, and only by deciding which
-//! configurations the matcher refutes, so there is none.
+//! Cost: one match per distinct reached state (two when the pattern evaluates something), inside
+//! the run, and nothing held beyond a few matched states (ANY-STATE-MEM: the observed path set
+//! held every configuration of every path at once).
 
-use k_rust::backend::{CancellationToken, ExecutionLeaf};
+use k_rust::backend::{
+    BackendDiagnosticOutput, CancellationToken, StateMatchOutput, UndecidedMatchReasonOutput,
+};
 
 use super::{
-    HitSite, Judgement, ResolvedTarget,
-    observer::{defect, explained, path_tree, unobserved},
+    HitSite, Judgement, ResolvedTarget, every_leaf_qualifies, no_path_ends_naturally,
+    observer::{defect, explained, unobserved},
 };
 use crate::{
-    exec::{
-        self, CaseResult, ConfigurationVerdict, DeterminismBreak, OutcomeClass,
-        PlannedConfiguration, UnjudgedReason,
-    },
+    exec::{self, AnyStateRun, CaseResult, DeterminismBreak, OutcomeClass, UnjudgedReason},
     report::EngineDefect,
 };
 
@@ -68,115 +63,59 @@ use crate::{
 #[path = "any_state_tests.rs"]
 mod tests;
 
-/// The configurations an any-state target judges on the path tree of `leaves`, by node index
-/// (`crate::exec::run::ConfigurationPlan`): the node's parent, and the configuration shown there,
-/// none at a node where a stopped leaf ends without successors.
-pub(super) fn plan(leaves: &[ExecutionLeaf]) -> Vec<PlannedConfiguration<'_>> {
-    let nodes = path_tree(leaves);
-    let mut planned: Vec<PlannedConfiguration<'_>> = nodes
+/// An any-state hit's reaching configuration (the first clean reach of the run's state
+/// matches): its depth and its state, as KORE.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct StateMatchHit {
+    /// Committed steps from the initial configuration to it.
+    pub(crate) depth: u64,
+    /// The configuration, as k-rust reported it.
+    pub(crate) configuration: k_rust::kore::ast::Pattern,
+}
+
+/// The reasons of a reach whose prefix is not clean: the leaf facts its path's diagnostics
+/// carry, as a leaf's would give them (ARCHITECTURE 5.2, `Judge::leaf_reasons`).
+fn prefix_reasons(reach: &StateMatchOutput) -> Vec<UnjudgedReason> {
+    reach
+        .diagnostics
         .iter()
-        .map(|node| PlannedConfiguration {
-            parent: None,
-            configuration: if node.stopped && node.edges.is_empty() {
-                None
-            } else {
-                node.before.or(node.configuration)
-            },
+        .filter_map(|diagnostic| match diagnostic {
+            BackendDiagnosticOutput::ImplementationChosenValue { .. } => {
+                Some(UnjudgedReason::ImplementationChosenValue)
+            }
+            BackendDiagnosticOutput::ContradictedClaim(_) => {
+                Some(UnjudgedReason::ContradictedClaim)
+            }
+            BackendDiagnosticOutput::SimplificationBudgetExhausted { .. }
+            | BackendDiagnosticOutput::RuleConditionUnsimplified { .. } => {
+                Some(UnjudgedReason::IterationExhaustion)
+            }
+            BackendDiagnosticOutput::RuleConditionFailed { .. } => {
+                Some(UnjudgedReason::SimplificationFailure)
+            }
+            BackendDiagnosticOutput::UndefinedInitialInstances { .. } => {
+                Some(UnjudgedReason::UndecidedState)
+            }
+            BackendDiagnosticOutput::UndecidedCondition { .. }
+            | BackendDiagnosticOutput::UndecidedPredicate { .. }
+            | BackendDiagnosticOutput::UnsupportedHookUnevaluated { .. } => None,
         })
-        .collect();
-    for (index, node) in nodes.iter().enumerate() {
-        for edge in &node.edges {
-            planned[edge.child].parent = Some(index);
-        }
-    }
-    planned
+        .collect()
 }
 
-/// What the walk over the verdicts found, per leaf of the observed result.
-#[derive(Debug, Default, Eq, PartialEq)]
-struct Reached {
-    /// When a configuration on the leaf's path reaches the target, the depth of the first one.
-    hit_steps: Vec<Option<u64>>,
-    /// Whether that first reaching configuration's term holds a term-level `\and`
-    /// ([`ConfigurationVerdict::Reaches`]); `false` for a leaf that reaches nothing.
-    hit_conjunctions: Vec<bool>,
-    /// The reasons of the configurations that could not be decided before any reach on their
-    /// path, and [`UnjudgedReason::Unobservable`] for a node that shows no configuration.
-    unresolved: Vec<UnjudgedReason>,
-}
-
-/// Walk the path tree of `leaves` with the configuration `verdicts` by node index
-/// ([`ConfigurationVerdict`]).
-///
-/// # Errors
-///
-/// [`EngineDefect`] when a configuration the walk reaches carries no verdict.
-fn walk(
-    leaves: &[ExecutionLeaf],
-    verdicts: &[ConfigurationVerdict],
-) -> Result<Reached, EngineDefect> {
-    let nodes = path_tree(leaves);
-    if verdicts.len() != nodes.len() {
-        return Err(defect(&format!(
-            "{} configuration verdicts for a path tree of {} nodes",
-            verdicts.len(),
-            nodes.len()
-        )));
+/// The reason of an undecided state.
+fn undecided_reason(reason: UndecidedMatchReasonOutput) -> UnjudgedReason {
+    match reason {
+        UndecidedMatchReasonOutput::UndecidedState => UnjudgedReason::UndecidedState,
+        UndecidedMatchReasonOutput::NotCeilFree => UnjudgedReason::NotCeilFree,
+        UndecidedMatchReasonOutput::UndecidedMatch => UnjudgedReason::UndecidedMatch,
     }
-    let mut reached = Reached {
-        hit_steps: vec![None; leaves.len()],
-        hit_conjunctions: vec![false; leaves.len()],
-        unresolved: Vec::new(),
-    };
-    // (node, depth, the depth of the first reaching configuration above it, whether that one
-    // holds a term-level `\and`).
-    let mut work: Vec<(usize, u64, Option<u64>, bool)> = vec![(0, 0, None, false)];
-    while let Some((index, depth, mut hit, mut conjunction)) = work.pop() {
-        let node = &nodes[index];
-        if hit.is_none() {
-            if node.stopped && node.edges.is_empty() {
-                // The stopped state is no reached configuration: its leaves keep the reach of
-                // the configurations above it (none here).
-                continue;
-            }
-            if node.configuration.is_none() {
-                // No complete observation of a path through it: the subtree is not shown.
-                reached.unresolved.push(UnjudgedReason::Unobservable);
-                continue;
-            }
-            match &verdicts[index] {
-                ConfigurationVerdict::Reaches { term_conjunction } => {
-                    hit = Some(depth);
-                    conjunction = *term_conjunction;
-                }
-                ConfigurationVerdict::Refuted => {}
-                ConfigurationVerdict::Unresolved(reason) => reached.unresolved.push(*reason),
-                ConfigurationVerdict::NotJudged => {
-                    return Err(defect(&format!(
-                        "the configuration at depth {depth} of the path tree was not judged"
-                    )));
-                }
-            }
-        }
-        for &leaf in &node.leaves {
-            reached.hit_steps[leaf] = hit;
-            reached.hit_conjunctions[leaf] = conjunction;
-        }
-        // The first successor is walked first.
-        work.extend(
-            node.edges
-                .iter()
-                .rev()
-                .map(|edge| (edge.child, depth + 1, hit, conjunction)),
-        );
-    }
-    Ok(reached)
 }
 
 impl ResolvedTarget {
-    /// Judge an any-state case from its judged `result`, the raw observed `leaves` of the same
-    /// run and the configuration `verdicts` ([`Executor::run_any_state`]), with the hit leaf's
-    /// hit step for a hit (module documentation).
+    /// Judge an any-state case from its judged `result` and the run's state matches `run`
+    /// ([`Executor::run_any_state`]), with the reaching configuration for a hit (module
+    /// documentation).
     ///
     /// A failed run is classed by its failure alone. A case outside the determinism contract,
     /// or whose `cancel` is cancelled by the time it is judged, is classed with no leaf reaching
@@ -185,18 +124,16 @@ impl ResolvedTarget {
     ///
     /// # Errors
     ///
-    /// [`EngineDefect`] from classification, when the observed leaves are not the judged
-    /// result's, when a reached configuration carries no verdict, and for a `hit` class with
-    /// no clean reaching leaf.
+    /// [`EngineDefect`] from classification, when a successful run reports no state matches,
+    /// and when a dirty reach carries none of the facts that make a prefix unclean.
     ///
     /// [`Executor::run_any_state`]: crate::exec::Executor::run_any_state
     pub(super) fn judge_any_state(
         &self,
         result: &CaseResult,
-        leaves: &[ExecutionLeaf],
-        verdicts: &[ConfigurationVerdict],
+        run: Option<&AnyStateRun>,
         cancel: Option<&CancellationToken>,
-    ) -> Result<(Judgement, Option<u64>), EngineDefect> {
+    ) -> Result<(Judgement, Option<StateMatchHit>), EngineDefect> {
         let run_to_completion = self.target.run_to_completion;
         let data_end = self.target.requires_data_end();
         if result.failure.is_some() {
@@ -210,54 +147,88 @@ impl ResolvedTarget {
                 result.safety_limit_hit || breaks.contains(&DeterminismBreak::Clock) || cancelled;
             return unobserved(result, run_to_completion, clock).map(|judgement| (judgement, None));
         }
-        if leaves.len() != result.leaves.len() {
-            return Err(defect(&format!(
-                "the observed run returned {} leaves where its judged result has {}",
-                leaves.len(),
-                result.leaves.len()
-            )));
+        let Some(run) = run else {
+            return Err(defect("an any-state run reported no state matches"));
+        };
+        let matches = &run.matches;
+        if let Some(reach) = &matches.first_clean_reach {
+            // A run-level reason taints every path (ARCHITECTURE 5.2), the reaching one too.
+            if let Some(reason) = run
+                .run_reasons
+                .iter()
+                .filter_map(UnjudgedReason::of_unclean)
+                .min()
+            {
+                return Ok((explained(OutcomeClass::Unsupported, Some(reason)), None));
+            }
+            if run_to_completion && !every_leaf_qualifies(result, run_to_completion, data_end) {
+                // The reached state names no leaf; whether the path through it ends cleanly and
+                // naturally is shown only when every path does, or when none does.
+                let judgement = if no_path_ends_naturally(result) {
+                    explained(OutcomeClass::ReachedUnfinished, None)
+                } else {
+                    explained(
+                        OutcomeClass::Unsupported,
+                        Some(UnjudgedReason::AnyStateUnattributed),
+                    )
+                };
+                return Ok((judgement, None));
+            }
+            let judgement = self.confirmable(
+                Judgement {
+                    class: OutcomeClass::Hit,
+                    hit_site: Some(HitSite::StateMatch { depth: reach.depth }),
+                    blocked: false,
+                    reason: None,
+                    demoted_from: None,
+                },
+                result,
+                reach.term_conjunction,
+            );
+            if judgement.class != OutcomeClass::Hit {
+                return Ok((judgement, None));
+            }
+            let configuration = k_rust::kore::codec::from_value(&reach.state).map_err(|error| {
+                defect(&format!(
+                    "the reaching state does not decode as KORE: {error}"
+                ))
+            })?;
+            return Ok((
+                judgement,
+                Some(StateMatchHit {
+                    depth: reach.depth,
+                    configuration,
+                }),
+            ));
         }
-        let walked = walk(leaves, verdicts)?;
-        let reached: Vec<bool> = walked.hit_steps.iter().map(Option::is_some).collect();
+        let unreached = vec![false; result.leaves.len()];
         let (class, reason) =
-            exec::classify_ends_explained(result, &reached, run_to_completion, data_end)?;
-        if class != OutcomeClass::Hit
-            && let Some(unresolved) = walked.unresolved.iter().copied().min()
-        {
+            exec::classify_ends_explained(result, &unreached, run_to_completion, data_end)?;
+        // No clean reach: a dirty reach or an undecided state may hide one.
+        let mut unresolved: Vec<UnjudgedReason> = Vec::new();
+        if let Some(reach) = &matches.first_dirty_reach {
+            let reasons = prefix_reasons(reach);
+            if reasons.is_empty() {
+                return Err(defect(
+                    "a reach k-rust reports on a dirty prefix carries no fact that makes a prefix unclean",
+                ));
+            }
+            unresolved.extend(reasons);
+        }
+        unresolved.extend(
+            matches
+                .undecided
+                .iter()
+                .map(|entry| undecided_reason(entry.reason)),
+        );
+        if let Some(unresolved) = unresolved.into_iter().min() {
             // A configuration that could not be decided may reach the target: never a `miss`.
             let reason = reason.map_or(unresolved, |reason| reason.min(unresolved));
             return Ok((explained(OutcomeClass::Unsupported, Some(reason)), None));
         }
-        if class != OutcomeClass::Hit {
-            return Ok((explained(class, reason), None));
+        if class == OutcomeClass::Hit {
+            return Err(defect("leaves that reach nothing were classed `hit`"));
         }
-        let leaf = result
-            .leaves
-            .iter()
-            .zip(&reached)
-            .position(|(leaf, reached)| {
-                *reached
-                    && leaf.is_clean()
-                    && (!run_to_completion || leaf.natural_end)
-                    && (!data_end || leaf.data_end == Some(true))
-            });
-        let Some(leaf) = leaf else {
-            return Err(defect(
-                "a case classed `hit` has no clean leaf that reaches the target",
-            ));
-        };
-        let judgement = self.confirmable(
-            Judgement {
-                class,
-                hit_site: Some(HitSite::Leaf(leaf)),
-                blocked: false,
-                reason,
-                demoted_from: None,
-            },
-            result,
-            walked.hit_conjunctions[leaf],
-        );
-        let hit_step = walked.hit_steps[leaf].filter(|_| judgement.class == OutcomeClass::Hit);
-        Ok((judgement, hit_step))
+        Ok((explained(class, reason), None))
     }
 }

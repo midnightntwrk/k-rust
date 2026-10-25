@@ -535,6 +535,15 @@ pub(crate) fn applied(id: &str, coverage: Option<&RunCoverageOutput>) -> bool {
     coverage.is_some_and(|coverage| coverage.applied.iter().any(|entry| entry == id))
 }
 
+/// Whether the rule is in coverage `committed`: a step built a successor of it that its own
+/// normalization showed defined, on some explored path, absorbed arrivals included (the run's
+/// committed transitions, `collectCommitted`). `None` when the run did not report them.
+pub(crate) fn committed(id: &str, coverage: Option<&RunCoverageOutput>) -> Option<bool> {
+    coverage
+        .and_then(|coverage| coverage.committed.as_ref())
+        .map(|committed| committed.iter().any(|entry| entry == id))
+}
+
 /// The rule's condition was entered and it built no successor: in coverage `matched`, not in
 /// `applied` (ARCHITECTURE 6.2). `false` without coverage.
 pub(crate) fn blocked(id: &str, coverage: Option<&RunCoverageOutput>) -> bool {

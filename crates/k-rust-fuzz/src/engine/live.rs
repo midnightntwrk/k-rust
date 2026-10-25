@@ -836,6 +836,30 @@ impl LiveCases {
         terminal_rules: &[String],
         instantiated: &InstantiatedProgram,
     ) -> Option<String> {
+        Self::krun_line(
+            definition,
+            directory,
+            options,
+            paths,
+            terminal_rules,
+            instantiated,
+            None,
+        )
+    }
+
+    /// [`Self::krun_command`], or with `search_pattern` the `krun` search that reproduces a
+    /// pattern target `at: any-state`: every reachable configuration matched against the
+    /// pattern (`--search-all --pattern`, which explores every path), in place of `--strategy`
+    /// (FZ-STATESET-MATCH, ARCHITECTURE 9.3).
+    fn krun_line(
+        definition: &CompiledDefinition,
+        directory: &str,
+        options: &CaseOptions,
+        paths: PathMode,
+        terminal_rules: &[String],
+        instantiated: &InstantiatedProgram,
+        search_pattern: Option<&str>,
+    ) -> Option<String> {
         if definition.route == BackendRoute::FromDefinition {
             return None;
         }
@@ -852,11 +876,16 @@ impl LiveCases {
             quote(&definition.syntax_module)
         );
         write!(line, " -s {}", quote(&program.start_sort)).expect("writing to a String");
-        line.push_str(" --io off --strategy ");
-        line.push_str(match paths {
-            PathMode::OnePath => "any",
-            PathMode::AllPaths => "all",
-        });
+        if let Some(pattern) = search_pattern {
+            write!(line, " --io off --search-all --pattern {}", quote(pattern))
+                .expect("writing to a String");
+        } else {
+            line.push_str(" --io off --strategy ");
+            line.push_str(match paths {
+                PathMode::OnePath => "any",
+                PathMode::AllPaths => "all",
+            });
+        }
         if let Some(depth) = options.max_depth {
             write!(line, " --depth {depth}").expect("writing to a String");
         }
@@ -950,6 +979,7 @@ impl LiveCases {
             result,
             judgement: judged,
             hit_step,
+            state_match,
             progress,
             comparable,
             every_path,
@@ -970,8 +1000,14 @@ impl LiveCases {
                 run.blocked = judgement.blocked;
                 if judgement.class == OutcomeClass::Hit {
                     // A leaf hit names its leaf; a hit of the whole run (D16) names none, and
-                    // rests on every leaf's configuration.
+                    // rests on every leaf's configuration; an any-state hit names the
+                    // configuration it reached, at its depth, which need not be a leaf's.
                     let reached = match judgement.hit_site {
+                        // Its depth is `hit_step`; it names no leaf, so no leaf's steps.
+                        Some(HitSite::StateMatch { depth }) => state_match
+                            .as_ref()
+                            .filter(|hit| hit.depth == depth)
+                            .map(|hit| (None, None, hit.configuration.to_string())),
                         Some(HitSite::Leaf(index)) => result
                             .leaves
                             .get(index)
@@ -996,19 +1032,26 @@ impl LiveCases {
                                 role: DefinitionRole::Baseline,
                                 leaf: leaf.map(index_u64),
                                 // An observer hit's step on the hit leaf's path (ARCHITECTURE
-                                // 9.2); the leaf runs on to its end, at depth `steps`.
+                                // 9.2); the leaf runs on to its end, at depth `steps`. An
+                                // any-state hit's depth, with its configuration.
                                 step: hit_step,
+                                configuration: state_match
+                                    .as_ref()
+                                    .map(|hit| hit.configuration.to_string()),
                             },
                             kill: None,
                             steps,
                             reaching_state,
-                            krun_command: Self::krun_command(
+                            krun_command: Self::krun_line(
                                 &self.spec.definitions.baseline,
                                 "<definition-dir>",
                                 &self.spec.options,
                                 self.spec.options.paths,
                                 &target.needs(self.spec.options.paths).terminal_rules,
                                 &prepared.instantiated,
+                                state_match
+                                    .as_ref()
+                                    .and_then(|_| any_state_pattern(&self.spec.target)),
                             ),
                             mutant_krun_command: None,
                             program: program_text(&prepared.instantiated),
@@ -1213,6 +1256,7 @@ impl LiveCases {
                                 role,
                                 leaf: Some(index_u64(index)),
                                 step: None,
+                                configuration: None,
                             },
                             kill: Some(kind),
                             steps: Some(leaf.depth),
@@ -1789,6 +1833,20 @@ fn binding_texts(instantiated: &InstantiatedProgram) -> BTreeMap<String, String>
 }
 
 /// `text` quoted for a POSIX shell.
+/// The pattern of a target `at: any-state`.
+fn any_state_pattern(target: &crate::Target) -> Option<&str> {
+    match &target.kind {
+        TargetKind::Pattern(crate::target::PatternTarget {
+            pattern,
+            at: crate::target::PatternAt::AnyState,
+        }) => Some(pattern),
+        TargetKind::Rule(_)
+        | TargetKind::Pattern(_)
+        | TargetKind::Differential(_)
+        | TargetKind::Observer(_) => None,
+    }
+}
+
 fn quote(text: &str) -> String {
     if !text.is_empty()
         && text
@@ -2536,8 +2594,9 @@ mod tests {
     }
 
     /// FZ-ANYSTATE: a campaign whose pattern is matched `at: any-state` confirms its hit, and the
-    /// witness names the step of the first reaching configuration (`count(1)`, two steps after
-    /// `count(3)`), with the natural end among its facts under `run-to-completion`.
+    /// witness names the depth of the reaching configuration (`count(1)`, two steps after
+    /// `count(3)`) and the configuration, with the natural end among its facts under
+    /// `run-to-completion`.
     #[test]
     fn an_any_state_witness_names_its_first_reaching_step() {
         let compiled = COIN.compiled();
@@ -2588,8 +2647,24 @@ mod tests {
         );
         let witness = report.witness().expect("a confirmed witness");
         assert_eq!(witness.first.reaching.step, Some(2), "{witness:?}");
-        // Three `count-step`s and `count-done`: the leaf runs on to its end.
-        assert_eq!(witness.first.steps, Some(4), "{witness:?}");
+        // The reaching configuration names no leaf (FZ-STATESET-MATCH): the witness carries it,
+        // and no leaf's step count.
+        assert_eq!(witness.first.reaching.leaf, None, "{witness:?}");
+        assert_eq!(witness.first.steps, None, "{witness:?}");
+        let configuration = witness
+            .first
+            .reaching
+            .configuration
+            .as_deref()
+            .expect("the reaching configuration");
+        assert!(configuration.contains("Lblcount"), "{configuration}");
+        // Its krun line is the search that finds it, when the route has one.
+        if let Some(krun) = &witness.krun_command {
+            assert!(
+                krun.contains(" --search-all --pattern ") && !krun.contains("--strategy"),
+                "{krun}"
+            );
+        }
         assert!(
             witness
                 .clean_leaf_facts

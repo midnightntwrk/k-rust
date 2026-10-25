@@ -5,7 +5,7 @@ use k_rust::{
     backend::{
         Backend, BackendDiagnosticOutput, BackendError, BackendErrorKind, CancellationToken,
         ChosenValueOutput, ContradictedClaimOutput, ExecuteRequest, ExecutionLeaf, ExecutionResult,
-        HaltReasonOutput, ObservedInOutput, ObservedRequest, StopCause,
+        HaltReasonOutput, ObservedInOutput, ObservedRequest, StateMatchesOutput, StopCause,
         search::prepare_backend_match_target,
     },
     definition::{AttributeKey, Attributes, ProductionItem, ResolvedDefinition, Sentence},
@@ -27,8 +27,7 @@ use k_rust::{
 
 use super::{
     Abort, CaseFailure, CaseRequestShape, CaseResult, FailureCause, LOAD_ALLOWANCE_REFUSAL,
-    LOAD_STACK_STOP, LeafDiagnostic, LeafReport, NormalEndKind, UncleanReason, UnjudgedReason,
-    reasons,
+    LOAD_STACK_STOP, LeafDiagnostic, LeafReport, NormalEndKind, UncleanReason, reasons,
 };
 use crate::{
     assemble::ProgramAssembly,
@@ -436,6 +435,17 @@ impl LeafMatcher {
         &self.compiled
     }
 
+    /// The compiled KORE pattern.
+    pub(crate) fn kore(&self) -> &KorePattern {
+        &self.kore
+    }
+
+    /// Whether matching the pattern evaluates nothing, so that its verdict is the same in every
+    /// evaluation mode ([`Self::match_leaf`'s] agreement is then not needed).
+    pub(crate) fn mode_independent(&self) -> bool {
+        self.mode_independent
+    }
+
     /// This matcher as one that only informs: no verdict of it makes a leaf unclean, since no
     /// judgement rests on it (a pattern's configuration without its `requires`, counted for the
     /// report; FZ-POLISH S2).
@@ -764,7 +774,7 @@ impl Executor {
         matchers: &[&LeafMatcher],
         cancel: Option<&CancellationToken>,
     ) -> Result<CaseResult, Abort> {
-        self.run_with(initial, shape, matchers, cancel, Execution::Plain, None)
+        self.run_with(initial, shape, matchers, cancel, Execution::Plain)
             .map(|(result, _, _)| result)
     }
 
@@ -791,22 +801,18 @@ impl Executor {
             matchers,
             cancel,
             Execution::Observed { rules },
-            None,
         )
         .map(|(result, leaves, _)| (result, leaves))
     }
 
-    /// [`Self::run_observed`] with every observation event (`rules: None`) and no leaf matcher,
-    /// for an `at: any-state` pattern target (ARCHITECTURE 4.1): after the leaves are judged,
-    /// every configuration `plan` places on the case's path tree is judged against `matcher`
-    /// ([`ConfigurationVerdict`]), within the same token scope and per-case safety limit as the
-    /// run. Solver `unknown`s that matching meets are added to [`CaseResult::smt_unknowns`]. The
-    /// verdicts are empty for a failed case and for a case outside the determinism contract
-    /// (`CaseResult::determinism_breaks`), which no configuration can decide; a backend error
-    /// while matching makes the case a failure, as one judging its leaves does.
-    ///
-    /// A filtered run would give a transition outside the filter no event, so its path could
-    /// not be shown (P7-ADDENDUM review, N4).
+    /// [`Self::run`] with no leaf matcher, for an `at: any-state` pattern target
+    /// (ARCHITECTURE 4.1, FZ-STATESET-MATCH): `shape` asks the run to match every state it
+    /// reaches against the target (`matchStates`), so one `Backend::execute` judges every
+    /// configuration, inside the run, within the same token scope and per-case safety limit.
+    /// Besides the judged result, the run's state matches and its run-level unclean reasons
+    /// ([`AnyStateRun`]); `None` for a failed case. The matcher's solver `unknown`s are added to
+    /// [`CaseResult::smt_unknowns`], since they depend on the clock as much as the run's do
+    /// (review 2, NI-2).
     ///
     /// # Errors
     ///
@@ -815,18 +821,11 @@ impl Executor {
         &mut self,
         initial: &KorePattern,
         shape: &CaseRequestShape,
-        matcher: &LeafMatcher,
-        plan: ConfigurationPlan,
         cancel: Option<&CancellationToken>,
-    ) -> Result<(CaseResult, Vec<ExecutionLeaf>, Vec<ConfigurationVerdict>), Abort> {
-        self.run_with(
-            initial,
-            shape,
-            &[],
-            cancel,
-            Execution::Observed { rules: None },
-            Some(AnyState { matcher, plan }),
-        )
+    ) -> Result<(CaseResult, Option<AnyStateRun>), Abort> {
+        debug_assert!(shape.matches_states());
+        self.run_with(initial, shape, &[], cancel, Execution::Plain)
+            .map(|(result, _, any_state)| (result, any_state))
     }
 
     fn run_with(
@@ -836,7 +835,6 @@ impl Executor {
         matchers: &[&LeafMatcher],
         cancel: Option<&CancellationToken>,
         execution: Execution,
-        any_state: Option<AnyState<'_>>,
     ) -> Result<Executed, Abort> {
         let request = shape.request(initial.clone());
         if shape.data_end {
@@ -850,7 +848,7 @@ impl Executor {
                 let failure = panic_failure(record, CrashStage::Judge);
                 let mut result = failed_result(failure, self.load_stack_stops);
                 result.safety_limit_hit = false;
-                return Ok((result, Vec::new(), Vec::new()));
+                return Ok((result, Vec::new(), None));
             }
         }
         let judge = Judge {
@@ -870,7 +868,6 @@ impl Executor {
             terminal_allowed: shape.has_terminal_rules(),
             load_stack_stops: self.load_stack_stops,
             forward: None,
-            any_state,
             panicked: std::cell::Cell::new(false),
         };
         let backend = &mut self.backend;
@@ -898,9 +895,9 @@ impl Executor {
             // or judgement that panicked was caught inside `execute`, so the disarm still runs.
             let fired = armed.disarm();
             self.poisoned |= judge.panicked.get();
-            return outcome.map(|(mut result, leaves, verdicts)| {
+            return outcome.map(|(mut result, leaves, any_state)| {
                 result.safety_limit_hit = fired;
-                (result, leaves, verdicts)
+                (result, leaves, any_state)
             });
         }
         let outcome = match cancel {
@@ -946,7 +943,6 @@ impl Executor {
             terminal_allowed: false,
             load_stack_stops: 0,
             forward: None,
-            any_state: None,
             panicked: std::cell::Cell::new(false),
         };
         let mut internal = judge
@@ -957,6 +953,36 @@ impl Executor {
     }
 }
 
+/// The reasons of a run's result that make every leaf unclean (ARCHITECTURE 5.2): stack stops,
+/// solver `unknown`s, allowance refusals and an unsupported hook observed in the run.
+fn run_reasons(result: &ExecutionResult) -> Vec<UncleanReason> {
+    let mut run_reasons = Vec::new();
+    if result.stack_stops > 0 {
+        run_reasons.push(UncleanReason::StackStops);
+    }
+    if result.smt_unknowns > 0 {
+        run_reasons.push(UncleanReason::SmtUnknowns);
+    }
+    if result
+        .allowance_refusals
+        .iter()
+        .any(|refusal| refusal.observed_in == ObservedInOutput::Run)
+    {
+        run_reasons.push(UncleanReason::AllowanceRefusal);
+    }
+    // D21: an application left unevaluated as an unsupported hook can steer the equation
+    // evaluator, which applies another equation of the priority group when a condition over it
+    // is undecided (FZ-08 review 2, `steer.k`), and no leaf records the choice.
+    if result
+        .unsupported_hooks
+        .iter()
+        .any(|hook| hook.observed_in == ObservedInOutput::Run)
+    {
+        run_reasons.push(UncleanReason::UnsupportedHook);
+    }
+    run_reasons
+}
+
 /// Load-time stops for lack of stack of a loaded definition (`docs/compatibility.md`,
 /// "Determinism and concurrency").
 fn load_stack_stops(definition: &BackendDefinition) -> usize {
@@ -965,55 +991,20 @@ fn load_stack_stops(definition: &BackendDefinition) -> usize {
 }
 
 /// What [`Executor::run_with`] returns: the judged result, the raw leaves of an observed run,
-/// and an any-state target's configuration verdicts.
-type Executed = (CaseResult, Vec<ExecutionLeaf>, Vec<ConfigurationVerdict>);
+/// and, for a run that matched its states, what an any-state target judges ([`AnyStateRun`]).
+type Executed = (CaseResult, Vec<ExecutionLeaf>, Option<AnyStateRun>);
 
-/// One node of a case's path tree that an `at: any-state` pattern target judges
-/// ([`Executor::run_any_state`]; the tree is `crate::target`'s).
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct PlannedConfiguration<'l> {
-    /// The node's parent: an earlier index of the plan, or `None` for the root (the initial
-    /// configuration).
-    pub(crate) parent: Option<usize>,
-    /// The normalized configuration at the node, as the backend reports it (KORE JSON); `None`
-    /// when the walk shows none there.
-    pub(crate) configuration: Option<&'l serde_json::Value>,
-}
-
-/// Places the configurations of an observed run's `leaves` on their path tree, every parent
-/// before its children.
-pub(crate) type ConfigurationPlan =
-    for<'l> fn(&'l [ExecutionLeaf]) -> Vec<PlannedConfiguration<'l>>;
-
-/// What an `at: any-state` pattern target's matcher says about one configuration
-/// ([`Executor::run_any_state`]). A configuration is judged as an end leaf's state is
-/// (ARCHITECTURE 5.2): internalized in its definition, then matched as `krun --pattern` does.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) enum ConfigurationVerdict {
-    /// It is decided (no constraint, no variable), ceil-free, and matches with empty
-    /// constraints: the target is reached there. `term_conjunction`: its term holds a
-    /// term-level `\and` (of sides with one first conjunct, since it is ceil-free), which kink's
-    /// query refuses ([`super::comparable::query_conditions`], Q4').
-    Reaches {
-        /// The configuration's term holds a term-level `\and`.
-        term_conjunction: bool,
-    },
-    /// The matcher refuted it.
-    Refuted,
-    /// It cannot be decided: it matches but is not ceil-free (it may denote nothing), the match
-    /// is undecided, it is not a decided state, or it does not decode or internalize. The
-    /// reason the case is `unsupported` when nothing reaches.
-    Unresolved(UnjudgedReason),
-    /// Not judged: the plan shows no configuration here, or a configuration above it on its
-    /// path reaches or was not judged.
-    NotJudged,
-}
-
-/// An any-state target's part of a case's judgement ([`Executor::run_any_state`]).
-#[derive(Clone, Copy)]
-struct AnyState<'a> {
-    matcher: &'a LeafMatcher,
-    plan: ConfigurationPlan,
+/// What an `at: any-state` pattern target judges besides the leaves
+/// ([`Executor::run_any_state`]).
+#[derive(Clone, Debug)]
+pub(crate) struct AnyStateRun {
+    /// The run's state matches (`ExecutionResult::state_matches`): the first clean and dirty
+    /// reaches, the first undecided state of each reason, and the counts.
+    pub(crate) matches: StateMatchesOutput,
+    /// The run-level reasons no hit may rest on, which every leaf also carries (ARCHITECTURE
+    /// 5.2): stack stops, solver `unknown`s, allowance refusals, an unsupported hook observed in
+    /// the run.
+    pub(crate) run_reasons: Vec<UncleanReason>,
 }
 
 /// How a case is executed.
@@ -1040,9 +1031,6 @@ struct Judge<'a> {
     /// Under the safety limit, the caller's token and the case's own: the caller's cancellation
     /// is forwarded synchronously when the run ends, before the leaves are judged (review S2).
     forward: Option<(CancellationToken, CancellationToken)>,
-    /// For an `at: any-state` pattern target, its matcher and the plan of the configurations it
-    /// judges.
-    any_state: Option<AnyState<'a>>,
     /// The run or its judgement panicked (FZ-CRASH): the executor is poisoned.
     panicked: std::cell::Cell<bool>,
 }
@@ -1121,7 +1109,7 @@ impl Judge<'_> {
                     return Ok((
                         self.failed(failure_of(&error, CrashStage::Judge)?),
                         Vec::new(),
-                        Vec::new(),
+                        None,
                     ));
                 }
                 self.judge_result(backend, result, probe.as_ref())
@@ -1132,7 +1120,7 @@ impl Judge<'_> {
             Err(error) => Ok((
                 self.failed(failure_of(&error, CrashStage::Execute)?),
                 Vec::new(),
-                Vec::new(),
+                None,
             )),
         }
     }
@@ -1142,137 +1130,31 @@ impl Judge<'_> {
     /// segment, as a host refusal.
     fn panicked(&self, record: PanicRecord, stage: CrashStage) -> Executed {
         self.panicked.set(true);
-        (
-            self.failed(panic_failure(record, stage)),
-            Vec::new(),
-            Vec::new(),
-        )
+        (self.failed(panic_failure(record, stage)), Vec::new(), None)
     }
 
-    /// Judge a successful run's `result`: every leaf, then for an any-state target every shown
-    /// configuration.
+    /// Judge a successful run's `result`: every leaf; for a run that matched its states, also
+    /// what an any-state target reads of them ([`AnyStateRun`]).
     fn judge_result(
         &self,
         backend: &mut Backend,
-        result: ExecutionResult,
+        mut result: ExecutionResult,
         probe: Option<&KorePattern>,
     ) -> Result<Executed, Abort> {
+        let matches = result.state_matches.take();
         let mut judged = self.judge(backend, &result, probe)?;
-        let verdicts = match self.any_state {
-            // A case outside the determinism contract is judged without its
-            // configurations (`crate::target`), so they are not matched.
-            Some(any_state)
-                if judged.failure.is_none() && judged.determinism_breaks().is_empty() =>
-            {
-                match self.judge_configurations(backend, any_state, &result.leaves) {
-                    Ok((verdicts, unknowns)) => {
-                        judged.smt_unknowns = judged.smt_unknowns.saturating_add(unknowns);
-                        verdicts
-                    }
-                    Err(error) => {
-                        return Ok((
-                            self.failed(failure_of(&error, CrashStage::Judge)?),
-                            Vec::new(),
-                            Vec::new(),
-                        ));
-                    }
-                }
+        let any_state = match matches {
+            Some(matches) if judged.failure.is_none() => {
+                // The matcher's undecided answers depend on the clock as the run's do.
+                judged.smt_unknowns = judged.smt_unknowns.saturating_add(matches.smt_unknowns);
+                Some(AnyStateRun {
+                    matches,
+                    run_reasons: run_reasons(&result),
+                })
             }
-            Some(_) | None => Vec::new(),
+            Some(_) | None => None,
         };
-        Ok((judged, result.leaves, verdicts))
-    }
-
-    /// Judge the configurations `any_state`'s plan places on the path tree of `leaves`, parents
-    /// first: a node is judged when it shows a configuration and its parent, if any, was judged
-    /// and does not reach, so nothing below a reaching configuration is matched. One operation
-    /// over every shown configuration and the matcher. Also the solver `unknown`s the matching
-    /// met (review 2, NI-2).
-    fn judge_configurations(
-        &self,
-        backend: &mut Backend,
-        any_state: AnyState<'_>,
-        leaves: &[ExecutionLeaf],
-    ) -> Result<(Vec<ConfigurationVerdict>, usize), BackendError> {
-        let plan = (any_state.plan)(leaves);
-        let decoded: Vec<Option<Option<KorePattern>>> = plan
-            .iter()
-            .map(|node| {
-                node.configuration
-                    .map(|configuration| codec::from_value(configuration).ok())
-            })
-            .collect();
-        let mut patterns: Vec<&KorePattern> = decoded.iter().flatten().flatten().collect();
-        patterns.push(&any_state.matcher.kore);
-        backend.with_solver_over(None, &patterns, |definition, solver| {
-            let mut verdicts: Vec<ConfigurationVerdict> = Vec::with_capacity(plan.len());
-            let mut unknowns = 0;
-            for (node, configuration) in plan.iter().zip(&decoded) {
-                let open = node.parent.is_none_or(|parent| {
-                    matches!(
-                        verdicts[parent],
-                        ConfigurationVerdict::Refuted | ConfigurationVerdict::Unresolved(_)
-                    )
-                });
-                let verdict = match configuration {
-                    Some(Some(state)) if open => self.judge_configuration(
-                        definition,
-                        solver,
-                        any_state.matcher,
-                        state,
-                        &mut unknowns,
-                    )?,
-                    Some(None) if open => {
-                        ConfigurationVerdict::Unresolved(UnjudgedReason::Unobservable)
-                    }
-                    Some(_) | None => ConfigurationVerdict::NotJudged,
-                };
-                verdicts.push(verdict);
-            }
-            Ok((verdicts, unknowns))
-        })
-    }
-
-    /// One configuration's [`ConfigurationVerdict`]: internalized and matched as an end leaf's
-    /// state is in [`Self::judge_leaf`], with the target's matcher in both evaluation modes
-    /// ([`Self::match_leaf`]). A match reaches only on a decided, ceil-free configuration, which
-    /// denotes one value; a configuration that is not ceil-free may denote nothing, so a match
-    /// there leaves the case unresolved (`NotCeilFree`), and so does an undecided match.
-    fn judge_configuration(
-        &self,
-        definition: &BackendDefinition,
-        solver: &dyn SmtSolver,
-        matcher: &LeafMatcher,
-        state: &KorePattern,
-        unknowns: &mut usize,
-    ) -> Result<ConfigurationVerdict, BackendError> {
-        let Ok(pattern) = definition
-            .admit_unverified(state, &[])
-            .internalize_pattern()
-        else {
-            return Ok(ConfigurationVerdict::Unresolved(
-                UnjudgedReason::InternalizationFailed,
-            ));
-        };
-        let attributes = pattern.term.attributes();
-        if !pattern.constraints.is_empty() || !attributes.variables.is_empty() {
-            return Ok(ConfigurationVerdict::Unresolved(
-                UnjudgedReason::UndecidedState,
-            ));
-        }
-        let mut internal = Internal::default();
-        let verdict = self.match_leaf(definition, solver, matcher, &pattern, &mut internal)?;
-        *unknowns = unknowns.saturating_add(internal.smt_unknowns);
-        Ok(match verdict {
-            MatchVerdict::Matched if attributes.ceil_free() => ConfigurationVerdict::Reaches {
-                term_conjunction: holds_term_conjunction(&pattern.term),
-            },
-            MatchVerdict::Matched => ConfigurationVerdict::Unresolved(UnjudgedReason::NotCeilFree),
-            MatchVerdict::NotMatched => ConfigurationVerdict::Refuted,
-            MatchVerdict::Undecided => {
-                ConfigurationVerdict::Unresolved(UnjudgedReason::UndecidedMatch)
-            }
-        })
+        Ok((judged, result.leaves, any_state))
     }
 
     /// A case whose execution or judgement answered `Err` or panicked.
@@ -1295,26 +1177,7 @@ impl Judge<'_> {
             .iter()
             .filter(|refusal| refusal.observed_in == ObservedInOutput::Run)
             .count();
-        let mut run_reasons = Vec::new();
-        if result.stack_stops > 0 {
-            run_reasons.push(UncleanReason::StackStops);
-        }
-        if result.smt_unknowns > 0 {
-            run_reasons.push(UncleanReason::SmtUnknowns);
-        }
-        if run_allowance_refusals > 0 {
-            run_reasons.push(UncleanReason::AllowanceRefusal);
-        }
-        // D21: an application left unevaluated as an unsupported hook can steer the equation
-        // evaluator, which applies another equation of the priority group when a condition over
-        // it is undecided (FZ-08 review 2, `steer.k`), and no leaf records the choice.
-        if result
-            .unsupported_hooks
-            .iter()
-            .any(|hook| hook.observed_in == ObservedInOutput::Run)
-        {
-            run_reasons.push(UncleanReason::UnsupportedHook);
-        }
+        let run_reasons = run_reasons(result);
         let mut leaves = Vec::with_capacity(result.leaves.len());
         for (index, leaf) in result.leaves.iter().enumerate() {
             let Ok(state) = codec::from_value(&leaf.state) else {

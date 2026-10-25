@@ -99,6 +99,7 @@ fn detail(values: &[Value], state: &str) -> HitDetail {
             role: DefinitionRole::Baseline,
             leaf: Some(0),
             step: None,
+            configuration: None,
         },
         kill: None,
         steps: Some(3),

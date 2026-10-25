@@ -29,6 +29,9 @@ use support::{COIN, COIN_SWAPPED, Fixture, IMP_DIFF, MERGE};
 /// compiler labels it with the production's klabel and `1-heat`.
 const DIVISION_HEATING: &str = "IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp1-heat";
 
+/// The right-operand heating rule of IMP's strict `/` (`2-heat`).
+const DIVISION_RIGHT_HEATING: &str = "IMP-SYNTAX._/__IMP-SYNTAX_AExp_AExp_AExp2-heat";
+
 /// An `Int` hole named `name` at `literal` in `find`, ranging over `min..=max`.
 fn int_hole(
     name: &str,
@@ -298,13 +301,13 @@ fn the_simple_rendezvous_ends_printing_ab_within_max_work_1000() {
     assert_eq!(verdict(&never), (OutcomeClass::Miss, None));
 }
 
-/// Test 4 (B1). MERGE `go(5)`: `ac` fires on the branch the state set absorbs into the `ab`
-/// branch's end, so no retained trace holds it while coverage `applied` does. The path set has
-/// a leaf whose trace holds it (a hit at base); the state set cannot show a clean path that
-/// fired it, nor that none did, so the case is `unsupported` with `fired-off-trace`, never
-/// `miss`. `ab`, on the retained trace, stays a hit.
+/// Test 4 (B1), and FZ-STATESET-MATCH test 6. MERGE `go(5)`: `ac` fires on the branch the state
+/// set absorbs into the `ab` branch's end, so no retained trace holds it. Its successor was
+/// committed (`collectCommitted`), and the run's one leaf is a clean end, which every path ends
+/// at: a hit of the whole run (at C1, `unsupported` with `fired-off-trace`). `ab`, on the
+/// retained trace, stays a hit of its leaf.
 #[test]
-fn a_rule_fired_only_on_an_absorbed_branch_is_fired_off_trace() {
+fn a_rule_fired_only_on_an_absorbed_branch_is_a_hit_by_committed() {
     let go = |rule_label: &str| {
         run(fixture_spec(
             &MERGE,
@@ -315,11 +318,16 @@ fn a_rule_fired_only_on_an_absorbed_branch_is_fired_off_trace() {
         ))
     };
     let absorbed = go("ac");
+    assert_eq!(verdict(&absorbed), (OutcomeClass::Hit, None));
+    // The hit names no leaf: the reaching path is not the retained one.
+    let witness = absorbed.witness().expect("a witness");
+    assert_eq!(witness.first.reaching.leaf, None, "{witness:?}");
+    let retained = go("ab");
+    assert_eq!(verdict(&retained), (OutcomeClass::Hit, None));
     assert_eq!(
-        verdict(&absorbed),
-        (OutcomeClass::Unsupported, Some("fired-off-trace".into()))
+        retained.witness().expect("a witness").first.reaching.leaf,
+        Some(0)
     );
-    assert_eq!(verdict(&go("ab")), (OutcomeClass::Hit, None));
     // Under the depth bound alone, the same.
     let depth_only = run(fixture_spec(
         &MERGE,
@@ -328,15 +336,13 @@ fn a_rule_fired_only_on_an_absorbed_branch_is_fired_off_trace() {
         rule(label("ac"), RuleMode::Fired),
         all_paths(None, Some(10)),
     ));
-    assert_eq!(
-        verdict(&depth_only),
-        (OutcomeClass::Unsupported, Some("fired-off-trace".into()))
-    );
+    assert_eq!(verdict(&depth_only), (OutcomeClass::Hit, None));
 }
 
 /// Test 6. The identity records the result modality of each kind of run the campaign makes:
 /// `cases`, the program's run of every path that judges comparability (`every-path`, rule and
-/// pattern targets) and the run an `at: any-state` pattern is judged on (`any-state`).
+/// pattern targets) and the run an `at: any-state` pattern is judged on (`any-state`), which
+/// since FZ-STATESET-MATCH is the case's own state-set run with its state matches.
 #[test]
 fn the_identity_records_the_execution_modality() {
     let identity = |target: Target, paths: PathMode| {
@@ -371,9 +377,9 @@ fn the_identity_records_the_execution_modality() {
     assert_eq!(
         identity(any_state, PathMode::AllPaths),
         serde_json::json!({
-            "cases": "path-set",
+            "cases": "state-set",
             "every-path": "state-set",
-            "any-state": "path-set",
+            "any-state": "state-set",
         })
     );
     let differential = Campaign::new(CampaignSpec {
@@ -422,10 +428,10 @@ fn a_depth_only_merge_keeps_the_first_arrivals_facts_and_max_work_moves_nothing(
     assert_eq!(mark(all_paths(Some(1000), None)), unsupported);
 }
 
-/// Guard (B1, review N6). MERGE `pick(0)`: `bad`'s successor is undefined beside `good`'s, so
-/// it is rolled back; it is in coverage `applied` and on no path. `fired` on it is never a hit:
-/// on the state set it is `fired-off-trace` (C2's committed transitions will make it `miss`),
-/// on one path `miss`. On `pick(1)` it fires and is a hit.
+/// Guard (B1, review N6), and FZ-STATESET-MATCH test 5. MERGE `pick(0)`: `bad`'s successor is
+/// undefined beside `good`'s, so it is rolled back; it is in coverage `applied`, on no path, and
+/// not in the committed transitions. `fired` on it is never a hit: `miss` on the state set (at
+/// C1, `fired-off-trace`) and on one path. On `pick(1)` it fires and is a hit.
 #[test]
 fn a_rolled_back_target_rule_is_never_a_hit() {
     let pick = |value, paths| {
@@ -440,10 +446,7 @@ fn a_rolled_back_target_rule_is_never_a_hit() {
             },
         )))
     };
-    assert_eq!(
-        pick(0, PathMode::AllPaths),
-        (OutcomeClass::Unsupported, Some("fired-off-trace".into()))
-    );
+    assert_eq!(pick(0, PathMode::AllPaths), (OutcomeClass::Miss, None));
     assert_eq!(pick(0, PathMode::OnePath), (OutcomeClass::Miss, None));
     assert_eq!(pick(1, PathMode::AllPaths), (OutcomeClass::Hit, None));
 }
@@ -455,18 +458,23 @@ fn any_state(pattern: &str) -> Target {
     }))
 }
 
-/// D1 (review of C1). MERGE `tri(5)`, `fired` on `te`: `te` fires only on the `t` branch, whose
-/// end the state set merges with the `u` branch's, so the case is `fired-off-trace`. The other
-/// leaf, `h(5)` with `<out> 7` after `s` and `t`, is a clean abnormal stop: a real `stuck` leaf
-/// of the program, whatever the target can judge, so the report keeps it as the incidental
-/// `stuck` finding (the class the leaves gave), as it does for a `stuck` case.
+/// D1 (review of C1). MERGE `tri(5)`, `fired` on `te` under `run-to-completion`: `te` fires
+/// only on the `t` branch, whose end the state set merges with the `u` branch's, so it is
+/// committed but on no retained trace; the other leaf, `h(5)` with `<out> 7` after `s` and `t`,
+/// is a clean abnormal stop, so not every leaf is a natural end and the case is
+/// `fired-off-trace`. That leaf is a real `stuck` leaf of the program, whatever the target can
+/// judge, so the report keeps it as the incidental `stuck` finding (the class the leaves gave),
+/// as it does for a `stuck` case. (Without `run-to-completion` both leaves are clean, so the
+/// committed `te` is a hit of the whole run since FZ-STATESET-MATCH.)
 #[test]
 fn a_fired_off_trace_case_keeps_its_incidental_stuck_finding() {
+    let mut fired = rule(label("te"), RuleMode::Fired);
+    fired.run_to_completion = true;
     let report = run(fixture_spec(
         &MERGE,
         "merge/tri.pgm",
         ("tri(5)", "5", 5),
-        rule(label("te"), RuleMode::Fired),
+        fired,
         all_paths(None, None),
     ));
     assert_eq!(
@@ -509,13 +517,13 @@ fn an_unfinished_reach_beside_an_absorbed_one_is_fired_off_trace() {
 }
 
 /// N2 (review of C1). MERGE `chain(10)` against `at: any-state` `<k> chain(0) ~> _ </k>` under
-/// `comparable`, within max-work 400: the case runs a path set (2^10 paths), which reaches
-/// `chain(0)` on its first path and is `work-bound`, so it is not the program's run of every
-/// path; the case makes that run separately, a state set of 3 * 10 + 1 states, which completes,
-/// and the hit is comparable. Judged on the case's own path set, it would be `unsupported`
-/// (`end-not-comparable:work-bound`).
+/// `comparable`, within max-work 400: the program's run of every path is a state set of
+/// 3 * 10 + 1 states, which completes, and the hit is comparable. At C1 the case ran a path set
+/// (2^10 paths, `work-bound`) and made that run separately; since FZ-STATESET-MATCH the case's
+/// own run is that state set, with its state matches, and serves as the run of every path. On a
+/// path set it would be `unsupported` (`end-not-comparable:work-bound`).
 #[test]
-fn an_any_state_case_judges_comparability_on_a_separate_state_set() {
+fn an_any_state_case_judges_comparability_on_a_state_set() {
     let mut reached = any_state("<k> chain(0) ~> _ </k>");
     reached.comparable = true;
     let report = run(fixture_spec(
@@ -543,9 +551,10 @@ fn an_any_state_case_judges_comparability_on_a_separate_state_set() {
 }
 
 /// Guard (review of C1, M5). MERGE `go(5)` against `at: any-state` `<k> c(5) ~> _ </k>`, the
-/// absorbed branch's state at depth 1: an any-state case runs a path set, where every path
-/// keeps its leaf and so every configuration on it, so the case is a hit. A state set would
-/// show no leaf whose path passes `c(5)`, since that branch's arrival at depth 2 is absorbed.
+/// absorbed branch's state at depth 1: the state set shows no leaf whose path passes `c(5)`,
+/// since that branch's arrival at depth 2 is absorbed, but k-rust matches `c(5)` when the run
+/// reaches it (FZ-STATESET-MATCH), so the case is a hit. Reading the state set's leaves alone
+/// would give a false `miss`.
 #[test]
 fn an_any_state_case_sees_the_branch_a_state_set_would_absorb() {
     let report = run(fixture_spec(
@@ -554,6 +563,125 @@ fn an_any_state_case_sees_the_branch_a_state_set_would_absorb() {
         ("go(5)", "5", 5),
         any_state("<k> c(5) ~> _ </k>"),
         all_paths(None, None),
+    ));
+    assert_eq!(
+        verdict(&report),
+        (OutcomeClass::Hit, None),
+        "{:?}",
+        report.outcome
+    );
+}
+
+// ------------------------------------------------------------ FZ-STATESET-MATCH (C2)
+
+/// Design test 3 (FZ-STATESET-MATCH, S3). MERGE `both(12)` against `at: any-state`
+/// `<k> chain(12) </k> <out> 5 </out>`: `mark(5)`'s first branch (`me`/`ed`) reads an
+/// implementation-chosen value and reaches that configuration at depth 3; its second branch
+/// (`mf`/`fd`) reaches it at the same depth without one. The state set expands it once, on the
+/// dirty prefix, and absorbs the clean arrival, which k-rust reports as the clean reach: a hit,
+/// with max-work 2000 and with the depth bound alone. At the base the case ran a path set, which
+/// explored the dirty branch's 2^12 paths first and was cut at max-work 2000 before the clean
+/// branch: `unsupported` (`implementation-chosen-value`). On one path only the dirty branch runs,
+/// so its reach is never a clean hit.
+#[test]
+fn a_cleaner_merged_arrival_is_an_any_state_hit() {
+    for options in [all_paths(Some(2000), None), all_paths(None, Some(100))] {
+        let report = run(fixture_spec(
+            &MERGE,
+            "merge/both.pgm",
+            ("both(12)", "12", 12),
+            any_state("<k> chain(12) </k> <out> 5 </out>"),
+            options,
+        ));
+        assert_eq!(
+            verdict(&report),
+            (OutcomeClass::Hit, None),
+            "{:?}",
+            report.outcome
+        );
+        let witness = report.witness().expect("a witness");
+        assert_eq!(witness.first.reaching.step, Some(3), "{witness:?}");
+        assert_eq!(witness.first.reaching.leaf, None, "{witness:?}");
+        assert!(report.totals.work < 200, "{}", report.totals.work);
+    }
+    // On one path only `mark(5)`'s first branch runs: its reach is on the dirty prefix alone,
+    // never a clean hit.
+    let report = run(fixture_spec(
+        &MERGE,
+        "merge/both.pgm",
+        ("both(12)", "12", 12),
+        any_state("<k> chain(12) </k> <out> 5 </out>"),
+        CaseOptions::default(),
+    ));
+    assert_eq!(
+        verdict(&report),
+        (
+            OutcomeClass::Unsupported,
+            Some("implementation-chosen-value".into())
+        ),
+        "{:?}",
+        report.outcome
+    );
+}
+
+/// MERGE `stall(5)`, all-paths `fired` on `sb`: both branches reach `<k> z(5) </k>` at depth 2,
+/// an abnormal stop, and the `sb` arrival is absorbed, so `sb` is on no retained trace but is
+/// committed. Without `run-to-completion` the one leaf is clean, so the case is a hit of the
+/// whole run; with it no path ends naturally, so the target was reached and the run did not end
+/// naturally: `reached-unfinished`, whichever path reached it. At C1 both were
+/// `fired-off-trace` (the coarseness the C1 landing recorded for `reached-unfinished`).
+#[test]
+fn a_committed_rule_on_a_run_that_never_ends_naturally_is_reached_unfinished() {
+    let stall = |run_to_completion| {
+        let mut fired = rule(label("sb"), RuleMode::Fired);
+        fired.run_to_completion = run_to_completion;
+        verdict(&run(fixture_spec(
+            &MERGE,
+            "merge/stall.pgm",
+            ("stall(5)", "5", 5),
+            fired,
+            all_paths(None, None),
+        )))
+    };
+    assert_eq!(stall(false), (OutcomeClass::Hit, None));
+    assert_eq!(stall(true), (OutcomeClass::ReachedUnfinished, None));
+}
+
+/// Design test 4 and its fuzz-level guard: a verdict that only execution mode gives is never a
+/// refutation. MERGE `go(5)`'s end against `<out> X </out> requires isFirst(X)`, whether `X`
+/// is the first key `keys_list` lists of a two-key map, which the definition leaves open:
+/// execution mode refutes it (5 is neither 1 nor 2), proof mode does not decide it, so the
+/// configuration is `undecided-match` and the case `unsupported`, never `miss`. (The base's
+/// two-mode match judged it the same way.)
+#[test]
+fn a_verdict_only_execution_mode_gives_is_never_a_miss() {
+    let report = run(fixture_spec(
+        &MERGE,
+        "merge/go.pgm",
+        ("go(5)", "5", 5),
+        any_state("<k> .K </k> <out> X </out> requires isFirst(X)"),
+        all_paths(None, None),
+    ));
+    assert_eq!(
+        verdict(&report),
+        (OutcomeClass::Unsupported, Some("undecided-match".into())),
+        "{:?}",
+        report.outcome
+    );
+}
+
+/// Regression guard (FZ-STATESET-MATCH). IMP primes with `m = 4`, all-paths `fired` on the right
+/// heating of `/`: the strict operator's evaluation orders meet, so the state set keeps the
+/// left-first arrival's trace and the right heating may fire only on absorbed arrivals; it is
+/// committed and every leaf is clean, so the case is a hit of the whole run.
+#[test]
+fn imp_primes_fires_the_right_division_heating_by_committed() {
+    let report = run(fixture_spec(
+        &IMP_DIFF,
+        "imp-diff/primes.imp",
+        ("m = 4;", "4", 4),
+        rule(label(DIVISION_RIGHT_HEATING), RuleMode::Fired),
+        all_paths(Some(2000), None),
     ));
     assert_eq!(
         verdict(&report),

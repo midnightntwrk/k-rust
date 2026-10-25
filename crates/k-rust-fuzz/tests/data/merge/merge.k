@@ -19,15 +19,30 @@
 //   `h(N)` with `t` on its trace (and `u` then `ue` reach `<out> N` a step later).
 // - `chain(N)`: N diamonds in a row, each `cl` or `cr` then back to `chain(N - 1)`, ending at
 //   `chain(0)` with `<out> 1`: 2^N paths and 3N + 1 distinct states.
+// - `both(N)`: `mark(5)`, then `chain(N)` (FZ-STATESET-MATCH): `<k> chain(N) </k> <out> 5 </out>`
+//   at depth 3 is reached first on `mark`'s branch that reads a chosen value, and a path set
+//   then explores that branch's 2^N paths before the clean branch, so a modest work bound cuts it
+//   there; a state set expands `chain(N)` once and absorbs the clean branch's arrival.
+// - `stall(N)`: `sa` then `sz`, or `sb` then `tz`, both reaching `<k> z(N) </k>` at depth 2, to
+//   which no rule applies: an abnormal stop on every path. Under `state-set` the `sb` arrival
+//   is absorbed, so `sb` fires on no retained trace (FZ-STATESET-MATCH).
 
 module MERGE-SYNTAX
   imports INT-SYNTAX
+  imports BOOL-SYNTAX
 
   syntax Pgm ::= go(Int)    [symbol(go)]
                | mark(Int)  [symbol(mark)]
                | pick(Int)  [symbol(pick)]
                | tri(Int)   [symbol(tri)]
                | chain(Int) [symbol(chain)]
+               | both(Int)  [symbol(both)]
+               | stall(Int) [symbol(stall)]
+
+  // Whether `X` is the first key `keys_list` lists of a two-key map, which the definition
+  // leaves open: k-rust lists the keys in execution mode and leaves the listing unevaluated in
+  // proof mode (FZ-STATESET-MATCH).
+  syntax Bool ::= isFirst(Int) [function, symbol(isFirst)]
 endmodule
 
 module MERGE
@@ -38,6 +53,7 @@ module MERGE
   imports BOOL
 
   syntax KItem ::= b(Int) | c(Int) | e(Int) | f(Int) | g(Int) | h(Int) | l(Int) | r(Int)
+                 | y(Int) | w(Int) | z(Int)
 
   configuration <k> $PGM:Pgm </k>
                 <out> 0 </out>
@@ -67,4 +83,13 @@ module MERGE
   rule [ld]: <k> l(N) => chain(N -Int 1) ... </k>
   rule [rd]: <k> r(N) => chain(N -Int 1) ... </k>
   rule [c0]: <k> chain(0) => .K ... </k> <out> _ => 1 </out>
+
+  rule [bm]: <k> both(N) => mark(5) ~> chain(N) ... </k>
+
+  rule isFirst(X) => X ==Int {keys_list((1 |-> 0) (2 |-> 0)) [ 0 ]}:>Int
+
+  rule [sa]: <k> stall(N) => y(N) ... </k>
+  rule [sb]: <k> stall(N) => w(N) ... </k>
+  rule [sz]: <k> y(N) => z(N) ... </k>
+  rule [tz]: <k> w(N) => z(N) ... </k>
 endmodule

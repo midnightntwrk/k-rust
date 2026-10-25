@@ -674,13 +674,16 @@ fixture!(
 /// arrival it meets first, so a rule fired on the other is on no leaf's trace (B1), and the leaf
 /// carries the first arrival's facts (V1); `pick(0)` rolls back a candidate whose successor is
 /// undefined; `tri(N)` absorbs a branch beside one that stops abnormally; `chain(N)` has 2^N
-/// paths and 3N + 1 distinct states.
+/// paths and 3N + 1 distinct states; `both(N)` runs `chain(N)` then `mark(5)`; `stall(N)` is a
+/// diamond whose every path stops abnormally (FZ-STATESET-MATCH).
 pub const MERGE_PROGRAMS: &[Program] = &[
     program!("merge/go.pgm"),
     program!("merge/mark.pgm"),
     program!("merge/pick.pgm"),
     program!("merge/tri.pgm"),
     program!("merge/chain.pgm"),
+    program!("merge/both.pgm"),
+    program!("merge/stall.pgm"),
 ];
 fixture!(MERGE, "merge/merge.k", "MERGE", MERGE_PROGRAMS);
 

@@ -1200,6 +1200,7 @@ mod tests {
                 role: DefinitionRole::Mutant,
                 leaf: Some(6),
                 step: None,
+                configuration: None,
             },
             kill: Some(KillKind::AddedEnd),
             steps: Some(3),

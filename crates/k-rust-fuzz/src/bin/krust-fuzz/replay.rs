@@ -39,11 +39,12 @@ pub const WITNESS_VERSION: u32 = 2;
 /// It names only the runs version 9 moved to state sets, since the witness's own kind is not
 /// read before the refusal: a differential case's sides were state sets before version 9 too.
 const MODALITY_CHANGE: &str = concat!(
-    " (since version 9 an all-paths rule target, a pattern `at: final` and the program's run ",
-    "of every path that judges comparability run as state sets, which keep one leaf per ",
-    "distinct configuration of a depth, where earlier versions ran them as path sets; so ",
-    "such a witness's final configurations, steps and reaching leaf need not be what this ",
-    "build reports; run the campaign again for a witness of this build)",
+    " (since version 9 an all-paths rule or pattern target and the program's run of every ",
+    "path that judges comparability run as state sets, which keep one leaf per distinct ",
+    "configuration of a depth, where earlier versions ran them as path sets, and an ",
+    "`at: any-state` pattern is matched against every reached state inside the run; so such a ",
+    "witness's final configurations, steps and reaching leaf or configuration need not be what ",
+    "this build reports; run the campaign again for a witness of this build)",
 );
 
 /// What a change of `identity.execution-modality` means for a replay (FZ-STATESET), appended

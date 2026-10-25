@@ -79,14 +79,17 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// (`docs/compatibility.md`, "Format versions"). A version-7 reader refuses the new fields,
 /// reasons and condition.
 ///
-/// Version 9 (FZ-STATESET, round 3) judges all-paths rule targets, patterns `at: final` and the
-/// program's run of every path that judges comparability on k-rust state sets, which report each
-/// distinct configuration of a depth once: a witness's `final-configurations` and `halts` list
-/// distinct ends, `totals.pattern-body-matches` counts distinct ends, condition records and
-/// applied counts are per distinct state, and cases a path set left `work-bound` are judged
-/// complete. It adds `identity.execution-modality` ([`ExecutionModality`]) and the reason
-/// `fired-off-trace`. A version-8 reader refuses the new field and reason, and `--replay`
-/// refuses a version-8 witness by its version.
+/// Version 9 (FZ-STATESET and FZ-STATESET-MATCH, round 3) judges all-paths rule and pattern
+/// targets and the program's run of every path that judges comparability on k-rust state sets,
+/// which report each distinct configuration of a depth once: a witness's `final-configurations`
+/// and `halts` list distinct ends, `totals.pattern-body-matches` counts distinct ends, condition
+/// records and applied counts are per distinct state, and cases a path set left `work-bound` are
+/// judged complete. An `at: any-state` pattern is matched against every reached state inside the
+/// run, and its witness carries the reaching configuration (`reaching.configuration`). All-paths
+/// `fired` reads the run's committed transitions. It adds `identity.execution-modality`
+/// ([`ExecutionModality`]), `reaching.configuration` and the reasons `fired-off-trace` and
+/// `any-state-unattributed`. A version-8 reader refuses the new fields and reasons, and
+/// `--replay` refuses a version-8 witness by its version.
 pub const REPORT_VERSION: u32 = 9;
 
 /// A campaign's report (ARCHITECTURE 9.3).
@@ -1269,7 +1272,7 @@ impl Comparability {
 }
 
 /// Where a witness case reached its target.
-#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct Reaching {
     /// The side whose leaf reached it: the baseline for a rule or pattern target, the mutant
@@ -1277,18 +1280,26 @@ pub struct Reaching {
     /// reach).
     pub role: DefinitionRole,
     /// The index of that leaf in the side's `final-configurations`; absent for a hit of the
-    /// whole run (D16), which rests on every leaf.
+    /// whole run (D16), which rests on every leaf, and for a pattern target `at: any-state`,
+    /// whose reaching configuration names no leaf.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub leaf: Option<u64>,
     /// For an observer target, the step of that leaf's path at which the observer answered
     /// `Hit`: the number of committed rewrite steps from the initial configuration to the
     /// configuration that step reached, at least 1 and at most the case's `steps`, since the
     /// run continues to its end after the observer accepts (ARCHITECTURE 9.2). For a pattern
-    /// target `at: any-state`, the step of the first configuration on that leaf's path that
-    /// reaches the target, counted the same way: 0 for the initial configuration, at most the
-    /// case's `steps` (ARCHITECTURE 4.1). Absent for every other target.
+    /// target `at: any-state`, the depth of the reaching configuration ([`Self::configuration`]),
+    /// counted the same way, 0 for the initial configuration: the first clean reach in the run's
+    /// depth-first order, which may exceed every leaf's depth (a path a bound cut after the
+    /// reach) and need not be the least depth at which some path reaches the target
+    /// (ARCHITECTURE 4.1, FZ-STATESET-MATCH). Absent for every other target.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step: Option<u64>,
+    /// For a pattern target `at: any-state`, the configuration that reached it, as KORE text:
+    /// a state the run reached at [`Self::step`] on a clean prefix, which the side's
+    /// `final-configurations` need not hold (FZ-STATESET-MATCH). Absent for every other target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub configuration: Option<String>,
 }
 
 /// How a differential witness kills the mutant (ARCHITECTURE 4.3).
@@ -1984,6 +1995,7 @@ mod tests {
                 role: DefinitionRole::Baseline,
                 leaf: Some(0),
                 step: Some(4),
+                configuration: None,
             },
             kill: None,
             steps: Some(12),
@@ -2231,6 +2243,8 @@ mod tests {
                 "'any-state'?:",
                 "'state-set'",
                 "'path-set'",
+                // FZ-STATESET-MATCH: an any-state witness's reaching configuration.
+                "step?: number; configuration?: string }",
             ] {
                 assert!(declarations.contains(key), "{key} is not declared");
             }

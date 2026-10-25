@@ -95,14 +95,15 @@ pub enum UnjudgedReason {
     /// set), so it may denote no value (`ceil_free` fails, T-1). It precedes
     /// [`Self::UndecidedState`]: a sibling leaf's open constraint is often the complementary
     /// condition of the same undefined application (the step's `#Not(#Ceil(...))`), and this
-    /// reason names the function. At `any-state`, also a configuration the target pattern
-    /// matches.
+    /// reason names the function. At `any-state`, also a reached state the target pattern
+    /// matches (k-rust's `not-ceil-free` state match).
     NotCeilFree,
     /// A leaf has constraints or variables, or its initial configuration is defined only where
     /// obligations hold (`undefined-initial-instances`): not a decided state. At `any-state`,
-    /// also a configuration with constraints or variables, which is not matched.
+    /// also a reached state with constraints or variables (k-rust's `undecided-state`), or a
+    /// reach whose prefix's initial definedness was left open.
     UndecidedState,
-    /// A leaf (at `any-state`, a configuration) could not be internalized in its definition.
+    /// A leaf could not be internalized in its definition.
     InternalizationFailed,
     /// A leaf rests on a value k-rust chose where the definition leaves it open (an
     /// `implementation-chosen-value` mark).
@@ -115,8 +116,8 @@ pub enum UnjudgedReason {
     /// A rule's side condition failed to simplify on a leaf's path (`rule-condition-failed`).
     SimplificationFailure,
     /// A leaf pattern (a pattern target's) was undecided on a leaf, or at `any-state` on a
-    /// configuration: undecided, matched only under constraints, or matched only through an
-    /// implementation-chosen value.
+    /// reached state: undecided, matched only under constraints, or matched only through an
+    /// implementation-chosen value (the two evaluation modes disagree).
     UndecidedMatch,
     /// The run stopped some work for lack of stack (`stackStops`), or the definition's load did.
     StackStops,
@@ -130,20 +131,30 @@ pub enum UnjudgedReason {
     /// The run noted an implementation-chosen value or a contradicted claim that no leaf
     /// carries, so another model of the definition may have another leaf (D16).
     RunFactOffLeaves,
-    /// An all-paths `fired` target (a state-set run, FZ-STATESET B1): the target rule is in the
-    /// run's coverage `applied`, but no retained leaf's trace or terminal halt shows it on a
-    /// path that ends as the target needs, so the case would be `miss`, `stuck` or
-    /// `reached-unfinished`. A state set keeps one arrival per distinct configuration of a depth
-    /// and drops the trace of every other; coverage `applied` also holds a candidate whose
-    /// successor was rolled back. So the rule may have fired on a path that ends cleanly (and
-    /// naturally, under `run-to-completion`), or on no such path: neither a hit nor one of
-    /// those classes is shown.
+    /// An all-paths `fired` target (a state-set run, FZ-STATESET B1): some explored path fired
+    /// the target rule (it is in the run's committed transitions, FZ-STATESET-MATCH), but no
+    /// retained leaf's trace or terminal halt shows it on a path that ends as the target needs,
+    /// so the case would be `miss`, `stuck` or `reached-unfinished`, and the leaves decide
+    /// neither way (not every leaf can carry a hit of the whole run, and some path ends
+    /// naturally). A state set keeps one arrival per distinct configuration of a depth and drops
+    /// the trace of every other, so the rule may have fired on a path that ends cleanly (and
+    /// naturally, under `run-to-completion`), or on no such path: neither a hit nor one of those
+    /// classes is shown.
     FiredOffTrace,
+    /// A pattern target `at: any-state` under `run-to-completion` (FZ-STATESET-MATCH, S4): a
+    /// configuration the pattern matches was reached on a clean path, but the hit also needs
+    /// that path to end cleanly and naturally (and in data, with `data-end`), and a reached
+    /// state is attributed to no leaf; so every leaf of the run must be such an end, and this
+    /// run's are not (some leaf is cut, an abnormal stop, an undefined step or unclean), while
+    /// some is a natural end, so the class `reached-unfinished` is not shown either.
+    AnyStateUnattributed,
     /// The target was reached on a leaf that took an undefined step (a `trivial` halt), which
     /// is no end; without `run-to-completion` that is no hit.
     ReachedUndefinedStep,
     /// The target was reached on a path a bound or a clock cut, which is no end; without
-    /// `run-to-completion` that is no hit.
+    /// `run-to-completion` that is no hit for a target read at a leaf. (A pattern target
+    /// `at: any-state` reads the reached state, which a later cut cannot unmake: a hit,
+    /// FZ-STATESET-MATCH, CUT-PATH-HIT.)
     ReachedCutPath,
     /// The target was reached on a natural end that is not data (a rule or pattern target with
     /// `run-to-completion` and `data-end`, `crate::Target::data_end`): the witness would become
@@ -153,8 +164,8 @@ pub enum UnjudgedReason {
     /// not be decided: the normal-end pattern's match was undecided, or no default applies.
     NaturalEndUndecided,
     /// An observer target could not be shown a configuration on the path, which may lead to
-    /// the target; or a pattern target `at: any-state` could not be shown one (no complete
-    /// observation of a path through it, or it does not decode), which may match.
+    /// the target. (A pattern target `at: any-state` no longer gives it: k-rust matches every
+    /// reached state inside the run, FZ-STATESET-MATCH.)
     Unobservable,
     /// Differential: an added or removed end exists, but the mutant's result is no evidence
     /// (condition 3): some leaf, or the result's lists (a fact off the leaves, which under state
@@ -283,13 +294,22 @@ const HALT_SMT_REMEDY: &str = concat!(
 
 /// The remedy of [`UnjudgedReason::FiredOffTrace`].
 const FIRED_OFF_TRACE_REMEDY: &str = concat!(
-    "the target rule was applied in the run of every path, but on no path the result keeps ",
-    "that ends as the target needs: the state set may have kept another path to the same ",
-    "configuration, or the rule's successor was undefined and rolled back, so whether a path ",
-    "that fired it ends that way is not shown; ",
+    "the target rule fired in the run of every path, but on no path the result keeps that ",
+    "ends as the target needs: the state set kept another path to the same configuration, so ",
+    "whether a path that fired it ends that way is not shown; ",
     "target mode `covered` (campaign key `mode`, command line `--rule-mode`, library ",
     "`RuleMode::Covered`) asks whether any explored step applied the rule, and another program ",
     "or hole range may fire it on a path the result keeps",
+);
+
+/// The remedy of [`UnjudgedReason::AnyStateUnattributed`].
+const ANY_STATE_UNATTRIBUTED_REMEDY: &str = concat!(
+    "a configuration the pattern matches was reached on a clean path, but under ",
+    "run-to-completion the hit needs that path to end cleanly and naturally, and a reached ",
+    "configuration names no leaf, so every leaf of the run must be a clean natural end; ",
+    "without run-to-completion (campaign key `run-to-completion = false`, command line ",
+    "`--no-run-to-completion`, library `Target::run_to_completion`) the reach alone is a hit, ",
+    "and a program or hole range whose every path ends cleanly can be one with it",
 );
 
 /// The remedy of [`UnjudgedReason::EndNotComparable`].
@@ -314,7 +334,7 @@ impl UnjudgedReason {
     /// Every reason that names no condition, in declaration order: the reasons that name one
     /// ([`Self::EndNotComparable`], [`Self::QueryNotConfirmable`]) are one per
     /// [`ComparableCondition`].
-    pub const ALL: [Self; 42] = [
+    pub const ALL: [Self; 43] = [
         Self::Panic,
         Self::InternalError,
         Self::InternalHalt,
@@ -346,6 +366,7 @@ impl UnjudgedReason {
         Self::UnsupportedHook,
         Self::RunFactOffLeaves,
         Self::FiredOffTrace,
+        Self::AnyStateUnattributed,
         Self::ReachedUndefinedStep,
         Self::ReachedCutPath,
         Self::ReachedEndNotData,
@@ -425,6 +446,7 @@ impl UnjudgedReason {
             }
             Self::ReachedCutPath => "raise the bound or limit that cut the reaching path",
             Self::FiredOffTrace => FIRED_OFF_TRACE_REMEDY,
+            Self::AnyStateUnattributed => ANY_STATE_UNATTRIBUTED_REMEDY,
             Self::UndecidedMatch => {
                 "the target pattern could not be decided on a leaf (or, at any-state, on a \
                  configuration); a pattern without function applications or values left open by \

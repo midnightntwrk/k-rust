@@ -255,6 +255,10 @@ impl RuleGraph {
             collect_coverage: false,
             collect_offered: false,
             trace: false,
+            // The entry keys leaf states only: no state matches, and with no coverage no
+            // committed transitions (`collect_committed` needs `collect_coverage`).
+            match_states: None,
+            collect_committed: false,
             // Wall-clock bounds would make the entry, and the warning, depend on timing.
             step_timeout_ms: None,
             moving_average_timeout: false,

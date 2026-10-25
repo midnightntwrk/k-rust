@@ -161,6 +161,11 @@ fn the_request_follows_the_options_and_the_target_needs() {
         data_end: true,
         paths: Some(PathMode::AllPaths),
         state_set: true,
+        match_states: Some(super::StateMatchNeed {
+            pattern: parse_pattern(r"\top{SortGeneratedTopCell{}}()").expect("a pattern"),
+            proof_agreement: true,
+        }),
+        collect_committed: true,
     };
     let shape = CaseRequestShape::new(&options, &needs);
     let state = parse_pattern(r"\top{SortGeneratedTopCell{}}()").expect("a pattern");
@@ -174,6 +179,16 @@ fn the_request_follows_the_options_and_the_target_needs() {
     assert_eq!(request.terminal_rules, ["rule-id"]);
     assert!(shape.data_end);
     assert_eq!(request.result_modality, ResultModalityOutput::StateSet);
+    assert!(request.collect_committed);
+    let matching = request
+        .match_states
+        .as_ref()
+        .expect("the request matches states");
+    assert!(matching.proof_agreement);
+    assert_eq!(matching.pattern, state);
+    // The program's run of every path asks for neither (FZ-STATESET-MATCH).
+    let every_path = shape.every_path().request(state);
+    assert!(every_path.match_states.is_none() && !every_path.collect_committed);
 }
 
 // ---------------------------------------------------------------- clean leaves (5.2)

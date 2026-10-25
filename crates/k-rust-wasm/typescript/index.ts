@@ -1621,10 +1621,12 @@ export interface FuzzWitnessCase {
   }[]
   /**
    * `step`: for an observer target, the step of the leaf's path at which the observer hit; for a
-   * pattern `at: any-state`, the step of the first configuration on that path that matched (0: the
-   * initial configuration).
+   * pattern `at: any-state`, the depth of the reaching configuration (0: the initial
+   * configuration), which may exceed every leaf's. `configuration`: for a pattern `at: any-state`,
+   * that configuration as KORE text (not among `final-configurations`); such a witness names no
+   * `leaf` and no `steps`.
    */
-  reaching: { role: FuzzDefinitionRole; leaf?: number; step?: number }
+  reaching: { role: FuzzDefinitionRole; leaf?: number; step?: number; configuration?: string }
   kill?: 'added-end' | 'removed-end'
   steps?: number
   /** For a rule or pattern witness: whether the program's run of every path is comparable. */
@@ -1774,6 +1776,7 @@ export type FuzzUnjudgedReason =
   | 'unsupported-hook'
   | 'run-fact-off-leaves'
   | 'fired-off-trace'
+  | 'any-state-unattributed'
   | 'reached-undefined-step'
   | 'reached-cut-path'
   | 'reached-end-not-data'

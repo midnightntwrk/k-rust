@@ -33,8 +33,8 @@ use crate::{
     assemble::ProgramAssembly,
     error::{CampaignError, TargetProblem},
     exec::{
-        self, CaseResult, CompiledPattern, Executor, LeafMatcher, OutcomeClass, TargetNeeds,
-        UncleanReason, UnjudgedReason,
+        self, CaseResult, CompiledPattern, Executor, LeafMatcher, OutcomeClass, StateMatchNeed,
+        TargetNeeds, UncleanReason, UnjudgedReason,
     },
     report::{EngineDefect, ExecutionModality, ResultModality},
     spec::{CompiledDefinition, PathMode},
@@ -326,11 +326,13 @@ pub enum PatternAt {
     /// The end of the run: a clean leaf (ARCHITECTURE 4.1, 5.2) that matches with empty
     /// constraints; `run-to-completion` additionally requires a natural end.
     Final,
-    /// Any normalized configuration on an explored path, the initial one included: one that is
-    /// decided, ceil-free and matches with empty constraints, on the path of a leaf that ends
-    /// cleanly (naturally under `run-to-completion`). The witness records the step of the first
-    /// such configuration on the hit leaf's path. The case runs through observed execution,
-    /// which costs more than `final` (`any_state` module documentation).
+    /// Any normalized configuration the run reaches, the initial one included: one that is
+    /// decided, ceil-free and matches with empty constraints, reached on a path whose prefix up
+    /// to it is clean (ARCHITECTURE 5.2's leaf facts, read on the prefix). Under
+    /// `run-to-completion` every leaf must also be a clean natural end (and a data end with
+    /// `data-end`), since a reached state is attributed to no leaf. The witness records the
+    /// configuration and its depth. k-rust matches every reached state inside the run
+    /// (`matchStates`, FZ-STATESET-MATCH; `any_state` module documentation).
     AnyState,
 }
 
@@ -348,8 +350,17 @@ pub(crate) enum HitSite {
     Leaf(usize),
     /// The run reaches the target, and no one leaf can be named: a coverage-mode hit over
     /// several leaves, every one of which is clean, so the witness is the case and every leaf's
-    /// configuration, without a single final configuration.
+    /// configuration, without a single final configuration; or an all-paths `fired` hit read
+    /// from the run's committed transitions with every leaf clean (FZ-STATESET-MATCH).
     Run,
+    /// A state the run reached at `depth` (committed steps from the initial configuration)
+    /// matches the pattern `at: any-state` on a clean prefix (`ExecutionResult::state_matches`,
+    /// its first clean reach). It is attributed to no leaf; the witness carries the configuration
+    /// ([`JudgedRun::state_match`]).
+    StateMatch {
+        /// The depth of the reaching state.
+        depth: u64,
+    },
 }
 
 /// The judgement of one case against a resolved target.
@@ -444,7 +455,7 @@ fn pattern_reached(result: &CaseResult) -> Result<Vec<bool>, EngineDefect> {
 }
 
 /// Whether a case of a `kind` target on `paths` runs as a state set (FZ-STATESET, D35;
-/// ARCHITECTURE 5.1): an all-paths rule target or pattern `at: final`.
+/// ARCHITECTURE 5.1): an all-paths rule or pattern target.
 ///
 /// Both read what a state set keeps of every path: a final pattern a configuration at an end,
 /// which merging keeps (a state set reports the path set's final configurations, merged leaves
@@ -453,20 +464,14 @@ fn pattern_reached(result: &CaseResult) -> Result<Vec<bool>, EngineDefect> {
 /// retained leaf's own trace and terminal halt. A rule fired only on an absorbed arrival's path
 /// is judged by [`UnjudgedReason::FiredOffTrace`]. `fired` keeps its terminal rule: under a
 /// state set a terminal or stuck leaf then carries every run fact, which only taints more
-/// (D36). One path stays a path set (strategy `any` has nothing to merge); observers fold their
-/// state over a path, which the merge key omits; `at: any-state` judges configurations inside
-/// the path tree, which a state set's leaves do not show (FZ-STATESET-MATCH). The differential
-/// target's sides ask for state sets themselves (`differential::plan`).
+/// (D36). A pattern `at: any-state` reads the reached states, which k-rust matches inside the
+/// run (`matchStates`, FZ-STATESET-MATCH): a state merged into an equal one of its depth has its
+/// verdict, so every reached configuration is judged without exploring converging paths twice.
+/// One path stays a path set (strategy `any` has nothing to merge); observers fold their state
+/// over a path, which the merge key omits. The differential target's sides ask for state sets
+/// themselves (`differential::plan`).
 pub(crate) fn case_state_set(kind: &TargetKind, paths: PathMode) -> bool {
-    paths == PathMode::AllPaths
-        && matches!(
-            kind,
-            TargetKind::Rule(_)
-                | TargetKind::Pattern(PatternTarget {
-                    at: PatternAt::Final,
-                    ..
-                })
-        )
+    paths == PathMode::AllPaths && matches!(kind, TargetKind::Rule(_) | TargetKind::Pattern(_))
 }
 
 /// The result modality of each kind of run a campaign of `target` on `paths` makes
@@ -493,6 +498,7 @@ pub(crate) fn execution_modality(target: &Target, paths: PathMode) -> ExecutionM
         TargetKind::Rule(_) | TargetKind::Pattern(_) => ExecutionModality {
             cases: modality(case_state_set(&target.kind, paths)),
             every_path: Some(ResultModality::StateSet),
+            // The run that matches the reached states is the case's own.
             any_state: matches!(
                 &target.kind,
                 TargetKind::Pattern(PatternTarget {
@@ -500,7 +506,7 @@ pub(crate) fn execution_modality(target: &Target, paths: PathMode) -> ExecutionM
                     ..
                 })
             )
-            .then_some(ResultModality::PathSet),
+            .then(|| modality(case_state_set(&target.kind, paths))),
         },
     }
 }
@@ -509,12 +515,17 @@ pub(crate) fn execution_modality(target: &Target, paths: PathMode) -> ExecutionM
 /// rule reached a clean end of the kind the target asks for: `miss` (every leaf a clean natural
 /// end, none on such a path), `stuck` (no clean leaf on such a path, and one clean abnormal
 /// stop) and `reached-unfinished` (only paths that did not end cleanly and naturally fired it,
-/// under `run-to-completion`). On a state set that is unjudgeable once the rule is in coverage
-/// `applied`: an arrival absorbed into a recorded state of its depth may have fired it on its
-/// own path, and its continuation is the recorded state's subtree, whose clean end then lies on
-/// a path that fired the rule while the end's leaf keeps another arrival's trace (a leaf
-/// absorbed by the final merge is such an end itself). Such a case is `unsupported` with
-/// [`UnjudgedReason::FiredOffTrace`].
+/// under `run-to-completion`). On a state set that is unjudgeable once some explored path fired
+/// the rule off every retained trace, which the committed transitions show (coverage
+/// `committed`, FZ-STATESET-MATCH; without them coverage `applied`, which also holds rolled-back
+/// candidates, stands for it): an arrival absorbed into a recorded state of its depth may have
+/// fired it on its own path, and its continuation is the recorded state's subtree, whose clean
+/// end then lies on a path that fired the rule while the end's leaf keeps another arrival's
+/// trace (a leaf absorbed by the final merge is such an end itself). Such a case is
+/// `unsupported` with [`UnjudgedReason::FiredOffTrace`], unless the leaves decide it either way
+/// ([`every_leaf_qualifies`]: a hit of the whole run; [`no_path_ends_naturally`] under
+/// `run-to-completion`: `reached-unfinished`). A rule in `applied` and not in `committed` was
+/// fired on no explored path, so the class stands.
 ///
 /// The other non-hit classes make no such claim and stand: `depth-bound`, `work-bound` and
 /// `timeout` already say that the run is incomplete, and `undefined` names an undefined step a
@@ -524,6 +535,102 @@ fn denies_a_clean_reaching_end(class: OutcomeClass) -> bool {
         class,
         OutcomeClass::Miss | OutcomeClass::Stuck | OutcomeClass::ReachedUnfinished
     )
+}
+
+/// Whether every leaf of `result` could carry a hit attributed to no leaf, and nothing a path
+/// went through is missing from the leaves (FZ-STATESET-MATCH): at least one leaf, every leaf
+/// clean (and, under `run_to_completion`, a natural end, and a data end with `data_end`), and no
+/// run fact off the leaves.
+///
+/// On a state set every explored path ends at a leaf of the result, as its configuration and
+/// halt: a merged arrival's continuation is the recorded state's subtree, whose leaves are in
+/// the result, and the final merge keeps one leaf per configuration of a compatible halt. A path
+/// may carry diagnostics its leaf does not show only as path facts (the exploration merge
+/// ignores them; any other diagnostic of an absorbed arrival is among the recorded state's),
+/// and those are on the run's lists: with every leaf clean, a run fact is on no leaf, so
+/// requiring none off the leaves requires none at all. So a path ends at a leaf that may carry a
+/// hit, with nothing its own path carried that the leaf does not.
+fn every_leaf_qualifies(result: &CaseResult, run_to_completion: bool, data_end: bool) -> bool {
+    !result.leaves.is_empty()
+        && !result.run_facts_off_leaves
+        && result.leaves.iter().all(|leaf| {
+            leaf.is_clean()
+                && (!run_to_completion
+                    || (leaf.natural_end && (!data_end || leaf.data_end == Some(true))))
+        })
+}
+
+/// The class of an all-paths `fired` case on a state set whose leaves gave `class` (not a hit)
+/// from their retained traces and terminal halts, when the run's committed transitions change
+/// it ([`ResolvedTarget::judge_run`]): `None` keeps `class`.
+///
+/// Some explored path fired the rule when it is committed (a run without the committed
+/// transitions reads coverage `applied` in their place, conservatively, since that also holds
+/// rolled-back candidates). A committed rule is a hit of the whole run when every leaf could
+/// carry it ([`every_leaf_qualifies`]); under `run-to-completion`, a `stuck` or
+/// `reached-unfinished` case is `reached-unfinished` when no path ends naturally
+/// ([`no_path_ends_naturally`]); otherwise a case that fired somewhere and whose class denies a
+/// clean reaching end ([`denies_a_clean_reaching_end`]) is `unsupported` with
+/// [`UnjudgedReason::FiredOffTrace`].
+fn fired_off_retained_traces(
+    id: &str,
+    result: &CaseResult,
+    class: OutcomeClass,
+    run_to_completion: bool,
+    data_end: bool,
+) -> Option<(OutcomeClass, Option<UnjudgedReason>)> {
+    let committed = rule::committed(id, result.coverage.as_ref());
+    let fired_somewhere = committed.unwrap_or_else(|| rule::applied(id, result.coverage.as_ref()));
+    let committed = committed == Some(true);
+    if committed && every_leaf_qualifies(result, run_to_completion, data_end) {
+        // Every path's end is a leaf of the result, as its configuration and halt, and no leaf
+        // carries a fact or a taint a path to it may have carried that it does not show
+        // (`every_leaf_qualifies`): a path that fired the rule ends at a leaf that may carry the
+        // hit. Which one is not known, so the hit is the run's (D13).
+        return Some((OutcomeClass::Hit, None));
+    }
+    if committed
+        && run_to_completion
+        && matches!(class, OutcomeClass::Stuck | OutcomeClass::ReachedUnfinished)
+        && no_path_ends_naturally(result)
+    {
+        // Some path fired the rule and no path ends naturally: the target was reached and the
+        // run did not end naturally, whichever path reached it.
+        return Some((OutcomeClass::ReachedUnfinished, None));
+    }
+    (fired_somewhere && denies_a_clean_reaching_end(class)).then_some((
+        OutcomeClass::Unsupported,
+        Some(UnjudgedReason::FiredOffTrace),
+    ))
+}
+
+/// Whether no path of `result` ends naturally (FZ-STATESET-MATCH): every leaf is an undefined
+/// step (`trivial`), never a natural end, or a clean `stuck` leaf that is not a natural end, and
+/// no run fact lies off the leaves. No leaf is cut, so every explored path ends at a leaf of the
+/// result as its configuration and halt ([`every_leaf_qualifies`]); a `stuck` leaf merges only
+/// with leaves of its configuration whose halt it stands for, and whether a clean stuck leaf is
+/// a natural end is a property of its configuration. So no path, absorbed or not, reached a
+/// natural end, and `reached-unfinished` (some path reached the target, none ended naturally)
+/// holds of the run, whichever path reached it.
+fn no_path_ends_naturally(result: &CaseResult) -> bool {
+    !result.leaves.is_empty()
+        && !result.run_facts_off_leaves
+        && result.leaves.iter().all(|leaf| match leaf.halt {
+            HaltReasonOutput::Trivial => true,
+            HaltReasonOutput::Stuck => leaf.is_clean() && !leaf.natural_end,
+            HaltReasonOutput::Cancelled
+            | HaltReasonOutput::Vacuous
+            | HaltReasonOutput::Branch
+            | HaltReasonOutput::CutPoint
+            | HaltReasonOutput::Terminal
+            | HaltReasonOutput::DepthBound
+            | HaltReasonOutput::BreadthBound
+            | HaltReasonOutput::WorkBound
+            | HaltReasonOutput::Indeterminate
+            | HaltReasonOutput::UnsupportedHook
+            | HaltReasonOutput::SimplificationError
+            | HaltReasonOutput::Timeout => false,
+        })
 }
 
 impl ResolvedTarget {
@@ -621,23 +728,39 @@ impl ResolvedTarget {
 
     /// What every execute request on `paths` must carry for this target: traces for `fired`,
     /// and its rule as the only terminal rule without `run-to-completion`, in both path modes
-    /// (ARCHITECTURE 5.1, D16, D18); and a state set for an all-paths rule target or pattern
-    /// `at: final` ([`case_state_set`], FZ-STATESET).
+    /// (ARCHITECTURE 5.1, D16, D18); a state set for an all-paths rule or pattern target
+    /// ([`case_state_set`], FZ-STATESET), with the committed transitions for `fired` on it; and
+    /// for a pattern `at: any-state` the state matching of its pattern, with proof agreement
+    /// unless the pattern evaluates nothing (FZ-STATESET-MATCH).
     ///
     /// The differential target's needs per side come from [`differential::plan`].
     pub(crate) fn needs(&self, paths: PathMode) -> TargetNeeds {
+        let state_set = case_state_set(&self.target.kind, paths);
         let needs = match &self.resolved {
-            Resolved::Rule { id, mode } => {
-                rule::rule_needs(id, *mode, self.target.run_to_completion)
+            Resolved::Rule { id, mode } => TargetNeeds {
+                // A `fired` hit or miss on a state set reads the committed transitions too
+                // (`judge_run`).
+                collect_committed: state_set && *mode == RuleMode::Fired,
+                ..rule::rule_needs(id, *mode, self.target.run_to_completion)
+            },
+            Resolved::PatternAnyState => {
+                // The resolution keeps the target's one matcher, and no informational one.
+                let matcher = &self.matchers[0];
+                TargetNeeds {
+                    match_states: Some(StateMatchNeed {
+                        pattern: matcher.kore().clone(),
+                        proof_agreement: !matcher.mode_independent(),
+                    }),
+                    ..TargetNeeds::default()
+                }
             }
-            Resolved::PatternFinal
-            | Resolved::PatternAnyState
-            | Resolved::Differential
-            | Resolved::Observer { .. } => TargetNeeds::default(),
+            Resolved::PatternFinal | Resolved::Differential | Resolved::Observer { .. } => {
+                TargetNeeds::default()
+            }
         };
         TargetNeeds {
             data_end: self.target.requires_data_end(),
-            state_set: case_state_set(&self.target.kind, paths),
+            state_set,
             ..needs
         }
     }
@@ -725,16 +848,20 @@ impl ResolvedTarget {
     /// coverage, so the remaining leaf need not be on the path that reached the rule (phase-1
     /// review N7). On one path the run is its leaf's path.
     ///
-    /// A `fired` case on a state set that would be `miss`, `stuck` or `reached-unfinished`
-    /// while its rule is in coverage `applied` is `unsupported` with
-    /// [`UnjudgedReason::FiredOffTrace`] (FZ-STATESET B1, [`denies_a_clean_reaching_end`]): a
-    /// merged leaf keeps the trace of its first arrival only, so the rule may have fired on an
-    /// absorbed arrival's path, which may end in a clean leaf that would be a hit; it may
-    /// equally have built only a rolled-back candidate, which no path took. The class it
-    /// replaces is kept in [`Judgement::demoted_from`] for the incidental finding. A hit is
-    /// read from a retained trace or terminal halt alone, which is that leaf's own path, so it
-    /// stays sound. On a path set every path keeps its leaf, so a rule in `applied` on no trace
-    /// built only rolled-back or vanished candidates, and the class stands.
+    /// A `fired` case on a state set that a retained trace or terminal halt does not make a hit
+    /// reads the run's committed transitions (FZ-STATESET-MATCH): a rule some explored path
+    /// fired, absorbed arrivals included. When the rule is committed and every leaf could carry
+    /// a hit with nothing off the leaves ([`every_leaf_qualifies`]), the case is a hit of the
+    /// whole run ([`HitSite::Run`]); when it is committed, `run-to-completion` holds and no path
+    /// ends naturally ([`no_path_ends_naturally`]), a `stuck` or `reached-unfinished` case is
+    /// `reached-unfinished`; otherwise a case that would be `miss`, `stuck` or
+    /// `reached-unfinished` is `unsupported` with [`UnjudgedReason::FiredOffTrace`] (FZ-STATESET
+    /// B1, [`denies_a_clean_reaching_end`]), and the class it replaces is kept in
+    /// [`Judgement::demoted_from`] for the incidental finding. A rule that is applied but not
+    /// committed built only rolled-back candidates, and the class stands. A run without the
+    /// committed transitions reads coverage `applied` in their place, conservatively. On a path
+    /// set every path keeps its leaf, so a rule on no trace was fired on no path, and the class
+    /// stands.
     ///
     /// # Errors
     ///
@@ -793,19 +920,23 @@ impl ResolvedTarget {
             reason = Some(UnjudgedReason::RunFactOffLeaves);
         }
         let mut demoted_from = None;
+        let mut run_hit = false;
         if let Resolved::Rule {
             id,
             mode: RuleMode::Fired,
         } = &self.resolved
             && state_set
-            && denies_a_clean_reaching_end(class)
-            && rule::applied(id, result.coverage.as_ref())
+            && class != OutcomeClass::Hit
+            && let Some((judged, why)) =
+                fired_off_retained_traces(id, result, class, run_to_completion, data_end)
         {
-            demoted_from = Some(class);
-            class = OutcomeClass::Unsupported;
-            reason = Some(UnjudgedReason::FiredOffTrace);
+            run_hit = judged == OutcomeClass::Hit;
+            demoted_from = (why == Some(UnjudgedReason::FiredOffTrace)).then_some(class);
+            (class, reason) = (judged, why);
         }
-        let hit_site = if class == OutcomeClass::Hit {
+        let hit_site = if run_hit {
+            Some(HitSite::Run)
+        } else if class == OutcomeClass::Hit {
             let leaf = result
                 .leaves
                 .iter()
@@ -843,7 +974,7 @@ impl ResolvedTarget {
         };
         let term_conjunction = match hit_site {
             Some(HitSite::Leaf(index)) => result.leaves[index].term_conjunction,
-            Some(HitSite::Run) | None => false,
+            Some(HitSite::Run | HitSite::StateMatch { .. }) | None => false,
         };
         Ok(self.confirmable(judgement, result, term_conjunction))
     }

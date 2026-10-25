@@ -22,7 +22,7 @@ mod watchdog;
 use k_rust::{
     backend::{
         CancelledResultOutput, ConditionCollection, ExecuteRequest, ExecutionStrategy,
-        HaltReasonOutput, ResultModalityOutput, RunCoverageOutput, StopCause,
+        HaltReasonOutput, ResultModalityOutput, RunCoverageOutput, StateMatchRequest, StopCause,
     },
     kore::ast::Pattern as KorePattern,
 };
@@ -31,8 +31,7 @@ use serde::{Deserialize, Serialize};
 pub use comparable::{ComparableCondition, LeafDiagnostic};
 pub use reasons::UnjudgedReason;
 pub(crate) use run::{
-    CompiledPattern, ConfigurationVerdict, Executor, LeafMatcher, NormalEnd, PatternCompiler,
-    PlannedConfiguration,
+    AnyStateRun, CompiledPattern, Executor, LeafMatcher, NormalEnd, PatternCompiler,
 };
 
 use crate::{
@@ -632,6 +631,10 @@ impl Abort {
 
 /// What a target needs from every execute request (ARCHITECTURE 5.1).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is an independent request option a target may need"
+)]
 pub(crate) struct TargetNeeds {
     /// Leaves carry traces (a `fired` rule target).
     pub(crate) trace: bool,
@@ -643,20 +646,38 @@ pub(crate) struct TargetNeeds {
     /// Override of the path mode (the differential baseline runs all paths).
     pub(crate) paths: Option<PathMode>,
     /// Ask for `result_modality: state-set` instead of `path-set`: both differential sides
-    /// (ARCHITECTURE 4.3 as amended by FZ-DIFFEND), and an all-paths rule target or pattern
-    /// `at: final` (FZ-STATESET, `crate::target::case_state_set`). The set of final
+    /// (ARCHITECTURE 4.3 as amended by FZ-DIFFEND), and an all-paths rule or pattern target
+    /// (FZ-STATESET, `crate::target::case_state_set`). The set of final
     /// configurations is the same (`docs/compatibility.md`, "Search results"), without
     /// exploring the paths that converge; run coverage is the union over every explored path,
     /// absorbed arrivals included, while an absorbed arrival's trace is on no leaf.
     pub(crate) state_set: bool,
+    /// For a pattern `at: any-state`, the pattern every reached state is matched against inside
+    /// the run (`matchStates`, FZ-STATESET-MATCH), with whether its verdicts need proof
+    /// agreement.
+    pub(crate) match_states: Option<StateMatchNeed>,
+    /// Ask for the committed transitions (`collectCommitted`): an all-paths `fired` target on a
+    /// state set, whose rule may fire on an absorbed arrival's path only (FZ-STATESET-MATCH).
+    pub(crate) collect_committed: bool,
+}
+
+/// The state matching an any-state case asks of its run ([`TargetNeeds::match_states`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct StateMatchNeed {
+    /// The compiled pattern, as KORE.
+    pub(crate) pattern: KorePattern,
+    /// The pattern evaluates something (constraints, or a head that is not a free constructor),
+    /// so a verdict must hold in proof mode too, where a value the definition leaves to the
+    /// implementation stays unevaluated (D16, review B1).
+    pub(crate) proof_agreement: bool,
 }
 
 /// The execute request every case of one definition uses, without its state
 /// (ARCHITECTURE 5.1): `strategy` from the path mode, `result_modality: path-set` (`state-set`
-/// when the target asks for it, [`TargetNeeds::state_set`]: an all-paths rule target or pattern
-/// `at: final`, and both differential sides), the bounds,
-/// `collect_coverage: true`, `trace` and `terminal_rules` only as the target needs, no step
-/// timeouts, `cancelledResult: partial`.
+/// when the target asks for it, [`TargetNeeds::state_set`]: an all-paths rule or pattern target,
+/// and both differential sides), the bounds, `collect_coverage: true`, `trace`, `terminal_rules`,
+/// `collect_committed` and `match_states` only as the target needs, no step timeouts,
+/// `cancelledResult: partial`.
 #[derive(Clone, Debug)]
 pub(crate) struct CaseRequestShape {
     request: ExecuteRequest,
@@ -693,6 +714,11 @@ impl CaseRequestShape {
             collect_offered: false,
             trace: needs.trace,
             cancelled_result: CancelledResultOutput::Partial,
+            match_states: needs.match_states.as_ref().map(|need| StateMatchRequest {
+                pattern: need.pattern.clone(),
+                proof_agreement: need.proof_agreement,
+            }),
+            collect_committed: needs.collect_committed,
             ..ExecuteRequest::new(placeholder)
         };
         Self {
@@ -735,6 +761,11 @@ impl CaseRequestShape {
         matches!(self.request.result_modality, ResultModalityOutput::StateSet)
     }
 
+    /// Whether the request matches the reached states against a pattern (`matchStates`).
+    pub(crate) fn matches_states(&self) -> bool {
+        self.request.match_states.is_some()
+    }
+
     /// Whether the request names terminal rules, so that a `terminal` halt is the target's
     /// own stop.
     pub(crate) fn has_terminal_rules(&self) -> bool {
@@ -747,7 +778,7 @@ impl CaseRequestShape {
     /// terminal rule is set, so no stop rule meets a merge), the same bounds and options, the
     /// data judgement (P3), and
     /// nothing the target asked for (no terminal rule, no trace, no condition entries, no
-    /// counts). A campaign that bounds only the depth sets no work bound on its cases; this run
+    /// counts, no state matches, no committed transitions). A campaign that bounds only the depth sets no work bound on its cases; this run
     /// gets [`crate::spec::DEFAULT_MAX_WORK`] then, so that it explores every path of a
     /// nondeterministic program within a bounded work and not to the depth bound alone (INT9
     /// review S2). A bound the run meets makes it not comparable, never a hit.
@@ -763,6 +794,8 @@ impl CaseRequestShape {
         shape.request.trace = false;
         shape.request.collect_conditions = None;
         shape.request.collect_counts = false;
+        shape.request.match_states = None;
+        shape.request.collect_committed = false;
         shape.data_end = true;
         shape
     }
