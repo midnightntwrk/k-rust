@@ -86,8 +86,11 @@ case $step in
     touch "$OUT/open-obligations.txt"
     term=()
     [ -f "$here/kmir-termination.toml" ] && term=(--termination "$here/kmir-termination.toml")
+    # the determinism lemmas' heartbeat bound: RT-DATA.thunk's (a variable `EV:Evaluation`, split
+    # by its leaf until the key reduces, the second search of k2l_key_cases) needs between 468,000
+    # and 868,000 (2026-10-25), above the default 400,000 plus its inversions
     "$RT" "$K2LEAN" gen --kore "$OUT/kore/definition.kore" --runtime "$OUT/kore/runtime.json" --out "$lib" \
-      --name KMir --prelude "$root/k2lean/lean/prelude" --arity-terms "${term[@]}" \
+      --name KMir --prelude "$root/k2lean/lean/prelude" --arity-terms --det2-heartbeats 800000 "${term[@]}" \
       --open-obligations "$OUT/open-obligations.txt" > "$logs/gen.log" 2>&1 || { tail -n 5 "$logs/gen.log" >&2; exit 1; }
     sed -i 's/^  leanOptions := #\[⟨`autoImplicit, false⟩\]$/&\n  moreLeanArgs := #["-j", "'"$LEAN_J"'"]/' "$lib/lakefile.lean"
     grep -q moreLeanArgs "$lib/lakefile.lean"

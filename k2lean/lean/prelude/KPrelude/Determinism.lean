@@ -543,8 +543,10 @@ def k2lEmptyField (g : MVarId) (fields : Array Expr) : MetaM Bool := g.withConte
 /-- Replace each variable of `g` that is a value of a builtin leaf (`x : Term SortInt`: the family
 has a constructor `b_SortInt` at that index, and every other constructor is refuted there) by
 that constructor's application (`Term.b_SortInt i`), so that a function matching on the injected
-value reduces. -/
-def k2lUnfoldSingletons (g : MVarId) : MetaM MVarId := do
+value reduces. With `reduceIndex`, the index of a variable's type is reduced first (a field of a
+constructor split by `cases` has the type `Term (A2_1 tag c)`, whose index is `SortInt` only
+after reduction). -/
+def k2lUnfoldSingletons (g : MVarId) (reduceIndex : Bool := false) : MetaM MVarId := do
   let mut g := g
   let cands ← g.withContext do
     let mut acc : Array FVarId := #[]
@@ -555,6 +557,7 @@ def k2lUnfoldSingletons (g : MVarId) : MetaM MVarId := do
       let some (.inductInfo iv) := (← getEnv).find? n | continue
       if iv.numIndices == 0 || iv.ctors.length < 2 then continue
       let some idx := ty.getAppArgs.back? | continue
+      let idx ← if reduceIndex then whnfD idx else pure idx
       if idx.hasFVar || idx.hasMVar then continue
       -- a builtin constructor at this index
       let builtin ← iv.ctors.anyM fun c => do
@@ -1164,22 +1167,33 @@ def k2lTermFields (g : MVarId) (fields : Array Expr) : MetaM (List Name) := g.wi
     unless enum do out := out ++ [d.userName]
   return out
 
+/-- Whether the key argument of the hypothesis `h : REL key c c'` reduces to a constructor. -/
+def k2lKeyReduces (g : MVarId) (h : Name) : MetaM Bool := g.withContext do
+  let some hd := (← getLCtx).findFromUserName? h | throwError "k2l_key_cases: no hypothesis {h}"
+  let ty ← instantiateMVars hd.type
+  let some k := ty.getAppArgs[0]? | throwError "k2l_key_cases: {h} has no key argument"
+  k2lReducesToCtor k
+
 /-- Case-split the variables named `cands` (and the fields their cases introduce) until the key
 argument of the hypothesis `h : REL key c c'` reduces to a constructor; cases that contradict a
-leaf condition are dropped. -/
-partial def k2lKeyCasesGo (g : MVarId) (h : Name) (cands : List Name) (fuel : Nat) : MetaM (List MVarId) := do
-  let reduces ← g.withContext do
-    let some hd := (← getLCtx).findFromUserName? h | throwError "k2l_key_cases: no hypothesis {h}"
-    let ty ← instantiateMVars hd.type
-    let some k := ty.getAppArgs[0]? | throwError "k2l_key_cases: {h} has no key argument"
-    k2lReducesToCtor k
-  if reduces then return [g]
+leaf condition are dropped. With `singletons`, before each split the variables that are values of
+a builtin leaf are replaced by that leaf's constructor (`k2lUnfoldSingletons`), which makes no
+case: a key that matches a builtin argument (`#mkArray(_, N:Int)`, whose `N` is the field
+`Term.b_SortInt n` of the constructor) reduces without splitting the other arguments. -/
+partial def k2lKeyCasesGo (g : MVarId) (h : Name) (cands : List Name) (fuel : Nat)
+    (singletons : Bool := false) : MetaM (List MVarId) := do
+  if (← k2lKeyReduces g h) then return [g]
+  if singletons then
+    let s ← saveState
+    let g' ← k2lUnfoldSingletons g (reduceIndex := true)
+    if g' != g && (← k2lKeyReduces g' h) then return [g']
+    s.restore
   if fuel = 0 then throwError "k2l_key_cases: the key does not reduce"
   match cands with
   | [] => throwError "k2l_key_cases: the key does not reduce after the splits"
   | x :: rest =>
     let some xd ← g.withContext (return (← getLCtx).findFromUserName? x)
-      | k2lKeyCasesGo g h rest fuel
+      | k2lKeyCasesGo g h rest fuel singletons
     let subs ← g.cases xd.fvarId
     let mut out : List MVarId := []
     for s in subs do
@@ -1215,15 +1229,21 @@ partial def k2lKeyCasesGo (g : MVarId) (h : Name) (cands : List Name) (fuel : Na
         -- every hypothesis of the context (each a configuration) and costs seconds per case
         if (← k2lEmptyField g' s.fields) then continue
         if (← try g'.contradiction; pure true catch _ => pure false) then continue
-        out := out ++ (← k2lKeyCasesGo g' h (more ++ rest) (fuel - 1))
+        out := out ++ (← k2lKeyCasesGo g' h (more ++ rest) (fuel - 1) singletons)
     return out
 
 /-- `k2l_key_cases h [x, …]`: split the variables `x, …` of the main goal until the key of
 `h : REL (Det.key c) c c'` reduces (`k2lKeyCasesGo`), so that `cases h` inverts one key's
-relation in each case. -/
+relation in each case. When that search fails, it is repeated from the start with the builtin
+leaves replaced before each split; a search that succeeds is the first one, unchanged. -/
 elab "k2l_key_cases " h:ident " [" xs:ident,* "]" : tactic => do
   let g ← getMainGoal
-  let gs ← k2lKeyCasesGo g h.getId (xs.getElems.toList.map (·.getId)) 4
+  let cs := xs.getElems.toList.map (·.getId)
+  let s ← saveState
+  let gs ← try k2lKeyCasesGo g h.getId cs 4
+    catch e => do
+      s.restore
+      try k2lKeyCasesGo g h.getId cs 4 (singletons := true) catch _ => throw e
   replaceMainGoal gs
 
 /-- `k2l_gen_index h`: for `h : R c c'` (after unfolding the key's relation to the inductive one),
