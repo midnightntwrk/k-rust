@@ -242,7 +242,7 @@ In the heavy gate run of 2026-10-25 (Lean v4.34.0, shared 32-CPU host, load abou
 |---|---|---|---|---|
 | refinement (stuttering bisimulation) | `refine` | the relation's shape `d = tr c ∨ X c d`, the cases of every rule in both directions, the generic ones proved, the bisimulation and the transfer of terminating runs | the non-local part `X`, the measures, the cases left | `demos/ImpUnroll`: 310 of 316 case parts generated |
 | confluence modulo scheduling | `confluence` | the statement from a cell list, the join of every ordered pair of rules, the generic ones proved, the classification of the pairs | the program hypothesis `H` and its preservation, a measure for Newman's lemma (`--join local`), the joins left | `demos/RaceConf`: 9 of 9 joins generated; SIMPLE: 836 of 14,365 pairs critical, counted |
-| noninterference | `noninterference` | the statement, `Final`, the reduction to a relation on pairs of runs and its three modes, one obligation per rule and mode | `secure`, `lowEq` (a security checker in K and its labelling), the relation and every obligation | `demos/ImpNI`: 240 obligations stated, none discharged |
+| noninterference | `noninterference` | the statement, `Final`, the reduction to a relation on pairs of runs and its three modes, one obligation per rule and mode | `secure`, `lowEq` (a security checker in K and its labelling), the relation and every obligation | `demos/ImpNI`: all 240 discharged by a hand relation, 5 of the 237 per-rule cases behind them by hand |
 
 ### 3.5 Refinement: a stuttering bisimulation (`refine`)
 
@@ -295,14 +295,28 @@ A data-race freedom hypothesis `H` would discharge the 16 races; the 178 and 642
 ### 3.7 Noninterference (`noninterference`)
 
 The statement (termination-insensitive): for a program `secure` at a labelling and two stores related by `lowEq`, two runs from `init P E₁` and `init P E₂` that both end in final configurations (`<k>` empty, `Final`) end in stores related by `lowEq`.
-`secure` and `lowEq` are the hand module's; in `demos/ImpNI` they are the acceptance of the program's translation by a two-level security checker written in K (`demos/k/imp-sec.k`: `lev` the level of an expression, `sec` at a low program counter, `conf` for the confined branches of a high condition; library `impsec`, translation by `relate --roots`), and the agreement of the stores on the identifiers labelled `lo`.
+`secure` and `lowEq` are the hand module's; in `demos/ImpNI` they are the acceptance of the program's translation by a two-level security checker written in K (`demos/k/imp-sec.k`: `lev` the level of an expression, `sec` at a low program counter, `conf` for the confined branches of a high condition; library `impsec`, translation by `relate --roots`), and the agreement of two stores on the identifiers labelled `lo`, both stores holding values.
 The reduction is `ProductInv.final`: a relation `Rel` on pairs of states from which, unless both are final, one side that is not final, or both, can be advanced by any of their steps without leaving `Rel` relates the final states of any two runs from related states.
 `ProductInv.of_modes` builds it from three modes of `Rel`: `Sync` (both runs step), `Left` and `Right` (one run steps while the other waits, where a secret branch desynchronizes them), and `cover` (which mode a pair is in).
 The generated module states `Obligations Rel Sync Left Right`, a structure of `init`, `final`, `cover` and one field per rule and mode (`sync:r`, `left:r`, `right:r`, stated with `Step.Rel`), and proves `noninterference` for every relation that satisfies it, `Final`, and that a final configuration has no step.
 
-On kimp the structure has 240 fields (3 per rule for 79 rules, and 3), and none is discharged: they depend on the relation, which is the person's.
-The relation that would satisfy them is known (estimate: T3's cost doubled): `Sync` relates configurations with the same `<k>`, low-equal stores and a well-labelled `<k>` (the stack typing of §3.3 at levels), so a step of either is a step of the other by the same rule, by determinism; `Left` and `Right` relate a confined prefix of `<k>` over a common continuation, whose steps keep the low part of the store (confinement is a unary invariant, `k2l_preserve`'s kind).
-Generating that relation from the checker is the next experiment.
+On kimp the structure has 240 fields (3 per rule for 79 rules, and 3).
+`demos/ImpNI` discharges all of them with a relation written by hand (`ImpNI/Proof.lean`, `obligations`, and `kimp_noninterference`, the statement for kimp; both on Lean's axioms only), built from two stack typings of `<k>` in the style of §3.3's runtime typing, read off the checker through the translation (`ImpNI/Stack.lean`):
+
+- the low typing `lk`: every item is a low expression or a statement `sec` accepts, and a freezer is typed by plugging a low value into it;
+- the confined typing `CK G K`: the items above a continuation `K` assign only high identifiers (`conf`), with any expression.
+
+`Rel` relates two configurations whose `<k>` cells are confined stacks over a common low stack `K`, with low-equal stores; `Left` is the left run inside its confined part, `Right` the right one once the left has reached `K`, `Sync` both at `K` (the same `<k>`).
+A run leaves `Sync` only by a step into a high assignment or a branch on a high condition, which becomes the start of its confined part.
+
+The 237 per-rule fields each follow, by one generic term, from one of three properties of every step, each stated per rule with `Step.Rel` and assembled by `Step.rel_of`: `cq_step` (a step inside a confined stack stays confined and changes the store only at high identifiers), `sq_step` (a step from a low stack leads to a confined stack over a low stack) and `same_step` (from the same low stack and low-equal stores, the other run steps by the same rule, by `Step.deterministic`, to the same stack and low-equal stores).
+Of their 237 per-rule cases, 232 are closed by one tactic per property (compute both typings with the checker's inversion lemmas, case on the values of `lev`, `sec`, `conf` where the computation stops, compute again); the 5 hand cases are the rules that read or write the store (`CALC.var` in all three, `CALC.assign` in `cq_step` and `same_step`), as in §3.3.
+The checker's 37 inversion lemmas (`ImpNI/Levels.lean`) are proved by one tactic, and `lev` at an identifier by hand.
+`init`, `final` and `cover` are short hand proofs.
+The modules beyond the generated ones build in 12 s wall and 38 s of CPU, 2.0 GB peak (2026-10-25, Lean v4.34.0, shared 32-CPU host, load 16, on built libraries).
+
+`lowEq` includes that both stores are canonical maps whose identifiers hold values (`Good`), and so does the conclusion; without it a store could hold a statement, which a lookup would put on `<k>`.
+Every part of the hand proof except the relation's shape and the store cases is uniform in the rules, so generating it from the checker (the per-rule tactics, the stack typings as §3.3 generates `kty`, and a `Step.Rel` helper per rule) is the next step (NI-2).
 
 ### 3.8 Claims that K's prover cannot state
 
