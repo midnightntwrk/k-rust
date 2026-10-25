@@ -82,6 +82,7 @@ pub fn lookup(hook: &str) -> Option<HookImpl> {
         "LIST.size" => ("KPrelude.ListHook.size", false),
         "LIST.get" => ("KPrelude.ListHook.get", true),
         "LIST.update" => ("KPrelude.ListHook.update", true),
+        "LIST.updateAll" => ("KPrelude.ListHook.updateAll", true),
         "LIST.make" => ("KPrelude.ListHook.make", true),
         "LIST.range" => ("KPrelude.ListHook.range", true),
         "LIST.in" => ("KPrelude.ListHook.inList", false),

@@ -284,6 +284,15 @@ def get (l : L) (i : Int) : Option E :=
 def update (l : L) (i : Int) (v : E) : Option L :=
   let xs := toList l
   if 0 ≤ i ∧ i < xs.length then some (ofList (xs.set i.toNat v)) else none
+/-- `updateList(D, I, S)`: `D` with its `size(S)` elements from index `I` on replaced by those of
+`S`; undefined where they do not fit (`I + size(S) > size(D)`, which `domains.md` makes an
+exception) and, a choice of the model, at a negative `I`. -/
+def updateAll (d : L) (i : Int) (s : L) : Option L :=
+  let xs := toList d
+  let ys := toList s
+  if 0 ≤ i ∧ i + ys.length ≤ xs.length then
+    some (ofList (xs.take i.toNat ++ ys ++ xs.drop (i.toNat + ys.length)))
+  else none
 /-- `makeList(N, V)` (undefined for `N < 0`) -/
 def make (n : Int) (v : E) : Option L := if 0 ≤ n then some (ofList (List.replicate n.toNat v)) else none
 /-- `range(L, A, B)`: drop `A` elements at the front and `B` at the back (undefined if too many). -/
