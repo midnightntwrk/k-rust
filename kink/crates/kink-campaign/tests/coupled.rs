@@ -6321,8 +6321,14 @@ mod kink_tier {
             // condition-only variable is read existentially, which Z3 decides), accepted by
             // Sebastien (decisions log 2026-10-20, "a variable of a rule's condition alone is read
             // existentially"). The no-Z3 rows are unchanged.
+            // fz26 KINK-BASELINE-FINDINGS (int9 certification): the UNBOUND baseline's full
+            // critical-pair check has findings no `assume_joined` name assumes (`fres` and `freq`
+            // bind a variable in their condition only, equations outside the check's reasoning),
+            // so every mutant of it is Unknown (`MutantScopeFailure::BaselineFindings`) before it
+            // compiles and runs no test: the Z3 rows move Ran([[Agree]], Survived) -> Ran([],
+            // Unknown). The no-Z3 rows are unchanged (the baseline is refused first).
             let row = if cfg!(feature = "z3") {
-                Some(UnboundAudit::Ran(vec![vec![A]], MutantStatus::Survived))
+                Some(UnboundAudit::Ran(vec![], MutantStatus::Unknown))
             } else {
                 REFUSED
             };
