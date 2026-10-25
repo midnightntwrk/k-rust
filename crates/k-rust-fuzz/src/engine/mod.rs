@@ -908,6 +908,10 @@ fn identity(
                 .collect(),
             ..spec.options.clone()
         },
+        execution_modality: Some(crate::target::execution_modality(
+            &spec.target,
+            spec.options.paths,
+        )),
         proposers: spec.proposers.clone(),
         bounds: spec.bounds,
         caps: GenerationCaps::current(),

@@ -21,7 +21,7 @@ use super::{
 };
 use crate::{
     error::{TargetProblem, UnknownRule},
-    exec::{CaseResult, LeafReport, OutcomeClass, TargetNeeds, UncleanReason},
+    exec::{CaseResult, LeafReport, OutcomeClass, TargetNeeds, UncleanReason, UnjudgedReason},
     spec::PathMode,
 };
 
@@ -562,9 +562,13 @@ fn judge(target: &ResolvedTarget, result: &CaseResult) -> Judgement {
 
 #[test]
 fn needs_follow_the_resolved_rule() {
+    // All paths run a state set (FZ-STATESET); `fired` keeps its terminal rule there (D36).
     assert_eq!(
         rule_target("id-div", RuleMode::Fired, false).needs(PathMode::AllPaths),
-        rule_needs("id-div", RuleMode::Fired, false)
+        TargetNeeds {
+            state_set: true,
+            ..rule_needs("id-div", RuleMode::Fired, false)
+        }
     );
     assert_eq!(
         rule_target("id-div", RuleMode::Fired, false).needs(PathMode::OnePath),
@@ -713,20 +717,84 @@ fn a_coverage_hit_on_all_paths_names_no_leaf_even_with_one_leaf_left() {
     let one = case(vec![natural_end()], &["id-div"], &["id-div"]);
     for mode in [RuleMode::Covered, RuleMode::ConditionReached] {
         let target = rule_target("id-div", mode, false);
-        let all_paths = target.judge_run(&one, true).expect("no engine defect");
+        let all_paths = target
+            .judge_run(&one, true, true)
+            .expect("no engine defect");
         assert_eq!(all_paths.class, OutcomeClass::Hit, "{mode:?}");
         assert_eq!(all_paths.hit_site, Some(HitSite::Run), "{mode:?}");
         // On one path the run is the leaf's path.
-        let one_path = target.judge_run(&one, false).expect("no engine defect");
+        let one_path = target
+            .judge_run(&one, false, false)
+            .expect("no engine defect");
         assert_eq!(one_path.hit_site, Some(HitSite::Leaf(0)), "{mode:?}");
     }
     // A fired target is judged from the leaf's own trace in both modes.
     let mut traced = natural_end();
     traced.rewrites = vec!["id-div".to_owned()];
     let fired = rule_target("id-div", RuleMode::Fired, false)
-        .judge_run(&case(vec![traced], &["id-div"], &[]), true)
+        .judge_run(&case(vec![traced], &["id-div"], &[]), true, true)
         .expect("no engine defect");
     assert_eq!(fired.hit_site, Some(HitSite::Leaf(0)));
+}
+
+/// FZ-STATESET B1: on a state set, a `fired` rule in coverage `applied` on no retained trace may
+/// have fired on an absorbed arrival's path, so a would-be `miss` or `stuck` is `unsupported`
+/// with `fired-off-trace`; on a path set every path keeps its leaf, so it is `miss`. A retained
+/// trace is still a hit, and a rule outside `applied` is still a `miss`.
+#[test]
+fn a_fired_rule_applied_on_no_retained_trace_is_never_a_state_set_miss() {
+    let target = rule_target("id-div", RuleMode::Fired, false);
+    let judged = |result: &CaseResult, state_set| {
+        let judgement = target
+            .judge_run(result, true, state_set)
+            .expect("no engine defect");
+        (judgement.class, judgement.reason)
+    };
+    let off_trace = case(vec![natural_end()], &["id-div"], &["id-div"]);
+    assert_eq!(
+        judged(&off_trace, true),
+        (
+            OutcomeClass::Unsupported,
+            Some(UnjudgedReason::FiredOffTrace)
+        )
+    );
+    assert_eq!(judged(&off_trace, false), (OutcomeClass::Miss, None));
+    let mut stuck = natural_end();
+    stuck.natural_end = false;
+    assert_eq!(
+        judged(&case(vec![stuck], &["id-div"], &[]), true),
+        (
+            OutcomeClass::Unsupported,
+            Some(UnjudgedReason::FiredOffTrace)
+        )
+    );
+    assert_eq!(
+        judged(&case(vec![natural_end()], &["other"], &[]), true),
+        (OutcomeClass::Miss, None)
+    );
+    let mut traced = natural_end();
+    traced.rewrites = vec!["id-div".to_owned()];
+    assert_eq!(
+        judged(&case(vec![natural_end(), traced], &["id-div"], &[]), true),
+        (OutcomeClass::Hit, None)
+    );
+    // A cut run stays cut: no class claims the rule was not fired.
+    let mut cut = natural_end();
+    cut.halt = HaltReasonOutput::DepthBound;
+    cut.natural_end = false;
+    cut.unclean = vec![UncleanReason::Halt];
+    assert_eq!(
+        judged(&case(vec![cut], &["id-div"], &[]), true),
+        (OutcomeClass::DepthBound, None)
+    );
+    // A coverage mode reads `applied` itself, whatever the modality.
+    assert_eq!(
+        rule_target("id-div", RuleMode::Covered, false)
+            .judge_run(&off_trace, true, true)
+            .expect("no engine defect")
+            .class,
+        OutcomeClass::Hit
+    );
 }
 
 fn pattern_target(run_to_completion: bool) -> ResolvedTarget {
@@ -774,6 +842,13 @@ fn a_pattern_at_final_is_hit_by_a_clean_end_and_unsupported_on_an_unclean_match(
     );
     assert_eq!(
         pattern_target(false).needs(PathMode::AllPaths),
+        TargetNeeds {
+            state_set: true,
+            ..TargetNeeds::default()
+        }
+    );
+    assert_eq!(
+        pattern_target(false).needs(PathMode::OnePath),
         TargetNeeds::default()
     );
 }

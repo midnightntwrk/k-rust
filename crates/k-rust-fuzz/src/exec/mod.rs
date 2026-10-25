@@ -642,15 +642,19 @@ pub(crate) struct TargetNeeds {
     pub(crate) data_end: bool,
     /// Override of the path mode (the differential baseline runs all paths).
     pub(crate) paths: Option<PathMode>,
-    /// Ask for `result_modality: state-set` instead of `path-set` (both differential sides,
-    /// ARCHITECTURE 4.3 as amended by FZ-DIFFEND): the set of final configurations is the same
-    /// (`docs/compatibility.md`, "Search results"), without exploring the paths that converge.
+    /// Ask for `result_modality: state-set` instead of `path-set`: both differential sides
+    /// (ARCHITECTURE 4.3 as amended by FZ-DIFFEND), and an all-paths rule target or pattern
+    /// `at: final` (FZ-STATESET, `crate::target::case_state_set`). The set of final
+    /// configurations is the same (`docs/compatibility.md`, "Search results"), without
+    /// exploring the paths that converge; run coverage is the union over every explored path,
+    /// absorbed arrivals included, while an absorbed arrival's trace is on no leaf.
     pub(crate) state_set: bool,
 }
 
 /// The execute request every case of one definition uses, without its state
 /// (ARCHITECTURE 5.1): `strategy` from the path mode, `result_modality: path-set` (`state-set`
-/// when the target asks for it, [`TargetNeeds::state_set`]), the bounds,
+/// when the target asks for it, [`TargetNeeds::state_set`]: an all-paths rule target or pattern
+/// `at: final`, and both differential sides), the bounds,
 /// `collect_coverage: true`, `trace` and `terminal_rules` only as the target needs, no step
 /// timeouts, `cancelledResult: partial`.
 #[derive(Clone, Debug)]
@@ -726,6 +730,11 @@ impl CaseRequestShape {
         matches!(self.request.strategy, ExecutionStrategy::All)
     }
 
+    /// Whether the request asks for a state set (`result_modality: state-set`).
+    pub(crate) fn state_set(&self) -> bool {
+        matches!(self.request.result_modality, ResultModalityOutput::StateSet)
+    }
+
     /// Whether the request names terminal rules, so that a `terminal` halt is the target's
     /// own stop.
     pub(crate) fn has_terminal_rules(&self) -> bool {
@@ -733,7 +742,10 @@ impl CaseRequestShape {
     }
 
     /// This shape for the program's own run of every path (`crate::target::Target::comparable`):
-    /// strategy `all`, a path set, the same bounds and options, the data judgement (P3), and
+    /// strategy `all`, a state set (FZ-STATESET: comparability reads the run's set of ends,
+    /// which merging preserves, and its completeness, which merging reaches in less work; no
+    /// terminal rule is set, so no stop rule meets a merge), the same bounds and options, the
+    /// data judgement (P3), and
     /// nothing the target asked for (no terminal rule, no trace, no condition entries, no
     /// counts). A campaign that bounds only the depth sets no work bound on its cases; this run
     /// gets [`crate::spec::DEFAULT_MAX_WORK`] then, so that it explores every path of a
@@ -742,7 +754,7 @@ impl CaseRequestShape {
     pub(crate) fn every_path(&self) -> Self {
         let mut shape = self.clone();
         shape.request.strategy = ExecutionStrategy::All;
-        shape.request.result_modality = ResultModalityOutput::PathSet;
+        shape.request.result_modality = ResultModalityOutput::StateSet;
         shape.request.max_work = shape
             .request
             .max_work

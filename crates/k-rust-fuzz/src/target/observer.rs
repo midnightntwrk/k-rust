@@ -478,7 +478,7 @@ impl ResolvedTarget {
             }
             Resolved::Rule { .. } | Resolved::PatternFinal | Resolved::Differential => {
                 let result = executor.run(initial, shape, &self.matchers(), cancel)?;
-                let judgement = self.judge_run(&result, shape.all_paths());
+                let judgement = self.judge_run(&result, shape.all_paths(), shape.state_set());
                 let (judgement, comparable, every_path) =
                     self.judge_comparable(executor, initial, shape, cancel, &result, judgement)?;
                 Ok(JudgedRun {

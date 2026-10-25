@@ -297,6 +297,7 @@ fn identity() -> ReportIdentity {
         target_digest: "t".into(),
         target_rule: None,
         options: CaseOptions::default(),
+        execution_modality: None,
         proposers: ProposerConfig::default(),
         bounds: GenerationBounds::default(),
         caps: crate::report::GenerationCaps::current(),

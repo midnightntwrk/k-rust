@@ -11,7 +11,7 @@
 //!   rule is not the program's run), that run is the case's own, and the judgement is made in
 //!   the case ([`ResolvedTarget::judge_comparable`]): it adds no execution, and the case's run
 //!   is a hit only inside the determinism contract, so the judgement repeats with the case.
-//!   Otherwise it takes one more run of every path, a path set with the campaign's bounds (and
+//!   Otherwise it takes one more run of every path, a state set with the campaign's bounds (and
 //!   [`crate::spec::DEFAULT_MAX_WORK`] when the campaign sets no work bound) and no matcher:
 //!   - under `comparable-end` the judgement decides whether the case is a hit, so that run is
 //!     part of the case ([`ResolvedTarget::judge_comparable`]), which counts its work, load
@@ -201,10 +201,11 @@ impl ResolvedTarget {
     }
 }
 
-/// Whether a case run with `shape` is the program's own run of every path: strategy `all` and
-/// no terminal rule.
+/// Whether a case run with `shape` is the program's own run of every path: strategy `all`, no
+/// terminal rule, and a state set, as [`CaseRequestShape::every_path`] runs it (FZ-STATESET N2:
+/// an `at: any-state` case runs a path set, which is not that run).
 fn own_run_of_every_path(shape: &CaseRequestShape) -> bool {
-    shape.all_paths() && !shape.has_terminal_rules()
+    shape.all_paths() && !shape.has_terminal_rules() && shape.state_set()
 }
 
 /// The judgement of `conditions`.

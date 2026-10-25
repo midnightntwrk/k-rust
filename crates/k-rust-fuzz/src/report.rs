@@ -78,7 +78,16 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// `stack-mapping-refused` in place of `backend-error`, and the comparable condition `crash`
 /// (`docs/compatibility.md`, "Format versions"). A version-7 reader refuses the new fields,
 /// reasons and condition.
-pub const REPORT_VERSION: u32 = 8;
+///
+/// Version 9 (FZ-STATESET, round 3) judges all-paths rule targets, patterns `at: final` and the
+/// program's run of every path that judges comparability on k-rust state sets, which report each
+/// distinct configuration of a depth once: a witness's `final-configurations` and `halts` list
+/// distinct ends, `totals.pattern-body-matches` counts distinct ends, condition records and
+/// applied counts are per distinct state, and cases a path set left `work-bound` are judged
+/// complete. It adds `identity.execution-modality` ([`ExecutionModality`]) and the reason
+/// `fired-off-trace`. A version-8 reader refuses the new field and reason, and `--replay`
+/// refuses a version-8 witness by its version.
+pub const REPORT_VERSION: u32 = 9;
 
 /// A campaign's report (ARCHITECTURE 9.3).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -237,6 +246,11 @@ pub struct ReportIdentity {
     /// The case options as given, with [`CaseOptions::effective_max_work`] applied; they carry
     /// the backend's solver options.
     pub options: CaseOptions,
+    /// The result modality of each kind of run the campaign makes ([`ExecutionModality`]):
+    /// whether its paths are reported one leaf per path or one leaf per distinct state. Always
+    /// present in reports of version 9; absent (`None`) only when an older report is read back.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub execution_modality: Option<ExecutionModality>,
     /// The proposer configuration.
     pub proposers: ProposerConfig,
     /// The generation bounds used.
@@ -282,6 +296,40 @@ pub struct ReportIdentity {
     /// hole was narrowed. The declared constraints stay the ones every case is checked against.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub effective_constraints: Vec<EffectiveConstraints>,
+}
+
+/// How a run reports its paths: k-rust's `ExecuteRequest::result_modality`
+/// (`docs/compatibility.md`, "Search results").
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ResultModality {
+    /// One leaf per path, with that path's trace and facts.
+    PathSet,
+    /// One leaf per distinct configuration of a depth: an arrival at a configuration another
+    /// path reached at the same depth is merged into it (its facts on the result's lists, its
+    /// trace dropped), so converging paths are explored once.
+    StateSet,
+}
+
+/// The result modality of each kind of run a campaign makes (ARCHITECTURE 5.1, 5.4; FZ-STATESET).
+/// A change of modality changes what a case's leaves are (one per path, or one per distinct
+/// state) and so its final configurations, steps and reaching leaf, which `--replay` explains.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ExecutionModality {
+    /// Each case's run: a state set for an all-paths rule target, pattern `at: final` or
+    /// differential case (both sides, and the mutant's re-run of every path); a path set for
+    /// one path (except the differential's sides), observers and `at: any-state`.
+    pub cases: ResultModality,
+    /// The program's run of every path that judges a rule or pattern hit's comparability
+    /// (`crate::Target::comparable`), when the case's own run is not that run: a state set.
+    /// Absent for the differential and observer targets, which judge none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub every_path: Option<ResultModality>,
+    /// The observed run whose configurations a pattern `at: any-state` is judged on: a path set.
+    /// Absent for every other target.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub any_state: Option<ResultModality>,
 }
 
 /// A hole whose generation constraints are narrower than its declared ones (see
@@ -1969,6 +2017,11 @@ mod tests {
                     max_work: Some(100_000),
                     ..CaseOptions::default()
                 },
+                execution_modality: Some(ExecutionModality {
+                    cases: ResultModality::PathSet,
+                    every_path: Some(ResultModality::StateSet),
+                    any_state: None,
+                }),
                 proposers: ProposerConfig {
                     explicit: vec![BTreeMap::from([(
                         "AMOUNT".to_owned(),
@@ -2166,7 +2219,16 @@ mod tests {
                 assert!(declarations.contains(key), "{key} is not declared");
             }
             assert!(!declarations.contains("'backend-error'"));
-            assert!(declarations.contains("version 8 (docs/compatibility.md)"));
+            assert!(declarations.contains("version 9 (docs/compatibility.md)"));
+            for key in [
+                "'execution-modality'",
+                "'every-path'?:",
+                "'any-state'?:",
+                "'state-set'",
+                "'path-set'",
+            ] {
+                assert!(declarations.contains(key), "{key} is not declared");
+            }
         }
     }
 
@@ -2272,7 +2334,7 @@ mod tests {
     fn report_bytes_are_stable_for_a_fixed_value() {
         let text = fixed_report().to_canonical_json();
         let expected = concat!(
-            r#"{"schema":"krust-fuzz-report","version":8,"identity":{"engine-version":6,"#,
+            r#"{"schema":"krust-fuzz-report","version":9,"identity":{"engine-version":7,"#,
             r#""k-rust-revision":"b322de1ab","definitions":[{"role":"baseline","#,
             r#""main-module":"IMP","syntax-module":"IMP-SYNTAX","#,
             r#""execution-digest":"0123","route":"source-execution","#,
@@ -2287,6 +2349,7 @@ mod tests {
             r#""max-simplification-iterations":ITER,"normal-end-pattern":null,"#,
             r#""safety-limit-ms":null,"backend":{"smt-timeout-ms":125,"smt-retry-limit":3},"#,
             r#""shrink":true},"#,
+            r#""execution-modality":{"cases":"path-set","every-path":"state-set"},"#,
             r#""proposers":{"anchors-first":true,"explicit":"#,
             r#"[{"AMOUNT":{"bytes":"00ab"}}],"weights":{"blind":1}},"#,
             r#""bounds":{"int-bits":64,"length":16,"depth":4},"#,

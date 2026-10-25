@@ -36,7 +36,7 @@ use crate::{
         self, CaseResult, CompiledPattern, Executor, LeafMatcher, OutcomeClass, TargetNeeds,
         UncleanReason, UnjudgedReason,
     },
-    report::EngineDefect,
+    report::{EngineDefect, ExecutionModality, ResultModality},
     spec::{CompiledDefinition, PathMode},
 };
 
@@ -437,6 +437,68 @@ fn pattern_reached(result: &CaseResult) -> Result<Vec<bool>, EngineDefect> {
         .collect()
 }
 
+/// Whether a case of a `kind` target on `paths` runs as a state set (FZ-STATESET, D35;
+/// ARCHITECTURE 5.1): an all-paths rule target or pattern `at: final`.
+///
+/// Both read what a state set keeps of every path: a final pattern a configuration at an end,
+/// which merging keeps (a state set reports the path set's final configurations, merged leaves
+/// carrying the merged diagnostics or the run's lists their facts), and a rule target its
+/// run's coverage (the union over every explored path, absorbed arrivals included) or a
+/// retained leaf's own trace and terminal halt. A rule fired only on an absorbed arrival's path
+/// is judged by [`UnjudgedReason::FiredOffTrace`]. `fired` keeps its terminal rule: under a
+/// state set a terminal or stuck leaf then carries every run fact, which only taints more
+/// (D36). One path stays a path set (strategy `any` has nothing to merge); observers fold their
+/// state over a path, which the merge key omits; `at: any-state` judges configurations inside
+/// the path tree, which a state set's leaves do not show (FZ-STATESET-MATCH). The differential
+/// target's sides ask for state sets themselves (`differential::plan`).
+pub(crate) fn case_state_set(kind: &TargetKind, paths: PathMode) -> bool {
+    paths == PathMode::AllPaths
+        && matches!(
+            kind,
+            TargetKind::Rule(_)
+                | TargetKind::Pattern(PatternTarget {
+                    at: PatternAt::Final,
+                    ..
+                })
+        )
+}
+
+/// The result modality of each kind of run a campaign of `target` on `paths` makes
+/// ([`ExecutionModality`], the report's `identity.execution-modality`).
+pub(crate) fn execution_modality(target: &Target, paths: PathMode) -> ExecutionModality {
+    let modality = |state_set: bool| {
+        if state_set {
+            ResultModality::StateSet
+        } else {
+            ResultModality::PathSet
+        }
+    };
+    match &target.kind {
+        TargetKind::Differential(_) => ExecutionModality {
+            cases: ResultModality::StateSet,
+            every_path: None,
+            any_state: None,
+        },
+        TargetKind::Observer(_) => ExecutionModality {
+            cases: ResultModality::PathSet,
+            every_path: None,
+            any_state: None,
+        },
+        TargetKind::Rule(_) | TargetKind::Pattern(_) => ExecutionModality {
+            cases: modality(case_state_set(&target.kind, paths)),
+            every_path: Some(ResultModality::StateSet),
+            any_state: matches!(
+                &target.kind,
+                TargetKind::Pattern(PatternTarget {
+                    at: PatternAt::AnyState,
+                    ..
+                })
+            )
+            .then_some(ResultModality::PathSet),
+        },
+    }
+}
+
 impl ResolvedTarget {
     /// Resolve `target` for `executor`'s definition. Rules go through
     /// `Backend::rule_catalog(None)`; an entry with `shared_identity`, with
@@ -532,11 +594,11 @@ impl ResolvedTarget {
 
     /// What every execute request on `paths` must carry for this target: traces for `fired`,
     /// and its rule as the only terminal rule without `run-to-completion`, in both path modes
-    /// (ARCHITECTURE 5.1, D16, D18). The needs do not depend on the path mode since D18; the
-    /// parameter keeps the request shape's inputs in one place.
+    /// (ARCHITECTURE 5.1, D16, D18); and a state set for an all-paths rule target or pattern
+    /// `at: final` ([`case_state_set`], FZ-STATESET).
     ///
     /// The differential target's needs per side come from [`differential::plan`].
-    pub(crate) fn needs(&self, _paths: PathMode) -> TargetNeeds {
+    pub(crate) fn needs(&self, paths: PathMode) -> TargetNeeds {
         let needs = match &self.resolved {
             Resolved::Rule { id, mode } => {
                 rule::rule_needs(id, *mode, self.target.run_to_completion)
@@ -548,6 +610,7 @@ impl ResolvedTarget {
         };
         TargetNeeds {
             data_end: self.target.requires_data_end(),
+            state_set: case_state_set(&self.target.kind, paths),
             ..needs
         }
     }
@@ -622,17 +685,27 @@ impl ResolvedTarget {
     /// [`Self::judge_run`] of a run of one path, for tests.
     #[cfg(test)]
     pub(crate) fn judge(&self, result: &CaseResult) -> Result<Judgement, EngineDefect> {
-        self.judge_run(result, false)
+        self.judge_run(result, false, false)
     }
 
-    /// Judge one case, whose run explored every path when `all_paths`: decide which leaves
-    /// reach the target (from traces, terminal halts, coverage or pattern matches, per mode),
-    /// then class the case with [`crate::exec::classify`].
+    /// Judge one case, whose run explored every path when `all_paths` and reported a state set
+    /// when `state_set`: decide which leaves reach the target (from traces, terminal halts,
+    /// coverage or pattern matches, per mode), then class the case with
+    /// [`crate::exec::classify`].
     ///
     /// A hit of a coverage mode on a run of every path names no leaf ([`HitSite::Run`]), even
     /// when one leaf is left: a sibling path whose successor vanished left its applications in
     /// coverage, so the remaining leaf need not be on the path that reached the rule (phase-1
     /// review N7). On one path the run is its leaf's path.
+    ///
+    /// A `fired` case on a state set that would be `miss` or `stuck` while its rule is in
+    /// coverage `applied` is `unsupported` with [`UnjudgedReason::FiredOffTrace`] (FZ-STATESET
+    /// B1): a merged leaf keeps the trace of its first arrival only, so the rule may have fired
+    /// on an absorbed arrival's path, which may end in a clean leaf that would be a hit; it may
+    /// equally have built only a rolled-back candidate, which no path took. A hit is read from
+    /// a retained trace or terminal halt alone, which is that leaf's own path, so it stays sound.
+    /// On a path set every path keeps its leaf, so a rule in `applied` on no trace built only
+    /// rolled-back or vanished candidates, and `miss` stands.
     ///
     /// # Errors
     ///
@@ -645,6 +718,7 @@ impl ResolvedTarget {
         &self,
         result: &CaseResult,
         all_paths: bool,
+        state_set: bool,
     ) -> Result<Judgement, EngineDefect> {
         let run_to_completion = self.target.run_to_completion;
         let data_end = self.target.requires_data_end();
@@ -688,6 +762,17 @@ impl ResolvedTarget {
             // leaf, so the coverage fact may rest on that unclean work (ARCHITECTURE 5.3, D18).
             class = OutcomeClass::Unsupported;
             reason = Some(UnjudgedReason::RunFactOffLeaves);
+        }
+        if let Resolved::Rule {
+            id,
+            mode: RuleMode::Fired,
+        } = &self.resolved
+            && state_set
+            && matches!(class, OutcomeClass::Miss | OutcomeClass::Stuck)
+            && rule::applied(id, result.coverage.as_ref())
+        {
+            class = OutcomeClass::Unsupported;
+            reason = Some(UnjudgedReason::FiredOffTrace);
         }
         let hit_site = if class == OutcomeClass::Hit {
             let leaf = result

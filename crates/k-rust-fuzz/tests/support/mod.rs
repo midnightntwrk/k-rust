@@ -285,8 +285,23 @@ pub fn compile_files(
 ///
 /// If the definition does not load or compile, or compiles with any diagnostic.
 pub fn compile_source(file: &str, source: &str, main_module: &str) -> CompiledDefinition {
+    compile_source_with(file, source, main_module, &[])
+}
+
+/// [`compile_source`] of a definition that compiles with exactly the diagnostics `expected`, by
+/// code (SIMPLE's `CellCollectionVarWithoutInitial`).
+///
+/// # Panics
+///
+/// If the definition does not load or compile, or compiles with other diagnostics.
+pub fn compile_source_with(
+    file: &str,
+    source: &str,
+    main_module: &str,
+    expected: &[DiagnosticCode],
+) -> CompiledDefinition {
     let (frontend, source_table, syntax_module, artifacts) =
-        load_and_compile(file, source, main_module, &[]);
+        load_and_compile(file, source, main_module, expected);
     CompiledDefinition::from_artifacts(
         main_module,
         syntax_module,
@@ -657,6 +672,17 @@ fixture!(
 
 /// The diamond pair (FZ-DIFFEND): two converging paths, one of which reads a chosen value whose
 /// mark a state-set merge moves to the result's list.
+/// Branches that meet in one configuration at one depth (FZ-STATESET): a state set keeps the
+/// arrival it meets first, so a rule fired on the other is on no leaf's trace (B1), and the leaf
+/// carries the first arrival's facts (V1); `pick(0)` rolls back a candidate whose successor is
+/// undefined.
+pub const MERGE_PROGRAMS: &[Program] = &[
+    program!("merge/go.pgm"),
+    program!("merge/mark.pgm"),
+    program!("merge/pick.pgm"),
+];
+fixture!(MERGE, "merge/merge.k", "MERGE", MERGE_PROGRAMS);
+
 pub const DIAMOND_PROGRAMS: &[Program] = &[program!("diamond/go.pgm")];
 fixture!(DIAMOND, "diamond/diamond.k", "DIAMOND", DIAMOND_PROGRAMS);
 fixture!(
@@ -1254,7 +1280,7 @@ fixture!(HALTCAUSE, "haltcause/haltcause.k", "HC", HALTCAUSE_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 95] = [
+pub static ALL: [&Fixture; 96] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1350,4 +1376,5 @@ pub static ALL: [&Fixture; 95] = [
     &COMPARABLE,
     &COMPARABLE_COND,
     &HALTCAUSE,
+    &MERGE,
 ];

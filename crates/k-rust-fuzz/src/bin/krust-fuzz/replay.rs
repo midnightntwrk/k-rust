@@ -29,9 +29,27 @@ use crate::campaign::{LoadedCampaign, ResolvedCampaign};
 /// The witness file's `schema` field.
 pub const WITNESS_SCHEMA: &str = "krust-fuzz-witness";
 
-/// The witness file's `version` field. Version 2 (FZ-CRASH) holds a version-8 report, and is also
-/// written for a campaign that found no witness but whose cases crashed.
+/// The witness file's `version` field. Version 2 (FZ-CRASH) holds a report of
+/// [`REPORT_VERSION`] (8 when it came in, 9 since FZ-STATESET; the report's own version refuses
+/// an older one), and is also written for a campaign that found no witness but whose cases
+/// crashed.
 pub const WITNESS_VERSION: u32 = 2;
+
+/// Why a report older than version 9 is not replayed (FZ-STATESET): appended to its refusal.
+const MODALITY_CHANGE: &str = concat!(
+    " (reports before version 9 judged every case on path sets; this krust-fuzz judges an ",
+    "all-paths rule, final-pattern or comparability run on a state set, which keeps one leaf ",
+    "per distinct configuration of a depth, so its final configurations, steps and reaching ",
+    "leaf need not be the witness's; run the campaign again for a witness of this build)",
+);
+
+/// What a change of `identity.execution-modality` means for a replay (FZ-STATESET), appended
+/// to that field's mismatch.
+const MODALITY_MISMATCH: &str = concat!(
+    " (the witness's runs reported their paths otherwise: a state set keeps one leaf per ",
+    "distinct configuration of a depth and merges converging paths, a path set one leaf per ",
+    "path, so the replayed case's leaves, steps and final configurations may differ)",
+);
 
 /// A witness file: the campaign as resolved and the report that found the witness or the
 /// crashes.
@@ -102,10 +120,15 @@ impl WitnessFile {
         if head.report.schema != REPORT_SCHEMA || head.report.version != REPORT_VERSION {
             return Err(format!(
                 "`{}` holds a {} version {} report; this krust-fuzz reads {REPORT_SCHEMA} \
-                 version {REPORT_VERSION}",
+                 version {REPORT_VERSION}{}",
                 path.display(),
                 head.report.schema,
-                head.report.version
+                head.report.version,
+                if head.report.schema == REPORT_SCHEMA && head.report.version < 9 {
+                    MODALITY_CHANGE
+                } else {
+                    ""
+                }
             ));
         }
         let file: WitnessFile = read_deep(&text).map_err(not_a_witness)?;
@@ -162,7 +185,8 @@ impl WitnessFile {
 /// again elsewhere names the same rule by the same id). (Replaying with the recorded proposers
 /// instead would record a dictionary that chose nothing, and still no draw would differ.) Every
 /// other field is an input of the replayed case's execution or of its assembly, so a difference
-/// makes the replay another campaign.
+/// makes the replay another campaign. `execution-modality` is one of them (FZ-STATESET): its
+/// mismatch also says what a modality change means for the replayed case.
 pub fn identity_mismatches(recorded: &ReportIdentity, now: &ReportIdentity) -> Vec<String> {
     let comparable = |identity: &ReportIdentity| {
         let mut identity = identity.clone();
@@ -226,8 +250,13 @@ fn differ(
             }
         }
         _ if recorded != now => {
+            let meaning = if path.starts_with("execution-modality") {
+                MODALITY_MISMATCH
+            } else {
+                ""
+            };
             out.push(format!(
-                "{path}: the witness has {recorded}, the replay {now}"
+                "{path}: the witness has {recorded}, the replay {now}{meaning}"
             ));
         }
         _ => {}

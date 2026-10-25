@@ -125,7 +125,14 @@ pub use values::{Constraints, Value};
 /// campaign's backends are rebuilt after a panic with the requests the run made of them, so the
 /// case sequence of every campaign is unchanged, except one whose solver does not start, which
 /// now aborts at its first case (`solver-init`) where it ran every case as an error.
-pub const ENGINE_VERSION: u32 = 6;
+///
+/// Version 7 (round 3, FZ-STATESET): all-paths rule targets, patterns `at: final` and the
+/// program's run of every path that judges comparability run as k-rust state sets, so the
+/// classes, work, coverage, condition records and applied counts the proposers read are those
+/// of distinct states (verdict moves V1 to V7 of `docs/compatibility.md`, "Format versions"),
+/// which moves `Budget::Work`, the corpus's and the climb's scores and the solve proposer's
+/// budget, scaled from a blocked case's work.
+pub const ENGINE_VERSION: u32 = 7;
 
 #[cfg(test)]
 mod release_tests {

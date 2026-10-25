@@ -529,6 +529,12 @@ fn run_reached(
         .collect()
 }
 
+/// The rule is in coverage `applied`: some step built a successor of it, kept or rolled back.
+/// `false` without coverage.
+pub(crate) fn applied(id: &str, coverage: Option<&RunCoverageOutput>) -> bool {
+    coverage.is_some_and(|coverage| coverage.applied.iter().any(|entry| entry == id))
+}
+
 /// The rule's condition was entered and it built no successor: in coverage `matched`, not in
 /// `applied` (ARCHITECTURE 6.2). `false` without coverage.
 pub(crate) fn blocked(id: &str, coverage: Option<&RunCoverageOutput>) -> bool {

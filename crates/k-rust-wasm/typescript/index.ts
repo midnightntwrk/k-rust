@@ -1340,6 +1340,12 @@ export interface FuzzReportIdentity {
   /** For a rule target: the rule its reference resolved to. */
   'target-rule'?: { id: string; name: FuzzRuleName }
   options: FuzzCaseOptions
+  /**
+   * How each kind of run the campaign makes reports its paths (report version 9): `cases`, the
+   * program's run of every path that judges comparability (rule and pattern targets) and the run
+   * an `at: any-state` pattern is judged on. Absent only from an older report read back.
+   */
+  'execution-modality'?: FuzzExecutionModality
   proposers: FuzzProposers
   bounds: FuzzGenerationBounds
   caps: {
@@ -1371,6 +1377,19 @@ export interface FuzzReportIdentity {
    * negative integer back); absent when no hole was narrowed.
    */
   'effective-constraints'?: FuzzEffectiveConstraints[]
+}
+
+/**
+ * How a run reports its paths: one leaf per path (`path-set`), or one leaf per distinct
+ * configuration of a depth, converging paths merged (`state-set`).
+ */
+export type FuzzResultModality = 'path-set' | 'state-set'
+
+/** The result modality of each kind of run a campaign makes (`identity.execution-modality`). */
+export interface FuzzExecutionModality {
+  cases: FuzzResultModality
+  'every-path'?: FuzzResultModality
+  'any-state'?: FuzzResultModality
 }
 
 /** A hole whose generation constraints are narrower than its declared ones. */
@@ -1671,6 +1690,7 @@ export type FuzzUnjudgedReason =
   | 'allowance-refusal'
   | 'unsupported-hook'
   | 'run-fact-off-leaves'
+  | 'fired-off-trace'
   | 'reached-undefined-step'
   | 'reached-cut-path'
   | 'reached-end-not-data'
@@ -1802,7 +1822,7 @@ export interface FuzzIncidentalCase {
   'baseline-run'?: boolean
 }
 
-/** A campaign's report: schema `krust-fuzz-report`, version 8 (docs/compatibility.md). */
+/** A campaign's report: schema `krust-fuzz-report`, version 9 (docs/compatibility.md). */
 export interface FuzzReport {
   schema: 'krust-fuzz-report'
   version: number

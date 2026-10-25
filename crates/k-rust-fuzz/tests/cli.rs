@@ -1301,6 +1301,33 @@ fn a_witness_of_an_older_report_version_is_refused_by_its_version() {
     assert!(stderr.contains("krust-fuzz-witness version 0"), "{stderr}");
 }
 
+/// FZ-STATESET (S8): a version-8 witness was found and judged on path sets, where version 9
+/// judges all-paths rule, `final` pattern and comparability runs on state sets, which report
+/// each distinct end once; its final configurations, steps and reaching leaf need not be
+/// this build's, so it is refused by its version, and the refusal says why.
+#[test]
+fn a_version_8_witness_is_refused_by_its_version_with_the_modality_change() {
+    let directory = le_workspace("report-version-8");
+    let output = krust_fuzz(
+        &directory,
+        &["--campaign", "le.toml", "--witness", "witness.json"],
+    );
+    assert_eq!(output.status.code(), Some(0), "{}", text(&output.stderr));
+    let mut old: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(directory.join("witness.json")).unwrap())
+            .expect("the witness file is JSON");
+    old["report"]["version"] = serde_json::json!(8);
+    fs::write(directory.join("v8.json"), old.to_string()).unwrap();
+    let replay = krust_fuzz(&directory, &["--replay", "v8.json", "--force"]);
+    let stderr = text(&replay.stderr);
+    assert_eq!(replay.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("holds a krust-fuzz-report version 8 report"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("state set"), "{stderr}");
+}
+
 /// FZ-RULEREF: a workspace holding kink's IMP (`kink/examples/imp/imp.k`, the pl-tutorial
 /// lesson whose expression rules carry no label), compiled as `krust kcompile imp.k` compiles
 /// it, and `files`.

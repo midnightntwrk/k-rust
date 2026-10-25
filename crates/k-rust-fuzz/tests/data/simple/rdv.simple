@@ -1,0 +1,8 @@
+// Two threads meet at a rendezvous.
+function main() {
+  var t = spawn { rendezvous 3; print("a"); };
+  rendezvous 5;
+  print("b");
+  join t;
+  print("\n");
+}
