@@ -266,7 +266,9 @@ fn machine_map_patterns_read_several_entries_of_one_cell() {
             .map(krs_syntax::ProvenanceAnchor::ordinal)
             .collect::<Vec<_>>()
     };
-    assert_eq!(ordinals(ProvenanceRole::RuleLeftCellsField), [0]);
+    // `regs`, then `computation`, whose names are keyed after the others.
+    assert_eq!(ordinals(ProvenanceRole::RuleLeftCellsField), [0, 1]);
+    assert_eq!(ordinals(ProvenanceRole::RuleRightCellsField), [0]);
     assert_eq!(ordinals(ProvenanceRole::RuleLeftMapKey), [0, 1, 2]);
     assert_eq!(ordinals(ProvenanceRole::RuleLeftMapValue), [0, 1, 2]);
 }
@@ -530,7 +532,8 @@ fn a_fixed_cell_left_out_of_the_result_is_read_only() {
     assert_eq!(before.spelling(), "Value :: Int (value)");
     assert_eq!(regs, "regs");
     assert_eq!(frame, "frame");
-    // Each cell has a subject anchor; only the updated cell has a result anchor.
+    // Each cell has a subject anchor; only the updated cell and the
+    // computation cell, which the result restates, have a result anchor.
     let anchors = clause.provenance().unwrap();
     let count = |role| {
         anchors
@@ -538,8 +541,8 @@ fn a_fixed_cell_left_out_of_the_result_is_read_only() {
             .filter(|anchor| anchor.role() == role)
             .count()
     };
-    assert_eq!(count(ProvenanceRole::RuleLeftCellsField), 3);
-    assert_eq!(count(ProvenanceRole::RuleRightCellsField), 1);
+    assert_eq!(count(ProvenanceRole::RuleLeftCellsField), 4);
+    assert_eq!(count(ProvenanceRole::RuleRightCellsField), 2);
 }
 
 #[test]

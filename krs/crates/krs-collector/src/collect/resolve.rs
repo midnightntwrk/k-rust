@@ -1,7 +1,7 @@
 //! Resolution of host descriptor payloads against the declared items of the selected packages.
 
 use std::any::TypeId;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use krs_ir::{
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorPayload, DescriptorSortRef,
@@ -415,9 +415,9 @@ fn resolve_head_rule_target<'a>(
         .filter(|cell| {
             cell.wrapper == Some(krs_ir::CellWrapper::KCell)
                 && rule
-                    .computation_cell_name
+                    .computation_cell
                     .as_ref()
-                    .is_none_or(|name| cell.names.iter().any(|candidate| candidate == name))
+                    .is_none_or(|computation| cell.names.contains(&computation.name))
         })
         .collect::<Vec<_>>();
     let [computation] = computations.as_slice() else {
@@ -458,6 +458,9 @@ struct Resolver<'a> {
     /// The generated marker type of each sort parameter of this payload's
     /// parametric production, by its declared name (KF-027).
     parameters: HashMap<TypeId, String>,
+    /// The keys of the nodes only a reading the collector did not keep
+    /// denotes, whose anchors the descriptor drops.
+    discarded: BTreeSet<krs_ir::ProvenanceKey>,
 }
 
 impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
@@ -927,9 +930,13 @@ fn readable_bracket_reading(
     if let [candidate] = named.as_slice()
         && candidate.collection
     {
-        if rule.computation_cell_name.as_ref() == Some(&cell.name) {
+        if rule
+            .computation_cell
+            .as_ref()
+            .is_some_and(|computation| computation.name == cell.name)
+        {
             rule.head = None;
-            rule.computation_cell_name = None;
+            rule.computation_cell = None;
         }
         rule.extras.retain(|extra| {
             !matches!(
@@ -963,7 +970,7 @@ fn readable_list_reading(
         matches!(extra, krs_ir::ProtocolHeadRuleExtra::RewriteList { .. })
             || empty_brackets(extra).is_some()
     });
-    if rule.configuration.is_none() || (rule.computation_cell_name.is_none() && !has_list) {
+    if rule.configuration.is_none() || (rule.computation_cell.is_none() && !has_list) {
         return Ok(rule);
     }
     let target = select_head_rule_target(&rule, targets, declarations)?;
@@ -978,14 +985,13 @@ fn readable_list_reading(
             _ => None,
         }
     };
-    if let Some(name) = &rule.computation_cell_name
+    if let Some(computation) = &rule.computation_cell
         && rule.head.is_some()
-        && wrapper(name) == Some(krs_ir::CellWrapper::Cell)
+        && wrapper(&computation.name) == Some(krs_ir::CellWrapper::Cell)
     {
         let head = rule.head.take().expect("checked above");
-        let name = rule.computation_cell_name.take().expect("checked above");
-        rule.extras
-            .push(head_list(head, name, &rule.pattern_key, &rule.result_key));
+        let computation = rule.computation_cell.take().expect("checked above");
+        rule.extras.push(head_list(head, computation));
     }
     if rule.head.is_none()
         && let Some(index) = rule.extras.iter().position(|extra| {
@@ -1006,7 +1012,11 @@ fn readable_list_reading(
             unreachable!("the position matched a list cell");
         };
         rule.head = Some(list_head(&cell, result_key.as_ref(), before, after)?);
-        rule.computation_cell_name = Some(cell.name);
+        rule.computation_cell = Some(krs_ir::HeadRuleComputationCell {
+            key: cell.key,
+            name: cell.name,
+            result_key,
+        });
     }
     // `[]` reads alike as no instances of a List collection and as the
     // empty cons list, and the macro, which cannot see declared types,
@@ -1061,15 +1071,12 @@ fn empty_brackets(extra: &krs_ir::HostHeadRuleExtra) -> Option<&krs_ir::HostHead
     }
 }
 
-/// The list reading of the head `head` read on the ordinary cell `name`:
-/// the same items, with the anonymous `..` as the list's shared rest. The
-/// head carries no cell key, so the cell is keyed at the whole pattern and
-/// its result at the whole result.
+/// The list reading of the head `head` read on the ordinary cell
+/// `computation`: the same items, with the anonymous `..` as the list's
+/// shared rest, in the cell the record names.
 fn head_list(
     head: krs_ir::ProtocolHeadRuleHead<krs_ir::HostTerm>,
-    name: String,
-    pattern_key: &krs_ir::ProvenanceKey,
-    result_key: &krs_ir::ProvenanceKey,
+    computation: krs_ir::HeadRuleComputationCell,
 ) -> krs_ir::HostHeadRuleExtra {
     let rest = || {
         if head.exact {
@@ -1081,8 +1088,8 @@ fn head_list(
     let after = head.result.map(|result| krs_ir::ProtocolHeadRuleList {
         items: match result {
             krs_ir::ProtocolHeadRuleResult::Replace(term) => vec![term],
-            // A list's elements carry no keys: the splice's are left to
-            // the anchors the descriptor does not consume.
+            // A list's elements carry no keys: the splice's sequence and
+            // items are nodes of the discarded reading.
             krs_ir::ProtocolHeadRuleResult::Splice(splice) => splice.into_terms(),
             krs_ir::ProtocolHeadRuleResult::Erase => Vec::new(),
         },
@@ -1091,10 +1098,10 @@ fn head_list(
     });
     krs_ir::ProtocolHeadRuleExtra::RewriteList {
         cell: krs_ir::HostHeadRuleCellReference {
-            key: pattern_key.clone(),
-            name,
+            key: computation.key,
+            name: computation.name,
         },
-        result_key: after.as_ref().map(|_| result_key.clone()),
+        result_key: computation.result_key,
         before: krs_ir::ProtocolHeadRuleList {
             items: head.items,
             rest: rest(),
@@ -1176,8 +1183,19 @@ fn resolve_head_rule(
     rule: krs_ir::HostHeadRule,
     map: &mut Resolver<'_>,
 ) -> Result<krs_ir::DescriptorHeadRule, CollectionError> {
+    // A cell-record clause's bracketed and list values read two ways: the
+    // nodes only the readings it discards denote go with them.
+    let authored = rule
+        .configuration
+        .as_ref()
+        .map(|_| carried_keys(&rule))
+        .transpose()?;
     let rule = readable_bracket_reading(rule, map.head_targets, map.declarations)?;
     let rule = readable_list_reading(rule, map.head_targets, map.declarations)?;
+    if let Some(authored) = authored {
+        let kept = carried_keys(&rule)?;
+        map.discarded.extend(authored.difference(&kept).cloned());
+    }
     let no_groups = HashMap::new();
     let target = select_head_rule_target(&rule, map.head_targets, map.declarations).ok();
     let rule = readable_group_terms(
@@ -1198,20 +1216,49 @@ fn resolve_head_rule(
         .head_selection
         .take()
         .expect("head-rule completion requires a selected configuration");
+    // A cell-record clause names its configuration and its computation
+    // cell; a table clause names neither.
+    let configuration_key = rule
+        .configuration
+        .as_ref()
+        .map(|configuration| configuration.key.clone());
+    let named = rule.computation_cell.as_ref();
     let computation_cell =
         selection
             .computation
-            .map(|computation| krs_ir::DescriptorCellReference {
-                key: rule.pattern_key.clone(),
+            .map(|computation| krs_ir::DescriptorComputationCell {
                 cell: computation.identity.clone(),
+                key: named.map(|named| named.key.clone()),
+                result_key: named.and_then(|named| named.result_key.clone()),
             });
     Ok(krs_ir::DescriptorHeadRule::from_selected(
         rule,
         selection.target.configuration.clone(),
+        configuration_key,
         computation_cell,
     ))
 }
 
+/// The keys a readable clause's nodes carry; a clause the expander built
+/// passed this check already, so a failure is the collector's.
+fn carried_keys(
+    rule: &krs_ir::HostHeadRule,
+) -> Result<BTreeSet<krs_ir::ProvenanceKey>, CollectionError> {
+    rule.carried_keys().map_err(|error| {
+        let failure = CollectionError::new(
+            CollectionErrorKind::ProvenanceMismatch,
+            format!("a reading of the readable rule disagrees with its keys: {error}"),
+        );
+        match error.at() {
+            Some(key) => failure.with_reference_key(key.clone()),
+            None => failure,
+        }
+    })
+}
+
+/// Resolves a host payload, with the keys of the nodes only a reading it
+/// discarded denotes (a readable rule's other reading of a bracketed or
+/// list value), whose anchors the descriptor drops.
 pub(super) fn resolve_payload(
     payload: &HostDescriptorPayload,
     declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
@@ -1219,7 +1266,7 @@ pub(super) fn resolve_payload(
     context_aliases: &HashMap<HostItemId, StableItemId>,
     builtins: Option<&HostBuiltinRegistry>,
     head_targets: &[HeadRuleTarget],
-) -> Result<DescriptorPayload, CollectionError> {
+) -> Result<(DescriptorPayload, BTreeSet<krs_ir::ProvenanceKey>), CollectionError> {
     let mut map = Resolver {
         declarations,
         cell_fields,
@@ -1229,10 +1276,12 @@ pub(super) fn resolve_payload(
         head_selection: None,
         allow_builtin_application: !matches!(payload, HostDescriptorPayload::Grammar(_)),
         parameters: sort_parameters(payload),
+        discarded: BTreeSet::new(),
     };
-    payload
+    let payload = payload
         .clone()
-        .try_map_refs(&mut map, &mut resolve_head_rule)
+        .try_map_refs(&mut map, &mut resolve_head_rule)?;
+    Ok((payload, map.discarded))
 }
 
 /// The sort parameters a parametric production's constructor or grammar
@@ -1814,6 +1863,7 @@ mod tests {
             head_targets: &[],
             head_selection: None,
             allow_builtin_application: true,
+            discarded: BTreeSet::new(),
         };
         let error = cell
             .try_map_refs(
@@ -1839,7 +1889,7 @@ mod tests {
             head_sort: Some(unresolved_sort("Header")),
             configuration: None,
             result_type_key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleResultType, 0),
-            computation_cell_name: None,
+            computation_cell: None,
             bindings: Vec::new(),
             head: Some(krs_ir::ProtocolHeadRuleHead {
                 items: vec![unresolved_term("Subject")],
@@ -2321,6 +2371,189 @@ mod tests {
                 &groups
             ),
             krs_ir::HostTerm::Application { .. }
+        ));
+    }
+
+    /// `for State; name: { stack: [x, ..] } => { stack: [x, x, ..] }` and
+    /// its mirror on `k`, with the configuration `State { k: KCell, stack:
+    /// Cell }`: the head read on the ordinary cell `stack` becomes its list,
+    /// the list read on the computation cell `k` its head.
+    fn list_reading_clause(cell: &str, as_head: bool) -> krs_ir::HostHeadRule {
+        use krs_ir::ProvenanceRole as Role;
+        let key = ProvenanceKey::new;
+        let variable = |side: [Role; 2], ordinal| krs_ir::HostTerm::Variable {
+            key: key(side[0], ordinal),
+            path_key: key(side[1], ordinal),
+            name: "x".to_owned(),
+        };
+        let left = [Role::RuleLeftReference, Role::RuleLeftPath];
+        let right = [Role::RuleRightReference, Role::RuleRightPath];
+        let mut rule = krs_ir::HostHeadRule {
+            sentence_kind: krs_ir::SentenceKind::Transition,
+            label: None,
+            priority: None,
+            nondet: None,
+            pattern_key: key(Role::RulePattern, 0),
+            result_key: key(Role::RuleResult, 0),
+            head_sort: None,
+            configuration: Some(krs_ir::HostConfigurationReference {
+                key: key(Role::RuleType, 0),
+                configuration: HostTypeReference {
+                    key: HostTypeKey(boolean_key),
+                    authored_path: "State".to_owned(),
+                },
+            }),
+            result_type_key: key(Role::RuleResultType, 0),
+            computation_cell: None,
+            bindings: vec![krs_ir::ProtocolHeadRuleBinding {
+                name: "x".to_owned(),
+                refinement: None,
+            }],
+            head: None,
+            requires: None,
+            extras: Vec::new(),
+            existentials: Vec::new(),
+            ensures: None,
+            fresh: Vec::new(),
+            evaluation: None,
+            bracket_alternative: None,
+            claim: None,
+        };
+        if as_head {
+            rule.computation_cell = Some(krs_ir::HeadRuleComputationCell {
+                key: key(Role::RuleLeftCellsField, 0),
+                name: cell.to_owned(),
+                result_key: Some(key(Role::RuleRightCellsField, 0)),
+            });
+            rule.head = Some(krs_ir::ProtocolHeadRuleHead {
+                items: vec![variable(left, 0)],
+                exact: false,
+                result: Some(krs_ir::ProtocolHeadRuleResult::Splice(
+                    krs_ir::ProtocolHeadRuleSplice {
+                        payload_key: Some(key(Role::RuleRightKSequencePayload, 0)),
+                        items: (0..2)
+                            .map(|ordinal| krs_ir::ProtocolHeadRuleSpliceItem {
+                                key: Some(key(Role::RuleRightKSequenceItem, ordinal)),
+                                value: variable(right, ordinal),
+                            })
+                            .collect(),
+                    },
+                )),
+            });
+        } else {
+            let list = |items| krs_ir::ProtocolHeadRuleList {
+                items,
+                rest: krs_ir::ProtocolHeadRuleListRest::Shared,
+                back: Vec::new(),
+            };
+            rule.extras
+                .push(krs_ir::ProtocolHeadRuleExtra::RewriteList {
+                    cell: krs_ir::HostHeadRuleCellReference {
+                        key: key(Role::RuleLeftCellsField, 0),
+                        name: cell.to_owned(),
+                    },
+                    result_key: Some(key(Role::RuleRightCellsField, 0)),
+                    before: list(vec![variable(left, 0)]),
+                    after: Some(list(vec![variable(right, 0), variable(right, 1)])),
+                });
+        }
+        rule
+    }
+
+    /// The collector keeps one reading of a sequence value, and the anchors
+    /// only the other reading's nodes hold go: a head read as a list drops
+    /// its splice's sequence and items, whose elements the list keeps, and
+    /// a list read as the head is a splice that carries no key. Either way
+    /// the resolved clause is closed over the anchors that remain, its
+    /// computation cell or its list keyed at the cell's own names.
+    #[test]
+    fn a_discarded_sequence_reading_drops_its_own_anchors() {
+        let state = StableItemId::new(
+            PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap(),
+            ["model"],
+            "State",
+            ItemKind::Configuration,
+            "",
+        )
+        .unwrap();
+        let declarations = HashMap::from([(
+            HostApplicationIdentity::Nominal(boolean_key()),
+            (state.clone(), ItemKind::Configuration),
+        )]);
+        let cell = |name: &str, wrapper| HeadRuleCellTarget {
+            identity: krs_ir::DescriptorCellIdentity {
+                owner: state.clone(),
+                field: name.to_owned(),
+            },
+            names: vec![name.to_owned()],
+            wrapper: Some(wrapper),
+            collection: false,
+            group: None,
+        };
+        let targets = [HeadRuleTarget {
+            configuration: state.clone(),
+            cells: vec![
+                cell("k", krs_ir::CellWrapper::KCell),
+                cell("stack", krs_ir::CellWrapper::Cell),
+            ],
+            group_children: HashMap::new(),
+        }];
+        let resolve = |rule: krs_ir::HostHeadRule| {
+            let anchors = rule.carried_keys().unwrap();
+            let (payload, discarded) = resolve_payload(
+                &HostDescriptorPayload::HeadRule(Box::new(rule)),
+                &declarations,
+                &HashMap::new(),
+                &HashMap::new(),
+                None,
+                &targets,
+            )
+            .unwrap();
+            let DescriptorPayload::HeadRule(resolved) = payload else {
+                unreachable!("a head rule resolves to a head rule")
+            };
+            // The clause's anchors are the keys it carries, its declaration's
+            // included.
+            let kept = anchors.difference(&discarded).collect::<Vec<_>>();
+            assert_eq!(resolved.validate(ItemKind::Rule), Ok(()));
+            assert_eq!(resolved.validate_complete_provenance(kept), Ok(()));
+            (resolved, discarded)
+        };
+
+        let (head_as_list, discarded) = resolve(list_reading_clause("stack", true));
+        assert_eq!(
+            discarded,
+            BTreeSet::from([
+                krs_ir::ProvenanceRole::RuleRightKSequencePayload.key(0),
+                krs_ir::ProvenanceRole::RuleRightKSequenceItem.key(0),
+                krs_ir::ProvenanceRole::RuleRightKSequenceItem.key(1),
+            ])
+        );
+        assert!(head_as_list.computation_cell.is_none());
+        assert!(matches!(
+            head_as_list.extras.as_slice(),
+            [krs_ir::ProtocolHeadRuleExtra::RewriteList { cell, result_key: Some(result), .. }]
+                if cell.key == krs_ir::ProvenanceRole::RuleLeftCellsField.key(0)
+                    && *result == krs_ir::ProvenanceRole::RuleRightCellsField.key(0)
+        ));
+
+        let (list_as_head, discarded) = resolve(list_reading_clause("k", false));
+        assert!(discarded.is_empty());
+        assert_eq!(
+            list_as_head.computation_cell,
+            Some(krs_ir::DescriptorComputationCell {
+                cell: krs_ir::DescriptorCellIdentity {
+                    owner: state.clone(),
+                    field: "k".to_owned(),
+                },
+                key: Some(krs_ir::ProvenanceRole::RuleLeftCellsField.key(0)),
+                result_key: Some(krs_ir::ProvenanceRole::RuleRightCellsField.key(0)),
+            })
+        );
+        assert!(matches!(
+            list_as_head.head.and_then(|head| head.result),
+            Some(krs_ir::ProtocolHeadRuleResult::Splice(splice))
+                if splice.payload_key.is_none() && splice.items.iter().all(|item| item.key.is_none())
         ));
     }
 }

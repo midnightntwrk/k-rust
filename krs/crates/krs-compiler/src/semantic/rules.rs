@@ -1274,7 +1274,7 @@ fn lower_head_rule_computation_clause(
     builder: &mut StructuredTermBuilder<'_>,
     rule: &krs_ir::DescriptorHeadRule,
     head: &krs_ir::ProtocolHeadRuleHead<DescriptorTerm>,
-    computation: &DescriptorCellReference,
+    computation: &krs_ir::DescriptorComputationCell,
     head_sort: Option<&SemanticSortRef>,
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {

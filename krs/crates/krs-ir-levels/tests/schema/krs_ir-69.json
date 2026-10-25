@@ -775,6 +775,29 @@
       }
     ]
   },
+  "DescriptorComputationCell": {
+    "STRUCT": [
+      {
+        "cell": {
+          "TYPENAME": "DescriptorCellIdentity"
+        }
+      },
+      {
+        "key": {
+          "OPTION": {
+            "TYPENAME": "ProvenanceKeyWire"
+          }
+        }
+      },
+      {
+        "result_key": {
+          "OPTION": {
+            "TYPENAME": "ProvenanceKeyWire"
+          }
+        }
+      }
+    ]
+  },
   "DescriptorConfigurationReference": {
     "STRUCT": [
       {
@@ -1175,6 +1198,25 @@
       },
       {
         "trusted_key": {
+          "OPTION": {
+            "TYPENAME": "ProvenanceKeyWire"
+          }
+        }
+      }
+    ]
+  },
+  "HeadRuleComputationCell": {
+    "STRUCT": [
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
+        "name": "STR"
+      },
+      {
+        "result_key": {
           "OPTION": {
             "TYPENAME": "ProvenanceKeyWire"
           }

@@ -342,7 +342,7 @@ pub struct RuleClause {
     pub(super) head_result: Option<RuleHeadResult>,
     pub(super) extras: Vec<RuleExtra>,
     pub(super) bindings: Vec<Ident>,
-    pub(super) computation_cell: Option<Ident>,
+    pub(super) computation_cell: Option<ComputationCell>,
     pub(super) source_range: TokenRange,
     pub(super) layout: RuleClauseLayout,
     pub(super) bracket_alternative: Option<Box<BracketAlternative>>,
@@ -355,6 +355,15 @@ pub struct RuleClause {
     pub(super) anchors: Vec<ProvenanceAnchor>,
 }
 
+/// The computation cell a cell-record clause names: its field in the
+/// subject record and, when the result restates the cell, in the result
+/// record.
+#[derive(Clone, Debug)]
+pub(super) struct ComputationCell {
+    pub(super) cell: Ident,
+    pub(super) result_cell: Option<Ident>,
+}
+
 /// The keys a readable clause gives the nodes it anchors that are no term,
 /// binder or state of its own parts.
 #[derive(Clone, Debug, Default)]
@@ -364,11 +373,12 @@ pub(super) struct ClauseKeys {
     result: Option<ProvenanceKey>,
     splice: Option<ProvenanceKey>,
     extras: Vec<RuleExtraKeys>,
+    computation_cell: RuleExtraKeys,
 }
 
-/// The keys a readable clause gives one extra cell's names: the cell as the
-/// subject record names it, and as the result record restates it (for a
-/// map update, the cell it writes).
+/// The keys a readable clause gives one cell's names, an extra cell's or the
+/// computation cell's: the cell as the subject record names it, and as the
+/// result record restates it (for a map update, the cell it writes).
 #[derive(Clone, Debug, Default)]
 pub struct RuleExtraKeys {
     cell: Option<ProvenanceKey>,
@@ -704,6 +714,28 @@ impl RuleClause {
         for island in islands {
             self.visit_terms(&mut |nodes, term_keys| island(keys, nodes, term_keys))?;
         }
+        self.allocate_computation_cell_keys(keys)
+    }
+
+    /// Keys the computation cell's fields, in the subject record and in the
+    /// result record, after every other node of the clause.
+    fn allocate_computation_cell_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+    ) -> Result<(), SyntaxError> {
+        let Some(computation) = &self.computation_cell else {
+            return Ok(());
+        };
+        self.keys.computation_cell.cell = Some(keys.key(
+            ProvenanceRole::RuleLeftCellsField,
+            TokenRange::for_tokens(&computation.cell)?,
+        )?);
+        if let Some(result_cell) = &computation.result_cell {
+            self.keys.computation_cell.result_cell = Some(keys.key(
+                ProvenanceRole::RuleRightCellsField,
+                TokenRange::for_tokens(result_cell)?,
+            )?);
+        }
         Ok(())
     }
 
@@ -818,6 +850,14 @@ impl RuleClause {
         &self.keys.extras
     }
 
+    /// The keys of the computation cell's names, as the subject record names
+    /// it and as the result record restates it; both absent for a clause
+    /// that names no computation cell.
+    #[must_use]
+    pub const fn computation_cell_keys(&self) -> &RuleExtraKeys {
+        &self.keys.computation_cell
+    }
+
     /// Returns the provenance of the clause's metadata attribute:
     /// `#[k::rule(..)]` for a rule, `#[k::claim(..)]` for a claim.
     ///
@@ -866,8 +906,10 @@ impl RuleClause {
 
     /// Returns the authored computation-cell field for a cell-record clause.
     #[must_use]
-    pub const fn computation_cell(&self) -> Option<&Ident> {
-        self.computation_cell.as_ref()
+    pub fn computation_cell(&self) -> Option<&Ident> {
+        self.computation_cell
+            .as_ref()
+            .map(|computation| &computation.cell)
     }
 
     /// Returns the List-collection reading of the computation cell's
@@ -1745,6 +1787,13 @@ impl RuleClause {
         }
         for narrowing in &self.narrowings {
             nodes.push_tokens(narrowing.sort_key.as_ref(), &narrowing.sort)?;
+        }
+        if let Some(computation) = &self.computation_cell {
+            let names = &self.keys.computation_cell;
+            nodes.push_tokens(names.cell.as_ref(), &computation.cell)?;
+            if let Some(result_cell) = &computation.result_cell {
+                nodes.push_tokens(names.result_cell.as_ref(), result_cell)?;
+            }
         }
         Ok(())
     }

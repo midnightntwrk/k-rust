@@ -309,6 +309,13 @@ mod tests {
 
     fn descriptor(name: &str, kind: ItemKind, payload: DescriptorPayload) -> Descriptor {
         let id = item("lookup", name, kind);
+        // A rule's declaration is its primary node.
+        let primary = match &payload {
+            DescriptorPayload::HeadRule(_) => {
+                ProvenanceKey::new(ProvenanceRole::RuleDeclaration, 0)
+            }
+            _ => key(),
+        };
         let keys = match &payload {
             DescriptorPayload::FixedConfiguration(configuration) => {
                 configuration.expected_provenance_keys(&id).unwrap()
@@ -317,11 +324,13 @@ mod tests {
                 declaration.expected_provenance_keys(&id).unwrap()
             }
             DescriptorPayload::HeadRule(_) => [
-                key(),
                 ProvenanceKey::new(ProvenanceRole::RuleDeclaration, 0),
                 head_key(ProvenanceRole::RulePattern),
                 head_key(ProvenanceRole::RuleResult),
+                head_key(ProvenanceRole::RuleType),
                 head_key(ProvenanceRole::RuleResultType),
+                head_key(ProvenanceRole::RuleLeftCellsField),
+                head_key(ProvenanceRole::RuleRightCellsField),
                 head_key(ProvenanceRole::RuleLeftReference),
                 head_key(ProvenanceRole::RuleLeftPath),
             ]
@@ -332,7 +341,7 @@ mod tests {
             id,
             BTreeMap::new(),
             DescriptorProvenance::new(
-                key(),
+                primary,
                 keys.into_iter()
                     .map(|key| DescriptorNodeOrigin::new(key, authored(0, 3)))
                     .collect(),
@@ -381,13 +390,15 @@ mod tests {
                 result_key: head_key(ProvenanceRole::RuleResult),
                 head_sort: None,
                 configuration: configuration.clone(),
+                configuration_key: Some(head_key(ProvenanceRole::RuleType)),
                 result_type_key: head_key(ProvenanceRole::RuleResultType),
-                computation_cell: Some(DescriptorCellReference {
-                    key: head_key(ProvenanceRole::RulePattern),
+                computation_cell: Some(crate::DescriptorComputationCell {
                     cell: DescriptorCellIdentity {
                         owner: configuration,
                         field: "k".into(),
                     },
+                    key: Some(head_key(ProvenanceRole::RuleLeftCellsField)),
+                    result_key: Some(head_key(ProvenanceRole::RuleRightCellsField)),
                 }),
                 bindings: Vec::new(),
                 head: Some(crate::ProtocolHeadRuleHead {

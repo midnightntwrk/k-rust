@@ -615,9 +615,19 @@ fn expand_head_rule(
     // A clause's one sort is its subject's and its result's: the sentence
     // keys the authored sort as both types.
     let result_type_key = ledger.define(rule.result_type_key())?;
-    let (head_sort, configuration, computation_cell_name) = if configuration_owned {
+    let (head_sort, configuration, computation_cell) = if configuration_owned {
         let computation_cell = match (clause.computation_cell(), &head) {
-            (Some(cell), Some(_)) => Some(cell.unraw().to_string()),
+            (Some(cell), Some(_)) => {
+                let keys = clause.computation_cell_keys();
+                Some(krs_ir::HeadRuleComputationCell {
+                    key: ledger.define(keys.cell())?,
+                    name: cell.unraw().to_string(),
+                    result_key: keys
+                        .result_cell()
+                        .map(|key| ledger.define(Some(key)))
+                        .transpose()?,
+                })
+            }
             (None, None) => None,
             _ => {
                 return Err(ExpandError::new(
@@ -677,7 +687,7 @@ fn expand_head_rule(
         head_sort,
         configuration,
         result_type_key,
-        computation_cell_name,
+        computation_cell,
         bindings,
         head,
         requires,

@@ -675,7 +675,7 @@ mod tests {
             head_sort: Some(wire_sort()),
             configuration: None,
             result_type_key: key(ProvenanceRole::RuleResultType),
-            computation_cell_name: None,
+            computation_cell: None,
             bindings: vec![],
             head: Some(krs_ir::ProtocolHeadRuleHead {
                 items: vec![wire_term()],
@@ -705,7 +705,7 @@ mod tests {
             head_sort: Some(host_sort()),
             configuration: None,
             result_type_key: key(ProvenanceRole::RuleResultType),
-            computation_cell_name: None,
+            computation_cell: None,
             bindings: vec![],
             head: Some(krs_ir::ProtocolHeadRuleHead {
                 items: vec![host_term()],

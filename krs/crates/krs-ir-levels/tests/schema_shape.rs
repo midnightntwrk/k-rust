@@ -809,6 +809,8 @@ fn registry() -> Registry {
     trace!(ProtocolConfigurationInitializer: ProtocolConfigurationInitializer<String,String,String>);
     trace!(ProtocolHeadRuleBinding: ProtocolHeadRuleBinding<String>);
     trace!(HeadRuleClaim: HeadRuleClaim);
+    trace!(HeadRuleComputationCell: HeadRuleComputationCell);
+    trace!(DescriptorComputationCell: DescriptorComputationCell);
     trace!(ProtocolHeadRuleMapEntry: ProtocolHeadRuleMapEntry<String>);
     trace!(ProtocolHeadRuleSplice: ProtocolHeadRuleSplice<String>);
     trace!(ProtocolHeadRuleSpliceItem: ProtocolHeadRuleSpliceItem<String>);

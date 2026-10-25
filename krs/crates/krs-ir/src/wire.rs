@@ -509,7 +509,7 @@ mod tests {
                 head_sort: Some(sort()),
                 configuration: None,
                 result_type_key: key(),
-                computation_cell_name: None,
+                computation_cell: None,
                 bindings: vec![],
                 head: Some(super::WireHeadRuleHead {
                     items: vec![term()],

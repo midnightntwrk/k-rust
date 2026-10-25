@@ -8431,6 +8431,10 @@
         "key": {
           "ordinal": 0,
           "role": "sort_declaration"
+        },
+        "result_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
         }
       },
       "configuration": {
@@ -8446,6 +8450,10 @@
           "cargo_version": "0.1.0",
           "k_namespace": "ORG-EXAMPLE-SCHEMA"
         }
+      },
+      "configuration_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
       },
       "ensures": {
         "key": {
@@ -10625,6 +10633,10 @@
           "key": {
             "ordinal": 0,
             "role": "sort_declaration"
+          },
+          "result_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
           }
         },
         "configuration": {
@@ -10640,6 +10652,10 @@
             "cargo_version": "0.1.0",
             "k_namespace": "ORG-EXAMPLE-SCHEMA"
           }
+        },
+        "configuration_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
         },
         "ensures": {
           "key": {
@@ -32350,7 +32366,17 @@
           "role": "sort_declaration"
         }
       },
-      "computation_cell_name": "sample",
+      "computation_cell": {
+        "key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "name": "sample",
+        "result_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        }
+      },
       "configuration": {
         "configuration": {
           "authored_path": "sample",
@@ -33319,7 +33345,17 @@
             "role": "sort_declaration"
           }
         },
-        "computation_cell_name": "sample",
+        "computation_cell": {
+          "key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "name": "sample",
+          "result_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          }
+        },
         "configuration": {
           "configuration": {
             "authored_path": "sample",

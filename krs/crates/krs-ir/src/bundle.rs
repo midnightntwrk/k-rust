@@ -798,7 +798,7 @@ impl Descriptor {
             ),
             DescriptorPayload::HeadRule(rule) => {
                 rule.validate(self.id.item_kind())?;
-                rule.validate_anchored_provenance(&actual)
+                rule.validate_complete_provenance(&actual)
             }
             DescriptorPayload::ContextAlias(alias) => alias.validate_complete_provenance(
                 self.id.item_kind(),
@@ -927,6 +927,27 @@ impl DescriptorProvenance {
         Self::new(self.primary_key.clone(), origins).unwrap_or_else(|error| {
             panic!("DescriptorProvenance seed {seed}: permuted rebuild failed: {error}")
         })
+    }
+
+    /// The table without the origins of `keys`: nodes the payload no longer
+    /// denotes, such as a reading the collector did not keep.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DescriptorProvenanceError`] when that leaves the table
+    /// empty or without its primary key.
+    pub fn without(
+        &self,
+        keys: &BTreeSet<ProvenanceKey>,
+    ) -> Result<Self, DescriptorProvenanceError> {
+        Self::new(
+            self.primary_key.clone(),
+            self.origins
+                .iter()
+                .filter(|node| !keys.contains(&node.key))
+                .cloned()
+                .collect(),
+        )
     }
 
     /// Returns the parser key identifying the descriptor's declaration node.

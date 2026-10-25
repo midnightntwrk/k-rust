@@ -443,7 +443,9 @@ fn resolve_pending_descriptors(
             &head_targets,
         );
         payload_seconds += Timings::since(started);
-        let payload = match payload {
+        let (payload, provenance) = match payload.and_then(|(payload, discarded)| {
+            Ok((payload, kept_provenance(&provenance, &discarded)?))
+        }) {
             Ok(value) => value,
             Err(error) => {
                 let error = error.with_provenance(&provenance).with_item(&pending.id);
@@ -488,6 +490,22 @@ fn resolve_pending_descriptors(
                 )
             })?;
         Ok(bundle)
+    })
+}
+
+/// The provenance of a resolved descriptor: the anchors of a reading the
+/// collector did not keep name no node of it.
+fn kept_provenance(
+    provenance: &krs_ir::DescriptorProvenance,
+    discarded: &std::collections::BTreeSet<krs_ir::ProvenanceKey>,
+) -> Result<krs_ir::DescriptorProvenance, CollectionError> {
+    provenance.without(discarded).map_err(|error| {
+        CollectionError::new(
+            CollectionErrorKind::ProvenanceMismatch,
+            format!(
+                "the readings the collector discarded hold the descriptor's primary node: {error}"
+            ),
+        )
     })
 }
 

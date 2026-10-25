@@ -97,6 +97,12 @@ impl WireKeys {
         self.defined
     }
 
+    /// The keys the payload's wire nodes carry, defined or referred to.
+    pub(crate) fn into_carried(mut self) -> BTreeSet<ProvenanceKey> {
+        self.defined.append(&mut self.referred);
+        self.defined
+    }
+
     /// Checks that the payload's keys are exactly `anchors`: every defined
     /// key is anchored, every anchor is defined, and every reference names a
     /// defined key.
@@ -105,27 +111,6 @@ impl WireKeys {
         anchors: impl IntoIterator<Item = &'a ProvenanceKey>,
     ) -> Result<(), KeyFailure> {
         let anchors = anchors.into_iter().collect::<BTreeSet<_>>();
-        self.anchored(&anchors)?;
-        if let Some(extra) = anchors.iter().find(|key| !self.defined.contains(**key)) {
-            return Err(KeyFailure::Extra((*extra).clone()));
-        }
-        Ok(())
-    }
-
-    /// Checks the part of closure that holds on a payload that keeps only
-    /// some of its nodes: every defined key is one of `anchors`, and every
-    /// reference names a defined key. Anchors no node consumes are not
-    /// checked.
-    pub(crate) fn close_within<'a>(
-        self,
-        anchors: impl IntoIterator<Item = &'a ProvenanceKey>,
-    ) -> Result<(), KeyFailure> {
-        self.anchored(&anchors.into_iter().collect())
-    }
-
-    /// Checks that every defined key is anchored and every reference names
-    /// a defined key.
-    fn anchored(&self, anchors: &BTreeSet<&ProvenanceKey>) -> Result<(), KeyFailure> {
         if let Some(missing) = self.defined.iter().find(|key| !anchors.contains(key)) {
             return Err(KeyFailure::Missing(missing.clone()));
         }
@@ -135,6 +120,9 @@ impl WireKeys {
             .find(|key| !self.defined.contains(*key))
         {
             return Err(KeyFailure::Missing(dangling.clone()));
+        }
+        if let Some(extra) = anchors.iter().find(|key| !self.defined.contains(**key)) {
+            return Err(KeyFailure::Extra((*extra).clone()));
         }
         Ok(())
     }

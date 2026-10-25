@@ -683,8 +683,13 @@ fn head_rule() -> DescriptorHeadRule {
         result_key: key(1),
         head_sort: None,
         configuration: item(ItemKind::Configuration, "State"),
+        configuration_key: Some(key(6)),
         result_type_key: key(5),
-        computation_cell: Some(cell(2)),
+        computation_cell: Some(crate::DescriptorComputationCell {
+            cell: cell(2).cell,
+            key: Some(key(2)),
+            result_key: Some(key(7)),
+        }),
         bindings: Vec::new(),
         head: Some(crate::ProtocolHeadRuleHead {
             items: vec![term(3)],
@@ -889,7 +894,7 @@ fn configuration_payload_traversal_maps_references_and_propagates_errors() {
     assert_mapping!(
         DescriptorPayload::HeadRule(Box::new(head_rule())),
         [map_head],
-        ["item", "cell", "sort", "sort"]
+        ["item", "sort", "sort"]
     );
     assert_mapping!(
         DescriptorPayload::ContextAlias(Box::new(context_alias())),

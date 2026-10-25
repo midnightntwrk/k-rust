@@ -249,6 +249,24 @@ impl Sample for ClaimModality {
         vec![Self::AllPaths]
     }
 }
+impl Sample for HeadRuleComputationCell {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<ProvenanceKey>(),
+            name: sample::<String>(),
+            result_key: Some(sample::<ProvenanceKey>()),
+        }]
+    }
+}
+impl Sample for DescriptorComputationCell {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            cell: sample::<DescriptorCellIdentity>(),
+            key: Some(sample::<ProvenanceKey>()),
+            result_key: Some(sample::<ProvenanceKey>()),
+        }]
+    }
+}
 impl Sample for HeadRuleClaim {
     fn samples() -> Vec<Self> {
         vec![Self {
@@ -3530,8 +3548,9 @@ impl Sample for DescriptorHeadRule {
             result_key: sample::<ProvenanceKey>(),
             head_sort: sample::<Option<DescriptorSortReference>>(),
             configuration: sample::<StableItemId>(),
+            configuration_key: sample::<Option<ProvenanceKey>>(),
             result_type_key: sample::<ProvenanceKey>(),
-            computation_cell: sample::<Option<DescriptorCellReference>>(),
+            computation_cell: sample::<Option<DescriptorComputationCell>>(),
             bindings: sample::<Vec<DescriptorHeadRuleBinding>>(),
             head: sample::<Option<ProtocolHeadRuleHead<DescriptorTerm>>>(),
             requires: sample::<Option<DescriptorRuleCondition>>(),
@@ -4104,7 +4123,7 @@ impl Sample for WireHeadRule {
             head_sort: sample::<Option<WireSortReference>>(),
             configuration: sample::<Option<WireConfigurationReference>>(),
             result_type_key: sample::<ProvenanceKey>(),
-            computation_cell_name: sample::<Option<String>>(),
+            computation_cell: sample::<Option<HeadRuleComputationCell>>(),
             bindings: sample::<Vec<WireHeadRuleBinding>>(),
             head: sample::<Option<WireHeadRuleHead>>(),
             requires: sample::<Option<WireRuleCondition>>(),

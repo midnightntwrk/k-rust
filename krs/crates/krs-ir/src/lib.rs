@@ -163,10 +163,11 @@ pub use transport::grammar::{
 };
 pub use transport::grammar::{DescriptorTypedBinding, ProtocolTypedBinding};
 pub use transport::head_rule::{
-    DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleExtra,
-    DescriptorHeadRuleMapEntry, DescriptorHeadRuleResult, HeadRule, HeadRuleClaim, HostHeadRule,
-    HostHeadRuleBinding, HostHeadRuleBracketAlternative, HostHeadRuleCellReference,
-    HostHeadRuleExtra, HostHeadRuleMapEntry, HostHeadRuleResult, ProtocolHeadRuleBinding,
+    DescriptorComputationCell, DescriptorHeadRule, DescriptorHeadRuleBinding,
+    DescriptorHeadRuleExtra, DescriptorHeadRuleMapEntry, DescriptorHeadRuleResult, HeadRule,
+    HeadRuleClaim, HeadRuleComputationCell, HostHeadRule, HostHeadRuleBinding,
+    HostHeadRuleBracketAlternative, HostHeadRuleCellReference, HostHeadRuleExtra,
+    HostHeadRuleMapEntry, HostHeadRuleResult, ProtocolHeadRuleBinding,
     ProtocolHeadRuleBracketAlternative, ProtocolHeadRuleExtra, ProtocolHeadRuleHead,
     ProtocolHeadRuleList, ProtocolHeadRuleListRest, ProtocolHeadRuleMapEntry,
     ProtocolHeadRuleResult, ProtocolHeadRuleSplice, ProtocolHeadRuleSpliceItem, ResolvedHeadRule,
