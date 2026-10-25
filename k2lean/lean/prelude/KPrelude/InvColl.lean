@@ -330,6 +330,90 @@ theorem wf_of_concat {a b m : M} (h : concat a b = some m) : WF m := by
 element-wise form, `all_iff_of_walk`, states it). -/
 attribute [k2l_coll] wf_of_concat wf_rest_of_concat_element wf_update wf_remove wf_unit wf_element
 
+/-! ### Keys of a map that a rule extends or updates -/
+
+theorem inKeys_iff_lookup {x : K} {m : M} : inKeys x m = true ↔ ∃ v, lookup m x = some v := by
+  show (lookup m x).isSome = true ↔ _
+  cases lookup m x <;> simp
+
+/-- A key of the right operand of a defined `M₁ M₂` is a key of the result. -/
+@[k2l_coll] theorem inKeys_of_concat_right {a b m : M} {x : K} (h : concat a b = some m)
+    (hx : inKeys x b = true) : inKeys x m = true := by
+  obtain ⟨v, hv⟩ := inKeys_iff_lookup.1 hx
+  rw [lookup_def] at hv
+  have hm := (mem_toList_of_concat h).2 (Or.inr (SAL.lookup_mem hv))
+  exact inKeys_iff_lookup.2 ⟨v, lookup_of_mem_toList (wf_of_concat h) hm⟩
+
+/-- A key of the left operand of a defined `M₁ M₂` is a key of the result. -/
+@[k2l_coll] theorem inKeys_of_concat_left {a b m : M} {x : K} (h : concat a b = some m)
+    (hx : inKeys x a = true) : inKeys x m = true := by
+  obtain ⟨v, hv⟩ := inKeys_iff_lookup.1 hx
+  rw [lookup_def] at hv
+  have hm := (mem_toList_of_concat h).2 (Or.inl (SAL.lookup_mem hv))
+  exact inKeys_iff_lookup.2 ⟨v, lookup_of_mem_toList (wf_of_concat h) hm⟩
+
+/-- Rebinding a key keeps the keys: a key of `K |-> W REST` is a key of `K |-> V REST`. -/
+@[k2l_coll] theorem inKeys_of_concat_element_rebind {k x : K} {v w : V} {r m m' : M}
+    (h : concat (element k v) r = some m') (hx : inKeys x m = true)
+    (h' : concat (element k w) r = some m) : inKeys x m' = true := by
+  obtain ⟨u, hu⟩ := inKeys_iff_lookup.1 hx
+  rw [lookup_def] at hu
+  rcases (mem_toList_of_concat h').1 (SAL.lookup_mem hu) with hp | hp
+  · have : x = k := by
+      unfold element at hp; rw [toList_ofList] at hp; simp at hp; exact hp.1
+    subst this
+    exact inKeys_of_concat_left h (inKeys_iff_lookup.2 ⟨v, by
+      rw [lookup_def]; unfold element; rw [toList_ofList]; simp [SAL.lookup]⟩)
+  · exact inKeys_of_concat_right h (inKeys_iff_lookup.2 ⟨u, lookup_of_mem_toList (wf_rest_of_concat_element h) hp⟩)
+/-- A key stays a key after `M[K <- V]`. -/
+@[k2l_coll] theorem inKeys_update_of_inKeys {m : M} {x k : K} {v : V} (hx : inKeys x m = true) :
+    inKeys x (update m k v) = true := by
+  by_cases hk : x = k
+  · subst hk; exact inKeys_iff_lookup.2 ⟨v, lookup_update_self m x v⟩
+  · obtain ⟨w, hw⟩ := inKeys_iff_lookup.1 hx
+    exact inKeys_iff_lookup.2 ⟨w, (lookup_update_ne m v hk).trans hw⟩
+
+/-- The key of `M[K <- V]`. -/
+@[k2l_coll] theorem inKeys_update_self {m : M} {k : K} {v : V} : inKeys k (update m k v) = true :=
+  inKeys_iff_lookup.2 ⟨v, lookup_update_self m k v⟩
+
+/-- `EntriesOn` of a weaker predicate. -/
+theorem entriesOn_mono {Q Q' : K × V → Prop} {m : M} (h : EntriesOn Q m) (hq : ∀ p, Q p → Q' p) :
+    EntriesOn Q' m := fun p hp => hq p (h p hp)
+
+/-- Every key of `S` is a key of `S'`: what an invariant that reads `S` only through its keys
+(`inKeys x S = true`, a map walk's test) needs of the map a rule leaves there. -/
+def KeysIncl (S S' : M) : Prop := ∀ x, inKeys x S = true → inKeys x S' = true
+
+/-- A map rebound at one key keeps its keys. -/
+theorem keysIncl_rebind {k : K} {v w : V} {r m m' : M} (h' : concat (element k w) r = some m)
+    (h : concat (element k v) r = some m') : KeysIncl m m' :=
+  fun _ hx => inKeys_of_concat_element_rebind h hx h'
+
+@[k2l_coll] theorem keysIncl_update {S : M} {k : K} {v : V} : KeysIncl S (update S k v) :=
+  fun _ hx => inKeys_update_of_inKeys hx
+
+/-- Each operand of a defined `concat` has its keys in the result. -/
+@[k2l_coll] theorem keysIncl_concat_left {S T S' : M} (h : concat S T = some S') : KeysIncl S S' :=
+  fun _ hx => inKeys_of_concat_left h hx
+
+theorem keysIncl_concat_right {S T S' : M} (h : concat S T = some S') : KeysIncl T S' :=
+  fun _ hx => inKeys_of_concat_right h hx
+
+/-- The key of a binding added by `concat` is a key of the result. -/
+theorem inKeys_of_concat_element_self {k : K} {v : V} {r m : M} (h : concat (element k v) r = some m) :
+    inKeys k m = true := by
+  obtain ⟨_, _, rfl⟩ := concat_element_iff.1 h
+  exact inKeys_update_self
+
+/-- Monotonicity in the referenced map, in the normal form of a test that a value is one of its
+keys (a walk's test after the unfolding set): every value of `m` stays a key when the keys only
+grow. -/
+@[k2l_coll] theorem entriesOn_inKeys_mono {M₂ K₂ : Type} [ListIso M₂ (K₂ × K)] {m : M₂} {S S' : M}
+    (hm : EntriesOn (fun q => inKeys q.2 S = true) m) (h : KeysIncl S S') :
+    EntriesOn (fun q => inKeys q.2 S' = true) m :=
+  fun p hp => h _ (hm p hp)
+
 end
 
 end MapHook
