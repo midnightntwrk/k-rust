@@ -124,9 +124,16 @@ label = "IMP-INV-SPEC.copy-loop"
 stated = true
 all_path = true
 
-[transfer]
+[[transfer]]
 relation = "ImpRel"
+kind = "bisim"
 target = "KrsImp"
+carried = 18
+
+[[transfer]]
+relation = "ImpUnroll"
+kind = "stutter"
+target = "KUnroll"
 carried = 18
 
 [[induction]]
