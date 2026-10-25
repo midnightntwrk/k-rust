@@ -641,8 +641,8 @@ const TRUSTED_CLAIM_PASSAGES: [(&str, usize, usize, &str); 18] = [
     ),
     (
         "docs/compatibility.md",
-        2831,
-        2832,
+        2833,
+        2834,
         "a7acad142464656d166719394614b9f7f621cc98c7470fa539a0e208ebf74c82",
     ),
     (
