@@ -7,8 +7,7 @@ use krs_ir::{
     DescriptorIndex, DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorTerm,
     FixedCell, FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell,
     FixedInitializerContent, NodeOrigin, ProtocolCellContent, ProtocolInitializerCellContent,
-    ProtocolInitializerStateTerm, ProtocolMapBody, ProvenanceKey, SemanticId, SourceRange,
-    StableItemId,
+    ProtocolInitializerStateTerm, ProtocolMapBody, SemanticId, SourceRange, StableItemId,
 };
 use krs_ir_levels::{
     IrTermKind, ListOperands, MapEntry, MapOperands, SemanticConfiguration, SemanticSortRef,
@@ -19,7 +18,9 @@ use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_so
 use super::collection_types::{CollectionTyping, Root, SortType, Walker};
 use super::error::{DescriptorLoweringError, ImplicitPresentCell};
 use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
-use super::origin::{generated_semantic_id, key_range, semantic_cell_id, semantic_origin};
+use super::origin::{
+    generated_semantic_id, key_range, semantic_cell_id, semantic_origin, shell_payload_key,
+};
 use super::references::require_cell_field;
 
 pub(super) fn lower_fixed_configuration_descriptor(
@@ -697,13 +698,7 @@ fn lower_initializer_cell_content(
         ) => Ok(FixedInitializerCell::term(
             origin,
             id,
-            lower_initializer_state(
-                descriptor,
-                value,
-                &semantic_sort_ref(&sort.sort),
-                &cell.key,
-                tables,
-            )?,
+            lower_initializer_state(descriptor, value, &semantic_sort_ref(&sort.sort), tables)?,
         )),
         (
             ProtocolInitializerCellContent::Nested { children, .. },
@@ -727,7 +722,6 @@ fn lower_initializer_state(
     descriptor: &Descriptor,
     state: &DescriptorInitializerStateTerm,
     declared_sort: &SemanticSortRef,
-    fallback_key: &ProvenanceKey,
     tables: &InitializerTables<'_>,
 ) -> Result<SemanticTerm, DescriptorLoweringError> {
     let sort_parents = tables.sort_parents;
@@ -744,11 +738,7 @@ fn lower_initializer_state(
     match state {
         ProtocolInitializerStateTerm::Term(term) => lower_term(&term.term, Some(declared_sort)),
         ProtocolInitializerStateTerm::KSequence(sequence) => {
-            let key = sequence
-                .payload_key
-                .as_ref()
-                .or(sequence.dot_k_key.as_ref())
-                .unwrap_or(fallback_key);
+            let key = shell_payload_key(descriptor, sequence.payload_key.as_ref())?;
             if *declared_sort != SemanticSortRef::k_sequence() {
                 return Err(DescriptorLoweringError::invalid_term(
                     descriptor.id(),
@@ -772,7 +762,7 @@ fn lower_initializer_state(
             ))
         }
         ProtocolInitializerStateTerm::Map(map) => {
-            let key = map.payload_key.as_ref().unwrap_or(fallback_key);
+            let key = shell_payload_key(descriptor, map.payload_key.as_ref())?;
             if *declared_sort != SemanticSortRef::map() {
                 return Err(DescriptorLoweringError::invalid_term(
                     descriptor.id(),

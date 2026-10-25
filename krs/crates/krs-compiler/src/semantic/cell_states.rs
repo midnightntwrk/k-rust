@@ -29,12 +29,14 @@ pub(super) trait StateLowering {
     /// The rule's descriptor.
     fn descriptor(&self) -> &Descriptor;
 
-    /// Lowers one leaf, group, `k!`, or `map!` state at its cell's sort.
+    /// Lowers one leaf, group, `k!`, or `map!` state at its cell's sort; an
+    /// error that names no narrower node may be located at the entry,
+    /// `entry_key`.
     fn lower_state(
         &mut self,
         state: &DescriptorState,
         sort: &SemanticSortRef,
-        fallback_key: &ProvenanceKey,
+        entry_key: &ProvenanceKey,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError>;
 
