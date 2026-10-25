@@ -87,7 +87,8 @@
 #                       expected outputs are in expected/ beside it
 #   GATE_CACHE=DIR      outputs cached by the hash of their inputs (default target/k2lean-gate/cache
 #                       in the checkout holding this script): kimp's K LLVM interpreter, SIMPLE's
-#                       krust-derived cases; GATE_CLEAN keeps it
+#                       krust-derived cases; GATE_CLEAN keeps it. Concurrent runs may share it: each
+#                       entry is written under a temporary name and renamed into place
 #
 # The gate starts each library from the open-obligation list of the tree under test, so it finds
 # a proof that stopped working (a new open member) but not one that started working; that needs
@@ -247,11 +248,18 @@ fi
 phase llvm
 key=$(cd "$KIMP" && find . -type f | sort | xargs sha256sum | sha256sum | cut -c1-12)
 LLVM=$CACHE/kimp-llvm-$key
+# a cache entry is written under a name of this run's own and renamed into place, so a run that
+# shares the cache never reads a partial one; when two runs build it at once, the first rename wins
+# and the other run discards its copy (the interpreter does not depend on its directory's name)
 if [ ! -x "$LLVM/interpreter" ]; then
-  rm -rf "$LLVM"
+  [ -e "$LLVM" ] && mv "$LLVM" "$LLVM.partial.$$" && rm -rf "$LLVM.partial.$$"   # left by an older gate
+  tmp=$LLVM.tmp.$$
+  rm -rf "$tmp"
   if K_OPTS="-Xmx4096m -Xss4m" "$KOMPILE" "$KIMP/imp.k" --backend llvm --main-module IMP --syntax-module IMP-SYNTAX \
-       --output-definition "$LLVM" --warnings none -I "$KIMP" > "$L/kompile-llvm.log" 2>&1; then ok kompile-llvm
-  else bad kompile-llvm "$L/kompile-llvm.log"; fi
+       --output-definition "$tmp" --warnings none -I "$KIMP" > "$L/kompile-llvm.log" 2>&1; then
+    mv -T "$tmp" "$LLVM" 2> /dev/null || rm -rf "$tmp"
+    ok kompile-llvm
+  else rm -rf "$tmp"; bad kompile-llvm "$L/kompile-llvm.log"; fi
 fi
 
 # 4. the libraries; a failed equation proof becomes an open obligation (`open-from-log`), then the
@@ -532,7 +540,8 @@ lib_simple() { # DIR (simple, simple-ar): generate, cases, build, guard, run the
   else
     libs_cases "$o/KSimpleTest/Cases.lean" > "$L/cases-$d.log" 2>&1 \
       || { bad "cases $d" "$L/cases-$d.log"; return 1; }
-    cp "$o/KSimpleTest/Cases.lean" "$cached"
+    # written under a name of this run's own and renamed into place, as kimp's interpreter
+    cp "$o/KSimpleTest/Cases.lean" "$cached.tmp.$$" && mv -f "$cached.tmp.$$" "$cached"
   fi
   eqns "$d" KSimple || return 1
   lbuild "$o" "build-$d" KSimple || { bad "build $d" "$L/build-$d.log"; return 1; }
