@@ -2317,7 +2317,7 @@ cases l <;> first | exact {nb}.Term.inj (s := .{}) rfl _ rfl x | exact absurd h 
                 let c = format!("«coll_{f}»");
                 eqn(
                     o,
-                    format!(" (l : List _)"),
+                    " (l : List _)".to_string(),
                     format!("({na}.Term.{c} l)"),
                     format!("{nb}.Term.{c} (trL_{f} l)"),
                 );

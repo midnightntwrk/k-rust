@@ -57,18 +57,21 @@ pub struct Shape {
     pub builtins: BTreeSet<String>,
     /// For each arity `k`, the sorts with constructors of arity `k` and those constructors (the
     /// enumeration `S.Ck`: Lean name and argument sorts, in order).
-    pub enums: BTreeMap<usize, Vec<(String, Vec<(String, Vec<String>)>)>>,
+    pub enums: BTreeMap<usize, Vec<SortCtors>>,
     /// The sorts with subsorts and the tags of their leaves (`S.leaf`).
     pub sums: Vec<(String, Vec<String>)>,
     /// The collection sorts (`coll_…`): kind and element sorts.
     pub colls: Vec<(String, Coll, Vec<String>)>,
 }
 
+/// A sort and its constructors: Lean name and argument sorts, in order.
+pub type SortCtors = (String, Vec<(String, Vec<String>)>);
+
 pub fn shape(m: &Model) -> Shape {
     let types = block_types(m);
     let names: BTreeSet<String> = types.iter().map(|(t, _)| t.clone()).collect();
     let mut builtins = BTreeSet::new();
-    let mut enums: BTreeMap<usize, Vec<(String, Vec<(String, Vec<String>)>)>> = BTreeMap::new();
+    let mut enums: BTreeMap<usize, Vec<SortCtors>> = BTreeMap::new();
     let mut sums = Vec::new();
     let mut colls = Vec::new();
     for (ty, cs) in &types {
