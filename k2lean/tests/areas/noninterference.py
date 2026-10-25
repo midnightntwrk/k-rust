@@ -4,5 +4,7 @@
 DEMOS = {
     "ImpNI": {"tier": "light", "sources": ["generated/impsec",
                                            "demos/ImpNI/ImpNI/Tr.lean", "demos/ImpNI/ImpNI/NI.lean",
+                                           "demos/ImpNI/ImpNI/Levels.lean", "demos/ImpNI/ImpNI/Stack.lean",
+                                           "demos/ImpNI/ImpNI/Proof.lean",
                                            "demos/ImpNI/correspondence.toml", "demos/ImpNI/noninterference.toml"]},
 }

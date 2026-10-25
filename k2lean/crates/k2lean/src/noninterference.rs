@@ -14,9 +14,12 @@
 //! `cover` (a related pair that is not final on both sides is in a mode where the stepping side
 //! is not final), and one per rule and mode (`sync:r`, `left:r`, `right:r`), stated with
 //! `Step.Rel`. The generated module proves the reduction, `Final`, and that a final
-//! configuration has no step; the relation and its obligations are the person's.
+//! configuration has no step. With `--checker-kore` it also generates the relation and proves
+//! every obligation from it (`relation`); otherwise the relation and its obligations are the
+//! person's.
 
 use crate::confluence::{load, proj_def};
+use crate::ir::P;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
@@ -171,12 +174,28 @@ theorem noninterference (O : Obligations {pnames}Rel Sync Left Right) {{P : {nam
         std::fs::create_dir_all(d).unwrap_or_else(|e| fail(&format!("{}: {e}", d.display())));
     }
     std::fs::write(&out, &o).unwrap_or_else(|e| fail(&format!("{out}: {e}")));
-    let rep = format!(
-        "# k2lean noninterference: the obligations of {name}\n\nrules = {}\nobligations = {}\nper_rule = {}\nglobal = 3\ngenerated = 0\n",
+    let rel = opt
+        .contains_key("checker-kore")
+        .then(|| relation(&opt, &name, &ns, &low, &secure));
+    let mut rep = format!(
+        "# k2lean noninterference: the obligations of {name}\n\nrules = {}\nobligations = {}\nper_rule = {}\nglobal = 3\ngenerated = {}\n",
         rs.len(),
         3 * rs.len() + 3,
-        3 * rs.len()
+        3 * rs.len(),
+        if rel.is_some() { 3 * rs.len() + 3 } else { 0 }
     );
+    if let Some(r) = &rel {
+        writeln!(
+            rep,
+            "\n[relation]  # the per-rule cases behind the obligations: generic, or by hand (--open)\ninversion_lemmas = {}\ncases = {}\ngeneric = {}\nhand = {}\nhand_cases = {:?}",
+            r.inversions,
+            3 * rs.len(),
+            r.generic,
+            r.hand.len(),
+            r.hand
+        )
+        .unwrap();
+    }
     if let Some(p) = opt.get("report") {
         std::fs::write(p, rep).unwrap_or_else(|e| fail(&format!("{p}: {e}")));
     }
@@ -185,4 +204,591 @@ theorem noninterference (O : Obligations {pnames}Rel Sync Left Right) {{P : {nam
         rs.len(),
         3 * rs.len() + 3
     );
+}
+
+/// What `relation` generated: its inversion lemmas, and the per-rule cases (three per rule) proved
+/// by one tactic or listed as the hand module's.
+struct RelationOut {
+    inversions: usize,
+    generic: usize,
+    hand: Vec<String>,
+}
+
+/// The relation of `--checker-kore` (`k2lean/docs/design.md`, section 3.7): for a two-level
+/// checker of the `imp-sec.k` shape (`--lev`, the level of an expression; `--sec`, the
+/// acceptance of a statement at a low program counter; `--conf`, its confinement under a high
+/// one), three modules around two hand modules:
+/// - `Levels.lean`: the checker's functions at the semantics' terms, and one inversion lemma per
+///   constructor (`soundness::inversions_merged`);
+/// - `Stack.lean`: the two stack typings of `<k>` (`lk`, low; `CK K`, confined over `K`), read
+///   off the checker and the cooling rules (`plug`), and the three per-rule properties (`CQ`,
+///   `SQ`, `SameQ`);
+/// - (hand) `Store.lean`: `hiOnly_refl`, `lowEq_symm`, `lowEq_hiOnly`, the store lemmas and the
+///   per-rule cases of `--open`;
+/// - `Proof.lean`: each property for every rule (one tactic per property, or the hand case),
+///   the relation `Rel` and its modes, and every field of `Obligations`.
+fn relation(
+    opt: &BTreeMap<String, String>,
+    name: &str,
+    ns: &str,
+    low_eq: &str,
+    secure: &str,
+) -> RelationOut {
+    use crate::names;
+    use crate::soundness::{self as snd, Ctx, TFn, ty};
+    use std::collections::BTreeSet;
+    let get = |k: &str| {
+        opt.get(k)
+            .cloned()
+            .unwrap_or_else(|| fail(&format!("--{k} is required with --checker-kore")))
+    };
+    let nb = get("checker-name");
+    let ckore = get("checker-kore");
+    let text = std::fs::read_to_string(&ckore).unwrap_or_else(|e| fail(&format!("{ckore}: {e}")));
+    let cdef = crate::ir::load(&text).unwrap_or_else(|e| fail(&format!("{ckore}: {e}")));
+    let find = |w: &str| -> String {
+        let found: Vec<&String> = cdef
+            .symbols
+            .iter()
+            .filter(|(s, d)| d.is_function() && snd::short_name(s) == w)
+            .map(|(s, _)| s)
+            .collect();
+        match found.as_slice() {
+            [s] => (*s).clone(),
+            [] => fail(&format!("no function {w} in --checker-kore")),
+            _ => fail(&format!("several functions named {w} in --checker-kore")),
+        }
+    };
+    let (lev_s, sec_s, conf_s) = (find(&get("lev")), find(&get("sec")), find(&get("conf")));
+    let a = snd::load(&get("kore"), name, true, &[]);
+    let b = snd::load(
+        &ckore,
+        &nb,
+        false,
+        &[lev_s.clone(), sec_s.clone(), conf_s.clone()],
+    );
+    let (na, nb) = (a.ns.clone(), b.ns.clone());
+    let tfn = |s: &str| -> TFn {
+        let d = &b.def.symbols[s];
+        let sig = b
+            .fns
+            .get(s)
+            .unwrap_or_else(|| fail(&format!("{} is not generated", names::demangle(s))));
+        let args: Vec<String> = d.args.iter().map(snd::sname).collect();
+        if args.len() != 2 || !a.m.sorts.contains_key(&args[0]) {
+            fail(&format!(
+                "{} must take a term of the semantics and a labelling",
+                names::demangle(s)
+            ));
+        }
+        let result = snd::sname(&d.result);
+        TFn {
+            sym: s.to_string(),
+            name: names::ident(&snd::short_name(s)),
+            lean_b: format!("{nb}.{}", sig.lean),
+            sort: args[0].clone(),
+            env: args[1].clone(),
+            accepts: result == "SortBool",
+            result,
+        }
+    };
+    let tfs = vec![tfn(&lev_s), tfn(&sec_s), tfn(&conf_s)];
+    let (lev, sec, conf) = (&tfs[0], &tfs[1], &tfs[2]);
+    if lev.accepts || !sec.accepts || !conf.accepts || sec.sort != conf.sort {
+        fail("--lev returns a level; --sec and --conf accept statements of one sort");
+    }
+    if tfs.iter().any(|t| t.env != lev.env) {
+        fail("the checker's functions take labellings of different sorts");
+    }
+    let lvl = lev.result.clone();
+    let lvl_ctors = b.m.sort(&lvl).own.clone();
+    if lvl_ctors.len() != 2 || lvl_ctors.iter().any(|c| !b.m.ctors[c].args.is_empty()) {
+        fail("the levels are expected to be two constants");
+    }
+    let cx = Ctx {
+        a: &a,
+        b: &b,
+        tfs: &tfs,
+        ty_sort: lvl.clone(),
+        ext: true,
+    };
+    let eqs = crate::funcs::equations(&b.def);
+    // the low level and a low value: `lev(_:L, _) => lo` at a builtin sort `L`
+    let mut low: Option<(String, String)> = None;
+    for e in eqs.get(&lev.sym).into_iter().flatten() {
+        if let Some((from, _, P::Var(..))) = snd::as_inj(&e.args[0])
+            && e.requires.is_empty()
+            && let P::App(c, _, cargs) = &e.rhs
+            && cargs.is_empty()
+            && lvl_ctors.contains(c)
+            && let Some(lit) = snd::literal(&a.m, &from)
+        {
+            low = Some((
+                format!("{nb}.{}", b.m.ctor_path(c)),
+                cx.leaf_value(&from, &format!("({lit} : {})", ty(&na, &from)), &lev.sort),
+            ));
+            break;
+        }
+    }
+    let (lo, dflt) =
+        low.unwrap_or_else(|| fail("no equation `lev(_:S, _) => level` at a builtin sort S"));
+    let snd::TopCells {
+        top,
+        top_ctor: _,
+        cells,
+        kpos,
+    } = snd::top_cells(&a);
+    let store = get("store-cell");
+    let store_cell = cells
+        .iter()
+        .find(|c| c.label == store)
+        .unwrap_or_else(|| fail(&format!("no cell <{store}> in the top cell")));
+    let (cools, hole) = snd::coolings(&a, kpos);
+    if hole != lev.sort {
+        fail("the holes of the cooling rules are expected to be of --lev's sort");
+    }
+    let (hs, ss) = (
+        names::short_sort(&hole).to_string(),
+        names::short_sort(&sec.sort).to_string(),
+    );
+    let topt = ty(&na, &top);
+    let kt = format!("{na}.SortK");
+    let kit = ty(&na, "SortKItem");
+    let kit_own = ty(&na, &a.m.own_ty("SortKItem"));
+    // the other functions the checker's equations call (computed by their rule definitions)
+    let mut others: BTreeSet<String> = BTreeSet::new();
+    fn calls(p: &P, out: &mut BTreeSet<String>) {
+        if let P::App(f, _, args) = p {
+            out.insert(f.clone());
+            args.iter().for_each(|x| calls(x, out));
+        }
+    }
+    for t in &tfs {
+        for e in eqs.get(&t.sym).into_iter().flatten() {
+            calls(&e.rhs, &mut others);
+            e.requires.iter().for_each(|q| calls(q, &mut others));
+        }
+    }
+    let unfolds: Vec<String> = others
+        .iter()
+        .filter(|f| {
+            b.fns.get(*f).is_some_and(|g| g.lean.starts_with("K."))
+                && tfs.iter().all(|t| t.sym != **f)
+        })
+        .flat_map(|f| {
+            let l = format!("{nb}.{}", b.fns[f].lean);
+            let n = eqs.get(f).map(|v| v.len()).unwrap_or(0);
+            std::iter::once(l.clone()).chain((1..=n).map(move |k| format!("{l}.rule{k}")))
+        })
+        .collect();
+    let mut notes = Vec::new();
+
+    // ---- Levels.lean
+    let mut t = String::new();
+    writeln!(
+        t,
+        "import {ns}.NI\nimport KPrelude.Soundness\nimport KPrelude.Tactic\n"
+    )
+    .unwrap();
+    writeln!(
+        t,
+        "/-! Generated by `k2lean noninterference`; do not edit.\n\n\
+The security checker's functions `{}`, `{}`, `{}` at `{na}`'s terms, through the translation\n\
+`tr`, and one inversion lemma per constructor: what the checker computes on it, in terms of the\n\
+components (its equations at that constructor, in order, then its `owise` value). -/\n",
+        lev.name, sec.name, conf.name
+    )
+    .unwrap();
+    t.push_str("set_option maxHeartbeats 0\nset_option maxRecDepth 100000\nset_option linter.unusedVariables false\nset_option linter.unusedSimpArgs false\n\n");
+    writeln!(t, "namespace {ns}\n\nopen KPrelude\n").unwrap();
+    writeln!(
+        t,
+        "/-- Labellings: the checker's last argument. -/\nabbrev Lab := {}\nabbrev TEnv := Lab\n/-- Levels. -/\nabbrev Lvl := {}\nabbrev Ty := Lvl\n",
+        ty(&nb, &lev.env),
+        ty(&nb, &lvl)
+    )
+    .unwrap();
+    for f in &tfs {
+        let rt = if f.accepts { "Bool" } else { "Lvl" };
+        writeln!(
+            t,
+            "/-- `{}` on the translation of `x`. -/\ndef {} (G : Lab) (x : {}) : Option {rt} :=\n  {} ({} x) G",
+            names::demangle(&f.sym),
+            f.name,
+            ty(&na, &f.sort),
+            f.lean_b,
+            format_args!("tr_{}", crate::terms::fsuffix(&f.sort))
+        )
+        .unwrap();
+    }
+    let trs = snd::tr_names(&a.m, &[lev.sort.clone(), sec.sort.clone()]);
+    let fnames: Vec<String> = tfs.iter().map(|f| f.name.clone()).collect();
+    let convs: Vec<String> = tfs
+        .iter()
+        .map(|f| format!("(conv => lhs; rw [{}.eq_def])", f.lean_b))
+        .collect();
+    writeln!(
+        t,
+        "\n/-- An inversion lemma: unfold the checker's function once at the left-hand side, case on the\nvalues of its calls, and compute. -/\nmacro \"k2l_ty_inv\" : tactic => `(tactic| (\n  simp only [{}, {}]\n  first\n    | {}\n  try simp only []\n  try k2l_cases_apps [{}]\n  all_goals simp_all [KEqHook.eq, BoolHook.and, BoolHook.or{}]))\n",
+        fnames.join(", "),
+        trs.join(", "),
+        convs.join("\n    | "),
+        tfs.iter().map(|f| f.lean_b.clone()).collect::<Vec<_>>().join(", "),
+        unfolds.iter().map(|u| format!(", {u}")).collect::<String>()
+    )
+    .unwrap();
+    let (inv_names, skipped) = snd::inversions_merged(&cx, &eqs, &mut t);
+    for s in &skipped {
+        notes.push(format!("no inversion lemma for {s}"));
+    }
+    writeln!(t, "\nend {ns}").unwrap();
+
+    // ---- Stack.lean
+    let mut s = String::new();
+    writeln!(s, "import {ns}.Levels\nimport {na}.Rules\n").unwrap();
+    writeln!(
+        s,
+        "/-! Generated by `k2lean noninterference`; do not edit.\n\n\
+The two stack typings of `<k>` the noninterference relation is built from (the runtime typing of\n\
+`k2lean soundness` at levels): an item leaves `some true` (a pending value), `some false`\n\
+(nothing: a statement done) or `none` (rejected), and a freezer is typed by plugging a low value\n\
+into it (`plug`, read off the cooling rules).\n\
+- the low typing `lk`: low expressions (`{l}` is `lo`) and statements `{s}` accepts;\n\
+- the confined typing `CK G K`: a stack over the continuation `K` of any expressions and of\n  \
+statements `{c}` accepts (they assign only high identifiers).\n\
+Then the three per-rule properties the relation is proved from: `CQ` (a step inside a confined\n\
+stack), `SQ` (a step from a low stack), `SameQ` (two runs at one low stack). -/\n",
+        l = lev.name,
+        s = sec.name,
+        c = conf.name
+    )
+    .unwrap();
+    writeln!(s, "set_option maxHeartbeats 0\nset_option linter.unusedVariables false\nset_option linter.unusedSimpArgs false\n\nnamespace {ns}\n\nopen KPrelude\n").unwrap();
+    writeln!(
+        s,
+        "/-- A low value, plugged into a freezer to type it. -/\ndef dflt : {} := {dflt}",
+        ty(&na, &hole)
+    )
+    .unwrap();
+    let projs = snd::plug_def(&a, &cools, &hole, &mut s);
+    // the items with no pending value
+    let kitem = a.m.sort("SortKItem");
+    let mut larms: Vec<(String, String, String, String, String)> = Vec::new(); // (short, ctor, arg type, low rhs, confined rhs)
+    for l in &kitem.leaves {
+        let typed = |f: &TFn| a.m.sort(&f.sort).leaves.iter().any(|x| x == l);
+        let lt = {
+            let st = a.m.sort(l);
+            if matches!(st.kind, crate::model::Kind::Plain) {
+                ty(&na, &a.m.own_ty(l))
+            } else {
+                ty(&na, l)
+            }
+        };
+        let c = format!("{na}.{}", a.m.leaf_ctor("SortKItem", l));
+        if typed(lev) {
+            let v = cx.leaf_value(l, "x", &lev.sort);
+            larms.push((
+                names::short_sort(l).to_string(),
+                c,
+                lt,
+                format!("if {} G {v} = some {lo} then some true else none", lev.name),
+                "some true".into(),
+            ));
+        } else if typed(sec) {
+            let v = cx.leaf_value(l, "x", &sec.sort);
+            larms.push((
+                names::short_sort(l).to_string(),
+                c,
+                lt,
+                format!(
+                    "if {} G {v} = some true then some false else none",
+                    sec.name
+                ),
+                format!(
+                    "if {} G {v} = some true then some false else none",
+                    conf.name
+                ),
+            ));
+        }
+    }
+    writeln!(
+        s,
+        "\n/-- What an item leaves on the low stack. -/\ndef litem0 (G : Lab) : {kit} → Option Bool"
+    )
+    .unwrap();
+    for (_, c, _, lr, _) in &larms {
+        writeln!(s, "  | {c} x => {lr}").unwrap();
+    }
+    writeln!(s, "  | _ => none\n\n/-- What an item leaves on a confined stack. -/\ndef citem0 (G : Lab) : {kit} → Option Bool").unwrap();
+    for (_, c, _, _, cr) in &larms {
+        writeln!(s, "  | {c} x => {cr}").unwrap();
+    }
+    writeln!(
+        s,
+        "  | _ => none\n\n\
+/-- An item that receives what the previous item leaves: a freezer receives a value. -/\n\
+def litem (G : Lab) : Bool → {kit} → Option Bool\n  | false, it => litem0 G it\n  | true, {na}.SortKItem.inj_KItem f => (plug f dflt).bind (litem0 G)\n  | true, _ => none\n\n\
+def citem (G : Lab) : Bool → {kit} → Option Bool\n  | false, it => citem0 G it\n  | true, {na}.SortKItem.inj_KItem f => (plug f dflt).bind (citem0 G)\n  | true, _ => none\n\n\
+/-- A low stack: each item consumes what the previous one leaves, and nothing is left. -/\n\
+def lk (G : Lab) : Bool → {kt} → Bool\n  | b, .dotk => !b\n  | b, .kseq it k => match litem G b it with\n    | some o => lk G o k\n    | none => false\n\n\
+/-- A confined stack over the continuation `K`: `k` is `K` with nothing pending, or its first\n\
+item consumes `b` and the rest is a confined stack over `K`. -/\n\
+def CK (G : Lab) (K : {kt}) : Bool → {kt} → Prop\n  | b, .dotk => b = false ∧ {kt}.dotk = K\n  | b, .kseq it k => (b = false ∧ {kt}.kseq it k = K) ∨\n      (match citem G b it with\n       | some o => CK G K o k\n       | none => False)\n\n\
+theorem CK_kseq (G : Lab) (K : {kt}) (b : Bool) (it : {kit}) (k : {kt}) :\n    CK G K b (.kseq it k) = ((b = false ∧ {kt}.kseq it k = K) ∨\n      (match citem G b it with\n       | some o => CK G K o k\n       | none => False)) := rfl\n\n\
+theorem CK_dotk (G : Lab) (K : {kt}) (b : Bool) :\n    CK G K b .dotk = (b = false ∧ {kt}.dotk = K) := rfl\n\n\
+theorem CK_base (G : Lab) (K : {kt}) : CK G K false K := by\n  cases K <;> simp [CK]\n"
+    )
+    .unwrap();
+    // computing the typings
+    s.push_str("/-! ## Computing the typings -/\n\n");
+    for (short, c, lt, lr, cr) in &larms {
+        writeln!(s, "@[simp] theorem litem0_inj_{short} (G : Lab) (x : {lt}) : litem0 G ({c} x) = {lr} := rfl").unwrap();
+        writeln!(s, "@[simp] theorem citem0_inj_{short} (G : Lab) (x : {lt}) : citem0 G ({c} x) = {cr} := rfl").unwrap();
+    }
+    let by_cases = |srt: &str| {
+        if a.m.sort(srt).is_simple() {
+            "rfl"
+        } else {
+            "by cases x <;> rfl"
+        }
+    };
+    writeln!(
+        s,
+        "@[simp] theorem litem0_inj_KItem (G : Lab) (x : {kit_own}) : litem0 G ({na}.SortKItem.inj_KItem x) = none := rfl\n\
+@[simp] theorem citem0_inj_KItem (G : Lab) (x : {kit_own}) : citem0 G ({na}.SortKItem.inj_KItem x) = none := rfl\n\
+theorem litem0_{hs} (G : Lab) (x : {ht}) :\n    litem0 G ({na}.inj_{hs}_KItem x) = if {l} G x = some {lo} then some true else none := {bc}\n\
+theorem citem0_{hs} (G : Lab) (x : {ht}) : citem0 G ({na}.inj_{hs}_KItem x) = some true := {bc}\n\
+theorem litem_false (G : Lab) (it : {kit}) : litem G false it = litem0 G it := rfl\n\
+theorem citem_false (G : Lab) (it : {kit}) : citem G false it = citem0 G it := rfl\n\
+@[simp] theorem litem_true_frz (G : Lab) (f : {kit_own}) : litem G true ({na}.SortKItem.inj_KItem f) = (plug f dflt).bind (litem0 G) := rfl\n\
+@[simp] theorem citem_true_frz (G : Lab) (f : {kit_own}) : citem G true ({na}.SortKItem.inj_KItem f) = (plug f dflt).bind (citem0 G) := rfl\n\
+@[simp] theorem litem_true_{hs} (G : Lab) (x : {ht}) : litem G true ({na}.inj_{hs}_KItem x) = none := {bc}\n\
+@[simp] theorem citem_true_{hs} (G : Lab) (x : {ht}) : citem G true ({na}.inj_{hs}_KItem x) = none := {bc}\n\
+@[simp] theorem litem_true_{ss} (G : Lab) (x : {st}) : litem G true ({na}.inj_{ss}_KItem x) = none := {bs}\n\
+@[simp] theorem citem_true_{ss} (G : Lab) (x : {st}) : citem G true ({na}.inj_{ss}_KItem x) = none := {bs}\n\
+@[simp] theorem lk_dotk (G : Lab) (b : Bool) : lk G b .dotk = !b := rfl\n\
+@[simp] theorem lk_kseq (G : Lab) (b : Bool) (it : {kit}) (k : {kt}) :\n    lk G b (.kseq it k) = (match litem G b it with | some o => lk G o k | none => false) := rfl\n\
+attribute [simp] litem0_{hs} citem0_{hs} litem_false citem_false\n",
+        ht = ty(&na, &hole),
+        st = ty(&na, &sec.sort),
+        l = lev.name,
+        bc = by_cases(&hole),
+        bs = by_cases(&sec.sort),
+    )
+    .unwrap();
+    // the per-rule properties
+    let good = opt.get("good").cloned().unwrap_or("Good".into());
+    let hionly = opt.get("hi-only").cloned().unwrap_or("HiOnly G".into());
+    writeln!(
+        s,
+        "\n/-! ## The per-rule properties -/\n\n\
+/-- A step of a run inside a confined stack keeps it a confined stack over the same continuation,\nand changes the store only at high identifiers. -/\n\
+def CQ (G : Lab) (c c' : {topt}) : Prop :=\n  ∀ K, CK G K false (kOf c) → kOf c ≠ K → {good} (storeOf c) →\n    CK G K false (kOf c') ∧ {hionly} (storeOf c) (storeOf c')\n\n\
+/-- The first `n` items of `<k>` dropped. -/\ndef dropK : Nat → {kt} → {kt}\n  | 0, k => k\n  | _ + 1, .dotk => .dotk\n  | n + 1, .kseq _ k => dropK n k\n\n\
+/-- A step from a low stack leads to a confined stack over a low stack (the confined part is empty\nunless the step enters a high assignment or a branch on a high condition). -/\n\
+def SQ (G : Lab) (c c' : {topt}) : Prop :=\n  lk G false (kOf c) = true → {good} (storeOf c) → ∃ K, CK G K false (kOf c') ∧ lk G false K = true\n\n\
+theorem sq_base {{G : Lab}} {{k : {kt}}} (h : lk G false k = true) :\n    ∃ K, CK G K false k ∧ lk G false K = true := ⟨k, CK_base G k, h⟩\n\n\
+theorem sq_drop2 {{G : Lab}} {{k : {kt}}} (h₁ : CK G (dropK 2 k) false k)\n    (h₂ : lk G false (dropK 2 k) = true) : ∃ K, CK G K false k ∧ lk G false K = true :=\n  ⟨_, h₁, h₂⟩\n\n\
+/-- Both runs at the same low stack, with low-equal stores. -/\n\
+def Sync (G : Lab) (c₁ c₂ : {topt}) : Prop :=\n  kOf c₁ = kOf c₂ ∧ lk G false (kOf c₁) = true ∧ {low_eq} (storeOf c₁) (storeOf c₂)\n\n\
+/-- From the same low stack, the other run steps to the same stack, with low-equal stores. -/\n\
+def SameQ (G : Lab) (c₁ c₁' : {topt}) : Prop :=\n  ∀ c₂ c₂', Sync G c₁ c₂ → {name}.Step c₂ c₂' → kOf c₁' = kOf c₂' ∧ {low_eq} (storeOf c₁') (storeOf c₂')\n"
+    )
+    .unwrap();
+    // the closers
+    let store_sort = format!("{na}.{}", store_cell.sort);
+    let fqn = |f: &TFn| format!("{ns}.{}", f.name);
+    writeln!(
+        s,
+        "/-! ## The closers of the per-rule cases\n\n\
+`k2l_ni_comp` computes the typings of both sides of a rule (`k2l_ni_simp`), cases on the values of\n\
+the checker's functions that the computation stops at (`k2l_ni_split`), and computes again. -/\n\n\
+open Lean Meta Elab Tactic in\n/-- Case every variable of the store cell's sort into `<{store}> E`. -/\n\
+elab \"k2l_cases_store\" : tactic => do\n  let rec go (fuel : Nat) : TacticM Unit := do\n    if fuel = 0 then return\n    let g ← getMainGoal\n    let some d ← g.withContext do\n        (← getLCtx).findDeclM? fun d => do\n          if d.isImplementationDetail then return none\n          let t ← whnfR d.type\n          return if t.isConstOf ``{store_sort} then some d else none\n      | return\n    let gs ← g.cases d.fvarId\n    replaceMainGoal (gs.map (·.mvarId)).toList\n    go (fuel - 1)\n  go 8\n\n\
+open Lean Meta Elab Tactic in\n/-- Case on the value of an application of one of `fs` in a hypothesis or the goal that no\nequation hypothesis has as its left-hand side yet, and recurse. -/\n\
+partial def niSplitLoop (fs : Array Name) (fuel : Nat) : TacticM Unit := do\n  if (← getGoals).isEmpty || fuel = 0 then return\n  let g ← getMainGoal\n  let found ← g.withContext do\n    let lctx ← getLCtx\n    let mut done : Array Expr := #[]\n    let mut cands : Array Expr := #[]\n    for d in lctx do\n      if d.isImplementationDetail then continue\n      let t ← instantiateMVars d.type\n      if let some (_, l, _) := t.eq? then done := done.push l\n      cands := cands.push t\n    cands := cands.push (← instantiateMVars (← g.getType))\n    for t in cands do\n      if let some e := t.find? (fun e => !e.hasLooseBVars && fs.any e.isAppOf && e.getAppNumArgs == 2 && !done.contains e) then\n        return some e\n    return none\n  let some e := found | return\n  let x ← g.withContext (Term.exprToSyntax e)\n  evalTactic (← `(tactic| ((rcases _h : $x:term with _ | v) <;> (try cases v))))\n  KPrelude.Soundness.eachGoal (niSplitLoop fs (fuel - 1))\n\n\
+elab \"k2l_ni_split\" : tactic => niSplitLoop #[``{}, ``{}, ``{}] 6\n\n\
+macro \"k2l_ni_simp\" : tactic => `(tactic| simp_all [plug, dflt, citem0_{hs}, litem0_{hs}, {na}.proj_inj_KItem_{hs},\n    {}{}, CK_base])\n\n\
+macro \"k2l_ni_comp\" : tactic => `(tactic|\n  (try k2l_ni_simp) <;> (try (k2l_ni_split; all_goals (try k2l_ni_simp))))\n\nend {ns}",
+        fqn(conf),
+        fqn(sec),
+        fqn(lev),
+        inv_names.join(", "),
+        unfolds.iter().map(|u| format!(", {u}")).collect::<String>()
+    )
+    .unwrap();
+    let _ = projs;
+
+    // ---- Proof.lean
+    let rs = &a.rules;
+    let open: BTreeSet<(String, String)> = match opt.get("open") {
+        Some(p) => std::fs::read_to_string(p)
+            .unwrap_or_else(|e| fail(&format!("{p}: {e}")))
+            .lines()
+            .map(str::trim)
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .map(|l| match l.split_once(' ') {
+                Some((k, r)) if ["cq", "sq", "same"].contains(&k) => {
+                    (k.to_string(), r.trim().to_string())
+                }
+                _ => fail(&format!("{p}: `{l}` is not `cq|sq|same RULE`")),
+            })
+            .collect(),
+        None => BTreeSet::new(),
+    };
+    let display: BTreeSet<String> = rs.iter().map(crate::rules::display_name).collect();
+    for (_, r) in &open {
+        if !display.contains(r) {
+            fail(&format!("--open: no rule {r}"));
+        }
+    }
+    let store_mod = opt
+        .get("store-module")
+        .cloned()
+        .unwrap_or(format!("{ns}.Store"));
+    let mut p = String::new();
+    writeln!(p, "import {store_mod}\nimport {na}.Determinism\n").unwrap();
+    writeln!(
+        p,
+        "/-! Generated by `k2lean noninterference`; do not edit.\n\n\
+`{name}`'s noninterference for the checker `{nb}`: the relation on pairs of runs and its three modes,\n\
+and every field of `Obligations` (`NI.lean`).\n\
+- `Rel`: the two `<k>` cells are confined stacks (`CK`) over a common low stack `K` (`lk`), and the\n  \
+stores are low-equal. A run inside its confined part executes alone; the common part in lockstep.\n\
+- `Left`: the left run is inside its confined part; `Right`: the left run has reached `K` and the\n  \
+right one has not; `Sync`: both are at `K`.\n\
+Each per-rule field follows from one of three properties of every step, each proved per rule by one\n\
+tactic or by the hand module `{store_mod}` (the cases listed in `--open`): `cq_step`, `sq_step`,\n\
+`same_step`. -/\n"
+    )
+    .unwrap();
+    writeln!(p, "set_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n").unwrap();
+    writeln!(
+        p,
+        "/-- The generic case of `CQ`. -/\nmacro \"k2l_cq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold CQ\n  intro K hck hne hgood\n  simp only [kOf, storeOf, CK_kseq] at hck hne hgood ⊢\n  refine ⟨?_, ?_⟩\n  all_goals first\n    | exact hiOnly_refl hgood\n    | (try simp only [{na}.proj_eq_some_KItem_{hs}] at *\n       try subst_vars\n       try k2l_ni_comp)))\n\n\
+/-- The generic case of `SQ`. -/\nmacro \"k2l_sq\" : tactic => `(tactic| (\n  intros\n  k2l_cases_store\n  unfold SQ\n  intro hlk hgood\n  simp only [kOf, storeOf] at hlk hgood ⊢\n  try simp only [{na}.proj_eq_some_KItem_{hs}] at *\n  try subst_vars\n  try k2l_ni_simp\n  try k2l_ni_split\n  all_goals (try k2l_ni_simp)\n  all_goals first\n    | (apply sq_base; k2l_ni_comp; done)\n    | (apply sq_drop2 <;> simp only [dropK, CK_kseq] <;> k2l_ni_comp <;> done)\n    | skip))\n\n\
+/-- The generic case of `SameQ` for the rule whose `Step` constructor is `c`: the other run takes\nthe same rule (`Step.deterministic`), which reads and writes no store. -/\nmacro \"k2l_same \" c:ident : tactic => `(tactic| (\n  intros\n  unfold SameQ\n  intro c₂ c₂' hS h₂\n  obtain ⟨hk, hlk, hlow⟩ := hS\n  rcases c₂ with {pat}\n  simp only [kOf] at hk\n  subst hk\n  have hd := {name}.Step.deterministic h₂ (by apply $c <;> assumption)\n  subst hd\n  k2l_cases_store\n  simp only [kOf, storeOf] at hlow ⊢\n  first\n    | (simp only [true_and]; assumption)\n    | exact ⟨rfl, by assumption⟩))\n",
+        pat = {
+            // `⟨⟨k₂⟩, e₂, g₂⟩`: the top cell's arguments, `<k>` destructured
+            let ps: Vec<String> = (0..cells.len())
+                .map(|i| if i == kpos { "⟨k₂⟩".to_string() } else { format!("x{i}₂") })
+                .collect();
+            format!("⟨{}⟩", ps.join(", "))
+        }
+    )
+    .unwrap();
+    let mut generic = [0usize; 3];
+    for (ki, (kind, q, mac)) in [
+        ("cq", "CQ", "k2l_cq"),
+        ("sq", "SQ", "k2l_sq"),
+        ("same", "SameQ", "k2l_same"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        for r in rs {
+            if open.contains(&(kind.to_string(), crate::rules::display_name(r))) {
+                continue;
+            }
+            generic[ki] += 1;
+            let arg = if *kind == "same" {
+                format!(" {name}.Step.{}", r.lean)
+            } else {
+                String::new()
+            };
+            writeln!(
+                p,
+                "theorem {kind}.{l} (G : Lab) : {name}.Step.Rel.{l} ({q} G) := by\n  unfold {name}.Step.Rel.{l}\n  {mac}{arg}",
+                l = r.lean
+            )
+            .unwrap();
+        }
+        let parts: Vec<String> = rs
+            .iter()
+            .map(|r| format!("({kind}.{} G)", r.lean))
+            .collect();
+        writeln!(
+            p,
+            "\ntheorem {kind}_step (G : Lab) {{c c' : {topt}}} (h : {name}.Step c c') : {q} G c c' :=\n  {name}.Step.rel_of {} h\n",
+            parts.join(" ")
+        )
+        .unwrap();
+    }
+    writeln!(
+        p,
+        "variable (G : Lab)\n\n\
+/-- The relation: confined stacks over a common low stack, with low-equal stores. -/\n\
+def Rel (c₁ c₂ : {topt}) : Prop :=\n  ∃ K, CK G K false (kOf c₁) ∧ CK G K false (kOf c₂) ∧ lk G false K = true ∧\n    {low_eq} (storeOf c₁) (storeOf c₂)\n\n\
+def Left (c₁ c₂ : {topt}) : Prop :=\n  ∃ K, CK G K false (kOf c₁) ∧ kOf c₁ ≠ K ∧ CK G K false (kOf c₂) ∧ lk G false K = true ∧\n    {low_eq} (storeOf c₁) (storeOf c₂)\n\n\
+def Right (c₁ c₂ : {topt}) : Prop :=\n  ∃ K, kOf c₁ = K ∧ CK G K false (kOf c₂) ∧ kOf c₂ ≠ K ∧ lk G false K = true ∧\n    {low_eq} (storeOf c₁) (storeOf c₂)\n\n\
+variable {{G}}\n\n\
+theorem ne_dotk_of_CK {{K k : {kt}}} (h : CK G K false k) (hne : k ≠ K) : k ≠ .dotk := by\n  rintro rfl\n  exact hne (h.2)\n\n\
+theorem sync_all {{c₁ c₁' : {topt}}} (h : {name}.Step c₁ c₁') :\n    ∀ c₂ c₂', Sync G c₁ c₂ → {name}.Step c₂ c₂' → Rel G c₁' c₂' := by\n  intro c₂ c₂' hs h₂\n  obtain ⟨hk, hlow⟩ := same_step G h c₂ c₂' hs h₂\n  obtain ⟨K, hck, hlk⟩ := sq_step G h hs.2.1 hs.2.2.1\n  exact ⟨K, hck, hk ▸ hck, hlk, hlow⟩\n\n\
+theorem left_all {{c₁ c₁' : {topt}}} (h : {name}.Step c₁ c₁') :\n    ∀ c₂, Left G c₁ c₂ → Rel G c₁' c₂ := by\n  rintro c₂ ⟨K, hc₁, hne, hc₂, hlk, hlow⟩\n  obtain ⟨hc₁', hhi⟩ := cq_step G h K hc₁ hne hlow.1\n  exact ⟨K, hc₁', hc₂, hlk, lowEq_hiOnly hlow hhi⟩\n\n\
+theorem right_all {{c₂ c₂' : {topt}}} (h : {name}.Step c₂ c₂') :\n    ∀ c₁, Right G c₁ c₂ → Rel G c₁ c₂' := by\n  rintro c₁ ⟨K, hc₁, hc₂, hne, hlk, hlow⟩\n  obtain ⟨hc₂', hhi⟩ := cq_step G h K hc₂ hne hlow.2.1\n  exact ⟨K, hc₁ ▸ CK_base G K, hc₂', hlk, lowEq_symm (lowEq_hiOnly (lowEq_symm hlow) hhi)⟩\n"
+    )
+    .unwrap();
+    for r in rs {
+        writeln!(
+            p,
+            "theorem rel.{l} {{Q : {topt} → {topt} → Prop}}\n    (h : ∀ {{c c'}}, {name}.Step c c' → Q c c') : {name}.Step.Rel.{l} Q := by\n  unfold {name}.Step.Rel.{l}\n  intros\n  apply h\n  apply {name}.Step.{l} <;> assumption",
+            l = r.lean
+        )
+        .unwrap();
+    }
+    let pitem = format!("{na}.inj_{ss}_KItem");
+    writeln!(
+        p,
+        "\ntheorem obligations : Obligations G (Rel G) (Sync G) (Left G) (Right G) where\n  init P E₁ E₂ hP hE := by\n    refine ⟨_, CK_base G _, ?_, ?_, hE⟩\n    · simp only [{name}.init, kOf]; exact CK_base G _\n    · simp only [{name}.init, kOf, lk_kseq, litem_false, litem0_inj_{ss}]\n      simp [show {} G P = some true from hP]\n  final := fun ⟨_, _, _, _, hlow⟩ _ _ => hlow\n  cover := by\n    rintro c₁ c₂ ⟨K, hc₁, hc₂, hlk, hlow⟩ hnf\n    by_cases h₁ : kOf c₁ = K\n    · by_cases h₂ : kOf c₂ = K\n      · refine Or.inr (Or.inr ⟨⟨h₁.trans h₂.symm, by rw [h₁]; exact hlk, hlow⟩,\n          fun hf => hnf ⟨hf, ?_⟩, fun hf => hnf ⟨?_, hf⟩⟩)\n        · simp only [Final] at hf ⊢; rw [h₂, ← h₁, hf]\n        · simp only [Final] at hf ⊢; rw [h₁, ← h₂, hf]\n      · exact Or.inr (Or.inl ⟨⟨K, h₁, hc₂, h₂, hlk, hlow⟩, ne_dotk_of_CK hc₂ h₂⟩)\n    · exact Or.inl ⟨⟨K, hc₁, h₁, hc₂, hlk, hlow⟩, ne_dotk_of_CK hc₁ h₁⟩",
+        sec.name
+    )
+    .unwrap();
+    let _ = pitem;
+    for r in rs {
+        for (mode, all) in [
+            ("sync", "sync_all"),
+            ("left", "left_all"),
+            ("right", "right_all"),
+        ] {
+            writeln!(p, "  {} := rel.{} {all}", field(mode, &r.lean), r.lean).unwrap();
+        }
+    }
+    let thm = format!("{}_noninterference", name.to_lowercase());
+    let pgm = get("program-sort");
+    let store_sort_t = opt.get("store-sort").cloned().unwrap_or("SortMap".into());
+    writeln!(
+        p,
+        "\n/-- Termination-insensitive noninterference for `{name}` and the checker `{nb}`. -/\n\
+theorem {thm} {{P : {name}.{pgm}}} {{E₁ E₂ : {name}.{store_sort_t}}}\n    (hP : {secure} P) (hE : {low_eq} E₁ E₂) {{f₁ f₂ : {topt}}}\n    (h₁ : Star {name}.Step ({name}.init P E₁) f₁) (hf₁ : Final f₁)\n    (h₂ : Star {name}.Step ({name}.init P E₂) f₂) (hf₂ : Final f₂) :\n    {low_eq} (storeOf f₁) (storeOf f₂) :=\n  noninterference G obligations hP hE h₁ hf₁ h₂ hf₂\n\n\
+#k2l_assert_axioms cq_step sq_step same_step obligations {thm}\n\nend {ns}"
+    )
+    .unwrap();
+
+    let dir = get("out-dir");
+    for (f, text) in [("Levels.lean", &t), ("Stack.lean", &s), ("Proof.lean", &p)] {
+        let path = std::path::Path::new(&dir).join(f);
+        if let Some(d) = path.parent() {
+            std::fs::create_dir_all(d).unwrap_or_else(|e| fail(&format!("{}: {e}", d.display())));
+        }
+        std::fs::write(&path, text).unwrap_or_else(|e| fail(&format!("{}: {e}", path.display())));
+    }
+    for n in &notes {
+        eprintln!("noninterference: {n}");
+    }
+    eprintln!(
+        "noninterference: relation generated: {} inversion lemmas; per-rule cases generic {} of {} (CQ), {} of {} (SQ), {} of {} (SameQ), {} by hand",
+        inv_names.len(),
+        generic[0],
+        rs.len(),
+        generic[1],
+        rs.len(),
+        generic[2],
+        rs.len(),
+        open.len()
+    );
+    RelationOut {
+        inversions: inv_names.len(),
+        generic: generic.iter().sum(),
+        hand: open.iter().map(|(k, r)| format!("{k} {r}")).collect(),
+    }
 }
