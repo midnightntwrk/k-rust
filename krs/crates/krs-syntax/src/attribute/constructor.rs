@@ -563,7 +563,7 @@ impl FunctionAttribute {
                     TokenRange::for_tokens(literal)?,
                 )?;
             }
-            Some(FunctionSmt::Hook(template)) => template.allocate_keys(&mut keys)?,
+            Some(FunctionSmt::Hook(template)) => template.clone().allocate_keys(&mut keys)?,
             None => {}
         }
         if let Some(reason) = &self.underspecified {
@@ -802,7 +802,7 @@ impl VariantSyntaxAttribute {
             ProvenanceRole::ConstructorSyntax,
             TokenRange::for_tokens(&self.syntax)?,
         )?;
-        self.syntax_template.allocate_keys(
+        self.syntax_template.clone().allocate_keys(
             keys,
             ProvenanceRole::ConstructorSyntaxItem,
             ProvenanceRole::ConstructorSyntaxFieldReference,
@@ -838,7 +838,9 @@ impl VariantSyntaxAttribute {
                 ProvenanceRole::ConstructorFormat,
                 TokenRange::for_tokens(format.literal())?,
             )?;
-            format.allocate_keys(keys, ProvenanceRole::ConstructorFormatFragment)?;
+            format
+                .clone()
+                .allocate_keys(keys, ProvenanceRole::ConstructorFormatFragment)?;
         }
         Ok(())
     }
@@ -981,7 +983,7 @@ impl ConstructorAttribute {
     pub(crate) fn allocate_full_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
         self.allocate_keys(keys)?;
         if let Some(template) = &self.syntax_template {
-            template.allocate_keys(
+            template.clone().allocate_keys(
                 keys,
                 ProvenanceRole::ConstructorSyntaxItem,
                 ProvenanceRole::ConstructorSyntaxFieldReference,
@@ -1018,7 +1020,9 @@ impl ConstructorAttribute {
                 ProvenanceRole::ConstructorFormat,
                 TokenRange::for_tokens(format.literal())?,
             )?;
-            format.allocate_keys(keys, ProvenanceRole::ConstructorFormatFragment)?;
+            format
+                .clone()
+                .allocate_keys(keys, ProvenanceRole::ConstructorFormatFragment)?;
         }
         Ok(())
     }

@@ -230,7 +230,7 @@ impl EnumConstructorVariant {
             keys.key(ProvenanceRole::ConsListDeclaration, range)?;
         }
         if let Some(strictness) = &self.strictness {
-            strictness.allocate_keys(&mut keys)?;
+            strictness.clone().allocate_keys(&mut keys)?;
         }
         if let Some(marker) = &self.static_marker {
             keys.key(marker.attribute.mode().production_role(), marker.range)?;

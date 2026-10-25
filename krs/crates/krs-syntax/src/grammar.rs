@@ -27,6 +27,7 @@ pub enum SyntaxTemplateItem {
 pub struct SyntaxTemplate {
     literal: LitStr,
     items: Vec<SyntaxTemplateItem>,
+    item_keys: Vec<Vec<ProvenanceKey>>,
 }
 
 impl SyntaxTemplate {
@@ -63,7 +64,11 @@ impl SyntaxTemplate {
                 literal.span(),
             ));
         }
-        Ok(Self { literal, items })
+        Ok(Self {
+            literal,
+            items,
+            item_keys: Vec::new(),
+        })
     }
 
     /// Returns the original Rust string literal.
@@ -122,20 +127,30 @@ impl SyntaxTemplate {
         Ok(())
     }
 
+    /// Every key the enclosing sentence gave the item at `index` in
+    /// [`Self::items`]: its item key, then, for a field, its value
+    /// reference's.
+    #[must_use]
+    pub fn item_keys(&self, index: usize) -> &[ProvenanceKey] {
+        self.item_keys.get(index).map_or(&[], Vec::as_slice)
+    }
+
     /// Keys each item, and each field's value reference after its item, at
     /// the template literal.
     pub(crate) fn allocate_keys(
-        &self,
+        &mut self,
         keys: &mut KeyAllocator,
         item_role: ProvenanceRole,
         field_role: ProvenanceRole,
     ) -> Result<(), SyntaxError> {
         let range = TokenRange::for_tokens(&self.literal)?;
+        self.item_keys = Vec::with_capacity(self.items.len());
         for item in &self.items {
-            keys.key(item_role, range)?;
+            let mut item_keys = vec![keys.key(item_role, range)?];
             if matches!(item, SyntaxTemplateItem::Field(_)) {
-                keys.key(field_role, range)?;
+                item_keys.push(keys.key(field_role, range)?);
             }
+            self.item_keys.push(item_keys);
         }
         Ok(())
     }
@@ -221,6 +236,8 @@ pub enum SmtTemplateFragment {
 pub struct SmtTemplate {
     literal: LitStr,
     fragments: Vec<SmtTemplateFragment>,
+    hook_key: Option<ProvenanceKey>,
+    placeholder_keys: Vec<ProvenanceKey>,
 }
 
 impl SmtTemplate {
@@ -278,13 +295,30 @@ impl SmtTemplate {
                 TemplatePiece::Field(name) => SmtTemplateFragment::Field(name),
             })
             .collect();
-        Ok(Self { literal, fragments })
+        Ok(Self {
+            literal,
+            fragments,
+            hook_key: None,
+            placeholder_keys: Vec::new(),
+        })
     }
 
     /// Returns the original Rust string literal.
     #[must_use]
     pub const fn literal(&self) -> &LitStr {
         &self.literal
+    }
+
+    /// The key of the hook, from the function that declares it.
+    #[must_use]
+    pub const fn hook_key(&self) -> Option<&ProvenanceKey> {
+        self.hook_key.as_ref()
+    }
+
+    /// The keys of the placeholders, one per field fragment in source order.
+    #[must_use]
+    pub fn placeholder_keys(&self) -> &[ProvenanceKey] {
+        &self.placeholder_keys
     }
 
     /// Returns the text and placeholder fragments in source order.
@@ -358,12 +392,14 @@ impl SmtTemplate {
     }
 
     /// Keys the hook and each placeholder, at the template literal.
-    pub(crate) fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+    pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
         let range = TokenRange::for_tokens(&self.literal)?;
-        keys.key(ProvenanceRole::FunctionSmtHook, range)?;
+        self.hook_key = Some(keys.key(ProvenanceRole::FunctionSmtHook, range)?);
+        self.placeholder_keys.clear();
         for fragment in &self.fragments {
             if matches!(fragment, SmtTemplateFragment::Field(_)) {
-                keys.key(ProvenanceRole::SmtHookPlaceholder, range)?;
+                self.placeholder_keys
+                    .push(keys.key(ProvenanceRole::SmtHookPlaceholder, range)?);
             }
         }
         Ok(())
@@ -450,6 +486,7 @@ pub enum StructuredFormatFragment {
 pub struct StructuredFormat {
     literal: LitStr,
     fragments: Vec<StructuredFormatFragment>,
+    fragment_keys: Vec<ProvenanceKey>,
 }
 
 impl StructuredFormat {
@@ -524,7 +561,11 @@ impl StructuredFormat {
         if !literal_text.is_empty() {
             fragments.push(StructuredFormatFragment::Literal(literal_text));
         }
-        Ok(Self { literal, fragments })
+        Ok(Self {
+            literal,
+            fragments,
+            fragment_keys: Vec::new(),
+        })
     }
 
     /// Builds the readable named-placeholder format used by open constructor
@@ -648,7 +689,11 @@ impl StructuredFormat {
                 literal.span(),
             ));
         }
-        Ok(Self { literal, fragments })
+        Ok(Self {
+            literal,
+            fragments,
+            fragment_keys: Vec::new(),
+        })
     }
 
     /// Returns the original Rust string literal.
@@ -758,16 +803,25 @@ impl StructuredFormat {
         Ok(())
     }
 
+    /// The keys of the fragments, indexed as the fragments, from the
+    /// production that declares the format.
+    #[must_use]
+    pub fn fragment_keys(&self) -> &[ProvenanceKey] {
+        &self.fragment_keys
+    }
+
     /// Keys each fragment, at the format literal.
     pub(crate) fn allocate_keys(
-        &self,
+        &mut self,
         keys: &mut KeyAllocator,
         role: ProvenanceRole,
     ) -> Result<(), SyntaxError> {
         let range = TokenRange::for_tokens(&self.literal)?;
-        for _ in &self.fragments {
-            keys.key(role, range)?;
-        }
+        self.fragment_keys = self
+            .fragments
+            .iter()
+            .map(|_| keys.key(role, range))
+            .collect::<Result<_, _>>()?;
         Ok(())
     }
 }
@@ -818,6 +872,11 @@ impl TokenContent {
 pub struct TokenAttribute {
     content: TokenContent,
     lexical_precedence: Option<(LitInt, u32)>,
+    content_key: Option<ProvenanceKey>,
+    precedence_key: Option<ProvenanceKey>,
+    /// The anchors of the attribute's standalone keying, which
+    /// [`Self::provenance`] returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl TokenAttribute {
@@ -859,27 +918,48 @@ impl TokenAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only for a tokenless parsed Rust node.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the regex or terminal literal, from the attribute alone or
+    /// from its stack.
+    #[must_use]
+    pub const fn content_key(&self) -> Option<&ProvenanceKey> {
+        self.content_key.as_ref()
+    }
+
+    /// The key of the `prec` literal, numbered as the regex is.
+    #[must_use]
+    pub const fn precedence_key(&self) -> Option<&ProvenanceKey> {
+        self.precedence_key.as_ref()
+    }
+
+    /// Keys the attribute as a sentence of its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
         self.allocate_keys(&mut keys)?;
-        Ok(keys.into_anchors())
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 
     /// Keys the content, as the next of its kind, and its lexical
     /// precedence, which is numbered as its regex is.
-    pub(crate) fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+    pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
         let content = keys.key(
             self.content.role(),
             TokenRange::for_tokens(self.content.literal())?,
         )?;
-        if let Some((literal, _)) = &self.lexical_precedence {
-            keys.paired(
+        self.precedence_key = match &self.lexical_precedence {
+            Some((literal, _)) => Some(keys.paired(
                 ProvenanceRole::TokenLexicalPrecedence,
                 &content,
                 TokenRange::for_tokens(literal)?,
-            );
-        }
+            )),
+            None => None,
+        };
+        self.content_key = Some(content);
         Ok(())
     }
 }
@@ -901,6 +981,9 @@ impl KrsSyntax for TokenAttribute {
 #[derive(Clone, Debug)]
 pub struct TokenStack {
     attributes: Vec<TokenAttribute>,
+    /// The anchors of the stack's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl TokenStack {
@@ -931,7 +1014,11 @@ impl TokenStack {
                 ));
             }
         }
-        Ok(Self { attributes })
+        Self {
+            attributes,
+            anchors: Vec::new(),
+        }
+        .keyed()
     }
 
     /// Returns the attributes in source order.
@@ -966,13 +1053,19 @@ impl TokenStack {
     ///
     /// Returns an endpoint error only for a tokenless parsed Rust node.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        // Each content role numbers its own kind, regexes and terminals
-        // apart, as `Self::ordinals` does.
+        Ok(self.anchors.clone())
+    }
+
+    /// Keys every attribute of the stack again, as one sentence: each
+    /// content role numbers its own kind, regexes and terminals apart, as
+    /// [`Self::ordinals`] does.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        for attribute in &self.attributes {
+        for attribute in &mut self.attributes {
             attribute.allocate_keys(&mut keys)?;
         }
-        Ok(keys.into_anchors())
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -1049,7 +1142,11 @@ fn parse_token_attribute_stream(input: ParseStream<'_>) -> ParseResult<TokenAttr
     Ok(TokenAttribute {
         content,
         lexical_precedence: precedence,
-    })
+        content_key: None,
+        precedence_key: None,
+        anchors: Vec::new(),
+    }
+    .keyed()?)
 }
 
 /// A token terminal must be one K terminal, as a syntax template would split it.
@@ -1368,6 +1465,11 @@ fn unsupported_token(reason: &'static str, span: Span) -> SyntaxError {
 pub struct BracketAttribute {
     template: SyntaxTemplate,
     delimiter_tokens: Option<TokenStream>,
+    key: Option<ProvenanceKey>,
+    delimiter_keys: Vec<ProvenanceKey>,
+    /// The anchors of the bracket's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl BracketAttribute {
@@ -1381,29 +1483,53 @@ impl BracketAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only for a tokenless literal.
+    /// None: the bracket was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the bracket declaration.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// The keys of a two-delimiter bracket's items, the two delimiters and
+    /// the value between them, then of its value reference, all at the
+    /// pair; empty for a template bracket, whose template holds its item
+    /// keys.
+    #[must_use]
+    pub fn delimiter_keys(&self) -> &[ProvenanceKey] {
+        &self.delimiter_keys
+    }
+
+    /// Keys the bracket as a sentence of its own: the declaration, then the
+    /// template's items and value reference.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
         if let Some(tokens) = &self.delimiter_tokens {
             // The two delimiters and the value between them, all at the pair.
             let range = TokenRange::for_tokens(tokens)?;
-            keys.key(ProvenanceRole::BracketDeclaration, range)?;
+            self.key = Some(keys.key(ProvenanceRole::BracketDeclaration, range)?);
             for _ in 0..3 {
-                keys.key(ProvenanceRole::BracketSyntaxItem, range)?;
+                self.delimiter_keys
+                    .push(keys.key(ProvenanceRole::BracketSyntaxItem, range)?);
             }
-            keys.key(ProvenanceRole::BracketValueReference, range)?;
-            return Ok(keys.into_anchors());
+            self.delimiter_keys
+                .push(keys.key(ProvenanceRole::BracketValueReference, range)?);
+        } else {
+            self.key = Some(keys.key(
+                ProvenanceRole::BracketDeclaration,
+                TokenRange::for_tokens(self.template.literal())?,
+            )?);
+            self.template.allocate_keys(
+                &mut keys,
+                ProvenanceRole::BracketSyntaxItem,
+                ProvenanceRole::BracketValueReference,
+            )?;
         }
-        keys.key(
-            ProvenanceRole::BracketDeclaration,
-            TokenRange::for_tokens(self.template.literal())?,
-        )?;
-        self.template.allocate_keys(
-            &mut keys,
-            ProvenanceRole::BracketSyntaxItem,
-            ProvenanceRole::BracketValueReference,
-        )?;
-        Ok(keys.into_anchors())
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -1460,7 +1586,11 @@ impl KrsSyntax for BracketAttribute {
             Ok(BracketAttribute {
                 template,
                 delimiter_tokens,
-            })
+                key: None,
+                delimiter_keys: Vec::new(),
+                anchors: Vec::new(),
+            }
+            .keyed()?)
         })
     }
 }
@@ -1482,6 +1612,13 @@ pub struct StrictnessAttribute {
     fields: Vec<Ident>,
     result_sort: Path,
     range: TokenRange,
+    key: Option<ProvenanceKey>,
+    using_key: Option<ProvenanceKey>,
+    field_keys: Vec<ProvenanceKey>,
+    result_sort_key: Option<ProvenanceKey>,
+    /// The anchors of the attribute's standalone keying, which
+    /// [`Self::provenance`] returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl StrictnessAttribute {
@@ -1566,13 +1703,13 @@ impl StrictnessAttribute {
                 ));
             }
         }
-        let parsed = Self {
+        let parsed = Self::keyed(
             kind,
             using,
             fields,
             result_sort,
-            range: TokenRange::for_tokens(marker)?,
-        };
+            TokenRange::for_tokens(marker)?,
+        )?;
         parsed.validate_fields(available_fields)?;
         Ok(parsed)
     }
@@ -1623,33 +1760,86 @@ impl StrictnessAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only for a tokenless parsed Rust node.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the whole attribute.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// The key of the `using` context-alias name, when authored.
+    #[must_use]
+    pub const fn using_key(&self) -> Option<&ProvenanceKey> {
+        self.using_key.as_ref()
+    }
+
+    /// The keys of the field references, indexed as [`Self::fields`].
+    #[must_use]
+    pub fn field_keys(&self) -> &[ProvenanceKey] {
+        &self.field_keys
+    }
+
+    /// The key of the result sort.
+    #[must_use]
+    pub const fn result_sort_key(&self) -> Option<&ProvenanceKey> {
+        self.result_sort_key.as_ref()
+    }
+
+    /// An attribute keyed as a sentence of its own.
+    fn keyed(
+        kind: StrictnessKind,
+        using: Option<Ident>,
+        fields: Vec<Ident>,
+        result_sort: Path,
+        range: TokenRange,
+    ) -> Result<Self, SyntaxError> {
+        let mut attribute = Self {
+            kind,
+            using,
+            fields,
+            result_sort,
+            range,
+            key: None,
+            using_key: None,
+            field_keys: Vec::new(),
+            result_sort_key: None,
+            anchors: Vec::new(),
+        };
         let mut keys = KeyAllocator::default();
-        self.allocate_keys(&mut keys)?;
-        Ok(keys.into_anchors())
+        attribute.allocate_keys(&mut keys)?;
+        attribute.anchors = keys.into_anchors();
+        Ok(attribute)
     }
 
     /// Keys the declaration, the optional context alias, each field
     /// reference, then the result sort.
-    pub(crate) fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
-        keys.key(ProvenanceRole::StrictnessDeclaration, self.range)?;
-        if let Some(using) = &self.using {
-            keys.key(
+    pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.key = Some(keys.key(ProvenanceRole::StrictnessDeclaration, self.range)?);
+        self.using_key = match &self.using {
+            Some(using) => Some(keys.key(
                 ProvenanceRole::StrictnessContextAliasReference,
                 TokenRange::for_tokens(using)?,
-            )?;
-        }
-        for field in &self.fields {
-            keys.key(
-                ProvenanceRole::StrictnessFieldReference,
-                TokenRange::for_tokens(field)?,
-            )?;
-        }
-        keys.key(
+            )?),
+            None => None,
+        };
+        self.field_keys = self
+            .fields
+            .iter()
+            .map(|field| {
+                keys.key(
+                    ProvenanceRole::StrictnessFieldReference,
+                    TokenRange::for_tokens(field)?,
+                )
+            })
+            .collect::<Result<_, _>>()?;
+        self.result_sort_key = Some(keys.key(
             ProvenanceRole::StrictnessResultSort,
             TokenRange::for_tokens(&self.result_sort)?,
-        )?;
+        )?);
         Ok(())
     }
 }
@@ -1759,13 +1949,13 @@ fn parse_strictness(
             }
             parse_optional_trailing_comma(input)?;
         }
-        Ok(StrictnessAttribute {
+        Ok(StrictnessAttribute::keyed(
             kind,
             using,
-            fields: fields.ok_or_else(|| missing("sequence", missing_span))?,
-            result_sort: result_sort.ok_or_else(|| missing("result", missing_span))?,
-            range: complete_range,
-        })
+            fields.ok_or_else(|| missing("sequence", missing_span))?,
+            result_sort.ok_or_else(|| missing("result", missing_span))?,
+            complete_range,
+        )?)
     })
 }
 
