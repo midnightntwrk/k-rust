@@ -12,15 +12,16 @@ use krs_ir::{
     DescriptorConfigurationRoot, ProtocolCellContent,
 };
 use krs_syntax::KrsSyntax;
-use krs_syntax::{ConfigurationCellContent, ProvenanceRole, TokenRange};
+use krs_syntax::{ConfigurationCellContent, TokenRange};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
 use syn::spanned::Spanned;
 use syn::{Ident, ItemStruct, Path, parse_quote};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
+use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
-use super::terms::{WireSlots, wire_key};
+use super::terms::WireSlots;
 use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -30,13 +31,13 @@ pub(crate) fn configuration(
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    let configuration_declaration_role = ProvenanceRole::ConfigurationDeclaration;
     let attribute = krs_syntax::ConfigurationAttribute::parse_tokens(attributes)?;
     let declaration = krs_syntax::ConfigurationDeclaration::parse_tokens(item)?;
     let facade = env.facade_path()?;
     let anchors = declaration.descriptor_provenance(&attribute)?;
     let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
+    let ledger = KeyLedger::new(&anchors, &[]);
     let nonce = expansion_nonce(env, "configuration", declaration.name(), fallback);
     let declared_key = format_ident!(
         "__krs_configuration_type_{nonce:016x}",
@@ -52,19 +53,22 @@ pub(crate) fn configuration(
     let cfg = call_site_cfg_attributes(&item.attrs)?;
     let name = declaration.name().to_string();
     let declared = call_site_ident(declaration.name())?;
-    let root = configuration_root(&attribute);
+    let root = configuration_root(&ledger, &attribute)?;
     let mut slots = WireSlots::new(&facade);
-    let (field_helpers, fields) =
-        configuration_fields(&facade, &declaration, &declared, &declared_key, &mut slots)?;
+    let (field_helpers, fields) = configuration_fields(
+        (&facade, &ledger),
+        &declaration,
+        &declared,
+        &declared_key,
+        &mut slots,
+    )?;
+    let declaration_wire = WireCellDeclaration {
+        key: ledger.define(declaration.name_key())?,
+        fields,
+    };
+    ledger.finish()?;
 
-    let wire = serde_json::to_string(&(
-        root,
-        WireCellDeclaration {
-            key: wire_key(configuration_declaration_role, 0),
-            fields,
-        },
-    ))
-    .expect("KRS wire values serialize");
+    let wire = serde_json::to_string(&(root, declaration_wire)).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 
     let factory_tokens = DescriptorFactory {
@@ -132,13 +136,13 @@ pub(crate) fn cell(
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    let configuration_declaration_role = ProvenanceRole::ConfigurationDeclaration;
     krs_syntax::CellAttributePayload::parse_tokens(attributes)?;
     let declaration = krs_syntax::ConfigurationDeclaration::parse_tokens(item)?;
     let facade = env.facade_path()?;
     let anchors = declaration.provenance()?;
     let fallback = TokenRange::for_tokens(declaration.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
+    let ledger = KeyLedger::new(&anchors, &[]);
     let nonce = expansion_nonce(env, "cell", declaration.name(), fallback);
     let declared_key = format_ident!("__krs_cell_type_{nonce:016x}");
     let factory = format_ident!("__krs_cell_descriptor_{nonce:016x}");
@@ -149,14 +153,21 @@ pub(crate) fn cell(
     let declared = call_site_ident(declaration.name())?;
     let name = declaration.name().to_string();
     let mut slots = WireSlots::new(&facade);
-    let (field_helpers, fields) =
-        configuration_fields(&facade, &declaration, &declared, &declared_key, &mut slots)?;
-
-    let wire = serde_json::to_string(&WirePayload::Cell(Box::new(WireCellDeclaration {
-        key: wire_key(configuration_declaration_role, 0),
+    let (field_helpers, fields) = configuration_fields(
+        (&facade, &ledger),
+        &declaration,
+        &declared,
+        &declared_key,
+        &mut slots,
+    )?;
+    let declaration_wire = WireCellDeclaration {
+        key: ledger.define(declaration.name_key())?,
         fields,
-    })))
-    .expect("KRS wire values serialize");
+    };
+    ledger.finish()?;
+
+    let wire = serde_json::to_string(&WirePayload::Cell(Box::new(declaration_wire)))
+        .expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 
     let factory_tokens = DescriptorFactory {
@@ -281,16 +292,16 @@ pub(super) fn cell_marker_function(field: &Ident) -> Ident {
 }
 
 fn configuration_root(
+    ledger: &KeyLedger<'_>,
     attribute: &krs_syntax::ConfigurationAttribute,
-) -> DescriptorConfigurationRoot {
-    attribute
-        .optional_root()
-        .map_or(DescriptorConfigurationRoot::GeneratedTop, |root| {
-            DescriptorConfigurationRoot::Named {
-                key: wire_key(ProvenanceRole::ConfigurationRoot, 0),
-                name: root.value(),
-            }
-        })
+) -> crate::Result<DescriptorConfigurationRoot> {
+    Ok(match attribute.optional_root() {
+        Some(root) => DescriptorConfigurationRoot::Named {
+            key: ledger.define(attribute.root_key())?,
+            name: root.value(),
+        },
+        None => DescriptorConfigurationRoot::GeneratedTop,
+    })
 }
 
 #[expect(
@@ -298,7 +309,7 @@ fn configuration_root(
     reason = "Each field kind (leaf, nested, optional, collection) maps its metadata to the wire in one place."
 )]
 fn configuration_fields(
-    facade: &Path,
+    (facade, ledger): (&Path, &KeyLedger<'_>),
     declaration: &krs_syntax::ConfigurationDeclaration,
     owner: &Ident,
     owner_key: &Ident,
@@ -308,13 +319,6 @@ fn configuration_fields(
     let mut fields = Vec::new();
     let mut argument_ordinal = 0_u32;
     for (index, field) in declaration.cells().iter().enumerate() {
-        let ordinal = u32::try_from(index).map_err(|_| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                field.name().span(),
-                "too many fixed cells",
-            )
-        })?;
         let marker = cell_marker_function(field.name());
         helpers.push(quote! {
             #[doc(hidden)]
@@ -323,28 +327,43 @@ fn configuration_fields(
                 ::core::any::TypeId::of::<__KrsCellFieldMarker>()
             }
         });
-        let emitted_name = field.attribute().name().map(|name| DescriptorCellName {
-            key: wire_key(ProvenanceRole::ConfigurationCellName, ordinal),
-            value: name.value(),
-        });
-        let color = field.attribute().color().map(|color| DescriptorCellColor {
-            key: wire_key(ProvenanceRole::ConfigurationCellColor, ordinal),
-            value: color.value(),
-        });
-        let multiplicity =
-            field
-                .attribute()
-                .multiplicity()
-                .map(|value| DescriptorCellMultiplicity {
-                    key: wire_key(ProvenanceRole::ConfigurationCellMultiplicity, ordinal),
+        let keys = field.attribute().keys();
+        let emitted_name = field
+            .attribute()
+            .name()
+            .map(|name| -> crate::Result<_> {
+                Ok(DescriptorCellName {
+                    key: ledger.define(keys.name())?,
+                    value: name.value(),
+                })
+            })
+            .transpose()?;
+        let color = field
+            .attribute()
+            .color()
+            .map(|color| -> crate::Result<_> {
+                Ok(DescriptorCellColor {
+                    key: ledger.define(keys.color())?,
+                    value: color.value(),
+                })
+            })
+            .transpose()?;
+        let multiplicity = field
+            .attribute()
+            .multiplicity()
+            .map(|value| -> crate::Result<_> {
+                Ok(DescriptorCellMultiplicity {
+                    key: ledger.define(keys.multiplicity())?,
                     value: value.value(),
-                });
+                })
+            })
+            .transpose()?;
         let cell_type = field
             .attribute()
             .cell_type()
             .map(|value| {
                 Ok::<_, ExpandError>(DescriptorCellType {
-                    key: wire_key(ProvenanceRole::ConfigurationCellType, ordinal),
+                    key: ledger.define(keys.cell_type())?,
                     value: value.value().try_into().map_err(|error| {
                         ExpandError::new(expand::CONFIGURATION_SHAPE, value.span(), error)
                     })?,
@@ -355,33 +374,44 @@ fn configuration_fields(
             .attribute()
             .stream()
             .map(|value| {
-                krs_ir::CellStream::from_k(&value.value())
-                    .map(|stream| DescriptorCellStream {
-                        key: wire_key(ProvenanceRole::ConfigurationCellStream, ordinal),
-                        value: stream,
-                    })
-                    .ok_or_else(|| {
-                        ExpandError::new(
-                            expand::CONFIGURATION_SHAPE,
-                            value.span(),
-                            "K supports stream=\"stdin\" and \"stdout\"",
-                        )
-                    })
+                let stream = krs_ir::CellStream::from_k(&value.value()).ok_or_else(|| {
+                    ExpandError::new(
+                        expand::CONFIGURATION_SHAPE,
+                        value.span(),
+                        "K supports stream=\"stdin\" and \"stdout\"",
+                    )
+                })?;
+                Ok::<_, ExpandError>(DescriptorCellStream {
+                    key: ledger.define(keys.stream())?,
+                    value: stream,
+                })
             })
             .transpose()?;
-        let exit = field.attribute().exit().map(|_| DescriptorCellExit {
-            key: wire_key(ProvenanceRole::ConfigurationCellExit, ordinal),
-        });
-        let initial = field.attribute().initial().map(|_| DescriptorCellInitial {
-            key: wire_key(ProvenanceRole::ConfigurationCellInitial, ordinal),
-        });
+        let exit = field
+            .attribute()
+            .exit()
+            .map(|_| {
+                ledger
+                    .define(keys.exit())
+                    .map(|key| DescriptorCellExit { key })
+            })
+            .transpose()?;
+        let initial = field
+            .attribute()
+            .initial()
+            .map(|_| {
+                ledger
+                    .define(keys.initial())
+                    .map(|key| DescriptorCellInitial { key })
+            })
+            .transpose()?;
         let content = configuration_content(
-            field.cell_content(),
+            field,
             index,
-            ordinal,
             &mut argument_ordinal,
             &mut ConfigurationFieldContext {
                 facade,
+                ledger,
                 owner,
                 owner_key,
                 helpers: &mut helpers,
@@ -390,7 +420,7 @@ fn configuration_fields(
         )?;
         fields.push(WireCellField {
             reference: WireCellReference {
-                key: wire_key(ProvenanceRole::ConfigurationField, ordinal),
+                key: ledger.define(field.key())?,
                 cell: WireCellIdentity {
                     owner: slots.type_slot(quote!(#facade::HostTypeKey(#owner_key))),
                     field: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#marker))),
@@ -412,6 +442,7 @@ fn configuration_fields(
 
 struct ConfigurationFieldContext<'a> {
     facade: &'a Path,
+    ledger: &'a KeyLedger<'a>,
     owner: &'a Ident,
     owner_key: &'a Ident,
     helpers: &'a mut Vec<TokenStream>,
@@ -419,20 +450,20 @@ struct ConfigurationFieldContext<'a> {
 }
 
 fn configuration_content(
-    content: &ConfigurationCellContent,
+    field: &krs_syntax::FixedCellField,
     index: usize,
-    ordinal: u32,
     argument_ordinal: &mut u32,
     assembly: &mut ConfigurationFieldContext<'_>,
 ) -> crate::Result<krs_ir::wire::WireCellContent> {
     let ConfigurationFieldContext {
         facade,
+        ledger,
         owner,
         owner_key,
         helpers,
         slots,
     } = assembly;
-    let content = match content {
+    let content = match field.cell_content() {
         ConfigurationCellContent::Leaf {
             sort,
             arguments,
@@ -452,24 +483,24 @@ fn configuration_content(
                 arguments,
                 &mut SortArgumentContext {
                     facade,
+                    ledger,
                     owner,
                     owner_key,
                     cfg: &[],
-                    role: ProvenanceRole::ConfigurationCellContentArgument,
                     helpers,
                     slots,
                     ordinal: argument_ordinal,
                 },
             )?;
             ProtocolCellContent::Leaf {
-                wrapper_key: wire_key(ProvenanceRole::ConfigurationCellWrapper, ordinal),
+                wrapper_key: ledger.define(field.wrapper_key())?,
                 wrapper: if *computation {
                     CellWrapper::KCell
                 } else {
                     CellWrapper::Cell
                 },
                 sort: WireSortReference {
-                    key: wire_key(ProvenanceRole::ConfigurationCellContent, ordinal),
+                    key: ledger.define(field.content_key())?,
                     target: WireTypeReference {
                         slot: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#sort_key))),
                         authored_path,
@@ -490,7 +521,7 @@ fn configuration_content(
             });
             ProtocolCellContent::Nested {
                 declaration: WireCellDeclarationReference {
-                    key: wire_key(ProvenanceRole::ConfigurationCellContent, ordinal),
+                    key: ledger.define(field.content_key())?,
                     declaration: WireTypeReference {
                         slot: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#nested_key))),
                         authored_path,
@@ -506,23 +537,23 @@ fn configuration_content(
 /// `TypeId` helper and wire reference.
 pub(super) struct SortArgumentContext<'a, 'b> {
     pub(super) facade: &'a Path,
+    /// The ledger of the descriptor the arguments belong to.
+    pub(super) ledger: &'a KeyLedger<'a>,
     /// The type whose associated helpers the keys are.
     pub(super) owner: &'a Ident,
     /// Distinguishes the helpers' names.
     pub(super) owner_key: &'a Ident,
     /// The `cfg` attributes the helpers carry.
     pub(super) cfg: &'a [syn::Attribute],
-    /// The arguments' provenance role: a cell's content or a configuration
-    /// variable's type.
-    pub(super) role: ProvenanceRole,
     pub(super) helpers: &'a mut Vec<TokenStream>,
     pub(super) slots: &'a mut WireSlots,
-    /// The next ordinal of `role`.
+    /// The number of the next helper.
     pub(super) ordinal: &'b mut u32,
 }
 
 /// The wire tree of a cell's or a configuration variable's collection
-/// arguments, numbered in preorder as the syntax numbers their provenance.
+/// arguments, each keyed by its path, with one `TypeId` helper per argument
+/// numbered in preorder.
 pub(super) fn configuration_sort_arguments(
     arguments: &[krs_syntax::SortArgument],
     context: &mut SortArgumentContext<'_, '_>,
@@ -547,7 +578,6 @@ pub(super) fn configuration_sort_arguments(
                 ::core::any::TypeId::of::<#ty>()
             }
         });
-        let ordinal = *context.ordinal;
         *context.ordinal = context.ordinal.checked_add(1).ok_or_else(|| {
             ExpandError::new(
                 expand::DESCRIPTOR_CAPACITY,
@@ -556,7 +586,7 @@ pub(super) fn configuration_sort_arguments(
             )
         })?;
         let sort = WireSortReference {
-            key: wire_key(context.role, ordinal),
+            key: context.ledger.define(argument.key())?,
             target: WireTypeReference {
                 slot: context
                     .slots

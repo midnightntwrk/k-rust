@@ -253,10 +253,11 @@ impl ConstructorDeclaration {
         self.name_key.as_ref()
     }
 
-    /// The keys of the sort parameters, indexed as [`Self::sort_parameters`].
+    /// The key of the sort parameter at `index` in
+    /// [`Self::sort_parameters`].
     #[must_use]
-    pub fn parameter_keys(&self) -> &[ProvenanceKey] {
-        &self.parameter_keys
+    pub fn parameter_key(&self, index: usize) -> Option<&ProvenanceKey> {
+        self.parameter_keys.get(index)
     }
 
     /// Returns the K sort parameters of a parametric production, in

@@ -48,6 +48,18 @@ struct Args {
     hand: Vec<String>,
     inv: Option<Inv>,
     induction: Vec<PathBuf>,
+    transfer: Option<Transfer>,
+}
+
+/// `--transfer REL`: every proved claim carried along the bisimulation `REL.bisim` that
+/// `k2lean relate --ns REL` writes (`REL.R a b := REL.Inv a ∧ b = REL.tr_Top a`, in the module
+/// `REL.Bisim`) to the other definition `--transfer-target B`, into the module `--transfer-out
+/// FILE` (namespace `--transfer-ns`, default `RELClaims.Transfers`).
+struct Transfer {
+    rel: String,
+    target: String,
+    out: PathBuf,
+    ns: String,
 }
 
 /// `--assume-invariant NAME`: the claims are stated and proved for the configurations satisfying
@@ -118,7 +130,9 @@ fn parse(args: &[String]) -> Args {
         hand: vec![],
         inv: None,
         induction: vec![],
+        transfer: None,
     };
+    let (mut tr_rel, mut tr_target, mut tr_out, mut tr_ns) = (None, None, None, None);
     let (mut inv_name, mut inv_preserved, mut inv_module, mut inv_unfold) =
         (None, None, None, None);
     let mut it = args.iter();
@@ -146,6 +160,11 @@ fn parse(args: &[String]) -> Args {
             "--invariant-unfold" => inv_unfold = Some(PathBuf::from(v())),
             // a structural-induction skeleton over a syntax sort (TOML, `induction` below)
             "--induction" => a.induction.push(v().into()),
+            // the claims carried along a bisimulation of `relate` (`Transfer`)
+            "--transfer" => tr_rel = Some(v()),
+            "--transfer-target" => tr_target = Some(v()),
+            "--transfer-out" => tr_out = Some(PathBuf::from(v())),
+            "--transfer-ns" => tr_ns = Some(v()),
             other => panic!("claims: unknown argument {other}"),
         }
     }
@@ -163,6 +182,23 @@ fn parse(args: &[String]) -> Args {
         panic!(
             "claims: --invariant-preserved, --invariant-module and --invariant-unfold need --assume-invariant"
         );
+    }
+    match (tr_rel, tr_target, tr_out) {
+        (Some(rel), Some(target), Some(out)) => {
+            if a.inv.is_some() {
+                panic!(
+                    "claims: --transfer carries claims of the semantics, not under --assume-invariant"
+                );
+            }
+            a.transfer = Some(Transfer {
+                ns: tr_ns.unwrap_or(format!("{rel}Claims.Transfers")),
+                rel,
+                target,
+                out,
+            });
+        }
+        (None, None, None) if tr_ns.is_none() => {}
+        _ => panic!("claims: --transfer needs --transfer-target and --transfer-out"),
     }
     a
 }
@@ -529,6 +565,63 @@ fn translate(raw: &RawClaim, m: &Model, fns: &Fns, top: &str) -> Result<Claim, S
     })
 }
 
+/// The transfers of the proved claims of one module along `t.rel`'s bisimulation (`Transfer`):
+/// from a left-hand side satisfying the bisimulation's invariant, the other definition, started
+/// from its translation, reaches a state related to one in the claim's target
+/// (`AF.image_of_bisim`, `EF.image_of_bisim`). The target is the image of the claim's, so the
+/// statement needs no translation of the target predicate.
+fn transfer_claims(
+    out: &mut (Vec<String>, String, Vec<String>),
+    t: &Transfer,
+    ns: &str,
+    mns: &str,
+    cs: &[Claim],
+    proved: &[String],
+    top: &str,
+) {
+    let (imports, text, names) = out;
+    for c in cs {
+        let holds = format!("{ns}.{mns}.Claim.{}.holds", c.lean);
+        if !proved.contains(&holds) {
+            continue;
+        }
+        let (modality, lemma) = if c.all_path {
+            ("KClaims.AF", "KClaims.AF.image_of_bisim")
+        } else {
+            ("KClaims.EF", "KClaims.EF.image_of_bisim")
+        };
+        let rel = &t.rel;
+        let hyps: String = c.hyps.iter().map(|h| format!("\n    {h} →")).collect();
+        let vs: Vec<&str> = c.univ.iter().map(|(n, _)| n.as_str()).collect();
+        let hs: Vec<String> = (0..c.hyps.len()).map(|i| format!("h{i}")).collect();
+        let args: String = vs
+            .iter()
+            .map(|v| v.to_string())
+            .chain(hs.iter().cloned())
+            .map(|x| format!(" {x}"))
+            .collect();
+        let _ = writeln!(
+            text,
+            "/-- `claim [{}]` ({mns}) carried to `{}` along `{rel}.bisim`. -/\n\
+theorem {mns}.{}.transfer : ∀ {},{hyps}\n    {rel}.Inv ({}) →\n    {modality} {}.Step\n      (fun d => ∃ a, {rel}.R a d ∧ ({}) a)\n      ({rel}.tr_{top} ({})) :=\n  \
+fun{args} hinv => {lemma} {rel}.bisim ⟨hinv, rfl⟩ ({holds}{args})\n",
+            c.label,
+            t.target,
+            c.lean,
+            binders(&c.univ),
+            c.lhs,
+            t.target,
+            post_lambda(c),
+            c.lhs,
+        );
+        names.push(format!("{mns}.{}.transfer", c.lean));
+        let m = format!("{ns}.{mns}");
+        if !imports.contains(&m) {
+            imports.push(m);
+        }
+    }
+}
+
 fn binders(vs: &[(String, String)]) -> String {
     vs.iter()
         .map(|(n, t)| format!("({n} : {t})"))
@@ -859,6 +952,8 @@ pub fn main(args: &[String]) {
     };
     let mut modules = vec![];
     let mut proved_all = vec![];
+    // the transfers (`--transfer`): the claim modules they import, and their theorems
+    let mut transfers: (Vec<String>, String, Vec<String>) = (vec![], String::new(), vec![]);
     let mut report = String::from("# claims translated by `k2lean claims` (generated)\n");
     for spec in &a.specs {
         let raws = read_claims(spec);
@@ -886,6 +981,9 @@ pub fn main(args: &[String]) {
         for (module, cs) in by_module {
             let (text, proved) = emit_module(ns, &a.sem, &module, &cs, &open, &top, a.inv.as_ref());
             let mns = module_ns(&module);
+            if let Some(t) = &a.transfer {
+                transfer_claims(&mut transfers, t, ns, &mns, &cs, &proved, &top);
+            }
             write(a.out.join(ns).join(format!("{mns}.lean")), &text);
             eprintln!(
                 "{module}: {} claims stated, {} generic proofs",
@@ -895,6 +993,41 @@ pub fn main(args: &[String]) {
             modules.push(mns);
             proved_all.extend(proved);
         }
+    }
+    if let Some(t) = &a.transfer {
+        let (imports, text, names) = &transfers;
+        let mut f = format!("import {}.Bisim\nimport KClaims.Bisim\n", t.rel);
+        for i in imports {
+            let _ = writeln!(f, "import {i}");
+        }
+        let _ = writeln!(
+            f,
+            "\n/-! Generated by `k2lean claims --transfer {}`; do not edit.\n\n\
+Every claim that `{ns}` proves for `{}`, carried to `{}` along the bisimulation `{}.bisim` that\n\
+`k2lean relate` writes: from a left-hand side satisfying the bisimulation's invariant `{}.Inv`, the\n\
+other definition, started from the translation of that left-hand side, reaches a state related to\n\
+one in the claim's target (`AF.image_of_bisim`, `EF.image_of_bisim`). No step of `{}` is\n\
+explored. -/\n\nset_option linter.unusedVariables false\n\nnamespace {}\n\nopen {} KPrelude KClaims\n",
+            t.rel, a.sem, t.target, t.rel, t.rel, t.target, t.ns, a.sem
+        );
+        f.push_str(text);
+        if !names.is_empty() {
+            let _ = writeln!(f, "#k2l_assert_axioms {}\n", names.join(" "));
+        }
+        let _ = writeln!(f, "end {}", t.ns);
+        write(t.out.clone(), &f);
+        eprintln!(
+            "transfer: {} claims carried along {}.bisim",
+            names.len(),
+            t.rel
+        );
+        let _ = writeln!(
+            report,
+            "[transfer]\nrelation = {:?}\ntarget = {:?}\ncarried = {}\n",
+            t.rel,
+            t.target,
+            names.len()
+        );
     }
     for path in &a.induction {
         let spec = induction::read(path, &m).unwrap_or_else(|e| panic!("{}: {e}", path.display()));

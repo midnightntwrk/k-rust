@@ -17,7 +17,7 @@ kc_auto_open = 0
 
 [demo.ImpRelClaims]
 tier = "heavy"
-guarded = 11
+guarded = 29
 preserve = []
 
 [outputs]
@@ -33,6 +33,7 @@ preserve = []
 [sources]
 
 [sources.sha256]
+"demos/ImpRelClaims/ImpRelClaims/Transfers.lean" = { tier = "heavy", sha256 = "1eb83250e65b6c1d1cfe4c1b6ef974e425d05f74110d746dafedc9674f43d890" }
 "generated/kimp-claims/KImpClaims.lean" = { tier = "heavy", sha256 = "8d271101962325512c52a68389e2aa49ddd7d33af0c9713a8919942e8bfe6d96" }
 "generated/kimp-claims/KImpClaims/Basic.lean" = { tier = "heavy", sha256 = "29aaab79707abe06cd051f52f86b8458e6511003c01314c8f0792b6d1b909217" }
 "generated/kimp-claims/KImpClaims/ExprDiv.lean" = { tier = "heavy", sha256 = "98c48ef52d22d918e6704b48d52f6f8c3047ef5323b8cbac96cec805e416e1a7" }
@@ -49,7 +50,7 @@ preserve = []
 "generated/kimp-claims/KImpClaims/Replay/Branching.lean" = { tier = "heavy", sha256 = "da3e5be4aa1c1e93f998dbc4919881dfdbc96cae5bb79d444aed682ee6d38cba" }
 "generated/kimp-claims/KImpClaims/Replay/SumLoop.lean" = { tier = "heavy", sha256 = "136258e4e814b15bd0ac33237759350a83bf89da7a5148c9a8abddfef8a15253" }
 "generated/kimp-claims/KImpClaimsTest/Axioms.lean" = { tier = "heavy", sha256 = "6b9a42eb1781a19cbe48140b491ca78ffc39ec796c18d12bcd79e135bf19a9a9" }
-"generated/kimp-claims/claims.toml" = { tier = "heavy", sha256 = "774bc02e0b0e68476ecbb73800ecbf035c1c685d456739e6c24bcf2d296e60c2" }
+"generated/kimp-claims/claims.toml" = { tier = "heavy", sha256 = "563b414fdef47693827397d9fa0464d41d05f9c9cafeae66a9000fb07ccd2180" }
 "generated/kimp-claims/lakefile.lean" = { tier = "heavy", sha256 = "68c086b776e681bc287d92b13ee5930562d49da57baf153e663d430cb3e0a0f6" }
 "generated/kimp-claims/lean-toolchain" = { tier = "heavy", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
 "generated/kimpinv-claims/KImpInvClaims.lean" = { tier = "heavy", sha256 = "491e500fa8638c360885840be69fb34cf816dd2a172e2e889f407c68c7452eef" }

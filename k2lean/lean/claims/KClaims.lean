@@ -6,3 +6,4 @@ import KClaims.Tactic
 import KClaims.Invariant
 import KClaims.StepInv
 import KClaims.Bisim
+import KClaims.Stutter

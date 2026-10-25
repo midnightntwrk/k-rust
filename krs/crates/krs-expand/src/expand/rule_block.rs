@@ -3,15 +3,16 @@
 use crate::ExpandError;
 use krs_diagnostic::codes::expand;
 use krs_syntax::KrsSyntax;
-use krs_syntax::{ProvenanceRole, TokenRange};
+use krs_syntax::TokenRange;
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::ext::IdentExt;
 
 use super::existentials::{ensures_condition, existential_binders, fresh_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
+use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
-use super::terms::{TermBuilder, TermSide, WireSlots};
+use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots};
 use super::tokens::{call_site_cfg_attributes, call_site_path, sort_type_tokens, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -67,18 +68,18 @@ fn expand_head_rule(
     imports: &[syn::ItemUse],
     configuration_owned: bool,
 ) -> crate::Result<TokenStream> {
-    let rule_left_cells_field_role = ProvenanceRole::RuleLeftCellsField;
-    let rule_right_cells_field_role = ProvenanceRole::RuleRightCellsField;
-    let rule_requires_role = ProvenanceRole::RuleRequires;
-    let rule_label_role = ProvenanceRole::RuleLabel;
-    let rule_type_role = ProvenanceRole::RuleType;
-    let rule_pattern_role = ProvenanceRole::RulePattern;
-    let rule_result_role = ProvenanceRole::RuleResult;
     let facade = env.facade_path()?;
     let rule = clause.rule();
     let anchors = clause.descriptor_provenance()?;
     let fallback = TokenRange::for_tokens(rule.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
+    let ledger = KeyLedger::new(
+        &anchors,
+        &[
+            krs_syntax::ProvenanceRole::RuleDeclaration,
+            krs_syntax::ProvenanceRole::ClaimDeclaration,
+        ],
+    );
     let nonce = expansion_nonce(env, "head_rule", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_head_rule_descriptor_{nonce:016x}");
     let sort_key = format_ident!("__krs_head_rule_sort_{nonce:016x}");
@@ -96,7 +97,7 @@ fn expand_head_rule(
         .cloned()
         .chain(rule.existentials().names())
         .collect::<Vec<_>>();
-    let mut builder = TermBuilder::new(&facade, nonce, &cfg, &binding_idents)
+    let mut builder = TermBuilder::new(&facade, &ledger, nonce, &cfg, &binding_idents)
         .with_lexical_imports((!imports.is_empty()).then_some(imports))
         .with_lexical_rule_head(imports.is_empty())
         .with_readable_instances();
@@ -122,13 +123,6 @@ fn expand_head_rule(
             .enumerate()
             .find(|(_, narrowing)| narrowing.binding().unraw() == binding.unraw())
         {
-            let ordinal = u32::try_from(ordinal).map_err(|_| {
-                ExpandError::new(
-                    expand::DESCRIPTOR_CAPACITY,
-                    binding.span(),
-                    "too many rule refinements",
-                )
-            })?;
             let key_fn = format_ident!("__krs_head_rule_refinement_{nonce:016x}_{ordinal}");
             // Keep the authored narrowing path visible to language tooling.
             let path = narrowing.sort();
@@ -145,7 +139,7 @@ fn expand_head_rule(
             });
             let slot = slots.type_slot(quote!(#facade::HostTypeKey(#key_fn)));
             Some(krs_ir::wire::WireSortReference {
-                key: ProvenanceRole::RuleBindingType.key(ordinal),
+                key: ledger.define(narrowing.sort_key())?,
                 target: krs_ir::wire::WireTypeReference {
                     slot,
                     authored_path: authored,
@@ -162,34 +156,42 @@ fn expand_head_rule(
     let alternative = clause.bracket_alternative();
     let mut items = Vec::new();
     if clause.head().is_some_and(krs_syntax::RuleHead::subject) {
-        items.push(builder.expand_wire(rule.subject_tree(), TermSide::Left, &mut slots)?);
+        items.push(builder.expand_wire(
+            KeyedTerm::pattern(&rule.parameter().pattern, rule.subject_tree()),
+            TermSide::Left,
+            &mut slots,
+        )?);
     }
-    // The computation items after the first are expanded before the other
-    // cells, as the parser numbers their anchors.
+    // The computation items after the first are the head's, before the
+    // other cells.
     for item in clause.head().iter().flat_map(|head| head.following()) {
-        items.push(builder.expand_wire(item.tree(), TermSide::Left, &mut slots)?);
+        items.push(builder.expand_wire(
+            KeyedTerm::pattern(item.pattern(), item.tree()),
+            TermSide::Left,
+            &mut slots,
+        )?);
     }
 
-    let mut have_ordinal = 0_u32;
-    let mut update_ordinal = 0_u32;
     let mut have_extras = Vec::new();
     let mut rewrite_befores = Vec::new();
     let mut state_befores = Vec::new();
     let mut list_befores = Vec::new();
-    // Optional and collection states (KF-023) number their sequence and
-    // instance keys per side, as the parser numbers their anchors.
-    let mut left_states = krs_syntax::ReadableStateCounters::default();
-    let mut right_states = krs_syntax::ReadableStateCounters::after_head(clause.head_result());
-    for extra in clause.extras() {
+    for (extra, extra_keys) in clause.extras().iter().zip(clause.extra_keys()) {
         match extra {
             krs_syntax::RuleExtra::HaveMap { cell, entries } => {
                 let cell_name = cell.unraw().to_string();
+                // An entry's key term and value binder carry no keys of
+                // their own on the wire: the entry denotes both.
+                for entry in entries {
+                    ledger.define(entry.key.keys().payload())?;
+                    ledger.define(entry.value_key())?;
+                }
                 let entries = entries
                     .iter()
                     .map(|entry| {
                         Ok(krs_ir::wire::WireHeadRuleMapEntry {
                             key: builder.expand_wire(
-                                entry.key.tree(),
+                                KeyedTerm::of(&entry.key),
                                 TermSide::Left,
                                 &mut slots,
                             )?,
@@ -197,35 +199,30 @@ fn expand_head_rule(
                         })
                     })
                     .collect::<Result<Vec<_>, ExpandError>>()?;
-                let ordinal = have_ordinal;
-                have_ordinal = have_ordinal.checked_add(1).ok_or_else(|| {
-                    ExpandError::new(
-                        expand::DESCRIPTOR_CAPACITY,
-                        cell.span(),
-                        "too many readable cell reads",
-                    )
-                })?;
                 have_extras.push(krs_ir::wire::WireHeadRuleExtra::HaveMap {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: rule_left_cells_field_role.key(ordinal),
+                        key: ledger.define(extra_keys.cell())?,
                         name: cell_name,
                     },
                     entries,
                 });
             }
             krs_syntax::RuleExtra::RewriteCell {
-                cell, before_tree, ..
+                cell,
+                before,
+                before_tree,
+                ..
             } => {
-                let before = builder.expand_wire(before_tree, TermSide::Left, &mut slots)?;
-                let ordinal = have_ordinal;
-                have_ordinal = have_ordinal.checked_add(1).ok_or_else(|| {
-                    ExpandError::new(
-                        expand::DESCRIPTOR_CAPACITY,
-                        cell.span(),
-                        "too many readable cell reads",
-                    )
-                })?;
-                rewrite_befores.push((cell.unraw().to_string(), ordinal, before));
+                let before = builder.expand_wire(
+                    KeyedTerm::pattern(before, before_tree),
+                    TermSide::Left,
+                    &mut slots,
+                )?;
+                rewrite_befores.push((
+                    cell.unraw().to_string(),
+                    ledger.define(extra_keys.cell())?,
+                    before,
+                ));
             }
             krs_syntax::RuleExtra::RewriteState { cell, before, .. } => {
                 let before = readable_state_wire(
@@ -233,31 +230,30 @@ fn expand_head_rule(
                     &mut ReadableStateContext {
                         builder: &mut builder,
                         slots: &mut slots,
-                        counters: &mut left_states,
                         side: krs_syntax::RuleSide::Left,
                     },
                 )?;
-                let ordinal = have_ordinal;
-                have_ordinal = have_ordinal.checked_add(1).ok_or_else(|| {
-                    ExpandError::new(
-                        expand::DESCRIPTOR_CAPACITY,
-                        cell.span(),
-                        "too many readable cell reads",
-                    )
-                })?;
-                state_befores.push((cell.unraw().to_string(), ordinal, before));
+                state_befores.push((
+                    cell.unraw().to_string(),
+                    ledger.define(extra_keys.cell())?,
+                    before,
+                ));
             }
             krs_syntax::RuleExtra::RewriteList { cell, before, .. } => {
                 let mut items = Vec::with_capacity(before.items().len());
                 for item in before.items() {
-                    items.push(builder.expand_wire(item.tree(), TermSide::Left, &mut slots)?);
+                    items.push(builder.expand_wire(
+                        KeyedTerm::pattern(item.pattern(), item.tree()),
+                        TermSide::Left,
+                        &mut slots,
+                    )?);
                 }
                 let rest = match before.rest() {
                     krs_syntax::RuleListRest::Exact => krs_ir::ProtocolHeadRuleListRest::Exact,
                     krs_syntax::RuleListRest::Shared(_) => krs_ir::ProtocolHeadRuleListRest::Shared,
                     krs_syntax::RuleListRest::Named(rest) => {
                         krs_ir::ProtocolHeadRuleListRest::Term(builder.expand_wire(
-                            rest.tree(),
+                            KeyedTerm::pattern(rest.pattern(), rest.tree()),
                             TermSide::Left,
                             &mut slots,
                         )?)
@@ -265,19 +261,15 @@ fn expand_head_rule(
                 };
                 let mut back = Vec::with_capacity(before.back().len());
                 for item in before.back() {
-                    back.push(builder.expand_wire(item.tree(), TermSide::Left, &mut slots)?);
+                    back.push(builder.expand_wire(
+                        KeyedTerm::pattern(item.pattern(), item.tree()),
+                        TermSide::Left,
+                        &mut slots,
+                    )?);
                 }
-                let ordinal = have_ordinal;
-                have_ordinal = have_ordinal.checked_add(1).ok_or_else(|| {
-                    ExpandError::new(
-                        expand::DESCRIPTOR_CAPACITY,
-                        cell.span(),
-                        "too many readable cell reads",
-                    )
-                })?;
                 list_befores.push((
                     cell.unraw().to_string(),
-                    ordinal,
+                    ledger.define(extra_keys.cell())?,
                     krs_ir::wire::WireHeadRuleList { items, rest, back },
                 ));
             }
@@ -285,17 +277,22 @@ fn expand_head_rule(
         }
     }
 
-    builder.reset_side();
     let result = match clause.head_result() {
         None => None,
         Some(krs_syntax::RuleHeadResult::Replace(term)) => {
-            let term = builder.expand_wire(term.tree(), TermSide::Right, &mut slots)?;
+            let term = builder.expand_wire(KeyedTerm::of(term), TermSide::Right, &mut slots)?;
             Some(krs_ir::wire::WireHeadRuleResult::Replace(term))
         }
         Some(krs_syntax::RuleHeadResult::Splice { items, .. }) => {
+            // The splice carries its sequence's and its items' keys on no
+            // wire field: it denotes the sequence, each wire term an item.
+            ledger.define(clause.splice_key())?;
+            for item in items {
+                ledger.define(item.keys().payload())?;
+            }
             let items = items
                 .iter()
-                .map(|item| builder.expand_wire(item.tree(), TermSide::Right, &mut slots))
+                .map(|item| builder.expand_wire(KeyedTerm::of(item), TermSide::Right, &mut slots))
                 .collect::<Result<Vec<_>, _>>()?;
             Some(krs_ir::wire::WireHeadRuleResult::Splice(items))
         }
@@ -310,7 +307,7 @@ fn expand_head_rule(
     let mut rewrite_index = 0_usize;
     let mut state_index = 0_usize;
     let mut list_index = 0_usize;
-    for extra in clause.extras() {
+    for (extra, extra_keys) in clause.extras().iter().zip(clause.extra_keys()) {
         match extra {
             krs_syntax::RuleExtra::RewriteState {
                 cell,
@@ -318,38 +315,26 @@ fn expand_head_rule(
                 after,
                 ..
             } => {
-                let (cell_name, left_ordinal, before) = &state_befores[state_index];
+                let (cell_name, left_key, before) = &state_befores[state_index];
                 state_index += 1;
                 debug_assert_eq!(cell_name, &cell.unraw().to_string());
                 let (result_key, after) = match (result_cell, after) {
-                    (Some(result_cell), Some(after)) => {
+                    (Some(_), Some(after)) => {
                         let after = readable_state_wire(
                             after,
                             &mut ReadableStateContext {
                                 builder: &mut builder,
                                 slots: &mut slots,
-                                counters: &mut right_states,
                                 side: krs_syntax::RuleSide::Right,
                             },
                         )?;
-                        let right_ordinal = update_ordinal;
-                        update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
-                            ExpandError::new(
-                                expand::DESCRIPTOR_CAPACITY,
-                                result_cell.span(),
-                                "too many readable cell updates",
-                            )
-                        })?;
-                        (
-                            Some(rule_right_cells_field_role.key(right_ordinal)),
-                            Some(after),
-                        )
+                        (Some(ledger.define(extra_keys.result_cell())?), Some(after))
                     }
                     _ => (None, None),
                 };
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::RewriteState {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: rule_left_cells_field_role.key(*left_ordinal),
+                        key: left_key.clone(),
                         name: cell_name.clone(),
                     },
                     result_key,
@@ -360,19 +345,14 @@ fn expand_head_rule(
             krs_syntax::RuleExtra::UpdateMap { cell, base, update } => {
                 let cell_name = cell.unraw().to_string();
                 let base_binding = base.unraw().to_string();
-                let update =
-                    builder.expand_wire(update.term().tree(), TermSide::Right, &mut slots)?;
-                let ordinal = update_ordinal;
-                update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
-                    ExpandError::new(
-                        expand::DESCRIPTOR_CAPACITY,
-                        cell.span(),
-                        "too many readable cell updates",
-                    )
-                })?;
+                let update = builder.expand_wire(
+                    KeyedTerm::of(update.term()),
+                    TermSide::Right,
+                    &mut slots,
+                )?;
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::UpdateMap {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: rule_right_cells_field_role.key(ordinal),
+                        key: ledger.define(extra_keys.result_cell())?,
                         name: cell_name,
                     },
                     base_binding,
@@ -380,31 +360,21 @@ fn expand_head_rule(
                 });
             }
             krs_syntax::RuleExtra::RewriteCell { cell, after, .. } => {
-                let (cell_name, left_ordinal, before) = &rewrite_befores[rewrite_index];
+                let (cell_name, left_key, before) = &rewrite_befores[rewrite_index];
                 rewrite_index += 1;
                 debug_assert_eq!(cell_name, &cell.unraw().to_string());
                 // A cell the result leaves out is read only: it has no
                 // result term and no result-field key.
                 let (result_key, after) = if let Some(after) = after {
-                    let after = builder.expand_wire(after.tree(), TermSide::Right, &mut slots)?;
-                    let right_ordinal = update_ordinal;
-                    update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
-                        ExpandError::new(
-                            expand::DESCRIPTOR_CAPACITY,
-                            cell.span(),
-                            "too many readable cell updates",
-                        )
-                    })?;
-                    (
-                        Some(rule_right_cells_field_role.key(right_ordinal)),
-                        Some(after),
-                    )
+                    let after =
+                        builder.expand_wire(KeyedTerm::of(after), TermSide::Right, &mut slots)?;
+                    (Some(ledger.define(extra_keys.result_cell())?), Some(after))
                 } else {
                     (None, None)
                 };
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::RewriteCell {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: rule_left_cells_field_role.key(*left_ordinal),
+                        key: left_key.clone(),
                         name: cell_name.clone(),
                     },
                     result_key,
@@ -418,15 +388,15 @@ fn expand_head_rule(
                 after,
                 ..
             } => {
-                let (cell_name, left_ordinal, before) = &list_befores[list_index];
+                let (cell_name, left_key, before) = &list_befores[list_index];
                 list_index += 1;
                 debug_assert_eq!(cell_name, &cell.unraw().to_string());
                 let (result_key, after) = match (result_cell, after) {
-                    (Some(result_cell), Some(after)) => {
+                    (Some(_), Some(after)) => {
                         let mut items = Vec::with_capacity(after.items().len());
                         for item in after.items() {
                             items.push(builder.expand_wire(
-                                item.tree(),
+                                KeyedTerm::of(item),
                                 TermSide::Right,
                                 &mut slots,
                             )?);
@@ -440,7 +410,7 @@ fn expand_head_rule(
                             }
                             krs_syntax::RuleListRest::Named(rest) => {
                                 krs_ir::ProtocolHeadRuleListRest::Term(builder.expand_wire(
-                                    rest.tree(),
+                                    KeyedTerm::of(rest),
                                     TermSide::Right,
                                     &mut slots,
                                 )?)
@@ -449,21 +419,13 @@ fn expand_head_rule(
                         let mut back = Vec::with_capacity(after.back().len());
                         for item in after.back() {
                             back.push(builder.expand_wire(
-                                item.tree(),
+                                KeyedTerm::of(item),
                                 TermSide::Right,
                                 &mut slots,
                             )?);
                         }
-                        let right_ordinal = update_ordinal;
-                        update_ordinal = update_ordinal.checked_add(1).ok_or_else(|| {
-                            ExpandError::new(
-                                expand::DESCRIPTOR_CAPACITY,
-                                result_cell.span(),
-                                "too many readable cell updates",
-                            )
-                        })?;
                         (
-                            Some(rule_right_cells_field_role.key(right_ordinal)),
+                            Some(ledger.define(extra_keys.result_cell())?),
                             Some(krs_ir::wire::WireHeadRuleList { items, rest, back }),
                         )
                     }
@@ -471,7 +433,7 @@ fn expand_head_rule(
                 };
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::RewriteList {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: rule_left_cells_field_role.key(*left_ordinal),
+                        key: left_key.clone(),
                         name: cell_name.clone(),
                     },
                     result_key,
@@ -488,6 +450,11 @@ fn expand_head_rule(
         None => None,
         Some(alternative) => {
             let name = alternative.cell().unraw().to_string();
+            // The parser attaches an alternative only beside a reading that
+            // holds its records: the cell read as a list's elements, which
+            // is a `RewriteList` extra of the cell, or the cell read as the
+            // computation cell, which is the head. Without either, the
+            // alternative's nodes would reach no wire node.
             let records = update_extras
                 .iter()
                 .find_map(|extra| match extra {
@@ -501,45 +468,56 @@ fn expand_head_rule(
                     }
                     _ => None,
                 })
-                .or_else(|| head.as_ref().map(AlternativeRecords::head));
-            match records {
-                Some(records) => Some(bracket_alternative_wire(
-                    alternative,
-                    &records,
-                    &bindings,
-                    &mut BracketCounters {
-                        left: &mut left_states,
-                        right: &mut right_states,
-                        left_cell: have_ordinal,
-                        right_cell: update_ordinal,
-                    },
-                )?),
-                None => None,
-            }
+                .or_else(|| head.as_ref().map(AlternativeRecords::head))
+                .ok_or_else(|| {
+                    ExpandError::new(
+                        expand::UNCONSUMED_PROVENANCE_KEY,
+                        alternative.cell().span(),
+                        "the List reading of this bracketed cell value stands beside no head and no list reading of the cell, so the descriptor would drop it; this is a bug in KRS, not in the definition",
+                    )
+                })?;
+            Some(bracket_alternative_wire(
+                &ledger,
+                alternative,
+                &records,
+                &bindings,
+            )?)
         }
     };
     let mut extras = have_extras;
     extras.extend(update_extras);
-    builder.reset_side();
     let requires = if let Some(condition) = rule.requires() {
-        let term = builder.expand_wire(condition.term().tree(), TermSide::Requires, &mut slots)?;
+        let term = builder.expand_wire(
+            KeyedTerm::of(condition.term()),
+            TermSide::Requires,
+            &mut slots,
+        )?;
         Some(krs_ir::wire::WireRuleCondition {
-            key: rule_requires_role.key(0),
+            key: ledger.define(condition.term().keys().payload())?,
             term,
         })
     } else {
         None
     };
-    builder.reset_side();
     let ensures = ensures_condition(rule.existentials(), &mut builder, &mut slots)?;
-    let (existentials, existential_key_functions) =
-        existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
-    let (fresh, fresh_key_functions) =
-        fresh_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
+    let (existentials, existential_key_functions) = existential_binders(
+        rule.existentials(),
+        (&facade, &ledger),
+        nonce,
+        &cfg,
+        &mut slots,
+    )?;
+    let (fresh, fresh_key_functions) = fresh_binders(
+        rule.existentials(),
+        (&facade, &ledger),
+        nonce,
+        &cfg,
+        &mut slots,
+    )?;
     let (evaluation, evaluation_key_function) = super::existentials::evaluation_step(
         clause.attribute(),
         rule.existentials(),
-        (&facade, nonce, &cfg),
+        (&facade, &ledger, nonce, &cfg),
         &mut slots,
     )?;
     let mut key_functions = builder.key_functions;
@@ -568,11 +546,16 @@ fn expand_head_rule(
     // carries (F7).
     let label = Some(match clause.claim() {
         Some(claim) => krs_ir::DescriptorRuleLabel {
-            key: ProvenanceRole::ClaimLabel.key(0),
+            key: ledger.define(claim.label_key())?,
             name: claim.label().value(),
         },
+        // The clause's name, or its `#[k::rule(label = ..)]`.
         None => krs_ir::DescriptorRuleLabel {
-            key: rule_label_role.key(0),
+            key: ledger.define(
+                clause
+                    .label_key()
+                    .or_else(|| clause.attribute().label_key()),
+            )?,
             name: clause.attribute().label().map_or_else(
                 || rule.item().sig.ident.unraw().to_string().replace('_', "-"),
                 syn::LitStr::value,
@@ -584,15 +567,19 @@ fn expand_head_rule(
             krs_ir::SentenceKind::Claim,
             quote!(#facade::ItemKind::Claim),
             Some(krs_ir::HeadRuleClaim {
-                modality_key: ProvenanceRole::ClaimModality.key(0),
+                modality_key: ledger.define(claim.modality_key())?,
                 modality: match claim.modality() {
                     krs_syntax::ClaimModality::AllPaths => krs_ir::ClaimModality::AllPaths,
                     krs_syntax::ClaimModality::OnePath => krs_ir::ClaimModality::OnePath,
                 },
                 circularity_key: claim
                     .circularity()
-                    .then(|| ProvenanceRole::ClaimCircularity.key(0)),
-                trusted_key: claim.trusted().then(|| ProvenanceRole::ClaimTrusted.key(0)),
+                    .then(|| ledger.define(claim.circularity_key()))
+                    .transpose()?,
+                trusted_key: claim
+                    .trusted()
+                    .then(|| ledger.define(claim.trusted_key()))
+                    .transpose()?,
             }),
         ),
         None => (
@@ -604,10 +591,18 @@ fn expand_head_rule(
     let priority = clause
         .attribute()
         .transition_priority()
-        .map(|(role, value)| krs_ir::DescriptorRulePriority {
-            key: role.key(0),
-            value,
-        });
+        .map(|(_, value)| -> crate::Result<_> {
+            Ok(krs_ir::DescriptorRulePriority {
+                key: ledger.define(
+                    clause
+                        .attribute()
+                        .owise_key()
+                        .or_else(|| clause.attribute().priority_key()),
+                )?,
+                value,
+            })
+        })
+        .transpose()?;
     let original = rule.item();
     let attrs = &original.attrs;
     let visibility = &original.vis;
@@ -615,6 +610,11 @@ fn expand_head_rule(
     let name_ident = &original.sig.ident;
     let name = name_ident.unraw().to_string();
     let parameter_type = rule.parameter().term_sort.ty();
+    // A clause's one sort is its subject's and its result's: the sentence
+    // keys the authored sort as both types, and the head's sort denotes it.
+    if rule.result_type_key().is_some() {
+        ledger.define(rule.result_type_key())?;
+    }
     let (head_sort, configuration, computation_cell_name) = if configuration_owned {
         let computation_cell = match (clause.computation_cell(), &head) {
             (Some(cell), Some(_)) => Some(cell.unraw().to_string()),
@@ -630,7 +630,7 @@ fn expand_head_rule(
         (
             None,
             Some(krs_ir::wire::WireConfigurationReference {
-                key: rule_type_role.key(0),
+                key: ledger.define(rule.parameter().type_key())?,
                 configuration: krs_ir::wire::WireTypeReference {
                     slot: sort_slot,
                     authored_path: sort_spelling,
@@ -641,7 +641,7 @@ fn expand_head_rule(
     } else {
         (
             Some(krs_ir::wire::WireSortReference {
-                key: rule_type_role.key(0),
+                key: ledger.define(rule.parameter().type_key())?,
                 target: krs_ir::wire::WireTypeReference {
                     slot: sort_slot,
                     authored_path: sort_spelling,
@@ -655,17 +655,25 @@ fn expand_head_rule(
     let nondet = clause
         .attribute()
         .nondet()
-        .map(|group| krs_ir::DescriptorNondetGroup {
-            key: ProvenanceRole::RuleNondetGroup.key(0),
-            name: group.unraw().to_string(),
-        });
+        .map(|group| -> crate::Result<_> {
+            Ok(krs_ir::DescriptorNondetGroup {
+                key: ledger.define(clause.attribute().nondet_key())?,
+                name: group.unraw().to_string(),
+            })
+        })
+        .transpose()?;
     let wire = krs_ir::wire::WirePayload::HeadRule(Box::new(krs_ir::wire::WireHeadRule {
         sentence_kind,
         label,
         priority,
         nondet,
-        pattern_key: rule_pattern_role.key(0),
-        result_key: rule_result_role.key(0),
+        // The whole subject record, or the computation item's pattern.
+        pattern_key: ledger.define(
+            clause
+                .pattern_key()
+                .or_else(|| rule.parameter().pattern_key()),
+        )?,
+        result_key: ledger.define(clause.result_key())?,
         head_sort,
         configuration,
         computation_cell_name,
@@ -680,6 +688,7 @@ fn expand_head_rule(
         bracket_alternative,
         claim,
     }));
+    ledger.finish()?;
     let wire = serde_json::to_string(&wire).expect("head-rule wire is serializable");
     let slot_tokens = slots.tokens();
 
@@ -725,28 +734,12 @@ fn expand_head_rule(
 struct ReadableStateContext<'a, 'b> {
     builder: &'a mut TermBuilder<'b>,
     slots: &'a mut WireSlots,
-    counters: &'a mut krs_syntax::ReadableStateCounters,
     side: krs_syntax::RuleSide,
 }
 
-impl ReadableStateContext<'_, '_> {
-    fn key(
-        role: krs_syntax::RuleRole,
-        side: krs_syntax::RuleSide,
-        counter: &mut usize,
-    ) -> crate::Result<krs_ir::ProvenanceKey> {
-        // The count is the whole sentence's, so no one node is the subject.
-        let ordinal = u32::try_from(*counter).map_err(|_| {
-            ExpandError::at_invocation(expand::DESCRIPTOR_CAPACITY, "too many readable state keys")
-        })?;
-        *counter += 1;
-        Ok(role.on_side(side).key(ordinal))
-    }
-}
-
 /// The wire form of a readable optional or collection state (KF-023): its
-/// terms come from the shared term builder and its sequence and instance keys
-/// follow `krs_syntax::ReadableStateCounters`.
+/// terms come from the shared term builder, and its sequence and instance
+/// nodes hold their keys.
 #[expect(
     clippy::too_many_lines,
     reason = "One match maps every readable state shape to the wire in the expansion order the anchors follow."
@@ -756,12 +749,12 @@ fn readable_state_wire(
     context: &mut ReadableStateContext<'_, '_>,
 ) -> crate::Result<krs_ir::ProtocolRuleStateTerm<krs_ir::wire::WireTerm>> {
     use krs_ir::ProtocolRuleStateTerm as State;
-    use krs_syntax::{RuleRole, StateMacroRemainder, StateTerm};
+    use krs_syntax::{StateMacroRemainder, StateTerm};
+    let ledger = context.builder.ledger;
     let term_side = match context.side {
         krs_syntax::RuleSide::Left => TermSide::Left,
         krs_syntax::RuleSide::Right => TermSide::Right,
     };
-    let side = context.side;
     Ok(match state {
         StateTerm::Present(inner) => State::Present {
             value: Box::new(readable_state_wire(inner, context)?),
@@ -770,7 +763,7 @@ fn readable_state_wire(
         StateTerm::Term(term) | StateTerm::Group(term) => State::Term(
             context
                 .builder
-                .expand_wire(term.tree(), term_side, context.slots)?,
+                .expand_wire(KeyedTerm::of(term), term_side, context.slots)?,
         ),
         StateTerm::KSequence(sequence) => {
             let payload_key = if sequence.items().is_empty()
@@ -778,33 +771,23 @@ fn readable_state_wire(
             {
                 None
             } else {
-                Some(ReadableStateContext::key(
-                    RuleRole::KSequencePayload,
-                    side,
-                    &mut context.counters.k_payload,
-                )?)
+                Some(ledger.define(sequence.payload_key())?)
             };
             let mut items = Vec::new();
             for item in sequence.items() {
-                let key = ReadableStateContext::key(
-                    RuleRole::KSequenceItem,
-                    side,
-                    &mut context.counters.k_item,
-                )?;
+                let key = ledger.define(item.keys().payload())?;
                 items.push(krs_ir::ProtocolRuleKSequenceItem {
                     key,
-                    value: context
-                        .builder
-                        .expand_wire(item.tree(), term_side, context.slots)?,
+                    value: context.builder.expand_wire(
+                        KeyedTerm::of(item),
+                        term_side,
+                        context.slots,
+                    )?,
                 });
             }
             let tail = match sequence.tail() {
                 StateMacroRemainder::Anonymous(_) => krs_ir::ProtocolRuleFrame::Anonymous {
-                    key: ReadableStateContext::key(
-                        RuleRole::KSequenceTail,
-                        side,
-                        &mut context.counters.k_tail,
-                    )?,
+                    key: ledger.define(sequence.tail_key())?,
                 },
                 _ => krs_ir::ProtocolRuleFrame::Exact,
             };
@@ -829,18 +812,10 @@ fn readable_state_wire(
              -> crate::Result<
                 krs_ir::ProtocolRuleInstance<krs_ir::wire::WireTerm>,
             > {
-                let key = ReadableStateContext::key(
-                    RuleRole::CellsInstance,
-                    side,
-                    &mut context.counters.instance,
-                )?;
+                let key = ledger.define(item.key())?;
                 let mut fields = Vec::new();
                 for field in item.fields() {
-                    let key = ReadableStateContext::key(
-                        RuleRole::CellsInstanceField,
-                        side,
-                        &mut context.counters.instance_field,
-                    )?;
+                    let key = ledger.define(field.name_key())?;
                     fields.push(krs_ir::ProtocolRuleInstanceField {
                         key,
                         field: field.name().to_string(),
@@ -862,11 +837,7 @@ fn readable_state_wire(
             let rest = match list.rest() {
                 StateMacroRemainder::Exact => krs_ir::ProtocolRuleFrame::Exact,
                 _ => krs_ir::ProtocolRuleFrame::Anonymous {
-                    key: ReadableStateContext::key(
-                        RuleRole::CellsInstancesRest,
-                        side,
-                        &mut context.counters.instances_rest,
-                    )?,
+                    key: ledger.define(list.rest_key())?,
                 },
             };
             let back = list
@@ -887,16 +858,6 @@ fn readable_state_wire(
             })
         }
     })
-}
-
-/// The counters a bracket alternative continues: the per-side state
-/// counters and the next left and right cell-name ordinals after every other
-/// extra of the clause.
-struct BracketCounters<'a> {
-    left: &'a mut krs_syntax::ReadableStateCounters,
-    right: &'a mut krs_syntax::ReadableStateCounters,
-    left_cell: u32,
-    right_cell: u32,
 }
 
 /// The records a bracket alternative's instances take their children from:
@@ -948,10 +909,10 @@ impl<'t> AlternativeRecords<'t> {
 /// whose children are the already-expanded terms of the reading the clause
 /// took, the computation cell's head or the cell's list elements.
 fn bracket_alternative_wire(
+    ledger: &KeyLedger<'_>,
     alternative: &krs_syntax::BracketAlternative,
     records: &AlternativeRecords<'_>,
     bindings: &[krs_ir::wire::WireHeadRuleBinding],
-    counters: &mut BracketCounters<'_>,
 ) -> crate::Result<krs_ir::wire::WireHeadRuleBracketAlternative> {
     let mismatch = || {
         ExpandError::new(
@@ -968,20 +929,12 @@ fn bracket_alternative_wire(
     };
     let subject = (children(&records.subject.0)?, children(&records.subject.1)?);
     let results = (children(&records.result.0)?, children(&records.result.1)?);
-    let before = alternative_instances(
-        alternative.before(),
-        krs_syntax::RuleSide::Left,
-        counters.left,
-        subject,
-    )
-    .ok_or_else(mismatch)?;
+    let before =
+        alternative_instances(ledger, alternative.before(), subject)?.ok_or_else(mismatch)?;
     let (result_key, after) = match alternative.after() {
         Some(after) => (
-            Some(ProvenanceRole::RuleRightCellsField.key(counters.right_cell)),
-            Some(
-                alternative_instances(after, krs_syntax::RuleSide::Right, counters.right, results)
-                    .ok_or_else(mismatch)?,
-            ),
+            Some(ledger.define(alternative.result_cell_key())?),
+            Some(alternative_instances(ledger, after, results)?.ok_or_else(mismatch)?),
         ),
         None => (None, None),
     };
@@ -1000,7 +953,7 @@ fn bracket_alternative_wire(
         bindings,
         extra: krs_ir::wire::WireHeadRuleExtra::RewriteState {
             cell: krs_ir::wire::WireHeadRuleCellReference {
-                key: ProvenanceRole::RuleLeftCellsField.key(counters.left_cell),
+                key: ledger.define(alternative.cell_key())?,
                 name: alternative.cell().unraw().to_string(),
             },
             result_key,
@@ -1029,67 +982,73 @@ fn record_children(term: &krs_ir::wire::WireTerm) -> Option<Vec<krs_ir::wire::Wi
 }
 
 /// One side's instance list of a bracket alternative, whose records before
-/// and after its rest take their children from `records` in order, keyed in
-/// the order the parser anchors them: the records front first, then the
-/// rest.
+/// and after its rest take their children from `records` in order; `None`
+/// when the list's shape does not match the records.
 fn alternative_instances(
+    ledger: &KeyLedger<'_>,
     state: &krs_syntax::StateTerm,
-    side: krs_syntax::RuleSide,
-    counters: &mut krs_syntax::ReadableStateCounters,
     records: (
         Vec<Vec<krs_ir::wire::WireTerm>>,
         Vec<Vec<krs_ir::wire::WireTerm>>,
     ),
-) -> Option<krs_ir::ProtocolRuleStateTerm<krs_ir::wire::WireTerm>> {
-    use krs_syntax::{RuleRole, StateMacroRemainder, StateTerm};
+) -> crate::Result<Option<krs_ir::ProtocolRuleStateTerm<krs_ir::wire::WireTerm>>> {
+    use krs_syntax::{StateMacroRemainder, StateTerm};
     let StateTerm::Instances(list) = state else {
-        return None;
+        return Ok(None);
     };
     let (front_records, back_records) = records;
-    if list.front().len() != front_records.len() || list.back().len() != back_records.len() {
-        return None;
+    if list.front().len() != front_records.len()
+        || list.back().len() != back_records.len()
+        || list
+            .front()
+            .iter()
+            .zip(&front_records)
+            .chain(list.back().iter().zip(&back_records))
+            .any(|(item, children)| item.fields().len() != children.len())
+    {
+        return Ok(None);
     }
-    let key =
-        |role: RuleRole, counter: &mut usize| ReadableStateContext::key(role, side, counter).ok();
-    let mut instances = |items: &[krs_syntax::InstanceItem],
-                         records: Vec<Vec<krs_ir::wire::WireTerm>>| {
-        let mut instances = Vec::with_capacity(records.len());
-        for (item, children) in items.iter().zip(records) {
-            if item.fields().len() != children.len() {
-                return None;
-            }
-            let instance = key(RuleRole::CellsInstance, &mut counters.instance)?;
-            let mut fields = Vec::with_capacity(children.len());
-            for (field, value) in item.fields().iter().zip(children) {
-                fields.push(krs_ir::ProtocolRuleInstanceField {
-                    key: key(RuleRole::CellsInstanceField, &mut counters.instance_field)?,
-                    field: field.name().to_string(),
-                    value: krs_ir::ProtocolRuleStateTerm::Term(value),
-                });
-            }
-            instances.push(krs_ir::ProtocolRuleInstance {
-                key: instance,
-                label: item.label().map(ToString::to_string),
-                fields,
-                rest: super::state_rules::instance_rest(item.rest()),
-            });
-        }
-        Some(instances)
+    let instances = |items: &[krs_syntax::InstanceItem],
+                     records: Vec<Vec<krs_ir::wire::WireTerm>>| {
+        items
+            .iter()
+            .zip(records)
+            .map(|(item, children)| {
+                let fields = item
+                    .fields()
+                    .iter()
+                    .zip(children)
+                    .map(|(field, value)| {
+                        Ok(krs_ir::ProtocolRuleInstanceField {
+                            key: ledger.define(field.name_key())?,
+                            field: field.name().to_string(),
+                            value: krs_ir::ProtocolRuleStateTerm::Term(value),
+                        })
+                    })
+                    .collect::<crate::Result<_>>()?;
+                Ok(krs_ir::ProtocolRuleInstance {
+                    key: ledger.define(item.key())?,
+                    label: item.label().map(ToString::to_string),
+                    fields,
+                    rest: super::state_rules::instance_rest(item.rest()),
+                })
+            })
+            .collect::<crate::Result<Vec<_>>>()
     };
     let front = instances(list.front(), front_records)?;
     let back = instances(list.back(), back_records)?;
     let rest = match list.rest() {
         StateMacroRemainder::Exact => krs_ir::ProtocolRuleFrame::Exact,
         _ => krs_ir::ProtocolRuleFrame::Anonymous {
-            key: key(RuleRole::CellsInstancesRest, &mut counters.instances_rest)?,
+            key: ledger.define(list.rest_key())?,
         },
     };
-    Some(krs_ir::ProtocolRuleStateTerm::Instances(
+    Ok(Some(krs_ir::ProtocolRuleStateTerm::Instances(
         krs_ir::ProtocolRuleInstances {
             delimiter: krs_ir::InstanceDelimiter::Bracket,
             front,
             rest,
             back,
         },
-    ))
+    )))
 }

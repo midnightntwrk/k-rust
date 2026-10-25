@@ -17,9 +17,10 @@ use quote::{ToTokens, format_ident, quote};
 use syn::{Attribute, Fields, Ident, ItemEnum, Path};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
+use super::ledger::KeyLedger;
 use super::nonce::{expansion_nonce, rule_application_selector};
 use super::productions::{production_documentation_wire, strictness_key_function, strictness_wire};
-use super::terms::{WireSlots, wire_key, wire_sort_reference};
+use super::terms::{WireSlots, wire_sort_reference};
 use super::tokens::{
     call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens,
     variant_marker_function,
@@ -153,6 +154,8 @@ fn syntax_list_inner(
     let sort_factory = format_ident!("__krs_list_sort_descriptor_{nonce:016x}");
     let sort_anchors = context.declaration.sort_provenance()?;
     let sort_provenance = host_provenance(env, facade, context.fallback, &sort_anchors);
+    // The list's sort descriptor is its declaration and has no parent.
+    KeyLedger::new(&sort_anchors, &[ProvenanceRole::SortDeclaration]).finish()?;
     let sort_wire = serde_json::to_string(&WirePayload::Sort(krs_ir::wire::WireSortDescriptor {
         parents: Vec::new(),
     }))
@@ -263,6 +266,15 @@ impl ListContext<'_> {
         Ok(item)
     }
 
+    /// The key of the variant that `role` names, its production's
+    /// declaration.
+    fn variant_declaration_key(&self, role: Role) -> Option<&krs_ir::ProvenanceKey> {
+        match role {
+            Role::Cons => self.declaration.cons().key(),
+            Role::Terminator => self.declaration.terminator().key(),
+        }
+    }
+
     fn anchors(&self, role: Role) -> crate::Result<Vec<ProvenanceAnchor>> {
         Ok(match role {
             Role::Cons => self.declaration.cons_provenance()?,
@@ -270,7 +282,12 @@ impl ListContext<'_> {
         })
     }
 
-    fn partner(&self, role: Role, slots: &mut WireSlots) -> WireApplicationReference {
+    fn partner(
+        &self,
+        ledger: &KeyLedger<'_>,
+        role: Role,
+        slots: &mut WireSlots,
+    ) -> crate::Result<WireApplicationReference> {
         let partner = match role {
             Role::Cons => Role::Terminator,
             Role::Terminator => Role::Cons,
@@ -278,14 +295,15 @@ impl ListContext<'_> {
         let facade = &self.facade;
         let enum_key = &self.enum_key;
         let partner_key = self.variant_key(partner);
-        WireApplicationReference {
-            key: wire_key(ProvenanceRole::ListDeclaration, 0),
+        // The partner names the list attribute, which both productions hold.
+        Ok(WireApplicationReference {
+            key: ledger.refer(self.declaration.attribute().key())?,
             target: slots.variant_slot_for_grammar(
                 &quote!(#facade::HostTypeKey(#enum_key)),
                 &quote!(#facade::HostTypeKey(#partner_key)),
             ),
             authored_path: format!("{}::{}", self.enum_name, self.variant_name(partner)),
-        }
+        })
     }
 
     #[expect(
@@ -307,6 +325,9 @@ impl ListContext<'_> {
         let grammar_name = format!("__krs_grammar_{enum_name}_{variant_name}");
         let anchors = self.anchors(role)?;
         let provenance = host_provenance(self.env, facade, self.fallback, &anchors);
+        // The variant's constructor and production descriptors share its
+        // anchors, and their wire nodes together denote them.
+        let ledger = KeyLedger::new(&anchors, &[]);
 
         let mut slots = WireSlots::new(facade);
         let result_slot = slots.type_slot(quote!(#facade::HostTypeKey(#enum_key)));
@@ -345,10 +366,12 @@ impl ListContext<'_> {
                         arguments: Vec::new(),
                     });
                     let ordinal = u32::try_from(ordinal).expect("a list has two fields");
-                    let field_key = wire_key(ProvenanceRole::ConstructorFieldDeclaration, ordinal);
+                    // The field's name keys its item, its field and its
+                    // declaration.
+                    let field_key = ledger.define(field.name_key())?;
                     if ordinal == 1 && !attribute.separator().value().is_empty() {
                         items.push(WireProductionItem::Terminal {
-                            key: wire_key(ProvenanceRole::ListSeparator, 0),
+                            key: ledger.define(attribute.separator_key())?,
                             text: attribute.separator().value(),
                         });
                     }
@@ -361,22 +384,31 @@ impl ListContext<'_> {
                         sort: Box::new(wire_sort_reference(
                             &mut grammar_slots,
                             facade,
-                            ProvenanceRole::ConstructorFieldSort,
-                            ordinal,
+                            ledger.define(field.sort_key())?,
                             &key,
                             &spelling,
                         )),
                     });
                 }
-                attributes.extend(production_documentation_wire(cons.documentation())?);
+                attributes.extend(production_documentation_wire(
+                    &ledger,
+                    cons.documentation(),
+                )?);
+                // The separator terminal defines the separator's key.
+                let separator_key = if attribute.separator().value().is_empty() {
+                    ledger.define(attribute.separator_key())?
+                } else {
+                    ledger.refer(attribute.separator_key())?
+                };
                 attributes.push(WireProductionAttribute::ListCons {
-                    key: wire_key(ProvenanceRole::ListDeclaration, 0),
-                    separator_key: wire_key(ProvenanceRole::ListSeparator, 0),
+                    key: ledger.define(attribute.key())?,
+                    separator_key,
                     separator: attribute.separator().value(),
                     non_empty: attribute
                         .non_empty()
-                        .map(|_| wire_key(ProvenanceRole::ListNonEmpty, 0)),
-                    terminator: self.partner(role, &mut grammar_slots),
+                        .map(|_| ledger.define(attribute.non_empty_key()))
+                        .transpose()?,
+                    terminator: self.partner(&ledger, role, &mut grammar_slots)?,
                 });
                 let strictness_nonce = expansion_nonce(
                     self.env,
@@ -393,30 +425,32 @@ impl ListContext<'_> {
                     cfg,
                 )?;
                 if let Some(strictness) = strictness_wire(
-                    facade,
+                    (facade, &ledger),
                     cons.strictness(),
                     strictness_nonce,
                     &mut grammar_slots,
-                ) {
+                )? {
                     attributes.push(strictness);
                 }
             }
             Role::Terminator => {
+                // The terminator's `.List` is the list attribute's
+                // declaration in this production.
                 items.push(WireProductionItem::Terminal {
-                    key: wire_key(ProvenanceRole::ListDeclaration, 0),
+                    key: ledger.define(attribute.key())?,
                     text: format!(".{enum_name}"),
                 });
                 attributes.push(WireProductionAttribute::ListTerminator {
-                    cons: self.partner(role, &mut grammar_slots),
+                    cons: self.partner(&ledger, role, &mut grammar_slots)?,
                 });
             }
         }
         let application_path = format!("{enum_name}::{variant_name}");
+        // The constructor descriptor's sort defines the sort's key.
         let result_sort = wire_sort_reference(
             &mut grammar_slots,
             facade,
-            ProvenanceRole::ConstructorSort,
-            0,
+            ledger.refer(self.declaration.sort_key())?,
             enum_key,
             enum_name,
         );
@@ -427,11 +461,12 @@ impl ListContext<'_> {
         let grammar_wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
             WireProduction {
                 parameters: Vec::new(),
-                key: wire_key(ProvenanceRole::ConstructorDeclaration, 0),
+                key: ledger.define(self.variant_declaration_key(role))?,
                 template_key: None,
                 owner: WireProductionOwner::Constructor {
+                    // The production's owner is its own variant.
                     constructor: WireApplicationReference {
-                        key: wire_key(ProvenanceRole::ConstructorDeclaration, 0),
+                        key: ledger.refer(self.variant_declaration_key(role))?,
                         target: variant_slot,
                         authored_path: application_path,
                     },
@@ -446,7 +481,7 @@ impl ListContext<'_> {
         let constructor_wire = WirePayload::Constructor(WireConstructorDescriptor {
             parameters: Vec::new(),
             sort: WireSortReference {
-                key: wire_key(ProvenanceRole::ConstructorSort, 0),
+                key: ledger.define(self.declaration.sort_key())?,
                 target: WireTypeReference {
                     slot: result_slot,
                     authored_path: enum_name.clone(),
@@ -455,6 +490,7 @@ impl ListContext<'_> {
             fields,
             arguments: Vec::new(),
         });
+        ledger.finish()?;
         let constructor_wire = serde_json::to_string(&constructor_wire)
             .expect("list-constructor wire is serializable");
         let slot_tokens = slots.tokens();

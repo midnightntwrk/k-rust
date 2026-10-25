@@ -12,10 +12,9 @@ pub(crate) use bits::{
     expand_bit_tests, is_bits_macro, is_generated_binder, misplaced as misplaced_bit_template,
 };
 pub use block::{
-    BracketAlternative, ClaimBlock, ReadableStateCounters, RuleBlock, RuleClause, RuleClauseLayout,
-    RuleExtraKeys, RuleHead, RuleHeadItem, RuleHeadResult, RuleListPattern, RuleListRest,
-    RuleListResult, RuleNarrowing, parse_claim_block_source_with_trivia,
-    parse_rule_block_source_with_trivia,
+    BracketAlternative, ClaimBlock, RuleBlock, RuleClause, RuleClauseLayout, RuleExtraKeys,
+    RuleHead, RuleHeadItem, RuleHeadResult, RuleListPattern, RuleListRest, RuleListResult,
+    RuleNarrowing, parse_claim_block_source_with_trivia, parse_rule_block_source_with_trivia,
 };
 pub(crate) use condition::take_requires_helper;
 pub use condition::{RuleCondition, RuleExtra, RuleMapEntry, RuleMapUpdate};

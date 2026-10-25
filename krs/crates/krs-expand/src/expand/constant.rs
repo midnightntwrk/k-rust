@@ -13,8 +13,9 @@ use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
+use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
-use super::terms::{TermBuilder, TermSide, WireSlots, wire_key};
+use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots};
 use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -37,7 +38,10 @@ pub(crate) fn constant(
     let facade = env.facade_path()?;
     let item = constant.item();
     let fallback = krs_syntax::TokenRange::for_tokens(item)?;
-    let provenance = host_provenance(env, &facade, fallback, &constant.provenance()?);
+    let anchors = constant.provenance()?;
+    let provenance = host_provenance(env, &facade, fallback, &anchors);
+    // The name is the descriptor's own key.
+    let ledger = KeyLedger::new(&anchors, &[ProvenanceRole::ConstantDeclaration]);
     let nonce = expansion_nonce(env, "constant", constant.name(), fallback);
     let factory = format_ident!(
         "__krs_constant_descriptor_{nonce:016x}",
@@ -52,7 +56,7 @@ pub(crate) fn constant(
 
     let mut slots = WireSlots::new(&facade);
     let sort_reference = WireSortReference {
-        key: wire_key(ProvenanceRole::ConstantType, 0),
+        key: ledger.define(constant.type_key())?,
         target: WireTypeReference {
             slot: slots.type_slot(quote!(#facade::HostTypeKey(#sort_key))),
             authored_path: sort.sort_token_text(),
@@ -60,9 +64,15 @@ pub(crate) fn constant(
     };
     // A constant binds nothing, so every name in its value is a path that
     // rustc resolves: another constant or a constructor.
-    let mut builder = TermBuilder::new(&facade, nonce, &cfg, &[]);
-    let value = builder.expand_wire(constant.value().tree(), TermSide::Right, &mut slots)?;
+    let mut builder = TermBuilder::new(&facade, &ledger, nonce, &cfg, &[]);
+    // The value's payload key carries no field on the wire: the value term
+    // denotes the whole value expression, and the transport pairs the
+    // constant's one value with it.
+    ledger.define(constant.value().keys().payload())?;
+    let value =
+        builder.expand_wire(KeyedTerm::of(constant.value()), TermSide::Right, &mut slots)?;
     let key_functions = std::mem::take(&mut builder.key_functions);
+    ledger.finish()?;
     let wire = WirePayload::Constant(Box::new(WireConstant {
         sort: sort_reference,
         value,

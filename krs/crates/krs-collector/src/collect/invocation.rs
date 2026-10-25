@@ -254,8 +254,10 @@ fn collect_trait_brackets(
             },
         );
         let anchors = bracket
-            .sort_descriptor_provenance(sort_attribute.as_ref(), &item_trait.ident)
-            .map_err(source_syntax)?;
+            .sort_descriptor(sort_attribute.as_ref(), &item_trait.ident)
+            .map_err(source_syntax)?
+            .anchors()
+            .to_vec();
         output.push(parsed_invocation(
             ProvenanceRole::BracketDeclaration,
             semantic_name,
@@ -1251,11 +1253,11 @@ fn collect_sorts_macro(
                     )?,
                     RustVisibility::Public,
                 ));
-                for (_, anchors) in sort.bracket_descriptors() {
+                for (_, descriptor) in sort.bracket_descriptors() {
                     output.push(parsed_invocation(
                         ProvenanceRole::BracketDeclaration,
                         sort.name().to_string(),
-                        anchors.to_vec(),
+                        descriptor.anchors().to_vec(),
                         ParsedInvocationPayload::Declaration,
                     )?);
                 }

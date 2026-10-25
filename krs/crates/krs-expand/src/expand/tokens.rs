@@ -20,15 +20,6 @@ pub(super) fn wire_literal(literal: &TermLiteral) -> krs_ir::DescriptorLiteral {
     }
 }
 
-pub(super) fn take_counter(counter: &mut u32) -> crate::Result<u32> {
-    let value = *counter;
-    // The count is the whole sentence's, so no one node is the subject.
-    *counter = counter.checked_add(1).ok_or_else(|| {
-        ExpandError::at_invocation(expand::DESCRIPTOR_CAPACITY, "too many term nodes")
-    })?;
-    Ok(value)
-}
-
 /// The Rust type whose `TypeId` identifies a sort written as `Term<path>`:
 /// the path itself (a sort alias, builtin, or closed sort), or, for a
 /// marker `Term<dyn PSort>`, that whole type, which is the identity of the

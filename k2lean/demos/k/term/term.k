@@ -11,7 +11,7 @@ module TERM-SYNTAX
   imports MAP
   syntax Ints ::= ".Ints" | Int ";" Ints
   syntax Ty ::= ty(Int)
-  syntax Pgm ::= run(Bytes, Ints, List, Int) | runN(Int) | runT(Map, Ty)
+  syntax Pgm ::= run(Bytes, Ints, List, Int) | runN(Int) | runT(Map, Ty) | runL(List)
 endmodule
 
 module TERM
@@ -115,6 +115,22 @@ module TERM
   syntax Int ::= popcounts(Int, Int) [function, total, symbol(popcounts)]
   rule popcounts(M, N) => popcount(M) +Int popcount(N)
 
+  // List patterns of recursive functions, whose definitions take the list apart with `uncons` and
+  // `unsnoc` and test it against `.List`, which the left-hand side's pattern decides
+  // (`k2l_case_list`): a group of two functions, one over a list and one over its items, whose
+  // equation of `ListItem(I) L` binds two partial calls; and a pattern with an element at each end.
+  syntax KItem ::= grpOf(List) [symbol(grpOf)]
+  syntax Bool ::= allPos(List) [function, symbol(allPos)]
+                | itemPos(KItem) [function, symbol(itemPos)]
+  rule allPos(.List) => true
+  rule allPos(ListItem(I) L) => itemPos(I) andBool allPos(L)
+  rule itemPos(grpOf(L)) => allPos(L)
+  rule itemPos(I:Int) => I >Int 0
+  syntax Int ::= ends(List) [function, symbol(ends)]
+  rule ends(ListItem(X:Int) L ListItem(Y:Int)) => X +Int Y +Int ends(L)
+  rule ends(ListItem(X:Int)) => X
+  rule ends(.List) => 0
+
   // Types read from a table: an array's alignment is its element's, its size the element's size
   // times its length, and the element's description is read from the table. The table is an
   // arbitrary map, so on a table whose entry for a type mentions that type (`ty(0) |-> arr(ty(0),
@@ -138,4 +154,5 @@ module TERM
   rule <k> run(B, L, Xs, N) => scan(B, 0, 0) ~> isort(L) ~> total(Xs, 0) ~> series(1, 0, N, N) ~> dec(B) </k>
   rule <k> runN(N) => popcount(N) ~> popcounts(N, 0 -Int N) </k>
   rule <k> runT(M, T) => sizeTy(M, T) ~> align(M, info(M, T)) </k>
+  rule <k> runL(L) => allPos(L) ~> ends(L) </k>
 endmodule

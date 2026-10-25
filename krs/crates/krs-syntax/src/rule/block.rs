@@ -611,7 +611,7 @@ impl RuleClause {
             ProvenanceRole::RuleDeclaration
         };
         self.rule.allocate_clause_keys(keys, declaration, subject)?;
-        self.visit_terms(TermOrder::Literals, &mut |nodes, term_keys| {
+        self.visit_terms(&mut |nodes, term_keys| {
             crate::state_rule::allocate_claim_node_keys(keys, [(nodes, term_keys)])
         })?;
         // A claim clause's name, its label, is anchored by its
@@ -702,29 +702,21 @@ impl RuleClause {
             allocate_ml_binder_keys,
         ];
         for island in islands {
-            self.visit_terms(TermOrder::Expansion, &mut |nodes, term_keys| {
-                island(keys, nodes, term_keys)
-            })?;
+            self.visit_terms(&mut |nodes, term_keys| island(keys, nodes, term_keys))?;
         }
         Ok(())
     }
 
-    /// Calls `visit` on the nodes and keys of each term of the clause, in
-    /// `order`: the subject (in expansion order even when it is a
-    /// placeholder, which has no islands), the computation items after the
+    /// Calls `visit` on the nodes and keys of each term of the clause, once
+    /// each, in the order expansion visits them: the subject (a placeholder
+    /// has neither literals nor islands), the computation items after the
     /// first, the terms of the cells read, the head result's, the terms
     /// written into the other cells, then the `requires` and `ensures`
-    /// conditions.
-    fn visit_terms(
-        &mut self,
-        order: TermOrder,
-        visit: &mut TermVisit<'_>,
-    ) -> Result<(), SyntaxError> {
-        let subject = self.head.as_ref().is_some_and(|head| head.subject);
-        if subject || order == TermOrder::Expansion {
-            let (nodes, term_keys) = self.rule.parameter.pattern.keying();
-            visit(nodes, term_keys)?;
-        }
+    /// conditions. A state's terms include those of the states nested in
+    /// it ([`crate::StateTerm::terms_mut`]).
+    fn visit_terms(&mut self, visit: &mut TermVisit<'_>) -> Result<(), SyntaxError> {
+        let (nodes, term_keys) = self.rule.parameter.pattern.keying();
+        visit(nodes, term_keys)?;
         for item in self.head.iter_mut().flat_map(|head| &mut head.following) {
             let (nodes, term_keys) = item.pattern.keying();
             visit(nodes, term_keys)?;
@@ -740,7 +732,7 @@ impl RuleClause {
                     let (nodes, term_keys) = before.keying();
                     visit(nodes, term_keys)?;
                 }
-                RuleExtra::RewriteState { before, .. } => visit_state(before, order, visit)?,
+                RuleExtra::RewriteState { before, .. } => visit_state(before, visit)?,
                 RuleExtra::RewriteList { before, .. } => {
                     for item in before.patterns_mut() {
                         let (nodes, term_keys) = item.pattern.keying();
@@ -767,7 +759,7 @@ impl RuleClause {
                 } => visit_term(after, visit)?,
                 RuleExtra::RewriteState {
                     after: Some(after), ..
-                } => visit_state(after, order, visit)?,
+                } => visit_state(after, visit)?,
                 RuleExtra::RewriteList {
                     after: Some(after), ..
                 } => {
@@ -913,35 +905,14 @@ impl RuleClause {
     }
 }
 
-/// The order a clause's pass visits its terms in.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum TermOrder {
-    /// The order the claim-only literals are numbered in: the subject only
-    /// when it is a computation item, and a state's terms followed by those
-    /// of each state nested in it, so a term inside `Some(..)` or an
-    /// instance is visited once for each state it is nested in.
-    Literals,
-    /// The order expansion visits the terms in, which numbers the islands.
-    Expansion,
-}
-
 fn visit_term(term: &mut TermExpression, visit: &mut TermVisit<'_>) -> Result<(), SyntaxError> {
     let (nodes, _, term_keys) = term.keying();
     visit(nodes, term_keys)
 }
 
-fn visit_state(
-    state: &mut crate::StateTerm,
-    order: TermOrder,
-    visit: &mut TermVisit<'_>,
-) -> Result<(), SyntaxError> {
+fn visit_state(state: &mut crate::StateTerm, visit: &mut TermVisit<'_>) -> Result<(), SyntaxError> {
     for term in state.terms_mut() {
         visit_term(term, visit)?;
-    }
-    if order == TermOrder::Literals {
-        for nested in state.nested_states_mut() {
-            visit_state(nested, order, visit)?;
-        }
     }
     Ok(())
 }
@@ -1081,41 +1052,6 @@ fn allocate_extra_keys(
         }
     }
     Ok(names)
-}
-
-/// Per-side ordinals of the K-sequence and collection anchors of readable
-/// optional and collection states (KF-023). `krs-expand` numbers the keys in
-/// the same traversal order.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ReadableStateCounters {
-    /// Next `k` payload ordinal.
-    pub k_payload: usize,
-    /// Next `k` item ordinal.
-    pub k_item: usize,
-    /// Next `k` tail ordinal.
-    pub k_tail: usize,
-    /// Next instance-record ordinal.
-    pub instance: usize,
-    /// Next instance child-field ordinal.
-    pub instance_field: usize,
-    /// Next collection-rest ordinal.
-    pub instances_rest: usize,
-}
-
-impl ReadableStateCounters {
-    /// The right side's counters: a spliced head result owns sequence payload
-    /// `#0` and the first item ordinals.
-    #[must_use]
-    pub fn after_head(head: Option<&RuleHeadResult>) -> Self {
-        match head {
-            Some(RuleHeadResult::Splice { items, .. }) => Self {
-                k_payload: 1,
-                k_item: items.len(),
-                ..Self::default()
-            },
-            _ => Self::default(),
-        }
-    }
 }
 
 /// The state-macro side of a rule term side.

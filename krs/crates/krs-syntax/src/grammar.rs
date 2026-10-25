@@ -27,7 +27,15 @@ pub enum SyntaxTemplateItem {
 pub struct SyntaxTemplate {
     literal: LitStr,
     items: Vec<SyntaxTemplateItem>,
-    item_keys: Vec<Vec<ProvenanceKey>>,
+    item_keys: Vec<TemplateItemKeys>,
+}
+
+/// The keys of one template item: the item's, and a field's value
+/// reference's.
+#[derive(Clone, Debug)]
+struct TemplateItemKeys {
+    item: ProvenanceKey,
+    value_reference: Option<ProvenanceKey>,
 }
 
 impl SyntaxTemplate {
@@ -127,12 +135,20 @@ impl SyntaxTemplate {
         Ok(())
     }
 
-    /// Every key the enclosing sentence gave the item at `index` in
-    /// [`Self::items`]: its item key, then, for a field, its value
-    /// reference's.
+    /// The key the enclosing sentence gave the item at `index` in
+    /// [`Self::items`].
     #[must_use]
-    pub fn item_keys(&self, index: usize) -> &[ProvenanceKey] {
-        self.item_keys.get(index).map_or(&[], Vec::as_slice)
+    pub fn item_key(&self, index: usize) -> Option<&ProvenanceKey> {
+        self.item_keys.get(index).map(|keys| &keys.item)
+    }
+
+    /// The key of the value reference of the field at `index` in
+    /// [`Self::items`]; `None` for a terminal.
+    #[must_use]
+    pub fn value_reference_key(&self, index: usize) -> Option<&ProvenanceKey> {
+        self.item_keys
+            .get(index)
+            .and_then(|keys| keys.value_reference.as_ref())
     }
 
     /// Keys each item, and each field's value reference after its item, at
@@ -146,11 +162,15 @@ impl SyntaxTemplate {
         let range = TokenRange::for_tokens(&self.literal)?;
         self.item_keys = Vec::with_capacity(self.items.len());
         for item in &self.items {
-            let mut item_keys = vec![keys.key(item_role, range)?];
-            if matches!(item, SyntaxTemplateItem::Field(_)) {
-                item_keys.push(keys.key(field_role, range)?);
-            }
-            self.item_keys.push(item_keys);
+            let item_key = keys.key(item_role, range)?;
+            let value_reference = match item {
+                SyntaxTemplateItem::Field(_) => Some(keys.key(field_role, range)?),
+                SyntaxTemplateItem::Terminal(_) => None,
+            };
+            self.item_keys.push(TemplateItemKeys {
+                item: item_key,
+                value_reference,
+            });
         }
         Ok(())
     }
@@ -237,7 +257,9 @@ pub struct SmtTemplate {
     literal: LitStr,
     fragments: Vec<SmtTemplateFragment>,
     hook_key: Option<ProvenanceKey>,
-    placeholder_keys: Vec<ProvenanceKey>,
+    /// The key of each placeholder, indexed as [`Self::fragments`]; `None`
+    /// for text.
+    placeholder_keys: Vec<Option<ProvenanceKey>>,
 }
 
 impl SmtTemplate {
@@ -315,10 +337,11 @@ impl SmtTemplate {
         self.hook_key.as_ref()
     }
 
-    /// The keys of the placeholders, one per field fragment in source order.
+    /// The key of the placeholder at `index` in [`Self::fragments`];
+    /// `None` for a text fragment.
     #[must_use]
-    pub fn placeholder_keys(&self) -> &[ProvenanceKey] {
-        &self.placeholder_keys
+    pub fn placeholder_key(&self, index: usize) -> Option<&ProvenanceKey> {
+        self.placeholder_keys.get(index).and_then(Option::as_ref)
     }
 
     /// Returns the text and placeholder fragments in source order.
@@ -395,13 +418,16 @@ impl SmtTemplate {
     pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
         let range = TokenRange::for_tokens(&self.literal)?;
         self.hook_key = Some(keys.key(ProvenanceRole::FunctionSmtHook, range)?);
-        self.placeholder_keys.clear();
-        for fragment in &self.fragments {
-            if matches!(fragment, SmtTemplateFragment::Field(_)) {
-                self.placeholder_keys
-                    .push(keys.key(ProvenanceRole::SmtHookPlaceholder, range)?);
-            }
-        }
+        self.placeholder_keys = self
+            .fragments
+            .iter()
+            .map(|fragment| match fragment {
+                SmtTemplateFragment::Field(_) => keys
+                    .key(ProvenanceRole::SmtHookPlaceholder, range)
+                    .map(Some),
+                SmtTemplateFragment::Text(_) => Ok(None),
+            })
+            .collect::<Result<_, _>>()?;
         Ok(())
     }
 }
@@ -1031,26 +1057,6 @@ impl TokenStack {
         &self.attributes
     }
 
-    /// Returns each attribute with its ordinal among the attributes of its
-    /// kind, in source order.
-    #[must_use]
-    pub fn ordinals(&self) -> Vec<(u32, &TokenAttribute)> {
-        let mut regex = 0_u32;
-        let mut terminal = 0_u32;
-        self.attributes
-            .iter()
-            .map(|attribute| {
-                let counter = match attribute.content {
-                    TokenContent::Regex(_) => &mut regex,
-                    TokenContent::Terminal(_) => &mut terminal,
-                };
-                let ordinal = *counter;
-                *counter += 1;
-                (ordinal, attribute)
-            })
-            .collect()
-    }
-
     /// Returns every content and precedence anchor of the stack.
     ///
     /// # Errors
@@ -1061,8 +1067,7 @@ impl TokenStack {
     }
 
     /// Keys every attribute of the stack again, as one sentence: each
-    /// content role numbers its own kind, regexes and terminals apart, as
-    /// [`Self::ordinals`] does.
+    /// content role numbers its own kind, regexes and terminals apart.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
         for attribute in &mut self.attributes {
@@ -1493,13 +1498,22 @@ fn unsupported_token(reason: &'static str, span: Span) -> SyntaxError {
     )
 }
 
+/// The keys of a two-delimiter bracket's items, the opening delimiter, the
+/// value and the closing delimiter, then of its value reference, all at the
+/// pair.
+#[derive(Clone, Debug)]
+struct DelimiterKeys {
+    items: [ProvenanceKey; 3],
+    value_reference: ProvenanceKey,
+}
+
 /// Checked payload of a syntax-only bracket declaration.
 #[derive(Clone, Debug)]
 pub struct BracketAttribute {
     template: SyntaxTemplate,
     delimiter_tokens: Option<TokenStream>,
     key: Option<ProvenanceKey>,
-    delimiter_keys: Vec<ProvenanceKey>,
+    delimiter_keys: Option<DelimiterKeys>,
     /// The anchors of the bracket's keying, which [`Self::provenance`]
     /// returns.
     anchors: Vec<ProvenanceAnchor>,
@@ -1527,13 +1541,25 @@ impl BracketAttribute {
         self.key.as_ref()
     }
 
-    /// The keys of a two-delimiter bracket's items, the two delimiters and
-    /// the value between them, then of its value reference, all at the
-    /// pair; empty for a template bracket, whose template holds its item
-    /// keys.
+    /// The key of the bracket's item at `index`: of a two-delimiter
+    /// bracket's opening delimiter, value and closing delimiter, all at the
+    /// pair, or of its template's item.
     #[must_use]
-    pub fn delimiter_keys(&self) -> &[ProvenanceKey] {
-        &self.delimiter_keys
+    pub fn item_key(&self, index: usize) -> Option<&ProvenanceKey> {
+        match &self.delimiter_keys {
+            Some(keys) => keys.items.get(index),
+            None => self.template.item_key(index),
+        }
+    }
+
+    /// The key of the value reference of the bracket's item at `index`,
+    /// its value; `None` for a delimiter.
+    #[must_use]
+    pub fn value_reference_key(&self, index: usize) -> Option<&ProvenanceKey> {
+        match &self.delimiter_keys {
+            Some(keys) => (index == 1).then_some(&keys.value_reference),
+            None => self.template.value_reference_key(index),
+        }
     }
 
     /// Keys the bracket as a sentence of its own: the declaration, then the
@@ -1544,12 +1570,15 @@ impl BracketAttribute {
             // The two delimiters and the value between them, all at the pair.
             let range = TokenRange::for_tokens(tokens)?;
             self.key = Some(keys.key(ProvenanceRole::BracketDeclaration, range)?);
-            for _ in 0..3 {
-                self.delimiter_keys
-                    .push(keys.key(ProvenanceRole::BracketSyntaxItem, range)?);
-            }
-            self.delimiter_keys
-                .push(keys.key(ProvenanceRole::BracketValueReference, range)?);
+            let items = [
+                keys.key(ProvenanceRole::BracketSyntaxItem, range)?,
+                keys.key(ProvenanceRole::BracketSyntaxItem, range)?,
+                keys.key(ProvenanceRole::BracketSyntaxItem, range)?,
+            ];
+            self.delimiter_keys = Some(DelimiterKeys {
+                items,
+                value_reference: keys.key(ProvenanceRole::BracketValueReference, range)?,
+            });
         } else {
             self.key = Some(keys.key(
                 ProvenanceRole::BracketDeclaration,
@@ -1620,7 +1649,7 @@ impl KrsSyntax for BracketAttribute {
                 template,
                 delimiter_tokens,
                 key: None,
-                delimiter_keys: Vec::new(),
+                delimiter_keys: None,
                 anchors: Vec::new(),
             }
             .keyed()?)
@@ -2662,9 +2691,8 @@ fn parse_optional_trailing_comma(input: ParseStream<'_>) -> ParseResult<()> {
 mod keyed {
     use super::{
         AssociativityDeclaration, BracketAttribute, PrecedenceDeclaration, SmtTemplate,
-        SmtTemplateFragment, StrictnessAttribute, StructuredFormat, SubsortDeclaration,
-        SyntaxTemplate, SyntaxTemplateItem, TokenAttribute, TokenCarrier, TokenDeclaration,
-        TokenStack,
+        StrictnessAttribute, StructuredFormat, SubsortDeclaration, SyntaxTemplate,
+        SyntaxTemplateItem, TokenAttribute, TokenCarrier, TokenDeclaration, TokenStack,
     };
     use crate::keyed_nodes::KeyedNodes;
     use crate::{SyntaxError, TokenRange};
@@ -2676,9 +2704,13 @@ mod keyed {
             assert!(self.item_keys.len() <= self.items.len());
             let range = TokenRange::for_tokens(&self.literal)?;
             for (item, keys) in self.items.iter().zip(&self.item_keys) {
-                let expected = 1 + usize::from(matches!(item, SyntaxTemplateItem::Field(_)));
-                assert_eq!(keys.len(), expected, "an item's keys are its own");
-                nodes.push_all(keys, range);
+                assert_eq!(
+                    keys.value_reference.is_some(),
+                    matches!(item, SyntaxTemplateItem::Field(_)),
+                    "a field's value reference is its own"
+                );
+                nodes.push(Some(&keys.item), range);
+                nodes.push(keys.value_reference.as_ref(), range);
             }
             Ok(())
         }
@@ -2690,13 +2722,10 @@ mod keyed {
         pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
             let range = TokenRange::for_tokens(&self.literal)?;
             nodes.push(self.hook_key.as_ref(), range);
-            let placeholders = self
-                .fragments
-                .iter()
-                .filter(|fragment| matches!(fragment, SmtTemplateFragment::Field(_)))
-                .count();
-            assert!(self.placeholder_keys.len() <= placeholders);
-            nodes.push_all(&self.placeholder_keys, range);
+            assert!(self.placeholder_keys.len() <= self.fragments.len());
+            for key in &self.placeholder_keys {
+                nodes.push(key.as_ref(), range);
+            }
             Ok(())
         }
     }
@@ -2757,11 +2786,13 @@ mod keyed {
             if let Some(tokens) = &self.delimiter_tokens {
                 let range = TokenRange::for_tokens(tokens)?;
                 nodes.push(self.key.as_ref(), range);
-                assert!(self.delimiter_keys.len() <= 4);
-                nodes.push_all(&self.delimiter_keys, range);
+                if let Some(keys) = &self.delimiter_keys {
+                    nodes.push_all(&keys.items, range);
+                    nodes.push(Some(&keys.value_reference), range);
+                }
             } else {
                 nodes.push_tokens(self.key.as_ref(), self.template.literal())?;
-                assert!(self.delimiter_keys.is_empty());
+                assert!(self.delimiter_keys.is_none());
                 self.template.keyed_nodes(nodes)?;
             }
             Ok(())

@@ -23,9 +23,10 @@ use syn::{Attribute, Ident, ItemEnum, Path};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::grammar::grammar_macro_descriptor;
+use super::ledger::KeyLedger;
 use super::nonce::{expansion_nonce, rule_application_selector};
-use super::productions::strictness_key_function;
-use super::terms::{WireSlots, wire_key, wire_sort_reference};
+use super::productions::{REPEATED_PRODUCTION_ROLES, strictness_key_function};
+use super::terms::{WireSlots, wire_sort_reference};
 use super::tokens::{
     call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens, spelling,
     variant_marker_function,
@@ -343,15 +344,10 @@ fn expand_enum_family_grammar(
     cfg: &[Attribute],
     fallback: TokenRange,
 ) -> crate::Result<TokenStream> {
-    let precedence_group_reference_role = ProvenanceRole::PrecedenceGroupReference;
-    let precedence_declaration_role = ProvenanceRole::PrecedenceDeclaration;
-    let precedence_chain_role = ProvenanceRole::PrecedenceChain;
-    let associativity_sentence_role = ProvenanceRole::AssociativitySentence;
-    let associativity_group_reference_role = ProvenanceRole::AssociativityGroupReference;
-    let associativity_declaration_role = ProvenanceRole::AssociativityDeclaration;
     let mut output = Vec::new();
     if let Some(precedence) = declaration.precedence_descriptor()? {
         let provenance = host_provenance(env, facade, fallback, &precedence.provenance);
+        let ledger = KeyLedger::new(&precedence.provenance, &[]);
         let factory = format_ident!("__krs_enum_precedence_{nonce:016x}");
         let name = format!("__krs_grammar_{enum_name}_precedence");
         let mut group_ordinal = 0_usize;
@@ -359,26 +355,20 @@ fn expand_enum_family_grammar(
             let ordinal = group_ordinal;
             group_ordinal += 1;
             let name = group.emitted_name(declaration.enum_name(), ordinal);
-            let ordinal = u32::try_from(ordinal).map_err(|_| {
-                ExpandError::new(
-                    expand::DESCRIPTOR_CAPACITY,
-                    declaration.enum_name().span(),
-                    "too many groups",
-                )
-            })?;
             Ok(DescriptorGroupReference {
-                key: wire_key(precedence_group_reference_role, ordinal),
+                key: ledger.define(group.precedence_key())?,
                 group: ProductionGroupId::new(name)
                     .expect("generated enum groups are valid identities"),
             })
         })?;
         let grammar = WireGrammarDescriptor::Precedence {
-            key: wire_key(precedence_declaration_role, 0),
+            key: ledger.define(declaration.precedence_declaration_key())?,
             chains: vec![DescriptorPrecedenceChain {
-                key: wire_key(precedence_chain_role, 0),
+                key: ledger.define(declaration.precedence_chain_key())?,
                 groups,
             }],
         };
+        ledger.finish()?;
         let descriptor = grammar_macro_descriptor(
             facade,
             &factory,
@@ -392,14 +382,14 @@ fn expand_enum_family_grammar(
     }
     if let Some(anchors) = declaration.associativity_provenance()? {
         let provenance = host_provenance(env, facade, fallback, &anchors);
+        let ledger = KeyLedger::new(&anchors, &[]);
         let factory = format_ident!("__krs_enum_associativity_{nonce:016x}");
         let name = format!("__krs_grammar_{enum_name}_associativity");
         let mut sentences = Vec::new();
-        for (sentence_ordinal, (group_ordinal, group)) in declaration
+        for (group_ordinal, group) in declaration
             .precedence_groups()
             .enumerate()
             .filter(|(_, group)| group.associativity().is_some())
-            .enumerate()
         {
             let group_name = enum_precedence_group_name(declaration, group_ordinal);
             let associativity = match group
@@ -410,27 +400,21 @@ fn expand_enum_family_grammar(
                 SyntaxGroupAssociativity::Right => GroupAssociativity::Right,
                 SyntaxGroupAssociativity::NonAssociative => GroupAssociativity::NonAssociative,
             };
-            let ordinal = u32::try_from(sentence_ordinal).map_err(|_| {
-                ExpandError::new(
-                    expand::DESCRIPTOR_CAPACITY,
-                    group.range().first(),
-                    "too many groups",
-                )
-            })?;
             sentences.push(DescriptorAssociativitySentence {
-                key: wire_key(associativity_sentence_role, ordinal),
+                key: ledger.define(group.associativity_sentence_key())?,
                 associativity,
                 groups: vec![DescriptorGroupReference {
-                    key: wire_key(associativity_group_reference_role, ordinal),
+                    key: ledger.define(group.associativity_reference_key())?,
                     group: ProductionGroupId::new(group_name)
                         .expect("generated enum groups are valid identities"),
                 }],
             });
         }
         let grammar = WireGrammarDescriptor::Associativity {
-            key: wire_key(associativity_declaration_role, 0),
+            key: ledger.define(declaration.associativity_declaration_key())?,
             sentences,
         };
+        ledger.finish()?;
         let descriptor = grammar_macro_descriptor(
             facade,
             &factory,
@@ -462,8 +446,6 @@ fn expand_enum_variant(
     index: usize,
     cfg: &[Attribute],
 ) -> crate::Result<TokenStream> {
-    let constructor_syntax_role = ProvenanceRole::ConstructorSyntax;
-    let constructor_declaration_role = ProvenanceRole::ConstructorDeclaration;
     let enum_name = declaration.enum_name().to_string();
     let variant_name = variant.name().to_string();
     let descriptor_factory = format_ident!("__krs_enum_constructor_{nonce:016x}_{index}");
@@ -487,6 +469,8 @@ fn expand_enum_variant(
     let constructor_anchors = variant.constructor_provenance()?;
     let provenance = host_provenance(env, facade, fallback, &constructor_anchors);
     let grammar_provenance = host_provenance(env, facade, fallback, &anchors);
+    let constructor_ledger = KeyLedger::new(&constructor_anchors, &[ProvenanceRole::StableSymbol]);
+    let ledger = KeyLedger::new(&anchors, &[ProvenanceRole::StableSymbol]);
 
     let mut slots = WireSlots::new(facade);
     let result_slot = slots.type_slot(quote!(#facade::HostTypeKey(#result_key)));
@@ -509,6 +493,10 @@ fn expand_enum_variant(
                 ::core::any::TypeId::of::<#ty>()
             }
         });
+        // The field's sort reference carries no key on the wire: the
+        // collector numbers the fields' sorts in order, as the sentence
+        // keyed them.
+        constructor_ledger.define(field.sort_key())?;
         fields.push(WireConstructorFieldDescriptor {
             name: field_name,
             sort: WireTypeReference {
@@ -518,21 +506,20 @@ fn expand_enum_variant(
             arguments: Vec::new(),
         });
     }
-    // Each field's element types, numbered in preorder across the fields.
+    // Each field's element types, their helpers numbered in preorder across
+    // the fields.
     let mut sink = super::terms::SortArgumentSink {
         facade,
         prefix: format!("__krs_enum_field_argument_{nonce:016x}_{index}"),
         cfg,
         helpers: &mut field_key_functions,
         slots: &mut slots,
+        ledger: &constructor_ledger,
         ordinal: 0,
     };
     for (wire, field) in fields.iter_mut().zip(variant.fields()) {
-        wire.arguments = super::terms::production_sort_arguments(
-            field.term_sort().arguments(),
-            ProvenanceRole::ConstructorFieldSortArgument,
-            &mut sink,
-        )?;
+        wire.arguments =
+            super::terms::production_sort_arguments(field.term_sort().arguments(), &mut sink)?;
     }
 
     let grammar_nonce = expansion_nonce(env, "enum_strictness", variant.name(), fallback);
@@ -546,8 +533,13 @@ fn expand_enum_variant(
         cfg,
     )?;
     let mut grammar_slots = WireSlots::new(facade);
-    let items =
-        enum_variant_production_wire_items(facade, variant, nonce, index, &mut grammar_slots)?;
+    let items = enum_variant_production_wire_items(
+        (facade, &ledger),
+        variant,
+        nonce,
+        index,
+        &mut grammar_slots,
+    )?;
     let group = variant
         .precedence_group()
         .map(|ordinal| enum_precedence_group_name(declaration, ordinal));
@@ -556,20 +548,33 @@ fn expand_enum_variant(
         .and_then(krs_syntax::VariantSyntaxAttribute::overload)
         .map(|target| {
             super::productions::overload_wire(
-                facade,
+                (facade, &ledger),
                 target,
+                variant.syntax().and_then(|syntax| syntax.keys().overload()),
                 &format_ident!("__krs_overload_target_{nonce:016x}_{index}"),
                 cfg,
                 &mut grammar_slots,
             )
-        });
+        })
+        .transpose()?;
     let overload_tokens = overload
         .as_ref()
         .map(|overload| overload.tokens.clone())
         .unwrap_or_default();
     let mut attributes = if let Some(syntax) = variant.syntax() {
+        // A tier's membership names its group; else the syntax's `group`.
+        let group_key = if group.is_some() {
+            variant.group_key()
+        } else {
+            syntax.keys().group()
+        };
         super::productions::constructor_metadata_wire(
-            group.or_else(|| syntax.group().map(syn::LitStr::value)),
+            &ledger,
+            syntax.keys(),
+            (
+                group.or_else(|| syntax.group().map(syn::LitStr::value)),
+                group_key,
+            ),
             syntax.avoid(),
             syntax.prefer(),
             syntax.placement(),
@@ -585,17 +590,20 @@ fn expand_enum_variant(
     };
     attributes.splice(
         0..0,
-        super::productions::production_documentation_wire(variant.documentation())?,
+        super::productions::production_documentation_wire(&ledger, variant.documentation())?,
     );
     if let Some(marker) = variant.static_attribute() {
-        attributes.insert(0, super::productions::static_mode_wire(marker));
+        attributes.insert(
+            0,
+            super::productions::static_mode_wire(&ledger, marker, variant.static_key())?,
+        );
     }
     if let Some(strictness) = super::productions::strictness_wire(
-        facade,
+        (facade, &ledger),
         variant.strictness(),
         grammar_nonce,
         &mut grammar_slots,
-    ) {
+    )? {
         attributes.push(strictness);
     }
     // The cons of a `#[k::cons_list]` enum names its empty sibling (F6).
@@ -603,10 +611,11 @@ fn expand_enum_variant(
         && cons == index
     {
         let empty_key = format_ident!("__krs_enum_variant_{nonce:016x}_{empty}");
+        // The marker, which also names the empty sibling.
         attributes.push(WireProductionAttribute::ConsList {
-            key: wire_key(ProvenanceRole::ConsListDeclaration, 0),
+            key: ledger.define(variant.cons_list_key())?,
             empty: WireApplicationReference {
-                key: wire_key(ProvenanceRole::ConsListDeclaration, 0),
+                key: ledger.refer(variant.cons_list_key())?,
                 target: grammar_slots.variant_slot_for_grammar(
                     &quote!(#facade::HostTypeKey(#enum_key)),
                     &quote!(#facade::HostTypeKey(#empty_key)),
@@ -617,14 +626,14 @@ fn expand_enum_variant(
     }
     let template_key = variant
         .syntax()
-        .map(|_| wire_key(constructor_syntax_role, 0));
+        .map(|syntax| ledger.define(syntax.keys().syntax()))
+        .transpose()?;
     let application_path = format!("{enum_name}::{variant_name}");
     let result_spelling = spelling(variant.constructor_sort());
     let result_sort = wire_sort_reference(
         &mut grammar_slots,
         facade,
-        ProvenanceRole::ConstructorSort,
-        0,
+        ledger.define(variant.sort_key())?,
         result_key,
         &result_spelling,
     );
@@ -635,11 +644,12 @@ fn expand_enum_variant(
     let grammar_wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
         WireProduction {
             parameters: Vec::new(),
-            key: wire_key(ProvenanceRole::ConstructorDeclaration, 0),
+            key: ledger.define(variant.key())?,
             template_key,
+            // The production's owner is its own variant.
             owner: WireProductionOwner::Constructor {
                 constructor: WireApplicationReference {
-                    key: wire_key(constructor_declaration_role, 0),
+                    key: ledger.refer(variant.key())?,
                     target: variant_slot,
                     authored_path: application_path,
                 },
@@ -649,12 +659,13 @@ fn expand_enum_variant(
             attributes,
         },
     )));
+    ledger.finish()?;
     let grammar_wire = serde_json::to_string(&grammar_wire).expect("KRS wire values serialize");
     let grammar_slot_tokens = grammar_slots.tokens();
     let constructor_wire = WirePayload::Constructor(WireConstructorDescriptor {
         parameters: Vec::new(),
         sort: WireSortReference {
-            key: wire_key(ProvenanceRole::ConstructorSort, 0),
+            key: constructor_ledger.define(variant.sort_key())?,
             target: WireTypeReference {
                 slot: result_slot,
                 authored_path: result_spelling,
@@ -663,6 +674,7 @@ fn expand_enum_variant(
         fields,
         arguments: Vec::new(),
     });
+    constructor_ledger.finish_beside(&ledger, &REPEATED_PRODUCTION_ROLES)?;
     let constructor_wire =
         serde_json::to_string(&constructor_wire).expect("enum-constructor wire is serializable");
     let slot_tokens = slots.tokens();
@@ -718,12 +730,8 @@ fn expand_enum_variant(
     })
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "Template fields and production slots are lowered in one ordered pass."
-)]
 fn enum_variant_production_wire_items(
-    facade: &Path,
+    (facade, ledger): (&Path, &KeyLedger<'_>),
     variant: &krs_syntax::EnumConstructorVariant,
     nonce: u64,
     variant_index: usize,
@@ -732,16 +740,8 @@ fn enum_variant_production_wire_items(
     use krs_ir::wire::WireProductionItem as Item;
     let mut items = Vec::new();
     if let Some(syntax) = variant.syntax() {
-        let mut field_ordinal = 0_u32;
         for (item_index, item) in syntax.syntax_template().items().iter().enumerate() {
-            let ordinal = u32::try_from(item_index).map_err(|_| {
-                ExpandError::new(
-                    expand::DESCRIPTOR_CAPACITY,
-                    variant.name().span(),
-                    "too many production items",
-                )
-            })?;
-            let key = wire_key(ProvenanceRole::ConstructorSyntaxItem, ordinal);
+            let key = ledger.define(syntax.syntax_template().item_key(item_index))?;
             match item {
                 SyntaxTemplateItem::Terminal(text) => items.push(Item::Terminal {
                     key,
@@ -759,62 +759,40 @@ fn enum_variant_production_wire_items(
                                 "checked field disappeared",
                             )
                         })?;
-                    let declaration_ordinal = u32::try_from(declaration_index).map_err(|_| {
-                        ExpandError::new(
-                            expand::DESCRIPTOR_CAPACITY,
-                            variant.name().span(),
-                            "too many fields",
-                        )
-                    })?;
                     let sort_key = format_ident!(
                         "__krs_enum_field_{nonce:016x}_{variant_index}_{declaration_index}"
                     );
                     let field = &variant.fields()[declaration_index];
                     items.push(Item::NonTerminal {
                         key,
-                        field_key: wire_key(
-                            ProvenanceRole::ConstructorSyntaxFieldReference,
-                            field_ordinal,
-                        ),
-                        declaration_key: Some(wire_key(
-                            ProvenanceRole::ConstructorFieldDeclaration,
-                            declaration_ordinal,
-                        )),
+                        field_key: ledger
+                            .define(syntax.syntax_template().value_reference_key(item_index))?,
+                        // The field's declaration, which the template names.
+                        declaration_key: Some(ledger.define(field.name_key())?),
                         field: krs_ir::ProductionFieldId::new(name.clone())
                             .expect("Rust fields are valid production fields"),
                         sort: Box::new(wire_sort_reference(
                             slots,
                             facade,
-                            ProvenanceRole::ConstructorFieldSort,
-                            declaration_ordinal,
+                            ledger.define(field.sort_key())?,
                             &sort_key,
                             &field.term_sort().sort_token_text(),
                         )),
                     });
-                    field_ordinal = field_ordinal.checked_add(1).ok_or_else(|| {
-                        ExpandError::new(
-                            expand::DESCRIPTOR_CAPACITY,
-                            variant.name().span(),
-                            "too many fields",
-                        )
-                    })?;
                 }
             }
         }
     } else {
+        // Without a template the production reads as the variant's name,
+        // which declares it: the terminal names the key the production
+        // defines.
         items.push(Item::Terminal {
-            key: wire_key(ProvenanceRole::ConstructorDeclaration, 0),
+            key: ledger.refer(variant.key())?,
             text: variant.name().to_string(),
         });
         for (field_index, field) in variant.fields().iter().enumerate() {
-            let ordinal = u32::try_from(field_index).map_err(|_| {
-                ExpandError::new(
-                    expand::DESCRIPTOR_CAPACITY,
-                    variant.name().span(),
-                    "too many fields",
-                )
-            })?;
-            let key = wire_key(ProvenanceRole::ConstructorFieldDeclaration, ordinal);
+            // The field's name keys its item, its field and its declaration.
+            let key = ledger.define(field.name_key())?;
             let sort_key =
                 format_ident!("__krs_enum_field_{nonce:016x}_{variant_index}_{field_index}");
             items.push(Item::NonTerminal {
@@ -826,8 +804,7 @@ fn enum_variant_production_wire_items(
                 sort: Box::new(wire_sort_reference(
                     slots,
                     facade,
-                    ProvenanceRole::ConstructorFieldSort,
-                    ordinal,
+                    ledger.define(field.sort_key())?,
                     &sort_key,
                     &field.term_sort().sort_token_text(),
                 )),

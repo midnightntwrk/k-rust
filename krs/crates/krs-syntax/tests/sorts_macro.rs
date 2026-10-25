@@ -28,6 +28,7 @@ fn declarations_bounds_brackets_and_memberships_preserve_order() {
             .next()
             .unwrap()
             .1
+            .anchors()
             .iter()
             .filter(|anchor| anchor.role() == ProvenanceRole::BracketValueReference)
             .count(),

@@ -4,7 +4,9 @@ use syn::parse::{Parse, ParseStream};
 use syn::{Attribute, Ident, Path, Token};
 
 use crate::parse::{KeyAllocator, KrsSyntax};
-use crate::{BracketAttribute, ProvenanceAnchor, ProvenanceRole, SyntaxError, TokenRange};
+use crate::{
+    BracketAttribute, BracketDescriptor, ProvenanceAnchor, ProvenanceRole, SyntaxError, TokenRange,
+};
 
 /// One declaration or membership sentence in `k::sorts!`.
 #[derive(Clone, Debug)]
@@ -25,9 +27,8 @@ pub struct SortsSort {
     parent_keys: Vec<ProvenanceKey>,
     /// The anchors of the sort's keying, which [`Self::provenance`] returns.
     anchors: Vec<ProvenanceAnchor>,
-    /// The anchors of each bracket's descriptor, indexed as
-    /// [`Self::brackets`].
-    bracket_anchors: Vec<Vec<ProvenanceAnchor>>,
+    /// Each bracket's descriptor, indexed as [`Self::brackets`].
+    bracket_descriptors: Vec<BracketDescriptor>,
 }
 
 impl SortsSort {
@@ -86,23 +87,29 @@ impl SortsSort {
                 .push(keys.key(ProvenanceRole::SortParent, TokenRange::for_tokens(parent)?)?);
         }
         self.anchors = keys.into_anchors();
-        self.bracket_anchors = Vec::with_capacity(self.brackets.len());
-        for bracket in &self.brackets {
-            self.bracket_anchors
-                .push(crate::descriptor::bracket_anchors(bracket, &self.name)?);
-        }
+        self.bracket_descriptors = self
+            .brackets
+            .iter()
+            .map(|bracket| BracketDescriptor::new(bracket, &self.name))
+            .collect::<Result<_, _>>()?;
         Ok(self)
     }
 
-    /// Returns each bracket with its descriptor's anchors: the bracket's own
-    /// keying, continued by the sort name's key.
+    /// Returns each bracket with its descriptor: the bracket's own keying,
+    /// continued by the sort name's key.
     pub fn bracket_descriptors(
         &self,
-    ) -> impl Iterator<Item = (&BracketAttribute, &[ProvenanceAnchor])> {
-        self.brackets
-            .iter()
-            .zip(self.bracket_anchors.iter().map(Vec::as_slice))
+    ) -> impl Iterator<Item = (&BracketAttribute, &BracketDescriptor)> {
+        self.brackets.iter().zip(&self.bracket_descriptors)
     }
+}
+
+/// The keys of one member path: as its subsort's declaration, and as its
+/// sub-sort.
+#[derive(Clone, Debug)]
+struct MemberKeys {
+    declaration: ProvenanceKey,
+    sub_sort: ProvenanceKey,
 }
 
 /// A comma-compressed membership sentence such as `impl Value for Int, Bool;`.
@@ -111,7 +118,7 @@ pub struct SortsMembership {
     supersort: Path,
     members: Vec<Path>,
     supersort_key: Option<ProvenanceKey>,
-    member_keys: Vec<Vec<ProvenanceKey>>,
+    member_keys: Vec<MemberKeys>,
     /// The anchors of each member's descriptor, indexed as
     /// [`Self::members`].
     member_anchors: Vec<Vec<ProvenanceAnchor>>,
@@ -137,12 +144,19 @@ impl SortsMembership {
         self.supersort_key.as_ref()
     }
 
-    /// Every key of the member path at `index` in [`Self::members`]: its
-    /// subsort declaration's, then its subsort's. Each member is its own
-    /// descriptor, so each key is the first of its role.
+    /// The key of the member path at `index` in [`Self::members`] as its
+    /// subsort's declaration. Each member is its own descriptor, so each key
+    /// is the first of its role.
     #[must_use]
-    pub fn member_keys(&self, index: usize) -> &[ProvenanceKey] {
-        self.member_keys.get(index).map_or(&[], Vec::as_slice)
+    pub fn member_key(&self, index: usize) -> Option<&ProvenanceKey> {
+        self.member_keys.get(index).map(|keys| &keys.declaration)
+    }
+
+    /// The key of the member path at `index` in [`Self::members`] as its
+    /// subsort's sub-sort.
+    #[must_use]
+    pub fn member_sub_sort_key(&self, index: usize) -> Option<&ProvenanceKey> {
+        self.member_keys.get(index).map(|keys| &keys.sub_sort)
     }
 
     /// Keys the supersort and each member, each member in a descriptor of
@@ -154,13 +168,16 @@ impl SortsMembership {
         for member in &self.members {
             let mut keys = KeyAllocator::default();
             let range = TokenRange::for_tokens(member)?;
-            let member_key = keys.key(ProvenanceRole::SubsortDeclaration, range)?;
+            let declaration = keys.key(ProvenanceRole::SubsortDeclaration, range)?;
             self.supersort_key = Some(keys.key(
                 ProvenanceRole::SubsortSuperSort,
                 TokenRange::for_tokens(&self.supersort)?,
             )?);
-            let subsort_key = keys.key(ProvenanceRole::SubsortSubSort, range)?;
-            self.member_keys.push(vec![member_key, subsort_key]);
+            let sub_sort = keys.key(ProvenanceRole::SubsortSubSort, range)?;
+            self.member_keys.push(MemberKeys {
+                declaration,
+                sub_sort,
+            });
             self.member_anchors.push(keys.into_anchors());
         }
         Ok(self)
@@ -267,7 +284,7 @@ fn parse_sort(input: ParseStream<'_>, attributes: Vec<Attribute>) -> syn::Result
         name_key: None,
         parent_keys: Vec::new(),
         anchors: Vec::new(),
-        bracket_anchors: Vec::new(),
+        bracket_descriptors: Vec::new(),
     }
     .keyed()?)
 }
@@ -319,6 +336,7 @@ fn parse_plain_path(input: ParseStream<'_>, role: &str) -> syn::Result<Path> {
 #[cfg(test)]
 mod keyed {
     use super::{SortsMembership, SortsSort};
+    use crate::BracketDescriptor;
     use crate::SyntaxError;
     use crate::keyed_nodes::KeyedNodes;
 
@@ -334,15 +352,18 @@ mod keyed {
         }
 
         /// Records the keys of the descriptor of the bracket at `index`: the
-        /// bracket's, then the sort's name, which holds the first key of its
-        /// role in both descriptors.
+        /// bracket's, then the sort's name, whose key the descriptor holds.
         pub(crate) fn keyed_bracket_nodes(
             &self,
             index: usize,
             nodes: &mut KeyedNodes,
         ) -> Result<(), SyntaxError> {
             self.brackets[index].keyed_nodes(nodes)?;
-            nodes.push_tokens(self.name_key.as_ref(), &self.name)
+            let sort_key = self
+                .bracket_descriptors
+                .get(index)
+                .map(BracketDescriptor::sort_key);
+            nodes.push_tokens(sort_key, &self.name)
         }
     }
 
@@ -357,12 +378,8 @@ mod keyed {
             nodes: &mut KeyedNodes,
         ) -> Result<(), SyntaxError> {
             assert!(self.member_keys.len() <= self.members.len());
-            if let Some(keys) = self.member_keys.get(index) {
-                assert_eq!(keys.len(), 2);
-                for key in keys {
-                    nodes.push_tokens(Some(key), &self.members[index])?;
-                }
-            }
+            nodes.push_tokens(self.member_key(index), &self.members[index])?;
+            nodes.push_tokens(self.member_sub_sort_key(index), &self.members[index])?;
             nodes.push_tokens(self.supersort_key.as_ref(), &self.supersort)
         }
     }

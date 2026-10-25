@@ -1,7 +1,5 @@
 //! Whole-configuration reachability claims: `#[k::claim]`.
 
-use crate::ExpandError;
-use krs_diagnostic::codes::expand;
 use krs_ir::wire::{
     WireClaim, WireClaimBinder, WireConfigurationReference, WireConfigurationRule, WirePayload,
     WireRuleCondition, WireTypeReference,
@@ -9,8 +7,8 @@ use krs_ir::wire::{
 use krs_ir::{ClaimModality, DescriptorRuleLabel, ProtocolRuleBinding, ProtocolRuleBindingKind};
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
-    ClaimModality as SyntaxClaimModality, ProvenanceRole, RuleSide, StateRuleBindingKind,
-    StateRuleReferenceKind, TokenRange,
+    ClaimModality as SyntaxClaimModality, ProvenanceAnchor, ProvenanceRole, RuleSide,
+    StateRuleBindingKind, StateRuleReferenceKind, TokenRange,
 };
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
@@ -18,9 +16,10 @@ use syn::ext::IdentExt;
 
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
+use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
 use super::state_rules::StateRuleBuilder;
-use super::terms::{TermBuilder, TermSide, WireSlots, wire_key, wire_sort_reference};
+use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, wire_sort_reference};
 use super::tokens::{call_site_cfg_attributes, call_site_path, sort_type_tokens, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -51,6 +50,8 @@ fn configuration_claim(
     let anchors = claim.descriptor_provenance(attribute)?;
     let fallback = TokenRange::for_tokens(rule.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
+    // The claim's declaration key is its wire claim's own.
+    let ledger = KeyLedger::new(&anchors, &[]);
     let nonce = expansion_nonce(env, "configuration_claim", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_configuration_claim_{nonce:016x}");
     let subject_key = format_ident!("__krs_claim_configuration_left_{nonce:016x}");
@@ -96,27 +97,24 @@ fn configuration_claim(
                     format_ident!("__krs_claim_universal_sort_{nonce:016x}_{term_ordinal}");
                 key_functions.push(quote! { #(#cfg)* #[doc(hidden)] fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#ty>() } });
                 let authored = sort.sort_token_text();
-                let ordinal = term_ordinal;
                 term_ordinal += 1;
                 let sort_ref = wire_sort_reference(
                     &mut slots,
                     &facade,
-                    ProvenanceRole::RuleBindingType,
-                    ordinal,
+                    ledger.define(binding.sort_key())?,
                     &key_fn,
                     &authored,
                 );
                 let claim_sort_ref = wire_sort_reference(
                     &mut slots,
                     &facade,
-                    ProvenanceRole::ClaimBinderSort,
-                    ordinal,
+                    ledger.define(binding.binder_sort_key())?,
                     &key_fn,
                     &authored,
                 );
                 universal_metadata.push(WireClaimBinder {
-                    declaration_key: wire_key(ProvenanceRole::ClaimUniversalBinder, ordinal),
-                    name_key: wire_key(ProvenanceRole::ClaimBinderName, ordinal),
+                    declaration_key: ledger.define(binding.universal_key())?,
+                    name_key: ledger.define(binding.binder_name_key())?,
                     name: name.clone(),
                     sort: claim_sort_ref,
                 });
@@ -131,57 +129,45 @@ fn configuration_claim(
     }
     let mut existential_metadata = Vec::new();
     for (index, binder) in claim.existentials().iter().enumerate() {
-        let ordinal = u32::try_from(index).map_err(|_| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                binder.name().span(),
-                "too many existential binders",
-            )
-        })?;
-        let binder_ordinal = term_ordinal.checked_add(ordinal).ok_or_else(|| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                binder.name().span(),
-                "too many claim binders",
-            )
-        })?;
         let path = call_site_path(binder.sort())?;
-        let key_fn = format_ident!("__krs_claim_existential_sort_{nonce:016x}_{ordinal}");
+        let key_fn = format_ident!("__krs_claim_existential_sort_{nonce:016x}_{index}");
         key_functions.push(quote! { #(#cfg)* #[doc(hidden)] fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() } });
         let authored = spelling(binder.sort());
         let name = binder.name().unraw().to_string();
         let sort_ref = wire_sort_reference(
             &mut slots,
             &facade,
-            ProvenanceRole::ClaimBinderSort,
-            binder_ordinal,
+            ledger.define(binder.sort_key())?,
             &key_fn,
             &authored,
         );
         existential_metadata.push(WireClaimBinder {
-            declaration_key: wire_key(ProvenanceRole::ClaimExistentialBinder, ordinal),
-            name_key: wire_key(ProvenanceRole::ClaimBinderName, binder_ordinal),
+            declaration_key: ledger.define(binder.key())?,
+            name_key: ledger.define(binder.name_key())?,
             name,
             sort: sort_ref,
         });
     }
 
-    let mut left =
-        StateRuleBuilder::new(&facade, nonce, &cfg, &universal_idents, RuleSide::Left).for_claim();
+    let mut left = StateRuleBuilder::new(
+        &facade,
+        &ledger,
+        nonce,
+        &cfg,
+        &universal_idents,
+        RuleSide::Left,
+    )
+    .for_claim();
     let subject = left.expand_cells(rule.subject(), &subject_type, &mut slots)?;
     let mut right = StateRuleBuilder::new(
         &facade,
+        &ledger,
         nonce ^ 0x8000_0000_0000_0000,
         &cfg,
         &all_idents,
         RuleSide::Right,
     )
     .for_claim();
-    right.counters.id_token = left.counters.id_token;
-    right.counters.bytes_token = left.counters.bytes_token;
-    right.counters.anonymous = left.counters.anonymous;
-    right.counters.or_bool = left.counters.or_bool;
-    right.terms.continue_ordinals(&left.terms);
     let result = right.expand_cells(
         rule.result().expect("a claim parses only with a result"),
         &result_type,
@@ -189,39 +175,41 @@ fn configuration_claim(
     )?;
     let mut condition_builder = TermBuilder::new(
         &facade,
+        &ledger,
         nonce ^ 0x4000_0000_0000_0000,
         &cfg,
         &universal_idents,
     )
     .for_claim();
-    condition_builder.id_token_ordinal = right.counters.id_token;
-    condition_builder.bytes_token_ordinal = right.counters.bytes_token;
-    condition_builder.or_bool_ordinal = right.counters.or_bool;
-    condition_builder.continue_ordinals(&right.terms);
     let requires = if let Some(condition) = rule.requires() {
         let term = condition_builder.expand_wire(
-            condition.term().tree(),
+            KeyedTerm::of(condition.term()),
             TermSide::Requires,
             &mut slots,
         )?;
         Some(WireRuleCondition {
-            key: wire_key(ProvenanceRole::RuleRequires, 0),
+            key: ledger.define(condition.term().keys().payload())?,
             term,
         })
     } else {
         None
     };
-    let mut ensures_builder =
-        TermBuilder::new(&facade, nonce ^ 0x2000_0000_0000_0000, &cfg, &all_idents).for_claim();
-    ensures_builder.id_token_ordinal = condition_builder.id_token_ordinal;
-    ensures_builder.bytes_token_ordinal = condition_builder.bytes_token_ordinal;
-    ensures_builder.or_bool_ordinal = condition_builder.or_bool_ordinal;
-    ensures_builder.continue_ordinals(&condition_builder);
+    let mut ensures_builder = TermBuilder::new(
+        &facade,
+        &ledger,
+        nonce ^ 0x2000_0000_0000_0000,
+        &cfg,
+        &all_idents,
+    )
+    .for_claim();
     let ensures = if let Some(condition) = claim.ensures() {
-        let term =
-            ensures_builder.expand_wire(condition.term().tree(), TermSide::Ensures, &mut slots)?;
+        let term = ensures_builder.expand_wire(
+            KeyedTerm::of(condition.term()),
+            TermSide::Ensures,
+            &mut slots,
+        )?;
         Some(WireRuleCondition {
-            key: wire_key(ProvenanceRole::ClaimEnsures, 0),
+            key: ledger.define(condition.term().keys().payload())?,
             term,
         })
     } else {
@@ -248,22 +236,23 @@ fn configuration_claim(
         SyntaxClaimModality::OnePath => ClaimModality::OnePath,
     };
     let circularity = if attribute.circularity() {
-        Some(wire_key(ProvenanceRole::ClaimCircularity, 0))
+        Some(ledger.define(attribute.circularity_key())?)
     } else {
         None
     };
-    let trusted = attribute
-        .trusted()
-        .then(|| wire_key(ProvenanceRole::ClaimTrusted, 0));
-    let or_bool_count = anchors
+    let trusted = if attribute.trusted() {
+        Some(ledger.define(attribute.trusted_key())?)
+    } else {
+        None
+    };
+    // The claim lists every `k::or_bool!` its terms hold, as the sentence
+    // anchored them. Each `OrBool` wire term defines its own key, so the
+    // ledger accounts for every one of them already; the list is read off
+    // the anchors, so a refer of its keys could not fail.
+    let or_bool_keys = anchors
         .iter()
         .filter(|anchor| anchor.role() == ProvenanceRole::ClaimOrBool)
-        .count();
-    let or_bool_keys = (0..or_bool_count)
-        .map(|index| {
-            let index = u32::try_from(index).unwrap();
-            wire_key(ProvenanceRole::ClaimOrBool, index)
-        })
+        .map(ProvenanceAnchor::key)
         .collect();
     let mut wrapper_checks = Vec::new();
     for candidate in rule.reference_candidates()? {
@@ -276,15 +265,15 @@ fn configuration_claim(
     let wire = WirePayload::ConfigurationRule(Box::new(WireConfigurationRule {
         sentence_kind: krs_ir::ConfigurationSentenceKind::Claim,
         label: Some(DescriptorRuleLabel {
-            key: wire_key(ProvenanceRole::ClaimLabel, 0),
+            key: ledger.define(attribute.label_key())?,
             name: label_name,
         }),
         priority: None,
         nondet: None,
         requires,
         claim: Some(WireClaim {
-            declaration_key: wire_key(ProvenanceRole::ClaimDeclaration, 0),
-            modality_key: wire_key(ProvenanceRole::ClaimModality, 0),
+            declaration_key: ledger.define(rule.declaration_key())?,
+            modality_key: ledger.define(attribute.modality_key())?,
             modality,
             circularity_key: circularity,
             trusted_key: trusted,
@@ -293,17 +282,17 @@ fn configuration_claim(
             ensures,
             or_bool_keys,
         }),
-        pattern_key: wire_key(ProvenanceRole::RulePattern, 0),
+        pattern_key: ledger.define(rule.pattern_key())?,
         subject_configuration: WireConfigurationReference {
-            key: wire_key(ProvenanceRole::RuleType, 0),
+            key: ledger.define(rule.subject_type_key())?,
             configuration: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#subject_key))),
                 authored_path: subject_spelling,
             },
         },
-        result_key: Some(wire_key(ProvenanceRole::RuleResult, 0)),
+        result_key: Some(ledger.define(rule.result_key())?),
         result_configuration: Some(WireConfigurationReference {
-            key: wire_key(ProvenanceRole::RuleResultType, 0),
+            key: ledger.define(rule.result_type_key())?,
             configuration: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#result_key))),
                 authored_path: result_spelling,
@@ -317,6 +306,7 @@ fn configuration_claim(
         fresh: Vec::new(),
         evaluation: None,
     }));
+    ledger.finish()?;
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 

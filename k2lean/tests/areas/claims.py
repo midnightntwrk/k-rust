@@ -3,7 +3,7 @@
 
 DEMOS = {
     # on ImpRel and kimp-claims, both per-sort
-    "ImpRelClaims": {"tier": "heavy", "encoding": "per-sort"},
+    "ImpRelClaims": {"tier": "heavy", "encoding": "per-sort", "sources": ["demos/ImpRelClaims/ImpRelClaims/Transfers.lean"]},
 }
 
 
