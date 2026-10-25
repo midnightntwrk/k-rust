@@ -191,13 +191,11 @@ fn expanded_smt(
                 })
                 .unwrap_or_default();
             function.validate_smt_fields(&fields)?;
-            // Each placeholder holds the next of the template's
-            // placeholder keys, in order.
-            let mut placeholder_keys = template.placeholder_keys().iter();
             let fragments = template
                 .fragments()
                 .iter()
-                .map(|fragment| -> crate::Result<_> {
+                .enumerate()
+                .map(|(index, fragment)| -> crate::Result<_> {
                     Ok(match fragment {
                         krs_syntax::SmtTemplateFragment::Text(text) => {
                             krs_ir::DescriptorSmtFragment {
@@ -206,7 +204,7 @@ fn expanded_smt(
                             }
                         }
                         krs_syntax::SmtTemplateFragment::Field(name) => {
-                            let key = held_key(placeholder_keys.next())?;
+                            let key = held_key(template.placeholder_key(index))?;
                             krs_ir::DescriptorSmtFragment {
                                 key: Some(key),
                                 fragment: krs_ir::SmtFragment::Field(
@@ -518,13 +516,8 @@ fn constructor_like(
     sink.prefix = format!("__krs_constructor_sort_argument_{nonce:016x}");
     sink.ordinal = 0;
     let result_arguments = production_sort_arguments(&attribute.sort_arguments, &mut sink)?;
-    let parameters = parameter_wire_references(
-        &facade,
-        declaration.sort_parameters(),
-        declaration.parameter_keys(),
-        &parameter_markers,
-        &mut slots,
-    )?;
+    let parameters =
+        parameter_wire_references(&facade, &declaration, &parameter_markers, &mut slots)?;
     let wire = WirePayload::Constructor(WireConstructorDescriptor {
         sort: sort_reference,
         fields,
@@ -677,21 +670,27 @@ fn parametric_item(item: &ItemStruct) -> ItemStruct {
     item
 }
 
-/// One sort reference per K sort parameter, keyed `sort_parameter` in
-/// declaration order, whose slot is the parameter's marker type (KF-027).
+/// One sort reference per K sort parameter of `declaration`, keyed as the
+/// parameter is, whose slot is the parameter's marker type (KF-027).
 fn parameter_wire_references(
     facade: &Path,
-    parameters: &[Ident],
-    keys: &[krs_ir::ProvenanceKey],
+    declaration: &krs_syntax::ConstructorDeclaration,
     markers: &[(Ident, Ident)],
     slots: &mut WireSlots,
 ) -> crate::Result<Vec<WireSortReference>> {
-    parameters
+    declaration
+        .sort_parameters()
         .iter()
         .zip(markers)
         .enumerate()
         .map(|(index, (parameter, (_, key)))| {
-            wire_sort_reference(slots, facade, keys.get(index), key, &parameter.to_string())
+            wire_sort_reference(
+                slots,
+                facade,
+                declaration.parameter_key(index),
+                key,
+                &parameter.to_string(),
+            )
         })
         .collect()
 }
@@ -1241,8 +1240,7 @@ fn constructor_grammar(
             attributes,
             parameters: parameter_wire_references(
                 facade,
-                declaration.sort_parameters(),
-                declaration.parameter_keys(),
+                declaration,
                 parameter_markers,
                 &mut slots,
             )?,
@@ -1286,8 +1284,7 @@ fn constructor_production_wire_items(
     let mut items = Vec::new();
     if let Some(template) = template {
         for (item_index, item) in template.items().iter().enumerate() {
-            let item_keys = template.item_keys(item_index);
-            let key = held_key(item_keys.first())?;
+            let key = held_key(template.item_key(item_index))?;
             match item {
                 SyntaxTemplateItem::Terminal(text) => items.push(WireProductionItem::Terminal {
                     key,
@@ -1319,7 +1316,7 @@ fn constructor_production_wire_items(
                     )?;
                     items.push(WireProductionItem::NonTerminal {
                         key,
-                        field_key: held_key(item_keys.get(1))?,
+                        field_key: held_key(template.value_reference_key(item_index))?,
                         declaration_key: Some(held_key(field.name_key())?),
                         field: krs_ir::ProductionFieldId::new(field_name.clone())
                             .expect("Rust field identifiers are valid production fields"),

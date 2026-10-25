@@ -18,6 +18,14 @@ use crate::parse::{KeyAllocator, KrsSyntax, first_non_doc_attribute};
 use crate::term_sort::{parse_typed_readable_sort, parse_typed_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
+/// The keys of a tier in its family's associativity descriptor: its
+/// sentence, and its reference in that sentence.
+#[derive(Clone, Debug)]
+struct AssociativityKeys {
+    sentence: ProvenanceKey,
+    reference: ProvenanceKey,
+}
+
 /// One tier in an exhaustive enum-level readable-family precedence chain.
 #[derive(Clone, Debug)]
 pub struct EnumPrecedenceGroup {
@@ -27,7 +35,7 @@ pub struct EnumPrecedenceGroup {
     name: Option<Ident>,
     variants: Vec<Ident>,
     precedence_key: Option<ProvenanceKey>,
-    associativity_keys: Vec<ProvenanceKey>,
+    associativity_keys: Option<AssociativityKeys>,
 }
 
 impl EnumPrecedenceGroup {
@@ -71,11 +79,18 @@ impl EnumPrecedenceGroup {
         self.precedence_key.as_ref()
     }
 
-    /// The keys of the tier in its family's associativity descriptor: its
-    /// sentence, then its reference; empty for a bare tier.
+    /// The key of the tier's sentence in its family's associativity
+    /// descriptor; `None` for a bare tier.
     #[must_use]
-    pub fn associativity_keys(&self) -> &[ProvenanceKey] {
-        &self.associativity_keys
+    pub fn associativity_sentence_key(&self) -> Option<&ProvenanceKey> {
+        self.associativity_keys.as_ref().map(|keys| &keys.sentence)
+    }
+
+    /// The key of the tier's reference in its own associativity sentence;
+    /// `None` for a bare tier.
+    #[must_use]
+    pub fn associativity_reference_key(&self) -> Option<&ProvenanceKey> {
+        self.associativity_keys.as_ref().map(|keys| &keys.reference)
     }
 
     /// Returns the complete tier's exact authored range.
@@ -656,13 +671,13 @@ impl EnumConstructorDeclaration {
                 if group.associativity.is_none() {
                     continue;
                 }
-                group.associativity_keys = vec![
-                    keys.key(ProvenanceRole::AssociativitySentence, group.range)?,
-                    keys.key(
+                group.associativity_keys = Some(AssociativityKeys {
+                    sentence: keys.key(ProvenanceRole::AssociativitySentence, group.range)?,
+                    reference: keys.key(
                         ProvenanceRole::AssociativityGroupReference,
                         group.reference_range,
                     )?,
-                ];
+                });
             }
             self.associativity_anchors = Some(keys.into_anchors());
         }
@@ -913,7 +928,7 @@ fn parse_enum_precedence_group(input: ParseStream<'_>) -> syn::Result<EnumPreced
         name,
         variants,
         precedence_key: None,
-        associativity_keys: Vec::new(),
+        associativity_keys: None,
     })
 }
 
@@ -1570,10 +1585,8 @@ mod keyed {
                 nodes.push(self.associativity_declaration_key.as_ref(), range);
             }
             for group in self.precedence_groups() {
-                let mut keys = group.associativity_keys.iter();
-                nodes.push(keys.next(), group.range);
-                nodes.push(keys.next(), group.reference_range);
-                assert!(keys.next().is_none());
+                nodes.push(group.associativity_sentence_key(), group.range);
+                nodes.push(group.associativity_reference_key(), group.reference_range);
             }
         }
     }

@@ -744,8 +744,7 @@ fn expand_bracket_grammar_parts(
     )?;
     let mut items = Vec::new();
     for (item_index, item) in bracket.template().items().iter().enumerate() {
-        let item_keys = bracket_item_keys(bracket, item_index);
-        let key = held_key(item_keys.first())?;
+        let key = held_key(bracket.item_key(item_index))?;
         match item {
             SyntaxTemplateItem::Terminal(text) => {
                 items.push(krs_ir::wire::WireProductionItem::Terminal {
@@ -754,7 +753,7 @@ fn expand_bracket_grammar_parts(
                 });
             }
             SyntaxTemplateItem::Field(_) => {
-                let field_key = held_key(item_keys.get(1))?;
+                let field_key = held_key(bracket.value_reference_key(item_index))?;
                 items.push(krs_ir::wire::WireProductionItem::NonTerminal {
                     key,
                     field_key,
@@ -804,26 +803,6 @@ fn expand_bracket_grammar_parts(
     Ok(quote! {
         #factory_tokens
     })
-}
-
-/// The keys of the bracket's item at `index`: its item key, then, for its
-/// value, the value reference's. A two-delimiter bracket keys its three
-/// items and its value reference in order, all at the pair.
-fn bracket_item_keys(
-    bracket: &krs_syntax::BracketAttribute,
-    index: usize,
-) -> Vec<krs_ir::ProvenanceKey> {
-    let delimiter = bracket.delimiter_keys();
-    if delimiter.is_empty() {
-        return bracket.template().item_keys(index).to_vec();
-    }
-    let value = delimiter.get(3).filter(|_| index == 1);
-    delimiter
-        .get(index)
-        .into_iter()
-        .chain(value)
-        .cloned()
-        .collect()
 }
 
 #[cfg(test)]

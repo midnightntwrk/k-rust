@@ -396,13 +396,11 @@ fn expand_enum_family_grammar(
                 SyntaxGroupAssociativity::Right => GroupAssociativity::Right,
                 SyntaxGroupAssociativity::NonAssociative => GroupAssociativity::NonAssociative,
             };
-            // The tier's sentence, then its reference.
-            let keys = group.associativity_keys();
             sentences.push(DescriptorAssociativitySentence {
-                key: held_key(keys.first())?,
+                key: held_key(group.associativity_sentence_key())?,
                 associativity,
                 groups: vec![DescriptorGroupReference {
-                    key: held_key(keys.get(1))?,
+                    key: held_key(group.associativity_reference_key())?,
                     group: ProductionGroupId::new(group_name)
                         .expect("generated enum groups are valid identities"),
                 }],
@@ -723,8 +721,7 @@ fn enum_variant_production_wire_items(
     let mut items = Vec::new();
     if let Some(syntax) = variant.syntax() {
         for (item_index, item) in syntax.syntax_template().items().iter().enumerate() {
-            let item_keys = syntax.syntax_template().item_keys(item_index);
-            let key = held_key(item_keys.first())?;
+            let key = held_key(syntax.syntax_template().item_key(item_index))?;
             match item {
                 SyntaxTemplateItem::Terminal(text) => items.push(Item::Terminal {
                     key,
@@ -748,7 +745,9 @@ fn enum_variant_production_wire_items(
                     let field = &variant.fields()[declaration_index];
                     items.push(Item::NonTerminal {
                         key,
-                        field_key: held_key(item_keys.get(1))?,
+                        field_key: held_key(
+                            syntax.syntax_template().value_reference_key(item_index),
+                        )?,
                         // The field's declaration, which the template names.
                         declaration_key: Some(held_key(field.name_key())?),
                         field: krs_ir::ProductionFieldId::new(name.clone())
