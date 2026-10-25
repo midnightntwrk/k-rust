@@ -16,17 +16,6 @@ instance : KPrelude.ListSizeAffine SortList SortKItem := ⟨⟨0, SortList.sizeO
 instance : KPrelude.MapSizeOf SortMap SortKItem SortKItem := ⟨SortMap.sizeOf_lookupR, SortMap.sizeOf_eraseR⟩
 instance : KPrelude.MapSizeOf SortWorkerCellMap SortWidCell SortWorkerCell := ⟨SortWorkerCellMap.sizeOf_lookupR, SortWorkerCellMap.sizeOf_eraseR⟩
 
-/-! `WorkerCellMapKey` -/
-def K.WorkerCellMapKey.rule1 (x0 : SortWorkerCell) : Option (Option SortWidCell) :=
-  match x0 with
-  | SortWorkerCell.«<worker>» Key DotVar0 =>
-    some (some Key)
-def K.WorkerCellMapKey (x0 : SortWorkerCell) : Option SortWidCell :=
-  match K.WorkerCellMapKey.rule1 x0 with
-  | some r => r
-  | none =>
-    none
-
 /-! `isNat(_)_FREEKEY_Bool_KItem` -/
 def K.«isNat(_)_FREEKEY_Bool_KItem».rule1 (x0 : SortKItem) : Option (SortBool) :=
   match x0 with

@@ -6152,8 +6152,9 @@ module FREEKEY
               )
             ),
             Lbl'-LT-'m'-GT-'{}(VarM:SortMap{}),
-            Lbl'-LT-'workers'-GT-'{}(
-              LblWorkerCellMapItem{}(Var'Unds'Gen0:SortWidCell{}, VarW:SortWorkerCell{})
+            \and{SortWorkersCell{}}(
+              Lbl'-LT-'workers'-GT-'{}(VarW:SortWorkerCellMap{}),
+              Var'Unds'Gen6:SortWorkersCell{}
             )
           ),
           Var'Unds'DotVar0:SortGeneratedCounterCell{}
@@ -6178,20 +6179,12 @@ module FREEKEY
                 inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("0")),
                 inj{SortInt{}, SortKItem{}}(
                   Lbltotal'LParUndsRParUnds'FREEKEY'Unds'Int'Unds'WorkerCellMap{}(
-                    LblWorkerCellMapItem{}(
-                      LblWorkerCellMapKey{}(VarW:SortWorkerCell{}),
-                      VarW:SortWorkerCell{}
-                    )
+                    VarW:SortWorkerCellMap{}
                   )
                 )
               )
             ),
-            Lbl'-LT-'workers'-GT-'{}(
-              LblWorkerCellMapItem{}(
-                LblWorkerCellMapKey{}(VarW:SortWorkerCell{}),
-                VarW:SortWorkerCell{}
-              )
-            )
+            Var'Unds'Gen6:SortWorkersCell{}
           ),
           Var'Unds'DotVar0:SortGeneratedCounterCell{}
         ),
@@ -6199,7 +6192,7 @@ module FREEKEY
       )
     )
     [
-      UNIQUE'Unds'ID{}("d99ac3ea680df0e338f6867dc93992ac647988945a54e3a17d64982b1c657295"),
+      UNIQUE'Unds'ID{}("3046f6e285c6ba7d30bde89acd8b4761388ad985880509a6d6ea0ea97f80979c"),
       label{}("sum"),
       org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(57,3,58,62)"),
       org'Stop'kframework'Stop'attributes'Stop'Source{}(

@@ -222,16 +222,6 @@ theorem Eqn.«_|Set__SET_Set_Set_Set_1» (S1 : SortSet) (S2 : SortSet) :
   | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
   | (k2l_eqn_c [])
 
-/-- WorkerCellMapKey equation 1 -/
-theorem Eqn.WorkerCellMapKey_1 (DotVar0 : SortCntCell) (Key : SortWidCell) :
-    K.WorkerCellMapKey (SortWorkerCell.«<worker>» Key DotVar0) = some Key := by
-  intros
-  first
-  | k2l_eqn_a [K.WorkerCellMapKey.rule1, K.WorkerCellMapKey]
-  | (unfold K.WorkerCellMapKey K.WorkerCellMapKey.rule1; k2l_eqn_b [K.WorkerCellMapKey.rule1, K.WorkerCellMapKey]; done)
-  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.WorkerCellMapKey.rule1, K.WorkerCellMapKey])
-  | (unfold K.WorkerCellMapKey K.WorkerCellMapKey.rule1; k2l_eqn_c [K.WorkerCellMapKey.rule1, K.WorkerCellMapKey])
-
 /-- allNat(_)_FREEKEY_Bool_Map equation 1 -/
 theorem Eqn.«allNat(_)_FREEKEY_Bool_Map_1» :
     K.«allNat(_)_FREEKEY_Bool_Map» KPrelude.MapHook.unit = some true := by

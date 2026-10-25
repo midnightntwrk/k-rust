@@ -6,15 +6,15 @@
   "syntax_module": "FREEKEY-SYNTAX",
   "frontend": {
     "file": "frontend.json",
-    "sha256": "af5b340cf1105d6df1d92a53e6ea3d914608e509dd8732852ed48560cb4f1122"
+    "sha256": "e00d83fd818d5e9356a9e5f76521ad913041a717351aa4d9f019c7640a243bad"
   },
   "execution": {
     "file": "execution.json",
-    "sha256": "24baf9cdf07c5a9587dd91efd792204d53d0c1033d36d7f8a7093696f37324f4"
+    "sha256": "ed43a9690c9a92def7ef6e6b5a860ca11059304623951b7484e9fa50ebd7cb7a"
   },
   "definition_kore": {
     "file": "definition.kore",
-    "sha256": "cdb8a3c451ca2f855c5c48e3fe0fd53a28d752c5efa145511c5f5461ccd44cf3"
+    "sha256": "ad26a9d35f2a7026bbfa89df900f463f498991d7577d7ba7221611d59e12eea1"
   },
   "configuration_variables": {
     "PGM": "Pgm"
@@ -150,7 +150,7 @@
     "b75fbf8727675890549ce7ccf34fde76ffdd479fa3bf39635e5226916cb254e4",
     "f52a340388eea6e5c5043c89de0ea1ffbceed6caec756b5f872cca2d1fac7a75",
     "7e56a2375116502123a8f0197f64956246b1d86fc3e18a2cd36e9f2e0f65666b",
-    "d99ac3ea680df0e338f6867dc93992ac647988945a54e3a17d64982b1c657295",
+    "3046f6e285c6ba7d30bde89acd8b4761388ad985880509a6d6ea0ea97f80979c",
     "d22a9d44b6e2fbfd4ec6586faf052dbfc587abff7436bb39a2b42da4e89cf7dd",
     "9dd62ea3a154aa154845156180f408f134b2de583f59f683fc0925a15cc0fb8b",
     "68a220a58c6e4ea0a4083a06011e96e6b8cb8251972f1445f8ca5ad360ea1698",
