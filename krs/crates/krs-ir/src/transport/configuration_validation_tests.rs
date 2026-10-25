@@ -175,7 +175,7 @@ fn fixed_configuration_owner_hooks_preserve_first_errors_and_host_aliases() {
     assert_eq!(
         host.validate(type_key::<Nested>()),
         Err(StateTransportError::UnexpectedProvenance {
-            expected: key(ProvenanceRole::ConfigurationRoot),
+            expected: ProvenanceRole::ConfigurationRoot,
             actual: key(ProvenanceRole::InitializerDeclaration),
         })
     );
@@ -243,7 +243,7 @@ fn declaration_owner_kinds_precede_provenance_only_for_descriptors() {
     assert_eq!(
         host.validate_host(type_key::<Owner>()),
         Err(StateTransportError::UnexpectedProvenance {
-            expected: key(ProvenanceRole::ConfigurationDeclaration),
+            expected: ProvenanceRole::ConfigurationDeclaration,
             actual: descriptor.key,
         })
     );
@@ -287,7 +287,7 @@ fn leaf_sorts_preserve_descriptor_only_kind_and_k_sequence_checks() {
         descriptor,
     );
     let expected = Err(StateTransportError::UnexpectedProvenance {
-        expected: key(ProvenanceRole::ConfigurationCellContent),
+        expected: ProvenanceRole::ConfigurationCellContent,
         actual: key(ProvenanceRole::InitializerTerm),
     });
     assert_eq!(
@@ -532,7 +532,7 @@ fn assert_initializer_context<S: ConfigurationValidationStage>() {
             literal: DescriptorLiteral::Int("-0".into()),
         }),
         Err(StateTransportError::UnexpectedProvenance {
-            expected: key(ProvenanceRole::InitializerTerm),
+            expected: ProvenanceRole::InitializerTerm,
             actual: key(ProvenanceRole::InitializerTermPath),
         })
     );
@@ -579,7 +579,7 @@ fn assert_initializer_constants<S: ConfigurationValidationStage>(sort: impl Fn()
                 value: value.into(),
             }),
             Err(StateTransportError::UnexpectedProvenance {
-                expected: key(role),
+                expected: role,
                 actual: ProvenanceKey::new(role, 1),
             })
         );
@@ -640,7 +640,7 @@ fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Appli
     assert_eq!(
         initializer_term::<S>(application(vec![named()])),
         Err(StateTransportError::UnexpectedProvenance {
-            expected: key(ProvenanceRole::InitializerRecordFieldName),
+            expected: ProvenanceRole::InitializerRecordFieldName,
             actual: key(ProvenanceRole::InitializerTermPath),
         })
     );
@@ -660,7 +660,7 @@ fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Appli
     assert_eq!(
         initializer_term::<S>(application(vec![field(1, "value")])),
         Err(StateTransportError::UnexpectedProvenance {
-            expected: key(ProvenanceRole::InitializerRecordFieldName),
+            expected: ProvenanceRole::InitializerRecordFieldName,
             actual: ProvenanceKey::new(ProvenanceRole::InitializerRecordFieldName, 1),
         })
     );
@@ -839,7 +839,7 @@ fn k_sequence_shells_are_numbered_across_the_initializer() {
     assert_eq!(
         validate(0),
         Err(StateTransportError::UnexpectedProvenance {
-            expected: ProvenanceKey::new(ProvenanceRole::KSequencePayload, 1),
+            expected: ProvenanceRole::KSequencePayload,
             actual: key(ProvenanceRole::KSequencePayload),
         })
     );

@@ -12,6 +12,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use super::detail::{StateCellContentReason, StateTermReason, TransportField, TransportItemKind};
+use super::keys::KeyFailure;
 use crate::stage::{DescriptorStage, HostStage, Stage, protocol_shape, stage_shape};
 
 use crate::host::{HostTypeKey, HostTypeReference};
@@ -722,13 +723,17 @@ pub enum StateTransportError {
     InvalidTerm(StateTermReason),
     /// A nested semantic key was absent from materialized provenance.
     MissingProvenance(ProvenanceKey),
-    /// A node used a key other than its exact parser role/ordinal.
+    /// A node's key field held a key of another role than the field
+    /// requires.
     UnexpectedProvenance {
-        /// Required key.
-        expected: ProvenanceKey,
+        /// The field's role.
+        expected: ProvenanceRole,
         /// Supplied key.
         actual: ProvenanceKey,
     },
+    /// Two nodes defined one key: a key names one authored node, and every
+    /// other field that names it is a reference.
+    DuplicateProvenance(ProvenanceKey),
     /// Materialized provenance contained a key absent from the typed payload.
     ExtraProvenance(ProvenanceKey),
 }
@@ -739,7 +744,9 @@ impl StateTransportError {
     pub const fn at(&self) -> Option<&ProvenanceKey> {
         match self {
             Self::InitializerDeclarationMismatch { at } => at.as_ref(),
-            Self::UnexpectedProvenance { actual: key, .. } | Self::ExtraProvenance(key) => Some(key),
+            Self::UnexpectedProvenance { actual: key, .. }
+            | Self::DuplicateProvenance(key)
+            | Self::ExtraProvenance(key) => Some(key),
             Self::InvalidText(_)
             | Self::EmptyCollection(_)
             | Self::DuplicateValue(_)
@@ -789,11 +796,15 @@ impl fmt::Display for StateTransportError {
             ),
             Self::UnexpectedProvenance { expected, actual } => write!(
                 formatter,
-                "expected provenance `{}#{}`, found `{}#{}`",
-                expected.role(),
-                expected.ordinal(),
+                "expected a `{expected}` provenance key, found `{}#{}`",
                 actual.role(),
                 actual.ordinal()
+            ),
+            Self::DuplicateProvenance(key) => write!(
+                formatter,
+                "provenance `{}#{}` is defined by two nodes",
+                key.role(),
+                key.ordinal()
             ),
             Self::ExtraProvenance(key) => write!(
                 formatter,
@@ -806,6 +817,19 @@ impl fmt::Display for StateTransportError {
 }
 
 impl Error for StateTransportError {}
+
+impl From<KeyFailure> for StateTransportError {
+    fn from(failure: KeyFailure) -> Self {
+        match failure {
+            KeyFailure::Role { expected, actual } => {
+                Self::UnexpectedProvenance { expected, actual }
+            }
+            KeyFailure::Duplicate(key) => Self::DuplicateProvenance(key),
+            KeyFailure::Missing(key) => Self::MissingProvenance(key),
+            KeyFailure::Extra(key) => Self::ExtraProvenance(key),
+        }
+    }
+}
 
 impl DescriptorCellIdentity {
     /// Validates the stable owner namespace and Rust field component.
@@ -2027,7 +2051,7 @@ impl<S: ValidationStage> TermValidation<S> for InitializerTermValidation<'_> {
     ) -> Result<(), Self::Error> {
         if key != self.structural_key {
             return Err(StateTransportError::UnexpectedProvenance {
-                expected: self.structural_key.clone(),
+                expected: self.structural_key.role(),
                 actual: key.clone(),
             });
         }
@@ -2297,7 +2321,7 @@ fn validate_complete_set(
     let expected_primary = canonical_key(ProvenanceRole::ConfigurationDeclaration, 0);
     if primary != &expected_primary {
         return Err(StateTransportError::UnexpectedProvenance {
-            expected: expected_primary,
+            expected: expected_primary.role(),
             actual: primary.clone(),
         });
     }
@@ -2319,7 +2343,7 @@ fn insert_exact(
     let expected = canonical_key(role, ordinal);
     if actual != &expected {
         return Err(StateTransportError::UnexpectedProvenance {
-            expected,
+            expected: expected.role(),
             actual: actual.clone(),
         });
     }

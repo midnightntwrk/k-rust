@@ -8,7 +8,6 @@ use std::io::Write;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::stage::{DescriptorStage, stage_shape};
-use crate::transport::detail::TransportField;
 use crate::transport::{
     configuration::{FixedConfiguration as TransportFixedConfiguration, StageCellDeclaration},
     grammar::{StageGrammarDescriptor, StructuredRule},
@@ -729,24 +728,21 @@ impl Descriptor {
     /// references, or parser keys absent from this descriptor's provenance.
     pub(crate) fn validate_grammar_contract(&self) -> Result<(), GrammarTransportError> {
         let contains = |key: &ProvenanceKey| self.provenance.origin_for(key).is_some();
-        let (expected, expected_primary) = match &self.payload {
+        let (keys, expected_primary) = match &self.payload {
             DescriptorPayload::Grammar(grammar) => {
                 grammar.validate(self.id.item_kind(), contains)?;
-                (
-                    Some(grammar.expected_provenance_keys()?),
-                    Some(grammar.expected_primary_key()),
-                )
+                (grammar.wire_keys()?, grammar.expected_primary_key())
             }
             DescriptorPayload::StructuredRule(rule) => {
                 rule.validate(self.id.item_kind(), contains)?;
                 (
-                    Some(rule.expected_provenance_keys()?),
-                    Some(StructuredRuleDescriptor::expected_primary_key()),
+                    rule.wire_keys()?,
+                    StructuredRuleDescriptor::expected_primary_key(),
                 )
             }
             DescriptorPayload::Constant(constant) => (
-                Some(constant.expected_provenance_keys()?),
-                Some(crate::transport::constant::ConstantDescriptor::expected_primary_key()),
+                constant.wire_keys()?,
+                crate::transport::constant::ConstantDescriptor::expected_primary_key(),
             ),
             DescriptorPayload::Sort(_)
             | DescriptorPayload::Constructor(_)
@@ -754,32 +750,19 @@ impl Descriptor {
             | DescriptorPayload::Cell(_)
             | DescriptorPayload::ConfigurationRule(_)
             | DescriptorPayload::HeadRule(_)
-            | DescriptorPayload::ContextAlias(_) => (None, None),
+            | DescriptorPayload::ContextAlias(_) => return Ok(()),
         };
-        let Some(expected) = expected else {
-            return Ok(());
-        };
-        let actual = self
-            .provenance
-            .origins()
-            .iter()
-            .filter(|origin| origin.key.role() != ProvenanceRole::StableSymbol)
-            .map(|origin| origin.key.clone())
-            .collect::<BTreeSet<_>>();
-        if let Some(missing) = expected.difference(&actual).next() {
-            return Err(GrammarTransportError::MissingProvenance(missing.clone()));
-        }
-        if let Some(unexpected) = actual.difference(&expected).next() {
-            return Err(GrammarTransportError::ExtraProvenance(unexpected.clone()));
-        }
-        let Some(expected_primary) = expected_primary else {
-            return Err(GrammarTransportError::EmptyCollection(
-                TransportField::RequiredGrammarPrimaryProvenanceKey,
-            ));
-        };
+        // The stable symbol is the collector's node, not the payload's.
+        keys.close(
+            self.provenance
+                .origins()
+                .iter()
+                .map(|origin| &origin.key)
+                .filter(|key| key.role() != ProvenanceRole::StableSymbol),
+        )?;
         if self.provenance.primary_key() != &expected_primary {
             return Err(GrammarTransportError::UnexpectedProvenance {
-                expected: expected_primary,
+                expected: expected_primary.role(),
                 actual: self.provenance.primary_key().clone(),
             });
         }

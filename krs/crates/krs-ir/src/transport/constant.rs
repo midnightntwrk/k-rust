@@ -6,10 +6,9 @@
 //! substitutes the value at every use before semantic analysis, so no
 //! constant reaches the semantic IR or emitted K.
 
-use std::collections::BTreeSet;
-
 use serde::{Deserialize, Serialize};
 
+use super::keys::WireKeys;
 use crate::stage::stage_shape;
 use crate::transport::grammar::{GrammarTransportError, Term};
 use crate::{DescriptorStage, ProvenanceKey, ProvenanceRole};
@@ -43,19 +42,16 @@ impl ConstantDescriptor {
         ProvenanceKey::new(ProvenanceRole::ConstantDeclaration, 0)
     }
 
-    /// Every parser key the descriptor's provenance must hold: the name,
-    /// the type, the value expression, and the value's nodes.
+    /// The keys of the constant's wire nodes, with its fixed declaration
+    /// key, the name.
     ///
     /// # Errors
     ///
-    /// Returns [`GrammarTransportError`] when a key is not the parser's.
-    pub(crate) fn expected_provenance_keys(
-        &self,
-    ) -> Result<BTreeSet<ProvenanceKey>, GrammarTransportError> {
-        let mut keys = BTreeSet::from([
-            Self::expected_primary_key(),
-            ProvenanceKey::new(ProvenanceRole::ConstantValue, 0),
-        ]);
+    /// Returns [`GrammarTransportError`] when a key has another role than
+    /// its node's, or two nodes define one key.
+    pub(crate) fn wire_keys(&self) -> Result<WireKeys, GrammarTransportError> {
+        let mut keys = WireKeys::default();
+        keys.fixed(ProvenanceRole::ConstantDeclaration)?;
         super::grammar::collect_constant_keys(self, &mut keys)?;
         Ok(keys)
     }

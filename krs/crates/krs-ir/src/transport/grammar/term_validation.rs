@@ -4,9 +4,8 @@ use std::collections::BTreeSet;
 
 use super::{
     CellTermField, DescriptorApplicationHeadClass, DescriptorApplicationReference,
-    DescriptorLiteral, DescriptorSortReference, DescriptorTerm, GrammarTransportError,
-    TermKeyCounters, TermSide, increment, insert_exact, require_key,
-    validate_collection_application_shape,
+    DescriptorLiteral, DescriptorSortReference, DescriptorTerm, GrammarTransportError, TermSide,
+    WireKeys, require_key, validate_collection_application_shape,
 };
 use crate::transport::detail::{GrammarApplicationReason, GrammarTermReason};
 use crate::transport::validation::TermValidation;
@@ -356,10 +355,15 @@ impl<F: Fn(&ProvenanceKey) -> bool + Copy> TermValidation<DescriptorStage>
     }
 }
 
+/// Collects the keys of a rule term's nodes on one side: each node defines
+/// its keys, of the roles its kind has on that side.
 pub(super) struct TermProvenanceValidation<'a> {
-    pub(super) keys: &'a mut BTreeSet<ProvenanceKey>,
+    pub(super) keys: &'a mut WireKeys,
     pub(super) side: TermSide,
-    pub(super) counters: &'a mut TermKeyCounters,
+    /// Whether the validator is inside a `k::matches!` pattern.
+    pub(super) in_matches_pattern: bool,
+    /// Whether the validator is inside a `let` pattern.
+    pub(super) in_let_pattern: bool,
 }
 
 impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
@@ -371,20 +375,8 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         path_key: &ProvenanceKey,
         _: &str,
     ) -> Result<(), Self::Error> {
-        insert_exact(
-            self.keys,
-            path_key,
-            self.side.path_role(),
-            self.counters.path,
-        )?;
-        self.counters.path = increment(self.counters.path)?;
-        insert_exact(
-            self.keys,
-            key,
-            self.side.reference_role(),
-            self.counters.reference,
-        )?;
-        self.counters.reference = increment(self.counters.reference)?;
+        self.keys.define(path_key, self.side.path_role())?;
+        self.keys.define(key, self.side.reference_role())?;
         Ok(())
     }
 
@@ -395,75 +387,34 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         path_key: &ProvenanceKey,
         _: &crate::Arguments<crate::DescriptorStage>,
     ) -> Result<(), Self::Error> {
-        insert_exact(
-            self.keys,
-            path_key,
-            self.side.path_role(),
-            self.counters.path,
-        )?;
-        self.counters.path = increment(self.counters.path)?;
-        match head_class {
-            DescriptorApplicationHeadClass::Applied => {
-                insert_exact(
-                    self.keys,
-                    &reference.key,
-                    self.side.application_role(),
-                    self.counters.application,
-                )?;
-                self.counters.application = increment(self.counters.application)?;
-            }
-            DescriptorApplicationHeadClass::BareReference => {
-                insert_exact(
-                    self.keys,
-                    &reference.key,
-                    self.side.reference_role(),
-                    self.counters.reference,
-                )?;
-                self.counters.reference = increment(self.counters.reference)?;
-            }
-        }
+        // The head and the path are two nodes over one path, each keyed.
+        self.keys.define(path_key, self.side.path_role())?;
+        let role = match head_class {
+            DescriptorApplicationHeadClass::Applied => self.side.application_role(),
+            DescriptorApplicationHeadClass::BareReference => self.side.reference_role(),
+        };
+        self.keys.define(&reference.key, role)?;
         Ok(())
     }
 
     fn literal(&mut self, key: &ProvenanceKey, _: &DescriptorLiteral) -> Result<(), Self::Error> {
-        insert_exact(
-            self.keys,
-            key,
-            self.side.literal_role(),
-            self.counters.literal,
-        )?;
-        self.counters.literal = increment(self.counters.literal)?;
+        self.keys.define(key, self.side.literal_role())?;
         Ok(())
     }
 
     fn wildcard(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
-        if self.counters.in_let_pattern {
-            insert_exact(
-                self.keys,
-                key,
-                ProvenanceRole::LetWildcard,
-                self.counters.let_wildcard,
-            )?;
-            self.counters.let_wildcard = increment(self.counters.let_wildcard)?;
-            return Ok(());
-        }
-        if self.counters.in_matches_pattern {
-            insert_exact(
-                self.keys,
-                key,
-                ProvenanceRole::MatchesWildcard,
-                self.counters.matches_wildcard,
-            )?;
-            self.counters.matches_wildcard = increment(self.counters.matches_wildcard)?;
-            return Ok(());
-        }
-        let Some(role) = self.side.wildcard_role() else {
-            return Err(GrammarTransportError::InvalidTerm(
-                GrammarTermReason::WildcardsAreAllowedOnlyInRuleSubjects,
-            ));
+        let role = if self.in_let_pattern {
+            ProvenanceRole::LetWildcard
+        } else if self.in_matches_pattern {
+            ProvenanceRole::MatchesWildcard
+        } else {
+            self.side
+                .wildcard_role()
+                .ok_or(GrammarTransportError::InvalidTerm(
+                    GrammarTermReason::WildcardsAreAllowedOnlyInRuleSubjects,
+                ))?
         };
-        insert_exact(self.keys, key, role, self.counters.wildcard)?;
-        self.counters.wildcard = increment(self.counters.wildcard)?;
+        self.keys.define(key, role)?;
         Ok(())
     }
 
@@ -473,13 +424,7 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         sort: BuiltinSort,
         value: &str,
     ) -> Result<(), Self::Error> {
-        let role = builtin_token_role(sort, value)?;
-        let counter = match role {
-            ProvenanceRole::ClaimIdToken => &mut self.counters.id_token,
-            _ => &mut self.counters.bytes_token,
-        };
-        insert_exact(self.keys, key, role, *counter)?;
-        *counter = increment(*counter)?;
+        self.keys.define(key, builtin_token_role(sort, value)?)?;
         Ok(())
     }
 
@@ -506,19 +451,8 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         sort: &DescriptorSortReference,
         _: &str,
     ) -> Result<(), Self::Error> {
-        insert_exact(
-            self.keys,
-            &sort.key,
-            ProvenanceRole::LexemeSort,
-            self.counters.lexeme,
-        )?;
-        insert_exact(
-            self.keys,
-            key,
-            ProvenanceRole::LexemeText,
-            self.counters.lexeme,
-        )?;
-        self.counters.lexeme = increment(self.counters.lexeme)?;
+        self.keys.define(&sort.key, ProvenanceRole::LexemeSort)?;
+        self.keys.define(key, ProvenanceRole::LexemeText)?;
         Ok(())
     }
 
@@ -538,30 +472,14 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         _: SortTestKind,
         sort: &DescriptorSortReference,
     ) -> Result<(), Self::Error> {
-        insert_exact(
-            self.keys,
-            &sort.key,
-            ProvenanceRole::SortTestSort,
-            self.counters.sort_test,
-        )?;
-        insert_exact(
-            self.keys,
-            key,
-            ProvenanceRole::SortTest,
-            self.counters.sort_test,
-        )?;
-        self.counters.sort_test = increment(self.counters.sort_test)?;
+        self.keys.define(&sort.key, ProvenanceRole::SortTestSort)?;
+        self.keys.define(key, ProvenanceRole::SortTest)?;
         Ok(())
     }
 
     fn application_instance(&mut self, sort: &DescriptorSortReference) -> Result<(), Self::Error> {
-        insert_exact(
-            self.keys,
-            &sort.key,
-            ProvenanceRole::ApplicationInstance,
-            self.counters.application_instance,
-        )?;
-        self.counters.application_instance = increment(self.counters.application_instance)?;
+        self.keys
+            .define(&sort.key, ProvenanceRole::ApplicationInstance)?;
         Ok(())
     }
 
@@ -571,68 +489,41 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         binding_key: &ProvenanceKey,
         _: &str,
     ) -> Result<(), Self::Error> {
-        if self.counters.in_let_pattern
-            || (!matches!(self.side, TermSide::Left) && !self.counters.in_matches_pattern)
+        if self.in_let_pattern || (!matches!(self.side, TermSide::Left) && !self.in_matches_pattern)
         {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::PatternAsOutsideLeftHandSide,
             ));
         }
-        insert_exact(
-            self.keys,
-            key,
-            ProvenanceRole::PatternAs,
-            self.counters.pattern_as,
-        )?;
-        insert_exact(
-            self.keys,
-            binding_key,
-            ProvenanceRole::PatternAsBinding,
-            self.counters.pattern_as,
-        )?;
-        self.counters.pattern_as = increment(self.counters.pattern_as)?;
+        self.keys.define(key, ProvenanceRole::PatternAs)?;
+        self.keys
+            .define(binding_key, ProvenanceRole::PatternAsBinding)?;
         Ok(())
     }
 
     fn pattern_or(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
-        if self.counters.in_let_pattern
-            || (!matches!(self.side, TermSide::Left) && !self.counters.in_matches_pattern)
+        if self.in_let_pattern || (!matches!(self.side, TermSide::Left) && !self.in_matches_pattern)
         {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::PatternOrOutsideLeftHandSide,
             ));
         }
-        insert_exact(
-            self.keys,
-            key,
-            ProvenanceRole::PatternOr,
-            self.counters.pattern_or,
-        )?;
-        self.counters.pattern_or = increment(self.counters.pattern_or)?;
+        self.keys.define(key, ProvenanceRole::PatternOr)?;
         Ok(())
     }
 
     fn matches(&mut self, key: &ProvenanceKey) -> Result<(), Self::Error> {
-        if matches!(self.side, TermSide::Left)
-            || self.counters.in_matches_pattern
-            || self.counters.in_let_pattern
-        {
+        if matches!(self.side, TermSide::Left) || self.in_matches_pattern || self.in_let_pattern {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::MatchesInPattern,
             ));
         }
-        insert_exact(
-            self.keys,
-            key,
-            ProvenanceRole::Matches,
-            self.counters.matches,
-        )?;
-        self.counters.matches = increment(self.counters.matches)?;
+        self.keys.define(key, ProvenanceRole::Matches)?;
         Ok(())
     }
 
     fn matches_pattern(&mut self, inside: bool) {
-        self.counters.in_matches_pattern = inside;
+        self.in_matches_pattern = inside;
     }
 
     fn let_binding(
@@ -640,34 +531,20 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         key: &ProvenanceKey,
         sort: Option<&DescriptorSortReference>,
     ) -> Result<(), Self::Error> {
-        if matches!(self.side, TermSide::Left)
-            || self.counters.in_matches_pattern
-            || self.counters.in_let_pattern
-        {
+        if matches!(self.side, TermSide::Left) || self.in_matches_pattern || self.in_let_pattern {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::LetInPattern,
             ));
         }
         if let Some(sort) = sort {
-            insert_exact(
-                self.keys,
-                &sort.key,
-                ProvenanceRole::LetSort,
-                self.counters.let_binding,
-            )?;
+            self.keys.define(&sort.key, ProvenanceRole::LetSort)?;
         }
-        insert_exact(
-            self.keys,
-            key,
-            ProvenanceRole::Let,
-            self.counters.let_binding,
-        )?;
-        self.counters.let_binding = increment(self.counters.let_binding)?;
+        self.keys.define(key, ProvenanceRole::Let)?;
         Ok(())
     }
 
     fn let_pattern(&mut self, inside: bool) {
-        self.counters.in_let_pattern = inside;
+        self.in_let_pattern = inside;
     }
 
     fn closure(
@@ -676,19 +553,14 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         binder_key: &ProvenanceKey,
         sort: &DescriptorSortReference,
     ) -> Result<(), Self::Error> {
-        if matches!(self.side, TermSide::Left)
-            || self.counters.in_matches_pattern
-            || self.counters.in_let_pattern
-        {
+        if matches!(self.side, TermSide::Left) || self.in_matches_pattern || self.in_let_pattern {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::ClosureInPattern,
             ));
         }
-        let ordinal = self.counters.ml_binder;
-        insert_exact(self.keys, key, ProvenanceRole::MlConnective, ordinal)?;
-        insert_exact(self.keys, binder_key, ProvenanceRole::MlBinder, ordinal)?;
-        insert_exact(self.keys, &sort.key, ProvenanceRole::MlBinderSort, ordinal)?;
-        self.counters.ml_binder = increment(ordinal)?;
+        self.keys.define(key, ProvenanceRole::MlConnective)?;
+        self.keys.define(binder_key, ProvenanceRole::MlBinder)?;
+        self.keys.define(&sort.key, ProvenanceRole::MlBinderSort)?;
         Ok(())
     }
 
@@ -699,14 +571,11 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         to_key: &ProvenanceKey,
         _: bool,
     ) -> Result<(), Self::Error> {
-        for (actual, role) in [
-            (key, ProvenanceRole::RuleLocalRewrite),
-            (from_key, ProvenanceRole::RuleLocalRewriteFrom),
-            (to_key, ProvenanceRole::RuleLocalRewriteTo),
-        ] {
-            insert_exact(self.keys, actual, role, self.counters.rewrite)?;
-        }
-        self.counters.rewrite = increment(self.counters.rewrite)?;
+        self.keys.define(key, ProvenanceRole::RuleLocalRewrite)?;
+        self.keys
+            .define(from_key, ProvenanceRole::RuleLocalRewriteFrom)?;
+        self.keys
+            .define(to_key, ProvenanceRole::RuleLocalRewriteTo)?;
         Ok(())
     }
 
@@ -720,13 +589,7 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
         _: &mut BTreeSet<ProductionFieldId>,
     ) -> Result<(), Self::Error> {
         if let crate::TermArgumentRef::Named { key, .. } = argument {
-            insert_exact(
-                self.keys,
-                key,
-                self.side.record_field_role(),
-                self.counters.record_field,
-            )?;
-            self.counters.record_field = increment(self.counters.record_field)?;
+            self.keys.define(key, self.side.record_field_role())?;
         }
         Ok(())
     }
@@ -750,7 +613,7 @@ impl TermValidation<DescriptorStage> for TermProvenanceValidation<'_> {
                 GrammarTermReason::RecordUpdateBase,
             ));
         };
-        if matches!(self.side, TermSide::Left) && !self.counters.in_matches_pattern {
+        if matches!(self.side, TermSide::Left) && !self.in_matches_pattern {
             return Err(GrammarTransportError::InvalidTerm(
                 GrammarTermReason::RecordUpdateBase,
             ));
@@ -907,16 +770,12 @@ mod tests {
             };
             *class = head_class;
             reference.key = key(head_role, 0);
-            let mut keys = BTreeSet::new();
-            term.collect_expected_term_keys(
-                &mut keys,
-                TermSide::Left,
-                &mut TermKeyCounters::default(),
-            )
-            .unwrap();
+            let mut keys = WireKeys::default();
+            term.collect_wire_term_keys(&mut keys, TermSide::Left)
+                .unwrap();
             assert_eq!(
-                keys,
-                BTreeSet::from([
+                keys.defined(),
+                &BTreeSet::from([
                     key(ProvenanceRole::RuleLeftPath, 0),
                     key(head_role, 0),
                     key(ProvenanceRole::RuleLeftRecordFieldName, 0),
@@ -931,8 +790,8 @@ mod tests {
     }
 
     /// A rule's builtin `Id` and `Bytes` literals are constants of their
-    /// sorts, as a claim's are: each takes the next ordinal of its kind,
-    /// and a malformed token is rejected.
+    /// sorts, as a claim's are: each defines a key of its kind's role, and a
+    /// malformed token is rejected.
     #[test]
     fn grammar_rules_hold_builtin_literals() {
         let token = |sort, ordinal, value: &str| DescriptorTerm::BuiltinToken {
@@ -961,11 +820,17 @@ mod tests {
             term.validate(|_| true, &BTreeSet::new(), &mut BTreeSet::new(), true),
             Ok(())
         );
-        let mut keys = BTreeSet::new();
-        term.collect_expected_term_keys(&mut keys, TermSide::Left, &mut TermKeyCounters::default())
+        let mut keys = WireKeys::default();
+        term.collect_wire_term_keys(&mut keys, TermSide::Left)
             .unwrap();
-        assert!(keys.contains(&key(ProvenanceRole::ClaimBytesToken, 1)));
-        assert!(keys.contains(&key(ProvenanceRole::ClaimIdToken, 0)));
+        assert!(
+            keys.defined()
+                .contains(&key(ProvenanceRole::ClaimBytesToken, 1))
+        );
+        assert!(
+            keys.defined()
+                .contains(&key(ProvenanceRole::ClaimIdToken, 0))
+        );
         for malformed in [
             token(BuiltinSort::Id, 0, "x"),
             token(BuiltinSort::Bytes, 0, "x"),

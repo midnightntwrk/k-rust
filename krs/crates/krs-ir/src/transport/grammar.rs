@@ -18,6 +18,7 @@ use serde::{Deserialize, Serialize};
 use super::detail::{
     GrammarApplicationReason, GrammarProductionReason, GrammarTermReason, TransportField,
 };
+use super::keys::{KeyFailure, WireKeys};
 use crate::host::{HostItemId, HostTypeKey, HostTypeReference};
 use crate::stage::{DescriptorStage, HostStage, protocol_shape, stage_shape};
 use crate::{
@@ -1882,8 +1883,8 @@ impl DescriptorUnboundVariables {
             .map(|variable| variable.name.as_str())
     }
 
-    /// Validates key roles and ordinals and nonblank distinct entries that the
-    /// subject does not bind.
+    /// Validates key roles and nonblank distinct entries that the subject
+    /// does not bind.
     fn validate(
         &self,
         bindings: &BTreeSet<String>,
@@ -1899,10 +1900,9 @@ impl DescriptorUnboundVariables {
             return Err(invalid());
         }
         let mut names = BTreeSet::new();
-        for (ordinal, variable) in self.variables.iter().enumerate() {
+        for variable in &self.variables {
             require_key(&variable.key, provenance)?;
             if variable.key.role() != ProvenanceRole::UnboundVariable
-                || variable.key.ordinal() != checked_index(ordinal)?
                 || variable.name.trim().is_empty()
                 || bindings.contains(&variable.name)
                 || !names.insert(variable.name.as_str())
@@ -1913,18 +1913,10 @@ impl DescriptorUnboundVariables {
         Ok(())
     }
 
-    fn collect_expected_keys(
-        &self,
-        keys: &mut BTreeSet<ProvenanceKey>,
-    ) -> Result<(), GrammarTransportError> {
-        insert_exact(keys, &self.key, ProvenanceRole::UnboundVariables, 0)?;
-        for (ordinal, variable) in self.variables.iter().enumerate() {
-            insert_exact(
-                keys,
-                &variable.key,
-                ProvenanceRole::UnboundVariable,
-                checked_index(ordinal)?,
-            )?;
+    fn collect_wire_keys(&self, keys: &mut WireKeys) -> Result<(), GrammarTransportError> {
+        keys.define(&self.key, ProvenanceRole::UnboundVariables)?;
+        for variable in &self.variables {
+            keys.define(&variable.key, ProvenanceRole::UnboundVariable)?;
         }
         Ok(())
     }
@@ -1937,8 +1929,8 @@ impl DescriptorMatchRestriction {
         self.concrete.is_none() && self.symbolic.is_none() && self.smt_lemma.is_none()
     }
 
-    /// Validates key roles and ordinals: one key each, variables numbered
-    /// across `concrete` then `symbolic`, and nonblank distinct names per list.
+    /// Validates key roles: one key each, and nonblank distinct variable
+    /// names per list.
     fn validate(
         &self,
         provenance: impl Fn(&ProvenanceKey) -> bool + Copy,
@@ -1948,7 +1940,6 @@ impl DescriptorMatchRestriction {
         if self.is_empty() {
             return Err(invalid());
         }
-        let mut ordinal = 0_u32;
         for (restriction, role) in [
             (&self.concrete, ProvenanceRole::RestrictionConcrete),
             (&self.symbolic, ProvenanceRole::RestrictionSymbolic),
@@ -1964,13 +1955,11 @@ impl DescriptorMatchRestriction {
             for variable in &restriction.variables {
                 require_key(&variable.key, provenance)?;
                 if variable.key.role() != ProvenanceRole::RestrictionVariable
-                    || variable.key.ordinal() != ordinal
                     || variable.name.trim().is_empty()
                     || !names.insert(variable.name.as_str())
                 {
                     return Err(invalid());
                 }
-                ordinal += 1;
             }
         }
         if let Some(smt_lemma) = &self.smt_lemma {
@@ -1982,11 +1971,7 @@ impl DescriptorMatchRestriction {
         Ok(())
     }
 
-    fn collect_expected_keys(
-        &self,
-        keys: &mut BTreeSet<ProvenanceKey>,
-    ) -> Result<(), GrammarTransportError> {
-        let mut ordinal = 0_u32;
+    fn collect_wire_keys(&self, keys: &mut WireKeys) -> Result<(), GrammarTransportError> {
         for (restriction, role) in [
             (&self.concrete, ProvenanceRole::RestrictionConcrete),
             (&self.symbolic, ProvenanceRole::RestrictionSymbolic),
@@ -1994,19 +1979,13 @@ impl DescriptorMatchRestriction {
             let Some(restriction) = restriction else {
                 continue;
             };
-            insert_exact(keys, &restriction.key, role, 0)?;
+            keys.define(&restriction.key, role)?;
             for variable in &restriction.variables {
-                insert_exact(
-                    keys,
-                    &variable.key,
-                    ProvenanceRole::RestrictionVariable,
-                    ordinal,
-                )?;
-                ordinal += 1;
+                keys.define(&variable.key, ProvenanceRole::RestrictionVariable)?;
             }
         }
         if let Some(smt_lemma) = &self.smt_lemma {
-            insert_exact(keys, smt_lemma, ProvenanceRole::SmtLemma, 0)?;
+            keys.define(smt_lemma, ProvenanceRole::SmtLemma)?;
         }
         Ok(())
     }
@@ -2168,14 +2147,17 @@ pub enum GrammarTransportError {
     },
     /// A nested semantic key was absent from the descriptor provenance table.
     MissingProvenance(ProvenanceKey),
-    /// A nested node used a parser key other than its exact required
-    /// role/ordinal.
+    /// A nested node's key field held a key of another role than the field
+    /// requires.
     UnexpectedProvenance {
-        /// Required parser key.
-        expected: ProvenanceKey,
+        /// The field's role.
+        expected: ProvenanceRole,
         /// Supplied parser key.
         actual: ProvenanceKey,
     },
+    /// Two nested nodes defined one parser key: a key names one authored
+    /// node, and every other field that names it is a reference.
+    DuplicateProvenance(ProvenanceKey),
     /// The provenance table contained a parser key not represented by the
     /// complete typed payload.
     ExtraProvenance(ProvenanceKey),
@@ -2220,11 +2202,15 @@ impl fmt::Display for GrammarTransportError {
             ),
             Self::UnexpectedProvenance { expected, actual } => write!(
                 formatter,
-                "expected provenance `{}#{}`, found `{}#{}`",
-                expected.role(),
-                expected.ordinal(),
+                "expected a `{expected}` provenance key, found `{}#{}`",
                 actual.role(),
                 actual.ordinal()
+            ),
+            Self::DuplicateProvenance(key) => write!(
+                formatter,
+                "provenance `{}#{}` is defined by two nodes",
+                key.role(),
+                key.ordinal()
             ),
             Self::ExtraProvenance(key) => write!(
                 formatter,
@@ -2244,6 +2230,19 @@ impl fmt::Display for GrammarTransportError {
 }
 
 impl Error for GrammarTransportError {}
+
+impl From<KeyFailure> for GrammarTransportError {
+    fn from(failure: KeyFailure) -> Self {
+        match failure {
+            KeyFailure::Role { expected, actual } => {
+                Self::UnexpectedProvenance { expected, actual }
+            }
+            KeyFailure::Duplicate(key) => Self::DuplicateProvenance(key),
+            KeyFailure::Missing(key) => Self::MissingProvenance(key),
+            KeyFailure::Extra(key) => Self::ExtraProvenance(key),
+        }
+    }
+}
 
 impl DescriptorSortRef {
     /// Checks the stable namespace of a declared sort.
@@ -2624,9 +2623,7 @@ impl StructuredRuleDescriptor {
                 return Err(invalid());
             }
         }
-        let mut keys = BTreeSet::new();
-        context.collect_keys(&mut keys);
-        for key in &keys {
+        for key in &context.cell_keys() {
             require_key(key, provenance)?;
         }
         Ok(bindings)
@@ -2868,25 +2865,25 @@ impl GrammarDescriptor {
         match self {
             Self::Production(production) => match production.owner {
                 DescriptorProductionOwner::Constructor { .. } => {
-                    canonical_key(ProvenanceRole::ConstructorDeclaration, 0)
+                    ProvenanceKey::new(ProvenanceRole::ConstructorDeclaration, 0)
                 }
                 DescriptorProductionOwner::TokenSort { .. } => {
-                    canonical_key(ProvenanceRole::TokenDeclaration, 0)
+                    ProvenanceKey::new(ProvenanceRole::TokenDeclaration, 0)
                 }
                 DescriptorProductionOwner::BracketSort { .. } => {
-                    canonical_key(ProvenanceRole::BracketDeclaration, 0)
+                    ProvenanceKey::new(ProvenanceRole::BracketDeclaration, 0)
                 }
             },
-            Self::Subsort { .. } => canonical_key(ProvenanceRole::SubsortDeclaration, 0),
-            Self::Precedence { .. } => canonical_key(ProvenanceRole::PrecedenceDeclaration, 0),
+            Self::Subsort { .. } => ProvenanceKey::new(ProvenanceRole::SubsortDeclaration, 0),
+            Self::Precedence { .. } => ProvenanceKey::new(ProvenanceRole::PrecedenceDeclaration, 0),
             Self::Associativity { .. } => {
-                canonical_key(ProvenanceRole::AssociativityDeclaration, 0)
+                ProvenanceKey::new(ProvenanceRole::AssociativityDeclaration, 0)
             }
-            Self::Tokens { .. } => canonical_key(ProvenanceRole::TokenDeclaration, 0),
-            Self::Lexical { .. } => canonical_key(ProvenanceRole::LexicalDeclaration, 0),
-            Self::Layout { .. } => canonical_key(ProvenanceRole::LayoutRegex, 0),
-            Self::RawSentence { .. } => canonical_key(ProvenanceRole::RawKDeclaration, 0),
-            Self::SpecModule { .. } => canonical_key(ProvenanceRole::SpecModuleDeclaration, 0),
+            Self::Tokens { .. } => ProvenanceKey::new(ProvenanceRole::TokenDeclaration, 0),
+            Self::Lexical { .. } => ProvenanceKey::new(ProvenanceRole::LexicalDeclaration, 0),
+            Self::Layout { .. } => ProvenanceKey::new(ProvenanceRole::LayoutRegex, 0),
+            Self::RawSentence { .. } => ProvenanceKey::new(ProvenanceRole::RawKDeclaration, 0),
+            Self::SpecModule { .. } => ProvenanceKey::new(ProvenanceRole::SpecModuleDeclaration, 0),
         }
     }
 
@@ -3531,25 +3528,17 @@ fn validate_layout(
 }
 
 impl GrammarDescriptor {
-    #[expect(
-        clippy::too_many_lines,
-        reason = "One provenance arm per grammar descriptor variant."
-    )]
-    pub(crate) fn expected_provenance_keys(
-        &self,
-    ) -> Result<BTreeSet<ProvenanceKey>, GrammarTransportError> {
-        let mut keys = BTreeSet::new();
+    /// The keys of the descriptor's wire nodes, each checked for its field's
+    /// role and defined once.
+    pub(crate) fn wire_keys(&self) -> Result<WireKeys, GrammarTransportError> {
+        let mut keys = WireKeys::default();
         match self {
-            Self::Production(production) => production.collect_expected_keys(&mut keys)?,
+            Self::Production(production) => production.collect_wire_keys(&mut keys)?,
             Self::Tokens { productions } => {
-                let mut regex_ordinal = 0_u32;
-                let mut terminal_ordinal = 0_u32;
-                for production in productions {
-                    production.collect_token_keys(
-                        &mut keys,
-                        &mut regex_ordinal,
-                        &mut terminal_ordinal,
-                    )?;
+                // The carrier's name is the owner and the result sort of every
+                // production: the first production's owner defines it.
+                for (index, production) in productions.iter().enumerate() {
+                    production.collect_token_keys(&mut keys, index == 0)?;
                 }
             }
             Self::Subsort {
@@ -3557,99 +3546,49 @@ impl GrammarDescriptor {
                 subsort,
                 supersort,
             } => {
-                insert_exact(&mut keys, key, ProvenanceRole::SubsortDeclaration, 0)?;
-                insert_exact(&mut keys, &subsort.key, ProvenanceRole::SubsortSubSort, 0)?;
-                insert_exact(
-                    &mut keys,
-                    &supersort.key,
-                    ProvenanceRole::SubsortSuperSort,
-                    0,
-                )?;
+                keys.define(key, ProvenanceRole::SubsortDeclaration)?;
+                keys.define(&subsort.key, ProvenanceRole::SubsortSubSort)?;
+                keys.define(&supersort.key, ProvenanceRole::SubsortSuperSort)?;
             }
             Self::Precedence { key, chains } => {
-                insert_exact(&mut keys, key, ProvenanceRole::PrecedenceDeclaration, 0)?;
-                let mut group_ordinal = 0_u32;
-                for (chain_ordinal, chain) in chains.iter().enumerate() {
-                    insert_exact(
-                        &mut keys,
-                        &chain.key,
-                        ProvenanceRole::PrecedenceChain,
-                        checked_index(chain_ordinal)?,
-                    )?;
+                keys.define(key, ProvenanceRole::PrecedenceDeclaration)?;
+                for chain in chains {
+                    keys.define(&chain.key, ProvenanceRole::PrecedenceChain)?;
                     for group in &chain.groups {
-                        insert_exact(
-                            &mut keys,
-                            &group.key,
-                            ProvenanceRole::PrecedenceGroupReference,
-                            group_ordinal,
-                        )?;
-                        group_ordinal = increment(group_ordinal)?;
+                        keys.define(&group.key, ProvenanceRole::PrecedenceGroupReference)?;
                     }
                 }
             }
             Self::Lexical { lexicals } => {
-                for (ordinal, lexical) in lexicals.iter().enumerate() {
-                    let ordinal = checked_index(ordinal)?;
-                    insert_exact(
-                        &mut keys,
-                        &lexical.key,
-                        ProvenanceRole::LexicalDeclaration,
-                        ordinal,
-                    )?;
-                    insert_exact(
-                        &mut keys,
-                        &lexical.regex_key,
-                        ProvenanceRole::LexicalRegex,
-                        ordinal,
-                    )?;
+                for lexical in lexicals {
+                    keys.define(&lexical.key, ProvenanceRole::LexicalDeclaration)?;
+                    keys.define(&lexical.regex_key, ProvenanceRole::LexicalRegex)?;
                 }
             }
             Self::Layout { regexes } => {
-                for (ordinal, regex) in regexes.iter().enumerate() {
-                    insert_exact(
-                        &mut keys,
-                        &regex.key,
-                        ProvenanceRole::LayoutRegex,
-                        checked_index(ordinal)?,
-                    )?;
+                for regex in regexes {
+                    keys.define(&regex.key, ProvenanceRole::LayoutRegex)?;
                 }
             }
             Self::Associativity { key, sentences } => {
-                insert_exact(&mut keys, key, ProvenanceRole::AssociativityDeclaration, 0)?;
-                let mut group_ordinal = 0_u32;
-                for (sentence_ordinal, sentence) in sentences.iter().enumerate() {
-                    insert_exact(
-                        &mut keys,
-                        &sentence.key,
-                        ProvenanceRole::AssociativitySentence,
-                        checked_index(sentence_ordinal)?,
-                    )?;
+                keys.define(key, ProvenanceRole::AssociativityDeclaration)?;
+                for sentence in sentences {
+                    keys.define(&sentence.key, ProvenanceRole::AssociativitySentence)?;
                     for group in &sentence.groups {
-                        insert_exact(
-                            &mut keys,
-                            &group.key,
-                            ProvenanceRole::AssociativityGroupReference,
-                            group_ordinal,
-                        )?;
-                        group_ordinal = increment(group_ordinal)?;
+                        keys.define(&group.key, ProvenanceRole::AssociativityGroupReference)?;
                     }
                 }
             }
             Self::RawSentence { key, .. } => {
-                insert_exact(&mut keys, key, ProvenanceRole::RawKDeclaration, 0)?;
+                keys.define(key, ProvenanceRole::RawKDeclaration)?;
             }
             Self::SpecModule { key, name, imports } => {
-                insert_exact(&mut keys, key, ProvenanceRole::SpecModuleDeclaration, 0)?;
+                keys.define(key, ProvenanceRole::SpecModuleDeclaration)?;
                 if let Some(name) = name {
-                    insert_exact(&mut keys, &name.key, ProvenanceRole::SpecModuleName, 0)?;
+                    keys.define(&name.key, ProvenanceRole::SpecModuleName)?;
                 }
-                for (ordinal, import) in imports.iter().enumerate() {
-                    insert_exact(
-                        &mut keys,
-                        &import.key,
-                        ProvenanceRole::SpecModuleImport,
-                        checked_index(ordinal)?,
-                    )?;
+                for import in imports {
+                    keys.define(&import.key, ProvenanceRole::SpecModuleImport)?;
                 }
             }
         }
@@ -3697,43 +3636,36 @@ impl DescriptorProduction {
     }
 
     /// Collects the keys of one production of a token carrier. The carrier's
-    /// sort keys are its declaration; each production, its item, and its
-    /// token metadata share the key of its `regex` or `terminal` literal,
-    /// numbered per kind in attribute order, and `prec` takes the ordinal of
-    /// its regex.
+    /// name keys its owner and result sort, which `defines_carrier` says
+    /// whether this production defines; its `regex` or `terminal` literal
+    /// keys the production, which its one item and its token metadata name.
     fn collect_token_keys(
         &self,
-        keys: &mut BTreeSet<ProvenanceKey>,
-        regex_ordinal: &mut u32,
-        terminal_ordinal: &mut u32,
+        keys: &mut WireKeys,
+        defines_carrier: bool,
     ) -> Result<(), GrammarTransportError> {
         let DescriptorProductionOwner::TokenSort { sort } = &self.owner else {
             return Err(GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::TokenCarrierOwner,
             ));
         };
-        insert_exact(keys, &sort.key, ProvenanceRole::TokenDeclaration, 0)?;
-        insert_exact(
-            keys,
-            &self.result_sort.key,
-            ProvenanceRole::TokenDeclaration,
-            0,
-        )?;
+        if defines_carrier {
+            keys.define(&sort.key, ProvenanceRole::TokenDeclaration)?;
+        } else {
+            keys.refer(&sort.key, ProvenanceRole::TokenDeclaration)?;
+        }
+        keys.refer(&self.result_sort.key, ProvenanceRole::TokenDeclaration)?;
         if self.template_key.is_some() {
             return Err(GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::TokenSyntaxTemplate,
             ));
         }
-        let (content_role, content_ordinal) = match self.items.as_slice() {
-            [DescriptorProductionItem::RegexTerminal { .. }] => {
-                let ordinal = *regex_ordinal;
-                *regex_ordinal = increment(ordinal)?;
-                (ProvenanceRole::TokenRegex, ordinal)
+        let (content_role, key) = match self.items.as_slice() {
+            [DescriptorProductionItem::RegexTerminal { key, .. }] => {
+                (ProvenanceRole::TokenRegex, key)
             }
-            [DescriptorProductionItem::Terminal { .. }] => {
-                let ordinal = *terminal_ordinal;
-                *terminal_ordinal = increment(ordinal)?;
-                (ProvenanceRole::TokenTerminal, ordinal)
+            [DescriptorProductionItem::Terminal { key, .. }] => {
+                (ProvenanceRole::TokenTerminal, key)
             }
             _ => {
                 return Err(GrammarTransportError::InvalidProduction(
@@ -3741,15 +3673,8 @@ impl DescriptorProduction {
                 ));
             }
         };
-        insert_exact(keys, &self.key, content_role, content_ordinal)?;
-        let [
-            DescriptorProductionItem::RegexTerminal { key, .. }
-            | DescriptorProductionItem::Terminal { key, .. },
-        ] = self.items.as_slice()
-        else {
-            unreachable!("the item shape was matched above");
-        };
-        insert_exact(keys, key, content_role, content_ordinal)?;
+        keys.define(&self.key, content_role)?;
+        keys.refer(key, content_role)?;
         let [
             DescriptorProductionAttribute::Token {
                 key,
@@ -3761,64 +3686,42 @@ impl DescriptorProduction {
                 GrammarProductionReason::TokenMetadataShape,
             ));
         };
-        insert_exact(keys, key, content_role, content_ordinal)?;
+        keys.refer(key, content_role)?;
         if let Some(precedence) = lexical_precedence {
             if content_role != ProvenanceRole::TokenRegex {
                 return Err(GrammarTransportError::InvalidProduction(
                     GrammarProductionReason::TerminalTokenPrecedence,
                 ));
             }
-            insert_exact(
-                keys,
-                &precedence.key,
-                ProvenanceRole::TokenLexicalPrecedence,
-                content_ordinal,
-            )?;
+            keys.define(&precedence.key, ProvenanceRole::TokenLexicalPrecedence)?;
         }
         Ok(())
     }
 
     /// The sort parameters of a parametric constructor production, each a
-    /// parameter reference keyed `sort_parameter` in declaration order (KF-027).
-    fn collect_parameter_keys(
-        &self,
-        keys: &mut BTreeSet<ProvenanceKey>,
-    ) -> Result<(), GrammarTransportError> {
-        for (ordinal, parameter) in self.parameters.iter().enumerate() {
+    /// parameter reference keyed `sort_parameter` (KF-027).
+    fn collect_parameter_keys(&self, keys: &mut WireKeys) -> Result<(), GrammarTransportError> {
+        for parameter in &self.parameters {
             if !matches!(parameter.sort, DescriptorSortRef::Parameter(_)) {
                 return Err(GrammarTransportError::SortReferenceKind(ItemKind::Sort));
             }
-            insert_exact(
-                keys,
-                &parameter.key,
-                ProvenanceRole::SortParameter,
-                checked_index(ordinal)?,
-            )?;
+            keys.define(&parameter.key, ProvenanceRole::SortParameter)?;
         }
         Ok(())
     }
 
-    fn collect_expected_keys(
-        &self,
-        keys: &mut BTreeSet<ProvenanceKey>,
-    ) -> Result<(), GrammarTransportError> {
+    /// The production's keys. Its key is its declaration's, which a
+    /// constructor production's owner names; a bracket's sort is its owner,
+    /// which its result and its value nonterminal name, as its `bracket`
+    /// attribute names the production.
+    fn collect_wire_keys(&self, keys: &mut WireKeys) -> Result<(), GrammarTransportError> {
         match &self.owner {
             DescriptorProductionOwner::Constructor { constructor } => {
-                insert_exact(keys, &self.key, ProvenanceRole::ConstructorDeclaration, 0)?;
-                insert_exact(
-                    keys,
-                    &constructor.key,
-                    ProvenanceRole::ConstructorDeclaration,
-                    0,
-                )?;
-                insert_exact(
-                    keys,
-                    &self.result_sort.key,
-                    ProvenanceRole::ConstructorSort,
-                    0,
-                )?;
+                keys.define(&self.key, ProvenanceRole::ConstructorDeclaration)?;
+                keys.refer(&constructor.key, ProvenanceRole::ConstructorDeclaration)?;
+                keys.define(&self.result_sort.key, ProvenanceRole::ConstructorSort)?;
                 if let Some(template_key) = &self.template_key {
-                    insert_exact(keys, template_key, ProvenanceRole::ConstructorSyntax, 0)?;
+                    keys.define(template_key, ProvenanceRole::ConstructorSyntax)?;
                 }
                 self.collect_parameter_keys(keys)?;
                 self.collect_constructor_item_keys(keys)?;
@@ -3830,30 +3733,19 @@ impl DescriptorProduction {
                 ))
             }
             DescriptorProductionOwner::BracketSort { sort } => {
-                insert_exact(keys, &self.key, ProvenanceRole::BracketDeclaration, 0)?;
-                insert_exact(keys, &sort.key, ProvenanceRole::SortDeclaration, 0)?;
-                insert_exact(
-                    keys,
-                    &self.result_sort.key,
-                    ProvenanceRole::SortDeclaration,
-                    0,
-                )?;
+                keys.define(&self.key, ProvenanceRole::BracketDeclaration)?;
+                keys.define(&sort.key, ProvenanceRole::SortDeclaration)?;
+                keys.refer(&self.result_sort.key, ProvenanceRole::SortDeclaration)?;
                 if self.template_key.is_some() {
                     return Err(GrammarTransportError::InvalidProduction(
                         GrammarProductionReason::BracketConstructorTemplate,
                     ));
                 }
-                let mut field_ordinal = 0_u32;
-                for (item_ordinal, item) in self.items.iter().enumerate() {
+                for item in &self.items {
                     match item {
                         DescriptorProductionItem::Terminal { key, .. }
                         | DescriptorProductionItem::RegexTerminal { key, .. } => {
-                            insert_exact(
-                                keys,
-                                key,
-                                ProvenanceRole::BracketSyntaxItem,
-                                checked_index(item_ordinal)?,
-                            )?;
+                            keys.define(key, ProvenanceRole::BracketSyntaxItem)?;
                         }
                         DescriptorProductionItem::NonTerminal {
                             key,
@@ -3867,20 +3759,9 @@ impl DescriptorProduction {
                                     GrammarProductionReason::BracketConstructorField,
                                 ));
                             }
-                            insert_exact(
-                                keys,
-                                key,
-                                ProvenanceRole::BracketSyntaxItem,
-                                checked_index(item_ordinal)?,
-                            )?;
-                            insert_exact(
-                                keys,
-                                field_key,
-                                ProvenanceRole::BracketValueReference,
-                                field_ordinal,
-                            )?;
-                            insert_exact(keys, &sort.key, ProvenanceRole::SortDeclaration, 0)?;
-                            field_ordinal = increment(field_ordinal)?;
+                            keys.define(key, ProvenanceRole::BracketSyntaxItem)?;
+                            keys.define(field_key, ProvenanceRole::BracketValueReference)?;
+                            keys.refer(&sort.key, ProvenanceRole::SortDeclaration)?;
                         }
                     }
                 }
@@ -3890,7 +3771,8 @@ impl DescriptorProduction {
                         GrammarProductionReason::BracketMetadataShape,
                     ));
                 };
-                insert_exact(keys, key, ProvenanceRole::BracketDeclaration, 0)
+                keys.refer(key, ProvenanceRole::BracketDeclaration)?;
+                Ok(())
             }
         }
     }
@@ -3911,28 +3793,27 @@ impl DescriptorProduction {
             })
     }
 
+    /// The keys of a constructor production's items. With a syntax template
+    /// each item is a node of the template, and a nonterminal names the
+    /// field's declaration; without one, the production reads as the
+    /// declaration: its terminal names the declaration's key, and each
+    /// nonterminal is its field's declaration, which its field and
+    /// declaration keys name.
     fn collect_constructor_item_keys(
         &self,
-        keys: &mut BTreeSet<ProvenanceKey>,
+        keys: &mut WireKeys,
     ) -> Result<(), GrammarTransportError> {
         let explicit = self.template_key.is_some();
         let list_terminal = self.list_terminal_role();
-        let mut occurrence_ordinal = 0_u32;
-        let mut declaration_ordinals = BTreeSet::new();
-        for (item_ordinal, item) in self.items.iter().enumerate() {
+        for item in &self.items {
             match item {
                 DescriptorProductionItem::Terminal { key, .. } => {
                     if let Some(role) = list_terminal {
-                        insert_exact(keys, key, role, 0)?;
+                        keys.define(key, role)?;
                     } else if explicit {
-                        insert_exact(
-                            keys,
-                            key,
-                            ProvenanceRole::ConstructorSyntaxItem,
-                            checked_index(item_ordinal)?,
-                        )?;
+                        keys.define(key, ProvenanceRole::ConstructorSyntaxItem)?;
                     } else {
-                        insert_exact(keys, key, ProvenanceRole::ConstructorDeclaration, 0)?;
+                        keys.refer(key, ProvenanceRole::ConstructorDeclaration)?;
                     }
                 }
                 DescriptorProductionItem::NonTerminal {
@@ -3947,56 +3828,16 @@ impl DescriptorProduction {
                             GrammarProductionReason::MissingConstructorFieldKey,
                         ));
                     };
-                    let declaration_ordinal = declaration_key.ordinal();
-                    if !declaration_ordinals.insert(declaration_ordinal) {
-                        return Err(GrammarTransportError::InvalidProduction(
-                            GrammarProductionReason::DuplicateConstructorFieldOrdinal,
-                        ));
-                    }
-                    insert_exact(
-                        keys,
-                        declaration_key,
-                        ProvenanceRole::ConstructorFieldDeclaration,
-                        if explicit {
-                            declaration_ordinal
-                        } else {
-                            occurrence_ordinal
-                        },
-                    )?;
-                    insert_exact(
-                        keys,
-                        &sort.key,
-                        ProvenanceRole::ConstructorFieldSort,
-                        declaration_ordinal,
-                    )?;
                     if explicit {
-                        insert_exact(
-                            keys,
-                            key,
-                            ProvenanceRole::ConstructorSyntaxItem,
-                            checked_index(item_ordinal)?,
-                        )?;
-                        insert_exact(
-                            keys,
-                            field_key,
-                            ProvenanceRole::ConstructorSyntaxFieldReference,
-                            occurrence_ordinal,
-                        )?;
+                        keys.define(key, ProvenanceRole::ConstructorSyntaxItem)?;
+                        keys.define(field_key, ProvenanceRole::ConstructorSyntaxFieldReference)?;
+                        keys.define(declaration_key, ProvenanceRole::ConstructorFieldDeclaration)?;
                     } else {
-                        insert_exact(
-                            keys,
-                            key,
-                            ProvenanceRole::ConstructorFieldDeclaration,
-                            occurrence_ordinal,
-                        )?;
-                        insert_exact(
-                            keys,
-                            field_key,
-                            ProvenanceRole::ConstructorFieldDeclaration,
-                            occurrence_ordinal,
-                        )?;
+                        keys.define(key, ProvenanceRole::ConstructorFieldDeclaration)?;
+                        keys.refer(field_key, ProvenanceRole::ConstructorFieldDeclaration)?;
+                        keys.refer(declaration_key, ProvenanceRole::ConstructorFieldDeclaration)?;
                     }
-                    occurrence_ordinal = increment(occurrence_ordinal)?;
+                    keys.define(&sort.key, ProvenanceRole::ConstructorFieldSort)?;
                 }
                 DescriptorProductionItem::RegexTerminal { .. } => {
                     return Err(GrammarTransportError::InvalidProduction(
@@ -4004,11 +3845,6 @@ impl DescriptorProduction {
                     ));
                 }
             }
-        }
-        if declaration_ordinals != (0..occurrence_ordinal).collect::<BTreeSet<_>>() {
-            return Err(GrammarTransportError::InvalidProduction(
-                GrammarProductionReason::SparseConstructorFieldOrdinals,
-            ));
         }
         Ok(())
     }
@@ -4019,41 +3855,29 @@ impl DescriptorProduction {
     )]
     fn collect_constructor_attribute_keys(
         &self,
-        keys: &mut BTreeSet<ProvenanceKey>,
+        keys: &mut WireKeys,
     ) -> Result<(), GrammarTransportError> {
-        let mut documentation_ordinal = 0_u32;
         for attribute in &self.attributes {
             match attribute {
                 DescriptorProductionAttribute::Documentation { key, .. } => {
-                    insert_exact(
-                        keys,
-                        key,
-                        ProvenanceRole::ConstructorDocumentation,
-                        documentation_ordinal,
-                    )?;
-                    documentation_ordinal = increment(documentation_ordinal)?;
+                    keys.define(key, ProvenanceRole::ConstructorDocumentation)?;
                 }
                 DescriptorProductionAttribute::Group { reference } => {
-                    insert_exact(keys, &reference.key, ProvenanceRole::ConstructorGroup, 0)?;
+                    keys.define(&reference.key, ProvenanceRole::ConstructorGroup)?;
                 }
                 DescriptorProductionAttribute::Avoid { key } => {
-                    insert_exact(keys, key, ProvenanceRole::ConstructorAvoid, 0)?;
+                    keys.define(key, ProvenanceRole::ConstructorAvoid)?;
                 }
                 DescriptorProductionAttribute::Prefer { key } => {
-                    insert_exact(keys, key, ProvenanceRole::ConstructorPrefer, 0)?;
+                    keys.define(key, ProvenanceRole::ConstructorPrefer)?;
                 }
                 DescriptorProductionAttribute::Overload { target } => {
-                    insert_exact(keys, &target.key, ProvenanceRole::ConstructorOverload, 0)?;
+                    keys.define(&target.key, ProvenanceRole::ConstructorOverload)?;
                 }
                 DescriptorProductionAttribute::Format { key, fragments } => {
-                    insert_exact(keys, key, ProvenanceRole::ConstructorFormat, 0)?;
-                    for (ordinal, fragment) in fragments.iter().enumerate() {
-                        insert_exact(
-                            keys,
-                            &fragment.key,
-                            ProvenanceRole::ConstructorFormatFragment,
-                            checked_index(ordinal)?,
-                        )?;
+                    keys.define(key, ProvenanceRole::ConstructorFormat)?;
+                    for fragment in fragments {
+                        keys.define(&fragment.key, ProvenanceRole::ConstructorFormatFragment)?;
                     }
                 }
                 DescriptorProductionAttribute::Strictness {
@@ -4063,122 +3887,101 @@ impl DescriptorProduction {
                     result_sort,
                     ..
                 } => {
-                    insert_exact(keys, key, ProvenanceRole::StrictnessDeclaration, 0)?;
+                    keys.define(key, ProvenanceRole::StrictnessDeclaration)?;
                     if let Some(using) = using {
-                        insert_exact(
-                            keys,
-                            &using.key,
-                            ProvenanceRole::StrictnessContextAliasReference,
-                            0,
-                        )?;
+                        keys.define(&using.key, ProvenanceRole::StrictnessContextAliasReference)?;
                     }
-                    for (ordinal, field) in fields.iter().enumerate() {
-                        insert_exact(
-                            keys,
-                            &field.key,
-                            ProvenanceRole::StrictnessFieldReference,
-                            checked_index(ordinal)?,
-                        )?;
+                    for field in fields {
+                        keys.define(&field.key, ProvenanceRole::StrictnessFieldReference)?;
                     }
-                    insert_exact(
-                        keys,
-                        &result_sort.key,
-                        ProvenanceRole::StrictnessResultSort,
-                        0,
-                    )?;
+                    keys.define(&result_sort.key, ProvenanceRole::StrictnessResultSort)?;
                 }
                 DescriptorProductionAttribute::Function { key } => {
+                    // A total function's name, or a partial one's `partial`.
                     if key.role() == ProvenanceRole::FunctionDeclaration {
-                        insert_exact(keys, key, ProvenanceRole::FunctionDeclaration, 0)?;
+                        keys.define(key, ProvenanceRole::FunctionDeclaration)?;
                     } else {
-                        insert_exact(keys, key, ProvenanceRole::FunctionPartial, 0)?;
+                        keys.define(key, ProvenanceRole::FunctionPartial)?;
                     }
                 }
                 DescriptorProductionAttribute::Total { key } => {
-                    insert_exact(keys, key, ProvenanceRole::FunctionTotal, 0)?;
+                    keys.define(key, ProvenanceRole::FunctionTotal)?;
                 }
                 DescriptorProductionAttribute::Hook { key, .. }
                 | DescriptorProductionAttribute::RawHook { key, .. } => {
-                    insert_exact(keys, key, ProvenanceRole::FunctionHook, 0)?;
+                    keys.define(key, ProvenanceRole::FunctionHook)?;
                 }
                 DescriptorProductionAttribute::Memo { key } => {
-                    insert_exact(keys, key, ProvenanceRole::FunctionMemo, 0)?;
+                    keys.define(key, ProvenanceRole::FunctionMemo)?;
                 }
                 DescriptorProductionAttribute::FreshGenerator { key } => {
-                    insert_exact(keys, key, ProvenanceRole::FunctionFreshGenerator, 0)?;
+                    keys.define(key, ProvenanceRole::FunctionFreshGenerator)?;
                 }
                 DescriptorProductionAttribute::Smtlib { key, .. } => {
-                    insert_exact(keys, key, ProvenanceRole::FunctionSmtlib, 0)?;
+                    keys.define(key, ProvenanceRole::FunctionSmtlib)?;
                 }
                 DescriptorProductionAttribute::Underspecified { key, .. } => {
-                    insert_exact(keys, key, ProvenanceRole::FunctionUnderspecified, 0)?;
+                    keys.define(key, ProvenanceRole::FunctionUnderspecified)?;
                 }
                 DescriptorProductionAttribute::SmtHook { key, template } => {
-                    insert_exact(keys, key, ProvenanceRole::FunctionSmtHook, 0)?;
-                    for (ordinal, key) in template
-                        .iter()
-                        .filter_map(|fragment| fragment.key.as_ref())
-                        .enumerate()
-                    {
-                        insert_exact(
-                            keys,
-                            key,
-                            ProvenanceRole::SmtHookPlaceholder,
-                            checked_index(ordinal)?,
-                        )?;
+                    keys.define(key, ProvenanceRole::FunctionSmtHook)?;
+                    for key in template.iter().filter_map(|fragment| fragment.key.as_ref()) {
+                        keys.define(key, ProvenanceRole::SmtHookPlaceholder)?;
                     }
                 }
                 DescriptorProductionAttribute::ListCons {
                     key,
                     separator_key,
+                    separator,
                     non_empty,
                     terminator,
-                    ..
                 } => {
-                    insert_exact(keys, key, ProvenanceRole::ListDeclaration, 0)?;
-                    insert_exact(keys, separator_key, ProvenanceRole::ListSeparator, 0)?;
-                    if let Some(non_empty) = non_empty {
-                        insert_exact(keys, non_empty, ProvenanceRole::ListNonEmpty, 0)?;
+                    keys.define(key, ProvenanceRole::ListDeclaration)?;
+                    // The separator's terminal item defines its key; a list
+                    // without separator has no such item.
+                    if separator.is_empty() {
+                        keys.define(separator_key, ProvenanceRole::ListSeparator)?;
+                    } else {
+                        keys.refer(separator_key, ProvenanceRole::ListSeparator)?;
                     }
-                    insert_exact(keys, &terminator.key, ProvenanceRole::ListDeclaration, 0)?;
+                    if let Some(non_empty) = non_empty {
+                        keys.define(non_empty, ProvenanceRole::ListNonEmpty)?;
+                    }
+                    keys.refer(&terminator.key, ProvenanceRole::ListDeclaration)?;
                 }
                 DescriptorProductionAttribute::ListTerminator { cons } => {
-                    insert_exact(keys, &cons.key, ProvenanceRole::ListDeclaration, 0)?;
+                    // The terminator's `.Sort` terminal defines the key.
+                    keys.refer(&cons.key, ProvenanceRole::ListDeclaration)?;
                 }
                 DescriptorProductionAttribute::ConsList { key, empty } => {
-                    insert_exact(keys, key, ProvenanceRole::ConsListDeclaration, 0)?;
-                    insert_exact(keys, &empty.key, ProvenanceRole::ConsListDeclaration, 0)?;
+                    keys.define(key, ProvenanceRole::ConsListDeclaration)?;
+                    keys.refer(&empty.key, ProvenanceRole::ConsListDeclaration)?;
                 }
                 DescriptorProductionAttribute::Alias { key, recursive } => {
-                    insert_exact(keys, key, ProvenanceRole::AliasProduction, 0)?;
+                    keys.define(key, ProvenanceRole::AliasProduction)?;
                     if let Some(recursive) = recursive {
-                        insert_exact(keys, recursive, ProvenanceRole::StaticRecursive, 0)?;
+                        keys.define(recursive, ProvenanceRole::StaticRecursive)?;
                     }
                 }
                 DescriptorProductionAttribute::Desugar { key, recursive } => {
-                    insert_exact(keys, key, ProvenanceRole::DesugarProduction, 0)?;
+                    keys.define(key, ProvenanceRole::DesugarProduction)?;
                     if let Some(recursive) = recursive {
-                        insert_exact(keys, recursive, ProvenanceRole::StaticRecursive, 0)?;
+                        keys.define(recursive, ProvenanceRole::StaticRecursive)?;
                     }
                 }
                 DescriptorProductionAttribute::Internal { key } => {
-                    insert_exact(keys, key, ProvenanceRole::ConstructorInternal, 0)?;
+                    keys.define(key, ProvenanceRole::ConstructorInternal)?;
                 }
                 DescriptorProductionAttribute::Program { key } => {
-                    insert_exact(keys, key, ProvenanceRole::ConstructorProgram, 0)?;
+                    keys.define(key, ProvenanceRole::ConstructorProgram)?;
                 }
                 DescriptorProductionAttribute::Color { key, .. } => {
-                    insert_exact(keys, key, ProvenanceRole::ConstructorColor, 0)?;
+                    keys.define(key, ProvenanceRole::ConstructorColor)?;
                 }
                 DescriptorProductionAttribute::Colors { key, values } => {
-                    insert_exact(keys, key, ProvenanceRole::ConstructorColor, 0)?;
-                    for (ordinal, entry) in values.iter().enumerate() {
-                        insert_exact(
-                            keys,
-                            &entry.key,
-                            ProvenanceRole::ConstructorColorsEntry,
-                            checked_index(ordinal)?,
-                        )?;
+                    keys.define(key, ProvenanceRole::ConstructorColor)?;
+                    for entry in values {
+                        keys.define(&entry.key, ProvenanceRole::ConstructorColorsEntry)?;
                     }
                 }
                 DescriptorProductionAttribute::Token { .. }
@@ -4194,8 +3997,8 @@ impl DescriptorProduction {
 }
 
 impl StructuredRuleDescriptor {
-    pub(crate) fn expected_primary_key() -> ProvenanceKey {
-        canonical_key(ProvenanceRole::RuleDeclaration, 0)
+    pub(crate) const fn expected_primary_key() -> ProvenanceKey {
+        ProvenanceKey::new(ProvenanceRole::RuleDeclaration, 0)
     }
 
     /// The provenance role of the `label` key: a context's (KF-021) or a
@@ -4208,38 +4011,35 @@ impl StructuredRuleDescriptor {
         }
     }
 
-    /// Registers the marker, hole, and result-sort keys of a heat or cool
+    /// Defines the marker, hole, and result-sort keys of a heat or cool
     /// rule (KF-014).
-    fn insert_evaluation_keys(
-        &self,
-        keys: &mut BTreeSet<ProvenanceKey>,
-    ) -> Result<(), GrammarTransportError> {
+    fn collect_evaluation_keys(&self, keys: &mut WireKeys) -> Result<(), GrammarTransportError> {
         if let Some(step) = &self.evaluation {
-            insert_exact(keys, &step.key, step.kind.role(), 0)?;
-            insert_exact(keys, &step.hole_key, step.kind.hole_role(), 0)?;
+            keys.define(&step.key, step.kind.role())?;
+            keys.define(&step.hole_key, step.kind.hole_role())?;
             if let Some(sort) = &step.result {
-                insert_exact(keys, &sort.key, step.kind.result_role(), 0)?;
+                keys.define(&sort.key, step.kind.result_role())?;
             }
         }
         Ok(())
     }
 
-    pub(crate) fn expected_provenance_keys(
-        &self,
-    ) -> Result<BTreeSet<ProvenanceKey>, GrammarTransportError> {
-        let mut keys = BTreeSet::new();
-        insert_canonical(&mut keys, ProvenanceRole::RuleDeclaration, 0);
+    /// The keys of the rule's wire nodes, with the kind's fixed declaration
+    /// keys: the rule's, and an alias's or a desugar's clause.
+    pub(crate) fn wire_keys(&self) -> Result<WireKeys, GrammarTransportError> {
+        let mut keys = WireKeys::default();
+        keys.fixed(ProvenanceRole::RuleDeclaration)?;
         if self.sentence_kind == SentenceKind::Alias {
-            insert_canonical(&mut keys, ProvenanceRole::AliasClause, 0);
+            keys.fixed(ProvenanceRole::AliasClause)?;
         }
         if self.sentence_kind == SentenceKind::Desugar {
-            insert_canonical(&mut keys, ProvenanceRole::DesugarClause, 0);
+            keys.fixed(ProvenanceRole::DesugarClause)?;
         }
         if let Some(label) = &self.label {
-            insert_exact(&mut keys, &label.key, self.label_role(), 0)?;
+            keys.define(&label.key, self.label_role())?;
         }
         if let Some(requires) = &self.requires {
-            insert_exact(&mut keys, &requires.key, ProvenanceRole::RuleRequires, 0)?;
+            keys.define(&requires.key, ProvenanceRole::RuleRequires)?;
         }
         if let Some(priority) = &self.priority {
             let role = priority.role_for(self.sentence_kind).unwrap_or(
@@ -4249,179 +4049,80 @@ impl StructuredRuleDescriptor {
                     ProvenanceRole::EquationPriority
                 },
             );
-            insert_exact(&mut keys, &priority.key, role, 0)?;
+            keys.define(&priority.key, role)?;
         }
         if let Some(nondet) = &self.nondet {
-            insert_exact(&mut keys, &nondet.key, ProvenanceRole::RuleNondetGroup, 0)?;
+            keys.define(&nondet.key, ProvenanceRole::RuleNondetGroup)?;
         }
         if let Some(anywhere) = &self.anywhere {
-            insert_exact(&mut keys, anywhere, ProvenanceRole::RuleAnywhere, 0)?;
+            keys.define(anywhere, ProvenanceRole::RuleAnywhere)?;
         }
-        self.insert_evaluation_keys(&mut keys)?;
+        self.collect_evaluation_keys(&mut keys)?;
         if let Some(simplification) = &self.simplification {
-            insert_exact(
-                &mut keys,
-                &simplification.key,
-                ProvenanceRole::SimplificationMarker,
-                0,
-            )?;
+            keys.define(&simplification.key, ProvenanceRole::SimplificationMarker)?;
             if let Some(priority) = &simplification.priority {
-                insert_exact(
-                    &mut keys,
-                    &priority.key,
-                    ProvenanceRole::SimplificationPriority,
-                    0,
-                )?;
+                keys.define(&priority.key, ProvenanceRole::SimplificationPriority)?;
             }
             if let Some(restriction) = &simplification.restriction {
-                restriction.collect_expected_keys(&mut keys)?;
+                restriction.collect_wire_keys(&mut keys)?;
             }
         }
         if let Some(equation) = &self.equation {
-            equation.restriction.collect_expected_keys(&mut keys)?;
+            equation.restriction.collect_wire_keys(&mut keys)?;
         }
         if let Some(unbound) = &self.unbound_variables {
-            unbound.collect_expected_keys(&mut keys)?;
+            unbound.collect_wire_keys(&mut keys)?;
         }
-        insert_exact(&mut keys, &self.pattern_key, ProvenanceRole::RulePattern, 0)?;
-        for (index, binding) in self.typed_bindings.iter().enumerate() {
-            let ordinal = checked_index(index)?;
-            insert_exact(
-                &mut keys,
-                &binding.key,
-                ProvenanceRole::RuleBindingParameter,
-                ordinal,
-            )?;
-            insert_exact(
-                &mut keys,
-                &binding.sort.key,
-                ProvenanceRole::RuleBindingType,
-                ordinal,
-            )?;
+        keys.define(&self.pattern_key, ProvenanceRole::RulePattern)?;
+        for binding in &self.typed_bindings {
+            keys.define(&binding.key, ProvenanceRole::RuleBindingParameter)?;
+            keys.define(&binding.sort.key, ProvenanceRole::RuleBindingType)?;
         }
-        insert_exact(
-            &mut keys,
-            &self.subject_sort.key,
-            ProvenanceRole::RuleType,
-            0,
-        )?;
+        keys.define(&self.subject_sort.key, ProvenanceRole::RuleType)?;
         if let Some(result_sort) = &self.result_sort {
-            insert_exact(
-                &mut keys,
-                &result_sort.key,
-                ProvenanceRole::RuleResultType,
-                0,
-            )?;
+            keys.define(&result_sort.key, ProvenanceRole::RuleResultType)?;
         }
         if let Some(result_key) = &self.result_key {
-            insert_exact(&mut keys, result_key, ProvenanceRole::RuleResult, 0)?;
+            keys.define(result_key, ProvenanceRole::RuleResult)?;
         }
-        let mut subject = TermKeyCounters::default();
         self.subject
-            .collect_expected_term_keys(&mut keys, TermSide::Left, &mut subject)?;
-        self.collect_function_context_keys(&mut keys, &mut subject);
-        let mut result = subject.next_side();
-        if let Some(result_term) = &self.result {
-            result_term.collect_expected_term_keys(&mut keys, TermSide::Right, &mut result)?;
+            .collect_wire_term_keys(&mut keys, TermSide::Left)?;
+        if let Some(context) = &self.function_context {
+            context.collect_keys(&mut keys)?;
         }
-        self.collect_condition_keys(&mut keys, &result)?;
+        if let Some(result_term) = &self.result {
+            result_term.collect_wire_term_keys(&mut keys, TermSide::Right)?;
+        }
+        self.collect_condition_keys(&mut keys)?;
         Ok(keys)
     }
 
-    /// The keys of an equation's function context (KF-025). Its cells are
-    /// expanded after the subject, so the side-neutral ordinals of the result
-    /// continue after the context's.
-    fn collect_function_context_keys(
-        &self,
-        keys: &mut BTreeSet<ProvenanceKey>,
-        subject: &mut TermKeyCounters,
-    ) {
-        let Some(context) = &self.function_context else {
-            return;
-        };
-        let mut context_keys = BTreeSet::new();
-        context.collect_keys(&mut context_keys);
-        for key in &context_keys {
-            let counter = match key.role() {
-                ProvenanceRole::LexemeText => &mut subject.lexeme,
-                ProvenanceRole::ClaimIdToken => &mut subject.id_token,
-                ProvenanceRole::ClaimBytesToken => &mut subject.bytes_token,
-                ProvenanceRole::SortTest => &mut subject.sort_test,
-                ProvenanceRole::PatternAs => &mut subject.pattern_as,
-                ProvenanceRole::PatternOr => &mut subject.pattern_or,
-                _ => continue,
-            };
-            *counter = (*counter).max(key.ordinal().saturating_add(1));
-        }
-        keys.extend(context_keys);
-    }
-
     /// The keys of a rule's requires condition, then of a transition's
-    /// existentials and ensures condition, whose lexeme and sort-test ordinals
-    /// continue after the result's.
-    fn collect_condition_keys(
-        &self,
-        keys: &mut BTreeSet<ProvenanceKey>,
-        result: &TermKeyCounters,
-    ) -> Result<(), GrammarTransportError> {
-        let mut condition = result.next_side();
+    /// existentials and ensures condition.
+    fn collect_condition_keys(&self, keys: &mut WireKeys) -> Result<(), GrammarTransportError> {
         if let Some(requires) = &self.requires {
             requires
                 .term
-                .collect_expected_term_keys(keys, TermSide::Requires, &mut condition)?;
+                .collect_wire_term_keys(keys, TermSide::Requires)?;
         }
-        for (index, binder) in self.existentials.iter().enumerate() {
-            let ordinal = u32::try_from(index).map_err(|_| {
-                GrammarTransportError::InvalidTerm(GrammarTermReason::InvalidRuleExistential)
-            })?;
-            insert_exact(
-                keys,
+        for binder in &self.existentials {
+            keys.define(
                 &binder.declaration_key,
                 ProvenanceRole::RuleExistentialBinder,
-                ordinal,
             )?;
-            insert_exact(
-                keys,
-                &binder.name_key,
-                ProvenanceRole::RuleExistentialBinderName,
-                ordinal,
-            )?;
-            insert_exact(
-                keys,
-                &binder.sort.key,
-                ProvenanceRole::RuleExistentialBinderSort,
-                ordinal,
-            )?;
+            keys.define(&binder.name_key, ProvenanceRole::RuleExistentialBinderName)?;
+            keys.define(&binder.sort.key, ProvenanceRole::RuleExistentialBinderSort)?;
         }
-        for (index, binder) in self.fresh.iter().enumerate() {
-            let ordinal = u32::try_from(index).map_err(|_| {
-                GrammarTransportError::InvalidTerm(GrammarTermReason::InvalidRuleFresh)
-            })?;
-            insert_exact(
-                keys,
-                &binder.declaration_key,
-                ProvenanceRole::RuleFreshBinder,
-                ordinal,
-            )?;
-            insert_exact(
-                keys,
-                &binder.name_key,
-                ProvenanceRole::RuleFreshBinderName,
-                ordinal,
-            )?;
-            insert_exact(
-                keys,
-                &binder.sort.key,
-                ProvenanceRole::RuleFreshBinderSort,
-                ordinal,
-            )?;
+        for binder in &self.fresh {
+            keys.define(&binder.declaration_key, ProvenanceRole::RuleFreshBinder)?;
+            keys.define(&binder.name_key, ProvenanceRole::RuleFreshBinderName)?;
+            keys.define(&binder.sort.key, ProvenanceRole::RuleFreshBinderSort)?;
         }
         if let Some(ensures) = &self.ensures {
-            insert_exact(keys, &ensures.key, ProvenanceRole::RuleEnsures, 0)?;
-            let mut postcondition = condition.next_side();
+            keys.define(&ensures.key, ProvenanceRole::RuleEnsures)?;
             ensures
                 .term
-                .collect_expected_term_keys(keys, TermSide::Ensures, &mut postcondition)?;
+                .collect_wire_term_keys(keys, TermSide::Ensures)?;
         }
         Ok(())
     }
@@ -4499,150 +4200,37 @@ impl TermSide {
     }
 }
 
-#[derive(Default)]
-struct TermKeyCounters {
-    path: u32,
-    application: u32,
-    reference: u32,
-    literal: u32,
-    record_field: u32,
-    wildcard: u32,
-    /// Lexeme ordinals are side-neutral: they continue from the subject
-    /// through the result and the condition.
-    lexeme: u32,
-    /// Builtin `Id` and `Bytes` token ordinals, side-neutral like lexeme
-    /// ordinals.
-    id_token: u32,
-    bytes_token: u32,
-    /// Sort-test ordinals are side-neutral like lexeme ordinals.
-    sort_test: u32,
-    /// Turbofish instance ordinals, side-neutral like sort tests (KF-027).
-    application_instance: u32,
-    /// `name @ pattern` ordinals, side-neutral: the form occurs in the
-    /// subject and in `k::matches!` patterns.
-    pattern_as: u32,
-    /// Or-pattern ordinals, side-neutral like `pattern_as`.
-    pattern_or: u32,
-    /// `k::matches!` ordinals, side-neutral.
-    matches: u32,
-    /// Wildcard ordinals inside `k::matches!` patterns, side-neutral.
-    matches_wildcard: u32,
-    /// Whether the validator is inside a `k::matches!` pattern.
-    in_matches_pattern: bool,
-    /// `let` statement ordinals, side-neutral.
-    let_binding: u32,
-    /// Wildcard ordinals inside `let` patterns, side-neutral.
-    let_wildcard: u32,
-    /// Whether the validator is inside a `let` pattern.
-    in_let_pattern: bool,
-    /// `ml::exists` closure ordinals, side-neutral (KF-039).
-    ml_binder: u32,
-    /// `k::rewrite!` ordinals, side-neutral (KF-011).
-    rewrite: u32,
-}
-
-impl TermKeyCounters {
-    /// The counters of the next side: the side-neutral ordinals continue,
-    /// the per-side ones restart.
-    const fn next_side(&self) -> Self {
-        Self {
-            path: 0,
-            application: 0,
-            reference: 0,
-            literal: 0,
-            record_field: 0,
-            wildcard: 0,
-            lexeme: self.lexeme,
-            id_token: self.id_token,
-            bytes_token: self.bytes_token,
-            sort_test: self.sort_test,
-            application_instance: self.application_instance,
-            pattern_as: self.pattern_as,
-            pattern_or: self.pattern_or,
-            matches: self.matches,
-            matches_wildcard: self.matches_wildcard,
-            in_matches_pattern: false,
-            let_binding: self.let_binding,
-            let_wildcard: self.let_wildcard,
-            in_let_pattern: false,
-            ml_binder: self.ml_binder,
-            rewrite: self.rewrite,
-        }
-    }
-}
-
 impl DescriptorTerm {
-    fn collect_expected_term_keys(
+    /// Collects the keys of a term on `side`, each checked for its node's
+    /// role on that side.
+    fn collect_wire_term_keys(
         &self,
-        keys: &mut BTreeSet<ProvenanceKey>,
+        keys: &mut WireKeys,
         side: TermSide,
-        counters: &mut TermKeyCounters,
     ) -> Result<(), GrammarTransportError> {
         super::validation::validate_term(
             self,
             &mut term_validation::TermProvenanceValidation {
                 keys,
                 side,
-                counters,
+                in_matches_pattern: false,
+                in_let_pattern: false,
             },
         )
     }
 }
 
-fn insert_exact(
-    keys: &mut BTreeSet<ProvenanceKey>,
-    actual: &ProvenanceKey,
-    role: ProvenanceRole,
-    ordinal: u32,
-) -> Result<(), GrammarTransportError> {
-    let expected = canonical_key(role, ordinal);
-    if actual != &expected {
-        return Err(GrammarTransportError::UnexpectedProvenance {
-            expected,
-            actual: actual.clone(),
-        });
-    }
-    keys.insert(actual.clone());
-    Ok(())
-}
-
-fn insert_canonical(keys: &mut BTreeSet<ProvenanceKey>, role: ProvenanceRole, ordinal: u32) {
-    keys.insert(canonical_key(role, ordinal));
-}
-
-fn canonical_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
-    ProvenanceKey::new(role, ordinal)
-}
-
-fn checked_index(index: usize) -> Result<u32, GrammarTransportError> {
-    u32::try_from(index).map_err(|_| {
-        GrammarTransportError::InvalidProduction(
-            GrammarProductionReason::ProvenanceOrdinalExceedsU32,
-        )
-    })
-}
-
-fn increment(value: u32) -> Result<u32, GrammarTransportError> {
-    value
-        .checked_add(1)
-        .ok_or(GrammarTransportError::InvalidProduction(
-            GrammarProductionReason::ProvenanceOrdinalExceedsU32,
-        ))
-}
-
-/// Inserts a constant's type key and its value's keys, which are numbered
-/// as the nodes of a rule result are.
+/// Collects a constant's keys: its type, and its value's nodes, which
+/// are keyed as the nodes of a rule result are. The value term denotes the
+/// value expression but carries no key field of its own.
 pub(super) fn collect_constant_keys(
     constant: &super::constant::ConstantDescriptor,
-    keys: &mut BTreeSet<ProvenanceKey>,
+    keys: &mut WireKeys,
 ) -> Result<(), GrammarTransportError> {
-    insert_exact(keys, &constant.sort.key, ProvenanceRole::ConstantType, 0)?;
+    keys.define(&constant.sort.key, ProvenanceRole::ConstantType)?;
     constant.sort.sort.validate()?;
-    constant.value.collect_expected_term_keys(
-        keys,
-        TermSide::Right,
-        &mut TermKeyCounters::default(),
-    )
+    keys.implicit(ProvenanceRole::ConstantValue);
+    constant.value.collect_wire_term_keys(keys, TermSide::Right)
 }
 
 fn validate_sort_reference(

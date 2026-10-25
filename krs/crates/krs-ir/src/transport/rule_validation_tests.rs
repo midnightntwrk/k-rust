@@ -113,7 +113,7 @@ fn claim_binders_validate_descriptor_sort_after_its_provenance() {
             &mut BTreeSet::new()
         ),
         Err(StateTransportError::UnexpectedProvenance {
-            expected: key(ProvenanceRole::ClaimBinderSort),
+            expected: ProvenanceRole::ClaimBinderSort,
             actual: key(ProvenanceRole::RuleBindingType),
         })
     );
@@ -282,7 +282,7 @@ fn anonymous_terms_validate_descriptor_sort_before_provenance() {
     assert_eq!(
         check_term(&host),
         Err(StateTransportError::UnexpectedProvenance {
-            expected: key(ProvenanceRole::ClaimAnonymous),
+            expected: ProvenanceRole::ClaimAnonymous,
             actual: key(ProvenanceRole::RuleLeftLiteral),
         })
     );

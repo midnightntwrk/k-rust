@@ -5,6 +5,7 @@ use std::collections::BTreeSet;
 use serde::{Deserialize, Serialize};
 
 use super::detail::{StateCellContentReason, StateTermReason, TransportField, TransportItemKind};
+use super::keys::{KeyFailure, WireKeys};
 use crate::stage::{DescriptorStage, HostStage, protocol_shape, stage_shape};
 
 use super::validation::{TermValidation, ValidationStage, validate_term};
@@ -690,18 +691,29 @@ stage_shape! {
 pub type DescriptorFunctionContext = FunctionContext<DescriptorStage>;
 
 impl DescriptorFunctionContext {
-    /// The context's parser-owned keys: the parameter, the configuration
-    /// type, and every cell, frame, and term key.
-    pub(crate) fn collect_keys(&self, keys: &mut BTreeSet<ProvenanceKey>) {
-        keys.insert(self.key.clone());
-        keys.insert(self.configuration.key.clone());
-        keys.insert(self.cells.key.clone());
+    /// The context's keys: the parameter and its configuration type define
+    /// theirs, a term binding's sort names the sort its typed binding
+    /// defines, and each of its cells' keys is defined once.
+    pub(crate) fn collect_keys(&self, keys: &mut WireKeys) -> Result<(), KeyFailure> {
+        keys.define(&self.key, ProvenanceRole::FunctionContext)?;
+        keys.define(&self.configuration.key, ProvenanceRole::FunctionContextType)?;
         for binding in &self.bindings {
             if let ProtocolRuleBindingKind::Term { sort } = &binding.kind {
-                keys.insert(sort.key.clone());
+                keys.refer(&sort.key, ProvenanceRole::RuleBindingType)?;
             }
         }
-        collect_cells_keys(&self.cells, keys);
+        for key in &self.cell_keys() {
+            keys.define_untyped(key)?;
+        }
+        Ok(())
+    }
+
+    /// The keys of the context's cells: the payload, and every cell, frame,
+    /// and term key.
+    pub(crate) fn cell_keys(&self) -> BTreeSet<ProvenanceKey> {
+        let mut keys = BTreeSet::from([self.cells.key.clone()]);
+        collect_cells_keys(&self.cells, &mut keys);
+        keys
     }
 
     /// The names the context binds that the subject does not: every name
@@ -3484,7 +3496,7 @@ fn validate_rule_complete_set(
         };
     if primary != &expected_primary {
         return Err(StateTransportError::UnexpectedProvenance {
-            expected: expected_primary,
+            expected: expected_primary.role(),
             actual: primary.clone(),
         });
     }
@@ -3506,7 +3518,7 @@ fn insert_rule_exact(
     let expected = ProvenanceKey::new(role, ordinal);
     if actual != &expected {
         return Err(StateTransportError::UnexpectedProvenance {
-            expected,
+            expected: expected.role(),
             actual: actual.clone(),
         });
     }
