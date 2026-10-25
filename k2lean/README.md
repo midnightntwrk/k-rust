@@ -64,7 +64,7 @@ target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime
 | `demos/ImpMut` | a mutant of kimp (`demos/k/kimp-mutant`) diverges from kimp, proved on a concrete configuration |
 | `demos/ImpUnroll` | kimp and a variant whose `while` unrolls in one step less (`tests/kimp-unroll.py`) are stuttering bisimilar: `k2lean refine` generates 310 of the 316 case parts, `Relation.lean` holds the non-local part of the relation and the other 6 |
 | `demos/RaceConf` | every schedule of the fixture `tests/fixtures/race` (workers adding to a shared accumulator) ends in one configuration: `k2lean confluence` generates and proves all 9 joins of pairs of rules |
-| `demos/ImpNI` | kimp's termination-insensitive noninterference for a two-level security checker in K (`demos/k/imp-sec.k`), stated by `k2lean noninterference` with its 240 obligations, all discharged by a hand relation (`ImpNI/Proof.lean`); `ImpNI/Examples.lean` shows the hypotheses hold of a secure program and the checker rejects explicit and implicit flows |
+| `demos/ImpNI` | kimp's termination-insensitive noninterference for a two-level security checker in K (`demos/k/imp-sec.k`), stated by `k2lean noninterference` with its 240 obligations, all discharged by the relation it generates from the checker (`ImpNI/Levels.lean`, `Stack.lean`, `Proof.lean`; the store lemmas and 5 cases by hand in `ImpNI/Store.lean`); `ImpNI/Examples.lean` shows the hypotheses hold of a secure program and the checker rejects explicit and implicit flows |
 | `demos/KrsImpTyping` | every KRS IMP rule preserves the declared cell type `env: Map<Id, Value>`, from the KRS sidecar |
 | `demos/SimpleEnv` | a kind 2 invariant of SIMPLE, strengthened to be inductive |
 | `demos/ImpWrites` | a kind 2 invariant of kimp that walks the `<k>` cell |
@@ -117,9 +117,10 @@ target/release/k2lean refine --kore-a A/definition.kore --name-a A --kore-b B/de
 # confluence modulo scheduling, observing the cells --obs names (--report-only: the classification of the pairs)
 target/release/k2lean confluence --kore A/definition.kore --name A --ns AConf --obs out \
   [--join local] [--open OPEN.txt] --out AConf/Confluence.lean --report AConf/confluence.toml
-# noninterference, reduced to a relation on pairs of runs
+# noninterference, reduced to a relation on pairs of runs (with --checker-kore: the relation generated)
 target/release/k2lean noninterference --kore A/definition.kore --name A --ns ANI --store-cell env \
-  --program-sort SortStmt --params "(G : Sec.SortMap)" --secure "secure G" --low-eq "lowEq G" --out ANI/NI.lean
+  --program-sort SortStmt --params "(G : Sec.SortMap)" --secure "secure G" --low-eq "lowEq G" --out ANI/NI.lean \
+  [--checker-kore Sec/definition.kore --checker-name Sec --lev lev --sec sec --conf conf --open ANI/open.txt --out-dir ANI]
 ```
 
 | option | does |
@@ -128,6 +129,7 @@ target/release/k2lean noninterference --kore A/definition.kore --name A --ns ANI
 | `refine --open FILE` | the case parts the hand module proves (`KIND RULE`, `KIND` one of `fwd_tr`, `fwd_x`, `bwd_tr`, `bwd_x`); `--hand-module` (default `NS.Relation`), `--extra`, `--measure-a`, `--measure-b` name what it supplies (default `X`, `μ`, `ν`) |
 | `confluence --open FILE` | the pairs of rules the hand module joins (`RULE \| RULE`); `--hand-module` (default `NS.Hand`) and `--hyp` (default `H`) name the program hypothesis, `--join local` asks for `μ` and `μ_dec` |
 | `noninterference --params`, `--secure`, `--low-eq` | the hand module's parameters and predicates the statement uses; `--hand-module` (default `NS.Hand`) |
+| `noninterference --checker-kore` | the relation from a two-level checker (`--lev`, `--sec`, `--conf` name its functions): `Levels.lean`, `Stack.lean`, `Proof.lean` in `--out-dir`, around the hand module `NS.Store` (`--store-module`), which proves the per-rule cases `--open` lists (`KIND RULE`, `KIND` one of `cq`, `sq`, `same`) |
 
 ## Large definitions
 
