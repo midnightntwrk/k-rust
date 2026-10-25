@@ -9,10 +9,9 @@ module TERM-SYNTAX
   imports BYTES-SYNTAX
   imports LIST
   imports MAP
-  imports STRING-SYNTAX
   syntax Ints ::= ".Ints" | Int ";" Ints
   syntax Ty ::= ty(Int)
-  syntax Pgm ::= run(Bytes, Ints, List, Int) | runN(Int) | runT(Map, Ty) | runS(String)
+  syntax Pgm ::= run(Bytes, Ints, List, Int) | runT(Map, Ty)
 endmodule
 
 module TERM
@@ -22,7 +21,6 @@ module TERM
   imports BYTES
   imports LIST
   imports MAP
-  imports STRING
   configuration <T> <k> $PGM:Pgm </k> </T>
 
   // Two functions calling each other: `scan` stops at the end of the bytes, `scanAt` steps past
@@ -105,24 +103,6 @@ module TERM
   rule decSeq(_, _) => .Trees [owise]
   rule decSeqHdr(B, S, _:Kind(L, P)) => dec(substrBytes(B, S, L +Int P)) :: decSeq(B, L +Int P)
 
-  // Shifting right towards zero, after a sign flip: the distance of the negation, then of the
-  // value, which `>>Int 1` makes smaller while it is positive (`IntHook.shr_facts`).
-  syntax Int ::= popcount(Int) [function, total, symbol(popcount)]
-  rule popcount(0) => 0
-  rule popcount(N) => (N &Int 1) +Int popcount(N >>Int 1) requires N >Int 0
-  rule popcount(N) => popcount(N *Int -1) requires N <Int 0
-
-  // Splitting a string at each separator: the rest after a separator is shorter than the string,
-  // by the range of `findString` (an index at which the separator fits, or -1) and the length of
-  // `substrString`. `splitAt` is called within the group only with an index `findString` returned,
-  // below the string's length; at any other index the rest is empty.
-  syntax List ::= split(String) [function, total, symbol(split)]
-                | splitAt(String, Int) [function, total, symbol(splitAt)]
-  rule split(S) => splitAt(S, findString(S, ";", 0))
-  rule splitAt(S, -1) => ListItem(S)
-  rule splitAt(S, I) => ListItem(substrString(S, 0, I)) split(substrString(S, I +Int 1, lengthString(S)))
-    requires I >=Int 0
-
   // Types read from a table: an array's alignment is its element's, its size the element's size
   // times its length, and the element's description is read from the table. The table is an
   // arbitrary map, so on a table whose entry for a type mentions that type (`ty(0) |-> arr(ty(0),
@@ -144,7 +124,5 @@ module TERM
   rule sizeTy(M, T) => size(M, info(M, T))
 
   rule <k> run(B, L, Xs, N) => scan(B, 0, 0) ~> isort(L) ~> total(Xs, 0) ~> series(1, 0, N, N) ~> dec(B) </k>
-  rule <k> runN(N) => popcount(N) </k>
-  rule <k> runS(S) => split(S) </k>
   rule <k> runT(M, T) => sizeTy(M, T) ~> align(M, info(M, T)) </k>
 endmodule
