@@ -1870,16 +1870,17 @@ never gets stuck. -/\n",
     writeln!(
         s,
         "/-! ## Progress -/\n\n\
-/-- Compute the typing of `<k>` (with the hypotheses, which record the cases taken). -/\n\
-macro \"ty_simp\" : tactic => `(tactic| simp only [k2l_pres, item, item0, WTc, Option.map_some, Option.map_none, Option.bind_some, Option.bind_none, Option.isNone_some, Option.isNone_none, Bool.and_true, Bool.true_and, Bool.and_false, Bool.false_and, ite_true, ite_false, ↓reduceIte, and_self, and_true, true_and, *])\n\n\
+/-- Compute the typing of `<k>` (with the hypotheses, which record the cases taken); a typing that\n\
+computes to `false` is `false = true`, `False`, and closes the goal `typing → App c`. -/\n\
+macro \"ty_simp\" : tactic => `(tactic| simp only [k2l_pres, item, item0, WTc, Option.map_some, Option.map_none, Option.bind_some, Option.bind_none, Option.isNone_some, Option.isNone_none, Bool.and_true, Bool.true_and, Bool.and_false, Bool.false_and, ite_true, ite_false, ↓reduceIte, and_self, and_true, true_and, Bool.false_eq_true, false_implies, *])\n\n\
 /-- An ill-typed shape: the typing of `<k>` computes to `false`. -/\n\
-macro \"prog_absurd\" : tactic => `(tactic| first | (ty_simp; done) | (intro _hk; simp [k2l_pres, item, item0] at _hk; done))\n\n\
+macro \"prog_absurd\" : tactic => `(tactic| (ty_simp; done))\n\n\
 /-- A side condition of a rule: by unification, an assumption, or by computing it. -/\n\
 macro \"prog_close\" : tactic => `(tactic| first | rfl | assumption | exact {na}.proj_inj_KItem_{hole_short} _ | (simp_all [{}]; done))\n\n\
 /-- The variables of sorted projections, substituted. -/\n\
 macro \"prog_proj\" : tactic => `(tactic| (simp only [{}] at *; subst_vars))\n\n\
 /-- What the typing of the head depends on: the sort projections of variables, the typing functions. -/\n\
-macro \"prog_cases\" : tactic => `(tactic| k2l_cases_typing [{}] [{}] => ((try ty_simp); (try prog_absurd)))\n\n\
+macro \"prog_cases\" : tactic => `(tactic| k2l_cases_typing [{}] [{}] => (try ty_simp))\n\n\
 /-- One shape of the head of `<k>`: case on what its typing depends on, then find the rule. -/\n\
 macro \"prog_leaf\" : tactic => `(tactic| (prog_cases; all_goals (intro _hk; (try prog_proj); k2l_cases_bools; all_goals k2l_ctor_search {na}.App => prog_close)))\n",
         close_list.join(", "),
