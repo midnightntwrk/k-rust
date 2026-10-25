@@ -1,9 +1,6 @@
 Eqn.hdrOf_2
 Eqn.hdrOf_3
 Eqn.hdrOf_4
-Eqn.total_2
-Eqn.total_3
-Eqn.twice_2
 Eqn.width_2
 Simp.s_7c257f409827
 Simp.s_f68c225a4475

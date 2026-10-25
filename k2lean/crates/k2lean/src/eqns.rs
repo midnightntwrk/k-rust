@@ -758,15 +758,16 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
         o.push_str(&format!(
             "/-- The generic proof of an equation of a recursive function `f`, which `simp` does not\n\
 unfold: unfold `f` once on the left-hand side (`f.eq_def`), reduce the cascade of its equations,\n\
-case on the variables that the cascade matches, on the recursive calls, on the projections and on\n\
-the other partial calls that its matches inspect (`k2l_case_call`: hooks and functions that are\n\
-not recursive, after which a recursive call whose argument is such a call's value is cased too),\n\
-then close each case as the generic tactics do. -/\n\
+decide its matches on a list pattern of the left-hand side (`k2l_case_list`), case on the variables\n\
+that the cascade matches, on the recursive calls, on the projections and on the other partial\n\
+calls that its matches inspect (`k2l_case_call`: hooks and functions that are not recursive,\n\
+after which a recursive call whose argument is such a call's value is cased too), then close each\n\
+case as the generic tactics do. -/\n\
 local macro \"k2l_eqn_r \" f:ident \" [\" xs:Lean.Parser.Tactic.simpLemma,* \"]\" : tactic => do\n  let e := Lean.mkIdent (f.getId.str \"eq_def\")\n  \
 `(tactic| (\n    \
 (conv => lhs; rw [$e:ident])\n    \
 try simp only []\n    \
-try (repeat' (first | (k2l_case_discr <;> try simp only []) | (k2l_case_rec [{r}] <;> try simp only [Option.bind]) | (k2l_case_call <;> try simp only [Option.bind])))\n    \
+try (repeat' (first | k2l_case_list | (k2l_case_discr <;> try simp only []) | (k2l_case_rec [{r}] <;> try simp only [Option.bind]) | (k2l_case_call <;> try simp only [Option.bind])))\n    \
 all_goals first\n      \
 | (simp_all [{u}]; done)\n      \
 | ((repeat' (first | split | k2l_split_hyps)) <;> (try simp_all [{u}]) <;> omega)))\n\n"

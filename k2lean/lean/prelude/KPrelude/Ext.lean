@@ -354,6 +354,69 @@ theorem unsnoc_concat_element (t : L) (x : E) : unsnoc (concat t (element x)) = 
   rw [toList_ofList, toList_ofList]
   simp [ofList_toList]
 
+/-! What `uncons`, `unsnoc` and the test against `.List` give on a list built from `.List`,
+`ListItem` and concatenation, in any nesting. The left-hand side of an equation with a list pattern
+is such a term, and the generated definition matches its argument with these functions
+(`k2l_case_list` in `KPrelude.Tactic`). -/
+
+theorem uncons_unit : uncons (unit : L) = none := by
+  simp [uncons, unit, toList_ofList]
+
+theorem unsnoc_unit : unsnoc (unit : L) = none := by
+  simp [unsnoc, unit, toList_ofList]
+
+theorem uncons_element (x : E) : uncons (element x : L) = some (x, unit) := by
+  simp [uncons, element, unit, toList_ofList]
+
+theorem unsnoc_element (x : E) : unsnoc (element x : L) = some (unit, x) := by
+  simp [unsnoc, element, unit, toList_ofList]
+
+theorem concat_unit_left (l : L) : concat unit l = l := by
+  simp [concat, unit, toList_ofList, ofList_toList]
+
+theorem concat_unit_right (l : L) : concat l unit = l := by
+  simp [concat, unit, toList_ofList, ofList_toList]
+
+/-- The first element of `a b` is that of `a`, or, when `a` is empty, that of `b`. -/
+theorem uncons_concat (a b : L) :
+    uncons (concat a b) = (match uncons a with
+      | some (x, t) => some (x, concat t b)
+      | none => uncons b) := by
+  unfold uncons concat
+  rw [toList_ofList]
+  cases h : toList a with
+  | nil => simp
+  | cons y ys => simp [toList_ofList]
+
+/-- The last element of `a b` is that of `b`, or, when `b` is empty, that of `a`. -/
+theorem unsnoc_concat (a b : L) :
+    unsnoc (concat a b) = (match unsnoc b with
+      | some (t, x) => some (concat a t, x)
+      | none => unsnoc a) := by
+  unfold unsnoc concat
+  rw [toList_ofList]
+  cases h : (toList b).getLast? with
+  | none =>
+    have hb : toList b = [] := List.getLast?_eq_none_iff.1 h
+    simp [hb]
+  | some y =>
+    have hb : toList b ≠ [] := by intro hb; simp [hb] at h
+    simp [List.getLast?_append, h, List.dropLast_append_of_ne_nil hb, toList_ofList]
+
+theorem element_ne_unit (x : E) : element x ≠ (unit : L) := by
+  intro h
+  have := congrArg toList h
+  simp [element, unit, toList_ofList] at this
+
+theorem concat_eq_unit_iff (a b : L) : concat a b = unit ↔ a = unit ∧ b = unit := by
+  constructor
+  · intro h
+    have h' := congrArg toList h
+    simp only [concat, unit, toList_ofList, List.append_eq_nil_iff] at h'
+    exact ⟨by rw [← ofList_toList a, h'.1]; rfl, by rw [← ofList_toList b, h'.2]; rfl⟩
+  · rintro ⟨rfl, rfl⟩
+    exact concat_unit_left _
+
 end ListHook
 
 /-! ## `STRING` hooks

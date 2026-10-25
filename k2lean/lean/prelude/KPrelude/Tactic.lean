@@ -143,6 +143,84 @@ elab "k2l_case_call" : tactic => do
       let (_, g') ← s.mvarId.introNP fvs.size
       pure g'
 
+/-- A list built from `.List`, `ListItem` and concatenation (a list pattern of an equation's
+left-hand side, or a part of one). -/
+def k2lListCons (l : Expr) : Bool :=
+  l.isAppOf ``ListHook.concat || l.isAppOf ``ListHook.element || l.isAppOf ``ListHook.unit
+
+/-- The laws of `KPrelude.Ext` that evaluate `uncons` and `unsnoc` of such a list. -/
+def k2lListLaws : MetaM SimpTheorems := do
+  let mut s : SimpTheorems := {}
+  for n in [``ListHook.uncons_concat_element, ``ListHook.unsnoc_concat_element,
+      ``ListHook.uncons_element, ``ListHook.unsnoc_element, ``ListHook.uncons_unit,
+      ``ListHook.unsnoc_unit, ``ListHook.uncons_concat, ``ListHook.unsnoc_concat,
+      ``ListHook.concat_unit_left, ``ListHook.concat_unit_right] do
+    s ← s.addConst n
+  return s
+
+/-- `d = v` for a discriminant `d` that is `uncons l` or `unsnoc l` of a list `l` built by the
+list constructors, when the list laws evaluate it to `v`, `some _` or `none`. -/
+def k2lListEval (d : Expr) : MetaM (Option Expr) := do
+  unless d.isAppOf ``ListHook.uncons || d.isAppOf ``ListHook.unsnoc do return none
+  unless k2lListCons d.appArg! do return none
+  let ctx ← Simp.mkContext (simpTheorems := #[← k2lListLaws])
+    (congrTheorems := ← getSimpCongrTheorems)
+  let (r, _) ← Lean.Meta.simp d ctx
+  let v := (← instantiateMVars r.expr).consumeMData
+  unless v.isAppOfArity ``Option.some 2 || v.isAppOfArity ``Option.none 1 do return none
+  return r.proof?
+
+/-- Split the first `match` of the goal on `uncons l` or `unsnoc l` (`k2lListEval`), and decide
+it: in each case, the case's equation `d = c` and `d = v` give `v = c`, which unifies the pattern's
+variables with the values (`(x, t) = (X, L)`) or refutes the case. `none` when there is none. -/
+def k2lListSplit (g : MVarId) : MetaM (Option (List MVarId)) := g.withContext do
+  let env ← getEnv
+  let tgt ← instantiateMVars (← g.getType)
+  let cands ← IO.mkRef (#[] : Array (Expr × Expr))
+  tgt.forEach fun e => do
+    let .const n _ := e.getAppFn | pure ()
+    let some info := Lean.Meta.Match.Extension.getMatcherInfo? env n | pure ()
+    if e.hasLooseBVars then return
+    let args := e.getAppArgs
+    for d in args.extract (info.numParams + 1) (info.numParams + 1 + info.numDiscrs) do
+      if d.isAppOf ``ListHook.uncons || d.isAppOf ``ListHook.unsnoc then
+        cands.modify (·.push (e, d))
+  for (e, d) in (← cands.get) do
+    let some pf ← k2lListEval d | continue
+    let mut out := []
+    for g' in ← Lean.Meta.Split.splitMatch g e do
+      let r ← g'.withContext do
+        for ld in (← getLCtx) do
+          if ld.isImplementationDetail then continue
+          let some (_, a, _) := (← instantiateMVars ld.type).eq? | continue
+          unless a == d do continue
+          let h ← mkEqTrans (← mkEqSymm pf) ld.toExpr
+          let (hf, g2) ← (← g'.assert `k2l_l (← inferType h) h).intro1P
+          return some ((← g2.cases hf).toList.map (·.mvarId))
+        return none
+      out := out ++ r.getD [g']
+    return some out
+  return none
+
+/-- `k2l_case_list`: reduce the generated definition's matches on a list that the equation's
+left-hand side gives as a list pattern (`ListItem(X) L`, `L ListItem(X)`, `ListItem(X)`, `.List`
+and their combinations). The definition matches its argument by `uncons`, `unsnoc` and a test
+against `.List`; on a list built by the list constructors these have known values (the laws above
+`k2lListLaws`), so each such `match` is split and decided by its value (`k2lListSplit`), and
+each such test is decided by `concat_eq_unit_iff` and `element_ne_unit`. Fails when the goal has
+neither. -/
+elab "k2l_case_list" : tactic => do
+  if let some gs ← k2lListSplit (← getMainGoal) then
+    replaceMainGoal gs
+    return
+  let tgt ← instantiateMVars (← getMainTarget)
+  let test := tgt.find? fun e => e.isAppOfArity ``Eq 3 && e.appArg!.isAppOf ``ListHook.unit &&
+    k2lListCons e.appFn!.appArg!
+  if test.isNone then throwError "k2l_case_list: no list match or test on a list construction"
+  evalTactic (← `(tactic| simp only [KPrelude.ListHook.concat_eq_unit_iff,
+    KPrelude.ListHook.element_ne_unit, false_and, and_false, eq_self_iff_true, dite_true,
+    dite_false]))
+
 /-- `k2l_case_discr`: case on a variable of a generated sort (an inductive type `Sort…`, or a
 term of the arity-indexed family, split by `familyCases`) that a `match` in the goal inspects, so
 that the cascade of a function's equations reduces. -/
