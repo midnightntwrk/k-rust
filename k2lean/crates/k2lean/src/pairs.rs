@@ -61,6 +61,8 @@ struct CRule {
     aliases: Vec<(T, T)>,
     req: Vec<(T, bool)>,
     rhs: T,
+    /// the Boolean connectives that split the requires clause into `req`
+    conns: BTreeSet<String>,
 }
 
 /// An equation template: patterns over `PVar`s.
@@ -324,13 +326,17 @@ impl<'a> Cx<'a> {
         let mut aliases = Vec::new();
         let lhs = self.conv(l, &mut names, &mut aliases, None);
         let mut req = Vec::new();
+        let before = std::mem::take(&mut self.used);
         self.atoms(q, &mut names, &mut aliases, &mut req, None);
+        let conns = std::mem::replace(&mut self.used, before);
+        self.used.extend(conns.iter().cloned());
         let rhs = self.conv(rh, &mut names, &mut aliases, None);
         CRule {
             lhs,
             aliases,
             req,
             rhs,
+            conns,
         }
     }
 
@@ -2088,22 +2094,22 @@ fn classify0(cx: &mut Cx, a: &CRule, b: &CRule, same_rank: bool) -> PairOut {
     }
     for vs in tries {
         match case_split(cx, &un, &vs, a, b) {
-            Some((label, qs)) if qs.is_empty() => {
-                closed = Some(label);
+            Some((label, qs, refuting)) if qs.is_empty() => {
+                closed = Some((label, refuting));
                 break;
             }
-            Some((label, qs)) => cases.push((label, qs)),
+            Some((label, qs, _)) => cases.push((label, qs)),
             None => {}
         }
     }
-    if let Some(label) = closed {
+    if let Some((label, refuting)) = closed {
         return PairOut {
             class: "exclusive".into(),
             detail: format!("case split: {label}, every case by eval"),
             depth: 0,
             smt: None,
             cases: vec![],
-            used: None,
+            used: Some(refuting),
         };
     }
     PairOut {
@@ -2255,14 +2261,17 @@ fn cases_of(cx: &Cx, u: &mut Un, l: &BTreeSet<String>) -> Vec<T> {
 
 /// The case split on `vs` (the product of their cases): in each case the requires clauses are
 /// re-evaluated; `None` if some case leaves no condition to refute. Returns (label, SMT queries of
-/// the cases that evaluation did not close).
+/// the cases that evaluation did not close, and the definitions that refute the closed cases).
+/// A case is closed by one atom of the requires evaluating to the opposite truth value (or to
+/// undefined); the definitions that evaluation applied, with the connectives that split the
+/// requires into atoms, are all a proof of that case unfolds.
 fn case_split(
     cx: &mut Cx,
     un: &Un,
     vs: &[usize],
     a: &CRule,
     b: &CRule,
-) -> Option<(String, Vec<String>)> {
+) -> Option<(String, Vec<String>, BTreeSet<String>)> {
     let mut combos: Vec<Un> = vec![un.clone()];
     let mut label = Vec::new();
     for &v in vs {
@@ -2289,6 +2298,7 @@ fn case_split(
     }
     let n_cases = combos.len();
     let mut qs = Vec::new();
+    let mut refuting: BTreeSet<String> = a.conns.union(&b.conns).cloned().collect();
     for u in combos {
         let mut fuel = 20_000usize;
         let mut closed = false;
@@ -2296,19 +2306,28 @@ fn case_split(
         let mut qb = Vec::new();
         for (req, out) in [(&a.req, &mut qa), (&b.req, &mut qb)] {
             for (e, bv) in req.iter() {
+                let saved = std::mem::take(&mut cx.used);
                 let val = u.eval(cx, e, &mut fuel);
                 let mut parts = Vec::new();
                 cx.push_atom(val, *bv, &mut parts);
+                let mut refutes = false;
                 for (p, pb) in parts {
                     if is_undef(&p) {
-                        closed = true;
+                        refutes = true;
                         continue;
                     }
                     match Un::as_bool(&p) {
-                        Some(x) if x != pb => closed = true,
+                        Some(x) if x != pb => refutes = true,
                         Some(_) => {}
                         None => out.push((p, pb)),
                     }
+                }
+                let atom = std::mem::replace(&mut cx.used, saved);
+                cx.used.extend(atom.iter().cloned());
+                // the first refuting atom of the case
+                if refutes && !closed {
+                    closed = true;
+                    refuting.extend(atom);
                 }
             }
         }
@@ -2321,7 +2340,11 @@ fn case_split(
         }
         qs.push(q);
     }
-    Some((format!("{} = {n_cases} cases", label.join(" × ")), qs))
+    Some((
+        format!("{} = {n_cases} cases", label.join(" × ")),
+        qs,
+        refuting,
+    ))
 }
 
 /// The node at `path` in a lowered left-hand side, as the index reads it.
