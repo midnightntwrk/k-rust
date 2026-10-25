@@ -1,50 +1,30 @@
 #!/usr/bin/env bash
 # k2lean's regression gate.
 # Regenerates every library and demonstration from the K sources with the generator under test,
-# builds them in a scratch work tree, and compares what it measures with tests/baseline.toml.
+# builds them in a scratch work tree, and compares what it measures with the baseline
+# (tests/baseline/AREA.toml, with the recorded outputs in tests/expected/AREA/).
 #
-#   k2lean/tests/gate.sh light    generator unit and snapshot tests; kimp (goldens, step traces
-#                                 against krust and the K LLVM backend), kimp-d2 (kimp with one
-#                                 exclusive pair listed as overlapping, and its equations in parts),
-#                                 krsimp, kmut, imptypes, ovl (demos/k/overlap.k: one witnessed
-#                                 overlap, one joinable pair), the fixture freekey; the demos
-#                                 ImpRel, ImpTypes, ImpMut, KrsImpTyping,
-#                                 ImpWrites (a kind 2 invariant that walks <k>), and the fixture
-#                                 self-relations PeanoRel and CellMapRel (libraries peano, peanob,
-#                                 cellmap, cellmapb); the scaffolds' demos ImpUnroll (a stuttering
-#                                 bisimulation, library kunroll), RaceConf (confluence of the
-#                                 fixture race) and ImpNI (noninterference, library impsec); the
-#                                 kind 1 invariants of kimpinv (two K
-#                                 functions of demos/k/kimp-inv), kimpfold and kimptop (the same
-#                                 definition: a fold with a parameter, the top-cell form), kimpkeys
-#                                 (the walkthrough of docs/invariants.md, demos/k/kimp-keys),
-#                                 kimpkeys-hand (the same with one case taken from its hand
-#                                 module), nested (a cell inside two nested cell maps,
-#                                 tests/fixtures/nested) and krsimp (the KRS sidecar), and the
-#                                 negative check: on KRS IMP with an
-#                                 ill-typed `assign`, the generated proof of the declared cell type
-#                                 must fail at that rule; the kind 2 template (`k2lean new-invariant`
-#                                 for kimp, built), and `k2lean diff` of every library against the
-#                                 tree's last generation, when it has one
-#   k2lean/tests/gate.sh heavy    light, then SIMPLE (acceptance against krust), the SIMPLE
-#                                 invariants (the kind 1 `holdsOk@holds`, lifted over the <thread>
-#                                 cell map, of simpleinv, demos/k/simple-inv, and "every store value
-#                                 is a Val or undefined" as a cell function, simplestore, and as a function of
-#                                 the top cell <T>, simplet; the kind 2 demo SimpleEnv), kimp-claims
-#                                 (claims.toml, krust kprove, kc_auto statistics, three replays, two induction
-#                                 skeletons),
-#                                 kimpinv-claims (claims under kimpinv's invariant) and the demo
-#                                 ImpRelClaims (a kimp claim transferred to KRS IMP along the
-#                                 bisimulation)
-#   k2lean/tests/gate.sh arity    generator unit and snapshot tests, then kimp, SIMPLE and the
-#                                 termination fixture demos/k/term in the arity-indexed term universe
-#                                 (`gen --arity-terms`, libraries kimp-ar, simple-ar and kterm-ar):
-#                                 built with their axiom guards, kimp's goldens and
-#                                 step traces, SIMPLE's cases against krust; their recorded outputs
-#                                 must equal the default encoding's (expected/)
-#   k2lean/tests/gate.sh accept   make the last run's measurements the baseline (tests/baseline.toml
-#                                 and tests/expected/); a light run replaces only the light entries,
-#                                 an arity run only the arity entries (and no recorded output)
+#   k2lean/tests/gate.sh light    the generator's unit and snapshot tests, then every entry of tier light
+#   k2lean/tests/gate.sh heavy    light, then every entry of tier heavy (SIMPLE and what is built on
+#                                 it, and the claims)
+#   k2lean/tests/gate.sh arity    the unit and snapshot tests, then every entry of tier arity (the
+#                                 arity-indexed term universe, `gen --arity-terms`), whose kimp goldens
+#                                 and SIMPLE cases must equal the default encoding's recorded outputs
+#   k2lean/tests/gate.sh list [TIER]
+#                                 print the registered entries by area: kind, name, tier, and the
+#                                 tiers that only compare it (all entries, or those a TIER run measures)
+#   k2lean/tests/gate.sh accept [--area NAME]
+#                                 make the last run's measurements the baseline, of every area, or of
+#                                 area NAME only, which is refused (naming the entries) when another
+#                                 area's measured entries differ from that area's baseline; entries
+#                                 of the tiers the run did not include are kept, and a recorded output
+#                                 is rewritten only when its normalized content changes
+#
+# Each entry is registered in one area, in tests/areas/AREA.sh (its generator calls and gate
+# phases, see tests/libs.sh) and tests/areas/AREA.py (what is measured, each entry with its tier);
+# `list` prints them, and docs/testing.md of the repository says what each area owns. The areas
+# run in the order of LIBS_AREAS (tests/libs.sh), each running the entries of its own that the
+# tier includes.
 #
 # Exit status: 0 the tier passes; 1 a regression (the `FAIL` lines say which); 2 a setup error.
 # A clean light run builds eleven Lean libraries and six Lean projects: on 2026-10-24, on Lean
@@ -62,7 +42,8 @@
 #   GATE_ROOT=DIR       the k2lean directory under test (default: the one holding this script); it
 #                       needs lean/, demos/ and generated/ (the open-obligation lists), and its
 #                       parent must be the k-rust workspace the generator is built in, so a
-#                       worktree or a copy of the whole checkout can be tested
+#                       worktree or a copy of the whole checkout can be tested; its tests/libs.sh
+#                       and tests/areas/ are used when it has them, else this script's
 #   GATE_KRUST_REPO=DIR the k-rust checkout whose krust, K sources and kimp sources the gate uses
 #                       (default: the checkout holding this script)
 #   GATE_KRUST=FILE     krust (default GATE_KRUST_REPO/target/release/krust)
@@ -70,7 +51,7 @@
 #                       else `kompile` on PATH)
 #   GATE_K_CHECKOUT=DIR the K sources (default GATE_KRUST_REPO/k): the builtin modules
 #                       (k-distribution/include/kframework/builtin, or GATE_K_BUILTIN=DIR) and, for
-#                       heavy, SIMPLE (pyk/regression-new/pl-tutorial)
+#                       heavy and arity, SIMPLE (pyk/regression-new/pl-tutorial)
 #   GATE_IMP_CHECKOUT=DIR imp-semantics (default GATE_KRUST_REPO/imp-semantics): kimp and, for heavy,
 #                       its claims (examples/specs)
 #   GATE_KIMP=DIR       kimp's K sources (default GATE_IMP_CHECKOUT/src/kimp/kdist/imp-semantics)
@@ -83,11 +64,12 @@
 #   GATE_CLEAN=1        delete the work tree's .lake/ directories and Cargo target first
 #   GATE_RETRY_OPEN=1   start every library from an empty open-obligation list, so every open
 #                       obligation is attempted again (finds removals; rebuilds every Equations)
-#   GATE_BASELINE=FILE  the baseline (default tests/baseline.toml next to this script); its
-#                       expected outputs are in expected/ beside it
+#   GATE_BASELINE=DIR   the baseline (default tests/baseline next to this script): one AREA.toml per
+#                       area; the recorded outputs are in expected/AREA/ beside it
 #   GATE_CACHE=DIR      outputs cached by the hash of their inputs (default target/k2lean-gate/cache
 #                       in the checkout holding this script): kimp's K LLVM interpreter, SIMPLE's
-#                       krust-derived cases; GATE_CLEAN keeps it
+#                       krust-derived cases; GATE_CLEAN keeps it. Concurrent runs may share it: each
+#                       entry is written under a temporary name and renamed into place
 #
 # The gate starts each library from the open-obligation list of the tree under test, so it finds
 # a proof that stopped working (a new open member) but not one that started working; that needs
@@ -101,19 +83,23 @@ SELF=$(cd "$(dirname "$0")/.." && pwd)   # the k2lean directory holding this scr
 REPO=$(dirname "$SELF")                  # the k-rust checkout holding it
 CHECK=$SELF/tests/gate-check.py
 RT=$SELF/tests/rtime.py
-BASE=${GATE_BASELINE:-$SELF/tests/baseline.toml}
+BASE=${GATE_BASELINE:-$SELF/tests/baseline}
 ROOT=$(cd "${GATE_ROOT:-$SELF}" && pwd)
+# the registrations (tests/libs.sh and tests/areas/): the tree under test's, else this one's
+TESTS=$ROOT/tests; [ -f "$TESTS/libs.sh" ] && [ -d "$TESTS/areas" ] || TESTS=$SELF/tests
+export GATE_AREAS=$TESTS/areas
 if [ "$ROOT" = "$SELF" ]; then name=main; else name=$(basename "$(dirname "$ROOT")")-$(printf %s "$ROOT" | sha256sum | cut -c1-8); fi
 W=${GATE_WORK:-$REPO/target/k2lean-gate/work/$name}
 CACHE=${GATE_CACHE:-$REPO/target/k2lean-gate/cache}
-mkdir -p "$W" "$CACHE"
-W=$(cd "$W" && pwd) CACHE=$(cd "$CACHE" && pwd)
 
 case $TIER in
   light|heavy|arity) ;;
-  accept) exec python3 -I "$CHECK" accept "$W" "$BASE" ;;
+  list) shift; exec python3 -I "$CHECK" list "$@" ;;
+  accept) shift; exec python3 -I "$CHECK" accept "$W" "$BASE" "$@" ;;
   *) sed -n '2,/^set -uo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 2 ;;
 esac
+mkdir -p "$W" "$CACHE"
+W=$(cd "$W" && pwd) CACHE=$(cd "$CACHE" && pwd)
 
 need() { echo "gate: needs $*" >&2; exit 2; }
 R=$(cd "${GATE_KRUST_REPO:-$REPO}" && pwd)
@@ -134,12 +120,6 @@ GOLDENS=$ROOT/tests/goldens
 [ -d "$BUILTIN" ] || need "K's builtin modules at $BUILTIN (set GATE_K_CHECKOUT or GATE_K_BUILTIN)"
 [ -d "$KIMP" ] || need "kimp's sources at $KIMP (set GATE_IMP_CHECKOUT or GATE_KIMP)"
 [ -d "$GOLDENS" ] || need "the golden cases at $GOLDENS"
-if [ "$TIER" != light ]; then
-  [ -d "$SD" ] || need "SIMPLE's sources at $SD (set GATE_K_CHECKOUT)"
-fi
-if [ "$TIER" = heavy ]; then
-  [ -d "$SPECS" ] || need "kimp's claims at $SPECS (set GATE_IMP_CHECKOUT)"
-fi
 for t in cargo lake python3 rsync z3; do command -v "$t" > /dev/null || need "$t on PATH"; done
 python3 -c 'import tomllib' 2> /dev/null || need "python3 >= 3.11 (tomllib)"
 for f in "$CHECK" "$RT" "$BASE"; do [ -e "$f" ] || need "$f"; done
@@ -156,12 +136,19 @@ D=$T/demos
 KO=$W/kore             # krust's compiled definitions
 L=$W/logs
 MEAS=$W/measured       # what this run measured (gate-check.py reads it)
-# the generator calls (shared with demos/regen.sh): the tree under test's tests/libs.sh, else this one's
-LIBS=$ROOT/tests/libs.sh; [ -f "$LIBS" ] || LIBS=$SELF/tests/libs.sh
+# the generator calls and the areas' phases (tests/libs.sh, shared with demos/regen.sh)
 # shellcheck source=libs.sh
-. "$LIBS"
+. "$TESTS/libs.sh"
 DEMOS=$D KRS=$D/k/krs-imp FIXTURES=$ROOT/tests/fixtures
 kore_dir() { echo "$KO/$1"; }
+
+# the entries this tier runs, by kind and name (each area's registry declares an entry's tier)
+declare -A RUN=()
+entries=$(python3 -I "$CHECK" entries "$TIER") || need "a readable registry in $GATE_AREAS (gate-check.py entries)"
+while read -r kind ename; do [ -n "$kind" ] && RUN["$kind $ename"]=1; done <<< "$entries"
+runs() { [ -n "${RUN["$1 $2"]:-}" ]; }   # KIND NAME: does this tier run the entry
+for a in $LIBS_AREAS; do ! declare -F "needs_$a" > /dev/null || "needs_$a"; done
+
 rm -rf "$L" "$MEAS"
 mkdir -p "$L" "$MEAS" "$KO"
 STATUS=$MEAS/status.tsv
@@ -226,36 +213,15 @@ if cargo test --release --locked -p k2lean --manifest-path "$WS/Cargo.toml" --no
 else bad cargo-test "$L/cargo-test.log"; fi
 grep -E '^test result:' "$L/cargo-test.log" | awk '{ p += $4; f += $6 } END { printf "unit_passed = %d\nunit_failed = %d\n", p, f }' >> "$MEAS/run.toml"
 
-# 3. compiled KORE (krust) and K's LLVM interpreter of kimp, a second executor that the step
-#    traces compare krust and the Lean semantics with
-phase krust
-kc() { # NAME: krust's compiled KORE of NAME (tests/libs.sh)
-  if libs_kcompile "$1" > "$L/kcompile-$1.log" 2>&1; then ok "kcompile $1"
-  else bad "kcompile $1" "$L/kcompile-$1.log"; return 1; fi
+# 3. the helpers the areas' phases (gate_AREA in tests/areas/AREA.sh) are written with
+declare -A KC=()
+kc() { # NAME: krust's compiled KORE of definition NAME (tests/libs.sh), once per run
+  if [ -z "${KC[$1]:-}" ]; then
+    if libs_kcompile "$1" > "$L/kcompile-$1.log" 2>&1; then ok "kcompile $1"; KC[$1]=0
+    else bad "kcompile $1" "$L/kcompile-$1.log"; KC[$1]=1; fi
+  fi
+  return "${KC[$1]}"
 }
-kc kimp
-kc kimp-verif
-if [ "$TIER" != arity ]; then
-  kc kimp-inv
-  kc kimp-keys
-  kc imp-typing
-  kc kmut
-  kc ovl
-  kc kimp-unroll
-  kc imp-sec
-fi
-phase llvm
-key=$(cd "$KIMP" && find . -type f | sort | xargs sha256sum | sha256sum | cut -c1-12)
-LLVM=$CACHE/kimp-llvm-$key
-if [ ! -x "$LLVM/interpreter" ]; then
-  rm -rf "$LLVM"
-  if K_OPTS="-Xmx4096m -Xss4m" "$KOMPILE" "$KIMP/imp.k" --backend llvm --main-module IMP --syntax-module IMP-SYNTAX \
-       --output-definition "$LLVM" --warnings none -I "$KIMP" > "$L/kompile-llvm.log" 2>&1; then ok kompile-llvm
-  else bad kompile-llvm "$L/kompile-llvm.log"; fi
-fi
-
-# 4. the libraries; a failed equation proof becomes an open obligation (`open-from-log`), then the
-#    library is regenerated; the gate compares the resulting open set with the baseline
 genlib() { # DIR: the generator call (tests/libs.sh, shared with demos/regen.sh)
   libs_gen "$1" > "$L/gen-$1.log" 2>&1
 }
@@ -263,9 +229,18 @@ lbuild() { # DIR LOGNAME TARGET...: lake build in a project, timed
   local dir=$1 log=$L/$2.log; shift 2
   (cd "$dir" && "$RT" lake build "$@") > "$log" 2>&1
 }
-goldens() { # DIR: the goldens and traces of kimp's library DIR (kimp or kimp-ar)
-  libs_goldens "$W/goldens-tmp" "$LLVM/interpreter" "$1" > "$L/goldens.log" 2>&1
+lib_open() { # DIR: the library's directory and open-obligation list (emptied under GATE_RETRY_OPEN)
+  mkdir -p "$GEN/$1"; touch "$GEN/$1/open-obligations.txt"
+  [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/$1/open-obligations.txt"
+  return 0
 }
+seed_lake() { # DIR FROM: start library DIR's build from library FROM's (same Terms … Equations)
+  mkdir -p "$GEN/$1"
+  [ -d "$GEN/$1/.lake" ] || { [ -d "$GEN/$2/.lake" ] && cp -a "$GEN/$2/.lake" "$GEN/$1/.lake"; }
+  return 0
+}
+# a library: a failed equation proof becomes an open obligation (`open-from-log`), then the library
+# is regenerated; the gate compares the resulting open set with the baseline
 eqns() { # DIR NAME: build NAME.Equations; on failure turn the failed proofs into open obligations,
   # regenerate and retry (twice at most)
   local d=$1 n=$2 o=$GEN/$1 k
@@ -277,160 +252,44 @@ eqns() { # DIR NAME: build NAME.Equations; on failure turn the failed proofs int
   done
   bad "build $n.Equations" "$L/build-$d-eqns-3.log"; return 1
 }
-lib() { # DIR NAME
-  local d=$1 n=$2 o=$GEN/$1
+lib() { # DIR NAME [COMMAND...]: generate (then run COMMAND), Equations, the whole library, its guard
+  local d=$1 n=$2 o=$GEN/$1; shift 2
   phase "lib $d"
-  mkdir -p "$o"; touch "$o/open-obligations.txt"
-  [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$o/open-obligations.txt"
+  lib_open "$d"
   genlib "$d" || { bad "gen $d" "$L/gen-$d.log"; return 1; }
-  if [ "$d" = kimp ] || [ "$d" = kimp-ar ]; then
-    if goldens "$d"; then ok goldens "$L/goldens.log"; else bad goldens "$L/goldens.log"; fi
-  fi
+  [ $# -gt 0 ] && "$@"
   eqns "$d" "$n" || return 1
   lbuild "$o" "build-$d" "$n" || { bad "build $d" "$L/build-$d.log"; return 1; }
   ok "build $d" "$L/build-$d.log"
   lbuild "$o" "build-$d-guard" "${n}Test.Axioms" || { bad "guard $d" "$L/build-$d-guard.log"; return 1; }
   ok "guard $d" "$L/build-$d-guard.log"
 }
-kimp_tests() { # DIR: build and run kimp's test driver of library DIR (goldens and traces)
-  phase "$1 tests"
-  if lbuild "$GEN/$1" "build-$1-test" kimp-test; then
-    "$GEN/$1/.lake/build/bin/kimp-test" --toml "$MEAS/goldens.toml" > "$MEAS/kimp-test.out" 2> "$L/$1-test.err" \
-      && ok "$1-test" "$MEAS/kimp-test.out" || bad "$1-test" "$MEAS/kimp-test.out"
-  else bad "build $1-test" "$L/build-$1-test.log"; fi
-}
-if [ "$TIER" != arity ]; then
-lib kimp KImp && kimp_tests kimp
-# kimp with determinism along the rule index (tests/libs.sh): Terms … Equations are kimp's, so
-# its build starts from kimp's (only Determinism and the guard differ)
-mkdir -p "$GEN/kimp-d2"
-[ -d "$GEN/kimp-d2/.lake" ] || { [ -d "$GEN/kimp/.lake" ] && cp -a "$GEN/kimp/.lake" "$GEN/kimp-d2/.lake"; }
-lib kimp-d2 KImp
-lib krsimp KrsImp
-lib kmut KMut
-lib imptypes KImpTypes
-lib ovl KOvl
-# the fixture whose function equations match maps by free-key patterns (`MapHook.chooseFirst`)
-lib freekey FreeKey
-
-# 4b. kind 1 invariants: `{ns}/Invariants.lean`. A rule case that `k2l_preserve` does not close
-#     becomes an open case (`open-from-log` into open-invariant-cases.txt) and the library is
-#     regenerated, so the case is then taken from the hand module, as for equations.
-invcases() { # DIR NAME: build NAME.Invariants, at most three attempts; the last log is build-DIR-inv.log
-  local d=$1 n=$2 o=$GEN/$1 k
-  for k in 1 2 3; do
-    if lbuild "$o" "build-$d-inv-$k" "$n.Invariants"; then
-      cp "$L/build-$d-inv-$k.log" "$L/build-$d-inv.log"; ok "invariant $d" "$L/build-$d-inv.log"; return 0
-    fi
-    cp "$L/build-$d-inv-$k.log" "$L/build-$d-inv.log"
-    [ "$k" = 3 ] && break
-    "$G" open-from-log "$o/$n/Invariants.lean" "$L/build-$d-inv-$k.log" "$o/open-invariant-cases.txt" >> "$L/gen-$d.log" 2>&1
-    genlib "$d" >> "$L/gen-$d.log" 2>&1 || { bad "gen $d" "$L/gen-$d.log"; return 1; }
-  done
-  bad "invariant $d" "$L/build-$d-inv.log"; return 1
-}
-inv_reset() { # DIR: GATE_RETRY_OPEN also retries the open invariant cases
-  [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/$1/open-invariant-cases.txt"
-  return 0
-}
-phase "invariant krsimp"
-[ -f "$GEN/krsimp/KrsImp/Invariants.lean" ] && { inv_reset krsimp; invcases krsimp KrsImp; }
-phase "lib kimpinv"
-# kimp with the K functions `envOk` and `storeNoIds` (demos/k/kimp-inv/imp-inv.k): only what Invariants.lean needs
-# (its Equations, for the K equations it unfolds), not Adequacy or Determinism
-if [ -f "$KO/kimp-inv/definition.kore" ]; then
-  mkdir -p "$GEN/kimpinv"; touch "$GEN/kimpinv/open-obligations.txt"
-  [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/kimpinv/open-obligations.txt"
-  inv_reset kimpinv
-  if genlib kimpinv; then
-    eqns kimpinv KImpInv && invcases kimpinv KImpInv
-  else bad "gen kimpinv" "$L/gen-kimpinv.log"; fi
-fi
-# kimp with the K function `envKeysOk` (demos/k/kimp-keys): the walkthrough of docs/invariants.md,
-# §3, every case by `k2l_preserve`; then kimpkeys-hand, the same library (so its build starts from
-# kimpkeys') whose tracked open-invariant-cases.txt lists one case, proved in its tracked hand
-# module KImpKeys/InvariantsHand.lean: the kind 1 hand path, and an edit of the hand module is
-# checked by this build, not by the sources check
-for d in kimpkeys kimpkeys-hand; do
-  phase "lib $d"
-  [ -f "$KO/kimp-keys/definition.kore" ] || continue
+partlib() { # DIR TARGET: a library generated and built only as far as TARGET (what a demo needs)
+  local d=$1
   mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"
-  [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/$d/open-obligations.txt"
-  [ "$d" = kimpkeys ] && inv_reset "$d"
-  [ "$d" = kimpkeys-hand ] && [ ! -d "$GEN/$d/.lake" ] && [ -d "$GEN/kimpkeys/.lake" ] && cp -a "$GEN/kimpkeys/.lake" "$GEN/$d/.lake"
   if genlib "$d"; then
-    eqns "$d" KImpKeys && invcases "$d" KImpKeys
+    if lbuild "$GEN/$d" "build-$d" "$2"; then ok "build $d" "$L/build-$d.log"
+    else bad "build $d" "$L/build-$d.log"; fi
   else bad "gen $d" "$L/gen-$d.log"; fi
-done
-# the other shapes of kind 1 invariant over kimpinv's definition: a fold with a parameter
-# (kimpfold) and the top-cell form (kimptop); their Terms … Equations are kimpinv's, so each starts
-# from its build
-for d in kimpfold kimptop; do
-  phase "lib $d"
-  [ -f "$KO/kimp-inv/definition.kore" ] || continue
-  mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"
-  [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/$d/open-obligations.txt"
-  [ -d "$GEN/$d/.lake" ] || { [ -d "$GEN/kimpinv/.lake" ] && cp -a "$GEN/kimpinv/.lake" "$GEN/$d/.lake"; }
-  inv_reset "$d"
-  if genlib "$d"; then
-    eqns "$d" KImpInv && invcases "$d" KImpInv
-  else bad "gen $d" "$L/gen-$d.log"; fi
-done
-# a cell inside two nested cell maps (tests/fixtures/nested): only what Invariants.lean needs
-phase "lib nested"
-mkdir -p "$GEN/nested"; touch "$GEN/nested/open-obligations.txt"
-[ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/nested/open-obligations.txt"
-inv_reset nested
-if genlib nested; then
-  eqns nested KNested && invcases nested KNested
-else bad "gen nested" "$L/gen-nested.log"; fi
-phase "negative"
-# KRS IMP with an ill-typed `assign` (tests/krs-imp-ill-typed.py): the sidecar's `Preserved` proof
-# must fail, and name the rule (as the open case and in the build error); measured/negative.toml
-# records what happened
-NEG=$T/negative/krsimp-ill-typed
-mkdir -p "$NEG"
-rm -rf "$NEG/KrsImp"
-[ -d "$NEG/.lake" ] || { [ -d "$GEN/krsimp/.lake" ] && cp -a "$GEN/krsimp/.lake" "$NEG/.lake"; }  # same Terms.lean
-cp "$GEN/krsimp/open-obligations.txt" "$NEG/open-obligations.txt"
-: > "$NEG/open-invariant-cases.txt"
-neg_built=false
-if libs_gen_ill_typed "$NEG" > "$L/gen-ill-typed.log" 2>&1; then
-  ok "gen ill-typed" "$L/gen-ill-typed.log"
-  for k in 1 2; do
-    if lbuild "$NEG" "build-ill-typed-$k" KrsImp.Invariants; then neg_built=true; break; fi
-    [ "$k" = 2 ] && break
-    "$G" open-from-log "$NEG/KrsImp/Invariants.lean" "$L/build-ill-typed-$k.log" "$NEG/open-invariant-cases.txt" >> "$L/gen-ill-typed.log" 2>&1
-    libs_gen_ill_typed "$NEG" >> "$L/gen-ill-typed.log" 2>&1 || bad "gen ill-typed" "$L/gen-ill-typed.log"
-  done
-  last=$(ls "$L"/build-ill-typed-*.log | sort | tail -1)
-  python3 -I - "$NEG/open-invariant-cases.txt" "$last" "$neg_built" > "$MEAS/negative.toml" <<'PY'
-import re, sys
-cases, log, built = sys.argv[1], sys.argv[2], sys.argv[3] == "true"
-opened = []
-for l in open(cases):
-    l = l.strip()
-    if l and not l.startswith("#"):
-        opened.append(l.split(" | ")[0])
-errors = [l for l in open(log) if re.match(r"\s*error: ", l)]
-named = sorted({n for l in errors for n in re.findall(r"«[^»]*»", l)})
-q = lambda s: '"' + s.replace("\\", "\\\\").replace('"', '\\"') + '"'
-print("[krsimp-ill-typed]")
-print(f"builds = {'true' if built else 'false'}")
-print(f"open = [{', '.join(q(x) for x in sorted(opened))}]")
-print(f"error_names = [{', '.join(q(x) for x in named)}]")
-print(f"first_error = {q(errors[0].strip()) if errors else q('')}")
-PY
-  ok "negative ill-typed" "$MEAS/negative.toml"
-else bad "gen ill-typed" "$L/gen-ill-typed.log"; fi
-
-# 4c. `k2lean diff` of each library's last generation in the tree under test (its generated/, when
-#     demos/regen.sh has written one there; git tracks only the open lists) against the regenerated
-#     one, with the hand-written references in the demos and the kind 1 open-case lists:
-#     informational (measured/diff-LIB.{txt,toml}; gate-check prints a NOTE when they differ)
-diffs() { # DIR...
+}
+rel() { # NS: the relation of demo NS (tests/libs.sh)
+  libs_relate "$1" > "$L/relate-$1.log" 2>&1 && ok "relate $1" || bad "relate $1" "$L/relate-$1.log"
+}
+scaffold() { # STEP COMMAND...: one generator call of a demo (tests/areas/AREA.sh)
+  local n=$1 log=$L/${1// /-}.log; shift
+  "$@" > "$log" 2>&1 && ok "$n" "$log" || bad "$n" "$log"
+}
+dbuild() { # PROJECT: build demo PROJECT; its axiom guards are `#k2l_assert_axioms` commands inside it
+  if lbuild "$D/$1" "build-$1"; then ok "build $1" "$L/build-$1.log"; else bad "build $1" "$L/build-$1.log"; fi
+}
+# `k2lean diff` of each library's last generation in the tree under test (its generated/, when
+# demos/regen.sh has written one there; git tracks only the open lists) against the regenerated
+# one, with the hand-written references in the demos and the kind 1 open-case lists: informational
+# (measured/diff-LIB.{txt,toml}; gate-check prints a NOTE when they differ)
+diffs() { # DIR...: of those libraries this tier runs
   local d n
   for d in "$@"; do
+    runs lib "$d" || continue
     n=$(libs_name "$d") || continue
     [ -f "$ROOT/generated/$d/$n/Preserves.lean" ] && [ -f "$GEN/$d/$n/Preserves.lean" ] || continue
     "$G" diff "$ROOT/generated/$d" "$GEN/$d" --hand "$D" --hand "$GEN/$d" --toml "$MEAS/diff-$d.toml" \
@@ -438,263 +297,11 @@ diffs() { # DIR...
     [ $? -le 1 ] && ok "diff $d" "$MEAS/diff-$d.txt" || bad "diff $d" "$MEAS/diff-$d.txt"
   done
 }
-phase diff
-diffs kimp krsimp kmut imptypes kimpinv kimpkeys kimpfold kimptop nested
 
-# 5. the relations (generated files of ImpRel, ImpTypes, ImpMut), the generated soundness modules of
-#    ImpTypes, and the five demo projects; their
-#    axiom guards are `#k2l_assert_axioms` commands inside them
-phase demos
-rel() { # NS (tests/libs.sh)
-  libs_relate "$1" > "$L/relate-$1.log" 2>&1 && ok "relate $1" || bad "relate $1" "$L/relate-$1.log"
-}
-rel ImpRel
-rel ImpTypes
-rel ImpMut
-# the generated modules of the type-soundness proof of ImpTypes (`k2lean soundness`)
-libs_soundness ImpTypes > "$L/soundness-ImpTypes.log" 2>&1 && ok "soundness ImpTypes" "$L/soundness-ImpTypes.log" \
-  || bad "soundness ImpTypes" "$L/soundness-ImpTypes.log"
-for p in ImpRel ImpTypes ImpMut KrsImpTyping ImpWrites; do
-  if lbuild "$D/$p" "build-$p"; then ok "build $p" "$L/build-$p.log"; else bad "build $p" "$L/build-$p.log"; fi
-done
+# 4. the areas, in order: each runs the entries of its own that this tier includes
+for a in $LIBS_AREAS; do "gate_$a"; done
 
-# 5a. two fixtures related to themselves: demos/PeanoRel (an `owise` priority, recursive and mutual
-#     functions) and demos/CellMapRel (a free-key rule over a typed cell map); each side generated
-#     under its own namespace and built only as far as the relation needs (Rules)
-phase "relate fixtures"
-for d in peano peanob cellmap cellmapb; do
-  mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"
-  if genlib "$d"; then
-    if lbuild "$GEN/$d" "build-$d" "$(libs_name "$d").Rules"; then ok "build $d" "$L/build-$d.log"
-    else bad "build $d" "$L/build-$d.log"; fi
-  else bad "gen $d" "$L/gen-$d.log"; fi
-done
-rel PeanoRel
-rel CellMapRel
-for p in PeanoRel CellMapRel; do
-  if lbuild "$D/$p" "build-$p"; then ok "build $p" "$L/build-$p.log"; else bad "build $p" "$L/build-$p.log"; fi
-done
-
-# 5b. the scaffolds (docs/design.md, sections 3.5 to 3.7): a stuttering bisimulation (ImpUnroll:
-#     kimp against tests/kimp-unroll.py's variant, library kunroll), confluence modulo scheduling
-#     (RaceConf: the fixture race) and noninterference (ImpNI: kimp and the checker
-#     demos/k/imp-sec.k, library impsec), each library built only as far as its demo needs
-phase "scaffolds"
-for d in kunroll impsec race; do
-  mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"
-  if genlib "$d"; then
-    t=$(libs_name "$d").Preserves; [ "$d" = impsec ] && t=KImpSec.Functions
-    if lbuild "$GEN/$d" "build-$d" "$t"; then ok "build $d" "$L/build-$d.log"
-    else bad "build $d" "$L/build-$d.log"; fi
-  else bad "gen $d" "$L/gen-$d.log"; fi
-done
-rel ImpUnroll
-rel ImpNI
-scaffold() { # NAME COMMAND...: one scaffold generator call (tests/libs.sh)
-  local n=$1; shift
-  "$@" > "$L/$n.log" 2>&1 && ok "$n" "$L/$n.log" || bad "$n" "$L/$n.log"
-}
-scaffold refine-ImpUnroll libs_refine ImpUnroll
-scaffold confluence-RaceConf libs_confluence RaceConf
-scaffold noninterference-ImpNI libs_noninterference ImpNI
-for p in ImpUnroll RaceConf ImpNI; do
-  if lbuild "$D/$p" "build-$p"; then ok "build $p" "$L/build-$p.log"; else bad "build $p" "$L/build-$p.log"; fi
-done
-
-# 5c. the kind 2 template: the skeleton `k2lean new-invariant` writes for kimp, rewritten on every
-#     run (the command never overwrites a file, so the skeleton's files are deleted first; .lake/
-#     and the manifest are kept), built like a demo (demo.Kind2Template)
-phase "kind2 template"
-K2T=$W/kind2/KImpTpl
-mkdir -p "$K2T"
-find "$K2T" -name .lake -prune -o -name '*.lean' -type f -exec rm -f {} +
-rm -f "$K2T/lean-toolchain"
-if "$G" new-invariant --lib "$GEN/kimp" --out "$K2T" --name KImpTpl > "$L/kind2-new.log" 2>&1; then
-  ok "new-invariant kimp" "$L/kind2-new.log"
-  if lbuild "$K2T" build-Kind2Template; then ok "build Kind2Template" "$L/build-Kind2Template.log"
-  else bad "build Kind2Template" "$L/build-Kind2Template.log"; fi
-else bad "new-invariant kimp" "$L/kind2-new.log"; fi
-fi # not arity
-
-# 6. heavy: SIMPLE and the kimp claims
-lib_simple() { # DIR (simple, simple-ar): generate, cases, build, guard, run the cases, acceptance table
-  local d=$1 o=$GEN/$1
-  mkdir -p "$o"; touch "$o/open-obligations.txt"
-  [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$o/open-obligations.txt"
-  genlib "$d" || { bad "gen $d" "$L/gen-$d.log"; return 1; }
-  # the cases' expected results come from krust runs (about a minute); they are cached under the
-  # hash of everything they depend on: the compiled definition, krust, the generator, the tests
-  local key; key=$( { sha256sum "$KO/simple/definition.kore" "$KRUST" "$G"; printf '%s\n' "${LIBS_SIMPLE_CASES[@]}";
-    cat "$SD"/tests/*/*.simple* 2>/dev/null; } | sha256sum | cut -c1-16)
-  local cached=$CACHE/simple-cases-$key.lean
-  if [ -f "$cached" ]; then
-    cp "$cached" "$o/KSimpleTest/Cases.lean"; echo "cached $cached" > "$L/cases-$d.log"
-  else
-    libs_cases "$o/KSimpleTest/Cases.lean" > "$L/cases-$d.log" 2>&1 \
-      || { bad "cases $d" "$L/cases-$d.log"; return 1; }
-    cp "$o/KSimpleTest/Cases.lean" "$cached"
-  fi
-  eqns "$d" KSimple || return 1
-  lbuild "$o" "build-$d" KSimple || { bad "build $d" "$L/build-$d.log"; return 1; }
-  ok "build $d" "$L/build-$d.log"
-  lbuild "$o" "build-$d-guard" KSimpleTest.Axioms || { bad "guard $d" "$L/build-$d-guard.log"; return 1; }
-  ok "guard $d" "$L/build-$d-guard.log"
-  lbuild "$o" "build-$d-test" ksimple-test || { bad "build ksimple-test" "$L/build-$d-test.log"; return 1; }
-  "$o/.lake/build/bin/ksimple-test" > "$L/$d-test.out" 2>&1
-  python3 -I "$SELF/tests/simple-acceptance.py" "$L/$d-test.out" "$SD/tests" "$KRUST" "$KO/simple" \
-    "$MEAS/simple-acceptance.toml" > "$MEAS/simple-acceptance.md" 2> "$L/simple-acceptance.err"
-}
-if [ "$TIER" = arity ]; then
-  lib kimp-ar KImp && kimp_tests kimp-ar
-  # recursive functions whose termination measures the generator synthesizes (demos/k/term)
-  kc kterm && lib kterm-ar KTerm
-  phase "lib simple-ar"
-  if libs_kcompile simple > "$L/kcompile-simple.log" 2>&1; then
-    ok "kcompile simple"
-    libs_simple_cases
-    lib_simple simple-ar && ok "simple-ar acceptance" "$MEAS/simple-acceptance.md"
-  else bad "kcompile simple" "$L/kcompile-simple.log"; fi
-fi
-if [ "$TIER" = heavy ]; then
-  phase "lib simple"
-  if libs_kcompile simple > "$L/kcompile-simple.log" 2>&1; then
-    ok "kcompile simple"
-    libs_simple_cases
-    lib_simple simple && ok "simple acceptance" "$MEAS/simple-acceptance.md"
-    diffs simple
-    # SIMPLE's pairs of rules for confluence modulo scheduling, counted (`k2lean confluence
-    # --report-only`, docs/design.md, section 3.6): a recorded output
-    libs_confluence SimpleConf "$MEAS/simple-confluence.toml" > "$L/confluence-SimpleConf.log" 2>&1 \
-      && ok "confluence SimpleConf" "$L/confluence-SimpleConf.log" || bad "confluence SimpleConf" "$L/confluence-SimpleConf.log"
-  else bad "kcompile simple" "$L/kcompile-simple.log"; fi
-
-  # SIMPLE's invariants. Kind 1: SIMPLE with the K function `holdsOk` (demos/k/simple-inv), only
-  # what Invariants.lean needs, as for kimpinv; its open cases come from the hand module.
-  phase "lib simpleinv"
-  if libs_kcompile simple-inv > "$L/kcompile-simple-inv.log" 2>&1; then
-    ok "kcompile simple-inv"
-    mkdir -p "$GEN/simpleinv"; touch "$GEN/simpleinv/open-obligations.txt"
-    [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/simpleinv/open-obligations.txt"
-    inv_reset simpleinv
-    if genlib simpleinv; then
-      eqns simpleinv KSimpleInv && invcases simpleinv KSimpleInv
-    else bad "gen simpleinv" "$L/gen-simpleinv.log"; fi
-    diffs simpleinv
-    # "every store value is a Val or undefined" as a cell function (simplestore) and as a function of SIMPLE's
-    # top cell `<T>` (simplet), over the same definition: they start from simpleinv's build
-    for d in simplestore simplet; do
-      phase "lib $d"
-      mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"
-      [ "${GATE_RETRY_OPEN:-0}" = 1 ] && : > "$GEN/$d/open-obligations.txt"
-      [ -d "$GEN/$d/.lake" ] || { [ -d "$GEN/simpleinv/.lake" ] && cp -a "$GEN/simpleinv/.lake" "$GEN/$d/.lake"; }
-      inv_reset "$d"
-      if genlib "$d"; then
-        eqns "$d" KSimpleInv && invcases "$d" KSimpleInv
-      else bad "gen $d" "$L/gen-$d.log"; fi
-      diffs "$d"
-    done
-  else bad "kcompile simple-inv" "$L/kcompile-simple-inv.log"; fi
-  # Kind 2: a Lean invariant over KSimple's configuration (demos/SimpleEnv), built like a demo
-  phase "demo SimpleEnv"
-  if lbuild "$D/SimpleEnv" build-SimpleEnv; then ok "build SimpleEnv" "$L/build-SimpleEnv.log"
-  else bad "build SimpleEnv" "$L/build-SimpleEnv.log"; fi
-
-  phase "kimp claims"
-  OUT=$GEN/kimp-claims
-  OWN=$T/demos/claims/specs
-  spec() { # FILE MODULE DIR
-    "$KRUST" kcompile "$1" --main-module "$2" --definition-module IMP-VERIFICATION --for-proving \
-      --output-directory "$KO/$3" --builtin-directory "$BUILTIN" -I "$KIMP" -I "$(dirname "$1")" -w none \
-      > "$L/kcompile-$3.log" 2>&1 || bad "kcompile $3" "$L/kcompile-$3.log"
-  }
-  spec "$SPECS/imp-simple-spec.k" IMP-SIMPLE-SPEC imp-simple-spec
-  spec "$SPECS/imp-sum-spec.k" IMP-SUM-SPEC imp-sum-spec
-  spec "$OWN/imp-ifs-uint64-spec.k" IMP-IFS-UINT64-SPEC imp-ifs-uint64-spec
-  spec "$OWN/imp-two-sum-aux-spec.k" IMP-TWO-SUM-AUX-SPEC imp-two-sum-aux-spec
-  spec "$OWN/imp-div0-spec.k" IMP-DIV0-SPEC imp-div0-spec
-  # claims that hold only under kimpinv's invariant, by its part `envOk` (demos/k/kimp-inv): over kimp they are
-  # false (refuted in demos/claims/hand/Hand.lean), over kimpinv with --assume-invariant they hold
-  "$KRUST" kcompile "$OWN/imp-inv-spec.k" --main-module IMP-INV-SPEC --definition-module IMP-INV-VERIFICATION --for-proving \
-    --output-directory "$KO/imp-inv-spec" --builtin-directory "$BUILTIN" -I "$KIMP" -I "$D/k/kimp-inv" -w none \
-    > "$L/kcompile-imp-inv-spec.log" 2>&1 || bad "kcompile imp-inv-spec" "$L/kcompile-imp-inv-spec.log"
-  {
-    for d in imp-simple-spec:IMP-SIMPLE-SPEC imp-ifs-uint64-spec:IMP-IFS-UINT64-SPEC imp-two-sum-aux-spec:IMP-TWO-SUM-AUX-SPEC imp-div0-spec:IMP-DIV0-SPEC imp-inv-spec:IMP-INV-SPEC; do
-      "$KRUST" kprove --compiled-definition "$KO/${d%%:*}" --main-module "${d##*:}" 2>&1 < /dev/null | grep '^claim' || true
-    done
-    "$KRUST" kprove --compiled-definition "$KO/imp-sum-spec" --main-module IMP-SUM-SPEC \
-      --claim IMP-SUM-SPEC.sum-spec 2>&1 < /dev/null | grep '^claim' || true
-    "$KRUST" kprove --compiled-definition "$KO/imp-sum-spec" --main-module IMP-SUM-SPEC \
-      --claim IMP-SUM-SPEC.two-sum-spec --depth 300 2>&1 < /dev/null | grep -E '^claim|^  [a-z]' || true
-  } > "$MEAS/kprove.txt"
-  if "$G" claims --kore "$KO/kimp/definition.kore" \
-      --spec "$KO/imp-simple-spec/definition.kore" --spec "$KO/imp-sum-spec/definition.kore" \
-      --spec "$KO/imp-ifs-uint64-spec/definition.kore" --spec "$KO/imp-two-sum-aux-spec/definition.kore" --spec "$KO/imp-div0-spec/definition.kore" \
-      --spec "$KO/imp-inv-spec/definition.kore" \
-      --induction "$T/demos/claims/kimp-expr-eval.toml" --induction "$T/demos/claims/kimp-expr-div.toml" \
-      --out "$OUT" --name KImpClaims --semantics KImp --semantics-path ../kimp --kclaims-path ../../lean/claims \
-      --open "$T/demos/claims/kimp-open.txt" \
-      --hand Hand --hand Replay.Addition2 --hand Replay.Branching --hand Replay.SumLoop > "$L/claims-gen.log" 2>&1; then
-    ok "claims gen"
-    cp "$T/demos/claims/hand/Hand.lean" "$OUT/KImpClaims/Hand.lean"
-    cp "$OUT/claims.toml" "$MEAS/claims.toml"
-    mkdir -p "$OUT/KImpClaims/Replay" "$MEAS/replay"
-    "$KRUST" kore-rpc "$KO/imp-simple-spec/definition.kore" --module IMP-SIMPLE-SPEC --server-port 0 \
-      > "$L/rpc.log" 2>&1 < /dev/null &
-    RPC=$!
-    trap 'kill $RPC 2>/dev/null || true' EXIT
-    for _ in $(seq 100); do grep -q listening "$L/rpc.log" && break; sleep 0.1; done
-    PORT=$(sed -n 's/.*listening on 127.0.0.1:\([0-9]*\).*/\1/p' "$L/rpc.log")
-    replay() { # LABEL MODULE-FILE [--cut RULE]
-      local label=$1 file=$2; shift 2
-      (ulimit -v 4000000; "$G" claims replay --kore "$KO/kimp/definition.kore" \
-        --spec "$KO/imp-simple-spec/definition.kore" --claim "IMP-SIMPLE-SPEC.$label" --port "$PORT" \
-        --out "$OUT/KImpClaims/Replay/$file.lean" --skeleton "$MEAS/replay/$label.toml" "$@") > "$L/replay-$label.log" 2>&1 \
-        && ok "replay $label" || bad "replay $label" "$L/replay-$label.log"
-    }
-    replay addition-2 Addition2
-    replay branching Branching
-    replay sum-loop SumLoop --cut IMP.while
-    kill $RPC 2>/dev/null; wait $RPC 2>/dev/null; trap - EXIT
-    if lbuild "$OUT" build-claims; then
-      ok "build claims" "$L/build-claims.log"
-      if lbuild "$OUT" build-claims-guard KImpClaimsTest; then ok "guard claims" "$L/build-claims-guard.log"
-      else bad "guard claims" "$L/build-claims-guard.log"; fi
-      grep -o 'KImpClaims[^ ]*\.holds depends on axioms: .*' "$L/build-claims-guard.log" > "$MEAS/axioms.txt" || true
-      grep -o 'KImpClaims.Hand[^ ]* depends on axioms: .*' "$L/build-claims.log" >> "$MEAS/axioms.txt" || true
-      grep -E 'kc_auto' "$L/build-claims.log" > "$MEAS/kc-auto-stats.txt" || true
-    else bad "build claims" "$L/build-claims.log"; fi
-  else bad "claims gen" "$L/claims-gen.log"; fi
-
-  # claims under a preserved invariant (`--assume-invariant`): the kind 1 invariant of kimpinv
-  # (`envOk` and `storeNoIds`), whose library the light tier builds only as far as Invariants.lean; the claims need the
-  # rest (Rules, Adequacy, Determinism)
-  phase "kimpinv claims"
-  OUTI=$GEN/kimpinv-claims
-  if lbuild "$GEN/kimpinv" build-kimpinv-full KImpInv; then
-    ok "build kimpinv" "$L/build-kimpinv-full.log"
-    if "$G" claims --kore "$KO/kimp-inv/definition.kore" --spec "$KO/imp-inv-spec/definition.kore" \
-        --out "$OUTI" --name KImpInvClaims --semantics KImpInv --semantics-path ../kimpinv --kclaims-path ../../lean/claims \
-        --assume-invariant Invariant --invariant-unfold "$GEN/kimpinv/KImpInv/Invariants.lean" > "$L/claims-inv-gen.log" 2>&1; then
-      ok "claims-inv gen"
-      cp "$OUTI/claims.toml" "$MEAS/claims-inv.toml"
-      if lbuild "$OUTI" build-claims-inv; then
-        ok "build claims-inv" "$L/build-claims-inv.log"
-        if lbuild "$OUTI" build-claims-inv-guard KImpInvClaimsTest; then ok "guard claims-inv" "$L/build-claims-inv-guard.log"
-        else bad "guard claims-inv" "$L/build-claims-inv-guard.log"; fi
-        grep -o 'KImpInvClaims[^ ]*\.holds depends on axioms: .*' "$L/build-claims-inv-guard.log" >> "$MEAS/axioms.txt" || true
-        grep -E 'kc_auto' "$L/build-claims-inv.log" >> "$MEAS/kc-auto-stats.txt" || true
-      else bad "build claims-inv" "$L/build-claims-inv.log"; fi
-    else bad "claims-inv gen" "$L/claims-inv-gen.log"; fi
-  else bad "build kimpinv" "$L/build-kimpinv-full.log"; fi
-
-  # a kimp claim transferred to the KRS IMP port along ImpRel's bisimulation (demos/ImpRelClaims),
-  # built like a demo (demo.ImpRelClaims)
-  phase "demo ImpRelClaims"
-  if lbuild "$D/ImpRelClaims" build-ImpRelClaims; then ok "build ImpRelClaims" "$L/build-ImpRelClaims.log"
-  else bad "build ImpRelClaims" "$L/build-ImpRelClaims.log"; fi
-fi
-
-# 7. measure and compare
+# 5. measure and compare
 phase check
 python3 -I "$CHECK" check "$W" "$BASE" "$TIER"
 rc=$?

@@ -1,25 +1,41 @@
 #!/usr/bin/env python3
 """Measure a gate run and compare it with the baseline (k2lean/tests/gate.sh calls this).
 
-usage: gate-check.py check WORK BASELINE TIER   measure WORK, write WORK/measured/measured.toml,
-                                                 compare with BASELINE; exit 1 on a regression
-       gate-check.py accept WORK BASELINE        make WORK's last measurements the baseline, and
-                                                 copy its expected outputs to expected/ beside it
+usage: gate-check.py check WORK BASELINE TIER    measure WORK, write WORK/measured/measured.toml
+                                                  (and one baseline/AREA.toml per area there),
+                                                  compare with BASELINE; exit 1 on a regression
+       gate-check.py accept WORK BASELINE [--area NAME]
+                                                  make WORK's last measurements the baseline (of
+                                                  every area, or of area NAME only), and copy its
+                                                  expected outputs to expected/AREA/ beside it
+       gate-check.py entries TIER                 the entries a TIER run measures, `KIND NAME` a line
+       gate-check.py list [TIER]                  the registered entries by area (of a TIER run)
 
-What is compared (each entry of the baseline names its tier, light, heavy or arity; an arity run
-compares its libraries with the arity entries, and kimp's goldens, SIMPLE's cases and their
-recorded outputs with the default encoding's, which they must equal):
+BASELINE is a directory with one AREA.toml per area; the recorded outputs of area AREA are in
+expected/AREA/ beside it. The registries are tests/areas/AREA.py (GATE_AREAS=DIR overrides the
+directory), for the areas of LIBS_AREAS in tests/libs.sh beside them. A registry defines any of:
+  LIBS      name -> {ns, tier, encoding ("default" or "arity"), guard (False: built only as far as
+            its invariant, no `…Test.Axioms`), not_regenerated (files of generated/name that the gate
+            does not regenerate)}; generated/name is hashed
+  INVS      name -> {ns, tier}: the kind 1 invariant of library name
+  DEMOS     name -> {tier, sources (files or directories under k2lean/ that the demo's phase
+            generates, hashed)}
+  NEGATIVE  name -> {tier}: an entry of measured/negative.toml
+  RECORDS   name -> {tier, compare_in, measure (a function of the run, returning the record's
+            fields), sources}
+  OUTPUTS   path under measured/ -> {tier, compare (the normalization), compare_in}
+Every entry is measured, compared and accepted by a run of a tier that includes its own (heavy
+includes light), and only measured and compared by a run of a tier in its compare_in.
+
+What is compared:
   status    every step of the run succeeded (generation, builds, axiom guards, tests)
   unit      generator tests: none fails, and no fewer pass
   lib.X     the open-obligation set of library X may only shrink (a new member fails, and is
             printed); fewer stated equations or fewer theorems under the axiom guard fail; the
             number of overlapping pairs `gen` lists (determinism along the rule index) and of
             those without a witness equal the baseline's
-  kimp      goldens passed and trace states: equal to the baseline
   demo.X    theorems under the guard may not decrease; each `k2l_preserve` call closes no fewer
-            rules and has no new residual rule; Kind2Template is the skeleton that
-            `k2lean new-invariant` writes for kimp (kind 2), built like a demo; SimpleEnv
-            (heavy) is the kind 2 invariant of SIMPLE
+            rules and has no new residual rule
   diff      `k2lean diff` of each library's last generation (the tree under test's generated/)
             against the regenerated one: a NOTE naming the changed rules and functions and the
             hand-written references to revisit (the sources check is what fails)
@@ -28,12 +44,9 @@ recorded outputs with the default encoding's, which they must equal):
             decrease, nor the theorems under its axiom guard
   negative  KRS IMP with an ill-typed `assign`: the generated proof of the declared cell type must
             still fail, with exactly the baseline's open cases, and an error line naming each
-  simple    cases and Lean = krust verdicts equal to the baseline
-  claims    stated claims (kimp's, and kimpinv's under its invariant), induction obligations and theorems
-            under the guard equal to the baseline
-  outputs   recorded outputs (goldens.toml, kimp-test.out, acceptance tables, claims files)
-            equal to expected/, after the normalization each one names (search times, replay
-            seconds and the order of logged lines are not compared)
+  records   every field equal to the baseline (kimp's goldens and traces, SIMPLE's cases, the claims)
+  outputs   recorded outputs equal to expected/AREA/, after the normalization each one names
+            (search times, replay seconds and the order of logged lines are not compared)
   sources   the sha256 of every regenerated source equals the baseline's (the last accepted
             generation); a difference fails until accepted. The hand inputs of a library (its
             open lists and kind 1 hand module `InvariantsHand.lean`) are not hashed: the build
@@ -42,78 +55,77 @@ recorded outputs with the default encoding's, which they must equal):
             set, in any Lean source of the work tree, and no "declaration uses 'sorry'" in a log
 """
 import hashlib
+import os
 import re
 import shutil
 import sys
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
 
-LIBS = {"kimp": ("KImp", "light"), "kimp-d2": ("KImp", "light"), "krsimp": ("KrsImp", "light"), "kmut": ("KMut", "light"),
-        "imptypes": ("KImpTypes", "light"), "ovl": ("KOvl", "light"), "simple": ("KSimple", "heavy"), "kimpinv": ("KImpInv", "light"),
-        "simpleinv": ("KSimpleInv", "heavy"), "kimp-ar": ("KImp", "arity"), "simple-ar": ("KSimple", "arity"),
-        "kimpkeys": ("KImpKeys", "light"), "kimpkeys-hand": ("KImpKeys", "light"),
-        "kimpfold": ("KImpInv", "light"), "kimptop": ("KImpInv", "light"), "nested": ("KNested", "light"),
-        "simplestore": ("KSimpleInv", "heavy"), "simplet": ("KSimpleInv", "heavy"),
-        "freekey": ("FreeKey", "light"), "kterm-ar": ("KTerm", "arity")}
-# libraries built only as far as their invariant needs: no `…Test.Axioms` guard
-NO_GUARD = {"kimpinv", "simpleinv", "kimpkeys", "kimpkeys-hand", "kimpfold", "kimptop", "nested", "simplestore", "simplet"}
-INVS = {"kimpinv": ("KImpInv", "light"), "krsimp": ("KrsImp", "light"), "simpleinv": ("KSimpleInv", "heavy"),
-        "kimpkeys": ("KImpKeys", "light"), "kimpkeys-hand": ("KImpKeys", "light"),
-        "kimpfold": ("KImpInv", "light"), "kimptop": ("KImpInv", "light"), "nested": ("KNested", "light"),
-        "simplestore": ("KSimpleInv", "heavy"), "simplet": ("KSimpleInv", "heavy")}
-DEMOS = {"ImpRel": "light", "ImpTypes": "light", "ImpMut": "light", "KrsImpTyping": "light",
-         "Kind2Template": "light", "SimpleEnv": "heavy", "ImpWrites": "light", "ImpRelClaims": "heavy",
-         "PeanoRel": "light", "CellMapRel": "light", "ImpUnroll": "light", "RaceConf": "light", "ImpNI": "light"}
-OUTPUTS = {  # recorded output → (tier, normalization)
-    "goldens.toml": ("light", "exact"),
-    "kimp-test.out": ("light", "exact"),
-    "simple-acceptance.toml": ("heavy", "strip-ms"),
-    "simple-acceptance.md": ("heavy", "strip-ms"),
-    "claims.toml": ("heavy", "exact"),
-    "claims-inv.toml": ("heavy", "exact"),
-    "kprove.txt": ("heavy", "exact"),
-    "kc-auto-stats.txt": ("heavy", "sorted-lines"),  # Lake replays logs in build order
-    "axioms.txt": ("heavy", "axiom-sets"),
-    "replay/addition-2.toml": ("heavy", "strip-seconds"),
-    "replay/branching.toml": ("heavy", "strip-seconds"),
-    "replay/sum-loop.toml": ("heavy", "strip-seconds"),
-    "simple-confluence.toml": ("heavy", "exact"),
-}
-# the recorded outputs an arity run produces, compared with the default encoding's
-ARITY_OUTPUTS = {"goldens.toml", "kimp-test.out", "simple-acceptance.toml", "simple-acceptance.md"}
+TIERS = ("light", "heavy", "arity")
+KINDS = ("lib", "inv", "demo", "negative", "record", "output")
 # the tracked inputs of a generated library, which a person writes and the generator only reads
 # (the open lists, and the kind 1 hand module that `gen` writes once and never overwrites): not
 # hashed, so an edit to them is checked by the build that uses them, not by the sources check
 HAND_INPUTS = ("open-obligations.txt", "open-invariant-cases.txt", "InvariantsHand.lean")
-# generated sources the gate does not regenerate (written by `k2lean configs`, which it skips)
-NOT_REGENERATED = {"generated/kimp/KImpBench/Programs.lean", "generated/kimp-d2/KImpBench/Programs.lean",
-                   "generated/ovl/KOvlBench/Programs.lean",
-                   "generated/kimp-ar/KImpBench/Programs.lean"}
-SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsimp", "generated/kmut", "generated/imptypes", "generated/ovl", "generated/kimpinv",
-                         "generated/kimpkeys", "generated/kimpkeys-hand",
-                         "generated/kimpfold", "generated/kimptop", "generated/nested",
-                         "generated/freekey", "generated/peano", "generated/peanob", "generated/cellmap", "generated/cellmapb",
-                         "generated/kunroll", "generated/impsec", "generated/race"],
-               "heavy": ["generated/simple", "generated/kimp-claims", "generated/simpleinv", "generated/simplestore", "generated/simplet",
-                         "generated/kimpinv-claims"],
-               "arity": ["generated/kimp-ar", "generated/simple-ar", "generated/kterm-ar"]}
-DEMO_SOURCES = {"light": ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/correspondence.toml",
-                          "demos/ImpTypes/ImpTypes/Tr.lean", "demos/ImpTypes/correspondence.toml",
-                          "demos/ImpTypes/ImpTypes/Typing.lean", "demos/ImpTypes/ImpTypes/Soundness.lean",
-                          "demos/ImpMut/ImpMut/Tr.lean", "demos/ImpMut/correspondence.toml",
-                          "demos/PeanoRel/PeanoRel/Bisim.lean", "demos/PeanoRel/correspondence.toml",
-                          "demos/CellMapRel/CellMapRel/Bisim.lean", "demos/CellMapRel/correspondence.toml",
-                          "demos/ImpUnroll/ImpUnroll/Tr.lean", "demos/ImpUnroll/ImpUnroll/Refine.lean",
-                          "demos/ImpUnroll/correspondence.toml", "demos/ImpUnroll/refine.toml",
-                          "demos/RaceConf/RaceConf/Confluence.lean", "demos/RaceConf/confluence.toml",
-                          "demos/ImpNI/ImpNI/Tr.lean", "demos/ImpNI/ImpNI/NI.lean",
-                          "demos/ImpNI/correspondence.toml", "demos/ImpNI/noninterference.toml"],
-                "heavy": [],
-                "arity": []}
 
 
 def tiers(tier):
+    """The entry tiers a run of TIER measures, compares and accepts."""
     return {"light": ["light"], "heavy": ["light", "heavy"], "arity": ["arity"]}[tier]
+
+
+def measured_in(e, tier):
+    return e["tier"] in tiers(tier) or tier in e.get("compare_in", [])
+
+
+def load_registry():
+    """The areas (in LIBS_AREAS order) and their entries: {area: {"LIBS": …, …}}, each entry with
+    its defaults filled in; a name registered by two areas is an error."""
+    adir = Path(os.environ.get("GATE_AREAS") or Path(__file__).resolve().parent / "areas")
+    libs_sh = (adir.parent / "libs.sh").read_text()
+    order = re.search(r'^LIBS_AREAS="([^"]*)"', libs_sh, re.M).group(1).split()
+    reg, seen = {}, {}
+    for a in order:
+        ns = {"re": re, "read": read, "guarded": guarded, "Path": Path}
+        exec(compile((adir / f"{a}.py").read_text(), str(adir / f"{a}.py"), "exec"), ns)
+        r = {k: dict(ns.get(k, {})) for k in ("LIBS", "INVS", "DEMOS", "NEGATIVE", "RECORDS", "OUTPUTS")}
+        for k, d in r.items():
+            for name, e in d.items():
+                if e.get("tier") not in TIERS or any(t not in TIERS for t in e.get("compare_in", [])):
+                    raise SystemExit(f"gate-check: {adir / a}.py: {k} {name}: tier must be one of {TIERS}")
+                if (k, name) in seen:
+                    raise SystemExit(f"gate-check: {k} {name} is registered by both {seen[k, name]} and {a}")
+                seen[k, name] = a
+                e.setdefault("compare_in", [])
+                e["area"] = a
+        for e in r["LIBS"].values():
+            e.setdefault("encoding", "default")
+            e.setdefault("guard", True)
+            e.setdefault("not_regenerated", [])
+        reg[a] = r
+    return reg
+
+
+def entries(reg):
+    """(area, kind, name, entry) of every registered entry."""
+    kind = {"LIBS": "lib", "INVS": "inv", "DEMOS": "demo", "NEGATIVE": "negative", "RECORDS": "record", "OUTPUTS": "output"}
+    for a, r in reg.items():
+        for k, d in r.items():
+            for name, e in d.items():
+                yield a, kind[k], name, e
+
+
+def owned_sources(reg):
+    """(area, tier, path, not_regenerated) of every hashed path (a file, or a directory hashed whole)."""
+    for a, r in reg.items():
+        for d, e in r["LIBS"].items():
+            yield a, e["tier"], f"generated/{d}", {f"generated/{d}/{x}" for x in e["not_regenerated"]}
+        for k in ("DEMOS", "RECORDS"):
+            for e in r[k].values():
+                for p in e.get("sources", []):
+                    yield a, e["tier"], p, set()
 
 
 # ---------------------------------------------------------------- measuring
@@ -253,103 +265,75 @@ def sha(p):
     return hashlib.sha256(p.read_bytes()).hexdigest()
 
 
-def sources(tree, tier):
+def sources(tree, tier, reg):
     out = {}
-    for t in tiers(tier):
-        for d in SOURCE_DIRS[t]:
-            for f in sorted((tree / d).rglob("*")):
-                rel = f.relative_to(tree).as_posix()
-                if (f.is_dir() or ".lake" in f.parts
-                        or f.name in HAND_INPUTS or f.name in ("lake-manifest.json", ".gitignore")
-                        or rel in NOT_REGENERATED):
-                    continue
-                out[rel] = (t, sha(f))
-        for rel in DEMO_SOURCES[t]:
-            if (tree / rel).exists():
-                out[rel] = (t, sha(tree / rel))
+    for a, t, p, skip in owned_sources(reg):
+        if t not in tiers(tier):
+            continue
+        root = tree / p
+        files = sorted(root.rglob("*")) if root.is_dir() else [root] if root.exists() else []
+        for f in files:
+            rel = f.relative_to(tree).as_posix()
+            if (f.is_dir() or ".lake" in f.parts
+                    or f.name in HAND_INPUTS or f.name in ("lake-manifest.json", ".gitignore")
+                    or rel in skip):
+                continue
+            out[rel] = (a, t, sha(f))
     return out
 
 
-def measure(work, tier):
+def measure(work, tier, reg):
     work = Path(work)
     tree, logs, meas = work / "k2lean", work / "logs", work / "measured"
     run = tomllib.loads(read(meas / "run.toml") or "")
-    m = {"tier": tier, "run": run}
+    m = {"tier": tier, "run": run, "work": work}
     status = {}
     for line in (read(meas / "status.tsv") or "").splitlines()[1:]:
         step, result, log = (line.split("\t") + ["", ""])[:3]
         status[step] = (result, log)
     m["status"] = status
-    m["unit"] = {"passed": run.get("unit_passed"), "failed": run.get("unit_failed")}
-    m["lib"] = {}
-    for d, (ns, t) in LIBS.items():
-        if t not in tiers(tier):
+    ctx = SimpleNamespace(tier=tier, run=run, status=status, tree=tree, logs=logs, meas=meas)
+    m["lib"], m["inv"], m["demo"], m["negative"], m["record"], m["outputs"] = {}, {}, {}, {}, {}, {}
+    neg_doc = tomllib.loads(read(meas / "negative.toml") or "")
+    for a, kind, d, e in entries(reg):
+        if not measured_in(e, tier):
             continue
-        eq = equations(tree / "generated" / d / ns / "Equations.lean") if f"build {d}" in status or f"build {ns}.Equations" in status else None
-        g = guarded(logs / f"build-{d}-guard.log") if status.get(f"guard {d}", ("",))[0] == "ok" else None
-        ov = overlaps(logs / f"gen-{d}.log")
-        m["lib"][d] = {"tier": t, "stated": eq[0] if eq else None, "open": eq[1] if eq else None, "guarded": g,
-                       "overlaps": ov[0], "unwitnessed": ov[1]}
-    out = read(meas / "kimp-test.out") or ""
-    gm = re.search(r"^goldens: (\d+)/(\d+) pass", out, re.M)
-    m["kimp"] = {
-        "tier": "light",
-        "goldens_pass": int(gm.group(1)) if gm else None,
-        "goldens_total": int(gm.group(2)) if gm else None,
-        "trace_states": sum(int(x) for x in re.findall(r"^PASS trace .*?: (\d+) configurations equal", out, re.M)) if out else None,
-        "trace_failures": len(re.findall(r"^FAIL trace", out, re.M)) if out else None,
-    }
-    m["inv"] = {}
-    for d, (ns, t) in INVS.items():
-        if t not in tiers(tier):
-            continue
-        src = read(tree / "generated" / d / ns / "Invariants.lean")
-        if src is None:
-            continue
-        built = status.get(f"invariant {d}", ("",))[0] == "ok"
-        auto = len(re.findall(r"^theorem \S.* := by k2l_inv$", src, re.M))
-        hand = len(re.findall(r"^theorem \S.* := Invariant\.hand\.", src, re.M))
-        opened = []
-        for l in (read(tree / "generated" / d / "open-invariant-cases.txt") or "").splitlines():
-            l = l.strip()
-            if l and not l.startswith("#"):
-                opened.append(l.split(" | ")[0])
-        m["inv"][d] = {"tier": t, "cases": auto + hand, "auto": auto, "open": sorted(opened),
-                       "guarded": guarded(logs / f"build-{d}-inv.log") if built else None}
-    neg = read(meas / "negative.toml")
-    m["negative"] = tomllib.loads(neg) if neg else {}
-    for e in m["negative"].values():
-        e["tier"] = "light"
-    m["demo"] = {}
-    for p, t in DEMOS.items():
-        if t not in tiers(tier):
-            continue
-        ok = status.get(f"build {p}", ("",))[0] == "ok"
-        # the `k2l_preserve` counts are logged before a failing proof's error, so a failed build
-        # still says how many rules the tactic closed
-        m["demo"][p] = {"tier": t, "guarded": guarded(logs / f"build-{p}.log") if ok else None,
-                        "preserve": preserve_lines(logs / f"build-{p}.log")}
-    if tier in ("heavy", "arity"):
-        acc = read(meas / "simple-acceptance.toml")
-        m["simple"] = {"tier": "heavy",
-                       "cases": len(re.findall(r"^\[\[case\]\]", acc, re.M)) if acc else None,
-                       "lean_eq_krust": len(re.findall(r'^lean_vs_krust = "pass"', acc, re.M)) if acc else None,
-                       "lean_out_eq_out": len(re.findall(r'^lean_vs_out = "pass"', acc, re.M)) if acc else None}
-    if tier == "heavy":
-        ct = read(meas / "claims.toml")
-        ci = read(meas / "claims-inv.toml")
-        ax = read(meas / "axioms.txt")
-        kc = read(meas / "kc-auto-stats.txt")
-        m["claims"] = {"tier": "heavy",
-                       "claims": len(re.findall(r"^\[\[claim\]\]", ct, re.M)) if ct else None,
-                       "stated": len(re.findall(r"^stated = true", ct, re.M)) if ct else None,
-                       "inv_stated": len(re.findall(r"^stated = true", ci, re.M)) if ci else None,
-                       "induction_obligations": sum(int(x) for x in re.findall(r"^obligations = (\d+)", ct, re.M)) if ct else None,
-                       "guarded": len([l for l in ax.splitlines() if l.strip()]) if ax else None,
-                       "kc_auto": len([l for l in kc.splitlines() if "kc_auto" in l]) if kc else None,
-                       "kc_auto_open": sum(int(x) for x in re.findall(r"(\d+) open", kc)) if kc else None}
-    m["outputs"] = {k: (t, norm) for k, (t, norm) in OUTPUTS.items() if t in tiers(tier) or (tier == "arity" and k in ARITY_OUTPUTS)}
-    m["sources"] = sources(tree, tier)
+        t = e["tier"]
+        if kind == "lib":
+            ns = e["ns"]
+            eq = equations(tree / "generated" / d / ns / "Equations.lean") if f"build {d}" in status or f"build {ns}.Equations" in status else None
+            g = guarded(logs / f"build-{d}-guard.log") if status.get(f"guard {d}", ("",))[0] == "ok" else None
+            ov = overlaps(logs / f"gen-{d}.log")
+            m["lib"][d] = {"tier": t, "stated": eq[0] if eq else None, "open": eq[1] if eq else None, "guarded": g,
+                           "overlaps": ov[0], "unwitnessed": ov[1]}
+        elif kind == "inv":
+            src = read(tree / "generated" / d / e["ns"] / "Invariants.lean")
+            if src is None:
+                continue
+            built = status.get(f"invariant {d}", ("",))[0] == "ok"
+            auto = len(re.findall(r"^theorem \S.* := by k2l_inv$", src, re.M))
+            hand = len(re.findall(r"^theorem \S.* := Invariant\.hand\.", src, re.M))
+            opened = []
+            for l in (read(tree / "generated" / d / "open-invariant-cases.txt") or "").splitlines():
+                l = l.strip()
+                if l and not l.startswith("#"):
+                    opened.append(l.split(" | ")[0])
+            m["inv"][d] = {"tier": t, "cases": auto + hand, "auto": auto, "open": sorted(opened),
+                           "guarded": guarded(logs / f"build-{d}-inv.log") if built else None}
+        elif kind == "demo":
+            ok = status.get(f"build {d}", ("",))[0] == "ok"
+            # the `k2l_preserve` counts are logged before a failing proof's error, so a failed build
+            # still says how many rules the tactic closed
+            m["demo"][d] = {"tier": t, "guarded": guarded(logs / f"build-{d}.log") if ok else None,
+                            "preserve": preserve_lines(logs / f"build-{d}.log")}
+        elif kind == "negative":
+            if d in neg_doc:
+                m["negative"][d] = dict(neg_doc[d], tier=t)
+        elif kind == "record":
+            m["record"][d] = {"tier": t, **e["measure"](ctx)}
+        elif kind == "output":
+            m["outputs"][d] = (a, t, e["compare"])
+    m["sources"] = sources(tree, tier, reg)
     m["banned"], m["axioms"] = banned(tree, logs)
     return m
 
@@ -376,41 +360,52 @@ def tk(k):
     return k if re.fullmatch(r"[A-Za-z0-9_-]+", k) else tv(k)
 
 
-def to_baseline(m, old=None):
-    """The baseline document for measurements m (keeping old's entries of tiers m did not run)."""
+def to_baseline(m, area, reg, old=None):
+    """Area AREA's baseline document for measurements m: the entries of the tiers m's run accepts,
+    and old's entries of the other tiers (an entry only compared by the run keeps old's)."""
     old = old or {}
     run_t = tiers(m["tier"])
     keep = lambda e: isinstance(e, dict) and e.get("tier") not in run_t
-    b = {"lib": {k: v for k, v in old.get("lib", {}).items() if keep(v)},
-         "demo": {k: v for k, v in old.get("demo", {}).items() if keep(v)},
-         "inv": {k: v for k, v in old.get("inv", {}).items() if keep(v)},
-         "negative": {k: v for k, v in old.get("negative", {}).items() if keep(v)}}
-    b["unit"] = {"tier": "light", "passed": m["unit"]["passed"]}
-    for d, e in m["lib"].items():
-        b["lib"][d] = e
-    # an arity run records only its libraries and sources: its goldens, cases and outputs are
-    # compared with the default encoding's entries, which it keeps
-    arity = m["tier"] == "arity"
-    b["kimp"] = old.get("kimp", m["kimp"]) if arity else m["kimp"]
-    for p, e in m["demo"].items():
-        b["demo"][p] = e
-    for d, e in m["inv"].items():
-        b["inv"][d] = e
-    for d, e in m["negative"].items():
-        b["negative"][d] = {k: v for k, v in e.items() if k != "first_error"}
-    for k in ("simple", "claims"):
-        if k in m and not arity:
-            b[k] = m[k]
-        elif k in old:
-            b[k] = old[k]
-    outs = {k: v for k, v in old.get("outputs", {}).items() if keep(v) or arity}
-    if not arity:
-        outs.update({k: {"tier": t, "compare": n} for k, (t, n) in m["outputs"].items()})
-    b["outputs"] = outs
+    owner = {(k, n): a for a, k, n, _ in entries(reg)}
+    mine = lambda kind, n: owner.get((kind, n)) == area
+    b = {}
+    for sec, kind in (("lib", "lib"), ("inv", "inv"), ("demo", "demo"), ("negative", "negative")):
+        b[sec] = {k: v for k, v in old.get(sec, {}).items() if keep(v)}
+        for d, e in m[sec].items():
+            if mine(kind, d) and e["tier"] in run_t:
+                # a field not measured is left out (a kept entry, parsed back, has no trace of it)
+                b[sec][d] = {k: v for k, v in e.items() if k != "first_error" and v is not None}
+    b["record"] = {}
+    orec = old.get("record", {})
+    names = [n for (k, n), a in owner.items() if k == "record" and a == area]
+    for name in names + [n for n in orec if n not in names]:
+        e = m["record"].get(name)
+        if e is not None and e["tier"] in run_t and mine("record", name):
+            b["record"][name] = {k: v for k, v in e.items() if v is not None}
+        elif name in orec and keep(orec[name]):
+            b["record"][name] = orec[name]
+    b["outputs"] = {k: v for k, v in old.get("outputs", {}).items() if keep(v)}
+    for k, (a, t, n) in m["outputs"].items():
+        if a == area and t in run_t:
+            b["outputs"][k] = {"tier": t, "compare": n}
+    # the registry's order, then entries no longer registered, so that an accept is byte-stable
+    order = {}
+    for i, (_, k, n, _) in enumerate(entries(reg)):
+        order.setdefault(k, {})[n] = i
+    for sec, kind in (("lib", "lib"), ("inv", "inv"), ("demo", "demo"), ("negative", "negative"),
+                      ("record", "record"), ("outputs", "output")):
+        o = order.get(kind, {})
+        b[sec] = dict(sorted(b[sec].items(), key=lambda kv: o.get(kv[0], len(o))))
     srcs = {k: v for k, v in old.get("sources", {}).get("sha256", {}).items() if keep(v)}
-    srcs.update({k: {"tier": t, "sha256": h} for k, (t, h) in m["sources"].items()})
-    b["sources"] = {"allowed_axioms": old.get("sources", {}).get("allowed_axioms", []), "sha256": srcs}
+    srcs.update({k: {"tier": t, "sha256": h} for k, (a, t, h) in m["sources"].items() if a == area})
+    b["sources"] = {"sha256": srcs}
+    if "allowed_axioms" in old.get("sources", {}):
+        b["sources"]["allowed_axioms"] = old["sources"]["allowed_axioms"]
     return b
+
+
+# the top-level tables of a baseline document that are not records
+RESERVED = ("lib", "inv", "demo", "negative", "outputs", "sources", "tier")
 
 
 def dump(b, header):
@@ -423,34 +418,67 @@ def dump(b, header):
                 o.append(f"# {tk(k)}: not measured")
             else:
                 o.append(f"{tk(k)} = {tv(v)}")
-    table("unit", b["unit"])
+    if "unit" in b["record"]:
+        table("unit", b["record"]["unit"])
     for d, e in b["lib"].items():
         table(f"lib.{d}", e)
-    table("kimp", b["kimp"])
+    for k, e in b["record"].items():
+        if k != "unit":
+            table(tk(k), e)
     for p, e in b["demo"].items():
         table(f"demo.{p}", e)
-    for d, e in b.get("inv", {}).items():
+    for d, e in b["inv"].items():
         table(f"inv.{d}", e)
-    for d, e in b.get("negative", {}).items():
+    for d, e in b["negative"].items():
         table(f"negative.{tk(d)}", e)
-    for k in ("simple", "claims"):
-        if k in b:
-            table(k, b[k])
-    table("outputs", b["outputs"])
+    if b["outputs"]:
+        table("outputs", b["outputs"])
     o.append("\n[sources]")
-    o.append(f"allowed_axioms = {tv(b['sources']['allowed_axioms'])}")
+    if "allowed_axioms" in b["sources"]:
+        o.append(f"allowed_axioms = {tv(b['sources']['allowed_axioms'])}")
     o.append("\n[sources.sha256]")
     for k, v in sorted(b["sources"]["sha256"].items()):
         o.append(f"{tv(k)} = {tv(v)}")
     return "\n".join(o) + "\n"
 
 
-HEADER = """# k2lean regression gate baseline (k2lean/tests/gate.sh, k2lean/tests/gate-check.py).
+def as_doc(text):
+    """A baseline document parsed into to_baseline's shape (records under "record")."""
+    raw = tomllib.loads(text)
+    return {"lib": raw.get("lib", {}), "inv": raw.get("inv", {}), "demo": raw.get("demo", {}),
+            "negative": raw.get("negative", {}), "outputs": raw.get("outputs", {}),
+            "record": {k: v for k, v in raw.items() if k not in RESERVED},
+            "sources": raw.get("sources", {})}
+
+
+def header(area):
+    return f"""# k2lean regression gate baseline of the {area} area (k2lean/tests/gate.sh, k2lean/tests/gate-check.py).
 # Accept a new one after a deliberate change: run the tier, read its FAIL lines, then
-#   k2lean/tests/gate.sh accept
+#   k2lean/tests/gate.sh accept --area {area}
 # (with the same GATE_WORK/GATE_ROOT as the run); a light run replaces only the light entries.
-# The recorded outputs that `outputs` names are in expected/ beside this file.
+# The recorded outputs that `outputs` names are in expected/{area}/ beside this directory.
 """
+
+
+def load_baseline(bdir, reg):
+    """{area: document} of every registered area (an empty document when its file is missing)."""
+    out = {}
+    for a in reg:
+        f = Path(bdir) / f"{a}.toml"
+        out[a] = as_doc(f.read_text()) if f.exists() else as_doc("")
+    return out
+
+
+def merged(docs):
+    """One document of every area's entries, for the comparison; each output knows its area."""
+    b = {"lib": {}, "inv": {}, "demo": {}, "negative": {}, "record": {}, "outputs": {}, "sha256": {}, "allowed_axioms": []}
+    for a, d in docs.items():
+        for sec in ("lib", "inv", "demo", "negative", "record"):
+            b[sec].update(d[sec])
+        b["outputs"].update({k: dict(v, area=a) for k, v in d["outputs"].items()})
+        b["sha256"].update(d["sources"].get("sha256", {}))
+        b["allowed_axioms"] += d["sources"].get("allowed_axioms", [])
+    return b
 
 
 # ---------------------------------------------------------------- comparing
@@ -471,8 +499,11 @@ def normalize(text, how):
     return text
 
 
-def compare(m, base, expected, accept_cmd):
+def compare(m, base, expected, accept_cmd, reg):
+    """m's measurements against the merged baseline document base (merged()); EXPECTED is the
+    directory of the recorded outputs, one subdirectory per area."""
     fails, notes, passes = [], [], []
+    lib_reg = {d: e for r in reg.values() for d, e in r["LIBS"].items()}
     F, N, P = fails.append, notes.append, passes.append
     run_t = tiers(m["tier"])
     lower = f"lower the baseline: {accept_cmd}"
@@ -483,8 +514,12 @@ def compare(m, base, expected, accept_cmd):
     if not bad:
         P(f"status: all {len(m['status'])} steps succeeded")
 
-    u, bu = m["unit"], base.get("unit", {})
-    if u["failed"] is None:
+    u, bu = m["record"].get("unit"), base["record"].get("unit", {})
+    if u is not None:
+        u = dict(u, failed=m["run"].get("unit_failed"))
+    if u is None:
+        F("unit: not registered (the core area's record `unit`)")
+    elif u["failed"] is None:
         F("unit: no test result (the generator did not build)")
     elif u["failed"] or (u["passed"] or 0) < bu.get("passed", 0):
         F(f"unit: {u['failed']} failed, {u['passed']} passed (baseline {bu.get('passed')} passed)")
@@ -522,7 +557,7 @@ def compare(m, base, expected, accept_cmd):
             F(f"lib.{d}: overlapping pairs without a witness {b.get('unwitnessed')} -> {e.get('unwitnessed')}")
         elif e.get("overlaps") is not None:
             P(f"lib.{d}: {e['overlaps']} overlapping pairs, {e['unwitnessed']} without a witness")
-        if d in NO_GUARD:
+        if not lib_reg.get(d, {}).get("guard", True):
             pass
         elif e["guarded"] is None:
             F(f"lib.{d}: axiom guard not run")
@@ -530,13 +565,6 @@ def compare(m, base, expected, accept_cmd):
             F(f"lib.{d}: theorems under the axiom guard {b['guarded']} -> {e['guarded']}")
         else:
             P(f"lib.{d}: {e['guarded']} theorems under the axiom guard (baseline {b.get('guarded')})")
-
-    k, bk = m["kimp"], base.get("kimp", {})
-    for f in ("goldens_pass", "goldens_total", "trace_states", "trace_failures"):
-        if k[f] != bk.get(f):
-            F(f"kimp: {f} {bk.get(f)} -> {k[f]}")
-    if all(k[f] == bk.get(f) for f in ("goldens_pass", "goldens_total", "trace_states", "trace_failures")):
-        P(f"kimp: goldens {k['goldens_pass']}/{k['goldens_total']}, {k['trace_states']} trace states equal")
 
     for p, e in m["demo"].items():
         b = base.get("demo", {}).get(p)
@@ -611,10 +639,11 @@ def compare(m, base, expected, accept_cmd):
         if d not in base.get("negative", {}):
             N(f"negative.{d}: not in the baseline")
 
-    for sec in ("simple", "claims"):
-        if "heavy" not in run_t and not (m["tier"] == "arity" and sec == "simple"):
-            break
-        e, b = m.get(sec, {}), base.get(sec)
+    # the records (kimp's goldens and traces, SIMPLE's cases, the claims): every field equal
+    for sec, e in m["record"].items():
+        if sec == "unit":
+            continue
+        b = base["record"].get(sec)
         if b is None:
             N(f"{sec}: not in the baseline")
             continue
@@ -624,15 +653,18 @@ def compare(m, base, expected, accept_cmd):
         else:
             P(f"{sec}: " + ", ".join(f"{f} {e[f]}" for f in b if f != "tier"))
 
-    for name, entry in base.get("outputs", {}).items():
-        if entry.get("tier") not in run_t and not (m["tier"] == "arity" and name in ARITY_OUTPUTS):
+    for name in m["outputs"]:
+        if name not in base["outputs"]:
+            N(f"outputs: {name} not in the baseline")
+    for name, entry in base["outputs"].items():
+        if name not in m["outputs"]:
             continue
-        got, exp = m["work"] / "measured" / name, expected / name
+        got, exp = m["work"] / "measured" / name, expected / entry["area"] / name
         if not got.exists():
             F(f"outputs: {name} not produced")
             continue
         if not exp.exists():
-            F(f"outputs: {name} has no expected copy in {expected}")
+            F(f"outputs: {name} has no expected copy in {expected / entry['area']}")
             continue
         a, b2 = normalize(exp.read_text(), entry["compare"]), normalize(got.read_text(), entry["compare"])
         if a == b2:
@@ -642,9 +674,9 @@ def compare(m, base, expected, accept_cmd):
             j = next((i for i, (x, y) in enumerate(zip(al, bl)) if x != y), min(len(al), len(bl)))
             F(f"outputs: {name} differs ({entry['compare']}) from line {j + 1}: expected {al[j] if j < len(al) else '<end>'!r}, got {bl[j] if j < len(bl) else '<end>'!r}")
 
-    want = {k: v for k, v in base.get("sources", {}).get("sha256", {}).items() if v.get("tier") in run_t}
+    want = {k: v for k, v in base["sha256"].items() if v.get("tier") in run_t}
     got = m["sources"]
-    changed = sorted(k for k in want if k in got and got[k][1] != want[k]["sha256"])
+    changed = sorted(k for k in want if k in got and got[k][2] != want[k]["sha256"])
     missing = sorted(k for k in want if k not in got)
     added = sorted(k for k in got if k not in want)
     if changed or missing:
@@ -671,7 +703,7 @@ def compare(m, base, expected, accept_cmd):
             N(f"diff {f.stem[5:]}: " + ", ".join(f"{k} {v}" for k, v in counts.items() if v) + f": {'; '.join(rules[:12])}"
               + (f"; hand-written cases to revisit: {', '.join(revisit)}" if revisit else "") + f" ({f.with_suffix('.txt')})")
 
-    allowed = set(base.get("sources", {}).get("allowed_axioms", []))
+    allowed = set(base["allowed_axioms"])
     extra = [a for a in m["axioms"] if a.split(": ", 1)[1] not in allowed]
     if m["banned"]:
         F(f"banned: {len(m['banned'])} sorry/admit: " + "; ".join(m["banned"][:10]))
@@ -686,12 +718,16 @@ def compare(m, base, expected, accept_cmd):
 
 def check(work, baseline, tier):
     work, baseline = Path(work), Path(baseline)
-    m = measure(work, tier)
-    m["work"] = work
-    base = tomllib.loads(baseline.read_text())
-    (work / "measured" / "measured.toml").write_text(dump(to_baseline(m), f"# measured by a {tier} gate run, {m['run'].get('started')}\ntier = \"{tier}\"\n"))
-    accept = "k2lean/tests/gate.sh accept" + ("" if str(work).endswith("/work/main") else f"  (with GATE_WORK={work})")
-    fails, notes, passes = compare(m, base, baseline.parent / "expected", accept)
+    reg = load_registry()
+    m = measure(work, tier, reg)
+    docs = load_baseline(baseline, reg)
+    meas = work / "measured"
+    (meas / "baseline").mkdir(parents=True, exist_ok=True)
+    for a in reg:
+        (meas / "baseline" / f"{a}.toml").write_text(dump(to_baseline(m, a, reg), header(a)))
+    (meas / "measured.toml").write_text(f"# measured by a {tier} gate run, {m['run'].get('started')}; the entries by area are in baseline/\ntier = \"{tier}\"\n")
+    accept = "k2lean/tests/gate.sh accept [--area NAME]" + ("" if str(work).endswith("/work/main") else f"  (with GATE_WORK={work})")
+    fails, notes, passes = compare(m, merged(docs), baseline.parent / "expected", accept, reg)
     for p in passes:
         print(f"gate: PASS {p}")
     for n in notes:
@@ -702,35 +738,107 @@ def check(work, baseline, tier):
     return 1 if fails else 0
 
 
-def accept(work, baseline):
+def doc_diff(old, new):
+    """The entries in which two documents of one area differ, as `section.name` labels."""
+    out = []
+    for sec in ("lib", "inv", "demo", "negative", "record", "outputs"):
+        for k in sorted(set(old[sec]) | set(new[sec])):
+            if old[sec].get(k) != new[sec].get(k):
+                out.append(f"{'' if sec == 'record' else sec + '.'}{k}")
+    os_, ns_ = old["sources"].get("sha256", {}), new["sources"].get("sha256", {})
+    out += [f"sources {k}" for k in sorted(set(os_) | set(ns_)) if os_.get(k) != ns_.get(k)]
+    if old["sources"].get("allowed_axioms") != new["sources"].get("allowed_axioms"):
+        out.append("sources.allowed_axioms")
+    return out
+
+
+def accept(work, baseline, area=None):
     work, baseline = Path(work), Path(baseline)
     meas = work / "measured"
     mt = meas / "measured.toml"
     if not mt.exists():
         print(f"gate: no measurements in {meas}; run a tier first", file=sys.stderr)
         return 2
+    reg = load_registry()
+    if area is not None and area not in reg:
+        print(f"gate: no area {area}; the areas are {', '.join(reg)}", file=sys.stderr)
+        return 2
     tier = tomllib.loads(mt.read_text())["tier"]
-    m = measure(work, tier)
+    m = measure(work, tier, reg)
     bad = [s for s, (r, _) in m["status"].items() if r != "ok"]
-    if bad or m["banned"] or m["unit"]["failed"]:
-        print(f"gate: not accepted: failed steps {bad}, banned {m['banned'][:3]}, unit failures {m['unit']['failed']}", file=sys.stderr)
+    uf = m["run"].get("unit_failed")
+    if bad or m["banned"] or uf:
+        print(f"gate: not accepted: failed steps {bad}, banned {m['banned'][:3]}, unit failures {uf}", file=sys.stderr)
         return 1
-    old = tomllib.loads(baseline.read_text()) if baseline.exists() else {}
-    baseline.write_text(dump(to_baseline(m, old), HEADER))
+    olds = load_baseline(baseline, reg)
+    news, texts, outs = {}, {}, {}
     exp = baseline.parent / "expected"
-    for name, (t, _) in OUTPUTS.items():
-        if t in tiers(tier) and (meas / name).exists():
-            (exp / name).parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(meas / name, exp / name)
-    print(f"gate: accepted the {tier} measurements of {work} into {baseline} and {exp}/")
+    for a in reg:
+        texts[a] = dump(to_baseline(m, a, reg, olds[a]), header(a))
+        news[a] = as_doc(texts[a])
+        # only a change the comparison sees rewrites a recorded copy, so the fields it normalizes
+        # away (times, the order of logged lines) do not churn expected/
+        outs[a] = []
+        for name, (oa, t, how) in m["outputs"].items():
+            if oa != a or t not in tiers(tier) or not (meas / name).exists():
+                continue
+            e = exp / a / name
+            if not e.exists() or normalize(e.read_text(), how) != normalize((meas / name).read_text(), how):
+                outs[a].append(name)
+    if area is not None:
+        # another area's difference is that area's regression or acceptance, not this one's
+        others = {b: doc_diff(olds[b], news[b]) + [f"expected/{b}/{n}" for n in outs[b]] for b in reg if b != area}
+        others = {b: d for b, d in others.items() if d}
+        if others:
+            for b, d in others.items():
+                print(f"gate: not accepted: area {b} measured entries that differ from its baseline: {', '.join(d[:12])}"
+                      + (" …" if len(d) > 12 else ""), file=sys.stderr)
+            print(f"gate: accept them with `accept --area` of their area, or all areas with `accept`", file=sys.stderr)
+            return 1
+    written = []
+    for a in ([area] if area is not None else list(reg)):
+        f = baseline / f"{a}.toml"
+        if not f.exists() or f.read_text() != texts[a]:
+            baseline.mkdir(parents=True, exist_ok=True)
+            f.write_text(texts[a])
+            written.append(str(f))
+        for name in outs[a]:
+            (exp / a / name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(meas / name, exp / a / name)
+            written.append(str(exp / a / name))
+    print(f"gate: accepted the {tier} measurements of {work}" + (f" for area {area}" if area else "")
+          + (": wrote " + ", ".join(written) if written else ": nothing changed"))
+    return 0
+
+
+def list_entries(tier=None):
+    reg = load_registry()
+    for a, kind, name, e in entries(reg):
+        if tier is not None and not measured_in(e, tier):
+            continue
+        extra = []
+        if e.get("compare_in"):
+            extra.append(f"compared in {','.join(e['compare_in'])}")
+        if kind == "lib" and e["encoding"] != "default":
+            extra.append(f"encoding {e['encoding']}")
+        print(f"{a:16} {kind:9} {name:24} {e['tier']:6} {'; '.join(extra)}".rstrip())
     return 0
 
 
 if __name__ == "__main__":
     a = sys.argv[1:]
-    if a[:1] == ["check"] and len(a) == 4:
+    if a[:1] == ["check"] and len(a) == 4 and a[3] in TIERS:
         sys.exit(check(*a[1:]))
     if a[:1] == ["accept"] and len(a) == 3:
         sys.exit(accept(*a[1:]))
+    if a[:1] == ["accept"] and len(a) == 5 and a[3] == "--area":
+        sys.exit(accept(a[1], a[2], a[4]))
+    if a[:1] == ["entries"] and len(a) == 2 and a[1] in TIERS:
+        for _, kind, name, e in entries(load_registry()):
+            if measured_in(e, a[1]):
+                print(kind, name)
+        sys.exit(0)
+    if a[:1] == ["list"] and (len(a) == 1 or (len(a) == 2 and a[1] in TIERS)):
+        sys.exit(list_entries(*a[1:]))
     print(__doc__, file=sys.stderr)
     sys.exit(2)

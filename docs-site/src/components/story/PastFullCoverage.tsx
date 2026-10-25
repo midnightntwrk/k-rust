@@ -12,19 +12,19 @@ const bands: { name: string; what: string; caption: string }[] = [
     caption: 'Coverage is the floor: every rule fired at least once.',
   },
   {
-    name: 'Fuzzing',
-    what: 'Crafts input values for your program to reach a rule, an error, or a state you specify.',
-    caption: 'Fuzzing keeps your program fixed and searches its inputs for a target: an error, an uncovered rule, or a specified state.',
-  },
-  {
-    name: 'Pattern detection',
-    what: 'Asks whether any corpus program shows a behaviour, such as a write followed by a read of the same address, even when every rule is already covered.',
-    caption: 'Pattern detection looks for a behavior across the corpus, beyond whether every rule fired.',
-  },
-  {
     name: 'Mutation testing',
     what: 'Asks whether the corpus would notice if the specification were wrong.',
-    caption: 'Mutation testing asks whether the corpus would notice a wrong specification. It is also the one developers have learned to avoid.',
+    caption: 'First, propose a meaningful mistake and add a test that catches it.',
+  },
+  {
+    name: 'Pattern coverage',
+    what: 'Checks whether the corpus exercises chosen patterns across values, states, or several parts of the specification.',
+    caption: 'Next, check for patterns of interest and add tests for the ones missing from the corpus.',
+  },
+  {
+    name: 'Targeted fuzzing',
+    what: 'Searches input values for an authored program to reach a rule, an error, or a chosen pattern.',
+    caption: 'Then, search inputs for a chosen target and replay the witness before adding it to the corpus.',
   },
 ]
 

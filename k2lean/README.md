@@ -13,7 +13,7 @@ It is part of k-rust's repository: the generator is a member of k-rust's workspa
 | `lean/claims` | `KClaims`: K reachability claims over a transition relation, and the claim tactic |
 | `demos` | K inputs, hand-written Lean projects over generated libraries, and `regen.sh`, which regenerates and builds them |
 | `generated` | where the libraries are generated; git tracks only each library's open lists and hand-written invariant module |
-| `tests` | the gate (`gate.sh`, `gate-check.py`, `libs.sh`), its baseline and recorded outputs, kimp's golden cases, and the generator's fixtures |
+| `tests` | the gate (`gate.sh`, `gate-check.py`, `libs.sh`, and each area's registrations in `areas/`), its baseline and recorded outputs (one file and directory per area), kimp's golden cases, and the generator's fixtures |
 | `pipelines` | human-run scripts that generate and build KEVM (`kevm.sh`, with KEVM's termination file) and KMIR (`kmir.sh`) in the arity-indexed term universe; not gate tiers |
 | `docs` | `design.md` (what is generated and why it is sound, the encodings, measured costs, and what is open) and `invariants.md` (the user guide to preserved invariants) |
 
@@ -89,11 +89,11 @@ target/release/k2lean claims --kore out/my/definition.kore --spec out/my-spec/de
 | `--induction FILE` | the termination of a sublanguage of a syntax sort (TOML: classes and constructor typings), by structural induction, one obligation per typing |
 
 A claim proved on one definition holds on another that `k2lean relate` proves bisimilar: `KClaims.AF.of_bisim` and its `EF` and `Reach` forms (`demos/ImpRelClaims`).
-`docs/design.md`, §3.2, says what each statement means and how it is proved.
+`docs/design.md`, §3.8, says what each statement means and how it is proved.
 
 ## Type soundness
 
-`k2lean soundness` generates the type soundness of a semantics for a type checker written as a second K definition over its syntax, except what is specific to the language's store: the hand module types the store and proves the cases of the rules that read or write it (`demos/ImpTypes`, `tests/libs.sh`, `libs_soundness`):
+`k2lean soundness` generates the type soundness of a semantics for a type checker written as a second K definition over its syntax, except what is specific to the language's store: the hand module types the store and proves the cases of the rules that read or write it (`demos/ImpTypes`, `tests/areas/soundness.sh`, `libs_soundness`):
 
 ```sh
 target/release/k2lean soundness --kore-a out/my/definition.kore --name-a My \
@@ -106,7 +106,7 @@ It needs the two libraries and the translation of programs that `k2lean relate -
 
 ## Scaffolds
 
-Three commands state a theorem whose proof needs an argument no generator has, and reduce it to named obligations: they prove the reduction (`KPrelude.Scaffold`) and the obligations a generic argument closes, and take the rest from a hand module; `docs/design.md`, §3.4 to §3.7, says what each generates and what it leaves (the calls are in `tests/libs.sh`):
+Three commands state a theorem whose proof needs an argument no generator has, and reduce it to named obligations: they prove the reduction (`KPrelude.Scaffold`) and the obligations a generic argument closes, and take the rest from a hand module; `docs/design.md`, §3.4 to §3.7, says what each generates and what it leaves (the calls are in `tests/areas/relational.sh`, `confluence.sh` and `noninterference.sh`):
 
 ```sh
 # a stuttering bisimulation between A and B, from relate's per-rule simulations

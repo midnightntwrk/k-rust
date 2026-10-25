@@ -1,7 +1,21 @@
 # shellcheck shell=bash
-# The generator invocations of every k2lean library, relation and test-data file, in one place.
-# Sourced (not run) by k2lean/tests/gate.sh and k2lean/demos/regen.sh, so a flag is changed once
-# and every caller (the gate on its copies included) uses it.
+# The generator invocations of every k2lean library, relation and test-data file.
+# Sourced (not run) by k2lean/tests/gate.sh, k2lean/demos/regen.sh and k2lean/pipelines/*.sh, so a
+# flag is changed once and every caller (the gate on its copies included) uses it.
+#
+# The calls are registered by area, in areas/AREA.sh beside this file (the areas are LIBS_AREAS
+# below; docs/testing.md of the repository says what each owns). An area file defines, for the
+# names it owns, any of:
+#   kore_AREA NAME OUT  set f, m, s and inc (K file, main and syntax module, include directory) of
+#                       definition NAME, after any preparation step that writes under OUT; return 1
+#                       when NAME is not the area's, 2 when its preparation failed
+#   name_AREA DIR       print the Lean namespace of library DIR; return 1 when DIR is not the area's
+#   gen_AREA DIR        set the array GEN_ARGS to the `gen` arguments of library DIR (whose output
+#                       directory is $o); return 1 when DIR is not the area's
+#   relate_AREA NS      set libs_relate's variables (na ka nb kd f extra) for demo NS; return 1 when
+#                       NS is not the area's
+# its own commands (libs_soundness, libs_refine, …), and its gate phases (gate_AREA, needs_AREA,
+# called by tests/gate.sh only). The dispatchers below ask each area in turn.
 #
 # The caller sets, before calling a function:
 #   G        the k2lean binary
@@ -12,207 +26,77 @@
 #   FIXTURES the generator's fixtures (`tests/fixtures`): the `nested` library reads its compiled KORE
 #   KRUST    krust; BUILTIN, K's builtin include directory
 #   KIMP     kimp's K sources (imp-semantics)
-#   SD       SIMPLE's K sources (for libs_simple_cases, and the simple and simple-inv compiles)
+#   SD       SIMPLE's K sources (for libs_simple_cases, and the SIMPLE-based compiles)
 #   GOLDENS  the golden cases of kimp (k2lean/tests/goldens; only for libs_goldens)
 # and defines the function `kore_dir NAME`, which prints the directory of the compiled KORE of
-# NAME (kimp, kimp-verif, kimp-inv, kimp-keys, kimp-unroll, imp-typing, imp-sec, kmut, ovl, simple, simple-inv, simple-variant, kterm), so that each caller keeps its own layout.
+# definition NAME, so that each caller keeps its own layout.
 
-# libs_kcompile NAME: compile NAME's K definition with krust into `kore_dir NAME`.
+LIBS_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+# the areas, in the order the gate runs them (an area may use what an earlier one built);
+# tests/gate-check.py reads this line
+LIBS_AREAS="core invariants relational soundness confluence noninterference claims"
+for _a in $LIBS_AREAS; do
+  # shellcheck source=/dev/null
+  . "$LIBS_DIR/areas/$_a.sh"
+done
+unset _a
+
+# libs_kcompile NAME: compile definition NAME's K source with krust into `kore_dir NAME`.
 libs_kcompile() {
   local out; out=$(kore_dir "$1")
-  local f m s inc
-  case $1 in
-    kimp) f=$KIMP/imp.k m=IMP s=IMP-SYNTAX inc=$KIMP ;;
-    kimp-verif) f=$KIMP/imp-verification.k m=IMP-VERIFICATION s=IMP-VERIFICATION-SYNTAX inc=$KIMP ;;
-    kimp-inv) f=$DEMOS/k/kimp-inv/imp-inv.k m=IMP-INV s=IMP-SYNTAX inc=$KIMP ;;
-    kimp-keys) f=$DEMOS/k/kimp-keys/imp-keys.k m=IMP-KEYS s=IMP-SYNTAX inc=$KIMP ;;
-    imp-typing) f=$DEMOS/k/imp-typing.k m=IMP-TYPING s=IMP-TYPING-SYNTAX inc=$KIMP ;;
-    imp-sec) f=$DEMOS/k/imp-sec.k m=IMP-SEC s=IMP-SEC-SYNTAX inc=$KIMP ;;
-    kmut) f=$DEMOS/k/kimp-mutant/imp.k m=IMP s=IMP-SYNTAX inc=$DEMOS/k/kimp-mutant ;;
-    ovl) f=$DEMOS/k/overlap.k m=OVERLAP s=OVERLAP-SYNTAX inc=$DEMOS/k ;;
-    simple) f=$SD/simple-untyped.md m=SIMPLE-UNTYPED s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
-    simple-inv) f=$DEMOS/k/simple-inv/simple-inv.k m=SIMPLE-INV s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
-    # SIMPLE written differently (tests/simple-variant.py: constructors with other symbols, rules
-    # in another order), the other side of the relation demos/SimpleRel
-    simple-variant) mkdir -p "$out.src" &&
-      python3 -I "$(dirname "${BASH_SOURCE[0]}")/simple-variant.py" "$SD/simple-untyped.md" "$out.src/simple-variant.md" || return 1
-      f=$out.src/simple-variant.md m=SIMPLE-UNTYPED s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
-    kterm) f=$DEMOS/k/term/term.k m=TERM s=TERM-SYNTAX inc=$DEMOS/k/term ;;
-    # kimp whose `while` unrolls straight to the two-armed `if` (tests/kimp-unroll.py), the other
-    # side of the stuttering bisimulation demos/ImpUnroll
-    kimp-unroll) mkdir -p "$out.src" &&
-      python3 -I "$(dirname "${BASH_SOURCE[0]}")/kimp-unroll.py" "$KIMP/imp.k" "$out.src/imp.k" || return 1
-      f=$out.src/imp.k m=IMP s=IMP-SYNTAX inc=$KIMP ;;
-    *) echo "libs_kcompile: unknown definition $1" >&2; return 2 ;;
-  esac
-  "$KRUST" kcompile "$f" --main-module "$m" --syntax-module "$s" --output-directory "$out" \
-    --builtin-directory "$BUILTIN" -I "$inc"
+  local f='' m='' s='' inc='' a rc
+  for a in $LIBS_AREAS; do
+    declare -F "kore_$a" > /dev/null || continue
+    "kore_$a" "$1" "$out"; rc=$?
+    [ "$rc" = 1 ] && continue
+    [ "$rc" = 0 ] || return 1
+    "$KRUST" kcompile "$f" --main-module "$m" --syntax-module "$s" --output-directory "$out" \
+      --builtin-directory "$BUILTIN" -I "$inc"
+    return
+  done
+  echo "libs_kcompile: unknown definition $1" >&2; return 2
 }
 
 # libs_name DIR: the Lean namespace of library DIR.
 libs_name() {
-  case $1 in
-    kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv|kimpfold|kimptop) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; kunroll) echo KUnroll ;; imptypes) echo KImpTypes ;; ovl) echo KOvl ;; impsec) echo KImpSec ;;
-    simple|simple-ar) echo KSimple ;; simpleinv|simplestore|simplet) echo KSimpleInv ;; nested) echo KNested ;; simplev) echo KSimpleV ;;
-    peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;; freekey) echo FreeKey ;; kterm-ar) echo KTerm ;; race) echo Race ;;
-    *) echo "libs_name: unknown library $1" >&2; return 2 ;;
-  esac
+  local a
+  for a in $LIBS_AREAS; do declare -F "name_$a" > /dev/null && "name_$a" "$1" && return 0; done
+  echo "libs_name: unknown library $1" >&2; return 2
 }
 
-# libs_gen DIR: generate library DIR into GEN/DIR, with its open-obligation list. kimp-ar and
-# simple-ar are kimp and SIMPLE in the arity-indexed term universe (`--arity-terms`).
+# libs_gen DIR: generate library DIR into GEN/DIR, with its open-obligation list.
 libs_gen() {
-  local o=$GEN/$1
-  case $1 in
-    kimp|kimp-ar) "$G" gen --kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json" \
-            --out "$o" --name KImp --prelude ../../lean/prelude \
-            --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt" \
-            $([ "$1" = kimp-ar ] && echo --arity-terms) ;;
-    # kimp with one exclusive pair of rules listed as overlapping (`--det2-overlap`), so that the
-    # conditional statements of determinism (`Step.deterministic_of`) are built too;
-    # and its Equations in parts of weight at most 30 (kimp's whole is 84), so that the parts, their
-    # aggregating module and `open-from-log` over them are built and checked against kimp's counts
-    kimp-d2) "$G" gen --kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json" \
-            --out "$o" --name KImp --prelude ../../lean/prelude \
-            --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt" \
-            --det2 --det2-overlap IMP.if-true,IMP.if-false --equations-part-weight 30 ;;
-    kimpinv) "$G" gen --kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json" \
-            --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
-            --invariant envOk@env --invariant storeNoIds@env ;;
-    # kimp with the K function `envKeysOk` (demos/k/kimp-keys, the walkthrough of
-    # docs/invariants.md, §3); kimpkeys-hand is the same library with one case listed in its
-    # open-invariant-cases.txt, so that the case is taken from its hand module
-    kimpkeys|kimpkeys-hand) "$G" gen --kore "$(kore_dir kimp-keys)/definition.kore" --runtime "$(kore_dir kimp-keys)/runtime.json" \
-            --out "$o" --name KImpKeys --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
-            --invariant envKeysOk@env ;;
-    # the same definition with the invariant as a fold with a parameter (`allIs(L, B)`), and as a
-    # function of the whole configuration (the top-cell form, `topEnvOk`)
-    kimpfold) "$G" gen --kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json" \
-            --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
-            --invariant envAll@env ;;
-    kimptop) "$G" gen --kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json" \
-            --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
-            --invariant topEnvOk ;;
-    # a cell inside two nested cell maps (tests/fixtures/nested, whose compiled KORE is committed)
-    nested) "$G" gen --kore "$FIXTURES/nested/definition.kore" --runtime "$FIXTURES/nested/runtime.json" \
-            --out "$o" --name KNested --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
-            --invariant even@v ;;
-    krsimp) "$G" gen --kore "$KRS/definition.kore" --out "$o" --name KrsImp --prelude ../../lean/prelude \
-            --open-obligations "$o/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json" ;;
-    kmut) "$G" gen --kore "$(kore_dir kmut)/definition.kore" --runtime "$(kore_dir kmut)/runtime.json" \
-            --out "$o" --name KMut --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
-    # a definition with one genuine overlap (witnessed), one joinable pair and exclusive pairs
-    # (demos/k/overlap.k): `Step.deterministic_of` with `overlaps_witnessed`
-    ovl) "$G" gen --kore "$(kore_dir ovl)/definition.kore" --runtime "$(kore_dir ovl)/runtime.json" \
-            --out "$o" --name KOvl --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
-    kunroll) "$G" gen --kore "$(kore_dir kimp-unroll)/definition.kore" --runtime "$(kore_dir kimp-unroll)/runtime.json" \
-            --out "$o" --name KUnroll --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
-    impsec) "$G" gen --kore "$(kore_dir imp-sec)/definition.kore" --runtime "$(kore_dir imp-sec)/runtime.json" \
-            --out "$o" --name KImpSec --prelude ../../lean/prelude \
-            --open-obligations "$o/open-obligations.txt" --extra-fns lev,sec,conf ;;
-    imptypes) "$G" gen --kore "$(kore_dir imp-typing)/definition.kore" --runtime "$(kore_dir imp-typing)/runtime.json" \
-            --out "$o" --name KImpTypes --prelude ../../lean/prelude \
-            --open-obligations "$o/open-obligations.txt" --extra-fns typeOf,wt ;;
-    simple) "$G" gen --kore "$(kore_dir simple)/definition.kore" --runtime "$(kore_dir simple)/runtime.json" \
-            --out "$o" --name KSimple --prelude ../../lean/prelude --linear-terms \
-            --open-obligations "$o/open-obligations.txt" ;;
-    simple-ar) "$G" gen --kore "$(kore_dir simple)/definition.kore" --runtime "$(kore_dir simple)/runtime.json" \
-            --out "$o" --name KSimple --prelude ../../lean/prelude --arity-terms \
-            --open-obligations "$o/open-obligations.txt" ;;
-    # SIMPLE with the K function `holdsOk` (demos/k/simple-inv): a cell predicate of `<holds>`, which
-    # is inside the `<thread>` cell map, so it is lifted to "every thread"
-    simpleinv) "$G" gen --kore "$(kore_dir simple-inv)/definition.kore" --runtime "$(kore_dir simple-inv)/runtime.json" \
-            --out "$o" --name KSimpleInv --prelude ../../lean/prelude --linear-terms \
-            --open-obligations "$o/open-obligations.txt" --invariant holdsOk@holds ;;
-    # the same definition with "every store value is a Val or undefined", as a function of the `<store>` cell's
-    # content and as a function of SIMPLE's top cell `<T>`
-    simplestore|simplet) "$G" gen --kore "$(kore_dir simple-inv)/definition.kore" --runtime "$(kore_dir simple-inv)/runtime.json" \
-            --out "$o" --name KSimpleInv --prelude ../../lean/prelude --linear-terms \
-            --open-obligations "$o/open-obligations.txt" \
-            --invariant "$([ "$1" = simplet ] && echo tStoreOk@T || echo storeOk@store)" ;;
-    # the variant of SIMPLE (tests/simple-variant.py), related to SIMPLE by demos/SimpleRel
-    simplev) "$G" gen --kore "$(kore_dir simple-variant)/definition.kore" --runtime "$(kore_dir simple-variant)/runtime.json" \
-            --out "$o" --name KSimpleV --prelude ../../lean/prelude --linear-terms \
-            --open-obligations "$o/open-obligations.txt" ;;
-    # the generator's K fixtures (tests/fixtures, compiled KORE checked in): freekey's functions
-    # walk maps by free-key patterns; peano and cellmap, each generated twice under two
-    # namespaces, are the two sides of the self-relations demos/PeanoRel and demos/CellMapRel;
-    # race's workers interleave (the confluence demo demos/RaceConf)
-    peano|peanob|cellmap|cellmapb|freekey|race) local fx; fx=$(libs_fixture "$1")
-      "$G" gen --kore "$fx/definition.kore" --runtime "$fx/runtime.json" \
-            --out "$o" --name "$(libs_name "$1")" --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
-    # recursive functions whose termination measures the generator synthesizes (demos/k/term)
-    kterm-ar) "$G" gen --kore "$(kore_dir kterm)/definition.kore" --runtime "$(kore_dir kterm)/runtime.json" \
-            --out "$o" --name KTerm --prelude ../../lean/prelude --arity-terms \
-            --open-obligations "$o/open-obligations.txt" ;;
-    *) echo "libs_gen: unknown library $1" >&2; return 2 ;;
-  esac
+  local o=$GEN/$1 a GEN_ARGS=()
+  for a in $LIBS_AREAS; do
+    declare -F "gen_$a" > /dev/null && "gen_$a" "$1" || continue
+    "$G" gen "${GEN_ARGS[@]}"
+    return
+  done
+  echo "libs_gen: unknown library $1" >&2; return 2
 }
 
 # libs_fixture DIR: the fixture directory (tests/fixtures/NAME) of fixture library DIR.
 libs_fixture() {
   local n=${1%b}   # peanob, cellmapb: the fixture of peano, cellmap
-  echo "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/fixtures/$n"
+  echo "$LIBS_DIR/fixtures/$n"
 }
 
-# libs_gen_ill_typed DIR: KRS IMP with an ill-typed `assign` (krs-imp-ill-typed.py beside this file), with
-# the sidecar, into DIR (namespace KrsImp, so its Terms.lean equals krsimp's): the generated proof of the
-# declared cell type must fail at `KRS-IMP.assign` (the gate's negative check).
-libs_gen_ill_typed() {
-  python3 -I "$(dirname "${BASH_SOURCE[0]}")/krs-imp-ill-typed.py" "$KRS/definition.kore" "$1/definition.kore" &&
-  "$G" gen --kore "$1/definition.kore" --out "$1" --name KrsImp --prelude ../../lean/prelude \
-    --open-obligations "$1/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json"
+# libs_fixture_args DIR: GEN_ARGS for library DIR generated from its fixture's checked-in KORE
+# (tests/fixtures, under the namespace libs_name gives it).
+libs_fixture_args() {
+  local fx; fx=$(libs_fixture "$1")
+  GEN_ARGS=(--kore "$fx/definition.kore" --runtime "$fx/runtime.json"
+    --out "$o" --name "$(libs_name "$1")" --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt")
 }
 
-# libs_goldens SCRATCH INTERPRETER [DIR]: kimp's golden cases and step traces (KImpTest/Goldens.lean,
-# KImpTest/Traces.lean) for library DIR (default kimp); INTERPRETER is K's LLVM interpreter of kimp.
-libs_goldens() {
-  "$G" goldens --kore "$(kore_dir kimp)/definition.kore" --name KImp --krust "$KRUST" --definition "$(kore_dir kimp)" \
-    --goldens "$GOLDENS/krs-reference" --goldens "$GOLDENS/kimp-llvm" \
-    --lean-out "$GEN/${3:-kimp}/KImpTest/Goldens.lean" --scratch "$1" --interpreter "$2" \
-    --depths krs-block-sequence:30 --depths example-sumto10:404:4 --depths example-gcd-while:163:3
-}
-
-# libs_simple_cases: set the array LIBS_SIMPLE_CASES to the `--case` arguments of SIMPLE's tests
-# (the modes of K's test Makefile: `--search` tests, `--search --bound 5`).
-libs_simple_cases() {
-  LIBS_SIMPLE_CASES=()
-  local f b spec
-  for f in "$SD"/tests/diverse/*.simple "$SD"/tests/exceptions/*.simple "$SD"/tests/threads/*.simple; do
-    b=$(basename "$f" .simple); spec="$b=$f"
-    [ -f "$f.in" ] && spec="$spec@$f.in"
-    case $b in
-      exceptions_07|threads_01|threads_02|threads_04|threads_06|threads_09|div-nondet) spec="$spec!search" ;;
-      threads_05) spec="$spec!search:5" ;;
-    esac
-    LIBS_SIMPLE_CASES+=(--case "$spec")
-  done
-}
-
-# libs_cases OUT: SIMPLE's cases (needs libs_simple_cases first).
-libs_cases() {
-  "$G" cases --kore "$(kore_dir simple)/definition.kore" --name KSimple --krust "$KRUST" --definition "$(kore_dir simple)" \
-    --sort Stmt --lean-out "$1" "${LIBS_SIMPLE_CASES[@]}"
-}
-
-# libs_relate NS: the relation of demo NS (ImpRel: `Bisim.lean`; ImpTypes, ImpMut: `Tr.lean`, all
-# from kimp; SimpleRel: `Bisim.lean`, SIMPLE to its variant; PeanoRel, CellMapRel: `Bisim.lean`, a
-# fixture to itself) and its correspondence report.
+# libs_relate NS: the relation of demo NS and its correspondence report. An area's relate_AREA sets
+# the second side (nb, kd), and the first when it is not kimp (na, ka), the file (f: Tr, or Bisim
+# for a bisimulation) and extra arguments.
 libs_relate() {
-  local ns=$1 na=KImp ka nb kd f=Tr extra=()
+  local ns=$1 na=KImp ka nb='' kd='' f=Tr extra=() a found=''
   ka=$(kore_dir kimp)
-  case $ns in
-    ImpRel) nb=KrsImp kd=$KRS f=Bisim ;;
-    ImpTypes) nb=KImpTypes kd=$(kore_dir imp-typing) extra=(--roots "SortStmt,SortExpr") ;;
-    ImpMut) nb=KMut kd=$(kore_dir kmut) ;;
-    ImpNI) nb=KImpSec kd=$(kore_dir imp-sec) extra=(--roots "SortStmt,SortExpr") ;;
-    ImpUnroll) nb=KUnroll kd=$(kore_dir kimp-unroll) extra=(--per-rule true) ;;
-    SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim ;;
-    # a fixture related to itself (libraries peano and peanob, cellmap and cellmapb)
-    PeanoRel) na=Peano ka=$(libs_fixture peano) nb=PeanoB kd=$ka f=Bisim ;;
-    CellMapRel) na=CellMap ka=$(libs_fixture cellmap) nb=CellMapB kd=$ka f=Bisim ;;
-    *) echo "libs_relate: unknown demo $ns" >&2; return 2 ;;
-  esac
+  for a in $LIBS_AREAS; do declare -F "relate_$a" > /dev/null && "relate_$a" "$ns" && { found=1; break; }; done
+  [ -n "$found" ] || { echo "libs_relate: unknown demo $ns" >&2; return 2; }
   # the syntax definitions name the concrete syntax of symbols; the fixtures have none
   local sa=() sb=()
   [ -f "$ka/syntaxDefinition.kore" ] && sa=(--syntax-a "$ka/syntaxDefinition.kore")
@@ -220,56 +104,4 @@ libs_relate() {
   "$G" relate --kore-a "$ka/definition.kore" "${sa[@]}" --name-a "$na" \
     --kore-b "$kd/definition.kore" "${sb[@]}" --name-b "$nb" \
     --ns "$ns" "${extra[@]}" --out "$DEMOS/$ns/$ns/$f.lean" --report "$DEMOS/$ns/correspondence.toml"
-}
-
-# libs_soundness NS: the generated modules of the type-soundness demo NS around its hand module
-# `NS/Store.lean` (ImpTypes: `Typing.lean` before it, `Soundness.lean` after it; kimp against the
-# type checker demos/k/imp-typing.k, whose store cell <env> the hand module types by `envTy`).
-libs_soundness() {
-  case $1 in
-    ImpTypes) "$G" soundness --kore-a "$(kore_dir kimp)/definition.kore" --name-a KImp \
-        --kore-b "$(kore_dir imp-typing)/definition.kore" --name-b KImpTypes --ns ImpTypes \
-        --typing typeOf,wt --store-cell env --store-typing envTy \
-        --out-typing "$DEMOS/ImpTypes/ImpTypes/Typing.lean" --out-soundness "$DEMOS/ImpTypes/ImpTypes/Soundness.lean" ;;
-    *) echo "libs_soundness: unknown demo $1" >&2; return 2 ;;
-  esac
-}
-
-# libs_refine NS: the generated module of the stuttering-bisimulation demo NS after its hand module
-# `NS/Relation.lean` (ImpUnroll: kimp against tests/kimp-unroll.py's variant; needs libs_relate NS first,
-# whose `--per-rule` lemmas and report it reads), and its report `NS/refine.toml`.
-libs_refine() {
-  case $1 in
-    ImpUnroll) "$G" refine --kore-a "$(kore_dir kimp)/definition.kore" --name-a KImp \
-        --kore-b "$(kore_dir kimp-unroll)/definition.kore" --name-b KUnroll --ns ImpUnroll \
-        --correspondence "$DEMOS/ImpUnroll/correspondence.toml" --open "$DEMOS/ImpUnroll/open-cases.txt" \
-        --out "$DEMOS/ImpUnroll/ImpUnroll/Refine.lean" --report "$DEMOS/ImpUnroll/refine.toml" ;;
-    *) echo "libs_refine: unknown demo $1" >&2; return 2 ;;
-  esac
-}
-
-# libs_confluence NS: the confluence scaffold of demo NS (RaceConf: the fixture race, every pair
-# generated, `NS/Confluence.lean` after the hand module `NS/Hand.lean`; SimpleConf: SIMPLE's pairs
-# of rules counted, the report only) and its report `NS/confluence.toml` (or OUT for SimpleConf).
-libs_confluence() {
-  case $1 in
-    RaceConf) "$G" confluence --kore "$(libs_fixture race)/definition.kore" --name Race --ns RaceConf --obs acc \
-        --out "$DEMOS/RaceConf/RaceConf/Confluence.lean" --report "$DEMOS/RaceConf/confluence.toml" ;;
-    SimpleConf) "$G" confluence --kore "$(kore_dir simple)/definition.kore" --name KSimple --report-only true \
-        --report "$2" ;;
-    *) echo "libs_confluence: unknown demo $1" >&2; return 2 ;;
-  esac
-}
-
-# libs_noninterference NS: the noninterference scaffold of demo NS (ImpNI: kimp, with the checker
-# demos/k/imp-sec.k in the hand module NS/Hand.lean; needs libs_relate NS for the translation of
-# programs), `NS/NI.lean`, and its report `NS/noninterference.toml`.
-libs_noninterference() {
-  case $1 in
-    ImpNI) "$G" noninterference --kore "$(kore_dir kimp)/definition.kore" --name KImp --ns ImpNI \
-        --store-cell env --program-sort SortStmt --params "(G : KImpSec.SortMap)" \
-        --secure "secure G" --low-eq "lowEq G" \
-        --out "$DEMOS/ImpNI/ImpNI/NI.lean" --report "$DEMOS/ImpNI/noninterference.toml" ;;
-    *) echo "libs_noninterference: unknown demo $1" >&2; return 2 ;;
-  esac
 }

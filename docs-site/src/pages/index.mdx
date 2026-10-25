@@ -3,8 +3,8 @@ title: Introduction
 description: Write an executable specification in Rust, and use it to measure and grow the tests your AI writes.
 ---
 
-import { Climb } from '../components/story/Climb'
 import { Corpus } from '../components/story/Corpus'
+import { InteractionPatterns, TargetedFuzzing } from '../components/story/CorpusExpansion'
 import { EveryTool } from '../components/story/EveryTool'
 import { MissedCases } from '../components/story/MissedCases'
 import { LeanBridge } from '../components/story/LeanBridge'
@@ -135,12 +135,19 @@ Each edit is checked against the corpus, and surviving edits become targets for 
 
 <MutateTheSpec />
 
-### Let the AI climb
+### Cover patterns of interest
 
-Climbing is growing the corpus.
-Each surviving edit becomes a new test, and the tool remembers which test catches which edit, so it never has to search for it again.
+You can also extend the corpus to ensure it contains specific patterns of interest.
+AI can propose interactions, check whether they appear in the corpus, and add tests for the ones that are missing.
 
-<Climb />
+<InteractionPatterns />
+
+### Let KRS find the missing inputs
+
+KRS fuzzing uses deterministic, specification-guided input search to find inputs that trigger specified behavior, so growing your corpus doesn’t rely solely on AI.
+Choose targets yourself, with AI, or from your Lean proof obligations.
+
+<TargetedFuzzing />
 
 ## Standing on K
 
