@@ -21,11 +21,10 @@ use crate::parse::{
 };
 use crate::path::{is_plain_path, parametric_collection_error};
 use crate::state_macro::StatePosition;
-use crate::term::TermKeys;
+use crate::term::{IslandKeys, TermVisit};
 use crate::term_sort::{TermSort, parse_readable_sort};
 use crate::{
-    ProvenanceAnchor, ProvenanceRole, RuleSide, SyntaxError, TermExpression, TermNode, TermTree,
-    TokenRange,
+    ProvenanceAnchor, ProvenanceRole, RuleSide, SyntaxError, TermExpression, TermTree, TokenRange,
 };
 use krs_ir::ProvenanceKey;
 
@@ -908,12 +907,6 @@ impl RuleClause {
         Ok(self.anchors.clone())
     }
 }
-
-/// A pass over a clause's terms: each term's nodes with its keys.
-type TermVisit<'a> = dyn FnMut(&[TermNode], &mut TermKeys) -> Result<(), SyntaxError> + 'a;
-
-/// A pass that keys one kind of island in one term.
-type IslandKeys = fn(&mut KeyAllocator, &[TermNode], &mut TermKeys) -> Result<(), SyntaxError>;
 
 /// The order a clause's pass visits its terms in.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

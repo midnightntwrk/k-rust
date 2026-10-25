@@ -956,6 +956,14 @@ impl TermSymbol {
     }
 }
 
+/// A pass over a sentence's terms: each term's nodes with its keys.
+pub(crate) type TermVisit<'a> =
+    dyn FnMut(&[TermNode], &mut TermKeys) -> Result<(), SyntaxError> + 'a;
+
+/// A pass that keys one kind of island in one term.
+pub(crate) type IslandKeys =
+    fn(&mut KeyAllocator, &[TermNode], &mut TermKeys) -> Result<(), SyntaxError>;
+
 /// The keys one sentence's keying pass gave the nodes of a term, indexed as
 /// the term's own lists.
 ///
@@ -1289,15 +1297,6 @@ impl TermExpression {
     /// with the roles of its position.
     pub(crate) fn clear_keys(&mut self) {
         self.keys.clear();
-    }
-
-    /// A copy without keys, for a producer that computes its anchors on
-    /// demand instead of keying the term it embeds; the copy's keys are
-    /// discarded with it.
-    pub(crate) fn unkeyed(&self) -> Self {
-        let mut copy = self.clone();
-        copy.clear_keys();
-        copy
     }
 
     /// Keys the term as a sentence of its own: its payload, its paths, its

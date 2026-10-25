@@ -278,14 +278,6 @@ impl RuleExistentials {
         }
     }
 
-    /// A copy without keys, for a producer that computes its anchors on
-    /// demand; the copy's keys are discarded with it.
-    pub(crate) fn unkeyed(&self) -> Self {
-        let mut copy = self.clone();
-        copy.clear_keys();
-        copy
-    }
-
     /// Keys each existential binder with its name and sort, each fresh binder
     /// with its name and sort, then the ensures condition (its term's
     /// payload) with its paths, nodes, and record field names.

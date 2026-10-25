@@ -68,14 +68,6 @@ impl RuleCondition {
         self.term.clear_keys();
     }
 
-    /// A copy without keys, for a producer that computes its anchors on
-    /// demand; the copy's keys are discarded with it.
-    pub(crate) fn unkeyed(&self) -> Self {
-        let mut copy = self.clone();
-        copy.clear_keys();
-        copy
-    }
-
     /// Keys the condition (its term's payload), then its paths, its
     /// application head, reference, and literal nodes, and its record field
     /// names.

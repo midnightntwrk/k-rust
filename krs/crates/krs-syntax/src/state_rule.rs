@@ -8,14 +8,14 @@ use syn::{
 use crate::ReferenceCandidate;
 use crate::attribute::{ClaimBinder, ExistsAttribute};
 use crate::parse::{
-    KeyAllocator, KrsSyntax, checked_ordinal, unsupported_rule_pattern as pattern_error,
+    KeyAllocator, KrsSyntax, unsupported_rule_pattern as pattern_error,
     unsupported_rule_signature as signature_error,
 };
 use crate::path::{is_plain_path, unqualified_path_ident as bare_ident};
 use crate::provenance::RuleSide;
 use crate::rule::{BINDER_LIST_CONTRACT, RuleCondition, RuleExistentials, take_requires_helper};
 use crate::state_macro::StatePosition;
-use crate::term::TermKeys;
+use crate::term::{IslandKeys, TermKeys, TermVisit};
 use crate::term::{
     allocate_lexeme_keys, allocate_record_field_keys, allocate_sort_test_keys, local_rewrite_error,
 };
@@ -47,9 +47,48 @@ pub struct StateRuleBinding {
     name: Ident,
     kind: StateRuleBindingKind,
     sort: Option<TermSort>,
+    sort_key: Option<ProvenanceKey>,
+    universal_key: Option<ProvenanceKey>,
+    binder_name_key: Option<ProvenanceKey>,
+    binder_sort_key: Option<ProvenanceKey>,
 }
 
 impl StateRuleBinding {
+    /// The key of the explicit sort path, as the binder list types it.
+    #[must_use]
+    pub const fn sort_key(&self) -> Option<&ProvenanceKey> {
+        self.sort_key.as_ref()
+    }
+
+    /// The key of a claim's term binding as a universal binder, given by
+    /// the claim.
+    #[must_use]
+    pub const fn universal_key(&self) -> Option<&ProvenanceKey> {
+        self.universal_key.as_ref()
+    }
+
+    /// The key of a claim's term binding's name as a claim binder name,
+    /// given by the claim.
+    #[must_use]
+    pub const fn binder_name_key(&self) -> Option<&ProvenanceKey> {
+        self.binder_name_key.as_ref()
+    }
+
+    /// The key of a claim's term binding's sort as a claim binder sort,
+    /// given by the claim.
+    #[must_use]
+    pub const fn binder_sort_key(&self) -> Option<&ProvenanceKey> {
+        self.binder_sort_key.as_ref()
+    }
+
+    /// Forgets the binding's keys, before a sentence's pass keys it.
+    fn clear_keys(&mut self) {
+        self.sort_key = None;
+        self.universal_key = None;
+        self.binder_name_key = None;
+        self.binder_sort_key = None;
+    }
+
     /// Returns the authored binding name.
     #[must_use]
     pub const fn name(&self) -> &Ident {
@@ -96,6 +135,11 @@ pub struct StateRuleItem {
     bindings: Vec<StateRuleBinding>,
     requires: Option<RuleCondition>,
     existentials: RuleExistentials,
+    declaration_key: Option<ProvenanceKey>,
+    pattern_key: Option<ProvenanceKey>,
+    type_key: Option<ProvenanceKey>,
+    /// The anchors of the rule's own keying.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 /// The `-> Machine { cells!{..} }` result of a two-sided configuration rule.
@@ -104,6 +148,8 @@ struct StateRuleResult {
     result_macro: Macro,
     result_type: Path,
     result: CellsExpression,
+    key: Option<ProvenanceKey>,
+    type_key: Option<ProvenanceKey>,
 }
 
 /// Object-language Boolean postcondition consumed only by a claim.
@@ -117,6 +163,23 @@ impl ClaimEnsures {
     #[must_use]
     pub const fn term(&self) -> &TermExpression {
         &self.term
+    }
+
+    /// Keys the postcondition's payload and paths, then its application
+    /// head, reference, and literal nodes and its record field names.
+    fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.term.allocate_keys(
+            keys,
+            ProvenanceRole::ClaimEnsures,
+            ProvenanceRole::ClaimEnsuresPath,
+        )?;
+        self.term.allocate_node_keys(
+            keys,
+            ProvenanceRole::ClaimEnsuresApplicationHead,
+            ProvenanceRole::ClaimEnsuresReference,
+            ProvenanceRole::ClaimEnsuresLiteral,
+            ProvenanceRole::ClaimEnsuresRecordFieldName,
+        )
     }
 }
 
@@ -146,6 +209,8 @@ pub struct StateClaimItem {
     rule: StateRuleItem,
     exists: Option<ExistsAttribute>,
     ensures: Option<ClaimEnsures>,
+    /// The anchors of the claim's keying.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl StateClaimItem {
@@ -176,11 +241,96 @@ impl StateClaimItem {
                 ));
             }
         }
-        Ok(Self {
+        Self {
             rule,
             exists,
             ensures,
-        })
+            anchors: Vec::new(),
+        }
+        .keyed()
+    }
+
+    /// Keys the claim as a sentence of its own and stores its anchors. The
+    /// claim keys its rule's nodes with the rule's own walk, except the
+    /// rule's declaration, which it keys as the claim's, and its claim-only
+    /// literals, which it numbers with its ensures condition's.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.clear_keys();
+        self.allocate_keys(&mut keys)?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// Forgets every key of the claim, before its pass keys it.
+    fn clear_keys(&mut self) {
+        self.rule.clear_keys();
+        for binder in self
+            .exists
+            .iter_mut()
+            .flat_map(ExistsAttribute::binders_mut)
+        {
+            binder.clear_keys();
+        }
+        if let Some(ensures) = &mut self.ensures {
+            ensures.term.clear_keys();
+        }
+    }
+
+    /// Keys the rule's nodes but its declaration and claim-only literals,
+    /// the declaration as the claim's, each universal term binding as a
+    /// binder with its name and sort, each existential binder, then their
+    /// names and sorts, which number on after the universal binders', the
+    /// ensures condition, the claim-only literals of the cells, the
+    /// condition and the ensures condition, and the ensures condition's
+    /// islands, which number on after the rule's.
+    fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.rule.allocate_body_keys(keys)?;
+        self.rule.declaration_key = Some(keys.key(
+            ProvenanceRole::ClaimDeclaration,
+            TokenRange::for_tokens(&self.rule.item.sig.ident)?,
+        )?);
+        for binding in &mut self.rule.bindings {
+            if binding.kind == StateRuleBindingKind::Term {
+                let name = TokenRange::for_tokens(&binding.name)?;
+                binding.universal_key = Some(keys.key(ProvenanceRole::ClaimUniversalBinder, name)?);
+                binding.binder_name_key = Some(keys.key(ProvenanceRole::ClaimBinderName, name)?);
+                let Some(sort) = binding.term_sort() else {
+                    return Err(signature_error(
+                        "term claim binding is missing its sort",
+                        binding.name.span(),
+                    ));
+                };
+                binding.binder_sort_key = Some(keys.key(
+                    ProvenanceRole::ClaimBinderSort,
+                    TokenRange::for_tokens(sort.sort())?,
+                )?);
+            }
+        }
+        if let Some(exists) = &mut self.exists {
+            for binder in exists.binders_mut() {
+                binder.allocate_binder_key(keys, ProvenanceRole::ClaimExistentialBinder)?;
+            }
+            for binder in exists.binders_mut() {
+                binder.allocate_name_and_sort_keys(
+                    keys,
+                    ProvenanceRole::ClaimBinderName,
+                    ProvenanceRole::ClaimBinderSort,
+                )?;
+            }
+        }
+        if let Some(ensures) = &mut self.ensures {
+            ensures.allocate_keys(keys)?;
+        }
+        self.rule.visit_terms(&mut |nodes, term_keys| {
+            allocate_claim_node_keys(keys, [(nodes, term_keys)])
+        })?;
+        if let Some(ensures) = &mut self.ensures {
+            let (nodes, _, term_keys) = ensures.term.keying();
+            allocate_claim_node_keys(keys, [(nodes, &mut *term_keys)])?;
+            allocate_claim_ensures_keys(keys, nodes, term_keys)?;
+        }
+        Ok(())
     }
     /// Returns the shared configuration rewrite parser result.
     #[must_use]
@@ -197,95 +347,14 @@ impl StateClaimItem {
     pub const fn ensures(&self) -> Option<&ClaimEnsures> {
         self.ensures.as_ref()
     }
-    /// Returns claim-only parser-owned anchors.
+    /// Returns claim-only parser-owned anchors: the anchors of the claim's
+    /// keying.
     ///
     /// # Errors
     ///
-    /// Returns an error when an authored endpoint or provenance occurrence
-    /// cannot be represented.
+    /// None: the claim was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = self.rule.provenance()?;
-        // A claim numbers its literal islands below, with its ensures
-        // condition.
-        output.retain(|anchor| {
-            !matches!(
-                anchor.role(),
-                ProvenanceRole::RuleDeclaration
-                    | ProvenanceRole::ClaimIdToken
-                    | ProvenanceRole::ClaimBytesToken
-                    | ProvenanceRole::ClaimAnonymous
-                    | ProvenanceRole::ClaimAnonymousSort
-                    | ProvenanceRole::ClaimAnonymousSpelling
-                    | ProvenanceRole::ClaimOrBool
-            )
-        });
-        let mut keys = KeyAllocator::continuing(output);
-        keys.key(
-            ProvenanceRole::ClaimDeclaration,
-            TokenRange::for_tokens(&self.rule.item.sig.ident)?,
-        )?;
-        for binding in &self.rule.bindings {
-            if binding.kind == StateRuleBindingKind::Term {
-                let name = TokenRange::for_tokens(&binding.name)?;
-                keys.key(ProvenanceRole::ClaimUniversalBinder, name)?;
-                keys.key(ProvenanceRole::ClaimBinderName, name)?;
-                let Some(sort) = binding.term_sort() else {
-                    return Err(signature_error(
-                        "term claim binding is missing its sort",
-                        binding.name.span(),
-                    ));
-                };
-                keys.key(
-                    ProvenanceRole::ClaimBinderSort,
-                    TokenRange::for_tokens(sort.sort())?,
-                )?;
-            }
-        }
-        // The existential binders, then their names and sorts, which number
-        // on after the universal binders'.
-        if let Some(exists) = &self.exists {
-            for binder in exists.binders() {
-                keys.key(
-                    ProvenanceRole::ClaimExistentialBinder,
-                    TokenRange::for_tokens(binder.name())?,
-                )?;
-            }
-            for binder in exists.binders() {
-                keys.key(
-                    ProvenanceRole::ClaimBinderName,
-                    TokenRange::for_tokens(binder.name())?,
-                )?;
-                keys.key(
-                    ProvenanceRole::ClaimBinderSort,
-                    TokenRange::for_tokens(binder.sort())?,
-                )?;
-            }
-        }
-        if let Some(ensures) = &self.ensures {
-            let mut term = ensures.term.unkeyed();
-            term.allocate_keys(
-                &mut keys,
-                ProvenanceRole::ClaimEnsures,
-                ProvenanceRole::ClaimEnsuresPath,
-            )?;
-            term.allocate_node_keys(
-                &mut keys,
-                ProvenanceRole::ClaimEnsuresApplicationHead,
-                ProvenanceRole::ClaimEnsuresReference,
-                ProvenanceRole::ClaimEnsuresLiteral,
-                ProvenanceRole::ClaimEnsuresRecordFieldName,
-            )?;
-        }
-        allocate_claim_node_keys(
-            &mut keys,
-            claim_terms(&self.rule, self.ensures.as_ref())
-                .into_iter()
-                .map(|term| (term.nodes(), TermKeys::default())),
-        )?;
-        if let Some(ensures) = &self.ensures {
-            allocate_claim_ensures_keys(&mut keys, ensures)?;
-        }
-        Ok(keys.into_anchors())
+        Ok(self.anchors.clone())
     }
     /// Returns claim-only sort paths needing rustc/collector resolution.
     ///
@@ -293,6 +362,10 @@ impl StateClaimItem {
     ///
     /// Returns an occurrence-overflow error if claim sort provenance cannot be
     /// represented.
+    ///
+    /// # Panics
+    ///
+    /// Never: parsing keys every anonymous sort.
     pub fn sort_candidates(&self) -> Result<Vec<ClaimSortCandidate>, SyntaxError> {
         let mut output = self
             .existentials()
@@ -310,17 +383,20 @@ impl StateClaimItem {
                 })
             })
             .collect::<Result<Vec<_>, SyntaxError>>()?;
-        let mut ordinal = 0_u32;
+        // An anonymous node's keys are its own, its sort's and its
+        // spelling's.
         for term in claim_terms(&self.rule, self.ensures.as_ref()) {
-            for node in term.nodes() {
+            for (index, node) in term.nodes().iter().enumerate() {
                 if let TermNode::Anonymous { sort, .. } = node {
                     output.push(ClaimSortCandidate {
-                        key: key(ProvenanceRole::ClaimAnonymousSort, ordinal),
+                        key: term
+                            .keys()
+                            .node(index)
+                            .get(1)
+                            .expect("a claim keys every anonymous sort")
+                            .clone(),
                         path: sort.clone(),
                     });
-                    ordinal = ordinal.checked_add(1).ok_or_else(|| {
-                        signature_error("too many anonymous occurrences", sort.span())
-                    })?;
                 }
             }
         }
@@ -343,6 +419,10 @@ pub struct StateContextAliasItem {
     pattern: CellsExpression,
     bindings: Vec<StateRuleBinding>,
     here: Ident,
+    pattern_key: Option<ProvenanceKey>,
+    type_key: Option<ProvenanceKey>,
+    /// The anchors of the alias's keying.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl StateContextAliasItem {
@@ -419,14 +499,52 @@ impl StateContextAliasItem {
         {
             binding.sort = Some(sort);
         }
-        Ok(Self {
+        Self {
             item,
             pattern_macro,
             configuration_type,
             pattern,
             bindings,
             here: here.clone(),
-        })
+            pattern_key: None,
+            type_key: None,
+            anchors: Vec::new(),
+        }
+        .keyed()
+    }
+
+    /// Keys the alias as a sentence of its own and stores its anchors: the
+    /// pattern and its type, each binding's sort, then the pattern's cells.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.pattern.clear_keys();
+        for binding in &mut self.bindings {
+            binding.clear_keys();
+        }
+        self.pattern_key = Some(keys.key(
+            ProvenanceRole::RulePattern,
+            TokenRange::for_tokens(&self.pattern_macro)?,
+        )?);
+        self.type_key = Some(keys.key(
+            ProvenanceRole::RuleType,
+            TokenRange::for_tokens(&self.configuration_type)?,
+        )?);
+        allocate_binding_sort_keys(&mut keys, &mut self.bindings)?;
+        allocate_cells_keys(&mut keys, &mut self.pattern, RuleSide::Left)?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// The key of the `cells!` pattern; its nodes hold their own keys.
+    #[must_use]
+    pub const fn pattern_key(&self) -> Option<&ProvenanceKey> {
+        self.pattern_key.as_ref()
+    }
+
+    /// The key of the configuration type.
+    #[must_use]
+    pub const fn configuration_type_key(&self) -> Option<&ProvenanceKey> {
+        self.type_key.as_ref()
     }
 
     /// Returns the original function item.
@@ -455,65 +573,36 @@ impl StateContextAliasItem {
         &self.here
     }
 
-    /// Returns parser-owned pattern/type/cell/frame origins.
+    /// Returns parser-owned pattern/type/cell/frame origins: the anchors of
+    /// the alias's keying.
     ///
     /// # Errors
     ///
-    /// Returns endpoint or ordinal overflow failures only.
+    /// None: the alias was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut keys = KeyAllocator::default();
-        keys.key(
-            ProvenanceRole::RulePattern,
-            TokenRange::for_tokens(&self.pattern_macro)?,
-        )?;
-        keys.key(
-            ProvenanceRole::RuleType,
-            TokenRange::for_tokens(&self.configuration_type)?,
-        )?;
-        for sort in self.bindings.iter().filter_map(StateRuleBinding::term_sort) {
-            keys.key(
-                ProvenanceRole::RuleBindingType,
-                TokenRange::for_tokens(sort.sort())?,
-            )?;
-        }
-        allocate_cells_keys(&mut keys, &mut self.pattern.unkeyed(), RuleSide::Left)?;
-        Ok(keys.into_anchors())
+        Ok(self.anchors.clone())
     }
 
-    /// Returns rustc-resolvable paths with parser-owned keys.
+    /// Returns rustc-resolvable paths with the keys of the nodes they name.
     ///
     /// # Errors
     ///
-    /// Returns occurrence overflow failures only.
+    /// None: the alias was keyed when it was parsed.
+    ///
+    /// # Panics
+    ///
+    /// Never: parsing keys every sort, type, wrapper, and term node a
+    /// candidate names.
     pub fn reference_candidates(
         &self,
     ) -> Result<Vec<ReferenceCandidate<StateRuleReferenceKind>>, SyntaxError> {
-        let mut output = self
-            .bindings
-            .iter()
-            .filter_map(StateRuleBinding::term_sort)
-            .enumerate()
-            .map(|(ordinal, sort)| {
-                Ok(ReferenceCandidate {
-                    key: key(
-                        ProvenanceRole::RuleBindingType,
-                        checked_ordinal(
-                            ordinal,
-                            ProvenanceRole::RuleBindingType,
-                            sort.sort().span(),
-                        )?,
-                    ),
-                    path: sort.sort().clone(),
-                    kind: StateRuleReferenceKind::BindingSort,
-                })
-            })
-            .collect::<Result<Vec<_>, SyntaxError>>()?;
+        let mut output = binding_sort_candidates(&self.bindings);
         output.push(ReferenceCandidate {
-            key: key(ProvenanceRole::RuleType, 0),
+            key: self.type_key.clone().expect(KEYED),
             path: self.configuration_type.clone(),
             kind: StateRuleReferenceKind::Configuration,
         });
-        append_cells_candidates(&self.pattern, RuleSide::Left, &self.bindings, &mut output)?;
+        append_cells_candidates(&self.pattern, &self.bindings, &mut output);
         Ok(output)
     }
 }
@@ -613,6 +702,8 @@ impl StateRuleItem {
                     result_macro,
                     result_type,
                     result,
+                    key: None,
+                    type_key: None,
                 })
             }
             // A fn with statements and no rewrite meant to return a result.
@@ -690,7 +781,7 @@ impl StateRuleItem {
             append_cells_terms(&result.result, &mut result_terms);
         }
         existentials.check_scope(requires.as_ref().map(RuleCondition::term), &result_terms)?;
-        Ok(Self {
+        Self {
             item,
             subject_macro,
             subject_type,
@@ -699,7 +790,12 @@ impl StateRuleItem {
             bindings,
             requires,
             existentials,
-        })
+            declaration_key: None,
+            pattern_key: None,
+            type_key: None,
+            anchors: Vec::new(),
+        }
+        .keyed()
     }
 
     /// Returns the original span-preserving Rust function.
@@ -755,116 +851,191 @@ impl StateRuleItem {
         &self.existentials
     }
 
-    /// Returns one collision-free descriptor-wide provenance table.
+    /// Returns one collision-free descriptor-wide provenance table: the
+    /// anchors of the rule's own keying.
     ///
     /// # Errors
     ///
-    /// Returns endpoint or ordinal-overflow errors only.
+    /// None: the rule was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        // Not keyed at parse yet: the keys this view hands out are discarded.
-        let scratch = &mut TermKeys::default();
+        Ok(self.anchors.clone())
+    }
+
+    /// Keys the rule as a sentence of its own and stores its anchors: the
+    /// declaration, the rule's nodes, then the claim-only literals of the
+    /// cells, the condition, and the ensures condition.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.key(
+        self.clear_keys();
+        self.declaration_key = Some(keys.key(
             ProvenanceRole::RuleDeclaration,
             TokenRange::for_tokens(&self.item.sig.ident)?,
-        )?;
-        keys.key(
-            ProvenanceRole::RulePattern,
-            TokenRange::for_tokens(&self.subject_macro)?,
-        )?;
-        keys.key(
-            ProvenanceRole::RuleType,
-            TokenRange::for_tokens(&self.subject_type)?,
-        )?;
-        if let Some(result) = &self.result {
-            keys.key(
-                ProvenanceRole::RuleResultType,
-                TokenRange::for_tokens(&result.result_type)?,
-            )?;
-            keys.key(
-                ProvenanceRole::RuleResult,
-                TokenRange::for_tokens(&result.result_macro)?,
-            )?;
-        }
-        for sort in self.bindings.iter().filter_map(StateRuleBinding::term_sort) {
-            keys.key(
-                ProvenanceRole::RuleBindingType,
-                TokenRange::for_tokens(sort.sort())?,
-            )?;
-        }
-        allocate_cells_keys(&mut keys, &mut self.subject.unkeyed(), RuleSide::Left)?;
-        if let Some(result) = &self.result {
-            allocate_cells_keys(&mut keys, &mut result.result.unkeyed(), RuleSide::Right)?;
-        }
-        if let Some(requires) = &self.requires {
-            requires.unkeyed().allocate_keys(&mut keys)?;
-        }
-        self.existentials.unkeyed().allocate_keys(&mut keys)?;
-        let ensures = self.existentials.ensures();
-        // `k::rewrite!` shells and sides (KF-011), in subject order.
-        for term in claim_terms(self, None) {
-            crate::term::allocate_rewrite_keys(&mut keys, term.nodes(), scratch)?;
-        }
-        for term in claim_terms(self, None) {
-            allocate_lexeme_keys(&mut keys, term.nodes(), scratch)?;
-        }
-        if let Some(ensures) = ensures {
-            allocate_lexeme_keys(&mut keys, ensures.nodes(), scratch)?;
-        }
-        for term in claim_terms(self, None) {
-            allocate_sort_test_keys(&mut keys, term.nodes(), scratch)?;
-        }
-        for term in claim_terms(self, None) {
-            crate::term::allocate_pattern_as_keys(&mut keys, term.nodes(), scratch)?;
-        }
-        for term in claim_terms(self, None) {
-            crate::term::allocate_pattern_or_keys(&mut keys, term.nodes(), scratch)?;
-        }
-        if let Some(ensures) = ensures {
-            allocate_sort_test_keys(&mut keys, ensures.nodes(), scratch)?;
-            crate::term::allocate_pattern_as_keys(&mut keys, ensures.nodes(), scratch)?;
-            crate::term::allocate_pattern_or_keys(&mut keys, ensures.nodes(), scratch)?;
-        }
-        // Turbofish sort markers (KF-027), in expansion order, like sort tests.
-        for term in claim_terms(self, None) {
-            crate::term::allocate_application_instance_keys(&mut keys, term.nodes(), scratch)?;
-        }
-        if let Some(ensures) = ensures {
-            crate::term::allocate_application_instance_keys(&mut keys, ensures.nodes(), scratch)?;
-        }
-        // `k::matches!` shells and pattern wildcards (KF-031), in expansion
-        // order: the cells, the condition, then the ensures condition.
-        for term in claim_terms(self, None) {
-            crate::term::allocate_matches_keys(&mut keys, term.nodes(), scratch)?;
-        }
-        if let Some(ensures) = ensures {
-            crate::term::allocate_matches_keys(&mut keys, ensures.nodes(), scratch)?;
-        }
-        // `let` statements and their pattern wildcards (KF-032), likewise.
-        for term in claim_terms(self, None) {
-            crate::term::allocate_let_keys(&mut keys, term.nodes(), scratch)?;
-        }
-        if let Some(ensures) = ensures {
-            crate::term::allocate_let_keys(&mut keys, ensures.nodes(), scratch)?;
-        }
-        // `ml::exists` closures (KF-039), likewise.
-        for term in claim_terms(self, None) {
-            crate::term::allocate_ml_binder_keys(&mut keys, term.nodes(), scratch)?;
-        }
-        if let Some(ensures) = ensures {
-            crate::term::allocate_ml_binder_keys(&mut keys, ensures.nodes(), scratch)?;
-        }
+        )?);
+        self.allocate_body_keys(&mut keys)?;
         // Builtin `Id` and `Bytes` literals, each kind numbered across the
         // cells, the condition, then the ensures condition (a claim numbers
         // its own, with its claim-only islands).
-        allocate_claim_node_keys(
-            &mut keys,
-            claim_terms(self, None)
-                .into_iter()
-                .map(|term| (term.nodes(), TermKeys::default()))
-                .chain(ensures.map(|term| (term.nodes(), TermKeys::default()))),
-        )?;
-        Ok(keys.into_anchors())
+        self.visit_terms(&mut |nodes, term_keys| {
+            allocate_claim_node_keys(&mut keys, [(nodes, term_keys)])
+        })?;
+        if let Some(ensures) = self.existentials.ensures_mut() {
+            let (nodes, _, term_keys) = ensures.keying();
+            allocate_claim_node_keys(&mut keys, [(nodes, term_keys)])?;
+        }
+        self.anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// Forgets every key of the rule, before a sentence's pass keys it.
+    fn clear_keys(&mut self) {
+        self.declaration_key = None;
+        self.pattern_key = None;
+        self.type_key = None;
+        self.subject.clear_keys();
+        if let Some(result) = &mut self.result {
+            result.key = None;
+            result.type_key = None;
+            result.result.clear_keys();
+        }
+        for binding in &mut self.bindings {
+            binding.clear_keys();
+        }
+        if let Some(requires) = &mut self.requires {
+            requires.clear_keys();
+        }
+        self.existentials.clear_keys();
+    }
+
+    /// Keys the rule's nodes between its declaration and its claim-only
+    /// literals: the subject pattern and type, the result type and result,
+    /// each binding's sort, the subject's and the result's cells, the
+    /// conditions and binders, then the islands of every term in expansion
+    /// order.
+    fn allocate_body_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.pattern_key = Some(keys.key(
+            ProvenanceRole::RulePattern,
+            TokenRange::for_tokens(&self.subject_macro)?,
+        )?);
+        self.type_key = Some(keys.key(
+            ProvenanceRole::RuleType,
+            TokenRange::for_tokens(&self.subject_type)?,
+        )?);
+        if let Some(result) = &mut self.result {
+            result.type_key = Some(keys.key(
+                ProvenanceRole::RuleResultType,
+                TokenRange::for_tokens(&result.result_type)?,
+            )?);
+            result.key = Some(keys.key(
+                ProvenanceRole::RuleResult,
+                TokenRange::for_tokens(&result.result_macro)?,
+            )?);
+        }
+        allocate_binding_sort_keys(keys, &mut self.bindings)?;
+        allocate_cells_keys(keys, &mut self.subject, RuleSide::Left)?;
+        if let Some(result) = &mut self.result {
+            allocate_cells_keys(keys, &mut result.result, RuleSide::Right)?;
+        }
+        if let Some(requires) = &mut self.requires {
+            requires.allocate_keys(keys)?;
+        }
+        self.existentials.allocate_keys(keys)?;
+        // `k::rewrite!` shells and sides (KF-011), in subject order.
+        self.visit_terms(&mut |nodes, term_keys| {
+            crate::term::allocate_rewrite_keys(keys, nodes, term_keys)
+        })?;
+        self.visit_terms(&mut |nodes, term_keys| allocate_lexeme_keys(keys, nodes, term_keys))?;
+        self.visit_ensures(&mut |nodes, term_keys| allocate_lexeme_keys(keys, nodes, term_keys))?;
+        self.visit_terms(&mut |nodes, term_keys| allocate_sort_test_keys(keys, nodes, term_keys))?;
+        self.visit_terms(&mut |nodes, term_keys| {
+            crate::term::allocate_pattern_as_keys(keys, nodes, term_keys)
+        })?;
+        self.visit_terms(&mut |nodes, term_keys| {
+            crate::term::allocate_pattern_or_keys(keys, nodes, term_keys)
+        })?;
+        self.visit_ensures(&mut |nodes, term_keys| {
+            allocate_sort_test_keys(keys, nodes, term_keys)?;
+            crate::term::allocate_pattern_as_keys(keys, nodes, term_keys)?;
+            crate::term::allocate_pattern_or_keys(keys, nodes, term_keys)
+        })?;
+        // Turbofish sort markers (KF-027), `k::matches!` shells and pattern
+        // wildcards (KF-031), `let` statements and their pattern wildcards
+        // (KF-032), and `ml::exists` closures (KF-039), each kind in
+        // expansion order: the cells, the condition, then the ensures
+        // condition.
+        let islands: [IslandKeys; 4] = [
+            crate::term::allocate_application_instance_keys,
+            crate::term::allocate_matches_keys,
+            crate::term::allocate_let_keys,
+            crate::term::allocate_ml_binder_keys,
+        ];
+        for island in islands {
+            self.visit_terms(&mut |nodes, term_keys| island(keys, nodes, term_keys))?;
+            self.visit_ensures(&mut |nodes, term_keys| island(keys, nodes, term_keys))?;
+        }
+        Ok(())
+    }
+
+    /// Calls `visit` on the nodes and keys of each term of the subject's
+    /// cells, then the result's, then the condition's.
+    fn visit_terms(&mut self, visit: &mut TermVisit<'_>) -> Result<(), SyntaxError> {
+        let results = self.result.iter_mut().map(|result| &mut result.result);
+        for cells in std::iter::once(&mut self.subject).chain(results) {
+            for entry in cells.entries_mut() {
+                for term in entry.value_mut().terms_mut() {
+                    let (nodes, _, term_keys) = term.keying();
+                    visit(nodes, term_keys)?;
+                }
+            }
+        }
+        if let Some(requires) = &mut self.requires {
+            let (nodes, _, term_keys) = requires.term_mut().keying();
+            visit(nodes, term_keys)?;
+        }
+        Ok(())
+    }
+
+    /// Calls `visit` on the nodes and keys of the `#[k::ensures]` condition.
+    fn visit_ensures(&mut self, visit: &mut TermVisit<'_>) -> Result<(), SyntaxError> {
+        if let Some(ensures) = self.existentials.ensures_mut() {
+            let (nodes, _, term_keys) = ensures.keying();
+            visit(nodes, term_keys)?;
+        }
+        Ok(())
+    }
+
+    /// The key of the rule's name: its declaration, or a claim's.
+    #[must_use]
+    pub const fn declaration_key(&self) -> Option<&ProvenanceKey> {
+        self.declaration_key.as_ref()
+    }
+
+    /// The key of the subject's `cells!` pattern; its nodes hold their own
+    /// keys.
+    #[must_use]
+    pub const fn pattern_key(&self) -> Option<&ProvenanceKey> {
+        self.pattern_key.as_ref()
+    }
+
+    /// The key of the subject's configuration type.
+    #[must_use]
+    pub const fn subject_type_key(&self) -> Option<&ProvenanceKey> {
+        self.type_key.as_ref()
+    }
+
+    /// The key of the result's `cells!` expression, absent for a
+    /// single-body rule.
+    #[must_use]
+    pub fn result_key(&self) -> Option<&ProvenanceKey> {
+        self.result.as_ref().and_then(|result| result.key.as_ref())
+    }
+
+    /// The key of the result's configuration type, absent for a single-body
+    /// rule.
+    #[must_use]
+    pub fn result_type_key(&self) -> Option<&ProvenanceKey> {
+        self.result
+            .as_ref()
+            .and_then(|result| result.type_key.as_ref())
     }
 
     /// Returns every rustc-resolvable type/wrapper/term path with the same
@@ -877,45 +1048,31 @@ impl StateRuleItem {
     ///
     /// # Errors
     ///
-    /// Returns an occurrence-overflow error for pathological inputs.
+    /// None: the rule was keyed when it was parsed.
+    ///
+    /// # Panics
+    ///
+    /// Never: parsing keys every sort, type, wrapper, and term node a
+    /// candidate names.
     pub fn reference_candidates(
         &self,
     ) -> Result<Vec<ReferenceCandidate<StateRuleReferenceKind>>, SyntaxError> {
-        let mut output = self
-            .bindings
-            .iter()
-            .filter_map(StateRuleBinding::term_sort)
-            .enumerate()
-            .map(|(ordinal, sort)| {
-                Ok(ReferenceCandidate {
-                    key: key(
-                        ProvenanceRole::RuleBindingType,
-                        checked_ordinal(
-                            ordinal,
-                            ProvenanceRole::RuleBindingType,
-                            sort.sort().span(),
-                        )?,
-                    ),
-                    path: sort.sort().clone(),
-                    kind: StateRuleReferenceKind::BindingSort,
-                })
-            })
-            .collect::<Result<Vec<_>, SyntaxError>>()?;
-        output.extend([ReferenceCandidate {
-            key: key(ProvenanceRole::RuleType, 0),
+        let mut output = binding_sort_candidates(&self.bindings);
+        output.push(ReferenceCandidate {
+            key: self.type_key.clone().expect(KEYED),
             path: self.subject_type.clone(),
             kind: StateRuleReferenceKind::Configuration,
-        }]);
+        });
         if let Some(result) = &self.result {
             output.push(ReferenceCandidate {
-                key: key(ProvenanceRole::RuleResultType, 0),
+                key: result.type_key.clone().expect(KEYED),
                 path: result.result_type.clone(),
                 kind: StateRuleReferenceKind::Configuration,
             });
         }
-        append_cells_candidates(&self.subject, RuleSide::Left, &self.bindings, &mut output)?;
+        append_cells_candidates(&self.subject, &self.bindings, &mut output);
         if let Some(result) = &self.result {
-            append_cells_candidates(&result.result, RuleSide::Right, &self.bindings, &mut output)?;
+            append_cells_candidates(&result.result, &self.bindings, &mut output);
         }
         Ok(output)
     }
@@ -1608,6 +1765,10 @@ fn push_binding(
         name: binding.clone(),
         kind,
         sort: None,
+        sort_key: None,
+        universal_key: None,
+        binder_name_key: None,
+        binder_sort_key: None,
     });
     Ok(())
 }
@@ -1906,103 +2067,83 @@ fn allocate_term_keys(
     Ok(())
 }
 
-fn append_cells_candidates(
-    cells: &CellsExpression,
-    side: RuleSide,
-    bindings: &[StateRuleBinding],
-    output: &mut Vec<ReferenceCandidate<StateRuleReferenceKind>>,
+/// Why a candidate's node has a key: its sentence was keyed when it was
+/// parsed.
+const KEYED: &str = "a configuration rule is keyed when it is parsed";
+
+/// Keys each binding's explicit sort, as the binder list types it.
+fn allocate_binding_sort_keys(
+    keys: &mut KeyAllocator,
+    bindings: &mut [StateRuleBinding],
 ) -> Result<(), SyntaxError> {
-    // Candidates take the keys the cells' anchors take.
-    let mut keys = KeyAllocator::default();
-    for entry in cells.entries() {
-        let wrapper_role = match side {
-            RuleSide::Left => ProvenanceRole::RuleLeftCellsWrapper,
-            RuleSide::Right => ProvenanceRole::RuleRightCellsWrapper,
-        };
-        if let Some(wrapper) = entry.wrapper() {
-            output.push(ReferenceCandidate {
-                key: keys.key(wrapper_role, TokenRange::for_tokens(wrapper)?)?,
-                path: wrapper.clone(),
-                kind: StateRuleReferenceKind::CellWrapper,
-            });
+    for binding in bindings {
+        if let Some(sort) = &binding.sort {
+            binding.sort_key = Some(keys.key(
+                ProvenanceRole::RuleBindingType,
+                TokenRange::for_tokens(sort.sort())?,
+            )?);
         }
-        append_state_term_candidates(entry.value(), side, bindings, &mut keys, output)?;
     }
     Ok(())
 }
 
-fn append_state_term_candidates(
-    state: &StateTerm,
-    side: RuleSide,
+/// A candidate for each binding's explicit sort.
+fn binding_sort_candidates(
     bindings: &[StateRuleBinding],
-    keys: &mut KeyAllocator,
+) -> Vec<ReferenceCandidate<StateRuleReferenceKind>> {
+    bindings
+        .iter()
+        .filter_map(|binding| {
+            let sort = binding.term_sort()?;
+            Some(ReferenceCandidate {
+                key: binding.sort_key.clone().expect(KEYED),
+                path: sort.sort().clone(),
+                kind: StateRuleReferenceKind::BindingSort,
+            })
+        })
+        .collect()
+}
+
+/// Pushes a candidate for each cell wrapper of `cells`, and for each
+/// application head and nonbinding reference of its terms, keyed as the
+/// rule keyed the node.
+fn append_cells_candidates(
+    cells: &CellsExpression,
+    bindings: &[StateRuleBinding],
     output: &mut Vec<ReferenceCandidate<StateRuleReferenceKind>>,
-) -> Result<(), SyntaxError> {
-    match state {
-        StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => {
-            for nested in state.nested_states() {
-                append_state_term_candidates(nested, side, bindings, keys, output)?;
-            }
-            Ok(())
+) {
+    for entry in cells.entries() {
+        if let Some(wrapper) = entry.wrapper() {
+            output.push(ReferenceCandidate {
+                key: entry.wrapper_key().expect(KEYED).clone(),
+                path: wrapper.clone(),
+                kind: StateRuleReferenceKind::CellWrapper,
+            });
         }
-        StateTerm::Term(term) | StateTerm::Group(term) => {
-            append_term_candidates(term, side, bindings, keys, output)
-        }
-        StateTerm::KSequence(sequence) => {
-            for term in sequence.items() {
-                append_term_candidates(term, side, bindings, keys, output)?;
-            }
-            Ok(())
-        }
-        StateTerm::Map(map) => {
-            for term in map_terms(map) {
-                append_term_candidates(term, side, bindings, keys, output)?;
-            }
-            Ok(())
+        for term in entry.value().terms() {
+            append_term_candidates(term, bindings, output);
         }
     }
 }
 
 fn append_term_candidates(
     term: &TermExpression,
-    side: RuleSide,
     bindings: &[StateRuleBinding],
-    keys: &mut KeyAllocator,
     output: &mut Vec<ReferenceCandidate<StateRuleReferenceKind>>,
-) -> Result<(), SyntaxError> {
-    let (application_role, reference_role) = match side {
-        RuleSide::Left => (
-            ProvenanceRole::RuleLeftApplicationHead,
-            ProvenanceRole::RuleLeftReference,
-        ),
-        RuleSide::Right => (
-            ProvenanceRole::RuleRightApplicationHead,
-            ProvenanceRole::RuleRightReference,
-        ),
-    };
-    for node in term.nodes() {
-        match node {
-            TermNode::ApplicationHead(path) => {
-                output.push(ReferenceCandidate {
-                    key: keys.key(application_role, TokenRange::for_tokens(path)?)?,
-                    path: path.clone(),
-                    kind: StateRuleReferenceKind::ApplicationHead,
-                });
-            }
+) {
+    for (index, node) in term.nodes().iter().enumerate() {
+        let (path, kind) = match node {
+            TermNode::ApplicationHead(path) => (path, StateRuleReferenceKind::ApplicationHead),
             TermNode::Reference(path) => {
-                let reference = keys.key(reference_role, TokenRange::for_tokens(path)?)?;
                 let bound = bare_ident(path).is_some_and(|candidate| {
                     bindings.iter().any(|binding| {
                         binding.name == *candidate && binding.kind == StateRuleBindingKind::Term
                     })
                 });
-                if !bound {
-                    output.push(ReferenceCandidate {
-                        key: reference,
-                        path: path.clone(),
-                        kind: StateRuleReferenceKind::Reference,
-                    });
+                if bound {
+                    continue;
                 }
+                (path, StateRuleReferenceKind::Reference)
             }
             TermNode::Literal(_)
             | TermNode::IdToken(_)
@@ -2018,10 +2159,14 @@ fn append_term_candidates(
             | TermNode::Let { .. }
             | TermNode::Closure { .. }
             | TermNode::LetWildcard(_)
-            | TermNode::Rewrite { .. } => {}
-        }
+            | TermNode::Rewrite { .. } => continue,
+        };
+        output.push(ReferenceCandidate {
+            key: term.keys().node(index).first().expect(KEYED).clone(),
+            path: path.clone(),
+            kind,
+        });
     }
-    Ok(())
 }
 
 fn map_terms(map: &MapExpression) -> Vec<&TermExpression> {
@@ -2118,17 +2263,17 @@ fn take_ensures_helper(
 /// rule's own keys number those).
 fn allocate_claim_ensures_keys(
     keys: &mut KeyAllocator,
-    ensures: &ClaimEnsures,
+    nodes: &[TermNode],
+    term_keys: &mut TermKeys,
 ) -> Result<(), SyntaxError> {
-    let nodes = ensures.term.nodes();
-    allocate_lexeme_keys(keys, nodes, &mut TermKeys::default())?;
-    allocate_sort_test_keys(keys, nodes, &mut TermKeys::default())?;
-    crate::term::allocate_pattern_as_keys(keys, nodes, &mut TermKeys::default())?;
-    crate::term::allocate_pattern_or_keys(keys, nodes, &mut TermKeys::default())?;
-    crate::term::allocate_matches_keys(keys, nodes, &mut TermKeys::default())?;
-    crate::term::allocate_let_keys(keys, nodes, &mut TermKeys::default())?;
-    crate::term::allocate_ml_binder_keys(keys, nodes, &mut TermKeys::default())?;
-    crate::term::allocate_application_instance_keys(keys, nodes, &mut TermKeys::default())
+    allocate_lexeme_keys(keys, nodes, term_keys)?;
+    allocate_sort_test_keys(keys, nodes, term_keys)?;
+    crate::term::allocate_pattern_as_keys(keys, nodes, term_keys)?;
+    crate::term::allocate_pattern_or_keys(keys, nodes, term_keys)?;
+    crate::term::allocate_matches_keys(keys, nodes, term_keys)?;
+    crate::term::allocate_let_keys(keys, nodes, term_keys)?;
+    crate::term::allocate_ml_binder_keys(keys, nodes, term_keys)?;
+    crate::term::allocate_application_instance_keys(keys, nodes, term_keys)
 }
 
 fn claim_terms<'a>(

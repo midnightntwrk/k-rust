@@ -221,6 +221,28 @@ impl ClaimBinder {
         self.sort_key = None;
     }
 
+    /// Keys the binder declaration as the next of `role`.
+    pub(crate) fn allocate_binder_key(
+        &mut self,
+        keys: &mut KeyAllocator,
+        role: ProvenanceRole,
+    ) -> Result<(), SyntaxError> {
+        self.key = Some(keys.key(role, TokenRange::for_tokens(&self.name)?)?);
+        Ok(())
+    }
+
+    /// Keys the binder's name, then its sort, each as the next of its role.
+    pub(crate) fn allocate_name_and_sort_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        name_role: ProvenanceRole,
+        sort_role: ProvenanceRole,
+    ) -> Result<(), SyntaxError> {
+        self.name_key = Some(keys.key(name_role, TokenRange::for_tokens(&self.name)?)?);
+        self.sort_key = Some(keys.key(sort_role, TokenRange::for_tokens(&self.sort)?)?);
+        Ok(())
+    }
+
     /// Keys the binder, its name and its sort, each as the next of its role.
     pub(crate) fn allocate_keys(
         &mut self,

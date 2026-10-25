@@ -1088,14 +1088,6 @@ impl CellsExpression {
         Ok(self)
     }
 
-    /// A copy without keys, for a producer that computes its anchors on
-    /// demand; the copy's keys are discarded with it.
-    pub(crate) fn unkeyed(&self) -> Self {
-        let mut copy = self.clone();
-        copy.clear_keys();
-        copy
-    }
-
     /// Forgets the keys of the cells and of every entry's state, before an
     /// enclosing sentence's pass keys them.
     pub(crate) fn clear_keys(&mut self) {
