@@ -29,12 +29,10 @@ use super::configuration::{
 };
 use super::island_checks::initializer_state_island_import_checks;
 use super::nonce::expansion_nonce;
-use super::terms::{
-    KeyedTerm, NodeKind, TermBuilder, TermKeyReader, WireSlots, read_key, wire_key,
-};
+use super::terms::{KeyedTerm, NodeKind, TermBuilder, TermKeyReader, WireSlots, held_key};
 use super::tokens::{
     call_site_cfg_attributes, call_site_path, is_bound_ident_path, sort_type_tokens, spelling,
-    take_counter, wire_literal,
+    wire_literal,
 };
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -85,13 +83,6 @@ fn init_inner(
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    let configuration_variable_main_role = ProvenanceRole::ConfigurationVariableMain;
-    let configuration_variable_role = ProvenanceRole::ConfigurationVariable;
-    let configuration_variable_name_role = ProvenanceRole::ConfigurationVariableName;
-    let configuration_variable_type_role = ProvenanceRole::ConfigurationVariableType;
-    let initializer_declaration_role = ProvenanceRole::InitializerDeclaration;
-    let initializer_result_type_role = ProvenanceRole::InitializerResultType;
-    let initializer_body_role = ProvenanceRole::InitializerBody;
     krs_syntax::InitAttribute::parse_tokens(attributes)?;
     let initializer = krs_syntax::InitializerFunction::parse_tokens(item)?;
     let facade = env.facade_path()?;
@@ -112,13 +103,6 @@ fn init_inner(
     let arguments_key = format_ident!("initializer_variable_{nonce:016x}");
     let mut argument_ordinal = 0;
     for (index, variable) in initializer.variables().iter().enumerate() {
-        let ordinal = u32::try_from(index).map_err(|_| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                variable.binding().span(),
-                "too many variables",
-            )
-        })?;
         let sort_path = call_site_path(variable.sort())?;
         let sort_type = variable.optional_term_sort().map_or_else(
             || quote!(#sort_path),
@@ -134,12 +118,11 @@ fn init_inner(
         });
         let binding = variable.binding().to_string();
         let external_name = variable.attribute().name().value();
-        let main_key = variable.attribute().is_main().then(|| {
-            read_key(
-                variable.main_key(),
-                wire_key(configuration_variable_main_role, ordinal),
-            )
-        });
+        let main_key = variable
+            .attribute()
+            .is_main()
+            .then(|| held_key(variable.main_key()))
+            .transpose()?;
         let authored = spelling(variable.sort());
         let arguments = configuration_sort_arguments(
             variable.arguments(),
@@ -148,28 +131,18 @@ fn init_inner(
                 owner: &self_type,
                 owner_key: &arguments_key,
                 cfg: &cfg,
-                role: ProvenanceRole::ConfigurationVariableTypeArgument,
                 helpers: &mut builder.key_functions,
                 slots: &mut builder.slots,
                 ordinal: &mut argument_ordinal,
             },
         )?;
         variables.push(WireConfigurationVariable {
-            binding_key: read_key(
-                variable.key(),
-                wire_key(configuration_variable_role, ordinal),
-            ),
+            binding_key: held_key(variable.key())?,
             binding,
-            external_name_key: read_key(
-                variable.name_key(),
-                wire_key(configuration_variable_name_role, ordinal),
-            ),
+            external_name_key: held_key(variable.name_key())?,
             external_name,
             sort: WireSortReference {
-                key: read_key(
-                    variable.type_key(),
-                    wire_key(configuration_variable_type_role, ordinal),
-                ),
+                key: held_key(variable.type_key())?,
                 target: WireTypeReference {
                     slot: builder
                         .slots
@@ -187,14 +160,8 @@ fn init_inner(
         .key_functions
         .append(&mut builder.terms.key_functions);
     let wire = WireConfigurationInitializer {
-        key: read_key(
-            initializer.declaration_key(),
-            wire_key(initializer_declaration_role, 0),
-        ),
-        owner_key: read_key(
-            initializer.result_type_key(),
-            wire_key(initializer_result_type_role, 0),
-        ),
+        key: held_key(initializer.declaration_key())?,
+        owner_key: held_key(initializer.result_type_key())?,
         owner: WireTypeReference {
             slot: builder
                 .slots
@@ -202,7 +169,7 @@ fn init_inner(
             authored_path: "Self".to_owned(),
         },
         variables,
-        body_key: read_key(initializer.body_key(), wire_key(initializer_body_role, 0)),
+        body_key: held_key(initializer.body_key())?,
         cells,
     };
     let wire = serde_json::to_string(&wire).expect("initializer wire is serializable");
@@ -392,28 +359,9 @@ fn initializer_value_stand_in(
     }
 }
 
-#[derive(Default)]
-struct InitializerCounters {
-    cell: u32,
-    constructor: u32,
-    term: u32,
-    term_path: u32,
-    k_payload: u32,
-    k_item: u32,
-    k_tail: u32,
-    map_payload: u32,
-    map_key: u32,
-    map_value: u32,
-    map_update_base: u32,
-    id_token: u32,
-    bytes_token: u32,
-    record_field: u32,
-}
-
 struct InitializerBuilder<'a> {
     facade: &'a Path,
     bindings: &'a [Ident],
-    counters: InitializerCounters,
     terms: TermBuilder<'a>,
     key_functions: Vec<TokenStream>,
     slots: WireSlots,
@@ -424,7 +372,6 @@ impl<'a> InitializerBuilder<'a> {
         Self {
             facade,
             bindings,
-            counters: InitializerCounters::default(),
             terms: TermBuilder::new(facade, nonce, cfg, bindings)
                 .with_associated_keys()
                 .without_application_instances(),
@@ -438,21 +385,12 @@ impl<'a> InitializerBuilder<'a> {
         cells: &[FixedCellInitializer],
         owner: &TokenStream,
     ) -> crate::Result<Vec<WireInitializerCell>> {
-        let initializer_field_role = ProvenanceRole::InitializerField;
-        let initializer_cell_constructor_role = ProvenanceRole::InitializerCellConstructor;
-        let initializer_nested_constructor_role = ProvenanceRole::InitializerNestedConstructor;
-        let initializer_cell_role = ProvenanceRole::InitializerCell;
         let facade = self.facade;
         let mut output = Vec::new();
         for cell in cells {
-            let cell_ordinal = take_counter(&mut self.counters.cell)?;
-            let constructor_ordinal = take_counter(&mut self.counters.constructor)?;
             let marker = cell_marker_function(cell.name());
             let field = WireCellReference {
-                key: read_key(
-                    cell.field_key(),
-                    wire_key(initializer_field_role, cell_ordinal),
-                ),
+                key: held_key(cell.field_key())?,
                 cell: WireCellIdentity {
                     owner: self
                         .slots
@@ -483,10 +421,7 @@ impl<'a> InitializerBuilder<'a> {
                     };
                     let value = self.expand_state(value)?;
                     ProtocolInitializerCellContent::Leaf {
-                        constructor_key: read_key(
-                            cell.constructor_key(),
-                            wire_key(initializer_cell_constructor_role, constructor_ordinal),
-                        ),
+                        constructor_key: held_key(cell.constructor_key())?,
                         wrapper,
                         value,
                     }
@@ -498,10 +433,7 @@ impl<'a> InitializerBuilder<'a> {
                     let path = call_site_path(constructor)?;
                     let authored = spelling(constructor);
                     let declaration = WireCellDeclarationReference {
-                        key: read_key(
-                            cell.constructor_key(),
-                            wire_key(initializer_nested_constructor_role, constructor_ordinal),
-                        ),
+                        key: held_key(cell.constructor_key())?,
                         declaration: WireTypeReference {
                             slot: self
                                 .slots
@@ -517,7 +449,7 @@ impl<'a> InitializerBuilder<'a> {
                 }
             };
             output.push(WireInitializerCell {
-                key: read_key(cell.key(), wire_key(initializer_cell_role, cell_ordinal)),
+                key: held_key(cell.key())?,
                 field,
                 content,
             });
@@ -550,20 +482,12 @@ impl<'a> InitializerBuilder<'a> {
 
     fn expand_k(&mut self, sequence: &KSequence) -> crate::Result<ProtocolKSequence<WireTerm>> {
         let payload_key = if sequence.payload_key().is_some() {
-            let ordinal = take_counter(&mut self.counters.k_payload)?;
-            Some(read_key(
-                sequence.payload_key(),
-                wire_key(ProvenanceRole::KSequencePayload, ordinal),
-            ))
+            Some(held_key(sequence.payload_key())?)
         } else {
             None
         };
         let dot_k_key = if sequence.notation() == KSequenceNotation::DotK {
-            let ordinal = take_counter(&mut self.counters.k_tail)?;
-            Some(read_key(
-                sequence.tail_key(),
-                wire_key(ProvenanceRole::KSequenceTail, ordinal),
-            ))
+            Some(held_key(sequence.tail_key())?)
         } else {
             None
         };
@@ -574,11 +498,7 @@ impl<'a> InitializerBuilder<'a> {
         };
         let mut items = Vec::new();
         for item in sequence.items() {
-            let ordinal = take_counter(&mut self.counters.k_item)?;
-            let structural = read_key(
-                item.keys().payload(),
-                wire_key(ProvenanceRole::KSequenceItem, ordinal),
-            );
+            let structural = held_key(item.keys().payload())?;
             let value = self.expand_term(item, Some(structural.clone()))?;
             items.push(ProtocolKSequenceItem {
                 key: structural,
@@ -595,11 +515,7 @@ impl<'a> InitializerBuilder<'a> {
 
     fn expand_map(&mut self, map: &MapExpression) -> crate::Result<ProtocolMap<WireTerm>> {
         let payload_key = if map.payload_key().is_some() {
-            let ordinal = take_counter(&mut self.counters.map_payload)?;
-            Some(read_key(
-                map.payload_key(),
-                wire_key(ProvenanceRole::MapPayload, ordinal),
-            ))
+            Some(held_key(map.payload_key())?)
         } else {
             None
         };
@@ -610,16 +526,8 @@ impl<'a> InitializerBuilder<'a> {
             MapBody::Items { items, .. } => {
                 let mut output = Vec::new();
                 for item in items {
-                    let key_ordinal = take_counter(&mut self.counters.map_key)?;
-                    let value_ordinal = take_counter(&mut self.counters.map_value)?;
-                    let key_key = read_key(
-                        item.key().keys().payload(),
-                        wire_key(ProvenanceRole::MapKey, key_ordinal),
-                    );
-                    let value_key = read_key(
-                        item.value().keys().payload(),
-                        wire_key(ProvenanceRole::MapValue, value_ordinal),
-                    );
+                    let key_key = held_key(item.key().keys().payload())?;
+                    let value_key = held_key(item.value().keys().payload())?;
                     let key = self.expand_term(item.key(), Some(key_key.clone()))?;
                     let value = self.expand_term(item.value(), Some(value_key.clone()))?;
                     output.push(ProtocolMapItem {
@@ -632,21 +540,9 @@ impl<'a> InitializerBuilder<'a> {
                 ProtocolMapBody::Items { items: output }
             }
             MapBody::Update { base, key, value } => {
-                let base_ordinal = take_counter(&mut self.counters.map_update_base)?;
-                let key_ordinal = take_counter(&mut self.counters.map_key)?;
-                let value_ordinal = take_counter(&mut self.counters.map_value)?;
-                let base_key = read_key(
-                    base.keys().payload(),
-                    wire_key(ProvenanceRole::MapUpdateBase, base_ordinal),
-                );
-                let key_key = read_key(
-                    key.keys().payload(),
-                    wire_key(ProvenanceRole::MapKey, key_ordinal),
-                );
-                let value_key = read_key(
-                    value.keys().payload(),
-                    wire_key(ProvenanceRole::MapValue, value_ordinal),
-                );
+                let base_key = held_key(base.keys().payload())?;
+                let key_key = held_key(key.keys().payload())?;
+                let value_key = held_key(value.keys().payload())?;
                 let base = self.expand_term(base, Some(base_key.clone()))?;
                 let key = self.expand_term(key, Some(key_key.clone()))?;
                 let value = self.expand_term(value, Some(value_key.clone()))?;
@@ -668,11 +564,7 @@ impl<'a> InitializerBuilder<'a> {
         term: &TermExpression,
         structural_key: Option<ProvenanceKey>,
     ) -> crate::Result<ProtocolInitializerTerm<WireTerm>> {
-        let ordinal = take_counter(&mut self.counters.term)?;
-        let key = read_key(
-            term.keys().term(),
-            wire_key(ProvenanceRole::InitializerTerm, ordinal),
-        );
+        let key = held_key(term.keys().term())?;
         // A literal of the term takes the key of the place the term stands
         // in: the `k!` item, map key or value, or the term itself (N26).
         let structural = structural_key.unwrap_or_else(|| key.clone());
@@ -693,12 +585,8 @@ impl<'a> InitializerBuilder<'a> {
     ) -> crate::Result<WireTerm> {
         match tree {
             TermTree::Application(application) => {
-                let ordinal = take_counter(&mut self.counters.term_path)?;
                 // The head's path key stands for the application.
-                let key = read_key(
-                    keys.path(),
-                    wire_key(ProvenanceRole::InitializerTermPath, ordinal),
-                );
+                let key = held_key(keys.path())?;
                 let node = keys.node(NodeKind::ApplicationHead);
                 let target = self.terms.application_wire_slot(
                     application.head(),
@@ -731,14 +619,10 @@ impl<'a> InitializerBuilder<'a> {
                     TermArguments::Named(values) => {
                         let mut arguments = Vec::with_capacity(values.len());
                         for argument in values {
-                            let ordinal = take_counter(&mut self.counters.record_field)?;
                             let field = ProductionFieldId::new(argument.name().to_string())
                                 .expect("Rust field identifiers are valid production fields");
                             arguments.push(krs_ir::NamedTermArgument {
-                                key: read_key(
-                                    keys.record_field(),
-                                    wire_key(ProvenanceRole::InitializerRecordFieldName, ordinal),
-                                ),
+                                key: held_key(keys.record_field())?,
                                 field,
                                 value: Box::new(self.expand_term_tree(
                                     argument.value(),
@@ -765,11 +649,7 @@ impl<'a> InitializerBuilder<'a> {
                 })
             }
             TermTree::Reference(path) => {
-                let ordinal = take_counter(&mut self.counters.term_path)?;
-                let key = read_key(
-                    keys.path(),
-                    wire_key(ProvenanceRole::InitializerTermPath, ordinal),
-                );
+                let key = held_key(keys.path())?;
                 let name = spelling(path);
                 if is_bound_ident_path(path, self.bindings) {
                     Ok(WireTerm::Variable {
@@ -821,30 +701,22 @@ impl<'a> InitializerBuilder<'a> {
                 "initializer terms cannot contain wildcards",
             )),
             // A builtin literal is one constant of its sort, in an initializer as anywhere.
-            TermTree::IdToken { literal } => {
-                let ordinal = take_counter(&mut self.counters.id_token)?;
-                Ok(WireTerm::BuiltinToken {
-                    key: read_key(
-                        keys.node(NodeKind::IdToken)
-                            .role(ProvenanceRole::ClaimIdToken),
-                        wire_key(ProvenanceRole::ClaimIdToken, ordinal),
-                    ),
-                    sort: BuiltinSort::Id,
-                    value: literal.value(),
-                })
-            }
-            TermTree::BytesToken { literal } => {
-                let ordinal = take_counter(&mut self.counters.bytes_token)?;
-                Ok(WireTerm::BuiltinToken {
-                    key: read_key(
-                        keys.node(NodeKind::BytesToken)
-                            .role(ProvenanceRole::ClaimBytesToken),
-                        wire_key(ProvenanceRole::ClaimBytesToken, ordinal),
-                    ),
-                    sort: BuiltinSort::Bytes,
-                    value: bytes_token::encode(&literal.value()),
-                })
-            }
+            TermTree::IdToken { literal } => Ok(WireTerm::BuiltinToken {
+                key: held_key(
+                    keys.node(NodeKind::IdToken)
+                        .role(ProvenanceRole::ClaimIdToken),
+                )?,
+                sort: BuiltinSort::Id,
+                value: literal.value(),
+            }),
+            TermTree::BytesToken { literal } => Ok(WireTerm::BuiltinToken {
+                key: held_key(
+                    keys.node(NodeKind::BytesToken)
+                        .role(ProvenanceRole::ClaimBytesToken),
+                )?,
+                sort: BuiltinSort::Bytes,
+                value: bytes_token::encode(&literal.value()),
+            }),
             TermTree::Anonymous { spelling, .. } => Err(ExpandError::new(
                 expand::CLAIM_ONLY_TERM,
                 spelling.span(),

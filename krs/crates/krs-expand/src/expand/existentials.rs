@@ -3,18 +3,14 @@
 //! after `#[k::rule]`, and the `heat`/`cool` evaluation step of
 //! `#[k::rule]` (KF-014).
 
-use crate::ExpandError;
-use krs_diagnostic::codes::expand;
 use krs_ir::wire::{WireClaimBinder, WireEvaluationStep, WireRuleCondition};
-use krs_syntax::{ClaimBinder, ProvenanceRole, RuleExistentials};
+use krs_syntax::{ClaimBinder, RuleExistentials};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::ext::IdentExt;
 use syn::{Attribute, Path};
 
-use super::terms::{
-    KeyedTerm, TermBuilder, TermSide, WireSlots, read_key, wire_key, wire_sort_reference,
-};
+use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, held_key, wire_sort_reference};
 use super::tokens::{call_site_path, spelling};
 
 /// The wire binders of a transition's existentials and the hidden sort-key
@@ -28,11 +24,6 @@ pub(super) fn existential_binders(
 ) -> crate::Result<(Vec<WireClaimBinder>, Vec<TokenStream>)> {
     scoped_binders(
         existentials.binders(),
-        [
-            ProvenanceRole::RuleExistentialBinder,
-            ProvenanceRole::RuleExistentialBinderName,
-            ProvenanceRole::RuleExistentialBinderSort,
-        ],
         "existential",
         (facade, nonce, cfg),
         slots,
@@ -65,10 +56,10 @@ pub(super) fn evaluation_step(
                 Some(wire_sort_reference(
                     slots,
                     facade,
-                    (attribute.result_key(), kind.result_role(), 0),
+                    attribute.result_key(),
                     &key_fn,
                     &spelling(sort),
-                )),
+                )?),
                 Some(quote! {
                     #(#cfg)*
                     #[doc(hidden)]
@@ -81,8 +72,8 @@ pub(super) fn evaluation_step(
     Ok((
         Some(WireEvaluationStep {
             kind,
-            key: read_key(attribute.evaluation_key(), wire_key(kind.role(), 0)),
-            hole_key: read_key(attribute.hole_key(), wire_key(kind.hole_role(), 0)),
+            key: held_key(attribute.evaluation_key())?,
+            hole_key: held_key(attribute.hole_key())?,
             hole: hole.to_string(),
             result,
         }),
@@ -99,24 +90,13 @@ pub(super) fn fresh_binders(
     cfg: &[Attribute],
     slots: &mut WireSlots,
 ) -> crate::Result<(Vec<WireClaimBinder>, Vec<TokenStream>)> {
-    scoped_binders(
-        existentials.fresh(),
-        [
-            ProvenanceRole::RuleFreshBinder,
-            ProvenanceRole::RuleFreshBinderName,
-            ProvenanceRole::RuleFreshBinderSort,
-        ],
-        "fresh",
-        (facade, nonce, cfg),
-        slots,
-    )
+    scoped_binders(existentials.fresh(), "fresh", (facade, nonce, cfg), slots)
 }
 
-/// Wire binders under `[declaration, name, sort]` roles, with one sort-key
-/// function per binder named after `kind`.
+/// Wire binders, keyed by their declarations, names and sorts, with one
+/// sort-key function per binder named after `kind`.
 fn scoped_binders(
     declared: &[ClaimBinder],
-    [declaration_role, name_role, sort_role]: [ProvenanceRole; 3],
     kind: &str,
     (facade, nonce, cfg): (&Path, u64, &[Attribute]),
     slots: &mut WireSlots,
@@ -124,31 +104,24 @@ fn scoped_binders(
     let mut binders = Vec::new();
     let mut key_functions = Vec::new();
     for (index, binder) in declared.iter().enumerate() {
-        let ordinal = u32::try_from(index).map_err(|_| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                binder.name().span(),
-                format!("too many {kind} binders"),
-            )
-        })?;
         let path = call_site_path(binder.sort())?;
-        let key_fn = format_ident!("__krs_rule_{kind}_sort_{nonce:016x}_{ordinal}");
+        let key_fn = format_ident!("__krs_rule_{kind}_sort_{nonce:016x}_{index}");
         key_functions.push(quote! {
             #(#cfg)*
             #[doc(hidden)]
             fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() }
         });
         binders.push(WireClaimBinder {
-            declaration_key: read_key(binder.key(), wire_key(declaration_role, ordinal)),
-            name_key: read_key(binder.name_key(), wire_key(name_role, ordinal)),
+            declaration_key: held_key(binder.key())?,
+            name_key: held_key(binder.name_key())?,
             name: binder.name().unraw().to_string(),
             sort: wire_sort_reference(
                 slots,
                 facade,
-                (binder.sort_key(), sort_role, ordinal),
+                binder.sort_key(),
                 &key_fn,
                 &spelling(binder.sort()),
-            ),
+            )?,
         });
     }
     Ok((binders, key_functions))
@@ -165,10 +138,7 @@ pub(super) fn ensures_condition(
         .ensures()
         .map(|condition| {
             Ok(WireRuleCondition {
-                key: read_key(
-                    condition.keys().payload(),
-                    wire_key(ProvenanceRole::RuleEnsures, 0),
-                ),
+                key: held_key(condition.keys().payload())?,
                 term: builder.expand_wire(
                     KeyedTerm::of(condition),
                     TermSide::RuleEnsures,

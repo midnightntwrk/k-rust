@@ -1031,26 +1031,6 @@ impl TokenStack {
         &self.attributes
     }
 
-    /// Returns each attribute with its ordinal among the attributes of its
-    /// kind, in source order.
-    #[must_use]
-    pub fn ordinals(&self) -> Vec<(u32, &TokenAttribute)> {
-        let mut regex = 0_u32;
-        let mut terminal = 0_u32;
-        self.attributes
-            .iter()
-            .map(|attribute| {
-                let counter = match attribute.content {
-                    TokenContent::Regex(_) => &mut regex,
-                    TokenContent::Terminal(_) => &mut terminal,
-                };
-                let ordinal = *counter;
-                *counter += 1;
-                (ordinal, attribute)
-            })
-            .collect()
-    }
-
     /// Returns every content and precedence anchor of the stack.
     ///
     /// # Errors
@@ -1061,8 +1041,7 @@ impl TokenStack {
     }
 
     /// Keys every attribute of the stack again, as one sentence: each
-    /// content role numbers its own kind, regexes and terminals apart, as
-    /// [`Self::ordinals`] does.
+    /// content role numbers its own kind, regexes and terminals apart.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
         for attribute in &mut self.attributes {

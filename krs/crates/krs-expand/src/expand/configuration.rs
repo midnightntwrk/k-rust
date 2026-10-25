@@ -12,7 +12,7 @@ use krs_ir::{
     DescriptorConfigurationRoot, ProtocolCellContent,
 };
 use krs_syntax::KrsSyntax;
-use krs_syntax::{ConfigurationCellContent, ProvenanceRole, TokenRange};
+use krs_syntax::{ConfigurationCellContent, TokenRange};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote, quote_spanned};
 use syn::spanned::Spanned;
@@ -20,7 +20,7 @@ use syn::{Ident, ItemStruct, Path, parse_quote};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
-use super::terms::{WireSlots, read_key, wire_key};
+use super::terms::{WireSlots, held_key};
 use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -30,7 +30,6 @@ pub(crate) fn configuration(
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    let configuration_declaration_role = ProvenanceRole::ConfigurationDeclaration;
     let attribute = krs_syntax::ConfigurationAttribute::parse_tokens(attributes)?;
     let declaration = krs_syntax::ConfigurationDeclaration::parse_tokens(item)?;
     let facade = env.facade_path()?;
@@ -52,7 +51,7 @@ pub(crate) fn configuration(
     let cfg = call_site_cfg_attributes(&item.attrs)?;
     let name = declaration.name().to_string();
     let declared = call_site_ident(declaration.name())?;
-    let root = configuration_root(&attribute);
+    let root = configuration_root(&attribute)?;
     let mut slots = WireSlots::new(&facade);
     let (field_helpers, fields) =
         configuration_fields(&facade, &declaration, &declared, &declared_key, &mut slots)?;
@@ -60,10 +59,7 @@ pub(crate) fn configuration(
     let wire = serde_json::to_string(&(
         root,
         WireCellDeclaration {
-            key: read_key(
-                declaration.name_key(),
-                wire_key(configuration_declaration_role, 0),
-            ),
+            key: held_key(declaration.name_key())?,
             fields,
         },
     ))
@@ -135,7 +131,6 @@ pub(crate) fn cell(
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    let configuration_declaration_role = ProvenanceRole::ConfigurationDeclaration;
     krs_syntax::CellAttributePayload::parse_tokens(attributes)?;
     let declaration = krs_syntax::ConfigurationDeclaration::parse_tokens(item)?;
     let facade = env.facade_path()?;
@@ -156,10 +151,7 @@ pub(crate) fn cell(
         configuration_fields(&facade, &declaration, &declared, &declared_key, &mut slots)?;
 
     let wire = serde_json::to_string(&WirePayload::Cell(Box::new(WireCellDeclaration {
-        key: read_key(
-            declaration.name_key(),
-            wire_key(configuration_declaration_role, 0),
-        ),
+        key: held_key(declaration.name_key())?,
         fields,
     })))
     .expect("KRS wire values serialize");
@@ -288,18 +280,14 @@ pub(super) fn cell_marker_function(field: &Ident) -> Ident {
 
 fn configuration_root(
     attribute: &krs_syntax::ConfigurationAttribute,
-) -> DescriptorConfigurationRoot {
-    attribute
-        .optional_root()
-        .map_or(DescriptorConfigurationRoot::GeneratedTop, |root| {
-            DescriptorConfigurationRoot::Named {
-                key: read_key(
-                    attribute.root_key(),
-                    wire_key(ProvenanceRole::ConfigurationRoot, 0),
-                ),
-                name: root.value(),
-            }
-        })
+) -> crate::Result<DescriptorConfigurationRoot> {
+    Ok(match attribute.optional_root() {
+        Some(root) => DescriptorConfigurationRoot::Named {
+            key: held_key(attribute.root_key())?,
+            name: root.value(),
+        },
+        None => DescriptorConfigurationRoot::GeneratedTop,
+    })
 }
 
 #[expect(
@@ -317,13 +305,6 @@ fn configuration_fields(
     let mut fields = Vec::new();
     let mut argument_ordinal = 0_u32;
     for (index, field) in declaration.cells().iter().enumerate() {
-        let ordinal = u32::try_from(index).map_err(|_| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                field.name().span(),
-                "too many fixed cells",
-            )
-        })?;
         let marker = cell_marker_function(field.name());
         helpers.push(quote! {
             #[doc(hidden)]
@@ -333,40 +314,42 @@ fn configuration_fields(
             }
         });
         let keys = field.attribute().keys();
-        let emitted_name = field.attribute().name().map(|name| DescriptorCellName {
-            key: read_key(
-                keys.name(),
-                wire_key(ProvenanceRole::ConfigurationCellName, ordinal),
-            ),
-            value: name.value(),
-        });
-        let color = field.attribute().color().map(|color| DescriptorCellColor {
-            key: read_key(
-                keys.color(),
-                wire_key(ProvenanceRole::ConfigurationCellColor, ordinal),
-            ),
-            value: color.value(),
-        });
-        let multiplicity =
-            field
-                .attribute()
-                .multiplicity()
-                .map(|value| DescriptorCellMultiplicity {
-                    key: read_key(
-                        keys.multiplicity(),
-                        wire_key(ProvenanceRole::ConfigurationCellMultiplicity, ordinal),
-                    ),
+        let emitted_name = field
+            .attribute()
+            .name()
+            .map(|name| -> crate::Result<_> {
+                Ok(DescriptorCellName {
+                    key: held_key(keys.name())?,
+                    value: name.value(),
+                })
+            })
+            .transpose()?;
+        let color = field
+            .attribute()
+            .color()
+            .map(|color| -> crate::Result<_> {
+                Ok(DescriptorCellColor {
+                    key: held_key(keys.color())?,
+                    value: color.value(),
+                })
+            })
+            .transpose()?;
+        let multiplicity = field
+            .attribute()
+            .multiplicity()
+            .map(|value| -> crate::Result<_> {
+                Ok(DescriptorCellMultiplicity {
+                    key: held_key(keys.multiplicity())?,
                     value: value.value(),
-                });
+                })
+            })
+            .transpose()?;
         let cell_type = field
             .attribute()
             .cell_type()
             .map(|value| {
                 Ok::<_, ExpandError>(DescriptorCellType {
-                    key: read_key(
-                        keys.cell_type(),
-                        wire_key(ProvenanceRole::ConfigurationCellType, ordinal),
-                    ),
+                    key: held_key(keys.cell_type())?,
                     value: value.value().try_into().map_err(|error| {
                         ExpandError::new(expand::CONFIGURATION_SHAPE, value.span(), error)
                     })?,
@@ -377,39 +360,32 @@ fn configuration_fields(
             .attribute()
             .stream()
             .map(|value| {
-                krs_ir::CellStream::from_k(&value.value())
-                    .map(|stream| DescriptorCellStream {
-                        key: read_key(
-                            keys.stream(),
-                            wire_key(ProvenanceRole::ConfigurationCellStream, ordinal),
-                        ),
-                        value: stream,
-                    })
-                    .ok_or_else(|| {
-                        ExpandError::new(
-                            expand::CONFIGURATION_SHAPE,
-                            value.span(),
-                            "K supports stream=\"stdin\" and \"stdout\"",
-                        )
-                    })
+                let stream = krs_ir::CellStream::from_k(&value.value()).ok_or_else(|| {
+                    ExpandError::new(
+                        expand::CONFIGURATION_SHAPE,
+                        value.span(),
+                        "K supports stream=\"stdin\" and \"stdout\"",
+                    )
+                })?;
+                Ok::<_, ExpandError>(DescriptorCellStream {
+                    key: held_key(keys.stream())?,
+                    value: stream,
+                })
             })
             .transpose()?;
-        let exit = field.attribute().exit().map(|_| DescriptorCellExit {
-            key: read_key(
-                keys.exit(),
-                wire_key(ProvenanceRole::ConfigurationCellExit, ordinal),
-            ),
-        });
-        let initial = field.attribute().initial().map(|_| DescriptorCellInitial {
-            key: read_key(
-                keys.initial(),
-                wire_key(ProvenanceRole::ConfigurationCellInitial, ordinal),
-            ),
-        });
+        let exit = field
+            .attribute()
+            .exit()
+            .map(|_| held_key(keys.exit()).map(|key| DescriptorCellExit { key }))
+            .transpose()?;
+        let initial = field
+            .attribute()
+            .initial()
+            .map(|_| held_key(keys.initial()).map(|key| DescriptorCellInitial { key }))
+            .transpose()?;
         let content = configuration_content(
             field,
             index,
-            ordinal,
             &mut argument_ordinal,
             &mut ConfigurationFieldContext {
                 facade,
@@ -421,10 +397,7 @@ fn configuration_fields(
         )?;
         fields.push(WireCellField {
             reference: WireCellReference {
-                key: read_key(
-                    field.key(),
-                    wire_key(ProvenanceRole::ConfigurationField, ordinal),
-                ),
+                key: held_key(field.key())?,
                 cell: WireCellIdentity {
                     owner: slots.type_slot(quote!(#facade::HostTypeKey(#owner_key))),
                     field: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#marker))),
@@ -455,7 +428,6 @@ struct ConfigurationFieldContext<'a> {
 fn configuration_content(
     field: &krs_syntax::FixedCellField,
     index: usize,
-    ordinal: u32,
     argument_ordinal: &mut u32,
     assembly: &mut ConfigurationFieldContext<'_>,
 ) -> crate::Result<krs_ir::wire::WireCellContent> {
@@ -489,27 +461,20 @@ fn configuration_content(
                     owner,
                     owner_key,
                     cfg: &[],
-                    role: ProvenanceRole::ConfigurationCellContentArgument,
                     helpers,
                     slots,
                     ordinal: argument_ordinal,
                 },
             )?;
             ProtocolCellContent::Leaf {
-                wrapper_key: read_key(
-                    field.wrapper_key(),
-                    wire_key(ProvenanceRole::ConfigurationCellWrapper, ordinal),
-                ),
+                wrapper_key: held_key(field.wrapper_key())?,
                 wrapper: if *computation {
                     CellWrapper::KCell
                 } else {
                     CellWrapper::Cell
                 },
                 sort: WireSortReference {
-                    key: read_key(
-                        field.content_key(),
-                        wire_key(ProvenanceRole::ConfigurationCellContent, ordinal),
-                    ),
+                    key: held_key(field.content_key())?,
                     target: WireTypeReference {
                         slot: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#sort_key))),
                         authored_path,
@@ -530,10 +495,7 @@ fn configuration_content(
             });
             ProtocolCellContent::Nested {
                 declaration: WireCellDeclarationReference {
-                    key: read_key(
-                        field.content_key(),
-                        wire_key(ProvenanceRole::ConfigurationCellContent, ordinal),
-                    ),
+                    key: held_key(field.content_key())?,
                     declaration: WireTypeReference {
                         slot: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#nested_key))),
                         authored_path,
@@ -555,17 +517,15 @@ pub(super) struct SortArgumentContext<'a, 'b> {
     pub(super) owner_key: &'a Ident,
     /// The `cfg` attributes the helpers carry.
     pub(super) cfg: &'a [syn::Attribute],
-    /// The arguments' provenance role: a cell's content or a configuration
-    /// variable's type.
-    pub(super) role: ProvenanceRole,
     pub(super) helpers: &'a mut Vec<TokenStream>,
     pub(super) slots: &'a mut WireSlots,
-    /// The next ordinal of `role`.
+    /// The number of the next helper.
     pub(super) ordinal: &'b mut u32,
 }
 
 /// The wire tree of a cell's or a configuration variable's collection
-/// arguments, numbered in preorder as the syntax numbers their provenance.
+/// arguments, each keyed by its path, with one `TypeId` helper per argument
+/// numbered in preorder.
 pub(super) fn configuration_sort_arguments(
     arguments: &[krs_syntax::SortArgument],
     context: &mut SortArgumentContext<'_, '_>,
@@ -590,7 +550,6 @@ pub(super) fn configuration_sort_arguments(
                 ::core::any::TypeId::of::<#ty>()
             }
         });
-        let ordinal = *context.ordinal;
         *context.ordinal = context.ordinal.checked_add(1).ok_or_else(|| {
             ExpandError::new(
                 expand::DESCRIPTOR_CAPACITY,
@@ -599,7 +558,7 @@ pub(super) fn configuration_sort_arguments(
             )
         })?;
         let sort = WireSortReference {
-            key: read_key(argument.key(), wire_key(context.role, ordinal)),
+            key: held_key(argument.key())?,
             target: WireTypeReference {
                 slot: context
                     .slots

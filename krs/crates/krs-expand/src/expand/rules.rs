@@ -10,10 +10,10 @@ use krs_ir::{
     DescriptorSimplificationPriority, StableText,
 };
 use krs_syntax::KrsSyntax;
-use krs_syntax::ProvenanceRole;
 use krs_syntax::surface::{AttributeMacro, helper_entry};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
+use std::iter::repeat;
 use syn::ext::IdentExt;
 use syn::{Attribute, FnArg, ItemFn, Pat, Path};
 
@@ -22,9 +22,7 @@ use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
 use super::nonce::expansion_nonce;
 use super::state_rules::{StateRuleBuilder, configuration_rule};
-use super::terms::{
-    KeyedTerm, TermBuilder, TermSide, WireSlots, read_key, wire_key, wire_sort_reference,
-};
+use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, held_key, wire_sort_reference};
 use super::tokens::{
     call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens, spelling,
 };
@@ -439,11 +437,6 @@ fn expand_ordinary_rule(
             helper.path(),
         ))));
     }
-    let rule_requires_role = ProvenanceRole::RuleRequires;
-    let simplification_priority_role = ProvenanceRole::SimplificationPriority;
-    let simplification_marker_role = ProvenanceRole::SimplificationMarker;
-    let rule_pattern_role = ProvenanceRole::RulePattern;
-    let rule_result_role = ProvenanceRole::RuleResult;
     let facade = env.facade_path()?;
     let sentence = match sentence_kind {
         krs_ir::SentenceKind::Transition => krs_syntax::RuleSentence::Transition(attribute),
@@ -534,20 +527,15 @@ fn expand_ordinary_rule(
     let parameter_type = rule.parameter().term_sort.ty();
     let result_type = rule.result_sort().map(krs_syntax::TermSort::ty);
     let name = name_ident.unraw().to_string();
-    let label = attribute.label().map(|label| DescriptorRuleLabel {
-        key: read_key(
-            attribute.label_key(),
-            wire_key(
-                if sentence_kind == krs_ir::SentenceKind::Context {
-                    ProvenanceRole::ContextLabel
-                } else {
-                    ProvenanceRole::RuleLabel
-                },
-                0,
-            ),
-        ),
-        name: label.value().clone(),
-    });
+    let label = attribute
+        .label()
+        .map(|label| -> crate::Result<_> {
+            Ok(DescriptorRuleLabel {
+                key: held_key(attribute.label_key())?,
+                name: label.value().clone(),
+            })
+        })
+        .transpose()?;
     let parameter_sort_spelling = rule.parameter().term_sort.sort_token_text();
     let result_sort_spelling = rule
         .result_sort()
@@ -595,25 +583,23 @@ fn expand_ordinary_rule(
         &mut slots,
     )?;
     let subject_sort = WireSortReference {
-        key: read_key(
-            rule.parameter().type_key(),
-            wire_key(ProvenanceRole::RuleType, 0),
-        ),
+        key: held_key(rule.parameter().type_key())?,
         target: WireTypeReference {
             slot: slots.type_slot(quote!(#facade::HostTypeKey(#parameter_key))),
             authored_path: parameter_sort_spelling,
         },
     };
-    let result_sort = result_sort_spelling.map(|authored_path| WireSortReference {
-        key: read_key(
-            rule.result_type_key(),
-            wire_key(ProvenanceRole::RuleResultType, 0),
-        ),
-        target: WireTypeReference {
-            slot: slots.type_slot(quote!(#facade::HostTypeKey(#result_key))),
-            authored_path,
-        },
-    });
+    let result_sort = result_sort_spelling
+        .map(|authored_path| -> crate::Result<_> {
+            Ok(WireSortReference {
+                key: held_key(rule.result_type_key())?,
+                target: WireTypeReference {
+                    slot: slots.type_slot(quote!(#facade::HostTypeKey(#result_key))),
+                    authored_path,
+                },
+            })
+        })
+        .transpose()?;
     let (typed_bindings, binder_key_functions) =
         typed_binders(rule, &facade, nonce, &cfg, &mut slots)?;
     term_builder.set_rewrites(rule.result().is_none());
@@ -642,12 +628,10 @@ fn expand_ordinary_rule(
         })
         .transpose()?;
     let (function_context, context_tokens) = function_context.unzip();
-    term_builder.reset_side();
     let result = rule
         .result()
         .map(|result| term_builder.expand_wire(KeyedTerm::of(result), TermSide::Right, &mut slots))
         .transpose()?;
-    term_builder.reset_side();
     let requires = if let Some(condition) = rule.requires() {
         let term = term_builder.expand_wire(
             KeyedTerm::of(condition.term()),
@@ -655,16 +639,12 @@ fn expand_ordinary_rule(
             &mut slots,
         )?;
         Some(WireRuleCondition {
-            key: read_key(
-                condition.term().keys().payload(),
-                wire_key(rule_requires_role, 0),
-            ),
+            key: held_key(condition.term().keys().payload())?,
             term,
         })
     } else {
         None
     };
-    term_builder.reset_side();
     let ensures = ensures_condition(rule.existentials(), &mut term_builder, &mut slots)?;
     let mut term_key_functions = term_builder.key_functions;
     term_key_functions.extend(existential_key_functions);
@@ -673,46 +653,50 @@ fn expand_ordinary_rule(
     let priority = attribute
         .transition_priority()
         .or_else(|| equation.and_then(krs_syntax::EquationAttribute::equation_priority))
-        .map(|(role, value)| DescriptorRulePriority {
-            key: read_key(priority_key(attribute, equation), wire_key(role, 0)),
-            value,
-        });
-    let simplification = simplification.map(|simplification| DescriptorSimplification {
-        key: read_key(
-            descriptor.marker_key(),
-            wire_key(simplification_marker_role, 0),
-        ),
-        priority: simplification
-            .priority()
-            .map(|value| DescriptorSimplificationPriority {
-                key: read_key(
-                    simplification.priority_key(),
-                    wire_key(simplification_priority_role, 0),
-                ),
+        .map(|(_, value)| -> crate::Result<_> {
+            Ok(DescriptorRulePriority {
+                key: held_key(priority_key(attribute, equation))?,
                 value,
-            }),
-        restriction: match_restriction(simplification.restriction()),
-    });
+            })
+        })
+        .transpose()?;
+    let simplification = simplification
+        .map(|simplification| -> crate::Result<_> {
+            Ok(DescriptorSimplification {
+                key: held_key(descriptor.marker_key())?,
+                priority: simplification
+                    .priority()
+                    .map(|value| -> crate::Result<_> {
+                        Ok(DescriptorSimplificationPriority {
+                            key: held_key(simplification.priority_key())?,
+                            value,
+                        })
+                    })
+                    .transpose()?,
+                restriction: match_restriction(simplification.restriction())?,
+            })
+        })
+        .transpose()?;
     let equation_attributes = equation
-        .and_then(|equation| match_restriction(equation.restriction()))
+        .map(|equation| match_restriction(equation.restriction()))
+        .transpose()?
+        .flatten()
         .map(|restriction| krs_ir::DescriptorEquationAttributes { restriction });
     let item_kind_variant = format_ident!("{}", sentence_kind.item_kind().stable_text());
     let item_kind = quote!(#facade::ItemKind::#item_kind_variant);
     let nondet = attribute
         .nondet()
-        .map(|group| krs_ir::DescriptorNondetGroup {
-            key: read_key(
-                attribute.nondet_key(),
-                ProvenanceRole::RuleNondetGroup.key(0),
-            ),
-            name: group.unraw().to_string(),
-        });
-    let anywhere = attribute.anywhere().map(|_| {
-        read_key(
-            attribute.anywhere_key(),
-            wire_key(ProvenanceRole::RuleAnywhere, 0),
-        )
-    });
+        .map(|group| -> crate::Result<_> {
+            Ok(krs_ir::DescriptorNondetGroup {
+                key: held_key(attribute.nondet_key())?,
+                name: group.unraw().to_string(),
+            })
+        })
+        .transpose()?;
+    let anywhere = attribute
+        .anywhere()
+        .map(|_| held_key(attribute.anywhere_key()))
+        .transpose()?;
     let wire = WirePayload::StructuredRule(Box::new(WireStructuredRule {
         sentence_kind,
         label,
@@ -721,14 +705,12 @@ fn expand_ordinary_rule(
         nondet,
         anywhere,
         simplification,
-        pattern_key: read_key(
-            rule.parameter().pattern_key(),
-            wire_key(rule_pattern_role, 0),
-        ),
+        pattern_key: held_key(rule.parameter().pattern_key())?,
         typed_bindings,
         result_key: rule
             .result()
-            .map(|result| read_key(result.keys().payload(), wire_key(rule_result_role, 0))),
+            .map(|result| held_key(result.keys().payload()))
+            .transpose()?,
         subject_sort,
         result_sort,
         bindings,
@@ -740,7 +722,8 @@ fn expand_ordinary_rule(
         equation: equation_attributes,
         unbound_variables: desugar
             .and_then(krs_syntax::DesugarAttribute::unbound_variables)
-            .map(unbound_variables),
+            .map(unbound_variables)
+            .transpose()?,
         function_context,
         predicate,
         evaluation,
@@ -896,8 +879,8 @@ struct ContextTokens {
 }
 
 /// Expands an equation's function context (KF-025): its configuration
-/// reference, its bindings the subject does not bind, and its one-sided cells,
-/// whose left-hand ordinals continue after the subject's.
+/// reference, its bindings the subject does not bind, and its one-sided
+/// cells.
 fn function_context(
     rule: &krs_syntax::RuleItem,
     context: &krs_syntax::FunctionContext,
@@ -922,25 +905,18 @@ fn function_context(
                     .iter()
                     .position(|binder| binder.name() == binding.name())
                     .expect("the binder list declares every context term binder");
-                let ordinal = u32::try_from(index).map_err(|_| {
-                    ExpandError::new(
-                        expand::DESCRIPTOR_CAPACITY,
-                        binding.name().span(),
-                        "too many typed binders",
-                    )
-                })?;
                 let binder = &rule.binders()[index];
-                let key_fn = format_ident!("__krs_rule_binder_sort_{nonce:016x}_{ordinal}");
+                let key_fn = format_ident!("__krs_rule_binder_sort_{nonce:016x}_{index}");
                 // The binder's declared sort, which the typed binders also
                 // name.
                 krs_ir::ProtocolRuleBindingKind::Term {
                     sort: wire_sort_reference(
                         slots,
                         facade,
-                        (binder.sort_key(), ProvenanceRole::RuleBindingType, ordinal),
+                        binder.sort_key(),
                         &key_fn,
                         &binder.term_sort().sort_token_text(),
-                    ),
+                    )?,
                 }
             }
             krs_syntax::StateRuleBindingKind::KSequenceFrame => {
@@ -963,7 +939,6 @@ fn function_context(
         StateRuleBuilder::new(facade, nonce, cfg, bindings, krs_syntax::RuleSide::Left);
     builder.continue_subject(term_builder);
     let cells = builder.expand_cells(context.pattern(), &configuration_type, slots)?;
-    term_builder.continue_ordinals(&builder.terms);
     term_builder.next_key = builder.terms.next_key;
     let mut items = std::mem::take(&mut builder.terms.key_functions);
     items.push(quote! {
@@ -980,12 +955,9 @@ fn function_context(
         .collect::<crate::Result<Vec<_>>>()?;
     checks.extend(consumed_state_island_import_checks(rule.item()));
     let wire = krs_ir::wire::WireFunctionContext {
-        key: read_key(context.key(), wire_key(ProvenanceRole::FunctionContext, 0)),
+        key: held_key(context.key())?,
         configuration: krs_ir::wire::WireConfigurationReference {
-            key: read_key(
-                context.type_key(),
-                wire_key(ProvenanceRole::FunctionContextType, 0),
-            ),
+            key: held_key(context.type_key())?,
             configuration: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#configuration_key))),
                 authored_path: spelling(context.configuration_type()),
@@ -1016,17 +988,10 @@ fn typed_binders(
     let mut bindings = Vec::new();
     let mut key_functions = Vec::new();
     for (index, binder) in rule.binders().iter().enumerate() {
-        let ordinal = u32::try_from(index).map_err(|_| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                binder.name().span(),
-                "too many typed binders",
-            )
-        })?;
         let sort = binder.term_sort();
         let path = call_site_path(sort.sort())?;
         let ty = sort_type_tokens(facade, &path, sort.is_dynamic());
-        let key_fn = format_ident!("__krs_rule_binder_sort_{nonce:016x}_{ordinal}");
+        let key_fn = format_ident!("__krs_rule_binder_sort_{nonce:016x}_{index}");
         key_functions.push(quote! {
             #(#cfg)*
             #[doc(hidden)]
@@ -1035,18 +1000,15 @@ fn typed_binders(
             }
         });
         bindings.push(krs_ir::wire::WireTypedBinding {
-            key: read_key(
-                binder.parameter_key(),
-                wire_key(ProvenanceRole::RuleBindingParameter, ordinal),
-            ),
+            key: held_key(binder.parameter_key())?,
             name: binder.name().unraw().to_string(),
             sort: wire_sort_reference(
                 slots,
                 facade,
-                (binder.sort_key(), ProvenanceRole::RuleBindingType, ordinal),
+                binder.sort_key(),
                 &key_fn,
                 &sort.sort_token_text(),
-            ),
+            )?,
         });
     }
     Ok((bindings, key_functions))
@@ -1056,69 +1018,74 @@ fn typed_binders(
 /// `symbolic`, and `smt_lemma` keys (KF-043), or `None` when none is authored.
 fn match_restriction(
     restriction: &krs_syntax::MatchRestriction,
-) -> Option<krs_ir::DescriptorMatchRestriction> {
+) -> crate::Result<Option<krs_ir::DescriptorMatchRestriction>> {
     if restriction.is_empty() {
-        return None;
+        return Ok(None);
     }
-    let mut ordinal = 0_u32;
-    let mut key = |restriction: Option<&krs_syntax::RestrictionKey>, role: ProvenanceRole| {
-        restriction.map(|restriction| krs_ir::DescriptorRestriction {
-            key: read_key(restriction.provenance_key(), wire_key(role, 0)),
-            variables: restriction
-                .variables()
-                .unwrap_or_default()
-                .iter()
-                .zip(0..)
-                .map(|(variable, index)| {
-                    let key = read_key(
-                        restriction.variable_keys().get(index),
-                        wire_key(ProvenanceRole::RestrictionVariable, ordinal),
-                    );
-                    ordinal += 1;
-                    krs_ir::DescriptorRestrictionVariable {
-                        key,
-                        name: variable.to_string(),
-                    }
+    let key = |restriction: Option<&krs_syntax::RestrictionKey>| {
+        restriction
+            .map(|restriction| -> crate::Result<_> {
+                // The listed binders hold their keys in order.
+                let variables = restriction
+                    .variables()
+                    .unwrap_or_default()
+                    .iter()
+                    .zip(
+                        restriction
+                            .variable_keys()
+                            .iter()
+                            .map(Some)
+                            .chain(repeat(None)),
+                    )
+                    .map(|(variable, read)| {
+                        Ok(krs_ir::DescriptorRestrictionVariable {
+                            key: held_key(read)?,
+                            name: variable.to_string(),
+                        })
+                    })
+                    .collect::<crate::Result<_>>()?;
+                Ok(krs_ir::DescriptorRestriction {
+                    key: held_key(restriction.provenance_key())?,
+                    variables,
                 })
-                .collect(),
-        })
+            })
+            .transpose()
     };
-    let concrete = key(restriction.concrete(), ProvenanceRole::RestrictionConcrete);
-    let symbolic = key(restriction.symbolic(), ProvenanceRole::RestrictionSymbolic);
-    Some(krs_ir::DescriptorMatchRestriction {
-        concrete,
-        symbolic,
-        smt_lemma: restriction.smt_lemma().map(|_| {
-            read_key(
-                restriction.smt_lemma_key(),
-                wire_key(ProvenanceRole::SmtLemma, 0),
-            )
-        }),
-    })
+    Ok(Some(krs_ir::DescriptorMatchRestriction {
+        concrete: key(restriction.concrete())?,
+        symbolic: key(restriction.symbolic())?,
+        smt_lemma: restriction
+            .smt_lemma()
+            .map(|_| held_key(restriction.smt_lemma_key()))
+            .transpose()?,
+    }))
 }
 
 /// The descriptor form of `unbound_variables = [..]` (KF-046).
-fn unbound_variables(unbound: &krs_syntax::UnboundVariables) -> krs_ir::DescriptorUnboundVariables {
+fn unbound_variables(
+    unbound: &krs_syntax::UnboundVariables,
+) -> crate::Result<krs_ir::DescriptorUnboundVariables> {
     // The keys of the `unbound_variables` identifier, then of each entry.
     let keys = unbound.provenance_keys();
-    krs_ir::DescriptorUnboundVariables {
-        key: read_key(keys.first(), wire_key(ProvenanceRole::UnboundVariables, 0)),
-        variables: (0_u32..)
-            .zip(unbound.variables())
-            .zip(keys.iter().skip(1).map(Some).chain(std::iter::repeat(None)))
-            .map(
-                |((ordinal, variable), read)| krs_ir::DescriptorUnboundVariable {
-                    key: read_key(read, wire_key(ProvenanceRole::UnboundVariable, ordinal)),
+    Ok(krs_ir::DescriptorUnboundVariables {
+        key: held_key(keys.first())?,
+        variables: unbound
+            .variables()
+            .iter()
+            .zip(keys.iter().skip(1).map(Some).chain(repeat(None)))
+            .map(|(variable, read)| {
+                Ok(krs_ir::DescriptorUnboundVariable {
+                    key: held_key(read)?,
                     name: match variable {
                         krs_syntax::UnboundVariable::Named(name) => name.to_string(),
                         krs_syntax::UnboundVariable::Wildcard(_) => {
                             krs_ir::DescriptorUnboundVariable::WILDCARD.to_owned()
                         }
                     },
-                },
-            )
-            .collect(),
-    }
+                })
+            })
+            .collect::<crate::Result<_>>()?,
+    })
 }
 
 pub(crate) fn orphan_rule_helper(

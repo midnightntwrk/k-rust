@@ -12,15 +12,15 @@ use krs_ir::wire::{
 use krs_ir::{BuiltinSort, DescriptorApplicationHeadClass, ProductionFieldId, ProvenanceKey};
 use krs_syntax::surface::path_text;
 use krs_syntax::{ProvenanceRole, TermArguments, TermExpression, TermKeys, TermNode, TermTree};
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::ext::IdentExt;
 use syn::{Attribute, Ident, Path};
 
 use super::nonce::rule_application_selector;
 use super::tokens::{
-    call_site_path, enum_variant_parts, is_bound_ident_path, spelling, take_counter,
-    variant_marker_function, wire_literal,
+    call_site_path, enum_variant_parts, is_bound_ident_path, spelling, variant_marker_function,
+    wire_literal,
 };
 
 /// Resolved expressions retained by a factory's static host wire.
@@ -117,46 +117,30 @@ impl WireSlots {
     }
 }
 
-/// The wire term of `k::rewrite!` number `ordinal` (KF-011), whose node
-/// holds `node`.
+/// The wire term of `k::rewrite!` (KF-011), whose node holds `node`.
 pub(super) fn rewrite_wire(
-    ordinal: u32,
     node: NodeKeys<'_>,
     from: WireTerm,
     to: Option<Box<WireTerm>>,
-) -> WireTerm {
-    WireTerm::Rewrite {
-        key: read_key(
-            node.role(ProvenanceRole::RuleLocalRewrite),
-            wire_key(ProvenanceRole::RuleLocalRewrite, ordinal),
-        ),
-        from_key: read_key(
-            node.role(ProvenanceRole::RuleLocalRewriteFrom),
-            wire_key(ProvenanceRole::RuleLocalRewriteFrom, ordinal),
-        ),
-        to_key: read_key(
-            node.role(ProvenanceRole::RuleLocalRewriteTo),
-            wire_key(ProvenanceRole::RuleLocalRewriteTo, ordinal),
-        ),
+) -> crate::Result<WireTerm> {
+    Ok(WireTerm::Rewrite {
+        key: held_key(node.role(ProvenanceRole::RuleLocalRewrite))?,
+        from_key: held_key(node.role(ProvenanceRole::RuleLocalRewriteFrom))?,
+        to_key: held_key(node.role(ProvenanceRole::RuleLocalRewriteTo))?,
         from: Box::new(from),
         to,
-    }
+    })
 }
 
-pub(super) fn wire_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
-    ProvenanceKey::new(role, ordinal)
-}
-
-/// The key a wire node reads from the AST node it denotes, checked against
-/// the key its counter recomputes, which it still emits.
-#[track_caller]
-pub(super) fn read_key(read: Option<&ProvenanceKey>, counted: ProvenanceKey) -> ProvenanceKey {
-    debug_assert_eq!(
-        read,
-        Some(&counted),
-        "the AST node's key and the counted key disagree"
-    );
-    counted
+/// The key of the authored node a wire node denotes, which its sentence
+/// gave it at parse; a node expansion reaches without one is a KRS bug.
+pub(super) fn held_key(read: Option<&ProvenanceKey>) -> crate::Result<ProvenanceKey> {
+    read.cloned().ok_or_else(|| {
+        ExpandError::at_invocation(
+            expand::MISSING_PROVENANCE_KEY,
+            "an authored node holds no provenance key from its sentence's parse",
+        )
+    })
 }
 
 /// The key of the first of a descriptor's `anchors` with `role`: a key the
@@ -336,23 +320,21 @@ impl<'t> NodeKeys<'t> {
     }
 }
 
-/// A sort reference keyed `read`, the key its node holds, where the counter
-/// says `(role, ordinal)`.
-#[track_caller]
+/// A sort reference keyed `read`, the key its node holds.
 pub(super) fn wire_sort_reference(
     slots: &mut WireSlots,
     facade: &Path,
-    (read, role, ordinal): (Option<&ProvenanceKey>, ProvenanceRole, u32),
+    read: Option<&ProvenanceKey>,
     key: &Ident,
     authored_path: &str,
-) -> WireSortReference {
-    WireSortReference {
-        key: read_key(read, wire_key(role, ordinal)),
+) -> crate::Result<WireSortReference> {
+    Ok(WireSortReference {
+        key: held_key(read)?,
         target: WireTypeReference {
             slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
             authored_path: authored_path.to_owned(),
         },
-    }
+    })
 }
 
 #[derive(Clone, Copy)]
@@ -367,12 +349,9 @@ pub(super) enum TermSide {
 /// A term-node role that a [`TermSide`] maps to its provenance role.
 #[derive(Clone, Copy)]
 pub(super) enum TermRole {
-    Path,
     ApplicationHead,
     Reference,
     Literal,
-    RecordFieldName,
-    Wildcard,
 }
 
 impl TermSide {
@@ -380,45 +359,23 @@ impl TermSide {
         use ProvenanceRole as P;
         use TermRole as T;
         match (self, role) {
-            (Self::Left, T::Path) => P::RuleLeftPath,
             (Self::Left, T::ApplicationHead) => P::RuleLeftApplicationHead,
             (Self::Left, T::Reference) => P::RuleLeftReference,
             (Self::Left, T::Literal) => P::RuleLeftLiteral,
-            (Self::Left, T::RecordFieldName) => P::RuleLeftRecordFieldName,
-            (Self::Left, T::Wildcard) => P::RuleLeftWildcard,
-            (Self::Right, T::Path) => P::RuleRightPath,
             (Self::Right, T::ApplicationHead) => P::RuleRightApplicationHead,
             (Self::Right, T::Reference) => P::RuleRightReference,
             (Self::Right, T::Literal) => P::RuleRightLiteral,
-            (Self::Right, T::Wildcard) => P::RuleRightWildcard,
-            (Self::Right, T::RecordFieldName) => P::RuleRightRecordFieldName,
-            (Self::Requires, T::Path) => P::RuleRequiresPath,
             (Self::Requires, T::ApplicationHead) => P::RuleRequiresApplicationHead,
             (Self::Requires, T::Reference) => P::RuleRequiresReference,
-            (Self::Requires, T::Literal | T::Wildcard) => P::RuleRequiresLiteral,
-            (Self::Requires, T::RecordFieldName) => P::RuleRequiresRecordFieldName,
-            (Self::Ensures, T::Path) => P::ClaimEnsuresPath,
+            (Self::Requires, T::Literal) => P::RuleRequiresLiteral,
             (Self::Ensures, T::ApplicationHead) => P::ClaimEnsuresApplicationHead,
             (Self::Ensures, T::Reference) => P::ClaimEnsuresReference,
-            (Self::Ensures, T::Literal | T::Wildcard) => P::ClaimEnsuresLiteral,
-            (Self::Ensures, T::RecordFieldName) => P::ClaimEnsuresRecordFieldName,
-            (Self::RuleEnsures, T::Path) => P::RuleEnsuresPath,
+            (Self::Ensures, T::Literal) => P::ClaimEnsuresLiteral,
             (Self::RuleEnsures, T::ApplicationHead) => P::RuleEnsuresApplicationHead,
             (Self::RuleEnsures, T::Reference) => P::RuleEnsuresReference,
-            (Self::RuleEnsures, T::Literal | T::Wildcard) => P::RuleEnsuresLiteral,
-            (Self::RuleEnsures, T::RecordFieldName) => P::RuleEnsuresRecordFieldName,
+            (Self::RuleEnsures, T::Literal) => P::RuleEnsuresLiteral,
         }
     }
-}
-
-#[derive(Default)]
-struct TermCounters {
-    path: u32,
-    application: u32,
-    reference: u32,
-    literal: u32,
-    field: u32,
-    wildcard: u32,
 }
 
 #[expect(
@@ -430,55 +387,25 @@ pub(super) struct TermBuilder<'a> {
     pub(super) nonce: u64,
     pub(super) cfg: &'a [Attribute],
     bindings: &'a [Ident],
-    counters: TermCounters,
     pub(super) next_key: usize,
     pub(super) key_functions: Vec<TokenStream>,
     associated_keys: bool,
     claim: bool,
-    pub(super) id_token_ordinal: u32,
-    pub(super) bytes_token_ordinal: u32,
-    /// `k::anonymous!` ordinals of a readable claim's subject.
-    anonymous_ordinal: u32,
-    pub(super) or_bool_ordinal: u32,
-    /// Side-neutral: lexemes are numbered once across a whole sentence, so
-    /// [`Self::reset_side`] keeps it and chained builders copy it forward.
-    pub(super) lexeme_ordinal: u32,
-    /// Side-neutral like [`Self::lexeme_ordinal`]: `k::is!` and
-    /// `k::project!` terms are numbered once across a whole sentence.
-    pub(super) sort_test_ordinal: u32,
-    /// `name @ pattern` ordinals, numbered once across a sentence's
-    /// left-hand side (the only side that may alias).
-    pub(super) pattern_as_ordinal: u32,
-    /// `A | B` ordinals, numbered once across a sentence's left-hand side
-    /// and its `k::matches!` patterns.
-    pub(super) pattern_or_ordinal: u32,
-    /// `k::matches!` ordinals, side-neutral like [`Self::lexeme_ordinal`].
-    pub(super) matches_ordinal: u32,
-    /// Turbofish sort-marker ordinals, side-neutral like sort tests (KF-027).
-    pub(super) application_instance_ordinal: u32,
     /// Whether this sentence kind admits turbofish instances (KF-027).
     application_instances: bool,
     /// Whether turbofish arguments use the readable spelling, the sort
     /// (`Choose::<Exp>`), rather than the reference spelling, the sort
     /// marker (`Choose::<dyn ExpSort>`).
     readable_instances: bool,
-    /// Ordinals of the `_` in `k::matches!` patterns, side-neutral.
-    pub(super) matches_wildcard_ordinal: u32,
     /// The local binders (BIND-1) of the `k::matches!` pattern being
     /// expanded, or `None` outside one.
     local_binders: Option<Vec<Ident>>,
-    /// `let` statement ordinals, side-neutral (KF-032).
-    pub(super) let_ordinal: u32,
-    /// Ordinals of the `_` in `let` patterns, side-neutral.
-    pub(super) let_wildcard_ordinal: u32,
     /// The local binders of the `let` pattern being expanded, or `None`
     /// outside one.
     let_pattern_binders: Option<Vec<Ident>>,
     /// The local binders of the enclosing `let` statements and `ml::exists`
     /// closures, innermost last.
     let_scopes: Vec<Vec<Ident>>,
-    /// `ml::exists` closure ordinals, side-neutral (KF-039).
-    pub(super) ml_binder_ordinal: u32,
     lexical_rule_head: bool,
     /// The `use` items of a `k::equations!` table or a readable block: rustc
     /// resolves every one-segment path through them, as the author's Rust
@@ -495,8 +422,6 @@ pub(super) struct TermBuilder<'a> {
     allow_rewrite: bool,
     /// Whether a `k::rewrite!` is being expanded.
     in_rewrite: bool,
-    /// `k::rewrite!` ordinals, side-neutral.
-    pub(super) rewrite_ordinal: u32,
 }
 
 impl<'a> TermBuilder<'a> {
@@ -511,36 +436,20 @@ impl<'a> TermBuilder<'a> {
             nonce,
             cfg,
             bindings,
-            counters: TermCounters::default(),
             next_key: 0,
             key_functions: Vec::new(),
             associated_keys: false,
             claim: false,
-            id_token_ordinal: 0,
-            bytes_token_ordinal: 0,
-            anonymous_ordinal: 0,
-            or_bool_ordinal: 0,
-            lexeme_ordinal: 0,
-            sort_test_ordinal: 0,
-            pattern_as_ordinal: 0,
-            pattern_or_ordinal: 0,
-            matches_ordinal: 0,
-            application_instance_ordinal: 0,
             application_instances: true,
             readable_instances: false,
-            matches_wildcard_ordinal: 0,
             local_binders: None,
-            let_ordinal: 0,
-            let_wildcard_ordinal: 0,
             let_pattern_binders: None,
             let_scopes: Vec::new(),
-            ml_binder_ordinal: 0,
             lexical_rule_head: false,
             lexical_imports: None,
             tooling_binding_references: Vec::new(),
             allow_rewrite: false,
             in_rewrite: false,
-            rewrite_ordinal: 0,
         }
     }
 
@@ -550,13 +459,13 @@ impl<'a> TermBuilder<'a> {
         self.allow_rewrite = allowed;
     }
 
-    /// Starts one `k::rewrite!` (K's local `=>`, KF-011) on `side` and
-    /// returns its ordinal; [`Self::leave_rewrite`] ends it.
+    /// Starts one `k::rewrite!` (K's local `=>`, KF-011) on `side`;
+    /// [`Self::leave_rewrite`] ends it.
     pub(super) fn enter_rewrite(
         &mut self,
         range: krs_syntax::TokenRange,
         left_side: bool,
-    ) -> crate::Result<u32> {
+    ) -> crate::Result<()> {
         if !self.allow_rewrite
             || !left_side
             || self.in_rewrite
@@ -569,16 +478,8 @@ impl<'a> TermBuilder<'a> {
                 "`k::rewrite!` (K's local =>) marks what changes inside the subject of a single-body `#[k::rule]` fn (one that returns `()`), or rewrites the hole of a `#[k::context]` fn; it cannot appear in a result, a condition, a pattern island, another rewrite, or another sentence",
             ));
         }
-        let ordinal = self.rewrite_ordinal;
-        self.rewrite_ordinal = ordinal.checked_add(1).ok_or_else(|| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                range.first(),
-                "too many `k::rewrite!` islands in one sentence",
-            )
-        })?;
         self.in_rewrite = true;
-        Ok(ordinal)
+        Ok(())
     }
 
     /// Ends the `k::rewrite!` [`Self::enter_rewrite`] started.
@@ -587,7 +488,7 @@ impl<'a> TermBuilder<'a> {
     }
 
     /// Expands `k::rewrite!(from => to)` (K's local `=>`, KF-011): the left
-    /// side, then the right side, both numbered with the subject's ordinals.
+    /// side, then the right side, both keyed as the subject's.
     fn expand_rewrite(
         &mut self,
         range: krs_syntax::TokenRange,
@@ -598,7 +499,7 @@ impl<'a> TermBuilder<'a> {
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
         let node = keys.node(NodeKind::Rewrite);
-        let ordinal = self.enter_rewrite(range, matches!(side, TermSide::Left))?;
+        self.enter_rewrite(range, matches!(side, TermSide::Left))?;
         let from = self.expand_node(from, keys, side, slots);
         let to = match (from.is_ok(), to) {
             (true, Some(to)) => {
@@ -607,7 +508,7 @@ impl<'a> TermBuilder<'a> {
             _ => Ok(None),
         };
         self.leave_rewrite();
-        Ok(rewrite_wire(ordinal, node, from?, to?))
+        rewrite_wire(node, from?, to?)
     }
 
     pub(super) fn with_associated_keys(mut self) -> Self {
@@ -648,39 +549,6 @@ impl<'a> TermBuilder<'a> {
     pub(super) fn with_lexical_rule_head(mut self, enabled: bool) -> Self {
         self.lexical_rule_head = enabled;
         self
-    }
-
-    /// The per-side ordinals of this side so far, as `[application,
-    /// reference, literal, record field, wildcard]`, for a `cells!` pattern
-    /// that continues the side (an equation's function context, KF-025).
-    pub(super) const fn side_ordinals(&self) -> [u32; 5] {
-        [
-            self.counters.application,
-            self.counters.reference,
-            self.counters.literal,
-            self.counters.field,
-            self.counters.wildcard,
-        ]
-    }
-
-    pub(super) fn reset_side(&mut self) {
-        self.counters = TermCounters::default();
-    }
-
-    /// Continues the sentence-wide (side-neutral) ordinals of `previous`, a
-    /// builder of an earlier side of the same sentence.
-    pub(super) fn continue_ordinals(&mut self, previous: &TermBuilder<'_>) {
-        self.lexeme_ordinal = previous.lexeme_ordinal;
-        self.sort_test_ordinal = previous.sort_test_ordinal;
-        self.application_instance_ordinal = previous.application_instance_ordinal;
-        self.pattern_as_ordinal = previous.pattern_as_ordinal;
-        self.pattern_or_ordinal = previous.pattern_or_ordinal;
-        self.matches_ordinal = previous.matches_ordinal;
-        self.matches_wildcard_ordinal = previous.matches_wildcard_ordinal;
-        self.let_ordinal = previous.let_ordinal;
-        self.let_wildcard_ordinal = previous.let_wildcard_ordinal;
-        self.ml_binder_ordinal = previous.ml_binder_ordinal;
-        self.rewrite_ordinal = previous.rewrite_ordinal;
     }
 
     /// Whether `path` is a local binder of the `k::matches!` or `let`
@@ -747,23 +615,8 @@ impl<'a> TermBuilder<'a> {
                 "`let` blocks are not supported in claims: Java K's kprove and the native prover both reject K's #let in a claim; bind the value in the claim's subject instead",
             ));
         }
-        let ordinal = self.let_ordinal;
-        self.let_ordinal = ordinal.checked_add(1).ok_or_else(|| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                range.first(),
-                "too many `let` statements in one sentence",
-            )
-        })?;
         let sort = sort
-            .map(|sort| {
-                self.local_sort_reference(
-                    node.role(ProvenanceRole::LetSort),
-                    wire_key(ProvenanceRole::LetSort, ordinal),
-                    sort,
-                    slots,
-                )
-            })
+            .map(|sort| self.local_sort_reference(node.role(ProvenanceRole::LetSort), sort, slots))
             .transpose()?;
         self.let_pattern_binders = Some(binders.to_vec());
         let pattern = self.expand_node(pattern, keys, side, slots);
@@ -774,10 +627,7 @@ impl<'a> TermBuilder<'a> {
         let body = self.expand_node(body, keys, side, slots);
         self.let_scopes.pop();
         Ok(WireTerm::Let {
-            key: read_key(
-                node.role(ProvenanceRole::Let),
-                wire_key(ProvenanceRole::Let, ordinal),
-            ),
+            key: held_key(node.role(ProvenanceRole::Let))?,
             pattern: Box::new(pattern),
             sort,
             value: Box::new(value),
@@ -786,12 +636,10 @@ impl<'a> TermBuilder<'a> {
     }
 
     /// The rustc-resolved sort of `let name: Sort = value;` or of the binder
-    /// of `ml::exists(|name: Sort| ..)`, keyed `key`.
-    #[track_caller]
+    /// of `ml::exists(|name: Sort| ..)`, keyed `read`.
     fn local_sort_reference(
         &mut self,
         read: Option<&ProvenanceKey>,
-        counted: ProvenanceKey,
         sort: &Path,
         slots: &mut WireSlots,
     ) -> crate::Result<krs_ir::wire::WireSortReference> {
@@ -813,7 +661,7 @@ impl<'a> TermBuilder<'a> {
         };
         let facade = self.facade;
         Ok(krs_ir::wire::WireSortReference {
-            key: read_key(read, counted),
+            key: held_key(read)?,
             target: krs_ir::wire::WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_reference))),
                 authored_path: spelling(sort),
@@ -845,32 +693,14 @@ impl<'a> TermBuilder<'a> {
                 "an `ml::exists` closure is a predicate (K's #Exists); it cannot appear on a left-hand side or inside a pattern",
             ));
         }
-        let ordinal = self.ml_binder_ordinal;
-        self.ml_binder_ordinal = ordinal.checked_add(1).ok_or_else(|| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                range.first(),
-                "too many `ml::exists` closures in one sentence",
-            )
-        })?;
-        let sort = self.local_sort_reference(
-            node.role(ProvenanceRole::MlBinderSort),
-            wire_key(ProvenanceRole::MlBinderSort, ordinal),
-            sort,
-            slots,
-        )?;
+        let sort =
+            self.local_sort_reference(node.role(ProvenanceRole::MlBinderSort), sort, slots)?;
         self.let_scopes.push(vec![binder.clone()]);
         let body = self.expand_node(body, keys, side, slots);
         self.let_scopes.pop();
         Ok(WireTerm::Closure {
-            key: read_key(
-                node.role(ProvenanceRole::MlConnective),
-                wire_key(ProvenanceRole::MlConnective, ordinal),
-            ),
-            binder_key: read_key(
-                node.role(ProvenanceRole::MlBinder),
-                wire_key(ProvenanceRole::MlBinder, ordinal),
-            ),
+            key: held_key(node.role(ProvenanceRole::MlConnective))?,
+            binder_key: held_key(node.role(ProvenanceRole::MlBinder))?,
             name: binder.unraw().to_string(),
             sort,
             body: Box::new(body?),
@@ -916,23 +746,12 @@ impl<'a> TermBuilder<'a> {
                 "`k::matches!` is not supported in claims: Java K's kprove and the native prover both reject K's :=K in a claim; match the shape in the claim's subject instead",
             ));
         }
-        let ordinal = self.matches_ordinal;
-        self.matches_ordinal = ordinal.checked_add(1).ok_or_else(|| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                range.first(),
-                "too many `k::matches!` terms in one sentence",
-            )
-        })?;
         let subject = self.expand_node(subject, keys, side, slots)?;
         self.local_binders = Some(binders.to_vec());
         let pattern = self.expand_node(pattern, keys, side, slots);
         self.local_binders = None;
         Ok(WireTerm::Matches {
-            key: read_key(
-                node.role(ProvenanceRole::Matches),
-                wire_key(ProvenanceRole::Matches, ordinal),
-            ),
+            key: held_key(node.role(ProvenanceRole::Matches))?,
             subject: Box::new(subject),
             pattern: Box::new(pattern?),
         })
@@ -962,17 +781,9 @@ impl<'a> TermBuilder<'a> {
     ) -> crate::Result<WireTerm> {
         match tree {
             TermTree::Application(application) => {
-                let path_ordinal = take_counter(&mut self.counters.path)?;
-                let application_ordinal = take_counter(&mut self.counters.application)?;
-                let path_key = read_key(
-                    keys.path(),
-                    wire_key(side.role(TermRole::Path), path_ordinal),
-                );
+                let path_key = held_key(keys.path())?;
                 let node = keys.node(NodeKind::ApplicationHead);
-                let key = read_key(
-                    node.role(side.role(TermRole::ApplicationHead)),
-                    wire_key(side.role(TermRole::ApplicationHead), application_ordinal),
-                );
+                let key = held_key(node.role(side.role(TermRole::ApplicationHead)))?;
                 let lexical = if self.lexical_imports.is_some() {
                     !application.is_notation()
                         && application.head().leading_colon.is_none()
@@ -1004,14 +815,10 @@ impl<'a> TermBuilder<'a> {
                     TermArguments::Named(values) => {
                         let mut arguments = Vec::new();
                         for argument in values {
-                            let ordinal = take_counter(&mut self.counters.field)?;
                             let field = ProductionFieldId::new(argument.name().to_string())
                                 .expect("Rust field identifiers are valid production fields");
                             arguments.push(krs_ir::NamedTermArgument {
-                                key: read_key(
-                                    keys.record_field(),
-                                    wire_key(side.role(TermRole::RecordFieldName), ordinal),
-                                ),
+                                key: held_key(keys.record_field())?,
                                 field,
                                 value: Box::new(self.expand_node(
                                     argument.value(),
@@ -1041,17 +848,11 @@ impl<'a> TermBuilder<'a> {
             }
             TermTree::Reference(path) => {
                 let lexical = self.take_lexical_rule_head(path);
-                let path_ordinal = take_counter(&mut self.counters.path)?;
-                let reference_ordinal = take_counter(&mut self.counters.reference)?;
-                let path_key = read_key(
-                    keys.path(),
-                    wire_key(side.role(TermRole::Path), path_ordinal),
-                );
-                let key = read_key(
+                let path_key = held_key(keys.path())?;
+                let key = held_key(
                     keys.node(NodeKind::Reference)
                         .role(side.role(TermRole::Reference)),
-                    wire_key(side.role(TermRole::Reference), reference_ordinal),
-                );
+                )?;
                 if self.is_local_binder(path) {
                     // A local binder has no Rust binding for tooling to use.
                     Ok(WireTerm::Variable {
@@ -1102,49 +903,25 @@ impl<'a> TermBuilder<'a> {
                 }
             }
             TermTree::Literal(literal) => {
-                let ordinal = take_counter(&mut self.counters.literal)?;
                 let literal = wire_literal(literal);
                 Ok(WireTerm::Literal {
-                    key: read_key(
+                    key: held_key(
                         keys.node(NodeKind::Literal)
                             .role(side.role(TermRole::Literal)),
-                        wire_key(side.role(TermRole::Literal), ordinal),
-                    ),
+                    )?,
                     literal,
                 })
             }
             TermTree::Wildcard(range) if self.in_let_pattern() => {
                 let node = keys.node(NodeKind::LetWildcard);
-                let ordinal = self.let_wildcard_ordinal;
-                self.let_wildcard_ordinal = ordinal.checked_add(1).ok_or_else(|| {
-                    ExpandError::new(
-                        expand::DESCRIPTOR_CAPACITY,
-                        range.first(),
-                        "too many `_` in `let` patterns in one sentence",
-                    )
-                })?;
                 Ok(WireTerm::Wildcard {
-                    key: read_key(
-                        node.role(ProvenanceRole::LetWildcard),
-                        wire_key(ProvenanceRole::LetWildcard, ordinal),
-                    ),
+                    key: held_key(node.role(ProvenanceRole::LetWildcard))?,
                 })
             }
             TermTree::Wildcard(range) if self.in_matches_pattern() => {
                 let node = keys.node(NodeKind::MatchesWildcard);
-                let ordinal = self.matches_wildcard_ordinal;
-                self.matches_wildcard_ordinal = ordinal.checked_add(1).ok_or_else(|| {
-                    ExpandError::new(
-                        expand::DESCRIPTOR_CAPACITY,
-                        range.first(),
-                        "too many `_` in `k::matches!` patterns in one sentence",
-                    )
-                })?;
                 Ok(WireTerm::Wildcard {
-                    key: read_key(
-                        node.role(ProvenanceRole::MatchesWildcard),
-                        wire_key(ProvenanceRole::MatchesWildcard, ordinal),
-                    ),
+                    key: held_key(node.role(ProvenanceRole::MatchesWildcard))?,
                 })
             }
             TermTree::Wildcard(range) => {
@@ -1157,40 +934,26 @@ impl<'a> TermBuilder<'a> {
                         "KRS rule results cannot contain wildcards",
                     ));
                 }
-                let ordinal = take_counter(&mut self.counters.wildcard)?;
                 Ok(WireTerm::Wildcard {
-                    key: read_key(
-                        keys.wildcard(),
-                        wire_key(side.role(TermRole::Wildcard), ordinal),
-                    ),
+                    key: held_key(keys.wildcard())?,
                 })
             }
-            TermTree::IdToken { literal } => {
-                let ordinal = self.id_token_ordinal;
-                self.id_token_ordinal += 1;
-                Ok(WireTerm::BuiltinToken {
-                    key: read_key(
-                        keys.node(NodeKind::IdToken)
-                            .role(ProvenanceRole::ClaimIdToken),
-                        wire_key(ProvenanceRole::ClaimIdToken, ordinal),
-                    ),
-                    sort: BuiltinSort::Id,
-                    value: literal.value(),
-                })
-            }
-            TermTree::BytesToken { literal } => {
-                let ordinal = self.bytes_token_ordinal;
-                self.bytes_token_ordinal += 1;
-                Ok(WireTerm::BuiltinToken {
-                    key: read_key(
-                        keys.node(NodeKind::BytesToken)
-                            .role(ProvenanceRole::ClaimBytesToken),
-                        wire_key(ProvenanceRole::ClaimBytesToken, ordinal),
-                    ),
-                    sort: BuiltinSort::Bytes,
-                    value: bytes_token::encode(&literal.value()),
-                })
-            }
+            TermTree::IdToken { literal } => Ok(WireTerm::BuiltinToken {
+                key: held_key(
+                    keys.node(NodeKind::IdToken)
+                        .role(ProvenanceRole::ClaimIdToken),
+                )?,
+                sort: BuiltinSort::Id,
+                value: literal.value(),
+            }),
+            TermTree::BytesToken { literal } => Ok(WireTerm::BuiltinToken {
+                key: held_key(
+                    keys.node(NodeKind::BytesToken)
+                        .role(ProvenanceRole::ClaimBytesToken),
+                )?,
+                sort: BuiltinSort::Bytes,
+                value: bytes_token::encode(&literal.value()),
+            }),
             // A readable claim's subject may hold `k::anonymous!`, as a
             // `cells!` claim's does.
             TermTree::Anonymous {
@@ -1198,8 +961,6 @@ impl<'a> TermBuilder<'a> {
                 spelling: display_literal,
             } if self.claim && matches!(side, TermSide::Left) => {
                 let node = keys.node(NodeKind::Anonymous);
-                let ordinal = self.anonymous_ordinal;
-                self.anonymous_ordinal += 1;
                 let path = call_site_path(sort)?;
                 let key_fn = format_ident!(
                     "__krs_claim_anonymous_sort_{:016x}_{}",
@@ -1217,15 +978,9 @@ impl<'a> TermBuilder<'a> {
                 });
                 let facade = self.facade;
                 Ok(WireTerm::Anonymous {
-                    key: read_key(
-                        node.role(ProvenanceRole::ClaimAnonymous),
-                        wire_key(ProvenanceRole::ClaimAnonymous, ordinal),
-                    ),
+                    key: held_key(node.role(ProvenanceRole::ClaimAnonymous))?,
                     sort: WireSortReference {
-                        key: read_key(
-                            node.role(ProvenanceRole::ClaimAnonymousSort),
-                            wire_key(ProvenanceRole::ClaimAnonymousSort, ordinal),
-                        ),
+                        key: held_key(node.role(ProvenanceRole::ClaimAnonymousSort))?,
                         target: WireTypeReference {
                             slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_fn))),
                             authored_path: spelling(sort),
@@ -1244,13 +999,13 @@ impl<'a> TermBuilder<'a> {
                 self.lexeme_wire(sort, text, node, slots)
             }
             TermTree::SortTest {
-                range,
                 kind,
                 sort,
                 operand,
+                ..
             } => {
                 let node = keys.node(NodeKind::SortTest);
-                let (key, sort) = self.sort_test_reference(*range, sort, node, slots)?;
+                let (key, sort) = self.sort_test_reference(sort, node, slots)?;
                 Ok(WireTerm::SortTest {
                     key,
                     kind: *kind,
@@ -1300,7 +1055,7 @@ impl<'a> TermBuilder<'a> {
                     ));
                 }
                 let node = keys.node(NodeKind::Or);
-                let key = self.take_pattern_or(range.first(), node)?;
+                let key = Self::take_pattern_or(node)?;
                 Ok(WireTerm::Or {
                     key,
                     alternatives: alternatives.try_map_ref(|alternative| {
@@ -1350,42 +1105,27 @@ impl<'a> TermBuilder<'a> {
                     ));
                 }
                 let node = keys.node(NodeKind::OrBool);
-                let ordinal = self.or_bool_ordinal;
-                self.or_bool_ordinal += 1;
                 let arguments = arguments
                     .try_map_ref(|argument| self.expand_node(argument, keys, side, slots))?;
                 Ok(WireTerm::OrBool {
-                    key: read_key(
-                        node.role(ProvenanceRole::ClaimOrBool),
-                        wire_key(ProvenanceRole::ClaimOrBool, ordinal),
-                    ),
+                    key: held_key(node.role(ProvenanceRole::ClaimOrBool))?,
                     arguments,
                 })
             }
             TermTree::Cell(cell) => {
-                let path_ordinal = take_counter(&mut self.counters.path)?;
-                let application_ordinal = take_counter(&mut self.counters.application)?;
                 // The cell's path has a key that no wire node takes.
-                read_key(
-                    keys.path(),
-                    wire_key(side.role(TermRole::Path), path_ordinal),
-                );
-                let key = read_key(
+                held_key(keys.path())?;
+                let key = held_key(
                     keys.node(NodeKind::ApplicationHead)
                         .role(side.role(TermRole::ApplicationHead)),
-                    wire_key(side.role(TermRole::ApplicationHead), application_ordinal),
-                );
+                )?;
                 let declaration = self.cell_declaration_reference(cell.owner(), slots)?;
                 let mut fields = Vec::new();
                 for field in cell.fields() {
-                    let ordinal = take_counter(&mut self.counters.field)?;
                     let name = ProductionFieldId::new(field.name().to_string())
                         .expect("Rust fields are valid cell-field identities");
                     fields.push(WireCellTermField {
-                        key: read_key(
-                            keys.record_field(),
-                            wire_key(side.role(TermRole::RecordFieldName), ordinal),
-                        ),
+                        key: held_key(keys.record_field())?,
                         field: name,
                         value: Box::new(self.expand_node(field.value(), keys, side, slots)?),
                     });
@@ -1434,56 +1174,26 @@ impl<'a> TermBuilder<'a> {
         Ok(Some(Box::new(self.expand_node(base, keys, side, slots)?)))
     }
 
-    /// Numbers one `name @ pattern` (K's `#as`) in left-hand-side preorder
-    /// and returns its shell and alias keys.
+    /// The shell and alias keys of one `name @ pattern` (K's `#as`); a
+    /// binding of the sentence is a reference tooling sees.
     pub(super) fn take_pattern_as(
         &mut self,
         binding: &Ident,
         node: NodeKeys<'_>,
     ) -> crate::Result<(ProvenanceKey, ProvenanceKey)> {
-        let ordinal = self.pattern_as_ordinal;
-        self.pattern_as_ordinal = ordinal.checked_add(1).ok_or_else(|| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                binding.span(),
-                "too many `name @ pattern` aliases in one sentence",
-            )
-        })?;
         if self.bindings.contains(binding) && !self.in_matches_pattern() {
             self.tooling_binding_references
                 .push(Path::from(binding.clone()));
         }
         Ok((
-            read_key(
-                node.role(ProvenanceRole::PatternAs),
-                wire_key(ProvenanceRole::PatternAs, ordinal),
-            ),
-            read_key(
-                node.role(ProvenanceRole::PatternAsBinding),
-                wire_key(ProvenanceRole::PatternAsBinding, ordinal),
-            ),
+            held_key(node.role(ProvenanceRole::PatternAs))?,
+            held_key(node.role(ProvenanceRole::PatternAsBinding))?,
         ))
     }
 
-    /// Numbers one `A | B` or-pattern (K's `#Or`) in left-hand-side preorder
-    /// and returns its shell key.
-    pub(super) fn take_pattern_or(
-        &mut self,
-        span: Span,
-        node: NodeKeys<'_>,
-    ) -> crate::Result<ProvenanceKey> {
-        let ordinal = self.pattern_or_ordinal;
-        self.pattern_or_ordinal = ordinal.checked_add(1).ok_or_else(|| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                span,
-                "too many `A | B` or-patterns in one sentence",
-            )
-        })?;
-        Ok(read_key(
-            node.role(ProvenanceRole::PatternOr),
-            wire_key(ProvenanceRole::PatternOr, ordinal),
-        ))
+    /// The shell key of one `A | B` or-pattern (K's `#Or`).
+    pub(super) fn take_pattern_or(node: NodeKeys<'_>) -> crate::Result<ProvenanceKey> {
+        held_key(node.role(ProvenanceRole::PatternOr))
     }
 
     /// Lowers `k::lexeme!(Sort, "text")` to a token term whose sort rustc
@@ -1495,14 +1205,6 @@ impl<'a> TermBuilder<'a> {
         node: NodeKeys<'_>,
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
-        let ordinal = self.lexeme_ordinal;
-        self.lexeme_ordinal = ordinal.checked_add(1).ok_or_else(|| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                text.span(),
-                "too many lexeme! terms in one sentence",
-            )
-        })?;
         let generated = call_site_path(sort)?;
         let key_fn = format_ident!("__krs_lexeme_sort_{:016x}_{}", self.nonce, self.next_key);
         self.next_key += 1;
@@ -1521,15 +1223,9 @@ impl<'a> TermBuilder<'a> {
         };
         let facade = self.facade;
         Ok(WireTerm::Lexeme {
-            key: read_key(
-                node.role(ProvenanceRole::LexemeText),
-                wire_key(ProvenanceRole::LexemeText, ordinal),
-            ),
+            key: held_key(node.role(ProvenanceRole::LexemeText))?,
             sort: krs_ir::wire::WireSortReference {
-                key: read_key(
-                    node.role(ProvenanceRole::LexemeSort),
-                    wire_key(ProvenanceRole::LexemeSort, ordinal),
-                ),
+                key: held_key(node.role(ProvenanceRole::LexemeSort))?,
                 target: krs_ir::wire::WireTypeReference {
                     slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_reference))),
                     authored_path: spelling(sort),
@@ -1539,23 +1235,15 @@ impl<'a> TermBuilder<'a> {
         })
     }
 
-    /// Numbers one `k::is!` or `k::project!` term and lowers its sort path to
-    /// a sort whose identity rustc resolves through a type key.
+    /// The shell key of one `k::is!` or `k::project!` term, and its sort
+    /// path lowered to a sort whose identity rustc resolves through a type
+    /// key.
     pub(super) fn sort_test_reference(
         &mut self,
-        range: krs_syntax::TokenRange,
         sort: &Path,
         node: NodeKeys<'_>,
         slots: &mut WireSlots,
     ) -> crate::Result<(krs_ir::ProvenanceKey, krs_ir::wire::WireSortReference)> {
-        let ordinal = self.sort_test_ordinal;
-        self.sort_test_ordinal = ordinal.checked_add(1).ok_or_else(|| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                range.first(),
-                "too many is! and project! terms in one sentence",
-            )
-        })?;
         let generated = call_site_path(sort)?;
         let key_fn = format_ident!("__krs_sort_test_sort_{:016x}_{}", self.nonce, self.next_key);
         self.next_key += 1;
@@ -1574,15 +1262,9 @@ impl<'a> TermBuilder<'a> {
         };
         let facade = self.facade;
         Ok((
-            read_key(
-                node.role(ProvenanceRole::SortTest),
-                wire_key(ProvenanceRole::SortTest, ordinal),
-            ),
+            held_key(node.role(ProvenanceRole::SortTest))?,
             krs_ir::wire::WireSortReference {
-                key: read_key(
-                    node.role(ProvenanceRole::SortTestSort),
-                    wire_key(ProvenanceRole::SortTestSort, ordinal),
-                ),
+                key: held_key(node.role(ProvenanceRole::SortTestSort))?,
                 target: krs_ir::wire::WireTypeReference {
                     slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_reference))),
                     authored_path: spelling(sort),
@@ -1732,14 +1414,6 @@ impl<'a> TermBuilder<'a> {
             if !self.readable_instances && !sort.is_dynamic() {
                 self.reference_marker_check(application, index);
             }
-            let ordinal = self.application_instance_ordinal;
-            self.application_instance_ordinal = ordinal.checked_add(1).ok_or_else(|| {
-                ExpandError::new(
-                    expand::DESCRIPTOR_CAPACITY,
-                    syn::spanned::Spanned::span(sort.ty()),
-                    "too many turbofish instances in one sentence",
-                )
-            })?;
             let generated = call_site_path(sort.sort())?;
             let generated = if sort.is_dynamic() {
                 quote!(#facade::Term<dyn #generated>)
@@ -1761,10 +1435,7 @@ impl<'a> TermBuilder<'a> {
                 quote!(#key_fn)
             };
             references.push(krs_ir::wire::WireSortReference {
-                key: read_key(
-                    instance_keys.next(),
-                    wire_key(ProvenanceRole::ApplicationInstance, ordinal),
-                ),
+                key: held_key(instance_keys.next())?,
                 target: krs_ir::wire::WireTypeReference {
                     slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_reference))),
                     authored_path: quote::ToTokens::to_token_stream(sort.ty()).to_string(),
@@ -2068,16 +1739,16 @@ pub(super) struct SortArgumentSink<'a> {
     pub(super) cfg: &'a [syn::Attribute],
     pub(super) helpers: &'a mut Vec<TokenStream>,
     pub(super) slots: &'a mut WireSlots,
-    /// The next ordinal of `role`.
+    /// The number of the next helper.
     pub(super) ordinal: u32,
 }
 
 /// The wire tree of a production's typed collection element types (a
-/// field's or a function result's): one `TypeId` helper and one `role`
-/// reference per element type, numbered in preorder.
+/// field's or a function result's): one reference per element type, keyed
+/// by its path, with one `TypeId` helper per element type numbered in
+/// preorder.
 pub(super) fn production_sort_arguments(
     arguments: &[krs_syntax::SortArgument],
-    role: krs_syntax::ProvenanceRole,
     sink: &mut SortArgumentSink<'_>,
 ) -> crate::Result<Vec<krs_ir::wire::WireConstructorSortArgument>> {
     let mut output = Vec::with_capacity(arguments.len());
@@ -2095,7 +1766,7 @@ pub(super) fn production_sort_arguments(
             }
         });
         let sort = krs_ir::wire::WireSortReference {
-            key: read_key(argument.key(), wire_key(role, sink.ordinal)),
+            key: held_key(argument.key())?,
             target: krs_ir::wire::WireTypeReference {
                 slot: sink.slots.type_slot(quote!(#facade::HostTypeKey(#key))),
                 authored_path: super::tokens::spelling(&argument.path),
@@ -2110,7 +1781,7 @@ pub(super) fn production_sort_arguments(
         })?;
         output.push(krs_ir::wire::WireConstructorSortArgument {
             sort,
-            arguments: production_sort_arguments(&argument.arguments, role, sink)?,
+            arguments: production_sort_arguments(&argument.arguments, sink)?,
         });
     }
     Ok(output)

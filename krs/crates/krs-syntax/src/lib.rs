@@ -82,13 +82,12 @@ pub use parse::{KrsSyntax, ReferenceCandidate};
 pub use provenance::{ProvenanceAnchor, ProvenanceRole, RuleRole, RuleSide, role_tokens};
 pub use range::TokenRange;
 pub use rule::{
-    BINDER_LIST_CONTRACT, BracketAlternative, ClaimBlock, EquationRow, EquationTable,
-    ReadableStateCounters, RuleBinder, RuleBlock, RuleClause, RuleClauseLayout, RuleCondition,
-    RuleExistentials, RuleExtra, RuleExtraKeys, RuleHead, RuleHeadItem, RuleHeadResult, RuleItem,
-    RuleListPattern, RuleListRest, RuleListResult, RuleMapEntry, RuleMapUpdate, RuleNarrowing,
-    RuleParameter, RulePattern, desugar_bit_templates, is_hidden_binder,
-    parse_claim_block_source_with_trivia, parse_equation_table_source_with_trivia,
-    parse_rule_block_source_with_trivia,
+    BINDER_LIST_CONTRACT, BracketAlternative, ClaimBlock, EquationRow, EquationTable, RuleBinder,
+    RuleBlock, RuleClause, RuleClauseLayout, RuleCondition, RuleExistentials, RuleExtra,
+    RuleExtraKeys, RuleHead, RuleHeadItem, RuleHeadResult, RuleItem, RuleListPattern, RuleListRest,
+    RuleListResult, RuleMapEntry, RuleMapUpdate, RuleNarrowing, RuleParameter, RulePattern,
+    desugar_bit_templates, is_hidden_binder, parse_claim_block_source_with_trivia,
+    parse_equation_table_source_with_trivia, parse_rule_block_source_with_trivia,
 };
 pub use sorts::{SortsDeclaration, SortsEntry, SortsMembership, SortsSort};
 pub use state_macro::{

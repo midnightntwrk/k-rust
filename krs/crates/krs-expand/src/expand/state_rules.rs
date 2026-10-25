@@ -18,7 +18,7 @@ use krs_ir::{
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
-    KSequence, KSequenceNotation, MapBody, MapExpression, ProvenanceRole, RuleRole, RuleSide,
+    KSequence, KSequenceNotation, MapBody, MapExpression, ProvenanceRole, RuleSide,
     StateMacroRemainder, StateRuleBindingKind, StateRuleReferenceKind, StateTerm, TermArguments,
     TermTree, TokenRange, parse_state_context_alias_item,
 };
@@ -34,12 +34,12 @@ use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
 use super::nonce::expansion_nonce;
 use super::terms::{
-    KeyedTerm, NodeKind, TermBuilder, TermKeyReader, TermRole, TermSide, WireSlots, read_key,
-    wire_key, wire_sort_reference,
+    KeyedTerm, NodeKind, TermBuilder, TermKeyReader, TermRole, TermSide, WireSlots, held_key,
+    wire_sort_reference,
 };
 use super::tokens::{
     call_site_cfg_attributes, call_site_path, is_bound_ident_path, sort_type_tokens, spelling,
-    take_counter, wire_literal,
+    wire_literal,
 };
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -96,7 +96,6 @@ pub(crate) fn context_alias(
                         fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#ty>() }
                     });
                     let sort_spelling = sort.sort_token_text();
-                    let ordinal = term_ordinal;
                     term_ordinal = term_ordinal.checked_add(1).ok_or_else(|| {
                         ExpandError::new(
                             expand::DESCRIPTOR_CAPACITY,
@@ -108,10 +107,10 @@ pub(crate) fn context_alias(
                         sort: wire_sort_reference(
                             &mut slots,
                             &facade,
-                            (binding.sort_key(), ProvenanceRole::RuleBindingType, ordinal),
+                            binding.sort_key(),
                             &key_fn,
                             &sort_spelling,
-                        ),
+                        )?,
                     }
                 }
                 StateRuleBindingKind::KSequenceFrame => {
@@ -163,42 +162,23 @@ pub(crate) fn context_alias(
             Some(wire_sort_reference(
                 &mut slots,
                 &facade,
-                (
-                    attribute.result_key(),
-                    ProvenanceRole::ContextAliasResult,
-                    0,
-                ),
+                attribute.result_key(),
                 &key_fn,
                 &spelling(sort),
-            ))
+            )?)
         }
         None => None,
     };
 
     let wire = WirePayload::ContextAlias(Box::new(WireContextAlias {
-        declaration_key: read_key(
-            alias.declaration_key(),
-            wire_key(ProvenanceRole::ContextAliasDeclaration, 0),
-        ),
-        name_key: read_key(
-            attribute.name_key(),
-            wire_key(ProvenanceRole::ContextAliasName, 0),
-        ),
+        declaration_key: held_key(alias.declaration_key())?,
+        name_key: held_key(attribute.name_key())?,
         name: alias_name,
-        here_key: read_key(
-            attribute.here_key(),
-            wire_key(ProvenanceRole::ContextAliasHere, 0),
-        ),
+        here_key: held_key(attribute.here_key())?,
         here: here_name,
-        pattern_key: read_key(
-            alias.pattern_key(),
-            wire_key(ProvenanceRole::RulePattern, 0),
-        ),
+        pattern_key: held_key(alias.pattern_key())?,
         configuration: WireConfigurationReference {
-            key: read_key(
-                alias.configuration_type_key(),
-                wire_key(ProvenanceRole::RuleType, 0),
-            ),
+            key: held_key(alias.configuration_type_key())?,
             configuration: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#configuration_key))),
                 authored_path: configuration_spelling,
@@ -307,7 +287,6 @@ pub(super) fn configuration_rule(
                     }
                 });
                 let authored = sort.sort_token_text();
-                let ordinal = term_ordinal;
                 term_ordinal = term_ordinal.checked_add(1).ok_or_else(|| {
                     ExpandError::new(
                         expand::DESCRIPTOR_CAPACITY,
@@ -319,10 +298,10 @@ pub(super) fn configuration_rule(
                     sort: wire_sort_reference(
                         &mut slots,
                         &facade,
-                        (binding.sort_key(), ProvenanceRole::RuleBindingType, ordinal),
+                        binding.sort_key(),
                         &key_fn,
                         &authored,
-                    ),
+                    )?,
                 }
             }
             StateRuleBindingKind::KSequenceFrame => ProtocolRuleBindingKind::KSequenceFrame,
@@ -377,10 +356,6 @@ pub(super) fn configuration_rule(
         &result_idents,
         RuleSide::Right,
     );
-    // Builtin literal ordinals run across the whole rule, as a claim's do.
-    right.counters.id_token = left.counters.id_token;
-    right.counters.bytes_token = left.counters.bytes_token;
-    right.terms.continue_ordinals(&left.terms);
     let result = match (rule.result(), &result_type) {
         (Some(result), Some(result_type)) => {
             Some(right.expand_cells(result, result_type, &mut slots)?)
@@ -393,9 +368,6 @@ pub(super) fn configuration_rule(
         &cfg,
         &requires_idents,
     );
-    condition_builder.id_token_ordinal = right.counters.id_token;
-    condition_builder.bytes_token_ordinal = right.counters.bytes_token;
-    condition_builder.continue_ordinals(&right.terms);
     let requires = if let Some(condition) = rule.requires() {
         let term = condition_builder.expand_wire(
             KeyedTerm::of(condition.term()),
@@ -403,10 +375,7 @@ pub(super) fn configuration_rule(
             &mut slots,
         )?;
         Some(WireRuleCondition {
-            key: read_key(
-                condition.term().keys().payload(),
-                wire_key(ProvenanceRole::RuleRequires, 0),
-            ),
+            key: held_key(condition.term().keys().payload())?,
             term,
         })
     } else {
@@ -414,10 +383,6 @@ pub(super) fn configuration_rule(
     };
     let mut ensures_builder =
         TermBuilder::new(&facade, nonce ^ 0x2000_0000_0000_0000, &cfg, &result_idents);
-    ensures_builder.id_token_ordinal = condition_builder.id_token_ordinal;
-    ensures_builder.bytes_token_ordinal = condition_builder.bytes_token_ordinal;
-    ensures_builder.or_bool_ordinal = condition_builder.or_bool_ordinal;
-    ensures_builder.continue_ordinals(&condition_builder);
     let ensures = ensures_condition(rule.existentials(), &mut ensures_builder, &mut slots)?;
     let mut key_functions = left.terms.key_functions;
     key_functions.extend(right.terms.key_functions);
@@ -438,29 +403,24 @@ pub(super) fn configuration_rule(
         .iter()
         .take(original.sig.inputs.len() - 1);
     let name = name_ident.to_string();
-    let label = attribute.label().map(|label| DescriptorRuleLabel {
-        key: read_key(
-            attribute.label_key(),
-            wire_key(
-                if context {
-                    ProvenanceRole::ContextLabel
-                } else {
-                    ProvenanceRole::RuleLabel
-                },
-                0,
-            ),
-        ),
-        name: label.value(),
-    });
+    let label = attribute
+        .label()
+        .map(|label| -> crate::Result<_> {
+            Ok(DescriptorRuleLabel {
+                key: held_key(attribute.label_key())?,
+                name: label.value(),
+            })
+        })
+        .transpose()?;
     let priority = attribute
         .transition_priority()
-        .map(|(role, value)| DescriptorRulePriority {
-            key: read_key(
-                attribute.owise_key().or_else(|| attribute.priority_key()),
-                wire_key(role, 0),
-            ),
-            value,
-        });
+        .map(|(_, value)| -> crate::Result<_> {
+            Ok(DescriptorRulePriority {
+                key: held_key(attribute.owise_key().or_else(|| attribute.priority_key()))?,
+                value,
+            })
+        })
+        .transpose()?;
     let mut wrapper_checks = Vec::new();
     for candidate in rule.reference_candidates()? {
         if candidate.kind() == StateRuleReferenceKind::CellWrapper {
@@ -472,13 +432,13 @@ pub(super) fn configuration_rule(
 
     let nondet = attribute
         .nondet()
-        .map(|group| krs_ir::DescriptorNondetGroup {
-            key: read_key(
-                attribute.nondet_key(),
-                ProvenanceRole::RuleNondetGroup.key(0),
-            ),
-            name: syn::ext::IdentExt::unraw(group).to_string(),
-        });
+        .map(|group| -> crate::Result<_> {
+            Ok(krs_ir::DescriptorNondetGroup {
+                key: held_key(attribute.nondet_key())?,
+                name: syn::ext::IdentExt::unraw(group).to_string(),
+            })
+        })
+        .transpose()?;
     let wire = WirePayload::ConfigurationRule(Box::new(WireConfigurationRule {
         sentence_kind,
         label,
@@ -486,12 +446,9 @@ pub(super) fn configuration_rule(
         nondet,
         requires,
         claim: None,
-        pattern_key: read_key(rule.pattern_key(), wire_key(ProvenanceRole::RulePattern, 0)),
+        pattern_key: held_key(rule.pattern_key())?,
         subject_configuration: WireConfigurationReference {
-            key: read_key(
-                rule.subject_type_key(),
-                wire_key(ProvenanceRole::RuleType, 0),
-            ),
+            key: held_key(rule.subject_type_key())?,
             configuration: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#subject_key))),
                 authored_path: subject_spelling,
@@ -499,17 +456,19 @@ pub(super) fn configuration_rule(
         },
         result_key: result
             .is_some()
-            .then(|| read_key(rule.result_key(), wire_key(ProvenanceRole::RuleResult, 0))),
-        result_configuration: result_spelling.map(|authored_path| WireConfigurationReference {
-            key: read_key(
-                rule.result_type_key(),
-                wire_key(ProvenanceRole::RuleResultType, 0),
-            ),
-            configuration: WireTypeReference {
-                slot: slots.type_slot(quote!(#facade::HostTypeKey(#result_key))),
-                authored_path,
-            },
-        }),
+            .then(|| held_key(rule.result_key()))
+            .transpose()?,
+        result_configuration: result_spelling
+            .map(|authored_path| -> crate::Result<_> {
+                Ok(WireConfigurationReference {
+                    key: held_key(rule.result_type_key())?,
+                    configuration: WireTypeReference {
+                        slot: slots.type_slot(quote!(#facade::HostTypeKey(#result_key))),
+                        authored_path,
+                    },
+                })
+            })
+            .transpose()?,
         bindings,
         subject,
         result,
@@ -583,38 +542,10 @@ pub(super) fn configuration_rule(
     })
 }
 
-#[derive(Default)]
-pub(super) struct StateRuleCounters {
-    field: u32,
-    wrapper: u32,
-    remainder: u32,
-    instance: u32,
-    instance_field: u32,
-    instances_rest: u32,
-    k_payload: u32,
-    k_item: u32,
-    k_tail: u32,
-    map_payload: u32,
-    map_key: u32,
-    map_value: u32,
-    map_remainder: u32,
-    map_update_base: u32,
-    application: u32,
-    reference: u32,
-    literal: u32,
-    record_field: u32,
-    wildcard: u32,
-    pub(super) id_token: u32,
-    pub(super) bytes_token: u32,
-    pub(super) anonymous: u32,
-    pub(super) or_bool: u32,
-}
-
 pub(super) struct StateRuleBuilder<'a> {
     facade: &'a Path,
     bindings: &'a [Ident],
     side: RuleSide,
-    pub(super) counters: StateRuleCounters,
     pub(super) terms: TermBuilder<'a>,
     claim: bool,
 }
@@ -631,24 +562,15 @@ impl<'a> StateRuleBuilder<'a> {
             facade,
             bindings,
             side,
-            counters: StateRuleCounters::default(),
             terms: TermBuilder::new(facade, nonce, cfg, bindings),
             claim: false,
         }
     }
 
-    /// Continues the left-hand side of `previous`, a term subject expanded
-    /// before this `cells!` pattern (an equation's function context, KF-025):
-    /// the per-side term ordinals, the sentence-wide ordinals, and the key
-    /// function numbering all carry on.
+    /// Continues the key-function numbering of `previous`, a term subject
+    /// expanded before this `cells!` pattern (an equation's function context,
+    /// KF-025).
     pub(super) fn continue_subject(&mut self, previous: &TermBuilder<'_>) {
-        let [application, reference, literal, record_field, wildcard] = previous.side_ordinals();
-        self.counters.application = application;
-        self.counters.reference = reference;
-        self.counters.literal = literal;
-        self.counters.record_field = record_field;
-        self.counters.wildcard = wildcard;
-        self.terms.continue_ordinals(previous);
         self.terms.next_key = previous.next_key;
     }
 
@@ -658,25 +580,12 @@ impl<'a> StateRuleBuilder<'a> {
         self
     }
 
-    /// This side's role of a standalone `cells!`, `k!`, or `map!` role.
-    fn side_role(&self, role: RuleRole) -> ProvenanceRole {
-        role.on_side(self.side)
-    }
-
-    fn key(&self, role: RuleRole, ordinal: u32) -> ProvenanceKey {
-        wire_key(self.side_role(role), ordinal)
-    }
-
     fn term_role(&self, role: TermRole) -> ProvenanceRole {
         let side = match self.side {
             RuleSide::Left => TermSide::Left,
             RuleSide::Right => TermSide::Right,
         };
         side.role(role)
-    }
-
-    fn term_key(&self, role: TermRole, ordinal: u32) -> ProvenanceKey {
-        wire_key(self.term_role(role), ordinal)
     }
 
     pub(super) fn expand_cells(
@@ -688,15 +597,10 @@ impl<'a> StateRuleBuilder<'a> {
         let facade = self.facade;
         let mut output = Vec::new();
         for entry in cells.entries() {
-            let field_ordinal = take_counter(&mut self.counters.field)?;
-            let field_key = read_key(
-                entry.name_key(),
-                self.key(RuleRole::CellsField, field_ordinal),
-            );
+            let field_key = held_key(entry.name_key())?;
             let marker = cell_marker_function(entry.name());
             let cell_owner = entry.owner().unwrap_or(owner);
             let (wrapper_key, wrapper) = if let Some(path) = entry.wrapper() {
-                let wrapper_ordinal = take_counter(&mut self.counters.wrapper)?;
                 let computation = path.segments.iter().any(|segment| segment.ident == "KCell");
                 if computation != matches!(entry.value(), StateTerm::KSequence(_)) {
                     return Err(ExpandError::new(
@@ -710,13 +614,7 @@ impl<'a> StateRuleBuilder<'a> {
                 } else {
                     CellWrapper::Cell
                 };
-                (
-                    Some(read_key(
-                        entry.wrapper_key(),
-                        self.key(RuleRole::CellsWrapper, wrapper_ordinal),
-                    )),
-                    Some(wrapper),
-                )
+                (Some(held_key(entry.wrapper_key())?), Some(wrapper))
             } else {
                 // A whole nested-cell entry has no wrapper (KF-016).
                 (None, None)
@@ -737,13 +635,9 @@ impl<'a> StateRuleBuilder<'a> {
                 value,
             });
         }
-        let remainder = self.expand_frame(
-            cells.remainder(),
-            cells.remainder_key(),
-            RuleRole::CellsRemainder,
-        )?;
+        let remainder = Self::expand_frame(cells.remainder(), cells.remainder_key())?;
         Ok(WireRuleCells {
-            key: read_key(cells.payload_key(), self.key(RuleRole::CellsPayload, 0)),
+            key: held_key(cells.payload_key())?,
             cells: output,
             remainder,
         })
@@ -787,7 +681,7 @@ impl<'a> StateRuleBuilder<'a> {
             .iter()
             .map(|item| self.expand_instance(item, slots))
             .collect::<crate::Result<Vec<_>>>()?;
-        let rest = self.expand_frame(list.rest(), list.rest_key(), RuleRole::CellsInstancesRest)?;
+        let rest = Self::expand_frame(list.rest(), list.rest_key())?;
         let back = list
             .back()
             .iter()
@@ -809,16 +703,11 @@ impl<'a> StateRuleBuilder<'a> {
         item: &krs_syntax::InstanceItem,
         slots: &mut WireSlots,
     ) -> crate::Result<krs_ir::ProtocolRuleInstance<WireTerm>> {
-        let ordinal = take_counter(&mut self.counters.instance)?;
-        let key = read_key(item.key(), self.key(RuleRole::CellsInstance, ordinal));
+        let key = held_key(item.key())?;
         let mut fields = Vec::new();
         for field in item.fields() {
-            let ordinal = take_counter(&mut self.counters.instance_field)?;
             fields.push(krs_ir::ProtocolRuleInstanceField {
-                key: read_key(
-                    field.name_key(),
-                    self.key(RuleRole::CellsInstanceField, ordinal),
-                ),
+                key: held_key(field.name_key())?,
                 field: field.name().to_string(),
                 value: self.expand_state(field.value(), slots)?,
             });
@@ -837,20 +726,12 @@ impl<'a> StateRuleBuilder<'a> {
         slots: &mut WireSlots,
     ) -> crate::Result<ProtocolRuleKSequence<WireTerm>> {
         let payload_key = if sequence.payload_key().is_some() {
-            let ordinal = take_counter(&mut self.counters.k_payload)?;
-            Some(read_key(
-                sequence.payload_key(),
-                self.key(RuleRole::KSequencePayload, ordinal),
-            ))
+            Some(held_key(sequence.payload_key())?)
         } else {
             None
         };
         let dot_k_key = if sequence.notation() == KSequenceNotation::DotK {
-            let ordinal = take_counter(&mut self.counters.k_tail)?;
-            Some(read_key(
-                sequence.tail_key(),
-                self.key(RuleRole::KSequenceTail, ordinal),
-            ))
+            Some(held_key(sequence.tail_key())?)
         } else {
             None
         };
@@ -861,23 +742,15 @@ impl<'a> StateRuleBuilder<'a> {
         };
         let mut items = Vec::new();
         for item in sequence.items() {
-            let ordinal = take_counter(&mut self.counters.k_item)?;
             items.push(ProtocolRuleKSequenceItem {
-                key: read_key(
-                    item.keys().payload(),
-                    self.key(RuleRole::KSequenceItem, ordinal),
-                ),
+                key: held_key(item.keys().payload())?,
                 value: self.expand_keyed(KeyedTerm::of(item), slots)?,
             });
         }
         let tail = if sequence.notation() == KSequenceNotation::DotK {
             ProtocolRuleFrame::Exact
         } else {
-            self.expand_frame(
-                sequence.tail(),
-                sequence.tail_key(),
-                RuleRole::KSequenceTail,
-            )?
+            Self::expand_frame(sequence.tail(), sequence.tail_key())?
         };
         Ok(ProtocolRuleKSequence {
             payload_key,
@@ -894,11 +767,7 @@ impl<'a> StateRuleBuilder<'a> {
         slots: &mut WireSlots,
     ) -> crate::Result<ProtocolRuleMap<WireTerm>> {
         let payload_key = if map.payload_key().is_some() {
-            let ordinal = take_counter(&mut self.counters.map_payload)?;
-            Some(read_key(
-                map.payload_key(),
-                self.key(RuleRole::MapPayload, ordinal),
-            ))
+            Some(held_key(map.payload_key())?)
         } else {
             None
         };
@@ -909,87 +778,48 @@ impl<'a> StateRuleBuilder<'a> {
             MapBody::Items { items, remainder } => {
                 let mut values = Vec::new();
                 for item in items {
-                    let ko = take_counter(&mut self.counters.map_key)?;
-                    let vo = take_counter(&mut self.counters.map_value)?;
                     values.push(ProtocolRuleMapItem {
-                        key_key: read_key(
-                            item.key().keys().payload(),
-                            self.key(RuleRole::MapKey, ko),
-                        ),
+                        key_key: held_key(item.key().keys().payload())?,
                         key: self.expand_keyed(KeyedTerm::of(item.key()), slots)?,
-                        value_key: read_key(
-                            item.value().keys().payload(),
-                            self.key(RuleRole::MapValue, vo),
-                        ),
+                        value_key: held_key(item.value().keys().payload())?,
                         value: self.expand_keyed(KeyedTerm::of(item.value()), slots)?,
                     });
                 }
                 ProtocolRuleMapBody::Items {
                     items: values,
-                    remainder: self.expand_frame(
-                        remainder,
-                        map.remainder_key(),
-                        RuleRole::MapRemainder,
-                    )?,
+                    remainder: Self::expand_frame(remainder, map.remainder_key())?,
                 }
             }
-            MapBody::Update { base, key, value } => {
-                let bo = take_counter(&mut self.counters.map_update_base)?;
-                let ko = take_counter(&mut self.counters.map_key)?;
-                let vo = take_counter(&mut self.counters.map_value)?;
-                ProtocolRuleMapBody::Update {
-                    base_key: read_key(
-                        base.keys().payload(),
-                        self.key(RuleRole::MapUpdateBase, bo),
-                    ),
-                    base: self.expand_keyed(KeyedTerm::of(base), slots)?,
-                    key_key: read_key(key.keys().payload(), self.key(RuleRole::MapKey, ko)),
-                    key: self.expand_keyed(KeyedTerm::of(key), slots)?,
-                    value_key: read_key(value.keys().payload(), self.key(RuleRole::MapValue, vo)),
-                    value: self.expand_keyed(KeyedTerm::of(value), slots)?,
-                }
-            }
+            MapBody::Update { base, key, value } => ProtocolRuleMapBody::Update {
+                base_key: held_key(base.keys().payload())?,
+                base: self.expand_keyed(KeyedTerm::of(base), slots)?,
+                key_key: held_key(key.keys().payload())?,
+                key: self.expand_keyed(KeyedTerm::of(key), slots)?,
+                value_key: held_key(value.keys().payload())?,
+                value: self.expand_keyed(KeyedTerm::of(value), slots)?,
+            },
         };
         Ok(ProtocolRuleMap { payload_key, body })
     }
 
-    #[track_caller]
+    /// A remainder, keyed `read`, the remainder's own key.
     fn expand_frame(
-        &mut self,
         frame: &StateMacroRemainder,
         read: Option<&ProvenanceKey>,
-        role: RuleRole,
     ) -> crate::Result<ProtocolRuleFrame> {
-        let side_role = self.side_role(role);
-        let counter = match role {
-            RuleRole::CellsRemainder => &mut self.counters.remainder,
-            RuleRole::CellsInstancesRest => &mut self.counters.instances_rest,
-            RuleRole::KSequenceTail => &mut self.counters.k_tail,
-            RuleRole::MapRemainder => &mut self.counters.map_remainder,
-            _ => unreachable!(),
-        };
         match frame {
             StateMacroRemainder::Exact => Ok(ProtocolRuleFrame::Exact),
-            StateMacroRemainder::Anonymous(_) => {
-                let ordinal = take_counter(counter)?;
-                Ok(ProtocolRuleFrame::Anonymous {
-                    key: read_key(read, wire_key(side_role, ordinal)),
-                })
-            }
-            StateMacroRemainder::Bind { binding, .. } => {
-                let ordinal = take_counter(counter)?;
-                Ok(ProtocolRuleFrame::Bind {
-                    key: read_key(read, wire_key(side_role, ordinal)),
-                    binding: binding.unraw().to_string(),
-                })
-            }
-            StateMacroRemainder::Reuse { binding, .. } => {
-                let ordinal = take_counter(counter)?;
-                Ok(ProtocolRuleFrame::Reuse {
-                    key: read_key(read, wire_key(side_role, ordinal)),
-                    binding: binding.unraw().to_string(),
-                })
-            }
+            StateMacroRemainder::Anonymous(_) => Ok(ProtocolRuleFrame::Anonymous {
+                key: held_key(read)?,
+            }),
+            StateMacroRemainder::Bind { binding, .. } => Ok(ProtocolRuleFrame::Bind {
+                key: held_key(read)?,
+                binding: binding.unraw().to_string(),
+            }),
+            StateMacroRemainder::Reuse { binding, .. } => Ok(ProtocolRuleFrame::Reuse {
+                key: held_key(read)?,
+                binding: binding.unraw().to_string(),
+            }),
         }
     }
 
@@ -1014,14 +844,10 @@ impl<'a> StateRuleBuilder<'a> {
         let facade = self.facade;
         match tree {
             TermTree::Application(application) => {
-                let ordinal = take_counter(&mut self.counters.application)?;
                 // A `cells!` term keys no path: the head's key stands for it.
                 keys.path();
                 let node = keys.node(NodeKind::ApplicationHead);
-                let key = read_key(
-                    node.role(self.term_role(TermRole::ApplicationHead)),
-                    self.term_key(TermRole::ApplicationHead, ordinal),
-                );
+                let key = held_key(node.role(self.term_role(TermRole::ApplicationHead)))?;
                 let target = self.terms.application_wire_slot(
                     application.head(),
                     application.is_notation(),
@@ -1042,12 +868,8 @@ impl<'a> StateRuleBuilder<'a> {
                     TermArguments::Named(values) => {
                         let mut arguments = Vec::new();
                         for argument in values {
-                            let ordinal = take_counter(&mut self.counters.record_field)?;
                             arguments.push(krs_ir::NamedTermArgument {
-                                key: read_key(
-                                    keys.record_field(),
-                                    self.term_key(TermRole::RecordFieldName, ordinal),
-                                ),
+                                key: held_key(keys.record_field())?,
                                 field: ProductionFieldId::new(argument.name().to_string())
                                     .expect("Rust field identifiers are valid production fields"),
                                 value: Box::new(self.expand_term(argument.value(), keys, slots)?),
@@ -1074,13 +896,11 @@ impl<'a> StateRuleBuilder<'a> {
                 })
             }
             TermTree::Reference(path) => {
-                let ordinal = take_counter(&mut self.counters.reference)?;
                 keys.path();
-                let key = read_key(
+                let key = held_key(
                     keys.node(NodeKind::Reference)
                         .role(self.term_role(TermRole::Reference)),
-                    self.term_key(TermRole::Reference, ordinal),
-                );
+                )?;
                 if is_bound_ident_path(path, self.bindings) {
                     Ok(WireTerm::Variable {
                         key: key.clone(),
@@ -1104,17 +924,13 @@ impl<'a> StateRuleBuilder<'a> {
                     })
                 }
             }
-            TermTree::Literal(literal) => {
-                let ordinal = take_counter(&mut self.counters.literal)?;
-                Ok(WireTerm::Literal {
-                    key: read_key(
-                        keys.node(NodeKind::Literal)
-                            .role(self.term_role(TermRole::Literal)),
-                        self.term_key(TermRole::Literal, ordinal),
-                    ),
-                    literal: wire_literal(literal),
-                })
-            }
+            TermTree::Literal(literal) => Ok(WireTerm::Literal {
+                key: held_key(
+                    keys.node(NodeKind::Literal)
+                        .role(self.term_role(TermRole::Literal)),
+                )?,
+                literal: wire_literal(literal),
+            }),
             TermTree::Wildcard(range) => {
                 if matches!(self.side, RuleSide::Right) {
                     return Err(ExpandError::at_range(
@@ -1123,47 +939,38 @@ impl<'a> StateRuleBuilder<'a> {
                         "rule results cannot contain wildcards",
                     ));
                 }
-                let ordinal = take_counter(&mut self.counters.wildcard)?;
                 Ok(WireTerm::Wildcard {
-                    key: read_key(keys.wildcard(), self.term_key(TermRole::Wildcard, ordinal)),
+                    key: held_key(keys.wildcard())?,
                 })
             }
-            TermTree::IdToken { literal } => {
-                let ordinal = take_counter(&mut self.counters.id_token)?;
-                Ok(WireTerm::BuiltinToken {
-                    key: read_key(
-                        keys.node(NodeKind::IdToken)
-                            .role(ProvenanceRole::ClaimIdToken),
-                        wire_key(ProvenanceRole::ClaimIdToken, ordinal),
-                    ),
-                    sort: BuiltinSort::Id,
-                    value: literal.value(),
-                })
-            }
-            TermTree::BytesToken { literal } => {
-                let ordinal = take_counter(&mut self.counters.bytes_token)?;
-                Ok(WireTerm::BuiltinToken {
-                    key: read_key(
-                        keys.node(NodeKind::BytesToken)
-                            .role(ProvenanceRole::ClaimBytesToken),
-                        wire_key(ProvenanceRole::ClaimBytesToken, ordinal),
-                    ),
-                    sort: BuiltinSort::Bytes,
-                    value: bytes_token::encode(&literal.value()),
-                })
-            }
+            TermTree::IdToken { literal } => Ok(WireTerm::BuiltinToken {
+                key: held_key(
+                    keys.node(NodeKind::IdToken)
+                        .role(ProvenanceRole::ClaimIdToken),
+                )?,
+                sort: BuiltinSort::Id,
+                value: literal.value(),
+            }),
+            TermTree::BytesToken { literal } => Ok(WireTerm::BuiltinToken {
+                key: held_key(
+                    keys.node(NodeKind::BytesToken)
+                        .role(ProvenanceRole::ClaimBytesToken),
+                )?,
+                sort: BuiltinSort::Bytes,
+                value: bytes_token::encode(&literal.value()),
+            }),
             TermTree::Lexeme { sort, text } => {
                 let node = keys.node(NodeKind::Lexeme);
                 self.terms.lexeme_wire(sort, text, node, slots)
             }
             TermTree::SortTest {
-                range,
                 kind,
                 sort,
                 operand,
+                ..
             } => {
                 let node = keys.node(NodeKind::SortTest);
-                let (key, sort) = self.terms.sort_test_reference(*range, sort, node, slots)?;
+                let (key, sort) = self.terms.sort_test_reference(sort, node, slots)?;
                 Ok(WireTerm::SortTest {
                     key,
                     kind: *kind,
@@ -1202,7 +1009,7 @@ impl<'a> StateRuleBuilder<'a> {
                     ));
                 }
                 let node = keys.node(NodeKind::Or);
-                let key = self.terms.take_pattern_or(range.first(), node)?;
+                let key = TermBuilder::take_pattern_or(node)?;
                 Ok(WireTerm::Or {
                     key,
                     alternatives: alternatives
@@ -1221,7 +1028,6 @@ impl<'a> StateRuleBuilder<'a> {
                     ));
                 }
                 let node = keys.node(NodeKind::Anonymous);
-                let ordinal = take_counter(&mut self.counters.anonymous)?;
                 let path = call_site_path(sort)?;
                 let key_fn = format_ident!(
                     "__krs_claim_anonymous_sort_{:016x}_{}",
@@ -1232,15 +1038,9 @@ impl<'a> StateRuleBuilder<'a> {
                 let cfg = self.terms.cfg;
                 self.terms.key_functions.push(quote! { #(#cfg)* #[doc(hidden)] fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() } });
                 Ok(WireTerm::Anonymous {
-                    key: read_key(
-                        node.role(ProvenanceRole::ClaimAnonymous),
-                        wire_key(ProvenanceRole::ClaimAnonymous, ordinal),
-                    ),
+                    key: held_key(node.role(ProvenanceRole::ClaimAnonymous))?,
                     sort: WireSortReference {
-                        key: read_key(
-                            node.role(ProvenanceRole::ClaimAnonymousSort),
-                            wire_key(ProvenanceRole::ClaimAnonymousSort, ordinal),
-                        ),
+                        key: held_key(node.role(ProvenanceRole::ClaimAnonymousSort))?,
                         target: WireTypeReference {
                             slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_fn))),
                             authored_path: spelling(sort),
@@ -1268,8 +1068,7 @@ impl<'a> StateRuleBuilder<'a> {
                 range, from, to, ..
             } => {
                 let node = keys.node(NodeKind::Rewrite);
-                let ordinal = self
-                    .terms
+                self.terms
                     .enter_rewrite(*range, matches!(self.side, RuleSide::Left))?;
                 let from = self.expand_term(from, keys, slots);
                 let to = match (from.is_ok(), to) {
@@ -1279,7 +1078,7 @@ impl<'a> StateRuleBuilder<'a> {
                     _ => Ok(None),
                 };
                 self.terms.leave_rewrite();
-                Ok(super::terms::rewrite_wire(ordinal, node, from?, to?))
+                super::terms::rewrite_wire(node, from?, to?)
             }
             TermTree::OrBool { range, arguments } => {
                 if !self.claim {
@@ -1290,34 +1089,24 @@ impl<'a> StateRuleBuilder<'a> {
                     ));
                 }
                 let node = keys.node(NodeKind::OrBool);
-                let ordinal = take_counter(&mut self.counters.or_bool)?;
                 let arguments =
                     arguments.try_map_ref(|argument| self.expand_term(argument, keys, slots))?;
                 Ok(WireTerm::OrBool {
-                    key: read_key(
-                        node.role(ProvenanceRole::ClaimOrBool),
-                        wire_key(ProvenanceRole::ClaimOrBool, ordinal),
-                    ),
+                    key: held_key(node.role(ProvenanceRole::ClaimOrBool))?,
                     arguments,
                 })
             }
             TermTree::Cell(cell) => {
-                let ordinal = take_counter(&mut self.counters.application)?;
                 keys.path();
-                let key = read_key(
+                let key = held_key(
                     keys.node(NodeKind::ApplicationHead)
                         .role(self.term_role(TermRole::ApplicationHead)),
-                    self.term_key(TermRole::ApplicationHead, ordinal),
-                );
+                )?;
                 let declaration = self.terms.cell_declaration_reference(cell.owner(), slots)?;
                 let mut fields = Vec::new();
                 for field in cell.fields() {
-                    let ordinal = take_counter(&mut self.counters.record_field)?;
                     fields.push(WireCellTermField {
-                        key: read_key(
-                            keys.record_field(),
-                            self.term_key(TermRole::RecordFieldName, ordinal),
-                        ),
+                        key: held_key(keys.record_field())?,
                         field: ProductionFieldId::new(field.name().to_string())
                             .expect("Rust fields are valid cell-field identities"),
                         value: Box::new(self.expand_term(field.value(), keys, slots)?),

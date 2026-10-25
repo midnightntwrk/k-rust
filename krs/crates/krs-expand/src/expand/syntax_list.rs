@@ -11,7 +11,7 @@ use krs_ir::wire::{
     WireGrammarDescriptor, WirePayload, WireProduction, WireProductionAttribute,
     WireProductionItem, WireProductionOwner, WireSortReference, WireTypeReference,
 };
-use krs_syntax::{KrsSyntax, ProvenanceAnchor, ProvenanceRole, TokenRange};
+use krs_syntax::{KrsSyntax, ProvenanceAnchor, TokenRange};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use syn::{Attribute, Fields, Ident, ItemEnum, Path};
@@ -19,7 +19,7 @@ use syn::{Attribute, Fields, Ident, ItemEnum, Path};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::{expansion_nonce, rule_application_selector};
 use super::productions::{production_documentation_wire, strictness_key_function, strictness_wire};
-use super::terms::{WireSlots, read_key, wire_key, wire_sort_reference};
+use super::terms::{WireSlots, held_key, wire_sort_reference};
 use super::tokens::{
     call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens,
     variant_marker_function,
@@ -279,7 +279,11 @@ impl ListContext<'_> {
         })
     }
 
-    fn partner(&self, role: Role, slots: &mut WireSlots) -> WireApplicationReference {
+    fn partner(
+        &self,
+        role: Role,
+        slots: &mut WireSlots,
+    ) -> crate::Result<WireApplicationReference> {
         let partner = match role {
             Role::Cons => Role::Terminator,
             Role::Terminator => Role::Cons,
@@ -288,17 +292,14 @@ impl ListContext<'_> {
         let enum_key = &self.enum_key;
         let partner_key = self.variant_key(partner);
         // The partner names the list attribute, which both productions hold.
-        WireApplicationReference {
-            key: read_key(
-                self.declaration.attribute().key(),
-                wire_key(ProvenanceRole::ListDeclaration, 0),
-            ),
+        Ok(WireApplicationReference {
+            key: held_key(self.declaration.attribute().key())?,
             target: slots.variant_slot_for_grammar(
                 &quote!(#facade::HostTypeKey(#enum_key)),
                 &quote!(#facade::HostTypeKey(#partner_key)),
             ),
             authored_path: format!("{}::{}", self.enum_name, self.variant_name(partner)),
-        }
+        })
     }
 
     #[expect(
@@ -360,16 +361,10 @@ impl ListContext<'_> {
                     let ordinal = u32::try_from(ordinal).expect("a list has two fields");
                     // The field's name keys its item, its field and its
                     // declaration.
-                    let field_key = read_key(
-                        field.name_key(),
-                        wire_key(ProvenanceRole::ConstructorFieldDeclaration, ordinal),
-                    );
+                    let field_key = held_key(field.name_key())?;
                     if ordinal == 1 && !attribute.separator().value().is_empty() {
                         items.push(WireProductionItem::Terminal {
-                            key: read_key(
-                                attribute.separator_key(),
-                                wire_key(ProvenanceRole::ListSeparator, 0),
-                            ),
+                            key: held_key(attribute.separator_key())?,
                             text: attribute.separator().value(),
                         });
                     }
@@ -382,34 +377,22 @@ impl ListContext<'_> {
                         sort: Box::new(wire_sort_reference(
                             &mut grammar_slots,
                             facade,
-                            (
-                                field.sort_key(),
-                                ProvenanceRole::ConstructorFieldSort,
-                                ordinal,
-                            ),
+                            field.sort_key(),
                             &key,
                             &spelling,
-                        )),
+                        )?),
                     });
                 }
                 attributes.extend(production_documentation_wire(cons.documentation())?);
                 attributes.push(WireProductionAttribute::ListCons {
-                    key: read_key(
-                        attribute.key(),
-                        wire_key(ProvenanceRole::ListDeclaration, 0),
-                    ),
-                    separator_key: read_key(
-                        attribute.separator_key(),
-                        wire_key(ProvenanceRole::ListSeparator, 0),
-                    ),
+                    key: held_key(attribute.key())?,
+                    separator_key: held_key(attribute.separator_key())?,
                     separator: attribute.separator().value(),
-                    non_empty: attribute.non_empty().map(|_| {
-                        read_key(
-                            attribute.non_empty_key(),
-                            wire_key(ProvenanceRole::ListNonEmpty, 0),
-                        )
-                    }),
-                    terminator: self.partner(role, &mut grammar_slots),
+                    non_empty: attribute
+                        .non_empty()
+                        .map(|_| held_key(attribute.non_empty_key()))
+                        .transpose()?,
+                    terminator: self.partner(role, &mut grammar_slots)?,
                 });
                 let strictness_nonce = expansion_nonce(
                     self.env,
@@ -430,21 +413,18 @@ impl ListContext<'_> {
                     cons.strictness(),
                     strictness_nonce,
                     &mut grammar_slots,
-                ) {
+                )? {
                     attributes.push(strictness);
                 }
             }
             Role::Terminator => {
                 // The terminator's `.List` names the list attribute.
                 items.push(WireProductionItem::Terminal {
-                    key: read_key(
-                        attribute.key(),
-                        wire_key(ProvenanceRole::ListDeclaration, 0),
-                    ),
+                    key: held_key(attribute.key())?,
                     text: format!(".{enum_name}"),
                 });
                 attributes.push(WireProductionAttribute::ListTerminator {
-                    cons: self.partner(role, &mut grammar_slots),
+                    cons: self.partner(role, &mut grammar_slots)?,
                 });
             }
         }
@@ -452,14 +432,10 @@ impl ListContext<'_> {
         let result_sort = wire_sort_reference(
             &mut grammar_slots,
             facade,
-            (
-                self.declaration.sort_key(),
-                ProvenanceRole::ConstructorSort,
-                0,
-            ),
+            self.declaration.sort_key(),
             enum_key,
             enum_name,
-        );
+        )?;
         let variant_slot = grammar_slots.variant_slot_for_grammar(
             &quote!(#facade::HostTypeKey(#enum_key)),
             &quote!(#facade::HostTypeKey(#variant_key)),
@@ -467,18 +443,12 @@ impl ListContext<'_> {
         let grammar_wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
             WireProduction {
                 parameters: Vec::new(),
-                key: read_key(
-                    self.variant_declaration_key(role),
-                    wire_key(ProvenanceRole::ConstructorDeclaration, 0),
-                ),
+                key: held_key(self.variant_declaration_key(role))?,
                 template_key: None,
                 owner: WireProductionOwner::Constructor {
                     // The production's owner is its own variant.
                     constructor: WireApplicationReference {
-                        key: read_key(
-                            self.variant_declaration_key(role),
-                            wire_key(ProvenanceRole::ConstructorDeclaration, 0),
-                        ),
+                        key: held_key(self.variant_declaration_key(role))?,
                         target: variant_slot,
                         authored_path: application_path,
                     },
@@ -493,10 +463,7 @@ impl ListContext<'_> {
         let constructor_wire = WirePayload::Constructor(WireConstructorDescriptor {
             parameters: Vec::new(),
             sort: WireSortReference {
-                key: read_key(
-                    self.declaration.sort_key(),
-                    wire_key(ProvenanceRole::ConstructorSort, 0),
-                ),
+                key: held_key(self.declaration.sort_key())?,
                 target: WireTypeReference {
                     slot: result_slot,
                     authored_path: enum_name.clone(),

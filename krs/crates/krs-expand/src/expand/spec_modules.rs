@@ -15,7 +15,7 @@ use krs_diagnostic::codes::expand;
 use krs_ir::wire::{WireGrammarDescriptor, WirePayload};
 use krs_ir::{DescriptorModuleImport, DescriptorSpecModuleName};
 use krs_syntax::surface::{self, AttributeMacro, Entry};
-use krs_syntax::{KrsSyntax, ProvenanceRole, SpecModuleAttribute, SpecModuleItem, TokenRange};
+use krs_syntax::{KrsSyntax, SpecModuleAttribute, SpecModuleItem, TokenRange};
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use quote::{ToTokens, format_ident, quote};
 use syn::ext::IdentExt;
@@ -23,7 +23,7 @@ use syn::{AttrStyle, Attribute, Ident, Item, Meta, Path};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
-use super::terms::{read_key, wire_key};
+use super::terms::held_key;
 use crate::environment::{MacroEnvironment, SourcePosition};
 use crate::provenance::host_provenance;
 use crate::{ExpandError, expand_attribute, expand_function};
@@ -327,38 +327,31 @@ fn descriptor_factory(
     let imports = attribute
         .imports()
         .iter()
-        .enumerate()
-        .map(|(ordinal, path)| -> crate::Result<_> {
-            let ordinal = u32::try_from(ordinal).map_err(|_| {
-                ExpandError::new(
-                    expand::DESCRIPTOR_CAPACITY,
-                    ident.span(),
-                    "too many spec-module imports",
-                )
-            })?;
+        .zip(
+            attribute
+                .import_keys()
+                .iter()
+                .map(Some)
+                .chain(std::iter::repeat(None)),
+        )
+        .map(|(path, read)| -> crate::Result<_> {
             Ok(DescriptorModuleImport {
-                key: read_key(
-                    attribute
-                        .import_keys()
-                        .get(usize::try_from(ordinal).unwrap_or(usize::MAX)),
-                    wire_key(ProvenanceRole::SpecModuleImport, ordinal),
-                ),
+                key: held_key(read)?,
                 path: surface::path_text(path),
             })
         })
         .collect::<crate::Result<Vec<_>>>()?;
     let grammar = WireGrammarDescriptor::SpecModule {
-        key: read_key(
-            module.key(),
-            wire_key(ProvenanceRole::SpecModuleDeclaration, 0),
-        ),
-        name: attribute.name().map(|name| DescriptorSpecModuleName {
-            key: read_key(
-                attribute.name_key(),
-                wire_key(ProvenanceRole::SpecModuleName, 0),
-            ),
-            value: name.value(),
-        }),
+        key: held_key(module.key())?,
+        name: attribute
+            .name()
+            .map(|name| -> crate::Result<_> {
+                Ok(DescriptorSpecModuleName {
+                    key: held_key(attribute.name_key())?,
+                    value: name.value(),
+                })
+            })
+            .transpose()?,
         imports,
     };
     let wire = serde_json::to_string(&WirePayload::Grammar(Box::new(grammar)))

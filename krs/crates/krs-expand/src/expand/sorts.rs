@@ -6,7 +6,7 @@ use krs_syntax::KrsSyntax;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
-use super::terms::{WireSlots, anchor_key, read_key, wire_key, wire_sort_reference};
+use super::terms::{WireSlots, anchor_key, held_key, wire_sort_reference};
 use krs_ir::lower_hex;
 use krs_ir::wire::{WireGrammarDescriptor, WirePayload, WireSortDescriptor, WireTypeReference};
 use krs_syntax::surface::{AttributeMacro, helper_entry};
@@ -206,7 +206,7 @@ pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
                     }
                     output.push(expand_readable_membership(
                         env, &facade, membership, member, anchors, &identity,
-                    ));
+                    )?);
                 }
             }
         }
@@ -424,7 +424,7 @@ fn expand_readable_membership(
     member: &Path,
     anchors: &[ProvenanceAnchor],
     identity: &ReadableMembershipIdentity,
-) -> TokenStream {
+) -> crate::Result<TokenStream> {
     let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
     let fallback = anchors[0].range();
     let provenance = host_provenance(env, facade, fallback, anchors);
@@ -451,30 +451,19 @@ fn expand_readable_membership(
     let supersort = wire_sort_reference(
         &mut slots,
         facade,
-        (
-            declaration.supersort_key(),
-            ProvenanceRole::SubsortSuperSort,
-            0,
-        ),
+        declaration.supersort_key(),
         &super_key,
         &super_spelling,
-    );
+    )?;
     let subsort = wire_sort_reference(
         &mut slots,
         facade,
-        (
-            anchor_key(anchors, ProvenanceRole::SubsortSubSort).as_ref(),
-            ProvenanceRole::SubsortSubSort,
-            0,
-        ),
+        anchor_key(anchors, ProvenanceRole::SubsortSubSort).as_ref(),
         &sub_key,
         &sub_spelling,
-    );
+    )?;
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Subsort {
-        key: read_key(
-            anchor_key(anchors, subsort_declaration_role).as_ref(),
-            wire_key(subsort_declaration_role, 0),
-        ),
+        key: held_key(anchor_key(anchors, subsort_declaration_role).as_ref())?,
         subsort,
         supersort,
     }));
@@ -496,7 +485,7 @@ fn expand_readable_membership(
     }
     .render();
 
-    quote! {
+    Ok(quote! {
         #[doc(hidden)]
         fn #super_key() -> ::core::any::TypeId {
             ::core::any::TypeId::of::<#supersort_alias>()
@@ -508,7 +497,7 @@ fn expand_readable_membership(
         }
 
         #factory_tokens
-    }
+    })
 }
 
 struct ReadableMembershipIdentity {
@@ -607,7 +596,6 @@ pub(crate) fn subsort(
     attributes: TokenStream,
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
-    let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
     let declaration = krs_syntax::SubsortDeclaration::parse_tokens(item)?;
     if attributes.is_empty() {
         return Err(declaration.unaliased_error().into());
@@ -633,23 +621,19 @@ pub(crate) fn subsort(
     let supersort = wire_sort_reference(
         &mut slots,
         &facade,
-        (reference.sort_key(), ProvenanceRole::SubsortSuperSort, 0),
+        reference.sort_key(),
         &super_key,
         &super_spelling,
-    );
+    )?;
     let subsort = wire_sort_reference(
         &mut slots,
         &facade,
-        (
-            declaration.sub_sort_key(),
-            ProvenanceRole::SubsortSubSort,
-            0,
-        ),
+        declaration.sub_sort_key(),
         &sub_key,
         &sub_spelling,
-    );
+    )?;
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Subsort {
-        key: read_key(declaration.key(), wire_key(subsort_declaration_role, 0)),
+        key: held_key(declaration.key())?,
         subsort,
         supersort,
     }));
@@ -721,8 +705,7 @@ fn expand_bracket_grammar(
 
 #[expect(
     clippy::too_many_arguments,
-    clippy::too_many_lines,
-    reason = "Bracket lowering passes the complete declaration context explicitly and keys every part of the production."
+    reason = "Bracket lowering passes the complete declaration context explicitly."
 )]
 fn expand_bracket_grammar_parts(
     env: &dyn MacroEnvironment,
@@ -735,7 +718,6 @@ fn expand_bracket_grammar_parts(
     index: usize,
     cfg: &[Attribute],
 ) -> crate::Result<TokenStream> {
-    let bracket_declaration_role = ProvenanceRole::BracketDeclaration;
     let fallback = anchors
         .first()
         .map(ProvenanceAnchor::range)
@@ -755,29 +737,14 @@ fn expand_bracket_grammar_parts(
     let sort_reference = wire_sort_reference(
         &mut slots,
         facade,
-        (
-            anchor_key(anchors, ProvenanceRole::SortDeclaration).as_ref(),
-            ProvenanceRole::SortDeclaration,
-            0,
-        ),
+        anchor_key(anchors, ProvenanceRole::SortDeclaration).as_ref(),
         sort_key,
         sort_name,
-    );
+    )?;
     let mut items = Vec::new();
-    let mut value_ordinal = 0_u32;
     for (item_index, item) in bracket.template().items().iter().enumerate() {
-        let ordinal = u32::try_from(item_index).map_err(|_| {
-            ExpandError::new(
-                expand::DESCRIPTOR_CAPACITY,
-                bracket.template().literal().span(),
-                "too many bracket items",
-            )
-        })?;
         let item_keys = bracket_item_keys(bracket, item_index);
-        let key = read_key(
-            item_keys.first(),
-            wire_key(ProvenanceRole::BracketSyntaxItem, ordinal),
-        );
+        let key = held_key(item_keys.first())?;
         match item {
             SyntaxTemplateItem::Terminal(text) => {
                 items.push(krs_ir::wire::WireProductionItem::Terminal {
@@ -786,17 +753,7 @@ fn expand_bracket_grammar_parts(
                 });
             }
             SyntaxTemplateItem::Field(_) => {
-                let field_key = read_key(
-                    item_keys.get(1),
-                    wire_key(ProvenanceRole::BracketValueReference, value_ordinal),
-                );
-                value_ordinal = value_ordinal.checked_add(1).ok_or_else(|| {
-                    ExpandError::new(
-                        expand::DESCRIPTOR_CAPACITY,
-                        bracket.template().literal().span(),
-                        "too many bracket values",
-                    )
-                })?;
+                let field_key = held_key(item_keys.get(1))?;
                 items.push(krs_ir::wire::WireProductionItem::NonTerminal {
                     key,
                     field_key,
@@ -812,7 +769,7 @@ fn expand_bracket_grammar_parts(
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
         krs_ir::wire::WireProduction {
             parameters: Vec::new(),
-            key: read_key(bracket.key(), wire_key(bracket_declaration_role, 0)),
+            key: held_key(bracket.key())?,
             template_key: None,
             owner: krs_ir::wire::WireProductionOwner::BracketSort {
                 sort: sort_reference.clone(),
@@ -821,7 +778,7 @@ fn expand_bracket_grammar_parts(
             items,
             // The declaration again, as the production's attribute.
             attributes: vec![krs_ir::wire::WireProductionAttribute::Bracket {
-                key: read_key(bracket.key(), wire_key(bracket_declaration_role, 0)),
+                key: held_key(bracket.key())?,
             }],
         },
     )));

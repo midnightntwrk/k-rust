@@ -22,7 +22,7 @@ use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
 use super::productions::strictness_key_function;
 use super::terms::{
-    SortArgumentSink, WireSlots, production_sort_arguments, read_key, wire_key, wire_sort_reference,
+    SortArgumentSink, WireSlots, held_key, production_sort_arguments, wire_sort_reference,
 };
 use super::tokens::{
     call_site_cfg_attributes, call_site_ident, call_site_path, helper_tokens, sort_type_tokens,
@@ -148,16 +148,15 @@ fn function_production(
         })
         .transpose()?;
     let smt = expanded_smt(function, &item)?;
-    let underspecified =
-        function
-            .underspecified()
-            .map(|reason| WireProductionAttribute::Underspecified {
-                key: read_key(
-                    function.underspecified_key(),
-                    wire_key(ProvenanceRole::FunctionUnderspecified, 0),
-                ),
+    let underspecified = function
+        .underspecified()
+        .map(|reason| -> crate::Result<_> {
+            Ok(WireProductionAttribute::Underspecified {
+                key: held_key(function.underspecified_key())?,
                 reason: reason.value(),
-            });
+            })
+        })
+        .transpose()?;
     constructor_like(
         env,
         function.production().clone(),
@@ -179,10 +178,7 @@ fn expanded_smt(
     };
     let attribute = match smt {
         krs_syntax::FunctionSmt::Smtlib(literal) => WireProductionAttribute::Smtlib {
-            key: read_key(
-                function.smtlib_key(),
-                wire_key(ProvenanceRole::FunctionSmtlib, 0),
-            ),
+            key: held_key(function.smtlib_key())?,
             symbol: literal.value(),
         },
         krs_syntax::FunctionSmt::Hook(template) => {
@@ -195,37 +191,35 @@ fn expanded_smt(
                 })
                 .unwrap_or_default();
             function.validate_smt_fields(&fields)?;
-            let mut placeholder = 0_u32;
+            // Each placeholder holds the next of the template's
+            // placeholder keys, in order.
             let mut placeholder_keys = template.placeholder_keys().iter();
             let fragments = template
                 .fragments()
                 .iter()
-                .map(|fragment| match fragment {
-                    krs_syntax::SmtTemplateFragment::Text(text) => krs_ir::DescriptorSmtFragment {
-                        key: None,
-                        fragment: krs_ir::SmtFragment::Text(text.clone()),
-                    },
-                    krs_syntax::SmtTemplateFragment::Field(name) => {
-                        let key = read_key(
-                            placeholder_keys.next(),
-                            wire_key(ProvenanceRole::SmtHookPlaceholder, placeholder),
-                        );
-                        placeholder += 1;
-                        krs_ir::DescriptorSmtFragment {
-                            key: Some(key),
-                            fragment: krs_ir::SmtFragment::Field(
-                                krs_ir::ProductionFieldId::new(name.clone())
-                                    .expect("a checked placeholder is a Rust identifier"),
-                            ),
+                .map(|fragment| -> crate::Result<_> {
+                    Ok(match fragment {
+                        krs_syntax::SmtTemplateFragment::Text(text) => {
+                            krs_ir::DescriptorSmtFragment {
+                                key: None,
+                                fragment: krs_ir::SmtFragment::Text(text.clone()),
+                            }
                         }
-                    }
+                        krs_syntax::SmtTemplateFragment::Field(name) => {
+                            let key = held_key(placeholder_keys.next())?;
+                            krs_ir::DescriptorSmtFragment {
+                                key: Some(key),
+                                fragment: krs_ir::SmtFragment::Field(
+                                    krs_ir::ProductionFieldId::new(name.clone())
+                                        .expect("a checked placeholder is a Rust identifier"),
+                                ),
+                            }
+                        }
+                    })
                 })
-                .collect();
+                .collect::<crate::Result<_>>()?;
             WireProductionAttribute::SmtHook {
-                key: read_key(
-                    template.hook_key(),
-                    wire_key(ProvenanceRole::FunctionSmtHook, 0),
-                ),
+                key: held_key(template.hook_key())?,
                 template: fragments,
             }
         }
@@ -466,10 +460,7 @@ fn constructor_like(
     let sort_spelling = spelling(&attribute.sort);
     let mut slots = WireSlots::new(&facade);
     let sort_reference = WireSortReference {
-        key: read_key(
-            attribute.sort_key(),
-            wire_key(ProvenanceRole::ConstructorSort, 0),
-        ),
+        key: held_key(attribute.sort_key())?,
         target: WireTypeReference {
             slot: slots.type_slot(quote!(#facade::HostTypeKey(#sort_key))),
             authored_path: sort_spelling,
@@ -511,8 +502,8 @@ fn constructor_like(
         });
         field_arguments.push(field.term_sort().arguments());
     }
-    // Each field's element types, numbered in preorder across the fields,
-    // and the result's, numbered on their own.
+    // Each field's element types, their helpers numbered in preorder across
+    // the fields, and the result's, numbered on their own.
     let mut sink = SortArgumentSink {
         facade: &facade,
         prefix: format!("__krs_constructor_field_argument_{nonce:016x}"),
@@ -522,26 +513,18 @@ fn constructor_like(
         ordinal: 0,
     };
     for (field, arguments) in fields.iter_mut().zip(field_arguments) {
-        field.arguments = production_sort_arguments(
-            arguments,
-            ProvenanceRole::ConstructorFieldSortArgument,
-            &mut sink,
-        )?;
+        field.arguments = production_sort_arguments(arguments, &mut sink)?;
     }
     sink.prefix = format!("__krs_constructor_sort_argument_{nonce:016x}");
     sink.ordinal = 0;
-    let result_arguments = production_sort_arguments(
-        &attribute.sort_arguments,
-        ProvenanceRole::ConstructorSortArgument,
-        &mut sink,
-    )?;
+    let result_arguments = production_sort_arguments(&attribute.sort_arguments, &mut sink)?;
     let parameters = parameter_wire_references(
         &facade,
         declaration.sort_parameters(),
         declaration.parameter_keys(),
         &parameter_markers,
         &mut slots,
-    );
+    )?;
     let wire = WirePayload::Constructor(WireConstructorDescriptor {
         sort: sort_reference,
         fields,
@@ -702,23 +685,13 @@ fn parameter_wire_references(
     keys: &[krs_ir::ProvenanceKey],
     markers: &[(Ident, Ident)],
     slots: &mut WireSlots,
-) -> Vec<WireSortReference> {
+) -> crate::Result<Vec<WireSortReference>> {
     parameters
         .iter()
         .zip(markers)
         .enumerate()
-        .map(|(ordinal, (parameter, (_, key)))| {
-            wire_sort_reference(
-                slots,
-                facade,
-                (
-                    keys.get(ordinal),
-                    ProvenanceRole::SortParameter,
-                    u32::try_from(ordinal).expect("sort parameters are few"),
-                ),
-                key,
-                &parameter.to_string(),
-            )
+        .map(|(index, (parameter, (_, key)))| {
+            wire_sort_reference(slots, facade, keys.get(index), key, &parameter.to_string())
         })
         .collect()
 }
@@ -948,21 +921,15 @@ pub(crate) fn token(
     let grammar_name = format!("__krs_grammar_token_{name}");
     let mut slots = WireSlots::new(&facade);
     // The carrier's name: the sort and the owner of every production.
-    let token_reference = wire_sort_reference(
-        &mut slots,
-        &facade,
-        (declaration.name_key(), ProvenanceRole::TokenDeclaration, 0),
-        &key_fn,
-        &name,
-    );
+    let token_reference =
+        wire_sort_reference(&mut slots, &facade, declaration.name_key(), &key_fn, &name)?;
     let productions = stack
-        .ordinals()
-        .into_iter()
-        .map(|(ordinal, attribute)| {
-            let role = attribute.content().role();
+        .attributes()
+        .iter()
+        .map(|attribute| -> crate::Result<_> {
             // The content keys the production, its one item and its
             // `token` attribute.
-            let key = read_key(attribute.content_key(), wire_key(role, ordinal));
+            let key = held_key(attribute.content_key())?;
             let item = match attribute.content() {
                 krs_syntax::TokenContent::Regex(literal) => WireProductionItem::RegexTerminal {
                     key: key.clone(),
@@ -975,7 +942,16 @@ pub(crate) fn token(
                     text: literal.value(),
                 },
             };
-            WireProduction {
+            let lexical_precedence = attribute
+                .lexical_precedence()
+                .map(|value| -> crate::Result<_> {
+                    Ok(krs_ir::DescriptorLexicalPrecedence {
+                        key: held_key(attribute.precedence_key())?,
+                        value,
+                    })
+                })
+                .transpose()?;
+            Ok(WireProduction {
                 parameters: Vec::new(),
                 key: key.clone(),
                 template_key: None,
@@ -986,19 +962,11 @@ pub(crate) fn token(
                 items: vec![item],
                 attributes: vec![WireProductionAttribute::Token {
                     key,
-                    lexical_precedence: attribute.lexical_precedence().map(|value| {
-                        krs_ir::DescriptorLexicalPrecedence {
-                            key: read_key(
-                                attribute.precedence_key(),
-                                wire_key(ProvenanceRole::TokenLexicalPrecedence, ordinal),
-                            ),
-                            value,
-                        }
-                    }),
+                    lexical_precedence,
                 }],
-            }
+            })
         })
-        .collect();
+        .collect::<crate::Result<_>>()?;
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Tokens { productions }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
@@ -1099,9 +1067,6 @@ fn constructor_grammar(
     [smt, underspecified]: [Option<WireProductionAttribute>; 2],
     static_marker: Option<&krs_syntax::StaticProductionAttribute>,
 ) -> crate::Result<TokenStream> {
-    let function_total_role = ProvenanceRole::FunctionTotal;
-    let function_hook_role = ProvenanceRole::FunctionHook;
-    let constructor_declaration_role = ProvenanceRole::ConstructorDeclaration;
     let name = declaration.name().to_string();
     let grammar_name = format!("__krs_grammar_{name}");
     let factory = format_ident!("__krs_constructor_grammar_{nonce:016x}");
@@ -1110,16 +1075,14 @@ fn constructor_grammar(
     let result_sort = wire_sort_reference(
         &mut slots,
         facade,
-        (attribute.sort_key(), ProvenanceRole::ConstructorSort, 0),
+        attribute.sort_key(),
         sort_key,
         &result_sort_spelling,
-    );
-    let template_key = attribute.syntax_template().map(|_| {
-        read_key(
-            attribute.keys().syntax(),
-            wire_key(ProvenanceRole::ConstructorSyntax, 0),
-        )
-    });
+    )?;
+    let template_key = attribute
+        .syntax_template()
+        .map(|_| held_key(attribute.keys().syntax()))
+        .transpose()?;
     let items = constructor_production_wire_items(
         facade,
         attribute.syntax_template(),
@@ -1137,16 +1100,19 @@ fn constructor_grammar(
         nonce,
         cfg,
     )?;
-    let overload = attribute.overload().map(|target| {
-        super::productions::overload_wire(
-            facade,
-            target,
-            attribute.keys().overload(),
-            &format_ident!("__krs_overload_target_{nonce:016x}"),
-            cfg,
-            &mut slots,
-        )
-    });
+    let overload = attribute
+        .overload()
+        .map(|target| {
+            super::productions::overload_wire(
+                facade,
+                target,
+                attribute.keys().overload(),
+                &format_ident!("__krs_overload_target_{nonce:016x}"),
+                cfg,
+                &mut slots,
+            )
+        })
+        .transpose()?;
     let overload_tokens = overload
         .as_ref()
         .map(|overload| overload.tokens.clone())
@@ -1174,40 +1140,28 @@ fn constructor_grammar(
     if functional {
         // A total function's `function` is its name, which the descriptor
         // keys; a partial one's is its `partial` marker.
-        let (function_key, read) = if total {
-            (
-                ProvenanceRole::FunctionDeclaration,
-                descriptor.function_declaration_key(),
-            )
+        let read = if total {
+            descriptor.function_declaration_key()
         } else {
-            (
-                ProvenanceRole::FunctionPartial,
-                function.and_then(krs_syntax::FunctionAttribute::totality_key),
-            )
+            function.and_then(krs_syntax::FunctionAttribute::totality_key)
         };
         attributes.insert(
             0,
             WireProductionAttribute::Function {
-                key: read_key(read, wire_key(function_key, 0)),
+                key: held_key(read)?,
             },
         );
         if total {
             attributes.insert(
                 1,
                 WireProductionAttribute::Total {
-                    key: read_key(
-                        function.and_then(krs_syntax::FunctionAttribute::totality_key),
-                        wire_key(function_total_role, 0),
-                    ),
+                    key: held_key(function.and_then(krs_syntax::FunctionAttribute::totality_key))?,
                 },
             );
         }
     }
     if let Some(hook) = hook {
-        let key = read_key(
-            function.and_then(krs_syntax::FunctionAttribute::hook_key),
-            wire_key(function_hook_role, 0),
-        );
+        let key = held_key(function.and_then(krs_syntax::FunctionAttribute::hook_key))?;
         attributes.insert(
             if total { 2 } else { 1 },
             match hook {
@@ -1228,10 +1182,7 @@ fn constructor_grammar(
         attributes.insert(
             if total { 2 } else { 1 },
             WireProductionAttribute::Memo {
-                key: read_key(
-                    function.and_then(krs_syntax::FunctionAttribute::memo_key),
-                    wire_key(ProvenanceRole::FunctionMemo, 0),
-                ),
+                key: held_key(function.and_then(krs_syntax::FunctionAttribute::memo_key))?,
             },
         );
     }
@@ -1240,10 +1191,9 @@ fn constructor_grammar(
         attributes.insert(
             1 + usize::from(total) + usize::from(memo),
             WireProductionAttribute::FreshGenerator {
-                key: read_key(
+                key: held_key(
                     function.and_then(krs_syntax::FunctionAttribute::fresh_generator_key),
-                    wire_key(ProvenanceRole::FunctionFreshGenerator, 0),
-                ),
+                )?,
             },
         );
     }
@@ -1265,29 +1215,23 @@ fn constructor_grammar(
     if let Some(marker) = static_marker {
         attributes.insert(
             0,
-            super::productions::static_mode_wire(marker, descriptor.marker_name_keys().first()),
+            super::productions::static_mode_wire(marker, descriptor.marker_name_keys().first())?,
         );
     }
     if let Some(strict_attribute) =
-        super::productions::strictness_wire(facade, strictness, nonce, &mut slots)
+        super::productions::strictness_wire(facade, strictness, nonce, &mut slots)?
     {
         attributes.push(strict_attribute);
     }
     let owner_slot = slots.nominal_target_slot(&quote!(#facade::HostTypeKey(#declared_key)));
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
         WireProduction {
-            key: read_key(
-                declaration.name_key(),
-                wire_key(ProvenanceRole::ConstructorDeclaration, 0),
-            ),
+            key: held_key(declaration.name_key())?,
             template_key,
             // The production's owner is the struct it declares.
             owner: WireProductionOwner::Constructor {
                 constructor: krs_ir::wire::WireApplicationReference {
-                    key: read_key(
-                        declaration.name_key(),
-                        wire_key(constructor_declaration_role, 0),
-                    ),
+                    key: held_key(declaration.name_key())?,
                     target: owner_slot,
                     authored_path: name,
                 },
@@ -1301,7 +1245,7 @@ fn constructor_grammar(
                 declaration.parameter_keys(),
                 parameter_markers,
                 &mut slots,
-            ),
+            )?,
         },
     )));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
@@ -1331,10 +1275,6 @@ fn constructor_grammar(
     })
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "Template fields and production slots are lowered in one ordered pass."
-)]
 fn constructor_production_wire_items(
     facade: &Path,
     template: Option<&krs_syntax::SyntaxTemplate>,
@@ -1345,20 +1285,9 @@ fn constructor_production_wire_items(
 ) -> crate::Result<Vec<WireProductionItem>> {
     let mut items = Vec::new();
     if let Some(template) = template {
-        let mut field_ordinal = 0_u32;
         for (item_index, item) in template.items().iter().enumerate() {
-            let item_ordinal = u32::try_from(item_index).map_err(|_| {
-                ExpandError::new(
-                    expand::DESCRIPTOR_CAPACITY,
-                    name.span(),
-                    "too many production items",
-                )
-            })?;
             let item_keys = template.item_keys(item_index);
-            let key = read_key(
-                item_keys.first(),
-                wire_key(ProvenanceRole::ConstructorSyntaxItem, item_ordinal),
-            );
+            let key = held_key(item_keys.first())?;
             match item {
                 SyntaxTemplateItem::Terminal(text) => items.push(WireProductionItem::Terminal {
                     key,
@@ -1375,13 +1304,6 @@ fn constructor_production_wire_items(
                                 "checked template field disappeared",
                             )
                         })?;
-                    let declaration_ordinal = u32::try_from(declaration_index).map_err(|_| {
-                        ExpandError::new(
-                            expand::DESCRIPTOR_CAPACITY,
-                            name.span(),
-                            "too many constructor fields",
-                        )
-                    })?;
                     let sort_key =
                         format_ident!("__krs_constructor_field_{nonce:016x}_{declaration_index}");
                     let sort_spelling = fields[declaration_index].term_sort().sort_token_text();
@@ -1391,68 +1313,32 @@ fn constructor_production_wire_items(
                     let sort = wire_sort_reference(
                         slots,
                         facade,
-                        (
-                            field.sort_key(),
-                            ProvenanceRole::ConstructorFieldSort,
-                            declaration_ordinal,
-                        ),
+                        field.sort_key(),
                         &sort_key,
                         &sort_spelling,
-                    );
+                    )?;
                     items.push(WireProductionItem::NonTerminal {
                         key,
-                        field_key: read_key(
-                            item_keys.get(1),
-                            wire_key(
-                                ProvenanceRole::ConstructorSyntaxFieldReference,
-                                field_ordinal,
-                            ),
-                        ),
-                        declaration_key: Some(read_key(
-                            field.name_key(),
-                            wire_key(
-                                ProvenanceRole::ConstructorFieldDeclaration,
-                                declaration_ordinal,
-                            ),
-                        )),
+                        field_key: held_key(item_keys.get(1))?,
+                        declaration_key: Some(held_key(field.name_key())?),
                         field: krs_ir::ProductionFieldId::new(field_name.clone())
                             .expect("Rust field identifiers are valid production fields"),
                         sort: Box::new(sort),
                     });
-                    field_ordinal = field_ordinal.checked_add(1).ok_or_else(|| {
-                        ExpandError::new(
-                            expand::DESCRIPTOR_CAPACITY,
-                            name.span(),
-                            "too many fields",
-                        )
-                    })?;
                 }
             }
         }
     } else {
         // Without a template the production reads as the struct's name,
         // which declares it.
-        let key = read_key(
-            declaration_key,
-            wire_key(ProvenanceRole::ConstructorDeclaration, 0),
-        );
+        let key = held_key(declaration_key)?;
         items.push(WireProductionItem::Terminal {
             key,
             text: name.to_string(),
         });
         for (index, field) in fields.iter().enumerate() {
-            let ordinal = u32::try_from(index).map_err(|_| {
-                ExpandError::new(
-                    expand::DESCRIPTOR_CAPACITY,
-                    name.span(),
-                    "too many constructor fields",
-                )
-            })?;
             // The field's name keys its item, its field and its declaration.
-            let key = read_key(
-                field.name_key(),
-                wire_key(ProvenanceRole::ConstructorFieldDeclaration, ordinal),
-            );
+            let key = held_key(field.name_key())?;
             let sort_key = format_ident!("__krs_constructor_field_{nonce:016x}_{index}");
             let sort_spelling = field.term_sort().sort_token_text();
             items.push(WireProductionItem::NonTerminal {
@@ -1464,14 +1350,10 @@ fn constructor_production_wire_items(
                 sort: Box::new(wire_sort_reference(
                     slots,
                     facade,
-                    (
-                        field.sort_key(),
-                        ProvenanceRole::ConstructorFieldSort,
-                        ordinal,
-                    ),
+                    field.sort_key(),
                     &sort_key,
                     &sort_spelling,
-                )),
+                )?),
             });
         }
     }

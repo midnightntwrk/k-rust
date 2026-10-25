@@ -8,13 +8,13 @@
 //! the value; the compiler substitutes the value at every use.
 
 use krs_ir::wire::{WireConstant, WirePayload, WireSortReference, WireTypeReference};
-use krs_syntax::{KrsSyntax, ProvenanceRole};
+use krs_syntax::KrsSyntax;
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::nonce::expansion_nonce;
-use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, read_key, wire_key};
+use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, held_key};
 use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -52,10 +52,7 @@ pub(crate) fn constant(
 
     let mut slots = WireSlots::new(&facade);
     let sort_reference = WireSortReference {
-        key: read_key(
-            constant.type_key(),
-            wire_key(ProvenanceRole::ConstantType, 0),
-        ),
+        key: held_key(constant.type_key())?,
         target: WireTypeReference {
             slot: slots.type_slot(quote!(#facade::HostTypeKey(#sort_key))),
             authored_path: sort.sort_token_text(),

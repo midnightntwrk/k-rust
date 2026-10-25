@@ -1083,41 +1083,6 @@ fn allocate_extra_keys(
     Ok(names)
 }
 
-/// Per-side ordinals of the K-sequence and collection anchors of readable
-/// optional and collection states (KF-023). `krs-expand` numbers the keys in
-/// the same traversal order.
-#[derive(Clone, Copy, Debug, Default)]
-pub struct ReadableStateCounters {
-    /// Next `k` payload ordinal.
-    pub k_payload: usize,
-    /// Next `k` item ordinal.
-    pub k_item: usize,
-    /// Next `k` tail ordinal.
-    pub k_tail: usize,
-    /// Next instance-record ordinal.
-    pub instance: usize,
-    /// Next instance child-field ordinal.
-    pub instance_field: usize,
-    /// Next collection-rest ordinal.
-    pub instances_rest: usize,
-}
-
-impl ReadableStateCounters {
-    /// The right side's counters: a spliced head result owns sequence payload
-    /// `#0` and the first item ordinals.
-    #[must_use]
-    pub fn after_head(head: Option<&RuleHeadResult>) -> Self {
-        match head {
-            Some(RuleHeadResult::Splice { items, .. }) => Self {
-                k_payload: 1,
-                k_item: items.len(),
-                ..Self::default()
-            },
-            _ => Self::default(),
-        }
-    }
-}
-
 /// The state-macro side of a rule term side.
 const fn rule_side(side: RuleTermSide) -> RuleSide {
     match side {
