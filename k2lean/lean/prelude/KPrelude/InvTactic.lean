@@ -31,7 +31,8 @@ On each goal it runs, in order, until one closes the goal completely:
 4. *simp*: `simp_all` with the unfolding set;
 5. *arithmetic*: rewrite the hypotheses and the goal with the unfolding set and the
    `@[k2l_arith]` lemmas, which state the `Int` and `Bool` hooks in Lean's arithmetic
-   (`IntHook.add a b` is `a + b`, `IntHook.ge a b = true` is `a ≥ b`), then `omega`. The same
+   (`IntHook.add a b` is `a + b`, `IntHook.ge a b = true` is `a ≥ b`), then `omega` on what
+   is left (nothing, when the rewriting alone proves the goal: a test of a constant). The same
    step ends the leaf discharger of 3, so a conjunct such as the count test `0 ≤ N + 1` of a
    rebuilt map entry, from the matched entry's `0 ≤ N`, is closed there;
 6. *injections*: for a variable `x` of the rule that is the argument of a generated injection
@@ -383,7 +384,7 @@ syntax (name := k2lPreserve) "k2l_preserve"
 /-- The closers of one rule's goal `P lhs → P rhs`, as `k2l_preserve` builds them. -/
 structure Closers where
   unfoldBoth : TSyntax `tactic
-  /-- The unfolding set and `k2l_arith` everywhere, then `omega`. -/
+  /-- The unfolding set and `k2l_arith` everywhere, then `omega` on each goal left. -/
   arith : TSyntax `tactic
   /-- `simp only` with the unfolding set, on the goal. -/
   norm : TSyntax `tactic
@@ -573,7 +574,7 @@ def perCase (k : Closers) (n : Name) (r : Name) (g : MVarId) : TacticM Bool := d
   let coll ← labelled `k2l_coll
   let unfoldBoth ← `(tactic| (try simp only [$U,*] at h ⊢))
   let Ua : Array SimpArg := U.push ⟨(← `(Lean.Parser.Tactic.simpLemma| k2l_arith)).raw⟩
-  let arith ← `(tactic| ((try simp only [$Ua,*] at *); omega))
+  let arith ← `(tactic| ((try simp only [$Ua,*] at *) <;> omega))
   let disch ← `(tactic| first
     | assumption | rfl | decide
     | (simp only [$U,*]; done) | (simp [$U,*]; done) | (simp [$Ustar,*]; done) | $arith:tactic)
@@ -680,7 +681,7 @@ syntax (name := k2lCollClose) "k2l_coll_close"
   let disch ← `(tactic| first
     | assumption | rfl | decide
     | (simp only [$U,*]; done) | (simp [$U,*]; done) | (simp [$Ustar,*]; done)
-    | ((try simp only [$Ua,*] at *); omega))
+    | ((try simp only [$Ua,*] at *) <;> omega))
   let coll ← labelled `k2l_coll
   let norm ← `(tactic| simp only [$U,*])
   unless ← collClose disch coll norm 2 3 do
@@ -700,6 +701,7 @@ attribute [k2l_arith] IntHook.add IntHook.sub IntHook.mul IntHook.neg IntHook.lt
 attribute [k2l_pres] Option.map_some Option.map_none Option.bind_some Option.bind_none
   Bool.and_true Bool.true_and Bool.and_false Bool.false_and Bool.or_true Bool.true_or
   Bool.or_false Bool.false_or ite_true ite_false and_self and_true true_and
+  or_true true_or or_false false_or implies_true
   Bool.and_eq_true Bool.or_eq_false_iff
 
 end KPrelude
