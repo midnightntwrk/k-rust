@@ -378,6 +378,23 @@ impl TermSide {
     }
 }
 
+/// The ordinals a readable clause (`k::rules!`, `k::claims!`) still emits
+/// for its `k::id!`, `k::bytes!`, `k::anonymous!` and `k::or_bool!` nodes,
+/// each kind counted across the clause in expansion order. The clause's
+/// parse keys these nodes in an order that visits a term nested in an
+/// optional or collection state once for each state it is nested in, so
+/// such a node holds one key per visit, and from the first such node on the
+/// key a node holds and the ordinal counted in expansion order part ways.
+/// The clause emits the counted ordinals, which the transport recounts in
+/// the same order; reading each node's first key would change them.
+#[derive(Default)]
+struct ReadableLiteralOrdinals {
+    id_token: u32,
+    bytes_token: u32,
+    anonymous: u32,
+    or_bool: u32,
+}
+
 #[expect(
     clippy::struct_excessive_bools,
     reason = "Each flag selects one independent sentence-kind policy or records one mode or nesting context of the shared term builder."
@@ -397,6 +414,9 @@ pub(super) struct TermBuilder<'a> {
     /// (`Choose::<Exp>`), rather than the reference spelling, the sort
     /// marker (`Choose::<dyn ExpSort>`).
     readable_instances: bool,
+    /// The ordinals a readable clause still counts its builtin literals
+    /// with, `None` elsewhere ([`ReadableLiteralOrdinals`]).
+    readable_literals: Option<ReadableLiteralOrdinals>,
     /// The local binders (BIND-1) of the `k::matches!` pattern being
     /// expanded, or `None` outside one.
     local_binders: Option<Vec<Ident>>,
@@ -442,6 +462,7 @@ impl<'a> TermBuilder<'a> {
             claim: false,
             application_instances: true,
             readable_instances: false,
+            readable_literals: None,
             local_binders: None,
             let_pattern_binders: None,
             let_scopes: Vec::new(),
@@ -534,6 +555,33 @@ impl<'a> TermBuilder<'a> {
     pub(super) const fn with_readable_instances(mut self) -> Self {
         self.readable_instances = true;
         self
+    }
+
+    /// Counts the builtin literals of a readable clause
+    /// ([`ReadableLiteralOrdinals`]).
+    pub(super) fn with_readable_literals(mut self) -> Self {
+        self.readable_literals = Some(ReadableLiteralOrdinals::default());
+        self
+    }
+
+    /// The key of a builtin literal of `role` whose node holds `read`: in
+    /// a readable clause, the next ordinal `ordinal` picks from the clause's
+    /// counts.
+    fn literal_key(
+        &mut self,
+        read: Option<&ProvenanceKey>,
+        role: ProvenanceRole,
+        ordinal: fn(&mut ReadableLiteralOrdinals) -> &mut u32,
+    ) -> crate::Result<ProvenanceKey> {
+        match &mut self.readable_literals {
+            Some(ordinals) => {
+                let ordinal = ordinal(ordinals);
+                let key = ProvenanceKey::new(role, *ordinal);
+                *ordinal += 1;
+                Ok(key)
+            }
+            None => held_key(read),
+        }
     }
 
     /// Resolves every one-segment path through rustc with `imports` in
@@ -939,17 +987,21 @@ impl<'a> TermBuilder<'a> {
                 })
             }
             TermTree::IdToken { literal } => Ok(WireTerm::BuiltinToken {
-                key: held_key(
+                key: self.literal_key(
                     keys.node(NodeKind::IdToken)
                         .role(ProvenanceRole::ClaimIdToken),
+                    ProvenanceRole::ClaimIdToken,
+                    |ordinals| &mut ordinals.id_token,
                 )?,
                 sort: BuiltinSort::Id,
                 value: literal.value(),
             }),
             TermTree::BytesToken { literal } => Ok(WireTerm::BuiltinToken {
-                key: held_key(
+                key: self.literal_key(
                     keys.node(NodeKind::BytesToken)
                         .role(ProvenanceRole::ClaimBytesToken),
+                    ProvenanceRole::ClaimBytesToken,
+                    |ordinals| &mut ordinals.bytes_token,
                 )?,
                 sort: BuiltinSort::Bytes,
                 value: bytes_token::encode(&literal.value()),
@@ -961,6 +1013,18 @@ impl<'a> TermBuilder<'a> {
                 spelling: display_literal,
             } if self.claim && matches!(side, TermSide::Left) => {
                 let node = keys.node(NodeKind::Anonymous);
+                // The sort is numbered as its occurrence is.
+                let key = self.literal_key(
+                    node.role(ProvenanceRole::ClaimAnonymous),
+                    ProvenanceRole::ClaimAnonymous,
+                    |ordinals| &mut ordinals.anonymous,
+                )?;
+                let sort_key = match self.readable_literals {
+                    Some(_) => {
+                        ProvenanceKey::new(ProvenanceRole::ClaimAnonymousSort, key.ordinal())
+                    }
+                    None => held_key(node.role(ProvenanceRole::ClaimAnonymousSort))?,
+                };
                 let path = call_site_path(sort)?;
                 let key_fn = format_ident!(
                     "__krs_claim_anonymous_sort_{:016x}_{}",
@@ -978,9 +1042,9 @@ impl<'a> TermBuilder<'a> {
                 });
                 let facade = self.facade;
                 Ok(WireTerm::Anonymous {
-                    key: held_key(node.role(ProvenanceRole::ClaimAnonymous))?,
+                    key,
                     sort: WireSortReference {
-                        key: held_key(node.role(ProvenanceRole::ClaimAnonymousSort))?,
+                        key: sort_key,
                         target: WireTypeReference {
                             slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_fn))),
                             authored_path: spelling(sort),
@@ -1104,13 +1168,15 @@ impl<'a> TermBuilder<'a> {
                         "or_bool! is currently claim-only",
                     ));
                 }
-                let node = keys.node(NodeKind::OrBool);
+                let key = self.literal_key(
+                    keys.node(NodeKind::OrBool)
+                        .role(ProvenanceRole::ClaimOrBool),
+                    ProvenanceRole::ClaimOrBool,
+                    |ordinals| &mut ordinals.or_bool,
+                )?;
                 let arguments = arguments
                     .try_map_ref(|argument| self.expand_node(argument, keys, side, slots))?;
-                Ok(WireTerm::OrBool {
-                    key: held_key(node.role(ProvenanceRole::ClaimOrBool))?,
-                    arguments,
-                })
+                Ok(WireTerm::OrBool { key, arguments })
             }
             TermTree::Cell(cell) => {
                 // The cell's path has a key that no wire node takes.
