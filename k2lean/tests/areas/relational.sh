@@ -22,7 +22,7 @@ kore_relational() {
 
 name_relational() {
   case $1 in
-    kmut) echo KMut ;; kunroll) echo KUnroll ;; simplev) echo KSimpleV ;;
+    kmut|kmut-ps) echo KMut ;; kunroll) echo KUnroll ;; simplev) echo KSimpleV ;;
     peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;;
     *) return 1 ;;
   esac
@@ -30,10 +30,14 @@ name_relational() {
 
 gen_relational() {
   case $1 in
-    kmut) GEN_ARGS=(--kore "$(kore_dir kmut)/definition.kore" --runtime "$(kore_dir kmut)/runtime.json"
-            --out "$o" --name KMut --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
+    # kmut-ps: kmut in the per-sort encoding, for ImpMut, whose hand module Diverge.lean is per-sort
+    kmut|kmut-ps) GEN_ARGS=(--kore "$(kore_dir kmut)/definition.kore" --runtime "$(kore_dir kmut)/runtime.json"
+            --out "$o" --name KMut --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt")
+      [ "$1" = kmut-ps ] && GEN_ARGS+=(--per-sort-terms) ;;
+    # per-sort: ImpUnroll's hand module Relation.lean is written over the per-sort constructors
     kunroll) GEN_ARGS=(--kore "$(kore_dir kimp-unroll)/definition.kore" --runtime "$(kore_dir kimp-unroll)/runtime.json"
-            --out "$o" --name KUnroll --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
+            --out "$o" --name KUnroll --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+            --per-sort-terms) ;;
     # the variant of SIMPLE (tests/simple-variant.py), related to SIMPLE by demos/SimpleRel
     simplev) GEN_ARGS=(--kore "$(kore_dir simple-variant)/definition.kore" --runtime "$(kore_dir simple-variant)/runtime.json"
             --out "$o" --name KSimpleV --prelude ../../lean/prelude --linear-terms
@@ -51,9 +55,9 @@ gen_relational() {
 # CellMapRel: `Bisim.lean`, a fixture to itself (libraries peano and peanob, cellmap and cellmapb)
 relate_relational() {
   case $1 in
-    ImpRel) nb=KrsImp kd=$KRS f=Bisim ;;
-    ImpMut) nb=KMut kd=$(kore_dir kmut) ;;
-    ImpUnroll) nb=KUnroll kd=$(kore_dir kimp-unroll) extra=(--per-rule true) ;;
+    ImpRel) nb=KrsImp kd=$KRS f=Bisim extra=(--per-sort-terms true) ;;
+    ImpMut) nb=KMut kd=$(kore_dir kmut) extra=(--per-sort-terms true) ;;
+    ImpUnroll) nb=KUnroll kd=$(kore_dir kimp-unroll) extra=(--per-rule true --per-sort-terms true) ;;
     SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim ;;
     PeanoRel) na=Peano ka=$(libs_fixture peano) nb=PeanoB kd=$ka f=Bisim ;;
     CellMapRel) na=CellMap ka=$(libs_fixture cellmap) nb=CellMapB kd=$ka f=Bisim ;;
@@ -79,6 +83,7 @@ libs_refine() {
 gate_relational() {
   kc kimp
   runs lib kmut && kc kmut && lib kmut KMut
+  runs lib kmut-ps && kc kmut && lib kmut-ps KMut
   phase "demos relational"
   runs demo ImpRel && { rel ImpRel; dbuild ImpRel; }
   runs demo ImpMut && kc kmut && { rel ImpMut; dbuild ImpMut; }

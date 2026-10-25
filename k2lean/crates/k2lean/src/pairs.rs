@@ -798,12 +798,15 @@ impl Un {
                 at: format!("{ka} size"),
             }),
             (false, false, _, _) if cx.same_binding => {
-                // two free keys: assume the same binding
+                // two free keys: assume the same binding; with one binding left on each side the
+                // keys need not be variables (a thread matched at `<id> T </id>`), since
+                // `element(k₁, v₁) = element(k₂, v₂)` forces `k₁ = k₂`
                 let (ka, kb) = (
                     self.resolve(&key(&ea_left[0])),
                     self.resolve(&key(&eb_left[0])),
                 );
-                if matches!(ka, T::Var(_)) && matches!(kb, T::Var(_)) {
+                let single = ea_left.len() == 1 && eb_left.len() == 1;
+                if single || matches!(ka, T::Var(_)) && matches!(kb, T::Var(_)) {
                     self.unknown
                         .insert("free-key map: same binding assumed".into());
                     self.unify(cx, &ka, &kb, d + 1)?;

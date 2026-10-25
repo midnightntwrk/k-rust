@@ -240,7 +240,9 @@ fn main() {
         return open_from_log(&raw[1..]);
     }
     let a = parse_args();
-    let arity = a.rest.iter().any(|x| x == "--arity-terms");
+    // the arity-indexed term universe (design.md §2.1) unless `--per-sort-terms` asks for one Lean
+    // type per sort; `--arity-terms`, its former opt-in, is still accepted and changes nothing
+    let arity = !a.rest.iter().any(|x| x == "--per-sort-terms");
     // fallback arms on irrefutable matches: for the arity-indexed family only, whose match
     // compiler would otherwise refute every other constructor of the family; in the per-sort
     // encoding such a match is exhaustive and Lean rejects the arm as redundant

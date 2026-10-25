@@ -1,7 +1,8 @@
 # shellcheck shell=bash
 # The core area: kimp (goldens and step traces), KRS IMP, determinism along the rule index
-# (kimp-d2, ovl), rules with `ensures` (ens), the fixture freekey, SIMPLE and its acceptance against krust, and the libraries
-# in the arity-indexed term universe (kimp-ar, simple-ar, kterm-ar). Registry: core.py.
+# (kimp-d2, ovl), rules with `ensures` (ens), the fixture freekey, SIMPLE and its acceptance against
+# krust, the synthesized termination measures (kterm-ar), and kimp and SIMPLE in the per-sort encoding
+# (kimp-ps, simple-ps, krsimp-ps, for the holdouts built on it). Registry: core.py.
 
 kore_core() {
   case $1 in
@@ -17,19 +18,19 @@ kore_core() {
 
 name_core() {
   case $1 in
-    kimp|kimp-d2|kimp-ar) echo KImp ;; krsimp) echo KrsImp ;; ovl) echo KOvl ;; ens) echo KEns ;;
-    simple|simple-ar) echo KSimple ;; freekey) echo FreeKey ;; kterm-ar) echo KTerm ;;
+    kimp|kimp-d2|kimp-ps) echo KImp ;; krsimp|krsimp-ps) echo KrsImp ;; ovl) echo KOvl ;; ens) echo KEns ;;
+    simple|simple-ps) echo KSimple ;; freekey) echo FreeKey ;; kterm-ar) echo KTerm ;;
     *) return 1 ;;
   esac
 }
 
-# kimp-ar and simple-ar are kimp and SIMPLE in the arity-indexed term universe (`--arity-terms`)
+# kimp-ps, simple-ps and krsimp-ps are kimp, SIMPLE and krsimp in the per-sort encoding (`--per-sort-terms`)
 gen_core() {
   case $1 in
-    kimp|kimp-ar) GEN_ARGS=(--kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json"
+    kimp|kimp-ps) GEN_ARGS=(--kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json"
             --out "$o" --name KImp --prelude ../../lean/prelude
             --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt")
-      [ "$1" = kimp-ar ] && GEN_ARGS+=(--arity-terms) ;;
+      [ "$1" = kimp-ps ] && GEN_ARGS+=(--per-sort-terms) ;;
     # kimp with one exclusive pair of rules listed as overlapping (`--det2-overlap`), so that the
     # conditional statements of determinism (`Step.deterministic_of`) are built too;
     # and its Equations in parts of weight at most 30 (kimp's whole is 84), so that the parts, their
@@ -38,8 +39,10 @@ gen_core() {
             --out "$o" --name KImp --prelude ../../lean/prelude
             --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt"
             --det2 --det2-overlap "IMP.if-true,IMP.if-false" --equations-part-weight 30) ;;
-    krsimp) GEN_ARGS=(--kore "$KRS/definition.kore" --out "$o" --name KrsImp --prelude ../../lean/prelude
-            --open-obligations "$o/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json") ;;
+    # krsimp-ps: the KRS IMP port in the per-sort encoding, for ImpRel and ImpRelClaims (holdouts)
+    krsimp|krsimp-ps) GEN_ARGS=(--kore "$KRS/definition.kore" --out "$o" --name KrsImp --prelude ../../lean/prelude
+            --open-obligations "$o/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json")
+      [ "$1" = krsimp-ps ] && GEN_ARGS+=(--per-sort-terms) ;;
     # a definition with two genuine overlaps (witnessed; one reads a map cell), one joinable pair
     # and exclusive pairs (demos/k/overlap.k): `Step.deterministic_of` with `overlaps_witnessed`
     ovl) GEN_ARGS=(--kore "$(kore_dir ovl)/definition.kore" --runtime "$(kore_dir ovl)/runtime.json"
@@ -48,18 +51,18 @@ gen_core() {
     # by their ensures, and an overlap where both hold (witnessed)
     ens) GEN_ARGS=(--kore "$(kore_dir ens)/definition.kore" --runtime "$(kore_dir ens)/runtime.json"
             --out "$o" --name KEns --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
-    simple) GEN_ARGS=(--kore "$(kore_dir simple)/definition.kore" --runtime "$(kore_dir simple)/runtime.json"
+    # `--linear-terms` (the per-sort encoding's linear constructor emission) changes nothing in the
+    # arity universe
+    simple|simple-ps) GEN_ARGS=(--kore "$(kore_dir simple)/definition.kore" --runtime "$(kore_dir simple)/runtime.json"
             --out "$o" --name KSimple --prelude ../../lean/prelude --linear-terms
-            --open-obligations "$o/open-obligations.txt") ;;
-    simple-ar) GEN_ARGS=(--kore "$(kore_dir simple)/definition.kore" --runtime "$(kore_dir simple)/runtime.json"
-            --out "$o" --name KSimple --prelude ../../lean/prelude --arity-terms
-            --open-obligations "$o/open-obligations.txt") ;;
+            --open-obligations "$o/open-obligations.txt")
+      [ "$1" = simple-ps ] && GEN_ARGS+=(--per-sort-terms) ;;
     # the generator's fixture whose functions walk maps by free-key patterns (tests/fixtures/freekey)
     freekey) libs_fixture_args "$1" ;;
     # recursive functions whose termination measures the generator synthesizes (demos/k/term),
     # and least fixed points where K's rewriting diverges (term-termination.toml)
     kterm-ar) GEN_ARGS=(--kore "$(kore_dir kterm)/definition.kore" --runtime "$(kore_dir kterm)/runtime.json"
-            --out "$o" --name KTerm --prelude ../../lean/prelude --arity-terms
+            --out "$o" --name KTerm --prelude ../../lean/prelude
             --termination "$DEMOS/k/term/term-termination.toml" --open-obligations "$o/open-obligations.txt") ;;
     *) return 1 ;;
   esac
@@ -100,7 +103,7 @@ libs_cases() {
 # ---------------------------------------------------------------- gate phases (tests/gate.sh)
 
 needs_core() {
-  if runs lib simple || runs lib simple-ar; then
+  if runs lib simple || runs lib simple-ps; then
     [ -d "$SD" ] || need "SIMPLE's sources at $SD (set GATE_K_CHECKOUT)"
   fi
   return 0
@@ -129,20 +132,21 @@ kimp_llvm() {
     else rm -rf "$tmp"; bad kompile-llvm "$L/kompile-llvm.log"; fi
   fi
 }
-kimp_goldens() { # DIR: the goldens and traces of kimp's library DIR (kimp or kimp-ar), after its generation
+kimp_goldens() { # DIR: the goldens and traces of kimp's library DIR (kimp or kimp-ps), after its generation
   kimp_llvm
   if libs_goldens "$W/goldens-tmp" "$LLVM/interpreter" "$1" > "$L/goldens.log" 2>&1; then ok goldens "$L/goldens.log"
   else bad goldens "$L/goldens.log"; fi
 }
-kimp_tests() { # DIR: build and run kimp's test driver of library DIR (goldens and traces)
+kimp_tests() { # DIR [SUB]: build and run kimp's test driver of library DIR (goldens and traces), into measured/SUB
   phase "$1 tests"
+  local m=$MEAS${2:+/$2}; mkdir -p "$m"
   if lbuild "$GEN/$1" "build-$1-test" kimp-test; then
-    "$GEN/$1/.lake/build/bin/kimp-test" --toml "$MEAS/goldens.toml" > "$MEAS/kimp-test.out" 2> "$L/$1-test.err" \
-      && ok "$1-test" "$MEAS/kimp-test.out" || bad "$1-test" "$MEAS/kimp-test.out"
+    "$GEN/$1/.lake/build/bin/kimp-test" --toml "$m/goldens.toml" > "$m/kimp-test.out" 2> "$L/$1-test.err" \
+      && ok "$1-test" "$m/kimp-test.out" || bad "$1-test" "$m/kimp-test.out"
   else bad "build $1-test" "$L/build-$1-test.log"; fi
 }
-lib_simple() { # DIR (simple, simple-ar): generate, cases, build, guard, run the cases, acceptance table
-  local d=$1 o=$GEN/$1
+lib_simple() { # DIR [SUB] (simple, simple-ps): generate, cases, build, guard, run the cases, acceptance table into measured/SUB
+  local d=$1 o=$GEN/$1 m=$MEAS${2:+/$2}; mkdir -p "$m"
   lib_open "$d"
   genlib "$d" || { bad "gen $d" "$L/gen-$d.log"; return 1; }
   # the cases' expected results come from krust runs (about a minute); they are cached under the
@@ -166,7 +170,7 @@ lib_simple() { # DIR (simple, simple-ar): generate, cases, build, guard, run the
   lbuild "$o" "build-$d-test" ksimple-test || { bad "build ksimple-test" "$L/build-$d-test.log"; return 1; }
   "$o/.lake/build/bin/ksimple-test" > "$L/$d-test.out" 2>&1
   python3 -I "$SELF/tests/simple-acceptance.py" "$L/$d-test.out" "$SD/tests" "$KRUST" "$KO/simple" \
-    "$MEAS/simple-acceptance.toml" > "$MEAS/simple-acceptance.md" 2> "$L/simple-acceptance.err"
+    "$m/simple-acceptance.toml" > "$m/simple-acceptance.md" 2> "$L/$d-acceptance.err"
 }
 
 gate_core() {
@@ -180,12 +184,13 @@ gate_core() {
     kc kimp && kc kimp-verif && lib kimp-d2 KImp
   fi
   runs lib krsimp && lib krsimp KrsImp
+  runs lib krsimp-ps && lib krsimp-ps KrsImp
   runs lib ovl && kc ovl && lib ovl KOvl
   runs lib ens && kc ens && lib ens KEns
   # the fixture whose function equations match maps by free-key patterns (`MapHook.chooseFirst`)
   runs lib freekey && lib freekey FreeKey
-  if runs lib kimp-ar; then
-    kc kimp && kc kimp-verif && lib kimp-ar KImp kimp_goldens kimp-ar && kimp_tests kimp-ar
+  if runs lib kimp-ps; then
+    kc kimp && kc kimp-verif && lib kimp-ps KImp kimp_goldens kimp-ps && kimp_tests kimp-ps per-sort
   fi
   # recursive functions whose termination measures the generator synthesizes (demos/k/term);
   # its least fixed points have no value where K's rewriting diverges (term-diverges.lean)
@@ -193,13 +198,13 @@ gate_core() {
     if (cd "$GEN/kterm-ar" && "$RT" lake env lean "$D/k/term/term-diverges.lean") > "$L/kterm-diverges.log" 2>&1
     then ok "kterm diverges" "$L/kterm-diverges.log"; else bad "kterm diverges" "$L/kterm-diverges.log"; fi
   fi
-  if runs lib simple-ar; then
-    phase "lib simple-ar"
-    kc simple && libs_simple_cases && lib_simple simple-ar && ok "simple-ar acceptance" "$MEAS/simple-acceptance.md"
-  fi
   if runs lib simple; then
     phase "lib simple"
     kc simple && libs_simple_cases && lib_simple simple && ok "simple acceptance" "$MEAS/simple-acceptance.md"
+  fi
+  if runs lib simple-ps; then
+    phase "lib simple-ps"
+    kc simple && libs_simple_cases && lib_simple simple-ps per-sort && ok "simple-ps acceptance" "$MEAS/per-sort/simple-acceptance.md"
   fi
   phase "diff core"
   diffs kimp krsimp simple

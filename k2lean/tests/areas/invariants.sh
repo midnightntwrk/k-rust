@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The invariants area: kind 1 invariant libraries (kimpinv, kimpkeys, kimpkeys-hand, kimpfold,
-# kimptop, kimpboth, nested, range, and SIMPLE's simpleinv, simplestore, simplet), KRS IMP's sidecar invariant, the
+# kimptop, kimpboth, nested, range, walk, and SIMPLE's simpleinv, simplestore, simplet), KRS IMP's sidecar invariant, the
 # negative check, the kind 2 demos (ImpWrites, KrsImpTyping, SimpleEnv) and template. Registry:
 # invariants.py.
 
@@ -16,7 +16,7 @@ kore_invariants() {
 
 name_invariants() {
   case $1 in
-    kimpinv|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;; range) echo KRange ;;
+    kimpinv|kimpinv-ps|kimpfold|kimptop|kimpboth) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; nested) echo KNested ;; range) echo KRange ;; walk) echo KWalk ;;
     simpleinv|simplestore|simplet) echo KSimpleInv ;;
     *) return 1 ;;
   esac
@@ -24,9 +24,11 @@ name_invariants() {
 
 gen_invariants() {
   case $1 in
-    kimpinv) GEN_ARGS=(--kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json"
+    # kimpinv-ps: the same in the per-sort encoding, for kimpinv's claims (claims.sh)
+    kimpinv|kimpinv-ps) GEN_ARGS=(--kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json"
             --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
-            --invariant envOk@env --invariant storeNoIds@env) ;;
+            --invariant envOk@env --invariant storeNoIds@env)
+      [ "$1" = kimpinv-ps ] && GEN_ARGS+=(--per-sort-terms) ;;
     # kimp with the K function `envKeysOk` (demos/k/kimp-keys, the walkthrough of
     # docs/invariants.md, §3); kimpkeys-hand is the same library with one case listed in its
     # open-invariant-cases.txt, so that the case is taken from its hand module
@@ -53,6 +55,12 @@ gen_invariants() {
     range) GEN_ARGS=(--kore "$FIXTURES/range/definition.kore" --runtime "$FIXTURES/range/runtime.json"
             --out "$o" --name KRange --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
             --invariant storeNat@store) ;;
+    # walks over a cell map and over maps by free-key patterns (tests/fixtures/walk); per-sort
+    # (`--per-sort-terms`, a holdout): the walk lemmas' proofs (Invariant.f_walk) close the
+    # catch-all arm of a match on a one-constructor cell sort only where that sort is its own type
+    walk) GEN_ARGS=(--kore "$FIXTURES/walk/definition.kore" --runtime "$FIXTURES/walk/runtime.json"
+            --out "$o" --name KWalk --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
+            --invariant envsOk --per-sort-terms) ;;
     # SIMPLE with the K function `holdsOk` (demos/k/simple-inv): a cell predicate of `<holds>`, which
     # is inside the `<thread>` cell map, so it is lifted to "every thread"
     simpleinv) GEN_ARGS=(--kore "$(kore_dir simple-inv)/definition.kore" --runtime "$(kore_dir simple-inv)/runtime.json"
@@ -220,6 +228,7 @@ gate_invariants() {
   fi
   # kimp with the K functions `envOk` and `storeNoIds` (demos/k/kimp-inv/imp-inv.k)
   runs lib kimpinv && kc kimp-inv && inv_lib kimpinv KImpInv
+  runs lib kimpinv-ps && kc kimp-inv && inv_lib kimpinv-ps KImpInv
   # kimp with the K function `envKeysOk` (demos/k/kimp-keys): the walkthrough of docs/invariants.md,
   # §3, every case by `k2l_preserve`; then kimpkeys-hand, the same library (so its build starts from
   # kimpkeys') whose tracked open-invariant-cases.txt lists one case, proved in its tracked hand
@@ -249,6 +258,8 @@ gate_invariants() {
   runs lib nested && inv_lib nested KNested
   # a map extended by an `Int`-range map (tests/fixtures/range)
   runs lib range && inv_lib range KRange
+  # walks by free-key patterns over a cell map and over maps (tests/fixtures/walk)
+  runs lib walk && inv_lib walk KWalk
   runs negative krsimp-ill-typed && negative_ill_typed
   # SIMPLE with the K function `holdsOk` (demos/k/simple-inv), as for kimpinv; "every store value
   # is a Val or undefined" as a cell function (simplestore) and as a function of SIMPLE's top cell
@@ -260,7 +271,7 @@ gate_invariants() {
     kc simple-inv && inv_lib "$d" KSimpleInv
   done
   phase "diff invariants"
-  diffs kimpinv kimpkeys kimpfold kimptop kimpboth nested range simpleinv simplestore simplet
+  diffs kimpinv kimpkeys kimpfold kimptop kimpboth nested range walk simpleinv simplestore simplet
   # kind 2 invariants, built like demos: a walk over <k> (ImpWrites), KRS IMP's declared cell type
   # (KrsImpTyping), a Lean invariant over KSimple's configuration (SimpleEnv, needs SIMPLE), and
   # k2l_preserve's per-rule heartbeat budget over the range library (InvBudget)

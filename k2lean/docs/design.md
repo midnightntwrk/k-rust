@@ -11,7 +11,7 @@ The output of `k2lean gen --kore definition.kore --runtime runtime.json --out DI
 
 | module | content |
 |---|---|
-| `NS/Terms.lean` | one Lean type per sort (with `--arity-terms`, one family indexed by the sorts, §2.1), constructors, injections and projections, decidable equality and an order on terms |
+| `NS/Terms.lean` | one family indexed by the sorts (with `--per-sort-terms`, one Lean type per sort, §2.1), constructors, injections and projections, decidable equality and an order on terms |
 | `NS/Functions.lean` | each function defined by KORE equations, as a Lean definition; hooked functions are the prelude's, and the library's parameters (§2) are the fields of `class Hooks` |
 | `NS/Equations.lean` | each K equation and simplification rule as a theorem about the generated definitions, or, when its generated proof fails, a named open obligation (`def Eqn.….statement : Prop`); each proof has its own heartbeat budget (`gen --equations-heartbeats`, default 100,000, and per theorem `--equations-heartbeats-file`); when the statements weigh more than `gen --equations-part-weight` (default 2000; the weight of a statement is 1 plus the definitions its proof may unfold), they are in `NS/Equations/Part1.lean` … `PartN.lean`, which `NS/Equations.lean` imports (§9) |
 | `NS/Rules.lean` | `App c` (some rule applies at `c`), `Step c c'` (one constructor per rewrite rule) and the executable `step` |
@@ -90,9 +90,9 @@ The generated Lean is a model of the KORE theory: every symbol gets an interpret
   A map pattern whose key is bound nowhere else (`K |-> V REST`, the cell maps of SIMPLE's threads) matches once per binding, so `step` returns the first match whose result is defined and `successors` all of them.
 - **Overloads.** A left-hand side that mentions an overloaded symbol matches its variants modulo the `symbol-overload` axioms (`crates/k2lean/src/overload.rs`).
 
-### 2.1 The arity-indexed universe (`--arity-terms`)
+### 2.1 The arity-indexed universe (the default; `--per-sort-terms`)
 
-The default universe is one Lean type per sort, all in one `mutual` block, a sort with subsorts having one constructor per leaf injection.
+The per-sort universe (`gen --per-sort-terms`; the default until 2026-10-25) is one Lean type per sort, all in one `mutual` block, a sort with subsorts having one constructor per leaf injection.
 Two limits of Lean make it unusable at KEVM's size (measured 2026-10-23, Lean v4.24.0 and v4.30.0, shared 32-CPU host):
 
 - the auxiliary constructions of a mutual block (recursors, `below`, `brecOn`, `sizeOf`) grow with types × (types + constructors): SIMPLE's block (86 types, 362 constructors) took 284 s, and KEVM's (392 types, 1,160 constructors) had not finished after 90 minutes at 17.9 GB;
@@ -100,9 +100,9 @@ Two limits of Lean make it unusable at KEVM's size (measured 2026-10-23, Lean v4
 
 A single indexed family with one constructor per K constructor elaborates, but every `match` at a fixed sort then refutes every other constructor of the family (2.4 s per two-arm match on KEVM's 1,160) and it is not executable either.
 
-`gen --arity-terms` (`crates/k2lean/src/terms_arity.rs`) writes one family `Term : Tag → Type` indexed by the sorts, with one constructor per arity of the sorts' own constructors (`c2 (c : C2 s) (a0 : Term (A2_0 s c)) (a1 : Term (A2_1 s c))`, `Ck s` enumerating sort `s`'s constructors of arity k), one per builtin carrier, one per collection sort (a nested list), and the leaf injection `inj (hs : hasLeaves s = true) (l) (h : leafOK s l = true) (a : Term l)`.
+`gen` (`crates/k2lean/src/terms_arity.rs`) writes one family `Term : Tag → Type` indexed by the sorts, with one constructor per arity of the sorts' own constructors (`c2 (c : C2 s) (a0 : Term (A2_0 s c)) (a1 : Term (A2_1 s c))`, `Ck s` enumerating sort `s`'s constructors of arity k), one per builtin carrier, one per collection sort (a nested list), and the leaf injection `inj (hs : hasLeaves s = true) (l) (h : leafOK s l = true) (a : Term l)`.
 Each K constructor keeps its name as a reducible `@[match_pattern]` definition, so the rest of the library is generated as before.
-It is the same model: a value of a sort is one of its constructors applied to values of its argument sorts, or one leaf injection with a proof field, so canonical forms, and Lean's `=` as K's equality, are unchanged; kimp and SIMPLE give the default encoding's goldens, traces and case results exactly (the gate's `arity` tier).
+It is the same model: a value of a sort is one of its constructors applied to values of its argument sorts, or one leaf injection with a proof field, so canonical forms, and Lean's `=` as K's equality, are unchanged; kimp and SIMPLE give the per-sort encoding's goldens, traces and case results exactly (the gate's kimp-ps and simple-ps, whose recorded outputs must equal kimp's and SIMPLE's: `same_as` in `tests/areas/core.py`).
 The family has about twenty constructors whatever the definition, its enumerations are scalars, and a match at a fixed sort splits the family's constructors (all but one refuted by their index) and then that sort's own enumeration.
 It needs Lean ≥ v4.30.0, whose match compiler accepts nested patterns whose enumeration type depends on the family's index (v4.24.0 rejects them).
 Equality on the family is `Term.beq`, by structural recursion on both terms (`termination_by structural`; without it Lean falls back to well-founded recursion, which the kernel does not unfold), with builtin leaves compared by `KPrelude.LeafEq` (a `Bytes` value as its byte list, a `String` as its UTF-8 bytes), and `DecidableEq (Term s)` is derived from `Term.eq_of_beq` and `Term.beq_self`: the kernel decides `a = b` on closed terms without decoding a serialization, so a witness's comparison of a 49,153-byte value is linear (§3.1).
@@ -111,14 +111,28 @@ Goals print as K terms: `KPrelude.Delab` prints `Term.ck c a0 …`, `Term.inj hs
 On KEVM the check costs 1.4 s and 50 MiB over importing `Terms` (2.7 s and 1,707 MiB against 1.4 s and 1,657 MiB, each file elaborated alone; 2026-10-25, Lean v4.34.0, load 70).
 
 Measured on 2026-10-24 (Lean v4.30.0, 1-minute load 25 to 53): `Terms.lean` of kimp builds in 5.5 s (per-sort 46 s), SIMPLE's in 17 s (per-sort 302 s), KEVM's in 396 s / 814 CPU-s / 5.7 GB peak, and KMIR's (338 types, 1,145 constructors) in 78 s / 3.0 GB (2026-10-23).
-The gate's arity tier (kimp and SIMPLE, built and tested) took 225 s wall and 623 s of CPU from an empty work tree, 4.5 GB peak, under a load of 7 to 9; in the heavy tier, SIMPLE alone took 396 s and 622 s of CPU in the per-sort encoding.
-Whether the arity universe becomes the default is open (§9).
+The gate's former arity tier (kimp and SIMPLE, built and tested) took 225 s wall and 623 s of CPU from an empty work tree, 4.5 GB peak, under a load of 7 to 9; in the heavy tier, SIMPLE alone took 396 s and 622 s of CPU in the per-sort encoding.
+
+The arity universe is the default of `gen` and `relate` since 2026-10-25 (K6): `gen --per-sort-terms` and `relate --per-sort-terms true` select the per-sort universe, and `gen --arity-terms`, the former opt-in, is accepted and changes nothing.
+Every generated theorem states the same thing on both universes, so no statement changed with the default.
+A library or demo whose arity form would lose a count stays per-sort, with `encoding = "per-sort"` in its gate registry entry (`tests/areas/AREA.py`; `gate.sh list` prints it); these are, with the reason of each:
+
+- the claims (`kimp-claims` on `kimp-ps`, `kimpinv-claims` on `kimpinv-ps`): their build exceeds 20 GB on the arity universe, while the whole heavy tier peaks at 8.5 GB per-sort (where the memory goes is not localized yet);
+- `ImpRel` and `ImpRelClaims` (on `kimp-ps` and `krsimp-ps`): `ImpRel`'s bisimulation on the arity universe grows past 14 GB in its build, and `ImpRelClaims` needs `ImpRel` and the per-sort claims;
+- `ImpMut` (on `kimp-ps` and `kmut-ps`) and `ImpUnroll` (on `kimp-ps` and its library `kunroll`, generated per-sort): their hand-written modules (`Diverge.lean`, `Relation.lean`) name per-sort constructors and their `injEq` lemmas;
+- `ImpTypes` (on `kimp-ps` and `imptypes-ps`): `soundness` writes `Typing.lean`'s proofs for the per-sort encoding (`k2l_ty_inv` does not reduce the arity translation `tr` through a constructor: on the arity universe 29 of its declarations report an error, 2026-10-25);
+- `SimpleEnv` (on `simple-ps`): its hand-written modules match on per-sort constructors (`KSimple.Term.nil`, `inj_FstackCell`);
+- `ImpNI` and its library `impsec`: hand-written modules over the per-sort names of `KImp` and `KImpSec`;
+- `RaceConf` and its library `race`, and SIMPLE's confluence: `confluence` writes per-sort rule text (SIMPLE's confluence is a report from the KORE and builds no library, so the switch does not reach it);
+- `walk` (invariants area): the proof of a map walk's lemma (`Invariant.f_walk`) leaves open, on the arity universe, the catch-all arm of a match on a one-constructor cell sort, the fallback arm below, which the per-sort encoding does not have;
+- `SimpleRel` (`pipelines/simple-rel.sh`, outside the gate; `simple`, `simplev` and the relation generated per-sort there): its simulations (REL-1) are being proved against the per-sort form;
+- six snapshot tests of the generator (params, measure, peano, counter, freekey, counter_det2), which keep the per-sort output under test (`--per-sort-terms` in `tests/snapshots.rs`).
 
 Two choices in the family follow from its match compilation (measured 2026-10-23 on KEVM, load 2 to 10):
 
 - `hasLeaves s` comes before the leaf tag in `inj`: a match at a sort without leaves refutes `inj` on that field, instead of splitting the leaf tag over every sort; on `evm.md:751:5` the match compiler's subgoals drop from 2,512 to 130 and the matcher's elaboration from 1.78 s to 0.44 s.
 - Every `match` on a non-variable pattern gets a fallback arm, an irrefutable one too (`--no-fallback-arms` turns it off), so the other constructors of the family go to `_` instead of being refuted one by one: KEVM's 626 matchers take 252 s / 443 CPU-s without the arms and 121 s / 211 CPU-s with them, and `Adequacy` 740 against 803 CPU-s (loads 15 and 34), so the arms cost the proofs little.
-  In the per-sort encoding a match on a single-constructor sort is exhaustive and Lean rejects the arm as redundant, so the default encoding has none; it does not have the refutation cost either.
+  In the per-sort encoding a match on a single-constructor sort is exhaustive and Lean rejects the arm as redundant, so that encoding has none; it does not have the refutation cost either.
 
 ### 2.2 Termination measures
 
@@ -223,10 +237,10 @@ When every rule of `A` pairs, it states and proves `bisim : Bisimulation A.Step 
 The light gate builds two self-relations of the generator's fixtures under two namespaces: `demos/PeanoRel` (an `owise` priority, recursive and mutual functions) and `demos/CellMapRel` (a free-key rule over a typed cell map), 5 s each once their libraries' `Rules` are built (2026-10-24, Lean v4.30.0).
 SIMPLE against a variant of it (`tests/simple-variant.py`: three constructors under other symbols, the rules in another order; `demos/SimpleRel`, `pipelines/simple-rel.sh`) is generated, 226 symbols and 169 rule pairs in 0.2 s, but does not build within a gate tier's cost; §9 has the measurements.
 
-With `--arity-terms true` (both libraries generated with `gen --arity-terms`, §2.1) the translation is one function `tr : {s : A.Tag} → A.Term s → TrTy s`, by structural recursion on `A`'s family, where the motive `TrTy s` is `B.Term s` on the tags it translates (the covered sorts and the builtin carriers) and `Unit` elsewhere; each family constructor is rebuilt by a builder per arity (`mkK`, a match on the sort and its enumeration) and a leaf injection by `mkInj` (the same leaf of `B`'s sort), and the per-sort names `tr_S` are `tr` at sort `S`, with their equations `k2l_tr`, so the statements above read as on the per-sort encoding and none of them changes.
+In the arity universe (the default: both libraries generated by `gen` without `--per-sort-terms`, §2.1) the translation is one function `tr : {s : A.Tag} → A.Term s → TrTy s`, by structural recursion on `A`'s family, where the motive `TrTy s` is `B.Term s` on the tags it translates (the covered sorts and the builtin carriers) and `Unit` elsewhere; each family constructor is rebuilt by a builder per arity (`mkK`, a match on the sort and its enumeration) and a leaf injection by `mkInj` (the same leaf of `B`'s sort), and the per-sort names `tr_S` are `tr` at sort `S`, with their equations `k2l_tr`, so the statements above read as on the per-sort encoding and none of them changes.
 On the family, `ser` writes a constructor's position in its enumeration, a leaf injection's leaf tag by its position in `Tag` and a collection by its position among the collection sorts; `ser (tr a) = ser a` is one theorem by structural recursion on `A`'s family, with the per-sort statements as its instances.
 Case splits on a family variable use `k2l_cases` (`KPrelude.FamilyCases`), which refutes the family's constructors that no value of the sort has.
-The default stays the per-sort encoding (`--arity-terms` absent or `false`); the per-sort output is byte-identical to that before the option existed.
+`relate --per-sort-terms true` relates two libraries generated with `gen --per-sort-terms` (the holdouts of §2.1); `--arity-terms true`, the former opt-in, changes nothing.
 
 ### 3.3 Type soundness (`soundness`)
 
@@ -280,7 +294,7 @@ In the heavy gate run of 2026-10-25 (Lean v4.34.0, shared 32-CPU host, load abou
 | template | command | generated | supplied (hand module) | demonstration |
 |---|---|---|---|---|
 | refinement (stuttering bisimulation) | `refine` | the relation's shape `d = tr c ∨ X c d`, the cases of every rule in both directions, the generic ones proved, the bisimulation and the transfer of terminating runs | the non-local part `X`, the measures, the cases left | `demos/ImpUnroll`: 310 of 316 case parts generated |
-| confluence modulo scheduling | `confluence` | the statement from a cell list, the join of every ordered pair of rules, the generic ones proved, the classification of the pairs | the program hypothesis `H` and its preservation, a measure for Newman's lemma (`--join local`), the joins left | `demos/RaceConf`: 9 of 9 joins generated; SIMPLE: 836 of 14,365 pairs critical, counted |
+| confluence modulo scheduling | `confluence` | the statement from a cell list, the join of every ordered pair of rules, the generic ones proved, the classification of the pairs | the program hypothesis `H` and its preservation, a measure for Newman's lemma (`--join local`), the joins left | `demos/RaceConf`: 9 of 9 joins generated; SIMPLE: 678 of 14,365 pairs critical, counted |
 | noninterference | `noninterference` | the statement, `Final`, the reduction to a relation on pairs of runs and its three modes, one obligation per rule and mode; given a checker of `imp-sec.k`'s shape, the relation (stack typings read off the checker) and every obligation | `secure`, `lowEq` (a security checker in K and its labelling), the stores, the per-rule cases that read or write them | `demos/ImpNI`: all 240 discharged by the generated relation, 5 of the 237 per-rule cases behind them by hand |
 
 ### 3.5 Refinement: a stuttering bisimulation (`refine`)
@@ -345,8 +359,9 @@ The critical pairs are the `overlap-conflict`, `conflict` and `map-structure` on
 
 `demos/RaceConf` is the fixture `race` (`tests/fixtures/race`: workers in a cell map each add their count to a shared accumulator, one unit at a time; `spawn` inserts a worker with a fresh id): all 9 ordered pairs are generated and proved, `H = True` (a fresh id is not a key, which the insertion's own definedness says), and every schedule ends in one configuration.
 SIMPLE is counted, not built (`--report-only`, heavy tier, `simple-confluence.toml` recorded): 169 rules make 28,561 pair theorems, beyond a gate tier's budget (estimate, from the fixture's cost per pair; not measured).
-Of its 14,365 unordered pairs, 13,544 are separated at one binding (10,172 clashes, 2,707 exclusive, 665 of different ranks) and 12,545 commute at two threads; 836 are critical: 178 at one binding of a thread (61 with a heating rule: the order of evaluation of a strict operator's arguments, which joins only after several steps, so SIMPLE needs `--join local` and a measure; 117 between a thread's end and another rule, which the classifier does not separate, since it does not unify the two map patterns, although the two `<k>` cells clash), 16 at two threads racing on `store`, `busy`, `nextLoc`, `input`, `output`, `genv`, `terminated` or the fresh counter, and 642 with a rule that changes the thread map's bindings (`spawn`, a thread's end, `rendezvous`).
-A data-race freedom hypothesis `H` would discharge the 16 races; the 178 and 642 need joins of several steps.
+Of its 14,365 unordered pairs, 13,702 are separated at one binding (10,332 clashes, 2,705 exclusive, 665 of different ranks) and 12,545 commute at two threads; 678 are critical: 20 at one binding of a thread (17 pairs of heating rules of one strict operator: the order of evaluation of its arguments, which joins only after several steps, so SIMPLE needs `--join local` and a measure; the two `acquire` rules, the two `setEnv` rules, and a thread's end against `rendezvous`, which matches two threads), 16 at two threads racing on `store`, `busy`, `nextLoc`, `input`, `output`, `genv`, `terminated` or the fresh counter, and 642 with a rule that changes the thread map's bindings (`spawn`, a thread's end, `rendezvous`).
+At one binding the classifier unifies the two bindings' keys whatever their shape when each side has one binding left (`element(k₁, v₁) = element(k₂, v₂)` forces `k₁ = k₂`), so a thread's end, matched at `<id> T </id>`, clashes with every rule whose thread's `<k>` is not empty (158 pairs; the `threadend` fixture of `tests/cli.rs`).
+A data-race freedom hypothesis `H` would discharge the 16 races; the 20 and 642 need joins of several steps.
 
 ### 3.7 Noninterference (`noninterference`)
 
@@ -550,8 +565,12 @@ Open, in the order they block a KEVM library with kimp's guarantees:
   the 15 commutation lemmas prove (the module up to them: 249 s wall, 10.6 GB peak); `app_fwd` about 150 s (113 s of it the kernel); `forward` 121 s of kernel check and 4.1 GB, then with 6 goals open in 4 rules, all closed since (2026-10-25): five were a token literal that a right-hand side introduces (`var X[N1, N2, Vs]`'s `$1`, `$2`; `execute`'s `main`), now folded into a translation by `fold_lit_S` (`({ val := s } : B.S) = tr_S { val := s }`, one per token sort), and two the IO hooks without an implementation, which are `none` (`IOHook.undefN_eq`, in the `k2l_rel` set); `forward` then elaborates with no goal open in 38 s wall, 3.5 GB peak (2026-10-25, Lean v4.34.0, load about 35, `app_fwd` and `app_bwd` stated without proof as above).
   `app_bwd` and `backward` were each killed at a 25-minute cap, after about 24 CPU-minutes at 13.6 GB, without finishing (the whole module had been killed after 35 CPU-minutes at 16.3 GB).
   Each simulation is one declaration of 169 cases, and each backward case inverts `tr c = pattern` through the translated configuration's sorts (`KItem` has about a hundred constructors); per-rule lemmas (smaller declarations, which Lean elaborates in parallel) and per-constructor inversion lemmas are the next experiments.
-  On KEVM (its KORE against itself, and against a mutant whose `ADD` subtracts), `relate` generates the relation in 0.5 to 0.6 s and 164 MiB: 626 rule pairs, a 2.9 MB file, the mutant's changed rule unmatched on both sides; its Lean side is not built, since KEVM builds only in the arity universe and `relate` emits the per-sort one.
-- **The arity universe as the default**: kimp's and SIMPLE's results are equal on both encodings and the arity universe builds them several times faster (§2.1); not checked on it are the invariant tooling (kinds 1 and 2), `relate`, the claims, and the typed collections of the KRS sidecar. A delaborator from `Term.cK` back to the K constructors' names would make its goals readable.
+  On KEVM (its KORE against itself, and against a mutant in which one rewrite axiom's `+Word` is `-Word`, so that `ADD` subtracts), measured on 2026-10-25 in the arity universe (Lean v4.34.0, 1-minute load 14 to 62): `relate` generates the relation in 5.2 s and 165 MiB, 626 rule pairs against itself (591 symbols, a 3.3 MB file) and 625 against the mutant (its changed rule unmatched on both sides, so no bisimulation is stated: a 1.3 MB file of the translation and the commutation lemmas).
+  The two libraries build: `Terms.lean` in 334 s / 663 CPU-s / 6.7 GB peak (KEVM) and 367 s / 698 CPU-s / 6.8 GB (the mutant), `Functions.lean` in 103 s / 2.9 GB and 130 s / 2.9 GB.
+  The mutant relation's Lean build (`lake build` of its module, under a 14 GB cap) had not finished after 20.5 minutes at 7.4 GB peak, when it was stopped: a measured lower bound.
+  Open: the cost of the KEVM relation's Lean build, and where it goes.
+- **The per-sort holdouts** (§2.1, with their reasons): the claims' memory on the arity universe (over 20 GB; CLM-5) and `ImpRel`'s bisimulation (past 14 GB) are to be localized, by elaborating their modules in pieces under a cap; `SimpleEnv`, `ImpNI`, `ImpMut` and `ImpUnroll` need their hand-written modules rewritten over the family (`k2l_cases`), `soundness` (and `noninterference`, which shares its emitters) arity proofs of the typing equations, and `confluence` an arity emitter of its rule text.
+  Each holdout moves to the arity universe when its counts there are at least its per-sort ones; the per-sort encoding can be retired when none is left.
 - **An equation whose recursive call's argument comes from a partial hook** (EQ-10): `k2l_eqn_r` (`eqns.rs`) does not close the equation `popcount(N) => (N &Int 1) +Int popcount(N >>Int 1)` although it holds.
   `N >>Int 1` is `Option`-valued, so the call is generalized to `K.popcount r`, and splitting on its value leaves a hypothesis `heq : none = r'` (or `some v = r'`) beside a goal `r' = match r', …`; `simp_all` does not substitute an equation oriented as `t = x`, and the goal stays (probed 2026-10-25, Lean v4.34.0; `omega`'s counterexample there is a consequence, and an accumulator form fails the same way).
   So `demos/k/term` does not contain popcount for now, and the gate does not test the measure synthesized through a right shift (`IntHook.shr_facts`, above); KMIR's pipeline (`pipelines/kmir.sh`) still does, on `#popcount`, whose group builds.

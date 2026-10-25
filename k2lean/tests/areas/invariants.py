@@ -11,9 +11,14 @@ LIBS = {
     "kimpboth": {"ns": "KImpInv", "tier": "light", "guard": False},
     "nested": {"ns": "KNested", "tier": "light", "guard": False},
     "range": {"ns": "KRange", "tier": "light", "guard": False},
+    # per-sort: on the arity universe the backward direction of `workersIn`'s walk lemma
+    # (InvariantDefs.lean) leaves the match's catch-all arm on the one-constructor cell sort open
+    "walk": {"ns": "KWalk", "tier": "light", "guard": False, "encoding": "per-sort"},
     "simpleinv": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
     "simplestore": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
     "simplet": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
+    # kimpinv in the per-sort encoding, for kimpinv's claims (claims.sh), which stay on it (CLM-5)
+    "kimpinv-ps": {"ns": "KImpInv", "tier": "heavy", "guard": False, "encoding": "per-sort"},
 }
 
 # kind 1 invariants (`DIR/NS/Invariants.lean`); krsimp's library is core's, its invariant this area's
@@ -27,9 +32,11 @@ INVS = {
     "kimpboth": {"ns": "KImpInv", "tier": "light"},
     "nested": {"ns": "KNested", "tier": "light"},
     "range": {"ns": "KRange", "tier": "light"},
+    "walk": {"ns": "KWalk", "tier": "light"},
     "simpleinv": {"ns": "KSimpleInv", "tier": "heavy"},
     "simplestore": {"ns": "KSimpleInv", "tier": "heavy"},
     "simplet": {"ns": "KSimpleInv", "tier": "heavy"},
+    "kimpinv-ps": {"ns": "KImpInv", "tier": "heavy"},
 }
 
 DEMOS = {
@@ -37,7 +44,7 @@ DEMOS = {
     "ImpWrites": {"tier": "light"},
     "Kind2Template": {"tier": "light"},
     "InvBudget": {"tier": "light"},
-    "SimpleEnv": {"tier": "heavy"},
+    "SimpleEnv": {"tier": "heavy", "encoding": "per-sort"},
 }
 
 NEGATIVE = {"krsimp-ill-typed": {"tier": "light"}}

@@ -55,6 +55,20 @@
 //! even(N)`), not mutually recursive, with proved equations, gets its equations: rewriting with
 //! them replaces a call on a constructor term by calls on its strict subterms, so it terminates.
 //!
+//! **Map walks.** A recursive function the invariant calls with the equations `f(.Map, P…) =>
+//! true` and `f((K |-> V) R, P…) => φ(K, V, P…) andBool f(R, P…)` (the map possibly the content
+//! of a cell, `<threads>` and its cell map; `K`, `V` trees of cells with variables at the leaves)
+//! lowers to `MapHook.chooseFirst`, whose recursive call is on the rest of the binding it picks,
+//! so it is neither a fold nor structural. Its test of one binding, `Invariant.f_test k v p`, reads
+//! the patterns' variables through projections (each cell sort has one constructor, so the
+//! patterns match every binding up to the equality of a variable read twice), and
+//! `Invariant.f_walk : f m p = some true ↔ WF m ∧ EntriesOn (test) m` is proved from the function's
+//! instances (`F.eq_instances`) and its unit equation by `MapHook.all_iff_of_walk`: by induction on
+//! the number of bindings, a `true` value is a binding that passes with a `true` rest, and a map
+//! whose every binding passes has the value `true` at every binding, whichever comes first. Both
+//! join the unfolding set, so the invariant reads as
+//! `EntriesOn` facts, which the collection lemmas and `MapHook.wf_of_concat` and its kin read.
+//!
 //! **Maps built on an `Int` range.** A function of the definition (called by a rule, not
 //! necessarily by the invariant) with the two equations `f(A, B, P…) => .Map requires A >Int B`
 //! and `f(A, B, P…) => K(A) |-> V f(A +Int 1, B, P…) requires A <=Int B` (SIMPLE's `N ... M |->
@@ -523,6 +537,339 @@ fn fold_of(m: &Model, fns: &Fns, eqs: &BTreeMap<String, Vec<Equation>>, f: &str)
             pos,
             params,
         })
+    })
+}
+
+/// A walk over a map by a free-key pattern, recognized among the functions an invariant calls.
+struct Walk {
+    lean: String,
+    base: String,
+    /// the map's argument position, and the Lean constructor of the cell that holds it there
+    /// (`<threads>` and its cell map), when the argument is that cell
+    pos: usize,
+    wrap: Option<String>,
+    /// the sorts of the map, its keys and its values
+    map: String,
+    key: String,
+    val: String,
+    /// every other argument, a parameter the recursive call passes unchanged: (Lean name, sort)
+    params: Vec<(String, String)>,
+    /// the test of one binding `k |-> v`, a proposition over `k`, `v` and the parameters
+    test: String,
+    unit_eqn: String,
+    /// the projections the test reads
+    reads: Vec<String>,
+}
+
+impl Walk {
+    /// `f a₀ … aₙ` with `map` (in its cell) at the map's position and the parameters elsewhere.
+    fn call(&self, map: &str) -> String {
+        let mut args: Vec<String> = self.params.iter().map(|(n, _)| n.clone()).collect();
+        let arg = match &self.wrap {
+            Some(c) => format!("({c} {map})"),
+            None => paren(map),
+        };
+        args.insert(self.pos, arg);
+        format!("{} {}", self.lean, args.join(" "))
+    }
+
+    fn binders(&self) -> String {
+        self.params
+            .iter()
+            .map(|(n, t)| format!(" ({n} : {t})"))
+            .collect()
+    }
+
+    fn args(&self) -> String {
+        self.params.iter().map(|(n, _)| format!(" {n}")).collect()
+    }
+}
+
+/// `f(.Map, P…) => true` and `f((K |-> V) R, P…) => φ(K, V, P…) andBool f(R, P…)` (in that
+/// order, which the generated proof of the element-wise form is checked on): the map at one argument, or the content of the cell at that argument
+/// (`<threads>` and its cell map), the other arguments variables that the recursive call passes
+/// unchanged, no requires, the unit equation proved; `K` and `V` variables or trees of cells
+/// with variables at the leaves, where a variable read twice (a cell map's key and the element's
+/// own id) means that both reads are equal; `φ` mentioning neither `f` nor `R`. Through its
+/// instances (`F.eq_instances`), such a function is `true` exactly on the well-formed maps whose
+/// every binding passes the test (`MapHook.all_iff_of_walk`): a `true` value at a nonempty map is
+/// the value at a binding whose test holds and whose rest is `true`, and a map whose every binding
+/// passes and has a `true` rest has the value `true` at every binding. The test reads the
+/// binding's cells through projections, so it reduces on a rule's rebuilt element whose cells are
+/// variables, where a match on the patterns would not.
+fn walk_of(
+    cx: &Ctx,
+    f: &str,
+    projections: &mut BTreeMap<String, String>,
+    proj_names: &mut Vec<String>,
+) -> Option<Walk> {
+    let m = cx.m;
+    let sig = cx.fns.get(f)?;
+    let es = cx.eqs.get(f)?;
+    if es.len() != 2
+        || !sig.partial
+        || sig.result != "SortBool"
+        || es.iter().any(|e| e.owise || !e.requires.is_empty())
+    {
+        return None;
+    }
+    let is_map = |s: &str| {
+        m.sorts
+            .get(s)
+            .is_some_and(|i| i.kind == Kind::Coll(Coll::Map))
+    };
+    let (pos, wrap_sym, map) = (0..sig.args.len()).find_map(|j| {
+        let a = &sig.args[j];
+        if is_map(a) {
+            return Some((j, None, a.clone()));
+        }
+        let c = cell_ctor(m, a)?;
+        match c.args.as_slice() {
+            [inner] if is_map(inner) => Some((j, Some(c.sym.clone()), inner.clone())),
+            _ => None,
+        }
+    })?;
+    let unwrap = |p: &P| -> Option<P> {
+        match (&wrap_sym, p) {
+            (None, _) => Some(p.clone()),
+            (Some(w), P::App(s, _, a)) if s == w && a.len() == 1 => Some(a[0].clone()),
+            _ => None,
+        }
+    };
+    let is_unit =
+        |p: &P| matches!(p, P::App(u, _, a) if a.is_empty() && hook(m, u) == Some("MAP.unit"));
+    let i_unit = es
+        .iter()
+        .position(|e| unwrap(&e.args[pos]).is_some_and(|p| is_unit(&p)))?;
+    let (unit, step) = (&es[i_unit], &es[1 - i_unit]);
+    if !matches!(&unit.rhs, P::Dv(_, t) if t == "true")
+        || (0..sig.args.len()).any(|j| j != pos && !matches!(&unit.args[j], P::Var(..)))
+    {
+        return None;
+    }
+    // the free-key pattern `(K |-> V) R`
+    let P::App(c, _, ca) = unwrap(&step.args[pos])? else {
+        return None;
+    };
+    if hook(m, &c) != Some("MAP.concat") || ca.len() != 2 {
+        return None;
+    }
+    // `(K |-> V) R`, the binding first: the shape the generated proof is checked on
+    let (el, rest) = match (&ca[0], &ca[1]) {
+        (P::App(e, _, ea), P::Var(r, _)) if hook(m, e) == Some("MAP.element") => (ea, r),
+        _ => return None,
+    };
+    let [kp, vp] = el.as_slice() else {
+        return None;
+    };
+    // the parameters: distinct variables, not read by the pattern
+    let mut in_pat = Vec::new();
+    free_vars(kp, &mut in_pat);
+    free_vars(vp, &mut in_pat);
+    let mut pvars: Vec<(usize, String)> = Vec::new();
+    for j in (0..sig.args.len()).filter(|&j| j != pos) {
+        let P::Var(v, _) = &step.args[j] else {
+            return None;
+        };
+        if v == rest || in_pat.contains(v) || pvars.iter().any(|(_, w)| w == v) {
+            return None;
+        }
+        pvars.push((j, v.clone()));
+    }
+    let P::App(and, _, aa) = &step.rhs else {
+        return None;
+    };
+    if hook(m, and) != Some("BOOL.and") || aa.len() != 2 {
+        return None;
+    }
+    let is_rec = |p: &P| {
+        matches!(p, P::App(g, _, a) if g == f && a.len() == sig.args.len()
+            && unwrap(&a[pos]).is_some_and(|x| matches!(x, P::Var(v, _) if v == *rest))
+            && pvars.iter().all(|(j, w)| matches!(&a[*j], P::Var(v, _) if v == w)))
+    };
+    // `φ andBool f(R, P…)`, the test first: the shape the generated proof is checked on
+    if !is_rec(&aa[1]) {
+        return None;
+    }
+    let phi = &aa[0];
+    if mentions(phi, f, rest) {
+        return None;
+    }
+    // every binding matches a pattern that is a tree of cells (each sort's only constructor)
+    // with variables at the leaves, up to the equalities of a variable read twice
+    fn cells_only(m: &Model, p: &P) -> bool {
+        match p {
+            P::Var(..) => true,
+            P::App(s, _, args) => m.ctors.get(s).is_some_and(|ci| {
+                cell_ctor(m, &ci.sort).is_some_and(|c| c.sym == *s)
+                    && args.len() == ci.args.len()
+                    && args.iter().all(|a| cells_only(m, a))
+            }),
+            _ => false,
+        }
+    }
+    if !cells_only(m, kp) || !cells_only(m, vp) {
+        return None;
+    }
+    // the variables the test reads: those of `φ`, and those the patterns read twice
+    let mut need = Vec::new();
+    free_vars(phi, &mut need);
+    fn count(p: &P, out: &mut BTreeMap<String, usize>) {
+        match p {
+            P::Var(v, _) => *out.entry(v.clone()).or_default() += 1,
+            P::App(_, _, a) => a.iter().for_each(|q| count(q, out)),
+            _ => {}
+        }
+    }
+    let mut seen = BTreeMap::new();
+    count(kp, &mut seen);
+    count(vp, &mut seen);
+    need.extend(seen.into_iter().filter(|(_, n)| *n > 1).map(|(v, _)| v));
+    // the reads of those variables off `k` and `v`, through one projection per cell
+    #[allow(clippy::too_many_arguments)]
+    fn reads(
+        m: &Model,
+        p: &P,
+        at: String,
+        need: &[String],
+        out: &mut Vec<(String, String)>,
+        projections: &mut BTreeMap<String, String>,
+        proj_names: &mut Vec<String>,
+    ) -> Option<()> {
+        match p {
+            P::Var(v, _) => {
+                if need.contains(v) {
+                    out.push((v.clone(), at));
+                }
+                Some(())
+            }
+            P::App(s, _, args) => {
+                let ci = m.ctors.get(s)?;
+                if cell_ctor(m, &ci.sort)?.sym != *s || args.len() != ci.args.len() {
+                    return None;
+                }
+                for (i, a) in args.iter().enumerate() {
+                    let mut vs = Vec::new();
+                    free_vars(a, &mut vs);
+                    if !vs.iter().any(|v| need.contains(v)) {
+                        continue;
+                    }
+                    let n = proj_arg(m, s, i, projections, proj_names)?;
+                    reads(
+                        m,
+                        a,
+                        format!("({n} {at})"),
+                        need,
+                        out,
+                        projections,
+                        proj_names,
+                    )?;
+                }
+                Some(())
+            }
+            _ => None,
+        }
+    }
+    let (mut projs, mut names_new) = (projections.clone(), proj_names.clone());
+    let mut rd: Vec<(String, String)> = Vec::new();
+    reads(
+        m,
+        kp,
+        "k".into(),
+        &need,
+        &mut rd,
+        &mut projs,
+        &mut names_new,
+    )?;
+    reads(
+        m,
+        vp,
+        "v".into(),
+        &need,
+        &mut rd,
+        &mut projs,
+        &mut names_new,
+    )?;
+    let eq_name = |i: usize| {
+        format!(
+            "Eqn.{}",
+            names::ident(&format!("{}_{}", names::demangle(f), i + 1))
+        )
+    };
+    let unit_eqn = eq_name(i_unit);
+    if !cx.stated.contains(&unit_eqn) || cx.open_eqns.contains(&unit_eqn) {
+        return None;
+    }
+    let mut lw = Lower::new(
+        m,
+        cx.fns,
+        &["k", "v", "m", "q", "h", "hu", "hw", "hb", "hk", "hr"],
+    );
+    let mut params = Vec::new();
+    for (j, v) in &pvars {
+        let n = lw.param(&crate::lower::sanitize(v), &sig.args[*j]);
+        lw.vars.insert(v.clone(), n.clone());
+        params.push((n, sig.args[*j].clone()));
+    }
+    // a variable read twice: the reads are equal
+    let mut conj = Vec::new();
+    for (i, (v, r)) in rd.iter().enumerate() {
+        match rd[..i].iter().find(|(w, _)| w == v) {
+            Some((_, first)) => conj.push(format!("{r} = {first}")),
+            None => {
+                lw.vars.insert(v.clone(), r.clone());
+            }
+        }
+    }
+    let e = lw.expr(phi, "SortBool").ok()?;
+    let steps = std::mem::take(&mut lw.steps);
+    conj.push(match steps.as_slice() {
+        [] => format!("{} = true", e.render()),
+        [crate::lower::Step::Bind { expr, var, .. }] if e.render() == *var => {
+            format!("{} = some true", expr.render_arg())
+        }
+        _ => format!("{} = some true", option_expr(&steps, &e)?),
+    });
+    let elems = m.elems(&map);
+    let (key, val) = (elems.first()?.clone(), elems.get(1)?.clone());
+    let added: Vec<String> = names_new
+        .iter()
+        .filter(|n| !proj_names.contains(n))
+        .cloned()
+        .collect();
+    let used: Vec<String> = names_new
+        .iter()
+        .filter(|n| rd.iter().any(|(_, r)| r.contains(&format!("({n} "))))
+        .cloned()
+        .collect();
+    *projections = projs;
+    proj_names.extend(added);
+    let wrap = match &wrap_sym {
+        Some(s) => {
+            let ci = m.ctors.get(s)?;
+            Some(format!("{}.{}", ci.sort, ci.lean))
+        }
+        None => None,
+    };
+    let base = names::demangle(f)
+        .split('(')
+        .next()
+        .unwrap_or("walk")
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    Some(Walk {
+        lean: sig.lean.clone(),
+        base,
+        pos,
+        wrap,
+        map,
+        key,
+        val,
+        params,
+        test: conj.join(" ∧ "),
+        unit_eqn,
+        reads: used,
     })
 }
 
@@ -1284,6 +1631,7 @@ pub fn emit(
     let mut unfold: Vec<String> = Vec::new(); // the k2l_preserve simp list
     let mut parts: Vec<Part> = Vec::new();
     let mut folds: Vec<Fold> = Vec::new();
+    let mut walks: Vec<Walk> = Vec::new();
     let mut uses_eqns = false;
 
     // the projection chain of a cell path; returns the read expression for `c` (for a cell inside
@@ -1620,7 +1968,14 @@ pub fn emit(
                 .collect();
             let all_proved = !eq_names.is_empty() && eq_names.iter().all(proved);
             if cx.recursive.contains(&gs.lean) {
-                if let Some(f) = fold_of(m, cx.fns, cx.eqs, &g) {
+                if let Some(w) = walk_of(cx, &g, &mut projections, &mut proj_names) {
+                    // a map walked by a free-key pattern: its element-wise form, from its
+                    // instances and its unit equation
+                    uses_eqns = true;
+                    if !walks.iter().any(|x| x.lean == w.lean) {
+                        walks.push(w);
+                    }
+                } else if let Some(f) = fold_of(m, cx.fns, cx.eqs, &g) {
                     if !folds.iter().any(|x| x.lean == f.lean) {
                         folds.push(f);
                     }
@@ -1635,7 +1990,7 @@ pub fn emit(
                     }
                 } else {
                     notes.push(format!(
-                        "invariant {}: the recursive function {} is neither a list fold nor structurally recursive with proved equations; its cases may need hand proofs",
+                        "invariant {}: the recursive function {} is neither a map walk, a list fold nor structurally recursive with proved equations; its cases may need hand proofs",
                         s.name,
                         names::demangle(&g)
                     ));
@@ -1797,6 +2152,10 @@ pub fn emit(
     for f in &folds {
         simp.push(format!("Invariant.{}_iff", f.base));
     }
+    for w in &walks {
+        simp.push(format!("Invariant.{}_walk", w.base));
+        simp.push(format!("Invariant.{}_test", w.base));
+    }
     simp.push("Option.bind_fun_some".into());
 
     // maps built by recursion on an `Int` range, wherever a rule calls them: a `@[k2l_coll]`
@@ -1889,6 +2248,52 @@ theorem Invariant.{b}_iff (l : {}){ps} :\n    {} = some true ↔ KPrelude.ListHo
             f.list,
             at("l"),
             f.phi
+        ));
+    }
+    for w in &walks {
+        let (b, l) = (&w.base, &w.lean);
+        let (ps, pa) = (w.binders(), w.args());
+        let mut unfold = vec![format!("Invariant.{b}_test")];
+        unfold.extend(w.reads.iter().cloned());
+        unfold.push("KPrelude.BoolHook.and".into());
+        let unfold = unfold.join(", ");
+        let insts = format!("{l}.instances, {l}.inst1, {l}.inst2");
+        d.push_str(&format!(
+            "set_option linter.unusedVariables false in\n\
+/-- The map walk `{l}`: its test of one binding `k |-> v`. -/\n\
+def Invariant.{b}_test (k : {}) (v : {}){ps} : Prop :=\n  {}\n\n\
+/-- The map walk `{l}` is `true` of a map exactly when the map is well formed and every binding\n\
+passes the test (`MapHook.all_iff_of_walk`, from its instances and its unit equation). -/\n\
+theorem Invariant.{b}_walk (m : {}){ps} :\n    {} = some true ↔\n      KPrelude.MapHook.WF m ∧ KPrelude.MapHook.EntriesOn (fun q => Invariant.{b}_test q.1 q.2{pa}) m := by\n  \
+refine KPrelude.MapHook.all_iff_of_walk (f := fun m => {}) (ψ := fun k v => Invariant.{b}_test k v{pa})\n    \
+(by rw [{}]) ?_ ?_ m\n  \
+· intro m hu h\n    \
+rw [{l}.eq_instances] at h\n    \
+simp only [{insts}, hu, ite_false, List.nil_append, KPrelude.firstNonempty_singleton] at h\n    \
+split at h\n    \
+· rename_i hw\n      \
+obtain ⟨k, v, hk, hb⟩ := KPrelude.MapHook.mem_of_head?_chooseAll (Option.join_eq_some_iff.1 h)\n      \
+refine ⟨(KPrelude.MapHook.wfb_iff _).1 hw, k, v, hk, ?_⟩\n      \
+repeat' (split at hb)\n      \
+all_goals simp_all [{unfold}]\n    \
+· simp at h\n  \
+· intro m hu hw h\n    \
+rw [{l}.eq_instances]\n    \
+simp only [{insts}, hu, ite_false, List.nil_append, KPrelude.firstNonempty_singleton,\n      \
+(KPrelude.MapHook.wfb_iff m).2 hw, ite_true]\n    \
+rw [KPrelude.MapHook.head?_chooseAll_of_forall (b := some true) (KPrelude.MapHook.toList_ne_nil_of_ne_unit hu)]\n    \
+· rfl\n    \
+· intro k v hk\n      \
+obtain ⟨hψ, hr⟩ := h k v hk\n      \
+repeat' split\n      \
+all_goals simp_all [{unfold}]\n\n",
+            w.key,
+            w.val,
+            w.test,
+            w.map,
+            w.call("m"),
+            w.call("m"),
+            w.unit_eqn,
         ));
     }
     // the lemmas of the maps built on an `Int` range, which the collections closer applies to

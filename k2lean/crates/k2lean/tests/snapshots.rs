@@ -63,8 +63,11 @@ pub fn generate(name: &str, ns: &str, extra: &[&str]) -> PathBuf {
     out
 }
 
+/// The snapshot of `gen` in the one type per sort encoding (`--per-sort-terms`), recorded in the
+/// fixture's `expected/`: the fixtures' recorded output predates the arity-indexed default, and
+/// keeps that encoding under test while libraries still use it.
 fn snapshot(name: &str, ns: &str) {
-    snapshot_with(name, ns, &[], "expected");
+    snapshot_with(name, ns, &["--per-sort-terms"], "expected");
 }
 
 /// The snapshot of `gen` with `extra` flags, recorded in the fixture's directory `dir`.
@@ -154,7 +157,7 @@ fn measure() {
     snapshot_with(
         "measure",
         "Measure",
-        &["--termination", side.to_str().unwrap()],
+        &["--per-sort-terms", "--termination", side.to_str().unwrap()],
         "expected",
     );
 }
@@ -163,10 +166,16 @@ fn measure() {
 /// item, with one certificate per surviving pair of rules, per priority rank.
 #[test]
 fn counter_det2() {
-    snapshot_with("counter", "Counter", &["--det2"], "expected-det2");
+    snapshot_with(
+        "counter",
+        "Counter",
+        &["--per-sort-terms", "--det2"],
+        "expected-det2",
+    );
 }
 
-/// The counter fixture in the arity-indexed term universe (`--arity-terms`): the `Term` family,
+/// The counter fixture in the arity-indexed term universe (the default; `--arity-terms` is its
+/// former opt-in, accepted and without effect): the `Term` family,
 /// fallback arms on every non-variable match, the collections' `ListSizeOf` instances, and
 /// determinism along the rule index.
 #[test]

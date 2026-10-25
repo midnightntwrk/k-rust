@@ -18,9 +18,11 @@ name_noninterference() {
 
 gen_noninterference() {
   case $1 in
+    # per-sort (`--per-sort-terms`), with ImpNI over kimp-ps: ImpNI's hand modules are written
+    # against the per-sort names of KImp and KImpSec (a holdout of the per-sort encoding)
     impsec) GEN_ARGS=(--kore "$(kore_dir imp-sec)/definition.kore" --runtime "$(kore_dir imp-sec)/runtime.json"
             --out "$o" --name KImpSec --prelude ../../lean/prelude
-            --open-obligations "$o/open-obligations.txt" --extra-fns "lev,sec,conf") ;;
+            --open-obligations "$o/open-obligations.txt" --extra-fns "lev,sec,conf" --per-sort-terms) ;;
     *) return 1 ;;
   esac
   return 0
@@ -29,7 +31,7 @@ gen_noninterference() {
 # ImpNI: `Tr.lean`, kimp to the checker, translating programs (`--roots`)
 relate_noninterference() {
   case $1 in
-    ImpNI) nb=KImpSec kd=$(kore_dir imp-sec) extra=(--roots "SortStmt,SortExpr") ;;
+    ImpNI) nb=KImpSec kd=$(kore_dir imp-sec) extra=(--roots "SortStmt,SortExpr" --per-sort-terms true) ;;
     *) return 1 ;;
   esac
 }

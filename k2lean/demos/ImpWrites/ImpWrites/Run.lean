@@ -15,7 +15,8 @@ value of the initial store does. -/
 theorem init_holds (x : KImp.SortId) (pgm : KImp.SortStmt) (env : KImp.SortMap)
     (h_pgm : writesS x pgm = false) (h_env : MapHook.EntriesOn (fun p => writesI x p.2 = false) env) :
     Invariant x (KImp.init pgm env) := by
-  simp [Invariant, KImp.init, kOf, kContent, envOf, envContent, writesK, writesI, h_pgm, h_env]
+  simp only [writesS, writesI] at h_pgm h_env
+  simp [Invariant, KImp.init, kOf, kContent, envOf, envContent, writesK, writesI, writesT, h_pgm, h_env]
 
 /-- Every configuration reachable from the initial configuration satisfies `Invariant x`. -/
 theorem star {x : KImp.SortId} {pgm : KImp.SortStmt} {env : KImp.SortMap}

@@ -590,8 +590,9 @@ pub fn main(args: &[String]) {
     if per_rule && !full {
         fail("--per-rule needs the whole correspondence (not --roots)");
     }
-    // the encoding of the two libraries' terms, as `gen` was given it
-    let arity = opt.get("arity-terms").is_some_and(|v| v == "true");
+    // the encoding of the two libraries' terms, as `gen` was given it: the arity-indexed universe
+    // unless `--per-sort-terms true` (`--arity-terms true`, its former opt-in, changes nothing)
+    let arity = !opt.get("per-sort-terms").is_some_and(|v| v == "true");
     let a = load_side(
         &get("kore-a"),
         opt.get("syntax-a").map(|s| s.as_str()),
@@ -2328,7 +2329,8 @@ cases l <;> first | exact {nb}.Term.inj (s := .{}) rfl _ rfl x | exact absurd h 
     Ok(())
 }
 
-/// names the first constructor that moves.
+/// Whether the translation keeps every position that `ser` writes (design.md, §3.2); the error
+/// names the first constructor, leaf tag or collection sort that moves.
 fn positions_kept(
     a: &Side,
     b: &Side,
@@ -2367,6 +2369,55 @@ fn positions_kept(
                     b.ns
                 ));
             }
+        }
+    }
+    if a.arity {
+        arity_positions_kept(a, b, covered)?;
+    }
+    Ok(())
+}
+
+/// In the arity-indexed universe `ser` also writes, besides a constructor's position in its
+/// enumeration (checked above: keeping every position of a sort's constructors keeps the order of
+/// those of each arity), a leaf injection's leaf tag as its position in `Tag` and a collection as
+/// its position among the collection sorts (`terms_arity.rs`, `ser`). The translation maps a leaf
+/// to `B`'s leaf of the same tag name and a collection to `B`'s collection of the same sort, so
+/// `ser (tr a) = ser a` needs each covered sum's leaves, and each covered collection sort, at the
+/// same position on both sides.
+fn arity_positions_kept(a: &Side, b: &Side, covered: &BTreeSet<String>) -> Result<(), String> {
+    let sa = crate::terms_arity::shape(&a.m);
+    let sb = crate::terms_arity::shape(&b.m);
+    let pos = |v: &[String], x: &str| v.iter().position(|y| y == x);
+    let show = |p: Option<usize>| p.map(|p| p.to_string()).unwrap_or_else(|| "none".into());
+    for (t, ls) in &sa.sums {
+        if !covered.contains(t) {
+            continue;
+        }
+        for l in ls {
+            let (i, j) = (pos(&sa.tags, l), pos(&sb.tags, l));
+            if i != j {
+                return Err(format!(
+                    "{t}: the leaf tag {l} is at position {} of {}.Tag and {} of {}.Tag",
+                    show(i),
+                    a.ns,
+                    show(j),
+                    b.ns
+                ));
+            }
+        }
+    }
+    let ca: Vec<String> = sa.colls.iter().map(|(t, _, _)| t.clone()).collect();
+    let cb: Vec<String> = sb.colls.iter().map(|(t, _, _)| t.clone()).collect();
+    for t in ca.iter().filter(|t| covered.contains(*t)) {
+        let (i, j) = (pos(&ca, t), pos(&cb, t));
+        if i != j {
+            return Err(format!(
+                "{t}: the collection sort is at position {} of {}'s collections and {} of {}'s",
+                show(i),
+                a.ns,
+                show(j),
+                b.ns
+            ));
         }
     }
     Ok(())
