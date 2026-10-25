@@ -734,3 +734,47 @@ fn configuration_rules_compare_stable_ids_and_resolved_host_aliases() {
     host.result_configuration.as_mut().unwrap().configuration = host_type::<bool>();
     assert_eq!(host.validate(ItemKind::Rule), mismatch);
 }
+
+/// An equation's function context keys its cells as a rule's left side:
+/// each key has its role, and one node defines it.
+#[test]
+fn function_context_cells_have_their_roles_and_one_definition() {
+    let configuration = item("Config", ItemKind::Configuration);
+    let context = |cells| DescriptorFunctionContext {
+        key: key(ProvenanceRole::FunctionContext),
+        configuration: DescriptorConfigurationReference {
+            key: key(ProvenanceRole::FunctionContextType),
+            configuration: configuration.clone(),
+        },
+        bindings: Vec::new(),
+        cells,
+    };
+    let cells = cells::<DescriptorStage>(DescriptorCellReference {
+        key: key(ProvenanceRole::RuleLeftCellsField),
+        cell: crate::DescriptorCellIdentity {
+            owner: configuration.clone(),
+            field: "value".into(),
+        },
+    });
+    let mut keys = WireKeys::default();
+    context(cells.clone()).collect_keys(&mut keys).unwrap();
+    assert_eq!(keys.defined().len(), 6);
+
+    let mut misplaced = cells.clone();
+    misplaced.cells[0].wrapper_key = Some(key(ProvenanceRole::RuleRightCellsWrapper));
+    assert_eq!(
+        context(misplaced).collect_keys(&mut WireKeys::default()),
+        Err(crate::GrammarTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::RuleLeftCellsWrapper,
+            actual: key(ProvenanceRole::RuleRightCellsWrapper),
+        })
+    );
+    let mut repeated = cells;
+    repeated.cells.push(repeated.cells[0].clone());
+    assert_eq!(
+        context(repeated).collect_keys(&mut WireKeys::default()),
+        Err(crate::GrammarTransportError::DuplicateProvenance(key(
+            ProvenanceRole::RuleLeftCellsField
+        )))
+    );
+}

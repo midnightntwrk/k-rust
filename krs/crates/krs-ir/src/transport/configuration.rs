@@ -842,6 +842,9 @@ impl From<KeyFailure> for StateTransportError {
             KeyFailure::Role { expected, actual } => {
                 Self::UnexpectedProvenance { expected, actual }
             }
+            KeyFailure::Mismatched { expected, actual } => {
+                Self::MismatchedProvenance { expected, actual }
+            }
             KeyFailure::Duplicate(key) => Self::DuplicateProvenance(key),
             KeyFailure::Missing(key) => Self::MissingProvenance(key),
             KeyFailure::Extra(key) => Self::ExtraProvenance(key),

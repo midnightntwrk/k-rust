@@ -480,7 +480,7 @@ fn descriptor_context_alias() -> DescriptorContextAlias {
 fn context_alias_protocol_rejects_lost_or_mismatched_structural_frames() {
     let alias = descriptor_context_alias();
     alias.validate(ItemKind::ContextAlias).unwrap();
-    let expected = alias.expected_provenance_keys();
+    let expected = alias.expected_provenance_keys().unwrap();
     alias
         .validate_complete_provenance(
             ItemKind::ContextAlias,
@@ -513,6 +513,94 @@ fn context_alias_protocol_rejects_lost_or_mismatched_structural_frames() {
             StateTermReason::AliasBindingCatalogMismatch
         ))
     ));
+}
+
+/// Each key field of an alias has its role, each key one definition, and
+/// its keys are the anchors; a cell value's path names its head.
+#[test]
+fn context_alias_keys_have_their_roles_and_one_definition() {
+    let alias = descriptor_context_alias();
+    let anchors = alias.expected_provenance_keys().unwrap();
+    let check = |alias: &DescriptorContextAlias| {
+        alias.validate_complete_provenance(
+            ItemKind::ContextAlias,
+            &key(ProvenanceRole::ContextAliasDeclaration, 0),
+            &anchors,
+        )
+    };
+    check(&alias).unwrap();
+
+    // Swapped name and `here` keys: each field holds the other's role.
+    let mut swapped = alias.clone();
+    std::mem::swap(&mut swapped.name_key, &mut swapped.here_key);
+    assert_eq!(
+        check(&swapped),
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::ContextAliasName,
+            actual: key(ProvenanceRole::ContextAliasHere, 0),
+        })
+    );
+
+    // The tail's key repeated by the cells' remainder.
+    let mut repeated = alias.clone();
+    repeated.pattern.remainder = ProtocolRuleFrame::Bind {
+        key: key(ProvenanceRole::RuleLeftCellsPayload, 0),
+        binding: "state".into(),
+    };
+    assert_eq!(
+        check(&repeated),
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::RuleLeftCellsRemainder,
+            actual: key(ProvenanceRole::RuleLeftCellsPayload, 0),
+        })
+    );
+    let mut repeated = alias.clone();
+    let ProtocolRuleStateTerm::KSequence(sequence) = &mut repeated.pattern.cells[0].value else {
+        unreachable!()
+    };
+    sequence.items.push(ProtocolRuleKSequenceItem {
+        key: key(ProvenanceRole::RuleLeftKSequenceItem, 0),
+        value: rule_variable("left", 1, "other"),
+    });
+    assert_eq!(
+        check(&repeated),
+        Err(StateTransportError::DuplicateProvenance(key(
+            ProvenanceRole::RuleLeftKSequenceItem,
+            0
+        )))
+    );
+
+    // A cell value's path is its head's key.
+    let mut path = alias.clone();
+    let ProtocolRuleStateTerm::KSequence(sequence) = &mut path.pattern.cells[0].value else {
+        unreachable!()
+    };
+    let DescriptorTerm::Variable { path_key, .. } = &mut sequence.items[0].value else {
+        unreachable!()
+    };
+    *path_key = key(ProvenanceRole::RuleLeftPath, 0);
+    assert_eq!(
+        check(&path),
+        Err(StateTransportError::MismatchedProvenance {
+            expected: key(ProvenanceRole::RuleLeftReference, 0),
+            actual: key(ProvenanceRole::RuleLeftPath, 0),
+        })
+    );
+
+    // An anchor no node consumes.
+    let mut extra = anchors.clone();
+    extra.insert(key(ProvenanceRole::RuleBindingType, 0));
+    assert_eq!(
+        alias.validate_complete_provenance(
+            ItemKind::ContextAlias,
+            &key(ProvenanceRole::ContextAliasDeclaration, 0),
+            &extra,
+        ),
+        Err(StateTransportError::ExtraProvenance(key(
+            ProvenanceRole::RuleBindingType,
+            0
+        )))
+    );
 }
 
 fn term_rule_binding(name: &str, ordinal: u32, sort: DescriptorSortRef) -> DescriptorRuleBinding {

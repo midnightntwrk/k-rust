@@ -123,7 +123,6 @@ details! {
         AliasHereContentOccurrence => "context alias HERE binding must occur exactly once in cell content",
         AliasHereBindingCount => "context alias must select exactly one ordinary HERE binding",
         AliasFrameBindingMismatch => "context-alias frame binding has the wrong structural kind or occurrence",
-        AliasProvenanceNotClosed => "context-alias provenance is not closed",
         AliasBindingCatalogMismatch => "context-alias structural binding catalog does not match its frames",
         DuplicateAliasBinding => "duplicate context-alias binding",
         DuplicateFragmentChildField => "fragment! child field occurs more than once",

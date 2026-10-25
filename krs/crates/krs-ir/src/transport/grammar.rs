@@ -2304,6 +2304,9 @@ impl From<KeyFailure> for GrammarTransportError {
             KeyFailure::Role { expected, actual } => {
                 Self::UnexpectedProvenance { expected, actual }
             }
+            KeyFailure::Mismatched { expected, actual } => {
+                Self::MismatchedProvenance { expected, actual }
+            }
             KeyFailure::Duplicate(key) => Self::DuplicateProvenance(key),
             KeyFailure::Missing(key) => Self::MissingProvenance(key),
             KeyFailure::Extra(key) => Self::ExtraProvenance(key),
@@ -2705,9 +2708,7 @@ impl StructuredRuleDescriptor {
                 return Err(invalid());
             }
         }
-        for key in &context.cell_keys() {
-            require_key(key, provenance)?;
-        }
+        // The closure checks the context's cell keys against the anchors.
         Ok(bindings)
     }
 

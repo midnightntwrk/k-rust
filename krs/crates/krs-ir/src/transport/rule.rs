@@ -692,8 +692,11 @@ pub type DescriptorFunctionContext = FunctionContext<DescriptorStage>;
 impl DescriptorFunctionContext {
     /// The context's keys: the parameter and its configuration type define
     /// theirs, a term binding's sort names the sort its typed binding
-    /// defines, and each of its cells' keys is defined once.
-    pub(crate) fn collect_keys(&self, keys: &mut WireKeys) -> Result<(), KeyFailure> {
+    /// defines, and its cells are keyed as a rule's left side is.
+    pub(crate) fn collect_keys(
+        &self,
+        keys: &mut WireKeys,
+    ) -> Result<(), crate::GrammarTransportError> {
         keys.define(&self.key, ProvenanceRole::FunctionContext)?;
         keys.define(&self.configuration.key, ProvenanceRole::FunctionContextType)?;
         for binding in &self.bindings {
@@ -701,18 +704,7 @@ impl DescriptorFunctionContext {
                 keys.refer(&sort.key, ProvenanceRole::RuleBindingType)?;
             }
         }
-        for key in &self.cell_keys() {
-            keys.define_untyped(key)?;
-        }
-        Ok(())
-    }
-
-    /// The keys of the context's cells: the payload, and every cell, frame,
-    /// and term key.
-    pub(crate) fn cell_keys(&self) -> BTreeSet<ProvenanceKey> {
-        let mut keys = BTreeSet::from([self.cells.key.clone()]);
-        collect_cells_keys(&self.cells, &mut keys);
-        keys
+        collect_pattern_keys::<DescriptorStage, _>(&self.cells, keys)
     }
 
     /// The names the context binds that the subject does not: every name
@@ -750,26 +742,13 @@ impl DescriptorContextAlias {
     }
 
     /// Returns every parser-owned provenance key represented by this alias.
-    #[must_use]
-    pub fn expected_provenance_keys(&self) -> BTreeSet<ProvenanceKey> {
-        let mut keys = BTreeSet::from([
-            self.declaration_key.clone(),
-            self.name_key.clone(),
-            self.here_key.clone(),
-            self.pattern_key.clone(),
-            self.configuration.key.clone(),
-            self.pattern.key.clone(),
-        ]);
-        for binding in &self.bindings {
-            if let ProtocolContextAliasBindingKind::Term { sort } = &binding.kind {
-                keys.insert(sort.key.clone());
-            }
-        }
-        if let Some(result) = &self.result {
-            keys.insert(result.key.clone());
-        }
-        collect_cells_keys(&self.pattern, &mut keys);
-        keys
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateTransportError`] when a key has another role than its
+    /// field's, or two nodes define one key.
+    pub fn expected_provenance_keys(&self) -> Result<BTreeSet<ProvenanceKey>, StateTransportError> {
+        Ok(self.wire_keys()?.into_defined())
     }
 
     /// Validates shape plus exact closed provenance ownership.
@@ -789,13 +768,33 @@ impl DescriptorContextAlias {
                 StateTermReason::AliasPrimaryProvenanceMismatch,
             ));
         }
-        let expected = self.expected_provenance_keys();
-        if expected != *actual {
-            return Err(StateTransportError::InvalidTerm(
-                StateTermReason::AliasProvenanceNotClosed,
-            ));
-        }
+        self.wire_keys()?.close(actual)?;
         Ok(())
+    }
+
+    /// The alias's keys: its declaration, name, `here` binder, pattern and
+    /// configuration type, its term bindings' sorts and its result sort
+    /// define theirs, and its cells are keyed as a rule's left side is.
+    fn wire_keys(&self) -> Result<WireKeys, StateTransportError> {
+        let mut keys = WireKeys::default();
+        keys.define(
+            &self.declaration_key,
+            ProvenanceRole::ContextAliasDeclaration,
+        )?;
+        keys.define(&self.name_key, ProvenanceRole::ContextAliasName)?;
+        keys.define(&self.here_key, ProvenanceRole::ContextAliasHere)?;
+        keys.define(&self.pattern_key, ProvenanceRole::RulePattern)?;
+        keys.define(&self.configuration.key, ProvenanceRole::RuleType)?;
+        for binding in &self.bindings {
+            if let ProtocolContextAliasBindingKind::Term { sort } = &binding.kind {
+                keys.define(&sort.key, ProvenanceRole::RuleBindingType)?;
+            }
+        }
+        if let Some(result) = &self.result {
+            keys.define(&result.key, ProvenanceRole::ContextAliasResult)?;
+        }
+        collect_pattern_keys::<DescriptorStage, StateTransportError>(&self.pattern, &mut keys)?;
+        Ok(keys)
     }
 }
 
@@ -1079,29 +1078,62 @@ fn count_here_in_term(term: &DescriptorTerm, here: &str) -> usize {
     }
 }
 
-fn collect_cells_keys<I>(
-    cells: &ProtocolRuleCells<I, DescriptorTerm>,
-    keys: &mut BTreeSet<ProvenanceKey>,
-) where
-    I: CellKeyAccess,
-{
-    if let Some(key) = frame_key(&cells.remainder) {
-        keys.insert(key.clone());
-    }
+/// Collects the keys of a `cells!` payload on `side`, each of its role
+/// there: the payload, each cell's field and wrapper, the structure of its
+/// value ([`collect_state_keys`]), and the remainder. Each term the cells
+/// hold goes to `term`.
+fn collect_cells_keys<S: RuleValidationStage, E: From<KeyFailure>>(
+    cells: &ProtocolRuleCells<S::Cell, Term<S>>,
+    side: RuleSide,
+    keys: &mut WireKeys,
+    term: &mut impl FnMut(&Term<S>, &mut WireKeys) -> Result<(), E>,
+) -> Result<(), E> {
+    keys.define(&cells.key, RuleRole::CellsPayload.on_side(side))?;
     for cell in &cells.cells {
-        keys.insert(cell.field.cell_key().clone());
-        keys.extend(cell.wrapper_key.iter().cloned());
-        collect_state_key_set(&cell.value, keys);
+        collect_cell_keys::<S, E>(cell, side, keys, term)?;
     }
+    if let Some(key) = frame_key(&cells.remainder) {
+        keys.define(key, RuleRole::CellsRemainder.on_side(side))?;
+    }
+    Ok(())
 }
 
-trait CellKeyAccess {
-    fn cell_key(&self) -> &ProvenanceKey;
-}
-impl CellKeyAccess for DescriptorCellReference {
-    fn cell_key(&self) -> &ProvenanceKey {
-        &self.key
+/// Collects the keys of one cell of a `cells!` payload on `side`: its field,
+/// its wrapper and the structure of its value; each term goes to `term`.
+fn collect_cell_keys<S: RuleValidationStage, E: From<KeyFailure>>(
+    cell: &ProtocolRuleCell<S::Cell, Term<S>>,
+    side: RuleSide,
+    keys: &mut WireKeys,
+    term: &mut impl FnMut(&Term<S>, &mut WireKeys) -> Result<(), E>,
+) -> Result<(), E> {
+    keys.define(
+        S::rule_cell_key(&cell.field),
+        RuleRole::CellsField.on_side(side),
+    )?;
+    if let Some(wrapper_key) = &cell.wrapper_key {
+        keys.define(wrapper_key, RuleRole::CellsWrapper.on_side(side))?;
     }
+    collect_state_keys(&cell.value, side, keys, term)
+}
+
+/// Collects the keys of a one-sided `cells!` pattern's cell values, the
+/// left side of an alias or a function context, whose nodes have no other
+/// key walk.
+fn collect_pattern_keys<S: RuleValidationStage, E>(
+    cells: &ProtocolRuleCells<S::Cell, Term<S>>,
+    keys: &mut WireKeys,
+) -> Result<(), E>
+where
+    E: From<KeyFailure> + From<super::keys::TermRefusal>,
+{
+    collect_cells_keys::<S, E>(cells, RuleSide::Left, keys, &mut |term, keys| {
+        super::keys::collect_term_keys(
+            term,
+            ValidationSide::Left,
+            super::keys::TermKeying::CellValue,
+            keys,
+        )
+    })
 }
 
 /// Collects the keys of a rule state's own nodes on `side`, each of its
@@ -1192,202 +1224,6 @@ pub(super) fn frame_key(frame: &ProtocolRuleFrame) -> Option<&ProvenanceKey> {
         ProtocolRuleFrame::Anonymous { key }
         | ProtocolRuleFrame::Bind { key, .. }
         | ProtocolRuleFrame::Reuse { key, .. } => Some(key),
-    }
-}
-
-fn collect_state_key_set(
-    state: &ProtocolRuleStateTerm<DescriptorTerm>,
-    keys: &mut BTreeSet<ProvenanceKey>,
-) {
-    match state {
-        ProtocolRuleStateTerm::Term(term) | ProtocolRuleStateTerm::Group(term) => {
-            collect_term_keys(term, keys);
-        }
-        ProtocolRuleStateTerm::Present { value } => collect_state_key_set(value, keys),
-        ProtocolRuleStateTerm::Absent => {}
-        ProtocolRuleStateTerm::Instances(instances) => {
-            if let Some(key) = frame_key(&instances.rest) {
-                keys.insert(key.clone());
-            }
-            for instance in instances.front.iter().chain(&instances.back) {
-                keys.insert(instance.key.clone());
-                for field in &instance.fields {
-                    keys.insert(field.key.clone());
-                    collect_state_key_set(&field.value, keys);
-                }
-            }
-        }
-        ProtocolRuleStateTerm::KSequence(sequence) => {
-            keys.extend(sequence.payload_key.iter().cloned());
-            keys.extend(sequence.dot_k_key.iter().cloned());
-            if let Some(key) = frame_key(&sequence.tail) {
-                keys.insert(key.clone());
-            }
-            for item in &sequence.items {
-                keys.insert(item.key.clone());
-                collect_term_keys(&item.value, keys);
-            }
-        }
-        ProtocolRuleStateTerm::Map(map) => {
-            keys.extend(map.payload_key.iter().cloned());
-            match &map.body {
-                ProtocolRuleMapBody::Empty { .. } => {}
-                ProtocolRuleMapBody::Items { items, remainder } => {
-                    if let Some(key) = frame_key(remainder) {
-                        keys.insert(key.clone());
-                    }
-                    for item in items {
-                        keys.insert(item.key_key.clone());
-                        keys.insert(item.value_key.clone());
-                        collect_term_keys(&item.key, keys);
-                        collect_term_keys(&item.value, keys);
-                    }
-                }
-                ProtocolRuleMapBody::Update {
-                    base_key,
-                    base,
-                    key_key,
-                    key,
-                    value_key,
-                    value,
-                } => {
-                    keys.extend([base_key.clone(), key_key.clone(), value_key.clone()]);
-                    collect_term_keys(base, keys);
-                    collect_term_keys(key, keys);
-                    collect_term_keys(value, keys);
-                }
-            }
-        }
-    }
-}
-
-#[expect(
-    clippy::too_many_lines,
-    reason = "Exhaustive key collection over the closed descriptor term sum."
-)]
-fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) {
-    match term {
-        DescriptorTerm::Variable { key, path_key, .. } => {
-            keys.extend([key.clone(), path_key.clone()]);
-        }
-        DescriptorTerm::Application {
-            reference,
-            path_key,
-            arguments,
-            update,
-            ..
-        } => {
-            keys.extend([reference.key.clone(), path_key.clone()]);
-            for argument in arguments {
-                match argument {
-                    crate::TermArgumentRef::Positional { value } => collect_term_keys(value, keys),
-                    crate::TermArgumentRef::Named { key, value, .. } => {
-                        keys.insert(key.clone());
-                        collect_term_keys(value, keys);
-                    }
-                }
-            }
-            if let Some(base) = update {
-                collect_term_keys(base, keys);
-            }
-        }
-        DescriptorTerm::Literal { key, .. }
-        | DescriptorTerm::Wildcard { key }
-        | DescriptorTerm::BuiltinToken { key, .. } => {
-            keys.insert(key.clone());
-        }
-        DescriptorTerm::Anonymous { key, sort, .. } | DescriptorTerm::Lexeme { key, sort, .. } => {
-            keys.extend([key.clone(), sort.key.clone()]);
-        }
-        DescriptorTerm::OrBool { key, arguments } => {
-            keys.insert(key.clone());
-            for argument in arguments.iter() {
-                collect_term_keys(argument, keys);
-            }
-        }
-        DescriptorTerm::Cell {
-            key,
-            fields,
-            update,
-            ..
-        } => {
-            keys.insert(key.clone());
-            for field in fields {
-                keys.insert(field.key.clone());
-                collect_term_keys(&field.value, keys);
-            }
-            if let Some(base) = update {
-                collect_term_keys(base, keys);
-            }
-        }
-        DescriptorTerm::SortTest {
-            key, sort, operand, ..
-        } => {
-            keys.extend([key.clone(), sort.key.clone()]);
-            collect_term_keys(operand, keys);
-        }
-        DescriptorTerm::As {
-            key,
-            binding_key,
-            pattern,
-            ..
-        } => {
-            keys.extend([key.clone(), binding_key.clone()]);
-            collect_term_keys(pattern, keys);
-        }
-        DescriptorTerm::Or { key, alternatives } => {
-            keys.insert(key.clone());
-            for alternative in alternatives.iter() {
-                collect_term_keys(alternative, keys);
-            }
-        }
-        DescriptorTerm::Matches {
-            key,
-            subject,
-            pattern,
-        } => {
-            keys.insert(key.clone());
-            collect_term_keys(subject, keys);
-            collect_term_keys(pattern, keys);
-        }
-        DescriptorTerm::Rewrite {
-            key,
-            from_key,
-            to_key,
-            from,
-            to,
-        } => {
-            keys.extend([key.clone(), from_key.clone(), to_key.clone()]);
-            collect_term_keys(from, keys);
-            if let Some(to) = to {
-                collect_term_keys(to, keys);
-            }
-        }
-        DescriptorTerm::Let {
-            key,
-            pattern,
-            sort,
-            value,
-            body,
-        } => {
-            keys.insert(key.clone());
-            if let Some(sort) = sort {
-                keys.insert(sort.key.clone());
-            }
-            collect_term_keys(pattern, keys);
-            collect_term_keys(value, keys);
-            collect_term_keys(body, keys);
-        }
-        DescriptorTerm::Closure {
-            key,
-            binder_key,
-            sort,
-            body,
-            ..
-        } => {
-            keys.extend([key.clone(), binder_key.clone(), sort.key.clone()]);
-            collect_term_keys(body, keys);
-        }
     }
 }
 
@@ -2283,18 +2119,9 @@ fn validate_rule_cells<S: RuleValidationStage>(
                 TransportField::SelectedRuleCells,
             ));
         }
-        keys.define(
-            S::rule_cell_key(&cell.field),
-            RuleRole::CellsField.on_side(side),
-        )?;
-        if let Some(wrapper_key) = &cell.wrapper_key {
-            keys.define(wrapper_key, RuleRole::CellsWrapper.on_side(side))?;
-        }
+        // The value's terms are keyed by its validation below.
+        collect_cell_keys::<S, StateTransportError>(cell, side, keys, &mut |_, _| Ok(()))?;
         validate_rule_wrapper(cell.wrapper, &cell.value)?;
-        // The state's terms are keyed by their validation below.
-        collect_state_keys(&cell.value, side, keys, &mut |_, _| {
-            Ok::<_, StateTransportError>(())
-        })?;
         validate_rule_state::<S>(&cell.value, side, bindings, discovered, walk, keys)?;
     }
     if let Some(key) = frame_key(&cells.remainder) {

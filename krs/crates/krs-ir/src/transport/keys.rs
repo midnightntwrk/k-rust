@@ -31,6 +31,13 @@ pub(crate) enum KeyFailure {
         /// The key the field held.
         actual: ProvenanceKey,
     },
+    /// A field that names one particular node held another key.
+    Mismatched {
+        /// The key of the node the field names.
+        expected: ProvenanceKey,
+        /// The key the field held.
+        actual: ProvenanceKey,
+    },
     /// A second wire node defined a key.
     Duplicate(ProvenanceKey),
     /// A wire key that no anchor holds.
@@ -60,13 +67,6 @@ impl WireKeys {
             return Err(KeyFailure::Duplicate(key.clone()));
         }
         Ok(())
-    }
-
-    /// Records `key` as defined by a node whose field has no role contract
-    /// on the wire yet: a cell, frame or term key of an equation's function
-    /// context, which the transport gathers as a set.
-    pub(crate) fn define_untyped(&mut self, key: &ProvenanceKey) -> Result<(), KeyFailure> {
-        self.define(key, key.role())
     }
 
     /// Records `key` as naming a node another wire node defines: a key of
@@ -204,6 +204,10 @@ pub(super) enum TermKeying {
     /// A readable term that repeats nodes another wire term carries, the
     /// bracket alternative's: it refers to their keys.
     ReadableClone,
+    /// A cell value of a `cells!` pattern: a path there names its head's
+    /// node and carries its key, and a fragment keys no cell path; where a
+    /// node stands is its validator's to check.
+    CellValue,
 }
 
 /// Collects the keys of a rule term's nodes on `side`, each checked for the
@@ -261,6 +265,24 @@ impl<E: From<KeyFailure> + From<TermRefusal>> TermKeys<'_, E> {
         }
     }
 
+    /// Records the path of a variable or an application whose head is keyed
+    /// `head`: a node of its own, except in a cell value, where it names the
+    /// head's node.
+    fn path(&mut self, path: &ProvenanceKey, head: &ProvenanceKey) -> Result<(), E> {
+        if self.keying != TermKeying::CellValue {
+            return self.node(path, TermRole::Path.on_side(self.side));
+        }
+        if path == head {
+            Ok(())
+        } else {
+            Err(KeyFailure::Mismatched {
+                expected: head.clone(),
+                actual: path.clone(),
+            }
+            .into())
+        }
+    }
+
     /// Refuses a node that stands where its side does not admit it, where
     /// the walk checks that.
     fn place(&self, misplaced: bool, refusal: TermRefusal) -> Result<(), E> {
@@ -291,7 +313,7 @@ where
         path_key: &ProvenanceKey,
         _: &str,
     ) -> Result<(), E> {
-        self.node(path_key, TermRole::Path.on_side(self.side))?;
+        self.path(path_key, key)?;
         self.node(key, TermRole::Reference.on_side(self.side))
     }
 
@@ -302,8 +324,7 @@ where
         path_key: &ProvenanceKey,
         _: &crate::Arguments<S>,
     ) -> Result<(), E> {
-        // The head and the path are two nodes over one path, each keyed.
-        self.node(path_key, TermRole::Path.on_side(self.side))?;
+        self.path(path_key, S::application_key(reference))?;
         let role = match head_class {
             DescriptorApplicationHeadClass::Applied => TermRole::ApplicationHead,
             DescriptorApplicationHeadClass::BareReference => TermRole::Reference,
@@ -370,8 +391,10 @@ where
     ) -> Result<(), E> {
         self.node(key, TermRole::ApplicationHead.on_side(self.side))?;
         // The fragment's cell path is denoted by its declaration reference,
-        // which carries no key.
-        self.implicit(TermRole::Path.on_side(self.side));
+        // which carries no key; a cell value keys none.
+        if self.keying != TermKeying::CellValue {
+            self.implicit(TermRole::Path.on_side(self.side));
+        }
         Ok(())
     }
 
