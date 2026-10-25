@@ -128,8 +128,8 @@ mod tests {
         ContextAttribute, DesugarAttribute, EnumConstructorDeclaration, EquationAttribute,
         EquationTable, ExistsAttribute, FunctionAttribute, FunctionShorthand, InitializerFunction,
         LayoutDeclaration, LexicalDeclaration, PrecedenceDeclaration, ProductionAttribute,
-        ProductionItem, ProvenanceAnchor, ProvenanceRole, RawKItem, RuleAttribute, RuleBlock,
-        RuleClause, RuleDescriptor, RuleItem, RuleSentence, ShorthandItem, SimplificationAttribute,
+        ProductionItem, ProvenanceAnchor, RawKItem, RuleAttribute, RuleBlock, RuleClause,
+        RuleDescriptor, RuleItem, RuleSentence, ShorthandItem, SimplificationAttribute,
         SortAttribute, SortsDeclaration, SortsEntry, SpecModuleAttribute, SpecModuleItem,
         StateClaimItem, StateContextAliasItem, StateRuleItem, StateTerm, StaticMode,
         StaticProductionAttribute, SubsortAttribute, SubsortDeclaration, SymbolAttribute,
@@ -317,13 +317,9 @@ mod tests {
     }
 
     /// Checks the two descriptors of a production struct, and its pieces.
-    ///
-    /// The grammar descriptor anchors two nodes that no parsed piece holds,
-    /// so their anchors are left out of its check (counterexamples): a
-    /// static marker's name, which is the name of the helper attribute and
-    /// no part of the parsed marker, and a total function's name as its
-    /// declaration, which the struct's name holds only as the
-    /// constructor's declaration.
+    /// The grammar descriptor holds the keys of the two kinds of node it
+    /// anchors that no parsed piece holds: a total function's name as its
+    /// declaration and a static marker's name.
     fn production(production: &ProductionItem<'_>, label: &str, round_trip: &mut RoundTrip) {
         let attribute = production.attribute.production();
         let declaration = production.declaration;
@@ -349,30 +345,23 @@ mod tests {
             }
             Ok(())
         });
-        let marker_names = production
-            .static_markers
-            .iter()
-            .map(|(marker, _)| marker.mode().production_role())
-            .collect::<Vec<_>>();
-        let grammar = production.grammar_provenance().map(|anchors| {
-            anchors
-                .into_iter()
-                .filter(|anchor| {
-                    !marker_names.contains(&anchor.role())
-                        && anchor.role() != ProvenanceRole::FunctionDeclaration
-                })
-                .collect()
-        });
-        round_trip.descriptor(label, grammar, |nodes| {
+        let grammar = production.grammar_descriptor().unwrap();
+        round_trip.descriptor(label, Ok(grammar.anchors().to_vec()), |nodes| {
             attribute.keyed_nodes(nodes)?;
             declaration.keyed_nodes(nodes)?;
             if let Some(symbol) = production.symbol {
                 symbol.keyed_nodes(nodes)?;
             }
-            for (marker, _) in production.static_markers {
+            for ((marker, name), key) in production
+                .static_markers
+                .iter()
+                .zip(grammar.marker_name_keys())
+            {
+                nodes.push_tokens(Some(key), name)?;
                 marker.keyed_nodes(nodes);
             }
             if let ProductionAttribute::Function(function) = production.attribute {
+                nodes.push_tokens(grammar.function_declaration_key(), declaration.name())?;
                 function.keyed_function_nodes(nodes)?;
             }
             for strictness in production.strictness {
@@ -719,6 +708,37 @@ mod tests {
             .map(|attribute| SymbolAttribute::parse_tokens(payload(attribute)).unwrap())
     }
 
+    /// The static markers, each with its helper's name, and the strictness
+    /// helpers among `attributes`, gathered as the collector gathers them.
+    fn production_helpers(
+        attributes: &[Attribute],
+        resolve: &dyn Resolve,
+    ) -> (
+        Vec<(StaticProductionAttribute, syn::Ident)>,
+        Vec<crate::StrictnessAttribute>,
+    ) {
+        let mut static_markers = Vec::new();
+        for (entry, mode) in [
+            (AttributeMacro::Alias, StaticMode::Alias),
+            (AttributeMacro::Desugar, StaticMode::Desugar),
+        ] {
+            for helper in invoking(attributes, resolve, entry) {
+                let marker =
+                    StaticProductionAttribute::parse_marker(mode, payload(helper)).unwrap();
+                let name = helper.path().segments.last().unwrap().ident.clone();
+                static_markers.push((marker, name));
+            }
+        }
+        let mut strictness = Vec::new();
+        for helper in invoking(attributes, resolve, AttributeMacro::Strict) {
+            strictness.push(parse_strict_attribute(payload(helper)).unwrap());
+        }
+        for helper in invoking(attributes, resolve, AttributeMacro::Seqstrict) {
+            strictness.push(parse_seqstrict_attribute(payload(helper)).unwrap());
+        }
+        (static_markers, strictness)
+    }
+
     /// The `#[k::token]` stack among `attributes`, if any.
     fn token_stack(attributes: &[Attribute], resolve: &dyn Resolve) -> Option<TokenStack> {
         let parsed = invoking(attributes, resolve, AttributeMacro::Token)
@@ -927,6 +947,7 @@ mod tests {
             let resolve = self.resolve;
             let label = format!("{label} struct {}", item_struct.ident);
             let constructor_symbol = symbol(&item_struct.attrs, resolve);
+            let (static_markers, strictness) = production_helpers(&item_struct.attrs, resolve);
             for attribute in invoking(&item_struct.attrs, resolve, AttributeMacro::Function) {
                 let mut parsed = FunctionAttribute::parse_tokens(payload(attribute)).unwrap();
                 let declaration = ConstructorDeclaration::from_item(item_struct.clone()).unwrap();
@@ -934,34 +955,15 @@ mod tests {
                 let pieces = ProductionItem {
                     attribute: ProductionAttribute::Function(&parsed),
                     declaration: &declaration,
-                    symbol: None,
-                    static_markers: &[],
-                    strictness: &[],
+                    symbol: constructor_symbol.as_ref(),
+                    static_markers: &static_markers,
+                    strictness: &strictness,
                 };
                 production(&pieces, &label, self.round_trip);
             }
             for attribute in invoking(&item_struct.attrs, resolve, AttributeMacro::Constructor) {
                 let parsed = ConstructorAttribute::parse_tokens(payload(attribute)).unwrap();
                 let declaration = ConstructorDeclaration::from_item(item_struct.clone()).unwrap();
-                let mut static_markers = Vec::new();
-                for (entry, mode) in [
-                    (AttributeMacro::Alias, StaticMode::Alias),
-                    (AttributeMacro::Desugar, StaticMode::Desugar),
-                ] {
-                    for helper in invoking(&item_struct.attrs, resolve, entry) {
-                        let marker =
-                            StaticProductionAttribute::parse_marker(mode, payload(helper)).unwrap();
-                        let name = helper.path().segments.last().unwrap().ident.clone();
-                        static_markers.push((marker, name));
-                    }
-                }
-                let mut strictness = Vec::new();
-                for helper in invoking(&item_struct.attrs, resolve, AttributeMacro::Strict) {
-                    strictness.push(parse_strict_attribute(payload(helper)).unwrap());
-                }
-                for helper in invoking(&item_struct.attrs, resolve, AttributeMacro::Seqstrict) {
-                    strictness.push(parse_seqstrict_attribute(payload(helper)).unwrap());
-                }
                 let pieces = ProductionItem {
                     attribute: ProductionAttribute::Constructor(&parsed),
                     declaration: &declaration,
@@ -1018,12 +1020,15 @@ mod tests {
             let label = format!("{label} fn {}", shorthand.structure().ident);
             let declaration =
                 ConstructorDeclaration::from_item(shorthand.structure().clone()).unwrap();
+            let attributes = &shorthand.structure().attrs;
+            let constructor_symbol = symbol(attributes, self.resolve);
+            let (static_markers, strictness) = production_helpers(attributes, self.resolve);
             let pieces = ProductionItem {
                 attribute: ProductionAttribute::Function(shorthand.attribute()),
                 declaration: &declaration,
-                symbol: None,
-                static_markers: &[],
-                strictness: &[],
+                symbol: constructor_symbol.as_ref(),
+                static_markers: &static_markers,
+                strictness: &strictness,
             };
             production(&pieces, &label, self.round_trip);
             for equation in shorthand.equations() {

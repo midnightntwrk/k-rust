@@ -364,9 +364,9 @@ impl ProductionItem<'_> {
         Ok(keys.into_anchors())
     }
 
-    /// Returns the anchors of the grammar descriptor: the production's full
-    /// view, the struct's, the symbol override, the static marker's name
-    /// and payload, a total function's name as its declaration and the
+    /// Keys the grammar descriptor: the production's full view, the
+    /// struct's, the symbol override, the static marker's name and
+    /// payload, a total function's name as its declaration and the
     /// function's own keys, then the strictness helpers.
     ///
     /// Each static marker and each strictness helper is numbered as a
@@ -379,7 +379,7 @@ impl ProductionItem<'_> {
     ///
     /// Returns an endpoint error only if a name emits no token leaves, and a
     /// repeated-key error for a second static marker or strictness helper.
-    pub fn grammar_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+    pub fn grammar_descriptor(&self) -> Result<ProductionDescriptor, SyntaxError> {
         let mut keys = KeyAllocator::default();
         keys.append(&self.attribute.production().full_provenance()?)?;
         keys.append(&self.declaration.full_provenance()?)?;
@@ -387,22 +387,24 @@ impl ProductionItem<'_> {
             keys.append(&symbol.provenance()?)?;
         }
         let mut markers = Vec::new();
+        let mut marker_name_keys = Vec::new();
         for (marker, name) in self.static_markers {
             let mut marker_keys = KeyAllocator::default();
-            marker_keys.key(
+            marker_name_keys.push(marker_keys.key(
                 marker.mode().production_role(),
                 TokenRange::for_tokens(name)?,
-            )?;
+            )?);
             marker_keys.append(&marker.provenance())?;
             markers.extend(marker_keys.into_anchors());
         }
         keys.append(&markers)?;
+        let mut function_declaration_key = None;
         if let ProductionAttribute::Function(function) = self.attribute {
             if function.is_total() {
-                keys.key(
+                function_declaration_key = Some(keys.key(
                     ProvenanceRole::FunctionDeclaration,
                     TokenRange::for_tokens(self.declaration.name())?,
-                )?;
+                )?);
             }
             keys.append(function.function_anchors())?;
         }
@@ -411,7 +413,44 @@ impl ProductionItem<'_> {
             strictness.extend(helper.provenance()?);
         }
         keys.append(&strictness)?;
-        Ok(keys.into_anchors())
+        Ok(ProductionDescriptor {
+            anchors: keys.into_anchors(),
+            function_declaration_key,
+            marker_name_keys,
+        })
+    }
+}
+
+/// The grammar descriptor of one production struct, with the keys of the
+/// nodes it anchors that no parsed piece holds: a total function's name as
+/// its declaration, and each static marker's name, the name of its helper
+/// attribute.
+#[derive(Clone, Debug)]
+pub struct ProductionDescriptor {
+    anchors: Vec<ProvenanceAnchor>,
+    function_declaration_key: Option<ProvenanceKey>,
+    marker_name_keys: Vec<ProvenanceKey>,
+}
+
+impl ProductionDescriptor {
+    /// The descriptor's anchors, in allocation order.
+    #[must_use]
+    pub fn anchors(&self) -> &[ProvenanceAnchor] {
+        &self.anchors
+    }
+
+    /// The key of a total function's name, which declares the function;
+    /// absent for a constructor and a partial function.
+    #[must_use]
+    pub const fn function_declaration_key(&self) -> Option<&ProvenanceKey> {
+        self.function_declaration_key.as_ref()
+    }
+
+    /// The key of each static marker's name, in
+    /// [`ProductionItem::static_markers`] order.
+    #[must_use]
+    pub fn marker_name_keys(&self) -> &[ProvenanceKey] {
+        &self.marker_name_keys
     }
 }
 

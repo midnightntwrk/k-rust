@@ -384,7 +384,11 @@ fn push_function_invocations(
         strictness: &helpers.strictness,
     };
     let anchors = pieces.constructor_provenance().map_err(source_syntax)?;
-    let grammar_anchors = pieces.grammar_provenance().map_err(source_syntax)?;
+    let grammar_anchors = pieces
+        .grammar_descriptor()
+        .map_err(source_syntax)?
+        .anchors()
+        .to_vec();
     output.push(with_visibility(
         parsed_invocation(
             ProvenanceRole::ConstructorSort,
@@ -431,7 +435,11 @@ fn collect_struct_constructors(
             strictness: &helpers.strictness,
         };
         let anchors = pieces.constructor_provenance().map_err(source_syntax)?;
-        let grammar_anchors = pieces.grammar_provenance().map_err(source_syntax)?;
+        let grammar_anchors = pieces
+            .grammar_descriptor()
+            .map_err(source_syntax)?
+            .anchors()
+            .to_vec();
         output.push(with_declaration_metadata(
             parsed_invocation(
                 ProvenanceRole::ConstructorSort,

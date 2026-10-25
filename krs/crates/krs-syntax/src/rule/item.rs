@@ -722,32 +722,25 @@ impl RuleItem {
             declaration,
             subject,
         };
-        self.clear_view_keys(view);
+        self.clear_keys();
         self.allocate_catalog_keys(keys, view)?;
         self.allocate_term_keys(keys, view)
     }
 
-    /// Forgets every key of the rule, before a sentence's pass keys it.
+    /// Forgets every key of the rule, before a sentence's pass keys it. A
+    /// readable clause's pass leaves the nodes it does not anchor without
+    /// keys: the result term and a placeholder subject.
     pub(crate) fn clear_keys(&mut self) {
-        self.clear_view_keys(ItemView::Rule);
-    }
-
-    /// Forgets the keys a keying in `view` writes.
-    fn clear_view_keys(&mut self, view: ItemView) {
         self.declaration_key = None;
         self.result_type_key = None;
         self.parameter.type_key = None;
-        if view.keys_subject() {
-            self.parameter.pattern_key = None;
-            self.parameter.pattern.clear_keys();
-        }
+        self.parameter.pattern_key = None;
+        self.parameter.pattern.clear_keys();
         for binder in &mut self.binders {
             binder.parameter_key = None;
             binder.sort_key = None;
         }
-        if view == ItemView::Rule
-            && let Some(result) = &mut self.result
-        {
+        if let Some(result) = &mut self.result {
             result.clear_keys();
         }
         if let Some(requires) = &mut self.requires {
@@ -1457,33 +1450,21 @@ fn parse_rule_body_context(item: &ItemFn, wildcards: bool) -> Result<TermExpress
 
 #[cfg(test)]
 impl RuleItem {
-    /// Records the rule's keyed nodes as a sentence of its own: those of
-    /// the full view, of which the catalog view is a prefix.
+    /// Records the rule's keyed nodes: those of the full view, of which the
+    /// catalog view is a prefix, or, in a readable clause, those the clause
+    /// keys (its result term and a placeholder subject hold no keys).
     pub(crate) fn keyed_nodes(
         &self,
         nodes: &mut crate::keyed_nodes::KeyedNodes,
     ) -> Result<(), SyntaxError> {
-        self.keyed_clause_nodes(nodes, true)?;
-        if let Some(result) = &self.result {
-            result.keyed_nodes(nodes)?;
-        }
-        Ok(())
-    }
-
-    /// Records the nodes a readable clause keys on its item: those of
-    /// [`Self::keyed_nodes`] but the result term, and the subject only when
-    /// it is the clause's first computation item (`subject`).
-    pub(crate) fn keyed_clause_nodes(
-        &self,
-        nodes: &mut crate::keyed_nodes::KeyedNodes,
-        subject: bool,
-    ) -> Result<(), SyntaxError> {
         nodes.push_tokens(self.declaration_key.as_ref(), &self.item.sig.ident)?;
         let parameter = &self.parameter;
-        if subject {
-            nodes.push(parameter.pattern_key.as_ref(), parameter.pattern.range()?);
-            parameter.pattern.keyed_nodes(nodes, &self.subject_tree)?;
+        // A readable clause's placeholder subject has no authored tokens and
+        // no keys.
+        if let Some(key) = &parameter.pattern_key {
+            nodes.push(Some(key), parameter.pattern.range()?);
         }
+        parameter.pattern.keyed_nodes(nodes, &self.subject_tree)?;
         nodes.push_tokens(parameter.type_key.as_ref(), parameter.term_sort.ty())?;
         if let Some(result_sort) = &self.result_sort {
             nodes.push_tokens(self.result_type_key.as_ref(), result_sort.ty())?;
@@ -1498,6 +1479,10 @@ impl RuleItem {
         if let Some(requires) = &self.requires {
             requires.term().keyed_nodes(nodes)?;
         }
-        self.existentials.keyed_nodes(nodes)
+        self.existentials.keyed_nodes(nodes)?;
+        if let Some(result) = &self.result {
+            result.keyed_nodes(nodes)?;
+        }
+        Ok(())
     }
 }

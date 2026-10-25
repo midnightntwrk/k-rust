@@ -571,12 +571,17 @@ impl RuleClause {
                 }
             }
         }
-        // The List reading's instance structure is keyed again below; its
-        // children are copies of the head record's terms, which the clause
-        // keys in its primary reading.
+        // The List reading's instance structure is keyed again below. Its
+        // children are the head record's terms read a second way: the clause
+        // keys those terms in its primary reading, so the children hold no
+        // keys.
         if let Some(alternative) = &mut self.bracket_alternative {
             alternative.cell_key = None;
             alternative.result_cell_key = None;
+            alternative.before.clear_keys();
+            if let Some(after) = &mut alternative.after {
+                after.clear_keys();
+            }
         }
         for narrowing in &mut self.narrowings {
             narrowing.sort_key = None;
@@ -591,7 +596,7 @@ impl RuleClause {
     /// of a bracketed cell; the narrowings; then the islands of every term in
     /// expansion order. The clause numbers its literals and islands across
     /// all its cells, not across the item's alone, and it keys its own
-    /// result, so the item's result keeps the item's own keys.
+    /// result, so the item's result term holds no keys.
     fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
         use crate::term::{
             allocate_application_instance_keys, allocate_let_keys, allocate_lexeme_keys,
@@ -1760,17 +1765,14 @@ impl RuleClause {
     /// computation items after the first, its extra cells, the List
     /// reading's instance structure, and its narrowings.
     ///
-    /// The item's result term and a placeholder subject are no nodes of the
-    /// clause: they keep the keys of the item's own keying, and the walk
-    /// leaves them out. It leaves out the List reading's instance children
-    /// too: they are copies of the head record's terms that keep their own
-    /// keys, and the clause keys the head record's terms themselves.
+    /// The item's result term, a placeholder subject and the List
+    /// reading's instance children are no nodes of the clause, and hold no
+    /// keys: the clause keys its own result and the head record's terms.
     pub(crate) fn keyed_nodes(
         &self,
         nodes: &mut crate::keyed_nodes::KeyedNodes,
     ) -> Result<(), SyntaxError> {
-        let subject = self.head.as_ref().is_some_and(|head| head.subject);
-        self.rule.keyed_clause_nodes(nodes, subject)?;
+        self.rule.keyed_nodes(nodes)?;
         nodes.push_tokens(self.keys.label.as_ref(), &self.rule.item.sig.ident)?;
         nodes.push(self.keys.pattern.as_ref(), self.layout.pattern);
         let result = self
@@ -1797,14 +1799,12 @@ impl RuleClause {
         }
         if let Some(alternative) = &self.bracket_alternative {
             nodes.push_tokens(alternative.cell_key.as_ref(), &alternative.cell)?;
-            if let crate::StateTerm::Instances(list) = &alternative.before {
-                list.keyed_structure(nodes)?;
-            }
+            alternative.before.keyed_nodes(nodes)?;
             if let Some(result_cell) = &alternative.result_cell {
                 nodes.push_tokens(alternative.result_cell_key.as_ref(), result_cell)?;
             }
-            if let Some(crate::StateTerm::Instances(list)) = &alternative.after {
-                list.keyed_structure(nodes)?;
+            if let Some(after) = &alternative.after {
+                after.keyed_nodes(nodes)?;
             }
         }
         for narrowing in &self.narrowings {

@@ -2396,22 +2396,6 @@ mod keyed {
             }
             Ok(())
         }
-
-        /// Records the keys of the collection's structure: each instance
-        /// record and child name, and the rest, without the children's
-        /// states.
-        pub(crate) fn keyed_structure(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
-            for item in self.instances() {
-                nodes.push(item.key.as_ref(), item.range);
-                for field in &item.fields {
-                    nodes.push_tokens(field.name_key.as_ref(), &field.name)?;
-                }
-            }
-            if let Some(range) = self.rest.range() {
-                nodes.push(self.rest_key.as_ref(), range);
-            }
-            Ok(())
-        }
     }
 
     impl CellsExpression {

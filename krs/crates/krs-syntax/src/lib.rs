@@ -53,7 +53,9 @@ pub use configuration::{
     SortArgument, option_content,
 };
 pub use constant::ConstantItem;
-pub use descriptor::{ProductionAttribute, ProductionItem, RuleDescriptor, RuleSentence};
+pub use descriptor::{
+    ProductionAttribute, ProductionDescriptor, ProductionItem, RuleDescriptor, RuleSentence,
+};
 pub use enum_constructor::{
     EnumConstructorDeclaration, EnumConstructorVariant, EnumPrecedenceDescriptor,
     EnumPrecedenceGroup,

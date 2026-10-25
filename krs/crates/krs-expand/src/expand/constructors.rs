@@ -404,8 +404,8 @@ fn constructor_like(
             "`avoid = false` is not metadata; omit the argument instead",
         ));
     }
-    let grammar_anchors = pieces.grammar_provenance()?;
-    let grammar_provenance = host_provenance(env, &facade, fallback, &grammar_anchors);
+    let grammar = pieces.grammar_descriptor()?;
+    let grammar_provenance = host_provenance(env, &facade, fallback, grammar.anchors());
     let nonce = expansion_nonce(env, "constructor", declaration.name(), fallback);
     let factory = format_ident!(
         "__krs_constructor_descriptor_{nonce:016x}",
