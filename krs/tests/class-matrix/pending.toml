@@ -1550,26 +1550,27 @@ deviation = "krs::analysis::collection-entry @ entry"
 step = "S5"
 
 # S0-16: an author mistake reported unlocated, at the wrong entry, or under an internal code (C5)
+# The four left: S5 reads `job: [x, ..]` results by declared kind; S2 gives `map![]` its own key
 
 ["claim/result/job/[x, ..]"]
 finding = "S0-16"
 deviation = "krs::analysis::invalid-list-notation @ item"
-step = "S1"
+step = "S5"
 
 ["init/pc/k::map![]"]
 finding = "S0-16"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S1"
+step = "S2"
 
 ["init/stack/k::map![]"]
 finding = "S0-16"
 deviation = "krs::analysis::invalid-term @ entry"
-step = "S1"
+step = "S2"
 
 ["readable/result/job/[x, ..]"]
 finding = "S0-16"
 deviation = "krs::analysis::invalid-list-notation @ item"
-step = "S1"
+step = "S5"
 
 # S0-17: a readable or `for Stmt` result accepts `k::matches!` and `let` blocks that the `cells!` rule `krs expand` prints refuses
 
