@@ -117,16 +117,16 @@ The arity universe is the default of `gen` and `relate` since 2026-10-25 (K6): `
 Every generated theorem states the same thing on both universes, so no statement changed with the default.
 A library or demo whose arity form would lose a count stays per-sort, with `encoding = "per-sort"` in its gate registry entry (`tests/areas/AREA.py`; `gate.sh list` prints it); these are, with the reason of each:
 
-- the claims (`kimp-claims` on `kimp-ps`, `kimpinv-claims` on `kimpinv-ps`): their build exceeds 20 GB on the arity universe, while the whole heavy tier peaks at 8.5 GB per-sort (where the memory goes is not localized yet);
-- `ImpRel` and `ImpRelClaims` (on `kimp-ps` and `krsimp-ps`): `ImpRel`'s bisimulation on the arity universe grows past 14 GB in its build, and `ImpRelClaims` needs `ImpRel` and the per-sort claims;
+- `ImpRel` and `ImpRelClaims` (on `kimp-ps` and `krsimp-ps`): `ImpRel`'s bisimulation on the arity universe grows past 14 GB in its build, and `ImpRelClaims` needs `ImpRel` and so the per-sort copy of kimp's claims, `kimp-claims-ps` (the same generated modules over `kimp-ps`; `ImpUnrollClaims` uses it too);
 - `ImpMut` (on `kimp-ps` and `kmut-ps`) and `ImpUnroll` (on `kimp-ps` and its library `kunroll`, generated per-sort): their hand-written modules (`Diverge.lean`, `Relation.lean`) name per-sort constructors and their `injEq` lemmas;
 - `ImpTypes` (on `kimp-ps` and `imptypes-ps`): `soundness` writes `Typing.lean`'s proofs for the per-sort encoding (`k2l_ty_inv` does not reduce the arity translation `tr` through a constructor: on the arity universe 29 of its declarations report an error, 2026-10-25);
 - `SimpleEnv` (on `simple-ps`): its hand-written modules match on per-sort constructors (`KSimple.Term.nil`, `inj_FstackCell`);
 - `ImpNI` and its library `impsec`: hand-written modules over the per-sort names of `KImp` and `KImpSec`;
 - `RaceConf` and its library `race`, and SIMPLE's confluence: `confluence` writes per-sort rule text (SIMPLE's confluence is a report from the KORE and builds no library, so the switch does not reach it);
-- `walk` (invariants area): the proof of a map walk's lemma (`Invariant.f_walk`) leaves open, on the arity universe, the catch-all arm of a match on a one-constructor cell sort, the fallback arm below, which the per-sort encoding does not have;
 - `SimpleRel` (`pipelines/simple-rel.sh`, outside the gate; `simple`, `simplev` and the relation generated per-sort there): its bisimulation builds in the per-sort form (§9);
 - six snapshot tests of the generator (params, measure, peano, counter, freekey, counter_det2), which keep the per-sort output under test (`--per-sort-terms` in `tests/snapshots.rs`).
+
+Since 2026-10-26 the claims are no longer a holdout: kimp's claims and kimpinv's run on the arity universe, `kimp-claims` on `kimp` and `kimpinv-claims` on `kimpinv`, with every `kc_auto` line equal to the per-sort run's. Their 20 GB on the arity universe had two causes in the claim tactic, both fixed. First, the variable and cell splits accepted only types without indices, and every sort is an indexed family there, so a symbolic expression was never split into its value forms and no rule applied: on the family the splits take `familyCases`' cases under the same conditions. Second, a `match` on the family, such as a collection's `toList`, is not reduced while its scrutinee contains a metavariable, so the map equations of a claim instance were never solved and a loop's circularity never applied: the tactic unrolled the loop until its fuel was spent. The structural unifier now reduces with the metavariables read as free variables, `whnfDOpen`, which every instantiation of them preserves.
 
 Two choices in the family follow from its match compilation (measured 2026-10-23 on KEVM, load 2 to 10):
 

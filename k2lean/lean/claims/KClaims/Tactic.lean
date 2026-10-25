@@ -6,6 +6,7 @@ import KClaims.SimpAttr
 import KPrelude.Hooks
 import KPrelude.Coll
 import KPrelude.InvColl
+import KPrelude.FamilyCases
 
 /-!
 # Symbolic execution tactics for generated claims
@@ -222,6 +223,27 @@ partial def peel (g : MVarId) (ws : Array Expr) (gs : Array MVarId) :
   | (``True, _) => g.assign (mkConst ``True.intro); return (ws, gs)
   | _ => return (ws, gs.push g)
 
+/-- `whnfD e`, with `e`'s unassigned metavariables read as free variables of the same types while
+it reduces: a `match` on the arity-indexed family (a collection's `toList`, design.md §2.1) is not
+reduced while its scrutinee contains a metavariable, although every step that holds of a free
+variable holds of any term in its place. The result has the metavariables back; when one's type
+has a metavariable itself, plain `whnfD`. -/
+def whnfDOpen (e : Expr) : MetaM Expr := do
+  let e ← instantiateMVars e
+  unless e.hasExprMVar do return ← whnfD e
+  let ms ← getMVars e
+  let mut decls : Array (Name × Expr) := #[]
+  for m in ms do
+    let ty ← instantiateMVars (← m.getType)
+    if ty.hasExprMVar then return ← whnfD e
+    decls := decls.push (`kcOpen, ty)
+  withLocalDeclsDND decls fun xs => do
+    let e' := e.replace fun x => match x with
+      | .mvar m => (ms.idxOf? m).map (xs[·]!)
+      | _ => none
+    let w ← whnfD e'
+    return w.replaceFVars xs (ms.map mkMVar)
+
 /-- Assign metavariables by matching constructor structure; leaves are left for the closing
 tactic. `false` when the two sides cannot be made equal by arithmetic at the leaves: different
 constructors, or a non-leaf position where a side is neither a constructor application nor a
@@ -233,8 +255,8 @@ partial def structUnify (a b : Expr) : MetaM Bool := do
     return (← isDefEq a b)
   if ← isDefEq a b then return true
   if ← isLeafType (← inferType a) then return true
-  let a' ← whnfD a
-  let b' ← whnfD b
+  let a' ← whnfDOpen a
+  let b' ← whnfDOpen b
   match a'.getAppFn, b'.getAppFn with
   | .const na _, .const nb _ =>
     match (← getEnv).find? na, (← getEnv).find? nb with
@@ -386,12 +408,30 @@ partial def openAll (g : MVarId) (tried : Array FVarId := #[]) (fuel : Nat := 20
   | none => return [g]
   | some (gs, tried) => return (← gs.mapM fun g => openAll g tried (fuel - 1)).flatten
 
-/-- Split single-constructor variables (cells) so that matchers on them reduce. -/
+/-- Whether `ty` is a sort of the arity-indexed term family (`NS.Term t`, design.md §2.1), where
+a sort's values are not the family's constructors: `familyCases` enumerates them. -/
+def isFamilyType (ty : Expr) : MetaM Bool := do
+  return (← whnfR ty).getAppFn.constName?.any (KPrelude.isFamilyName (← getEnv))
+
+/-- Split single-constructor variables (cells) so that matchers on them reduce. On the
+arity-indexed family a cell sort has one value form too, `familyCases` finds it. -/
 def splitCells (g : MVarId) : MetaM MVarId := g.withContext do
   let mut g := g
   for ldecl in (← getLCtx) do
     if ldecl.isImplementationDetail then continue
     let ty ← whnfR ldecl.type
+    if ← isFamilyType ty then
+      let s ← saveState
+      try
+        match ← KPrelude.familyCases g ldecl.fvarId with
+        -- not a collection sort, whose one form is its list model (`coll_… l`), as in the one type
+        -- per sort encoding, where a collection has two constructors
+        | #[(sg, args)] =>
+          if ← sg.withContext (args.anyM fun a => return (← whnfR (← inferType a)).isAppOf ``List)
+          then s.restore else g := sg
+        | _ => s.restore
+      catch _ => s.restore
+      continue
     let .const n _ := ty.getAppFn | continue
     let some (.inductInfo ii) := (← getEnv).find? n | continue
     if ii.ctors.length != 1 || ii.numIndices != 0 || ii.isRec && false then continue
@@ -553,21 +593,41 @@ partial def fvarsInOrder (e : Expr) (acc : Array FVarId := #[]) : Array FVarId :
   | .mdata _ b => fvarsInOrder b acc
   | _ => acc
 
-/-- Split the first variable of the configuration whose type is `splittable`; each case is opened
-(a hypothesis about the variable that becomes false closes the case). -/
+/-- The cases of a variable `x : Term t` of the arity-indexed family when they are few, as
+`splittable` says of an inductive type: the sort `t` has 2 to 8 value forms (`familyCases`: its
+constructors and the leaves it injects), none with an argument of sort `t`. -/
+def familySplit (g : MVarId) (x : FVarId) : MetaM (Option (Array MVarId)) := do
+  let s ← saveState
+  try
+    let ty ← g.withContext do whnfR (← x.getType)
+    let cs ← KPrelude.familyCases g x
+    if cs.size < 2 || cs.size > 8 then s.restore; return none
+    for (sg, args) in cs do
+      let self ← sg.withContext do
+        args.anyM fun a => do isDefEq (← whnfR (← inferType a)) ty
+      if self then s.restore; return none
+    return some (cs.map (·.1))
+  catch _ => s.restore; return none
+
+/-- Split the first variable of the configuration whose type is `splittable` (on the arity-indexed
+family, `familySplit`); each case is opened (a hypothesis about the variable that becomes false
+closes the case). -/
 def trySplitVar (g : MVarId) : TacticM (Option (List MVarId)) := g.withContext do
   let t ← instantiateMVars (← g.getType)
   let some (c, _) := configOf t | return none
   for f in fvarsInOrder c do
     let some d := (← getLCtx).find? f | continue
     if d.isLet then continue
-    unless ← splittable d.type do continue
+    let fam ← isFamilyType d.type
+    unless fam || (← splittable d.type) do continue
     let s ← saveState
     try
-      let subs ← g.cases f
+      let some subs ← if fam then familySplit g f
+          else pure (some ((← g.cases f).map (·.mvarId)))
+        | s.restore; continue
       let mut out := []
       for sg in subs do
-        let gs ← openAll sg.mvarId
+        let gs ← openAll sg
         out := out ++ (← gs.mapM fun g => (normGoal g : MetaM MVarId))
       return some out
     catch _ => s.restore

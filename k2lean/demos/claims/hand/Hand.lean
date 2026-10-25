@@ -53,12 +53,12 @@ theorem bmc_loop_symbolic_false : ¬ ImpSimpleSpec.Claim.«bmc-loop-symbolic» :
 
 theorem div0_seven_false : ¬ ImpDiv0Spec.Claim.«div0-seven» := by
   intro h
-  have h0 := h (.«<env>» .nil) .dotk 0
+  have h0 := h (.«<env>» KPrelude.MapHook.unit) .dotk 0
   kc_refute h0
 
 theorem div0_any_int_false : ¬ ImpDiv0Spec.Claim.«div0-any-int» := by
   intro h
-  have h0 := h (.«<env>» .nil) .dotk 0
+  have h0 := h (.«<env>» KPrelude.MapHook.unit) .dotk 0
   kc_refute h0
 
 /-- The expression `1 + 2`, as a store value. -/
@@ -79,7 +79,7 @@ theorem expr_div_false : ¬ ExprDiv.Obl.«AExp._/_» := by
   intro h
   have lit : ∀ i : Int, ∀ c Q, ExprDiv.Inst .AExp (SortExpr.inj_Int i) c Q → Reach Step Q c :=
     fun i => ExprDiv.Inst.of_forall fun _ _ _ => Reach.here ⟨i, rfl⟩
-  have h0 := h _ _ (.«AExp.val» 1) (.«AExp.val» 0) (lit 1) (lit 0) .dotk (.«<env>» .nil)
+  have h0 := h _ _ (.«AExp.val» 1) (.«AExp.val» 0) (lit 1) (lit 0) .dotk (.«<env>» KPrelude.MapHook.unit)
     (.«<generatedCounter>» 0)
   have h1 := (AF_iff_EF_of_det (R := Step) (fun _ _ _ h₁ h₂ => Step.deterministic h₁ h₂)).2 h0.toEF
   kc_refute h1
