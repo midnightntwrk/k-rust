@@ -3306,7 +3306,7 @@ impl Ctx {
                     }
                 }
             }
-                let (choice, rels) = found?;
+            let (choice, rels) = found?;
             for f in 0..n {
                 comps[f].push(choice[f].clone());
             }
