@@ -711,9 +711,10 @@ pub enum StateTransportError {
     CellFieldMismatch,
     /// Initializer and declaration field trees disagreed.
     InitializerDeclarationMismatch {
-        /// The initializer node that disagrees, when one does: a cell whose field is not the
-        /// declaration's, or the initializer of another owner.
-        at: Option<ProvenanceKey>,
+        /// The initializer node that disagrees: a cell whose field is not the declaration's or
+        /// repeats one written before it, the struct literal when it leaves a declared field
+        /// out, or the initializer of another owner.
+        at: ProvenanceKey,
     },
     /// More than one configuration variable was marked main.
     MultipleMainVariables,
@@ -752,8 +753,8 @@ impl StateTransportError {
     #[must_use]
     pub const fn at(&self) -> Option<&ProvenanceKey> {
         match self {
-            Self::InitializerDeclarationMismatch { at } => at.as_ref(),
-            Self::UnexpectedProvenance { actual: key, .. }
+            Self::InitializerDeclarationMismatch { at: key }
+            | Self::UnexpectedProvenance { actual: key, .. }
             | Self::MismatchedProvenance { actual: key, .. }
             | Self::DuplicateProvenance(key)
             | Self::ExtraProvenance(key) => Some(key),
@@ -1470,7 +1471,7 @@ fn validate_initializer<S: ConfigurationValidationStage>(
 ) -> Result<(), StateTransportError> {
     if !S::owners_match(&initializer.owner, owner) {
         return Err(StateTransportError::InitializerDeclarationMismatch {
-            at: Some(initializer.owner_key.clone()),
+            at: initializer.owner_key.clone(),
         });
     }
     keys.define(&initializer.key, ProvenanceRole::InitializerDeclaration)?;
@@ -1484,6 +1485,7 @@ fn validate_initializer<S: ConfigurationValidationStage>(
         &initializer.cells,
         &declaration.fields,
         owner,
+        &initializer.body_key,
         &bindings,
         keys,
     )
@@ -1547,6 +1549,7 @@ fn validate_initializer_cells<S: ConfigurationValidationStage>(
     cells: &[StageInitializerCell<S>],
     declarations: &[StageCellField<S>],
     owner: &S::InitializerOwner,
+    body_key: &ProvenanceKey,
     bindings: &BTreeSet<String>,
     keys: &mut WireKeys,
 ) -> Result<(), StateTransportError> {
@@ -1555,16 +1558,29 @@ fn validate_initializer_cells<S: ConfigurationValidationStage>(
             TransportField::InitializerCellFields,
         ));
     }
-    if cells.len() != declarations.len() {
-        return Err(StateTransportError::InitializerDeclarationMismatch { at: None });
-    }
-    for (cell, declaration) in cells.iter().zip(declarations) {
-        if !S::initializer_field_matches(&cell.field, declaration, owner) {
+    // The body is a struct literal, whose field order has no meaning: each cell is matched to
+    // its declared field by identity, and every declared field is written exactly once.
+    let mut written = vec![false; declarations.len()];
+    for cell in cells {
+        let Some(index) = declarations
+            .iter()
+            .position(|declaration| S::initializer_field_matches(&cell.field, declaration, owner))
+        else {
             return Err(StateTransportError::InitializerDeclarationMismatch {
-                at: Some(cell.key.clone()),
+                at: cell.key.clone(),
+            });
+        };
+        if std::mem::replace(&mut written[index], true) {
+            return Err(StateTransportError::InitializerDeclarationMismatch {
+                at: cell.key.clone(),
             });
         }
-        validate_initializer_cell::<S>(cell, Some(declaration), owner, bindings, keys)?;
+        validate_initializer_cell::<S>(cell, Some(&declarations[index]), owner, bindings, keys)?;
+    }
+    if written.contains(&false) {
+        return Err(StateTransportError::InitializerDeclarationMismatch {
+            at: body_key.clone(),
+        });
     }
     Ok(())
 }
@@ -1619,7 +1635,7 @@ fn validate_initializer_cell<S: ConfigurationValidationStage>(
             validate_nested_children::<S>(children, &S::nested_owner(nested), bindings, keys)
         }
         _ => Err(StateTransportError::InitializerDeclarationMismatch {
-            at: Some(cell.key.clone()),
+            at: cell.key.clone(),
         }),
     }
 }
@@ -1635,7 +1651,7 @@ fn validate_nested_children<S: ConfigurationValidationStage>(
         if !S::cell_owned_by(&child.field, owner) || !fields.insert(S::field_identity(&child.field))
         {
             return Err(StateTransportError::InitializerDeclarationMismatch {
-                at: Some(child.key.clone()),
+                at: child.key.clone(),
             });
         }
         validate_initializer_cell::<S>(child, None, owner, bindings, keys)?;

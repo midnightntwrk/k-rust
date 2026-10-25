@@ -258,12 +258,30 @@ fn fixed_configuration_rejects_wrong_keys_duplicates_and_tree_drift() {
         ))
     );
 
+    // A struct literal's field order has no meaning: the cells match their declared fields
+    // by identity, in any order.
     let mut reordered = configuration.clone();
     reordered.initializer.cells.swap(0, 1);
-    assert!(matches!(
-        reordered.validate(&owner),
-        Err(StateTransportError::InitializerDeclarationMismatch { .. })
-    ));
+    assert_eq!(reordered.validate(&owner), Ok(()));
+    // A declared field left out is located at the struct literal, and a field written twice at
+    // its second cell.
+    let mut missing = configuration.clone();
+    missing.initializer.cells.pop();
+    assert_eq!(
+        missing.validate(&owner),
+        Err(StateTransportError::InitializerDeclarationMismatch {
+            at: key(ProvenanceRole::InitializerBody, 0)
+        })
+    );
+    let mut repeated_field = configuration.clone();
+    repeated_field.initializer.cells[1].field.cell =
+        repeated_field.initializer.cells[0].field.cell.clone();
+    assert_eq!(
+        repeated_field.validate(&owner),
+        Err(StateTransportError::InitializerDeclarationMismatch {
+            at: key(ProvenanceRole::InitializerCell, 1)
+        })
+    );
 
     let expected = configuration.expected_provenance_keys(&owner).unwrap();
     let mut actual = expected.clone();
