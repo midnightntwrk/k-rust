@@ -59,12 +59,10 @@ gen_invariants() {
     range) GEN_ARGS=(--kore "$FIXTURES/range/definition.kore" --runtime "$FIXTURES/range/runtime.json"
             --out "$o" --name KRange --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
             --invariant storeNat@store) ;;
-    # walks over a cell map and over maps by free-key patterns (tests/fixtures/walk); per-sort
-    # (`--per-sort-terms`, a holdout): the walk lemmas' proofs (Invariant.f_walk) close the
-    # catch-all arm of a match on a one-constructor cell sort only where that sort is its own type
+    # walks over a cell map and over maps by free-key patterns (tests/fixtures/walk)
     walk) GEN_ARGS=(--kore "$FIXTURES/walk/definition.kore" --runtime "$FIXTURES/walk/runtime.json"
             --out "$o" --name KWalk --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt"
-            --invariant envsOk --per-sort-terms) ;;
+            --invariant envsOk) ;;
     # SIMPLE with the K function `holdsOk` (demos/k/simple-inv): a cell predicate of `<holds>`, which
     # is inside the `<thread>` cell map, so it is lifted to "every thread"
     simpleinv) GEN_ARGS=(--kore "$(kore_dir simple-inv)/definition.kore" --runtime "$(kore_dir simple-inv)/runtime.json"

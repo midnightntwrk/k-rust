@@ -790,6 +790,22 @@ struct Walk {
     unit_eqn: String,
     /// the projections the test reads
     reads: Vec<String>,
+    /// the `k2l_cases` patterns of the key and the value, when they are trees of cells: casing
+    /// the binding along them reduces the instance's match on it (on the arity-indexed family,
+    /// whose match has a fallback arm for the family's other constructors)
+    key_pat: Option<String>,
+    val_pat: Option<String>,
+}
+
+/// The `k2l_cases … with` pattern of a tree of cells: `_` at a variable, `⟨…⟩` at a cell.
+fn cases_pat(p: &P) -> String {
+    match p {
+        P::App(_, _, a) => format!(
+            "⟨{}⟩",
+            a.iter().map(cases_pat).collect::<Vec<_>>().join(", ")
+        ),
+        _ => "_".into(),
+    }
 }
 
 impl Walk {
@@ -1105,6 +1121,8 @@ fn walk_of(
         pos,
         wrap,
         cell,
+        key_pat: matches!(kp, P::App(..)).then(|| cases_pat(kp)),
+        val_pat: matches!(vp, P::App(..)).then(|| cases_pat(vp)),
         map,
         key,
         val,
@@ -2630,6 +2648,23 @@ theorem Invariant.{b}_iff : ∀ (k : SortK){}, {} = some true ↔ Invariant.kAll
         unfold.push("KPrelude.BoolHook.and".into());
         let unfold = unfold.join(", ");
         let insts = format!("{l}.instances, {l}.inst1, {l}.inst2");
+        // the binding cased along its cell patterns first, when it has some
+        let cases: Vec<String> = [("k", &w.key_pat), ("v", &w.val_pat)]
+            .iter()
+            .filter_map(|(x, p)| p.as_ref().map(|p| format!("k2l_cases {x} with {p}")))
+            .collect();
+        let (split_hb, split_goal) = if cases.is_empty() {
+            (
+                "repeat' (split at hb)".to_string(),
+                "repeat' split".to_string(),
+            )
+        } else {
+            let c = cases.join(" <;> ");
+            (
+                format!("{c}\n      all_goals repeat' (split at hb)"),
+                format!("{c}\n      all_goals repeat' split"),
+            )
+        };
         d.push_str(&format!(
             "set_option linter.unusedVariables false in\n\
 /-- The map walk `{l}`: its test of one binding `k |-> v`. -/\n\
@@ -2646,7 +2681,7 @@ split at h\n    \
 · rename_i hw\n      \
 obtain ⟨k, v, hk, hb⟩ := KPrelude.MapHook.mem_of_head?_chooseAll (Option.join_eq_some_iff.1 h)\n      \
 refine ⟨(KPrelude.MapHook.wfb_iff _).1 hw, k, v, hk, ?_⟩\n      \
-repeat' (split at hb)\n      \
+{split_hb}\n      \
 all_goals simp_all [{unfold}]\n    \
 · simp at h\n  \
 · intro m hu hw h\n    \
@@ -2657,7 +2692,7 @@ rw [KPrelude.MapHook.head?_chooseAll_of_forall (b := some true) (KPrelude.MapHoo
 · rfl\n    \
 · intro k v hk\n      \
 obtain ⟨hψ, hr⟩ := h k v hk\n      \
-repeat' split\n      \
+{split_goal}\n      \
 all_goals simp_all [{unfold}]\n\n",
             w.key,
             w.val,
