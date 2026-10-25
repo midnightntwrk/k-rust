@@ -635,7 +635,7 @@ fn an_initializer_remainder_is_refused_at_its_spelling() {
         diagnostics,
         [ExpandDiagnostic {
             code: krs_diagnostic::codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
-            message: "unsupported declarative initializer body: an initializer's `k!` lists its items and takes no remainder; write a configuration variable of an item sort as an item, `k::k![.., pgm]`".to_owned(),
+            message: "unsupported declarative initializer body: an initializer's `k!` lists its items and takes no remainder; write a configuration variable of an item sort as an item, as in `k::k![Cmd::Go(), pgm]`".to_owned(),
             class: MappingClass::ExactAuthored,
             // The diagnostic stands at the remainder's first token.
             authored: Some(br(start, start + 1)),

@@ -523,7 +523,7 @@ impl<'a> InitializerBuilder<'a> {
             return Err(ExpandError::at_range(
                 codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
                 range,
-                "unsupported declarative initializer body: an initializer's `k!` lists its items and takes no remainder; write a configuration variable of an item sort as an item, `k::k![.., pgm]`",
+                "unsupported declarative initializer body: an initializer's `k!` lists its items and takes no remainder; write a configuration variable of an item sort as an item, as in `k::k![Cmd::Go(), pgm]`",
             ));
         }
         Ok(ProtocolKSequence {
