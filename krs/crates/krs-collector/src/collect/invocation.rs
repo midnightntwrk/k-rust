@@ -10,10 +10,10 @@ use krs_syntax::surface::{
 };
 use krs_syntax::{
     ConfigurationDeclaration, ConstructorDeclaration, EnumConstructorDeclaration,
-    InitializerFunction, ProvenanceAnchor, ProvenanceRole, RuleDescriptor, RuleItem, RuleSentence,
-    SortDeclaration, SortsEntry, StateClaimItem, StateContextAliasItem, StateRuleItem,
-    SubsortDeclaration, TokenDeclaration, TokenRange, parse_seqstrict_attribute,
-    parse_strict_attribute,
+    InitializerFunction, ProductionAttribute, ProductionItem, ProvenanceAnchor, ProvenanceRole,
+    RuleDescriptor, RuleItem, RuleSentence, SortDeclaration, SortsEntry, StateClaimItem,
+    StateContextAliasItem, StateRuleItem, SubsortDeclaration, TokenDeclaration,
+    parse_seqstrict_attribute, parse_strict_attribute,
 };
 use proc_macro2::TokenStream;
 use syn::ext::IdentExt;
@@ -365,24 +365,15 @@ fn push_function_invocations(
         .production()
         .validate_declaration(declaration)
         .map_err(source_syntax)?;
-    let mut anchors = parsed.production().provenance().map_err(source_syntax)?;
-    anchors.extend(declaration.provenance().map_err(source_syntax)?);
-    anchors.extend(
-        parsed
-            .production()
-            .sort_argument_provenance()
-            .map_err(source_syntax)?,
-    );
-    anchors.extend(declaration.argument_provenance().map_err(source_syntax)?);
-    let mut grammar_anchors = parsed.provenance().map_err(source_syntax)?;
-    grammar_anchors.extend(declaration.full_provenance().map_err(source_syntax)?);
-    if parsed.is_total() {
-        grammar_anchors.push(ProvenanceAnchor::new(
-            ProvenanceRole::FunctionDeclaration,
-            0,
-            TokenRange::for_tokens(&item_struct.ident).map_err(source_syntax)?,
-        ));
-    }
+    let pieces = ProductionItem {
+        attribute: ProductionAttribute::Function(parsed),
+        declaration,
+        symbol: None,
+        static_markers: &[],
+        strictness: &[],
+    };
+    let anchors = pieces.constructor_provenance().map_err(source_syntax)?;
+    let grammar_anchors = pieces.grammar_provenance().map_err(source_syntax)?;
     output.push(with_visibility(
         parsed_invocation(
             ProvenanceRole::ConstructorSort,
@@ -420,17 +411,7 @@ fn collect_struct_constructors(
             .map_err(source_syntax)?;
         let declaration =
             ConstructorDeclaration::from_item(item_struct.clone()).map_err(source_syntax)?;
-        let mut anchors = parsed.provenance().map_err(source_syntax)?;
-        anchors.extend(declaration.provenance().map_err(source_syntax)?);
-        anchors.extend(parsed.sort_argument_provenance().map_err(source_syntax)?);
-        anchors.extend(declaration.argument_provenance().map_err(source_syntax)?);
-        let mut grammar_anchors = parsed.full_provenance().map_err(source_syntax)?;
-        grammar_anchors.extend(declaration.full_provenance().map_err(source_syntax)?);
-        if let Some(symbol) = &constructor_symbol {
-            let symbol_anchors = symbol.provenance().map_err(source_syntax)?;
-            anchors.extend(symbol_anchors.clone());
-            grammar_anchors.extend(symbol_anchors);
-        }
+        let mut static_markers = Vec::new();
         for (helper, mode) in item_struct
             .attrs
             .iter()
@@ -441,47 +422,45 @@ fn collect_struct_constructors(
                 attribute_tokens(helper)?,
             )
             .map_err(source_syntax)?;
-            let name = helper
+            let name = &helper
                 .path()
                 .segments
                 .last()
-                .expect("named attributes have a final path segment");
-            grammar_anchors.push(ProvenanceAnchor::new(
-                mode.production_role(),
-                0,
-                TokenRange::for_tokens(&name.ident).map_err(source_syntax)?,
-            ));
-            grammar_anchors.extend(marker.provenance());
+                .expect("named attributes have a final path segment")
+                .ident;
+            static_markers.push((marker, name.clone()));
         }
+        let mut strictness = Vec::new();
         for helper in item_struct
             .attrs
             .iter()
             .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Strict))
         {
-            grammar_anchors.extend(
-                parse_strict_attribute(attribute_tokens(helper)?)
-                    .map_err(source_syntax)?
-                    .provenance()
-                    .map_err(source_syntax)?,
-            );
+            strictness
+                .push(parse_strict_attribute(attribute_tokens(helper)?).map_err(source_syntax)?);
         }
         for helper in item_struct
             .attrs
             .iter()
             .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Seqstrict))
         {
-            grammar_anchors.extend(
-                parse_seqstrict_attribute(attribute_tokens(helper)?)
-                    .map_err(source_syntax)?
-                    .provenance()
-                    .map_err(source_syntax)?,
-            );
+            strictness
+                .push(parse_seqstrict_attribute(attribute_tokens(helper)?).map_err(source_syntax)?);
         }
+        let pieces = ProductionItem {
+            attribute: ProductionAttribute::Constructor(&parsed),
+            declaration: &declaration,
+            symbol: constructor_symbol,
+            static_markers: &static_markers,
+            strictness: &strictness,
+        };
+        let anchors = pieces.constructor_provenance().map_err(source_syntax)?;
+        let grammar_anchors = pieces.grammar_provenance().map_err(source_syntax)?;
         output.push(with_declaration_metadata(
             parsed_invocation(
                 ProvenanceRole::ConstructorSort,
                 item_struct.ident.to_string(),
-                anchors.clone(),
+                anchors,
                 ParsedInvocationPayload::Declaration,
             )?,
             constructor_visibility.clone(),
@@ -668,8 +647,7 @@ fn collect_enum_invocations(
         let anchors = declaration
             .variant_provenance(variant)
             .map_err(source_syntax)?;
-        let mut constructor_anchors = anchors.clone();
-        constructor_anchors.extend(variant.argument_provenance().map_err(source_syntax)?);
+        let constructor_anchors = variant.constructor_provenance().map_err(source_syntax)?;
         output.push(with_declaration_metadata(
             parsed_invocation(
                 ProvenanceRole::ConstructorSort,

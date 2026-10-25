@@ -484,8 +484,7 @@ fn expand_enum_variant(
     }
     let fallback = TokenRange::for_tokens(variant.variant())?;
     // Element types reach only the constructor descriptor, not the grammar.
-    let mut constructor_anchors = anchors.clone();
-    constructor_anchors.extend(variant.argument_provenance()?);
+    let constructor_anchors = variant.constructor_provenance()?;
     let provenance = host_provenance(env, facade, fallback, &constructor_anchors);
     let grammar_provenance = host_provenance(env, facade, fallback, &anchors);
 

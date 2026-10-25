@@ -503,6 +503,8 @@ pub struct FunctionAttribute {
     /// The anchors of the function's keying, which [`Self::provenance`]
     /// returns.
     anchors: Vec<ProvenanceAnchor>,
+    /// How many of [`Self::anchors`] are the production's full view.
+    production: usize,
 }
 
 /// A function's SMT-LIB translation (KF-044): `smtlib` and `smt_hook` are
@@ -695,6 +697,13 @@ impl FunctionAttribute {
         Ok(self.anchors.clone())
     }
 
+    /// The anchors of the function's own keys, which follow its
+    /// production's full view: the totality marker, `memo`,
+    /// `fresh_generator`, `hook`, the SMT translation and `underspecified`.
+    pub(crate) fn function_anchors(&self) -> &[ProvenanceAnchor] {
+        &self.anchors[self.production..]
+    }
+
     /// The key of the `total` or `partial` marker.
     #[must_use]
     pub const fn totality_key(&self) -> Option<&ProvenanceKey> {
@@ -747,6 +756,7 @@ impl FunctionAttribute {
         self.constructor.rekey()?;
         let mut keys = KeyAllocator::default();
         self.constructor.allocate_full_keys(&mut keys)?;
+        self.production = keys.anchors().len();
         let (role, marker) = match &self.totality {
             FunctionTotality::Total(marker) => (ProvenanceRole::FunctionTotal, marker),
             FunctionTotality::Partial(marker) => (ProvenanceRole::FunctionPartial, marker),
@@ -1767,6 +1777,7 @@ fn parse_function_keys(
         smtlib_key: None,
         underspecified_key: None,
         anchors: Vec::new(),
+        production: 0,
     }
     .keyed()?)
 }

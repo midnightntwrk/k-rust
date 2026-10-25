@@ -14,10 +14,12 @@ use syn::Ident;
 use crate::parse::KeyAllocator;
 use crate::{
     BracketAttribute, ClaimAttribute, ConfigurationAttribute, ConfigurationDeclaration,
-    ContextAliasAttribute, ContextAttribute, DesugarAttribute, EquationAttribute, ProvenanceAnchor,
-    ProvenanceRole, RuleAttribute, RuleClause, RuleItem, SimplificationAttribute, SortAttribute,
-    SpecModuleAttribute, SpecModuleItem, StateClaimItem, StateContextAliasItem, StateRuleItem,
-    SymbolAttribute, SyntaxError, TokenDeclaration, TokenRange, TokenStack,
+    ConstructorAttribute, ConstructorDeclaration, ContextAliasAttribute, ContextAttribute,
+    DesugarAttribute, EnumConstructorVariant, EquationAttribute, FunctionAttribute,
+    ProvenanceAnchor, ProvenanceRole, RuleAttribute, RuleClause, RuleItem, SimplificationAttribute,
+    SortAttribute, SpecModuleAttribute, SpecModuleItem, StateClaimItem, StateContextAliasItem,
+    StateRuleItem, StaticProductionAttribute, StrictnessAttribute, SymbolAttribute, SyntaxError,
+    TokenDeclaration, TokenRange, TokenStack,
 };
 
 /// The attribute that makes a rule fn one kind of sentence.
@@ -291,6 +293,130 @@ impl ConfigurationDeclaration {
         let mut keys = KeyAllocator::default();
         keys.append(&self.provenance()?);
         keys.append(&attribute.provenance()?);
+        Ok(keys.into_anchors())
+    }
+}
+
+/// The attribute that makes a struct a production.
+#[derive(Clone, Copy, Debug)]
+pub enum ProductionAttribute<'a> {
+    /// `#[k::constructor(..)]`.
+    Constructor(&'a ConstructorAttribute),
+    /// `#[k::function(..)]`, whose production arguments are its
+    /// [`FunctionAttribute::production`].
+    Function(&'a FunctionAttribute),
+}
+
+impl<'a> ProductionAttribute<'a> {
+    /// The production arguments.
+    #[must_use]
+    pub const fn production(self) -> &'a ConstructorAttribute {
+        match self {
+            Self::Constructor(attribute) => attribute,
+            Self::Function(function) => function.production(),
+        }
+    }
+}
+
+/// The parsed pieces of one production struct, which declares two
+/// descriptors: the constructor of its sort and its grammar production.
+#[derive(Clone, Copy, Debug)]
+pub struct ProductionItem<'a> {
+    /// The attribute that makes the struct a production.
+    pub attribute: ProductionAttribute<'a>,
+    /// The struct.
+    pub declaration: &'a ConstructorDeclaration,
+    /// The explicit stable-symbol override.
+    pub symbol: Option<&'a SymbolAttribute>,
+    /// The `#[k::alias]` and `#[k::desugar]` markers (KF-028), each with
+    /// the name of its helper attribute, which anchors it. The macro accepts
+    /// one; the collector's reparse records every marker it finds.
+    pub static_markers: &'a [(StaticProductionAttribute, Ident)],
+    /// The `#[k::strict]` and `#[k::seqstrict]` helpers.
+    pub strictness: &'a [StrictnessAttribute],
+}
+
+impl ProductionItem<'_> {
+    /// Returns the anchors of the constructor descriptor: the production's
+    /// compact view, the struct, the element types of the result and of the
+    /// fields, which only this descriptor references, then the symbol
+    /// override.
+    ///
+    /// # Errors
+    ///
+    /// None: every piece was keyed when it was parsed.
+    pub fn constructor_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let production = self.attribute.production();
+        let mut keys = KeyAllocator::default();
+        keys.append(&production.provenance()?);
+        keys.append(&self.declaration.provenance()?);
+        keys.append(&production.sort_argument_provenance()?);
+        keys.append(&self.declaration.argument_provenance()?);
+        if let Some(symbol) = self.symbol {
+            keys.append(&symbol.provenance()?);
+        }
+        Ok(keys.into_anchors())
+    }
+
+    /// Returns the anchors of the grammar descriptor: the production's full
+    /// view, the struct's, the symbol override, the static marker's name
+    /// and payload, a total function's name as its declaration and the
+    /// function's own keys, then the strictness helpers.
+    ///
+    /// Each static marker is numbered as a sentence of its own, its name
+    /// first: of the one marker a production has, the name is the first of
+    /// its role. A second marker, which the macro rejects, repeats the
+    /// first's keys, and the collector reports the repetition.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only if a name emits no token leaves.
+    pub fn grammar_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        keys.append(&self.attribute.production().full_provenance()?);
+        keys.append(&self.declaration.full_provenance()?);
+        if let Some(symbol) = self.symbol {
+            keys.append(&symbol.provenance()?);
+        }
+        let mut markers = Vec::new();
+        for (marker, name) in self.static_markers {
+            let mut marker_keys = KeyAllocator::default();
+            marker_keys.key(
+                marker.mode().production_role(),
+                TokenRange::for_tokens(name)?,
+            )?;
+            marker_keys.append(&marker.provenance());
+            markers.extend(marker_keys.into_anchors());
+        }
+        keys.append(&markers);
+        if let ProductionAttribute::Function(function) = self.attribute {
+            if function.is_total() {
+                keys.key(
+                    ProvenanceRole::FunctionDeclaration,
+                    TokenRange::for_tokens(self.declaration.name())?,
+                )?;
+            }
+            keys.append(function.function_anchors());
+        }
+        for strictness in self.strictness {
+            keys.append(&strictness.provenance()?);
+        }
+        Ok(keys.into_anchors())
+    }
+}
+
+impl EnumConstructorVariant {
+    /// Returns the anchors of the variant's constructor descriptor: its
+    /// production, then the element types of its field sorts, which only
+    /// this descriptor references.
+    ///
+    /// # Errors
+    ///
+    /// None: the variant was keyed when it was parsed.
+    pub fn constructor_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        keys.append(&self.provenance()?);
+        keys.append(&self.argument_provenance()?);
         Ok(keys.into_anchors())
     }
 }
