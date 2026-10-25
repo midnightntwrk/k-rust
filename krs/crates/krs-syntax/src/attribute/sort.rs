@@ -151,7 +151,9 @@ impl SubsortAttribute {
         self.sort_key.as_ref()
     }
 
-    /// Keys the supersort alias.
+    /// Keys the supersort alias as the first of its role, which no other
+    /// piece of the subsort's descriptor keys; the descriptor records it
+    /// between the impl's keys ([`crate::SubsortDeclaration::provenance`]).
     fn keyed(mut self) -> Result<Self, SyntaxError> {
         self.sort_key = Some(KeyAllocator::default().key(
             ProvenanceRole::SubsortSuperSort,

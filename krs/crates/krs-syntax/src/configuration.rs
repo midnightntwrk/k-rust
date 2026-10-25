@@ -172,7 +172,7 @@ impl FixedCellField {
                     } else {
                         TokenRange::for_tokens(&*wrapper)?
                     },
-                ));
+                )?);
                 self.content_key = Some(keys.key(
                     ProvenanceRole::ConfigurationCellContent,
                     TokenRange::for_tokens(&*ty)?,

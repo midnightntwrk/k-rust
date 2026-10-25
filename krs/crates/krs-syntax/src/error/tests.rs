@@ -79,6 +79,10 @@ fn syntax_categories_have_distinct_registered_codes() {
         SyntaxErrorKind::UnsupportedTermExpression { reason: "example" },
         SyntaxErrorKind::MissingTokenEndpoint,
         SyntaxErrorKind::TooManyProvenanceOccurrences { role: "example" },
+        SyntaxErrorKind::RepeatedProvenanceKey {
+            role: "example",
+            ordinal: 0,
+        },
         SyntaxErrorKind::InvalidColor { reason: "example" },
         SyntaxErrorKind::InvalidRuleKey { reason: "example" },
         SyntaxErrorKind::RetiredAttribute {

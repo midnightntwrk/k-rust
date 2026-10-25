@@ -135,7 +135,7 @@ impl ConfigurationVariable {
                 ProvenanceRole::ConfigurationVariableMain,
                 &key,
                 TokenRange::for_tokens(main)?,
-            ));
+            )?);
         }
         self.key = Some(key);
         Ok(())
@@ -1258,7 +1258,7 @@ fn allocate_initializer_keys(
                     } else {
                         TokenRange::for_tokens(&*constructor)?
                     },
-                ));
+                )?);
                 allocate_state_term_keys(keys, value)?;
             }
             InitializerCellContent::Nested {
@@ -1269,7 +1269,7 @@ fn allocate_initializer_keys(
                     ProvenanceRole::InitializerNestedConstructor,
                     &key,
                     TokenRange::for_tokens(&*constructor)?,
-                ));
+                )?);
                 allocate_initializer_keys(keys, children)?;
             }
         }

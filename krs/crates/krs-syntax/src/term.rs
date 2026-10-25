@@ -3103,7 +3103,7 @@ pub(crate) fn allocate_let_keys(
                         ProvenanceRole::LetSort,
                         &statement,
                         TokenRange::for_tokens(sort)?,
-                    );
+                    )?;
                     term_keys.push_node(index, sort);
                 }
                 term_keys.push_node(index, keys.key(ProvenanceRole::Let, *range)?);

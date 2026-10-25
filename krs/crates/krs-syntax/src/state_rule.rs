@@ -517,9 +517,10 @@ impl StateContextAliasItem {
 
     /// Keys the alias as a sentence of its own and stores its anchors: the
     /// pattern and its type, each binding's sort, then the pattern's cells.
-    /// The fn's name, the alias's declaration, is keyed by the descriptor
-    /// after the attribute, which keys no node of its role, so it holds the
-    /// first key of its role.
+    /// The fn's name, the alias's declaration, holds the first key of its
+    /// role, which the descriptor records after the attribute's keys
+    /// ([`Self::descriptor_provenance`] checks that the attribute keys no
+    /// node of that role).
     fn keyed(mut self) -> Result<Self, SyntaxError> {
         self.declaration_key = Some(KeyAllocator::default().key(
             ProvenanceRole::ContextAliasDeclaration,

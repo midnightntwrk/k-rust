@@ -997,9 +997,9 @@ fn allocate_extra_keys(
                 TokenRange::for_tokens(cell)?,
             )?;
             update.set_argument_keys([
-                keys.paired(ProvenanceRole::RuleRightMapUpdateBase, &field, base?),
-                keys.paired(ProvenanceRole::RuleRightMapKey, &field, key?),
-                keys.paired(ProvenanceRole::RuleRightMapValue, &field, value?),
+                keys.paired(ProvenanceRole::RuleRightMapUpdateBase, &field, base?)?,
+                keys.paired(ProvenanceRole::RuleRightMapKey, &field, key?)?,
+                keys.paired(ProvenanceRole::RuleRightMapValue, &field, value?)?,
             ]);
             names.result_cell = Some(field);
             allocate_rule_term_keys(keys, update.term_mut(), RuleTermSide::Right)?;

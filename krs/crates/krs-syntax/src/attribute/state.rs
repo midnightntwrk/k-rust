@@ -284,7 +284,7 @@ impl CellAttributePayload {
                 continue;
             };
             *slot = Some(match field {
-                Some(field) => keys.paired(role, field, range),
+                Some(field) => keys.paired(role, field, range)?,
                 None => keys.key(role, range)?,
             });
         }

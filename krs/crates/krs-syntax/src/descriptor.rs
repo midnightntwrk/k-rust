@@ -56,7 +56,7 @@ impl RuleDescriptor {
     /// Returns an endpoint error only if the fn's name emits no token leaves.
     pub fn new(rule: &RuleItem, sentence: RuleSentence<'_>) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.append(&rule.full_provenance()?);
+        keys.append(&rule.full_provenance()?)?;
         Self::sentence(keys, &rule.item().sig.ident, sentence)
     }
 
@@ -68,7 +68,7 @@ impl RuleDescriptor {
     /// Returns an endpoint error only if the fn's name emits no token leaves.
     pub fn state(rule: &StateRuleItem, sentence: RuleSentence<'_>) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.append(&rule.provenance()?);
+        keys.append(&rule.provenance()?)?;
         Self::sentence(keys, &rule.item().sig.ident, sentence)
     }
 
@@ -83,16 +83,16 @@ impl RuleDescriptor {
     ) -> Result<Self, SyntaxError> {
         let marker_key = match sentence {
             RuleSentence::Transition(attribute) => {
-                keys.append(&attribute.provenance()?);
+                keys.append(&attribute.provenance()?)?;
                 None
             }
             RuleSentence::Context(context) => {
                 let attribute = context.rule_attribute(name);
-                keys.append(&attribute.provenance()?);
+                keys.append(&attribute.provenance()?)?;
                 attribute.evaluation_key().cloned()
             }
             RuleSentence::Equation(equation) => {
-                keys.append(&equation.provenance()?);
+                keys.append(&equation.provenance()?)?;
                 None
             }
             RuleSentence::Simplification(simplification) => {
@@ -100,7 +100,7 @@ impl RuleDescriptor {
                     ProvenanceRole::SimplificationMarker,
                     TokenRange::for_tokens(name)?,
                 )?;
-                keys.append(&simplification.provenance()?);
+                keys.append(&simplification.provenance()?)?;
                 Some(key)
             }
             RuleSentence::Alias => {
@@ -108,7 +108,7 @@ impl RuleDescriptor {
             }
             RuleSentence::Desugar(desugar) => {
                 let key = keys.key(ProvenanceRole::DesugarClause, TokenRange::for_tokens(name)?)?;
-                keys.append(&desugar.provenance()?);
+                keys.append(&desugar.provenance()?)?;
                 Some(key)
             }
         };
@@ -145,8 +145,8 @@ impl StateClaimItem {
         attribute: &ClaimAttribute,
     ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.append(&self.provenance()?);
-        keys.append(&attribute.provenance()?);
+        keys.append(&self.provenance()?)?;
+        keys.append(&attribute.provenance()?)?;
         Ok(keys.into_anchors())
     }
 }
@@ -157,23 +157,24 @@ impl StateContextAliasItem {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if the fn's name emits no token leaves.
+    /// Returns an endpoint error only if the fn's name emits no token leaves,
+    /// and a repeated-key error if two pieces hold one key.
+    ///
+    /// # Panics
+    ///
+    /// Never: parsing keys the fn's name.
     pub fn descriptor_provenance(
         &self,
         attribute: &ContextAliasAttribute,
     ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.append(&attribute.provenance()?);
-        let declaration = keys.key(
-            ProvenanceRole::ContextAliasDeclaration,
+        keys.append(&attribute.provenance()?)?;
+        keys.held(
+            self.declaration_key()
+                .expect("a context alias is keyed when it is parsed"),
             TokenRange::for_tokens(&self.item().sig.ident)?,
         )?;
-        debug_assert_eq!(
-            Some(&declaration),
-            self.declaration_key(),
-            "the fn's name holds its key in the descriptor"
-        );
-        keys.append(&self.provenance()?);
+        keys.append(&self.provenance()?)?;
         Ok(keys.into_anchors())
     }
 }
@@ -188,8 +189,8 @@ impl RuleClause {
     /// parsed.
     pub fn descriptor_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.append(&self.provenance()?);
-        keys.append(&self.attribute_provenance()?);
+        keys.append(&self.provenance()?)?;
+        keys.append(&self.attribute_provenance()?)?;
         Ok(keys.into_anchors())
     }
 }
@@ -207,9 +208,9 @@ impl SortAttribute {
         symbol: Option<&SymbolAttribute>,
     ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.append(&self.provenance(marker)?);
+        keys.append(&self.provenance(marker)?)?;
         if let Some(symbol) = symbol {
-            keys.append(&symbol.provenance()?);
+            keys.append(&symbol.provenance()?)?;
         }
         Ok(keys.into_anchors())
     }
@@ -240,7 +241,7 @@ pub(crate) fn bracket_anchors(
     sort: &Ident,
 ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
     let mut keys = KeyAllocator::default();
-    keys.append(&bracket.provenance()?);
+    keys.append(&bracket.provenance()?)?;
     keys.key(
         ProvenanceRole::SortDeclaration,
         TokenRange::for_tokens(sort)?,
@@ -260,8 +261,8 @@ impl TokenStack {
         declaration: &TokenDeclaration,
     ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.append(&self.provenance()?);
-        keys.append(&declaration.provenance()?);
+        keys.append(&self.provenance()?)?;
+        keys.append(&declaration.provenance()?)?;
         Ok(keys.into_anchors())
     }
 }
@@ -278,8 +279,8 @@ impl SpecModuleItem {
         attribute: &SpecModuleAttribute,
     ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.append(&self.provenance());
-        keys.append(&attribute.provenance()?);
+        keys.append(&self.provenance())?;
+        keys.append(&attribute.provenance()?)?;
         Ok(keys.into_anchors())
     }
 }
@@ -296,8 +297,8 @@ impl ConfigurationDeclaration {
         attribute: &ConfigurationAttribute,
     ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.append(&self.provenance()?);
-        keys.append(&attribute.provenance()?);
+        keys.append(&self.provenance()?)?;
+        keys.append(&attribute.provenance()?)?;
         Ok(keys.into_anchors())
     }
 }
@@ -353,12 +354,12 @@ impl ProductionItem<'_> {
     pub fn constructor_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let production = self.attribute.production();
         let mut keys = KeyAllocator::default();
-        keys.append(&production.provenance()?);
-        keys.append(&self.declaration.provenance()?);
-        keys.append(&production.sort_argument_provenance()?);
-        keys.append(&self.declaration.argument_provenance()?);
+        keys.append(&production.provenance()?)?;
+        keys.append(&self.declaration.provenance()?)?;
+        keys.append(&production.sort_argument_provenance()?)?;
+        keys.append(&self.declaration.argument_provenance()?)?;
         if let Some(symbol) = self.symbol {
-            keys.append(&symbol.provenance()?);
+            keys.append(&symbol.provenance()?)?;
         }
         Ok(keys.into_anchors())
     }
@@ -368,20 +369,22 @@ impl ProductionItem<'_> {
     /// and payload, a total function's name as its declaration and the
     /// function's own keys, then the strictness helpers.
     ///
-    /// Each static marker is numbered as a sentence of its own, its name
-    /// first: of the one marker a production has, the name is the first of
-    /// its role. A second marker, which the macro rejects, repeats the
-    /// first's keys, and the collector reports the repetition.
+    /// Each static marker and each strictness helper is numbered as a
+    /// sentence of its own, a marker's name first: of the one marker and the
+    /// one helper a production has, each key is the first of its role. A
+    /// second marker or helper, which the macro rejects, repeats the first's
+    /// keys, and the descriptor's keying refuses the repetition.
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a name emits no token leaves.
+    /// Returns an endpoint error only if a name emits no token leaves, and a
+    /// repeated-key error for a second static marker or strictness helper.
     pub fn grammar_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.append(&self.attribute.production().full_provenance()?);
-        keys.append(&self.declaration.full_provenance()?);
+        keys.append(&self.attribute.production().full_provenance()?)?;
+        keys.append(&self.declaration.full_provenance()?)?;
         if let Some(symbol) = self.symbol {
-            keys.append(&symbol.provenance()?);
+            keys.append(&symbol.provenance()?)?;
         }
         let mut markers = Vec::new();
         for (marker, name) in self.static_markers {
@@ -390,10 +393,10 @@ impl ProductionItem<'_> {
                 marker.mode().production_role(),
                 TokenRange::for_tokens(name)?,
             )?;
-            marker_keys.append(&marker.provenance());
+            marker_keys.append(&marker.provenance())?;
             markers.extend(marker_keys.into_anchors());
         }
-        keys.append(&markers);
+        keys.append(&markers)?;
         if let ProductionAttribute::Function(function) = self.attribute {
             if function.is_total() {
                 keys.key(
@@ -401,11 +404,13 @@ impl ProductionItem<'_> {
                     TokenRange::for_tokens(self.declaration.name())?,
                 )?;
             }
-            keys.append(function.function_anchors());
+            keys.append(function.function_anchors())?;
         }
-        for strictness in self.strictness {
-            keys.append(&strictness.provenance()?);
+        let mut strictness = Vec::new();
+        for helper in self.strictness {
+            strictness.extend(helper.provenance()?);
         }
+        keys.append(&strictness)?;
         Ok(keys.into_anchors())
     }
 }
@@ -420,8 +425,8 @@ impl EnumConstructorVariant {
     /// None: the variant was keyed when it was parsed.
     pub fn constructor_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.append(&self.provenance()?);
-        keys.append(&self.argument_provenance()?);
+        keys.append(&self.provenance()?)?;
+        keys.append(&self.argument_provenance()?)?;
         Ok(keys.into_anchors())
     }
 }

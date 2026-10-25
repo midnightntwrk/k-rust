@@ -355,6 +355,14 @@ pub enum SyntaxErrorKind {
         /// Stable parser-owned role spelling.
         role: &'static str,
     },
+    /// A descriptor's keying recorded one provenance key twice: two pieces,
+    /// or two nodes of one piece, hold the same key.
+    RepeatedProvenanceKey {
+        /// Stable parser-owned role spelling.
+        role: &'static str,
+        /// The repeated ordinal.
+        ordinal: u32,
+    },
     /// A sentence attribute combined keys that K does not accept together.
     InvalidRuleKey {
         /// Complete stable explanation, naming the fix.
@@ -533,6 +541,7 @@ impl SyntaxErrorKind {
             Self::TooManyProvenanceOccurrences { .. } => {
                 codes::syntax::TOO_MANY_PROVENANCE_OCCURRENCES
             }
+            Self::RepeatedProvenanceKey { .. } => codes::syntax::REPEATED_PROVENANCE_KEY,
             Self::InvalidRuleKey { .. } => codes::syntax::INVALID_RULE_KEY,
             Self::RetiredAttribute { .. } => codes::syntax::RETIRED_ATTRIBUTE,
             Self::InvalidTokenAttribute { .. } => codes::syntax::INVALID_TOKEN_ATTRIBUTE,
@@ -813,6 +822,12 @@ impl fmt::Display for SyntaxError {
                 write!(
                     formatter,
                     "too many `{role}` nodes to assign provenance ordinals"
+                )
+            }
+            SyntaxErrorKind::RepeatedProvenanceKey { role, ordinal } => {
+                write!(
+                    formatter,
+                    "shared parser repeated provenance key `{role}`#{ordinal}"
                 )
             }
             SyntaxErrorKind::InvalidRuleKey { reason }

@@ -956,7 +956,7 @@ impl TokenAttribute {
                 ProvenanceRole::TokenLexicalPrecedence,
                 &content,
                 TokenRange::for_tokens(literal)?,
-            )),
+            )?),
             None => None,
         };
         self.content_key = Some(content);
@@ -2589,26 +2589,33 @@ impl SubsortDeclaration {
     }
 
     /// Returns declaration and exact endpoint anchors; the supersort is the
-    /// alias `attribute` names.
+    /// alias `attribute` names. The impl and the attribute were keyed when
+    /// they were parsed, each node as the first of its role; the descriptor
+    /// records the keys they hold, in its own order.
     ///
     /// # Errors
     ///
     /// Returns an endpoint error only for a tokenless parsed Rust node.
+    ///
+    /// # Panics
+    ///
+    /// Never: parsing keys the impl, its sub-sort and the attribute's alias.
     pub fn provenance(
         &self,
         attribute: &crate::SubsortAttribute,
     ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        const KEYED: &str = "a subsort and its attribute are keyed when they are parsed";
         let mut keys = KeyAllocator::default();
-        keys.key(
-            ProvenanceRole::SubsortDeclaration,
+        keys.held(
+            self.key.as_ref().expect(KEYED),
             TokenRange::for_tokens(&self.item)?,
         )?;
-        keys.key(
-            ProvenanceRole::SubsortSuperSort,
+        keys.held(
+            attribute.sort_key().expect(KEYED),
             TokenRange::for_tokens(attribute.sort())?,
         )?;
-        keys.key(
-            ProvenanceRole::SubsortSubSort,
+        keys.held(
+            self.sub_sort_key.as_ref().expect(KEYED),
             TokenRange::for_tokens(&self.sub_sort)?,
         )?;
         Ok(keys.into_anchors())

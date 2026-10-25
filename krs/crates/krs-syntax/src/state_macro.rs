@@ -1122,7 +1122,7 @@ impl CellsExpression {
                 let range = TokenRange::for_tokens(wrapper)?;
                 let role = position.role(RuleRole::CellsWrapper);
                 entry.wrapper_key = Some(match position {
-                    StatePosition::Standalone => keys.paired(role, &field, range),
+                    StatePosition::Standalone => keys.paired(role, &field, range)?,
                     StatePosition::Rule(_) => keys.key(role, range)?,
                 });
             }

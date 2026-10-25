@@ -1728,6 +1728,69 @@ mod tests {
         }
     }
 
+    /// A struct with two strictness helpers, which the macro refuses with
+    /// `duplicate-strictness`, reaches the reparse when `cfg` removes it
+    /// before the macro runs. Each helper is keyed as a sentence of its own,
+    /// so the second repeats the first's keys: the grammar descriptor's
+    /// keying refuses it at the second helper, in every build.
+    #[test]
+    fn a_second_strictness_helper_is_a_located_repeated_key() {
+        use krs_diagnostic::{Location, ToDiagnostic};
+
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../krs/Cargo.toml");
+        let facade = FacadeAliases::from_manifest(&manifest).unwrap();
+        let resolver = AttributeResolver::new(&facade, "src/lib.rs");
+        let file = krs_ir::SourceFileId::new(
+            krs_ir::PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap(),
+            "src/lib.rs",
+            krs_ir::Sha256Digest::new("11".repeat(32)).unwrap(),
+        )
+        .unwrap();
+        for (cfg, second) in [
+            (
+                "",
+                "#[k::seqstrict(sequence = [lhs, rhs], result = KResult)]",
+            ),
+            (
+                "#[cfg(any())]",
+                "#[k::seqstrict(sequence = [lhs, rhs], result = KResult)]",
+            ),
+            ("", "#[k::strict(sequence = [rhs], result = KResult)]"),
+            (
+                "#[cfg(any())]",
+                "#[k::strict(sequence = [rhs], result = KResult)]",
+            ),
+        ] {
+            let source = format!(
+                "use crate as k;\n{cfg}\n#[k::constructor(sort = Expr, syntax = \"{{lhs}} * {{rhs}}\")]\n#[k::strict(sequence = [lhs], result = KResult)]\n{second}\npub struct Mul {{ pub lhs: Term<Expr>, pub rhs: Term<Expr> }}\n"
+            );
+            let syntax = syn::parse_file(&source).unwrap();
+            let discovered = krs_syntax::surface::invocations(&syntax, &facade.scope());
+            let error = collect_invocations(&syntax, &discovered, &resolver, &mut Vec::new())
+                .unwrap_err()
+                .with_source_file(&file);
+            assert_eq!(error.kind(), CollectionErrorKind::SourceSyntax, "{source}");
+            assert!(
+                error
+                    .detail()
+                    .contains("shared parser repeated provenance key"),
+                "{}",
+                error.detail()
+            );
+            let Location::Source(range) = error.to_diagnostic().primary.location else {
+                panic!("missing location: {source}")
+            };
+            let helper = source.rfind(second).unwrap();
+            assert!(
+                usize::try_from(range.start_byte).unwrap() >= helper
+                    && usize::try_from(range.end_byte).unwrap() <= helper + second.len(),
+                "{source}: {}..{}",
+                range.start_byte,
+                range.end_byte
+            );
+        }
+    }
+
     #[test]
     fn framework_catalogue_entry_collects_the_two_readable_sorts() {
         let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../krs/Cargo.toml");
