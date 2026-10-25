@@ -7,12 +7,10 @@
 #   k2lean/tests/gate.sh light    the generator's unit and snapshot tests, then every entry of tier light
 #   k2lean/tests/gate.sh heavy    light, then every entry of tier heavy (SIMPLE and what is built on
 #                                 it, and the claims)
-#   k2lean/tests/gate.sh arity    the unit and snapshot tests, then every entry of tier arity (the
-#                                 arity-indexed term universe, `gen --arity-terms`), whose kimp goldens
-#                                 and SIMPLE cases must equal the default encoding's recorded outputs
 #   k2lean/tests/gate.sh list [TIER]
-#                                 print the registered entries by area: kind, name, tier, and the
-#                                 tiers that only compare it (all entries, or those a TIER run measures)
+#                                 print the registered entries by area: kind, name, tier, the tiers
+#                                 that only compare it, and its term encoding (arity or per-sort;
+#                                 all entries, or those a TIER run measures)
 #   k2lean/tests/gate.sh accept [--area NAME]
 #                                 make the last run's measurements the baseline, of every area, or of
 #                                 area NAME only, which is refused (naming the entries) when another
@@ -30,7 +28,8 @@
 # A clean light run builds eleven Lean libraries and six Lean projects: on 2026-10-24, on Lean
 # v4.34.0 and a shared 32-CPU host, it took 1,103 s wall, 1,552 s of CPU and 4.1 GB of peak memory
 # under a load of 28 to 31; a clean heavy run took 2,709 s wall, 3,343 s of CPU and 8.5 GB under a
-# load of 26 to 56, and a clean arity run 442 s, 860 s and 4.2 GB under a load of 31 to 48. A rerun
+# load of 26 to 56 (both before the switch to the arity universe; the former arity tier took 442 s,
+# 860 s and 4.2 GB under a load of 31 to 48). A rerun
 # rebuilds only what changed (26 s light, 50 s heavy, measured on Lean v4.30.0 with fewer libraries).
 #
 # Needs: krust (a release build), the K release's `kompile` with its LLVM backend (kimp's step
@@ -51,7 +50,7 @@
 #                       else `kompile` on PATH)
 #   GATE_K_CHECKOUT=DIR the K sources (default GATE_KRUST_REPO/k): the builtin modules
 #                       (k-distribution/include/kframework/builtin, or GATE_K_BUILTIN=DIR) and, for
-#                       heavy and arity, SIMPLE (pyk/regression-new/pl-tutorial)
+#                       heavy, SIMPLE (pyk/regression-new/pl-tutorial)
 #   GATE_IMP_CHECKOUT=DIR imp-semantics (default GATE_KRUST_REPO/imp-semantics): kimp and, for heavy,
 #                       its claims (examples/specs)
 #   GATE_KIMP=DIR       kimp's K sources (default GATE_IMP_CHECKOUT/src/kimp/kdist/imp-semantics)
@@ -93,7 +92,7 @@ W=${GATE_WORK:-$REPO/target/k2lean-gate/work/$name}
 CACHE=${GATE_CACHE:-$REPO/target/k2lean-gate/cache}
 
 case $TIER in
-  light|heavy|arity) ;;
+  light|heavy) ;;
   list) shift; exec python3 -I "$CHECK" list "$@" ;;
   accept) shift; exec python3 -I "$CHECK" accept "$W" "$BASE" "$@" ;;
   *) sed -n '2,/^set -uo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 2 ;;

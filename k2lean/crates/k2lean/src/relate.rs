@@ -590,8 +590,9 @@ pub fn main(args: &[String]) {
     if per_rule && !full {
         fail("--per-rule needs the whole correspondence (not --roots)");
     }
-    // the encoding of the two libraries' terms, as `gen` was given it
-    let arity = opt.get("arity-terms").is_some_and(|v| v == "true");
+    // the encoding of the two libraries' terms, as `gen` was given it: the arity-indexed universe
+    // unless `--per-sort-terms true` (`--arity-terms true`, its former opt-in, changes nothing)
+    let arity = !opt.get("per-sort-terms").is_some_and(|v| v == "true");
     let a = load_side(
         &get("kore-a"),
         opt.get("syntax-a").map(|s| s.as_str()),

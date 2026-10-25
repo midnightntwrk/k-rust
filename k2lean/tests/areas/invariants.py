@@ -15,6 +15,8 @@ LIBS = {
     "simpleinv": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
     "simplestore": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
     "simplet": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
+    # kimpinv in the per-sort encoding, for kimpinv's claims (claims.sh), which stay on it (CLM-5)
+    "kimpinv-ps": {"ns": "KImpInv", "tier": "heavy", "guard": False, "encoding": "per-sort"},
 }
 
 # kind 1 invariants (`DIR/NS/Invariants.lean`); krsimp's library is core's, its invariant this area's
@@ -32,6 +34,7 @@ INVS = {
     "simpleinv": {"ns": "KSimpleInv", "tier": "heavy"},
     "simplestore": {"ns": "KSimpleInv", "tier": "heavy"},
     "simplet": {"ns": "KSimpleInv", "tier": "heavy"},
+    "kimpinv-ps": {"ns": "KImpInv", "tier": "heavy"},
 }
 
 DEMOS = {
@@ -39,7 +42,7 @@ DEMOS = {
     "ImpWrites": {"tier": "light"},
     "Kind2Template": {"tier": "light"},
     "InvBudget": {"tier": "light"},
-    "SimpleEnv": {"tier": "heavy"},
+    "SimpleEnv": {"tier": "heavy", "encoding": "per-sort"},
 }
 
 NEGATIVE = {"krsimp-ill-typed": {"tier": "light"}}

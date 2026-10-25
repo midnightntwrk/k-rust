@@ -14,16 +14,18 @@ usage: gate-check.py check WORK BASELINE TIER    measure WORK, write WORK/measur
 BASELINE is a directory with one AREA.toml per area; the recorded outputs of area AREA are in
 expected/AREA/ beside it. The registries are tests/areas/AREA.py (GATE_AREAS=DIR overrides the
 directory), for the areas of LIBS_AREAS in tests/libs.sh beside them. A registry defines any of:
-  LIBS      name -> {ns, tier, encoding ("default" or "arity"), guard (False: built only as far as
+  LIBS      name -> {ns, tier, encoding ("arity", the default, or "per-sort": a label;
+            the `gen` arm of the area selects the encoding), guard (False: built only as far as
             its invariant, no `…Test.Axioms`), not_regenerated (files of generated/name that the gate
             does not regenerate)}; generated/name is hashed
   INVS      name -> {ns, tier}: the kind 1 invariant of library name
   DEMOS     name -> {tier, sources (files or directories under k2lean/ that the demo's phase
-            generates, hashed)}
+            generates, hashed), encoding (as LIBS': the encoding of the libraries it is built on)}
   NEGATIVE  name -> {tier}: an entry of measured/negative.toml
   RECORDS   name -> {tier, compare_in, measure (a function of the run, returning the record's
             fields), sources}
-  OUTPUTS   path under measured/ -> {tier, compare (the normalization), compare_in}
+  OUTPUTS   path under measured/ -> {tier, compare (the normalization), compare_in, same_as (another
+            output of the area whose recorded copy this one is compared with; it has none of its own)}
 Every entry is measured, compared and accepted by a run of a tier that includes its own (heavy
 includes light), and only measured and compared by a run of a tier in its compare_in.
 
@@ -63,7 +65,7 @@ import tomllib
 from pathlib import Path
 from types import SimpleNamespace
 
-TIERS = ("light", "heavy", "arity")
+TIERS = ("light", "heavy")
 KINDS = ("lib", "inv", "demo", "negative", "record", "output")
 # the tracked inputs of a generated library, which a person writes and the generator only reads
 # (the open lists, and the kind 1 hand module that `gen` writes once and never overwrites): not
@@ -73,7 +75,7 @@ HAND_INPUTS = ("open-obligations.txt", "open-invariant-cases.txt", "InvariantsHa
 
 def tiers(tier):
     """The entry tiers a run of TIER measures, compares and accepts."""
-    return {"light": ["light"], "heavy": ["light", "heavy"], "arity": ["arity"]}[tier]
+    return {"light": ["light"], "heavy": ["light", "heavy"]}[tier]
 
 
 def measured_in(e, tier):
@@ -101,11 +103,19 @@ def load_registry():
                 e.setdefault("compare_in", [])
                 e["area"] = a
         for e in r["LIBS"].values():
-            e.setdefault("encoding", "default")
+            e.setdefault("encoding", "arity")
             e.setdefault("guard", True)
             e.setdefault("not_regenerated", [])
         reg[a] = r
     return reg
+
+
+def same_as(reg, name):
+    """The recorded output that output NAME is compared with: its own, or the one its `same_as` names."""
+    for r in reg.values():
+        if name in r["OUTPUTS"]:
+            return r["OUTPUTS"][name].get("same_as", name)
+    return name
 
 
 def entries(reg):
@@ -659,7 +669,7 @@ def compare(m, base, expected, accept_cmd, reg):
     for name, entry in base["outputs"].items():
         if name not in m["outputs"]:
             continue
-        got, exp = m["work"] / "measured" / name, expected / entry["area"] / name
+        got, exp = m["work"] / "measured" / name, expected / entry["area"] / same_as(reg, name)
         if not got.exists():
             F(f"outputs: {name} not produced")
             continue
@@ -780,7 +790,7 @@ def accept(work, baseline, area=None):
         # away (times, the order of logged lines) do not churn expected/
         outs[a] = []
         for name, (oa, t, how) in m["outputs"].items():
-            if oa != a or t not in tiers(tier) or not (meas / name).exists():
+            if oa != a or t not in tiers(tier) or not (meas / name).exists() or same_as(reg, name) != name:
                 continue
             e = exp / a / name
             if not e.exists() or normalize(e.read_text(), how) != normalize((meas / name).read_text(), how):
@@ -819,7 +829,9 @@ def list_entries(tier=None):
         extra = []
         if e.get("compare_in"):
             extra.append(f"compared in {','.join(e['compare_in'])}")
-        if kind == "lib" and e["encoding"] != "default":
+        if e.get("same_as"):
+            extra.append(f"compared with {e['same_as']}")
+        if e.get("encoding", "arity") != "arity":
             extra.append(f"encoding {e['encoding']}")
         print(f"{a:16} {kind:9} {name:24} {e['tier']:6} {'; '.join(extra)}".rstrip())
     return 0

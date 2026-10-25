@@ -44,7 +44,7 @@ kimp_claims() {
       --spec "$KO/imp-ifs-uint64-spec/definition.kore" --spec "$KO/imp-two-sum-aux-spec/definition.kore" --spec "$KO/imp-div0-spec/definition.kore" \
       --spec "$KO/imp-inv-spec/definition.kore" \
       --induction "$T/demos/claims/kimp-expr-eval.toml" --induction "$T/demos/claims/kimp-expr-div.toml" \
-      --out "$OUT" --name KImpClaims --semantics KImp --semantics-path ../kimp --kclaims-path ../../lean/claims \
+      --out "$OUT" --name KImpClaims --semantics KImp --semantics-path ../kimp-ps --kclaims-path ../../lean/claims \
       --open "$T/demos/claims/kimp-open.txt" \
       --hand Hand --hand Replay.Addition2 --hand Replay.Branching --hand Replay.SumLoop > "$L/claims-gen.log" 2>&1; then
     ok "claims gen"
@@ -81,15 +81,16 @@ kimp_claims() {
 
 kimpinv_claims() {
   # claims under a preserved invariant (`--assume-invariant`): the kind 1 invariant of kimpinv
-  # (`envOk` and `storeNoIds`, invariants area), whose library is built there only as far as
-  # Invariants.lean; the claims need the rest (Rules, Adequacy, Determinism). The invariant's
+  # (`envOk` and `storeNoIds`, invariants area), in its per-sort form kimpinv-ps (the claims are a
+  # per-sort holdout), whose library is built there only as far as Invariants.lean; the claims
+  # need the rest (Rules, Adequacy, Determinism). The invariant's
   # unfolding set is read from the library's invariant-unfold.txt (the default of --invariant-unfold)
   phase "kimpinv claims"
   local OUTI=$GEN/kimpinv-claims
-  if lbuild "$GEN/kimpinv" build-kimpinv-full KImpInv; then
+  if lbuild "$GEN/kimpinv-ps" build-kimpinv-full KImpInv; then
     ok "build kimpinv" "$L/build-kimpinv-full.log"
     if "$G" claims --kore "$KO/kimp-inv/definition.kore" --spec "$KO/imp-inv-spec/definition.kore" \
-        --out "$OUTI" --name KImpInvClaims --semantics KImpInv --semantics-path ../kimpinv --kclaims-path ../../lean/claims \
+        --out "$OUTI" --name KImpInvClaims --semantics KImpInv --semantics-path ../kimpinv-ps --kclaims-path ../../lean/claims \
         --assume-invariant Invariant > "$L/claims-inv-gen.log" 2>&1; then
       ok "claims-inv gen"
       cp "$OUTI/claims.toml" "$MEAS/claims-inv.toml"

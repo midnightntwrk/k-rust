@@ -16,6 +16,6 @@ end hand
 
 /-- Every rule of kimp keeps `Invariant x`. -/
 theorem preserved (x : KImp.SortId) : Preserved KImp.Step (Invariant x) := by
-  k2l_preserve [kOf, kContent, envOf, envContent, writesK, writesI, writesS] hand ImpWrites.hand
+  k2l_preserve [kOf, kContent, envOf, envContent, writesK, writesI, writesS, writesT] hand ImpWrites.hand
 
 end ImpWrites

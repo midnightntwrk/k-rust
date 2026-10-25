@@ -2,7 +2,8 @@
 # The format of every area's registry is described in gate-check.py's docstring.
 
 DEMOS = {
-    "ImpRelClaims": {"tier": "heavy"},
+    # on ImpRel and kimp-claims, both per-sort
+    "ImpRelClaims": {"tier": "heavy", "encoding": "per-sort"},
 }
 
 
@@ -22,7 +23,8 @@ def measure_claims(c):
 
 
 RECORDS = {
-    "claims": {"tier": "heavy", "measure": measure_claims,
+    # on kimp-ps and kimpinv-ps: on the arity universe the claims' build exceeds 20 GB (CLM-5)
+    "claims": {"tier": "heavy", "encoding": "per-sort", "measure": measure_claims,
                "sources": ["generated/kimp-claims", "generated/kimpinv-claims"]},
 }
 

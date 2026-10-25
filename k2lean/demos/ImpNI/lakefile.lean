@@ -6,7 +6,7 @@ package «ImpNI» where
   leanOptions := #[⟨`autoImplicit, false⟩]
 
 require KPrelude from "../../lean/prelude"
-require «KImp» from "../../generated/kimp"
+require «KImp» from "../../generated/kimp-ps"
 require «KImpSec» from "../../generated/impsec"
 
 @[default_target]

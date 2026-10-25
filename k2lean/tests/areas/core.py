@@ -9,9 +9,14 @@ LIBS = {
     "ens": {"ns": "KEns", "tier": "light"},
     "freekey": {"ns": "FreeKey", "tier": "light"},
     "simple": {"ns": "KSimple", "tier": "heavy"},
-    "kimp-ar": {"ns": "KImp", "tier": "arity", "encoding": "arity", "not_regenerated": ["KImpBench/Programs.lean"]},
-    "simple-ar": {"ns": "KSimple", "tier": "arity", "encoding": "arity"},
-    "kterm-ar": {"ns": "KTerm", "tier": "arity", "encoding": "arity"},
+    "kterm-ar": {"ns": "KTerm", "tier": "light"},
+    # kimp and SIMPLE in the per-sort encoding (`gen --per-sort-terms`), for the holdouts that are
+    # still built on it (design.md §2.1); their goldens, traces and cases are compared with kimp's
+    # and SIMPLE's recorded outputs, so both encodings stay cross-checked while it is in use
+    "kimp-ps": {"ns": "KImp", "tier": "light", "encoding": "per-sort", "not_regenerated": ["KImpBench/Programs.lean"]},
+    "simple-ps": {"ns": "KSimple", "tier": "heavy", "encoding": "per-sort"},
+    # the KRS IMP port in the per-sort encoding, for ImpRel and ImpRelClaims (relational, claims)
+    "krsimp-ps": {"ns": "KrsImp", "tier": "light", "encoding": "per-sort"},
 }
 
 
@@ -21,7 +26,7 @@ def measure_unit(c):
 
 
 def measure_kimp(c):
-    """kimp's goldens and step traces (kimp-test.out, written by kimp's or kimp-ar's test driver)."""
+    """kimp's goldens and step traces (kimp-test.out, written by kimp's test driver)."""
     out = read(c.meas / "kimp-test.out") or ""
     gm = re.search(r"^goldens: (\d+)/(\d+) pass", out, re.M)
     return {
@@ -33,7 +38,7 @@ def measure_kimp(c):
 
 
 def measure_simple(c):
-    """SIMPLE's cases against krust (simple-acceptance.toml, written by simple's or simple-ar's run)."""
+    """SIMPLE's cases against krust (simple-acceptance.toml, written by simple's run)."""
     acc = read(c.meas / "simple-acceptance.toml")
     return {"cases": len(re.findall(r"^\[\[case\]\]", acc, re.M)) if acc else None,
             "lean_eq_krust": len(re.findall(r'^lean_vs_krust = "pass"', acc, re.M)) if acc else None,
@@ -42,15 +47,19 @@ def measure_simple(c):
 
 # `unit` is the generator's test count, measured by every tier (gate-check.py compares it itself)
 RECORDS = {
-    "unit": {"tier": "light", "compare_in": ["arity"], "measure": measure_unit},
-    "kimp": {"tier": "light", "compare_in": ["arity"], "measure": measure_kimp},
-    "simple": {"tier": "heavy", "compare_in": ["arity"], "measure": measure_simple},
+    "unit": {"tier": "light", "measure": measure_unit},
+    "kimp": {"tier": "light", "measure": measure_kimp},
+    "simple": {"tier": "heavy", "measure": measure_simple},
 }
 
-# an arity run writes the same files, compared with the default encoding's
+# kimp-ps and simple-ps write the same files under per-sort/, compared with kimp's and SIMPLE's
 OUTPUTS = {
-    "goldens.toml": {"tier": "light", "compare": "exact", "compare_in": ["arity"]},
-    "kimp-test.out": {"tier": "light", "compare": "exact", "compare_in": ["arity"]},
-    "simple-acceptance.toml": {"tier": "heavy", "compare": "strip-ms", "compare_in": ["arity"]},
-    "simple-acceptance.md": {"tier": "heavy", "compare": "strip-ms", "compare_in": ["arity"]},
+    "goldens.toml": {"tier": "light", "compare": "exact"},
+    "kimp-test.out": {"tier": "light", "compare": "exact"},
+    "simple-acceptance.toml": {"tier": "heavy", "compare": "strip-ms"},
+    "simple-acceptance.md": {"tier": "heavy", "compare": "strip-ms"},
+    "per-sort/goldens.toml": {"tier": "light", "compare": "exact", "same_as": "goldens.toml"},
+    "per-sort/kimp-test.out": {"tier": "light", "compare": "exact", "same_as": "kimp-test.out"},
+    "per-sort/simple-acceptance.toml": {"tier": "heavy", "compare": "strip-ms", "same_as": "simple-acceptance.toml"},
+    "per-sort/simple-acceptance.md": {"tier": "heavy", "compare": "strip-ms", "same_as": "simple-acceptance.md"},
 }
