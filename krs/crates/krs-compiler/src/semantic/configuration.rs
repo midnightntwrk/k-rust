@@ -99,12 +99,12 @@ pub(super) fn lower_fixed_configuration_descriptor(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
+    console.check_initializers(&initializer)?;
     let initializer = in_declaration_order(
         initializer,
         &configuration.declaration.fields,
         &configuration.initializer.owner,
     )?;
-    console.check_initializers(&initializer)?;
     check_configuration_variables_read(descriptor, configuration, &initializer)?;
     check_explicit_presence(&cells, &initializer, &binding_sorts)?;
     let initializer_id = SemanticId::new(format!("{}.init", configuration_id.as_str()))?;
