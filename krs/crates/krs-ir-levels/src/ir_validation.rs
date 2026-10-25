@@ -22,6 +22,57 @@ mod levels;
 #[cfg(test)]
 mod tests;
 
+/// A failed validation of a whole IR level: the error, the item whose sentence failed, and
+/// where.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ValidationFailure<E> {
+    /// The validator's error.
+    pub error: E,
+    /// The item whose sentence failed; `None` when the whole level, a module, or a sentence that
+    /// is no item's failed.
+    pub item: Option<krs_ir::StableItemId>,
+    /// The innermost node enclosing the failure that the author's text locates, if any.
+    pub at: Option<krs_ir::NodeOrigin>,
+}
+
+impl<E> From<E> for Box<ValidationFailure<E>> {
+    fn from(error: E) -> Self {
+        Box::new(ValidationFailure {
+            error,
+            item: None,
+            at: None,
+        })
+    }
+}
+
+/// Runs the checks of one sentence, and a failure names the sentence's item.
+pub(crate) fn in_item<E>(
+    item: Option<&krs_ir::StableItemId>,
+    check: impl FnOnce() -> Result<(), E>,
+) -> Result<(), Box<ValidationFailure<E>>> {
+    check().map_err(|error| {
+        Box::new(ValidationFailure {
+            error,
+            item: item.cloned(),
+            at: None,
+        })
+    })
+}
+
+/// Runs a whole-level validation, and a failure keeps the innermost node a term walk failed in
+/// that the author's text locates.
+pub(crate) fn located<E>(
+    validate: impl FnOnce() -> Result<(), Box<ValidationFailure<E>>>,
+) -> Result<(), Box<ValidationFailure<E>>> {
+    let (validated, enclosing) = crate::failure_site::record(validate);
+    validated.map_err(|mut failure| {
+        failure.at = enclosing
+            .into_iter()
+            .find(|origin| origin.origin().exact_authored_range().is_some());
+        failure
+    })
+}
+
 pub(crate) type Declarations<L> = BTreeMap<<L as IrLevel>::Declaration, <L as Validation>::Kind>;
 /// A production's result sort, sort parameters (KF-027), and argument sorts.
 pub(crate) type Signature<L> = (

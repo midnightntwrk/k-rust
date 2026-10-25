@@ -60,11 +60,10 @@ pub(super) fn lower_grammar_descriptor(
                             vec![looser.group.clone()],
                         )
                         .map_err(|error| {
-                            DescriptorLoweringError::UnsupportedShape {
-                                node: "precedence",
-                                detail: error.to_string(),
-                                range: None,
-                            }
+                            DescriptorLoweringError::unsupported_shape(
+                                "precedence",
+                                error.to_string(),
+                            )
                         })?,
                     );
                 }
@@ -88,11 +87,10 @@ pub(super) fn lower_grammar_descriptor(
                             .collect(),
                     )
                     .map_err(|error| {
-                        DescriptorLoweringError::UnsupportedShape {
-                            node: "associativity",
-                            detail: error.to_string(),
-                            range: None,
-                        }
+                        DescriptorLoweringError::unsupported_shape(
+                            "associativity",
+                            error.to_string(),
+                        )
                     })?,
                 );
             }
@@ -124,10 +122,8 @@ fn lower_lexing_descriptor(
     module: &mut ModuleSentences,
 ) -> Result<(), DescriptorLoweringError> {
     let shape = |node: &'static str| {
-        move |error: krs_ir::GrammarShapeError| DescriptorLoweringError::UnsupportedShape {
-            node,
-            detail: error.to_string(),
-            range: None,
+        move |error: krs_ir::GrammarShapeError| {
+            DescriptorLoweringError::unsupported_shape(node, error.to_string())
         }
     };
     match grammar {
@@ -185,11 +181,10 @@ fn lower_grammar_production(
             krs_ir::DescriptorSortRef::Parameter(name) => {
                 Ok(krs_ir_levels::SortParameterId::new(name.clone()))
             }
-            _ => Err(DescriptorLoweringError::UnsupportedShape {
-                node: "sort parameter",
-                detail: "a production's sort parameter resolves to a sort".to_owned(),
-                range: None,
-            }),
+            _ => Err(DescriptorLoweringError::unsupported_shape(
+                "sort parameter",
+                "a production's sort parameter resolves to a sort",
+            )),
         })
         .collect::<Result<Vec<_>, _>>()?;
     Ok(SemanticProduction::with_api(
@@ -293,11 +288,10 @@ pub(super) fn production_owner_id(
     Ok(match &production.owner {
         DescriptorProductionOwner::Constructor { constructor } => {
             let DescriptorApplicationRef::Declared(id) = &constructor.application else {
-                return Err(DescriptorLoweringError::UnsupportedShape {
-                    node: "constructor production owner",
-                    detail: "builtin operations cannot own authored grammar".to_owned(),
-                    range: None,
-                });
+                return Err(DescriptorLoweringError::unsupported_shape(
+                    "constructor production owner",
+                    "builtin operations cannot own authored grammar",
+                ));
             };
             id.clone()
         }
@@ -312,17 +306,17 @@ pub(super) fn production_owner_id(
                     TokenProductionContent::Terminal(text)
                 }
                 _ => {
-                    return Err(DescriptorLoweringError::UnsupportedShape {
-                        node: "token production",
-                        detail: "a token production has exactly one regex or terminal".to_owned(),
-                        range: None,
-                    });
+                    return Err(DescriptorLoweringError::unsupported_shape(
+                        "token production",
+                        "a token production has exactly one regex or terminal",
+                    ));
                 }
             };
             generated_production_id(descriptor.id(), GeneratedProductionKind::Token { content })
                 .map_err(|error| DescriptorLoweringError::InvalidGeneratedIdentity {
                     detail: error.to_string(),
                     range: None,
+                    item: None,
                 })?
         }
         DescriptorProductionOwner::BracketSort { .. } => {
@@ -330,6 +324,7 @@ pub(super) fn production_owner_id(
                 |error| DescriptorLoweringError::InvalidGeneratedIdentity {
                     detail: error.to_string(),
                     range: None,
+                    item: None,
                 },
             )?
         }
@@ -345,10 +340,8 @@ fn lower_production_item(
             semantic_origin(descriptor, key.clone(), "production-item")?,
             text.clone(),
         )
-        .map_err(|error| DescriptorLoweringError::UnsupportedShape {
-            node: "production terminal",
-            detail: error.to_string(),
-            range: None,
+        .map_err(|error| {
+            DescriptorLoweringError::unsupported_shape("production terminal", error.to_string())
         }),
         DescriptorProductionItem::NonTerminal {
             key, field, sort, ..
@@ -368,10 +361,8 @@ fn lower_production_item(
             regex.clone(),
             follow_regex.clone(),
         )
-        .map_err(|error| DescriptorLoweringError::UnsupportedShape {
-            node: "production regex",
-            detail: error.to_string(),
-            range: None,
+        .map_err(|error| {
+            DescriptorLoweringError::unsupported_shape("production regex", error.to_string())
         }),
     }
 }
@@ -561,14 +552,13 @@ fn list_partner(
     partner: &krs_ir::DescriptorApplicationReference,
 ) -> Result<StableItemId, DescriptorLoweringError> {
     let DescriptorApplicationRef::Declared(id) = &partner.application else {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "syntactic list",
-            detail: format!(
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "syntactic list",
+            format!(
                 "{} names a builtin operation as its list partner",
                 descriptor.id()
             ),
-            range: None,
-        });
+        ));
     };
     Ok(id.clone())
 }

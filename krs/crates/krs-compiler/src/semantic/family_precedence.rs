@@ -71,6 +71,7 @@ pub(super) fn check_chainless_families(
                 "`{family}` needs a `#[k::precedence(..)]` chain: {variants}, so one `{family}` production can sit directly at the edge of another, where a chain decides how they parse; rank every variant, for example `#[k::precedence((A) > left (B, C))]`, or list them all in one bare tier to accept every nesting"
             ),
             range: first.origin().origin().exact_authored_range().map(Box::new),
+            item: Some(Box::new(first.id().clone())),
         });
     }
     Ok(())

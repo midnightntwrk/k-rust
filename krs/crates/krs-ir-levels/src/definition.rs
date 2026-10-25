@@ -13,9 +13,10 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::ir_level::DefinitionLevel;
 use crate::ir_validation::{
-    collect_configuration_nodes, insert_k_item_parents, insert_node, require_kind, require_sort,
-    validate_context_alias, validate_context_alias_frames, validate_fixed_configuration,
-    validate_precedence_order, validate_production_shape, validate_rule, validate_subsort_order,
+    ValidationFailure, collect_configuration_nodes, in_item, insert_k_item_parents, insert_node,
+    require_kind, require_sort, validate_context_alias, validate_context_alias_frames,
+    validate_fixed_configuration, validate_precedence_order, validate_production_shape,
+    validate_rule, validate_subsort_order,
 };
 use krs_ir::ir::validated_id;
 use krs_ir::sorted::{SortKey, SortedByKey};
@@ -376,6 +377,21 @@ impl<'de> Deserialize<'de> for DefinitionIr {
     }
 }
 
+/// A failed [`DefinitionIr`] validation: the error, the item whose sentence failed, and where.
+pub type DefinitionFailure = ValidationFailure<DefinitionValidationError>;
+
+/// The item a sentence was lowered from, as its origin's Definition-IR frame records it.
+fn sentence_item(origin: &NodeOrigin) -> Option<&StableItemId> {
+    match origin.origin().frames().last() {
+        Some(krs_ir::OriginFrame::Transformation {
+            kind: krs_ir::TransformationOriginKind::DefinitionIr,
+            item,
+            ..
+        }) => item.as_ref(),
+        _ => None,
+    }
+}
+
 impl DefinitionIr {
     /// Validates modules, symbols, labels, origins, references, and the sole
     /// configuration.
@@ -387,12 +403,25 @@ impl DefinitionIr {
         main_module: ModuleId,
         modules: Vec<DefinitionModule>,
     ) -> Result<Self, DefinitionValidationError> {
+        Self::new_located(main_module, modules).map_err(|failure| failure.error)
+    }
+
+    /// As [`Self::new`], and a failure names the item whose sentence failed and the innermost
+    /// node a term walk failed in that the author's text locates.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::new`].
+    pub fn new_located(
+        main_module: ModuleId,
+        modules: Vec<DefinitionModule>,
+    ) -> Result<Self, Box<DefinitionFailure>> {
         let definition = Self {
             schema_version: SchemaVersion::CURRENT,
             main_module,
             modules: SortedByKey::new(modules),
         };
-        definition.validate()?;
+        crate::ir_validation::located(|| definition.validate())?;
         Ok(definition)
     }
 
@@ -511,9 +540,9 @@ impl DefinitionIr {
         clippy::too_many_lines,
         reason = "One ordered pass checks whole-definition identities, references, and sentence invariants."
     )]
-    fn validate(&self) -> Result<(), DefinitionValidationError> {
+    fn validate(&self) -> Result<(), Box<DefinitionFailure>> {
         if self.modules.is_empty() {
-            return Err(DefinitionValidationError::EmptyDefinition);
+            return Err(DefinitionValidationError::EmptyDefinition.into());
         }
         let mut modules = BTreeSet::new();
         let mut nodes = BTreeSet::new();
@@ -533,9 +562,7 @@ impl DefinitionIr {
 
         for module in &self.modules {
             if !modules.insert(module.id.clone()) {
-                return Err(DefinitionValidationError::DuplicateModule(
-                    module.id.clone(),
-                ));
+                return Err(DefinitionValidationError::DuplicateModule(module.id.clone()).into());
             }
             insert_node::<DefinitionLevel>(&mut nodes, module.origin.key())?;
             for group in &module.production_groups {
@@ -543,155 +570,159 @@ impl DefinitionIr {
                 if !groups.insert(group.id.clone()) {
                     return Err(DefinitionValidationError::DuplicateProductionGroup(
                         group.id.clone(),
-                    ));
+                    )
+                    .into());
                 }
                 if !group_names.insert(group.emitted_name.clone()) {
                     return Err(DefinitionValidationError::DuplicateEmittedName(
                         group.emitted_name.clone(),
-                    ));
+                    )
+                    .into());
                 }
             }
             for sentence in &module.sentences {
-                insert_node::<DefinitionLevel>(&mut nodes, sentence.origin().key())?;
-                match sentence {
-                    DefinitionSentence::SyntaxSort(sentence) => {
-                        validate_symbol_text(&sentence.symbol)?;
-                        declare_symbol(
-                            &sentence.symbol,
-                            &mut symbols,
-                            &mut symbol_names,
-                            &mut symbol_declarations,
-                        )?;
-                    }
-                    DefinitionSentence::Production(sentence) => {
-                        validate_symbol_text(&sentence.symbol)?;
-                        declare_symbol(
-                            &sentence.symbol,
-                            &mut symbols,
-                            &mut symbol_names,
-                            &mut symbol_declarations,
-                        )?;
-                        crate::ir_validation::insert_production_signature::<DefinitionLevel>(
-                            &mut production_signatures,
-                            sentence.symbol.id.clone(),
-                            (
-                                sentence.result_sort.clone(),
-                                sentence.parameters.clone(),
-                                sentence
-                                    .items
-                                    .iter()
-                                    .filter_map(|item| match item.kind() {
-                                        GrammarProductionItemKind::NonTerminal { sort, .. } => {
-                                            Some(sort.clone())
-                                        }
-                                        GrammarProductionItemKind::Terminal { .. }
-                                        | GrammarProductionItemKind::RegexTerminal { .. } => None,
-                                    })
-                                    .collect(),
-                            ),
-                        )?;
-                        if sentence.attributes.iter().any(|attribute| {
-                            matches!(attribute, ProductionAttribute::Function { .. })
-                        }) {
-                            functional_productions.insert(sentence.symbol.id.clone());
+                in_item(sentence_item(sentence.origin()), || {
+                    insert_node::<DefinitionLevel>(&mut nodes, sentence.origin().key())?;
+                    match sentence {
+                        DefinitionSentence::SyntaxSort(sentence) => {
+                            validate_symbol_text(&sentence.symbol)?;
+                            declare_symbol(
+                                &sentence.symbol,
+                                &mut symbols,
+                                &mut symbol_names,
+                                &mut symbol_declarations,
+                            )?;
                         }
-                        if sentence
-                            .attributes
-                            .iter()
-                            .any(|attribute| matches!(attribute, ProductionAttribute::Alias { .. }))
-                        {
-                            alias_productions.insert(sentence.symbol.id.clone());
-                        }
-                        if sentence.attributes.iter().any(|attribute| {
-                            matches!(attribute, ProductionAttribute::Desugar { .. })
-                        }) {
-                            desugar_productions.insert(sentence.symbol.id.clone());
-                        }
-                        for item in &sentence.items {
-                            insert_node::<DefinitionLevel>(&mut nodes, item.origin().key())?;
-                        }
-                        for attribute in &sentence.attributes {
-                            insert_node::<DefinitionLevel>(&mut nodes, attribute.origin().key())?;
-                            if let ProductionAttribute::Strictness {
-                                using,
-                                fields,
-                                result_sort,
-                                ..
-                            } = attribute
-                            {
-                                if let Some(using) = using {
-                                    insert_node::<DefinitionLevel>(
-                                        &mut nodes,
-                                        using.origin().key(),
-                                    )?;
-                                }
-                                for field in fields {
-                                    insert_node::<DefinitionLevel>(
-                                        &mut nodes,
-                                        field.origin().key(),
-                                    )?;
-                                }
+                        DefinitionSentence::Production(sentence) => {
+                            validate_symbol_text(&sentence.symbol)?;
+                            declare_symbol(
+                                &sentence.symbol,
+                                &mut symbols,
+                                &mut symbol_names,
+                                &mut symbol_declarations,
+                            )?;
+                            crate::ir_validation::insert_production_signature::<DefinitionLevel>(
+                                &mut production_signatures,
+                                sentence.symbol.id.clone(),
+                                (
+                                    sentence.result_sort.clone(),
+                                    sentence.parameters.clone(),
+                                    sentence
+                                        .items
+                                        .iter()
+                                        .filter_map(|item| match item.kind() {
+                                            GrammarProductionItemKind::NonTerminal {
+                                                sort, ..
+                                            } => Some(sort.clone()),
+                                            GrammarProductionItemKind::Terminal { .. }
+                                            | GrammarProductionItemKind::RegexTerminal { .. } => {
+                                                None
+                                            }
+                                        })
+                                        .collect(),
+                                ),
+                            )?;
+                            if sentence.attributes.iter().any(|attribute| {
+                                matches!(attribute, ProductionAttribute::Function { .. })
+                            }) {
+                                functional_productions.insert(sentence.symbol.id.clone());
+                            }
+                            if sentence.attributes.iter().any(|attribute| {
+                                matches!(attribute, ProductionAttribute::Alias { .. })
+                            }) {
+                                alias_productions.insert(sentence.symbol.id.clone());
+                            }
+                            if sentence.attributes.iter().any(|attribute| {
+                                matches!(attribute, ProductionAttribute::Desugar { .. })
+                            }) {
+                                desugar_productions.insert(sentence.symbol.id.clone());
+                            }
+                            for item in &sentence.items {
+                                insert_node::<DefinitionLevel>(&mut nodes, item.origin().key())?;
+                            }
+                            for attribute in &sentence.attributes {
                                 insert_node::<DefinitionLevel>(
                                     &mut nodes,
-                                    result_sort.origin().key(),
+                                    attribute.origin().key(),
                                 )?;
+                                if let ProductionAttribute::Strictness {
+                                    using,
+                                    fields,
+                                    result_sort,
+                                    ..
+                                } = attribute
+                                {
+                                    if let Some(using) = using {
+                                        insert_node::<DefinitionLevel>(
+                                            &mut nodes,
+                                            using.origin().key(),
+                                        )?;
+                                    }
+                                    for field in fields {
+                                        insert_node::<DefinitionLevel>(
+                                            &mut nodes,
+                                            field.origin().key(),
+                                        )?;
+                                    }
+                                    insert_node::<DefinitionLevel>(
+                                        &mut nodes,
+                                        result_sort.origin().key(),
+                                    )?;
+                                }
+                            }
+                        }
+                        DefinitionSentence::Subsort(_)
+                        | DefinitionSentence::Precedence(_)
+                        | DefinitionSentence::Associativity(_)
+                        | DefinitionSentence::Lexical(_)
+                        | DefinitionSentence::Layout(_)
+                        | DefinitionSentence::Raw(_) => {}
+                        DefinitionSentence::Configuration(sentence) => {
+                            configurations += 1;
+                            insert_node::<DefinitionLevel>(
+                                &mut nodes,
+                                sentence.initializer_origin().key(),
+                            )?;
+                            collect_configuration_nodes::<DefinitionLevel>(
+                                sentence,
+                                &mut (&mut symbols, &mut symbol_names),
+                                &mut nodes,
+                            )?;
+                        }
+                        DefinitionSentence::ContextAlias(sentence) => {
+                            if sentence.id.item_kind() != ItemKind::ContextAlias
+                                || !context_aliases.insert(sentence.id.clone())
+                            {
+                                return Err(DefinitionValidationError::AdapterSpecificValue(
+                                    krs_ir::IrField::ContextAliasIdentity,
+                                ));
+                            }
+                            insert_node::<DefinitionLevel>(&mut nodes, sentence.name_origin.key())?;
+                            insert_node::<DefinitionLevel>(&mut nodes, sentence.here_origin.key())?;
+                        }
+                        DefinitionSentence::Rule(sentence) => {
+                            validate_label_text(&sentence.label)?;
+                            if !labels.insert(sentence.label.id.clone()) {
+                                return Err(DefinitionValidationError::DuplicateLabel(
+                                    sentence.label.id.clone(),
+                                ));
+                            }
+                            if !label_names.insert(sentence.label.emitted_name.clone()) {
+                                return Err(DefinitionValidationError::DuplicateEmittedName(
+                                    sentence.label.emitted_name.clone(),
+                                ));
                             }
                         }
                     }
-                    DefinitionSentence::Subsort(_)
-                    | DefinitionSentence::Precedence(_)
-                    | DefinitionSentence::Associativity(_)
-                    | DefinitionSentence::Lexical(_)
-                    | DefinitionSentence::Layout(_)
-                    | DefinitionSentence::Raw(_) => {}
-                    DefinitionSentence::Configuration(sentence) => {
-                        configurations += 1;
-                        insert_node::<DefinitionLevel>(
-                            &mut nodes,
-                            sentence.initializer_origin().key(),
-                        )?;
-                        collect_configuration_nodes::<DefinitionLevel>(
-                            sentence,
-                            &mut (&mut symbols, &mut symbol_names),
-                            &mut nodes,
-                        )?;
-                    }
-                    DefinitionSentence::ContextAlias(sentence) => {
-                        if sentence.id.item_kind() != ItemKind::ContextAlias
-                            || !context_aliases.insert(sentence.id.clone())
-                        {
-                            return Err(DefinitionValidationError::AdapterSpecificValue(
-                                krs_ir::IrField::ContextAliasIdentity,
-                            ));
-                        }
-                        insert_node::<DefinitionLevel>(&mut nodes, sentence.name_origin.key())?;
-                        insert_node::<DefinitionLevel>(&mut nodes, sentence.here_origin.key())?;
-                    }
-                    DefinitionSentence::Rule(sentence) => {
-                        validate_label_text(&sentence.label)?;
-                        if !labels.insert(sentence.label.id.clone()) {
-                            return Err(DefinitionValidationError::DuplicateLabel(
-                                sentence.label.id.clone(),
-                            ));
-                        }
-                        if !label_names.insert(sentence.label.emitted_name.clone()) {
-                            return Err(DefinitionValidationError::DuplicateEmittedName(
-                                sentence.label.emitted_name.clone(),
-                            ));
-                        }
-                    }
-                }
+                    Ok(())
+                })?;
             }
         }
         if !modules.contains(&self.main_module) {
-            return Err(DefinitionValidationError::DanglingModule(
-                self.main_module.clone(),
-            ));
+            return Err(DefinitionValidationError::DanglingModule(self.main_module.clone()).into());
         }
         if configurations != 1 {
-            return Err(DefinitionValidationError::ConfigurationCount(
-                configurations,
-            ));
+            return Err(DefinitionValidationError::ConfigurationCount(configurations).into());
         }
         let fixed_configuration = self.modules.iter().find_map(|module| {
             module.sentences.iter().find_map(|sentence| match sentence {
@@ -704,78 +735,81 @@ impl DefinitionIr {
         for module in &self.modules {
             for import in &module.imports {
                 if !modules.contains(import) {
-                    return Err(DefinitionValidationError::DanglingModule(import.clone()));
+                    return Err(DefinitionValidationError::DanglingModule(import.clone()).into());
                 }
             }
             for sentence in &module.sentences {
-                match sentence {
-                    DefinitionSentence::SyntaxSort(sentence) => {
-                        require_kind::<DefinitionLevel>(
-                            &symbols,
-                            sentence.symbol.id(),
-                            SymbolKind::Sort,
-                        )?;
-                    }
-                    DefinitionSentence::Subsort(sentence) => {
-                        require_sort::<DefinitionLevel>(&symbols, &sentence.subsort)?;
-                        require_sort::<DefinitionLevel>(&symbols, &sentence.supersort)?;
-                    }
-                    DefinitionSentence::Production(sentence) => {
-                        validate_production(sentence, &symbols, &groups, &context_aliases)?;
-                    }
-                    DefinitionSentence::Precedence(sentence) => {
-                        for group in sentence.higher().iter().chain(sentence.lower()) {
-                            require_definition_group(&groups, group)?;
+                in_item(sentence_item(sentence.origin()), || {
+                    match sentence {
+                        DefinitionSentence::SyntaxSort(sentence) => {
+                            require_kind::<DefinitionLevel>(
+                                &symbols,
+                                sentence.symbol.id(),
+                                SymbolKind::Sort,
+                            )?;
+                        }
+                        DefinitionSentence::Subsort(sentence) => {
+                            require_sort::<DefinitionLevel>(&symbols, &sentence.subsort)?;
+                            require_sort::<DefinitionLevel>(&symbols, &sentence.supersort)?;
+                        }
+                        DefinitionSentence::Production(sentence) => {
+                            validate_production(sentence, &symbols, &groups, &context_aliases)?;
+                        }
+                        DefinitionSentence::Precedence(sentence) => {
+                            for group in sentence.higher().iter().chain(sentence.lower()) {
+                                require_definition_group(&groups, group)?;
+                            }
+                        }
+                        DefinitionSentence::Associativity(sentence) => {
+                            for group in sentence.groups() {
+                                require_definition_group(&groups, group)?;
+                            }
+                        }
+                        DefinitionSentence::Lexical(_) | DefinitionSentence::Layout(_) => {}
+                        DefinitionSentence::Raw(sentence) => {
+                            if sentence.text.trim().is_empty() {
+                                return Err(DefinitionValidationError::EmptyText(
+                                    krs_ir::IrField::RawSentenceText,
+                                ));
+                            }
+                        }
+                        DefinitionSentence::Configuration(sentence) => {
+                            validate_fixed_configuration::<DefinitionLevel>(
+                                sentence,
+                                &symbols,
+                                &production_signatures,
+                                &subsort_parents,
+                                &BTreeSet::new(),
+                                &mut nodes,
+                            )?;
+                        }
+                        DefinitionSentence::ContextAlias(sentence) => {
+                            validate_context_alias::<DefinitionLevel>(
+                                sentence,
+                                &symbols,
+                                &production_signatures,
+                                &subsort_parents,
+                                &BTreeSet::new(),
+                                &mut nodes,
+                            )?;
+                        }
+                        DefinitionSentence::Rule(sentence) => {
+                            validate_rule::<DefinitionLevel>(
+                                sentence,
+                                fixed_configuration,
+                                &symbols,
+                                &production_signatures,
+                                &functional_productions,
+                                &alias_productions,
+                                &desugar_productions,
+                                &subsort_parents,
+                                &BTreeSet::new(),
+                                &mut nodes,
+                            )?;
                         }
                     }
-                    DefinitionSentence::Associativity(sentence) => {
-                        for group in sentence.groups() {
-                            require_definition_group(&groups, group)?;
-                        }
-                    }
-                    DefinitionSentence::Lexical(_) | DefinitionSentence::Layout(_) => {}
-                    DefinitionSentence::Raw(sentence) => {
-                        if sentence.text.trim().is_empty() {
-                            return Err(DefinitionValidationError::EmptyText(
-                                krs_ir::IrField::RawSentenceText,
-                            ));
-                        }
-                    }
-                    DefinitionSentence::Configuration(sentence) => {
-                        validate_fixed_configuration::<DefinitionLevel>(
-                            sentence,
-                            &symbols,
-                            &production_signatures,
-                            &subsort_parents,
-                            &BTreeSet::new(),
-                            &mut nodes,
-                        )?;
-                    }
-                    DefinitionSentence::ContextAlias(sentence) => {
-                        validate_context_alias::<DefinitionLevel>(
-                            sentence,
-                            &symbols,
-                            &production_signatures,
-                            &subsort_parents,
-                            &BTreeSet::new(),
-                            &mut nodes,
-                        )?;
-                    }
-                    DefinitionSentence::Rule(sentence) => {
-                        validate_rule::<DefinitionLevel>(
-                            sentence,
-                            fixed_configuration,
-                            &symbols,
-                            &production_signatures,
-                            &functional_productions,
-                            &alias_productions,
-                            &desugar_productions,
-                            &subsort_parents,
-                            &BTreeSet::new(),
-                            &mut nodes,
-                        )?;
-                    }
-                }
+                    Ok(())
+                })?;
             }
         }
         validate_hook_point_constructors(&self.modules)?;
@@ -784,11 +818,13 @@ impl DefinitionIr {
         for module in &self.modules {
             for sentence in &module.sentences {
                 if let DefinitionSentence::ContextAlias(alias) = sentence {
-                    validate_context_alias_frames::<DefinitionLevel>(
-                        alias,
-                        fixed_configuration,
-                        &symbols,
-                    )?;
+                    in_item(Some(&alias.id), || {
+                        validate_context_alias_frames::<DefinitionLevel>(
+                            alias,
+                            fixed_configuration,
+                            &symbols,
+                        )
+                    })?;
                 }
             }
         }

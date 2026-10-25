@@ -94,9 +94,8 @@ fn contains(value: &serde_json::Value, needle: &serde_json::Value) -> bool {
     reason = "Used as a `map_err` adapter that receives the error by value."
 )]
 fn json_error(error: serde_json::Error) -> DescriptorLoweringError {
-    DescriptorLoweringError::UnsupportedShape {
-        node: "proof sentence",
-        detail: format!("cannot inspect a proof sentence's references: {error}"),
-        range: None,
-    }
+    DescriptorLoweringError::unsupported_shape(
+        "proof sentence",
+        format!("cannot inspect a proof sentence's references: {error}"),
+    )
 }

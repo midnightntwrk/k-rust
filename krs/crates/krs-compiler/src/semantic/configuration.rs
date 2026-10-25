@@ -177,6 +177,7 @@ fn console_error(reason: String, origin: &NodeOrigin) -> DescriptorLoweringError
     DescriptorLoweringError::InvalidConsoleCell {
         reason,
         range: origin.origin().exact_authored_range().map(Box::new),
+        item: None,
     }
 }
 
@@ -303,6 +304,7 @@ impl ConsoleCells {
                                 .exact_authored_range()
                                 .map(Box::new)
                                 .or_else(|| range.clone()),
+                            item: None,
                         });
                     }
                 }
@@ -332,11 +334,10 @@ fn cell_attributes(
     }
     if let Some(multiplicity) = &field.multiplicity {
         let value = CellMultiplicity::from_k(&multiplicity.value).ok_or_else(|| {
-            DescriptorLoweringError::UnsupportedShape {
-                node: "cell multiplicity",
-                detail: format!("unsupported multiplicity {:?}", multiplicity.value),
-                range: None,
-            }
+            DescriptorLoweringError::unsupported_shape(
+                "cell multiplicity",
+                format!("unsupported multiplicity {:?}", multiplicity.value),
+            )
         })?;
         if value == CellMultiplicity::Star && declaration.fields.len() != 1 {
             return Err(super::cell_states::collection_error(
@@ -426,14 +427,13 @@ fn lower_cell_declaration(
             }
             ProtocolCellContent::Nested { declaration } => {
                 if !visiting.insert(declaration.declaration.clone()) {
-                    return Err(DescriptorLoweringError::UnsupportedShape {
-                        node: "nested cell declaration",
-                        detail: format!(
+                    return Err(DescriptorLoweringError::unsupported_shape(
+                        "nested cell declaration",
+                        format!(
                             "cyclic nominal cell declaration at {}",
                             declaration.declaration
                         ),
-                        range: None,
-                    });
+                    ));
                 }
                 let (nested, nested_declaration) =
                     declarations.cell_descriptor(&declaration.declaration)?;
@@ -571,6 +571,7 @@ fn check_configuration_variables_read(
             unused.binding, unused.external_name
         ),
         range: key_range(descriptor, &unused.binding_key).map(Box::new),
+        item: None,
     })
 }
 
@@ -582,7 +583,7 @@ fn lower_initializer_cell(
     tables: &InitializerTables<'_>,
 ) -> Result<FixedInitializerCell<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     lower_initializer_cell_content(descriptor, cell, declarations, tables)
-        .map_err(|error| error.within(key_range(descriptor, &cell.key).as_ref()))
+        .map_err(|error| error.within(descriptor.id(), key_range(descriptor, &cell.key).as_ref()))
 }
 
 fn lower_initializer_cell_content(
@@ -658,7 +659,7 @@ fn lower_initializer_state(
                     descriptor.id(),
                     "K sequence initializes a non-KSequence cell",
                 )
-                .within(key_range(descriptor, key).as_ref()));
+                .within(descriptor.id(), key_range(descriptor, key).as_ref()));
             }
             let items = sequence
                 .items
@@ -666,7 +667,9 @@ fn lower_initializer_state(
                 .map(|item| lower_term(&item.value.term, None))
                 .collect::<Result<Vec<_>, _>>()?;
             let item_sort = common_sequence_item_sort(descriptor, &items, sort_parents, false)
-                .map_err(|error| error.within(key_range(descriptor, key).as_ref()))?;
+                .map_err(|error| {
+                    error.within(descriptor.id(), key_range(descriptor, key).as_ref())
+                })?;
             Ok(SemanticTerm::k_sequence(
                 semantic_origin(descriptor, key.clone(), "initializer-k-sequence")?,
                 item_sort,
@@ -680,7 +683,7 @@ fn lower_initializer_state(
                     descriptor.id(),
                     "map initializes a non-Map cell",
                 )
-                .within(key_range(descriptor, key).as_ref()));
+                .within(descriptor.id(), key_range(descriptor, key).as_ref()));
             }
             let operands = match &map.body {
                 ProtocolMapBody::Empty { .. } => MapOperands::Empty,
@@ -817,6 +820,7 @@ pub(super) fn check_stdin_reads(
                     .origin()
                     .exact_authored_range()
                     .map(Box::new),
+                item: None,
             });
         }
     }

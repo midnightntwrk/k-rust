@@ -30,6 +30,7 @@ pub(super) fn check_smtlib_symbols(
                         production_display_name(production.id()),
                     ),
                     range: origin.origin().exact_authored_range().map(Box::new),
+                    item: Some(Box::new(production.id().clone())),
                 });
             }
         }

@@ -25,15 +25,14 @@ pub(super) fn validate_all_stable_references(
                 validate_sort_ref(&constructor.sort, declarations)?;
                 for field in &constructor.fields {
                     let sort = field.sort.as_ref().ok_or_else(|| {
-                        DescriptorLoweringError::UnsupportedShape {
-                            node: "constructor field",
-                            detail: format!(
+                        DescriptorLoweringError::unsupported_shape(
+                            "constructor field",
+                            format!(
                                 "field {:?} on {} has no resolved sort",
                                 field.name,
                                 descriptor.id()
                             ),
-                            range: None,
-                        }
+                        )
                     })?;
                     validate_sort_ref(sort, declarations)?;
                 }

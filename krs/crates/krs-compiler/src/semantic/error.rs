@@ -57,6 +57,8 @@ pub enum DescriptorLoweringError {
         range: Option<Box<SourceRange>>,
         /// The exact authored range of the first configuration, when there are several.
         first: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// A stable reference names no selected descriptor.
     DanglingReference {
@@ -102,6 +104,8 @@ pub enum DescriptorLoweringError {
         detail: String,
         /// The exact authored range of the error's subject, when it has one.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// Two readable head-rule patterns can match one configuration state.
     OverlappingRules {
@@ -182,6 +186,8 @@ pub enum DescriptorLoweringError {
         reason: String,
         /// Sole exact authored range of the first such variant.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// An author spec module breaks a K proof-module rule (KF-041).
     InvalidSpecModule {
@@ -505,6 +511,8 @@ pub enum DescriptorLoweringError {
         reason: String,
         /// Sole exact authored range of the offending declaration.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// A heat or cool rule does not bind its hole exactly once on its left
     /// side (KF-014).
@@ -513,6 +521,8 @@ pub enum DescriptorLoweringError {
         reason: String,
         /// Sole exact authored range of the `hole = x` binder.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// A context's hole is absent, bound twice, outside the computation
     /// cell, or badly rewritten, or a context alias's HERE is outside the
@@ -522,6 +532,8 @@ pub enum DescriptorLoweringError {
         reason: String,
         /// Exact authored range of the offending binder or cell.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// A fresh binder's sort has no usable generator, or a generator is
     /// malformed or repeated (KF-022).
@@ -532,6 +544,8 @@ pub enum DescriptorLoweringError {
         reason: String,
         /// Sole exact authored range of the offending binder or function.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// A `concrete` or `symbolic` key names no left-hand binder, restricts one
     /// binder both ways, or is inconsistent across a function's equations (KF-043).
@@ -540,6 +554,8 @@ pub enum DescriptorLoweringError {
         reason: String,
         /// Sole exact authored range of the offending key or binder.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// An alias or desugar clause does not expand a production of its own
     /// mode, or an alias or desugar production has no clause (KF-028).
@@ -548,6 +564,8 @@ pub enum DescriptorLoweringError {
         reason: String,
         /// Sole exact authored range of the clause name or production marker.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// A named constant's value is not a ground constructor term, the
     /// constants form a cycle, or a use applies a constant to arguments.
@@ -556,6 +574,8 @@ pub enum DescriptorLoweringError {
         reason: String,
         /// Sole exact authored range of the offending term or use.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// An `smt_lemma` mentions a function Z3 cannot see (KF-043).
     SmtLemmaUntranslatable {
@@ -563,6 +583,8 @@ pub enum DescriptorLoweringError {
         reason: String,
         /// Sole exact authored range of the `smt_lemma` flag.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// Two functions declare the same `smtlib` symbol (KF-044).
     DuplicateSmtlib {
@@ -570,6 +592,8 @@ pub enum DescriptorLoweringError {
         reason: String,
         /// Sole exact authored range of the second declaration.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// A `stream` or `exit` cell does not have the shape K requires (KF-035).
     InvalidConsoleCell {
@@ -577,6 +601,8 @@ pub enum DescriptorLoweringError {
         reason: String,
         /// Sole exact authored range of the offending attribute.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// An optional or collection cell entry K cannot express (KF-023).
     CellCollection {
@@ -586,6 +612,8 @@ pub enum DescriptorLoweringError {
         reason: String,
         /// Sole exact authored range of the offending entry.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// A configuration entry whose wrapper is not its cell's.
     CellWrapper {
@@ -593,6 +621,8 @@ pub enum DescriptorLoweringError {
         reason: String,
         /// Sole exact authored range of the entry.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// A configuration variable no cell's initial content reads.
     UnusedConfigurationVariable {
@@ -600,6 +630,8 @@ pub enum DescriptorLoweringError {
         reason: String,
         /// The exact authored range of the parameter.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// A compiler-generated module, semantic, or source-map identity was invalid.
     InvalidGeneratedIdentity {
@@ -607,6 +639,8 @@ pub enum DescriptorLoweringError {
         detail: String,
         /// The exact authored range of the error's subject, when it has one.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// Whole-theory validation rejected the constructed graph.
     InvalidSemanticTheory {
@@ -614,6 +648,8 @@ pub enum DescriptorLoweringError {
         error: SemanticValidationError,
         /// The exact authored range of the error's subject, when it has one.
         range: Option<Box<SourceRange>>,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
 }
 
@@ -639,78 +675,313 @@ pub enum NondetGroupProblem {
     },
 }
 
-/// Matches every variant of a [`DescriptorLoweringError`] by its authored-location slot, binding
-/// it to `$range` (an overlap names its second head; two overlapping match arms are located by
-/// construction and have none). Explicit for every variant, so a new one cannot be added without
-/// deciding where it is located.
-macro_rules! by_location_slot {
-    ($error:expr, $range:ident => $located:expr, arms => $arms:expr) => {
+/// Matches every variant of a [`DescriptorLoweringError`] by its subject slots: its
+/// authored-range slot and the item it is about. A variant names its item by construction
+/// (`named`: an overlap names its second rule, the primary) or has a slot its enclosing frames
+/// fill (`open`); two overlapping match arms are located by construction and have no range slot
+/// (`arms`, which names the second equation). Explicit for every variant, so a new one cannot be
+/// added without deciding where it is located and which item it is about.
+macro_rules! by_subject_slots {
+    (
+        $error:expr,
+        named($named_range:pat, $named_item:pat) => $named:expr,
+        open($open_range:pat, $open_item:pat) => $open:expr,
+        arms($arms_item:pat) => $arms:expr $(,)?
+    ) => {
         match $error {
             DescriptorLoweringError::OverlappingRules {
-                second_head_range: $range,
+                second_head_range: $named_range,
+                second: $named_item,
                 ..
             }
             | DescriptorLoweringError::OverlappingEquations {
-                second_head_range: $range,
+                second_head_range: $named_range,
+                second: $named_item,
                 ..
             }
-            | DescriptorLoweringError::BuiltinSortNameCollision { range: $range, .. }
-            | DescriptorLoweringError::ConfigurationCount { range: $range, .. }
-            | DescriptorLoweringError::DanglingReference { range: $range, .. }
-            | DescriptorLoweringError::ReferenceKindMismatch { range: $range, .. }
-            | DescriptorLoweringError::ParserReferenceDisagreement { range: $range, .. }
-            | DescriptorLoweringError::InvalidTerm { range: $range, .. }
-            | DescriptorLoweringError::UnsupportedShape { range: $range, .. }
-            | DescriptorLoweringError::AmbiguousOrPattern { range: $range, .. }
-            | DescriptorLoweringError::NondetGroup { range: $range, .. }
-            | DescriptorLoweringError::InvalidOverload { range: $range, .. }
-            | DescriptorLoweringError::MissingPrecedenceChain { range: $range, .. }
-            | DescriptorLoweringError::InvalidSpecModule { range: $range, .. }
-            | DescriptorLoweringError::PrivateProductionInSpec { range: $range, .. }
-            | DescriptorLoweringError::RuleChangesNoCell { range: $range, .. }
-            | DescriptorLoweringError::GroupAndDescendant { range: $range, .. }
-            | DescriptorLoweringError::AmbiguousCellSort { range: $range, .. }
-            | DescriptorLoweringError::AlwaysEnabledRule { range: $range, .. }
-            | DescriptorLoweringError::InvalidSortTest { range: $range, .. }
-            | DescriptorLoweringError::BitTemplateSort { range: $range, .. }
-            | DescriptorLoweringError::IncompatibleBinder { range: $range, .. }
-            | DescriptorLoweringError::CollectionElementSort { range: $range, .. }
-            | DescriptorLoweringError::UntypedCollection { range: $range, .. }
-            | DescriptorLoweringError::InvalidPatternAs { range: $range, .. }
-            | DescriptorLoweringError::InvalidRecordUpdate { range: $range, .. }
-            | DescriptorLoweringError::InvalidPatternOr { range: $range, .. }
-            | DescriptorLoweringError::InvalidOperator { range: $range, .. }
-            | DescriptorLoweringError::InvalidMatches { range: $range, .. }
-            | DescriptorLoweringError::InvalidLet { range: $range, .. }
-            | DescriptorLoweringError::MlPlacement { range: $range, .. }
-            | DescriptorLoweringError::InvalidMlPredicate { range: $range, .. }
-            | DescriptorLoweringError::InvalidLocalRewrite { range: $range, .. }
-            | DescriptorLoweringError::InvalidFunctionContext { range: $range, .. }
-            | DescriptorLoweringError::InvalidParametricProduction { range: $range, .. }
-            | DescriptorLoweringError::ParametricInstance { range: $range, .. }
-            | DescriptorLoweringError::NativeInstance { range: $range, .. }
-            | DescriptorLoweringError::InvalidTokenSort { range: $range, .. }
-            | DescriptorLoweringError::TokenCollision { range: $range, .. }
-            | DescriptorLoweringError::InvalidSyntaxList { range: $range, .. }
-            | DescriptorLoweringError::InvalidListNotation { range: $range, .. }
-            | DescriptorLoweringError::AmbiguousListPattern { range: $range, .. }
-            | DescriptorLoweringError::InvalidConsList { range: $range, .. }
-            | DescriptorLoweringError::InvalidLexical { range: $range, .. }
-            | DescriptorLoweringError::InvalidEvaluationStep { range: $range, .. }
-            | DescriptorLoweringError::InvalidContext { range: $range, .. }
-            | DescriptorLoweringError::InvalidFresh { range: $range, .. }
-            | DescriptorLoweringError::InvalidMatchRestriction { range: $range, .. }
-            | DescriptorLoweringError::InvalidStaticClause { range: $range, .. }
-            | DescriptorLoweringError::InvalidConstant { range: $range, .. }
-            | DescriptorLoweringError::SmtLemmaUntranslatable { range: $range, .. }
-            | DescriptorLoweringError::DuplicateSmtlib { range: $range, .. }
-            | DescriptorLoweringError::InvalidConsoleCell { range: $range, .. }
-            | DescriptorLoweringError::CellCollection { range: $range, .. }
-            | DescriptorLoweringError::CellWrapper { range: $range, .. }
-            | DescriptorLoweringError::UnusedConfigurationVariable { range: $range, .. }
-            | DescriptorLoweringError::InvalidGeneratedIdentity { range: $range, .. }
-            | DescriptorLoweringError::InvalidSemanticTheory { range: $range, .. } => $located,
-            DescriptorLoweringError::OverlappingMatchArms { .. } => $arms,
+            | DescriptorLoweringError::BuiltinSortNameCollision {
+                range: $named_range,
+                id: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::DanglingReference {
+                range: $named_range,
+                id: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::ReferenceKindMismatch {
+                range: $named_range,
+                id: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::ParserReferenceDisagreement {
+                range: $named_range,
+                id: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidTerm {
+                range: $named_range,
+                id: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::AmbiguousOrPattern {
+                range: $named_range,
+                rule: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::NondetGroup {
+                range: $named_range,
+                rule: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidOverload {
+                range: $named_range,
+                production: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::PrivateProductionInSpec {
+                range: $named_range,
+                sentence: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::RuleChangesNoCell {
+                range: $named_range,
+                rule: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::GroupAndDescendant {
+                range: $named_range,
+                rule: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::AmbiguousCellSort {
+                range: $named_range,
+                declaration: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::AlwaysEnabledRule {
+                range: $named_range,
+                rule: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidSpecModule {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidSortTest {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::BitTemplateSort {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::IncompatibleBinder {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::CollectionElementSort {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::UntypedCollection {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidPatternAs {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidRecordUpdate {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidPatternOr {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidOperator {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidMatches {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidLet {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::MlPlacement {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidMlPredicate {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidLocalRewrite {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidFunctionContext {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidParametricProduction {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::ParametricInstance {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::NativeInstance {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidTokenSort {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::TokenCollision {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidSyntaxList {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidListNotation {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::AmbiguousListPattern {
+                range: $named_range,
+                item: $named_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidConsList {
+                range: $named_range,
+                item: $named_item,
+                ..
+            } => $named,
+            DescriptorLoweringError::UnsupportedShape {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::ConfigurationCount {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::MissingPrecedenceChain {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidLexical {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidEvaluationStep {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidContext {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidFresh {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidMatchRestriction {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidStaticClause {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidConstant {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::SmtLemmaUntranslatable {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::DuplicateSmtlib {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidConsoleCell {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::CellCollection {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::CellWrapper {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::UnusedConfigurationVariable {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidGeneratedIdentity {
+                range: $open_range,
+                item: $open_item,
+                ..
+            }
+            | DescriptorLoweringError::InvalidSemanticTheory {
+                range: $open_range,
+                item: $open_item,
+                ..
+            } => $open,
+            DescriptorLoweringError::OverlappingMatchArms {
+                second: $arms_item, ..
+            } => $arms,
         }
     };
 }
@@ -719,60 +990,49 @@ impl DescriptorLoweringError {
     /// The exact authored range of the error's subject, if known.
     #[must_use]
     pub fn range(&self) -> Option<&SourceRange> {
-        by_location_slot!(self, range => range.as_deref(), arms => None)
+        by_subject_slots!(
+            self,
+            named(range, _item) => range.as_deref(),
+            open(range, _item) => range.as_deref(),
+            arms(_item) => None,
+        )
     }
 
-    /// This error located at `range` when it has no location yet: the traversal that encloses a
-    /// failure attaches its node's range, innermost first, so the innermost keyed node around
-    /// the raise site becomes the error's subject.
+    /// This error located at `range` and about `item` when it has neither yet: the traversal
+    /// that encloses a failure attaches its node's range and item, innermost first, so the
+    /// innermost keyed node around the raise site becomes the error's subject and the innermost
+    /// frame that knows an item names it.
     #[must_use]
-    pub fn within(mut self, range: Option<&SourceRange>) -> Self {
-        if let Some(range) = range {
-            by_location_slot!(&mut self, slot => {
-                if slot.is_none() {
-                    *slot = Some(Box::new(range.clone()));
+    pub fn within(mut self, item: &StableItemId, range: Option<&SourceRange>) -> Self {
+        let fill_range = |slot: &mut Option<Box<SourceRange>>| {
+            if slot.is_none() {
+                *slot = range.cloned().map(Box::new);
+            }
+        };
+        by_subject_slots!(
+            &mut self,
+            named(slot, _item) => fill_range(slot),
+            open(slot, subject) => {
+                fill_range(slot);
+                if subject.is_none() {
+                    *subject = Some(Box::new(item.clone()));
                 }
-            }, arms => ());
-        }
+            },
+            arms(_item) => (),
+        );
         self
     }
 
-    /// The item the error is about, when the error names one: an error without a range names its
-    /// item instead, so a tool can still group it.
-    fn subject_item(&self) -> Option<&StableItemId> {
-        match self {
-            Self::InvalidSpecModule { item, .. }
-            | Self::InvalidSortTest { item, .. }
-            | Self::BitTemplateSort { item, .. }
-            | Self::IncompatibleBinder { item, .. }
-            | Self::CollectionElementSort { item, .. }
-            | Self::UntypedCollection { item, .. }
-            | Self::InvalidPatternAs { item, .. }
-            | Self::InvalidRecordUpdate { item, .. }
-            | Self::InvalidPatternOr { item, .. }
-            | Self::InvalidOperator { item, .. }
-            | Self::InvalidMatches { item, .. }
-            | Self::InvalidLet { item, .. }
-            | Self::MlPlacement { item, .. }
-            | Self::InvalidMlPredicate { item, .. }
-            | Self::InvalidLocalRewrite { item, .. }
-            | Self::InvalidFunctionContext { item, .. }
-            | Self::InvalidParametricProduction { item, .. }
-            | Self::ParametricInstance { item, .. }
-            | Self::NativeInstance { item, .. }
-            | Self::InvalidTokenSort { item, .. }
-            | Self::TokenCollision { item, .. }
-            | Self::InvalidSyntaxList { item, .. }
-            | Self::InvalidListNotation { item, .. }
-            | Self::AmbiguousListPattern { item, .. }
-            | Self::InvalidConsList { item, .. }
-            | Self::BuiltinSortNameCollision { id: item, .. }
-            | Self::DanglingReference { id: item, .. }
-            | Self::ReferenceKindMismatch { id: item, .. }
-            | Self::ParserReferenceDisagreement { id: item, .. }
-            | Self::InvalidTerm { id: item, .. } => Some(item),
-            _ => None,
-        }
+    /// The item the error is about, when it names one: an error without a range names its item
+    /// instead, so a tool can still group it.
+    #[must_use]
+    pub fn subject_item(&self) -> Option<&StableItemId> {
+        by_subject_slots!(
+            self,
+            named(_range, item) => Some(&**item),
+            open(_range, item) => item.as_deref(),
+            arms(item) => Some(&**item),
+        )
     }
 
     /// A wrapper error about the cell `name` (this cell, when no name is at hand), which takes
@@ -794,15 +1054,21 @@ impl DescriptorLoweringError {
                 "{cell} is a nested cell group: its entry is the group itself (a binder, `_`, `k::fragment![..]` or the group's record), with no wrapper"
             ),
         };
-        Self::CellWrapper { reason, range }
+        Self::CellWrapper {
+            reason,
+            range,
+            item: None,
+        }
     }
 
-    /// An unsupported-shape error, without a range: the traversal that encloses it locates it.
+    /// An unsupported-shape error, without a range or an item: the traversal that encloses it
+    /// locates it and names its item.
     pub(crate) fn unsupported_shape(node: &'static str, detail: impl Into<String>) -> Self {
         Self::UnsupportedShape {
             node,
             detail: detail.into(),
             range: None,
+            item: None,
         }
     }
 
@@ -1194,23 +1460,24 @@ impl From<IrIdentityError> for DescriptorLoweringError {
         Self::InvalidGeneratedIdentity {
             detail: error.to_string(),
             range: None,
+            item: None,
         }
     }
 }
 
 impl From<SemanticValidationError> for DescriptorLoweringError {
     fn from(error: SemanticValidationError) -> Self {
-        Self::InvalidSemanticTheory { error, range: None }
+        Self::InvalidSemanticTheory {
+            error,
+            range: None,
+            item: None,
+        }
     }
 }
 
 impl From<krs_ir::StateShapeError> for DescriptorLoweringError {
     fn from(error: krs_ir::StateShapeError) -> Self {
-        Self::UnsupportedShape {
-            node: "fixed configuration",
-            detail: error.to_string(),
-            range: None,
-        }
+        Self::unsupported_shape("fixed configuration", error.to_string())
     }
 }
 
@@ -1244,6 +1511,36 @@ fn later_arm(arms: &(SourceRange, SourceRange)) -> (&SourceRange, &SourceRange) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_innermost_frame_names_the_item_and_the_range() {
+        let inner = krs_ir::testing::item("rules", "inner", ItemKind::Rule);
+        let outer = krs_ir::testing::item("rules", "outer", ItemKind::Rule);
+        let range = krs_ir::testing::authored(3, 8)
+            .exact_authored_range()
+            .unwrap();
+        let error = DescriptorLoweringError::unsupported_shape("rule", "detail");
+        assert_eq!(error.subject_item(), None);
+        let error = error.within(&inner, None).within(&outer, Some(&range));
+        assert_eq!(error.subject_item(), Some(&inner));
+        assert_eq!(error.range(), Some(&range));
+
+        // Unlocated, the diagnostic names the item instead.
+        let unlocated = DescriptorLoweringError::unsupported_shape("rule", "detail")
+            .within(&inner, None)
+            .to_diagnostic();
+        assert!(matches!(unlocated.primary.location, Location::None));
+        assert_eq!(unlocated.item, Some(inner.to_string()));
+
+        // An item named by construction is kept; an overlap names its second rule.
+        let named = DescriptorLoweringError::OverlappingRules {
+            first: Box::new(outer.clone()),
+            second: Box::new(inner.clone()),
+            second_head_range: None,
+        }
+        .within(&outer, None);
+        assert_eq!(named.subject_item(), Some(&inner));
+    }
 
     #[test]
     fn overlapping_rules_own_the_code_head_range_and_ordered_notes() {

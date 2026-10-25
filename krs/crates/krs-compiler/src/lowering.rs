@@ -104,6 +104,8 @@ pub enum LoweringError {
         node: &'static str,
         /// Deterministic explanatory detail.
         detail: String,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// Authored syntax is not representable by the production-template subset.
     InvalidProductionTemplate {
@@ -118,6 +120,8 @@ pub enum LoweringError {
         role: &'static str,
         /// Rejected text.
         value: String,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
     },
     /// Two semantic declarations selected the same Definition identity or emitted name.
     NameCollision {
@@ -157,15 +161,27 @@ pub enum LoweringError {
         second_origin: OriginStack,
     },
     /// Two generated Definition nodes selected the same source-map key.
-    SourceMapCollision(SourceMapKey),
+    SourceMapCollision {
+        /// The key both selected.
+        key: SourceMapKey,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
+    },
     /// A generated path-free IR identity was rejected by the frozen IR API.
-    InvalidGeneratedIdentity(String),
+    InvalidGeneratedIdentity {
+        /// The IR API's explanation.
+        detail: String,
+        /// The item the error arose in: the innermost enclosing frame that knows one names it.
+        item: Option<Box<StableItemId>>,
+    },
     /// Final target-neutral validation rejected the constructed Definition IR.
     InvalidDefinition {
         /// The validator's error.
         error: DefinitionValidationError,
         /// The exact authored range of the innermost term the validator was checking, if any.
         range: Option<Box<krs_ir::SourceRange>>,
+        /// The item whose sentence the validator was checking, if any.
+        item: Option<Box<StableItemId>>,
     },
     /// A sidecar could not be derived honestly from the constructed Definition IR.
     InvalidSidecar(String),
@@ -176,7 +192,7 @@ pub enum LoweringError {
 impl fmt::Display for LoweringError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::UnsupportedShape { node, detail } => {
+            Self::UnsupportedShape { node, detail, .. } => {
                 write!(formatter, "unsupported {node} shape: {detail}")
             }
             Self::InvalidProductionTemplate { production, detail } => {
@@ -185,7 +201,7 @@ impl fmt::Display for LoweringError {
                     "invalid syntax template for {production}: {detail}"
                 )
             }
-            Self::InvalidEmittedName { role, value } => {
+            Self::InvalidEmittedName { role, value, .. } => {
                 write!(formatter, "{role} name {value:?} is not canonical K syntax")
             }
             Self::NameCollision {
@@ -214,14 +230,14 @@ impl fmt::Display for LoweringError {
                     "syntactic list `{list}` derives the symbols `{base}Cons`/`{base}Nil`, which collide with `{other}`; rename the enum or the other production"
                 )
             }
-            Self::SourceMapCollision(key) => {
+            Self::SourceMapCollision { key, .. } => {
                 write!(
                     formatter,
                     "generated source-map key collision at {}",
                     key.as_str()
                 )
             }
-            Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
+            Self::InvalidGeneratedIdentity { detail, .. } => formatter.write_str(detail),
             Self::InvalidDefinition { error, .. } => {
                 write!(formatter, "invalid lowered Definition IR: {error}")
             }
@@ -247,8 +263,8 @@ impl ToDiagnostic for LoweringError {
             Self::ListSymbolCollision { .. } | Self::GeneratedSymbolCollision { .. } => {
                 codes::analysis::SYMBOL_NAME_COLLISION
             }
-            Self::SourceMapCollision(_) => codes::analysis::SOURCE_MAP_COLLISION,
-            Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
+            Self::SourceMapCollision { .. } => codes::analysis::SOURCE_MAP_COLLISION,
+            Self::InvalidGeneratedIdentity { .. } => codes::analysis::INVALID_GENERATED_IDENTITY,
             Self::InvalidDefinition { .. } => codes::analysis::INVALID_DEFINITION,
             Self::InvalidSidecar(_) => codes::analysis::INVALID_SIDECAR,
             Self::Partition(PartitionError::MixedGroup { .. }) => codes::partition::MIXED_GROUP,
@@ -276,9 +292,23 @@ impl ToDiagnostic for LoweringError {
                 .origin()
                 .exact_authored_range()
                 .map_or(Location::None, Location::Source),
-            _ => Location::None,
+            // No authored text is the subject: generated K, a sidecar, or a whole module.
+            Self::UnsupportedShape { .. }
+            | Self::InvalidProductionTemplate { .. }
+            | Self::InvalidEmittedName { .. }
+            | Self::SourceMapCollision { .. }
+            | Self::InvalidGeneratedIdentity { .. }
+            | Self::InvalidSidecar(_)
+            | Self::Partition(
+                PartitionError::SignedIntegerLeak { .. }
+                | PartitionError::ConfigurationVisibility { .. },
+            ) => Location::None,
         };
+        let unlocated = matches!(location, Location::None);
         let mut diagnostic = Diagnostic::error(code, self.to_string(), location);
+        if unlocated && let Some(item) = self.subject_item() {
+            diagnostic = diagnostic.with_item(item.to_string());
+        }
         if let Self::NameCollision { first_origin, .. } = self
             && let Some(range) = first_origin.exact_authored_range()
         {
@@ -320,14 +350,81 @@ impl From<DefinitionValidationError> for LoweringError {
         Self::InvalidDefinition {
             error: value,
             range: None,
+            item: None,
         }
     }
 }
 
 impl From<IrIdentityError> for LoweringError {
     fn from(value: IrIdentityError) -> Self {
-        Self::InvalidGeneratedIdentity(value.to_string())
+        Self::InvalidGeneratedIdentity {
+            detail: value.to_string(),
+            item: None,
+        }
     }
+}
+
+impl LoweringError {
+    /// An unsupported-shape error about no item yet: the sentence being lowered names it.
+    fn unsupported_shape(node: &'static str, detail: impl Into<String>) -> Self {
+        Self::UnsupportedShape {
+            node,
+            detail: detail.into(),
+            item: None,
+        }
+    }
+
+    /// The item the error is about, when it names one: an error without a range names its item
+    /// instead, so a tool can still group it. A collision is located at its second owner and
+    /// names both owners; a sidecar or partition failure is about the whole definition.
+    #[must_use]
+    pub fn subject_item(&self) -> Option<&StableItemId> {
+        match self {
+            Self::UnsupportedShape { item, .. }
+            | Self::InvalidEmittedName { item, .. }
+            | Self::SourceMapCollision { item, .. }
+            | Self::InvalidGeneratedIdentity { item, .. }
+            | Self::InvalidDefinition { item, .. } => item.as_deref(),
+            Self::InvalidProductionTemplate { production, .. } => Some(production),
+            Self::NameCollision { .. }
+            | Self::GeneratedSymbolCollision { .. }
+            | Self::ListSymbolCollision { .. }
+            | Self::InvalidSidecar(_)
+            | Self::Partition(_) => None,
+        }
+    }
+
+    /// This error about `item` when it names none yet: the lowering of each sentence names the
+    /// sentence's item, so the innermost frame that knows an item names it.
+    #[must_use]
+    pub fn within(mut self, item: &StableItemId) -> Self {
+        match &mut self {
+            Self::UnsupportedShape { item: slot, .. }
+            | Self::InvalidEmittedName { item: slot, .. }
+            | Self::SourceMapCollision { item: slot, .. }
+            | Self::InvalidGeneratedIdentity { item: slot, .. }
+            | Self::InvalidDefinition { item: slot, .. } => {
+                if slot.is_none() {
+                    *slot = Some(Box::new(item.clone()));
+                }
+            }
+            Self::InvalidProductionTemplate { .. }
+            | Self::NameCollision { .. }
+            | Self::GeneratedSymbolCollision { .. }
+            | Self::ListSymbolCollision { .. }
+            | Self::InvalidSidecar(_)
+            | Self::Partition(_) => {}
+        }
+        self
+    }
+}
+
+/// Lowers one sentence of `item`, and a failure names the item.
+fn of_item<T>(
+    item: &StableItemId,
+    lower: impl FnOnce() -> Result<T, LoweringError>,
+) -> Result<T, LoweringError> {
+    lower().map_err(|error| error.within(item))
 }
 
 /// Deterministically lowers a semantic theory to Definition IR.
@@ -391,16 +488,19 @@ pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinitio
         check_configuration_visibility(&lowered_modules, split)?;
     }
     let main_module = names.module(select_main_module(theory)?.id())?;
-    // A validator failure is located at the innermost term the validator was checking.
-    let (definition, site) =
-        krs_ir_levels::failure_site::record(|| DefinitionIr::new(main_module, lowered_modules));
-    let definition = definition.map_err(|error| LoweringError::InvalidDefinition {
-        error,
-        range: site
-            .iter()
-            .find_map(|origin| origin.origin().exact_authored_range())
-            .map(Box::new),
-    })?;
+    // A validator failure is located at the innermost term the validator was checking, and
+    // names the item whose sentence it was checking.
+    let definition =
+        DefinitionIr::new_located(main_module, lowered_modules).map_err(|failure| {
+            let krs_ir_levels::DefinitionFailure { error, item, at } = *failure;
+            LoweringError::InvalidDefinition {
+                error,
+                range: at
+                    .and_then(|origin| origin.origin().exact_authored_range())
+                    .map(Box::new),
+                item: item.map(Box::new),
+            }
+        })?;
     let symbol_map = SymbolMap::from_definition(&definition)
         .map_err(|error| LoweringError::InvalidSidecar(error.to_string()))?;
     let source_map = SourceMap::from_definition(&definition)
@@ -596,12 +696,12 @@ impl ConfigurationSplit {
             .keys()
             .find(|id| reach(id, &dependents).contains(**id))
         {
-            return Err(LoweringError::UnsupportedShape {
-                node: "module import",
-                detail: format!(
+            return Err(LoweringError::unsupported_shape(
+                "module import",
+                format!(
                     "`{id}` imports itself through a cycle that does not pass through the configuration"
                 ),
-            });
+            ));
         }
         let reaching = definition
             .keys()
@@ -863,13 +963,9 @@ impl NamingPass {
     }
 
     fn sort(&self, id: &StableItemId) -> Result<SymbolIdentity, LoweringError> {
-        self.sorts
-            .get(id)
-            .cloned()
-            .ok_or_else(|| LoweringError::UnsupportedShape {
-                node: "sort reference",
-                detail: format!("no naming entry for {id}"),
-            })
+        self.sorts.get(id).cloned().ok_or_else(|| {
+            LoweringError::unsupported_shape("sort reference", format!("no naming entry for {id}"))
+        })
     }
 
     fn sort_id(&self, id: &StableItemId) -> Result<SymbolId, LoweringError> {
@@ -877,23 +973,21 @@ impl NamingPass {
     }
 
     fn group_cell(&self, declaration: &StableItemId) -> Result<SymbolId, LoweringError> {
-        self.group_cells
-            .get(declaration)
-            .cloned()
-            .ok_or_else(|| LoweringError::UnsupportedShape {
-                node: "cell sort reference",
-                detail: format!("{declaration} is not the declaration of a configuration cell"),
-            })
+        self.group_cells.get(declaration).cloned().ok_or_else(|| {
+            LoweringError::unsupported_shape(
+                "cell sort reference",
+                format!("{declaration} is not the declaration of a configuration cell"),
+            )
+        })
     }
 
     fn production(&self, id: &StableItemId) -> Result<SymbolIdentity, LoweringError> {
-        self.productions
-            .get(id)
-            .cloned()
-            .ok_or_else(|| LoweringError::UnsupportedShape {
-                node: "production reference",
-                detail: format!("no naming entry for {id}"),
-            })
+        self.productions.get(id).cloned().ok_or_else(|| {
+            LoweringError::unsupported_shape(
+                "production reference",
+                format!("no naming entry for {id}"),
+            )
+        })
     }
 
     /// The configuration module of `configured`, when its configuration has
@@ -926,13 +1020,12 @@ impl NamingPass {
     }
 
     fn module(&self, id: &ModuleId) -> Result<ModuleId, LoweringError> {
-        self.modules
-            .get(id)
-            .cloned()
-            .ok_or_else(|| LoweringError::UnsupportedShape {
-                node: "module reference",
-                detail: format!("no naming entry for {id}"),
-            })
+        self.modules.get(id).cloned().ok_or_else(|| {
+            LoweringError::unsupported_shape(
+                "module reference",
+                format!("no naming entry for {id}"),
+            )
+        })
     }
 
     /// Returns the module a program-syntax module imports for `id`: its
@@ -941,13 +1034,12 @@ impl NamingPass {
         if is_framework_module(id) {
             return self.module(id);
         }
-        self.syntax_modules
-            .get(id)
-            .cloned()
-            .ok_or_else(|| LoweringError::UnsupportedShape {
-                node: "module reference",
-                detail: format!("no program-syntax naming entry for {id}"),
-            })
+        self.syntax_modules.get(id).cloned().ok_or_else(|| {
+            LoweringError::unsupported_shape(
+                "module reference",
+                format!("no program-syntax naming entry for {id}"),
+            )
+        })
     }
 }
 
@@ -1009,7 +1101,7 @@ impl OriginPass {
         }
         let key = SourceMapKey::new(format!("def.{role}.{}", short_hash(&seed)))?;
         if !self.keys.insert(key.clone()) {
-            return Err(LoweringError::SourceMapCollision(key));
+            return Err(LoweringError::SourceMapCollision { key, item: None });
         }
         let mut stack = semantic.origin().clone();
         stack.push(OriginFrame::Transformation {
@@ -1065,10 +1157,12 @@ fn lower_module(
         &[]
     };
     for sort in sorts {
-        sentences.push(DefinitionSentence::SyntaxSort(SyntaxSortSentence::new(
-            origins.lower(sort.origin(), "syntax-sort", Some(sort.id()), None)?,
-            names.sort(sort.id())?,
-        )?));
+        sentences.push(of_item(sort.id(), || {
+            Ok(DefinitionSentence::SyntaxSort(SyntaxSortSentence::new(
+                origins.lower(sort.origin(), "syntax-sort", Some(sort.id()), None)?,
+                names.sort(sort.id())?,
+            )?))
+        })?);
     }
     for (_, subsort) in module
         .subsorts()
@@ -1099,21 +1193,23 @@ fn lower_module(
     }
 
     for production in productions {
-        sentences.push(DefinitionSentence::Production(
-            ProductionSentence::new(
-                origins.lower(
-                    production.origin(),
-                    "production",
-                    Some(production.id()),
-                    None,
-                )?,
-                names.production(production.id())?,
-                lower_sort_ref(production.result_sort(), names)?,
-                lower_production_items(production, names, origins)?,
-                lower_production_attributes(production, names, origins)?,
-            )?
-            .with_parameters(production.parameters().to_vec()),
-        ));
+        sentences.push(of_item(production.id(), || {
+            Ok(DefinitionSentence::Production(
+                ProductionSentence::new(
+                    origins.lower(
+                        production.origin(),
+                        "production",
+                        Some(production.id()),
+                        None,
+                    )?,
+                    names.production(production.id())?,
+                    lower_sort_ref(production.result_sort(), names)?,
+                    lower_production_items(production, names, origins)?,
+                    lower_production_attributes(production, names, origins)?,
+                )?
+                .with_parameters(production.parameters().to_vec()),
+            ))
+        })?);
     }
 
     for (index, precedence) in module
@@ -1133,10 +1229,7 @@ fn lower_module(
                 precedence.higher().to_vec(),
                 precedence.lower().to_vec(),
             )
-            .map_err(|error| LoweringError::UnsupportedShape {
-                node: "precedence",
-                detail: error.to_string(),
-            })?,
+            .map_err(|error| LoweringError::unsupported_shape("precedence", error.to_string()))?,
         ));
     }
     for (index, associativity) in module
@@ -1156,9 +1249,8 @@ fn lower_module(
                 associativity.associativity(),
                 associativity.groups().to_vec(),
             )
-            .map_err(|error| LoweringError::UnsupportedShape {
-                node: "associativity",
-                detail: error.to_string(),
+            .map_err(|error| {
+                LoweringError::unsupported_shape("associativity", error.to_string())
             })?,
         ));
     }
@@ -1173,10 +1265,7 @@ fn lower_module(
                     lexical.name(),
                     lexical.regex(),
                 )
-                .map_err(|error| LoweringError::UnsupportedShape {
-                    node: "lexical",
-                    detail: error.to_string(),
-                })?,
+                .map_err(|error| LoweringError::unsupported_shape("lexical", error.to_string()))?,
             ));
         }
         for (index, layout) in module.layouts().iter().enumerate() {
@@ -1185,10 +1274,7 @@ fn lower_module(
                     origins.lower(layout.origin(), "layout", None, Some(&index.to_string()))?,
                     layout.regex(),
                 )
-                .map_err(|error| LoweringError::UnsupportedShape {
-                    node: "layout",
-                    detail: error.to_string(),
-                })?,
+                .map_err(|error| LoweringError::unsupported_shape("layout", error.to_string()))?,
             ));
         }
     }
@@ -1218,104 +1304,105 @@ fn lower_module(
     }
 
     for alias in module.context_aliases() {
-        sentences.push(DefinitionSentence::ContextAlias(
-            ContextAliasSentence::new(
-                origins.lower(alias.origin(), "context-alias", Some(alias.id()), None)?,
-                alias.id().clone(),
-                origins.lower(
-                    alias.name_origin(),
-                    "context-alias-name",
-                    Some(alias.id()),
-                    None,
-                )?,
-                alias.name().to_owned(),
-                origins.lower(
-                    alias.here_origin(),
-                    "context-alias-here",
-                    Some(alias.id()),
-                    None,
-                )?,
-                alias.here().clone(),
-                lower_variables(alias.variables(), names)?,
-                lower_configuration_pattern(alias.body(), names, origins)?,
-            )
-            .with_result(
-                alias
-                    .result()
-                    .map(|result| -> Result<_, LoweringError> {
-                        Ok(krs_ir_levels::IrEvaluationResult::new(
-                            origins.lower(
-                                result.origin(),
-                                "context-alias-result",
-                                Some(alias.id()),
-                                None,
-                            )?,
-                            lower_sort_ref(result.sort(), names)?,
-                        ))
-                    })
-                    .transpose()?,
-            ),
-        ));
+        sentences.push(of_item(alias.id(), || {
+            Ok(DefinitionSentence::ContextAlias(
+                ContextAliasSentence::new(
+                    origins.lower(alias.origin(), "context-alias", Some(alias.id()), None)?,
+                    alias.id().clone(),
+                    origins.lower(
+                        alias.name_origin(),
+                        "context-alias-name",
+                        Some(alias.id()),
+                        None,
+                    )?,
+                    alias.name().to_owned(),
+                    origins.lower(
+                        alias.here_origin(),
+                        "context-alias-here",
+                        Some(alias.id()),
+                        None,
+                    )?,
+                    alias.here().clone(),
+                    lower_variables(alias.variables(), names)?,
+                    lower_configuration_pattern(alias.body(), names, origins)?,
+                )
+                .with_result(
+                    alias
+                        .result()
+                        .map(|result| -> Result<_, LoweringError> {
+                            Ok(krs_ir_levels::IrEvaluationResult::new(
+                                origins.lower(
+                                    result.origin(),
+                                    "context-alias-result",
+                                    Some(alias.id()),
+                                    None,
+                                )?,
+                                lower_sort_ref(result.sort(), names)?,
+                            ))
+                        })
+                        .transpose()?,
+                ),
+            ))
+        })?);
     }
 
     for rule in module.rules() {
-        // A claim keeps its stream cells as ordinary List cells (see `crate::console`).
-        let stdin = if rule.claim().is_some() {
-            &BTreeSet::new()
-        } else {
-            stdin
-        };
-        let dropped = match rule.relational_body() {
-            RuleBodyRef::Configuration { body, .. } => stdin_read_remainders(body, stdin),
-            RuleBodyRef::Term(_) | RuleBodyRef::Predicate(_) => BTreeSet::new(),
-        };
-        let kept = rule
-            .variables()
-            .iter()
-            .filter(|variable| !dropped.contains(variable.id()))
-            .cloned()
-            .collect::<Vec<_>>();
-        let variables = lower_variables(&kept, names)?;
-        let label =
-            names
-                .rules
-                .get(rule.id())
+        sentences.push(of_item(rule.id(), || {
+            // A claim keeps its stream cells as ordinary List cells (see `crate::console`).
+            let stdin = if rule.claim().is_some() {
+                &BTreeSet::new()
+            } else {
+                stdin
+            };
+            let dropped = match rule.relational_body() {
+                RuleBodyRef::Configuration { body, .. } => stdin_read_remainders(body, stdin),
+                RuleBodyRef::Term(_) | RuleBodyRef::Predicate(_) => BTreeSet::new(),
+            };
+            let kept = rule
+                .variables()
+                .iter()
+                .filter(|variable| !dropped.contains(variable.id()))
                 .cloned()
-                .ok_or_else(|| LoweringError::UnsupportedShape {
-                    node: "rule",
-                    detail: format!("no naming entry for {}", rule.id()),
-                })?;
-        let rule_origin = rule.label().map_or(rule.origin(), |value| value.origin());
-        let origin = origins.lower(rule_origin, "rule", Some(rule.id()), None)?;
-        let sentence = match rule.relational_body() {
-            RuleBodyRef::Term(body) => RuleSentence::new(
-                origin,
-                label,
-                rule.kind(),
-                variables,
-                lower_rule_rewrite(body, names, origins)?,
-            )?,
-            RuleBodyRef::Configuration { kind, body } => RuleSentence::new_configuration(
-                origin,
-                label,
-                kind,
-                variables,
-                lower_configuration_rewrite(body, names, origins, stdin)?,
-            ),
-            RuleBodyRef::Predicate(body) => RuleSentence::new_predicate(
-                origin,
-                label,
-                variables,
-                krs_ir_levels::IrPredicateRewrite::new(
-                    origins.lower(body.origin(), "predicate-rewrite", Some(rule.id()), None)?,
-                    lower_predicate(body.lhs(), rule.id(), names, origins)?,
-                    lower_predicate(body.rhs(), rule.id(), names, origins)?,
+                .collect::<Vec<_>>();
+            let variables = lower_variables(&kept, names)?;
+            let label = names.rules.get(rule.id()).cloned().ok_or_else(|| {
+                LoweringError::unsupported_shape(
+                    "rule",
+                    format!("no naming entry for {}", rule.id()),
+                )
+            })?;
+            let rule_origin = rule.label().map_or(rule.origin(), |value| value.origin());
+            let origin = origins.lower(rule_origin, "rule", Some(rule.id()), None)?;
+            let sentence = match rule.relational_body() {
+                RuleBodyRef::Term(body) => RuleSentence::new(
+                    origin,
+                    label,
+                    rule.kind(),
+                    variables,
+                    lower_rule_rewrite(body, names, origins)?,
+                )?,
+                RuleBodyRef::Configuration { kind, body } => RuleSentence::new_configuration(
+                    origin,
+                    label,
+                    kind,
+                    variables,
+                    lower_configuration_rewrite(body, names, origins, stdin)?,
                 ),
-            ),
-        };
-        sentences.push(DefinitionSentence::Rule(lower_rule_metadata(
-            sentence, rule, names, origins,
-        )?));
+                RuleBodyRef::Predicate(body) => RuleSentence::new_predicate(
+                    origin,
+                    label,
+                    variables,
+                    krs_ir_levels::IrPredicateRewrite::new(
+                        origins.lower(body.origin(), "predicate-rewrite", Some(rule.id()), None)?,
+                        lower_predicate(body.lhs(), rule.id(), names, origins)?,
+                        lower_predicate(body.rhs(), rule.id(), names, origins)?,
+                    ),
+                ),
+            };
+            Ok(DefinitionSentence::Rule(lower_rule_metadata(
+                sentence, rule, names, origins,
+            )?))
+        })?);
     }
 
     for raw in module.raw_sentences() {
@@ -1358,12 +1445,12 @@ fn lower_configuration_module(
     names: &NamingPass,
     origins: &mut OriginPass,
 ) -> Result<DefinitionModule, LoweringError> {
-    let configuration = module
-        .configuration()
-        .ok_or_else(|| LoweringError::UnsupportedShape {
-            node: "configuration module",
-            detail: format!("{} has no configuration", module.id()),
-        })?;
+    let configuration = module.configuration().ok_or_else(|| {
+        LoweringError::unsupported_shape(
+            "configuration module",
+            format!("{} has no configuration", module.id()),
+        )
+    })?;
     let sentence = lower_configuration(configuration, names, origins)?;
     let mut imports = BTreeSet::from([names.syntax_module(module.id())?]);
     for import in module.imports() {
@@ -1583,10 +1670,10 @@ fn lower_fixed_cells(
         .iter()
         .map(|cell| {
             let symbol = names.fixed_cells.get(cell.id()).cloned().ok_or_else(|| {
-                LoweringError::UnsupportedShape {
-                    node: "configuration cell",
-                    detail: format!("no naming entry for {}", cell.id()),
-                }
+                LoweringError::unsupported_shape(
+                    "configuration cell",
+                    format!("no naming entry for {}", cell.id()),
+                )
             })?;
             let origin = origins.lower(cell.origin(), "cell", None, Some(cell.id().as_str()))?;
             let attributes = lower_cell_attributes(cell.attributes(), origins)?;
@@ -1665,14 +1752,12 @@ fn lower_initializer_cells(
 }
 
 fn lower_cell_id(id: &krs_ir::SemanticId, names: &NamingPass) -> Result<SymbolId, LoweringError> {
-    names
-        .fixed_cells
-        .get(id)
-        .cloned()
-        .ok_or_else(|| LoweringError::UnsupportedShape {
-            node: "configuration cell reference",
-            detail: format!("no naming entry for {id}"),
-        })
+    names.fixed_cells.get(id).cloned().ok_or_else(|| {
+        LoweringError::unsupported_shape(
+            "configuration cell reference",
+            format!("no naming entry for {id}"),
+        )
+    })
 }
 
 fn lower_frame(
@@ -2005,10 +2090,7 @@ fn lower_instances_clause(
     reason = "Matches the owned error argument required by Result::map_err."
 )]
 fn state_shape_error(error: krs_ir::StateShapeError) -> LoweringError {
-    LoweringError::UnsupportedShape {
-        node: "fixed state",
-        detail: error.to_string(),
-    }
+    LoweringError::unsupported_shape("fixed state", error.to_string())
 }
 
 #[expect(
@@ -2643,10 +2725,10 @@ fn lower_authored_production_attributes(
                 ProductionAttribute::Overload { .. } => ProductionAttribute::Overload {
                     origin,
                     target: names.overload_root(production.id())?.ok_or_else(|| {
-                        LoweringError::UnsupportedShape {
-                            node: "overload family",
-                            detail: format!("{} has no overload root", production.id()),
-                        }
+                        LoweringError::unsupported_shape(
+                            "overload family",
+                            format!("{} has no overload root", production.id()),
+                        )
                     })?,
                 },
                 ProductionAttribute::Format { fragments, .. } => ProductionAttribute::Format {
@@ -2667,11 +2749,10 @@ fn lower_authored_production_attributes(
                     unreachable!("KRS-only attributes are filtered above")
                 }
                 ProductionAttribute::Private { .. } => {
-                    return Err(LoweringError::UnsupportedShape {
-                        node: "production attribute",
-                        detail: "`private` is derived from Rust visibility, not authored"
-                            .to_owned(),
-                    });
+                    return Err(LoweringError::unsupported_shape(
+                        "production attribute",
+                        "`private` is derived from Rust visibility, not authored".to_owned(),
+                    ));
                 }
                 ProductionAttribute::Strictness {
                     kind,
@@ -2902,10 +2983,10 @@ fn overload_roots(
         let mut seen = BTreeSet::from([member]);
         while let Some(next) = targets.get(root) {
             if !seen.insert(next) {
-                return Err(LoweringError::UnsupportedShape {
-                    node: "overload family",
-                    detail: format!("the overload targets of {member} form a cycle"),
-                });
+                return Err(LoweringError::unsupported_shape(
+                    "overload family",
+                    format!("the overload targets of {member} form a cycle"),
+                ));
             }
             root = next;
         }
@@ -2941,10 +3022,10 @@ fn select_main_module(theory: &SemanticTheory) -> Result<&SemanticModule, Loweri
             .iter()
             .filter(|module| module.configuration().is_some())
             .count();
-        LoweringError::UnsupportedShape {
-            node: "main module",
-            detail: format!("expected one configured module, found {configured}"),
-        }
+        LoweringError::unsupported_shape(
+            "main module",
+            format!("expected one configured module, found {configured}"),
+        )
     })
 }
 
@@ -3032,6 +3113,7 @@ fn validate_module_name(value: &str) -> Result<(), LoweringError> {
         Err(LoweringError::InvalidEmittedName {
             role: "module",
             value: value.to_owned(),
+            item: None,
         })
     }
 }
@@ -3050,6 +3132,7 @@ fn validate_sort_name(value: &str) -> Result<(), LoweringError> {
         Err(LoweringError::InvalidEmittedName {
             role: "sort",
             value: value.to_owned(),
+            item: None,
         })
     }
 }
@@ -3066,6 +3149,7 @@ fn validate_cell_name(value: &str) -> Result<(), LoweringError> {
         Err(LoweringError::InvalidEmittedName {
             role: "cell",
             value: value.to_owned(),
+            item: None,
         })
     }
 }
@@ -3084,6 +3168,7 @@ fn validate_label_name(role: &'static str, value: &str) -> Result<(), LoweringEr
         Err(LoweringError::InvalidEmittedName {
             role,
             value: value.to_owned(),
+            item: None,
         })
     }
 }
@@ -3298,6 +3383,24 @@ mod tests {
             name,
             kind,
         )
+    }
+
+    #[test]
+    fn a_sentence_names_the_item_of_an_error_raised_lowering_it() {
+        let rule = item("rules", "step", ItemKind::Rule);
+        let other = item("rules", "other", ItemKind::Rule);
+        let error = super::of_item(&rule, || -> Result<(), LoweringError> {
+            Err(LoweringError::unsupported_shape("rule", "detail"))
+        })
+        .unwrap_err()
+        .within(&other);
+        assert_eq!(error.subject_item(), Some(&rule));
+        let diagnostic = error.to_diagnostic();
+        assert!(matches!(diagnostic.primary.location, Location::None));
+        assert_eq!(diagnostic.item, Some(rule.to_string()));
+        // A sidecar failure is about the whole definition.
+        let sidecar = LoweringError::InvalidSidecar("detail".to_owned()).within(&rule);
+        assert_eq!(sidecar.subject_item(), None);
     }
 
     #[test]

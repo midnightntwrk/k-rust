@@ -56,6 +56,7 @@ pub(super) fn collection_error(
         code,
         reason,
         range,
+        item: None,
     }
 }
 
@@ -186,14 +187,13 @@ fn state_frame(
         _ => false,
     };
     if !compatible {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "cell content frame",
-            detail: format!(
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "cell content frame",
+            format!(
                 "rule {} uses incompatible subject/result associative state frames",
                 descriptor.id()
             ),
-            range: None,
-        });
+        ));
     }
     let binding =
         |frame: &ProtocolRuleFrame| -> Result<Option<SemanticId>, DescriptorLoweringError> {
@@ -211,11 +211,10 @@ fn state_frame(
         | ProtocolRuleFrame::Reuse { key, .. } => key,
     };
     if matches!(frame, ProtocolRuleFrame::Reuse { .. }) {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "subject cell frame",
-            detail: "a subject frame cannot reuse a result binding".into(),
-            range: None,
-        });
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "subject cell frame",
+            "a subject frame cannot reuse a result binding",
+        ));
     }
     Ok(match family {
         "k" => CellContentFrame::KSequenceTail {
@@ -804,11 +803,10 @@ impl<L: StateLowering> LoweredInstances<'_, '_, L> {
             );
             children.push(if kind == CellClauseKind::Whole {
                 if !matches!(clause.frame(), CellContentFrame::Exact) {
-                    return Err(DescriptorLoweringError::UnsupportedShape {
-                        node: "collection instance",
-                        detail: "a whole nested child has no frame".into(),
-                        range: None,
-                    });
+                    return Err(DescriptorLoweringError::unsupported_shape(
+                        "collection instance",
+                        "a whole nested child has no frame",
+                    ));
                 }
                 clause.with_kind(CellClauseKind::Whole)
             } else {

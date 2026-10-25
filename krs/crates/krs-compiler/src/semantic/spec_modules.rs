@@ -222,13 +222,12 @@ pub(super) fn resolve_imports(
     main: &ModuleId,
     reserved: &BTreeSet<String>,
 ) -> Result<Vec<Vec<ModuleId>>, DescriptorLoweringError> {
-    definition_modules
-        .get(package)
-        .ok_or_else(|| DescriptorLoweringError::UnsupportedShape {
-            node: "spec module",
-            detail: format!("package {package} has no definition module for its spec modules"),
-            range: None,
-        })?;
+    definition_modules.get(package).ok_or_else(|| {
+        DescriptorLoweringError::unsupported_shape(
+            "spec module",
+            format!("package {package} has no definition module for its spec modules"),
+        )
+    })?;
     let mut names = BTreeSet::new();
     for spec in specs {
         if reserved.contains(spec.name.as_str()) || !names.insert(spec.name.as_str()) {
@@ -468,11 +467,10 @@ pub(super) fn check_spec_identifiers(
         }));
         for rule in module.rules() {
             let value = serde_json::to_value(rule).map_err(|error| {
-                DescriptorLoweringError::UnsupportedShape {
-                    node: "spec module",
-                    detail: format!("cannot inspect a spec-module sentence: {error}"),
-                    range: None,
-                }
+                DescriptorLoweringError::unsupported_shape(
+                    "spec module",
+                    format!("cannot inspect a spec-module sentence: {error}"),
+                )
             })?;
             let mut identifiers = BTreeSet::new();
             collect_identifiers(&value, &mut identifiers);

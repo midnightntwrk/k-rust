@@ -216,11 +216,10 @@ pub(super) fn build_production_catalog(
                 )
                 .is_some()
             {
-                return Err(DescriptorLoweringError::UnsupportedShape {
-                    node: "production catalog",
-                    detail: format!("more than one grammar descriptor owns {id}"),
-                    range: None,
-                });
+                return Err(DescriptorLoweringError::unsupported_shape(
+                    "production catalog",
+                    format!("more than one grammar descriptor owns {id}"),
+                ));
             }
         }
     }
@@ -228,11 +227,10 @@ pub(super) fn build_production_catalog(
         matches!(descriptor.payload(), DescriptorPayload::Constructor(_))
             && !catalog.contains_key(descriptor.id())
     }) {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "constructor",
-            detail: format!("no grammar descriptor owns constructor {}", descriptor.id()),
-            range: None,
-        });
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "constructor",
+            format!("no grammar descriptor owns constructor {}", descriptor.id()),
+        ));
     }
     Ok(catalog)
 }

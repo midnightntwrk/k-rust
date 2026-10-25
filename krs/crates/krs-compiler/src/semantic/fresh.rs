@@ -9,7 +9,9 @@
 
 use std::collections::BTreeMap;
 
-use krs_ir::{BuiltinSort, GrammarProductionItemKind, ProductionAttribute, SourceRange};
+use krs_ir::{
+    BuiltinSort, GrammarProductionItemKind, ProductionAttribute, SourceRange, StableItemId,
+};
 use krs_ir_levels::{SemanticModule, SemanticProduction, SemanticSortRef};
 
 use super::error::{DescriptorLoweringError, FreshProblem};
@@ -34,6 +36,7 @@ pub(super) fn check_fresh_generators(
             .any(|attribute| matches!(attribute, ProductionAttribute::Total { .. }))
         {
             return Err(fail(
+                production.id(),
                 FreshProblem::InvalidGenerator,
                 format!(
                     "`{name}` is a `fresh_generator`, so it must be `total`: K calls it on every counter value"
@@ -55,6 +58,7 @@ pub(super) fn check_fresh_generators(
             [SemanticSortRef::Builtin(BuiltinSort::Int)]
         ) {
             return Err(fail(
+                production.id(),
                 FreshProblem::InvalidGenerator,
                 format!(
                     "`{name}` is a `fresh_generator`, so it takes exactly one Int field: the counter value K passes it"
@@ -69,6 +73,7 @@ pub(super) fn check_fresh_generators(
                 FreshProblem::InvalidGenerator
             };
             return Err(fail(
+                production.id(),
                 problem,
                 format!(
                     "`{name}` is a `fresh_generator` of builtin `{}`; a generator returns a sort of this definition (K's own freshInt and freshId generate Int and Id)",
@@ -79,6 +84,7 @@ pub(super) fn check_fresh_generators(
         }
         if let Some(previous) = generators.insert(sort, production) {
             return Err(fail(
+                production.id(),
                 FreshProblem::DuplicateGenerator,
                 format!(
                     "sort `{}` has two `fresh_generator` functions, `{}` and `{name}`; K draws its fresh values from exactly one",
@@ -100,6 +106,7 @@ pub(super) fn check_fresh_generators(
                 continue;
             }
             return Err(fail(
+                rule.id(),
                 FreshProblem::NoGenerator,
                 format!(
                     "fresh binder `{}` has sort `{}`, which has no generator; declare `#[k::function(total, fresh_generator, sort = {}, syntax = \"..\")]` with one Int field (Int and Id have K's own)",
@@ -132,6 +139,7 @@ fn generator_range(production: &SemanticProduction) -> Option<SourceRange> {
 }
 
 fn fail(
+    item: &StableItemId,
     problem: FreshProblem,
     reason: String,
     range: Option<SourceRange>,
@@ -140,5 +148,6 @@ fn fail(
         problem,
         reason,
         range: range.map(Box::new),
+        item: Some(Box::new(item.clone())),
     }
 }

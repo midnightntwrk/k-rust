@@ -42,20 +42,17 @@ pub(super) fn framework_k_item_sort(
             && id.package().cargo_name() == "krs"
             && id.package().cargo_source() == "framework"
     });
-    let first = matches
-        .next()
-        .ok_or_else(|| DescriptorLoweringError::UnsupportedShape {
-            node: "framework sort",
-            detail: "the descriptor bundle has no framework KItem sort, which every definition has"
-                .into(),
-            range: None,
-        })?;
+    let first = matches.next().ok_or_else(|| {
+        DescriptorLoweringError::unsupported_shape(
+            "framework sort",
+            "the descriptor bundle has no framework KItem sort, which every definition has",
+        )
+    })?;
     if matches.next().is_some() {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "framework sort",
-            detail: "the descriptor bundle has more than one framework KItem sort".into(),
-            range: None,
-        });
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "framework sort",
+            "the descriptor bundle has more than one framework KItem sort",
+        ));
     }
     Ok(SemanticSortRef::Declared(first.clone()))
 }
@@ -73,11 +70,7 @@ pub(super) fn require_fixed_configuration<'a>(
             krs_ir::LookupError::WrongKind { ref id, .. }
                 if id.item_kind() == ItemKind::Configuration =>
             {
-                DescriptorLoweringError::UnsupportedShape {
-                    node,
-                    detail: detail.into(),
-                    range: None,
-                }
+                DescriptorLoweringError::unsupported_shape(node, detail)
             }
             other => other.into(),
         })
@@ -122,11 +115,10 @@ pub(super) fn check_group_descendants(
         output: &mut Vec<DescriptorCellIdentity>,
     ) -> Result<(), DescriptorLoweringError> {
         if depth > 64 {
-            return Err(DescriptorLoweringError::UnsupportedShape {
-                node: "nested cell declaration",
-                detail: "cyclic nominal cell declaration".into(),
-                range: None,
-            });
+            return Err(DescriptorLoweringError::unsupported_shape(
+                "nested cell declaration",
+                "cyclic nominal cell declaration",
+            ));
         }
         for field in &declaration.fields {
             output.push(field.reference.cell.clone());
@@ -587,7 +579,10 @@ pub(super) fn lower_head_rule_descriptor(
                 &mut selected,
             )
             .map_err(|error| {
-                error.within(key_range(descriptor, &head_rule_extra_cell(extra).key).as_ref())
+                error.within(
+                    descriptor.id(),
+                    key_range(descriptor, &head_rule_extra_cell(extra).key).as_ref(),
+                )
             })?,
         );
     }
@@ -952,11 +947,10 @@ fn head_rule_configuration<'a>(
         rule.sentence_kind,
         krs_ir::SentenceKind::Transition | krs_ir::SentenceKind::Claim
     ) {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "head-anchored rule",
-            detail: "readable head completion supports transitions and claims only".into(),
-            range: None,
-        });
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "head-anchored rule",
+            "readable head completion supports transitions and claims only",
+        ));
     }
     let configuration = require_fixed_configuration(
         &rule.configuration,
@@ -966,31 +960,27 @@ fn head_rule_configuration<'a>(
     )?;
     let Some(computation) = &rule.computation_cell else {
         if rule.head.is_some() {
-            return Err(DescriptorLoweringError::UnsupportedShape {
-                node: "head-anchored rule",
-                detail: "a rule that matches a computation-cell head has no computation cell"
-                    .into(),
-                range: None,
-            });
+            return Err(DescriptorLoweringError::unsupported_shape(
+                "head-anchored rule",
+                "a rule that matches a computation-cell head has no computation cell",
+            ));
         }
         return Ok(configuration);
     };
     let computation = require_cell_field(&computation.cell, declarations)?;
     let ProtocolCellContent::Leaf { wrapper, sort, .. } = &computation.content else {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "head-anchored rule",
-            detail: "resolved computation cell is not a fixed leaf".into(),
-            range: None,
-        });
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "head-anchored rule",
+            "resolved computation cell is not a fixed leaf",
+        ));
     };
     if *wrapper != krs_ir::CellWrapper::KCell
         || sort.sort != DescriptorSortRef::Builtin(BuiltinSort::KSequence)
     {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "head-anchored rule",
-            detail: "resolved computation cell is not KCell<KSequence>".into(),
-            range: None,
-        });
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "head-anchored rule",
+            "resolved computation cell is not KCell<KSequence>",
+        ));
     }
     Ok(configuration)
 }
@@ -1071,11 +1061,10 @@ fn seed_head_rule_sorts(
         }
         if let krs_ir::ProtocolHeadRuleExtra::UpdateMap { base_binding, .. } = extra {
             let cell_sort = cell_sorts.get(&cell.cell).ok_or_else(|| {
-                DescriptorLoweringError::UnsupportedShape {
-                    node: "head-anchored rule extra",
-                    detail: format!("updated cell {:?} is not a fixed leaf", cell.cell.field),
-                    range: None,
-                }
+                DescriptorLoweringError::unsupported_shape(
+                    "head-anchored rule extra",
+                    format!("updated cell {:?} is not a fixed leaf", cell.cell.field),
+                )
             })?;
             let refinement = refinements
                 .get(base_binding)
@@ -1160,14 +1149,10 @@ fn infer_head_rule(
                     update,
                 } => {
                     let expected = seeds.cell_sorts.get(&cell.cell).ok_or_else(|| {
-                        DescriptorLoweringError::UnsupportedShape {
-                            node: "head-anchored rule extra",
-                            detail: format!(
-                                "updated cell {:?} is not a fixed leaf",
-                                cell.cell.field
-                            ),
-                            range: None,
-                        }
+                        DescriptorLoweringError::unsupported_shape(
+                            "head-anchored rule extra",
+                            format!("updated cell {:?} is not a fixed leaf", cell.cell.field),
+                        )
                     })?;
                     builder.infer_collection_update(update, base_binding, expected)?;
                 }
@@ -1178,14 +1163,10 @@ fn infer_head_rule(
                     ..
                 } => {
                     let expected = seeds.cell_sorts.get(&cell.cell).ok_or_else(|| {
-                        DescriptorLoweringError::UnsupportedShape {
-                            node: "head-anchored rule extra",
-                            detail: format!(
-                                "ordinary cell {:?} is not a fixed leaf",
-                                cell.cell.field
-                            ),
-                            range: None,
-                        }
+                        DescriptorLoweringError::unsupported_shape(
+                            "head-anchored rule extra",
+                            format!("ordinary cell {:?} is not a fixed leaf", cell.cell.field),
+                        )
                     })?;
                     builder.infer(before, Some(expected), true)?;
                     if let Some(after) = after {
@@ -1336,7 +1317,12 @@ fn lower_head_rule_computation_clause(
             };
             let result_item_sort =
                 common_sequence_item_sort(descriptor, &result_items, sort_parents, true).map_err(
-                    |error| error.within(key_range(descriptor, &rule.result_key).as_ref()),
+                    |error| {
+                        error.within(
+                            descriptor.id(),
+                            key_range(descriptor, &rule.result_key).as_ref(),
+                        )
+                    },
                 )?;
             // A result that restates the matched items unchanged only reads
             // them, as a restated cell does.
@@ -1453,7 +1439,7 @@ impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
                         descriptor.id(),
                         "a `[..]` sequence occurs in a cell that is not the computation cell",
                     )
-                    .within(range.as_ref()));
+                    .within(descriptor.id(), range.as_ref()));
                 }
                 let items = sequence
                     .items
@@ -1466,7 +1452,7 @@ impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
                     self.builder.sort_parents,
                     !subject,
                 )
-                .map_err(|error| error.within(range.as_ref()))?;
+                .map_err(|error| error.within(descriptor.id(), range.as_ref()))?;
                 Ok(SemanticTerm::k_sequence(
                     semantic_origin(descriptor, key.clone(), "readable-k-sequence")?,
                     item_sort,
@@ -1498,14 +1484,13 @@ fn lower_head_rule_extra(
 ) -> Result<ConfigurationClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let cell_reference = head_rule_extra_cell(extra);
     if !selected.insert(cell_reference.cell.clone()) {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "head-anchored rule",
-            detail: format!(
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "head-anchored rule",
+            format!(
                 "cell {:?} is mentioned more than once",
                 cell_reference.cell.field
             ),
-            range: None,
-        });
+        ));
     }
     if let krs_ir::ProtocolHeadRuleExtra::RewriteState {
         cell,
@@ -1713,14 +1698,13 @@ fn lower_head_rule_collection_write(
             DescriptorSortRef::Builtin(BuiltinSort::Map | BuiltinSort::List)
         )
     {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "head-anchored rule extra",
-            detail: format!(
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "head-anchored rule extra",
+            format!(
                 "updated cell {:?} is not a Map or List cell",
                 cell.cell.field
             ),
-            range: None,
-        });
+        ));
     }
     let expected = semantic_sort_ref(&sort.sort);
     let (before_role, write_role) = if sort.sort == DescriptorSortRef::Builtin(BuiltinSort::Map) {
@@ -1890,11 +1874,10 @@ fn collect_declared_leaf_identities(
             ProtocolCellContent::Nested { .. } if selected.contains(&field.reference.cell) => {}
             ProtocolCellContent::Nested { declaration } => {
                 if !visiting.insert(declaration.declaration.clone()) {
-                    return Err(DescriptorLoweringError::UnsupportedShape {
-                        node: "nested cell declaration",
-                        detail: "cyclic nominal cell declaration".into(),
-                        range: None,
-                    });
+                    return Err(DescriptorLoweringError::unsupported_shape(
+                        "nested cell declaration",
+                        "cyclic nominal cell declaration",
+                    ));
                 }
                 let nested = declarations.cell(&declaration.declaration)?;
                 collect_declared_leaf_identities(nested, declarations, selected, visiting, leaves)?;

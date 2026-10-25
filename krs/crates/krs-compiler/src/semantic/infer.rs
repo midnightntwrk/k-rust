@@ -3322,7 +3322,10 @@ impl StructuredTermBuilder<'_> {
         error: DescriptorLoweringError,
         term: &DescriptorTerm,
     ) -> DescriptorLoweringError {
-        error.within(self.authored_range(Self::term_key(term)).as_deref())
+        error.within(
+            self.descriptor.id(),
+            self.authored_range(Self::term_key(term)).as_deref(),
+        )
     }
 }
 

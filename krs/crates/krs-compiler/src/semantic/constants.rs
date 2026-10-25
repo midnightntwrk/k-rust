@@ -116,6 +116,7 @@ fn expand_constant(
                 "constants refer to each other in a cycle ({cycle}), so none of them names a term"
             ),
             range: primary_range(descriptor),
+            item: Some(Box::new(descriptor.id().clone())),
         });
     }
     let DescriptorPayload::Constant(constant) = descriptor.payload() else {
@@ -184,10 +185,8 @@ fn substitute(
     descriptor
         .with_inlined_constants(payload, substitution.origins)
         .map(Some)
-        .map_err(|error| DescriptorLoweringError::UnsupportedShape {
-            node: "inlined constant",
-            detail: error.to_string(),
-            range: None,
+        .map_err(|error| {
+            DescriptorLoweringError::unsupported_shape("inlined constant", error.to_string())
         })
 }
 
@@ -202,11 +201,10 @@ impl Substitution<'_> {
     /// A fresh key for one substituted node, whose origin is `origin`.
     fn key(&mut self, origin: &OriginStack) -> Result<ProvenanceKey, DescriptorLoweringError> {
         let ordinal = u32::try_from(self.origins.len()).map_err(|_| {
-            DescriptorLoweringError::UnsupportedShape {
-                node: "inlined constant",
-                detail: format!("too many substituted nodes in {}", self.descriptor.id()),
-                range: None,
-            }
+            DescriptorLoweringError::unsupported_shape(
+                "inlined constant",
+                format!("too many substituted nodes in {}", self.descriptor.id()),
+            )
         })?;
         let key = ProvenanceRole::InlinedConstant.key(ordinal);
         self.origins
@@ -236,12 +234,10 @@ impl Substitution<'_> {
                 // A record update copies fields from a matched alias, and a
                 // constant's value is ground: it matches nothing.
                 if update.is_some() {
-                    return Err(DescriptorLoweringError::UnsupportedShape {
-                        node: "constant value",
-                        detail: "a constant's value is a literal or a constructor application"
-                            .into(),
-                        range: None,
-                    });
+                    return Err(DescriptorLoweringError::unsupported_shape(
+                        "constant value",
+                        "a constant's value is a literal or a constructor application",
+                    ));
                 }
                 let reference = krs_ir::DescriptorApplicationReference {
                     key: self.key(origin)?,
@@ -279,12 +275,10 @@ impl Substitution<'_> {
                 }
             }
             _ => {
-                return Err(DescriptorLoweringError::UnsupportedShape {
-                    node: "constant value",
-                    detail: "a constant's value is a literal or a constructor application"
-                        .to_owned(),
-                    range: None,
-                });
+                return Err(DescriptorLoweringError::unsupported_shape(
+                    "constant value",
+                    "a constant's value is a literal or a constructor application",
+                ));
             }
         })
     }
@@ -323,6 +317,7 @@ impl RefMap<DescriptorStage, DescriptorStage> for Substitution<'_> {
                 range: use_origin
                     .and_then(OriginStack::exact_authored_range)
                     .map(Box::new),
+                item: Some(Box::new(self.descriptor.id().clone())),
             });
         }
         let value =
@@ -436,39 +431,51 @@ pub(super) fn check_constants(
     sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
 ) -> Result<(), DescriptorLoweringError> {
     for descriptor in constants {
-        let DescriptorPayload::Constant(constant) = descriptor.payload() else {
-            unreachable!("only constants are checked");
-        };
-        check_constructors(descriptor, &constant.value, catalog)?;
-        let binding_names = BTreeSet::new();
-        let mut builder = StructuredTermBuilder {
-            descriptor,
-            catalog,
-            declarations: Some(declarations),
-            k_item_sort: Some(super::rules::framework_k_item_sort(declarations)?),
-            sort_parents,
-            binding_names: &binding_names,
-            pattern_key: None,
-            binding_sorts: BTreeMap::new(),
-            binding_constraints: BTreeMap::new(),
-            constraint_sites: BTreeMap::new(),
-            wildcard_offset: 0,
-            wildcards: Vec::new(),
-            result_wildcards: false,
-            locals: super::infer::LocalBinders::default(),
-            head_pending: false,
-            declared_binders: BTreeMap::new(),
-            subject_keys: BTreeMap::new(),
-            operators: super::operators::OperatorInference::default(),
-            record_updates: super::record_updates::RecordUpdateState::default(),
-            collections: super::infer::CollectionUse::none(),
-        };
-        builder.infer(
-            &constant.value,
-            Some(&semantic_sort_ref(&constant.sort.sort)),
-            false,
-        )?;
+        check_constant(descriptor, declarations, catalog, sort_parents)
+            .map_err(|error| error.within(descriptor.id(), None))?;
     }
+    Ok(())
+}
+
+/// Checks one constant, as [`check_constants`] does each.
+fn check_constant(
+    descriptor: &Descriptor,
+    declarations: &DescriptorIndex<'_>,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+) -> Result<(), DescriptorLoweringError> {
+    let DescriptorPayload::Constant(constant) = descriptor.payload() else {
+        unreachable!("only constants are checked");
+    };
+    check_constructors(descriptor, &constant.value, catalog)?;
+    let binding_names = BTreeSet::new();
+    let mut builder = StructuredTermBuilder {
+        descriptor,
+        catalog,
+        declarations: Some(declarations),
+        k_item_sort: Some(super::rules::framework_k_item_sort(declarations)?),
+        sort_parents,
+        binding_names: &binding_names,
+        pattern_key: None,
+        binding_sorts: BTreeMap::new(),
+        binding_constraints: BTreeMap::new(),
+        constraint_sites: BTreeMap::new(),
+        wildcard_offset: 0,
+        wildcards: Vec::new(),
+        result_wildcards: false,
+        locals: super::infer::LocalBinders::default(),
+        head_pending: false,
+        declared_binders: BTreeMap::new(),
+        subject_keys: BTreeMap::new(),
+        operators: super::operators::OperatorInference::default(),
+        record_updates: super::record_updates::RecordUpdateState::default(),
+        collections: super::infer::CollectionUse::none(),
+    };
+    builder.infer(
+        &constant.value,
+        Some(&semantic_sort_ref(&constant.sort.sort)),
+        false,
+    )?;
     Ok(())
 }
 
@@ -509,6 +516,7 @@ fn check_constructors(
                 .origin_for(&reference.key)
                 .and_then(OriginStack::exact_authored_range)
                 .map(Box::new),
+            item: Some(Box::new(descriptor.id().clone())),
         });
     }
     for argument in arguments {

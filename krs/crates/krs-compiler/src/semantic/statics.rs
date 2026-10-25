@@ -78,6 +78,7 @@ pub(super) fn check_static_clauses(
         let name = rule.id().item_name();
         let Some(head) = head else {
             return Err(invalid(
+                rule.id(),
                 format!(
                     "{} clause `{name}` must have a production marked `{}` at the head of its pattern",
                     clause.clause(),
@@ -92,6 +93,7 @@ pub(super) fn check_static_clauses(
             }
             Some((mode, _)) => {
                 return Err(invalid(
+                    rule.id(),
                     format!(
                         "{} clause `{name}` expands `{}`, which is marked `{}`: a clause takes its production's mode, so write `{}` on the clause, or `{}` on the production",
                         clause.clause(),
@@ -105,6 +107,7 @@ pub(super) fn check_static_clauses(
             }
             None => {
                 return Err(invalid(
+                    rule.id(),
                     format!(
                         "{} clause `{name}` expands `{}`, which is not marked `{}`; mark the production `{}` or `{}`",
                         clause.clause(),
@@ -121,6 +124,7 @@ pub(super) fn check_static_clauses(
     for (production, (mode, origin)) in &modes {
         if !expanded.contains(production) {
             return Err(invalid(
+                production,
                 format!(
                     "`{}` is marked `{}` but no `{}` clause expands it, so nothing expands it; add a `{} fn` whose pattern is headed by `{}`",
                     production_display_name(production),
@@ -136,9 +140,10 @@ pub(super) fn check_static_clauses(
     Ok(())
 }
 
-fn invalid(reason: String, origin: &NodeOrigin) -> DescriptorLoweringError {
+fn invalid(item: &StableItemId, reason: String, origin: &NodeOrigin) -> DescriptorLoweringError {
     DescriptorLoweringError::InvalidStaticClause {
         reason,
         range: origin.origin().exact_authored_range().map(Box::new),
+        item: Some(Box::new(item.clone())),
     }
 }

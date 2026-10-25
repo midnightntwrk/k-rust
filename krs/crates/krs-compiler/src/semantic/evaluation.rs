@@ -11,7 +11,7 @@
 //! and a cool rule: its hole occurs once, and a rewrite of it is
 //! `HOLE => term-containing-HOLE`.
 
-use krs_ir::SourceRange;
+use krs_ir::{SourceRange, StableItemId};
 use krs_ir_levels::{IrTermKind, RuleBodyRef, SemanticModule, SemanticRule, SemanticTerm};
 
 use super::error::DescriptorLoweringError;
@@ -44,6 +44,7 @@ pub(super) fn check_evaluation_steps(
                 }
             };
             return Err(fail(
+                rule.id(),
                 format!(
                     "a {attribute} rule must match its hole on the left side; K adds '{condition}', a condition on that subterm, and `{}` does not occur there",
                     hole.as_str(),
@@ -53,6 +54,7 @@ pub(super) fn check_evaluation_steps(
         }
         if occurrences > 1 {
             return Err(fail(
+                rule.id(),
                 format!(
                     "the hole `{}` of a {attribute} rule names one subterm, but the left side binds it {occurrences} times; bind the other occurrences with another name",
                     hole.as_str(),
@@ -62,6 +64,7 @@ pub(super) fn check_evaluation_steps(
         }
         if matches_whole_computation(rule) {
             return Err(fail(
+                rule.id(),
                 format!(
                     "a {attribute} rule holds for any continuation, but this one matches the whole computation cell; end its k pattern with `..`",
                 ),
@@ -83,6 +86,7 @@ fn check_context(
     match left_occurrences(rule, hole) {
         0 => {
             return Err(context_error(
+                Some(rule.id()),
                 format!(
                     "a context names the subterm K evaluates with `hole = {0}`, but `{0}` does not occur in its pattern; K requires exactly one HOLE",
                     hole.as_str(),
@@ -93,6 +97,7 @@ fn check_context(
         1 => {}
         occurrences => {
             return Err(context_error(
+                Some(rule.id()),
                 format!(
                     "the hole `{}` of a context names one subterm, but the pattern binds it {occurrences} times; bind the other occurrences with another name",
                     hole.as_str(),
@@ -123,6 +128,7 @@ fn check_context(
         );
         if !from_is_hole || occurrences(to, hole) == 0 {
             return Err(context_error(
+                Some(rule.id()),
                 format!(
                     "a context may rewrite only its hole, to a term that contains it: K requires HOLE => term-containing-HOLE, here `k::rewrite!({0} => f({0}))`",
                     hole.as_str(),
@@ -160,6 +166,7 @@ pub(super) fn outside_computation_cell(
     range: Option<SourceRange>,
 ) -> DescriptorLoweringError {
     context_error(
+        None,
         format!(
             "{binder} `{name}` lies in the `{cell}` cell, but heating moves the hole to the front of k; constrain other cells, but put the hole in k"
         ),
@@ -167,10 +174,16 @@ pub(super) fn outside_computation_cell(
     )
 }
 
-pub(super) fn context_error(reason: String, range: Option<SourceRange>) -> DescriptorLoweringError {
+/// A context error about `item`, or about the item the enclosing descriptor frame names.
+fn context_error(
+    item: Option<&StableItemId>,
+    reason: String,
+    range: Option<SourceRange>,
+) -> DescriptorLoweringError {
     DescriptorLoweringError::InvalidContext {
         reason,
         range: range.map(Box::new),
+        item: item.cloned().map(Box::new),
     }
 }
 
@@ -217,9 +230,14 @@ fn occurrences(term: &SemanticTerm, hole: &krs_ir::SemanticId) -> usize {
         .sum::<usize>()
 }
 
-fn fail(reason: String, range: Option<SourceRange>) -> DescriptorLoweringError {
+fn fail(
+    item: &StableItemId,
+    reason: String,
+    range: Option<SourceRange>,
+) -> DescriptorLoweringError {
     DescriptorLoweringError::InvalidEvaluationStep {
         reason,
         range: range.map(Box::new),
+        item: Some(Box::new(item.clone())),
     }
 }

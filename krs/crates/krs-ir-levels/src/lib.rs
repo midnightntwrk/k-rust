@@ -27,14 +27,14 @@ pub use collection_operands::{
 
 pub use definition::{
     ConfigurationSentence, ContextAliasSentence, DeclarationPath, DefinitionApplicationRef,
-    DefinitionClaim, DefinitionCondition, DefinitionEvaluationStep, DefinitionFunctionContext,
-    DefinitionIr, DefinitionMlPredicate, DefinitionModule, DefinitionProductionAttribute,
-    DefinitionRuleBody, DefinitionRuleCondition, DefinitionRulePriority, DefinitionScopedBinder,
-    DefinitionSentence, DefinitionSimplification, DefinitionSimplificationPriority,
-    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, DefinitionValidationError,
-    DefinitionVariable, LabelId, LabelIdentity, ModuleRole, ProductionGroupIdentity,
-    ProductionItem, ProductionSentence, RuleSentence, SubsortSentence, SymbolId, SymbolIdentity,
-    SymbolKind, SyntaxSortSentence,
+    DefinitionClaim, DefinitionCondition, DefinitionEvaluationStep, DefinitionFailure,
+    DefinitionFunctionContext, DefinitionIr, DefinitionMlPredicate, DefinitionModule,
+    DefinitionProductionAttribute, DefinitionRuleBody, DefinitionRuleCondition,
+    DefinitionRulePriority, DefinitionScopedBinder, DefinitionSentence, DefinitionSimplification,
+    DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm, DefinitionTermKind,
+    DefinitionValidationError, DefinitionVariable, LabelId, LabelIdentity, ModuleRole,
+    ProductionGroupIdentity, ProductionItem, ProductionSentence, RuleSentence, SubsortSentence,
+    SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
 };
 pub use ir_level::{
     DefinitionLevel, IrClaim, IrCondition, IrContextAlias, IrEvaluationResult, IrEvaluationStep,
@@ -44,12 +44,14 @@ pub use ir_level::{
     IrTermKind, IrUnboundVariable, IrUnboundVariables, IrVariable, RuleBodyRef, SemanticLevel,
     SortParameterId,
 };
+pub use ir_validation::ValidationFailure;
 pub use semantic::{
     SemanticApplicationRef, SemanticClaim, SemanticCondition, SemanticConfiguration,
-    SemanticContextAlias, SemanticEvaluationStep, SemanticFunctionContext, SemanticMlPredicate,
-    SemanticModule, SemanticNondetGroup, SemanticProduction, SemanticProductionAttribute,
-    SemanticProductionItem, SemanticRule, SemanticRuleBody, SemanticRuleCondition,
-    SemanticRuleLabel, SemanticRulePriority, SemanticScopedBinder, SemanticSimplification,
-    SemanticSimplificationPriority, SemanticSort, SemanticSortRef, SemanticSubsort, SemanticTerm,
-    SemanticTermKind, SemanticTheory, SemanticValidationError, SemanticVariable,
+    SemanticContextAlias, SemanticEvaluationStep, SemanticFailure, SemanticFunctionContext,
+    SemanticMlPredicate, SemanticModule, SemanticNondetGroup, SemanticProduction,
+    SemanticProductionAttribute, SemanticProductionItem, SemanticRule, SemanticRuleBody,
+    SemanticRuleCondition, SemanticRuleLabel, SemanticRulePriority, SemanticScopedBinder,
+    SemanticSimplification, SemanticSimplificationPriority, SemanticSort, SemanticSortRef,
+    SemanticSubsort, SemanticTerm, SemanticTermKind, SemanticTheory, SemanticValidationError,
+    SemanticVariable,
 };

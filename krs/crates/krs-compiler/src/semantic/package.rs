@@ -60,11 +60,10 @@ pub(super) fn lower_package_module(
     production_catalog: &BTreeMap<StableItemId, ProductionSignature>,
 ) -> Result<SemanticModule, DescriptorLoweringError> {
     let module_id = module_ids.get(package).cloned().ok_or_else(|| {
-        DescriptorLoweringError::UnsupportedShape {
-            node: "module",
-            detail: format!("package {package} has no generated module identity"),
-            range: None,
-        }
+        DescriptorLoweringError::unsupported_shape(
+            "module",
+            format!("package {package} has no generated module identity"),
+        )
     })?;
     // A package whose only content is spec modules has an empty definition
     // module that imports what its spec modules name; the module takes its
@@ -77,10 +76,11 @@ pub(super) fn lower_package_module(
                 .find(|descriptor| super::spec_modules::is_spec_declaration(descriptor))
         })
         .copied()
-        .ok_or_else(|| DescriptorLoweringError::UnsupportedShape {
-            node: "module",
-            detail: format!("package {package} has no semantic descriptors"),
-            range: None,
+        .ok_or_else(|| {
+            DescriptorLoweringError::unsupported_shape(
+                "module",
+                format!("package {package} has no semantic descriptors"),
+            )
         })?;
     let module_origin = semantic_origin_from_primary(origin_descriptor, "module")?;
     let imports = referenced_packages(referencing)
@@ -88,11 +88,10 @@ pub(super) fn lower_package_module(
         .filter(|referenced| referenced != package)
         .map(|referenced| {
             module_ids.get(&referenced).cloned().ok_or_else(|| {
-                DescriptorLoweringError::UnsupportedShape {
-                    node: "module import",
-                    detail: format!("referenced package {referenced} has no module"),
-                    range: None,
-                }
+                DescriptorLoweringError::unsupported_shape(
+                    "module import",
+                    format!("referenced package {referenced} has no module"),
+                )
             })
         })
         .collect::<Result<BTreeSet<_>, _>>()?;
@@ -139,7 +138,7 @@ fn build_module(
 ) -> Result<SemanticModule, DescriptorLoweringError> {
     let mut sentences = ModuleSentences::default();
     for descriptor in descriptors {
-        // The last fallback of an error's location is the item it arose in.
+        // The last fallback of an error's location, and its item, is the item it arose in.
         lower_module_descriptor(
             descriptor,
             declarations,
@@ -147,7 +146,7 @@ fn build_module(
             production_catalog,
             &mut sentences,
         )
-        .map_err(|error| error.within(item_range(descriptor).as_ref()))?;
+        .map_err(|error| error.within(descriptor.id(), item_range(descriptor).as_ref()))?;
     }
     let ModuleSentences {
         mut sorts,
@@ -196,11 +195,10 @@ fn lower_module_descriptor(
     sentences: &mut ModuleSentences,
 ) -> Result<(), DescriptorLoweringError> {
     let declaration = declarations.metadata.get(descriptor.id()).ok_or_else(|| {
-        DescriptorLoweringError::UnsupportedShape {
-            node: "declaration metadata",
-            detail: format!("descriptor {} has no API metadata", descriptor.id()),
-            range: None,
-        }
+        DescriptorLoweringError::unsupported_shape(
+            "declaration metadata",
+            format!("descriptor {} has no API metadata", descriptor.id()),
+        )
     })?;
     match descriptor.payload() {
         DescriptorPayload::Sort(sort) => {
@@ -297,12 +295,12 @@ fn lower_sort_descriptor(
         declaration.explicit_symbol.clone(),
     ));
     for (ordinal, parent) in sort.parents.iter().enumerate() {
-        let ordinal =
-            u32::try_from(ordinal).map_err(|_| DescriptorLoweringError::UnsupportedShape {
-                node: "sort parents",
-                detail: "sort has more than u32::MAX direct parents".to_owned(),
-                range: None,
-            })?;
+        let ordinal = u32::try_from(ordinal).map_err(|_| {
+            DescriptorLoweringError::unsupported_shape(
+                "sort parents",
+                "sort has more than u32::MAX direct parents",
+            )
+        })?;
         sentences.subsorts.push(SemanticSubsort::new(
             semantic_origin(
                 descriptor,

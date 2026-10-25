@@ -14,11 +14,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::ir_level::SemanticLevel;
 use crate::ir_validation::{
-    collect_configuration_nodes, insert_k_item_parents, insert_node, require_kind, require_sort,
-    validate_context_alias, validate_context_alias_frames, validate_fixed_configuration,
-    validate_initializer_cell_references, validate_precedence_order, validate_production_shape,
-    validate_rule, validate_rule_cell_references, validate_subsort_order,
-    validate_term_cell_references,
+    ValidationFailure, collect_configuration_nodes, in_item, insert_k_item_parents, insert_node,
+    require_kind, require_sort, validate_context_alias, validate_context_alias_frames,
+    validate_fixed_configuration, validate_initializer_cell_references, validate_precedence_order,
+    validate_production_shape, validate_rule, validate_rule_cell_references,
+    validate_subsort_order, validate_term_cell_references,
 };
 use krs_ir::sorted::{SortKey, SortedByKey};
 use krs_ir::{
@@ -103,6 +103,9 @@ impl<'de> Deserialize<'de> for SemanticTheory {
     }
 }
 
+/// A failed [`SemanticTheory`] validation: the error, the item whose sentence failed, and where.
+pub type SemanticFailure = ValidationFailure<SemanticValidationError>;
+
 impl SemanticTheory {
     /// Validates a complete theory. Exactly one configuration is required.
     ///
@@ -110,11 +113,21 @@ impl SemanticTheory {
     ///
     /// Returns [`SemanticValidationError`] for any invalid graph invariant.
     pub fn new(modules: Vec<SemanticModule>) -> Result<Self, SemanticValidationError> {
+        Self::new_located(modules).map_err(|failure| failure.error)
+    }
+
+    /// As [`Self::new`], and a failure names the item whose sentence failed and the innermost
+    /// node a term walk failed in that the author's text locates.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::new`].
+    pub fn new_located(modules: Vec<SemanticModule>) -> Result<Self, Box<SemanticFailure>> {
         let theory = Self {
             schema_version: SchemaVersion::CURRENT,
             modules: SortedByKey::new(modules),
         };
-        theory.validate()?;
+        crate::ir_validation::located(|| theory.validate())?;
         Ok(theory)
     }
 
@@ -209,9 +222,9 @@ impl SemanticTheory {
         clippy::too_many_lines,
         reason = "One ordered pass checks whole-theory identities, references, and rule invariants."
     )]
-    fn validate(&self) -> Result<(), SemanticValidationError> {
+    fn validate(&self) -> Result<(), Box<SemanticFailure>> {
         if self.modules.is_empty() {
-            return Err(SemanticValidationError::EmptyTheory);
+            return Err(SemanticValidationError::EmptyTheory.into());
         }
 
         let mut module_ids = BTreeSet::new();
@@ -235,87 +248,95 @@ impl SemanticTheory {
             )?;
             insert_node::<SemanticLevel>(&mut node_keys, module.origin.key())?;
             for sort in &module.sorts {
-                validate_item_kind(&sort.id, ItemKind::Sort)?;
-                insert_declaration(&mut declarations, &sort.id)?;
-                insert_node::<SemanticLevel>(&mut node_keys, sort.origin.key())?;
+                in_item(Some(&sort.id), || {
+                    validate_item_kind(&sort.id, ItemKind::Sort)?;
+                    insert_declaration(&mut declarations, &sort.id)?;
+                    insert_node::<SemanticLevel>(&mut node_keys, sort.origin.key())
+                })?;
             }
             for subsort in &module.subsorts {
                 insert_node::<SemanticLevel>(&mut node_keys, subsort.origin.key())?;
             }
             for production in &module.productions {
-                validate_item_kind(&production.id, ItemKind::Constructor)?;
-                insert_declaration(&mut declarations, &production.id)?;
-                insert_node::<SemanticLevel>(&mut node_keys, production.origin.key())?;
-                validate_production_shape::<SemanticLevel>(
-                    &production.id,
-                    &production.result_sort,
-                    &production.items,
-                    &production.attributes,
-                )?;
-                if production
-                    .attributes
-                    .iter()
-                    .any(|attribute| matches!(attribute, ProductionAttribute::Function { .. }))
-                {
-                    functional_productions.insert(production.id.clone());
-                }
-                if production
-                    .attributes
-                    .iter()
-                    .any(|attribute| matches!(attribute, ProductionAttribute::Alias { .. }))
-                {
-                    alias_productions.insert(production.id.clone());
-                }
-                if production
-                    .attributes
-                    .iter()
-                    .any(|attribute| matches!(attribute, ProductionAttribute::Desugar { .. }))
-                {
-                    desugar_productions.insert(production.id.clone());
-                }
-                for item in &production.items {
-                    insert_node::<SemanticLevel>(&mut node_keys, item.origin().key())?;
-                }
-                for attribute in &production.attributes {
-                    insert_node::<SemanticLevel>(&mut node_keys, attribute.origin().key())?;
-                    if let ProductionAttribute::Strictness {
-                        using,
-                        fields,
-                        result_sort,
-                        ..
-                    } = attribute
+                in_item(Some(&production.id), || {
+                    validate_item_kind(&production.id, ItemKind::Constructor)?;
+                    insert_declaration(&mut declarations, &production.id)?;
+                    insert_node::<SemanticLevel>(&mut node_keys, production.origin.key())?;
+                    validate_production_shape::<SemanticLevel>(
+                        &production.id,
+                        &production.result_sort,
+                        &production.items,
+                        &production.attributes,
+                    )?;
+                    if production
+                        .attributes
+                        .iter()
+                        .any(|attribute| matches!(attribute, ProductionAttribute::Function { .. }))
                     {
-                        if let Some(using) = using {
-                            insert_node::<SemanticLevel>(&mut node_keys, using.origin().key())?;
-                        }
-                        for field in fields {
-                            insert_node::<SemanticLevel>(&mut node_keys, field.origin().key())?;
-                        }
-                        insert_node::<SemanticLevel>(&mut node_keys, result_sort.origin().key())?;
+                        functional_productions.insert(production.id.clone());
                     }
-                    if let ProductionAttribute::Group { group, .. } = attribute {
-                        groups.insert(group.clone());
+                    if production
+                        .attributes
+                        .iter()
+                        .any(|attribute| matches!(attribute, ProductionAttribute::Alias { .. }))
+                    {
+                        alias_productions.insert(production.id.clone());
                     }
-                }
-                crate::ir_validation::insert_production_signature::<SemanticLevel>(
-                    &mut production_signatures,
-                    production.id.clone(),
-                    (
-                        production.result_sort.clone(),
-                        production.parameters.clone(),
-                        production
-                            .items
-                            .iter()
-                            .filter_map(|item| match item.kind() {
-                                GrammarProductionItemKind::NonTerminal { sort, .. } => {
-                                    Some(sort.clone())
-                                }
-                                GrammarProductionItemKind::Terminal { .. }
-                                | GrammarProductionItemKind::RegexTerminal { .. } => None,
-                            })
-                            .collect(),
-                    ),
-                )?;
+                    if production
+                        .attributes
+                        .iter()
+                        .any(|attribute| matches!(attribute, ProductionAttribute::Desugar { .. }))
+                    {
+                        desugar_productions.insert(production.id.clone());
+                    }
+                    for item in &production.items {
+                        insert_node::<SemanticLevel>(&mut node_keys, item.origin().key())?;
+                    }
+                    for attribute in &production.attributes {
+                        insert_node::<SemanticLevel>(&mut node_keys, attribute.origin().key())?;
+                        if let ProductionAttribute::Strictness {
+                            using,
+                            fields,
+                            result_sort,
+                            ..
+                        } = attribute
+                        {
+                            if let Some(using) = using {
+                                insert_node::<SemanticLevel>(&mut node_keys, using.origin().key())?;
+                            }
+                            for field in fields {
+                                insert_node::<SemanticLevel>(&mut node_keys, field.origin().key())?;
+                            }
+                            insert_node::<SemanticLevel>(
+                                &mut node_keys,
+                                result_sort.origin().key(),
+                            )?;
+                        }
+                        if let ProductionAttribute::Group { group, .. } = attribute {
+                            groups.insert(group.clone());
+                        }
+                    }
+                    crate::ir_validation::insert_production_signature::<SemanticLevel>(
+                        &mut production_signatures,
+                        production.id.clone(),
+                        (
+                            production.result_sort.clone(),
+                            production.parameters.clone(),
+                            production
+                                .items
+                                .iter()
+                                .filter_map(|item| match item.kind() {
+                                    GrammarProductionItemKind::NonTerminal { sort, .. } => {
+                                        Some(sort.clone())
+                                    }
+                                    GrammarProductionItemKind::Terminal { .. }
+                                    | GrammarProductionItemKind::RegexTerminal { .. } => None,
+                                })
+                                .collect(),
+                        ),
+                    )?;
+                    Ok(())
+                })?;
             }
             for precedence in &module.precedences {
                 insert_node::<SemanticLevel>(&mut node_keys, precedence.origin().key())?;
@@ -330,17 +351,21 @@ impl SemanticTheory {
                 insert_node::<SemanticLevel>(&mut node_keys, layout.origin().key())?;
             }
             for rule in &module.rules {
-                let expected = rule.kind().item_kind();
-                validate_item_kind(&rule.id, expected)?;
-                insert_declaration(&mut declarations, &rule.id)?;
-                insert_node::<SemanticLevel>(&mut node_keys, rule.origin.key())?;
+                in_item(Some(&rule.id), || {
+                    let expected = rule.kind().item_kind();
+                    validate_item_kind(&rule.id, expected)?;
+                    insert_declaration(&mut declarations, &rule.id)?;
+                    insert_node::<SemanticLevel>(&mut node_keys, rule.origin.key())
+                })?;
             }
             for alias in &module.context_aliases {
-                validate_item_kind(&alias.id, ItemKind::ContextAlias)?;
-                insert_declaration(&mut declarations, &alias.id)?;
-                insert_node::<SemanticLevel>(&mut node_keys, alias.origin.key())?;
-                insert_node::<SemanticLevel>(&mut node_keys, alias.name_origin.key())?;
-                insert_node::<SemanticLevel>(&mut node_keys, alias.here_origin.key())?;
+                in_item(Some(&alias.id), || {
+                    validate_item_kind(&alias.id, ItemKind::ContextAlias)?;
+                    insert_declaration(&mut declarations, &alias.id)?;
+                    insert_node::<SemanticLevel>(&mut node_keys, alias.origin.key())?;
+                    insert_node::<SemanticLevel>(&mut node_keys, alias.name_origin.key())?;
+                    insert_node::<SemanticLevel>(&mut node_keys, alias.here_origin.key())
+                })?;
             }
             if let Some(configuration) = &module.configuration {
                 configurations += 1;
@@ -368,7 +393,7 @@ impl SemanticTheory {
         }
 
         if configurations != 1 {
-            return Err(SemanticValidationError::ConfigurationCount(configurations));
+            return Err(SemanticValidationError::ConfigurationCount(configurations).into());
         }
         let fixed_configuration = self
             .modules
@@ -379,7 +404,7 @@ impl SemanticTheory {
         for module in &self.modules {
             for import in &module.imports {
                 if !module_ids.contains(import) {
-                    return Err(SemanticValidationError::DanglingModule(import.clone()));
+                    return Err(SemanticValidationError::DanglingModule(import.clone()).into());
                 }
             }
             for subsort in &module.subsorts {
@@ -387,51 +412,57 @@ impl SemanticTheory {
                 require_sort::<SemanticLevel>(&declarations, &subsort.supersort)?;
             }
             for production in &module.productions {
-                require_sort::<SemanticLevel>(&declarations, &production.result_sort)?;
-                for item in &production.items {
-                    if let GrammarProductionItemKind::NonTerminal { sort, .. } = item.kind() {
-                        require_sort::<SemanticLevel>(&declarations, sort)?;
+                in_item(Some(&production.id), || {
+                    require_sort::<SemanticLevel>(&declarations, &production.result_sort)?;
+                    for item in &production.items {
+                        if let GrammarProductionItemKind::NonTerminal { sort, .. } = item.kind() {
+                            require_sort::<SemanticLevel>(&declarations, sort)?;
+                        }
                     }
-                }
-                for attribute in &production.attributes {
-                    if let ProductionAttribute::Strictness { result_sort, .. } = attribute {
-                        require_sort::<SemanticLevel>(&declarations, result_sort.sort())?;
+                    for attribute in &production.attributes {
+                        if let ProductionAttribute::Strictness { result_sort, .. } = attribute {
+                            require_sort::<SemanticLevel>(&declarations, result_sort.sort())?;
+                        }
+                        if let ProductionAttribute::Strictness {
+                            using: Some(alias), ..
+                        } = attribute
+                        {
+                            require_kind::<SemanticLevel>(
+                                &declarations,
+                                alias.alias(),
+                                ItemKind::ContextAlias,
+                            )?;
+                        }
+                        if matches!(attribute, ProductionAttribute::Private { .. }) {
+                            return Err(
+                                SemanticValidationError::DefinitionOnlyProductionAttribute(
+                                    Box::new(production.id.clone()),
+                                ),
+                            );
+                        }
+                        if let ProductionAttribute::Overload { target, .. }
+                        | ProductionAttribute::ListCons {
+                            terminator: target, ..
+                        }
+                        | ProductionAttribute::ListTerminator { cons: target, .. } = attribute
+                        {
+                            require_kind::<SemanticLevel>(
+                                &declarations,
+                                target,
+                                ItemKind::Constructor,
+                            )?;
+                        }
                     }
-                    if let ProductionAttribute::Strictness {
-                        using: Some(alias), ..
-                    } = attribute
-                    {
-                        require_kind::<SemanticLevel>(
-                            &declarations,
-                            alias.alias(),
-                            ItemKind::ContextAlias,
-                        )?;
-                    }
-                    if matches!(attribute, ProductionAttribute::Private { .. }) {
-                        return Err(SemanticValidationError::DefinitionOnlyProductionAttribute(
-                            Box::new(production.id.clone()),
-                        ));
-                    }
-                    if let ProductionAttribute::Overload { target, .. }
-                    | ProductionAttribute::ListCons {
-                        terminator: target, ..
-                    }
-                    | ProductionAttribute::ListTerminator { cons: target, .. } = attribute
-                    {
-                        require_kind::<SemanticLevel>(
-                            &declarations,
-                            target,
-                            ItemKind::Constructor,
-                        )?;
-                    }
-                }
+                    Ok(())
+                })?;
             }
             for precedence in &module.precedences {
                 for group in precedence.higher().iter().chain(precedence.lower()) {
                     if !groups.contains(group) {
                         return Err(SemanticValidationError::DanglingProductionGroup(
                             group.clone(),
-                        ));
+                        )
+                        .into());
                     }
                 }
             }
@@ -440,7 +471,8 @@ impl SemanticTheory {
                     if !groups.contains(group) {
                         return Err(SemanticValidationError::DanglingProductionGroup(
                             group.clone(),
-                        ));
+                        )
+                        .into());
                     }
                 }
             }
@@ -455,18 +487,20 @@ impl SemanticTheory {
                 )?;
             }
             for rule in &module.rules {
-                validate_rule::<SemanticLevel>(
-                    rule,
-                    fixed_configuration,
-                    &declarations,
-                    &production_signatures,
-                    &functional_productions,
-                    &alias_productions,
-                    &desugar_productions,
-                    &sort_parents,
-                    &cell_ids,
-                    &mut node_keys,
-                )?;
+                in_item(Some(&rule.id), || {
+                    validate_rule::<SemanticLevel>(
+                        rule,
+                        fixed_configuration,
+                        &declarations,
+                        &production_signatures,
+                        &functional_productions,
+                        &alias_productions,
+                        &desugar_productions,
+                        &sort_parents,
+                        &cell_ids,
+                        &mut node_keys,
+                    )
+                })?;
             }
         }
         validate_precedence_order::<SemanticLevel>(&self.modules)?;
@@ -480,29 +514,33 @@ impl SemanticTheory {
                 )?;
             }
             for rule in &module.rules {
-                validate_rule_cell_references::<SemanticLevel>(rule, &declarations, &cell_ids)?;
+                in_item(Some(&rule.id), || {
+                    validate_rule_cell_references::<SemanticLevel>(rule, &declarations, &cell_ids)
+                })?;
             }
             for alias in &module.context_aliases {
-                validate_context_alias::<SemanticLevel>(
-                    alias,
-                    &declarations,
-                    &production_signatures,
-                    &sort_parents,
-                    &cell_ids,
-                    &mut node_keys,
-                )?;
-                for cell in alias.body().cells() {
-                    validate_term_cell_references::<SemanticLevel>(
-                        cell.pattern(),
+                in_item(Some(&alias.id), || {
+                    validate_context_alias::<SemanticLevel>(
+                        alias,
                         &declarations,
+                        &production_signatures,
+                        &sort_parents,
                         &cell_ids,
+                        &mut node_keys,
                     )?;
-                }
-                validate_context_alias_frames::<SemanticLevel>(
-                    alias,
-                    fixed_configuration,
-                    &declarations,
-                )?;
+                    for cell in alias.body().cells() {
+                        validate_term_cell_references::<SemanticLevel>(
+                            cell.pattern(),
+                            &declarations,
+                            &cell_ids,
+                        )?;
+                    }
+                    validate_context_alias_frames::<SemanticLevel>(
+                        alias,
+                        fixed_configuration,
+                        &declarations,
+                    )
+                })?;
             }
         }
         let sorts = self

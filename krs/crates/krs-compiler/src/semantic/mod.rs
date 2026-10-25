@@ -145,6 +145,9 @@ pub fn lower_descriptor_bundle(
                 .collect(),
             range: range(1),
             first: range(0),
+            item: configurations
+                .get(1)
+                .map(|descriptor| Box::new(descriptor.id().clone())),
         });
     }
 
@@ -343,14 +346,17 @@ pub fn lower_descriptor_bundle(
             second_head_range: range,
         });
     }
-    // A validator failure is located at the innermost term the validator was checking.
-    let (theory, site) = krs_ir_levels::failure_site::record(|| SemanticTheory::new(modules));
-    theory.map_err(|error| DescriptorLoweringError::InvalidSemanticTheory {
-        error,
-        range: site
-            .iter()
-            .find_map(|origin| origin.origin().exact_authored_range())
-            .map(Box::new),
+    // A validator failure is located at the innermost term the validator was checking, and
+    // names the item whose sentence it was checking.
+    SemanticTheory::new_located(modules).map_err(|failure| {
+        let krs_ir_levels::SemanticFailure { error, item, at } = *failure;
+        DescriptorLoweringError::InvalidSemanticTheory {
+            error,
+            range: at
+                .and_then(|origin| origin.origin().exact_authored_range())
+                .map(Box::new),
+            item: item.map(Box::new),
+        }
     })
 }
 

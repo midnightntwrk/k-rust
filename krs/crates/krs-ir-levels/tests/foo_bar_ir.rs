@@ -20,9 +20,7 @@ use krs_test_support::{assert_rejects, assert_rejects_with_message};
     clippy::disallowed_names,
     reason = "Stable golden fixture vocabulary."
 )]
-fn semantic_theory(
-    bar_reference: Option<StableItemId>,
-) -> Result<SemanticTheory, SemanticValidationError> {
+fn semantic_modules(bar_reference: Option<StableItemId>) -> Vec<SemanticModule> {
     let k_item = item("syntax", "KItem", ItemKind::Sort);
     let k_result = item("syntax", "KResult", ItemKind::Sort);
     let value = item("syntax", "Value", ItemKind::Sort);
@@ -154,7 +152,13 @@ fn semantic_theory(
         Some(configuration),
         vec![rule],
     );
-    SemanticTheory::new(vec![syntax, main])
+    vec![syntax, main]
+}
+
+fn semantic_theory(
+    bar_reference: Option<StableItemId>,
+) -> Result<SemanticTheory, SemanticValidationError> {
+    SemanticTheory::new(semantic_modules(bar_reference))
 }
 
 fn symbol(id: &str, name: &str, kind: SymbolKind) -> SymbolIdentity {
@@ -356,6 +360,35 @@ fn dangling_semantic_production_is_rejected() {
         matches!(result, Err(SemanticValidationError::DanglingProduction(_))),
         "{result:?}"
     );
+}
+
+#[test]
+fn a_failed_sentence_names_its_item_and_a_whole_theory_failure_none() {
+    let missing = item("syntax", "Missing", ItemKind::Constructor);
+    let failure = SemanticTheory::new_located(semantic_modules(Some(missing))).unwrap_err();
+    assert!(
+        matches!(
+            failure.error,
+            SemanticValidationError::DanglingProduction(_)
+        ),
+        "{failure:?}"
+    );
+    assert_eq!(
+        failure.item,
+        Some(item("rules", "foo_to_bar", ItemKind::Rule))
+    );
+
+    let mut modules = semantic_modules(None);
+    modules.pop();
+    let failure = SemanticTheory::new_located(modules).unwrap_err();
+    assert!(
+        matches!(
+            failure.error,
+            SemanticValidationError::ConfigurationCount(0)
+        ),
+        "{failure:?}"
+    );
+    assert_eq!(failure.item, None);
 }
 
 #[test]

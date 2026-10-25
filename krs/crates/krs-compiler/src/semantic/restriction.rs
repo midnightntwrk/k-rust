@@ -89,6 +89,7 @@ fn lower_key(
                 )
             };
             return Err(invalid(
+                descriptor.id(),
                 format!(
                     "`{}` in `{name}(..)` is not a binder of the left-hand side of `{}`; `{name}(..)` names left-hand binders, and {binders}",
                     variable.name,
@@ -115,6 +116,7 @@ fn check_disjoint(
     let name = descriptor.id().item_name();
     if concrete.is_bare() && symbolic.is_bare() {
         return Err(invalid(
+            descriptor.id(),
             format!(
                 "`{name}` is both bare `concrete` and bare `symbolic`: no binder can be ground and symbolic at once; restrict different binders with `concrete(x)` and `symbolic(y)`"
             ),
@@ -128,6 +130,7 @@ fn check_disjoint(
             ("symbolic", concrete)
         };
         return Err(invalid(
+            descriptor.id(),
             format!(
                 "`{name}` is bare `{bare}`, which restricts every left-hand binder, and also restricts binders the other way; list the binders of each key instead"
             ),
@@ -145,6 +148,7 @@ fn check_disjoint(
         .find(|variable| concrete_ids.contains(variable.id()))
     {
         return Err(invalid(
+            descriptor.id(),
             format!(
                 "`{}` is both concrete and symbolic in `{name}`; a binder cannot be ground and symbolic at once",
                 both.id().as_str()
@@ -185,6 +189,7 @@ pub(super) fn check_equation_restrictions(
             };
             if let Some((rule, listed)) = restricted.iter().find(|(_, key)| !key.is_bare()) {
                 return Err(invalid(
+                    rule.id(),
                     format!(
                         "equation `{}` restricts only some binders with `{name}(..)`: K requires a function's equations to be bare `{name}` when one of them is restricted (\"Found {name} attribute without simplification attribute on function with one or more non-{name} rules\"); write bare `{name}`, or make it a #[k::simplification]",
                         rule.id().item_name()
@@ -197,6 +202,7 @@ pub(super) fn check_equation_restrictions(
                 .find(|rule| rule.restriction().and_then(key).is_none())
             {
                 return Err(invalid(
+                    first.id(),
                     format!(
                         "equation `{}` is `{name}`, but equation `{}` of the same function `{}` is not: K requires every equation of a function to be `{name}` once one is (\"Found {name} attribute without simplification attribute on function with one or more non-{name} rules\"); mark them all `{name}`, or make the restricted one a #[k::simplification]",
                         first.id().item_name(),
@@ -253,6 +259,7 @@ pub(super) fn check_smt_lemmas(modules: &[SemanticModule]) -> Result<(), Descrip
                         rule.id().item_name()
                     ),
                     range: origin.origin().exact_authored_range().map(Box::new),
+                    item: Some(Box::new(rule.id().clone())),
                 });
             }
         }
@@ -350,9 +357,10 @@ fn first_untranslatable(
     })
 }
 
-fn invalid(reason: String, origin: &NodeOrigin) -> DescriptorLoweringError {
+fn invalid(item: &StableItemId, reason: String, origin: &NodeOrigin) -> DescriptorLoweringError {
     DescriptorLoweringError::InvalidMatchRestriction {
         reason,
         range: origin.origin().exact_authored_range().map(Box::new),
+        item: Some(Box::new(item.clone())),
     }
 }

@@ -7,7 +7,9 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use krs_ir::{GrammarProductionItemKind, LexicalSentence, NodeOrigin, ProductionAttribute};
+use krs_ir::{
+    GrammarProductionItemKind, LexicalSentence, NodeOrigin, ProductionAttribute, StableItemId,
+};
 use krs_ir_levels::SemanticModule;
 use krs_syntax::regex_references;
 
@@ -21,6 +23,7 @@ pub(super) fn check_lexicals(modules: &[SemanticModule]) -> Result<(), Descripto
             return Err(fail(
                 LexicalProblem::Duplicate,
                 lexical.origin(),
+                None,
                 format!(
                     "the lexical `{}` is declared more than once; K names lexicals in one namespace per definition, so rename one",
                     lexical.name()
@@ -28,7 +31,8 @@ pub(super) fn check_lexicals(modules: &[SemanticModule]) -> Result<(), Descripto
             ));
         }
     }
-    let undefined = |regex: &str, origin: &NodeOrigin, what: &str| {
+    // A lexical or a layout is no item; a token regex is its production's.
+    let undefined = |regex: &str, origin: &NodeOrigin, item: Option<&StableItemId>, what: &str| {
         regex_references(regex)
             .into_iter()
             .find(|name| !lexicals.contains_key(name.as_str()))
@@ -36,6 +40,7 @@ pub(super) fn check_lexicals(modules: &[SemanticModule]) -> Result<(), Descripto
                 Err(fail(
                     LexicalProblem::Undefined,
                     origin,
+                    item,
                     format!(
                         "the {what} regex {regex:?} refers to `{{{name}}}`, which no `k::lexical!` declares; declare it with `k::lexical! {{ {name} = r\"..\"; }}` or escape the brace as `\\{{`"
                     ),
@@ -44,10 +49,10 @@ pub(super) fn check_lexicals(modules: &[SemanticModule]) -> Result<(), Descripto
     };
     for module in modules {
         for lexical in module.lexicals() {
-            undefined(lexical.regex(), lexical.origin(), "lexical")?;
+            undefined(lexical.regex(), lexical.origin(), None, "lexical")?;
         }
         for layout in module.layouts() {
-            undefined(layout.regex(), layout.origin(), "layout")?;
+            undefined(layout.regex(), layout.origin(), None, "layout")?;
         }
         for production in module.productions().iter().filter(|production| {
             production
@@ -63,7 +68,7 @@ pub(super) fn check_lexicals(modules: &[SemanticModule]) -> Result<(), Descripto
                 } = item.kind()
                 {
                     for regex in precede_regex.iter().chain([regex]).chain(follow_regex) {
-                        undefined(regex, production.origin(), "token")?;
+                        undefined(regex, production.origin(), Some(production.id()), "token")?;
                     }
                 }
             }
@@ -89,6 +94,7 @@ fn check_recursion(
             return Err(fail(
                 LexicalProblem::Recursive,
                 lexical.origin(),
+                None,
                 format!(
                     "lexicals refer to each other in a cycle ({}); K expands `{{Name}}` references inline, so a lexical cannot reach itself",
                     cycle
@@ -132,10 +138,16 @@ fn find_cycle<'a>(
     None
 }
 
-fn fail(problem: LexicalProblem, origin: &NodeOrigin, reason: String) -> DescriptorLoweringError {
+fn fail(
+    problem: LexicalProblem,
+    origin: &NodeOrigin,
+    item: Option<&StableItemId>,
+    reason: String,
+) -> DescriptorLoweringError {
     DescriptorLoweringError::InvalidLexical {
         problem,
         reason,
         range: origin.origin().exact_authored_range().map(Box::new),
+        item: item.cloned().map(Box::new),
     }
 }

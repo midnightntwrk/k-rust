@@ -1278,6 +1278,7 @@ fn undeclared_wildcard_and_invalid_control_label_fail_typed() {
         Err(LoweringError::InvalidEmittedName {
             role: "rule label",
             value,
+            ..
         }) if value == "if.true"
     ));
 }

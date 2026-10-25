@@ -163,7 +163,12 @@ impl StateRuleTerms<'_> {
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         self.entry_state_term(state, declared_sort, fallback_key, binding_sorts, subject)
-            .map_err(|error| error.within(key_range(self.descriptor, fallback_key).as_ref()))
+            .map_err(|error| {
+                error.within(
+                    self.descriptor.id(),
+                    key_range(self.descriptor, fallback_key).as_ref(),
+                )
+            })
     }
 
     /// Lowers one cell's state term: an ordinary term, a K sequence, or a map.
@@ -211,7 +216,7 @@ impl StateRuleTerms<'_> {
                         descriptor.id(),
                         "K sequence occurs in a non-KSequence rule cell",
                     )
-                    .within(key_range(descriptor, key).as_ref()));
+                    .within(descriptor.id(), key_range(descriptor, key).as_ref()));
                 }
                 let items = sequence
                     .items
@@ -220,7 +225,9 @@ impl StateRuleTerms<'_> {
                     .collect::<Result<Vec<_>, _>>()?;
                 let item_sort =
                     common_sequence_item_sort(descriptor, &items, self.sort_parents, !subject)
-                        .map_err(|error| error.within(key_range(descriptor, key).as_ref()))?;
+                        .map_err(|error| {
+                            error.within(descriptor.id(), key_range(descriptor, key).as_ref())
+                        })?;
                 Ok(SemanticTerm::k_sequence(
                     semantic_origin(descriptor, key.clone(), "rule-k-sequence")?,
                     item_sort,
@@ -234,7 +241,7 @@ impl StateRuleTerms<'_> {
                         descriptor.id(),
                         "map occurs in a non-Map rule cell",
                     )
-                    .within(key_range(descriptor, key).as_ref()));
+                    .within(descriptor.id(), key_range(descriptor, key).as_ref()));
                 }
                 let operands = match &map.body {
                     ProtocolRuleMapBody::Empty { .. } => MapOperands::Empty,
@@ -498,11 +505,10 @@ pub(super) fn lower_configuration_rule_descriptor(
     )?;
     let omitted_siblings = omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
     if matches!(rule.subject.remainder, ProtocolRuleFrame::Exact) && !omitted_siblings.is_empty() {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "configuration rule remainder",
-            detail: "an exact subject must select every fixed leaf cell".into(),
-            range: None,
-        });
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "configuration rule remainder",
+            "an exact subject must select every fixed leaf cell",
+        ));
     }
 
     let body = FixedConfigurationRewrite::new(
@@ -599,11 +605,10 @@ fn lower_configuration_rule_clauses(
         .keys()
         .any(|identity| !subject_cells.contains(identity))
     {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "configuration rule",
-            detail: "the result selects a fixed cell absent from the subject".into(),
-            range: None,
-        });
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "configuration rule",
+            "the result selects a fixed cell absent from the subject",
+        ));
     }
     if let Some(result) = &rule.result {
         validate_frame_pair(
@@ -1362,11 +1367,10 @@ fn lower_context_alias_cell(
     let descriptor = terms.descriptor;
     let declared = require_cell_field(&pattern.field.cell, terms.declarations)?;
     let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content else {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "context alias cell",
-            detail: "context aliases select leaf cells only".into(),
-            range: None,
-        });
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "context alias cell",
+            "context aliases select leaf cells only",
+        ));
     };
     if pattern.wrapper != Some(*wrapper) {
         return Err(DescriptorLoweringError::ParserReferenceDisagreement {
@@ -1493,11 +1497,10 @@ fn lower_subject_cell_frame(
         RuleStateFrame::Framed {
             frame: AssociativeStateFrame::Reuse { .. },
             ..
-        } => Err(DescriptorLoweringError::UnsupportedShape {
-            node: "subject cell frame",
-            detail: "a subject frame cannot reuse a result binding".into(),
-            range: None,
-        }),
+        } => Err(DescriptorLoweringError::unsupported_shape(
+            "subject cell frame",
+            "a subject frame cannot reuse a result binding",
+        )),
     }
 }
 
@@ -1589,14 +1592,13 @@ fn with_trailing_item(
     item: SemanticTerm,
 ) -> Result<SemanticTerm, DescriptorLoweringError> {
     let IrTermKind::KSequence { items, .. } = sequence.kind() else {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "cell content frame",
-            detail: format!(
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "cell content frame",
+            format!(
                 "rule {} binds a computation remainder outside a computation sequence",
                 descriptor.id()
             ),
-            range: None,
-        });
+        ));
     };
     let mut items = items.clone();
     items.push(item);
@@ -1650,6 +1652,7 @@ fn check_moved_remainders(
                     "the subject names the rest of the computation `..{tail}`, and the result neither puts it back with `..{tail}` nor uses it, so the rule would drop it: put it back with `..{tail}`, or use it in a condition"
                 ),
                 range: None,
+                item: None,
             });
         }
     }
@@ -1695,14 +1698,13 @@ fn validate_state_frame_pair(
     if state_frames_compatible(subject, result) {
         Ok(())
     } else {
-        Err(DescriptorLoweringError::UnsupportedShape {
+        Err(DescriptorLoweringError::unsupported_shape(
             node,
-            detail: format!(
+            format!(
                 "rule {} uses incompatible subject/result associative state families or frames",
                 descriptor.id()
             ),
-            range: None,
-        })
+        ))
     }
 }
 
@@ -1730,14 +1732,13 @@ fn validate_frame_pair(
     if supported {
         Ok(())
     } else {
-        Err(DescriptorLoweringError::UnsupportedShape {
+        Err(DescriptorLoweringError::unsupported_shape(
             node,
-            detail: format!(
+            format!(
                 "rule {} uses incompatible subject/result frames",
                 descriptor.id()
             ),
-            range: None,
-        })
+        ))
     }
 }
 
