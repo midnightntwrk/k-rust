@@ -6,11 +6,11 @@ use krs_syntax::KrsSyntax;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
-use super::terms::{WireSlots, anchor_key, held_key, wire_sort_reference};
+use super::terms::{WireSlots, held_key, wire_sort_reference};
 use krs_ir::lower_hex;
 use krs_ir::wire::{WireGrammarDescriptor, WirePayload, WireSortDescriptor, WireTypeReference};
 use krs_syntax::surface::{AttributeMacro, helper_entry};
-use krs_syntax::{ProvenanceAnchor, ProvenanceRole, SyntaxTemplateItem, TokenRange};
+use krs_syntax::{ProvenanceAnchor, SyntaxTemplateItem, TokenRange};
 use proc_macro2::{Span, TokenStream};
 use quote::{ToTokens, format_ident, quote};
 use syn::spanned::Spanned;
@@ -89,7 +89,7 @@ pub(crate) fn sort(
             env,
             &facade,
             &name,
-            &bracket.sort_descriptor_provenance(Some(&attribute), &declaration.item().ident)?,
+            &bracket.sort_descriptor(Some(&attribute), &declaration.item().ident)?,
             bracket,
             nonce,
             index,
@@ -168,7 +168,7 @@ pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
                 output.push(expand_readable_sort(env, &facade, sort, Registration::Inventory)?.0);
             }
             krs_syntax::SortsEntry::Membership(membership) => {
-                for (member, anchors) in membership.member_descriptors() {
+                for (index, (member, anchors)) in membership.member_descriptors().enumerate() {
                     let identity = ReadableMembershipIdentity::new(membership.supersort(), member);
                     if let Some(first_span) =
                         readable_memberships.insert(identity.item_name.clone(), member.span())
@@ -205,7 +205,7 @@ pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
                         }
                     }
                     output.push(expand_readable_membership(
-                        env, &facade, membership, member, anchors, &identity,
+                        env, &facade, membership, index, anchors, &identity,
                     )?);
                 }
             }
@@ -357,14 +357,14 @@ fn expand_readable_sort(
     }
 
     let mut brackets = Vec::new();
-    for (index, (bracket, anchors)) in declaration.bracket_descriptors().enumerate() {
+    for (index, (bracket, descriptor)) in declaration.bracket_descriptors().enumerate() {
         brackets.push(expand_bracket_grammar_parts(
             env,
             facade,
             &name,
             &declared_key,
             bracket,
-            anchors,
+            descriptor,
             nonce,
             index,
             &[],
@@ -421,11 +421,11 @@ fn expand_readable_membership(
     env: &dyn MacroEnvironment,
     facade: &Path,
     declaration: &krs_syntax::SortsMembership,
-    member: &Path,
+    index: usize,
     anchors: &[ProvenanceAnchor],
     identity: &ReadableMembershipIdentity,
 ) -> crate::Result<TokenStream> {
-    let subsort_declaration_role = ProvenanceRole::SubsortDeclaration;
+    let member = &declaration.members()[index];
     let fallback = anchors[0].range();
     let provenance = host_provenance(env, facade, fallback, anchors);
     let rust_key = &identity.rust_key;
@@ -458,12 +458,12 @@ fn expand_readable_membership(
     let subsort = wire_sort_reference(
         &mut slots,
         facade,
-        anchor_key(anchors, ProvenanceRole::SubsortSubSort).as_ref(),
+        declaration.member_sub_sort_key(index),
         &sub_key,
         &sub_spelling,
     )?;
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Subsort {
-        key: held_key(anchor_key(anchors, subsort_declaration_role).as_ref())?,
+        key: held_key(declaration.member_key(index))?,
         subsort,
         supersort,
     }));
@@ -683,7 +683,7 @@ fn expand_bracket_grammar(
     env: &dyn MacroEnvironment,
     facade: &Path,
     semantic_sort_name: &str,
-    anchors: &[ProvenanceAnchor],
+    descriptor: &krs_syntax::BracketDescriptor,
     bracket: &krs_syntax::BracketAttribute,
     nonce: u64,
     index: usize,
@@ -696,7 +696,7 @@ fn expand_bracket_grammar(
         semantic_sort_name,
         &sort_key,
         bracket,
-        anchors,
+        descriptor,
         nonce,
         index,
         cfg,
@@ -713,11 +713,12 @@ fn expand_bracket_grammar_parts(
     sort_name: &str,
     sort_key: &Ident,
     bracket: &krs_syntax::BracketAttribute,
-    anchors: &[ProvenanceAnchor],
+    descriptor: &krs_syntax::BracketDescriptor,
     nonce: u64,
     index: usize,
     cfg: &[Attribute],
 ) -> crate::Result<TokenStream> {
+    let anchors = descriptor.anchors();
     let fallback = anchors
         .first()
         .map(ProvenanceAnchor::range)
@@ -732,12 +733,12 @@ fn expand_bracket_grammar_parts(
     let factory = format_ident!("__krs_bracket_descriptor_{nonce:016x}_{index}");
     let grammar_name = format!("__krs_grammar_bracket_{sort_name}_{index}");
     let mut slots = WireSlots::new(facade);
-    // The bracketed sort's name, which the descriptor's composition keys;
-    // the owner, the result and the value all name it.
+    // The bracketed sort's name, whose key the descriptor holds; the owner,
+    // the result and the value all name it.
     let sort_reference = wire_sort_reference(
         &mut slots,
         facade,
-        anchor_key(anchors, ProvenanceRole::SortDeclaration).as_ref(),
+        Some(descriptor.sort_key()),
         sort_key,
         sort_name,
     )?;

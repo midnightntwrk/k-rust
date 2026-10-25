@@ -438,8 +438,8 @@ mod tests {
             match entry {
                 SortsEntry::Sort(sort) => {
                     round_trip.sentence(label, sort.provenance(), |nodes| sort.keyed_nodes(nodes));
-                    for (index, (_, anchors)) in sort.bracket_descriptors().enumerate() {
-                        round_trip.descriptor(label, Ok(anchors.to_vec()), |nodes| {
+                    for (index, (_, descriptor)) in sort.bracket_descriptors().enumerate() {
+                        round_trip.descriptor(label, Ok(descriptor.anchors().to_vec()), |nodes| {
                             sort.keyed_bracket_nodes(index, nodes)
                         });
                     }
@@ -795,7 +795,9 @@ mod tests {
                             .sentence(&label, bracket.provenance(), |nodes| {
                                 bracket.keyed_nodes(nodes)
                             });
-                        let anchors = bracket.sort_descriptor_provenance(sort, &item_trait.ident);
+                        let anchors = bracket
+                            .sort_descriptor(sort, &item_trait.ident)
+                            .map(|descriptor| descriptor.anchors().to_vec());
                         self.round_trip.descriptor(&label, anchors, |nodes| {
                             bracket.keyed_nodes(nodes)?;
                             let sort = sort.expect("a bracketed sort has its sort attribute");

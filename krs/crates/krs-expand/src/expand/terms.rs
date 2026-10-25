@@ -146,18 +146,6 @@ pub(super) fn held_key(read: Option<&ProvenanceKey>) -> crate::Result<Provenance
     })
 }
 
-/// The key of the first of a descriptor's `anchors` with `role`: a key the
-/// descriptor's composition gives a node that holds none of its own.
-pub(super) fn anchor_key(
-    anchors: &[krs_syntax::ProvenanceAnchor],
-    role: ProvenanceRole,
-) -> Option<ProvenanceKey> {
-    anchors
-        .iter()
-        .find(|anchor| anchor.role() == role)
-        .map(krs_syntax::ProvenanceAnchor::key)
-}
-
 /// One term's tree with the nodes, paths and keys its sentence gave it.
 #[derive(Clone, Copy)]
 pub(super) struct KeyedTerm<'t> {

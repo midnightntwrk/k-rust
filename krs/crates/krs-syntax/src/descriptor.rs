@@ -220,36 +220,59 @@ impl SortAttribute {
 }
 
 impl BracketAttribute {
-    /// Returns the anchors of the descriptor of a bracket on a sort's marker
-    /// trait: the bracket, then the sort it brackets, named by the sort
-    /// attribute's alias, or by the marker trait when no alias names it.
+    /// Returns the descriptor of a bracket on a sort's marker trait: the
+    /// bracket, then the sort it brackets, named by the sort attribute's
+    /// alias, or by the marker trait when no alias names it.
     ///
     /// # Errors
     ///
     /// Returns an endpoint error only if the sort's name emits no token
     /// leaves.
-    pub fn sort_descriptor_provenance(
+    pub fn sort_descriptor(
         &self,
         sort: Option<&SortAttribute>,
         marker: &Ident,
-    ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        bracket_anchors(self, sort.and_then(SortAttribute::alias).unwrap_or(marker))
+    ) -> Result<BracketDescriptor, SyntaxError> {
+        BracketDescriptor::new(self, sort.and_then(SortAttribute::alias).unwrap_or(marker))
     }
 }
 
-/// The anchors of a bracket's descriptor: the bracket's own keying, then the
-/// name of the sort it brackets, which is the first of its role.
-pub(crate) fn bracket_anchors(
-    bracket: &BracketAttribute,
-    sort: &Ident,
-) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-    let mut keys = KeyAllocator::default();
-    keys.append(&bracket.provenance()?)?;
-    keys.key(
-        ProvenanceRole::SortDeclaration,
-        TokenRange::for_tokens(sort)?,
-    )?;
-    Ok(keys.into_anchors())
+/// The descriptor of one bracket, with the key of the node it anchors that
+/// the bracket does not hold: the name of the sort it brackets, which the
+/// production's owner, result and value all name.
+#[derive(Clone, Debug)]
+pub struct BracketDescriptor {
+    anchors: Vec<ProvenanceAnchor>,
+    sort_key: ProvenanceKey,
+}
+
+impl BracketDescriptor {
+    /// Keys the descriptor: the bracket's own keying, then the name `sort`
+    /// of the sort it brackets, which is the first of its role.
+    pub(crate) fn new(bracket: &BracketAttribute, sort: &Ident) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        keys.append(&bracket.provenance()?)?;
+        let sort_key = keys.key(
+            ProvenanceRole::SortDeclaration,
+            TokenRange::for_tokens(sort)?,
+        )?;
+        Ok(Self {
+            anchors: keys.into_anchors(),
+            sort_key,
+        })
+    }
+
+    /// The descriptor's anchors, in allocation order.
+    #[must_use]
+    pub fn anchors(&self) -> &[ProvenanceAnchor] {
+        &self.anchors
+    }
+
+    /// The key of the bracketed sort's name.
+    #[must_use]
+    pub const fn sort_key(&self) -> &ProvenanceKey {
+        &self.sort_key
+    }
 }
 
 impl TokenStack {
