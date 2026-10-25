@@ -430,8 +430,9 @@ fn sccs(nodes: &[String], calls: &BTreeMap<String, BTreeSet<String>>) -> Vec<Vec
 /// (`partial_fixpoint`, flat order on `Option`), which is `none` exactly where the rewriting
 /// diverges and the value of the equations wherever it terminates. Lean proves the equations
 /// monotone only in a direct form, so the function is rendered as an `if` chain over the
-/// equations' guards with `do` binds on the right-hand sides; this needs every left-hand side
-/// to be guards only (no patterns).
+/// equations' left-hand sides with binds on the right-hand sides (`render_fixpoint`); this needs
+/// left-hand sides that do not call a function of the group, and, in a mutual group, an entry
+/// for every member (Lean defines the group by one fixed point).
 #[derive(Default, Clone, Debug)]
 pub struct SideEntry {
     pub termination_by: Option<String>,
@@ -560,16 +561,36 @@ pub fn map_size_instances(m: &Model) -> String {
 /// The equations of one function, lowered: (equation index, steps, left-hand-side steps, result).
 type Lowered = Vec<(usize, Vec<crate::lower::Step>, usize, L)>;
 
+/// Whether `l` applies one of the Lean functions `names`.
+fn mentions(l: &L, names: &BTreeSet<String>) -> bool {
+    match l {
+        L::App(h, args) => names.contains(h) || args.iter().any(|a| mentions(a, names)),
+        L::Typed(e, _) => mentions(e, names),
+        L::Var(_) | L::Raw(_) => false,
+    }
+}
+
 /// The body of a function defined as a least fixed point: an `if` chain over the equations'
 /// guards (in cascade order), each right-hand side a `do` block over its partial calls. Lean's
 /// `partial_fixpoint` proves this form monotone (`Option`'s bind); the cascade form is not.
+/// Equations that match patterns get the form of `render_fixpoint_matching`; `group` is the
+/// Lean names of the functions defined together.
 fn render_fixpoint(
     m: &Model,
     f: &str,
     params: &[String],
     lowered: &Lowered,
+    group: &BTreeSet<String>,
 ) -> Result<String, String> {
     use crate::lower::Step;
+    let guards_only = lowered.iter().all(|(_, steps, lhs_len, _)| {
+        steps[..*lhs_len]
+            .iter()
+            .all(|s| matches!(s, Step::Cond { .. } | Step::CondEq { .. }))
+    });
+    if !guards_only {
+        return render_fixpoint_matching(m, f, params, lowered, group);
+    }
     let mut o = String::new();
     for (k, (_, steps, lhs_len, rhs)) in lowered.iter().enumerate() {
         let mut conds = Vec::new();
@@ -607,12 +628,80 @@ fn render_fixpoint(
         }
         o.push_str(&format!("{kw} {} then\n    {d}", conds.join(" ∧ ")));
     }
-    let fallback = if m.anywhere.contains(f) {
+    o.push_str(&format!("  else {}\n", fixpoint_fallback(m, f, params)));
+    Ok(o)
+}
+
+/// The value of a least fixed point where no equation applies: `⊥`, or the constructor term of
+/// an `anywhere` function.
+fn fixpoint_fallback(m: &Model, f: &str, params: &[String]) -> String {
+    if m.anywhere.contains(f) {
         format!("some {}", anywhere_ctor(m, f, params).render_arg())
     } else {
         "none".to_string()
-    };
-    o.push_str(&format!("  else {fallback}\n"));
+    }
+}
+
+/// A least fixed point whose equations match patterns. Each equation is two expressions over the
+/// same left-hand side: whether it applies (`a{k} : Bool`, the match and the requires, `false`
+/// where either fails), and, where it does, its right-hand side, its partial calls chained by
+/// `>>=` (`⊥` if one is `⊥`). The function is then an `if` chain over the `a{k}`, in cascade
+/// order: the equation that applies first gives the value, as in the cascade. Lean proves this
+/// form monotone because the recursive calls are only in the right-hand sides' binds, and the
+/// matches and `if`s around them test arguments only, never a recursive call's value; so a
+/// left-hand side (a requires) that calls a function of the group is refused: whether the
+/// equation applies would depend on the function being defined, which is not monotone.
+fn render_fixpoint_matching(
+    m: &Model,
+    f: &str,
+    params: &[String],
+    lowered: &Lowered,
+    group: &BTreeSet<String>,
+) -> Result<String, String> {
+    use crate::lower::Step;
+    let own = "partial_fixpoint: a left-hand side (a requires) calls a function of its own group";
+    let mut o = String::new();
+    for (k, (_, steps, lhs_len, rhs)) in lowered.iter().enumerate() {
+        let lhs = &steps[..*lhs_len];
+        for s in lhs {
+            let calls = match s {
+                Step::MapChoose { .. } => {
+                    return Err(
+                        "partial_fixpoint: a free-key map pattern in a left-hand side".into(),
+                    );
+                }
+                Step::Bind { expr, .. } => mentions(expr, group),
+                Step::Cond { cond, .. } => mentions(cond, group),
+                Step::CondEq { lhs, rhs, .. } => mentions(lhs, group) || mentions(rhs, group),
+                _ => false,
+            };
+            if calls {
+                return Err(own.into());
+            }
+        }
+        let mut leaf = String::from("(");
+        for s in &steps[*lhs_len..] {
+            match s {
+                Step::Bind { expr, var, .. } => {
+                    leaf.push_str(&format!("{} >>= fun {var} => ", expr.render_arg()))
+                }
+                _ => {
+                    return Err(
+                        "partial_fixpoint: a right-hand side step that is not a partial call"
+                            .into(),
+                    );
+                }
+            }
+        }
+        leaf.push_str(&format!("pure {})", rhs.render_arg()));
+        let app = crate::render::exec_first(lhs, false, &|_| "false".to_string(), "true", 4);
+        let body = crate::render::exec_first(lhs, false, &|_| "none".to_string(), &leaf, 4);
+        o.push_str(&format!(
+            "  let a{n} : Bool :=\n{app}  if a{n} = true then\n{body}  else\n",
+            n = k + 1
+        ));
+    }
+    o.push_str(&format!("  {}\n", fixpoint_fallback(m, f, params)));
     Ok(o)
 }
 
@@ -778,15 +867,22 @@ fn gen_recursive(
             .map(|(p, s)| format!("({p} : {s})"))
             .collect();
         if entry.is_some_and(|e| e.partial_fixpoint) {
-            if multi {
+            // Lean defines a mutual block by one fixed point: every member is a least fixed point
+            if let Some(o) = members
+                .iter()
+                .find(|o| !o.entry.is_some_and(|e| e.partial_fixpoint))
+            {
                 return Err(format!(
-                    "{label}: partial_fixpoint in a mutual group is not supported"
+                    "{label}: partial_fixpoint in a mutual group needs it for every member of the group, and `{}` has none",
+                    o.label
                 ));
             }
-            let body =
-                render_fixpoint(m, f, params, lowered).map_err(|e| format!("{label}: {e}"))?;
+            let group: BTreeSet<String> = members.iter().map(|o| fn_name(o.f)).collect();
+            let body = render_fixpoint(m, f, params, lowered, &group)
+                .map_err(|e| format!("{label}: {e}"))?;
+            let note = if multi { "/--" } else { "/-!" };
             o.push_str(&format!(
-                "/-! `{label}` (recursive; least fixed point) -/\n"
+                "{note} `{label}` (recursive; least fixed point) -/\n"
             ));
             o.push_str(&format!(
                 "def {} {} : Option {} :=\n{body}partial_fixpoint\n\n",

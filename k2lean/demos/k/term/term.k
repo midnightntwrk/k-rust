@@ -8,8 +8,10 @@ module TERM-SYNTAX
   imports INT-SYNTAX
   imports BYTES-SYNTAX
   imports LIST
+  imports MAP
   syntax Ints ::= ".Ints" | Int ";" Ints
-  syntax Pgm ::= run(Bytes, Ints, List, Int) | runN(Int)
+  syntax Ty ::= ty(Int)
+  syntax Pgm ::= run(Bytes, Ints, List, Int) | runN(Int) | runT(Map, Ty)
 endmodule
 
 module TERM
@@ -18,6 +20,7 @@ module TERM
   imports BOOL
   imports BYTES
   imports LIST
+  imports MAP
   configuration <T> <k> $PGM:Pgm </k> </T>
 
   // Two functions calling each other: `scan` stops at the end of the bytes, `scanAt` steps past
@@ -107,6 +110,27 @@ module TERM
   rule popcount(N) => (N &Int 1) +Int popcount(N >>Int 1) requires N >Int 0
   rule popcount(N) => popcount(N *Int -1) requires N <Int 0
 
+  // Types read from a table: an array's alignment is its element's, its size the element's size
+  // times its length, and the element's description is read from the table. The table is an
+  // arbitrary map, so on a table whose entry for a type mentions that type (`ty(0) |-> arr(ty(0),
+  // 2)`) the rewriting does not terminate, and no measure exists: `align` (one function that
+  // matches its argument) and `size`/`sizeTy` (a group) are least fixed points
+  // (term-termination.toml), and term-diverges.lean proves they have no value on that table.
+  syntax Info ::= prim(Int) | arr(Ty, Int) | ptr(Ty)
+  syntax Info ::= info(Map, Ty) [function, total, symbol(info)]
+  rule info(M, T) => {M[T] orDefault prim(0)}:>Info
+  syntax Int ::= align(Map, Info) [function, total, symbol(align)]
+  rule align(_, prim(N)) => N
+  rule align(M, arr(T, _)) => align(M, info(M, T))
+  rule align(_, ptr(_)) => 8
+  syntax Int ::= size(Map, Info) [function, total, symbol(size)]
+               | sizeTy(Map, Ty) [function, total, symbol(sizeTy)]
+  rule size(_, prim(N)) => N
+  rule size(M, arr(T, N)) => N *Int sizeTy(M, T)
+  rule size(_, ptr(_)) => 8
+  rule sizeTy(M, T) => size(M, info(M, T))
+
   rule <k> run(B, L, Xs, N) => scan(B, 0, 0) ~> isort(L) ~> total(Xs, 0) ~> series(1, 0, N, N) ~> dec(B) </k>
   rule <k> runN(N) => popcount(N) </k>
+  rule <k> runT(M, T) => sizeTy(M, T) ~> align(M, info(M, T)) </k>
 endmodule

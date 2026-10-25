@@ -56,10 +56,11 @@ gen_core() {
             --open-obligations "$o/open-obligations.txt") ;;
     # the generator's fixture whose functions walk maps by free-key patterns (tests/fixtures/freekey)
     freekey) libs_fixture_args "$1" ;;
-    # recursive functions whose termination measures the generator synthesizes (demos/k/term)
+    # recursive functions whose termination measures the generator synthesizes (demos/k/term),
+    # and least fixed points where K's rewriting diverges (term-termination.toml)
     kterm-ar) GEN_ARGS=(--kore "$(kore_dir kterm)/definition.kore" --runtime "$(kore_dir kterm)/runtime.json"
             --out "$o" --name KTerm --prelude ../../lean/prelude --arity-terms
-            --open-obligations "$o/open-obligations.txt") ;;
+            --termination "$DEMOS/k/term/term-termination.toml" --open-obligations "$o/open-obligations.txt") ;;
     *) return 1 ;;
   esac
   return 0
@@ -186,8 +187,12 @@ gate_core() {
   if runs lib kimp-ar; then
     kc kimp && kc kimp-verif && lib kimp-ar KImp kimp_goldens kimp-ar && kimp_tests kimp-ar
   fi
-  # recursive functions whose termination measures the generator synthesizes (demos/k/term)
-  runs lib kterm-ar && kc kterm && lib kterm-ar KTerm
+  # recursive functions whose termination measures the generator synthesizes (demos/k/term);
+  # its least fixed points have no value where K's rewriting diverges (term-diverges.lean)
+  if runs lib kterm-ar && kc kterm && lib kterm-ar KTerm; then
+    if (cd "$GEN/kterm-ar" && "$RT" lake env lean "$D/k/term/term-diverges.lean") > "$L/kterm-diverges.log" 2>&1
+    then ok "kterm diverges" "$L/kterm-diverges.log"; else bad "kterm diverges" "$L/kterm-diverges.log"; fi
+  fi
   if runs lib simple-ar; then
     phase "lib simple-ar"
     kc simple && libs_simple_cases && lib_simple simple-ar && ok "simple-ar acceptance" "$MEAS/simple-acceptance.md"
