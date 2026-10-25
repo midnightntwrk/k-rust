@@ -164,10 +164,15 @@ impl StateContextAliasItem {
     ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut keys = KeyAllocator::default();
         keys.append(&attribute.provenance()?);
-        keys.key(
+        let declaration = keys.key(
             ProvenanceRole::ContextAliasDeclaration,
             TokenRange::for_tokens(&self.item().sig.ident)?,
         )?;
+        debug_assert_eq!(
+            Some(&declaration),
+            self.declaration_key(),
+            "the fn's name holds its key in the descriptor"
+        );
         keys.append(&self.provenance()?);
         Ok(keys.into_anchors())
     }

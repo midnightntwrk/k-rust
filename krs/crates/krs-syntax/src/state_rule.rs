@@ -419,6 +419,7 @@ pub struct StateContextAliasItem {
     pattern: CellsExpression,
     bindings: Vec<StateRuleBinding>,
     here: Ident,
+    declaration_key: Option<ProvenanceKey>,
     pattern_key: Option<ProvenanceKey>,
     type_key: Option<ProvenanceKey>,
     /// The anchors of the alias's keying.
@@ -506,6 +507,7 @@ impl StateContextAliasItem {
             pattern,
             bindings,
             here: here.clone(),
+            declaration_key: None,
             pattern_key: None,
             type_key: None,
             anchors: Vec::new(),
@@ -515,7 +517,14 @@ impl StateContextAliasItem {
 
     /// Keys the alias as a sentence of its own and stores its anchors: the
     /// pattern and its type, each binding's sort, then the pattern's cells.
+    /// The fn's name, the alias's declaration, is keyed by the descriptor
+    /// after the attribute, which keys no node of its role, so it holds the
+    /// first key of its role.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
+        self.declaration_key = Some(KeyAllocator::default().key(
+            ProvenanceRole::ContextAliasDeclaration,
+            TokenRange::for_tokens(&self.item.sig.ident)?,
+        )?);
         let mut keys = KeyAllocator::default();
         self.pattern.clear_keys();
         for binding in &mut self.bindings {
@@ -545,6 +554,12 @@ impl StateContextAliasItem {
     #[must_use]
     pub const fn configuration_type_key(&self) -> Option<&ProvenanceKey> {
         self.type_key.as_ref()
+    }
+
+    /// The key of the fn's name, the alias's declaration in its descriptor.
+    #[must_use]
+    pub const fn declaration_key(&self) -> Option<&ProvenanceKey> {
+        self.declaration_key.as_ref()
     }
 
     /// Returns the original function item.
