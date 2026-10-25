@@ -316,6 +316,15 @@ mod tests {
             DescriptorPayload::Cell(declaration) => {
                 declaration.expected_provenance_keys(&id).unwrap()
             }
+            DescriptorPayload::HeadRule(_) => [
+                key(),
+                ProvenanceKey::new(ProvenanceRole::RuleDeclaration, 0),
+                head_key(ProvenanceRole::RulePattern),
+                head_key(ProvenanceRole::RuleResult),
+                head_key(ProvenanceRole::RuleLeftReference),
+                head_key(ProvenanceRole::RuleLeftPath),
+            ]
+            .into(),
             _ => [key()].into(),
         };
         crate::testing::descriptor(
@@ -353,6 +362,10 @@ mod tests {
         )
     }
 
+    fn head_key(role: ProvenanceRole) -> ProvenanceKey {
+        ProvenanceKey::new(role, 0)
+    }
+
     fn head_rule(name: &str) -> Descriptor {
         let configuration = item("lookup", "Configuration", ItemKind::Configuration);
         descriptor(
@@ -363,12 +376,12 @@ mod tests {
                 label: None,
                 priority: None,
                 nondet: None,
-                pattern_key: key(),
-                result_key: key(),
+                pattern_key: head_key(ProvenanceRole::RulePattern),
+                result_key: head_key(ProvenanceRole::RuleResult),
                 head_sort: None,
                 configuration: configuration.clone(),
                 computation_cell: Some(DescriptorCellReference {
-                    key: key(),
+                    key: head_key(ProvenanceRole::RulePattern),
                     cell: DescriptorCellIdentity {
                         owner: configuration,
                         field: "k".into(),
@@ -377,8 +390,8 @@ mod tests {
                 bindings: Vec::new(),
                 head: Some(crate::ProtocolHeadRuleHead {
                     items: vec![DescriptorTerm::Variable {
-                        key: key(),
-                        path_key: key(),
+                        key: head_key(ProvenanceRole::RuleLeftReference),
+                        path_key: head_key(ProvenanceRole::RuleLeftPath),
                         name: "head".into(),
                     }],
                     exact: false,

@@ -213,11 +213,22 @@ fn fixed_configuration_validates_exact_closed_provenance() {
 fn fixed_configuration_rejects_wrong_keys_duplicates_and_tree_drift() {
     let (owner, configuration) = fixed_configuration();
 
+    // The first field defines that key already.
+    let mut repeated_key = configuration.clone();
+    repeated_key.declaration.fields[1].reference.key = key(ProvenanceRole::ConfigurationField, 0);
+    assert!(matches!(
+        repeated_key.validate(&owner),
+        Err(StateTransportError::DuplicateProvenance(repeated))
+            if repeated == key(ProvenanceRole::ConfigurationField, 0)
+    ));
     let mut wrong_key = configuration.clone();
-    wrong_key.declaration.fields[1].reference.key = key(ProvenanceRole::ConfigurationField, 0);
+    wrong_key.declaration.fields[1].reference.key = key(ProvenanceRole::ConfigurationCellName, 1);
     assert!(matches!(
         wrong_key.validate(&owner),
-        Err(StateTransportError::UnexpectedProvenance { .. })
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::ConfigurationField,
+            ..
+        })
     ));
 
     let mut duplicate_external = configuration.clone();
@@ -331,8 +342,20 @@ fn primary_key_is_configuration_declaration() {
             &key(ProvenanceRole::InitializerDeclaration, 0),
             &actual,
         ),
-        Err(StateTransportError::UnexpectedProvenance { .. })
+        Err(StateTransportError::MismatchedProvenance { .. })
     ));
+    // A primary of the declaration's role is still the declaration's key.
+    let error = configuration
+        .validate_complete_provenance(
+            &owner,
+            &key(ProvenanceRole::ConfigurationDeclaration, 1),
+            &actual,
+        )
+        .unwrap_err();
+    assert_eq!(
+        error.to_string(),
+        "expected provenance key `configuration_declaration#0`, found `configuration_declaration#1`"
+    );
 }
 
 fn side_role(side: &str, left: ProvenanceRole, right: ProvenanceRole) -> ProvenanceRole {
@@ -457,7 +480,7 @@ fn descriptor_context_alias() -> DescriptorContextAlias {
 fn context_alias_protocol_rejects_lost_or_mismatched_structural_frames() {
     let alias = descriptor_context_alias();
     alias.validate(ItemKind::ContextAlias).unwrap();
-    let expected = alias.expected_provenance_keys();
+    let expected = alias.expected_provenance_keys().unwrap();
     alias
         .validate_complete_provenance(
             ItemKind::ContextAlias,
@@ -490,6 +513,94 @@ fn context_alias_protocol_rejects_lost_or_mismatched_structural_frames() {
             StateTermReason::AliasBindingCatalogMismatch
         ))
     ));
+}
+
+/// Each key field of an alias has its role, each key one definition, and
+/// its keys are the anchors; a cell value's path names its head.
+#[test]
+fn context_alias_keys_have_their_roles_and_one_definition() {
+    let alias = descriptor_context_alias();
+    let anchors = alias.expected_provenance_keys().unwrap();
+    let check = |alias: &DescriptorContextAlias| {
+        alias.validate_complete_provenance(
+            ItemKind::ContextAlias,
+            &key(ProvenanceRole::ContextAliasDeclaration, 0),
+            &anchors,
+        )
+    };
+    check(&alias).unwrap();
+
+    // Swapped name and `here` keys: each field holds the other's role.
+    let mut swapped = alias.clone();
+    std::mem::swap(&mut swapped.name_key, &mut swapped.here_key);
+    assert_eq!(
+        check(&swapped),
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::ContextAliasName,
+            actual: key(ProvenanceRole::ContextAliasHere, 0),
+        })
+    );
+
+    // The tail's key repeated by the cells' remainder.
+    let mut repeated = alias.clone();
+    repeated.pattern.remainder = ProtocolRuleFrame::Bind {
+        key: key(ProvenanceRole::RuleLeftCellsPayload, 0),
+        binding: "state".into(),
+    };
+    assert_eq!(
+        check(&repeated),
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::RuleLeftCellsRemainder,
+            actual: key(ProvenanceRole::RuleLeftCellsPayload, 0),
+        })
+    );
+    let mut repeated = alias.clone();
+    let ProtocolRuleStateTerm::KSequence(sequence) = &mut repeated.pattern.cells[0].value else {
+        unreachable!()
+    };
+    sequence.items.push(ProtocolRuleKSequenceItem {
+        key: key(ProvenanceRole::RuleLeftKSequenceItem, 0),
+        value: rule_variable("left", 1, "other"),
+    });
+    assert_eq!(
+        check(&repeated),
+        Err(StateTransportError::DuplicateProvenance(key(
+            ProvenanceRole::RuleLeftKSequenceItem,
+            0
+        )))
+    );
+
+    // A cell value's path is its head's key.
+    let mut path = alias.clone();
+    let ProtocolRuleStateTerm::KSequence(sequence) = &mut path.pattern.cells[0].value else {
+        unreachable!()
+    };
+    let DescriptorTerm::Variable { path_key, .. } = &mut sequence.items[0].value else {
+        unreachable!()
+    };
+    *path_key = key(ProvenanceRole::RuleLeftPath, 0);
+    assert_eq!(
+        check(&path),
+        Err(StateTransportError::MismatchedProvenance {
+            expected: key(ProvenanceRole::RuleLeftReference, 0),
+            actual: key(ProvenanceRole::RuleLeftPath, 0),
+        })
+    );
+
+    // An anchor no node consumes.
+    let mut extra = anchors.clone();
+    extra.insert(key(ProvenanceRole::RuleBindingType, 0));
+    assert_eq!(
+        alias.validate_complete_provenance(
+            ItemKind::ContextAlias,
+            &key(ProvenanceRole::ContextAliasDeclaration, 0),
+            &extra,
+        ),
+        Err(StateTransportError::ExtraProvenance(key(
+            ProvenanceRole::RuleBindingType,
+            0
+        )))
+    );
 }
 
 fn term_rule_binding(name: &str, ordinal: u32, sort: DescriptorSortRef) -> DescriptorRuleBinding {
@@ -897,10 +1008,13 @@ fn configuration_rule_rejects_binding_frame_and_provenance_drift() {
     let ProtocolRuleBindingKind::Term { sort } = &mut wrong_sort_key.bindings[2].kind else {
         unreachable!()
     };
-    sort.key = key(ProvenanceRole::RuleBindingType, 2);
+    sort.key = key(ProvenanceRole::RuleExistentialBinderSort, 0);
     assert!(matches!(
         wrong_sort_key.validate(ItemKind::Rule),
-        Err(StateTransportError::UnexpectedProvenance { .. })
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::RuleBindingType,
+            ..
+        })
     ));
 
     let mut wrong_sort_kind = rule.clone();
@@ -1004,16 +1118,19 @@ fn stable_configuration_rule_accepts_only_exact_subject_wildcards() {
     let keys = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
     assert!(keys.contains(&key(ProvenanceRole::RuleLeftWildcard, 0)));
 
-    let mut wrong_ordinal = rule.clone();
+    let mut wrong_role = rule.clone();
     let ProtocolRuleStateTerm::Term(DescriptorTerm::Wildcard { key: wildcard }) =
-        &mut wrong_ordinal.subject.cells[0].value
+        &mut wrong_role.subject.cells[0].value
     else {
         unreachable!()
     };
-    *wildcard = key(ProvenanceRole::RuleLeftWildcard, 1);
+    *wildcard = key(ProvenanceRole::RuleLeftLiteral, 0);
     assert!(matches!(
-        wrong_ordinal.validate(ItemKind::Rule),
-        Err(StateTransportError::UnexpectedProvenance { .. })
+        wrong_role.validate(ItemKind::Rule),
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::RuleLeftWildcard,
+            ..
+        })
     ));
 
     let mut result_wildcard = rule;
@@ -1189,10 +1306,13 @@ fn host_configuration_rule_requires_exact_typed_binding_catalog() {
     let ProtocolRuleBindingKind::Term { sort } = &mut wrong_sort_key.bindings[0].kind else {
         unreachable!()
     };
-    sort.key = key(ProvenanceRole::RuleBindingType, 1);
+    sort.key = key(ProvenanceRole::RuleType, 0);
     assert!(matches!(
         wrong_sort_key.validate(ItemKind::Rule),
-        Err(StateTransportError::UnexpectedProvenance { .. })
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::RuleBindingType,
+            ..
+        })
     ));
 }
 

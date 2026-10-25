@@ -338,6 +338,31 @@ pub struct Foo { pub left: Term<dyn KItemSort>, pub right: Term<dyn Absent> }
     );
 }
 
+/// A sort whose anchors name a parent its payload does not carry disagrees
+/// with its own expansion: the internal provenance mismatch, not an
+/// author's invalid configuration.
+#[test]
+fn a_host_sort_with_an_unconsumed_parent_anchor_is_a_provenance_mismatch() {
+    let package = TestPackage::new(
+        "unconsumed_parent",
+        "#[k::sort(alias = KItem)]\npub trait KItemSort {}\n\n#[k::sort(alias = Expr, parents = [KItem])]\npub trait ExprSort: KItemSort {}\n",
+    );
+    let error = collect_descriptors(
+        [package.context("ORG-UNCONSUMED")],
+        [
+            package.sort("KItem", kitem_type, vec![]),
+            package.sort("Expr", expr_type, vec![]),
+        ],
+    )
+    .unwrap_err();
+    assert_eq!(
+        error.kind(),
+        CollectionErrorKind::ProvenanceMismatch,
+        "{error}"
+    );
+    assert!(error.detail().contains("sort_parent#0"), "{error}");
+}
+
 #[test]
 fn changed_semantic_source_is_rejected_as_stale() {
     let package = TestPackage::new(

@@ -495,12 +495,29 @@ fn structured_requires_has_closed_exact_provenance_and_pre_bindings() {
     else {
         unreachable!()
     };
+    // The variable's path defines that key already.
     *path_key = key(ProvenanceRole::RuleRequiresPath, 1);
     assert!(matches!(
         wrong_path.build(),
         Err(krs_ir::DescriptorError::Grammar(
-            GrammarTransportError::UnexpectedProvenance { .. }
-        ))
+            GrammarTransportError::DuplicateProvenance(duplicate)
+        )) if duplicate == key(ProvenanceRole::RuleRequiresPath, 1)
+    ));
+    // A requires path takes the requires role, whatever its ordinal.
+    let mut wrong_role = descriptor.clone();
+    let DescriptorPayload::StructuredRule(rule) = &mut wrong_role.payload else {
+        unreachable!()
+    };
+    let DescriptorTerm::Application { path_key, .. } = &mut rule.requires.as_mut().unwrap().term
+    else {
+        unreachable!()
+    };
+    *path_key = key(ProvenanceRole::RuleRightPath, 0);
+    assert!(matches!(
+        wrong_role.build(),
+        Err(krs_ir::DescriptorError::Grammar(
+            GrammarTransportError::UnexpectedProvenance { expected, .. }
+        )) if expected == ProvenanceRole::RuleRequiresPath
     ));
 
     let mut unbound = descriptor.clone();
@@ -595,11 +612,12 @@ fn crate_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
 }
 
 #[test]
-fn explicit_constructor_syntax_tracks_occurrence_and_declaration_ordinals_separately() {
+fn explicit_constructor_syntax_defines_each_occurrence_and_declaration_once() {
     let mut descriptors = expression_descriptors();
     reorder_expression_fields(expression_production(&mut descriptors[0]));
     descriptors[0].build().unwrap();
 
+    // The second occurrence defines that reference already.
     let production = expression_production(&mut descriptors[0]);
     let DescriptorProductionItem::NonTerminal { field_key, .. } = &mut production.items[0] else {
         unreachable!()
@@ -608,8 +626,8 @@ fn explicit_constructor_syntax_tracks_occurrence_and_declaration_ordinals_separa
     assert!(matches!(
         descriptors[0].build(),
         Err(krs_ir::DescriptorError::Grammar(
-            GrammarTransportError::UnexpectedProvenance { .. }
-        ))
+            GrammarTransportError::DuplicateProvenance(duplicate)
+        )) if duplicate == key(ProvenanceRole::ConstructorSyntaxFieldReference, 1)
     ));
 
     let mut descriptors = expression_descriptors();
@@ -623,15 +641,14 @@ fn explicit_constructor_syntax_tracks_occurrence_and_declaration_ordinals_separa
     else {
         unreachable!()
     };
+    // Two nonterminals that name one field declare it twice.
     *declaration_key = Some(key(ProvenanceRole::ConstructorFieldDeclaration, 1));
     sort.key = key(ProvenanceRole::ConstructorFieldSort, 1);
     assert!(matches!(
         descriptors[0].build(),
         Err(krs_ir::DescriptorError::Grammar(
-            GrammarTransportError::InvalidProduction(
-                GrammarProductionReason::DuplicateConstructorFieldOrdinal
-            )
-        ))
+            GrammarTransportError::DuplicateProvenance(duplicate)
+        )) if duplicate == key(ProvenanceRole::ConstructorFieldDeclaration, 1)
     ));
 }
 

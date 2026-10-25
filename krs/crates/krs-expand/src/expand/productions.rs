@@ -13,42 +13,8 @@ use syn::{Attribute, Ident, Path};
 use super::ledger::KeyLedger;
 use super::tokens::{call_site_path, enum_variant_parts, spelling, variant_marker_function};
 use krs_ir::ProvenanceKey;
-use krs_syntax::ProvenanceRole;
-
-/// The roles of the production's nodes that a constructor's descriptor
-/// repeats from its grammar descriptor, whose wire alone denotes them: the
-/// declaration and its field names and documentation, the syntax with its
-/// template and format, the metadata, the tier membership and the
-/// cons-list marker, the alias or desugar marker and its payload, and the
-/// strictness. The constructor's wire denotes the rest itself: the
-/// constructed sort, its sort parameters and element types, and each
-/// field's sort with its element types.
-pub(super) const REPEATED_PRODUCTION_ROLES: [ProvenanceRole; 24] = [
-    ProvenanceRole::ConstructorDeclaration,
-    ProvenanceRole::ConstructorFieldDeclaration,
-    ProvenanceRole::ConstructorDocumentation,
-    ProvenanceRole::ConstructorSyntax,
-    ProvenanceRole::ConstructorSyntaxItem,
-    ProvenanceRole::ConstructorSyntaxFieldReference,
-    ProvenanceRole::ConstructorFormat,
-    ProvenanceRole::ConstructorFormatFragment,
-    ProvenanceRole::ConstructorGroup,
-    ProvenanceRole::ConstructorAvoid,
-    ProvenanceRole::ConstructorPrefer,
-    ProvenanceRole::ConstructorInternal,
-    ProvenanceRole::ConstructorProgram,
-    ProvenanceRole::ConstructorOverload,
-    ProvenanceRole::ConstructorColor,
-    ProvenanceRole::ConstructorColorsEntry,
-    ProvenanceRole::ConsListDeclaration,
-    ProvenanceRole::AliasProduction,
-    ProvenanceRole::DesugarProduction,
-    ProvenanceRole::StaticRecursive,
-    ProvenanceRole::StrictnessDeclaration,
-    ProvenanceRole::StrictnessContextAliasReference,
-    ProvenanceRole::StrictnessFieldReference,
-    ProvenanceRole::StrictnessResultSort,
-];
+/// The production roles a constructor's descriptor repeats from its grammar descriptor.
+pub(super) use krs_ir::transport::grammar::REPEATED_PRODUCTION_ROLES;
 
 pub(super) fn strictness_key_function<'a>(
     strictness: Option<&StrictnessAttribute>,

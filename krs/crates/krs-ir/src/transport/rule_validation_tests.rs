@@ -49,8 +49,8 @@ fn check_term<S: ValidationStage>(term: &Term<S>) -> Result<(), StateTransportEr
         ValidationSide::Left,
         &[],
         &mut Vec::new(),
-        &mut RuleCounters::default(),
-        &mut BTreeSet::new(),
+        &mut RuleWalk::default(),
+        &mut WireKeys::default(),
     )
 }
 
@@ -85,8 +85,7 @@ fn claim_binders_validate_descriptor_sort_after_its_provenance() {
             std::slice::from_ref(&descriptor),
             &descriptor_catalog,
             ProvenanceRole::ClaimUniversalBinder,
-            0,
-            &mut BTreeSet::new()
+            &mut WireKeys::default()
         ),
         Err(StateTransportError::InvalidTerm(
             StateTermReason::InvalidClaimBinderSort
@@ -97,8 +96,7 @@ fn claim_binders_validate_descriptor_sort_after_its_provenance() {
             &[host],
             &host_catalog,
             ProvenanceRole::ClaimUniversalBinder,
-            0,
-            &mut BTreeSet::new()
+            &mut WireKeys::default()
         )
         .is_ok()
     );
@@ -109,11 +107,10 @@ fn claim_binders_validate_descriptor_sort_after_its_provenance() {
             &[malformed],
             &descriptor_catalog,
             ProvenanceRole::ClaimUniversalBinder,
-            0,
-            &mut BTreeSet::new()
+            &mut WireKeys::default()
         ),
         Err(StateTransportError::UnexpectedProvenance {
-            expected: key(ProvenanceRole::ClaimBinderSort),
+            expected: ProvenanceRole::ClaimBinderSort,
             actual: key(ProvenanceRole::RuleBindingType),
         })
     );
@@ -134,14 +131,14 @@ fn rule_binding_catalog_preserves_descriptor_only_declared_sort_check() {
         },
     }];
     assert_eq!(
-        validate_rule_binding_catalog::<DescriptorStage>(&descriptor, &mut BTreeSet::new()),
+        validate_rule_binding_catalog::<DescriptorStage>(&descriptor, &mut WireKeys::default()),
         Err(StateTransportError::ItemKind {
             field: TransportField::RuleBindingSort,
             expected: TransportItemKind::Sort,
             actual: ItemKind::Constructor,
         })
     );
-    assert!(validate_rule_binding_catalog::<HostStage>(&host, &mut BTreeSet::new()).is_ok());
+    assert!(validate_rule_binding_catalog::<HostStage>(&host, &mut WireKeys::default()).is_ok());
 }
 
 #[test]
@@ -282,7 +279,7 @@ fn anonymous_terms_validate_descriptor_sort_before_provenance() {
     assert_eq!(
         check_term(&host),
         Err(StateTransportError::UnexpectedProvenance {
-            expected: key(ProvenanceRole::ClaimAnonymous),
+            expected: ProvenanceRole::ClaimAnonymous,
             actual: key(ProvenanceRole::RuleLeftLiteral),
         })
     );
@@ -395,8 +392,8 @@ fn selected_cells_preserve_descriptor_identity_and_owner_checks() {
             RuleSide::Left,
             &[],
             &mut Vec::new(),
-            &mut RuleCounters::default(),
-            &mut BTreeSet::new()
+            &mut RuleWalk::default(),
+            &mut WireKeys::default()
         ),
         Err(StateTransportError::CellOwnerMismatch)
     );
@@ -407,8 +404,8 @@ fn selected_cells_preserve_descriptor_identity_and_owner_checks() {
             RuleSide::Left,
             &[],
             &mut Vec::new(),
-            &mut RuleCounters::default(),
-            &mut BTreeSet::new()
+            &mut RuleWalk::default(),
+            &mut WireKeys::default()
         )
         .is_ok()
     );
@@ -419,8 +416,8 @@ fn selected_cells_preserve_descriptor_identity_and_owner_checks() {
             RuleSide::Left,
             &[],
             &mut Vec::new(),
-            &mut RuleCounters::default(),
-            &mut BTreeSet::new()
+            &mut RuleWalk::default(),
+            &mut WireKeys::default()
         )
         .is_ok()
     );
@@ -431,8 +428,8 @@ fn selected_cells_preserve_descriptor_identity_and_owner_checks() {
             RuleSide::Left,
             &[],
             &mut Vec::new(),
-            &mut RuleCounters::default(),
-            &mut BTreeSet::new()
+            &mut RuleWalk::default(),
+            &mut WireKeys::default()
         ),
         Err(StateTransportError::ItemKind {
             field: TransportField::CellIdentityOwner,
@@ -455,8 +452,8 @@ fn assert_duplicate_selected_cells<S: RuleValidationStage>(
             RuleSide::Left,
             &[],
             &mut Vec::new(),
-            &mut RuleCounters::default(),
-            &mut BTreeSet::new(),
+            &mut RuleWalk::default(),
+            &mut WireKeys::default(),
         ),
         Err(StateTransportError::DuplicateValue(
             TransportField::SelectedRuleCells
@@ -677,10 +674,11 @@ fn rule_key_collection_preserves_stage_specific_label_and_declaration_ownership(
             configuration: host_type::<()>(),
         },
     );
-    let mut descriptor_keys = BTreeSet::new();
-    let mut host_keys = BTreeSet::new();
+    let mut descriptor_keys = WireKeys::default();
+    let mut host_keys = WireKeys::default();
     validate_configuration_rule(&descriptor, ItemKind::Rule, &mut descriptor_keys).unwrap();
     validate_configuration_rule(&host, ItemKind::Rule, &mut host_keys).unwrap();
+    let (descriptor_keys, host_keys) = (descriptor_keys.into_defined(), host_keys.into_defined());
     assert_eq!(
         descriptor_keys
             .difference(&host_keys)
@@ -735,4 +733,48 @@ fn configuration_rules_compare_stable_ids_and_resolved_host_aliases() {
     assert_eq!(descriptor.validate(ItemKind::Rule), Ok(()));
     host.result_configuration.as_mut().unwrap().configuration = host_type::<bool>();
     assert_eq!(host.validate(ItemKind::Rule), mismatch);
+}
+
+/// An equation's function context keys its cells as a rule's left side:
+/// each key has its role, and one node defines it.
+#[test]
+fn function_context_cells_have_their_roles_and_one_definition() {
+    let configuration = item("Config", ItemKind::Configuration);
+    let context = |cells| DescriptorFunctionContext {
+        key: key(ProvenanceRole::FunctionContext),
+        configuration: DescriptorConfigurationReference {
+            key: key(ProvenanceRole::FunctionContextType),
+            configuration: configuration.clone(),
+        },
+        bindings: Vec::new(),
+        cells,
+    };
+    let cells = cells::<DescriptorStage>(DescriptorCellReference {
+        key: key(ProvenanceRole::RuleLeftCellsField),
+        cell: crate::DescriptorCellIdentity {
+            owner: configuration.clone(),
+            field: "value".into(),
+        },
+    });
+    let mut keys = WireKeys::default();
+    context(cells.clone()).collect_keys(&mut keys).unwrap();
+    assert_eq!(keys.defined().len(), 6);
+
+    let mut misplaced = cells.clone();
+    misplaced.cells[0].wrapper_key = Some(key(ProvenanceRole::RuleRightCellsWrapper));
+    assert_eq!(
+        context(misplaced).collect_keys(&mut WireKeys::default()),
+        Err(crate::GrammarTransportError::UnexpectedProvenance {
+            expected: ProvenanceRole::RuleLeftCellsWrapper,
+            actual: key(ProvenanceRole::RuleRightCellsWrapper),
+        })
+    );
+    let mut repeated = cells;
+    repeated.cells.push(repeated.cells[0].clone());
+    assert_eq!(
+        context(repeated).collect_keys(&mut WireKeys::default()),
+        Err(crate::GrammarTransportError::DuplicateProvenance(key(
+            ProvenanceRole::RuleLeftCellsField
+        )))
+    );
 }

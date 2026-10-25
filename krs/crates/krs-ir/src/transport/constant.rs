@@ -6,10 +6,9 @@
 //! substitutes the value at every use before semantic analysis, so no
 //! constant reaches the semantic IR or emitted K.
 
-use std::collections::BTreeSet;
-
 use serde::{Deserialize, Serialize};
 
+use super::keys::WireKeys;
 use crate::stage::stage_shape;
 use crate::transport::grammar::{GrammarTransportError, Term};
 use crate::{DescriptorStage, ProvenanceKey, ProvenanceRole};
@@ -43,20 +42,91 @@ impl ConstantDescriptor {
         ProvenanceKey::new(ProvenanceRole::ConstantDeclaration, 0)
     }
 
-    /// Every parser key the descriptor's provenance must hold: the name,
-    /// the type, the value expression, and the value's nodes.
+    /// The keys of the constant's wire nodes, with its fixed declaration
+    /// key, the name.
     ///
     /// # Errors
     ///
-    /// Returns [`GrammarTransportError`] when a key is not the parser's.
-    pub(crate) fn expected_provenance_keys(
-        &self,
-    ) -> Result<BTreeSet<ProvenanceKey>, GrammarTransportError> {
-        let mut keys = BTreeSet::from([
-            Self::expected_primary_key(),
-            ProvenanceKey::new(ProvenanceRole::ConstantValue, 0),
-        ]);
+    /// Returns [`GrammarTransportError`] when a key has another role than
+    /// its node's, or two nodes define one key.
+    pub(crate) fn wire_keys(&self) -> Result<WireKeys, GrammarTransportError> {
+        let mut keys = WireKeys::default();
+        keys.fixed(ProvenanceRole::ConstantDeclaration)?;
         super::grammar::collect_constant_keys(self, &mut keys)?;
         Ok(keys)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ConstantDescriptor;
+    use crate::transport::detail::GrammarTermReason;
+    use crate::{
+        BuiltinSort, DescriptorLiteral, DescriptorSortRef, DescriptorSortReference, DescriptorTerm,
+        GrammarTransportError, ProvenanceKey, ProvenanceRole,
+    };
+
+    fn key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
+        ProvenanceKey::new(role, ordinal)
+    }
+
+    fn constant(value: DescriptorTerm) -> ConstantDescriptor {
+        ConstantDescriptor {
+            sort: DescriptorSortReference {
+                key: key(ProvenanceRole::ConstantType, 0),
+                sort: DescriptorSortRef::Builtin(BuiltinSort::Int),
+            },
+            value,
+        }
+    }
+
+    fn literal() -> DescriptorTerm {
+        DescriptorTerm::Literal {
+            key: key(ProvenanceRole::RuleRightLiteral, 0),
+            literal: DescriptorLiteral::Int("1".into()),
+        }
+    }
+
+    /// A constant's value is keyed as a rule result is, and holds what a
+    /// rule result may: no claim or cell term, and no pattern.
+    #[test]
+    fn a_constant_value_is_a_result_term() {
+        let anchors = [
+            key(ProvenanceRole::ConstantDeclaration, 0),
+            key(ProvenanceRole::ConstantType, 0),
+            key(ProvenanceRole::ConstantValue, 0),
+            key(ProvenanceRole::RuleRightLiteral, 0),
+        ];
+        constant(literal())
+            .wire_keys()
+            .unwrap()
+            .close(&anchors)
+            .unwrap();
+        let anonymous = DescriptorTerm::Anonymous {
+            key: key(ProvenanceRole::ClaimAnonymous, 0),
+            sort: DescriptorSortReference {
+                key: key(ProvenanceRole::ClaimAnonymousSort, 0),
+                sort: DescriptorSortRef::Builtin(BuiltinSort::Int),
+            },
+            spelling: "_x".into(),
+        };
+        assert_eq!(
+            constant(anonymous).wire_keys().err(),
+            Some(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::UnexpectedClaimTerm
+            ))
+        );
+        let pattern = DescriptorTerm::As {
+            key: key(ProvenanceRole::PatternAs, 0),
+            binding_key: key(ProvenanceRole::PatternAsBinding, 0),
+            name: "x".into(),
+            pattern: Box::new(literal()),
+        };
+        assert_eq!(
+            constant(pattern).wire_keys().err(),
+            Some(GrammarTransportError::InvalidTerm(
+                GrammarTermReason::PatternAsOutsideLeftHandSide
+            ))
+        );
     }
 }
