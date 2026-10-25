@@ -979,6 +979,7 @@ pub(crate) type IslandKeys =
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct TermKeys {
     payload: Option<ProvenanceKey>,
+    term: Option<ProvenanceKey>,
     symbols: Vec<Option<ProvenanceKey>>,
     nodes: Vec<Vec<ProvenanceKey>>,
     record_fields: Vec<Option<ProvenanceKey>>,
@@ -991,6 +992,14 @@ impl TermKeys {
     #[must_use]
     pub const fn payload(&self) -> Option<&ProvenanceKey> {
         self.payload.as_ref()
+    }
+
+    /// The key of the whole term under the role its sentence gives every term
+    /// it holds, beside [`Self::payload`], which then names the term's place
+    /// in a `k!` or `map!`: an initializer's `initializer_term`.
+    #[must_use]
+    pub const fn term(&self) -> Option<&ProvenanceKey> {
+        self.term.as_ref()
     }
 
     /// The key of the path at `index` in [`TermExpression::symbols`] (for a
@@ -1031,6 +1040,11 @@ impl TermKeys {
     pub(crate) fn set_payload(&mut self, key: ProvenanceKey) {
         debug_assert!(self.payload.is_none(), "a pass keys a term once");
         self.payload = Some(key);
+    }
+
+    pub(crate) fn set_term(&mut self, key: ProvenanceKey) {
+        debug_assert!(self.term.is_none(), "a pass keys a term once");
+        self.term = Some(key);
     }
 
     pub(crate) fn set_symbol(&mut self, index: usize, key: ProvenanceKey) {

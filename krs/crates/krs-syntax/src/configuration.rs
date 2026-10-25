@@ -58,9 +58,39 @@ pub struct SortArgument {
     pub dynamic: bool,
     /// The arguments of a collection argument, in order.
     pub arguments: Vec<SortArgument>,
+    key: Option<ProvenanceKey>,
 }
 
 impl SortArgument {
+    /// The key of the argument's path, from the sentence that holds it.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// Forgets the keys of `arguments` and of every nested one, before a
+    /// sentence's pass keys them.
+    pub(crate) fn clear_keys(arguments: &mut [Self]) {
+        for argument in arguments {
+            argument.key = None;
+            Self::clear_keys(&mut argument.arguments);
+        }
+    }
+
+    /// Keys the path of each of `arguments` and of every nested one, in
+    /// preorder, as the next of `role`.
+    pub(crate) fn allocate_keys(
+        arguments: &mut [Self],
+        keys: &mut KeyAllocator,
+        role: ProvenanceRole,
+    ) -> Result<(), SyntaxError> {
+        for argument in arguments {
+            argument.key = Some(keys.key(role, TokenRange::for_tokens(&argument.path)?)?);
+            Self::allocate_keys(&mut argument.arguments, keys, role)?;
+        }
+        Ok(())
+    }
+
     /// This argument and every nested one, in preorder: the order of their
     /// `configuration_cell_content_argument` provenance ordinals.
     #[must_use]
@@ -717,6 +747,7 @@ fn sort_argument(
         path: sort,
         dynamic: false,
         arguments: collection_arguments(ty, invalid)?,
+        key: None,
     })
 }
 
@@ -750,6 +781,7 @@ fn term_sort_argument(
                 path: term.sort().clone(),
                 dynamic: true,
                 arguments: Vec::new(),
+                key: None,
             })
         }
         Some(inner) => sort_argument(inner, invalid),

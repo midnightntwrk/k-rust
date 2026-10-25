@@ -11,17 +11,17 @@ use syn::{
 
 use crate::ReferenceCandidate;
 use crate::parse::{
-    KeyAllocator, KrsSyntax, checked_ordinal, structured_args,
+    KeyAllocator, KrsSyntax, structured_args,
     unsupported_configuration_variable as unsupported_variable,
     unsupported_initializer_body as unsupported_body,
     unsupported_initializer_signature as unsupported_signature,
 };
 use crate::path::{is_plain_path, plain_path_last, without_last_arguments};
-use crate::term::TermKeys;
+use crate::state_macro::StatePosition;
 use crate::term_sort::{TermSort, parse_typed_term_sort};
 use crate::{
-    MapBody, ProvenanceAnchor, ProvenanceRole, StateTerm, SyntaxError, SyntaxErrorKind,
-    TermExpression, TermSymbolKind, TokenRange, parse_k_sequence_expression, parse_map_expression,
+    ProvenanceAnchor, ProvenanceRole, StateTerm, SyntaxError, SyntaxErrorKind, TermExpression,
+    TermSymbolKind, TokenRange, parse_k_sequence_expression, parse_map_expression,
 };
 
 /// Parsed payload of one `#[k::config_var(name = "...", main)]` helper.
@@ -68,9 +68,79 @@ pub struct ConfigurationVariable {
     term_sort: Option<TermSort>,
     sort: Path,
     arguments: Vec<crate::SortArgument>,
+    key: Option<ProvenanceKey>,
+    name_key: Option<ProvenanceKey>,
+    type_key: Option<ProvenanceKey>,
+    main_key: Option<ProvenanceKey>,
 }
 
 impl ConfigurationVariable {
+    /// The key of the binding, the variable itself.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// The key of the external name: the `name` literal, or the binding
+    /// when the name is derived from it.
+    #[must_use]
+    pub const fn name_key(&self) -> Option<&ProvenanceKey> {
+        self.name_key.as_ref()
+    }
+
+    /// The key of the parameter type.
+    #[must_use]
+    pub const fn type_key(&self) -> Option<&ProvenanceKey> {
+        self.type_key.as_ref()
+    }
+
+    /// The key of the authored `main` marker, numbered as the variable is;
+    /// `None` when the variable has none.
+    #[must_use]
+    pub const fn main_key(&self) -> Option<&ProvenanceKey> {
+        self.main_key.as_ref()
+    }
+
+    /// Keys the binding, the external name, the type, each collection
+    /// argument in preorder, then an authored `main` marker at the binding's
+    /// ordinal.
+    fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.main_key = None;
+        crate::SortArgument::clear_keys(&mut self.arguments);
+        let binding = TokenRange::for_tokens(&self.binding)?;
+        let key = keys.key(ProvenanceRole::ConfigurationVariable, binding)?;
+        self.name_key = Some(keys.key(
+            ProvenanceRole::ConfigurationVariableName,
+            if self.attribute.inferred_name {
+                binding
+            } else {
+                TokenRange::for_tokens(&self.attribute.name)?
+            },
+        )?);
+        self.type_key = Some(keys.key(
+            ProvenanceRole::ConfigurationVariableType,
+            TokenRange::for_tokens(&*self.parameter.ty)?,
+        )?);
+        crate::SortArgument::allocate_keys(
+            &mut self.arguments,
+            keys,
+            ProvenanceRole::ConfigurationVariableTypeArgument,
+        )?;
+        if let Some(term_sort) = &mut self.term_sort {
+            term_sort.arguments_mut().clone_from_slice(&self.arguments);
+        }
+        // `main` is numbered as its variable is.
+        if let Some(main) = &self.attribute.main {
+            self.main_key = Some(keys.paired(
+                ProvenanceRole::ConfigurationVariableMain,
+                &key,
+                TokenRange::for_tokens(main)?,
+            ));
+        }
+        self.key = Some(key);
+        Ok(())
+    }
+
     /// Returns the original typed parameter, including its helper attribute.
     #[must_use]
     pub const fn parameter(&self) -> &PatType {
@@ -149,9 +219,48 @@ pub struct FixedCellInitializer {
     name: Ident,
     content: InitializerCellContent,
     optional: bool,
+    key: Option<ProvenanceKey>,
+    field_key: Option<ProvenanceKey>,
+    constructor_key: Option<ProvenanceKey>,
 }
 
 impl FixedCellInitializer {
+    /// The key of the cell, at its field name.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// The key of the field name as a field of its struct.
+    #[must_use]
+    pub const fn field_key(&self) -> Option<&ProvenanceKey> {
+        self.field_key.as_ref()
+    }
+
+    /// The key of the constructor, numbered as the cell is: a leaf's
+    /// `Cell::new`/`KCell::new` path, or its whole value when the constructor
+    /// is inferred, or a nested cell's struct path.
+    #[must_use]
+    pub const fn constructor_key(&self) -> Option<&ProvenanceKey> {
+        self.constructor_key.as_ref()
+    }
+
+    /// Forgets the keys of the cell and of everything inside it, before the
+    /// initializer's pass keys them.
+    fn clear_keys(&mut self) {
+        self.key = None;
+        self.field_key = None;
+        self.constructor_key = None;
+        match &mut self.content {
+            InitializerCellContent::Leaf { value, .. } => value.clear_keys(),
+            InitializerCellContent::Nested { children, .. } => {
+                for child in children {
+                    child.clear_keys();
+                }
+            }
+        }
+    }
+
     /// Original named Rust field value.
     #[must_use]
     pub const fn field(&self) -> &syn::FieldValue {
@@ -234,6 +343,12 @@ pub struct InitializerFunction {
     body: ExprStruct,
     cells: Vec<FixedCellInitializer>,
     legacy_cell: Option<ComputationCellInitializer>,
+    declaration_key: Option<ProvenanceKey>,
+    result_type_key: Option<ProvenanceKey>,
+    body_key: Option<ProvenanceKey>,
+    /// The anchors of the initializer's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl InitializerFunction {
@@ -276,14 +391,104 @@ impl InitializerFunction {
 
         let (body, cells, legacy_cell) = parse_body(&item)?;
         infer_main_configuration_variable(&mut variables, &cells)?;
-        Ok(Self {
+        Self {
             item,
             result_type,
             variables,
             body,
             cells,
             legacy_cell,
-        })
+            declaration_key: None,
+            result_type_key: None,
+            body_key: None,
+            anchors: Vec::new(),
+        }
+        .keyed()
+    }
+
+    /// Keys the initializer, as a sentence of its own: the method name, the
+    /// result type, each configuration variable, the body, then every cell
+    /// with its constructor, `k!`/`map!` structure and terms
+    /// ([`allocate_initializer_keys`]), and across the terms, in that order,
+    /// their constant islands, their lexemes and their record field names.
+    /// Each role runs across the whole initializer, because a key names one
+    /// authored node of the sentence.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.declaration_key = Some(keys.key(
+            ProvenanceRole::InitializerDeclaration,
+            TokenRange::for_tokens(&self.item.sig.ident)?,
+        )?);
+        self.result_type_key = Some(keys.key(
+            ProvenanceRole::InitializerResultType,
+            TokenRange::for_tokens(&self.result_type)?,
+        )?);
+        for variable in &mut self.variables {
+            variable.allocate_keys(&mut keys)?;
+        }
+        self.body_key = Some(keys.key(
+            ProvenanceRole::InitializerBody,
+            TokenRange::for_tokens(&self.body)?,
+        )?);
+        for cell in &mut self.cells {
+            cell.clear_keys();
+        }
+        allocate_initializer_keys(&mut keys, &mut self.cells)?;
+        // Constant islands are numbered per kind over the initializer's terms
+        // in the order expansion visits them.
+        let mut terms = Vec::new();
+        initializer_terms_mut(&mut self.cells, &mut terms);
+        for term in &mut terms {
+            let (nodes, _, term_keys) = term.keying();
+            crate::state_rule::allocate_claim_node_keys(&mut keys, [(nodes, term_keys)])?;
+        }
+        for term in &mut terms {
+            let (nodes, _, term_keys) = term.keying();
+            crate::term::allocate_lexeme_keys(&mut keys, nodes, term_keys)?;
+        }
+        // Record field names, numbered in preorder across the terms.
+        for term in &mut terms {
+            let (_, tree, term_keys) = term.keying();
+            crate::term::allocate_record_field_keys(
+                &mut keys,
+                tree,
+                term_keys,
+                ProvenanceRole::InitializerRecordFieldName,
+            )?;
+        }
+        // The legacy view's term is a copy of the `k` cell's item: it takes
+        // the item's keys.
+        if let Some(legacy) = &mut self.legacy_cell
+            && let Some(term) = self.cells.iter().find_map(|cell| match &cell.content {
+                InitializerCellContent::Leaf {
+                    value: StateTerm::KSequence(sequence),
+                    ..
+                } if cell.name == "k" => sequence.items().first(),
+                _ => None,
+            })
+        {
+            legacy.term = term.clone();
+        }
+        self.anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// The key of the method name, the initializer itself.
+    #[must_use]
+    pub const fn declaration_key(&self) -> Option<&ProvenanceKey> {
+        self.declaration_key.as_ref()
+    }
+
+    /// The key of the `Self` result type.
+    #[must_use]
+    pub const fn result_type_key(&self) -> Option<&ProvenanceKey> {
+        self.result_type_key.as_ref()
+    }
+
+    /// The key of the `Self { ... }` body.
+    #[must_use]
+    pub const fn body_key(&self) -> Option<&ProvenanceKey> {
+        self.body_key.as_ref()
     }
 
     /// Returns the original span-preserving method item.
@@ -327,73 +532,9 @@ impl InitializerFunction {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed node emits no tokens.
+    /// None: the initializer was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut keys = KeyAllocator::default();
-        keys.key(
-            ProvenanceRole::InitializerDeclaration,
-            TokenRange::for_tokens(&self.item.sig.ident)?,
-        )?;
-        keys.key(
-            ProvenanceRole::InitializerResultType,
-            TokenRange::for_tokens(&self.result_type)?,
-        )?;
-        for variable in &self.variables {
-            let binding = TokenRange::for_tokens(&variable.binding)?;
-            let key = keys.key(ProvenanceRole::ConfigurationVariable, binding)?;
-            keys.key(
-                ProvenanceRole::ConfigurationVariableName,
-                if variable.attribute.inferred_name {
-                    binding
-                } else {
-                    TokenRange::for_tokens(&variable.attribute.name)?
-                },
-            )?;
-            keys.key(
-                ProvenanceRole::ConfigurationVariableType,
-                TokenRange::for_tokens(&*variable.parameter.ty)?,
-            )?;
-            for argument in crate::SortArgument::preorder(&variable.arguments) {
-                keys.key(
-                    ProvenanceRole::ConfigurationVariableTypeArgument,
-                    TokenRange::for_tokens(&argument.path)?,
-                )?;
-            }
-            // `main` is numbered as its variable is.
-            if let Some(main) = &variable.attribute.main {
-                keys.paired(
-                    ProvenanceRole::ConfigurationVariableMain,
-                    &key,
-                    TokenRange::for_tokens(main)?,
-                );
-            }
-        }
-        keys.key(
-            ProvenanceRole::InitializerBody,
-            TokenRange::for_tokens(&self.body)?,
-        )?;
-        allocate_initializer_keys(&mut keys, &self.cells)?;
-        // Constant islands are numbered per kind over the initializer's terms
-        // in the order expansion visits them.
-        let mut terms = Vec::new();
-        collect_initializer_terms(&self.cells, &mut terms);
-        crate::state_rule::allocate_claim_node_keys(
-            &mut keys,
-            terms.iter().map(|term| (term.nodes(), TermKeys::default())),
-        )?;
-        for term in &terms {
-            crate::term::allocate_lexeme_keys(&mut keys, term.nodes(), &mut TermKeys::default())?;
-        }
-        // Record field names, numbered in preorder across the terms.
-        for term in &terms {
-            crate::term::allocate_record_field_keys(
-                &mut keys,
-                term.tree(),
-                &mut TermKeys::default(),
-                ProvenanceRole::InitializerRecordFieldName,
-            )?;
-        }
-        Ok(keys.into_anchors())
+        Ok(self.anchors.clone())
     }
 
     /// Returns rustc-resolvable result-type, variable-sort, and constructor candidates.
@@ -403,24 +544,21 @@ impl InitializerFunction {
     ///
     /// # Errors
     ///
-    /// Returns a structured overflow error if a role has more than `u32::MAX`
-    /// occurrences.
+    /// None: the initializer was keyed when it was parsed.
+    ///
+    /// # Panics
+    ///
+    /// Never: parsing keys every type, constructor and path a candidate
+    /// names.
     pub fn reference_candidates(&self) -> Result<Vec<ReferenceCandidate>, SyntaxError> {
         let mut candidates = vec![ReferenceCandidate {
-            key: canonical_key(ProvenanceRole::InitializerResultType, 0),
+            key: self.result_type_key.clone().expect(KEYED),
             path: self.result_type.path.clone(),
             kind: (),
         }];
-        for (ordinal, variable) in self.variables.iter().enumerate() {
+        for variable in &self.variables {
             candidates.push(ReferenceCandidate {
-                key: canonical_key(
-                    ProvenanceRole::ConfigurationVariableType,
-                    checked_ordinal(
-                        ordinal,
-                        ProvenanceRole::ConfigurationVariableType,
-                        variable.sort.span(),
-                    )?,
-                ),
+                key: variable.type_key.clone().expect(KEYED),
                 path: variable.sort.clone(),
                 kind: (),
             });
@@ -429,32 +567,19 @@ impl InitializerFunction {
             .variables
             .iter()
             .flat_map(|variable| crate::SortArgument::preorder(&variable.arguments));
-        for (ordinal, argument) in arguments.enumerate() {
+        for argument in arguments {
             candidates.push(ReferenceCandidate {
-                key: canonical_key(
-                    ProvenanceRole::ConfigurationVariableTypeArgument,
-                    checked_ordinal(
-                        ordinal,
-                        ProvenanceRole::ConfigurationVariableTypeArgument,
-                        argument.path.span(),
-                    )?,
-                ),
+                key: argument.key().expect(KEYED).clone(),
                 path: argument.path.clone(),
                 kind: (),
             });
         }
-        let mut constructor_ordinal = 0;
-        let mut term_ordinal = 0;
-        append_initializer_candidates(
-            &self.cells,
-            &self.variables,
-            &mut candidates,
-            &mut constructor_ordinal,
-            &mut term_ordinal,
-        )?;
+        append_initializer_candidates(&self.cells, &self.variables, &mut candidates);
         Ok(candidates)
     }
 }
+
+const KEYED: &str = "an initializer is keyed when it is parsed";
 
 impl KrsSyntax for InitializerFunction {
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
@@ -640,6 +765,10 @@ fn parse_configuration_variable(parameter: PatType) -> Result<ConfigurationVaria
         term_sort,
         sort,
         arguments,
+        key: None,
+        name_key: None,
+        type_key: None,
+        main_key: None,
     })
 }
 
@@ -878,6 +1007,9 @@ fn parse_initializer_cell(
             name,
             content,
             optional: false,
+            key: None,
+            field_key: None,
+            constructor_key: None,
         });
     }
     let content = match &field.expr {
@@ -1008,6 +1140,9 @@ fn parse_initializer_cell(
         name,
         content,
         optional: false,
+        key: None,
+        field_key: None,
+        constructor_key: None,
     })
 }
 
@@ -1102,130 +1237,107 @@ fn parse_initializer_state_term(
 /// A cell's field and constructor are numbered as the cell is.
 fn allocate_initializer_keys(
     keys: &mut KeyAllocator,
-    cells: &[FixedCellInitializer],
+    cells: &mut [FixedCellInitializer],
 ) -> Result<(), SyntaxError> {
     for cell in cells {
         let range = TokenRange::for_tokens(&cell.field.member)?;
         let key = keys.key(ProvenanceRole::InitializerCell, range)?;
-        keys.key(ProvenanceRole::InitializerField, range)?;
-        match &cell.content {
+        cell.field_key = Some(keys.key(ProvenanceRole::InitializerField, range)?);
+        match &mut cell.content {
             InitializerCellContent::Leaf {
                 constructor,
                 value,
                 inferred_constructor,
                 ..
             } => {
-                keys.paired(
+                cell.constructor_key = Some(keys.paired(
                     ProvenanceRole::InitializerCellConstructor,
                     &key,
                     if *inferred_constructor {
                         TokenRange::for_tokens(&cell.field.expr)?
                     } else {
-                        TokenRange::for_tokens(constructor)?
+                        TokenRange::for_tokens(&*constructor)?
                     },
-                );
+                ));
                 allocate_state_term_keys(keys, value)?;
             }
             InitializerCellContent::Nested {
                 constructor,
                 children,
             } => {
-                keys.paired(
+                cell.constructor_key = Some(keys.paired(
                     ProvenanceRole::InitializerNestedConstructor,
                     &key,
-                    TokenRange::for_tokens(constructor)?,
-                );
+                    TokenRange::for_tokens(&*constructor)?,
+                ));
                 allocate_initializer_keys(keys, children)?;
             }
         }
+        cell.key = Some(key);
     }
     Ok(())
 }
 
 /// The initializer's terms in expansion order: cells in order, a leaf's term,
 /// a `k!`'s items, a `map!`'s key then value, an update's base, key, value.
-fn collect_initializer_terms<'a>(
-    cells: &'a [FixedCellInitializer],
-    output: &mut Vec<&'a TermExpression>,
+fn initializer_terms_mut<'a>(
+    cells: &'a mut [FixedCellInitializer],
+    output: &mut Vec<&'a mut TermExpression>,
 ) {
     for cell in cells {
-        match &cell.content {
-            InitializerCellContent::Leaf { value, .. } => output.extend(value.terms()),
+        match &mut cell.content {
+            InitializerCellContent::Leaf { value, .. } => output.extend(value.terms_mut()),
             InitializerCellContent::Nested { children, .. } => {
-                collect_initializer_terms(children, output);
+                initializer_terms_mut(children, output);
             }
         }
     }
 }
 
-fn allocate_state_term_keys(keys: &mut KeyAllocator, value: &StateTerm) -> Result<(), SyntaxError> {
+/// Keys a leaf's state: a `k!` or `map!` with the state macros' own pass,
+/// under the standalone `k_sequence_*` and `map_*` roles, which an
+/// initializer's states take, then each of its terms; or the leaf's term.
+fn allocate_state_term_keys(
+    keys: &mut KeyAllocator,
+    value: &mut StateTerm,
+) -> Result<(), SyntaxError> {
     match value {
         // Initializers hold templates only, never `Some`/`None` or instance lists.
         StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => Ok(()),
         StateTerm::Term(term) | StateTerm::Group(term) => allocate_term_keys(keys, term),
         StateTerm::KSequence(sequence) => {
-            allocate_structure_keys(keys, sequence.provenance()?)?;
-            for term in sequence.items() {
+            sequence.allocate_keys(keys, StatePosition::Standalone)?;
+            for term in sequence.items_mut() {
                 allocate_term_keys(keys, term)?;
             }
             Ok(())
         }
         StateTerm::Map(map) => {
-            allocate_structure_keys(keys, map.provenance()?)?;
-            match map.body() {
-                MapBody::Empty { .. } => Ok(()),
-                MapBody::Items { items, .. } => {
-                    for item in items {
-                        allocate_term_keys(keys, item.key())?;
-                        allocate_term_keys(keys, item.value())?;
-                    }
-                    Ok(())
-                }
-                MapBody::Update { base, key, value } => {
-                    allocate_term_keys(keys, base)?;
-                    allocate_term_keys(keys, key)?;
-                    allocate_term_keys(keys, value)
-                }
+            map.allocate_keys(keys, StatePosition::Standalone)?;
+            for term in map.terms_mut() {
+                allocate_term_keys(keys, term)?;
             }
+            Ok(())
         }
     }
 }
 
-/// Keys the nodes of one `k!` or `map!` node's structure anchors, which its
-/// own `provenance` numbers from 0, so that a second node of the same role
-/// continues after the first instead of repeating its keys.
-fn allocate_structure_keys(
+/// Keys a term as an initializer term, then its paths.
+fn allocate_term_keys(
     keys: &mut KeyAllocator,
-    anchors: Vec<ProvenanceAnchor>,
+    term: &mut TermExpression,
 ) -> Result<(), SyntaxError> {
-    for anchor in anchors {
-        keys.key(anchor.role(), anchor.range())?;
-    }
-    Ok(())
-}
-
-/// Keys a term, then its paths.
-fn allocate_term_keys(keys: &mut KeyAllocator, term: &TermExpression) -> Result<(), SyntaxError> {
-    keys.key(
-        ProvenanceRole::InitializerTerm,
-        TokenRange::for_tokens(term.expression())?,
-    )?;
-    for symbol in term.symbols() {
-        keys.key(
-            ProvenanceRole::InitializerTermPath,
-            TokenRange::for_tokens(symbol.path())?,
-        )?;
-    }
-    Ok(())
+    let range = TokenRange::for_tokens(term.expression())?;
+    let (_, _, term_keys) = term.keying();
+    term_keys.set_term(keys.key(ProvenanceRole::InitializerTerm, range)?);
+    term.allocate_symbol_keys(keys, ProvenanceRole::InitializerTermPath)
 }
 
 fn append_initializer_candidates(
     cells: &[FixedCellInitializer],
     variables: &[ConfigurationVariable],
     output: &mut Vec<ReferenceCandidate>,
-    constructor_ordinal: &mut usize,
-    term_path_ordinal: &mut usize,
-) -> Result<(), SyntaxError> {
+) {
     for cell in cells {
         match &cell.content {
             InitializerCellContent::Leaf {
@@ -1234,83 +1346,29 @@ fn append_initializer_candidates(
                 inferred_constructor,
                 ..
             } => {
-                let current = checked_ordinal(
-                    *constructor_ordinal,
-                    ProvenanceRole::InitializerCellConstructor,
-                    constructor.span(),
-                )?;
                 if !inferred_constructor {
                     output.push(ReferenceCandidate {
-                        key: canonical_key(ProvenanceRole::InitializerCellConstructor, current),
+                        key: cell.constructor_key.clone().expect(KEYED),
                         path: constructor.clone(),
                         kind: (),
                     });
                 }
-                *constructor_ordinal += 1;
-                append_state_term_candidates(value, variables, output, term_path_ordinal)?;
+                for term in value.terms() {
+                    append_term_candidates(term, variables, output);
+                }
             }
             InitializerCellContent::Nested {
                 constructor,
                 children,
             } => {
                 output.push(ReferenceCandidate {
-                    key: canonical_key(
-                        ProvenanceRole::InitializerNestedConstructor,
-                        checked_ordinal(
-                            *constructor_ordinal,
-                            ProvenanceRole::InitializerNestedConstructor,
-                            constructor.span(),
-                        )?,
-                    ),
+                    key: cell.constructor_key.clone().expect(KEYED),
                     path: constructor.clone(),
                     kind: (),
                 });
-                *constructor_ordinal += 1;
-                append_initializer_candidates(
-                    children,
-                    variables,
-                    output,
-                    constructor_ordinal,
-                    term_path_ordinal,
-                )?;
+                append_initializer_candidates(children, variables, output);
             }
         }
-    }
-    Ok(())
-}
-
-fn append_state_term_candidates(
-    value: &StateTerm,
-    variables: &[ConfigurationVariable],
-    output: &mut Vec<ReferenceCandidate>,
-    ordinal: &mut usize,
-) -> Result<(), SyntaxError> {
-    match value {
-        StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => Ok(()),
-        StateTerm::Term(term) | StateTerm::Group(term) => {
-            append_term_candidates(term, variables, output, ordinal)
-        }
-        StateTerm::KSequence(sequence) => {
-            for item in sequence.items() {
-                append_term_candidates(item, variables, output, ordinal)?;
-            }
-            Ok(())
-        }
-        StateTerm::Map(map) => match map.body() {
-            MapBody::Empty { .. } => Ok(()),
-            MapBody::Items { items, .. } => {
-                for item in items {
-                    append_term_candidates(item.key(), variables, output, ordinal)?;
-                    append_term_candidates(item.value(), variables, output, ordinal)?;
-                }
-                Ok(())
-            }
-            MapBody::Update { base, key, value } => {
-                append_term_candidates(base, variables, output, ordinal)?;
-                append_term_candidates(key, variables, output, ordinal)?;
-                append_term_candidates(value, variables, output, ordinal)
-            }
-        },
     }
 }
 
@@ -1318,15 +1376,8 @@ fn append_term_candidates(
     term: &TermExpression,
     variables: &[ConfigurationVariable],
     output: &mut Vec<ReferenceCandidate>,
-    ordinal: &mut usize,
-) -> Result<(), SyntaxError> {
-    for symbol in term.symbols() {
-        let current = checked_ordinal(
-            *ordinal,
-            ProvenanceRole::InitializerTermPath,
-            symbol.path().span(),
-        )?;
-        *ordinal += 1;
+) {
+    for (index, symbol) in term.symbols().iter().enumerate() {
         if symbol.kind() == TermSymbolKind::Reference
             && variables.iter().any(|variable| {
                 symbol.path().leading_colon.is_none()
@@ -1337,12 +1388,11 @@ fn append_term_candidates(
             continue;
         }
         output.push(ReferenceCandidate {
-            key: canonical_key(ProvenanceRole::InitializerTermPath, current),
+            key: term.keys().symbol(index).expect(KEYED).clone(),
             path: symbol.path().clone(),
             kind: (),
         });
     }
-    Ok(())
 }
 
 fn is_config_var_attribute(attribute: &Attribute) -> bool {
@@ -1427,8 +1477,4 @@ fn collect_computation_variable_uses(
             InitializerCellContent::Leaf { .. } => {}
         }
     }
-}
-
-fn canonical_key(role: ProvenanceRole, ordinal: u32) -> ProvenanceKey {
-    role.key(ordinal)
 }

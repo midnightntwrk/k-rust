@@ -68,6 +68,11 @@ impl TermSort {
         &self.arguments
     }
 
+    /// The element types, for a pass that keys them.
+    pub(crate) fn arguments_mut(&mut self) -> &mut [SortArgument] {
+        &mut self.arguments
+    }
+
     /// Returns the token-stream text of the sort path, such as `model :: Expr`,
     /// which descriptors carry as the sort's `authored_path`.
     #[must_use]
