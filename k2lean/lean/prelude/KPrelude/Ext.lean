@@ -255,6 +255,11 @@ def ofListHook {L : Type} [ListIso L K] (l : L) : S := (toList l).foldl (fun s k
 def toListHook {L : Type} [ListIso L K] (s : S) : L := ofList ((toList s).map (·.1))
 /-- A set literal (concrete terms). -/
 def ofElems (l : List K) : S := l.foldl (fun s k => MapHook.update s k ()) unit
+/-- The well-formedness of a set value: `MapHook.WF` of the map to `Unit` (elements strictly
+sorted, so none twice). A K `Set` value is a set; a carrier value that is not well formed
+represents none, and the generated statements of the `SET` equations assume this of their set
+variables (`k2lean/docs/design.md` §3). -/
+abbrev WF (s : S) : Prop := MapHook.WF s
 
 end SetHook
 

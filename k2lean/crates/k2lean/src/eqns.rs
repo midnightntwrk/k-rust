@@ -6,11 +6,16 @@
 //! An equation `φ → f(p̄) = r` is stated over the variables of `p̄`, `φ` and `r`. Partial
 //! subterms make both sides `Option`-valued (`⊥` is `none`; matching logic's `\equals` holds
 //! between two `⊥`s). An `owise` equation also assumes that no competing equation applies.
+//!
+//! An equation of a hooked function (one the prelude implements) also assumes that each of its
+//! variables of a `Set` or `Map` sort is well formed (`wf_premises`): K's variables of these
+//! sorts range over sets and maps, the Lean carriers also hold lists that represent neither,
+//! and the hook models implement K's meaning on the sets and maps only (`design.md` §3).
 
 use crate::funcs::Equation;
 use crate::ir::{Def, P, S};
 use crate::lower::{Fns, L, Lower, Step};
-use crate::model::Model;
+use crate::model::{Coll, Kind, Model};
 use crate::names;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -123,6 +128,25 @@ fn m_has(lw: &Lower, sort: &str) -> bool {
     lw.m.sorts.contains_key(sort)
 }
 
+/// The well-formedness premises of an equation of a hooked function: `KPrelude.SetHook.WF X`
+/// or `KPrelude.MapHook.WF X` for each bound variable `X` of a `Set` or `Map` sort. An equation
+/// of a generated function gets none: the function is defined by its equations, so they hold at
+/// every carrier value, and a premise would only weaken a theorem that holds without it. A
+/// `List` carrier has no values that are not lists, so it needs no premise.
+fn wf_premises(m: &Model, sig: &crate::lower::FnSig, binders: &[(String, String)]) -> Vec<String> {
+    if sig.lean.starts_with("K.") {
+        return Vec::new();
+    }
+    binders
+        .iter()
+        .filter_map(|(n, t)| match m.sorts.get(t).map(|s| &s.kind) {
+            Some(Kind::Coll(Coll::Set)) => Some(format!("KPrelude.SetHook.WF {n}")),
+            Some(Kind::Coll(Coll::Map)) => Some(format!("KPrelude.MapHook.WF {n}")),
+            _ => None,
+        })
+        .collect()
+}
+
 fn sanitize(v: &str) -> String {
     let d = names::demangle(v);
     let d = d.strip_prefix("Var").unwrap_or(&d).to_string();
@@ -228,6 +252,7 @@ fn state_one(
     }
     vars_of(&e_rhs, &mut vars);
     let binders = bind_vars(&mut lw, &vars, "")?;
+    let wf = wf_premises(m, sig, &binders);
     let mut args = Vec::new();
     for (a, s) in e_args.iter().zip(&sig.args) {
         args.push(lw.expr(a, s)?);
@@ -289,6 +314,9 @@ fn state_one(
     let mut stmt = String::new();
     for (n, t) in &binders {
         stmt.push_str(&format!(" ({n} : {t})"));
+    }
+    for (k, h) in wf.iter().enumerate() {
+        stmt.push_str(&format!("\n    (hwf{k} : {h})"));
     }
     for (k, h) in hyps.iter().enumerate() {
         stmt.push_str(&format!("\n    (hreq{k} : {h})"));

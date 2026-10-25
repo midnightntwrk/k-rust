@@ -52,7 +52,9 @@ local macro "k2l_eqn_r " f:ident " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : ta
       | ((repeat' (first | split | k2l_split_hyps)) <;> (try simp_all [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.StringHook.eq, KPrelude.StringHook.ne, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_B, proj_eq_some_KItem_Bool, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_Nat, proj_eq_some_KItem_Pgm, proj_eq_some_KItem_Set, $xs,*]) <;> omega)))
 
 /-- _|Set__SET_Set_Set_Set equation 1 -/
-theorem Eqn.«_|Set__SET_Set_Set_Set_1» (S1 : SortSet) (S2 : SortSet) :
+theorem Eqn.«_|Set__SET_Set_Set_Set_1» (S1 : SortSet) (S2 : SortSet)
+    (hwf0 : KPrelude.SetHook.WF S1)
+    (hwf1 : KPrelude.SetHook.WF S2) :
     some (KPrelude.SetHook.union S1 S2) = (Option.bind (KPrelude.SetHook.concat S1 (KPrelude.SetHook.difference S2 S1)) fun r => some r) := by
   intros
   first

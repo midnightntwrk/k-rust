@@ -213,7 +213,9 @@ theorem Eqn.«_=/=K__1» (K1 : SortK) (K2 : SortK) :
   | (k2l_eqn_c [])
 
 /-- _|Set__SET_Set_Set_Set equation 1 -/
-theorem Eqn.«_|Set__SET_Set_Set_Set_1» (S1 : SortSet) (S2 : SortSet) :
+theorem Eqn.«_|Set__SET_Set_Set_Set_1» (S1 : SortSet) (S2 : SortSet)
+    (hwf0 : KPrelude.SetHook.WF S1)
+    (hwf1 : KPrelude.SetHook.WF S2) :
     some (KPrelude.SetHook.union S1 S2) = (Option.bind (KPrelude.SetHook.concat S1 (KPrelude.SetHook.difference S2 S1)) fun r => some r) := by
   intros
   first

@@ -5,15 +5,20 @@ import KPrelude.Ext
 
 `domains.md` gives some hooked functions equations or simplification rules besides their hooks
 (`bitRangeInt`, `signExtendBitRangeInt`, `_&Int_`, `_modInt_`, `_<=String_`, `replaceFirst`,
-`countAllOccurrences`, `rfindChar`). Each theorem below is such an equation, stated over the
-hook definitions in the shape the generator writes it (`Equations.lean`), and proved from the
+`countAllOccurrences`, `rfindChar`, `_|Set_`). Each theorem below is such an equation, stated over
+the hook definitions in the shape the generator writes it (`Equations.lean`), and proved from the
 definitions: `k2l_hook_law` (`KPrelude.Tactic`) closes a generated statement with it.
 
-Two equations of `domains.md` are false in this model and have no law here:
+The generator states an equation of a hooked function for well-formed set and map values only
+(premises `SetHook.WF`, `MapHook.WF`, which a law takes as hypotheses): the carriers also hold
+lists that represent no K value. `S1 |Set S2 = S1 (S2 -Set S1)` holds on sets (`union_eqn`) and
+fails on every carrier value that is not one (`union_eqn_not_wf`: an unsorted list is no set,
+and `_Set_` is undefined on it).
+
+One equation of `domains.md` is false in this model and has no law here:
 `countAllOccurrences` equation 2 at an empty `ToCount`, where the equations give
 `countAllOccurrences(S, "") = 1 +Int countAllOccurrences(S, "")` (no total function satisfies
-that), and `S1 |Set S2 = S1 (S2 -Set S1)` on carrier values that are not well formed (an
-unsorted list is no set, and `_Set_` is undefined on it).
+that).
 -/
 
 namespace KPrelude.IntHook
@@ -439,6 +444,87 @@ end KPrelude.StringHook
 namespace KPrelude.SetHook
 
 open ListIso
+
+section Union
+
+variable {S K : Type} [Ord K] [ListIso S (K × Unit)] [MapRepr S K Unit]
+  [Std.TransOrd K] [Std.LawfulEqOrd K]
+
+theorem mem_toList_foldl_update (l : List (K × Unit)) :
+    ∀ (s : S) (p : K × Unit),
+      p ∈ toList (l.foldl (fun s q => MapHook.update s q.1 ()) s) ↔ p ∈ toList s ∨ p ∈ l := by
+  induction l with
+  | nil => intro s p; simp
+  | cons q t ih =>
+    intro s p
+    rw [List.foldl_cons, ih, MapHook.update_def, toList_ofList, SAL.mem_insert_unit, List.mem_cons]
+    have e : p.1 = q.1 ↔ p = q := ⟨fun h => Prod.ext h (Subsingleton.elim _ _), fun h => h ▸ rfl⟩
+    rw [e]
+    constructor
+    · rintro ((h | h) | h)
+      · exact Or.inr (Or.inl h)
+      · exact Or.inl h
+      · exact Or.inr (Or.inr h)
+    · rintro (h | h | h)
+      · exact Or.inl (Or.inr h)
+      · exact Or.inl (Or.inl h)
+      · exact Or.inr h
+
+theorem wf_foldl_update (l : List (K × Unit)) :
+    ∀ (s : S), MapHook.WF s → MapHook.WF (l.foldl (fun s q => MapHook.update s q.1 ()) s) := by
+  induction l with
+  | nil => intro s h; exact h
+  | cons q t ih => intro s h; exact ih _ (MapHook.wf_update h)
+
+/-- `S1 |Set S2 => S1 (S2 -Set S1)` (`domains.md`, `SET`) on sets: at well-formed carrier
+values, the K values of sort `Set`. -/
+theorem union_eqn {a b : S} (ha : WF a) (hb : WF b) :
+    some (SetHook.union a b) = (Option.bind (SetHook.concat a (SetHook.difference b a)) fun r => some r) := by
+  have hd : SAL.Sorted (toList (difference b a)) := by
+    unfold difference; rw [toList_ofList]; exact SAL.sorted_filter _ hb
+  have hin : ∀ {p : K × Unit}, p ∈ toList a → MapHook.inKeys p.1 a = true := by
+    intro p hp
+    unfold MapHook.inKeys
+    rw [MapRepr.lookupR_eq, SAL.lookup_of_mem ha hp]; rfl
+  have hdisj : (toList a).all (fun p => (SAL.lookup p.1 (toList (difference b a))).isNone) = true := by
+    rw [List.all_eq_true]
+    intro p hp
+    cases e : SAL.lookup p.1 (toList (difference b a)) with
+    | none => rfl
+    | some u =>
+      have hm := SAL.lookup_mem e
+      unfold difference at hm
+      rw [toList_ofList, List.mem_filter] at hm
+      simp [hin hp] at hm
+  have hc : SAL.concat (toList a) (toList (difference b a)) =
+      some ((toList a).foldr (fun q acc => SAL.insert q.1 q.2 acc) (toList (difference b a))) := by
+    unfold SAL.concat
+    rw [ite_eq_left (by
+      simp only [Bool.and_eq_true]
+      exact ⟨⟨(SAL.sortedb_iff _).2 ha, (SAL.sortedb_iff _).2 hd⟩, hdisj⟩)]
+  simp only [concat, MapHook.concat, hc, Option.map_some, Option.bind_some, Option.some.injEq]
+  rw [← ofList_toList (union a b)]
+  congr 1
+  refine SAL.eq_of_mem_iff (wf_foldl_update _ a ha) (SAL.sorted_foldr_insert hd _) fun p => ?_
+  rw [SAL.mem_concat hc, union, mem_toList_foldl_update]
+  unfold difference
+  rw [toList_ofList, List.mem_filter]
+  constructor
+  · rintro (h | h)
+    · exact Or.inl h
+    · by_cases hk : MapHook.inKeys p.1 a = true
+      · left
+        unfold MapHook.inKeys at hk
+        rw [MapRepr.lookupR_eq] at hk
+        obtain ⟨u, hu⟩ := Option.isSome_iff_exists.1 hk
+        have hm := SAL.lookup_mem hu
+        rwa [show (p.1, u) = p from Prod.ext rfl (Subsingleton.elim _ _)] at hm
+      · exact Or.inr ⟨h, by simpa using hk⟩
+  · rintro (h | ⟨h, _⟩)
+    · exact Or.inl h
+    · exact Or.inr h
+
+end Union
 
 /-- `S1 |Set S2 => S1 (S2 -Set S1)` fails at every carrier value that is not well formed:
 there `_Set_` is undefined and `|Set` is not. -/

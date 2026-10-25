@@ -426,6 +426,69 @@ theorem mem_concat {a b m : List (α × β)} (h : concat a b = some m) {p : α �
         simp at h1
   · simp at h
 
+/-! ### Canonicity (for the `SET` law `SetHook.union_eqn` of `KPrelude.HookLaws`) -/
+
+/-- Two sorted lists with the same members are equal: on well-formed values, the representation
+is canonical. -/
+theorem eq_of_mem_iff :
+    ∀ {a b : List (α × β)}, Sorted a → Sorted b → (∀ p, p ∈ a ↔ p ∈ b) → a = b
+  | [], [], _, _, _ => rfl
+  | [], q :: _, _, _, h => absurd ((h q).2 List.mem_cons_self) (by simp)
+  | q :: _, [], _, _, h => absurd ((h q).1 List.mem_cons_self) (by simp)
+  | (k, v) :: t, (k', v') :: t', ha, hb, h => by
+    cases ha with
+    | cons hlt ht =>
+    cases hb with
+    | cons hlt' ht' =>
+    rcases List.mem_cons.1 ((h (k, v)).1 List.mem_cons_self) with e | h1
+    · simp only [Prod.mk.injEq] at e
+      obtain ⟨rfl, rfl⟩ := e
+      congr 1
+      refine eq_of_mem_iff ht ht' fun p => ⟨fun hp => ?_, fun hp => ?_⟩
+      · rcases List.mem_cons.1 ((h p).1 (List.mem_cons_of_mem _ hp)) with rfl | hp'
+        · have hk := hlt _ hp; simp only [cmp_self] at hk; cases hk
+        · exact hp'
+      · rcases List.mem_cons.1 ((h p).2 (List.mem_cons_of_mem _ hp)) with rfl | hp'
+        · have hk := hlt' _ hp; simp only [cmp_self] at hk; cases hk
+        · exact hp'
+    · have l1 := hlt' _ h1
+      rcases List.mem_cons.1 ((h (k', v')).2 List.mem_cons_self) with e | h2
+      · simp only [Prod.mk.injEq] at e
+        obtain ⟨rfl, rfl⟩ := e
+        simp only [cmp_self] at l1; cases l1
+      · have l2 := hlt _ h2
+        simp only [gt_of_lt l1] at l2; cases l2
+
+theorem sorted_filter (f : α × β → Bool) : ∀ {m : List (α × β)}, Sorted m → Sorted (m.filter f)
+  | [], _ => Sorted.nil
+  | (k, v) :: t, hs => by
+    cases hs with
+    | cons hlt ht =>
+      rw [List.filter_cons]
+      split
+      · exact Sorted.cons (fun p hp => hlt p (List.mem_filter.1 hp).1) (sorted_filter f ht)
+      · exact sorted_filter f ht
+
+theorem sorted_foldr_insert {b : List (α × β)} (hb : Sorted b) :
+    ∀ (a : List (α × β)), Sorted (a.foldr (fun q acc => insert q.1 q.2 acc) b)
+  | [] => hb
+  | _ :: t => by rw [List.foldr_cons]; exact sorted_insert (sorted_foldr_insert hb t)
+
+/-- With `Unit` values (sets), inserting `k` adds exactly the member with key `k`. -/
+theorem mem_insert_unit {k : α} {p : α × Unit} {m : List (α × Unit)} :
+    p ∈ insert k () m ↔ p.1 = k ∨ p ∈ m := by
+  constructor
+  · intro h
+    rcases mem_insert h with rfl | h
+    · exact Or.inl rfl
+    · exact Or.inr h
+  · intro h
+    by_cases hk : p.1 = k
+    · obtain ⟨k', ⟨⟩⟩ := p
+      cases hk
+      exact mem_insert_self _ _ _
+    · exact mem_insert_of_mem_ne (h.resolve_left hk) hk
+
 end Laws
 
 end KPrelude.SAL
