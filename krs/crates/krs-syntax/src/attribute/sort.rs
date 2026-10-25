@@ -513,7 +513,7 @@ impl EquationAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if an authored token has no range.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         Ok(self.anchors.clone())
     }
@@ -589,7 +589,7 @@ impl SimplificationAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if an authored literal has no tokens.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         Ok(self.anchors.clone())
     }
@@ -650,7 +650,7 @@ impl DesugarAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if an authored token has no range.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         Ok(self.anchors.clone())
     }
@@ -1000,7 +1000,7 @@ impl ContextAliasAttribute {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed identifier emits no tokens.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         Ok(self.anchors.clone())
     }

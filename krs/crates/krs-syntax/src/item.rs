@@ -603,7 +603,7 @@ impl RawKItem {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if the literal emits no tokens.
+    /// None: the item was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         Ok(self.anchors.clone())
     }

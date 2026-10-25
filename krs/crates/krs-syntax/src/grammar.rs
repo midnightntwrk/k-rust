@@ -1051,7 +1051,7 @@ impl TokenStack {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only for a tokenless parsed Rust node.
+    /// None: the stack was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         Ok(self.anchors.clone())
     }

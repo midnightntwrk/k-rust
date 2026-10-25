@@ -102,26 +102,6 @@ impl SortArgument {
         }
         output
     }
-
-    /// One `role` anchor per argument of every list in `lists`, in preorder
-    /// within a list and in list order across them, numbered from 0: the
-    /// anchors of a constructor's typed field or result sorts.
-    ///
-    /// # Errors
-    ///
-    /// Returns an endpoint error only if an argument path emits no tokens.
-    pub fn anchors<'a>(
-        lists: impl IntoIterator<Item = &'a [Self]>,
-        role: ProvenanceRole,
-    ) -> Result<Vec<crate::ProvenanceAnchor>, SyntaxError> {
-        let mut keys = KeyAllocator::default();
-        for arguments in lists {
-            for argument in Self::preorder(arguments) {
-                keys.key(role, TokenRange::for_tokens(&argument.path)?)?;
-            }
-        }
-        Ok(keys.into_anchors())
-    }
 }
 
 /// One ordered fixed-cell field in a configuration or nested cell struct.
