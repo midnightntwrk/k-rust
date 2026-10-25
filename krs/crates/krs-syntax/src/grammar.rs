@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use krs_ir::AtLeastTwo;
+use krs_ir::{AtLeastTwo, ProvenanceKey};
 use proc_macro2::{Span, TokenStream};
 use syn::parse::ParseStream;
 use syn::spanned::Spanned;
@@ -1173,6 +1173,10 @@ pub enum TokenCarrier {
 #[derive(Clone, Debug)]
 pub struct TokenDeclaration {
     carrier: TokenCarrier,
+    name_key: Option<ProvenanceKey>,
+    /// The anchors of the declaration's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl TokenDeclaration {
@@ -1233,9 +1237,12 @@ impl TokenDeclaration {
                 field.ty.span(),
             ));
         }
-        Ok(Self {
+        Self {
             carrier: TokenCarrier::Struct(item),
-        })
+            name_key: None,
+            anchors: Vec::new(),
+        }
+        .keyed()
     }
 
     /// Validates a type-alias carrier `type Alias = path::to::Sort;`.
@@ -1262,9 +1269,12 @@ impl TokenDeclaration {
                 item.ty.span(),
             ));
         }
-        Ok(Self {
+        Self {
             carrier: TokenCarrier::Alias(item),
-        })
+            name_key: None,
+            anchors: Vec::new(),
+        }
+        .keyed()
     }
 
     /// Returns the carrier item.
@@ -1304,14 +1314,26 @@ impl TokenDeclaration {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only for a tokenless name.
+    /// None: the declaration was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the carrier's name.
+    #[must_use]
+    pub const fn name_key(&self) -> Option<&ProvenanceKey> {
+        self.name_key.as_ref()
+    }
+
+    /// Keys the carrier's name, as a sentence of its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.key(
+        self.name_key = Some(keys.key(
             ProvenanceRole::TokenDeclaration,
             TokenRange::for_tokens(self.name())?,
-        )?;
-        Ok(keys.into_anchors())
+        )?);
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -1785,6 +1807,8 @@ impl PrecedenceEdge {
 pub struct PrecedenceChain {
     groups: AtLeastTwo<Ident>,
     range: TokenRange,
+    key: Option<ProvenanceKey>,
+    group_keys: Vec<ProvenanceKey>,
 }
 
 impl PrecedenceChain {
@@ -1798,6 +1822,18 @@ impl PrecedenceChain {
     #[must_use]
     pub const fn groups(&self) -> &AtLeastTwo<Ident> {
         &self.groups
+    }
+
+    /// The key of the chain.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// The keys of the group references, indexed as [`Self::groups`].
+    #[must_use]
+    pub fn group_keys(&self) -> &[ProvenanceKey] {
+        &self.group_keys
     }
 
     /// Returns direct adjacent edges represented by the chain.
@@ -1818,6 +1854,10 @@ pub struct PrecedenceDeclaration {
     owner: Option<Ident>,
     chains: Vec<PrecedenceChain>,
     range: TokenRange,
+    key: Option<ProvenanceKey>,
+    /// The anchors of the declaration's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl PrecedenceDeclaration {
@@ -1837,21 +1877,37 @@ impl PrecedenceDeclaration {
     ///
     /// # Errors
     ///
-    /// Returns an overflow error for more than `u32::MAX` occurrences.
+    /// None: the declaration was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the whole declaration.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// Keys the declaration, then each chain and its group references; the
+    /// group references are numbered across the chains.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.key(ProvenanceRole::PrecedenceDeclaration, self.range)?;
-        // Group references are numbered across the chains.
-        for chain in &self.chains {
-            keys.key(ProvenanceRole::PrecedenceChain, chain.range)?;
-            for group in &chain.groups {
-                keys.key(
-                    ProvenanceRole::PrecedenceGroupReference,
-                    TokenRange::for_tokens(group)?,
-                )?;
-            }
+        self.key = Some(keys.key(ProvenanceRole::PrecedenceDeclaration, self.range)?);
+        for chain in &mut self.chains {
+            chain.key = Some(keys.key(ProvenanceRole::PrecedenceChain, chain.range)?);
+            chain.group_keys = chain
+                .groups
+                .iter()
+                .map(|group| {
+                    keys.key(
+                        ProvenanceRole::PrecedenceGroupReference,
+                        TokenRange::for_tokens(group)?,
+                    )
+                })
+                .collect::<Result<_, _>>()?;
         }
-        Ok(keys.into_anchors())
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -1902,6 +1958,8 @@ impl KrsSyntax for PrecedenceDeclaration {
                 chains.push(PrecedenceChain {
                     groups,
                     range: chain_range,
+                    key: None,
+                    group_keys: Vec::new(),
                 });
                 if input.is_empty() {
                     break;
@@ -1912,7 +1970,10 @@ impl KrsSyntax for PrecedenceDeclaration {
                 owner,
                 chains,
                 range,
-            })
+                key: None,
+                anchors: Vec::new(),
+            }
+            .keyed()?)
         })
     }
 }
@@ -1934,6 +1995,8 @@ pub struct AssociativitySentence {
     associativity: GroupAssociativity,
     groups: Vec<Ident>,
     range: TokenRange,
+    key: Option<ProvenanceKey>,
+    group_keys: Vec<ProvenanceKey>,
 }
 
 impl AssociativitySentence {
@@ -1954,6 +2017,18 @@ impl AssociativitySentence {
     pub fn groups(&self) -> &[Ident] {
         &self.groups
     }
+
+    /// The key of the sentence.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// The keys of the group references, indexed as [`Self::groups`].
+    #[must_use]
+    pub fn group_keys(&self) -> &[ProvenanceKey] {
+        &self.group_keys
+    }
 }
 
 /// Checked item-macro payload for `k::associativity!`.
@@ -1962,6 +2037,10 @@ pub struct AssociativityDeclaration {
     owner: Option<Ident>,
     sentences: Vec<AssociativitySentence>,
     range: TokenRange,
+    key: Option<ProvenanceKey>,
+    /// The anchors of the declaration's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl AssociativityDeclaration {
@@ -1981,21 +2060,37 @@ impl AssociativityDeclaration {
     ///
     /// # Errors
     ///
-    /// Returns an overflow error for more than `u32::MAX` occurrences.
+    /// None: the declaration was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the whole declaration.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// Keys the declaration, then each sentence and its group references;
+    /// the group references are numbered across the sentences.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.key(ProvenanceRole::AssociativityDeclaration, self.range)?;
-        // Group references are numbered across the sentences.
-        for sentence in &self.sentences {
-            keys.key(ProvenanceRole::AssociativitySentence, sentence.range)?;
-            for group in &sentence.groups {
-                keys.key(
-                    ProvenanceRole::AssociativityGroupReference,
-                    TokenRange::for_tokens(group)?,
-                )?;
-            }
+        self.key = Some(keys.key(ProvenanceRole::AssociativityDeclaration, self.range)?);
+        for sentence in &mut self.sentences {
+            sentence.key = Some(keys.key(ProvenanceRole::AssociativitySentence, sentence.range)?);
+            sentence.group_keys = sentence
+                .groups
+                .iter()
+                .map(|group| {
+                    keys.key(
+                        ProvenanceRole::AssociativityGroupReference,
+                        TokenRange::for_tokens(group)?,
+                    )
+                })
+                .collect::<Result<_, _>>()?;
         }
-        Ok(keys.into_anchors())
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -2074,6 +2169,8 @@ impl KrsSyntax for AssociativityDeclaration {
                     associativity,
                     groups,
                     range: sentence_range,
+                    key: None,
+                    group_keys: Vec::new(),
                 });
                 if input.is_empty() {
                     break;
@@ -2084,7 +2181,10 @@ impl KrsSyntax for AssociativityDeclaration {
                 owner,
                 sentences,
                 range,
-            })
+                key: None,
+                anchors: Vec::new(),
+            }
+            .keyed()?)
         })
     }
 }
@@ -2112,6 +2212,8 @@ pub struct SubsortDeclaration {
     item: ItemImpl,
     super_sort: Path,
     sub_sort: Path,
+    key: Option<ProvenanceKey>,
+    sub_sort_key: Option<ProvenanceKey>,
 }
 
 impl SubsortDeclaration {
@@ -2176,11 +2278,43 @@ impl SubsortDeclaration {
                 sub_sort.span(),
             ));
         }
-        Ok(Self {
+        Self {
             super_sort: super_sort.clone(),
             sub_sort: sub_sort.path.clone(),
             item,
-        })
+            key: None,
+            sub_sort_key: None,
+        }
+        .keyed()
+    }
+
+    /// Keys the impl and its sub-sort, the parts of the subsort's descriptor
+    /// the impl holds; the supersort is the alias of the `#[k::subsort]`
+    /// attribute, which [`Self::provenance`] takes. Each is the first of its
+    /// role in the descriptor.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.key = Some(keys.key(
+            ProvenanceRole::SubsortDeclaration,
+            TokenRange::for_tokens(&self.item)?,
+        )?);
+        self.sub_sort_key = Some(keys.key(
+            ProvenanceRole::SubsortSubSort,
+            TokenRange::for_tokens(&self.sub_sort)?,
+        )?);
+        Ok(self)
+    }
+
+    /// The key of the impl, the subsort declaration.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// The key of the sub-sort path.
+    #[must_use]
+    pub const fn sub_sort_key(&self) -> Option<&ProvenanceKey> {
+        self.sub_sort_key.as_ref()
     }
 
     /// Returns the original span-preserving impl.

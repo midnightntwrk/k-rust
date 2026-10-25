@@ -577,6 +577,8 @@ fn validate(
                         name,
                         term_sort,
                         parameter: None,
+                        sort_key: None,
+                        name_key: None,
                     });
                 }
                 let tail = fields.pop().expect("two fields");

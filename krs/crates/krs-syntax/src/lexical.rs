@@ -9,6 +9,7 @@
 
 use std::collections::BTreeSet;
 
+use krs_ir::ProvenanceKey;
 use proc_macro2::{Span, TokenStream};
 use syn::{Attribute, Ident, LitStr, Token};
 
@@ -23,6 +24,8 @@ pub struct LexicalEntry {
     name: Ident,
     regex: LitStr,
     range: TokenRange,
+    key: Option<ProvenanceKey>,
+    regex_key: Option<ProvenanceKey>,
 }
 
 impl LexicalEntry {
@@ -43,12 +46,26 @@ impl LexicalEntry {
     pub const fn regex(&self) -> &LitStr {
         &self.regex
     }
+
+    /// The key of the entry, from its name to its `;`.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// The key of the regex literal.
+    #[must_use]
+    pub const fn regex_key(&self) -> Option<&ProvenanceKey> {
+        self.regex_key.as_ref()
+    }
 }
 
 /// Checked item-macro payload for `k::lexical!`.
 #[derive(Clone, Debug)]
 pub struct LexicalDeclaration {
     entries: Vec<LexicalEntry>,
+    /// The anchors of the block's keying, which [`Self::provenance`] returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl LexicalDeclaration {
@@ -63,17 +80,23 @@ impl LexicalDeclaration {
     ///
     /// # Errors
     ///
-    /// Returns an overflow error for more than `u32::MAX` entries.
+    /// None: the block was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.anchors.clone())
+    }
+
+    /// Keys each entry, then its regex, in source order.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        for entry in &self.entries {
-            keys.key(ProvenanceRole::LexicalDeclaration, entry.range)?;
-            keys.key(
+        for entry in &mut self.entries {
+            entry.key = Some(keys.key(ProvenanceRole::LexicalDeclaration, entry.range)?);
+            entry.regex_key = Some(keys.key(
                 ProvenanceRole::LexicalRegex,
                 TokenRange::for_tokens(&entry.regex)?,
-            )?;
+            )?);
         }
-        Ok(keys.into_anchors())
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -121,9 +144,17 @@ impl KrsSyntax for LexicalDeclaration {
                     name,
                     regex,
                     range,
+                    key: None,
+                    regex_key: None,
                 });
             }
-            Ok::<_, ParseError>(Self { entries })
+            Ok::<_, ParseError>(
+                Self {
+                    entries,
+                    anchors: Vec::new(),
+                }
+                .keyed()?,
+            )
         })
     }
 }
@@ -132,6 +163,9 @@ impl KrsSyntax for LexicalDeclaration {
 #[derive(Clone, Debug)]
 pub struct LayoutDeclaration {
     regexes: Vec<LitStr>,
+    regex_keys: Vec<ProvenanceKey>,
+    /// The anchors of the block's keying, which [`Self::provenance`] returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl LayoutDeclaration {
@@ -145,13 +179,27 @@ impl LayoutDeclaration {
     ///
     /// # Errors
     ///
-    /// Returns an overflow error for more than `u32::MAX` regexes.
+    /// None: the block was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.anchors.clone())
+    }
+
+    /// The keys of the regexes, indexed as [`Self::regexes`].
+    #[must_use]
+    pub fn regex_keys(&self) -> &[ProvenanceKey] {
+        &self.regex_keys
+    }
+
+    /// Keys each regex in source order.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        for regex in &self.regexes {
-            keys.key(ProvenanceRole::LayoutRegex, TokenRange::for_tokens(regex)?)?;
-        }
-        Ok(keys.into_anchors())
+        self.regex_keys = self
+            .regexes
+            .iter()
+            .map(|regex| keys.key(ProvenanceRole::LayoutRegex, TokenRange::for_tokens(regex)?))
+            .collect::<Result<_, _>>()?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -180,7 +228,14 @@ impl KrsSyntax for LayoutDeclaration {
                 }
                 input.parse::<Token![,]>()?;
             }
-            Ok::<_, ParseError>(Self { regexes })
+            Ok::<_, ParseError>(
+                Self {
+                    regexes,
+                    regex_keys: Vec::new(),
+                    anchors: Vec::new(),
+                }
+                .keyed()?,
+            )
         })
     }
 }

@@ -1,3 +1,4 @@
+use krs_ir::ProvenanceKey;
 use proc_macro2::TokenStream;
 use syn::spanned::Spanned;
 use syn::{
@@ -22,9 +23,24 @@ pub struct ConstructorField {
     pub(crate) name: Ident,
     pub(crate) term_sort: TermSort,
     pub(crate) parameter: Option<usize>,
+    pub(crate) sort_key: Option<ProvenanceKey>,
+    pub(crate) name_key: Option<ProvenanceKey>,
 }
 
 impl ConstructorField {
+    /// The key of the field's sort path, the same in the constructor's
+    /// compact and full views.
+    #[must_use]
+    pub const fn sort_key(&self) -> Option<&ProvenanceKey> {
+        self.sort_key.as_ref()
+    }
+
+    /// The key of the field name, which only the full view anchors.
+    #[must_use]
+    pub const fn name_key(&self) -> Option<&ProvenanceKey> {
+        self.name_key.as_ref()
+    }
+
     /// Returns the original span-preserving Rust field.
     #[must_use]
     pub const fn field(&self) -> &Field {
@@ -62,9 +78,17 @@ impl ConstructorField {
 pub struct ProductionDocumentation {
     literal: syn::LitStr,
     text: String,
+    pub(crate) key: Option<ProvenanceKey>,
 }
 
 impl ProductionDocumentation {
+    /// The key of the documentation literal, from the declaration that
+    /// anchors it.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
     /// Returns the normalized documentation text.
     #[must_use]
     pub fn text(&self) -> &str {
@@ -85,6 +109,14 @@ pub struct ConstructorDeclaration {
     parameters: Vec<Ident>,
     fields: Vec<ConstructorField>,
     documentation: Vec<ProductionDocumentation>,
+    name_key: Option<ProvenanceKey>,
+    parameter_keys: Vec<ProvenanceKey>,
+    /// The anchors of the full view's keying, whose first `compact` anchors
+    /// are the compact view's.
+    anchors: Vec<ProvenanceAnchor>,
+    compact: usize,
+    /// The anchors of the argument view's keying.
+    argument_anchors: Vec<ProvenanceAnchor>,
 }
 
 impl ConstructorDeclaration {
@@ -124,6 +156,8 @@ impl ConstructorDeclaration {
                         name,
                         term_sort,
                         parameter,
+                        sort_key: None,
+                        name_key: None,
                     });
                 }
                 parsed
@@ -149,12 +183,80 @@ impl ConstructorDeclaration {
 
         let documentation = production_documentation(&item.attrs)?;
 
-        Ok(Self {
+        Self {
             item,
             parameters,
             fields,
             documentation,
-        })
+            name_key: None,
+            parameter_keys: Vec::new(),
+            anchors: Vec::new(),
+            compact: 0,
+            argument_anchors: Vec::new(),
+        }
+        .keyed()
+    }
+
+    /// Keys the constructor's two descriptors. The full view starts with
+    /// the compact one, the declaration, each sort parameter and each field
+    /// sort, then keys each field name and each documentation line, so one
+    /// pass keys both and each node holds the same key in both. The argument
+    /// view keys each element type of the field sorts on its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.name_key = Some(keys.key(
+            ProvenanceRole::ConstructorDeclaration,
+            TokenRange::for_tokens(&self.item.ident)?,
+        )?);
+        self.parameter_keys = Vec::with_capacity(self.parameters.len());
+        for parameter in &self.parameters {
+            self.parameter_keys.push(keys.key(
+                ProvenanceRole::SortParameter,
+                TokenRange::for_tokens(parameter)?,
+            )?);
+        }
+        for field in &mut self.fields {
+            field.sort_key = Some(keys.key(
+                ProvenanceRole::ConstructorFieldSort,
+                TokenRange::for_tokens(field.term_sort.sort())?,
+            )?);
+        }
+        self.compact = keys.anchors().len();
+        for field in &mut self.fields {
+            field.name_key = Some(keys.key(
+                ProvenanceRole::ConstructorFieldDeclaration,
+                TokenRange::for_tokens(&field.name)?,
+            )?);
+        }
+        for documentation in &mut self.documentation {
+            documentation.key = Some(keys.key(
+                ProvenanceRole::ConstructorDocumentation,
+                TokenRange::for_tokens(&documentation.literal)?,
+            )?);
+        }
+        self.anchors = keys.into_anchors();
+        let mut keys = KeyAllocator::default();
+        for field in &mut self.fields {
+            crate::SortArgument::allocate_keys(
+                field.term_sort.arguments_mut(),
+                &mut keys,
+                ProvenanceRole::ConstructorFieldSortArgument,
+            )?;
+        }
+        self.argument_anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// The key of the constructor name.
+    #[must_use]
+    pub const fn name_key(&self) -> Option<&ProvenanceKey> {
+        self.name_key.as_ref()
+    }
+
+    /// The keys of the sort parameters, indexed as [`Self::sort_parameters`].
+    #[must_use]
+    pub fn parameter_keys(&self) -> &[ProvenanceKey] {
+        &self.parameter_keys
     }
 
     /// Returns the K sort parameters of a parametric production, in
@@ -206,32 +308,9 @@ impl ConstructorDeclaration {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed Rust node emits no leaves.
+    /// None: the constructor was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut keys = KeyAllocator::default();
-        self.allocate_keys(&mut keys)?;
-        Ok(keys.into_anchors())
-    }
-
-    /// Keys the declaration, each sort parameter, then each field sort.
-    fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
-        keys.key(
-            ProvenanceRole::ConstructorDeclaration,
-            TokenRange::for_tokens(&self.item.ident)?,
-        )?;
-        for parameter in &self.parameters {
-            keys.key(
-                ProvenanceRole::SortParameter,
-                TokenRange::for_tokens(parameter)?,
-            )?;
-        }
-        for field in &self.fields {
-            keys.key(
-                ProvenanceRole::ConstructorFieldSort,
-                TokenRange::for_tokens(field.term_sort.sort())?,
-            )?;
-        }
-        Ok(())
+        Ok(self.anchors[..self.compact].to_vec())
     }
 
     /// Returns one anchor per element type of a typed collection field sort,
@@ -239,35 +318,18 @@ impl ConstructorDeclaration {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed node emits no leaves.
+    /// None: the constructor was keyed when it was parsed.
     pub fn argument_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        crate::SortArgument::anchors(
-            self.fields.iter().map(|field| field.term_sort.arguments()),
-            ProvenanceRole::ConstructorFieldSortArgument,
-        )
+        Ok(self.argument_anchors.clone())
     }
 
     /// Returns the compact anchors plus each constructor field declaration name.
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed node emits no leaves.
+    /// None: the constructor was keyed when it was parsed.
     pub fn full_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut keys = KeyAllocator::default();
-        self.allocate_keys(&mut keys)?;
-        for field in &self.fields {
-            keys.key(
-                ProvenanceRole::ConstructorFieldDeclaration,
-                TokenRange::for_tokens(&field.name)?,
-            )?;
-        }
-        for documentation in &self.documentation {
-            keys.key(
-                ProvenanceRole::ConstructorDocumentation,
-                TokenRange::for_tokens(&documentation.literal)?,
-            )?;
-        }
-        Ok(keys.into_anchors())
+        Ok(self.anchors.clone())
     }
 }
 
@@ -374,6 +436,7 @@ pub(crate) fn production_documentation(
             Ok(ProductionDocumentation {
                 literal: literal.clone(),
                 text,
+                key: None,
             })
         })
         .collect()
@@ -499,6 +562,8 @@ fn unsupported_constructor(reason: &'static str, span: proc_macro2::Span) -> Syn
 pub struct RawKItem {
     literal: LitStr,
     kind: krs_ir::RawSentenceKind,
+    key: Option<ProvenanceKey>,
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 /// Words that start another K outer sentence or module element; a `raw_k!`
@@ -540,12 +605,24 @@ impl RawKItem {
     ///
     /// Returns an endpoint error only if the literal emits no tokens.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the sentence literal.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// Keys the sentence literal, as a sentence of its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        keys.key(
+        self.key = Some(keys.key(
             ProvenanceRole::RawKDeclaration,
             TokenRange::for_tokens(&self.literal)?,
-        )?;
-        Ok(keys.into_anchors())
+        )?);
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 
     /// Checks the outer shape of a raw K text: it starts with `rule`, `claim`,
@@ -597,6 +674,12 @@ impl KrsSyntax for RawKItem {
         let kind = Self::check_text(&literal.value()).map_err(|reason| {
             SyntaxError::new(SyntaxErrorKind::RawKShape { reason }, literal.span())
         })?;
-        Ok(Self { literal, kind })
+        Self {
+            literal,
+            kind,
+            key: None,
+            anchors: Vec::new(),
+        }
+        .keyed()
     }
 }

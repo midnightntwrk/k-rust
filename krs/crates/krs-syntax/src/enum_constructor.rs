@@ -1263,6 +1263,8 @@ fn parse_variant_fields(
                     name,
                     term_sort,
                     parameter: None,
+                    sort_key: None,
+                    name_key: None,
                 });
             }
             Ok(parsed)
