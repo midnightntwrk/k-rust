@@ -1112,7 +1112,9 @@ pub struct ClientRefusal {
     pub holes: Vec<CrashHole>,
     /// The hits refused with this cause.
     pub count: u64,
-    /// Whether a refused hit of this cause was repaired into the campaign's witness.
+    /// Whether this case (the cause's first refused hit, `case`) was repaired into the
+    /// campaign's witness, whose `repaired-from` then names it; a later refused hit of the cause
+    /// that was repaired leaves it `false`.
     pub repaired: bool,
 }
 

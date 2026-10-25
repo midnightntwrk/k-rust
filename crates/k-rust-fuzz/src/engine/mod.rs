@@ -284,37 +284,75 @@ impl Campaign {
         self.run_with(budget, cancel.as_ref(), Some(filter))
     }
 
-    /// The report of a run of an equivalent pair or a campaign not comparable at setup: no case
-    /// runs, so `filter` judges nothing, but its identity is recorded.
+    /// The report of a run that executes no case, with `outcome` and the filter identity `id`.
     fn report_without_running(
         &self,
         budget: Budget,
-        filter: Option<&mut dyn crate::filter::WitnessFilter>,
+        outcome: CampaignOutcome,
+        id: Option<String>,
     ) -> FuzzReport {
-        let id = filter.map(|filter| crate::crash::catch(|| filter.id()));
-        let outcome = match (&self.not_comparable, &id) {
-            (_, Some(Err(record))) => CampaignOutcome::Aborted {
-                kind: AbortKind::ClientPanic,
-                reason: format!(
-                    "the client's witness filter panicked (phase filter, in `id`): {}",
-                    record.message
-                ),
-                case: None,
-                holes: Vec::new(),
-                panic: Some(record.clone()),
-                no_witness: no_witness(
-                    Ending::Aborted,
-                    &Totals::default(),
-                    &Cuts::default(),
-                    budget,
-                    &self.spec.options,
-                    self.spec.rejection_cap,
-                ),
-            },
-            (Some(outcome), _) => outcome.clone(),
-            (None, _) => CampaignOutcome::Equivalent,
+        report_without_cases(&self.settings, budget, outcome, id)
+    }
+
+    /// The outcome of a run whose witness filter panicked in `id` (`client-panic`, phase filter),
+    /// before any case: on every path of the run, so that the filter's failure is never hidden
+    /// behind another outcome.
+    fn filter_id_panic(
+        &self,
+        budget: Budget,
+        record: crate::report::PanicRecord,
+    ) -> CampaignOutcome {
+        let abort = campaign_loop::filter_panic("id", record);
+        CampaignOutcome::Aborted {
+            kind: abort.kind,
+            reason: abort.reason,
+            case: None,
+            holes: Vec::new(),
+            panic: abort.panic,
+            no_witness: no_witness(
+                Ending::Aborted,
+                &Totals::default(),
+                &Cuts::default(),
+                budget,
+                &self.spec.options,
+                self.spec.rejection_cap,
+            ),
+        }
+    }
+
+    /// The filter's identity, read first so that its panic aborts the run whatever else would
+    /// end it (`client-panic`), or the report of a run that executes no case: the panic, an
+    /// equivalent pair (reported as such before anything else, as without a filter), or a
+    /// campaign not comparable at setup. No case runs in either, so the filter judges nothing;
+    /// its identity is still recorded.
+    fn before_cases(
+        &self,
+        budget: Budget,
+        filter: Option<&dyn crate::filter::WitnessFilter>,
+    ) -> Result<Option<String>, Box<FuzzReport>> {
+        let id = match filter.map(|filter| crate::crash::catch(|| filter.id())) {
+            Some(Err(record)) => {
+                let outcome = self.filter_id_panic(budget, record);
+                return Err(Box::new(self.report_without_running(budget, outcome, None)));
+            }
+            Some(Ok(id)) => Some(id),
+            None => None,
         };
-        report_without_cases(&self.settings, budget, outcome, id.and_then(Result::ok))
+        if self.equivalent {
+            return Err(Box::new(self.report_without_running(
+                budget,
+                CampaignOutcome::Equivalent,
+                id,
+            )));
+        }
+        if let Some(outcome) = &self.not_comparable {
+            return Err(Box::new(self.report_without_running(
+                budget,
+                outcome.clone(),
+                id,
+            )));
+        }
+        Ok(id)
     }
 
     /// [`Campaign::run`], with the witness filter when one is given.
@@ -324,9 +362,10 @@ impl Campaign {
         cancel: Option<&CancellationToken>,
         filter: Option<&mut dyn crate::filter::WitnessFilter>,
     ) -> FuzzReport {
-        if self.equivalent || self.not_comparable.is_some() {
-            return self.report_without_running(budget, filter);
-        }
+        let id = match self.before_cases(budget, filter.as_deref()) {
+            Ok(id) => id,
+            Err(report) => return *report,
+        };
         let mut cases = match self.cases.take() {
             Some(cases) => cases,
             None => match LiveCases::build(Arc::clone(&self.spec)) {
@@ -351,7 +390,7 @@ impl Campaign {
                             panic: None,
                             no_witness,
                         },
-                        filter.and_then(|filter| crate::crash::catch(|| filter.id()).ok()),
+                        id,
                     );
                 }
             },

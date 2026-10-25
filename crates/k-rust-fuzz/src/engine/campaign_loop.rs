@@ -486,6 +486,10 @@ pub(crate) fn run_loop_filtered(
                         _ => None,
                     };
                     if let Some(refusal) = refused {
+                        // Reached only when the confirmation's case differs from the screened
+                        // one (an engine defect, recorded by `judge_confirmed`): the hit is
+                        // demoted and not repaired, since its two witness cases disagree on what
+                        // the filter read and a repair would start from neither reliably.
                         state.refused(settings, case, &proposal.values, &refusal);
                         class = OutcomeClass::Unsupported;
                         run.unjudged = Some(UnjudgedReason::ClientRefused);
@@ -574,9 +578,21 @@ fn witness_report(
     witness: Witness,
 ) -> FuzzReport {
     if let Some(abort) = &state.abort {
-        let what = match abort.kind {
-            AbortKind::ClientDefect => "witness filter broke its contract",
-            _ => "code (its observer or witness filter) panicked",
+        // An observer's panic keeps the unfiltered campaign's wording; a failure of the witness
+        // filter, which only a filtered campaign has, names the filter.
+        let (what, who) = match (abort.filter, abort.kind) {
+            (false, _) => (
+                "observer panicked",
+                "the observer cannot be trusted after its panic",
+            ),
+            (true, AbortKind::ClientDefect) => (
+                "witness filter broke its contract",
+                "the filter cannot be trusted after that",
+            ),
+            (true, _) => (
+                "witness filter panicked",
+                "the filter cannot be trusted after its panic",
+            ),
         };
         let values = witness
             .first
@@ -593,8 +609,8 @@ fn witness_report(
             .join(", ");
         state.warn(format!(
             "case {case} was a confirmed witness ({values}) when the client's {what} while it \
-             was shrunk; the client cannot be trusted after that, so the campaign aborted, and \
-             the witness, confirmed but not shrunk further, is not reported as found"
+             was shrunk; {who}, so the campaign aborted, and the witness, confirmed but not \
+             shrunk further, is not reported as found"
         ));
         let no_witness = no_witness(
             Ending::Aborted,
@@ -645,14 +661,11 @@ impl<'f> Filtering<'f> {
         match crash::catch(|| self.filter.judge(case)) {
             Ok(Ok(())) => Ok(None),
             Ok(Err(refusal)) if is_cause(&refusal.cause) => Ok(Some(refusal)),
-            Ok(Err(refusal)) => Err(Abort::new(
-                AbortKind::ClientDefect,
-                format!(
-                    "the client's witness filter refused a case with the cause {:?}, which is no \
+            Ok(Err(refusal)) => Err(filter_defect(format!(
+                "the client's witness filter refused a case with the cause {:?}, which is no \
                      cause token (1 to 64 bytes of a-z, 0-9, `-` and `:`)",
-                    refusal.cause
-                ),
-            )),
+                refusal.cause
+            ))),
             Err(record) => Err(filter_panic("judge", record)),
         }
     }
@@ -674,7 +687,7 @@ impl<'f> Filtering<'f> {
 }
 
 /// The abort for a panic of the client's witness filter in `call`.
-fn filter_panic(call: &str, record: PanicRecord) -> Abort {
+pub(crate) fn filter_panic(call: &str, record: PanicRecord) -> Abort {
     Abort {
         kind: AbortKind::ClientPanic,
         reason: format!(
@@ -682,6 +695,15 @@ fn filter_panic(call: &str, record: PanicRecord) -> Abort {
             record.message
         ),
         panic: Some(record),
+        filter: true,
+    }
+}
+
+/// The abort for the client's witness filter breaking its contract (`client-defect`).
+fn filter_defect(reason: String) -> Abort {
+    Abort {
+        filter: true,
+        ..Abort::new(AbortKind::ClientDefect, reason)
     }
 }
 
@@ -706,15 +728,12 @@ fn judge_confirmed(
         return Ok(None);
     };
     if screened == confirmed {
-        return Err(Abort::new(
-            AbortKind::ClientDefect,
-            format!(
-                "the client's witness filter accepted case {case}'s witness case and refused its \
+        return Err(filter_defect(format!(
+            "the client's witness filter accepted case {case}'s witness case and refused its \
                  confirmation's, an equal witness case ({}: {}): its judgement is not a function \
                  of the case",
-                refusal.cause, refusal.detail
-            ),
-        ));
+            refusal.cause, refusal.detail
+        )));
     }
     state.defect(
         Some(case),
@@ -769,7 +788,7 @@ fn refused_hit(
         Repair::None => Refused::Demoted,
         Repair::Aborted => Refused::Aborted,
         Repair::Found(candidate, detail) => {
-            state.repaired(&refusal.cause);
+            state.repaired(&refusal.cause, hit.case);
             let proposal = Proposal::plain(hit.origin, candidate);
             let mut witness = finish_witness(
                 runner,
@@ -844,10 +863,9 @@ fn repair(
             distinct.push(candidate);
         }
     }
-    if distinct.is_empty() {
-        return Repair::None;
-    }
-    state.totals.filter.repairs += 1;
+    // A repair counts, toward `repairs` and toward the cause's failures, only once a candidate
+    // runs: proposing nothing, or only inadmissible candidates, costs no run.
+    let mut ran = false;
     let kind = hit.screened.kill;
     for candidate in distinct {
         if is_cancelled(cancel) || !state.may_start_extra() || state.abort.is_some() {
@@ -859,6 +877,10 @@ fn repair(
             .any(|(hole, value)| !runner.admissible(hole, value))
         {
             continue;
+        }
+        if !ran {
+            ran = true;
+            state.totals.filter.repairs += 1;
         }
         let before = state.totals.work;
         let outcome = repair_candidate(
@@ -876,10 +898,12 @@ fn repair(
             Candidate::Not => {}
         }
     }
-    *filtering
-        .failed_repairs
-        .entry(refusal.cause.clone())
-        .or_insert(0) += 1;
+    if ran {
+        *filtering
+            .failed_repairs
+            .entry(refusal.cause.clone())
+            .or_insert(0) += 1;
+    }
     Repair::None
 }
 
@@ -1016,6 +1040,7 @@ fn outcome(ending: Ending, no_witness: NoWitness, abort: Option<AbortInfo>) -> C
                 case: None,
                 holes: Vec::new(),
                 panic: None,
+                filter: false,
             });
             CampaignOutcome::Aborted {
                 kind: abort.kind,
@@ -1036,6 +1061,8 @@ struct AbortInfo {
     case: Option<u64>,
     holes: Vec<CrashHole>,
     panic: Option<PanicRecord>,
+    /// The client's witness filter failed ([`Abort::filter`]).
+    filter: bool,
 }
 
 /// The hole values `values` with the names of `settings`' holes.
@@ -2209,12 +2236,13 @@ impl State {
         }
     }
 
-    /// A refused hit of `cause` was repaired into the witness.
-    fn repaired(&mut self, cause: &str) {
+    /// The refused hit of case `refused`, refused with `cause`, was repaired into the witness: its
+    /// entry says so when it is the cause's first refused case (the case `repaired-from` names).
+    fn repaired(&mut self, cause: &str, refused: u64) {
         if let Some(entry) = self
             .client_refusals
             .iter_mut()
-            .find(|entry| entry.cause == cause)
+            .find(|entry| entry.cause == cause && entry.case == refused)
         {
             entry.repaired = true;
         }
@@ -2256,12 +2284,26 @@ impl State {
             write!(clause, " For {top}: {remedy}.").expect("writing to a String");
         }
         no_witness.statement.push_str(&clause);
-        self.warn(format!(
-            "client-refused: the client's witness filter refused every candidate hit of the \
-             campaign ({causes}; the report's client-refusals give each cause's first case): the \
-             campaign ended without a witness the client accepts, which is no sign that the \
-             mutation or property survives"
-        ));
+        // Every hit was refused only when no hit the filter accepted was lost to its
+        // confirmation (a disagreement or a crash of it: `totals.unconfirmed`).
+        let lost = self.totals.unconfirmed;
+        let warning = if lost == 0 {
+            format!(
+                "client-refused: the client's witness filter refused every candidate hit of the \
+                 campaign ({causes}; the report's client-refusals give each cause's first case): \
+                 the campaign ended without a witness the client accepts, which is no sign that \
+                 the mutation or property survives"
+            )
+        } else {
+            format!(
+                "client-refused: the client's witness filter refused candidate hits of the \
+                 campaign ({causes}; the report's client-refusals give each cause's first case), \
+                 and {lost} other candidate {} not confirmed (see the engine defects), so one of \
+                 them may be a witness the client accepts",
+                if lost == 1 { "was" } else { "were" }
+            )
+        };
+        self.warn(warning);
     }
 
     /// Charge the work of a run that examined a crash to `crash-work` alone, at least 1.
@@ -2290,6 +2332,7 @@ impl State {
                 Vec::new()
             },
             panic: abort.panic,
+            filter: abort.filter,
         });
     }
 
@@ -2303,6 +2346,7 @@ impl State {
             case: None,
             holes: Vec::new(),
             panic: None,
+            filter: false,
         });
     }
 

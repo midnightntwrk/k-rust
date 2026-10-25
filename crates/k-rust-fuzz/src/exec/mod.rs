@@ -618,8 +618,11 @@ pub(crate) struct Abort {
     pub(crate) kind: AbortKind,
     /// Why.
     pub(crate) reason: String,
-    /// For a panicking observer, what panicked.
+    /// For a panicking observer or witness filter, what panicked.
     pub(crate) panic: Option<PanicRecord>,
+    /// The client's witness filter failed (it panicked or broke its contract), not its observer
+    /// or the backend (`crate::filter`).
+    pub(crate) filter: bool,
 }
 
 impl Abort {
@@ -629,6 +632,7 @@ impl Abort {
             kind,
             reason: reason.into(),
             panic: None,
+            filter: false,
         }
     }
 }

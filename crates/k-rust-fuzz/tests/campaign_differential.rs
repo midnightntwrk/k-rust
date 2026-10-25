@@ -972,6 +972,82 @@ fn a_definition_whose_check_reports_a_pair_has_no_data() {
     assert_not_comparable(&report, &[DefinitionRole::Baseline, DefinitionRole::Mutant]);
 }
 
+/// An equivalent pair is reported `equivalent` before a finding makes it not comparable, with
+/// a witness filter as without one (FZ-COMPARABLE-B review D1): the definitions denote the same
+/// theory, which no data judgement changes.
+#[test]
+fn an_equivalent_pair_without_data_is_equivalent() {
+    struct Accept;
+    impl k_rust_fuzz::WitnessFilter for Accept {
+        fn id(&self) -> String {
+            "accept-all".into()
+        }
+        fn judge(
+            &mut self,
+            _case: &k_rust_fuzz::report::WitnessCase,
+        ) -> Result<(), k_rust_fuzz::FilterRefusal> {
+            Ok(())
+        }
+    }
+    let spec = || spec_on(&R3_MODOV, &R3_MODOV, "r3-modov/go.pgm", None);
+    let report = Campaign::new(spec())
+        .expect("valid")
+        .run(Budget::Cases(8), None);
+    assert!(
+        matches!(report.outcome, CampaignOutcome::Equivalent),
+        "{:?}",
+        report.outcome
+    );
+    let mut filtered =
+        Campaign::new(spec())
+            .expect("valid")
+            .run_filtered(Budget::Cases(8), None, &mut Accept);
+    assert_eq!(
+        filtered.identity.filter.take().as_deref(),
+        Some("accept-all")
+    );
+    assert_eq!(filtered.to_canonical_json(), report.to_canonical_json());
+}
+
+/// A witness filter whose `id` panics aborts the run with `client-panic` before anything else
+/// ends it (review M4): before a run of cases, and before an equivalent pair's outcome. The
+/// identity is read first on every path, the rebuild of a second run's backends included.
+#[test]
+fn a_panicking_filter_identity_aborts_every_run_with_client_panic() {
+    struct Nameless;
+    impl k_rust_fuzz::WitnessFilter for Nameless {
+        fn id(&self) -> String {
+            panic!("no name")
+        }
+        fn judge(
+            &mut self,
+            _case: &k_rust_fuzz::report::WitnessCase,
+        ) -> Result<(), k_rust_fuzz::FilterRefusal> {
+            Ok(())
+        }
+    }
+    for mutant in [&IMP_DIV_GUARD_DROPPED, &IMP_DIFF] {
+        let mut campaign = Campaign::new(trial_spec(
+            &IMP_DIFF,
+            mutant,
+            "imp-diff/primes.imp",
+            primes_holes(),
+            Vec::new(),
+            PathMode::OnePath,
+        ))
+        .expect("valid");
+        for _ in 0..2 {
+            let report = campaign.run_filtered(Budget::Cases(2), None, &mut Nameless);
+            let CampaignOutcome::Aborted { kind, reason, .. } = &report.outcome else {
+                panic!("{:?}", report.outcome);
+            };
+            assert_eq!(*kind, k_rust_fuzz::report::AbortKind::ClientPanic);
+            assert!(reason.contains("in `id`"), "{reason}");
+            assert_eq!(report.totals.cases, 0);
+        }
+    }
+}
+
 /// R3-B1: the broken diamond's identification of `.Ids` with `.Vals` reaches `a` and `bb`
 /// through `pick`. Never a kill (main and fz26/diffend kill it).
 #[test]

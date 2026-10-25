@@ -568,6 +568,7 @@ impl ResolvedTarget {
                     target.name, record.message
                 ),
                 panic: Some(record),
+                filter: false,
             })
         })?;
         let reached: Vec<bool> = paths.hit_steps.iter().map(Option::is_some).collect();

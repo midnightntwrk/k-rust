@@ -3569,3 +3569,95 @@ fn an_accepting_filter_gives_the_unfiltered_report() {
     );
     assert_eq!(accepted.to_canonical_json(), unfiltered.to_canonical_json());
 }
+
+/// `client-refusals[].repaired` marks the case that was repaired (review M1): the first refused
+/// hit's repair misses, the second's hits, so the cause's entry (the first case) stays
+/// unrepaired, and `repaired-from` names the second.
+#[test]
+fn the_refusal_entry_marks_only_the_case_that_was_repaired() {
+    let mut runner = Scripted::new(
+        |values| {
+            if as_int(&values[0]) == 1000 {
+                run(OutcomeClass::Miss, 1)
+            } else {
+                hit(values, 1, "end")
+            }
+        },
+        |values| Ok(hit(values, 1, "end")),
+    );
+    let mut filter = Judging::below(100);
+    // Case 1's candidate (1000) misses; case 2's (102) hits.
+    filter.repair = Box::new(|values| {
+        let value = as_int(&values[0]);
+        vec![vec![int(if value == 1 { 1000 } else { 100 + value })]]
+    });
+    let report = filtered(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(5),
+        &mut filter,
+    );
+    let witness = report.witness().cloned().expect("a repaired witness");
+    assert_eq!(witness.repaired_from.expect("repaired-from").case, 1);
+    let entry = &report.client_refusals[0];
+    assert_eq!((entry.case, entry.count, entry.repaired), (0, 2, false));
+}
+
+/// A repair counts only once a candidate runs (review M5): candidates that are all inadmissible
+/// cost no run, count no repair and never reach the cause's failure cut-off.
+#[test]
+fn a_repair_whose_candidates_never_run_counts_nothing() {
+    let mut runner = Scripted::new(
+        |values| hit(values, 1, "end"),
+        |values| Ok(hit(values, 1, "end")),
+    );
+    runner.admissible = Box::new(|_, value| as_int(value) != 99);
+    let mut filter = Judging::new(|_| Some(refusal("always")));
+    filter.repair = Box::new(|_| vec![vec![int(99)]]);
+    let report = filtered(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(6),
+        &mut filter,
+    );
+    assert_eq!(
+        filter.repairs.len(),
+        6,
+        "every refused hit is offered a repair"
+    );
+    assert_eq!(report.totals.filter.repairs, 0);
+    assert_eq!(report.totals.filter.repair_candidates, 0);
+    assert_eq!(report.totals.filter.repairs_skipped, 0);
+}
+
+/// The `client-refused` warning says every hit was refused only when no accepted hit was lost
+/// to its confirmation (review M3): here hit 2 is accepted but its confirmation disagrees.
+#[test]
+fn the_refusal_warning_does_not_claim_every_hit_when_one_was_unconfirmed() {
+    let mut runner = Scripted::new(
+        |values| hit(values, 1, "end"),
+        |values| Ok(hit(values, 1, "another end")),
+    );
+    let mut filter = Judging::below(2);
+    let report = filtered(
+        &mut runner,
+        &mut counter_schedule(1, 1),
+        &settings(1),
+        Budget::Cases(2),
+        &mut filter,
+    );
+    assert_eq!(report.witness(), None);
+    assert_eq!(report.totals.unconfirmed, 1);
+    let warning = report
+        .warnings
+        .iter()
+        .find(|warning| warning.starts_with("client-refused:"))
+        .expect("a client-refused warning");
+    assert!(!warning.contains("every candidate hit"), "{warning}");
+    assert!(
+        warning.contains("1 other candidate was not confirmed"),
+        "{warning}"
+    );
+}
