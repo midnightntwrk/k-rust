@@ -319,9 +319,6 @@ pub fn run(def: &Def, rest: &[String]) {
         };
         let mut shape = (0usize, 0usize, 0usize, 0usize);
         let res = guard(|| -> Result<(), String> {
-            if !matches!(ens, P::Top(_)) {
-                return Err("ensures".into());
-            }
             if crate::rules::absent_sort(lhs, &m).is_some() {
                 return Err("left-hand side needs a sort without values (rule left out)".into());
             }
@@ -331,6 +328,7 @@ pub fn run(def: &Def, rest: &[String]) {
             lw.pat(&lhs_n, "c", &top, true)?;
             lw.finish_lhs()?;
             lw.cond(req)?;
+            lw.cond(ens).map_err(|e| format!("ensures: {e}"))?;
             lw.expr(rhs, &top)?;
             for st in &lw.steps {
                 match st {

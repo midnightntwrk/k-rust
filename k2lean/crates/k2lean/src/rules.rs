@@ -28,9 +28,23 @@ pub struct Rule {
     pub exec_multi: String,
     /// Whether the left-hand side has a free-key map pattern (several matches).
     pub multi: bool,
-    /// The KORE left-hand side, requires and right-hand side of this variant (the pair
-    /// classification of `det2`).
+    /// The KORE left-hand side, the conditions of a step (the requires, conjoined with the
+    /// ensures when there is one) and the right-hand side of this variant (the pair
+    /// classification of `det2`, which separates steps, not applicability).
     pub kore: (P, P, P),
+}
+
+/// The conditions under which a rule steps: its requires, and its ensures unless that is `\top`
+/// (both are predicates at the top sort `top`).
+fn step_conditions(req: &P, ens: &P, top: &str) -> P {
+    match (req, ens) {
+        (_, P::Top(_)) => req.clone(),
+        (P::Top(_), _) => ens.clone(),
+        _ => P::And(
+            crate::ir::S::App(top.to_string(), vec![]),
+            vec![req.clone(), ens.clone()],
+        ),
+    }
 }
 
 /// A sort the pattern needs that the term universe does not have (an unsupported builtin such
@@ -157,9 +171,6 @@ pub fn collect_with(
             P::And(_, ps) if ps.len() == 2 => (&ps[0], &ps[1]),
             other => (other, &P::Top(crate::ir::S::App(top.clone(), vec![]))),
         };
-        if !matches!(ens, P::Top(_)) {
-            return Err(format!("rule {what}: `ensures` is not supported yet"));
-        }
         if let Some(bad) = absent_sort(lhs, m) {
             eprintln!(
                 "note: rule {what} left out: its left-hand side needs sort {bad}, which has no values in the model"
@@ -176,6 +187,7 @@ pub fn collect_with(
             let lhs = &crate::overload::subst(vlhs, vs);
             let req = &crate::overload::subst(req, vs);
             let rhs = &crate::overload::subst(rhs, vs);
+            let ens = &crate::overload::subst(ens, vs);
             let mut lw = Lower::new(m, fns, &[]);
             lw.param("c", &top);
             lw.pat(lhs, "c", &top, true)
@@ -183,6 +195,12 @@ pub fn collect_with(
             lw.finish_lhs().map_err(|e| format!("rule {what}: {e}"))?;
             lw.cond(req).map_err(|e| format!("rule {what}: {e}"))?;
             let lhs_len = lw.steps.len();
+            // `ensures e`: the right-hand side is `r ∧ ⌈e = true⌉`, so the rule applies (`App`)
+            // whatever `e` is, and steps only where `e` is `true`; its tests come after the
+            // left-hand side's, where a failure is a rule that applies without a successor
+            // (`docs/design.md`, §2, "Rules")
+            lw.cond(ens)
+                .map_err(|e| format!("rule {what}: ensures: {e}"))?;
             let mut rhs_l = lw
                 .expr(rhs, &top)
                 .map_err(|e| format!("rule {what}: {e}"))?;
@@ -251,7 +269,7 @@ pub fn collect_with(
                 exec,
                 exec_multi,
                 multi,
-                kore: (lhs.clone(), req.clone(), rhs.clone()),
+                kore: (lhs.clone(), step_conditions(req, ens, &top), rhs.clone()),
             });
         }
     }

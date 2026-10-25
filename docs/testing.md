@@ -120,7 +120,7 @@ Each entry belongs to one area, which registers it in `k2lean/tests/areas/AREA.s
 
 | area | owns |
 |---|---|
-| `core` | kimp with its golden cases and step traces, KRS IMP, determinism along the rule index (`kimp-d2`, `ovl`), the fixture `freekey`, SIMPLE and its acceptance, the libraries in the arity-indexed universe, the generator's test count and the allowed axioms |
+| `core` | kimp with its golden cases and step traces, KRS IMP, determinism along the rule index (`kimp-d2`, `ovl`), rules with `ensures` (`ens`), the fixture `freekey`, SIMPLE and its acceptance, the libraries in the arity-indexed universe, the generator's test count and the allowed axioms |
 | `invariants` | the kind 1 invariant libraries and KRS IMP's sidecar invariant, the negative check, the kind 2 demonstrations and the kind 2 template |
 | `relational` | `relate` (ImpRel, ImpMut, the fixture self-relations) and `refine` (ImpUnroll) |
 | `soundness` | `soundness` (ImpTypes) |

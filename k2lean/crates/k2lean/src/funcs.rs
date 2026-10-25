@@ -308,6 +308,15 @@ fn lower_equation(
         lw.cond(r).map_err(err)?;
     }
     let lhs_len = lw.steps.len();
+    // `f(ps) = r ∧ ⌈e = true⌉` (an `ensures e`): the value is `r` only where `e` holds, and the
+    // equation's statement would need `e` too (`docs/design.md`, §2, "`ensures`")
+    if let P::And(_, parts) = &e.rhs
+        && parts.len() == 2
+    {
+        return Err(err(
+            "`ensures` in a function equation is not supported".into()
+        ));
+    }
     let rhs = lw.expr(&e.rhs, &sig.result).map_err(err)?;
     Ok((lw.steps, lhs_len, rhs))
 }

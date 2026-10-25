@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The core area: kimp (goldens and step traces), KRS IMP, determinism along the rule index
-# (kimp-d2, ovl), the fixture freekey, SIMPLE and its acceptance against krust, and the libraries
+# (kimp-d2, ovl), rules with `ensures` (ens), the fixture freekey, SIMPLE and its acceptance against krust, and the libraries
 # in the arity-indexed term universe (kimp-ar, simple-ar, kterm-ar). Registry: core.py.
 
 kore_core() {
@@ -8,6 +8,7 @@ kore_core() {
     kimp) f=$KIMP/imp.k m=IMP s=IMP-SYNTAX inc=$KIMP ;;
     kimp-verif) f=$KIMP/imp-verification.k m=IMP-VERIFICATION s=IMP-VERIFICATION-SYNTAX inc=$KIMP ;;
     ovl) f=$DEMOS/k/overlap.k m=OVERLAP s=OVERLAP-SYNTAX inc=$DEMOS/k ;;
+    ens) f=$DEMOS/k/ensures.k m=ENSURES s=ENSURES-SYNTAX inc=$DEMOS/k ;;
     simple) f=$SD/simple-untyped.md m=SIMPLE-UNTYPED s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
     kterm) f=$DEMOS/k/term/term.k m=TERM s=TERM-SYNTAX inc=$DEMOS/k/term ;;
     *) return 1 ;;
@@ -16,7 +17,7 @@ kore_core() {
 
 name_core() {
   case $1 in
-    kimp|kimp-d2|kimp-ar) echo KImp ;; krsimp) echo KrsImp ;; ovl) echo KOvl ;;
+    kimp|kimp-d2|kimp-ar) echo KImp ;; krsimp) echo KrsImp ;; ovl) echo KOvl ;; ens) echo KEns ;;
     simple|simple-ar) echo KSimple ;; freekey) echo FreeKey ;; kterm-ar) echo KTerm ;;
     *) return 1 ;;
   esac
@@ -43,6 +44,10 @@ gen_core() {
     # (demos/k/overlap.k): `Step.deterministic_of` with `overlaps_witnessed`
     ovl) GEN_ARGS=(--kore "$(kore_dir ovl)/definition.kore" --runtime "$(kore_dir ovl)/runtime.json"
             --out "$o" --name KOvl --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
+    # rules with `ensures` clauses (demos/k/ensures.k): steps only where the ensures holds, apart
+    # by their ensures, and an overlap where both hold (witnessed)
+    ens) GEN_ARGS=(--kore "$(kore_dir ens)/definition.kore" --runtime "$(kore_dir ens)/runtime.json"
+            --out "$o" --name KEns --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt") ;;
     simple) GEN_ARGS=(--kore "$(kore_dir simple)/definition.kore" --runtime "$(kore_dir simple)/runtime.json"
             --out "$o" --name KSimple --prelude ../../lean/prelude --linear-terms
             --open-obligations "$o/open-obligations.txt") ;;
@@ -175,6 +180,7 @@ gate_core() {
   fi
   runs lib krsimp && lib krsimp KrsImp
   runs lib ovl && kc ovl && lib ovl KOvl
+  runs lib ens && kc ens && lib ens KEns
   # the fixture whose function equations match maps by free-key patterns (`MapHook.chooseFirst`)
   runs lib freekey && lib freekey FreeKey
   if runs lib kimp-ar; then
