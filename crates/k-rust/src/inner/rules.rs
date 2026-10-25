@@ -1462,6 +1462,16 @@ fn add_rule_cells(
             | Sentence::Bubble { .. } => None,
         })
         .collect::<BTreeSet<_>>();
+    // A term of a cell collection sort denotes a group of cells (instances of its member cell),
+    // so a variable written in a cell body may be one: `W` in `<ws> W </ws>`, where `<ws>` holds
+    // `<w multiplicity="*">`, is inferred at `WCellMap` when another occurrence requires that
+    // sort, and then stands for all the instances, not for one `<w>` (the greatest lower bound of
+    // `Bag` and `WCellMap` without this pair). The pair is for inference alone: a production
+    // `Bag ::= WCellMap` would also read two juxtaposed collection terms outside a cell body
+    // (`f(A) f(B)` in `<k>`) as `#cells`, which the collection's `avoid` concatenation loses to.
+    for sort in &collection_sorts {
+        grammar.add_inference_subsort(sort, &Sort::new("Bag"));
+    }
 
     for sentence in sentences {
         match sentence {

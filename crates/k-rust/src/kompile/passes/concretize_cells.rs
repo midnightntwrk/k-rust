@@ -124,10 +124,11 @@ pub(crate) struct CellCompletion {
 
 /// A cell-fragment variable of a rule or claim, as cell completion reads it.
 ///
-/// It is a variable without a cell sort written directly in the body of a cell `<p>` with
-/// children: an item of the body, or a side of a rewrite item. Completion makes it stand for
-/// the children of `<p>` it may hold (every `multiplicity="*"` child, and each other child no
-/// item of the body is, less those another variable of the body takes), and builds:
+/// It is a variable without a cell sort or a cell collection sort written directly in the body
+/// of a cell `<p>` with children: an item of the body, or a side of a rewrite item. Completion
+/// makes it stand for the children of `<p>` it may hold (every `multiplicity="*"` child, and
+/// each other child no item of the body is, less those another variable of the body takes), and
+/// builds:
 /// - at its occurrence in the body, the variable itself at the value sort of its one child, a
 ///   fresh variable per child when it stands for several, and nothing when it stands for none;
 /// - for its sort predicate (`isBag(X)`, `isPCellFragment(X)`), the conjunction of the sort
@@ -159,9 +160,10 @@ impl CellCompletion {
             .is_some_and(|cell| !cell.children.is_empty())
     }
 
-    /// Whether `sort` is a cell sort.
-    pub(crate) fn is_cell_sort(&self, sort: &Sort) -> bool {
-        self.model.cells.contains_key(sort)
+    /// Whether a variable of sort `sort` written in a cell body occupies a child slot of its own:
+    /// `sort` is a cell sort, or the collection sort of a `multiplicity="*"` child.
+    pub(crate) fn is_slot_sort(&self, sort: &Sort) -> bool {
+        self.model.slot_of_sort(sort).is_some()
     }
 
     /// The cell sort completion gives, at every occurrence, the variable `V` of each alias
@@ -770,14 +772,7 @@ impl CellModel {
                 .get(&LabelHead::from(label))
                 .or_else(|| self.collection_member.get(&LabelHead::from(label)))
                 .cloned()
-                .or_else(|| {
-                    let result_sort = self.initializer_sort.get(&LabelHead::from(label))?;
-                    if self.cells.contains_key(result_sort) {
-                        return Some(result_sort.clone());
-                    }
-                    let members = self.collection_members.get(result_sort)?;
-                    (members.len() == 1).then(|| members.first().unwrap().clone())
-                }),
+                .or_else(|| self.slot_of_sort(self.initializer_sort.get(&LabelHead::from(label))?)),
             Term::Variable { sort, .. } => sort
                 .clone()
                 .or_else(|| term.metadata().and_then(|metadata| metadata.sort.clone()))
@@ -793,6 +788,34 @@ impl CellModel {
             }
             _ => None,
         }
+    }
+
+    /// The child slot a term of sort `sort` occupies in a cell body: `sort` itself when it is a
+    /// cell sort, and the one member cell sort of a cell collection sort, whose terms denote
+    /// any number of instances of that `multiplicity="*"` child.
+    fn slot_of_sort(&self, sort: &Sort) -> Option<Sort> {
+        if self.cells.contains_key(sort) {
+            return Some(sort.clone());
+        }
+        let members = self.collection_members.get(sort)?;
+        (members.len() == 1).then(|| members.first().unwrap().clone())
+    }
+
+    /// The member cell sort of the collection sort of `term`, when it is a variable of the
+    /// collection sort of a `multiplicity="*"` child: it stands for any number of instances of
+    /// that child, a part of its collection (of its list, for a `type="List"` child), not one
+    /// item of it.
+    fn collection_variable_slot(&self, term: &Term) -> Option<Sort> {
+        let Term::Variable { sort, .. } = term.unannotated() else {
+            return None;
+        };
+        let sort = sort
+            .as_ref()
+            .or_else(|| term.metadata().and_then(|metadata| metadata.sort.as_ref()))?;
+        if self.cells.contains_key(sort) {
+            return None;
+        }
+        self.slot_of_sort(sort)
     }
 
     /// The child slot `part`, one item of one side of a cell body, occupies: its cell sort, or,
@@ -1020,8 +1043,8 @@ impl MovedCell {
 }
 
 /// The terms of unknown cell sort written directly in one body of a cell with children: the
-/// variables without a cell sort, the body's frame (`...`) among them, per side of the rule, in
-/// written order.
+/// variables without a cell sort or a cell collection sort, the body's frame (`...`) among them,
+/// per side of the rule, in written order.
 struct BodyUnknowns {
     parent: Sort,
     sides: [Vec<String>; 2],
@@ -2197,8 +2220,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
     /// - a term of another cell sort may not, whatever its body: after completion a cell holds
     ///   only the cells the configuration places in it (a misplaced cell has been lifted out of
     ///   it), and none of those is `sort` or above it;
-    /// - every other term (a variable of `Bag`, of a cell collection sort or of no cell sort, a
-    ///   function of `Bag` sort, a matching-logic connective) has no known cell sort, and may.
+    /// - every other term (a variable of `Bag` or of no cell sort, a function of `Bag` sort, a
+    ///   matching-logic connective) has no known cell sort, and may.
     fn may_hold_instance(&self, term: &Term, sort: &Sort) -> bool {
         self.item_may_hold(term, sort, true)
     }
@@ -3770,6 +3793,14 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
             }
             let parts = if let Some(info) = self.fragments.get(&variable_name) {
                 info.split.clone().into_iter().collect::<Vec<_>>()
+            } else if let Some(member) = self.model.collection_variable_slot(&variable) {
+                if !cell.children.iter().any(|child| child.sort == member) {
+                    return Err(format!(
+                        "Cell variable {variable_name} in {} stands for {} cells, which {} does not hold",
+                        label.name, self.model.cells[&member].label.name, label.name
+                    ));
+                }
+                vec![(member, variable.clone())]
             } else {
                 let candidates = cell
                     .children
@@ -3969,6 +4000,8 @@ impl<'use_, 'definition> Concretizer<'use_, 'definition> {
                 && self.model.cells.contains_key(sort)
             {
                 self.insert_child(&mut split, sort.clone(), item.clone(), parent)?;
+            } else if let Some(member) = self.model.collection_variable_slot(item) {
+                self.insert_child(&mut split, member, item.clone(), parent)?;
             }
         }
         Ok(split)
@@ -4301,12 +4334,13 @@ fn collect_fragment_observations(
                 }
                 // Invariant: `observations` has one entry for every variable of `variables` before `name` that carries no cell-sort annotation; each such variable scans `parent.children` once, O(|variables| * |parent.children|).
                 for (name, annotated_sort) in variables {
-                    // A variable annotated with a cell sort is not a cell-fragment variable: it
-                    // already denotes one complete child and remains unchanged at non-cell
-                    // occurrences.
+                    // A variable annotated with a cell sort, or with the collection sort of a
+                    // `multiplicity="*"` child, is not a cell-fragment variable: it already
+                    // denotes one complete child, or instances of that child, and remains
+                    // unchanged at non-cell occurrences.
                     if annotated_sort
                         .as_ref()
-                        .is_some_and(|sort| model.cells.contains_key(sort))
+                        .is_some_and(|sort| model.slot_of_sort(sort).is_some())
                     {
                         continue;
                     }
@@ -4331,7 +4365,7 @@ fn collect_fragment_observations(
                                 Term::Variable { name, sort }
                                     if !sort
                                         .as_ref()
-                                        .is_some_and(|sort| model.cells.contains_key(sort)) =>
+                                        .is_some_and(|sort| model.slot_of_sort(sort).is_some()) =>
                                 {
                                     Some(name.clone())
                                 }

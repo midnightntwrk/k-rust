@@ -2193,7 +2193,9 @@ fn a_cell_fragment_variable_has_the_sorts_cell_completion_gives_it() {
     assert_eq!(sorts("aliased", "X"), some(&["AccountCell"]));
     // A variable of a cell sort is an item, not a fragment, wherever it occurs.
     assert_eq!(sorts("one-account", "X"), some(&["AccountCell"]));
-    assert_eq!(sorts("map-annotated", "A"), some(&["AccountCell"]));
+    // A variable another occurrence requires at the collection sort is the collection, the
+    // accounts in the cell, at every occurrence: it is no fragment either.
+    assert_eq!(sorts("map-annotated", "A"), some(&["AccountCellMap"]));
     // `variables` has the sort the compiled variable has, and nothing for a variable that
     // completion splits.
     let typer = main_typer(&loaded);
