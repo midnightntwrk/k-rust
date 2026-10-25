@@ -532,3 +532,84 @@ theorem concat_element_comm_insert {k₁ k₂ : K} {v₁ w₁ w₂ : V} {R₁ m 
 end MapHook
 
 end KPrelude
+
+namespace KPrelude
+
+/-! ## Changes of a cell (`confluence --threads`)
+
+The change a step makes to one cell of the configuration: none, or the value it has and the value
+it gets (the same value for a cell it only reads). Two changes commute when one leaves the cell
+alone or both only read it. -/
+
+abbrev Ch (α : Type) := Option (α × α)
+
+def Ch.pre {α : Type} (c : Ch α) (x : α) : Prop := ∀ p, c = some p → x = p.1
+def Ch.apply {α : Type} (c : Ch α) (x : α) : α := match c with | some p => p.2 | none => x
+def Ch.Compat {α : Type} (a b : Ch α) : Prop :=
+  a = none ∨ b = none ∨ ((∃ x, a = some (x, x)) ∧ (∃ y, b = some (y, y)))
+
+theorem Ch.pre_none {α : Type} {x : α} : Ch.pre (none : Ch α) x := fun _ h => by cases h
+theorem Ch.pre_self {α : Type} {x y : α} : Ch.pre (some (x, y) : Ch α) x := fun _ h => by cases h; rfl
+
+theorem Ch.pre_apply {α : Type} {a b : Ch α} {x : α} (h : Ch.Compat a b) (ha : a.pre x) (hb : b.pre x) :
+    b.pre (a.apply x) := by
+  rcases h with rfl | rfl | ⟨⟨u, rfl⟩, ⟨v, rfl⟩⟩
+  · exact hb
+  · intro p hp; cases hp
+  · intro p hp; cases hp; simp only [Ch.apply]; exact (ha (u, u) rfl).symm.trans (hb (v, v) rfl)
+
+theorem Ch.apply_comm {α : Type} {a b : Ch α} {x : α} (h : Ch.Compat a b) (ha : a.pre x) (hb : b.pre x) :
+    b.apply (a.apply x) = a.apply (b.apply x) := by
+  rcases h with rfl | rfl | ⟨⟨u, rfl⟩, ⟨v, rfl⟩⟩
+  · rfl
+  · rfl
+  · simp only [Ch.apply]; exact (hb (v, v) rfl).symm.trans (ha (u, u) rfl)
+
+theorem Ch.Compat.symm {α : Type} {a b : Ch α} (h : Ch.Compat a b) : Ch.Compat b a := by
+  rcases h with h | h | ⟨h₁, h₂⟩
+  · exact Or.inr (Or.inl h)
+  · exact Or.inl h
+  · exact Or.inr (Or.inr ⟨h₂, h₁⟩)
+
+end KPrelude
+
+namespace KPrelude
+
+/-! ## The key of a thread (`confluence --threads`)
+
+What a rule's left-hand side fixes of the first item of a thread's `<k>`: nothing, its emptiness,
+or the injection of the item into `KItem` and the constructor of the injected value, each when
+known. Two rules whose keys are disjoint never step one thread from one configuration. -/
+
+inductive KeyPat where
+  | any
+  | dotk
+  | item (inj own : Option String)
+  deriving DecidableEq
+
+/-- `(injection, constructor)` of a thread's first item, `("dotk", "")` when `<k>` is empty. -/
+def KeyPat.matches : KeyPat → String × String → Bool
+  | .any, _ => true
+  | .dotk, x => x.1 == "dotk"
+  | .item i o, x => x.1 != "dotk" && (i.all (· == x.1)) && (o.all (· == x.2))
+
+def KeyPat.disj : KeyPat → KeyPat → Bool
+  | .dotk, .item _ _ => true
+  | .item _ _, .dotk => true
+  | .item (some i₁) o₁, .item (some i₂) o₂ =>
+      i₁ != i₂ || (match o₁, o₂ with | some a, some b => a != b | _, _ => false)
+  | _, _ => false
+
+theorem KeyPat.disj_sound {p q : KeyPat} {x : String × String} (h : p.disj q = true)
+    (hp : p.matches x = true) (hq : q.matches x = true) : False := by
+  match p, q, h, hp, hq with
+  | .dotk, .item _ _, _, hp, hq => simp_all [KeyPat.matches]
+  | .item _ _, .dotk, _, hp, hq => simp_all [KeyPat.matches]
+  | .item (some i₁) o₁, .item (some i₂) o₂, h, hp, hq =>
+    simp only [KeyPat.matches, Bool.and_eq_true, bne_iff_ne, ne_eq, Option.all_some, beq_iff_eq] at hp hq
+    simp only [KeyPat.disj, Bool.or_eq_true, bne_iff_ne, ne_eq] at h
+    rcases h with h | h
+    · exact h (hp.1.2.trans hq.1.2.symm)
+    · cases o₁ <;> cases o₂ <;> simp_all [Option.all]
+
+end KPrelude
