@@ -287,7 +287,8 @@ fn invariant_inside_two_nested_cell_maps_is_lifted_twice() {
 /// `gen --invariant storeNat@store` on the `range` fixture, whose `alloc` extends the store by
 /// `fill(A, B, V)`, a map built by recursion on an `Int` range (`.Map` above `B`, `A |-> V` added
 /// below): the definitions get the `@[k2l_coll]` lemma that its result binds `V` at each key,
-/// from its two equations, which the collections closer applies to the map a rule binds.
+/// from its two equations, which the collections closer applies to the map a rule binds, and import
+/// the equations it names.
 #[test]
 fn a_map_built_on_an_int_range_gets_its_entries_lemma() {
     let d = tmp("cli-range");
@@ -314,6 +315,11 @@ fn a_map_built_on_an_int_range_gets_its_entries_lemma() {
         .unwrap();
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let defs = std::fs::read_to_string(out.join("KRange/InvariantDefs.lean")).unwrap();
+    // the lemma's proof names `fill`'s equations, so the definitions import them
+    assert!(
+        defs.starts_with("import KRange.Preserves\nimport KRange.Equations\n"),
+        "{defs}"
+    );
     let f = "K.«fill(_,_,_)_RANGE_Map_Int_Int_Int»";
     assert!(defs.contains(&format!("@[k2l_coll] theorem Invariant.«range_fill(_,_,_)_RANGE_Map_Int_Int_Int» {{Q : SortKItem × SortKItem → Prop}} {{a b : SortInt}} {{V : SortInt}} {{r : SortMap}}\n    (h : {f} a b V = some r) (hq : ∀ a, Q (SortKItem.inj_Int a, (SortKItem.inj_Int V))) : KPrelude.MapHook.EntriesOn Q r :=\n  KPrelude.MapHook.entriesOn_of_range (f := fun a => {f} a b V) (key := fun a => SortKItem.inj_Int a)\n    (fun a ha => by rw [Eqn.«fill(_,_,_)_RANGE_Map_Int_Int_Int_1»]; exact ha)\n    (fun a ha => by rw [Eqn.«fill(_,_,_)_RANGE_Map_Int_Int_Int_2»]; (try simp only [Option.bind_fun_some]); exact ha) hq h")), "{defs}");
     // `natVals` is a list fold, `storeNat` and `isNat` are not recursive: no other lemma
