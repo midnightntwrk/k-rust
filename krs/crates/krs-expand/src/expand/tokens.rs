@@ -3,7 +3,7 @@
 use crate::ExpandError;
 use krs_diagnostic::codes::expand;
 use krs_syntax::{KSequence, MapExpression, ProvenanceRole, TermLiteral};
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 use syn::parse::Parser;
 use syn::spanned::Spanned;
@@ -35,12 +35,9 @@ pub(super) fn wire_literal(literal: &TermLiteral) -> krs_ir::DescriptorLiteral {
 
 pub(super) fn take_counter(counter: &mut u32) -> crate::Result<u32> {
     let value = *counter;
+    // The count is the whole sentence's, so no one node is the subject.
     *counter = counter.checked_add(1).ok_or_else(|| {
-        ExpandError::new(
-            expand::DESCRIPTOR_CAPACITY,
-            Span::call_site(),
-            "too many term nodes",
-        )
+        ExpandError::at_invocation(expand::DESCRIPTOR_CAPACITY, "too many term nodes")
     })?;
     Ok(value)
 }

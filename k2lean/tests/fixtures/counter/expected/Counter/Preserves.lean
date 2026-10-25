@@ -54,5 +54,43 @@ theorem Step.preserves_of {P : SortGeneratedTopCell → Prop}
   | «S Ss» x1 x2 x3 x4 x5 x6 => exact «S Ss» x1 x2 x3 x4 x5 x6 hc
   | «.Pgm» x1 x2 x3 x4 => exact «.Pgm» x1 x2 x3 x4 hc
   | incr x1 x2 x3 x4 x5 x6 x7 x8 => exact incr x1 x2 x3 x4 x5 x6 x7 x8 hc
+/-! ## The per-rule principle for a relation between the two sides of a step -/
+
+/-- Rule `skip` (counter.k:24:3) relates its left- and right-hand sides by `Q`. -/
+def Step.Rel.skip (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
+  ∀ (DotVar2 : SortK) (DotVar1 : SortEnvCell) (DotVar0 : SortGeneratedCounterCell),
+    Q (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt SortStmt.skip) DotVar2)) DotVar1) DotVar0)
+      (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) DotVar1) DotVar0)
+
+/-- Rule `S Ss` (counter.k:21:3) relates its left- and right-hand sides by `Q`. -/
+def Step.Rel.«S Ss» (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
+  ∀ (S : SortStmt) (Ss : SortPgm) (DotVar2 : SortK) (DotVar1 : SortEnvCell) (DotVar0 : SortGeneratedCounterCell) (hpri : ∀ j, j < 1 → ¬ App j (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm (SortPgm.__ S Ss)) DotVar2)) DotVar1) DotVar0)),
+    Q (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm (SortPgm.__ S Ss)) DotVar2)) DotVar1) DotVar0)
+      (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt S) (SortK.kseq (SortKItem.inj_Pgm Ss) DotVar2))) DotVar1) DotVar0)
+
+/-- Rule `.Pgm` (counter.k:22:3) relates its left- and right-hand sides by `Q`. -/
+def Step.Rel.«.Pgm» (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
+  ∀ (DotVar2 : SortK) (DotVar1 : SortEnvCell) (DotVar0 : SortGeneratedCounterCell) (hpri : ∀ j, j < 1 → ¬ App j (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.«.List{"___COUNTER-SYNTAX_Pgm_Stmt_Pgm"}_Pgm») DotVar2)) DotVar1) DotVar0)),
+    Q (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Pgm SortPgm.«.List{"___COUNTER-SYNTAX_Pgm_Stmt_Pgm"}_Pgm») DotVar2)) DotVar1) DotVar0)
+      (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) DotVar1) DotVar0)
+
+/-- Rule `incr` (counter.k:23:3) relates its left- and right-hand sides by `Q`. -/
+def Step.Rel.incr (Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop) : Prop :=
+  ∀ (X : SortId) (I : SortInt) (DotVar2 : SortK) (M : SortMap) (DotVar0 : SortGeneratedCounterCell) (r : SortInt) (hr : K.«get(_,_)_COUNTER_Int_Map_Id» M X = some r) (hpri : ∀ j, j < 1 → ¬ App j (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.«_+=_;» X I)) DotVar2)) (SortEnvCell.«<env>» M)) DotVar0)),
+    Q (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» (SortK.kseq (SortKItem.inj_Stmt (SortStmt.«_+=_;» X I)) DotVar2)) (SortEnvCell.«<env>» M)) DotVar0)
+      (SortGeneratedTopCell.«<generatedTop>» (SortTCell.«<T>» (SortKCell.«<k>» DotVar2) (SortEnvCell.«<env>» (KPrelude.MapHook.update M (SortKItem.inj_Id X) (SortKItem.inj_Int (KPrelude.IntHook.add r I))))) DotVar0)
+
+/-- Every step relates its source and target by `Q`, from one hypothesis per rule (4 rules). -/
+theorem Step.rel_of {Q : SortGeneratedTopCell → SortGeneratedTopCell → Prop}
+    (skip : Step.Rel.skip Q)
+    («S Ss» : Step.Rel.«S Ss» Q)
+    («.Pgm» : Step.Rel.«.Pgm» Q)
+    (incr : Step.Rel.incr Q)
+    {c c' : SortGeneratedTopCell} (h : Step c c') : Q c c' := by
+  cases h with
+  | skip x1 x2 x3 => exact skip x1 x2 x3
+  | «S Ss» x1 x2 x3 x4 x5 x6 => exact «S Ss» x1 x2 x3 x4 x5 x6
+  | «.Pgm» x1 x2 x3 x4 => exact «.Pgm» x1 x2 x3 x4
+  | incr x1 x2 x3 x4 x5 x6 x7 x8 => exact incr x1 x2 x3 x4 x5 x6 x7 x8
 
 end Counter

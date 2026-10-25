@@ -276,9 +276,9 @@ pub(crate) fn alias(
             None,
         );
     }
-    Err(ExpandError::new(
+    // The misplaced helper is the invocation itself.
+    Err(ExpandError::at_invocation(
         expand::ORPHAN_HELPER,
-        Span::call_site(),
         "`#[k::alias]` on a production is a constructor helper; place `#[k::constructor(...)]` before it",
     ))
 }
@@ -302,7 +302,7 @@ pub(crate) fn desugar(
                 .segments
                 .last()
                 .expect("helper attributes have a final path segment");
-            return Err(requires_on_desugar(name.ident.span()));
+            return Err(requires_on_desugar(Some(name.ident.span())));
         }
         let rule = krs_syntax::RuleItem::parse_desugar_tokens(item, &desugar)?;
         return expand_ordinary_rule(
@@ -317,22 +317,26 @@ pub(crate) fn desugar(
             &[],
         );
     }
-    Err(ExpandError::new(
+    // The misplaced helper is the invocation itself.
+    Err(ExpandError::at_invocation(
         expand::ORPHAN_HELPER,
-        Span::call_site(),
         "`#[k::desugar]` on a production is a constructor helper; place `#[k::constructor(...)]` before it",
     ))
 }
 
 /// `#[k::requires]` on a desugar clause (KF-028).
-fn requires_on_desugar(span: Span) -> ExpandError {
-    krs_syntax::SyntaxError::new(
+/// `span` is the `#[k::requires]` attribute; `None` when it is the invocation being expanded.
+fn requires_on_desugar(span: Option<Span>) -> ExpandError {
+    let error = krs_diagnostic::ToDiagnostic::to_diagnostic(&krs_syntax::SyntaxError::new(
         krs_syntax::SyntaxErrorKind::InvalidRuleKey {
             reason: krs_syntax::REQUIRES_ON_DESUGAR_CLAUSE,
         },
-        span,
-    )
-    .into()
+        span.unwrap_or_else(Span::call_site),
+    ));
+    match span {
+        Some(_) => ExpandError::from_diagnostic(error),
+        None => ExpandError::at_invocation(error.code, error.message),
+    }
 }
 
 pub(crate) fn priority(
@@ -419,14 +423,14 @@ fn expand_ordinary_rule(
     if let Some(binder) = rule.existentials().fresh().first()
         && (sentence_kind != krs_ir::SentenceKind::Transition || attribute.anywhere().is_some())
     {
-        return Err(misplaced_fresh(binder.name().span()));
+        return Err(misplaced_fresh(Some(binder.name().span())));
     }
     if sentence_kind != krs_ir::SentenceKind::Transition
         && let Some(helper) = rule.existentials().attributes().first()
     {
-        return Err(misplaced_existential(syn::spanned::Spanned::span(
+        return Err(misplaced_existential(Some(syn::spanned::Spanned::span(
             helper.path(),
-        )));
+        ))));
     }
     let rule_requires_role = ProvenanceRole::RuleRequires;
     let simplification_priority_role = ProvenanceRole::SimplificationPriority;
@@ -1092,7 +1096,8 @@ pub(crate) fn orphan_rule_helper(
             .iter()
             .any(|attribute| helper_entry(attribute.path()) == Some(AttributeMacro::Desugar))
         {
-            return Err(requires_on_desugar(Span::call_site()));
+            // The misplaced `#[k::requires]` is the invocation itself.
+            return Err(requires_on_desugar(None));
         }
         if let Some((index, outer)) =
             function
@@ -1123,9 +1128,9 @@ pub(crate) fn orphan_rule_helper(
             };
         }
     }
-    Err(ExpandError::new(
+    // The misplaced helper is the invocation itself.
+    Err(ExpandError::at_invocation(
         expand::ORPHAN_HELPER,
-        Span::call_site(),
         format!("`#[k::{name}]` is a rule helper; place `#[k::rule]` before it"),
     ))
 }
@@ -1178,10 +1183,11 @@ fn orphan_result_helper(
             function.attrs.insert(0, helper);
             return rule(env, sentence_payload, function.to_token_stream());
         }
+        // The misplaced helper is the invocation itself.
         Some((_, AttributeMacro::Claim | AttributeMacro::ContextAlias))
             if entry == AttributeMacro::Fresh =>
         {
-            return Err(misplaced_fresh(Span::call_site()));
+            return Err(misplaced_fresh(None));
         }
         Some((
             _,
@@ -1191,23 +1197,22 @@ fn orphan_result_helper(
             | AttributeMacro::Desugar,
         )) => {
             return Err(if entry == AttributeMacro::Fresh {
-                misplaced_fresh(Span::call_site())
+                misplaced_fresh(None)
             } else {
-                misplaced_existential(Span::call_site())
+                misplaced_existential(None)
             });
         }
         _ => {}
     }
+    // The misplaced helper is the invocation itself.
     if entry == AttributeMacro::Fresh {
-        return Err(ExpandError::new(
+        return Err(ExpandError::at_invocation(
             expand::ORPHAN_HELPER,
-            Span::call_site(),
             "`#[k::fresh]` is a rule helper; place `#[k::rule(...)]` before it",
         ));
     }
-    Err(ExpandError::new(
+    Err(ExpandError::at_invocation(
         expand::ORPHAN_HELPER,
-        Span::call_site(),
         format!(
             "`#[k::{name}]` is a rule or claim helper; place `#[k::rule(...)]` or `#[k::claim(...)]` before it"
         ),
@@ -1226,12 +1231,14 @@ pub(super) fn collection_placement(span: Span) -> ExpandError {
     )
 }
 
-pub(super) fn misplaced_fresh(span: Span) -> ExpandError {
-    ExpandError::new(
-        expand::FRESH_PLACEMENT,
-        span,
-        "fresh values are drawn from the generated counter only by a transition step of the configuration; `#[k::fresh]` is not allowed on an equation, simplification, alias, claim, context, context alias, anywhere rule, or heat or cool rule",
-    )
+/// `span` is the misplaced binder or helper; `None` when the helper is the invocation being
+/// expanded.
+pub(super) fn misplaced_fresh(span: Option<Span>) -> ExpandError {
+    let message = "fresh values are drawn from the generated counter only by a transition step of the configuration; `#[k::fresh]` is not allowed on an equation, simplification, alias, claim, context, context alias, anywhere rule, or heat or cool rule";
+    match span {
+        Some(span) => ExpandError::new(expand::FRESH_PLACEMENT, span, message),
+        None => ExpandError::at_invocation(expand::FRESH_PLACEMENT, message),
+    }
 }
 
 /// Rejects a `#[k::fresh]` helper on a claim or context-alias item (KF-022).
@@ -1249,16 +1256,18 @@ pub(super) fn reject_fresh_helper(item: &TokenStream) -> crate::Result<()> {
             .segments
             .last()
             .map_or_else(Span::call_site, |segment| segment.ident.span());
-        return Err(misplaced_fresh(span));
+        return Err(misplaced_fresh(Some(span)));
     }
     Ok(())
 }
 
 /// `#[k::exists]` or `#[k::ensures]` on an equation, simplification, or alias.
-fn misplaced_existential(span: Span) -> ExpandError {
-    ExpandError::new(
-        expand::EXISTENTIAL_PLACEMENT,
-        span,
-        "existential results and ensures are allowed on claims and transition rules, not on equations, simplifications, or aliases",
-    )
+/// `span` is the misplaced binder or helper; `None` when the helper is the invocation being
+/// expanded.
+fn misplaced_existential(span: Option<Span>) -> ExpandError {
+    let message = "existential results and ensures are allowed on claims and transition rules, not on equations, simplifications, or aliases";
+    match span {
+        Some(span) => ExpandError::new(expand::EXISTENTIAL_PLACEMENT, span, message),
+        None => ExpandError::at_invocation(expand::EXISTENTIAL_PLACEMENT, message),
+    }
 }

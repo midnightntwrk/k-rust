@@ -355,7 +355,7 @@
   ],
   "compatibility": {
     "policy_version": 1,
-    "report_sha256": "8abbacc9fe28e983363f2db90ff195978da39a904959ddff20d9440073d9d05e"
+    "report_sha256": "6109f9267adb5c050b3f79e128c355f096c84f408fe984faac86a19926ed8c58"
   },
   "corpus_sha256": "011fcbdeae89f3b36a2386177c38c3e34bd14dbac2d0b53a00fd54d620e7d225",
   "milestone": "IMP",

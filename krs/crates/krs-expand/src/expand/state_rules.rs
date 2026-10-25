@@ -22,7 +22,7 @@ use krs_syntax::{
     RuleRole, RuleSide, StateMacroRemainder, StateRuleBindingKind, StateRuleReferenceKind,
     StateTerm, TermArguments, TermTree, TokenRange, parse_state_context_alias_item,
 };
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
@@ -954,7 +954,7 @@ impl<'a> StateRuleBuilder<'a> {
                     }
                 };
                 if let Some(base) = application.update() {
-                    return Err(reference_record_update(base_span(base)));
+                    return Err(reference_record_update(base_span(base, application.head())));
                 }
                 Ok(WireTerm::Application {
                     instance,
@@ -1003,11 +1003,11 @@ impl<'a> StateRuleBuilder<'a> {
                     literal: wire_literal(literal),
                 })
             }
-            TermTree::Wildcard(_) => {
+            TermTree::Wildcard(range) => {
                 if matches!(self.side, RuleSide::Right) {
-                    return Err(ExpandError::new(
+                    return Err(ExpandError::at_range(
                         expand::RULE_RESULT_WILDCARD,
-                        Span::call_site(),
+                        *range,
                         "rule results cannot contain wildcards",
                     ));
                 }
@@ -1145,11 +1145,11 @@ impl<'a> StateRuleBuilder<'a> {
                 self.terms.leave_rewrite();
                 Ok(super::terms::rewrite_wire(ordinal, from?, to?))
             }
-            TermTree::OrBool { arguments, .. } => {
+            TermTree::OrBool { range, arguments } => {
                 if !self.claim {
-                    return Err(ExpandError::new(
+                    return Err(ExpandError::at_range(
                         expand::CLAIM_ONLY_TERM,
-                        Span::call_site(),
+                        *range,
                         "or_bool! is currently claim-only",
                     ));
                 }
@@ -1215,9 +1215,10 @@ fn reference_record_update(span: proc_macro2::Span) -> ExpandError {
     )
 }
 
-fn base_span(base: &TermTree) -> proc_macro2::Span {
+/// The update's base when it is a name, and the record's constructor otherwise.
+fn base_span(base: &TermTree, head: &syn::Path) -> proc_macro2::Span {
     match base {
         TermTree::Reference(path) => syn::spanned::Spanned::span(path),
-        _ => proc_macro2::Span::call_site(),
+        _ => syn::spanned::Spanned::span(head),
     }
 }

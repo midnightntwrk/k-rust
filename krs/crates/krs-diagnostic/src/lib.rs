@@ -47,10 +47,13 @@ impl Code {
     /// Returns the KRS-registered code with this spelling, if there is one.
     #[must_use]
     pub fn registered_spelling(spelling: &str) -> Option<Self> {
-        codes::REGISTRY
-            .iter()
-            .find(|info| info.code.as_str() == spelling)
-            .map(|info| info.code.clone())
+        codes::info(spelling).map(|info| info.code.clone())
+    }
+
+    /// Returns the registry's kind of a KRS code, or `None` for a forwarded code.
+    #[must_use]
+    pub fn kind(&self) -> Option<codes::CodeKind> {
+        codes::info(self.as_str()).map(|info| info.kind)
     }
 }
 
@@ -166,6 +169,9 @@ pub struct Diagnostic {
     pub primary: Label,
     /// Additional locations, in producer order.
     pub secondary: Vec<Label>,
+    /// The stable identity of the subject item, for a diagnostic whose subject has no exact
+    /// range: renderers name it when there is no location to show.
+    pub item: Option<String>,
     /// Additional explanations, in producer order.
     pub notes: Vec<String>,
     /// Advice on how to fix the problem, in producer order.
@@ -182,6 +188,7 @@ impl Diagnostic {
             message: message.into(),
             primary: Label::new(location),
             secondary: Vec::new(),
+            item: None,
             notes: Vec::new(),
             help: Vec::new(),
         }
@@ -214,6 +221,13 @@ impl Diagnostic {
     #[must_use]
     pub fn with_help(mut self, help: impl Into<String>) -> Self {
         self.help.push(help.into());
+        self
+    }
+
+    /// Names the subject item, for a diagnostic whose subject has no exact range.
+    #[must_use]
+    pub fn with_item(mut self, item: impl Into<String>) -> Self {
+        self.item = Some(item.into());
         self
     }
 

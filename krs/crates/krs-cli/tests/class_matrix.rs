@@ -48,8 +48,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 use krs_compiler::testing::SortJudges;
-use krs_diagnostic::Code;
-use krs_test_support::class_matrix::invariants::{signature, violations};
+use krs_test_support::class_matrix::invariants::{registry_kind, signature, violations};
 use krs_test_support::class_matrix::pending::{
     CLOSURE, FULL, Judgement, KEYS, LATTICE, Observation, Pending, case_of,
 };
@@ -98,10 +97,6 @@ fn class_matrix_path(file: &str) -> PathBuf {
 fn read_class_matrix(file: &str) -> String {
     let path = class_matrix_path(file);
     std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()))
-}
-
-fn registered(code: &str) -> bool {
-    Code::registered_spelling(code).is_some()
 }
 
 fn variable(name: &str) -> Option<String> {
@@ -219,11 +214,8 @@ fn table_miss(
                 return Some(format!("the table expects {}", class.code));
             }
             let site = rule.at.range(placed);
-            let inside = error
-                .range
-                .as_ref()
-                .is_some_and(|range| site.start <= range.start && range.end <= site.end);
-            (!inside).then(|| format!("the table expects the error inside the {:?}", rule.at))
+            (!error.located_inside(site))
+                .then(|| format!("the table expects the error inside the {:?}", rule.at))
         }
     }
 }
@@ -380,11 +372,10 @@ fn k2(
     judged: &Judged,
     k: Option<&str>,
 ) -> bool {
-    let spec = spec();
     let placed = judged.placed(case);
     let covered = resolution.expected.get(&judged.id);
     let site = covered.map_or(&placed.entry, |expected| expected.site(&placed));
-    let mut misses = violations(&judged.observed, site, &spec.table.internal, registered)
+    let mut misses = violations(&judged.observed, site, registry_kind)
         .iter()
         .map(ToString::to_string)
         .collect::<Vec<_>>();
@@ -586,7 +577,7 @@ fn shard(name: &str, families: &[Family]) {
         .iter()
         .map(|case| case.id.as_str())
         .collect::<Vec<_>>();
-    let resolution = spec.table.resolve(&ids, registered);
+    let resolution = spec.table.resolve(&ids, registry_kind);
     let (settings, _scratch) = settings();
     let started = std::time::Instant::now();
     let judged = pipeline::judge_all(&cases, &settings);

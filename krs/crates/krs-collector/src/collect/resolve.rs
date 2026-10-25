@@ -328,25 +328,6 @@ pub(super) fn resolve_head_rule_targets(
             Some((key.resolve(), declaration.as_ref()))
         })
         .collect::<HashMap<_, _>>();
-    let has_implicit_target = pending.iter().any(|descriptor| {
-        matches!(
-            &descriptor.host.payload,
-            HostDescriptorPayload::HeadRule(rule) if rule.configuration.is_none()
-        )
-    });
-    if has_implicit_target && configurations.len() != 1 {
-        let detail = match configurations.len() {
-            0 => "a `for Sort` rule requires one fixed configuration, but none was collected"
-                .to_owned(),
-            count => format!(
-                "a `for Sort` rule requires one unambiguous fixed configuration, but {count} candidates were collected"
-            ),
-        };
-        return Err(CollectionError::new(
-            CollectionErrorKind::InvalidConfiguration,
-            detail,
-        ));
-    }
     let targets = configurations
         .into_iter()
         .map(|(descriptor, configuration)| {
@@ -367,27 +348,17 @@ pub(super) fn resolve_head_rule_targets(
             })
         })
         .collect::<Result<Vec<_>, CollectionError>>()?;
-    if has_implicit_target {
-        let computations = targets[0]
-            .cells
-            .iter()
-            .filter(|cell| cell.wrapper == Some(krs_ir::CellWrapper::KCell))
-            .count();
-        if computations != 1 {
-            let detail = match computations {
-                0 => "selected fixed configuration has no matching top-level KCell<KSequence> computation cell"
-                    .to_owned(),
-                count => format!(
-                    "selected fixed configuration has {count} matching top-level KCell<KSequence> computation cells"
-                ),
-            };
-            return Err(CollectionError::new(
-                CollectionErrorKind::InvalidConfiguration,
-                detail,
-            ));
-        }
-    }
+    // Each rule that needs one configuration, or one computation cell, checks it as it is
+    // resolved, so the error is located at that rule.
     Ok(targets)
+}
+
+/// `a`, `b` and `c` for a message.
+fn names<'a>(names: impl Iterator<Item = &'a str>) -> String {
+    names
+        .map(|name| format!("`{name}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The fixed configuration a head rule names, or the only one collected.
@@ -409,15 +380,16 @@ fn select_head_rule_target<'a>(
             })?
     } else {
         let [target] = targets else {
-            let detail = match targets.len() {
-                0 => "head-anchored rules require one fixed configuration, but none was collected"
-                    .to_owned(),
-                count => format!(
-                    "a `for Sort` rule requires one unambiguous fixed configuration, but {count} candidates were collected; use a configuration-owned cell-record rule where appropriate"
+            let detail = match targets {
+                [] => "this rule rewrites the head of the computation, but the definition has no `#[k::configuration]`: declare one with a `KSequence` cell, which holds the computation, and its `#[k::init]`".to_owned(),
+                several => format!(
+                    "this rule rewrites the head of the computation, but the definition declares {} configurations, {}; a definition has exactly one",
+                    several.len(),
+                    names(several.iter().map(|target| target.configuration.item_name())),
                 ),
             };
             return Err(CollectionError::new(
-                CollectionErrorKind::InvalidConfiguration,
+                CollectionErrorKind::ConfigurationCount,
                 detail,
             ));
         };
@@ -449,15 +421,23 @@ fn resolve_head_rule_target<'a>(
         })
         .collect::<Vec<_>>();
     let [computation] = computations.as_slice() else {
-        let detail = match computations.len() {
-            0 => "selected fixed configuration has no matching top-level KCell<KSequence> computation cell"
-                .to_owned(),
-            count => format!(
-                "selected fixed configuration has {count} matching top-level KCell<KSequence> computation cells"
+        let configuration = target.configuration.item_name();
+        let detail = match computations.as_slice() {
+            [] => format!(
+                "this rule rewrites the head of the computation, but configuration `{configuration}` has no `KSequence` cell to hold the computation"
+            ),
+            several => format!(
+                "this rule rewrites the head of the computation, but configuration `{configuration}` has {} top-level `KSequence` cells, {}, and does not say which holds the computation: write the rule as a `for {configuration}` record, which names its cell",
+                several.len(),
+                names(
+                    several
+                        .iter()
+                        .filter_map(|cell| cell.names.first().map(String::as_str))
+                ),
             ),
         };
         return Err(CollectionError::new(
-            CollectionErrorKind::InvalidConfiguration,
+            CollectionErrorKind::ComputationCell,
             detail,
         ));
     };
@@ -1010,14 +990,14 @@ fn readable_list_reading(
     {
         let krs_ir::ProtocolHeadRuleExtra::RewriteList {
             cell,
+            result_key,
             before,
             after,
-            ..
         } = rule.extras.remove(index)
         else {
             unreachable!("the position matched a list cell");
         };
-        rule.head = Some(list_head(&cell, before, after)?);
+        rule.head = Some(list_head(&cell, result_key.as_ref(), before, after)?);
         rule.computation_cell_name = Some(cell.name);
     }
     // `[]` reads alike as no instances of a List collection and as the
@@ -1119,6 +1099,7 @@ fn head_list(
 /// next step first, and its rest kept by `..`, never named.
 fn list_head(
     cell: &krs_ir::HostHeadRuleCellReference,
+    result_key: Option<&krs_ir::ProvenanceKey>,
     before: krs_ir::ProtocolHeadRuleList<krs_ir::HostTerm>,
     after: Option<krs_ir::ProtocolHeadRuleList<krs_ir::HostTerm>>,
 ) -> Result<krs_ir::ProtocolHeadRuleHead<krs_ir::HostTerm>, CollectionError> {
@@ -1132,7 +1113,8 @@ fn list_head(
         )
         .with_reference_key(cell.key.clone())
     };
-    let back = || {
+    // The entry that names an item after the rest is the mistake, the subject's or the result's.
+    let back = |key: &krs_ir::ProvenanceKey| {
         CollectionError::new(
             CollectionErrorKind::InvalidConfiguration,
             format!(
@@ -1140,10 +1122,13 @@ fn list_head(
                 cell.name
             ),
         )
-        .with_reference_key(cell.key.clone())
+        .with_reference_key(key.clone())
     };
-    if !before.back.is_empty() || after.as_ref().is_some_and(|after| !after.back.is_empty()) {
-        return Err(back());
+    if !before.back.is_empty() {
+        return Err(back(&cell.key));
+    }
+    if after.as_ref().is_some_and(|after| !after.back.is_empty()) {
+        return Err(back(result_key.unwrap_or(&cell.key)));
     }
     let exact = match before.rest {
         krs_ir::ProtocolHeadRuleListRest::Exact => true,
@@ -1889,10 +1874,13 @@ mod tests {
         };
         let payload = |rule| HostDescriptorPayload::HeadRule(Box::new(rule));
         let error = payload_error(&payload(rule.clone()), &[]);
-        assert_eq!(error.kind(), CollectionErrorKind::InvalidConfiguration);
-        assert_eq!(
-            error.detail(),
-            "head-anchored rules require one fixed configuration, but none was collected"
+        assert_eq!(error.kind(), CollectionErrorKind::ConfigurationCount);
+        assert!(
+            error
+                .detail()
+                .contains("but the definition has no `#[k::configuration]`"),
+            "{}",
+            error.detail()
         );
         let targets = [target];
         let error = payload_error(&payload(rule.clone()), &targets);

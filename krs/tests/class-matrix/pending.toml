@@ -36,128 +36,6 @@ finding = "S0-4"
 deviation = "E0382 @ item"
 step = "S3"
 
-# S0-6: `k::or_bool!` outside a claim is refused at the invocation's call site, not at the island
-
-["terms/equation/guard/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/equation/result/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/equation/subject-depth-2/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/equation/subject/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/local-rule/subject/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/readable/list-element/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/readable/map-key/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/readable/result-list-element/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/readable/result/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/readable/subject-depth-2/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/readable/subject/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/rule/guard/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/rule/result/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/rule/subject-depth-2/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/rule/subject/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/shorthand/result/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/simplification/result/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/simplification/subject/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/sort-rule/result/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/sort-rule/subject-depth-2/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/sort-rule/subject/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/table/result/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/table/subject-depth-2/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
-["terms/table/subject/k::or_bool!(true, false)"]
-finding = "S0-6"
-deviation = "krs::expand::claim-only-term @ item"
-step = "S1"
-
 # S0-7: an existential closure in a local-rule subject is refused by the template's `k::rewrite!` rule, at the rewrite
 
 ["terms/local-rule/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
@@ -307,11 +185,6 @@ step = "S5"
 ["cells/result/stack/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
 finding = "S0-9"
 deviation = "krs::syntax::unsupported-rule-body @ spelling"
-step = "S5"
-
-["cells/subject/counter/k::configuration::Cell([x, ..])"]
-finding = "S0-9"
-deviation = "krs::analysis::invalid-list-notation @ spelling"
 step = "S5"
 
 ["claim/result/counter/0"]
@@ -1548,81 +1421,81 @@ finding = "S0-11"
 deviation = "accepted"
 step = "S3"
 
-# S0-12: `k::fragment!` is refused outside configuration rules ("complete cell terms require configuration rules", uncoded, unlocated), though `for Stmt` rules accept it
+# S0-12: `k::fragment!` is refused outside configuration rules ("complete cell terms require configuration rules", under the internal `provenance-mismatch`, at the fragment), though `for Stmt` rules accept it
 
 ["terms/equation/guard/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S3"
 
 ["terms/equation/result/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S3"
 
 ["terms/equation/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S3"
 
 ["terms/equation/subject/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S3"
 
 ["terms/local-rule/subject/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S3"
 
 ["terms/rule/guard/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S3"
 
 ["terms/rule/result/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S3"
 
 ["terms/rule/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S3"
 
 ["terms/rule/subject/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S3"
 
 ["terms/shorthand/result/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S3"
 
 ["terms/simplification/result/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S3"
 
 ["terms/simplification/subject/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S3"
 
 ["terms/table/result/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S3"
 
 ["terms/table/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S3"
 
 ["terms/table/subject/k::fragment![crate::Frame { ret: 1 }]"]
 finding = "S0-12"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::provenance-mismatch @ spelling"
 step = "S3"
 
 # S0-13: literals refused where they are ground terms: `#[k::requires(true)]` as a "host literal", and `k::id!`/`k::bytes!`/`k::lexeme!` as a constant's value
@@ -1678,224 +1551,24 @@ step = "S5"
 
 # S0-16: an author mistake reported unlocated, at the wrong entry, or under an internal code (C5)
 
-["cells/result/env/None"]
-finding = "S0-16"
-deviation = "krs::analysis::optional-presence @ item"
-step = "S1"
-
-["cells/result/env/Some(k::configuration::Cell(x))"]
-finding = "S0-16"
-deviation = "krs::analysis::optional-presence @ item"
-step = "S1"
-
-["cells/result/frame/None"]
-finding = "S0-16"
-deviation = "krs::analysis::optional-presence @ item"
-step = "S1"
-
-["cells/result/job/None"]
-finding = "S0-16"
-deviation = "krs::analysis::collection-entry @ item"
-step = "S1"
-
-["cells/result/job/k::fragment![crate::Frame { ret: x }]"]
-finding = "S0-16"
-deviation = "krs::analysis::collection-entry @ item"
-step = "S1"
-
-["cells/result/job/x"]
-finding = "S0-16"
-deviation = "krs::analysis::collection-entry @ item"
-step = "S1"
-
-["cells/result/k/None"]
-finding = "S0-16"
-deviation = "krs::analysis::optional-presence @ item"
-step = "S1"
-
-["cells/result/k/Some(k::configuration::Cell(x))"]
-finding = "S0-16"
-deviation = "krs::analysis::optional-presence @ item"
-step = "S1"
-
-["cells/result/pc/None"]
-finding = "S0-16"
-deviation = "krs::analysis::optional-presence @ item"
-step = "S1"
-
-["cells/result/pc/Some(k::configuration::Cell(x))"]
-finding = "S0-16"
-deviation = "krs::analysis::optional-presence @ item"
-step = "S1"
-
-["cells/result/pc/k::configuration::Cell(k::map![x -> y])"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/result/stack/None"]
-finding = "S0-16"
-deviation = "krs::analysis::optional-presence @ item"
-step = "S1"
-
-["cells/result/stack/Some(k::configuration::Cell(x))"]
-finding = "S0-16"
-deviation = "krs::analysis::optional-presence @ item"
-step = "S1"
-
-["cells/result/stack/k::configuration::Cell(k::map![x -> y])"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/job/_"]
-finding = "S0-16"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["cells/subject/job/k::configuration::Cell(0)"]
-finding = "S0-16"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["cells/subject/job/k::configuration::Cell([x, ..])"]
-finding = "S0-16"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["cells/subject/job/k::configuration::Cell(_)"]
-finding = "S0-16"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["cells/subject/job/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-16"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["cells/subject/job/k::configuration::Cell(x)"]
-finding = "S0-16"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["cells/subject/job/k::configuration::KCell()"]
-finding = "S0-16"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["cells/subject/job/k::configuration::KCell(x, ..)"]
-finding = "S0-16"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["cells/subject/job/k::fragment![crate::Frame { ret: x }]"]
-finding = "S0-16"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["cells/subject/job/x"]
-finding = "S0-16"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["cells/subject/pc/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/stack/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["claim/result/env/x"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["claim/result/frame/x"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["claim/result/job/[.., Job { payload: 0, .. }]"]
-finding = "S0-16"
-deviation = "krs::analysis::collection-entry @ item"
-step = "S1"
-
 ["claim/result/job/[x, ..]"]
 finding = "S0-16"
 deviation = "krs::analysis::invalid-list-notation @ item"
 step = "S1"
 
-["claim/result/k/[.., Job { payload: 0, .. }]"]
-finding = "S0-16"
-deviation = "krs::collect::invalid-configuration @ item"
-step = "S1"
-
-["claim/result/stack/x"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["init/pc/k::map![0 -> 1]"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
 ["init/pc/k::map![]"]
 finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["init/stack/k::map![0 -> 1]"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ unlocated"
+deviation = "krs::analysis::invalid-term @ entry"
 step = "S1"
 
 ["init/stack/k::map![]"]
 finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["readable/result/env/x"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["readable/result/frame/x"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["readable/result/job/[.., Job { payload: 0, .. }]"]
-finding = "S0-16"
-deviation = "krs::analysis::collection-entry @ item"
+deviation = "krs::analysis::invalid-term @ entry"
 step = "S1"
 
 ["readable/result/job/[x, ..]"]
 finding = "S0-16"
 deviation = "krs::analysis::invalid-list-notation @ item"
-step = "S1"
-
-["readable/result/k/[.., Job { payload: 0, .. }]"]
-finding = "S0-16"
-deviation = "krs::collect::invalid-configuration @ item"
-step = "S1"
-
-["readable/result/stack/x"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["terms/local-rule/subject/Cmd::Go() | Cmd::Hold(_)"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-step = "S1"
-
-["terms/local-rule/subject/y @ Cmd::Hold(_)"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
 step = "S1"
 
 # S0-17: a readable or `for Stmt` result accepts `k::matches!` and `let` blocks that the `cells!` rule `krs expand` prints refuses
@@ -2493,380 +2166,6 @@ finding = "B3"
 deviation = "E0277 @ item"
 step = "S3"
 
-# B4: `k: x`, or `{ y -> x, .. }` on a cell that is not a Map, is an unlocated `unsupported-shape`
-
-["claim/subject/counter/{ y -> x, .. }"]
-finding = "B4"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["claim/subject/frame/{ y -> x, .. }"]
-finding = "B4"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["claim/subject/job/{ y -> x, .. }"]
-finding = "B4"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["claim/subject/k/x"]
-finding = "B4"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["claim/subject/k/{ y -> x, .. }"]
-finding = "B4"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["claim/subject/pc/{ y -> x, .. }"]
-finding = "B4"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["claim/subject/stack/{ y -> x, .. }"]
-finding = "B4"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["readable/subject/counter/{ y -> x, .. }"]
-finding = "B4"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["readable/subject/frame/{ y -> x, .. }"]
-finding = "B4"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["readable/subject/job/{ y -> x, .. }"]
-finding = "B4"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["readable/subject/k/x"]
-finding = "B4"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["readable/subject/k/{ y -> x, .. }"]
-finding = "B4"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["readable/subject/pc/{ y -> x, .. }"]
-finding = "B4"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-["readable/subject/stack/{ y -> x, .. }"]
-finding = "B4"
-deviation = "krs::analysis::unsupported-shape @ unlocated"
-step = "S1"
-
-# B6: a `cells!` entry whose wrapper is not its cell's is an unlocated `parser-reference-disagreement` or `invalid-term`
-
-["cells/result/env/k::configuration::KCell()"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/result/env/k::configuration::KCell(x)"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/result/env/k::fragment![crate::Frame { ret: x }]"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/result/env/x"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/result/frame/k::configuration::Cell(0)"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/result/frame/k::configuration::Cell([x, y])"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/result/frame/k::configuration::Cell(k::map![x -> y])"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/result/frame/k::configuration::Cell(x)"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/result/frame/k::configuration::KCell()"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/result/frame/k::configuration::KCell(x)"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/result/k/k::configuration::Cell(0)"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/result/k/k::configuration::Cell([x, y])"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/result/k/k::configuration::Cell(k::map![x -> y])"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/result/k/k::configuration::Cell(x)"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/result/k/k::fragment![crate::Frame { ret: x }]"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/result/k/x"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/result/pc/k::configuration::KCell()"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/result/pc/k::configuration::KCell(x)"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/result/pc/k::fragment![crate::Frame { ret: x }]"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/result/pc/x"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/result/stack/k::configuration::KCell()"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/result/stack/k::configuration::KCell(x)"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/result/stack/k::fragment![crate::Frame { ret: x }]"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/result/stack/x"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/counter/_"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/counter/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/counter/k::configuration::KCell()"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/subject/counter/k::configuration::KCell(x, ..)"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/subject/counter/k::fragment![crate::Frame { ret: x }]"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/counter/x"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/env/_"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/env/k::configuration::KCell()"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/subject/env/k::configuration::KCell(x, ..)"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/subject/env/k::fragment![crate::Frame { ret: x }]"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/env/x"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/frame/k::configuration::Cell(0)"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/frame/k::configuration::Cell([x, ..])"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/frame/k::configuration::Cell(_)"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/frame/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/frame/k::configuration::Cell(x)"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/frame/k::configuration::KCell()"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/frame/k::configuration::KCell(x, ..)"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/k/_"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/k/k::configuration::Cell(0)"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/subject/k/k::configuration::Cell([x, ..])"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/subject/k/k::configuration::Cell(_)"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/subject/k/k::configuration::Cell(k::map![y -> x, ..])"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/subject/k/k::configuration::Cell(x)"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/subject/k/k::fragment![crate::Frame { ret: x }]"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/k/x"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/pc/_"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/pc/k::configuration::KCell()"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/subject/pc/k::configuration::KCell(x, ..)"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/subject/pc/k::fragment![crate::Frame { ret: x }]"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/pc/x"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/stack/_"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/stack/k::configuration::KCell()"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/subject/stack/k::configuration::KCell(x, ..)"]
-finding = "B6"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S1"
-
-["cells/subject/stack/k::fragment![crate::Frame { ret: x }]"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
-["cells/subject/stack/x"]
-finding = "B6"
-deviation = "krs::analysis::invalid-term @ unlocated"
-step = "S1"
-
 # B7: a bare entry on a `*` collection is accepted with a one-instance meaning
 
 ["claim/subject/job/x"]
@@ -2876,12 +2175,12 @@ step = "S5"
 
 ["k3/claim/subject/job/x"]
 finding = "B7"
-deviation = "printed surface refused: krs::analysis::unsupported-shape @ unlocated"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
 step = "S5"
 
 ["k3/readable/subject/job/x"]
 finding = "B7"
-deviation = "printed surface refused: krs::analysis::unsupported-shape @ unlocated"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
 step = "S5"
 
 ["readable/subject/job/x"]
@@ -2890,21 +2189,6 @@ deviation = "accepted"
 step = "S5"
 
 # B8: an optional cell's pattern accepts a leaf spelling (`counter: x`, `Cell(0)`) as present
-
-["cells/subject/counter/k::configuration::Cell(0)"]
-finding = "B8"
-deviation = "accepted"
-step = "S5"
-
-["cells/subject/counter/k::configuration::Cell(_)"]
-finding = "B8"
-deviation = "accepted"
-step = "S5"
-
-["cells/subject/counter/k::configuration::Cell(x)"]
-finding = "B8"
-deviation = "accepted"
-step = "S5"
 
 ["claim/subject/counter/0"]
 finding = "B8"
@@ -3209,103 +2493,74 @@ step = "S2"
 
 ["terms/init/item-depth-2/k::builtin::int::add(1, 2)"]
 finding = "N26"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ item"
 step = "S2"
 
 ["terms/init/item/k::builtin::int::add(1, 2)"]
 finding = "N26"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ item"
 step = "S2"
 
-# N27: an initializer value of a strict subsort of its cell's sort is refused by the IR validator, unlocated
+# N27: an initializer value of a strict subsort of its cell's sort is refused by the IR validator (located at the value since S1)
 
 ["init/typed/any/1"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/any/Cmd::Go()"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/any/Val::Unit()"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/boxed/1"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/leaf/1"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/opt/1"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/slot/1"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/stmt/1"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
 ["init/typed/stmt/Val::Unit()"]
 finding = "N27"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
 
-# N30: `incompatible-binder` is reported at the binder's declaration, with no label at the occurrence
-
-["cells/result/env/k::configuration::Cell(x)"]
-finding = "N30"
-deviation = "krs::analysis::incompatible-binder @ item"
-step = "S1"
-
-["cells/result/frame/x"]
-finding = "N30"
-deviation = "krs::analysis::incompatible-binder @ item"
-step = "S1"
-
-["cells/result/stack/k::configuration::Cell(x)"]
-finding = "N30"
-deviation = "krs::analysis::incompatible-binder @ item"
-step = "S1"
-
-# X1: initializer fields out of declaration order are an unlocated collector error
+# X1: initializer fields out of declaration order are a collector error (at the first field out of order since S1)
 
 ["init/order/pc-first"]
 finding = "X1"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::invalid-configuration @ spelling"
 step = "S2"
 
 ["init/order/queue-first"]
 finding = "X1"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::invalid-configuration @ spelling"
 step = "S2"
 
 ["init/order/reversed"]
 finding = "X1"
-deviation = "uncoded @ unlocated"
+deviation = "krs::collect::invalid-configuration @ spelling"
 step = "S2"
-
-# X2: an initializer that leaves a configuration variable unused is an unlocated IR validation error
-
-["init/k/k::k![0]"]
-finding = "X2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-step = "S1"
-
-["init/k/k::k![]"]
-finding = "X2"
-deviation = "krs::analysis::invalid-semantic-theory @ unlocated"
-step = "S1"

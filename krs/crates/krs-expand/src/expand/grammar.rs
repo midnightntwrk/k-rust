@@ -34,10 +34,10 @@ pub(crate) fn precedence(
     let fallback = anchors
         .first()
         .map(ProvenanceAnchor::range)
+        // An empty declaration has no part to point at.
         .ok_or_else(|| {
-            ExpandError::new(
+            ExpandError::at_invocation(
                 expand::EMPTY_GRAMMAR_DECLARATION,
-                Span::call_site(),
                 "empty precedence declaration",
             )
         })?;
@@ -61,9 +61,9 @@ pub(crate) fn precedence(
     let mut chains = Vec::new();
     for (chain_index, chain) in declaration.chains().iter().enumerate() {
         let chain_ordinal = u32::try_from(chain_index).map_err(|_| {
-            ExpandError::new(
+            ExpandError::at_range(
                 expand::DESCRIPTOR_CAPACITY,
-                Span::call_site(),
+                chain.range(),
                 "too many precedence chains",
             )
         })?;
@@ -116,10 +116,10 @@ pub(crate) fn associativity(
     let fallback = anchors
         .first()
         .map(ProvenanceAnchor::range)
+        // An empty declaration has no part to point at.
         .ok_or_else(|| {
-            ExpandError::new(
+            ExpandError::at_invocation(
                 expand::EMPTY_GRAMMAR_DECLARATION,
-                Span::call_site(),
                 "empty associativity declaration",
             )
         })?;
@@ -143,9 +143,9 @@ pub(crate) fn associativity(
     let mut sentences = Vec::new();
     for (sentence_index, sentence) in declaration.sentences().iter().enumerate() {
         let sentence_ordinal = u32::try_from(sentence_index).map_err(|_| {
-            ExpandError::new(
+            ExpandError::at_range(
                 expand::DESCRIPTOR_CAPACITY,
-                Span::call_site(),
+                sentence.range(),
                 "too many associativity sentences",
             )
         })?;
@@ -264,10 +264,10 @@ fn lexing_descriptor(
     let fallback = anchors
         .first()
         .map(ProvenanceAnchor::range)
+        // An empty declaration has no part to point at.
         .ok_or_else(|| {
-            ExpandError::new(
+            ExpandError::at_invocation(
                 expand::EMPTY_GRAMMAR_DECLARATION,
-                Span::call_site(),
                 format!("empty {kind} declaration"),
             )
         })?;

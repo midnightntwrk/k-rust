@@ -4,11 +4,12 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use annotate_snippets::{AnnotationKind, Group, Level, Origin, Renderer, Snippet};
-use krs_diagnostic::{Diagnostic, Location, Severity};
+use krs_diagnostic::Severity;
+use krs_diagnostic::codes::CodeKind;
 use krs_ir::{LineIndex, PackageId, Sha256Digest, SourceFileId, SourceRange};
 use sha2::{Digest, Sha256};
 
-use crate::{CollectorPlan, DiagnosticEnvelope, DiagnosticGeneratedRange};
+use crate::{CollectorPlan, DiagnosticEnvelope, DiagnosticLabel};
 
 /// Selected package roots available for rendering authored source.
 /// Source text must match the diagnostic's digest before it is displayed.
@@ -38,99 +39,62 @@ impl DiagnosticSources {
         Self { packages }
     }
 
-    /// Renders a located envelope using its exact authored revision when available.
+    /// Renders an envelope, showing each exact authored range in its source revision when that
+    /// revision is available: the primary's file first, then each label's file in producer
+    /// order, each file once. An envelope without an authored range names its item, if any.
     /// `color` must be true only when the output terminal permits ANSI styles.
     #[must_use]
     pub fn render_envelope(&self, envelope: &DiagnosticEnvelope, color: bool) -> String {
         let level = diagnostic_level(envelope.severity.into());
-        self.render(
-            level,
-            &envelope.code,
-            &envelope.message,
-            Some(&envelope.authored_range),
-            &envelope.notes,
-            &envelope.help,
-            envelope.generated_range.as_ref(),
-            color,
-        )
-    }
-
-    /// Renders the shared producer model without consulting command error variants.
-    /// Only exact authored locations may display source text.
-    #[must_use]
-    pub fn render_diagnostic(&self, diagnostic: &Diagnostic, color: bool) -> String {
-        let level = diagnostic_level(diagnostic.severity);
-        let range = match &diagnostic.primary.location {
-            Location::Source(range) => Some(range),
-            _ => None,
+        let internal = envelope.kind == CodeKind::Internal;
+        let title = if internal {
+            format!("internal error (a KRS bug): {}", envelope.message)
+        } else {
+            envelope.message.clone()
         };
-        let generated = std::iter::once(&diagnostic.primary)
-            .chain(&diagnostic.secondary)
-            .find_map(|label| match &label.location {
-                Location::Generated(range) => Some(range),
-                _ => None,
-            });
-        self.render(
-            level,
-            diagnostic.code.as_str(),
-            &diagnostic.message,
-            range,
-            &diagnostic.notes,
-            &diagnostic.help,
-            generated,
-            color,
-        )
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "The renderer accepts the complete diagnostic and source presentation context."
-    )]
-    fn render<'a>(
-        &self,
-        level: Level<'a>,
-        code: &'a str,
-        message: &'a str,
-        range: Option<&'a SourceRange>,
-        notes: &'a [String],
-        help: &'a [String],
-        generated: Option<&DiagnosticGeneratedRange>,
-        color: bool,
-    ) -> String {
-        let mut group = Group::with_title(level.primary_title(message).id(code));
-        if let Some(range) = range {
-            let path = self.display_path(range);
-            group = match self.source(range) {
-                Ok(source) => {
-                    let index = LineIndex::new(&source);
-                    let start = range.start_byte as usize;
-                    let end = range.end_byte as usize;
-                    match (index.byte_to_position(start), index.byte_to_position(end)) {
-                        (Ok(_), Ok(_)) if start <= end => group.element(
-                            Snippet::source(source)
-                                .path(path)
-                                .annotation(AnnotationKind::Primary.span(start..end)),
-                        ),
-                        _ => unavailable_source(
-                            group,
-                            range,
-                            &path,
-                            "authored range is outside the source",
-                        ),
-                    }
-                }
-                Err(reason) => unavailable_source(group, range, &path, reason),
-            };
+        let mut group = Group::with_title(level.primary_title(title).id(envelope.code.as_str()));
+        let mut files = Vec::<&SourceFileId>::new();
+        for file in envelope
+            .authored_range
+            .iter()
+            .map(|range| &range.file)
+            .chain(envelope.labels.iter().map(|label| &label.range.file))
+        {
+            if !files.contains(&file) {
+                files.push(file);
+            }
         }
-        for note in notes {
+        for file in files {
+            let primary = envelope
+                .authored_range
+                .as_ref()
+                .filter(|range| &range.file == file);
+            let labels = envelope
+                .labels
+                .iter()
+                .filter(|label| &label.range.file == file)
+                .collect::<Vec<_>>();
+            group = self.file_snippet(group, file, primary, &labels);
+        }
+        if envelope.authored_range.is_none()
+            && let Some(item) = &envelope.item
+        {
+            group = group.element(Level::NOTE.message(format!("in {item}")));
+        }
+        for note in &envelope.notes {
             group = group
                 .element(Level::NOTE.message(annotate_snippets::normalize_untrusted_str(note)));
         }
-        for help in help {
+        for help in &envelope.help {
             group = group
                 .element(Level::HELP.message(annotate_snippets::normalize_untrusted_str(help)));
         }
-        if let Some(generated) = generated {
+        if internal {
+            group = group.element(Level::HELP.message(
+                "this is a bug in KRS, not in the program: please report it with the source that reached it",
+            ));
+        }
+        if let Some(generated) = &envelope.generated_range {
             let note = format!(
                 "generated {}:{}:{}..{}:{}",
                 generated.artifact,
@@ -150,6 +114,57 @@ impl DiagnosticSources {
         renderer.render(&[group])
     }
 
+    /// One file's snippet: the primary range if it lies in `file`, and the labels that do. A
+    /// revision that is unavailable, changed, or does not hold every range is reported by path
+    /// and byte range with the reason, for each range.
+    fn file_snippet<'a>(
+        &self,
+        group: Group<'a>,
+        file: &SourceFileId,
+        primary: Option<&SourceRange>,
+        labels: &[&'a DiagnosticLabel],
+    ) -> Group<'a> {
+        let ranges = primary
+            .into_iter()
+            .chain(labels.iter().map(|label| &label.range))
+            .collect::<Vec<_>>();
+        let path = self.display_path(ranges[0]);
+        let source = self.file_text(file).and_then(|source| {
+            let index = LineIndex::new(&source);
+            let holds = |range: &&SourceRange| {
+                let (start, end) = (range.start_byte as usize, range.end_byte as usize);
+                start <= end
+                    && index.byte_to_position(start).is_ok()
+                    && index.byte_to_position(end).is_ok()
+            };
+            if ranges.iter().all(holds) {
+                Ok(source)
+            } else {
+                Err("authored range is outside the source")
+            }
+        });
+        match source {
+            Ok(source) => {
+                let span = |range: &SourceRange| range.start_byte as usize..range.end_byte as usize;
+                let mut snippet = Snippet::source(source).path(path);
+                if let Some(range) = primary {
+                    snippet = snippet.annotation(AnnotationKind::Primary.span(span(range)));
+                }
+                for label in labels {
+                    let annotation = AnnotationKind::Context.span(span(&label.range));
+                    snippet = snippet.annotation(match &label.message {
+                        Some(message) => annotation.label(message.as_str()),
+                        None => annotation,
+                    });
+                }
+                group.element(snippet)
+            }
+            Err(reason) => ranges.iter().fold(group, |group, range| {
+                unavailable_source(group, range, &path, reason)
+            }),
+        }
+    }
+
     fn display_path(&self, range: &SourceRange) -> String {
         let relative = Path::new(range.file.package_relative_path());
         let Some(root) = self.packages.get(range.file.package()) else {
@@ -160,10 +175,6 @@ impl DiagnosticSources {
         path_from_cwd(&path, cwd.as_deref())
             .to_string_lossy()
             .into_owned()
-    }
-
-    fn source(&self, range: &SourceRange) -> Result<String, &'static str> {
-        self.file_text(&range.file)
     }
 
     /// The exact authored revision of `file`, when its package is selected and its digest still matches.
@@ -351,10 +362,64 @@ mod tests {
 
     #[test]
     fn unlocated_diagnostic() {
-        let diagnostic =
-            Diagnostic::error(OVERLAPPING_RULE_HEADS, "rule heads overlap", Location::None);
+        let mut envelope = DiagnosticEnvelope::unlocated(
+            DiagnosticStage::Analysis,
+            OVERLAPPING_RULE_HEADS.as_str(),
+            "rule heads overlap",
+        );
         expect!["error[krs::analysis::overlapping-rule-heads]: rule heads overlap"]
-            .assert_eq(&DiagnosticSources::default().render_diagnostic(&diagnostic, false));
+            .assert_eq(&DiagnosticSources::default().render_envelope(&envelope, false));
+        envelope.item = Some("FIXTURE::step (rule)".to_owned());
+        expect![[r"
+            error[krs::analysis::overlapping-rule-heads]: rule heads overlap
+              |
+              = note: in FIXTURE::step (rule)"]]
+        .assert_eq(&DiagnosticSources::default().render_envelope(&envelope, false));
+    }
+
+    #[test]
+    fn internal_code_is_rendered_as_a_krs_bug() {
+        let envelope = DiagnosticEnvelope::unlocated(
+            DiagnosticStage::Analysis,
+            krs_diagnostic::codes::analysis::INVALID_SEMANTIC_THEORY.as_str(),
+            "declared variables must exactly match sentence uses",
+        );
+        assert_eq!(envelope.kind, CodeKind::Internal);
+        expect![[r"
+            error[krs::analysis::invalid-semantic-theory]: internal error (a KRS bug): declared variables must exactly match sentence uses
+              |
+              = help: this is a bug in KRS, not in the program: please report it with the source that reached it"]]
+        .assert_eq(&DiagnosticSources::default().render_envelope(&envelope, false));
+    }
+
+    #[test]
+    fn labels_are_annotated_in_the_primary_snippet() {
+        let (root, sources, mut envelope) = fixture();
+        let file = envelope.authored_range.as_ref().unwrap().file.clone();
+        envelope.labels = vec![
+            DiagnosticLabel {
+                range: SourceRange::new(file.clone(), 5, 9).unwrap(),
+                message: Some("the earlier arm also applies".to_owned()),
+            },
+            DiagnosticLabel {
+                range: SourceRange::new(file, 0, 4).unwrap(),
+                message: None,
+            },
+        ];
+        expect![[r"
+            error[krs::analysis::overlapping-rule-heads]: rule heads overlap
+             --> <package>/src/lib.rs:2:5
+              |
+            1 | enum Term {
+              | ---- ---- the earlier arm also applies
+            2 |     Foo,
+              |     ^^^"]]
+        .assert_eq(&render_fixture(&root, &sources, &envelope));
+        std::fs::write(root.path().join("src/lib.rs"), "enum Term { Bar }\n").unwrap();
+        let rendered = render_fixture(&root, &sources, &envelope);
+        assert!(rendered.contains("src/lib.rs bytes 16..19"));
+        assert!(rendered.contains("src/lib.rs bytes 5..9"));
+        assert!(rendered.contains("src/lib.rs bytes 0..4"));
     }
 
     #[test]
@@ -371,7 +436,7 @@ mod tests {
     #[test]
     fn generated_range_note() {
         let (root, sources, mut envelope) = fixture();
-        envelope.generated_range = Some(DiagnosticGeneratedRange {
+        envelope.generated_range = Some(crate::DiagnosticGeneratedRange {
             artifact: "definition.k".into(),
             start_line: 7,
             start_column: 2,
@@ -401,7 +466,7 @@ mod tests {
     #[test]
     fn invalid_source_range_does_not_panic() {
         let (_root, sources, mut envelope) = fixture();
-        envelope.authored_range.end_byte = 100;
+        envelope.authored_range.as_mut().unwrap().end_byte = 100;
         let rendered = sources.render_envelope(&envelope, false);
         assert!(rendered.contains("src/lib.rs bytes 16..100"));
         assert!(rendered.contains("authored range is outside the source"));
@@ -413,12 +478,18 @@ mod tests {
         let source = "// λ Foo\n";
         std::fs::write(root.path().join("src/lib.rs"), source).unwrap();
         let file = SourceFileId::new(
-            envelope.authored_range.file.package().clone(),
+            envelope
+                .authored_range
+                .as_ref()
+                .unwrap()
+                .file
+                .package()
+                .clone(),
             "src/lib.rs",
             Sha256Digest::from_bytes(Sha256::digest(source.as_bytes()).into()),
         )
         .unwrap();
-        envelope.authored_range = SourceRange::new(file, 6, 9).unwrap();
+        envelope.authored_range = Some(SourceRange::new(file, 6, 9).unwrap());
         let rendered = sources.render_envelope(&envelope, false);
         assert!(rendered.contains("src/lib.rs:1:6"));
         assert!(rendered.contains("// λ Foo"));

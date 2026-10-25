@@ -4,12 +4,17 @@
 # builds them in a scratch work tree, and compares what it measures with tests/baseline.toml.
 #
 #   k2lean/tests/gate.sh light    generator unit and snapshot tests; kimp (goldens, step traces
-#                                 against krust and the K LLVM backend), kimp-d2 (kimp's determinism
-#                                 along the rule index, `--det2`), krsimp, kmut, imptypes, the
-#                                 fixture freekey; the demos ImpRel, ImpTypes, ImpMut, KrsImpTyping,
+#                                 against krust and the K LLVM backend), kimp-d2 (kimp with one
+#                                 exclusive pair listed as overlapping, and its equations in parts),
+#                                 krsimp, kmut, imptypes, ovl (demos/k/overlap.k: one witnessed
+#                                 overlap, one joinable pair), the fixture freekey; the demos
+#                                 ImpRel, ImpTypes, ImpMut, KrsImpTyping,
 #                                 ImpWrites (a kind 2 invariant that walks <k>), and the fixture
 #                                 self-relations PeanoRel and CellMapRel (libraries peano, peanob,
-#                                 cellmap, cellmapb); the kind 1 invariants of kimpinv (two K
+#                                 cellmap, cellmapb); the scaffolds' demos ImpUnroll (a stuttering
+#                                 bisimulation, library kunroll), RaceConf (confluence of the
+#                                 fixture race) and ImpNI (noninterference, library impsec); the
+#                                 kind 1 invariants of kimpinv (two K
 #                                 functions of demos/k/kimp-inv), kimpfold and kimptop (the same
 #                                 definition: a fold with a parameter, the top-cell form), kimpkeys
 #                                 (the walkthrough of docs/invariants.md, demos/k/kimp-keys),
@@ -31,9 +36,10 @@
 #                                 kimpinv-claims (claims under kimpinv's invariant) and the demo
 #                                 ImpRelClaims (a kimp claim transferred to KRS IMP along the
 #                                 bisimulation)
-#   k2lean/tests/gate.sh arity    generator unit and snapshot tests, then kimp and SIMPLE in the
-#                                 arity-indexed term universe (`gen --arity-terms`, libraries kimp-ar
-#                                 and simple-ar): built with their axiom guards, kimp's goldens and
+#   k2lean/tests/gate.sh arity    generator unit and snapshot tests, then kimp, SIMPLE and the
+#                                 termination fixture demos/k/term in the arity-indexed term universe
+#                                 (`gen --arity-terms`, libraries kimp-ar, simple-ar and kterm-ar):
+#                                 built with their axiom guards, kimp's goldens and
 #                                 step traces, SIMPLE's cases against krust; their recorded outputs
 #                                 must equal the default encoding's (expected/)
 #   k2lean/tests/gate.sh accept   make the last run's measurements the baseline (tests/baseline.toml
@@ -49,7 +55,8 @@
 #
 # Needs: krust (a release build), the K release's `kompile` with its LLVM backend (kimp's step
 # traces), the K sources and kimp's sources at the pins of scripts/reference-differential.toml
-# (README.md, "Compatibility evidence"), cargo, lake (elan) and python3 >= 3.11 on PATH.
+# (README.md, "Compatibility evidence"), cargo, lake (elan), z3 (the rule-pair classification and
+# the overlap witnesses of `gen`) and python3 >= 3.11 on PATH.
 #
 # Environment (paths may be relative to the current directory):
 #   GATE_ROOT=DIR       the k2lean directory under test (default: the one holding this script); it
@@ -133,7 +140,7 @@ fi
 if [ "$TIER" = heavy ]; then
   [ -d "$SPECS" ] || need "kimp's claims at $SPECS (set GATE_IMP_CHECKOUT)"
 fi
-for t in cargo lake python3 rsync; do command -v "$t" > /dev/null || need "$t on PATH"; done
+for t in cargo lake python3 rsync z3; do command -v "$t" > /dev/null || need "$t on PATH"; done
 python3 -c 'import tomllib' 2> /dev/null || need "python3 >= 3.11 (tomllib)"
 for f in "$CHECK" "$RT" "$BASE"; do [ -e "$f" ] || need "$f"; done
 for d in lean demos generated; do
@@ -233,6 +240,9 @@ if [ "$TIER" != arity ]; then
   kc kimp-keys
   kc imp-typing
   kc kmut
+  kc ovl
+  kc kimp-unroll
+  kc imp-sec
 fi
 phase llvm
 key=$(cd "$KIMP" && find . -type f | sort | xargs sha256sum | sha256sum | cut -c1-12)
@@ -299,6 +309,7 @@ lib kimp-d2 KImp
 lib krsimp KrsImp
 lib kmut KMut
 lib imptypes KImpTypes
+lib ovl KOvl
 # the fixture whose function equations match maps by free-key patterns (`MapHook.chooseFirst`)
 lib freekey FreeKey
 
@@ -464,7 +475,33 @@ for p in PeanoRel CellMapRel; do
   if lbuild "$D/$p" "build-$p"; then ok "build $p" "$L/build-$p.log"; else bad "build $p" "$L/build-$p.log"; fi
 done
 
-# 5b. the kind 2 template: the skeleton `k2lean new-invariant` writes for kimp, rewritten on every
+# 5b. the scaffolds (docs/design.md, sections 3.5 to 3.7): a stuttering bisimulation (ImpUnroll:
+#     kimp against tests/kimp-unroll.py's variant, library kunroll), confluence modulo scheduling
+#     (RaceConf: the fixture race) and noninterference (ImpNI: kimp and the checker
+#     demos/k/imp-sec.k, library impsec), each library built only as far as its demo needs
+phase "scaffolds"
+for d in kunroll impsec race; do
+  mkdir -p "$GEN/$d"; touch "$GEN/$d/open-obligations.txt"
+  if genlib "$d"; then
+    t=$(libs_name "$d").Preserves; [ "$d" = impsec ] && t=KImpSec.Functions
+    if lbuild "$GEN/$d" "build-$d" "$t"; then ok "build $d" "$L/build-$d.log"
+    else bad "build $d" "$L/build-$d.log"; fi
+  else bad "gen $d" "$L/gen-$d.log"; fi
+done
+rel ImpUnroll
+rel ImpNI
+scaffold() { # NAME COMMAND...: one scaffold generator call (tests/libs.sh)
+  local n=$1; shift
+  "$@" > "$L/$n.log" 2>&1 && ok "$n" "$L/$n.log" || bad "$n" "$L/$n.log"
+}
+scaffold refine-ImpUnroll libs_refine ImpUnroll
+scaffold confluence-RaceConf libs_confluence RaceConf
+scaffold noninterference-ImpNI libs_noninterference ImpNI
+for p in ImpUnroll RaceConf ImpNI; do
+  if lbuild "$D/$p" "build-$p"; then ok "build $p" "$L/build-$p.log"; else bad "build $p" "$L/build-$p.log"; fi
+done
+
+# 5c. the kind 2 template: the skeleton `k2lean new-invariant` writes for kimp, rewritten on every
 #     run (the command never overwrites a file, so the skeleton's files are deleted first; .lake/
 #     and the manifest are kept), built like a demo (demo.Kind2Template)
 phase "kind2 template"
@@ -509,6 +546,8 @@ lib_simple() { # DIR (simple, simple-ar): generate, cases, build, guard, run the
 }
 if [ "$TIER" = arity ]; then
   lib kimp-ar KImp && kimp_tests kimp-ar
+  # recursive functions whose termination measures the generator synthesizes (demos/k/term)
+  kc kterm && lib kterm-ar KTerm
   phase "lib simple-ar"
   if libs_kcompile simple > "$L/kcompile-simple.log" 2>&1; then
     ok "kcompile simple"
@@ -523,6 +562,10 @@ if [ "$TIER" = heavy ]; then
     libs_simple_cases
     lib_simple simple && ok "simple acceptance" "$MEAS/simple-acceptance.md"
     diffs simple
+    # SIMPLE's pairs of rules for confluence modulo scheduling, counted (`k2lean confluence
+    # --report-only`, docs/design.md, section 3.6): a recorded output
+    libs_confluence SimpleConf "$MEAS/simple-confluence.toml" > "$L/confluence-SimpleConf.log" 2>&1 \
+      && ok "confluence SimpleConf" "$L/confluence-SimpleConf.log" || bad "confluence SimpleConf" "$L/confluence-SimpleConf.log"
   else bad "kcompile simple" "$L/kcompile-simple.log"; fi
 
   # SIMPLE's invariants. Kind 1: SIMPLE with the K function `holdsOk` (demos/k/simple-inv), only

@@ -432,6 +432,9 @@ pub struct SideEntry {
 #[derive(Default, Clone, Debug)]
 pub struct Sidecar {
     pub functions: BTreeMap<String, SideEntry>,
+    /// the arity-indexed term universe (`gen --arity-terms`), where termination measures may
+    /// use the shape of terms (`termination.rs`)
+    pub arity_terms: bool,
 }
 
 impl Sidecar {
@@ -604,7 +607,10 @@ fn render_fixpoint(
 /// A strongly connected component of recursive functions: one `mutual` block of Option-valued
 /// definitions, each cascading over its equations inline; Lean proves termination (structural
 /// or well-founded on `sizeOf`, or on a measure from the `--termination` file,
-/// `list_measure`, `int_measure` or `termination::plan`, in that order).
+/// `list_measure`, `int_measure` or `termination::plan`, in that order; else, for a group whose
+/// calls are not on pieces of its arguments, the measures `termination::Ctx::plan_group`
+/// synthesizes).
+#[allow(clippy::too_many_arguments)]
 fn gen_recursive(
     m: &Model,
     fns: &Fns,
@@ -612,6 +618,7 @@ fn gen_recursive(
     scc: &[String],
     side: &Sidecar,
     list_rec_out: &mut BTreeSet<String>,
+    ctx: &mut crate::termination::Ctx,
     measures: &mut BTreeMap<String, Measure>,
 ) -> Result<String, String> {
     let mut o = String::new();
@@ -623,14 +630,22 @@ fn gen_recursive(
         .iter()
         .map(|(sym, ci)| (m.ctor_path(sym), ci.args.len()))
         .collect();
+    // first every member's equations, lowered, and the measures the simple rules give
+    struct Member<'a> {
+        f: &'a String,
+        sig: FnSig,
+        params: Vec<String>,
+        label: String,
+        entry: Option<&'a SideEntry>,
+        lowered: Lowered,
+        measure: Option<String>,
+        list_rec: Option<(String, String, bool)>,
+        plan: Option<crate::termination::Plan>,
+    }
+    let mut members: Vec<Member> = Vec::new();
     for f in scc {
         let sig = fns[f].clone();
         let params: Vec<String> = (0..sig.args.len()).map(|i| format!("x{i}")).collect();
-        let ps: Vec<String> = params
-            .iter()
-            .zip(&sig.args)
-            .map(|(p, s)| format!("({p} : {s})"))
-            .collect();
         let label = names::demangle(f);
         let entry = side.functions.get(&label);
         if let Some(b) = entry.and_then(|e| e.before.as_ref()) {
@@ -659,30 +674,22 @@ fn gen_recursive(
             }
             lowered.push((i, steps, lhs_len, rhs));
         }
-        if entry.is_some_and(|e| e.partial_fixpoint) {
-            if multi {
-                return Err(format!(
-                    "{label}: partial_fixpoint in a mutual group is not supported"
-                ));
-            }
-            let body =
-                render_fixpoint(m, f, &params, &lowered).map_err(|e| format!("{label}: {e}"))?;
-            o.push_str(&format!(
-                "/-! `{label}` (recursive; least fixed point) -/\n"
-            ));
-            o.push_str(&format!(
-                "def {} {} : Option {} :=\n{body}partial_fixpoint\n\n",
-                fn_name(f),
-                ps.join(" "),
-                sig.result
-            ));
-            continue;
+        // the list measure only when every recursive call is on the rest of the list
+        if let Some((meas, _, _)) = &list_rec
+            && !list_measure_holds(&fn_name(f), &params, meas, &lowered)
+        {
+            list_rec = None;
         }
         let side_measure =
             entry.is_some_and(|e| e.termination_by.is_some() || e.decreasing_by.is_some());
         // the list measure (on which the equations' proofs rely) or the integer bound when one
         // applies; else a synthesized one
-        let plan = if multi || side_measure || list_rec.is_some() || measure.is_some() {
+        let plan = if multi
+            || side_measure
+            || list_rec.is_some()
+            || measure.is_some()
+            || entry.is_some_and(|e| e.partial_fixpoint)
+        {
             None
         } else {
             let eqns: Vec<crate::termination::Eqn> = lowered
@@ -694,6 +701,94 @@ fn gen_recursive(
                 .collect();
             crate::termination::plan(&fn_name(f), &params, &sig.args, &eqns, &ctors)
         };
+        members.push(Member {
+            f,
+            sig,
+            params,
+            label,
+            entry,
+            lowered,
+            measure,
+            list_rec,
+            plan,
+        });
+    }
+    // the group's own measures, when no file entry, simple rule or structural recursion gives one
+    let defs: Vec<crate::termination::FnDef> = members
+        .iter()
+        .map(|mb| crate::termination::FnDef {
+            lean: fn_name(mb.f),
+            params: mb.params.clone(),
+            arg_tys: mb.sig.args.clone(),
+            result: mb.sig.result.clone(),
+            pure: false,
+            recursive: true,
+            eqs: mb
+                .lowered
+                .iter()
+                .map(|(_, s, l, r)| (s.clone(), *l, r.clone()))
+                .collect(),
+            unfold: vec![],
+            measure: None,
+            hooks: false,
+        })
+        .collect();
+    let hooks = defs.iter().any(|d| ctx.uses_hooks(d));
+    let any_side = members.iter().any(|mb| {
+        mb.entry.is_some_and(|e| {
+            e.termination_by.is_some() || e.decreasing_by.is_some() || e.partial_fixpoint
+        })
+    });
+    let solved = !multi
+        && (members[0].list_rec.is_some()
+            || members[0].measure.is_some()
+            || members[0].plan.is_some());
+    let group_plan = if any_side || solved || ctx.structural(&defs) {
+        None
+    } else {
+        ctx.plan_group(&defs)
+    };
+    if let Some(gp) = &group_plan {
+        pre.push_str(&gp.pre);
+    }
+    let mut chosen: Vec<Option<String>> = Vec::new();
+    for (mi, mb) in members.iter().enumerate() {
+        let f = mb.f;
+        let sig = &mb.sig;
+        let params = &mb.params;
+        let label = &mb.label;
+        let entry = mb.entry;
+        let lowered = &mb.lowered;
+        let ps: Vec<String> = params
+            .iter()
+            .zip(&sig.args)
+            .map(|(p, s)| format!("({p} : {s})"))
+            .collect();
+        if entry.is_some_and(|e| e.partial_fixpoint) {
+            if multi {
+                return Err(format!(
+                    "{label}: partial_fixpoint in a mutual group is not supported"
+                ));
+            }
+            let body =
+                render_fixpoint(m, f, params, lowered).map_err(|e| format!("{label}: {e}"))?;
+            o.push_str(&format!(
+                "/-! `{label}` (recursive; least fixed point) -/\n"
+            ));
+            o.push_str(&format!(
+                "def {} {} : Option {} :=\n{body}partial_fixpoint\n\n",
+                fn_name(f),
+                ps.join(" "),
+                sig.result
+            ));
+            chosen.push(None);
+            continue;
+        }
+        let side_measure =
+            entry.is_some_and(|e| e.termination_by.is_some() || e.decreasing_by.is_some());
+        let measure = &mb.measure;
+        let list_rec = &mb.list_rec;
+        let plan = &mb.plan;
         let named: BTreeSet<usize> = plan.as_ref().map(|p| p.named.clone()).unwrap_or_default();
         let mut body = String::new();
         let mut depth = 0;
@@ -731,12 +826,12 @@ fn gen_recursive(
         if m.anywhere.contains(f) {
             body.push_str(&format!(
                 "{pad}some {}\n",
-                anywhere_ctor(m, f, &params).render_arg()
+                anywhere_ctor(m, f, params).render_arg()
             ));
         } else {
             body.push_str(&format!("{pad}none\n"));
         }
-        if let Some(p) = &plan {
+        if let Some(p) = plan {
             pre.push_str(&p.rank_defs);
         }
         // inside a `mutual` block only declarations may appear, so the note is the definition's
@@ -779,22 +874,25 @@ fn gen_recursive(
                 .cloned(),
         );
         let side_by = entry.and_then(|e| e.termination_by.as_ref());
-        let by = if let Some(t) = side_by {
-            Some(t.clone())
-        } else if let Some((meas, _, _)) = &list_rec {
-            Some(meas.clone())
-        } else if let (Some(meas), false) = (&measure, side_measure) {
-            Some(meas.clone())
-        } else {
-            plan.as_ref().map(|p| p.measure.clone())
-        };
-        if let Some(t) = &by {
+        let mut term: Option<String> = None;
+        if let Some(t) = side_by {
+            term = Some(t.clone());
+        } else if let Some((meas, _, _)) = list_rec {
+            term = Some(meas.clone());
+        } else if let (Some(meas), false) = (measure, side_measure) {
+            term = Some(meas.clone());
+        } else if let Some(p) = plan {
+            term = Some(p.measure.clone());
+        } else if let Some(gp) = &group_plan {
+            term = Some(gp.measures[mi].clone());
+        }
+        if let Some(t) = &term {
             o.push_str(&format!("termination_by {t}\n"));
         }
         measures.insert(
             f.clone(),
             Measure {
-                by,
+                by: term.clone(),
                 ranks: plan
                     .as_ref()
                     .map(|p| p.rank_names.clone())
@@ -802,13 +900,14 @@ fn gen_recursive(
                 unfold: simp.clone(),
             },
         );
+        chosen.push(term);
         if let Some(d) = entry.and_then(|e| e.decreasing_by.as_ref()) {
             // a tactic block, indented under `decreasing_by`
             o.push_str("decreasing_by\n");
             for l in d.trim().lines() {
                 o.push_str(&format!("  {l}\n"));
             }
-        } else if let (None, Some((_, hyp, front))) = (side_by, &list_rec) {
+        } else if let (None, Some((_, hyp, front))) = (side_by, list_rec) {
             list_rec_out.insert(fn_name(f));
             // the list is `ListItem(X) REST` (`REST ListItem(X)`), so `REST` is one shorter
             let lemma = if *front {
@@ -819,6 +918,8 @@ fn gen_recursive(
             o.push_str(&format!(
                 "decreasing_by all_goals (simp_wf; rw [← KPrelude.ListHook.{lemma} {hyp}]; simp [KPrelude.ListHook.concat, KPrelude.ListHook.element, KPrelude.ListIso.toList_ofList])\n"
             ));
+        } else if let (Some(gp), None, None) = (&group_plan, plan, side_by) {
+            o.push_str(&format!("decreasing_by {}\n", gp.decreasing));
         } else {
             // the prelude's termination tactic (its facts, then `omega`; the rank functions of
             // the measure unfolded), then the earlier generic one (`sizeOf` of constructor
@@ -837,7 +938,89 @@ fn gen_recursive(
     if multi {
         o = format!("mutual\n{o}end\n\n");
     }
+    // the group, for later lemmas about its functions (a bound on a result's shape)
+    for (d, t) in defs.into_iter().zip(chosen) {
+        ctx.add(crate::termination::FnDef {
+            measure: t,
+            hooks,
+            ..d
+        });
+    }
     Ok(format!("{pre}{o}"))
+}
+
+/// Whether every recursive call of a function with the list measure `meas` (the length of
+/// parameter `x_k`) passes the rest of `x_k`'s list pattern at position `k`.
+fn list_measure_holds(fname: &str, params: &[String], meas: &str, lowered: &Lowered) -> bool {
+    use crate::lower::Step;
+    let Some(k) = params
+        .iter()
+        .position(|p| meas == format!("(KPrelude.ListIso.toList {p}).length"))
+    else {
+        return false;
+    };
+    for (_, steps, _, _) in lowered {
+        let mut tail: Option<&String> = None;
+        for s in steps {
+            match s {
+                Step::ListElem { list, tail: t, .. } if *list == params[k] => tail = Some(t),
+                Step::Bind {
+                    expr: L::App(h, args),
+                    ..
+                } if h == fname
+                    && !matches!((tail, args.get(k)), (Some(t), Some(L::Var(a))) if a == t) =>
+                {
+                    return false;
+                }
+                _ => {}
+            }
+        }
+    }
+    true
+}
+
+/// The termination planner's view of the model: constructors with their argument types, the
+/// constructors that are their sort's only value, injections, builtin sorts.
+fn termination_ctx(m: &Model, arity: bool, has_hooks: bool) -> crate::termination::Ctx {
+    let builtin: BTreeSet<String> = m
+        .sorts
+        .iter()
+        .filter(|(_, i)| {
+            matches!(
+                i.kind,
+                crate::model::Kind::Builtin(_) | crate::model::Kind::Token
+            )
+        })
+        .map(|(s, _)| s.clone())
+        .collect();
+    let mut ctors = BTreeMap::new();
+    let mut sole = BTreeSet::new();
+    for (sym, ci) in &m.ctors {
+        let path = m.ctor_path(sym);
+        ctors.insert(path.clone(), ci.args.clone());
+        let info = m.sort(&ci.sort);
+        if info.is_simple() && info.own.len() == 1 {
+            sole.insert(path);
+        }
+    }
+    let mut injs = BTreeMap::new();
+    for (s, info) in &m.sorts {
+        if info.is_simple() || !matches!(info.kind, crate::model::Kind::Plain) {
+            continue;
+        }
+        for l in &info.leaves {
+            injs.insert(m.leaf_ctor(s, l), builtin.contains(l));
+        }
+    }
+    crate::termination::Ctx::new(
+        BTreeMap::new(),
+        ctors,
+        sole,
+        injs,
+        builtin,
+        arity,
+        has_hooks,
+    )
 }
 
 /// The length measure of a function that recurses on a builtin `List` parameter: an equation that
@@ -1095,8 +1278,15 @@ pub fn generate_with(
             unknown.join(", ")
         ));
     }
+    // what the termination planner knows of the definition (`termination.rs`)
+    let shape = if side.arity_terms {
+        Some(crate::terms_arity::shape_support(m))
+    } else {
+        None
+    };
+    let mut ctx = termination_ctx(m, side.arity_terms, !params.is_empty());
     // generate, deciding purity on the way (callees first, so their purity is known)
-    let mut lean = helpers;
+    let mut lean = String::new();
     let mut unfold = Vec::new();
     let mut measures = BTreeMap::new();
     let mut choose_fns = BTreeSet::new();
@@ -1118,7 +1308,16 @@ pub fn generate_with(
                     }
                 }
             }
-            let text = gen_recursive(m, &fns, &eqs, scc, side, &mut list_recursive, &mut measures)?;
+            let text = gen_recursive(
+                m,
+                &fns,
+                &eqs,
+                scc,
+                side,
+                &mut list_recursive,
+                &mut ctx,
+                &mut measures,
+            )?;
             lean.push_str(&text);
             for f in scc {
                 notes.push(format!(
@@ -1170,6 +1369,7 @@ pub fn generate_with(
             .collect();
         lean.push_str(&format!("/-! `{}` -/\n", names::demangle(f)));
         let mut cascade_parts = Vec::new();
+        let mut own_unfold = vec![name.clone()];
         for (idx, (i, steps, lhs_len, rhs, _rhs_partial, _)) in bodies.iter().enumerate() {
             if pure && idx == bodies.len() - 1 {
                 cascade_parts.push(format!("RHS:{}", rhs.render()));
@@ -1200,6 +1400,7 @@ pub fn generate_with(
                 ps.join(" ")
             ));
             unfold.push(eq_name.clone());
+            own_unfold.push(eq_name.clone());
             cascade_parts.push(format!("EQ:{eq_name}"));
         }
         // the cascade
@@ -1227,11 +1428,33 @@ pub fn generate_with(
             ps.join(" ")
         ));
         unfold.push(name.clone());
+        let def = crate::termination::FnDef {
+            lean: name.clone(),
+            params: params.clone(),
+            arg_tys: sig.args.clone(),
+            result: sig.result.clone(),
+            pure,
+            recursive: false,
+            eqs: bodies
+                .iter()
+                .map(|(_, s, l, r, _, _)| (s.clone(), *l, r.clone()))
+                .collect(),
+            unfold: own_unfold,
+            measure: None,
+            hooks: false,
+        };
+        let hooks = ctx.uses_hooks(&def);
+        ctx.add(crate::termination::FnDef { hooks, ..def });
         fns.get_mut(f).unwrap().partial = !pure;
         if !pure {
             notes.push(format!("{} is partial (Option-valued)", names::demangle(f)));
         }
     }
+    // the shape of terms, when a termination measure or lemma uses it
+    let lean = match (&shape, ctx.shape_used()) {
+        (Some(defs), true) => format!("{helpers}{defs}{lean}"),
+        _ => format!("{helpers}{lean}"),
+    };
     let recursive = recursive.iter().map(|f| fns[f].lean.clone()).collect();
     Ok(Generated {
         fns,

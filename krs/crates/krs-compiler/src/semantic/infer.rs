@@ -34,6 +34,9 @@ pub(super) struct StructuredTermBuilder<'a> {
     pub(super) binding_sorts: BTreeMap<String, SemanticSortRef>,
     /// Author-declared and occurrence-derived upper-bound constraints.
     pub(super) binding_constraints: BTreeMap<String, BTreeSet<SemanticSortRef>>,
+    /// The key of a variable's first occurrence at each sort it is needed at, which locates a
+    /// binder whose occurrences need sorts no term has together.
+    pub(super) constraint_sites: BTreeMap<(String, SemanticSortRef), ProvenanceKey>,
     /// The provenance key of each variable's first occurrence in the
     /// subject, where a diagnostic about its sort points.
     pub(super) subject_keys: BTreeMap<String, ProvenanceKey>,
@@ -301,6 +304,9 @@ impl StructuredTermBuilder<'_> {
                         .entry(name.clone())
                         .or_default()
                         .insert(expected.clone());
+                    self.constraint_sites
+                        .entry((name.clone(), expected.clone()))
+                        .or_insert_with(|| key.clone());
                 }
             }
             DescriptorTerm::Wildcard { .. } => {
@@ -1593,6 +1599,40 @@ impl StructuredTermBuilder<'_> {
         self.infer(update, Some(cell_sort), false)
     }
 
+    /// A binder that is needed at two sorts no term has together: located at an occurrence
+    /// other than its first in the subject, the one written later, with a label at the first.
+    fn conflicting_occurrences(
+        &self,
+        name: &str,
+        constraints: &BTreeSet<SemanticSortRef>,
+    ) -> Option<DescriptorLoweringError> {
+        let first = self.subject_keys.get(name)?;
+        let site =
+            |sort: &SemanticSortRef| self.constraint_sites.get(&(name.to_owned(), sort.clone()));
+        let first_sort = constraints.iter().find(|sort| site(sort) == Some(first))?;
+        let (later_sort, later) = constraints
+            .iter()
+            .filter(|sort| *sort != first_sort)
+            .find_map(|sort| Some((sort, site(sort)?)))?;
+        let (first_name, later_name) = (
+            super::overload::sort_name(first_sort),
+            super::overload::sort_name(later_sort),
+        );
+        Some(DescriptorLoweringError::IncompatibleBinder {
+            item: Box::new(self.descriptor.id().clone()),
+            reason: format!(
+                "binder `{name}` is bound at `{first_name}`, but an occurrence needs `{later_name}`"
+            ),
+            range: self.authored_range(later),
+            occurrence: self
+                .authored_range(first)
+                .map(|range| (range, first_name.clone())),
+            help: Some(format!(
+                "no term is both a `{first_name}` and a `{later_name}`"
+            )),
+        })
+    }
+
     pub(super) fn resolve_binding_sorts(&mut self) -> Result<(), DescriptorLoweringError> {
         for name in self.binding_names {
             if self.binding_sorts.contains_key(name) {
@@ -1662,9 +1702,13 @@ impl StructuredTermBuilder<'_> {
                             &occurrence_sorts,
                         ));
                     }
-                    return Err(self.invalid_term(format!(
-                        "variable {name:?} has no declared common descendant for occurrence sorts [{occurrence_sorts}]"
-                    )));
+                    return Err(self.conflicting_occurrences(name, constraints).unwrap_or_else(
+                        || {
+                            self.invalid_term(format!(
+                                "variable {name:?} has no declared common descendant for occurrence sorts [{occurrence_sorts}]"
+                            ))
+                        },
+                    ));
                 }
                 _ => {
                     return Err(self.invalid_term(format!(
@@ -2250,9 +2294,11 @@ impl StructuredTermBuilder<'_> {
     }
 
     fn cell_k_item_sort(&self) -> Result<SemanticSortRef, DescriptorLoweringError> {
+        // A contract between the collector and the compiler, not the author's mistake.
         self.k_item_sort.clone().ok_or_else(|| {
-            self.invalid_term(
-                "internal error: the descriptor bundle has no framework KItem sort, which every definition has",
+            DescriptorLoweringError::unsupported_shape(
+                "framework sort",
+                "the descriptor bundle has no framework KItem sort, which every definition has",
             )
         })
     }
@@ -2877,7 +2923,7 @@ impl StructuredTermBuilder<'_> {
         Err(DescriptorLoweringError::IncompatibleBinder {
             item: Box::new(self.descriptor.id().clone()),
             reason: format!(
-                "binder `{name}` is declared `{declared_name}` but this occurrence needs `{expected_name}`"
+                "binder `{name}` is declared `{declared_name}`, but an occurrence needs `{expected_name}`"
             ),
             range: range(key),
             occurrence: range(Self::term_key(occurrence)).map(|range| (range, expected_name)),
@@ -3264,25 +3310,19 @@ impl StructuredTermBuilder<'_> {
     }
 
     /// An invalid-term error, which [`Self::infer`] and [`Self::lower`]
-    /// locate at the term they were given.
+    /// locate at the innermost term they were given.
     pub(super) fn invalid_term(&self, detail: impl Into<String>) -> DescriptorLoweringError {
         DescriptorLoweringError::invalid_term(self.descriptor.id(), detail)
     }
 
-    /// `error`, an invalid-term error not yet located, located at `term`.
+    /// `error` located at `term` when it is not located yet: inference and lowering recurse
+    /// into terms, so an error takes the innermost term that encloses it.
     fn locate(
         &self,
-        mut error: DescriptorLoweringError,
+        error: DescriptorLoweringError,
         term: &DescriptorTerm,
     ) -> DescriptorLoweringError {
-        if let DescriptorLoweringError::InvalidTerm {
-            range: range @ None,
-            ..
-        } = &mut error
-        {
-            *range = self.authored_range(Self::term_key(term));
-        }
-        error
+        error.within(self.authored_range(Self::term_key(term)).as_deref())
     }
 }
 

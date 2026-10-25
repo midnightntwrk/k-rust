@@ -592,9 +592,9 @@ fn take_bracket_helpers(
 
 pub(crate) fn bracket(attributes: TokenStream, _item: TokenStream) -> crate::Result<TokenStream> {
     krs_syntax::BracketAttribute::parse_tokens(attributes)?;
-    Err(ExpandError::new(
+    // The misplaced helper is the invocation itself.
+    Err(ExpandError::at_invocation(
         expand::ORPHAN_HELPER,
-        Span::call_site(),
         "`#[k::bracket]` is a sort helper; place `#[k::sort]` before it",
     ))
 }

@@ -75,6 +75,12 @@ class GeneratedRange:
 
 
 @dataclass(frozen=True)
+class DiagnosticLabel:
+    range: AuthoredRange
+    message: str | None = None
+
+
+@dataclass(frozen=True)
 class KrsDiagnostic:
     schema_version: int
     stage: str
@@ -85,6 +91,9 @@ class KrsDiagnostic:
     generated_range: GeneratedRange | None = None
     notes: tuple[str, ...] = ()
     raw_json: str = field(default="", repr=False, compare=False)
+    kind: str = "author"
+    item: str | None = None
+    labels: tuple[DiagnosticLabel, ...] = ()
 
     def selected_bytes(self, package_root: Path) -> bytes:
         """Return the authored byte slice, requiring an authored range."""
@@ -137,6 +146,22 @@ def _authored_range(value: object) -> AuthoredRange | None:
     )
 
 
+def _labels(value: object) -> tuple[DiagnosticLabel, ...]:
+    if not isinstance(value, list):
+        raise GateError("KRS diagnostic labels must be a list")
+    labels = []
+    for raw in value:
+        label = _object(raw, "label")
+        range_ = _authored_range(_required(label, "range", "label"))
+        if range_ is None:
+            raise GateError("a KRS diagnostic label must have a range")
+        message = label.get("message")
+        if message is not None:
+            message = _string(message, "label.message")
+        labels.append(DiagnosticLabel(range_, message))
+    return tuple(labels)
+
+
 def _generated_range(value: object) -> GeneratedRange | None:
     if value is None:
         return None
@@ -153,7 +178,8 @@ def krs_diagnostics(stderr: str | bytes) -> list[KrsDiagnostic]:
 
     A JSON object is KRS-shaped when it has either `schema_version` or `stage`.
     Cargo objects bearing `reason` are skipped. A partial KRS-shaped object is
-    malformed and fails the gate.
+    malformed and fails the gate. Schema 2: every KRS diagnostic is an envelope,
+    whose `authored_range` is `null` when no authored text is its subject.
     """
 
     found = []
@@ -161,7 +187,7 @@ def krs_diagnostics(stderr: str | bytes) -> list[KrsDiagnostic]:
         if "reason" in value or not ("schema_version" in value or "stage" in value):
             continue
         version = _integer(_required(value, "schema_version", "KRS diagnostic"), "schema_version")
-        if version != 1:
+        if version != 2:
             raise GateError(f"unsupported KRS diagnostic schema_version {version}")
         stage = _string(_required(value, "stage", "KRS diagnostic"), "stage")
         if stage not in ("rust-expansion", "analysis", "k-frontend", "native"):
@@ -169,6 +195,12 @@ def krs_diagnostics(stderr: str | bytes) -> list[KrsDiagnostic]:
         severity = _string(_required(value, "severity", "KRS diagnostic"), "severity")
         if severity not in ("error", "warning"):
             raise GateError(f"unknown KRS diagnostic severity {severity!r}")
+        kind = _string(_required(value, "kind", "KRS diagnostic"), "kind")
+        if kind not in ("author", "internal", "environment"):
+            raise GateError(f"unknown KRS diagnostic kind {kind!r}")
+        item = value.get("item")
+        if item is not None:
+            item = _string(item, "item")
         notes = value.get("notes", [])
         if not isinstance(notes, list) or any(not isinstance(note, str) for note in notes):
             raise GateError("KRS diagnostic notes must be a list of strings")
@@ -182,6 +214,9 @@ def krs_diagnostics(stderr: str | bytes) -> list[KrsDiagnostic]:
             _generated_range(value.get("generated_range")),
             tuple(notes),
             json.dumps(value, sort_keys=True),
+            kind,
+            item,
+            _labels(value.get("labels", [])),
         ))
     return found
 

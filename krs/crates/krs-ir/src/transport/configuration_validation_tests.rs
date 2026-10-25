@@ -139,10 +139,10 @@ fn fixed_configuration_owner_hooks_preserve_first_errors_and_host_aliases() {
     );
     assert_eq!(descriptor.validate(&item(ItemKind::Configuration)), Ok(()));
     descriptor.initializer.owner = item(ItemKind::Cell);
-    assert_eq!(
+    assert!(matches!(
         descriptor.validate(&item(ItemKind::Configuration)),
-        Err(StateTransportError::InitializerDeclarationMismatch)
-    );
+        Err(StateTransportError::InitializerDeclarationMismatch { .. })
+    ));
     descriptor.root = DescriptorConfigurationRoot::Named {
         key: key(ProvenanceRole::InitializerDeclaration),
         name: "root".into(),
@@ -167,10 +167,10 @@ fn fixed_configuration_owner_hooks_preserve_first_errors_and_host_aliases() {
     let alias = HostTypeKey(TypeId::of::<Owner>);
     assert_eq!(host.validate(alias), Ok(()));
     host.initializer.owner = type_key::<Nested>();
-    assert_eq!(
+    assert!(matches!(
         host.validate(type_key::<Owner>()),
-        Err(StateTransportError::InitializerDeclarationMismatch)
-    );
+        Err(StateTransportError::InitializerDeclarationMismatch { .. })
+    ));
     host.root = descriptor.root;
     assert_eq!(
         host.validate(type_key::<Nested>()),
@@ -380,7 +380,7 @@ fn initializer_field_joins_check_stable_spelling_only_for_descriptors() {
     let cells = vec![initializer_cell::<DescriptorStage>(descriptor_reference(
         ProvenanceRole::InitializerField,
     ))];
-    assert_eq!(
+    assert!(matches!(
         validate_initializer_cells::<DescriptorStage>(
             &cells,
             &descriptor.fields,
@@ -389,8 +389,8 @@ fn initializer_field_joins_check_stable_spelling_only_for_descriptors() {
             &mut InitializerCounters::default(),
             &mut BTreeSet::new(),
         ),
-        Err(StateTransportError::InitializerDeclarationMismatch)
-    );
+        Err(StateTransportError::InitializerDeclarationMismatch { .. })
+    ));
     let mut host = declaration::<HostStage>(
         host_reference(ProvenanceRole::ConfigurationField),
         host_sort(ProvenanceRole::ConfigurationCellContent),
@@ -745,7 +745,7 @@ fn assert_duplicate_nested_children<S: ConfigurationValidationStage>(
         initializer_cell::<S>(reference.clone()),
         initializer_cell::<S>(reference),
     ];
-    assert_eq!(
+    assert!(matches!(
         validate_nested_children::<S>(
             &cells,
             owner,
@@ -753,8 +753,8 @@ fn assert_duplicate_nested_children<S: ConfigurationValidationStage>(
             &mut InitializerCounters::default(),
             &mut BTreeSet::new(),
         ),
-        Err(StateTransportError::InitializerDeclarationMismatch)
-    );
+        Err(StateTransportError::InitializerDeclarationMismatch { .. })
+    ));
 }
 
 #[test]

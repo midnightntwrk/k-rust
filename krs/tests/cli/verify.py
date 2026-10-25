@@ -384,7 +384,7 @@ def negative_cases(binary: Path, workspace: Path, results: Results) -> None:
         source_bytes = broken_source.read_bytes()
         error_start = source_bytes.index(b"compile_error!")
         broken_ok = broken.returncode != 0 and any(
-            diagnostic.schema_version == 1
+            diagnostic.schema_version == 2
             and diagnostic.stage == "rust-expansion"
             and diagnostic.code == "krs::rust-expansion::uncoded-error"
             and diagnostic.severity == "error"

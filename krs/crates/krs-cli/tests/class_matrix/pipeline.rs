@@ -348,10 +348,7 @@ fn back_half(
         Ok(Ok(emitted)) => {
             let observed = Observed {
                 accepted: true,
-                diagnostics: observe_reports(
-                    &emitted.warnings.envelopes,
-                    &emitted.warnings.unlocated,
-                ),
+                diagnostics: observe_reports(&emitted.warnings.envelopes),
                 panic: None,
             };
             let mut judged = judged(placed, observed, batch);
@@ -505,14 +502,14 @@ fn refused(diagnostics: Vec<ObservedDiagnostic>) -> Observed {
     }
 }
 
-/// Every diagnostic a failure reports, as `krs --message-format json` prints them: its located
-/// envelopes, its unlocated diagnostics, and the warnings of the stages that completed. A failure
-/// that reports none (a process failure) is one uncoded, unlocated error with its message.
+/// Every diagnostic a failure reports, as `krs --message-format json` prints them: its envelopes,
+/// located ones first, and the warnings of the stages that completed. A failure that reports none
+/// (a crashed collector) is one uncoded, unlocated error with its message.
 pub fn observe_error(error: &CommandError) -> Vec<ObservedDiagnostic> {
     let envelopes = error.diagnostics().unwrap_or_default();
-    let mut observed = observe_reports(&envelopes, &error.unlocated_diagnostics());
+    let mut observed = observe_reports(&envelopes);
     if let Some(warnings) = error.warnings() {
-        observed.extend(observe_reports(&warnings.envelopes, &warnings.unlocated));
+        observed.extend(observe_reports(&warnings.envelopes));
     }
     if !observed
         .iter()
@@ -522,41 +519,44 @@ pub fn observe_error(error: &CommandError) -> Vec<ObservedDiagnostic> {
             severity: Severity::Error,
             code: None,
             range: None,
+            labels: Vec::new(),
             message: error.to_string(),
         });
     }
     observed
 }
 
-fn observe_reports(
-    envelopes: &[DiagnosticEnvelope],
-    unlocated: &[krs_cli::UnlocatedDiagnostic],
-) -> Vec<ObservedDiagnostic> {
+fn observe_reports(envelopes: &[DiagnosticEnvelope]) -> Vec<ObservedDiagnostic> {
     let severity = |severity: DiagnosticSeverity| match severity {
         DiagnosticSeverity::Error => Severity::Error,
         DiagnosticSeverity::Warning => Severity::Warning,
     };
-    let located = envelopes.iter().map(|envelope| {
-        let range = &envelope.authored_range;
-        ObservedDiagnostic {
+    let in_case = |range: &krs_ir::SourceRange| {
+        if is_case_source(&range.file) {
+            range.start_byte as usize..range.end_byte as usize
+        } else {
+            // Located, but in another file: outside every case.
+            usize::MAX..usize::MAX
+        }
+    };
+    let (located, unlocated): (Vec<_>, Vec<_>) = envelopes
+        .iter()
+        .partition(|envelope| envelope.authored_range.is_some());
+    located
+        .into_iter()
+        .chain(unlocated)
+        .map(|envelope| ObservedDiagnostic {
             severity: severity(envelope.severity),
             code: Some(envelope.code.clone()),
-            range: Some(if is_case_source(&range.file) {
-                range.start_byte as usize..range.end_byte as usize
-            } else {
-                // Located, but in another file: outside every case.
-                usize::MAX..usize::MAX
-            }),
+            range: envelope.authored_range.as_ref().map(in_case),
+            labels: envelope
+                .labels
+                .iter()
+                .map(|label| in_case(&label.range))
+                .collect(),
             message: envelope.message.clone(),
-        }
-    });
-    let prose = unlocated.iter().map(|diagnostic| ObservedDiagnostic {
-        severity: severity(diagnostic.severity),
-        code: Some(diagnostic.code.clone()),
-        range: None,
-        message: diagnostic.message.clone(),
-    });
-    located.chain(prose).collect()
+        })
+        .collect()
 }
 
 pub fn write_package(directory: &Path, name: &str, source: &str) -> PathBuf {

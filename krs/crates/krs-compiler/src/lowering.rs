@@ -161,7 +161,12 @@ pub enum LoweringError {
     /// A generated path-free IR identity was rejected by the frozen IR API.
     InvalidGeneratedIdentity(String),
     /// Final target-neutral validation rejected the constructed Definition IR.
-    InvalidDefinition(DefinitionValidationError),
+    InvalidDefinition {
+        /// The validator's error.
+        error: DefinitionValidationError,
+        /// The exact authored range of the innermost term the validator was checking, if any.
+        range: Option<Box<krs_ir::SourceRange>>,
+    },
     /// A sidecar could not be derived honestly from the constructed Definition IR.
     InvalidSidecar(String),
     /// The program-syntax partition is invalid.
@@ -217,7 +222,7 @@ impl fmt::Display for LoweringError {
                 )
             }
             Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
-            Self::InvalidDefinition(error) => {
+            Self::InvalidDefinition { error, .. } => {
                 write!(formatter, "invalid lowered Definition IR: {error}")
             }
             Self::InvalidSidecar(detail) => write!(formatter, "invalid lowered sidecar: {detail}"),
@@ -244,7 +249,7 @@ impl ToDiagnostic for LoweringError {
             }
             Self::SourceMapCollision(_) => codes::analysis::SOURCE_MAP_COLLISION,
             Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
-            Self::InvalidDefinition(_) => codes::analysis::INVALID_DEFINITION,
+            Self::InvalidDefinition { .. } => codes::analysis::INVALID_DEFINITION,
             Self::InvalidSidecar(_) => codes::analysis::INVALID_SIDECAR,
             Self::Partition(PartitionError::MixedGroup { .. }) => codes::partition::MIXED_GROUP,
             Self::Partition(PartitionError::SignedIntegerLeak { .. }) => {
@@ -262,6 +267,10 @@ impl ToDiagnostic for LoweringError {
                 ..
             } => second_origin
                 .exact_authored_range()
+                .map_or(Location::None, Location::Source),
+            Self::InvalidDefinition { range, .. } => range
+                .as_deref()
+                .cloned()
                 .map_or(Location::None, Location::Source),
             Self::Partition(PartitionError::MixedGroup { origin, .. }) => origin
                 .origin()
@@ -300,7 +309,7 @@ impl ToDiagnostic for LoweringError {
 impl Error for LoweringError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::InvalidDefinition(error) => Some(error),
+            Self::InvalidDefinition { error, .. } => Some(error),
             _ => None,
         }
     }
@@ -308,7 +317,10 @@ impl Error for LoweringError {
 
 impl From<DefinitionValidationError> for LoweringError {
     fn from(value: DefinitionValidationError) -> Self {
-        Self::InvalidDefinition(value)
+        Self::InvalidDefinition {
+            error: value,
+            range: None,
+        }
     }
 }
 
@@ -379,7 +391,16 @@ pub fn lower_semantic_theory(theory: &SemanticTheory) -> Result<LoweredDefinitio
         check_configuration_visibility(&lowered_modules, split)?;
     }
     let main_module = names.module(select_main_module(theory)?.id())?;
-    let definition = DefinitionIr::new(main_module, lowered_modules)?;
+    // A validator failure is located at the innermost term the validator was checking.
+    let (definition, site) =
+        krs_ir_levels::failure_site::record(|| DefinitionIr::new(main_module, lowered_modules));
+    let definition = definition.map_err(|error| LoweringError::InvalidDefinition {
+        error,
+        range: site
+            .iter()
+            .find_map(|origin| origin.origin().exact_authored_range())
+            .map(Box::new),
+    })?;
     let symbol_map = SymbolMap::from_definition(&definition)
         .map_err(|error| LoweringError::InvalidSidecar(error.to_string()))?;
     let source_map = SourceMap::from_definition(&definition)

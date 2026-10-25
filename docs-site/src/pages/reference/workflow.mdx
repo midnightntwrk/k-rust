@@ -59,9 +59,11 @@ Pass `--message-format=json` when a tool consumes diagnostics.
 Every command that lowers the definition (all but `fmt`) reports the definition's warnings, such as an uncovered total function or a `program` production programs cannot contain; `check` and `build` add those of the backend routes they judge, and `prove` those of the claims it trusts.
 It reports them whether or not the command then succeeds: a failing command prints the warnings of the stages it completed before its error, so a `parse` that fails on a production placed outside program syntax shows the `krs::partition::not-program-syntax` warning that explains it.
 `check`, `expand`, `emit-k`, `build`, and the run commands warn about each quoted hook and `k::raw_k!` sentence of a package that sets `allow-raw-k = true`; `--profile strict` overrides every package's `profile` and turns those warnings into errors, so CI can refuse the [raw K escapes](/reference/language#raw-k-escapes) a package allows.
-In JSON mode, located collector failures use schema-1 JSON envelopes on stderr, with stage `analysis`, a `krs::collect::*` code, and the exact authored file revision and byte range.
-Unlocated diagnostics and other failures retain prose lines in JSON mode.
-Collector process failures without structured diagnostics retain the process status and stderr detail.
+In JSON mode, every diagnostic is one schema-2 JSON envelope line on stderr, with its stage, code, `kind`, severity, and message; collector failures have stage `analysis` and a `krs::collect::*` code.
+`kind` says who can act on it: `author` for a mistake in the program, the manifest, or the command line, `internal` for a KRS bug (human output prints its message as "internal error (a KRS bug): ..."), and `environment` for files, Cargo, the toolchain, or a stale build.
+`authored_range` is the exact authored file revision and byte range, or `null` when no authored text is the diagnostic's subject; then `item`, when present, names the item it is about.
+`labels` lists related authored locations, each a `range` with an optional `message`, such as the occurrence that contradicts a binder's declaration; human output underlines each in its source.
+Only a failure without a code, such as a usage error or a collector that crashed, is a prose line, with the process status and stderr detail.
 Run ordinary `cargo check` when you want Rust-only feedback on names, types, imports, and macro expansion while editing.
 
 ## Inspect the lowering

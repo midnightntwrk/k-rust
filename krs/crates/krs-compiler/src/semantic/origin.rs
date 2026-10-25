@@ -48,9 +48,29 @@ pub(super) fn semantic_origin(
                 key.role().as_str(),
                 key.ordinal()
             ),
+            range: None,
         }
     })?;
     semantic_origin_from_stack(descriptor, origin, role, Some(&key))
+}
+
+/// The exact authored range of the node `key` names in `descriptor`, if it has one.
+pub(super) fn key_range(
+    descriptor: &Descriptor,
+    key: &ProvenanceKey,
+) -> Option<krs_ir::SourceRange> {
+    descriptor
+        .provenance()
+        .origin_for(key)
+        .and_then(krs_ir::OriginStack::exact_authored_range)
+}
+
+/// The exact authored range of a descriptor's item, the last fallback of an error's location.
+pub(super) fn item_range(descriptor: &Descriptor) -> Option<krs_ir::SourceRange> {
+    descriptor
+        .provenance()
+        .primary_origin()
+        .exact_authored_range()
 }
 
 pub(super) fn semantic_origin_from_primary(

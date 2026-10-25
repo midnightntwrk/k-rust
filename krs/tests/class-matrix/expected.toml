@@ -1,14 +1,13 @@
-# The expected outcome of every class-test case (`krs_test_support::class_matrix`), in four parts.
+# The expected outcome of every class-test case (`krs_test_support::class_matrix`), in three parts.
 # The schema and how a case is decided are documented in `class_matrix::table`.
 #
-# 1. Mistake classes: one registered code each. A class names an author mistake, not a site;
+# 1. Mistake classes: one registered author code each. A class names an author mistake, not a site;
 #    `proposed = true` marks a code its step has yet to register, so every case of it is red.
 # 2. Refusal rules: a glob over case IDs, the class of the mistake the matched cases make, and the
 #    range the error must lie inside (entry, spelling, item, or header). The most specific entry
 #    that covers a case decides it; two entries of which neither is more specific are a tie. Here
 #    the rules are disjoint, one per class and slot group.
-# 3. Codes that never answer an author mistake.
-# 4. Accepted cases with the K sentences each adds to its base, normalized: written by the record
+# 3. Accepted cases with the K sentences each adds to its base, normalized: written by the record
 #    mode (`scripts/krs-class.sh --record`) and reviewed as a diff, never by hand. An entry without
 #    `k` is a case that should be accepted and is refused today. `same_k_as` names the cases whose
 #    documented equal spelling must emit the same normalized K.
@@ -54,7 +53,6 @@ doc = "brackets on a cell they denote nothing in: no list, computation or List c
 [class.cell-wrapper]
 code = "krs::analysis::cell-wrapper"
 doc = "an entry whose wrapper is not its cell's: `KCell(..)`/`k::k![..]`/brackets for the computation cell, `Cell(..)` for a leaf, none for a group, used on another kind of cell"
-proposed = true
 
 [class.claim-only-term]
 code = "krs::expand::claim-only-term"
@@ -184,7 +182,6 @@ doc = "a binder that nothing in the sentence or initializer binds"
 [class.unused-configuration-variable]
 code = "krs::analysis::unused-configuration-variable"
 doc = "an initializer parameter (configuration variable) that no cell reads (X2)"
-proposed = true
 
 [class.wildcard-outside-pattern]
 code = "krs::syntax::unsupported-term-expression"
@@ -876,13 +873,6 @@ at = "spelling"
 match = '{claim,readable}/result/{env,frame,pc,stack}/_'
 class = "wildcard-outside-pattern"
 at = "spelling"
-
-[internal]
-codes = [
-    "krs::analysis::invalid-semantic-theory",
-    "krs::analysis::parser-reference-disagreement",
-    "krs::expand::duplicate-provenance-key",
-]
 
 [accept]
 

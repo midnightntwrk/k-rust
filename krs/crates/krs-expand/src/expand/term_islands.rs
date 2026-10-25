@@ -7,7 +7,7 @@ use krs_syntax::{
     MapBody, StateTerm, TermExpression, TermTree, parse_cells_expression,
     parse_k_sequence_expression, parse_map_expression,
 };
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use quote::quote;
 
 use super::island_checks::{nested_state_island_import_checks, wrapper_type_check};
@@ -132,9 +132,9 @@ pub(crate) fn fragment(
     let record: syn::ExprStruct = syn::parse2(input.clone())?;
     let parsed = krs_syntax::TermExpression::parse_tokens(quote!(#facade::fragment![#input]))?;
     let TermTree::Cell(cell) = parsed.tree() else {
-        return Err(ExpandError::new(
+        return Err(ExpandError::new_spanned(
             expand::FRAGMENT_SHAPE,
-            Span::call_site(),
+            &record,
             "fragment! requires `Parent { field: value, ... }`",
         ));
     };

@@ -24,7 +24,7 @@ use super::configuration_rules::{
 };
 use super::error::DescriptorLoweringError;
 use super::grammar::lower_grammar_descriptor;
-use super::origin::{role_key, semantic_origin, semantic_origin_from_primary};
+use super::origin::{item_range, role_key, semantic_origin, semantic_origin_from_primary};
 use super::rules::{lower_head_rule_descriptor, lower_structured_rule_descriptor};
 
 /// Sentences of one package module, accumulated in descriptor order and
@@ -63,6 +63,7 @@ pub(super) fn lower_package_module(
         DescriptorLoweringError::UnsupportedShape {
             node: "module",
             detail: format!("package {package} has no generated module identity"),
+            range: None,
         }
     })?;
     // A package whose only content is spec modules has an empty definition
@@ -79,6 +80,7 @@ pub(super) fn lower_package_module(
         .ok_or_else(|| DescriptorLoweringError::UnsupportedShape {
             node: "module",
             detail: format!("package {package} has no semantic descriptors"),
+            range: None,
         })?;
     let module_origin = semantic_origin_from_primary(origin_descriptor, "module")?;
     let imports = referenced_packages(referencing)
@@ -89,6 +91,7 @@ pub(super) fn lower_package_module(
                 DescriptorLoweringError::UnsupportedShape {
                     node: "module import",
                     detail: format!("referenced package {referenced} has no module"),
+                    range: None,
                 }
             })
         })
@@ -136,13 +139,15 @@ fn build_module(
 ) -> Result<SemanticModule, DescriptorLoweringError> {
     let mut sentences = ModuleSentences::default();
     for descriptor in descriptors {
+        // The last fallback of an error's location is the item it arose in.
         lower_module_descriptor(
             descriptor,
             declarations,
             semantic_sort_parents,
             production_catalog,
             &mut sentences,
-        )?;
+        )
+        .map_err(|error| error.within(item_range(descriptor).as_ref()))?;
     }
     let ModuleSentences {
         mut sorts,
@@ -194,6 +199,7 @@ fn lower_module_descriptor(
         DescriptorLoweringError::UnsupportedShape {
             node: "declaration metadata",
             detail: format!("descriptor {} has no API metadata", descriptor.id()),
+            range: None,
         }
     })?;
     match descriptor.payload() {
@@ -220,8 +226,13 @@ fn lower_module_descriptor(
             )?);
         }
         DescriptorPayload::FixedConfiguration(value) => {
+            // The definition-wide count admits one configuration, so a second here is a broken
+            // contract of the lowering, not the author's.
             if sentences.configuration.is_some() {
-                return Err(DescriptorLoweringError::ConfigurationCount(2));
+                return Err(DescriptorLoweringError::unsupported_shape(
+                    "configuration",
+                    "a package module received a second configuration after the definition was checked to have one",
+                ));
             }
             sentences.configuration = Some(lower_fixed_configuration_descriptor(
                 descriptor,
@@ -290,6 +301,7 @@ fn lower_sort_descriptor(
             u32::try_from(ordinal).map_err(|_| DescriptorLoweringError::UnsupportedShape {
                 node: "sort parents",
                 detail: "sort has more than u32::MAX direct parents".to_owned(),
+                range: None,
             })?;
         sentences.subsorts.push(SemanticSubsort::new(
             semantic_origin(

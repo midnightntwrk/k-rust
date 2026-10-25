@@ -97,5 +97,6 @@ fn json_error(error: serde_json::Error) -> DescriptorLoweringError {
     DescriptorLoweringError::UnsupportedShape {
         node: "proof sentence",
         detail: format!("cannot inspect a proof sentence's references: {error}"),
+        range: None,
     }
 }

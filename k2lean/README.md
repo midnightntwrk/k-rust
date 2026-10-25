@@ -62,6 +62,9 @@ target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime
 | `demos/PeanoRel`, `demos/CellMapRel` | the fixtures `tests/fixtures/peano` (an `owise` priority, recursive and mutual functions) and `tests/fixtures/cellmap` (a free-key rule over the typed cell map of `<worker>`s) are each bisimilar to themselves under two namespaces: the light gate's cheap pins of `relate` |
 | `demos/ImpTypes` | kimp is type-sound for a K type checker (`demos/k/imp-typing.k`): `k2lean soundness` generates the runtime typing, preservation, progress and `soundness`; `Store.lean` holds the store typing and the cases of the three rules that read or write the store |
 | `demos/ImpMut` | a mutant of kimp (`demos/k/kimp-mutant`) diverges from kimp, proved on a concrete configuration |
+| `demos/ImpUnroll` | kimp and a variant whose `while` unrolls in one step less (`tests/kimp-unroll.py`) are stuttering bisimilar: `k2lean refine` generates 310 of the 316 case parts, `Relation.lean` holds the non-local part of the relation and the other 6 |
+| `demos/RaceConf` | every schedule of the fixture `tests/fixtures/race` (workers adding to a shared accumulator) ends in one configuration: `k2lean confluence` generates and proves all 9 joins of pairs of rules |
+| `demos/ImpNI` | kimp's termination-insensitive noninterference for a two-level security checker in K (`demos/k/imp-sec.k`), stated by `k2lean noninterference` with its 240 obligations, none discharged |
 | `demos/KrsImpTyping` | every KRS IMP rule preserves the declared cell type `env: Map<Id, Value>`, from the KRS sidecar |
 | `demos/SimpleEnv` | a kind 2 invariant of SIMPLE, strengthened to be inductive |
 | `demos/ImpWrites` | a kind 2 invariant of kimp that walks the `<k>` cell |
@@ -101,11 +104,38 @@ target/release/k2lean soundness --kore-a out/my/definition.kore --name-a My \
 
 It needs the two libraries and the translation of programs that `k2lean relate --roots` writes (`MySound/Tr.lean`; `--tr-module`), and writes `Typing.lean`, which the hand module `MySound/Store.lean` (`--hand-module`) imports, and `Soundness.lean`, which imports it; `docs/design.md`, §3.3, says what each part states and what is supported.
 
+## Scaffolds
+
+Three commands state a theorem whose proof needs an argument no generator has, and reduce it to named obligations: they prove the reduction (`KPrelude.Scaffold`) and the obligations a generic argument closes, and take the rest from a hand module; `docs/design.md`, §3.4 to §3.7, says what each generates and what it leaves (the calls are in `tests/libs.sh`):
+
+```sh
+# a stuttering bisimulation between A and B, from relate's per-rule simulations
+target/release/k2lean relate --kore-a A/definition.kore --name-a A --kore-b B/definition.kore --name-b B \
+  --ns AB --per-rule true --out AB/Tr.lean --report AB/correspondence.toml
+target/release/k2lean refine --kore-a A/definition.kore --name-a A --kore-b B/definition.kore --name-b B \
+  --ns AB --correspondence AB/correspondence.toml --open AB/open-cases.txt --out AB/Refine.lean
+# confluence modulo scheduling, observing the cells --obs names (--report-only: the classification of the pairs)
+target/release/k2lean confluence --kore A/definition.kore --name A --ns AConf --obs out \
+  [--join local] [--open OPEN.txt] --out AConf/Confluence.lean --report AConf/confluence.toml
+# noninterference, reduced to a relation on pairs of runs
+target/release/k2lean noninterference --kore A/definition.kore --name A --ns ANI --store-cell env \
+  --program-sort SortStmt --params "(G : Sec.SortMap)" --secure "secure G" --low-eq "lowEq G" --out ANI/NI.lean
+```
+
+| option | does |
+|---|---|
+| `relate --per-rule true` | when not every rule pairs: one simulation lemma per pair of corresponding rules (`fwd.r`, `bwd.r`) instead of the bisimulation |
+| `refine --open FILE` | the case parts the hand module proves (`KIND RULE`, `KIND` one of `fwd_tr`, `fwd_x`, `bwd_tr`, `bwd_x`); `--hand-module` (default `NS.Relation`), `--extra`, `--measure-a`, `--measure-b` name what it supplies (default `X`, `μ`, `ν`) |
+| `confluence --open FILE` | the pairs of rules the hand module joins (`RULE \| RULE`); `--hand-module` (default `NS.Hand`) and `--hyp` (default `H`) name the program hypothesis, `--join local` asks for `μ` and `μ_dec` |
+| `noninterference --params`, `--secure`, `--low-eq` | the hand module's parameters and predicates the statement uses; `--hand-module` (default `NS.Hand`) |
+
 ## Large definitions
 
 The default term universe is one Lean type per sort, in one `mutual` block.
-For definitions of KEVM's size, `gen --arity-terms` writes one inductive family indexed by the sorts instead, and `gen --det2` proves determinism along the rule index rather than over all pairs of rules (`--arity-terms` implies it); `docs/design.md`, §2.1 and §3.1, describes both and what they cost.
+For definitions of KEVM's size, `gen --arity-terms` writes one inductive family indexed by the sorts instead, and determinism is proved along the rule index rather than over all pairs of rules, by default on both encodings (`gen --det-pairs` keeps the proof by pairs for the per-sort one); `docs/design.md`, §2.1 and §3.1, describes both and what they cost.
 `pipelines/kevm.sh` and `pipelines/kmir.sh` run KEVM and KMIR through the generator and Lean, step by step, and `pipelines/simple-rel.sh` relates SIMPLE to its variant (`demos/SimpleRel`); `docs/design.md`, §9, lists what is open.
+`pipelines/kevm.sh` builds KEVM's test driver (`driver.md`) by default and the semantics alone (`evm.md`, main module `EVM`) with `TARGET=evm`; its `equations` step builds KEVM's `Equations` part by part, and its `det` step builds the determinism modules and then `KEvmTest.DetAxioms`, the axiom guard of determinism alone, which does not need KEVM's `Equations`.
+A definition whose rules overlap gets `Step.deterministic_of` (no listed pair applies) instead of `Step.deterministic`, and each listed pair a witness, a configuration where both rules step to different results; a witness holding a `String` or `Bytes` literal longer than `--det2-long-literal N` characters (default 256) is reported and not checked, and its pair stays listed.
 
 ## Testing
 

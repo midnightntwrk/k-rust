@@ -519,6 +519,20 @@ impl TryFrom<DescriptorWire> for Descriptor {
     }
 }
 
+/// A descriptor contract failure with what locates it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DescriptorFailure {
+    /// The failure.
+    pub error: DescriptorError,
+    /// The innermost node with an exact authored range that encloses the failure, when a term
+    /// walk failed.
+    pub at: Option<ProvenanceKey>,
+    /// The descriptor's provenance, which resolves `at`.
+    pub provenance: DescriptorProvenance,
+    /// The descriptor's identity.
+    pub id: StableItemId,
+}
+
 /// A context-free descriptor contract failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DescriptorError {
@@ -568,26 +582,63 @@ impl Descriptor {
         provenance: DescriptorProvenance,
         payload: DescriptorPayload,
     ) -> Result<Self, DescriptorError> {
+        Self::new_located(id, cfg, provenance, payload).map_err(|failure| failure.error)
+    }
+
+    /// As [`Self::new`], and a failure keeps the innermost node a term walk failed in and the
+    /// provenance that locates it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::new`].
+    pub fn new_located(
+        id: StableItemId,
+        cfg: BTreeMap<String, Option<String>>,
+        provenance: DescriptorProvenance,
+        payload: DescriptorPayload,
+    ) -> Result<Self, Box<DescriptorFailure>> {
         let descriptor = Self {
             id,
             cfg,
             provenance,
             payload,
         };
-        descriptor
-            .validate_grammar_contract()
-            .map_err(DescriptorError::Grammar)?;
-        descriptor
-            .validate_state_contract()
-            .map_err(DescriptorError::State)?;
+        let (validated, enclosing) = crate::failure_site::record(|| {
+            descriptor
+                .validate_grammar_contract()
+                .map_err(DescriptorError::Grammar)?;
+            descriptor
+                .validate_state_contract()
+                .map_err(DescriptorError::State)
+        });
+        if let Err(error) = validated {
+            // The innermost enclosing node the author's text locates.
+            let at = enclosing.into_iter().find(|key| {
+                descriptor
+                    .provenance
+                    .origin_for(key)
+                    .is_some_and(|origin| origin.exact_authored_range().is_some())
+            });
+            return Err(Box::new(DescriptorFailure {
+                error,
+                at,
+                provenance: descriptor.provenance,
+                id: descriptor.id,
+            }));
+        }
         let expected = descriptor.payload.item_kind();
         let actual = descriptor.id.item_kind();
         if actual != expected {
-            return Err(DescriptorError::WrongKind {
-                id: Box::new(descriptor.id),
-                expected,
-                actual,
-            });
+            return Err(Box::new(DescriptorFailure {
+                error: DescriptorError::WrongKind {
+                    id: Box::new(descriptor.id.clone()),
+                    expected,
+                    actual,
+                },
+                at: None,
+                provenance: descriptor.provenance,
+                id: descriptor.id,
+            }));
         }
         Ok(descriptor)
     }

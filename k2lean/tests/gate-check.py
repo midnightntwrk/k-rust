@@ -12,7 +12,9 @@ recorded outputs with the default encoding's, which they must equal):
   status    every step of the run succeeded (generation, builds, axiom guards, tests)
   unit      generator tests: none fails, and no fewer pass
   lib.X     the open-obligation set of library X may only shrink (a new member fails, and is
-            printed); fewer stated equations or fewer theorems under the axiom guard fail
+            printed); fewer stated equations or fewer theorems under the axiom guard fail; the
+            number of overlapping pairs `gen` lists (determinism along the rule index) and of
+            those without a witness equal the baseline's
   kimp      goldens passed and trace states: equal to the baseline
   demo.X    theorems under the guard may not decrease; each `k2l_preserve` call closes no fewer
             rules and has no new residual rule; Kind2Template is the skeleton that
@@ -47,12 +49,12 @@ import tomllib
 from pathlib import Path
 
 LIBS = {"kimp": ("KImp", "light"), "kimp-d2": ("KImp", "light"), "krsimp": ("KrsImp", "light"), "kmut": ("KMut", "light"),
-        "imptypes": ("KImpTypes", "light"), "simple": ("KSimple", "heavy"), "kimpinv": ("KImpInv", "light"),
+        "imptypes": ("KImpTypes", "light"), "ovl": ("KOvl", "light"), "simple": ("KSimple", "heavy"), "kimpinv": ("KImpInv", "light"),
         "simpleinv": ("KSimpleInv", "heavy"), "kimp-ar": ("KImp", "arity"), "simple-ar": ("KSimple", "arity"),
         "kimpkeys": ("KImpKeys", "light"), "kimpkeys-hand": ("KImpKeys", "light"),
         "kimpfold": ("KImpInv", "light"), "kimptop": ("KImpInv", "light"), "nested": ("KNested", "light"),
         "simplestore": ("KSimpleInv", "heavy"), "simplet": ("KSimpleInv", "heavy"),
-        "freekey": ("FreeKey", "light")}
+        "freekey": ("FreeKey", "light"), "kterm-ar": ("KTerm", "arity")}
 # libraries built only as far as their invariant needs: no `…Test.Axioms` guard
 NO_GUARD = {"kimpinv", "simpleinv", "kimpkeys", "kimpkeys-hand", "kimpfold", "kimptop", "nested", "simplestore", "simplet"}
 INVS = {"kimpinv": ("KImpInv", "light"), "krsimp": ("KrsImp", "light"), "simpleinv": ("KSimpleInv", "heavy"),
@@ -61,7 +63,7 @@ INVS = {"kimpinv": ("KImpInv", "light"), "krsimp": ("KrsImp", "light"), "simplei
         "simplestore": ("KSimpleInv", "heavy"), "simplet": ("KSimpleInv", "heavy")}
 DEMOS = {"ImpRel": "light", "ImpTypes": "light", "ImpMut": "light", "KrsImpTyping": "light",
          "Kind2Template": "light", "SimpleEnv": "heavy", "ImpWrites": "light", "ImpRelClaims": "heavy",
-         "PeanoRel": "light", "CellMapRel": "light"}
+         "PeanoRel": "light", "CellMapRel": "light", "ImpUnroll": "light", "RaceConf": "light", "ImpNI": "light"}
 OUTPUTS = {  # recorded output → (tier, normalization)
     "goldens.toml": ("light", "exact"),
     "kimp-test.out": ("light", "exact"),
@@ -75,6 +77,7 @@ OUTPUTS = {  # recorded output → (tier, normalization)
     "replay/addition-2.toml": ("heavy", "strip-seconds"),
     "replay/branching.toml": ("heavy", "strip-seconds"),
     "replay/sum-loop.toml": ("heavy", "strip-seconds"),
+    "simple-confluence.toml": ("heavy", "exact"),
 }
 # the recorded outputs an arity run produces, compared with the default encoding's
 ARITY_OUTPUTS = {"goldens.toml", "kimp-test.out", "simple-acceptance.toml", "simple-acceptance.md"}
@@ -84,20 +87,27 @@ ARITY_OUTPUTS = {"goldens.toml", "kimp-test.out", "simple-acceptance.toml", "sim
 HAND_INPUTS = ("open-obligations.txt", "open-invariant-cases.txt", "InvariantsHand.lean")
 # generated sources the gate does not regenerate (written by `k2lean configs`, which it skips)
 NOT_REGENERATED = {"generated/kimp/KImpBench/Programs.lean", "generated/kimp-d2/KImpBench/Programs.lean",
+                   "generated/ovl/KOvlBench/Programs.lean",
                    "generated/kimp-ar/KImpBench/Programs.lean"}
-SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsimp", "generated/kmut", "generated/imptypes", "generated/kimpinv",
+SOURCE_DIRS = {"light": ["generated/kimp", "generated/kimp-d2", "generated/krsimp", "generated/kmut", "generated/imptypes", "generated/ovl", "generated/kimpinv",
                          "generated/kimpkeys", "generated/kimpkeys-hand",
                          "generated/kimpfold", "generated/kimptop", "generated/nested",
-                         "generated/freekey", "generated/peano", "generated/peanob", "generated/cellmap", "generated/cellmapb"],
+                         "generated/freekey", "generated/peano", "generated/peanob", "generated/cellmap", "generated/cellmapb",
+                         "generated/kunroll", "generated/impsec", "generated/race"],
                "heavy": ["generated/simple", "generated/kimp-claims", "generated/simpleinv", "generated/simplestore", "generated/simplet",
                          "generated/kimpinv-claims"],
-               "arity": ["generated/kimp-ar", "generated/simple-ar"]}
+               "arity": ["generated/kimp-ar", "generated/simple-ar", "generated/kterm-ar"]}
 DEMO_SOURCES = {"light": ["demos/ImpRel/ImpRel/Bisim.lean", "demos/ImpRel/correspondence.toml",
                           "demos/ImpTypes/ImpTypes/Tr.lean", "demos/ImpTypes/correspondence.toml",
                           "demos/ImpTypes/ImpTypes/Typing.lean", "demos/ImpTypes/ImpTypes/Soundness.lean",
                           "demos/ImpMut/ImpMut/Tr.lean", "demos/ImpMut/correspondence.toml",
                           "demos/PeanoRel/PeanoRel/Bisim.lean", "demos/PeanoRel/correspondence.toml",
-                          "demos/CellMapRel/CellMapRel/Bisim.lean", "demos/CellMapRel/correspondence.toml"],
+                          "demos/CellMapRel/CellMapRel/Bisim.lean", "demos/CellMapRel/correspondence.toml",
+                          "demos/ImpUnroll/ImpUnroll/Tr.lean", "demos/ImpUnroll/ImpUnroll/Refine.lean",
+                          "demos/ImpUnroll/correspondence.toml", "demos/ImpUnroll/refine.toml",
+                          "demos/RaceConf/RaceConf/Confluence.lean", "demos/RaceConf/confluence.toml",
+                          "demos/ImpNI/ImpNI/Tr.lean", "demos/ImpNI/ImpNI/NI.lean",
+                          "demos/ImpNI/correspondence.toml", "demos/ImpNI/noninterference.toml"],
                 "heavy": [],
                 "arity": []}
 
@@ -114,13 +124,32 @@ def read(p):
 
 
 def equations(path):
-    """(stated, open set) of a generated Equations.lean."""
+    """(stated, open set) of a generated Equations.lean, with the parts it imports when it is
+    written in parts (`NS/Equations/PartK.lean`, `import NS.Equations.PartK`)."""
     text = read(path)
     if text is None:
         return None
+    path = Path(path)
+    ns = path.parent.name
+    for m in re.findall(rf"^import {re.escape(ns)}\.Equations\.(Part\d+)$", text, re.M):
+        part = read(path.parent / "Equations" / f"{m}.lean")
+        if part is None:
+            return None
+        text += "\n" + part
     opened = re.findall(r"^def (\S+)\.statement : Prop", text, re.M)
     proved = re.findall(r"^theorem ((?:Eqn|Simp|Lemma)\.\S+)", text, re.M)
     return len(opened) + len(proved), sorted(opened)
+
+
+def overlaps(log):
+    """(listed overlapping pairs, of them without a witness) of a generation log with determinism
+    along the rule index; (None, None) without it (a definition with several-match rules)."""
+    text = read(log) or ""
+    m = re.findall(r"^determinism: (\d+) overlapping pairs$", text, re.M)
+    if not m:
+        return None, None
+    u = re.findall(r"^unwitnessed = (\d+)$", text, re.M)
+    return int(m[-1]), int(u[-1]) if u else 0
 
 
 def guarded(log):
@@ -258,7 +287,9 @@ def measure(work, tier):
             continue
         eq = equations(tree / "generated" / d / ns / "Equations.lean") if f"build {d}" in status or f"build {ns}.Equations" in status else None
         g = guarded(logs / f"build-{d}-guard.log") if status.get(f"guard {d}", ("",))[0] == "ok" else None
-        m["lib"][d] = {"tier": t, "stated": eq[0] if eq else None, "open": eq[1] if eq else None, "guarded": g}
+        ov = overlaps(logs / f"gen-{d}.log")
+        m["lib"][d] = {"tier": t, "stated": eq[0] if eq else None, "open": eq[1] if eq else None, "guarded": g,
+                       "overlaps": ov[0], "unwitnessed": ov[1]}
     out = read(meas / "kimp-test.out") or ""
     gm = re.search(r"^goldens: (\d+)/(\d+) pass", out, re.M)
     m["kimp"] = {
@@ -483,6 +514,14 @@ def compare(m, base, expected, accept_cmd):
             F(f"lib.{d}: stated equations {b['stated']} -> {e['stated']}")
         elif e["stated"] > b["stated"]:
             N(f"lib.{d}: stated equations {b['stated']} -> {e['stated']}")
+        # determinism: the listed overlapping pairs are pinned (a library proved deterministic
+        # unconditionally keeps an empty list), and none may lose its witness
+        if e.get("overlaps") != b.get("overlaps"):
+            F(f"lib.{d}: overlapping pairs {b.get('overlaps')} -> {e.get('overlaps')}")
+        elif e.get("unwitnessed") != b.get("unwitnessed"):
+            F(f"lib.{d}: overlapping pairs without a witness {b.get('unwitnessed')} -> {e.get('unwitnessed')}")
+        elif e.get("overlaps") is not None:
+            P(f"lib.{d}: {e['overlaps']} overlapping pairs, {e['unwitnessed']} without a witness")
         if d in NO_GUARD:
             pass
         elif e["guarded"] is None:

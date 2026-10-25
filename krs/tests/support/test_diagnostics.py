@@ -41,9 +41,10 @@ class TypedDiagnosticTests(unittest.TestCase):
 
     def envelope(self) -> dict:
         return {
-            "schema_version": 1,
+            "schema_version": 2,
             "stage": "analysis",
             "code": "example",
+            "kind": "author",
             "severity": "error",
             "message": "example diagnostic",
             "authored_range": {
@@ -79,7 +80,7 @@ class TypedDiagnosticTests(unittest.TestCase):
 
     def test_rejects_malformed_krs_envelopes(self) -> None:
         broken_values = []
-        for field in ("schema_version", "stage", "code", "severity", "message", "authored_range"):
+        for field in ("schema_version", "stage", "code", "kind", "severity", "message", "authored_range"):
             value = self.envelope()
             del value[field]
             broken_values.append(value)
@@ -92,6 +93,15 @@ class TypedDiagnosticTests(unittest.TestCase):
         broken_values.append(value)
         value = self.envelope()
         value["authored_range"]["file"]["content_sha256"] = "not-a-digest"
+        broken_values.append(value)
+        value = self.envelope()
+        value["schema_version"] = 1
+        broken_values.append(value)
+        value = self.envelope()
+        value["kind"] = "bug"
+        broken_values.append(value)
+        value = self.envelope()
+        value["labels"] = [{"message": "no range"}]
         broken_values.append(value)
         for value in broken_values:
             with self.subTest(value=value), self.assertRaises(GateError):
@@ -110,11 +120,29 @@ class TypedDiagnosticTests(unittest.TestCase):
         self.assertEqual(diagnostic.generated_range.artifact, "definition.k")
         self.assertEqual(diagnostic.notes, ())
 
+    def test_item_and_labels(self) -> None:
+        value = self.envelope()
+        value["authored_range"] = None
+        value["item"] = "TEST::step (rule)"
+        value["kind"] = "internal"
+        value["labels"] = [
+            {"range": self.envelope()["authored_range"], "message": "this occurrence"},
+            {"range": self.envelope()["authored_range"]},
+        ]
+        diagnostic, = krs_diagnostics(json.dumps(value))
+        self.assertEqual(diagnostic.item, "TEST::step (rule)")
+        self.assertEqual(diagnostic.kind, "internal")
+        self.assertEqual(diagnostic.labels[0].message, "this occurrence")
+        self.assertIsNone(diagnostic.labels[1].message)
+        self.assertEqual(
+            diagnostic.labels[1].range.selected_bytes(self.package_root), "💡".encode()
+        )
+
     def test_rejects_out_of_bounds_and_absent_authored_range(self) -> None:
         with self.assertRaises(GateError):
             AuthoredRange("name", "src/lib.rs", "0" * 64, 1, 7).selected_bytes(self.package_root)
         with self.assertRaises(GateError):
-            KrsDiagnostic(1, "analysis", "code", "error", "message", None).selected_bytes(self.package_root)
+            KrsDiagnostic(2, "analysis", "code", "error", "message", None).selected_bytes(self.package_root)
 
 
 class CargoSpanTests(unittest.TestCase):

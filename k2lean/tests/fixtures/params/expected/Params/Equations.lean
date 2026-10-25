@@ -9,7 +9,7 @@ the hook library. A statement whose generic proof attempt failed is kept as an o
 
 set_option linter.unusedVariables false
 set_option linter.unusedSimpArgs false
-set_option maxHeartbeats 400000
+set_option maxHeartbeats 100000
 set_option maxRecDepth 100000
 
 namespace Params
@@ -21,15 +21,16 @@ open KPrelude
 /-- The generic proof attempts without case splits. -/
 local macro "k2l_eqn_a" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| first
   | rfl
-  | (simp [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_Bool, proj_eq_some_KItem_Bytes, proj_eq_some_KItem_Endianness, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_OutCell, proj_eq_some_OutCellOpt_OutCell, proj_eq_some_KItem_OutCellOpt, proj_eq_some_KItem_Set, proj_eq_some_KItem_Signedness, proj_eq_some_KItem_Stmt, proj_eq_some_KItem_String, proj_eq_some_KItem_TCell, proj_eq_some_TCellOpt_TCell, proj_eq_some_KItem_TCellFragment, proj_eq_some_KItem_TCellOpt, $xs,*]; done)
-  | (simp_all [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_Bool, proj_eq_some_KItem_Bytes, proj_eq_some_KItem_Endianness, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_OutCell, proj_eq_some_OutCellOpt_OutCell, proj_eq_some_KItem_OutCellOpt, proj_eq_some_KItem_Set, proj_eq_some_KItem_Signedness, proj_eq_some_KItem_Stmt, proj_eq_some_KItem_String, proj_eq_some_KItem_TCell, proj_eq_some_TCellOpt_TCell, proj_eq_some_KItem_TCellFragment, proj_eq_some_KItem_TCellOpt, $xs,*]; done)
-  | (simp_all [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_Bool, proj_eq_some_KItem_Bytes, proj_eq_some_KItem_Endianness, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_OutCell, proj_eq_some_OutCellOpt_OutCell, proj_eq_some_KItem_OutCellOpt, proj_eq_some_KItem_Set, proj_eq_some_KItem_Signedness, proj_eq_some_KItem_Stmt, proj_eq_some_KItem_String, proj_eq_some_KItem_TCell, proj_eq_some_TCellOpt_TCell, proj_eq_some_KItem_TCellFragment, proj_eq_some_KItem_TCellOpt, $xs,*]; omega)
-  | (simp only [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_Bool, proj_eq_some_KItem_Bytes, proj_eq_some_KItem_Endianness, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_OutCell, proj_eq_some_OutCellOpt_OutCell, proj_eq_some_KItem_OutCellOpt, proj_eq_some_KItem_Set, proj_eq_some_KItem_Signedness, proj_eq_some_KItem_Stmt, proj_eq_some_KItem_String, proj_eq_some_KItem_TCell, proj_eq_some_TCellOpt_TCell, proj_eq_some_KItem_TCellFragment, proj_eq_some_KItem_TCellOpt, $xs,*]; rw [Bool.eq_iff_iff]; simp_all; done)
-  | (simp only [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_Bool, proj_eq_some_KItem_Bytes, proj_eq_some_KItem_Endianness, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_OutCell, proj_eq_some_OutCellOpt_OutCell, proj_eq_some_KItem_OutCellOpt, proj_eq_some_KItem_Set, proj_eq_some_KItem_Signedness, proj_eq_some_KItem_Stmt, proj_eq_some_KItem_String, proj_eq_some_KItem_TCell, proj_eq_some_TCellOpt_TCell, proj_eq_some_KItem_TCellFragment, proj_eq_some_KItem_TCellOpt, $xs,*]; rw [Bool.eq_iff_iff]; simp_all; omega))
+  | k2l_hook_law
+  | (simp [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.StringHook.eq, KPrelude.StringHook.ne, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_Bool, proj_eq_some_KItem_Bytes, proj_eq_some_KItem_Endianness, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_OutCell, proj_eq_some_OutCellOpt_OutCell, proj_eq_some_KItem_OutCellOpt, proj_eq_some_KItem_Set, proj_eq_some_KItem_Signedness, proj_eq_some_KItem_Stmt, proj_eq_some_KItem_String, proj_eq_some_KItem_TCell, proj_eq_some_TCellOpt_TCell, proj_eq_some_KItem_TCellFragment, proj_eq_some_KItem_TCellOpt, $xs,*]; done)
+  | (simp_all [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.StringHook.eq, KPrelude.StringHook.ne, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_Bool, proj_eq_some_KItem_Bytes, proj_eq_some_KItem_Endianness, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_OutCell, proj_eq_some_OutCellOpt_OutCell, proj_eq_some_KItem_OutCellOpt, proj_eq_some_KItem_Set, proj_eq_some_KItem_Signedness, proj_eq_some_KItem_Stmt, proj_eq_some_KItem_String, proj_eq_some_KItem_TCell, proj_eq_some_TCellOpt_TCell, proj_eq_some_KItem_TCellFragment, proj_eq_some_KItem_TCellOpt, $xs,*]; done)
+  | (simp_all [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.StringHook.eq, KPrelude.StringHook.ne, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_Bool, proj_eq_some_KItem_Bytes, proj_eq_some_KItem_Endianness, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_OutCell, proj_eq_some_OutCellOpt_OutCell, proj_eq_some_KItem_OutCellOpt, proj_eq_some_KItem_Set, proj_eq_some_KItem_Signedness, proj_eq_some_KItem_Stmt, proj_eq_some_KItem_String, proj_eq_some_KItem_TCell, proj_eq_some_TCellOpt_TCell, proj_eq_some_KItem_TCellFragment, proj_eq_some_KItem_TCellOpt, $xs,*]; omega)
+  | (simp only [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.StringHook.eq, KPrelude.StringHook.ne, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_Bool, proj_eq_some_KItem_Bytes, proj_eq_some_KItem_Endianness, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_OutCell, proj_eq_some_OutCellOpt_OutCell, proj_eq_some_KItem_OutCellOpt, proj_eq_some_KItem_Set, proj_eq_some_KItem_Signedness, proj_eq_some_KItem_Stmt, proj_eq_some_KItem_String, proj_eq_some_KItem_TCell, proj_eq_some_TCellOpt_TCell, proj_eq_some_KItem_TCellFragment, proj_eq_some_KItem_TCellOpt, $xs,*]; rw [Bool.eq_iff_iff]; simp_all; done)
+  | (simp only [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.StringHook.eq, KPrelude.StringHook.ne, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_Bool, proj_eq_some_KItem_Bytes, proj_eq_some_KItem_Endianness, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_OutCell, proj_eq_some_OutCellOpt_OutCell, proj_eq_some_KItem_OutCellOpt, proj_eq_some_KItem_Set, proj_eq_some_KItem_Signedness, proj_eq_some_KItem_Stmt, proj_eq_some_KItem_String, proj_eq_some_KItem_TCell, proj_eq_some_TCellOpt_TCell, proj_eq_some_KItem_TCellFragment, proj_eq_some_KItem_TCellOpt, $xs,*]; rw [Bool.eq_iff_iff]; simp_all; omega))
 
 /-- The generic proof by case splits (equations `x = t` from a split substituted first: `simp_all`
 uses an equation `t = x` only from left to right). -/
-local macro "k2l_eqn_b" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((repeat' (first | split | k2l_split_hyps)) <;> (try subst_vars) <;> simp_all [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_Bool, proj_eq_some_KItem_Bytes, proj_eq_some_KItem_Endianness, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_OutCell, proj_eq_some_OutCellOpt_OutCell, proj_eq_some_KItem_OutCellOpt, proj_eq_some_KItem_Set, proj_eq_some_KItem_Signedness, proj_eq_some_KItem_Stmt, proj_eq_some_KItem_String, proj_eq_some_KItem_TCell, proj_eq_some_TCellOpt_TCell, proj_eq_some_KItem_TCellFragment, proj_eq_some_KItem_TCellOpt, $xs,*]))
+local macro "k2l_eqn_b" " [" xs:Lean.Parser.Tactic.simpLemma,* "]" : tactic => `(tactic| ((repeat' (first | split | k2l_split_hyps)) <;> (try subst_vars) <;> simp_all [KPrelude.IntHook.add, KPrelude.IntHook.sub, KPrelude.IntHook.mul, KPrelude.IntHook.lt, KPrelude.IntHook.le, KPrelude.IntHook.gt, KPrelude.IntHook.ge, KPrelude.IntHook.eq, KPrelude.IntHook.ne, KPrelude.BoolHook.not, KPrelude.BoolHook.and, KPrelude.BoolHook.or, KPrelude.BoolHook.xor, KPrelude.BoolHook.implies, KPrelude.BoolHook.eq, KPrelude.BoolHook.ne, KPrelude.KEqHook.eq, KPrelude.KEqHook.ne, KPrelude.KEqHook.ite, KPrelude.IntHook.tdiv, KPrelude.IntHook.tmod, KPrelude.IntHook.ediv, KPrelude.IntHook.emod, KPrelude.IntHook.pow, KPrelude.IntHook.shl, KPrelude.IntHook.shr, KPrelude.IntHook.abs, KPrelude.IntHook.min, KPrelude.IntHook.max, KPrelude.StringHook.eq, KPrelude.StringHook.ne, KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod, KPrelude.IntHook.int_emod_eq_of_lt, Int.tmod_eq_of_lt, proj_eq_some_KItem_Bool, proj_eq_some_KItem_Bytes, proj_eq_some_KItem_Endianness, proj_eq_some_GeneratedCounterCellOpt_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCell, proj_eq_some_KItem_GeneratedCounterCellOpt, proj_eq_some_KItem_GeneratedTopCell, proj_eq_some_KItem_GeneratedTopCellFragment, proj_eq_some_KItem_Int, proj_eq_some_KCellOpt_KCell, proj_eq_some_KItem_KCell, proj_eq_some_KItem_KCellOpt, proj_eq_some_KItem_KConfigVar, proj_eq_some_KItem_List, proj_eq_some_KItem_Map, proj_eq_some_KItem_OutCell, proj_eq_some_OutCellOpt_OutCell, proj_eq_some_KItem_OutCellOpt, proj_eq_some_KItem_Set, proj_eq_some_KItem_Signedness, proj_eq_some_KItem_Stmt, proj_eq_some_KItem_String, proj_eq_some_KItem_TCell, proj_eq_some_TCellOpt_TCell, proj_eq_some_KItem_TCellFragment, proj_eq_some_KItem_TCellOpt, $xs,*]))
 
 /-- _andBool_ equation 1 -/
 theorem Eqn._andBool__1 (B : SortBool) :
@@ -37,7 +38,8 @@ theorem Eqn._andBool__1 (B : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _andBool_ equation 2 -/
 theorem Eqn._andBool__2 (Gen0 : SortBool) :
@@ -45,7 +47,8 @@ theorem Eqn._andBool__2 (Gen0 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _andThenBool_ equation 1 -/
 theorem Eqn._andThenBool__1 (K_1 : SortBool) :
@@ -53,7 +56,8 @@ theorem Eqn._andThenBool__1 (K_1 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _andThenBool_ equation 2 -/
 theorem Eqn._andThenBool__2 (Gen0 : SortBool) :
@@ -61,7 +65,8 @@ theorem Eqn._andThenBool__2 (Gen0 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _divInt_ equation 1 -/
 theorem Eqn._divInt__1 (I1 : SortInt) (I2 : SortInt)
@@ -70,7 +75,8 @@ theorem Eqn._divInt__1 (I1 : SortInt) (I2 : SortInt)
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _impliesBool_ equation 1 -/
 theorem Eqn._impliesBool__1 (B : SortBool) :
@@ -78,7 +84,8 @@ theorem Eqn._impliesBool__1 (B : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _impliesBool_ equation 2 -/
 theorem Eqn._impliesBool__2 (Gen0 : SortBool) :
@@ -86,7 +93,8 @@ theorem Eqn._impliesBool__2 (Gen0 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _orBool_ equation 1 -/
 theorem Eqn._orBool__1 (Gen0 : SortBool) :
@@ -94,7 +102,8 @@ theorem Eqn._orBool__1 (Gen0 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _orBool_ equation 2 -/
 theorem Eqn._orBool__2 (B : SortBool) :
@@ -102,7 +111,8 @@ theorem Eqn._orBool__2 (B : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _orElseBool_ equation 1 -/
 theorem Eqn._orElseBool__1 (Gen0 : SortBool) :
@@ -110,7 +120,8 @@ theorem Eqn._orElseBool__1 (Gen0 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _orElseBool_ equation 2 -/
 theorem Eqn._orElseBool__2 (K_1 : SortBool) :
@@ -118,7 +129,8 @@ theorem Eqn._orElseBool__2 (K_1 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _xorBool_ equation 1 -/
 theorem Eqn._xorBool__1 (B : SortBool) :
@@ -126,7 +138,8 @@ theorem Eqn._xorBool__1 (B : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _xorBool_ equation 2 -/
 theorem Eqn._xorBool__2 (B : SortBool) :
@@ -134,7 +147,8 @@ theorem Eqn._xorBool__2 (B : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _>String__STRING-COMMON_Bool_String_String equation 1 -/
 theorem Eqn.«_>String__STRING-COMMON_Bool_String_String_1» (S1 : SortString) (S2 : SortString) :
@@ -142,7 +156,8 @@ theorem Eqn.«_>String__STRING-COMMON_Bool_String_String_1» (S1 : SortString) (
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _>=String__STRING-COMMON_Bool_String_String equation 1 -/
 theorem Eqn.«_>=String__STRING-COMMON_Bool_String_String_1» (S1 : SortString) (S2 : SortString) :
@@ -150,7 +165,8 @@ theorem Eqn.«_>=String__STRING-COMMON_Bool_String_String_1» (S1 : SortString) 
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _<=String__STRING-COMMON_Bool_String_String equation 1 -/
 theorem Eqn.«_<=String__STRING-COMMON_Bool_String_String_1» (S1 : SortString) (S2 : SortString) :
@@ -158,7 +174,8 @@ theorem Eqn.«_<=String__STRING-COMMON_Bool_String_String_1» (S1 : SortString) 
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _=/=Bool_ equation 1 -/
 theorem Eqn.«_=/=Bool__1» (B1 : SortBool) (B2 : SortBool) :
@@ -166,7 +183,8 @@ theorem Eqn.«_=/=Bool__1» (B1 : SortBool) (B2 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _=/=Int_ equation 1 -/
 theorem Eqn.«_=/=Int__1» (I1 : SortInt) (I2 : SortInt) :
@@ -174,7 +192,8 @@ theorem Eqn.«_=/=Int__1» (I1 : SortInt) (I2 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _=/=K_ equation 1 -/
 theorem Eqn.«_=/=K__1» (K1 : SortK) (K2 : SortK) :
@@ -182,7 +201,8 @@ theorem Eqn.«_=/=K__1» (K1 : SortK) (K2 : SortK) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _=/=String__STRING-COMMON_Bool_String_String equation 1 -/
 theorem Eqn.«_=/=String__STRING-COMMON_Bool_String_String_1» (S1 : SortString) (S2 : SortString) :
@@ -190,7 +210,8 @@ theorem Eqn.«_=/=String__STRING-COMMON_Bool_String_String_1» (S1 : SortString)
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- _|Set__SET_Set_Set_Set equation 1 -/
 theorem Eqn.«_|Set__SET_Set_Set_Set_1» (S1 : SortSet) (S2 : SortSet) :
@@ -198,7 +219,8 @@ theorem Eqn.«_|Set__SET_Set_Set_Set_1» (S1 : SortSet) (S2 : SortSet) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int equation 1 -/
 theorem Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1» (I : SortInt) (IDX : SortInt) (LEN : SortInt) :
@@ -206,7 +228,8 @@ theorem Eqn.«bitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1» (I : SortInt) (I
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- countAllOccurrences(_,_)_STRING-COMMON_Int_String_String equation 1 -/
 theorem Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_1» (Source : SortString) (ToCount : SortString)
@@ -215,7 +238,8 @@ theorem Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_1» (Sour
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- countAllOccurrences(_,_)_STRING-COMMON_Int_String_String equation 2 -/
 theorem Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2» (Source : SortString) (ToCount : SortString)
@@ -224,7 +248,8 @@ theorem Eqn.«countAllOccurrences(_,_)_STRING-COMMON_Int_String_String_2» (Sour
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- findChar(_,_,_)_STRING-COMMON_Int_String_String_Int equation 2 -/
 theorem Eqn.«findChar(_,_,_)_STRING-COMMON_Int_String_String_Int_2» (Gen0 : SortString) (Gen1 : SortInt) :
@@ -232,7 +257,8 @@ theorem Eqn.«findChar(_,_,_)_STRING-COMMON_Int_String_String_Int_2» (Gen0 : So
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- minInt(_,_)_INT-COMMON_Int_Int_Int equation 1 -/
 theorem Eqn.«minInt(_,_)_INT-COMMON_Int_Int_Int_1» (I1 : SortInt) (I2 : SortInt)
@@ -241,7 +267,8 @@ theorem Eqn.«minInt(_,_)_INT-COMMON_Int_Int_Int_1» (I1 : SortInt) (I2 : SortIn
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- minInt(_,_)_INT-COMMON_Int_Int_Int equation 2 -/
 theorem Eqn.«minInt(_,_)_INT-COMMON_Int_Int_Int_2» (I1 : SortInt) (I2 : SortInt)
@@ -250,7 +277,8 @@ theorem Eqn.«minInt(_,_)_INT-COMMON_Int_Int_Int_2» (I1 : SortInt) (I2 : SortIn
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- notBool_ equation 1 -/
 theorem Eqn.notBool__1 :
@@ -258,7 +286,8 @@ theorem Eqn.notBool__1 :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- notBool_ equation 2 -/
 theorem Eqn.notBool__2 :
@@ -266,7 +295,8 @@ theorem Eqn.notBool__2 :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- pushList equation 1 -/
 theorem Eqn.pushList_1 (K_1 : SortKItem) (L1 : SortList) :
@@ -274,7 +304,8 @@ theorem Eqn.pushList_1 (K_1 : SortKItem) (L1 : SortList) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String equation 1 -/
 theorem Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_1» (Replacement : SortString) (Source : SortString) (ToReplace : SortString)
@@ -283,7 +314,8 @@ theorem Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_1» 
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String equation 2 -/
 theorem Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_2» (Gen0 : SortString) (Source : SortString) (ToReplace : SortString)
@@ -292,7 +324,8 @@ theorem Eqn.«replaceFirst(_,_,_)_STRING-COMMON_String_String_String_String_2» 
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int equation 1 -/
 theorem Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_1» (I : SortInt) (S1 : SortString) (S2 : SortString)
@@ -301,7 +334,8 @@ theorem Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_1» (I : Sort
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int equation 2 -/
 theorem Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_2» (Gen0 : SortString) (Gen1 : SortInt) :
@@ -309,7 +343,8 @@ theorem Eqn.«rfindChar(_,_,_)_STRING-COMMON_Int_String_String_Int_2» (Gen0 : S
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int equation 1 -/
 theorem Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1» (I : SortInt) (IDX : SortInt) (LEN : SortInt) :
@@ -317,7 +352,8 @@ theorem Eqn.«signExtendBitRangeInt(_,_,_)_INT-COMMON_Int_Int_Int_Int_1» (I : S
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 72139ee1f2b9 (domains.md) -/
 theorem Simp.s_72139ee1f2b9 (B : SortBool) :
@@ -325,7 +361,8 @@ theorem Simp.s_72139ee1f2b9 (B : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification fd61c826168a (domains.md) -/
 theorem Simp.s_fd61c826168a (Gen0 : SortBool) :
@@ -333,7 +370,8 @@ theorem Simp.s_fd61c826168a (Gen0 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 2cfb33affb9c (domains.md) -/
 theorem Simp.s_2cfb33affb9c (K_1 : SortBool) :
@@ -341,7 +379,8 @@ theorem Simp.s_2cfb33affb9c (K_1 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 198861009d03 (domains.md) -/
 theorem Simp.s_198861009d03 (Gen0 : SortBool) :
@@ -349,7 +388,8 @@ theorem Simp.s_198861009d03 (Gen0 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 69f518203376 (domains.md) -/
 theorem Simp.s_69f518203376 (B : SortBool) :
@@ -357,7 +397,8 @@ theorem Simp.s_69f518203376 (B : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 942af273100b (domains.md) -/
 theorem Simp.s_942af273100b (Gen0 : SortBool) :
@@ -365,7 +406,8 @@ theorem Simp.s_942af273100b (Gen0 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification a5bb27ab5470 (domains.md) -/
 theorem Simp.s_a5bb27ab5470 (B : SortBool) :
@@ -373,7 +415,8 @@ theorem Simp.s_a5bb27ab5470 (B : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 2459cad4fbb9 (domains.md) -/
 theorem Simp.s_2459cad4fbb9 (Gen0 : SortBool) :
@@ -381,7 +424,8 @@ theorem Simp.s_2459cad4fbb9 (Gen0 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 13cf42d440f9 (domains.md) -/
 theorem Simp.s_13cf42d440f9 (K_1 : SortBool) :
@@ -389,7 +433,8 @@ theorem Simp.s_13cf42d440f9 (K_1 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 2b4994db7b40 (domains.md) -/
 theorem Simp.s_2b4994db7b40 (Gen0 : SortBool) :
@@ -397,7 +442,8 @@ theorem Simp.s_2b4994db7b40 (Gen0 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 93b8d798abd6 (domains.md) -/
 theorem Simp.s_93b8d798abd6 (B : SortBool) :
@@ -405,7 +451,8 @@ theorem Simp.s_93b8d798abd6 (B : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 2397e65cf548 (domains.md) -/
 theorem Simp.s_2397e65cf548 (K1 : SortBool) (K2 : SortBool) :
@@ -413,7 +460,8 @@ theorem Simp.s_2397e65cf548 (K1 : SortBool) (K2 : SortBool) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 4f1df0fcbe56 (domains.md) -/
 theorem Simp.s_4f1df0fcbe56 (K1 : SortK) (K2 : SortK) :
@@ -421,7 +469,8 @@ theorem Simp.s_4f1df0fcbe56 (K1 : SortK) (K2 : SortK) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 9a4b74e34544 (domains.md) -/
 theorem Simp.s_9a4b74e34544 (K1 : SortK) (K2 : SortK) :
@@ -429,7 +478,8 @@ theorem Simp.s_9a4b74e34544 (K1 : SortK) (K2 : SortK) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification fbb001dd1d8b (domains.md) -/
 theorem Simp.s_fbb001dd1d8b (K1 : SortK) (K2 : SortK) :
@@ -437,7 +487,8 @@ theorem Simp.s_fbb001dd1d8b (K1 : SortK) (K2 : SortK) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 45bfda34ee15 (domains.md) -/
 theorem Simp.s_45bfda34ee15 (K1 : SortK) (K2 : SortK) :
@@ -445,7 +496,8 @@ theorem Simp.s_45bfda34ee15 (K1 : SortK) (K2 : SortK) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification bbc468285d9d (domains.md) -/
 theorem Simp.s_bbc468285d9d (K1 : SortK) (K2 : SortK) :
@@ -453,7 +505,8 @@ theorem Simp.s_bbc468285d9d (K1 : SortK) (K2 : SortK) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification fdc517cb9fb2 (domains.md) -/
 theorem Simp.s_fdc517cb9fb2 (K1 : SortK) (K2 : SortK) :
@@ -461,7 +514,8 @@ theorem Simp.s_fdc517cb9fb2 (K1 : SortK) (K2 : SortK) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 9d66f4f45231 (domains.md) -/
 theorem Simp.s_9d66f4f45231 (K1 : SortK) (K2 : SortK) :
@@ -469,7 +523,8 @@ theorem Simp.s_9d66f4f45231 (K1 : SortK) (K2 : SortK) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification da8b62ee5fcd (domains.md) -/
 theorem Simp.s_da8b62ee5fcd (K1 : SortK) (K2 : SortK) :
@@ -477,7 +532,8 @@ theorem Simp.s_da8b62ee5fcd (K1 : SortK) (K2 : SortK) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification d95370e01038 (domains.md) -/
 theorem Simp.s_d95370e01038 (I1 : SortInt) (I2 : SortInt) :
@@ -485,7 +541,8 @@ theorem Simp.s_d95370e01038 (I1 : SortInt) (I2 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification c41b0da7f1db (domains.md) -/
 theorem Simp.s_c41b0da7f1db (K1 : SortInt) (K2 : SortInt) :
@@ -493,7 +550,8 @@ theorem Simp.s_c41b0da7f1db (K1 : SortInt) (K2 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 435d5e3c9c81 (domains.md) -/
 theorem Simp.s_435d5e3c9c81 (K1 : SortInt) (K2 : SortInt) :
@@ -501,7 +559,8 @@ theorem Simp.s_435d5e3c9c81 (K1 : SortInt) (K2 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification b47d1ffbd21d (domains.md) -/
 theorem Simp.s_b47d1ffbd21d (K1 : SortInt) (K2 : SortInt) :
@@ -509,7 +568,8 @@ theorem Simp.s_b47d1ffbd21d (K1 : SortInt) (K2 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 1079bc3ddec6 (domains.md) -/
 theorem Simp.s_1079bc3ddec6 (K1 : SortInt) (K2 : SortInt) :
@@ -517,7 +577,8 @@ theorem Simp.s_1079bc3ddec6 (K1 : SortInt) (K2 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 05a130417fde (domains.md) -/
 theorem Simp.s_05a130417fde (K1 : SortInt) (K2 : SortInt) :
@@ -525,7 +586,8 @@ theorem Simp.s_05a130417fde (K1 : SortInt) (K2 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 7c6945e9f9c0 (domains.md) -/
 theorem Simp.s_7c6945e9f9c0 (K1 : SortInt) (K2 : SortInt) :
@@ -533,7 +595,8 @@ theorem Simp.s_7c6945e9f9c0 (K1 : SortInt) (K2 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 795b359eb7de (domains.md) -/
 theorem Simp.s_795b359eb7de (K1 : SortInt) (K2 : SortInt) :
@@ -541,7 +604,8 @@ theorem Simp.s_795b359eb7de (K1 : SortInt) (K2 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 9792bd7a5d25 (domains.md) -/
 theorem Simp.s_9792bd7a5d25 (K1 : SortInt) (K2 : SortInt) :
@@ -549,7 +613,8 @@ theorem Simp.s_9792bd7a5d25 (K1 : SortInt) (K2 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 2e6bd1d3ddd7 (domains.md) -/
 theorem Simp.s_2e6bd1d3ddd7 (B : SortInt) (I : SortInt) :
@@ -557,7 +622,8 @@ theorem Simp.s_2e6bd1d3ddd7 (B : SortInt) (I : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification d74a5051d6c5 (domains.md) -/
 theorem Simp.s_d74a5051d6c5 (A : SortInt) (I : SortInt) :
@@ -565,7 +631,8 @@ theorem Simp.s_d74a5051d6c5 (A : SortInt) (I : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 905f980f1bfa (domains.md) -/
 theorem Simp.s_905f980f1bfa (A : SortInt) (I2 : SortInt) (I3 : SortInt) :
@@ -573,7 +640,8 @@ theorem Simp.s_905f980f1bfa (A : SortInt) (I2 : SortInt) (I3 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 7308565e5037 (domains.md) -/
 theorem Simp.s_7308565e5037 (B : SortInt) (I1 : SortInt) (I3 : SortInt) :
@@ -581,7 +649,8 @@ theorem Simp.s_7308565e5037 (B : SortInt) (I1 : SortInt) (I3 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 65fc58d60e6d (domains.md) -/
 theorem Simp.s_65fc58d60e6d (B : SortInt) (I1 : SortInt) (I3 : SortInt) :
@@ -589,7 +658,8 @@ theorem Simp.s_65fc58d60e6d (B : SortInt) (I1 : SortInt) (I3 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification c1ab8935c147 (domains.md) -/
 theorem Simp.s_c1ab8935c147 (C : SortInt) (I1 : SortInt) (I2 : SortInt) :
@@ -597,7 +667,8 @@ theorem Simp.s_c1ab8935c147 (C : SortInt) (I1 : SortInt) (I2 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 935f82fd8fdd (domains.md) -/
 theorem Simp.s_935f82fd8fdd (C : SortInt) (I1 : SortInt) (I2 : SortInt) :
@@ -605,7 +676,8 @@ theorem Simp.s_935f82fd8fdd (C : SortInt) (I1 : SortInt) (I2 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification a05a3720b49f (domains.md) -/
 theorem Simp.s_a05a3720b49f (B : SortInt) (I1 : SortInt) (I3 : SortInt) :
@@ -613,7 +685,8 @@ theorem Simp.s_a05a3720b49f (B : SortInt) (I1 : SortInt) (I3 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 56750a45b2b2 (domains.md) -/
 theorem Simp.s_56750a45b2b2 (C : SortInt) (I1 : SortInt) (I2 : SortInt) :
@@ -621,7 +694,8 @@ theorem Simp.s_56750a45b2b2 (C : SortInt) (I1 : SortInt) (I2 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification e2166a2b9e9f (domains.md) -/
 theorem Simp.s_e2166a2b9e9f (C : SortInt) (I1 : SortInt) (I2 : SortInt) :
@@ -629,7 +703,8 @@ theorem Simp.s_e2166a2b9e9f (C : SortInt) (I1 : SortInt) (I2 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 8f97bbde4900 (domains.md) -/
 theorem Simp.s_8f97bbde4900 (C : SortInt) (I2 : SortInt) (I3 : SortInt) :
@@ -637,7 +712,8 @@ theorem Simp.s_8f97bbde4900 (C : SortInt) (I2 : SortInt) (I3 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 942141263122 (domains.md) -/
 theorem Simp.s_942141263122 (C : SortInt) (I1 : SortInt) (I2 : SortInt) :
@@ -645,7 +721,8 @@ theorem Simp.s_942141263122 (C : SortInt) (I1 : SortInt) (I2 : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification aabd26e6a15f (domains.md) -/
 theorem Simp.s_aabd26e6a15f (I : SortInt) :
@@ -653,7 +730,8 @@ theorem Simp.s_aabd26e6a15f (I : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification ce5b8e5bfd73 (domains.md) -/
 theorem Simp.s_ce5b8e5bfd73 (I : SortInt) :
@@ -661,7 +739,8 @@ theorem Simp.s_ce5b8e5bfd73 (I : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 1bb30afae68f (domains.md) -/
 theorem Simp.s_1bb30afae68f (N : SortInt) (X : SortInt)
@@ -670,7 +749,8 @@ theorem Simp.s_1bb30afae68f (N : SortInt) (X : SortInt)
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 0475fccae6d0 (domains.md) -/
 theorem Simp.s_0475fccae6d0 (N : SortInt) (X : SortInt)
@@ -679,7 +759,8 @@ theorem Simp.s_0475fccae6d0 (N : SortInt) (X : SortInt)
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 8b63843b7b41 (domains.md) -/
 theorem Simp.s_8b63843b7b41 (X : SortInt) :
@@ -687,7 +768,8 @@ theorem Simp.s_8b63843b7b41 (X : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 4219ff239080 (domains.md) -/
 theorem Simp.s_4219ff239080 (Y : SortInt)
@@ -696,7 +778,8 @@ theorem Simp.s_4219ff239080 (Y : SortInt)
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification afa10f58a41b (domains.md) -/
 theorem Simp.s_afa10f58a41b (X : SortInt) :
@@ -704,7 +787,8 @@ theorem Simp.s_afa10f58a41b (X : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification b85464e01550 (domains.md) -/
 theorem Simp.s_b85464e01550 (Y : SortInt)
@@ -713,7 +797,8 @@ theorem Simp.s_b85464e01550 (Y : SortInt)
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 44257f63a99a (domains.md) -/
 theorem Simp.s_44257f63a99a (I1 : SortInt) (I2 : SortInt)
@@ -722,7 +807,8 @@ theorem Simp.s_44257f63a99a (I1 : SortInt) (I2 : SortInt)
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification f68c225a4475 (domains.md) -/
 theorem Simp.s_f68c225a4475 (Gen0 : SortBytes) (LEN : SortInt) (VAL : SortInt) :
@@ -730,7 +816,8 @@ theorem Simp.s_f68c225a4475 (Gen0 : SortBytes) (LEN : SortInt) (VAL : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification 7c257f409827 (domains.md) -/
 theorem Simp.s_7c257f409827 (Gen0 : SortBytes) (LEN : SortInt) (VAL : SortInt) :
@@ -738,7 +825,8 @@ theorem Simp.s_7c257f409827 (Gen0 : SortBytes) (LEN : SortInt) (VAL : SortInt) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 /-- simplification b977e4810b4c (domains.md) -/
 theorem Simp.s_b977e4810b4c (S1 : SortString) (S2 : SortString) :
@@ -746,6 +834,7 @@ theorem Simp.s_b977e4810b4c (S1 : SortString) (S2 : SortString) :
   intros
   first
   | k2l_eqn_a []
-  | (k2l_eqn_b [])
+  | (k2l_eqn_b []; done)
+  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])
 
 end Params

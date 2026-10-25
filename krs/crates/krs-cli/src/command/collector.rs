@@ -377,8 +377,11 @@ fn rust_diagnostics(
                     Diagnostic::error(code.clone(), text.to_owned(), Location::Source(range));
                 relayed.notes.clone_from(&notes);
                 relayed.help.clone_from(&help);
-                let view = diagnostic_envelope(relayed, DiagnosticStage::RustExpansion, None);
-                diagnostics.extend(view);
+                diagnostics.push(diagnostic_envelope(
+                    relayed,
+                    DiagnosticStage::RustExpansion,
+                    None,
+                ));
             }
         }
     }
@@ -450,7 +453,7 @@ fn relay_unused_imports(
         let mut relayed = Diagnostic::error(code.clone(), message, Location::Source(range));
         relayed.notes = notes;
         relayed.help = help;
-        diagnostics.extend(diagnostic_envelope(
+        diagnostics.push(diagnostic_envelope(
             relayed,
             DiagnosticStage::RustExpansion,
             None,
@@ -1115,10 +1118,10 @@ mod tests {
         );
         for invalid in [
             "not json".to_owned(),
-            json.replace("\"schema_version\":1", "\"schema_version\":2"),
+            json.replace("\"schema_version\":2", "\"schema_version\":1"),
             json.replace(
-                "\"schema_version\":1",
-                "\"unknown\":true,\"schema_version\":1",
+                "\"schema_version\":2",
+                "\"unknown\":true,\"schema_version\":2",
             ),
             format!("{json}not json\n"),
         ] {

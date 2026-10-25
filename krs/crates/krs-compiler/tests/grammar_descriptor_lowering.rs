@@ -559,7 +559,7 @@ fn constructor_without_grammar_descriptor_is_rejected() {
     ));
 
     let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
-    let krs_compiler::DescriptorLoweringError::UnsupportedShape { node, detail } = error else {
+    let krs_compiler::DescriptorLoweringError::UnsupportedShape { node, detail, .. } = error else {
         panic!("unexpected error: {error:?}")
     };
     assert_eq!(node, "constructor");
@@ -980,9 +980,11 @@ fn structured_rule_bindings_reject_absent_common_descendant() {
     replace_rule_result_with_builtin(&mut bundle, BuiltinOperation::BoolNot, None);
     let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
     assert!(
-        error
-            .to_string()
-            .contains("variable \"x\" has no declared common descendant"),
+        matches!(
+            &error,
+            krs_compiler::DescriptorLoweringError::IncompatibleBinder { reason, .. }
+                if reason.starts_with("binder `x` is bound at ")
+        ),
         "unexpected error: {error}"
     );
 }

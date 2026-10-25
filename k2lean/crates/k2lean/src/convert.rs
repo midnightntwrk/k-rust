@@ -12,9 +12,51 @@ pub struct Conv<'a> {
     pub def: &'a Def,
     /// K label → KORE symbol.
     labels: BTreeMap<String, String>,
+    /// Write a `Bytes` literal as a list of bytes (`bytes_list`) rather than through a string.
+    pub bytes_as_list: bool,
 }
 
 type R<T> = Result<T, String>;
+
+/// A `Bytes` literal (one character per byte) as the list of its bytes: a run of at least 8 equal
+/// bytes as `List.replicate`, the others as list literals, joined by `++`. It is the value of
+/// `BytesHook.ofString val`, written so that the kernel evaluates it in time linear in its length:
+/// through the string, the kernel decodes the literal's UTF-8 bytes, in time quadratic in its length.
+pub fn bytes_list(val: &str) -> R<String> {
+    let mut bytes = Vec::new();
+    for c in val.chars() {
+        bytes.push(
+            u8::try_from(u32::from(c)).map_err(|_| format!("bad Bytes literal character {c:?}"))?,
+        );
+    }
+    let mut parts: Vec<String> = Vec::new();
+    let mut lit: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let mut j = i;
+        while j < bytes.len() && bytes[j] == bytes[i] {
+            j += 1;
+        }
+        if j - i >= 8 {
+            if !lit.is_empty() {
+                parts.push(format!("[{}]", lit.join(", ")));
+                lit.clear();
+            }
+            parts.push(format!("List.replicate {} ({} : UInt8)", j - i, bytes[i]));
+        } else {
+            lit.extend(bytes[i..j].iter().map(|b| b.to_string()));
+        }
+        i = j;
+    }
+    if !lit.is_empty() {
+        parts.push(format!("[{}]", lit.join(", ")));
+    }
+    Ok(match parts.len() {
+        0 => "([] : List UInt8)".to_string(),
+        1 if parts[0].starts_with('[') => format!("({} : List UInt8)", parts[0]),
+        _ => format!("(({}) : List UInt8)", parts.join(" ++ ")),
+    })
+}
 
 impl<'a> Conv<'a> {
     pub fn new(m: &'a Model, def: &'a Def) -> Self {
@@ -22,7 +64,12 @@ impl<'a> Conv<'a> {
         for sym in def.symbols.keys() {
             labels.insert(names::demangle(sym), sym.clone());
         }
-        Conv { m, def, labels }
+        Conv {
+            m,
+            def,
+            labels,
+            bytes_as_list: false,
+        }
     }
 
     fn hook(&self, sym: &str) -> Option<String> {
@@ -39,6 +86,7 @@ impl<'a> Conv<'a> {
             Kind::Builtin(Builtin::Int) => L::Raw(format!("({val} : Int)")),
             Kind::Builtin(Builtin::Bool) => L::Raw(val.to_string()),
             Kind::Builtin(Builtin::String) => L::Raw(names::string_lit(val)),
+            Kind::Builtin(Builtin::Bytes) if self.bytes_as_list => L::Raw(bytes_list(val)?),
             Kind::Builtin(Builtin::Bytes) => L::Raw(format!(
                 "(KPrelude.BytesHook.ofString {})",
                 names::string_lit(val)
@@ -271,5 +319,21 @@ impl<'a> Conv<'a> {
             }
             other => Err(format!("unsupported KAST node {other:?}")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::bytes_list;
+
+    #[test]
+    fn bytes_list_writes_runs_and_literals() {
+        assert_eq!(bytes_list("").unwrap(), "([] : List UInt8)");
+        assert_eq!(bytes_list("A").unwrap(), "([65] : List UInt8)");
+        assert_eq!(
+            bytes_list(&format!("{}AB", "\u{0}".repeat(9))).unwrap(),
+            "((List.replicate 9 (0 : UInt8) ++ [65, 66]) : List UInt8)"
+        );
+        assert!(bytes_list("\u{100}").is_err());
     }
 }

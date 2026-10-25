@@ -21,9 +21,9 @@ one command constructor per case; a rustc or collector error is attributed to th
 holds it, a failure no case owns is bisected, and once a batch collects, each case is lowered from
 the descriptors of the base and its own. A case is judged by
 
-- K2: when refused, exactly one error, with a registered KRS code that `[internal]` does not list
-  (a rustc error forwarded as `krs::rust-expansion::uncoded-error` does not count), located inside
-  the site the table's rule names (the entry by default), without a panic or an internal error;
+- K2: when refused, exactly one error, with a registered KRS code of the author kind (the registry's
+  `CodeKind`; a rustc error forwarded as `krs::rust-expansion::uncoded-error` does not count), located (its
+  primary range or one of its labels) inside the site the table's rule names (the entry by default), without a panic or an internal error;
   and the table's outcome: accepted with the K the table records, or refused with the code of the
   case's mistake class. The table covers every case: a new case needs its entry;
 - K1, once collected: every anchor of the case's descriptors lies inside the case's text, and no

@@ -23,6 +23,7 @@ pub mod descriptor_index;
 mod detail_macros;
 mod display;
 mod error_detail;
+mod failure_site;
 pub mod float_token;
 pub mod generated;
 pub mod grammar;
@@ -55,8 +56,9 @@ pub use bundle::{
     ConfigurationSentenceKind, Constructor, ConstructorDescriptor, ConstructorField,
     ConstructorFieldDescriptor, ConstructorSortArgument, ConstructorSortArgumentDescriptor,
     Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorDeclarationError,
-    DescriptorError, DescriptorNodeOrigin, DescriptorPayload, DescriptorProvenance,
-    DescriptorProvenanceError, PackageSettings, Payload, SentenceKind, SortDescriptor, SortPayload,
+    DescriptorError, DescriptorFailure, DescriptorNodeOrigin, DescriptorPayload,
+    DescriptorProvenance, DescriptorProvenanceError, PackageSettings, Payload, SentenceKind,
+    SortDescriptor, SortPayload,
 };
 pub use catalog::{
     BuiltinOperationNotation, BuiltinOperationSpec, BuiltinSort, BuiltinSortSpec,

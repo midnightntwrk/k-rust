@@ -50,7 +50,7 @@ pub(super) fn evaluation_step(
         return Ok((None, None));
     };
     if let Some(binder) = existentials.fresh().first() {
-        return Err(super::rules::misplaced_fresh(binder.name().span()));
+        return Err(super::rules::misplaced_fresh(Some(binder.name().span())));
     }
     let hole = attribute
         .hole()

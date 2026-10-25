@@ -6,6 +6,7 @@
 mod casediff;
 mod cases;
 mod claims;
+mod confluence;
 mod convert;
 mod det2;
 mod drivers;
@@ -22,10 +23,12 @@ mod lower;
 mod model;
 mod multi;
 mod names;
+mod noninterference;
 mod overload;
 mod pairs;
 mod preserves;
 mod ranked;
+mod refine;
 mod relate;
 mod render;
 mod rulename;
@@ -41,6 +44,10 @@ use std::path::PathBuf;
 
 /// The Lean toolchain of every generated project (and of `k2lean/lean/prelude` and `k2lean/lean/claims`).
 pub const LEAN_TOOLCHAIN: &str = "leanprover/lean4:v4.34.0\n";
+
+/// The default bound on the weight of one module of `Equations` (`eqns::weight`,
+/// `gen --equations-part-weight`).
+pub const EQUATIONS_PART_WEIGHT: usize = 2000;
 
 struct Args {
     cmd: String,
@@ -97,14 +104,66 @@ fn write(path: &PathBuf, text: &str) {
     std::fs::write(path, text).unwrap();
 }
 
+/// The Lean files of a generated module: the file itself and, for an `Equations.lean` written in
+/// parts (`eqns::emit_modules`), the parts it imports (`import NS.Equations.PartK`, at
+/// `NS/Equations/PartK.lean` beside it), each with the path suffix its build errors name.
+fn module_files(file: &std::path::Path) -> Vec<(PathBuf, String)> {
+    let name = file.file_name().unwrap().to_string_lossy().to_string();
+    let mut out = vec![(file.to_path_buf(), name.clone())];
+    let (Some(dir), Some(stem)) = (file.parent(), file.file_stem()) else {
+        return out;
+    };
+    let stem = stem.to_string_lossy().to_string();
+    let ns = dir.file_name().map(|n| n.to_string_lossy().to_string());
+    let text = std::fs::read_to_string(file).unwrap_or_default();
+    for l in text.lines().take_while(|l| l.starts_with("import ")) {
+        let Some(ns) = &ns else { break };
+        let Some(part) = l
+            .strip_prefix("import ")
+            .and_then(|m| m.strip_prefix(&format!("{ns}.{stem}.")))
+        else {
+            continue;
+        };
+        if part.is_empty() || part.contains('.') {
+            continue;
+        }
+        out.push((
+            dir.join(&stem).join(format!("{part}.lean")),
+            format!("{stem}/{part}.lean"),
+        ));
+    }
+    out
+}
+
+/// The theorem of `lines` (a generated file) that an error at line `line` (1-based) is in: the
+/// last `theorem` line at or before it, unless the error is on the lines that open a declaration
+/// before its `theorem` keyword (its doc comment, a `set_option … in`), where Lean reports an
+/// error of the whole declaration, such as a proof out of heartbeats; then the theorem they open.
+fn failed_theorem(lines: &[&str], line: usize) -> Option<String> {
+    let opens =
+        |l: &str| l.starts_with("/--") || (l.starts_with("set_option ") && l.ends_with(" in"));
+    let mut i = line.checked_sub(1)?;
+    if lines.get(i).is_some_and(|l| opens(l)) {
+        while lines.get(i).is_some_and(|l| opens(l)) {
+            i += 1;
+        }
+    }
+    let i = i.min(lines.len().checked_sub(1)?);
+    (0..=i).rev().find_map(|k| {
+        // the name ends at the first space outside `«…»` (rule names hold spaces)
+        lines[k]
+            .strip_prefix("theorem ")
+            .map(|name| invariants::case_token(name).unwrap())
+    })
+}
+
 /// `open-from-log EQUATIONS.lean BUILD.log OPEN.txt`: add the theorems whose proofs failed in a
-/// build log to the open-obligation list (they are then emitted as statements only).
+/// build log to the open-obligation list (they are then emitted as statements only). The errors
+/// of the parts of an `Equations.lean` written in parts count as its own.
 fn open_from_log(args: &[String]) {
     let [eq_file, log, out] = args else {
         panic!("usage: open-from-log EQUATIONS.lean BUILD.log OPEN.txt")
     };
-    let text = std::fs::read_to_string(eq_file).unwrap();
-    let lines: Vec<&str> = text.lines().collect();
     let log = std::fs::read_to_string(log).unwrap();
     let mut open: std::collections::BTreeSet<String> = std::fs::read_to_string(out)
         .unwrap_or_default()
@@ -112,34 +171,36 @@ fn open_from_log(args: &[String]) {
         .map(|l| l.trim().to_string())
         .filter(|l| !l.is_empty())
         .collect();
-    let file_name = std::path::Path::new(eq_file)
-        .file_name()
-        .unwrap()
-        .to_string_lossy()
-        .to_string();
-    for l in log.lines() {
-        let Some(pos) = l.find(&format!("{file_name}:")) else {
+    for (file, suffix) in module_files(std::path::Path::new(eq_file)) {
+        let Ok(text) = std::fs::read_to_string(&file) else {
             continue;
         };
-        if !l.trim_start().starts_with("error:") {
-            continue;
-        }
-        let rest = &l[pos + file_name.len() + 1..];
-        let Some(line) = rest.split(':').next().and_then(|n| n.parse::<usize>().ok()) else {
-            continue;
-        };
-        // an error in a command (`#k2l_assert_axioms`) is a consequence, not a failed proof
-        if lines
-            .get(line.wrapping_sub(1))
-            .is_some_and(|l| l.starts_with('#'))
-        {
-            continue;
-        }
-        for i in (0..line.min(lines.len())).rev() {
-            if let Some(name) = lines[i].strip_prefix("theorem ") {
-                // the name ends at the first space outside `«…»` (rule names hold spaces)
-                open.insert(invariants::case_token(name).unwrap());
-                break;
+        let lines: Vec<&str> = text.lines().collect();
+        for l in log.lines() {
+            let Some(pos) = l.find(&format!("{suffix}:")) else {
+                continue;
+            };
+            if !l.trim_start().starts_with("error:") {
+                continue;
+            }
+            // `Equations.lean:` must not match the error of a part (`Equations/Part1.lean:`), nor
+            // the reverse: the suffix starts the path or follows a `/`
+            if pos > 0 && !l[..pos].ends_with('/') && !l[..pos].ends_with(' ') {
+                continue;
+            }
+            let rest = &l[pos + suffix.len() + 1..];
+            let Some(line) = rest.split(':').next().and_then(|n| n.parse::<usize>().ok()) else {
+                continue;
+            };
+            // an error in a command (`#k2l_assert_axioms`) is a consequence, not a failed proof
+            if lines
+                .get(line.wrapping_sub(1))
+                .is_some_and(|l| l.starts_with('#'))
+            {
+                continue;
+            }
+            if let Some(name) = failed_theorem(&lines, line) {
+                open.insert(name);
             }
         }
     }
@@ -155,6 +216,15 @@ fn main() {
     }
     if raw.first().map(|s| s.as_str()) == Some("relate") {
         return relate::main(&raw[1..]);
+    }
+    if raw.first().map(|s| s.as_str()) == Some("confluence") {
+        return confluence::main(&raw[1..]);
+    }
+    if raw.first().map(|s| s.as_str()) == Some("noninterference") {
+        return noninterference::main(&raw[1..]);
+    }
+    if raw.first().map(|s| s.as_str()) == Some("refine") {
+        return refine::main(&raw[1..]);
     }
     if raw.first().map(|s| s.as_str()) == Some("soundness") {
         return soundness::main(&raw[1..]);
@@ -254,10 +324,11 @@ fn main() {
             if let Ok(t) = &init_term {
                 roots.extend(init::functions(t, &def));
             }
-            let side = match &a.termination {
+            let mut side = match &a.termination {
                 Some(p) => funcs::Sidecar::load(p).unwrap_or_else(|e| panic!("--termination: {e}")),
                 None => funcs::Sidecar::default(),
             };
+            side.arity_terms = arity;
             let fgen = funcs::generate_with(&def, &m, &roots, &side)
                 .unwrap_or_else(|e| panic!("functions: {e}"));
             for n in &fgen.notes {
@@ -390,15 +461,21 @@ fn main() {
                     &with_hooks(rules::emit_determinism(&top, ns, &unfold), ns, &fgen.params),
                 );
             }
-            // determinism along the rule index, modulo the overlapping pairs (`det2`): with
-            // `--det2`, and always in the arity-indexed universe, where the proof by cases on
-            // pairs of rules (the default's) does not finish
+            // determinism along the rule index, modulo the overlapping pairs (`det2`), for every
+            // definition whose rules match once: the default (`--det2` is accepted and changes
+            // nothing); `--det-pairs` keeps the proof by cases on pairs of rules, except in the
+            // arity-indexed universe, where that proof does not finish
             let mut det_overlaps = 0;
-            if arity || a.rest.iter().any(|x| x == "--det2") {
+            let mut det_unwitnessed = 0;
+            let mut det_witnessed = Vec::new();
+            let det_pairs = a.rest.iter().any(|x| x == "--det-pairs");
+            if arity || !det_pairs {
                 if multi {
-                    eprintln!(
-                        "note: --det2 needs every rule to match once; with free-key map rules Determinism.lean states `uniqueAt`"
-                    );
+                    if a.rest.iter().any(|x| x == "--det2") {
+                        eprintln!(
+                            "note: --det2 needs every rule to match once; with free-key map rules Determinism.lean states `uniqueAt`"
+                        );
+                    }
                 } else {
                     let d = det2::emit(
                         &def,
@@ -413,15 +490,18 @@ fn main() {
                         &fgen.fns,
                         &det2::Opts::from_args(&a.rest, arity),
                     );
-                    write(
-                        &out.join(ns).join("Determinism.lean"),
-                        &with_hooks(d.text, ns, &fgen.params),
-                    );
+                    // the lemma modules of an earlier generation may be more than this one's
+                    let _ = std::fs::remove_dir_all(out.join(ns).join("Determinism"));
+                    for (path, text) in d.files {
+                        write(&out.join(path), &with_hooks(text, ns, &fgen.params));
+                    }
                     eprintln!(
                         "determinism: {} overlapping pairs\n{}",
                         d.overlaps, d.report
                     );
                     det_overlaps = d.overlaps;
+                    det_unwitnessed = d.unwitnessed;
+                    det_witnessed = d.witnessed.clone();
                 }
             }
             // the per-rule preservation principle, and the initial configuration
@@ -534,26 +614,66 @@ fn main() {
                     names::short_sort(x)
                 )
             }));
-            write(
-                &out.join(ns).join("Equations.lean"),
-                &with_hooks(
-                    eqns::emit_with(
-                        ns,
-                        &stated,
-                        &open,
-                        &eq_base,
-                        &fgen.unfold,
-                        &fgen.recursive,
-                        &fgen.list_recursive,
-                    ),
-                    ns,
-                    &fgen.params,
-                ),
-            );
+            // in modules of bounded weight (`eqns::emit_modules`); the parts of an earlier
+            // generation go first, so that a part no longer generated is not left behind
+            let part_weight = match a.rest.iter().position(|x| x == "--equations-part-weight") {
+                Some(i) => a.rest[i + 1]
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|w| *w > 0)
+                    .expect("--equations-part-weight: a positive integer"),
+                None => EQUATIONS_PART_WEIGHT,
+            };
+            // the heartbeat budget of each proof (`eqns::Budget`)
+            let mut budget = eqns::Budget::default();
+            if let Some(i) = a.rest.iter().position(|x| x == "--equations-heartbeats") {
+                budget.default = a.rest[i + 1]
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|h| *h > 0)
+                    .expect("--equations-heartbeats: a positive integer");
+            }
+            if let Some(i) = a
+                .rest
+                .iter()
+                .position(|x| x == "--equations-heartbeats-file")
+            {
+                let f = &a.rest[i + 1];
+                let text = std::fs::read_to_string(f)
+                    .unwrap_or_else(|e| panic!("--equations-heartbeats-file {f}: {e}"));
+                budget
+                    .read_overrides(&text, &stated)
+                    .unwrap_or_else(|e| panic!("--equations-heartbeats-file {f}: {e}"));
+            }
+            let _ = std::fs::remove_dir_all(out.join(ns).join("Equations"));
+            let eq_weight: usize = stated.iter().map(|s| eqns::weight(s, &fgen.unfold)).sum();
+            let mut eq_modules = 0;
+            for (path, text) in eqns::emit_modules(
+                ns,
+                &stated,
+                &open,
+                &eq_base,
+                &fgen.unfold,
+                &fgen.recursive,
+                &fgen.list_recursive,
+                part_weight,
+                &budget,
+            ) {
+                write(
+                    &out.join(ns).join(format!("{path}.lean")),
+                    &with_hooks(text, ns, &fgen.params),
+                );
+                eq_modules += 1;
+            }
             eprintln!(
-                "{} equations and simplifications stated, {} open",
+                "{} equations and simplifications stated, {} open; weight {eq_weight} in {} (bound {part_weight})",
                 stated.len(),
-                stated.iter().filter(|s| open.contains(&s.name)).count()
+                stated.iter().filter(|s| open.contains(&s.name)).count(),
+                if eq_modules == 1 {
+                    "one module".to_string()
+                } else {
+                    format!("{} parts", eq_modules - 1)
+                }
             );
             // kind 1 invariants: `InvariantDefs.lean`, `Invariants.lean`, `open-invariant-cases.txt`
             if specs.is_empty() && declared.is_empty() {
@@ -632,12 +752,14 @@ fn main() {
                 .collect();
             write(
                 &out.join(format!("{ns}Test")).join("Axioms.lean"),
-                &det2::fix_guard(
-                    &drivers::axioms_with(ns, &proved, ranked, multi, init_ok),
-                    ns,
-                    det_overlaps,
-                ),
+                &drivers::axioms_with(ns, &proved, ranked, multi, init_ok),
             );
+            if !multi {
+                write(
+                    &out.join(format!("{ns}Test")).join("DetAxioms.lean"),
+                    &det2::guard(ns, det_overlaps, det_unwitnessed, &det_witnessed),
+                );
+            }
             write(
                 &out.join(format!("{ns}Bench")).join("Main.lean"),
                 &drivers::bench_main(ns, &top),
@@ -793,6 +915,54 @@ mod tests {
             std::fs::read_to_string(&open).unwrap(),
             "Eqn.a_1\nEqn.z_9\nEqn.«b_c_1»\n"
         );
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// An error at the first line of a declaration (its doc comment or `set_option … in`, where
+    /// Lean reports a proof out of heartbeats) is the theorem's that the line opens, not the
+    /// theorem's before it.
+    #[test]
+    fn failed_theorem_at_declaration_start() {
+        let text = "/-- a -/\ntheorem Eqn.a_1 :\n    1 = 1 := by\n  rfl\n\nset_option maxHeartbeats 400000 in\n/-- b -/\ntheorem Eqn.b_1 :\n    1 = 1 := by\n  rfl\n";
+        let lines: Vec<&str> = text.lines().collect();
+        let at = |n| failed_theorem(&lines, n);
+        assert_eq!(at(1).as_deref(), Some("Eqn.a_1"));
+        assert_eq!(at(4).as_deref(), Some("Eqn.a_1"));
+        assert_eq!(at(5).as_deref(), Some("Eqn.a_1"));
+        assert_eq!(at(6).as_deref(), Some("Eqn.b_1"));
+        assert_eq!(at(7).as_deref(), Some("Eqn.b_1"));
+        assert_eq!(at(10).as_deref(), Some("Eqn.b_1"));
+    }
+
+    /// An `Equations.lean` written in parts: the errors of each part name its theorems, and an
+    /// error of a part is not read against the aggregating file's lines, nor the reverse.
+    #[test]
+    fn open_from_log_reads_the_parts() {
+        let d = std::env::temp_dir().join(format!("k2lean-open-parts-{}", std::process::id()));
+        let n = d.join("N");
+        std::fs::create_dir_all(n.join("Equations")).unwrap();
+        let eq = n.join("Equations.lean");
+        std::fs::write(
+            &eq,
+            "import N.Equations.Part1\nimport N.Equations.Part2\n\n/-! doc -/\n",
+        )
+        .unwrap();
+        let part = |k: usize, name: &str| {
+            format!("import N.Functions\n\nnamespace N\n\ntheorem Eqn.{name} :\n    1 = 1 := by\n  rfl\n\nend N\n")
+                .replace("Functions", &format!("Functions -- {k}"))
+        };
+        std::fs::write(n.join("Equations/Part1.lean"), part(1, "a_1")).unwrap();
+        std::fs::write(n.join("Equations/Part2.lean"), part(2, "b_1")).unwrap();
+        let log = d.join("build.log");
+        std::fs::write(
+            &log,
+            "error: N/Equations/Part2.lean:7:2: unsolved goals\nerror: N/Equations.lean:6:0: not a theorem line\nerror: N/XEquations/Part1.lean:6:0: another module\n",
+        )
+        .unwrap();
+        let open = d.join("open.txt");
+        let s = |p: &std::path::Path| p.to_string_lossy().to_string();
+        open_from_log(&[s(&eq), s(&log), s(&open)]);
+        assert_eq!(std::fs::read_to_string(&open).unwrap(), "Eqn.b_1\n");
         let _ = std::fs::remove_dir_all(&d);
     }
 }

@@ -10,7 +10,7 @@
 //! `parse`, `run`, `search`, and `prove` share the pipeline up to Definition IR and then compile it in-process through `krs-exec` and the k-rust symbolic backend; their results are never cached, but the compiled stage is kept in a per-user cache keyed by the Definition IR digest.
 //!
 //! The command-line binary renders human-readable diagnostics on stderr by default.
-//! `--message-format=json` selects schema-1 envelope lines for located diagnostics and prose lines for unlocated diagnostics and other failures.
+//! `--message-format=json` selects one schema-2 envelope line per diagnostic, located or not; only a failure that has no diagnostic code (a usage error, a crashed collector) is a prose line.
 
 mod cargo;
 mod command;
@@ -29,8 +29,8 @@ pub use command::{
     execute_command_measured, execute_command_reported,
 };
 pub use diagnostic::{
-    DIAGNOSTIC_SCHEMA_VERSION, DiagnosticEnvelope, DiagnosticGeneratedRange, DiagnosticReports,
-    DiagnosticSeverity, DiagnosticStage, UnlocatedDiagnostic, diagnostic_envelope,
+    DIAGNOSTIC_SCHEMA_VERSION, DiagnosticEnvelope, DiagnosticGeneratedRange, DiagnosticLabel,
+    DiagnosticReports, DiagnosticSeverity, DiagnosticStage, diagnostic_envelope,
     translate_k_frontend_diagnostic, translate_native_diagnostic,
 };
 pub use format::{FormatInput, discover_format_inputs};

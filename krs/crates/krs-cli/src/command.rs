@@ -191,7 +191,7 @@ pub enum MessageFormat {
     /// Render annotated source snippets for people.
     #[default]
     Human,
-    /// Preserve schema-1 envelope lines and unlocated prose.
+    /// One schema-2 envelope line per diagnostic, located or not.
     Json,
 }
 
@@ -302,7 +302,7 @@ impl CommandExecution {
 /// Returns a typed stage error.
 /// A native compilation or adapter failure without diagnostics is [`CommandError::Native`].
 /// Native failures carrying diagnostics are [`CommandError::NativeDiagnostics`];
-/// each diagnostic is translated independently and unlocated diagnostics remain available for prose.
+/// each diagnostic is translated independently, into an envelope with or without an authored range.
 pub fn execute_command(request: &CommandRequest) -> Result<CommandOutcome, CommandError> {
     execute_command_measured(request, &mut Measurement::disabled())
 }
@@ -467,14 +467,13 @@ fn exec_command(
             Err(refused) => (None, Some(refused)),
         };
     if let Some(refused) = refused_store {
-        warnings.unlocated.push(crate::UnlocatedDiagnostic {
-            code: krs_diagnostic::codes::exec::STAGE_CACHE.to_string(),
-            severity: crate::DiagnosticSeverity::Warning,
-            message: refused.message(),
-            source: None,
-            generated_range: None,
-            notes: Vec::new(),
-        });
+        let mut diagnostic = Diagnostic::error(
+            krs_diagnostic::codes::exec::STAGE_CACHE,
+            refused.message(),
+            krs_diagnostic::Location::None,
+        );
+        diagnostic.severity = krs_diagnostic::Severity::Warning;
+        warnings.push(diagnostic, DiagnosticStage::Native);
     }
     match exec::execute(
         prepared,
@@ -541,7 +540,7 @@ fn prepare_bundle(
             raw_k
                 .errors
                 .into_iter()
-                .filter_map(|diagnostic| {
+                .map(|diagnostic| {
                     crate::diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None)
                 })
                 .collect(),
@@ -807,11 +806,6 @@ fn extend_unique(reports: &mut crate::DiagnosticReports, more: crate::Diagnostic
             reports.envelopes.push(envelope);
         }
     }
-    for diagnostic in more.unlocated {
-        if !reports.unlocated.contains(&diagnostic) {
-            reports.unlocated.push(diagnostic);
-        }
-    }
 }
 
 /// Appends one `krs::emit::trusted-claim` warning per trusted claim (KF-042): every
@@ -821,21 +815,7 @@ fn push_trusted_claim_warnings(
     reports: &mut crate::DiagnosticReports,
 ) {
     for diagnostic in krs_compiler::trusted_claim_warnings(prepared.lowered.definition()) {
-        let message = diagnostic.message.clone();
-        if let Some(envelope) =
-            crate::diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None)
-        {
-            reports.envelopes.push(envelope);
-        } else {
-            reports.unlocated.push(crate::UnlocatedDiagnostic {
-                code: krs_diagnostic::codes::emit::TRUSTED_CLAIM.to_string(),
-                severity: crate::DiagnosticSeverity::Warning,
-                message,
-                source: None,
-                generated_range: None,
-                notes: Vec::new(),
-            });
-        }
+        reports.push(diagnostic, DiagnosticStage::Analysis);
     }
 }
 
@@ -860,46 +840,18 @@ fn definition_warnings(prepared: &PreparedDefinition) -> crate::DiagnosticReport
             .chain(&prepared.sort_test_warnings),
     );
     for warning in prepared.lowered.partition().warnings() {
-        let diagnostic = warning.to_diagnostic();
-        if let Some(envelope) =
-            crate::diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None)
-        {
-            reports.envelopes.push(envelope);
-        } else {
-            reports.unlocated.push(crate::UnlocatedDiagnostic {
-                code: krs_diagnostic::codes::partition::NOT_PROGRAM_SYNTAX.to_string(),
-                severity: crate::DiagnosticSeverity::Warning,
-                message: warning.message().to_owned(),
-                source: None,
-                generated_range: None,
-                notes: Vec::new(),
-            });
-        }
+        reports.push(warning.to_diagnostic(), DiagnosticStage::Analysis);
     }
     reports
 }
 
-/// The reports of analysis warnings: located ones as envelopes, the others
-/// unlocated.
+/// The reports of analysis warnings, located or not.
 fn analysis_warnings<'a>(
     diagnostics: impl IntoIterator<Item = &'a Diagnostic>,
 ) -> crate::DiagnosticReports {
     let mut reports = crate::DiagnosticReports::default();
     for diagnostic in diagnostics {
-        if let Some(envelope) =
-            crate::diagnostic_envelope(diagnostic.clone(), DiagnosticStage::Analysis, None)
-        {
-            reports.envelopes.push(envelope);
-        } else {
-            reports.unlocated.push(crate::UnlocatedDiagnostic {
-                code: diagnostic.code.to_string(),
-                severity: crate::DiagnosticSeverity::Warning,
-                message: diagnostic.message.clone(),
-                source: None,
-                generated_range: None,
-                notes: Vec::new(),
-            });
-        }
+        reports.push(diagnostic.clone(), DiagnosticStage::Analysis);
     }
     reports
 }
@@ -1126,28 +1078,12 @@ fn finish_native(
             .into_iter()
             .chain(krs_compiler::smt_only_function_warnings(definition))
         {
-            let code = diagnostic.code.to_string();
-            let message = diagnostic.message.clone();
-            if let Some(envelope) =
-                crate::diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None)
-            {
-                warnings.envelopes.push(envelope);
-            } else {
-                warnings.unlocated.push(crate::UnlocatedDiagnostic {
-                    code,
-                    severity: crate::DiagnosticSeverity::Warning,
-                    message,
-                    source: None,
-                    generated_range: None,
-                    notes: Vec::new(),
-                });
-            }
+            warnings.push(diagnostic, DiagnosticStage::Analysis);
         }
     }
     let native =
         crate::DiagnosticReports::native(prepared.lowered.source_map(), &artifacts.diagnostics);
     warnings.envelopes.extend(native.envelopes);
-    warnings.unlocated.extend(native.unlocated);
     Ok((artifacts, context, warnings))
 }
 
@@ -1267,15 +1203,14 @@ fn native_command_error(
             DiagnosticStage::Native,
             Some(source_map),
         );
-        return match envelope {
-            Some(envelope) => CommandError::NativeDiagnostics {
-                reports: crate::DiagnosticReports {
-                    envelopes: vec![envelope],
-                    unlocated: Vec::new(),
-                },
-                source: error,
+        if envelope.authored_range.is_none() {
+            return CommandError::Native(error);
+        }
+        return CommandError::NativeDiagnostics {
+            reports: crate::DiagnosticReports {
+                envelopes: vec![envelope],
             },
-            None => CommandError::Native(error),
+            source: error,
         };
     }
     CommandError::NativeDiagnostics {
@@ -1313,11 +1248,11 @@ pub enum CommandError {
         /// Captured diagnostic stream.
         stderr: String,
     },
-    /// One or more renderer-independent diagnostics with exact authored ranges.
+    /// One or more renderer-independent diagnostics.
     Diagnostics(Vec<DiagnosticEnvelope>),
     /// Native diagnostics translated individually, retaining the typed failure for fallback.
     NativeDiagnostics {
-        /// Located envelopes and unlocated prose diagnostics.
+        /// The translated diagnostics.
         reports: crate::DiagnosticReports,
         /// Structured native failure.
         source: DefinitionCompileError,
@@ -1551,39 +1486,8 @@ impl CommandError {
         Some((diagnostic, stage))
     }
 
-    /// Returns diagnostics that have no exact authored range.
-    #[must_use]
-    pub fn unlocated_diagnostics(&self) -> Cow<'_, [crate::UnlocatedDiagnostic]> {
-        if let Self::Warned { source, .. } = self {
-            return source.unlocated_diagnostics();
-        }
-        if let Self::Attributed { note, source } = self {
-            let mut diagnostics = source.unlocated_diagnostics().into_owned();
-            for diagnostic in &mut diagnostics {
-                diagnostic.notes.push(note.clone());
-            }
-            return Cow::Owned(diagnostics);
-        }
-        if let Self::NativeDiagnostics { reports, .. } = self {
-            return Cow::Borrowed(&reports.unlocated);
-        }
-        let Some((diagnostic, stage)) = self.diagnostic_model() else {
-            return Cow::Borrowed(&[]);
-        };
-        if diagnostic_envelope(diagnostic.clone(), stage, None).is_some() {
-            return Cow::Borrowed(&[]);
-        }
-        Cow::Owned(vec![crate::UnlocatedDiagnostic {
-            code: diagnostic.code.to_string(),
-            severity: diagnostic.severity.into(),
-            message: diagnostic.message,
-            source: None,
-            generated_range: None,
-            notes: diagnostic.notes,
-        }])
-    }
-
-    /// Returns envelopes and exposes unlocated producer diagnostics through [`Self::unlocated_diagnostics`].
+    /// Returns the failure's diagnostics, located or not; `None` for a failure that has no code,
+    /// which is reported as prose.
     #[must_use]
     pub fn diagnostics(&self) -> Option<Cow<'_, [DiagnosticEnvelope]>> {
         match self {
@@ -1602,11 +1506,9 @@ impl CommandError {
             _ => {}
         }
         let (diagnostic, stage) = self.diagnostic_model()?;
-        Some(Cow::Owned(
-            diagnostic_envelope(diagnostic, stage, None)
-                .into_iter()
-                .collect(),
-        ))
+        Some(Cow::Owned(vec![diagnostic_envelope(
+            diagnostic, stage, None,
+        )]))
     }
 }
 
@@ -1656,12 +1558,9 @@ impl CommandError {
             error => (warnings, error),
         };
         let reported = source.diagnostics().unwrap_or_default();
-        let unlocated = source.unlocated_diagnostics();
         all.envelopes
             .retain(|envelope| !reported.contains(envelope));
-        all.unlocated
-            .retain(|diagnostic| !unlocated.contains(diagnostic));
-        if all.envelopes.is_empty() && all.unlocated.is_empty() {
+        if all.envelopes.is_empty() {
             return source;
         }
         Self::Warned {
@@ -1723,7 +1622,7 @@ impl From<serde_json::Error> for CommandError {
 mod tests {
     use super::*;
     use crate::PackageSelector;
-    use krs_diagnostic::{Location, codes};
+    use krs_diagnostic::codes;
     use krs_ir::{Sha256Digest, SourceFileId, SourceRange};
 
     #[test]
@@ -1771,11 +1670,11 @@ mod tests {
         assert_eq!(envelopes.len(), 1);
         assert_eq!(envelopes[0].code, "krs::analysis::symbol-name-collision");
         assert_eq!(envelopes[0].message, message);
-        assert_eq!(envelopes[0].authored_range, range);
+        assert_eq!(envelopes[0].authored_range, Some(range));
         let unlocated = CommandError::Lowering(LoweringError::InvalidSidecar("detail".to_owned()));
-        assert!(unlocated.diagnostics().unwrap().is_empty());
-        let reports = unlocated.unlocated_diagnostics();
+        let reports = unlocated.diagnostics().unwrap();
         assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].authored_range, None);
         assert_eq!(reports[0].message, "invalid lowered sidecar: detail");
         assert_eq!(unlocated.to_string(), "invalid lowered sidecar: detail");
     }
@@ -1817,16 +1716,23 @@ mod tests {
             ),
         ];
         for (error, code) in cases {
-            assert!(error.diagnostics().unwrap().is_empty());
-            let diagnostics = error.unlocated_diagnostics();
+            let diagnostics = error.diagnostics().unwrap();
             assert_eq!(diagnostics.len(), 1);
-            let diagnostic = diagnostics[0].to_diagnostic();
-            assert_eq!(diagnostic.code, code);
-            assert_eq!(diagnostic.message, error.to_string());
-            assert!(matches!(diagnostic.primary.location, Location::None));
-            let rendered =
-                crate::DiagnosticSources::default().render_diagnostic(&diagnostic, false);
-            assert_eq!(rendered, format!("error[{code}]: {error}"));
+            let envelope = &diagnostics[0];
+            assert_eq!(envelope.code, code.as_str());
+            assert_eq!(envelope.message, error.to_string());
+            assert_eq!(envelope.authored_range, None);
+            let rendered = crate::DiagnosticSources::default().render_envelope(envelope, false);
+            if code.kind() == Some(codes::CodeKind::Internal) {
+                let (headline, help) = rendered.split_once('\n').unwrap();
+                assert_eq!(
+                    headline,
+                    format!("error[{code}]: internal error (a KRS bug): {error}")
+                );
+                assert!(help.contains("please report it"), "{rendered}");
+            } else {
+                assert_eq!(rendered, format!("error[{code}]: {error}"));
+            }
         }
     }
 
@@ -1864,29 +1770,26 @@ mod tests {
             codes::native::ADAPTER_MISSING_REFERENCE.as_str()
         );
         assert_eq!(diagnostics[0].message, message);
-        assert_eq!(diagnostics[0].authored_range, range);
-        assert!(routed.unlocated_diagnostics().is_empty());
+        assert_eq!(diagnostics[0].authored_range, Some(range));
     }
 
-    fn unlocated_warning(message: &str) -> crate::UnlocatedDiagnostic {
-        crate::UnlocatedDiagnostic {
-            code: codes::analysis::RAW_K.to_string(),
-            severity: crate::DiagnosticSeverity::Warning,
-            message: message.to_owned(),
-            source: None,
-            generated_range: None,
-            notes: Vec::new(),
-        }
+    fn unlocated_warning(message: &str) -> DiagnosticEnvelope {
+        let mut warning = DiagnosticEnvelope::unlocated(
+            DiagnosticStage::Analysis,
+            codes::analysis::RAW_K.as_str(),
+            message,
+        );
+        warning.severity = crate::DiagnosticSeverity::Warning;
+        warning
     }
 
     #[test]
     fn a_warned_failure_reports_only_warnings_the_failure_does_not() {
         let failure = || CommandError::Lowering(LoweringError::InvalidSidecar("detail".to_owned()));
-        let reported = failure().unlocated_diagnostics().into_owned();
+        let reported = failure().diagnostics().unwrap().into_owned();
         // Nothing left to add: the bare failure.
         let bare = failure().warned(crate::DiagnosticReports {
-            envelopes: Vec::new(),
-            unlocated: reported.clone(),
+            envelopes: reported.clone(),
         });
         assert!(matches!(bare, CommandError::Lowering(_)));
         assert!(bare.warnings().is_none());
@@ -1897,32 +1800,29 @@ mod tests {
         let later = unlocated_warning("later");
         let warned = failure()
             .warned(crate::DiagnosticReports {
-                envelopes: Vec::new(),
-                unlocated: vec![later.clone(), reported[0].clone()],
+                envelopes: vec![later.clone(), reported[0].clone()],
             })
             .warned(crate::DiagnosticReports {
-                envelopes: Vec::new(),
-                unlocated: vec![earlier.clone(), later.clone()],
+                envelopes: vec![earlier.clone(), later.clone()],
             });
         // The outer stage's warnings first, each once; the failure's own
         // diagnostic is not among them, and the failure is reported as before.
         assert_eq!(
-            warned.warnings().unwrap().unlocated,
+            warned.warnings().unwrap().envelopes,
             vec![earlier.clone(), later]
         );
-        assert_eq!(warned.unlocated_diagnostics().into_owned(), reported);
+        assert_eq!(warned.diagnostics().unwrap().into_owned(), reported);
         assert_eq!(warned.to_string(), failure().to_string());
         assert_eq!(warned.exit_code(), 1);
 
         let usage =
             CommandError::Usage("do not pass FILE".to_owned()).warned(crate::DiagnosticReports {
-                envelopes: Vec::new(),
-                unlocated: vec![earlier.clone()],
+                envelopes: vec![earlier.clone()],
             });
         assert_eq!(usage.exit_code(), 2);
         // A note attaches to the failure, below the warnings.
         let attributed = usage.attributed("note".to_owned());
-        assert_eq!(attributed.warnings().unwrap().unlocated, vec![earlier]);
+        assert_eq!(attributed.warnings().unwrap().envelopes, vec![earlier]);
         assert!(attributed.to_string().ends_with("(note)"));
     }
 
@@ -1932,12 +1832,12 @@ mod tests {
             route: Route::NativeLlvm,
             message: "lacks a feature".to_owned(),
         };
-        let unlocated = refusal.unlocated_diagnostics().into_owned();
+        let unlocated = refusal.diagnostics().unwrap().into_owned();
         let attributed = refusal.attributed("the note".to_owned());
         assert_eq!(attributed.exit_code(), 1);
-        assert!(attributed.diagnostics().unwrap().is_empty());
-        let diagnostics = attributed.unlocated_diagnostics();
+        let diagnostics = attributed.diagnostics().unwrap();
         assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].authored_range, None);
         assert_eq!(diagnostics[0].message, unlocated[0].message);
         assert_eq!(diagnostics[0].notes, ["the note"]);
         assert_eq!(

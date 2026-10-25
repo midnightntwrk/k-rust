@@ -15,7 +15,7 @@
 #   SD       SIMPLE's K sources (for libs_simple_cases, and the simple and simple-inv compiles)
 #   GOLDENS  the golden cases of kimp (k2lean/tests/goldens; only for libs_goldens)
 # and defines the function `kore_dir NAME`, which prints the directory of the compiled KORE of
-# NAME (kimp, kimp-verif, kimp-inv, kimp-keys, imp-typing, kmut, simple, simple-inv, simple-variant), so that each caller keeps its own layout.
+# NAME (kimp, kimp-verif, kimp-inv, kimp-keys, kimp-unroll, imp-typing, imp-sec, kmut, ovl, simple, simple-inv, simple-variant, kterm), so that each caller keeps its own layout.
 
 # libs_kcompile NAME: compile NAME's K definition with krust into `kore_dir NAME`.
 libs_kcompile() {
@@ -27,7 +27,9 @@ libs_kcompile() {
     kimp-inv) f=$DEMOS/k/kimp-inv/imp-inv.k m=IMP-INV s=IMP-SYNTAX inc=$KIMP ;;
     kimp-keys) f=$DEMOS/k/kimp-keys/imp-keys.k m=IMP-KEYS s=IMP-SYNTAX inc=$KIMP ;;
     imp-typing) f=$DEMOS/k/imp-typing.k m=IMP-TYPING s=IMP-TYPING-SYNTAX inc=$KIMP ;;
+    imp-sec) f=$DEMOS/k/imp-sec.k m=IMP-SEC s=IMP-SEC-SYNTAX inc=$KIMP ;;
     kmut) f=$DEMOS/k/kimp-mutant/imp.k m=IMP s=IMP-SYNTAX inc=$DEMOS/k/kimp-mutant ;;
+    ovl) f=$DEMOS/k/overlap.k m=OVERLAP s=OVERLAP-SYNTAX inc=$DEMOS/k ;;
     simple) f=$SD/simple-untyped.md m=SIMPLE-UNTYPED s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
     simple-inv) f=$DEMOS/k/simple-inv/simple-inv.k m=SIMPLE-INV s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
     # SIMPLE written differently (tests/simple-variant.py: constructors with other symbols, rules
@@ -35,6 +37,12 @@ libs_kcompile() {
     simple-variant) mkdir -p "$out.src" &&
       python3 -I "$(dirname "${BASH_SOURCE[0]}")/simple-variant.py" "$SD/simple-untyped.md" "$out.src/simple-variant.md" || return 1
       f=$out.src/simple-variant.md m=SIMPLE-UNTYPED s=SIMPLE-UNTYPED-SYNTAX inc=$SD ;;
+    kterm) f=$DEMOS/k/term/term.k m=TERM s=TERM-SYNTAX inc=$DEMOS/k/term ;;
+    # kimp whose `while` unrolls straight to the two-armed `if` (tests/kimp-unroll.py), the other
+    # side of the stuttering bisimulation demos/ImpUnroll
+    kimp-unroll) mkdir -p "$out.src" &&
+      python3 -I "$(dirname "${BASH_SOURCE[0]}")/kimp-unroll.py" "$KIMP/imp.k" "$out.src/imp.k" || return 1
+      f=$out.src/imp.k m=IMP s=IMP-SYNTAX inc=$KIMP ;;
     *) echo "libs_kcompile: unknown definition $1" >&2; return 2 ;;
   esac
   "$KRUST" kcompile "$f" --main-module "$m" --syntax-module "$s" --output-directory "$out" \
@@ -44,9 +52,9 @@ libs_kcompile() {
 # libs_name DIR: the Lean namespace of library DIR.
 libs_name() {
   case $1 in
-    kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv|kimpfold|kimptop) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; imptypes) echo KImpTypes ;;
+    kimp|kimp-d2|kimp-ar) echo KImp ;; kimpinv|kimpfold|kimptop) echo KImpInv ;; kimpkeys|kimpkeys-hand) echo KImpKeys ;; krsimp) echo KrsImp ;; kmut) echo KMut ;; kunroll) echo KUnroll ;; imptypes) echo KImpTypes ;; ovl) echo KOvl ;; impsec) echo KImpSec ;;
     simple|simple-ar) echo KSimple ;; simpleinv|simplestore|simplet) echo KSimpleInv ;; nested) echo KNested ;; simplev) echo KSimpleV ;;
-    peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;; freekey) echo FreeKey ;;
+    peano) echo Peano ;; peanob) echo PeanoB ;; cellmap) echo CellMap ;; cellmapb) echo CellMapB ;; freekey) echo FreeKey ;; kterm-ar) echo KTerm ;; race) echo Race ;;
     *) echo "libs_name: unknown library $1" >&2; return 2 ;;
   esac
 }
@@ -60,12 +68,14 @@ libs_gen() {
             --out "$o" --name KImp --prelude ../../lean/prelude \
             --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt" \
             $([ "$1" = kimp-ar ] && echo --arity-terms) ;;
-    # kimp with determinism along the rule index (`--det2`), and one exclusive pair of rules listed
-    # as overlapping, so that the conditional statements (`Step.deterministic_of`) are built too
+    # kimp with one exclusive pair of rules listed as overlapping (`--det2-overlap`), so that the
+    # conditional statements of determinism (`Step.deterministic_of`) are built too;
+    # and its Equations in parts of weight at most 30 (kimp's whole is 84), so that the parts, their
+    # aggregating module and `open-from-log` over them are built and checked against kimp's counts
     kimp-d2) "$G" gen --kore "$(kore_dir kimp)/definition.kore" --runtime "$(kore_dir kimp)/runtime.json" \
             --out "$o" --name KImp --prelude ../../lean/prelude \
             --lemmas-kore "$(kore_dir kimp-verif)/definition.kore" --open-obligations "$o/open-obligations.txt" \
-            --det2 --det2-overlap IMP.if-true,IMP.if-false ;;
+            --det2 --det2-overlap IMP.if-true,IMP.if-false --equations-part-weight 30 ;;
     kimpinv) "$G" gen --kore "$(kore_dir kimp-inv)/definition.kore" --runtime "$(kore_dir kimp-inv)/runtime.json" \
             --out "$o" --name KImpInv --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" \
             --invariant envOk@env --invariant storeNoIds@env ;;
@@ -91,6 +101,15 @@ libs_gen() {
             --open-obligations "$o/open-obligations.txt" --sidecar "$KRS/k2lean-sidecar.json" ;;
     kmut) "$G" gen --kore "$(kore_dir kmut)/definition.kore" --runtime "$(kore_dir kmut)/runtime.json" \
             --out "$o" --name KMut --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
+    # a definition with one genuine overlap (witnessed), one joinable pair and exclusive pairs
+    # (demos/k/overlap.k): `Step.deterministic_of` with `overlaps_witnessed`
+    ovl) "$G" gen --kore "$(kore_dir ovl)/definition.kore" --runtime "$(kore_dir ovl)/runtime.json" \
+            --out "$o" --name KOvl --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
+    kunroll) "$G" gen --kore "$(kore_dir kimp-unroll)/definition.kore" --runtime "$(kore_dir kimp-unroll)/runtime.json" \
+            --out "$o" --name KUnroll --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
+    impsec) "$G" gen --kore "$(kore_dir imp-sec)/definition.kore" --runtime "$(kore_dir imp-sec)/runtime.json" \
+            --out "$o" --name KImpSec --prelude ../../lean/prelude \
+            --open-obligations "$o/open-obligations.txt" --extra-fns lev,sec,conf ;;
     imptypes) "$G" gen --kore "$(kore_dir imp-typing)/definition.kore" --runtime "$(kore_dir imp-typing)/runtime.json" \
             --out "$o" --name KImpTypes --prelude ../../lean/prelude \
             --open-obligations "$o/open-obligations.txt" --extra-fns typeOf,wt ;;
@@ -117,10 +136,15 @@ libs_gen() {
             --open-obligations "$o/open-obligations.txt" ;;
     # the generator's K fixtures (tests/fixtures, compiled KORE checked in): freekey's functions
     # walk maps by free-key patterns; peano and cellmap, each generated twice under two
-    # namespaces, are the two sides of the self-relations demos/PeanoRel and demos/CellMapRel
-    peano|peanob|cellmap|cellmapb|freekey) local fx; fx=$(libs_fixture "$1")
+    # namespaces, are the two sides of the self-relations demos/PeanoRel and demos/CellMapRel;
+    # race's workers interleave (the confluence demo demos/RaceConf)
+    peano|peanob|cellmap|cellmapb|freekey|race) local fx; fx=$(libs_fixture "$1")
       "$G" gen --kore "$fx/definition.kore" --runtime "$fx/runtime.json" \
             --out "$o" --name "$(libs_name "$1")" --prelude ../../lean/prelude --open-obligations "$o/open-obligations.txt" ;;
+    # recursive functions whose termination measures the generator synthesizes (demos/k/term)
+    kterm-ar) "$G" gen --kore "$(kore_dir kterm)/definition.kore" --runtime "$(kore_dir kterm)/runtime.json" \
+            --out "$o" --name KTerm --prelude ../../lean/prelude --arity-terms \
+            --open-obligations "$o/open-obligations.txt" ;;
     *) echo "libs_gen: unknown library $1" >&2; return 2 ;;
   esac
 }
@@ -181,6 +205,8 @@ libs_relate() {
     ImpRel) nb=KrsImp kd=$KRS f=Bisim ;;
     ImpTypes) nb=KImpTypes kd=$(kore_dir imp-typing) extra=(--roots "SortStmt,SortExpr") ;;
     ImpMut) nb=KMut kd=$(kore_dir kmut) ;;
+    ImpNI) nb=KImpSec kd=$(kore_dir imp-sec) extra=(--roots "SortStmt,SortExpr") ;;
+    ImpUnroll) nb=KUnroll kd=$(kore_dir kimp-unroll) extra=(--per-rule true) ;;
     SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim ;;
     # a fixture related to itself (libraries peano and peanob, cellmap and cellmapb)
     PeanoRel) na=Peano ka=$(libs_fixture peano) nb=PeanoB kd=$ka f=Bisim ;;
@@ -206,5 +232,44 @@ libs_soundness() {
         --typing typeOf,wt --store-cell env --store-typing envTy \
         --out-typing "$DEMOS/ImpTypes/ImpTypes/Typing.lean" --out-soundness "$DEMOS/ImpTypes/ImpTypes/Soundness.lean" ;;
     *) echo "libs_soundness: unknown demo $1" >&2; return 2 ;;
+  esac
+}
+
+# libs_refine NS: the generated module of the stuttering-bisimulation demo NS after its hand module
+# `NS/Relation.lean` (ImpUnroll: kimp against tests/kimp-unroll.py's variant; needs libs_relate NS first,
+# whose `--per-rule` lemmas and report it reads), and its report `NS/refine.toml`.
+libs_refine() {
+  case $1 in
+    ImpUnroll) "$G" refine --kore-a "$(kore_dir kimp)/definition.kore" --name-a KImp \
+        --kore-b "$(kore_dir kimp-unroll)/definition.kore" --name-b KUnroll --ns ImpUnroll \
+        --correspondence "$DEMOS/ImpUnroll/correspondence.toml" --open "$DEMOS/ImpUnroll/open-cases.txt" \
+        --out "$DEMOS/ImpUnroll/ImpUnroll/Refine.lean" --report "$DEMOS/ImpUnroll/refine.toml" ;;
+    *) echo "libs_refine: unknown demo $1" >&2; return 2 ;;
+  esac
+}
+
+# libs_confluence NS: the confluence scaffold of demo NS (RaceConf: the fixture race, every pair
+# generated, `NS/Confluence.lean` after the hand module `NS/Hand.lean`; SimpleConf: SIMPLE's pairs
+# of rules counted, the report only) and its report `NS/confluence.toml` (or OUT for SimpleConf).
+libs_confluence() {
+  case $1 in
+    RaceConf) "$G" confluence --kore "$(libs_fixture race)/definition.kore" --name Race --ns RaceConf --obs acc \
+        --out "$DEMOS/RaceConf/RaceConf/Confluence.lean" --report "$DEMOS/RaceConf/confluence.toml" ;;
+    SimpleConf) "$G" confluence --kore "$(kore_dir simple)/definition.kore" --name KSimple --report-only true \
+        --report "$2" ;;
+    *) echo "libs_confluence: unknown demo $1" >&2; return 2 ;;
+  esac
+}
+
+# libs_noninterference NS: the noninterference scaffold of demo NS (ImpNI: kimp, with the checker
+# demos/k/imp-sec.k in the hand module NS/Hand.lean; needs libs_relate NS for the translation of
+# programs), `NS/NI.lean`, and its report `NS/noninterference.toml`.
+libs_noninterference() {
+  case $1 in
+    ImpNI) "$G" noninterference --kore "$(kore_dir kimp)/definition.kore" --name KImp --ns ImpNI \
+        --store-cell env --program-sort SortStmt --params "(G : KImpSec.SortMap)" \
+        --secure "secure G" --low-eq "lowEq G" \
+        --out "$DEMOS/ImpNI/ImpNI/NI.lean" --report "$DEMOS/ImpNI/noninterference.toml" ;;
+    *) echo "libs_noninterference: unknown demo $1" >&2; return 2 ;;
   esac
 }

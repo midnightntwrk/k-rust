@@ -798,7 +798,7 @@ fn expand_reports_the_warnings_emit_k_reports() {
         .collect::<Vec<_>>();
     assert_eq!(envelopes.len(), emitted.len(), "{stderr}");
     for (envelope, headline) in envelopes.iter().zip(&emitted) {
-        assert_eq!(envelope["schema_version"], 1, "{stderr}");
+        assert_eq!(envelope["schema_version"], 2, "{stderr}");
         assert_eq!(envelope["severity"], "warning", "{stderr}");
         let code = envelope["code"].as_str().unwrap();
         assert!(

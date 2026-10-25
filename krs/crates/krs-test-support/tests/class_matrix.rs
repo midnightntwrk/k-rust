@@ -6,10 +6,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::Path;
 
-use krs_diagnostic::Code;
+use krs_diagnostic::codes::CodeKind;
 use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest, Selection};
 use krs_test_support::class_matrix::invariants::{
-    FORWARDED_RUSTC, Observed, ObservedDiagnostic, Severity, Violation, signature, violations,
+    FORWARDED_RUSTC, Observed, ObservedDiagnostic, Severity, Violation, registry_kind, signature,
+    violations,
 };
 use krs_test_support::class_matrix::pending::{
     Judgement, Observation, Pending, UNASSIGNED, case_of,
@@ -30,10 +31,6 @@ fn expand(source: &str) -> Result<FileExpansion, Vec<ExpandDiagnostic>> {
         module_path: &module_path,
         selection: &Selection::WholeFile,
     })
-}
-
-fn registered(code: &str) -> bool {
-    Code::registered_spelling(code).is_some()
 }
 
 fn read_class_matrix(file: &str) -> String {
@@ -241,11 +238,10 @@ fn the_shipped_table_and_red_list_parse() {
         .iter()
         .map(|case| case.id.as_str())
         .collect::<Vec<_>>();
-    let resolution = table.resolve(&ids, registered);
+    let resolution = table.resolve(&ids, registry_kind);
     // The table decides every case exactly once.
     assert!(resolution.errors.is_empty(), "{:#?}", resolution.errors);
     assert_eq!(resolution.expected.len(), ids.len());
-    assert!(!table.internal.is_empty());
     // K5's entries name mutations, which are no cases of the table.
     let mutations = entry_points::mutations();
     let mut named = ids.clone();
@@ -342,7 +338,7 @@ at = "spelling"
 k = "<pc> _ => X </pc>"
 "#
     ));
-    let resolution = narrowed.resolve(&ids, registered);
+    let resolution = narrowed.resolve(&ids, registry_kind);
     assert!(resolution.errors.is_empty(), "{:#?}", resolution.errors);
     let decided = |id: &str| match resolution.expected[id] {
         Expected::Refuse { class, rule } => (class.code.as_str(), Some(rule.at)),
@@ -378,7 +374,7 @@ at = "entry"
             "readable/result/pc/x",
             "readable/subject/env/x",
         ],
-        registered,
+        registry_kind,
     );
     assert_eq!(
         resolution.errors,
@@ -400,6 +396,10 @@ fn table_defects_are_reported() {
 [class.internal]
 code = "krs::analysis::invalid-semantic-theory"
 doc = "an internal code as an answer"
+
+[class.environment]
+code = "krs::collect::host-io"
+doc = "an environment code as an answer"
 
 [class.unknown-code]
 code = "krs::nowhere::nothing"
@@ -430,21 +430,24 @@ k = ""
 same_k_as = ["readable/subject/pc/x", "readable/gone"]
 
 [accept."readable/gone"]
-
-[internal]
-codes = ["krs::analysis::invalid-semantic-theory"]
 "#
     ));
     let errors = defective
         .resolve(
             &["readable/subject/pc/x", "readable/result/pc/x"],
-            registered,
+            registry_kind,
         )
         .errors;
     for expected in [
-        TableError::InternalClassCode {
+        TableError::NonAuthorClassCode {
             class: "internal".to_owned(),
             code: "krs::analysis::invalid-semantic-theory".to_owned(),
+            kind: CodeKind::Internal,
+        },
+        TableError::NonAuthorClassCode {
+            class: "environment".to_owned(),
+            code: "krs::collect::host-io".to_owned(),
+            kind: CodeKind::Environment,
         },
         TableError::Unregistered {
             owner: "class \"unknown-code\"".to_owned(),
@@ -605,6 +608,7 @@ fn error(code: Option<&str>, range: Option<Range<usize>>, message: &str) -> Obse
         severity: Severity::Error,
         code: code.map(str::to_owned),
         range,
+        labels: Vec::new(),
         message: message.to_owned(),
     }
 }
@@ -618,7 +622,6 @@ fn the_site_is_the_tables_and_a_forwarded_rustc_error_is_no_krs_code() {
         .expect("the case is generated");
     let rendered = case.render();
     let placed = &rendered.cases[0];
-    let internal = Vec::new();
 
     // A mistake outside the entry (an unused parameter) lies in the site a class widens it to.
     let at_parameter = Observed {
@@ -631,12 +634,18 @@ fn the_site_is_the_tables_and_a_forwarded_rustc_error_is_no_krs_code() {
         panic: None,
     };
     assert_eq!(
-        violations(&at_parameter, &placed.entry, &internal, registered),
+        violations(&at_parameter, &placed.entry, registry_kind),
         vec![Violation::OutsideSite {
             range: placed.item.start..placed.item.start + 4
         }]
     );
-    assert!(violations(&at_parameter, &placed.item, &internal, registered).is_empty());
+    assert!(violations(&at_parameter, &placed.item, registry_kind).is_empty());
+
+    // A diagnostic that relates two places is located at either: a binder's declaration as the
+    // primary, outside the entry, and the occurrence as a label, inside it.
+    let mut at_declaration = at_parameter.clone();
+    at_declaration.diagnostics[0].labels = vec![placed.entry.clone()];
+    assert!(violations(&at_declaration, &placed.entry, registry_kind).is_empty());
 
     // A rustc error forwarded under a registered code is still no KRS diagnosis.
     let forwarded = Observed {
@@ -649,7 +658,7 @@ fn the_site_is_the_tables_and_a_forwarded_rustc_error_is_no_krs_code() {
         panic: None,
     };
     assert_eq!(
-        violations(&forwarded, &placed.entry, &internal, registered),
+        violations(&forwarded, &placed.entry, registry_kind),
         vec![Violation::NoRegisteredCode]
     );
 }
@@ -663,8 +672,7 @@ fn the_table_free_invariants_judge_a_refusal_without_the_table() {
         .expect("the case is generated");
     let rendered = case.render();
     let placed = &rendered.cases[0];
-    let internal = vec!["krs::analysis::invalid-semantic-theory".to_owned()];
-    let judge = |observed: &Observed| violations(observed, &placed.entry, &internal, registered);
+    let judge = |observed: &Observed| violations(observed, &placed.entry, registry_kind);
 
     let accepted = Observed {
         accepted: true,
@@ -685,6 +693,7 @@ fn the_table_free_invariants_judge_a_refusal_without_the_table() {
                 severity: Severity::Warning,
                 code: Some("unused_imports".to_owned()),
                 range: None,
+                labels: Vec::new(),
                 message: "unused import".to_owned(),
             },
         ],
@@ -733,7 +742,10 @@ fn the_table_free_invariants_judge_a_refusal_without_the_table() {
         vec![
             Violation::Unlocated,
             Violation::ErrorCount(2),
-            Violation::InternalCode("krs::analysis::invalid-semantic-theory".to_owned()),
+            Violation::NonAuthorCode {
+                code: "krs::analysis::invalid-semantic-theory".to_owned(),
+                kind: CodeKind::Internal,
+            },
             Violation::Panic("index out of bounds".to_owned()),
             Violation::InternalErrorText("internal error: no framework KItem sort".to_owned()),
         ]

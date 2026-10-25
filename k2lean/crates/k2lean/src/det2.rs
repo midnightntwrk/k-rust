@@ -99,27 +99,6 @@ fn app(f: &str, args: &str) -> String {
     }
 }
 
-/// The `match` pattern of a key below the cell path.
-fn key_pattern(path: &CellPath, key: &Key) -> String {
-    let inner = match key {
-        Key::DotK => "SortK.dotk".to_string(),
-        Key::Inj(f) => format!("(SortK.kseq ({f} _) _)"),
-        Key::Own(f, g, n) => format!("(SortK.kseq ({f} {}) _)", app(g, &wild(*n))),
-        Key::Ctor(f, n) => format!("(SortK.kseq {} _)", app(f, &wild(*n))),
-    };
-    // the `<k>` cell itself, then its ancestors
-    let mut pat = format!("(SortKCell.«<k>» {inner})");
-    for (h, n, i) in path.iter().rev() {
-        let args: Vec<String> = (0..*n)
-            .map(|j| if j == *i { pat.clone() } else { "_".into() })
-            .collect();
-        pat = format!("({h} {})", args.join(" "));
-    }
-    pat.trim_start_matches('(')
-        .trim_end_matches(')')
-        .to_string()
-}
-
 /// The certificate of the goal where rule `r` is inverted against rule `p`, from the class of
 /// the pair (`None`: the default closer).
 fn certificate(o: &PairOut, partner: &Rule, hno: Option<&str>, fns: &[String]) -> Option<String> {
@@ -142,6 +121,13 @@ fn certificate0(o: &PairOut, partner: &Rule, hno: Option<&str>, fns: &[String]) 
         // both are hypotheses of the relation, so inversion does not see the clash
         "clash" if o.detail.starts_with("lit") => Some("k2l_lits".into()),
         "clash" => None,
+        // one rule's result is undefined wherever both apply: its partial call, at the values
+        // the other rule's pattern fixes, evaluates to `none`
+        "exclusive"
+            if o.detail.starts_with("eval: the") && o.detail.ends_with("result is undefined") =>
+        {
+            Some(format!("k2l_undef [{}]", fns.join(", ")))
+        }
         "exclusive" if o.detail.starts_with("eval") => {
             Some(format!("k2l_eval [{}]", fns.join(", ")))
         }
@@ -178,8 +164,17 @@ fn certificate0(o: &PairOut, partner: &Rule, hno: Option<&str>, fns: &[String]) 
 }
 
 pub struct Out {
-    pub text: String,
+    /// The modules, by path relative to the project: `NS/Determinism.lean` (the theorems) and the
+    /// modules it imports, `NS/Determinism/Pre.lean` (the key, the split relations, `overlaps`),
+    /// `NS/Determinism/L{k}.lean` (the per-rule lemmas, in modules of bounded cost) and
+    /// `NS/Determinism/Witness.lean` (a witness of each listed overlap).
+    pub files: Vec<(String, String)>,
     pub overlaps: usize,
+    /// Listed pairs that have no checked witness; with any, the library does not state
+    /// `overlaps_witnessed`.
+    pub unwitnessed: usize,
+    /// The theorems `overlap_witness_k` of the pairs that have one.
+    pub witnessed: Vec<String>,
     pub report: String,
 }
 
@@ -191,8 +186,18 @@ pub struct Opts {
     /// (`--det2-overlap A,B`): the theorem then assumes them apart, which exercises the
     /// conditional statements on a definition whose classification finds no overlap.
     pub forced: Vec<(String, String)>,
-    /// `maxHeartbeats` of the module (`--det2-heartbeats N`, default 400000).
+    /// `maxHeartbeats` of the lemma modules (`--det2-heartbeats N`, default 400000).
     pub heartbeats: u64,
+    /// One disjointness lemma per unordered pair separated by its side conditions, used from both
+    /// rules' lemmas (`--det2-disjoint`), instead of a certificate in each.
+    pub disjoint: bool,
+    /// The cost bound of one lemma module (`--det2-module-cost N`, default 2000): the sum over
+    /// its lemmas of the constructors each inverts, and 2 per certificate beyond a literal clash.
+    pub module_cost: usize,
+    /// The length above which a `String` or `Bytes` literal makes an overlap witness unchecked
+    /// (`--det2-long-literal N`, default [`LONG_LITERAL`]): such a witness is reported and its
+    /// pair stays listed in `overlaps` without a witness.
+    pub long_literal: usize,
 }
 
 impl Opts {
@@ -201,6 +206,9 @@ impl Opts {
             arity,
             forced: vec![],
             heartbeats: 400_000,
+            module_cost: 2000,
+            long_literal: LONG_LITERAL,
+            disjoint: rest.iter().any(|x| x == "--det2-disjoint"),
         };
         let mut it = rest.iter();
         while let Some(x) = it.next() {
@@ -216,11 +224,120 @@ impl Opts {
                         .and_then(|n| n.parse().ok())
                         .expect("--det2-heartbeats N");
                 }
+                "--det2-module-cost" => {
+                    o.module_cost = it
+                        .next()
+                        .and_then(|n| n.parse().ok())
+                        .expect("--det2-module-cost N");
+                }
+                "--det2-long-literal" => {
+                    o.long_literal = it
+                        .next()
+                        .and_then(|n| n.parse().ok())
+                        .expect("--det2-long-literal N");
+                }
                 _ => {}
             }
         }
         o
     }
+}
+
+/// The first `<k>` item of a rule without key, when it is a variable `y` that the rule reads as a
+/// value `G` of a sort through `proj_KItem_S y = some G`: (`y`'s projection hypothesis, `G`).
+fn head_var(r: &Rule, info: &CtorInfo) -> Option<(String, String)> {
+    let mut path = Vec::new();
+    let k = find_k(&r.step.index, info, &mut path)?;
+    let L::App(h, args) = k else { return None };
+    if !(h.ends_with("SortK.kseq") && args.len() == 2) {
+        return None;
+    }
+    let L::Var(y) = &args[0] else { return None };
+    r.step.hyps.iter().find_map(|(hn, p)| {
+        let t: Vec<&str> = p.split_whitespace().collect();
+        match t.as_slice() {
+            [f, v, "=", "some", g] if f.starts_with("proj_KItem_") && v == y => {
+                Some((hn.clone(), g.to_string()))
+            }
+            _ => None,
+        }
+    })
+}
+
+/// The `(from, to)` sorts of every injection `inj{from, to}(…)` in `p` (with `vars_only`, of a
+/// variable only).
+fn injections(p: &crate::ir::P, vars_only: bool, out: &mut BTreeSet<(String, String)>) {
+    use crate::ir::P;
+    let rec = |x: &P, out: &mut BTreeSet<(String, String)>| injections(x, vars_only, out);
+    match p {
+        P::App(f, ps, args) => {
+            if f == "inj"
+                && let [a, b] = ps.as_slice()
+                && let (Some(a), Some(b)) = (a.name(), b.name())
+                && (!vars_only || matches!(args.first(), Some(P::Var(..))))
+            {
+                out.insert((a.to_string(), b.to_string()));
+            }
+            for a in args {
+                rec(a, out);
+            }
+        }
+        P::And(_, ps) | P::Or(_, ps) => ps.iter().for_each(|x| rec(x, out)),
+        P::Not(_, a) => rec(a, out),
+        P::Equals(_, _, a, b)
+        | P::In(_, _, a, b)
+        | P::Implies(_, a, b)
+        | P::Iff(_, a, b)
+        | P::Rewrites(_, a, b) => {
+            rec(a, out);
+            rec(b, out);
+        }
+        P::Ceil(_, _, a) | P::Floor(_, _, a) | P::Exists(_, _, _, a) | P::Forall(_, _, _, a) => {
+            rec(a, out)
+        }
+        _ => {}
+    }
+}
+
+/// `text` with every whole identifier of `names` followed by `'` (the partner's names in a
+/// disjointness lemma, which states both rules' binders).
+fn primed(text: &str, names: &BTreeSet<String>) -> String {
+    let ident =
+        |c: char| c.is_alphanumeric() || c == '_' || c == '\'' || c == '.' || c == '!' || c == '?';
+    let mut out = String::new();
+    let cs: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < cs.len() {
+        if ident(cs[i]) && (i == 0 || !ident(cs[i - 1])) {
+            let mut j = i;
+            while j < cs.len() && ident(cs[j]) {
+                j += 1;
+            }
+            let w: String = cs[i..j].iter().collect();
+            out.push_str(&w);
+            if names.contains(&w) {
+                out.push('\'');
+            }
+            i = j;
+        } else {
+            out.push(cs[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// The header of a generated determinism module.
+fn header(imports: &[String], doc: &str, heartbeats: u64, ns: &str) -> String {
+    let mut o = String::new();
+    for i in imports {
+        let _ = writeln!(o, "import {i}");
+    }
+    let _ = write!(
+        o,
+        "\n/-! Generated by k2lean; do not edit.\n\n{doc} -/\n\nset_option maxHeartbeats {heartbeats}\nset_option maxRecDepth 100000\nset_option linter.unusedVariables false\nset_option linter.unusedSectionVars false\n\nnamespace {ns}\n\nopen KPrelude\n\n"
+    );
+    o
 }
 
 /// `rel(i)`: the relation of rank `i` that the lemmas invert (`Step`, or `Step0 i` when ranked).
@@ -238,13 +355,25 @@ pub fn emit(
     fns: &crate::lower::Fns,
     opts: &Opts,
 ) -> Out {
-    // the definitions a pair's requires clauses call, transitively (the unfoldings of `k2l_eval`)
+    // the unfoldings of a certificate: for a verdict by evaluation, the definitions the
+    // classifier's evaluation applied (its derivation, which the certificate replays); otherwise
+    // the definitions the pair's requires clauses call, transitively. The transitive set can be
+    // far larger than a refutation needs (a `==K` between sorts without a common leaf under a
+    // call into signature recovery), and `simp` over it does not finish.
     let eqs = crate::funcs::equations(def);
-    let fn_names = |a: usize, b: usize| -> Vec<String> {
+    let fn_names = |a: usize, b: usize, used: Option<&BTreeSet<String>>| -> Vec<String> {
         let mut syms: BTreeSet<String> = BTreeSet::new();
-        crate::funcs::applied(&rs[a].kore.1, def, &mut syms);
-        crate::funcs::applied(&rs[b].kore.1, def, &mut syms);
-        let mut todo: Vec<String> = syms.iter().cloned().collect();
+        if let Some(u) = used {
+            syms.extend(u.iter().cloned());
+        } else {
+            crate::funcs::applied(&rs[a].kore.1, def, &mut syms);
+            crate::funcs::applied(&rs[b].kore.1, def, &mut syms);
+        }
+        let mut todo: Vec<String> = if used.is_some() {
+            vec![]
+        } else {
+            syms.iter().cloned().collect()
+        };
         while let Some(f) = todo.pop() {
             for e in eqs.get(&f).into_iter().flatten() {
                 let mut more = BTreeSet::new();
@@ -291,8 +420,23 @@ pub fn emit(
     };
     let nranks = if ranked { prios.len() } else { 1 };
     // the classes of every same-rank pair (untrusted)
+    let t0 = std::time::Instant::now();
     let classes =
-        crate::pairs::classify_same_rank(def, m, rs, &|r| if ranked { rank(r) } else { 0 });
+        crate::pairs::classify_same_rank(def, m, rs, &|r| if ranked { rank(r) } else { 0 }, false);
+    if std::env::var_os("K2LEAN_WITNESS_TRACE").is_some() {
+        let hwm = std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|t| {
+                t.lines()
+                    .find(|l| l.starts_with("VmHWM"))
+                    .map(|l| l.to_string())
+            })
+            .unwrap_or_default();
+        eprintln!(
+            "det2: classification {:.1} s, {hwm}",
+            t0.elapsed().as_secs_f64()
+        );
+    }
     let class_of = |a: usize, b: usize| classes.get(&(a.min(b), a.max(b)));
     // forced overlaps (`Opts::forced`)
     let forced: BTreeSet<(usize, usize)> = opts
@@ -370,24 +514,21 @@ pub fn emit(
         .map(|(i, k)| (k, i + 1))
         .collect();
 
-    let mut o = format!(
-        "import {ns}.Adequacy\nimport KPrelude.Determinism\n\n/-! Generated by k2lean; do not edit.\n\n\
-Determinism of `Step`{}. `overlaps` lists the pairs of rules of one rank that can both apply at\n\
-one configuration ({} pairs): there `Step` has two successors in general, which is the\n\
-definition's own nondeterminism (`krun` takes the first rule in its order). At a configuration\n\
-where no listed pair applies with both rules (`noOverlap c = true`) the successor is unique.\n\n\
-The proof inverts the second step through relations split by the first item of the `<k>` cell\n\
-(namespace `Det`, internal) and closes each remaining goal with the certificate chosen by the\n\
-generator's pair classification; the kernel checks every one. -/\n\n\
-set_option maxHeartbeats {}\nset_option maxRecDepth 100000\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n\n",
-        if ranked { " with priority ranks" } else { "" },
-        overlaps.len(),
-        opts.heartbeats
+    let pre_mod = format!("{ns}.Determinism.Pre");
+    let mut o = header(
+        &[format!("{ns}.Adequacy"), "KPrelude.Determinism".into()],
+        &format!(
+            "Internal part of `{ns}.Determinism`: the key of a configuration (the first item of its\n\
+`<k>` cell), the relations split by it, and `overlaps`, the pairs of rules of one rank that can\n\
+both apply at one configuration ({} pairs)",
+            overlaps.len()
+        ),
+        opts.heartbeats,
+        ns,
     );
-    // the injection algebra and the closers that use this definition's names
+    // the injection algebra
     let inj: BTreeSet<(String, String)> = crate::terms::inj_pairs(m).into_iter().collect();
     let simple = |s: &str| m.sorts.get(s).is_some_and(|x| x.is_simple());
-    let mut alg = Vec::new();
     for (b, a) in &inj {
         for (a2, d) in &inj {
             if a2 != a || !inj.contains(&(b.clone(), d.clone())) {
@@ -410,7 +551,6 @@ set_option maxHeartbeats {}\nset_option maxRecDepth 100000\nset_option linter.un
                 o,
                 "@[k2l_det_alg] theorem {n} (x : {b}) : inj_{fa}_{fd} (inj_{fb}_{fa} x) = inj_{fb}_{fd} x :=\n  {proof}"
             );
-            alg.push(n);
         }
         for (c, a2) in &inj {
             if a2 != a || c == b || !inj.contains(&(b.clone(), c.clone())) {
@@ -437,39 +577,188 @@ set_option maxHeartbeats {}\nset_option maxRecDepth 100000\nset_option linter.un
                 o,
                 "@[k2l_det_alg] theorem {n} (x : {b}) : proj_{fa}_{fc} (inj_{fb}_{fa} x) = some (inj_{fb}_{fc} x) :=\n  {proof}"
             );
-            alg.push(n);
         }
     }
-    let _ = write!(
-        o,
-        "\n\
-/-- Equal right-hand sides under both matches. -/\nlocal macro \"k2l_join\" : tactic => `(tactic| first | k2l_self | (simp_all; done))\n\n\
-/-- Every closer in turn, with a warning: a goal the classification did not predict. -/\n\
-local macro \"k2l_fallback\" : tactic => `(tactic| (k2l_warn_fallback; first\n  | k2l_self\n  | k2l_refute_eqs\n  | k2l_bool_cases\n  | k2l_eval\n  | k2l_omega\n  | (k2l_map_facts; simp_all; done)\n  | (k2l_proj_inv; simp_all [k2l_det_alg]; done)))\n\n\
-/-- The certificate of a goal the classification puts in the clash class: an equation\nhypothesis whose sides are different constructors (otherwise the fallback). -/\n\
-local macro \"k2l_default\" : tactic => `(tactic| (k2l_note_default; first | k2l_refute_eqs | (exfalso; k2l_list_facts; k2l_det_fundep; k2l_map_facts; k2l_det_fundep; first | done | k2l_refute_eqs | k2l_lits) | k2l_fallback))\n\n",
-    );
-    // the key
-    // an enumeration, not `Nat`: a match on it is one `casesOn` step, where a match on `Nat`
-    // literals tests the literals in turn and re-evaluates the key at each test
+    // a projection of an injection whose leaves it does not include is `none` (the leaf table),
+    // for the projections the pairs' side conditions test (the patterns `inj{S, A}(…)` of the
+    // equations of the functions their requires call) and the injections of their left-hand
+    // sides: what refutes a sort predicate `isS(X)` at a variable `X` of a disjoint sort
+    let mut tested: BTreeSet<(String, String)> = BTreeSet::new();
+    let mut injected: BTreeSet<(String, String)> = BTreeSet::new();
+    {
+        let mut syms: BTreeSet<String> = BTreeSet::new();
+        for r in rs {
+            crate::funcs::applied(&r.kore.1, def, &mut syms);
+            injections(&r.kore.0, true, &mut injected);
+        }
+        let mut todo: Vec<String> = syms.iter().cloned().collect();
+        while let Some(f) = todo.pop() {
+            for e in eqs.get(&f).into_iter().flatten() {
+                let mut more = BTreeSet::new();
+                crate::funcs::applied(&e.rhs, def, &mut more);
+                for q in &e.requires {
+                    crate::funcs::applied(q, def, &mut more);
+                }
+                for g in more {
+                    if syms.insert(g.clone()) {
+                        todo.push(g);
+                    }
+                }
+            }
+        }
+        for f in &syms {
+            for e in eqs.get(f).into_iter().flatten() {
+                for a in &e.args {
+                    injections(a, false, &mut tested);
+                }
+            }
+        }
+    }
+    let leaves_of = |x: &str| -> BTreeSet<String> {
+        m.sorts
+            .get(x)
+            .map(|i| i.leaves.iter().cloned().collect())
+            .unwrap_or_default()
+    };
+    let mut nproj = 0usize;
+    for (sv, a) in &tested {
+        if !inj.contains(&(sv.clone(), a.clone())) {
+            continue;
+        }
+        let from: BTreeSet<&String> = injected.iter().map(|(t, _)| t).collect();
+        for t in from {
+            if t == sv || !inj.contains(&(t.clone(), a.clone())) {
+                continue;
+            }
+            if !leaves_of(t).is_disjoint(&leaves_of(sv)) {
+                continue;
+            }
+            let (ft, fa, fs) = (
+                names::short_sort(t),
+                names::short_sort(a),
+                names::short_sort(sv),
+            );
+            let proof = if simple(t) {
+                format!("by simp [inj_{ft}_{fa}, proj_{fa}_{fs}]")
+            } else if opts.arity && simple(sv) {
+                // a sort that is its own leaf: its projection tests the leaf tag itself
+                format!(
+                    "match x with\n  | Term.inj _ l h _ => by\n    have hn : l ≠ .«{sv}» := by intro he; subst he; revert h; decide\n    simp [inj_{ft}_{fa}, proj_{fa}_{fs}, hn]"
+                )
+            } else if opts.arity {
+                format!(
+                    "match x with\n  | Term.inj _ l h _ => by\n    have hl : leafOK .«{sv}» l = false := by revert h; cases l <;> decide\n    simp [inj_{ft}_{fa}, proj_{fa}_{fs}, hl]"
+                )
+            } else {
+                format!("by cases x <;> first | rfl | simp [inj_{ft}_{fa}, proj_{fa}_{fs}]")
+            };
+            let _ = writeln!(
+                o,
+                "@[k2l_det_alg] theorem Det.projnone_{ft}_{fa}_{fs} (x : {t}) : proj_{fa}_{fs} (inj_{ft}_{fa} x) = none :=\n  {proof}"
+            );
+            nproj += 1;
+        }
+    }
+    // the key: an enumeration, not `Nat` (a match on it is one `casesOn` step, where a match on
+    // `Nat` literals tests the literals in turn and re-evaluates the key at each test), computed
+    // in three layers (the configuration's `<k>` cell, its first item, the item's constructors) so
+    // that the key of a configuration whose first item is a variable reduces to that item's key
     let ctors: Vec<String> = (1..=key_list.len()).map(|n| format!("k{n}")).collect();
     let _ = writeln!(
         o,
-        "/-- internal (determinism): the keys, and `none` for a configuration without one. -/\ninductive Det.Key where\n  | none{}\n",
+        "\n/-- internal (determinism): the keys, and `none` for a configuration without one. -/\ninductive Det.Key where\n  | none{}\n",
         ctors.iter().map(|c| format!(" | {c}")).collect::<String>()
     );
+    // the item's key
+    let item_keys: Vec<&Key> = key_list
+        .iter()
+        .filter(|k| !matches!(k, Key::DotK))
+        .collect();
+    let item_ty = "SortKItem";
+    let _ = writeln!(
+        o,
+        "/-- internal: the key of a first `<k>` item. -/\ndef Det.ikey (x : {item_ty}) : Det.Key :=\n  match x with"
+    );
+    for k in &item_keys {
+        let pat = match k {
+            Key::Inj(f) => format!("{f} _"),
+            Key::Own(f, g, n) => format!("{f} {}", app(g, &wild(*n))),
+            Key::Ctor(f, n) => app(f, &wild(*n))
+                .trim_start_matches('(')
+                .trim_end_matches(')')
+                .to_string(),
+            Key::DotK => unreachable!(),
+        };
+        let _ = writeln!(o, "  | {pat} => .k{}", knum[k]);
+    }
+    let _ = writeln!(o, "  | _ => .none\n");
+    // the `<k>` content's key
+    let k_ty = "SortK";
+    let kseq = info
+        .keys()
+        .find(|c| c.ends_with("SortK.kseq"))
+        .cloned()
+        .unwrap_or_else(|| "SortK.kseq".into());
+    let dotk = info
+        .keys()
+        .find(|c| c.ends_with("SortK.dotk"))
+        .cloned()
+        .unwrap_or_else(|| "SortK.dotk".into());
+    let k_ctors = info.get(&kseq).map(|x| x.0).unwrap_or(2);
+    let _ = writeln!(
+        o,
+        "/-- internal: the key of the content of the `<k>` cell. -/\ndef Det.kkey (k : {k_ty}) : Det.Key :=\n  match k with\n  | {kseq} x _ => Det.ikey x"
+    );
+    let dot = key_list
+        .iter()
+        .find(|k| matches!(k, Key::DotK))
+        .map(|k| knum[k]);
+    match dot {
+        Some(n) => {
+            let _ = writeln!(o, "  | {dotk} => .k{n}");
+            if opts.arity || k_ctors > 2 {
+                let _ = writeln!(o, "  | _ => .none");
+            }
+        }
+        None => {
+            let _ = writeln!(o, "  | _ => .none");
+        }
+    }
+    o.push('\n');
+    // the configuration's key: down the cell path to `<k>`
+    let mut pat = "(SortKCell.«<k>» k)".to_string();
+    for (h, n, i) in path.iter().rev() {
+        let args: Vec<String> = (0..*n)
+            .map(|j| if j == *i { pat.clone() } else { "_".into() })
+            .collect();
+        pat = format!("({h} {})", args.join(" "));
+    }
+    let pat = pat
+        .trim_start_matches('(')
+        .trim_end_matches(')')
+        .to_string();
+    let path_exhaustive = !opts.arity
+        && path
+            .iter()
+            .all(|(h, _, _)| info.get(h).is_some_and(|x| x.0 == 1))
+        && info.get("SortKCell.«<k>»").is_none_or(|x| x.0 == 1);
     let _ = writeln!(
         o,
         "/-- internal: the first item of the `<k>` cell, as a key. -/\ndef Det.key (c : {top}) : Det.Key :=\n  match c with"
     );
-    for k in &key_list {
-        let _ = writeln!(o, "  | {} => .k{}", key_pattern(&path, k), knum[k]);
+    if path.is_empty() && key_list.is_empty() {
+        let _ = writeln!(o, "  | _ => .none\n");
+    } else {
+        let _ = writeln!(o, "  | {pat} => Det.kkey k");
+        if !path_exhaustive {
+            let _ = writeln!(o, "  | _ => .none");
+        }
+        o.push('\n');
     }
-    let _ = writeln!(o, "  | _ => .none\n");
     let mut report = String::new();
     let _ = writeln!(
         report,
-        "keys = {}\nwild_rules = {}",
+        "keys = {}\nwild_rules = {}\nprojection_none_lemmas = {nproj}",
         key_list.len(),
         keys.iter().filter(|k| k.is_none()).count()
     );
@@ -477,6 +766,7 @@ local macro \"k2l_default\" : tactic => `(tactic| (k2l_note_default; first | k2l
     let mut group_of: Vec<Option<usize>> = vec![None; rs.len()];
     let mut inv_total = 0usize;
     let mut largest = 0usize;
+    let mut wild_of: Vec<usize> = Vec::with_capacity(nranks);
     for i in 0..nranks {
         let idx: Vec<usize> = (0..rs.len())
             .filter(|&x| !ranked || rank(&rs[x]) == i)
@@ -489,6 +779,7 @@ local macro \"k2l_default\" : tactic => `(tactic| (k2l_note_default; first | k2l
                 None => w.push(x),
             }
         }
+        wild_of.push(w.len());
         let ctor = |x: usize, relname: &str| {
             let r = &rs[x];
             format!(
@@ -560,19 +851,98 @@ local macro \"k2l_default\" : tactic => `(tactic| (k2l_note_default; first | k2l
             groups.len(),
             w.len()
         );
-        // the rules of each group (for the inversion lists below)
-        for (k, g) in groups {
-            for x in g {
-                let _ = (k, x);
-            }
-        }
     }
     let _ = writeln!(
         report,
         "largest_group = {largest}\ninversions = {inv_total}"
     );
-    // per-rule lemmas
+    // the overlaps
+    let _ = writeln!(
+        o,
+        "/-- The pairs of rules of one rank that can both apply at one configuration: every pair the\ngenerator's classification could not separate. Each other pair is proved never to apply at\nonce (`Rules.r.det`); each listed pair is witnessed (`overlaps_witnessed`). -/\ndef overlaps : List (Overlap {top}) := ["
+    );
+    let items: Vec<String> = overlaps
+        .iter()
+        .map(|(a, b)| format!("  ⟨R.{}, R.{}⟩", rs[*a].lean, rs[*b].lean))
+        .collect();
+    let _ = writeln!(o, "{}]\n", items.join(",\n"));
+    let _ = writeln!(
+        o,
+        "/-- No pair of `overlaps` has both of its rules applicable at `c`. -/\ndef noOverlap (c : {top}) : Bool := noOverlapIn overlaps c\n"
+    );
+    let _ = writeln!(o, "end {ns}");
+    let mut files = vec![(format!("{ns}/Determinism/Pre.lean"), o)];
+
+    // the pairs separated by their side conditions (not by a constructor or a literal): with
+    // `--det2-disjoint`, one lemma each, which both rules' lemmas use
+    let mut disj: BTreeSet<(usize, usize)> = BTreeSet::new();
+    let mut dmods: Vec<String> = Vec::new();
+    if opts.disjoint {
+        let mut dl: Vec<String> = Vec::new();
+        for ((a, b), c) in &classes {
+            if forced.contains(&(*a, *b)) || c.class != "exclusive" {
+                continue;
+            }
+            let Some(cert) = certificate(c, &rs[*b], None, &fn_names(*a, *b, c.used.as_ref()))
+            else {
+                continue;
+            };
+            disj.insert((*a, *b));
+            let (ra, rb) = (&rs[*a], &rs[*b]);
+            let names_b: BTreeSet<String> = rb
+                .step
+                .binders
+                .iter()
+                .map(|(n, _)| n.clone())
+                .chain(rb.step.hyps.iter().map(|(n, _)| n.clone()))
+                .collect();
+            let mut sig = String::new();
+            for (n, ty) in &ra.step.binders {
+                let _ = write!(sig, " {{{n} : {ty}}}");
+            }
+            for (n, ty) in &rb.step.binders {
+                let _ = write!(sig, " {{{n}' : {}}}", primed(ty, &names_b));
+            }
+            for (h, p) in &ra.step.hyps {
+                let _ = write!(sig, "\n    ({h} : {p})");
+            }
+            for (h, p) in &rb.step.hyps {
+                let _ = write!(sig, "\n    ({h}' : {})", primed(p, &names_b));
+            }
+            let lb = primed(&rb.step.index.render_arg(), &names_b);
+            dl.push(format!(
+                "/-- internal: `{}` and `{}` never both step from one configuration. -/\ntheorem Det.disj.{}.{}{sig}\n    (k2l_hc : {} = {lb}) : False := by\n  cases k2l_hc\n  first | {cert} | k2l_default\n\n",
+                names::string_lit(&display_name(ra)).trim_matches('"'),
+                names::string_lit(&display_name(rb)).trim_matches('"'),
+                ra.lean,
+                rb.lean,
+                ra.step.index.render_arg()
+            ));
+        }
+        let per = 60usize;
+        for (k, ch) in dl.chunks(per).enumerate() {
+            let name = format!("D{}", k + 1);
+            let mut t = header(
+                std::slice::from_ref(&pre_mod),
+                &format!(
+                    "Internal part of `{ns}.Determinism`: the pairs of rules separated by their side conditions, module {}",
+                    k + 1
+                ),
+                opts.heartbeats,
+                ns,
+            );
+            for l in ch {
+                t.push_str(l);
+            }
+            let _ = writeln!(t, "end {ns}");
+            files.push((format!("{ns}/Determinism/{name}.lean"), t));
+            dmods.push(format!("{ns}.Determinism.{name}"));
+        }
+        let _ = writeln!(report, "disjointness_lemmas = {}", dl.len());
+    }
+    // per-rule lemmas, in modules of bounded cost
     let mut ncert: BTreeMap<String, usize> = BTreeMap::new();
+    let mut lemmas: Vec<(usize, String)> = Vec::new(); // (cost, text)
     for (x, r) in rs.iter().enumerate() {
         let i = if ranked { rank(r) } else { 0 };
         let lhs = r.step.index.render_arg();
@@ -592,6 +962,11 @@ local macro \"k2l_default\" : tactic => `(tactic| (k2l_note_default; first | k2l
         let same: Vec<usize> = (0..rs.len())
             .filter(|&y| !ranked || rank(&rs[y]) == i)
             .collect();
+        let head = if group_of[x].is_none() {
+            head_var(r, info)
+        } else {
+            None
+        };
         let inverted: Vec<usize> = match group_of[x] {
             Some(k) => same
                 .iter()
@@ -613,29 +988,62 @@ local macro \"k2l_default\" : tactic => `(tactic| (k2l_note_default; first | k2l
                 names::string_lit(&display_name(r)).trim_matches('"')
             )
         };
-        // a rule without key inverts every constructor of its rank: more heartbeats
-        let hb = if group_of[x].is_none() {
-            "set_option maxHeartbeats 4000000 in\n"
-        } else {
-            ""
-        };
+        // a rule without key that cannot be split by its head's sort inverts every constructor of
+        // its rank: more heartbeats
+        let mut t = String::new();
         let _ = write!(
-            o,
-            "{hb}{doc}theorem Rules.{}.det{}{hnos} {{c₂ : {top}}}\n    (h₂ : {} {lhs} c₂) : {rhs} = c₂ := by\n",
+            t,
+            "{doc}theorem Rules.{}.det{}{hnos} {{c₂ : {top}}}\n    (h₂ : {} {lhs} c₂) : {rhs} = c₂ := by\n",
             r.lean,
             ctor_sig(&r.step),
             rel(i)
         );
-        match group_of[x] {
-            Some(_) => {
+        let mut cost = 0usize;
+        match (group_of[x], &head) {
+            (Some(_), _) => {
                 // `h₂` is not needed after the split: clearing it keeps the closers' `at *` small
-                let _ = writeln!(
-                    o,
-                    "  rcases Det.split{i} h₂ with h | h <;> (clear h₂; cases h)"
-                );
+                if opts.disjoint {
+                    let _ = writeln!(
+                        t,
+                        "  rcases Det.split{i} h₂ with h | h <;> clear h₂\n  all_goals (k2l_gen_index h; cases h)"
+                    );
+                } else {
+                    let _ = writeln!(
+                        t,
+                        "  rcases Det.split{i} h₂ with h | h <;> (clear h₂; cases h)"
+                    );
+                }
+                cost += inverted.len();
             }
-            None => {
-                let _ = writeln!(o, "  cases h₂");
+            (None, Some((hp, g))) => {
+                // the first item is `inj_S_KItem g`: split `g` by its leaf until the key reduces,
+                // then invert one key's relation per case
+                let proj = r
+                    .step
+                    .hyps
+                    .iter()
+                    .find(|(h, _)| h == hp)
+                    .map(|(_, p)| p.split_whitespace().next().unwrap_or("").to_string())
+                    .unwrap_or_default();
+                let _ = writeln!(
+                    t,
+                    "  have k2l_e := {} {hp}\n  subst k2l_e\n  rcases Det.split{i} h₂ with h | h <;> clear h₂\n  k2l_key_cases h [{g}]\n  all_goals {}",
+                    proj.replacen("proj_", "inj_proj_", 1),
+                    if opts.disjoint {
+                        "(k2l_gen_index h; cases h)"
+                    } else {
+                        "cases h"
+                    }
+                );
+                cost += wild_of[i] * 4 + 4 * largest;
+            }
+            (None, None) => {
+                if opts.disjoint {
+                    let _ = writeln!(t, "  k2l_gen_index h₂\n  cases h₂");
+                } else {
+                    let _ = writeln!(t, "  cases h₂");
+                }
+                cost += inverted.len();
             }
         }
         for &y in &inverted {
@@ -648,44 +1056,318 @@ local macro \"k2l_default\" : tactic => `(tactic| (k2l_note_default; first | k2l
                     depth: 0,
                     smt: None,
                     cases: vec![],
+                    used: None,
                 };
                 certificate(&fake, &rs[y], hno_name.get(&y).map(|s| s.as_str()), &[])
             } else {
-                class_of(x, y).and_then(|c| certificate(c, &rs[y], None, &fn_names(x, y)))
+                class_of(x, y)
+                    .and_then(|c| certificate(c, &rs[y], None, &fn_names(x, y, c.used.as_ref())))
             };
             if let Some(c) = cert {
-                *ncert
-                    .entry(
-                        c.trim_start_matches("(k2l_det_fundep; ")
-                            .trim_start_matches("exfalso; ")
-                            .split_whitespace()
-                            .next()
-                            .unwrap_or("")
-                            .trim_end_matches(')')
-                            .to_string(),
-                    )
-                    .or_default() += 1;
-                let _ = writeln!(o, "  k2l_case {} => {c}", rs[y].lean);
+                let kind = c
+                    .trim_start_matches("(k2l_det_fundep; ")
+                    .trim_start_matches("exfalso; ")
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .trim_end_matches(')')
+                    .to_string();
+                if kind != "k2l_lits" {
+                    cost += 2;
+                }
+                *ncert.entry(kind).or_default() += 1;
+                if !opts.disjoint {
+                    let _ = writeln!(t, "  k2l_case {} => {c}", rs[y].lean);
+                } else if disj.contains(&(x.min(y), x.max(y))) {
+                    // the pair's disjointness lemma, from this rule's side
+                    let (a, b) = (x.min(y), x.max(y));
+                    let own: Vec<String> = rs[x].step.hyps.iter().map(|(h, _)| h.clone()).collect();
+                    let other: Vec<String> = rs[y]
+                        .step
+                        .hyps
+                        .iter()
+                        .map(|_| "(by assumption)".to_string())
+                        .collect();
+                    let (ha, hb, hc) = if x == a {
+                        (own, other, "k2l_hc")
+                    } else {
+                        (other, own, "k2l_hc.symm")
+                    };
+                    let mut args = ha;
+                    args.extend(hb);
+                    let _ = writeln!(
+                        t,
+                        "  k2l_case {} => exact (Det.disj.{}.{} {} {hc}).elim",
+                        rs[y].lean,
+                        rs[a].lean,
+                        rs[b].lean,
+                        args.join(" ")
+                    );
+                } else {
+                    let _ = writeln!(t, "  k2l_case {} => (cases k2l_hc <;> {c})", rs[y].lean);
+                }
             }
         }
-        let _ = writeln!(o, "  all_goals k2l_default\n");
+        if opts.disjoint {
+            let _ = writeln!(t, "  all_goals (cases k2l_hc <;> k2l_default)\n");
+        } else {
+            let _ = writeln!(t, "  all_goals k2l_default\n");
+        }
+        // the heartbeats of a lemma grow with its work: the constructors it inverts and the
+        // certificates it runs (a bound against a runaway proof, not a cost)
+        let ncerts = t.matches("\n  k2l_case ").count()
+            - t.matches("=> (k2l_det_fundep; exfalso; k2l_lits)").count();
+        let hb = opts.heartbeats + 2_000 * inverted.len() as u64 + 60_000 * ncerts as u64;
+        let hb = if group_of[x].is_none() && head.is_none() {
+            hb.max(4_000_000)
+        } else {
+            hb
+        };
+        if hb != opts.heartbeats {
+            t = format!("set_option maxHeartbeats {hb} in\n{t}");
+        }
+        lemmas.push((cost, t));
+    }
+    if std::env::var_os("K2LEAN_WITNESS_TRACE").is_some() {
+        let hwm = std::fs::read_to_string("/proc/self/status")
+            .ok()
+            .and_then(|t| {
+                t.lines()
+                    .find(|l| l.starts_with("VmHWM"))
+                    .map(|l| l.to_string())
+            })
+            .unwrap_or_default();
+        eprintln!("det2: lemmas {:.1} s, {hwm}", t0.elapsed().as_secs_f64());
+    }
+    // modules of bounded cost, in rule order
+    let mut chunks: Vec<Vec<String>> = vec![vec![]];
+    let mut acc = 0usize;
+    for (c, t) in lemmas {
+        if acc > 0 && acc + c > opts.module_cost {
+            chunks.push(vec![]);
+            acc = 0;
+        }
+        acc += c;
+        chunks.last_mut().unwrap().push(t);
+    }
+    let _ = writeln!(report, "lemma_modules = {}", chunks.len());
+    let mut lmods = Vec::new();
+    for (k, ch) in chunks.iter().enumerate() {
+        let name = format!("L{}", k + 1);
+        let mut imps = vec![pre_mod.clone()];
+        imps.extend(dmods.iter().cloned());
+        let mut t = header(
+            &imps,
+            &format!(
+                "Internal part of `{ns}.Determinism`: per-rule determinism lemmas, module {}",
+                k + 1
+            ),
+            opts.heartbeats,
+            ns,
+        );
+        for l in ch {
+            t.push_str(l);
+        }
+        let _ = writeln!(t, "end {ns}");
+        files.push((format!("{ns}/Determinism/{name}.lean"), t));
+        lmods.push(format!("{ns}.Determinism.{name}"));
     }
     for (c, n) in &ncert {
         let _ = writeln!(report, "\"certificates.{c}\" = {n}");
     }
-    // the overlaps and the global theorems
-    let _ = writeln!(
-        o,
-        "/-- The pairs of rules of one rank that can both apply at one configuration: every pair the\ngenerator's classification could not separate. Each other pair is proved never to apply at\nonce (`Rules.r.det`). -/\ndef overlaps : List (Overlap {top}) := ["
-    );
-    let items: Vec<String> = overlaps
-        .iter()
-        .map(|(a, b)| format!("  ⟨R.{}, R.{}⟩", rs[*a].lean, rs[*b].lean))
-        .collect();
-    let _ = writeln!(o, "{}]\n", items.join(",\n"));
-    let _ = writeln!(
-        o,
-        "/-- No pair of `overlaps` has both of its rules applicable at `c`. -/\ndef noOverlap (c : {top}) : Bool := noOverlapIn overlaps c\n"
+
+    // a witness of each listed overlap (forced ones excepted: they are listed on purpose)
+    let mut unwitnessed = 0usize;
+    let mut witnessed = Vec::new();
+    let mut witnessed_mod = None;
+    if !overlaps.is_empty() {
+        let real: Vec<(usize, usize)> = overlaps
+            .iter()
+            .copied()
+            .filter(|p| {
+                !forced.contains(p) || class_of(p.0, p.1).is_some_and(|o| o.class == "overlap")
+            })
+            .collect();
+        let ws = crate::pairs::witnesses(def, m, rs, &real, top);
+        let mut conv = crate::convert::Conv::new(m, def);
+        conv.bytes_as_list = true;
+        let mut t = header(
+            std::slice::from_ref(&pre_mod),
+            &format!(
+                "Part of `{ns}.Determinism`: each pair of `overlaps` is a real nondeterminism of `Step`.\n\
+For each one, a configuration at which both rules step, to different configurations. Each fact\n\
+is a theorem by evaluation (`k2l_decide`): the kernel's evaluation of its `Decidable` instance, or,\n\
+where that reaches a definition by well-founded recursion, which the kernel does not unfold, both\n\
+sides evaluated with that definition's unfolding equation and the values compared by the kernel.\n\
+The heartbeat bound is five times the lemma modules' (an evaluation is also bounded by its own\n\
+step budget)"
+            ),
+            // an evaluation of a fact costs more than a lemma's inversion: KEVM's fact that no
+            // higher-priority rule applies at witness 0 takes 496,000 (2026-10-25)
+            opts.heartbeats.saturating_mul(5),
+            ns,
+        );
+        let mut names_ok = Vec::new();
+        let mut missing = Vec::new();
+        for (k, (a, b)) in overlaps.iter().enumerate() {
+            let w = match ws.get(&(*a, *b)) {
+                Some(Ok(w)) => w,
+                Some(Err(e)) => {
+                    missing.push(format!(
+                        "{} / {}: {e}",
+                        display_name(&rs[*a]),
+                        display_name(&rs[*b])
+                    ));
+                    continue;
+                }
+                None => {
+                    missing.push(format!(
+                        "{} / {}: listed by --det2-overlap",
+                        display_name(&rs[*a]),
+                        display_name(&rs[*b])
+                    ));
+                    continue;
+                }
+            };
+            let render = |p: &crate::ir::P| conv.value(p, top).map(|l| l.render());
+            let (Ok(c), Ok(c1), Ok(c2)) = (render(&w.config), render(&w.next.0), render(&w.next.1))
+            else {
+                missing.push(format!(
+                    "{} / {}: the witness has no Lean value",
+                    display_name(&rs[*a]),
+                    display_name(&rs[*b])
+                ));
+                continue;
+            };
+            let i = if ranked { rank(&rs[*a]) } else { 0 };
+            // a cost bound, not a proof failure: over a long literal the kernel's attempt at a
+            // fact does not end (it reduces a definition by well-founded recursion through its
+            // accessibility proof), and neither did the evaluation of every fact, whose `==K`
+            // compares `ser` values and decodes the literal (design.md §9); such a witness is
+            // reported, not checked, and its pair stays in `overlaps`
+            let longest = [&w.config, &w.next.0, &w.next.1]
+                .into_iter()
+                .map(longest_literal)
+                .max()
+                .unwrap_or(0);
+            if longest > opts.long_literal {
+                missing.push(format!(
+                    "{} / {}: the witness holds a literal of {longest} characters, longer than {} (--det2-long-literal), and is not checked",
+                    display_name(&rs[*a]),
+                    display_name(&rs[*b]),
+                    opts.long_literal
+                ));
+                continue;
+            }
+            // Each fact is its own theorem: elaborated together in one term, the evaluations
+            // exceeded 10 GB (KEVM, 2026-10-24), and a fact shared by both steps is proved once.
+            let step_of = |fact: &str| {
+                let sound = format!("(RuleResult.sound_of_next? {fact})");
+                if ranked {
+                    let mut arms = String::new();
+                    for j in 0..i {
+                        let _ = write!(arms, "\n      | {j}, _ => rank{j}_stuck Det.w{k}_s{j}");
+                    }
+                    let _ = write!(arms, "\n      | _ + {i}, hj => absurd hj (by omega)");
+                    format!("Step0.lift {sound}\n    (fun j hj => match j, hj with{arms})")
+                } else {
+                    sound
+                }
+            };
+            let mut stuck = String::new();
+            if ranked {
+                for j in 0..i {
+                    let _ = writeln!(
+                        stuck,
+                        "theorem Det.w{k}_s{j} : firstDefined (bucketOf{j} Det.w{k}) Det.w{k} none = .stuck := by k2l_decide"
+                    );
+                }
+            }
+            let _ = write!(
+                t,
+                "/-- internal: the configuration of the witness of overlap {k}. -/\ndef Det.w{k} : {top} :=\n  {c}\n\
+/-- internal: the step of the first rule. -/\ndef Det.w{k}_1 : {top} :=\n  {c1}\n\
+/-- internal: the step of the second rule. -/\ndef Det.w{k}_2 : {top} :=\n  {c2}\n\n\
+/-- internal: the facts of the witness of overlap {k}, each by evaluation. -/\n\
+theorem Det.w{k}_a : (Rules.{} Det.w{k}).next? = some Det.w{k}_1 := by k2l_decide\n\
+theorem Det.w{k}_b : (Rules.{} Det.w{k}).next? = some Det.w{k}_2 := by k2l_decide\n\
+theorem Det.w{k}_ne : Det.w{k}_1 ≠ Det.w{k}_2 := by k2l_decide\n{stuck}\n\
+/-- `{}` and `{}` both step from one configuration, to different ones. -/\n\
+theorem overlap_witness_{k} : Overlap.Witnessed Step (⟨R.{}, R.{}⟩ : Overlap {top}) :=\n  \
+⟨Det.w{k}, Det.w{k}_1, Det.w{k}_2, Det.w{k}_a, Det.w{k}_b, Det.w{k}_ne,\n    \
+{},\n    {}⟩\n\n",
+                rs[*a].lean,
+                rs[*b].lean,
+                names::string_lit(&display_name(&rs[*a])).trim_matches('"'),
+                names::string_lit(&display_name(&rs[*b])).trim_matches('"'),
+                rs[*a].lean,
+                rs[*b].lean,
+                step_of(&format!("Det.w{k}_a")),
+                step_of(&format!("Det.w{k}_b")),
+            );
+            names_ok.push(format!("overlap_witness_{k}"));
+        }
+        unwitnessed = missing.len();
+        witnessed = names_ok.clone();
+        if missing.is_empty() {
+            let _ = write!(
+                t,
+                "/-- Every listed pair is a real nondeterminism of `Step`: `overlaps` is exact. -/\ntheorem overlaps_witnessed : ∀ o ∈ overlaps, o.Witnessed Step := by\n  intro o ho\n  simp only [overlaps, List.mem_cons, List.not_mem_nil, or_false] at ho\n  rcases ho with {}\n  {}\n\n",
+                (0..names_ok.len())
+                    .map(|_| "rfl")
+                    .collect::<Vec<_>>()
+                    .join(" | "),
+                names_ok
+                    .iter()
+                    .map(|n| format!("· exact {n}"))
+                    .collect::<Vec<_>>()
+                    .join("\n  ")
+            );
+        } else {
+            let _ = write!(
+                t,
+                "/-! {} listed pairs have no checked witness, so `overlaps_witnessed` is not stated. They stay\nin `overlaps`, so `Step.deterministic_of` assumes them apart as it does every listed pair; only\nthe claim that the list is exact is not made:\n{}\n-/\n\n",
+                missing.len(),
+                missing
+                    .iter()
+                    .map(|m| format!("- {}", m.replace("-/", "- /")))
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            );
+        }
+        let _ = writeln!(t, "end {ns}");
+        files.push((format!("{ns}/Determinism/Witness.lean"), t));
+        witnessed_mod = Some(format!("{ns}.Determinism.Witness"));
+        let _ = writeln!(
+            report,
+            "witnessed = {}\nunwitnessed = {unwitnessed}",
+            names_ok.len()
+        );
+        for mm in &missing {
+            let _ = writeln!(report, "# unwitnessed: {:.300}", mm);
+        }
+    }
+
+    // the theorems
+    let mut imports = lmods.clone();
+    imports.extend(witnessed_mod);
+    let mut o = header(
+        &imports,
+        &format!(
+            "Determinism of `Step`{}. `overlaps` lists the pairs of rules of one rank that can both apply at\n\
+one configuration ({} pairs): there `Step` has two successors in general, which is the\n\
+definition's own nondeterminism (`krun` takes the first rule in its order); each listed pair\n\
+is witnessed by a configuration where both rules step to different results\n\
+(`overlaps_witnessed`). At a configuration where no listed pair applies with both rules\n\
+(`noOverlap c = true`) the successor is unique.\n\n\
+The proof inverts the second step through relations split by the first item of the `<k>` cell\n\
+(namespace `Det`, internal) and closes each remaining goal with the certificate chosen by the\n\
+generator's pair classification; the kernel checks every one",
+            if ranked { " with priority ranks" } else { "" },
+            overlaps.len()
+        ),
+        opts.heartbeats,
+        ns,
     );
     let empty = overlaps.is_empty();
     let sfx = if empty { "" } else { "_of" };
@@ -714,8 +1396,7 @@ local macro \"k2l_default\" : tactic => `(tactic| (k2l_note_default; first | k2l
     for (x, r) in rs.iter().enumerate() {
         let args = ctor_args(&r.step).join(" ");
         let mut hs = Vec::new();
-        for (p, k, fst) in partners.get(&x).into_iter().flatten() {
-            let _ = p;
+        for (_, k, fst) in partners.get(&x).into_iter().flatten() {
             let app = ctor_args(&r.app).join(" ");
             hs.push(format!(
                 "(noOverlapIn_{} (o := ⟨R.{}, R.{}⟩) h (KPrelude.mem_of_getElem? (i := {k}) rfl) (Rules.{}.applies {app}))",
@@ -757,6 +1438,7 @@ theorem step_iff_of_noOverlap {{c c' : {top}}} (h : noOverlap c = true) : step c
         );
     }
     let _ = writeln!(o, "end {ns}");
+    files.insert(0, (format!("{ns}/Determinism.lean"), o));
     let _ = writeln!(report, "overlaps = {}", overlaps.len());
     let _ = writeln!(report, "classified_pairs = {}", classes.len());
     let mut by_class: BTreeMap<String, usize> = BTreeMap::new();
@@ -767,19 +1449,95 @@ theorem step_iff_of_noOverlap {{c c' : {top}}} (h : noOverlap c = true) : step c
         let _ = writeln!(report, "\"pairs.{c}\" = {n}");
     }
     Out {
-        text: o,
+        files,
         overlaps: overlaps.len(),
+        unwitnessed,
+        witnessed,
         report,
     }
 }
 
-/// The axiom guard names the conditional theorems when the overlap list is not empty.
-pub fn fix_guard(guard: &str, ns: &str, overlaps: usize) -> String {
-    if overlaps == 0 {
-        return guard.to_string();
+/// The default of `--det2-long-literal`: the kernel decodes a `String` literal of 400 characters
+/// through well-founded recursion in 9.9 s (100 in 0.84 s, 2026-10-24), a cost quadratic in its
+/// length, and `==K` over a `String` or `Bytes` value compares `ser` values, which decodes it.
+pub const LONG_LITERAL: usize = 256;
+
+/// The length of the longest domain value (`String`, `Bytes` literal) in `p`.
+fn longest_literal(p: &crate::ir::P) -> usize {
+    use crate::ir::P;
+    match p {
+        P::Dv(_, v) => v.chars().count(),
+        P::App(_, _, args) | P::And(_, args) | P::Or(_, args) => {
+            args.iter().map(longest_literal).max().unwrap_or(0)
+        }
+        P::Not(_, a) => longest_literal(a),
+        P::Implies(_, a, b) | P::Iff(_, a, b) => longest_literal(a).max(longest_literal(b)),
+        _ => 0,
     }
-    guard.replace(
-        &format!("{ns}.Step.deterministic {ns}.step_complete {ns}.step_iff"),
-        &format!("{ns}.Step.deterministic_of {ns}.step_complete_of {ns}.step_iff_of_noOverlap"),
-    )
+}
+
+/// The axiom guard of determinism alone, `NSTest/DetAxioms.lean`, for a library with `overlaps`
+/// listed pairs: the unconditional theorems without overlaps; otherwise the conditional ones, and
+/// `overlaps_witnessed` when every pair is witnessed, or else each witnessed pair's
+/// `overlap_witness_k`. It imports `NS.Determinism` and what that imports, not `NS.Equations`
+/// (KEVM's does not build yet); the library's whole guard `NSTest.Axioms` imports it.
+pub fn guard(ns: &str, overlaps: usize, unwitnessed: usize, witnessed: &[String]) -> String {
+    let mut names: Vec<String> = if overlaps == 0 {
+        vec![
+            "Step.deterministic".into(),
+            "step_complete".into(),
+            "step_iff".into(),
+        ]
+    } else {
+        vec![
+            "Step.deterministic_of".into(),
+            "step_complete_of".into(),
+            "step_iff_of_noOverlap".into(),
+        ]
+    };
+    if overlaps > 0 {
+        if unwitnessed == 0 {
+            names.push("overlaps_witnessed".into());
+        } else {
+            names.extend(witnessed.iter().cloned());
+        }
+    }
+    let mut o = format!(
+        "import {ns}.Determinism\nimport KPrelude.Tactic\n\n/-! Generated by k2lean; do not edit. Build-time guard of determinism alone: the theorems of\n`{ns}.Determinism` use only `propext`, `Quot.sound` and `Classical.choice` (no `sorryAx`, no added\naxioms). It imports `{ns}.Determinism` and what that imports, not `{ns}.Equations`; the guard\n`{ns}Test.Axioms` imports it. -/\n\nopen {ns} KPrelude\n\n"
+    );
+    for chunk in names.chunks(8) {
+        let ns_names: Vec<String> = chunk.iter().map(|n| format!("{ns}.{n}")).collect();
+        let _ = writeln!(o, "#k2l_assert_axioms {}", ns_names.join(" "));
+    }
+    o
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_guard_names_each_witness_when_one_is_missing() {
+        let g = guard("N", 0, 0, &[]);
+        assert!(g.contains("#k2l_assert_axioms N.Step.deterministic N.step_complete N.step_iff\n"));
+        let g = guard(
+            "N",
+            2,
+            0,
+            &["overlap_witness_0".into(), "overlap_witness_1".into()],
+        );
+        assert!(g.contains("N.step_iff_of_noOverlap N.overlaps_witnessed\n"));
+        let g = guard("N", 2, 1, &["overlap_witness_1".into()]);
+        assert!(g.contains("N.step_iff_of_noOverlap N.overlap_witness_1\n"));
+        assert!(!g.contains("overlaps_witnessed") && !g.contains("import N.Equations"));
+    }
+
+    #[test]
+    fn the_partners_names_are_primed_as_whole_identifiers() {
+        let names: BTreeSet<String> = ["K".to_string(), "r".to_string()].into_iter().collect();
+        assert_eq!(
+            primed("K.isKResult (SortK.kseq K r) = some r_2", &names),
+            "K.isKResult (SortK.kseq K' r') = some r_2"
+        );
+    }
 }

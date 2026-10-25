@@ -63,6 +63,7 @@ pub(super) fn lower_grammar_descriptor(
                             DescriptorLoweringError::UnsupportedShape {
                                 node: "precedence",
                                 detail: error.to_string(),
+                                range: None,
                             }
                         })?,
                     );
@@ -90,6 +91,7 @@ pub(super) fn lower_grammar_descriptor(
                         DescriptorLoweringError::UnsupportedShape {
                             node: "associativity",
                             detail: error.to_string(),
+                            range: None,
                         }
                     })?,
                 );
@@ -125,6 +127,7 @@ fn lower_lexing_descriptor(
         move |error: krs_ir::GrammarShapeError| DescriptorLoweringError::UnsupportedShape {
             node,
             detail: error.to_string(),
+            range: None,
         }
     };
     match grammar {
@@ -185,6 +188,7 @@ fn lower_grammar_production(
             _ => Err(DescriptorLoweringError::UnsupportedShape {
                 node: "sort parameter",
                 detail: "a production's sort parameter resolves to a sort".to_owned(),
+                range: None,
             }),
         })
         .collect::<Result<Vec<_>, _>>()?;
@@ -292,6 +296,7 @@ pub(super) fn production_owner_id(
                 return Err(DescriptorLoweringError::UnsupportedShape {
                     node: "constructor production owner",
                     detail: "builtin operations cannot own authored grammar".to_owned(),
+                    range: None,
                 });
             };
             id.clone()
@@ -310,17 +315,22 @@ pub(super) fn production_owner_id(
                     return Err(DescriptorLoweringError::UnsupportedShape {
                         node: "token production",
                         detail: "a token production has exactly one regex or terminal".to_owned(),
+                        range: None,
                     });
                 }
             };
             generated_production_id(descriptor.id(), GeneratedProductionKind::Token { content })
-                .map_err(|error| {
-                    DescriptorLoweringError::InvalidGeneratedIdentity(error.to_string())
+                .map_err(|error| DescriptorLoweringError::InvalidGeneratedIdentity {
+                    detail: error.to_string(),
+                    range: None,
                 })?
         }
         DescriptorProductionOwner::BracketSort { .. } => {
             generated_production_id(descriptor.id(), GeneratedProductionKind::Bracket).map_err(
-                |error| DescriptorLoweringError::InvalidGeneratedIdentity(error.to_string()),
+                |error| DescriptorLoweringError::InvalidGeneratedIdentity {
+                    detail: error.to_string(),
+                    range: None,
+                },
             )?
         }
     })
@@ -338,6 +348,7 @@ fn lower_production_item(
         .map_err(|error| DescriptorLoweringError::UnsupportedShape {
             node: "production terminal",
             detail: error.to_string(),
+            range: None,
         }),
         DescriptorProductionItem::NonTerminal {
             key, field, sort, ..
@@ -360,6 +371,7 @@ fn lower_production_item(
         .map_err(|error| DescriptorLoweringError::UnsupportedShape {
             node: "production regex",
             detail: error.to_string(),
+            range: None,
         }),
     }
 }
@@ -555,6 +567,7 @@ fn list_partner(
                 "{} names a builtin operation as its list partner",
                 descriptor.id()
             ),
+            range: None,
         });
     };
     Ok(id.clone())

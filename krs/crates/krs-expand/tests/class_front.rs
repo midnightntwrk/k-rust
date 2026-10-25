@@ -32,12 +32,12 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Instant;
 
-use krs_diagnostic::{Code, untag_rustc_message};
+use krs_diagnostic::untag_rustc_message;
 use krs_expand::sink::{ByteRange, InvocationId, MappingClass};
 use krs_expand::whole_file::{self, ExpandDiagnostic, FileExpansion, FileRequest, Selection};
 use krs_ir::ProvenanceRole;
 use krs_test_support::class_matrix::invariants::{
-    Observed, ObservedDiagnostic, Severity, signature, violations,
+    Observed, ObservedDiagnostic, Severity, registry_kind, signature, violations,
 };
 use krs_test_support::class_matrix::pending::{Judgement, Observation, Pending, UNASSIGNED};
 use krs_test_support::class_matrix::table::{Expected, Table, TableError};
@@ -60,10 +60,6 @@ fn expand(source: &str) -> Result<FileExpansion, Vec<ExpandDiagnostic>> {
         module_path: &module_path,
         selection: &Selection::WholeFile,
     })
-}
-
-fn registered(code: &str) -> bool {
-    Code::registered_spelling(code).is_some()
 }
 
 fn read_class_matrix(file: &str) -> String {
@@ -130,6 +126,7 @@ fn run_front(placed: &Placed<'_>, source: &str) -> Front {
                         severity: Severity::Error,
                         code: Some(diagnostic.code.to_string()),
                         range: diagnostic.authored.map(range),
+                        labels: Vec::new(),
                         message: diagnostic.message,
                     })
                     .collect(),
@@ -187,6 +184,7 @@ fn written_errors(expansion: &FileExpansion) -> Vec<(ObservedDiagnostic, bool)> 
                     severity: Severity::Error,
                     code,
                     range: Some(range(exact.unwrap_or(call_site))),
+                    labels: Vec::new(),
                     message,
                 },
                 exact.is_some(),
@@ -568,12 +566,7 @@ enum Verdict {
 }
 
 /// The front's verdict against the invariants and the table.
-fn judge(
-    placed: &Placed<'_>,
-    front: &Front,
-    expected: Option<&Expected<'_>>,
-    internal: &[String],
-) -> Verdict {
+fn judge(placed: &Placed<'_>, front: &Front, expected: Option<&Expected<'_>>) -> Verdict {
     if !front.observed.refused() {
         return if front.keys.defects.is_empty() {
             Verdict::Deferred
@@ -582,21 +575,16 @@ fn judge(
         };
     }
     let site = expected.map_or(&placed.entry, |expected| expected.site(placed));
-    let broken = !violations(&front.observed, site, internal, registered).is_empty();
+    let broken = !violations(&front.observed, site, registry_kind).is_empty();
     let off_table = match expected {
         None => false,
         Some(Expected::Accept(_)) => true,
         Some(Expected::Refuse { rule, class }) => {
-            let site = Some(rule.at.range(placed));
+            let site = rule.at.range(placed);
             let first = front.observed.errors().next();
             !(front.exact
                 && first.and_then(|error| error.code.as_deref()) == Some(class.code.as_str())
-                && first
-                    .and_then(|error| error.range.as_ref())
-                    .zip(site)
-                    .is_some_and(|(range, site)| {
-                        site.start <= range.start && range.end <= site.end
-                    }))
+                && first.is_some_and(|error| error.located_inside(site)))
         }
     };
     if broken || off_table {
@@ -619,7 +607,6 @@ struct Ran {
 fn run_cases(
     cases: &[class_matrix::Case],
     expected: &BTreeMap<String, Expected<'_>>,
-    internal: &[String],
 ) -> (Vec<Ran>, usize) {
     let threads = std::thread::available_parallelism().map_or(1, usize::from);
     let next = AtomicUsize::new(0);
@@ -636,7 +623,7 @@ fn run_cases(
                         let rendered = case.render();
                         let placed = &rendered.cases[0];
                         let front = run_front(placed, &rendered.source);
-                        let verdict = judge(placed, &front, expected.get(&case.id), internal);
+                        let verdict = judge(placed, &front, expected.get(&case.id));
                         proc_macro2::extra::invalidate_current_thread_spans();
                         let keyed = [
                             front.keys.factories,
@@ -703,7 +690,7 @@ fn every_case_meets_the_front_invariants_and_keys_its_payloads() {
         .iter()
         .map(|case| case.id.as_str())
         .collect::<Vec<_>>();
-    let resolution = table.resolve(&ids, registered);
+    let resolution = table.resolve(&ids, registry_kind);
     let mut table_errors = resolution
         .errors
         .iter()
@@ -716,7 +703,7 @@ fn every_case_meets_the_front_invariants_and_keys_its_payloads() {
         .filter(|error| matches!(error, TableError::Uncovered { .. }))
         .count();
 
-    let (ran, threads) = run_cases(&cases, &resolution.expected, &table.internal);
+    let (ran, threads) = run_cases(&cases, &resolution.expected);
     let elapsed = started.elapsed();
     assert!(
         ran.iter().any(|ran| ran.keyed[1] > 0),
@@ -867,6 +854,10 @@ doc = "`k::or_bool!` outside a claim"
 code = "krs::analysis::invalid-term"
 doc = "another mistake"
 
+[class.local-rewrite]
+code = "krs::syntax::invalid-local-rewrite"
+doc = "a predicate in a local rule's subject"
+
 [[refuse]]
 match = "terms/{init,equation}/{item,guard}/k::or_bool!(true, false)"
 class = "claim-only"
@@ -875,6 +866,11 @@ at = "spelling"
 [[refuse]]
 match = "terms/init/item-depth-2/k::or_bool!(true, false)"
 class = "other"
+at = "spelling"
+
+[[refuse]]
+match = "terms/local-rule/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"
+class = "local-rewrite"
 at = "spelling"
 
 [accept."terms/init/item/1"]
@@ -887,7 +883,7 @@ k = ""
         .iter()
         .map(|case| case.id.as_str())
         .collect::<Vec<_>>();
-    let resolution = table.resolve(&ids, registered);
+    let resolution = table.resolve(&ids, registry_kind);
     let verdict = |id: &str| {
         let case = cases
             .iter()
@@ -895,12 +891,7 @@ k = ""
             .unwrap_or_else(|| panic!("{id} is generated"));
         let rendered = case.render();
         let front = run_front(&rendered.cases[0], &rendered.source);
-        let verdict = judge(
-            &rendered.cases[0],
-            &front,
-            resolution.expected.get(id),
-            &table.internal,
-        );
+        let verdict = judge(&rendered.cases[0], &front, resolution.expected.get(id));
         proc_macro2::extra::invalidate_current_thread_spans();
         match verdict {
             Verdict::Deferred => "deferred".to_owned(),
@@ -909,14 +900,16 @@ k = ""
         }
     };
     // Exactly located inside the spelling, with the class's code.
+    for id in [
+        "terms/init/item/k::or_bool!(true, false)",
+        "terms/equation/guard/k::or_bool!(true, false)",
+    ] {
+        assert_eq!(verdict(id), "conforms", "{id}");
+    }
+    // The class's code, but outside the spelling.
     assert_eq!(
-        verdict("terms/init/item/k::or_bool!(true, false)"),
-        "conforms"
-    );
-    // The class's code, but at the invocation's call site, not at the island.
-    assert_eq!(
-        verdict("terms/equation/guard/k::or_bool!(true, false)"),
-        "K2 front: krs::expand::claim-only-term @ item"
+        verdict("terms/local-rule/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"),
+        "K2 front: krs::syntax::invalid-local-rewrite @ item"
     );
     // Located, but with another class's code.
     assert_eq!(

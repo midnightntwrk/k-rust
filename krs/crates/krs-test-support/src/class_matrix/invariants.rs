@@ -4,9 +4,11 @@
 //! 1. with at least one error whose code is registered in `krs-diagnostic`'s registry (a
 //!    refusal that only rustc or a prose message reports is red), not counting
 //!    [`FORWARDED_RUSTC`], which only says that rustc reported and KRS did not;
-//! 2. with its primary range, the first error's, inside the case's site;
+//! 2. with its primary range, the first error's, or one of that error's labels inside the case's
+//!    site;
 //! 3. with exactly one error;
-//! 4. with no code that the table lists as internal;
+//! 4. with no code the registry gives another kind than author (an internal or environment
+//!    code is never the answer to an author's mistake);
 //! 5. without a panic, and without "internal error" in any message.
 //!
 //! None of them needs the expected-outcome table, so they hold before the table is reviewed.
@@ -17,10 +19,14 @@
 //! an optional cell and a mistake on a plain one), so an error located at the whole entry still
 //! names the mistake; a class narrows the site to the spelling, or widens it to the item where
 //! the mistake lies outside the entry (an initializer parameter no cell reads). For a term
-//! position the entry is the spelling.
+//! position the entry is the spelling. A label counts as the location because a diagnostic that
+//! relates two places names both: `incompatible-binder` puts its primary at the binder's
+//! declaration, the thing most fixes change, and labels the occurrence that needs another sort.
 
 use std::fmt;
 use std::ops::Range;
+
+use krs_diagnostic::codes::CodeKind;
 
 use super::Placed;
 
@@ -42,8 +48,21 @@ pub struct ObservedDiagnostic {
     pub code: Option<String>,
     /// The primary byte range in the rendered source, if the diagnostic is located there.
     pub range: Option<Range<usize>>,
+    /// The byte ranges of its labels, its related locations, in the rendered source.
+    pub labels: Vec<Range<usize>>,
     /// The message.
     pub message: String,
+}
+
+impl ObservedDiagnostic {
+    /// Whether its primary range or one of its labels lies inside `site`.
+    #[must_use]
+    pub fn located_inside(&self, site: &Range<usize>) -> bool {
+        self.range
+            .iter()
+            .chain(&self.labels)
+            .any(|range| site.start <= range.start && range.end <= site.end)
+    }
 }
 
 /// What a case did.
@@ -86,8 +105,13 @@ pub enum Violation {
     },
     /// Invariant 3: the number of errors is not one.
     ErrorCount(usize),
-    /// Invariant 4: an error carries an internal code.
-    InternalCode(String),
+    /// Invariant 4: an error carries a code that is not an author code.
+    NonAuthorCode {
+        /// The code.
+        code: String,
+        /// Its kind.
+        kind: CodeKind,
+    },
     /// Invariant 5: the stage panicked.
     Panic(String),
     /// Invariant 5: a message says "internal error".
@@ -105,7 +129,9 @@ impl fmt::Display for Violation {
                 range.start, range.end
             ),
             Self::ErrorCount(count) => write!(formatter, "{count} errors, not one"),
-            Self::InternalCode(code) => write!(formatter, "the internal code {code}"),
+            Self::NonAuthorCode { code, kind } => {
+                write!(formatter, "the {kind:?} code {code}, not an author code")
+            }
             Self::Panic(message) => write!(formatter, "a panic: {message}"),
             Self::InternalErrorText(message) => {
                 write!(formatter, "an internal error: {message}")
@@ -118,15 +144,22 @@ impl fmt::Display for Violation {
 /// diagnosis of the mistake, so it does not satisfy invariant 1.
 pub const FORWARDED_RUSTC: &str = "krs::rust-expansion::uncoded-error";
 
+/// A code's kind in KRS's registry, `None` for a code the registry does not have: the `kind`
+/// that [`violations`] and [`Table::resolve`](super::table::Table::resolve) judge the real
+/// registry by.
+#[must_use]
+pub fn registry_kind(code: &str) -> Option<CodeKind> {
+    krs_diagnostic::codes::info(code).map(|info| info.kind)
+}
+
 /// The invariants `observed` breaks; empty when the case was accepted. `site` is the range in
-/// the rendered source the primary error must lie inside, `internal` the table's internal codes,
-/// and `registered` answers whether a code is in the registry.
+/// the rendered source the primary error must lie inside, and `kind` answers a code's registered
+/// kind, `None` for a code the registry does not have.
 #[must_use]
 pub fn violations(
     observed: &Observed,
     site: &Range<usize>,
-    internal: &[String],
-    registered: impl Fn(&str) -> bool,
+    kind: impl Fn(&str) -> Option<CodeKind>,
 ) -> Vec<Violation> {
     if !observed.refused() {
         return Vec::new();
@@ -137,21 +170,29 @@ pub fn violations(
         error
             .code
             .as_deref()
-            .is_some_and(|code| code != FORWARDED_RUSTC && registered(code))
+            .is_some_and(|code| code != FORWARDED_RUSTC && kind(code).is_some())
     }) {
         violations.push(Violation::NoRegisteredCode);
     }
-    match errors.first().map(|error| error.range.clone()) {
-        Some(Some(range)) if site.start <= range.start && range.end <= site.end => {}
-        Some(Some(range)) => violations.push(Violation::OutsideSite { range }),
-        Some(None) | None => violations.push(Violation::Unlocated),
+    match errors.first() {
+        Some(error) if error.located_inside(site) => {}
+        Some(ObservedDiagnostic {
+            range: Some(range), ..
+        }) => violations.push(Violation::OutsideSite {
+            range: range.clone(),
+        }),
+        Some(_) | None => violations.push(Violation::Unlocated),
     }
     if errors.len() != 1 {
         violations.push(Violation::ErrorCount(errors.len()));
     }
     for error in &errors {
-        if let Some(code) = error.code.as_ref().filter(|code| internal.contains(code)) {
-            violations.push(Violation::InternalCode(code.clone()));
+        let Some(code) = &error.code else { continue };
+        if let Some(kind) = kind(code).filter(|kind| *kind != CodeKind::Author) {
+            violations.push(Violation::NonAuthorCode {
+                code: code.clone(),
+                kind,
+            });
         }
     }
     if let Some(message) = &observed.panic {

@@ -370,15 +370,46 @@ def string2base (s : String) (b : Int) : Option Int :=
     | '+' :: t => (digits t).map fun n => (n : Int)
     | l => (digits l).map fun n => (n : Int)
   else none
-def replaceAll (h n r : String) : String := if n.isEmpty then h else h.replace n r
+/-- Every occurrence of the nonempty `n` in `h`, scanned from the left and not overlapping, replaced
+by `r` (`fuel` bounds the scan: each step consumes at least one character of `h`). -/
+def replaceAllChars : Nat → List Char → List Char → List Char → List Char
+  | 0, h, _, _ => h
+  | _ + 1, [], _, _ => []
+  | fuel + 1, c :: cs, n, r =>
+    if (c :: cs).take n.length = n then r ++ replaceAllChars fuel ((c :: cs).drop n.length) n r
+    else c :: replaceAllChars fuel cs n r
+/-- `replaceAll`, by structural recursion on the characters: the kernel evaluates it, so a proof
+can compute its value at literals (`String.replace` is a loop the kernel does not unfold).
+Irreducible for the elaborator, which the kernel ignores: at a string that is not a literal,
+unification would otherwise unfold the scan until it is stuck on the string, for every hypothesis
+that mentions the call (a `cases` on `K.parseByteStack DATA = some r` cost 67 million heartbeats
+on KEVM, and 0.2 million with it irreducible). -/
+@[irreducible] def replaceAll (h n r : String) : String :=
+  if n.isEmpty then h else String.ofList (replaceAllChars h.length h.toList n.toList r.toList)
+/-- The first occurrence of `n` that `find` reports, replaced by `r`. With an empty `n` that is
+the occurrence at index 0, so the result is `r ++ h`: the definition's equation
+`replaceFirst(S, T, R) => substrString(S, 0, findString(S, T, 0)) +String R +String …` (when
+`findString(S, T, 0) >=Int 0`) gives that value, and a model satisfies every equation of the
+definition. -/
 def replaceFirst (h n r : String) : String :=
-  if n.isEmpty then h else
   match (find h n 0) with
   | some k => if k < 0 then h else
       String.ofList ((h.toList.take k.toNat) ++ r.toList ++ (h.toList.drop (k.toNat + n.length)))
   | none => h
-def countAllOccurrences (h n : String) : Int :=
-  if n.isEmpty then 0 else ((h.splitOn n).length - 1 : Nat)
+/-- The number of occurrences of the nonempty `n` in `h`, scanned from the left and not
+overlapping (`fuel` bounds the scan as in `replaceAllChars`). -/
+def countChars : Nat → List Char → List Char → Nat
+  | 0, _, _ => 0
+  | _ + 1, [], _ => 0
+  | fuel + 1, c :: cs, n =>
+    if (c :: cs).take n.length = n then countChars fuel ((c :: cs).drop n.length) n + 1
+    else countChars fuel cs n
+/-- `countAllOccurrences`: K's equations count the first occurrence and continue after it. By
+structural recursion on the characters, so the kernel evaluates it at literals
+(`String.splitOn` is a loop over string positions that the kernel does not unfold).
+Irreducible for the elaborator, as `replaceAll` is. -/
+@[irreducible] def countAllOccurrences (h n : String) : Int :=
+  if n.isEmpty then 0 else countChars h.length h.toList n.toList
 def eq (a b : String) : Bool := a == b
 def ne (a b : String) : Bool := a != b
 def lt (a b : String) : Bool := decide (a < b)

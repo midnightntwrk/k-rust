@@ -220,6 +220,8 @@ pub fn eq_unfold_names() -> Vec<&'static str> {
         "KPrelude.IntHook.abs",
         "KPrelude.IntHook.min",
         "KPrelude.IntHook.max",
+        "KPrelude.StringHook.eq",
+        "KPrelude.StringHook.ne",
         // laws that need more than unfolding
         "KPrelude.IntHook.int_ediv_eq_tdiv_sub_emod",
         "KPrelude.IntHook.int_emod_eq_of_lt",

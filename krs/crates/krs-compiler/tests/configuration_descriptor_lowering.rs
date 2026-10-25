@@ -302,24 +302,30 @@ fn descriptor_lookup_errors_preserve_kind_messages_and_missing_ids() {
         ));
         let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
         if reference.item_kind() == ItemKind::Sort {
-            assert_eq!(
-                error,
-                krs_compiler::DescriptorLoweringError::DanglingReference(Box::new(
-                    reference.clone()
-                ))
+            assert!(
+                matches!(
+                    &error,
+                    krs_compiler::DescriptorLoweringError::DanglingReference { id, .. }
+                        if **id == reference
+                ),
+                "{error:?}"
             );
             assert_eq!(
                 error.to_string(),
                 format!("dangling descriptor reference {reference}")
             );
         } else {
-            assert_eq!(
-                error,
-                krs_compiler::DescriptorLoweringError::ReferenceKindMismatch {
-                    id: Box::new(reference.clone()),
-                    expected: ItemKind::Sort,
-                    actual: ItemKind::Configuration,
-                }
+            assert!(
+                matches!(
+                    &error,
+                    krs_compiler::DescriptorLoweringError::ReferenceKindMismatch {
+                        id,
+                        expected: ItemKind::Sort,
+                        actual: ItemKind::Configuration,
+                        ..
+                    } if **id == reference
+                ),
+                "{error:?}"
             );
             assert_eq!(
                 error.to_string(),

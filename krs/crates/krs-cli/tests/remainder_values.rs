@@ -350,7 +350,7 @@ k::rules! {
     });
     expect_test::expect![[r#"
         [
-            "dropped: error[krs::analysis::unsupported-shape]: unsupported cell content frame: rule ORG-KRS-REMAINDER-VALUES::lost (rule) uses incompatible subject/result associative state families or frames: the computation remainder `tail` is neither put back with `..tail` nor used",
+            "dropped: error[krs::syntax::invalid-list-notation]: the subject names the rest of the computation `..tail`, and the result neither puts it back with `..tail` nor uses it, so the rule would drop it: put it back with `..tail`, or use it in a condition",
             "moved-map: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-REMAINDER-VALUES::moved (rule): the result writes the whole `env` cell without putting back its map remainder `rest`; a rule cannot move a map remainder yet, so keep it with `..rest`",
             "state-term: error[krs::syntax::unsupported-rule-body]: unsupported rule body: this name is the remainder of the configuration: it stands for the cells this rule leaves out, which K completes from the declaration, so it is not a term a result can write",
             "one-item: error[krs::analysis::invalid-term]: invalid descriptor term for ORG-KRS-REMAINDER-VALUES::one (rule): application result sort ORG-KRS-REMAINDER-VALUES::Stmt (sort) is not admissible at sort K",

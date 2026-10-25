@@ -1798,6 +1798,12 @@ pub struct PrecedenceChain {
 }
 
 impl PrecedenceChain {
+    /// Returns the chain's first and last authored leaves.
+    #[must_use]
+    pub const fn range(&self) -> TokenRange {
+        self.range
+    }
+
     /// Returns production groups from tightest to loosest.
     #[must_use]
     pub const fn groups(&self) -> &AtLeastTwo<Ident> {
@@ -1958,6 +1964,12 @@ pub struct AssociativitySentence {
 }
 
 impl AssociativitySentence {
+    /// Returns the sentence's first and last authored leaves.
+    #[must_use]
+    pub const fn range(&self) -> TokenRange {
+        self.range
+    }
+
     /// Returns the typed associativity.
     #[must_use]
     pub const fn associativity(&self) -> GroupAssociativity {

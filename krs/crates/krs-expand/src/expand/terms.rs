@@ -853,13 +853,13 @@ impl<'a> TermBuilder<'a> {
                     key: wire_key(ProvenanceRole::MatchesWildcard, ordinal),
                 })
             }
-            TermTree::Wildcard(_) => {
+            TermTree::Wildcard(range) => {
                 // A result wildcard parses only for a desugar clause that
                 // lists `_` in `unbound_variables` (KF-046).
                 if !matches!(side, TermSide::Left | TermSide::Right) {
-                    return Err(ExpandError::new(
+                    return Err(ExpandError::at_range(
                         expand::RULE_RESULT_WILDCARD,
-                        Span::call_site(),
+                        *range,
                         "KRS rule results cannot contain wildcards",
                     ));
                 }
@@ -1021,11 +1021,11 @@ impl<'a> TermBuilder<'a> {
                 sort,
                 body,
             } => self.expand_closure(*range, binder, sort, body, side, slots),
-            TermTree::OrBool { arguments, .. } => {
+            TermTree::OrBool { range, arguments } => {
                 if !self.claim {
-                    return Err(ExpandError::new(
+                    return Err(ExpandError::at_range(
                         expand::CLAIM_ONLY_TERM,
-                        Span::call_site(),
+                        *range,
                         "or_bool! is currently claim-only",
                     ));
                 }

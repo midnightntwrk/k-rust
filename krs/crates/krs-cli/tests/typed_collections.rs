@@ -490,7 +490,7 @@ fn ill_sorted_elements_are_rejected_at_the_term() {
             "#[k::rule]\npub fn probe(\n    name: Term<Id>,\n    s: Term<Stmt>,\n    k::cells! { k: k::configuration::KCell(k::rewrite!(StmtSyntax::Put(name, s) => ()), ..), env: k::configuration::Cell(map![name -> k::rewrite!(_ => s), ..]), .. }: Machine,\n) {}\n".to_owned(),
             // The binder list declares `s`, so the declaration is what the
             // value position refuses.
-            "error[krs::analysis::incompatible-binder]: binder `s` is declared `Stmt` but this occurrence needs `Value`".to_owned(),
+            "error[krs::analysis::incompatible-binder]: binder `s` is declared `Stmt`, but an occurrence needs `Value`".to_owned(),
             "Stmt",
         ),
         (

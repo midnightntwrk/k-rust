@@ -189,7 +189,10 @@ fn a_failed_parse_or_run_reports_the_definition_s_warnings_before_its_error() {
         warning["code"], "krs::partition::not-program-syntax",
         "{text}"
     );
-    assert!(lines[1].starts_with("krs: krs::exec::parse: "), "{text}");
+    // The failure is an envelope too, though it has no authored range.
+    let error: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    assert_eq!(error["code"], "krs::exec::parse", "{text}");
+    assert_eq!(error["authored_range"], serde_json::Value::Null, "{text}");
 
     // A usage error (exit 2) reports them too: the warnings do not depend on
     // the outcome.

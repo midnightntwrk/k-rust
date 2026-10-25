@@ -688,7 +688,6 @@ const fn outcome(stdout: String, stderr: String, exit_code: i32) -> CommandOutco
         exit_code,
         warnings: crate::DiagnosticReports {
             envelopes: Vec::new(),
-            unlocated: Vec::new(),
         },
     }
 }
