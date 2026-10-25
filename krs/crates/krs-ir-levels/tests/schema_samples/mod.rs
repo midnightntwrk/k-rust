@@ -4298,8 +4298,8 @@ fn insert<T: Sample + Serialize + DeserializeOwned>(
 }
 
 /// Checks that each of `fields` is required in the samples of `T` that
-/// `variant` selects (a tag and its value, or every sample): without the
-/// field, the sample does not deserialize.
+/// `variant` selects (a tag and its value, or every sample): the sample
+/// deserializes, and without the field it does not.
 fn required<T: Sample + Serialize + DeserializeOwned>(
     variant: Option<(&str, &str)>,
     fields: &[&str],
@@ -4315,6 +4315,11 @@ fn required<T: Sample + Serialize + DeserializeOwned>(
         std::any::type_name::<T>()
     );
     for json in samples {
+        assert!(
+            serde_json::from_value::<T>(json.clone()).is_ok(),
+            "{} sample does not deserialize",
+            std::any::type_name::<T>()
+        );
         for field in fields {
             let mut without = json.clone();
             assert!(

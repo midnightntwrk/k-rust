@@ -1643,6 +1643,21 @@ mod tests {
                 ProvenanceKey::new(ProvenanceRole::RuleRightKSequencePayload, 0)
             ))
         );
+        let mut unkeyed_item = rule.clone();
+        let Some(ProtocolHeadRuleResult::Splice(splice)) = unkeyed_item
+            .head
+            .as_mut()
+            .and_then(|head| head.result.as_mut())
+        else {
+            unreachable!()
+        };
+        splice.items[0].key = None;
+        assert_eq!(
+            unkeyed_item.validate_complete_provenance(&anchors),
+            Err(crate::StateTransportError::ExtraProvenance(
+                ProvenanceKey::new(ProvenanceRole::RuleRightKSequenceItem, 0)
+            ))
+        );
 
         // The result type is a node of its own, with its own role.
         let mut retyped = rule.clone();
