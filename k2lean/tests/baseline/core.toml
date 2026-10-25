@@ -7,7 +7,7 @@
 
 [unit]
 tier = "light"
-passed = 69
+passed = 71
 
 [lib.kimp]
 tier = "light"
@@ -43,9 +43,9 @@ unwitnessed = 0
 
 [lib.freekey]
 tier = "light"
-stated = 79
+stated = 80
 open = ["Eqn.«_|Set__SET_Set_Set_Set_1»"]
-guarded = 91
+guarded = 113
 
 [lib.simple]
 tier = "heavy"
@@ -112,17 +112,17 @@ allowed_axioms = []
 
 [sources.sha256]
 "generated/freekey/FreeKey.lean" = { tier = "light", sha256 = "689966a76920e19367545b948ebbb0c0cb8988a08d1dd0a8e2908765ae9df110" }
-"generated/freekey/FreeKey/Adequacy.lean" = { tier = "light", sha256 = "4370b475b48806502cc7c5fb3c85a23f65fc4dab7265055c05088acfbfe79b1e" }
-"generated/freekey/FreeKey/Determinism.lean" = { tier = "light", sha256 = "4f192812902f7396a2fa228b9627edcd5bd87d942d66e5e5ea2fea3fc452d3b0" }
-"generated/freekey/FreeKey/Equations.lean" = { tier = "light", sha256 = "8f6ee23f1808c00ed65c7e98a1d8a677289076a2c43a56817a5df175c0e76456" }
-"generated/freekey/FreeKey/Functions.lean" = { tier = "light", sha256 = "507638c86f45f8209d00833967633c59d02ea5b2c7db6fe65b21e9010275228c" }
+"generated/freekey/FreeKey/Adequacy.lean" = { tier = "light", sha256 = "74407597a7636109299b2e41ce5e1cf1266c29388132faf46c80e85f62b81732" }
+"generated/freekey/FreeKey/Determinism.lean" = { tier = "light", sha256 = "dc42c15010573dbe5ee2d6a84e37e5692c038ade0be94fd8ed5fcf112237cd9a" }
+"generated/freekey/FreeKey/Equations.lean" = { tier = "light", sha256 = "09afe30058e03614e3e029792858fe34bb3f8f9da70fc5fe21aadd8c1df1f554" }
+"generated/freekey/FreeKey/Functions.lean" = { tier = "light", sha256 = "31bcfb531aae80cb698c32e88b0fa2c7ba1f8d502f29cc824e193e29d8b550ef" }
 "generated/freekey/FreeKey/Init.lean" = { tier = "light", sha256 = "771a02c49b2f6a43b784536b40a14dfb91b1846fc6f5c4ae27e2d3a277319859" }
-"generated/freekey/FreeKey/Preserves.lean" = { tier = "light", sha256 = "492038966409de30bf6bde772a8b3c206822e71c2794dddf410387db0ffd37c4" }
-"generated/freekey/FreeKey/Rules.lean" = { tier = "light", sha256 = "9bc3f99e7bd9db8154a418470db2b4554e3b11227a68d02bd5e876b71de4d358" }
-"generated/freekey/FreeKey/Terms.lean" = { tier = "light", sha256 = "1634adfe6e9b1d1cda04f77455d215b7e28fce15e86820cf6778a58e3eca53ce" }
+"generated/freekey/FreeKey/Preserves.lean" = { tier = "light", sha256 = "796c979db0d86ce0741a998c6d57070acd8a707e8eac1d30e8c36ff89b944086" }
+"generated/freekey/FreeKey/Rules.lean" = { tier = "light", sha256 = "a140654500dfc2419a0dd1880fefe6e83809b9055e54a2b46ebbe413f4c3ba19" }
+"generated/freekey/FreeKey/Terms.lean" = { tier = "light", sha256 = "dcc4629dbfdb7e30c1193d05f7c5ccf1eafb327ff122414a59a3032416b93583" }
 "generated/freekey/FreeKeyBench/Main.lean" = { tier = "light", sha256 = "d7e1e5ca25be6070af1446df36aaebe8e44af7a6ca3cce5a37019e96fb16ce24" }
 "generated/freekey/FreeKeyBench/Programs.lean" = { tier = "light", sha256 = "4f84541bd4ae824250d87ab3a9275a38c9ea8428da2b0048e42c4075e56ad83a" }
-"generated/freekey/FreeKeyTest/Axioms.lean" = { tier = "light", sha256 = "40f2873e886aa511c887206a0e2d11a19656aa48930698af51fec58936e673d3" }
+"generated/freekey/FreeKeyTest/Axioms.lean" = { tier = "light", sha256 = "f4f0f4e4ab0186cc81f367b3cb972f4cfece50ebe8bf6c24db811227237ac034" }
 "generated/freekey/FreeKeyTest/Main.lean" = { tier = "light", sha256 = "1aa1c176f01214cba3ee77cc01199c846f29b6fdc67f5f00c94f3c54b1a04dcf" }
 "generated/freekey/lakefile.lean" = { tier = "light", sha256 = "2f5a81e484da4df8595ba6e1ebe46fd507a2624ea8ae7f904b58df4070a88310" }
 "generated/freekey/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
