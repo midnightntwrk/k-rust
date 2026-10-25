@@ -134,12 +134,9 @@ impl ResolvedTarget {
             return Ok((judgement, None, None));
         };
         // A crash of the run of every path is the case's crash: its reason is the crash's
-        // (`panic`, `internal-error`), which precedes the condition it fails (FZ-CRASH).
-        let crashed = every_path
-            .as_ref()
-            .and_then(|run| run.failure.as_ref())
-            .filter(|failure| failure.crash_kind().is_some())
-            .map(UnjudgedReason::of_failure);
+        // (`panic`, `internal-error`, `internal-halt`), which precedes the condition it fails
+        // (FZ-CRASH, FZ-CRASH-CAUSE).
+        let crashed = every_path.as_ref().and_then(CaseResult::crash_reason);
         if self.target.comparable
             && let Some(condition) = conditions.first()
         {

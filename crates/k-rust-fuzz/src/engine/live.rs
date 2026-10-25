@@ -31,8 +31,8 @@ use crate::{
     graph::{self, RuleGraph, entry::Entry},
     holes::{self, HoleSite, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
     report::{
-        CrashSide, CrashStage, DefinitionRole, FindingVerdict, HoleValue, IncidentalCase, KillKind,
-        NormalEnds, Reaching, RejectionReason, TargetRule, WitnessSide,
+        CrashKind, CrashSide, CrashStage, DefinitionRole, FindingVerdict, HoleValue,
+        IncidentalCase, KillKind, NormalEnds, Reaching, RejectionReason, TargetRule, WitnessSide,
     },
     score,
     spec::{BackendRoute, CampaignSpec, CaseOptions, CompiledDefinition, PathMode, ProgramInput},
@@ -1396,7 +1396,11 @@ fn data_reason(
 impl LiveCases {
     /// The crash of `result`, the run of `side` from `prepared`, made with strategy `paths` and
     /// `terminal_rules` on `definition` (whose compiled directory a `krun` line leaves as
-    /// `directory`), when its failure is a crash (`crate::exec::CaseFailure::crash_kind`).
+    /// `directory`), when its failure is a crash (`crate::exec::CaseFailure::crash_kind`), or,
+    /// without a failure, when one of its leaves halted on an internal cause (the first in leaf
+    /// order, `crate::exec::CaseResult::internal_halt`; FZ-CRASH-CAUSE): a crash of kind
+    /// `internal-halt` at stage `execute`, whose site is the cause. The backend did not panic,
+    /// so the runner is not poisoned and nothing is rebuilt.
     #[expect(
         clippy::too_many_arguments,
         reason = "what a krun line of the crashed run needs, beside the run"
@@ -1412,13 +1416,24 @@ impl LiveCases {
         prepared: &Prepared,
         cancel: Option<&CancellationToken>,
     ) -> Option<Box<CaseCrash>> {
-        let failure = result.failure.as_ref()?;
-        let kind = failure.crash_kind()?;
-        let location = match &failure.cause {
-            FailureCause::Panic(record) => record.location.clone(),
-            _ => None,
+        let (kind, stage, message, location, cause_site) = if let Some(failure) = &result.failure {
+            let kind = failure.crash_kind()?;
+            let location = match &failure.cause {
+                FailureCause::Panic(record) => record.location.clone(),
+                _ => None,
+            };
+            (kind, failure.stage, failure.message.clone(), location, None)
+        } else {
+            let internal = result.internal_halt()?;
+            (
+                CrashKind::InternalHalt,
+                CrashStage::Execute,
+                internal.message.clone(),
+                None,
+                Some(internal.site.clone()),
+            )
         };
-        let krun_command = (failure.stage == CrashStage::Execute)
+        let krun_command = (stage == CrashStage::Execute)
             .then(|| {
                 Self::krun_command(
                     definition,
@@ -1433,9 +1448,10 @@ impl LiveCases {
         Some(Box::new(CaseCrash {
             kind,
             side,
-            stage: failure.stage,
-            message: failure.message.clone(),
+            stage,
+            message,
             location,
+            cause_site,
             clock: result.safety_limit_hit || cancel.is_some_and(CancellationToken::is_cancelled),
             krun_command,
             program: program_text(&prepared.instantiated),

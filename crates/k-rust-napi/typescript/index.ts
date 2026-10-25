@@ -358,7 +358,7 @@ export interface ExecutionLeaf {
    * contradicts the attribute on that input. Diagnostic only; reason and state are unaffected.
    */
   contradictedTotal?: ContradictedTotal
-  /** The stopped step's cause: for an indeterminate halt, and `{ kind: 'stack-exhausted' }` for a 'simplification-error' leaf whose state ran out of stack; same encoding as search's failures. */
+  /** The stopped step's cause, on every 'indeterminate', 'simplification-error' and 'unsupported-hook' leaf: the undecided step's reason or the simplification's failure (`{ kind: 'stack-exhausted' }` for a state that ran out of stack); same encoding as search's failures. Branch on it, never on `detail`. */
   cause?: SearchFailure
   /** Legacy human-readable context only; use cause, candidates and remainder for halt evidence. */
   detail?: string
@@ -856,7 +856,8 @@ export type SmtFailure =
   | { kind: 'unavailable' }
   | { kind: 'unknown'; reason: string }
   | { kind: 'inconsistent-ground-truth' }
-  | { kind: 'malformed-script'; message: string }
+  /** `translationBlamed` (only ever `true`): the script held only text k-rust's translation wrote, so the rejection is a defect of k-rust. */
+  | { kind: 'malformed-script'; message: string; translationBlamed?: true }
   | { kind: 'missing-model' }
   | { kind: 'missing-model-value'; variable: Kore }
   | { kind: 'invalid-model-value'; variable: Kore; value: string }
@@ -1577,19 +1578,24 @@ export interface FuzzCrashHole {
 
 /** The identity of a crash; crashes with equal signatures count as one finding. */
 export interface FuzzCrashSignature {
-  kind: 'panic' | 'internal-error'
+  kind: 'panic' | 'internal-error' | 'internal-halt'
   side: 'baseline' | 'mutant' | 'engine'
   stage: 'execute' | 'judge' | 'engine'
-  /** `location`: the panic's location from its crate's `src`; `message`: the message's class. */
-  'site-kind': 'location' | 'message'
+  /**
+   * `location`: the panic's location from its crate's `src`; `message`: the message's class;
+   * `cause`: an internal halt's structured cause, as `<cause kind>:<hook or symbol>`.
+   */
+  'site-kind': 'location' | 'message' | 'cause'
   site: string
 }
 
 /**
  * The first case of one crash signature: a panic or internal error of k-rust or k-rust-fuzz during
  * a case, a k-rust defect (the definition may have triggered it, but k-rust should have rejected or
- * reported it). The case keeps its class (`unsupported`, or `baseline-incomplete`) with the reason
- * `panic` or `internal-error` (k-rust-fuzz README, "Crash findings").
+ * reported it), or a leaf whose halt's cause is one (`internal-halt`: of k-rust, or of the
+ * definition's hook declaration). The case keeps its class (`unsupported`, or
+ * `baseline-incomplete`) with the reason `panic`, `internal-error` or `internal-halt` (k-rust-fuzz
+ * README, "Crash findings").
  */
 export interface FuzzCrashFinding {
   signature: FuzzCrashSignature
@@ -1629,6 +1635,7 @@ export type FuzzRejectionReason =
 export type FuzzUnjudgedReason =
   | 'panic'
   | 'internal-error'
+  | 'internal-halt'
   | 'too-deep'
   | 'stack-mapping-refused'
   | 'stack-exhausted'
@@ -1638,7 +1645,9 @@ export type FuzzUnjudgedReason =
   | 'depth-bound'
   | 'halt-indeterminate'
   | 'halt-unsupported-hook'
-  | 'halt-simplification-error'
+  | 'halt-iteration-limit'
+  | 'halt-smt'
+  | 'halt-unsupported-construct'
   | 'halt-vacuous'
   | 'halt-unexpected'
   | 'not-ceil-free'

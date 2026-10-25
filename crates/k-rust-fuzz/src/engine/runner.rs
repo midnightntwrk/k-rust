@@ -81,7 +81,8 @@ pub(crate) struct CaseRun {
     /// every other target.
     pub(crate) pattern_body_matches: Option<u64>,
     /// The case crashed: a panic or an internal error of a run or its judgement
-    /// ([`crate::exec::CaseFailure::crash_kind`]), or of the engine around them (FZ-CRASH).
+    /// ([`crate::exec::CaseFailure::crash_kind`]), or of the engine around them (FZ-CRASH), or a
+    /// leaf of a run halted on an internal cause ([`crate::exec::InternalHalt`], FZ-CRASH-CAUSE).
     pub(crate) crash: Option<Box<CaseCrash>>,
     /// A panic was caught while the case ran, so the runner's backends may be half-changed and
     /// must be rebuilt before another case runs on them ([`CaseRunner::recover`]).
@@ -91,16 +92,19 @@ pub(crate) struct CaseRun {
 /// What a crashed case tells of its crash (FZ-CRASH): what crashed, where, and how to re-run it.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) struct CaseCrash {
-    /// A panic or an internal error.
+    /// A panic, an internal error or an internal halt.
     pub(crate) kind: CrashKind,
     /// Which run, or the engine.
     pub(crate) side: CrashSide,
     /// Which stage.
     pub(crate) stage: CrashStage,
-    /// The panic's or the error's message.
+    /// The panic's or the error's message, or what the halted leaf says of its cause.
     pub(crate) message: String,
     /// The panic's location, when the hook saw it.
     pub(crate) location: Option<String>,
+    /// An internal halt's site, its structured cause ([`crate::exec::InternalHalt::site`]);
+    /// `None` for a panic or an internal error.
+    pub(crate) cause_site: Option<String>,
     /// The clock stopped the run: the per-case safety limit fired, or the caller's token was
     /// cancelled.
     pub(crate) clock: bool,
@@ -122,6 +126,7 @@ impl CaseCrash {
             stage: CrashStage::Engine,
             message,
             location,
+            cause_site: None,
             clock,
             krun_command: None,
             program: None,
@@ -129,15 +134,19 @@ impl CaseCrash {
         }
     }
 
-    /// The crash's signature (`crate::crash::signature`).
+    /// The crash's signature (`crate::crash::signature`, or `crate::crash::cause_signature` for
+    /// an internal halt).
     pub(crate) fn signature(&self) -> CrashSignature {
-        crate::crash::signature(
-            self.kind,
-            self.side,
-            self.stage,
-            &self.message,
-            self.location.as_deref(),
-        )
+        match &self.cause_site {
+            Some(site) => crate::crash::cause_signature(self.side, self.stage, site),
+            None => crate::crash::signature(
+                self.kind,
+                self.side,
+                self.stage,
+                &self.message,
+                self.location.as_deref(),
+            ),
+        }
     }
 }
 

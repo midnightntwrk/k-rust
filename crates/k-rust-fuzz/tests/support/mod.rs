@@ -1240,11 +1240,21 @@ pub const RERUN_PROGRAMS: &[Program] = &[program!("rerun/go.pgm")];
 fixture!(RERUN, "rerun/rerun.k", "RERUN", RERUN_PROGRAMS);
 fixture!(RERUN_DROP, "rerun/rerun-drop.k", "RERUN", RERUN_PROGRAMS);
 
+/// Halts with a structured cause (FZ-CRASH-CAUSE): `arity(N)` halts on a hook declared at an
+/// arity its builtin does not take, `loop(N)` simplifies without end (an iteration bound), and
+/// `smt(N)`'s condition is smt-hooked to an operator the solver rejects.
+pub const HALTCAUSE_PROGRAMS: &[Program] = &[
+    program!("haltcause/arity.pgm"),
+    program!("haltcause/loop.pgm"),
+    program!("haltcause/smt.pgm"),
+];
+fixture!(HALTCAUSE, "haltcause/haltcause.k", "HC", HALTCAUSE_PROGRAMS);
+
 /// Every fixture that `tests/fixtures.rs` judges, in the order of `tests/data/README.md`: each
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 94] = [
+pub static ALL: [&Fixture; 95] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1339,4 +1349,5 @@ pub static ALL: [&Fixture; 94] = [
     &R2_SPOOF_M,
     &COMPARABLE,
     &COMPARABLE_COND,
+    &HALTCAUSE,
 ];

@@ -425,6 +425,15 @@ pub(crate) fn judge_pair_explained(
             Some(reason),
         ));
     };
+    // A mutant leaf that halted on an internal cause shows k-rust broke on the mutant's run, so
+    // none of its ends is evidence (FZ-CRASH-CAUSE); a baseline one made the baseline incomplete
+    // above.
+    if mutant.internal_halt().is_some() {
+        return Ok((
+            DifferentialJudgement::class(OutcomeClass::Unsupported),
+            Some(UnjudgedReason::InternalHalt),
+        ));
+    }
     let added = Verdicts::outside(mutant, baseline, &baseline_set, "mutant", run_to_completion)?;
     let removed = match (paths, complete_ends(mutant)) {
         (PathMode::AllPaths, Some(mutant_set)) => {
@@ -723,6 +732,7 @@ mod tests {
     fn natural(state: KorePattern, data_end: Option<bool>) -> LeafReport {
         LeafReport {
             halt: HaltReasonOutput::Stuck,
+            halt_cause: None,
             depth: 3,
             state,
             unclean: Vec::new(),
@@ -739,6 +749,7 @@ mod tests {
     fn leaf(halt: HaltReasonOutput, state: KorePattern, unclean: Vec<UncleanReason>) -> LeafReport {
         LeafReport {
             halt,
+            halt_cause: None,
             depth: 3,
             state,
             unclean,
@@ -782,6 +793,44 @@ mod tests {
     fn added(baseline: &CaseResult, mutant: &CaseResult) -> Verdicts {
         let ends = complete_ends(baseline).expect("the baseline is complete");
         Verdicts::outside(mutant, baseline, &ends, "mutant", false).expect("no engine defect")
+    }
+
+    /// (FZ-CRASH-CAUSE) A leaf halted on an internal cause, on either side: a baseline one makes
+    /// the baseline incomplete, a mutant one makes the case unsupported even beside a mutant end
+    /// the baseline lacks, both with the reason `internal-halt`.
+    #[test]
+    fn an_internal_halt_on_either_side_leaves_the_pair_unjudged() {
+        let internal = LeafReport {
+            halt_cause: Some(crate::exec::HaltCause::Internal(
+                crate::exec::InternalHalt {
+                    site: "builtin:wrong-arity:INT.add".into(),
+                    message: "m".into(),
+                },
+            )),
+            ..leaf(
+                HaltReasonOutput::SimplificationError,
+                config(9, 0),
+                vec![UncleanReason::Halt],
+            )
+        };
+        let mutant = result(vec![natural(config(5, 0), Some(true)), internal.clone()]);
+        assert_eq!(
+            judge_pair_explained(&coin_baseline(), &mutant, PathMode::AllPaths, false)
+                .expect("no engine defect"),
+            (
+                DifferentialJudgement::class(OutcomeClass::Unsupported),
+                Some(UnjudgedReason::InternalHalt)
+            )
+        );
+        let baseline = result(vec![natural(config(3, 0), Some(true)), internal]);
+        assert_eq!(
+            judge_pair_explained(&baseline, &coin_baseline(), PathMode::AllPaths, false)
+                .expect("no engine defect"),
+            (
+                DifferentialJudgement::class(OutcomeClass::BaselineIncomplete),
+                Some(UnjudgedReason::InternalHalt)
+            )
+        );
     }
 
     fn hit(killing_leaf: Option<usize>, removed_end: Option<usize>) -> DifferentialJudgement {

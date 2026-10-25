@@ -438,6 +438,7 @@ mod tests {
     fn leaf(halt: HaltReasonOutput, unclean: Vec<UncleanReason>) -> LeafReport {
         LeafReport {
             halt,
+            halt_cause: None,
             depth: 1,
             state: k_rust::kore::parser::parse_pattern(r"\top{SortK{}}()").expect("parses"),
             unclean,

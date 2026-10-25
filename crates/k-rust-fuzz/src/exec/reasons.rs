@@ -15,13 +15,18 @@
 //! the one nearest the backend; a case may have further reasons, which only show once that one
 //! is gone.
 
-use k_rust::backend::{HaltReasonOutput, StopCause};
+use k_rust::backend::{
+    BuiltinFailureOutput, HaltReasonOutput, SatisfiabilityOutput, SearchFailureOutput,
+    SmtFailureOutput, StopCause,
+};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use super::{
-    CaseFailure, CaseResult, ComparableCondition, DeterminismBreak, FailureCause, LeafReport,
-    UncleanReason,
+    CaseFailure, CaseResult, ComparableCondition, DeterminismBreak, FailureCause, HaltCause,
+    InternalHalt, LeafReport, UncleanReason,
 };
+use crate::crash::{BUILTIN_SITE, INVALID_BUILTIN_RESULT_SYMBOL_SITE, cause_site};
 
 /// Why a case could not be judged: `unsupported` (a hit, a miss or a stuck end may hide behind
 /// it) or `baseline-incomplete` (the baseline's set of ends is not known, so no kill can be
@@ -41,6 +46,12 @@ pub enum UnjudgedReason {
     /// or a refused initial state ([`FailureCause::Other`]): a defect of k-rust or of the engine,
     /// reported among the report's `crashes`.
     InternalError,
+    /// A leaf halted on a cause no correct k-rust gives ([`InternalHalt`], FZ-CRASH-CAUSE): a
+    /// builtin hook's failure or an invalid builtin result symbol (a hook declaration k-rust
+    /// should have refused, or a defect of k-rust), a solver failure of k-rust's own making, a
+    /// macro or alias at run time, or a `simplification-error` halt without its cause. Reported
+    /// among the report's `crashes`; a leaf on any path of either side makes the case unjudged.
+    InternalHalt,
     /// The request is nested deeper than the largest stack the backend provides for one
     /// operation ([`FailureCause::TooDeep`]): a bound the build fixes, a function of the input.
     TooDeep,
@@ -64,8 +75,17 @@ pub enum UnjudgedReason {
     HaltIndeterminate,
     /// A leaf halted on a hook k-rust does not implement (`unsupported-hook`).
     HaltUnsupportedHook,
-    /// A leaf halted on a simplification error.
-    HaltSimplificationError,
+    /// A leaf's simplification ended at `max-simplification-iterations`: an option bound
+    /// (cause `iteration-limit` or `predicate-iteration-limit`).
+    HaltIterationLimit,
+    /// A step needed a solver answer it did not get (an SMT failure as the cause of a
+    /// `simplification-error` or `indeterminate` halt): the query does not translate to
+    /// SMT-LIB, the build has no solver, the solver answered `unknown`, or it rejected a script
+    /// that holds text the definition or a user prelude supplied.
+    HaltSmt,
+    /// A leaf's simplification met a construct k-rust leaves undecided by design: equations of
+    /// one priority that give different results (`conflicting-results`), or an unsupported hook.
+    HaltUnsupportedConstruct,
     /// A leaf halted `vacuous` after depth 0: its state has no instance.
     HaltVacuous,
     /// A leaf halted where no request asks it to (`branch`, `cut-point`, or a `terminal` halt on
@@ -242,6 +262,16 @@ const REACHED_END_NOT_DATA_REMEDY: &str = concat!(
     "`Target::data_end`); a negated property is exempt",
 );
 
+/// The remedy of [`UnjudgedReason::HaltSmt`].
+const HALT_SMT_REMEDY: &str = concat!(
+    "a step needed a solver answer it did not get: the query does not translate to SMT-LIB, ",
+    "this build has no solver, the solver answered unknown, or it rejected SMT text the ",
+    "definition or a user prelude supplies; a build with Z3, or a larger time limit per query ",
+    "(campaign key `smt-timeout-ms`, command line `--smt-timeout`, library ",
+    "`CaseOptions::backend.smt_timeout_ms`), may decide it, or choose a program or hole range ",
+    "whose runs avoid that query",
+);
+
 /// The remedy of [`UnjudgedReason::EndNotComparable`].
 const END_NOT_COMPARABLE_REMEDY: &str = concat!(
     "the target was reached, but the witness program's run of every path is not one kink can ",
@@ -264,9 +294,10 @@ impl UnjudgedReason {
     /// Every reason that names no condition, in declaration order: the reasons that name one
     /// ([`Self::EndNotComparable`], [`Self::QueryNotConfirmable`]) are one per
     /// [`ComparableCondition`].
-    pub const ALL: [Self; 38] = [
+    pub const ALL: [Self; 41] = [
         Self::Panic,
         Self::InternalError,
+        Self::InternalHalt,
         Self::TooDeep,
         Self::StackMappingRefused,
         Self::StackExhausted,
@@ -276,7 +307,9 @@ impl UnjudgedReason {
         Self::DepthBound,
         Self::HaltIndeterminate,
         Self::HaltUnsupportedHook,
-        Self::HaltSimplificationError,
+        Self::HaltIterationLimit,
+        Self::HaltSmt,
+        Self::HaltUnsupportedConstruct,
         Self::HaltVacuous,
         Self::HaltUnexpected,
         Self::NotCeilFree,
@@ -358,11 +391,12 @@ impl UnjudgedReason {
                 "raise the depth bound (campaign key `max-depth`, command line `--max-depth`, \
                  library `CaseOptions::max_depth`)"
             }
-            Self::IterationExhaustion => {
+            Self::IterationExhaustion | Self::HaltIterationLimit => {
                 "raise the simplification iteration bound (campaign key \
                  `max-simplification-iterations`, which has no command-line flag; library \
                  `CaseOptions::max_simplification_iterations`)"
             }
+            Self::HaltSmt => HALT_SMT_REMEDY,
             Self::ReachedUndefinedStep => {
                 "the target matched the state before an undefined step, which is no end, so \
                  this case cannot be a hit (with run-to-completion it is reached-unfinished, \
@@ -400,11 +434,12 @@ impl UnjudgedReason {
             }
             Self::Panic
             | Self::InternalError
+            | Self::InternalHalt
             | Self::StackMappingRefused
             | Self::StackExhausted
             | Self::HaltIndeterminate
             | Self::HaltUnsupportedHook
-            | Self::HaltSimplificationError
+            | Self::HaltUnsupportedConstruct
             | Self::HaltVacuous
             | Self::HaltUnexpected
             | Self::UndecidedState
@@ -443,16 +478,18 @@ impl UnjudgedReason {
         })
     }
 
-    /// The reason a halt that is not an end stands for: an unsupported halt, a bound, a clock,
-    /// or a halt no request asks for. `None` for the ends `stuck` and `trivial` (an undefined
-    /// step).
+    /// The reason a halt that is not an end stands for, without its structured cause: an
+    /// unsupported halt, a bound, a clock, or a halt no request asks for. `None` for the ends
+    /// `stuck` and `trivial` (an undefined step). A `simplification-error` halt is read by its
+    /// cause ([`halt_cause`]); one without a cause is k-rust's broken contract, an internal
+    /// halt.
     #[must_use]
     pub fn of_halt(halt: HaltReasonOutput) -> Option<Self> {
         use HaltReasonOutput as H;
         Some(match halt {
             H::Indeterminate => Self::HaltIndeterminate,
             H::UnsupportedHook => Self::HaltUnsupportedHook,
-            H::SimplificationError => Self::HaltSimplificationError,
+            H::SimplificationError => Self::InternalHalt,
             H::Vacuous => Self::HaltVacuous,
             H::WorkBound => Self::WorkBound,
             H::DepthBound | H::BreadthBound => Self::DepthBound,
@@ -461,6 +498,17 @@ impl UnjudgedReason {
             H::Terminal | H::Branch | H::CutPoint => Self::HaltUnexpected,
             H::Stuck | H::Trivial => return None,
         })
+    }
+
+    /// The reason a leaf's halt stands for: its structured cause's ([`LeafReport::halt_cause`])
+    /// when it has one, the halt's otherwise ([`Self::of_halt`]).
+    #[must_use]
+    pub fn of_leaf_halt(leaf: &LeafReport) -> Option<Self> {
+        match &leaf.halt_cause {
+            Some(HaltCause::Unjudged(reason)) => Some(*reason),
+            Some(HaltCause::Internal(_)) => Some(Self::InternalHalt),
+            None => Self::of_halt(leaf.halt),
+        }
     }
 
     /// The reason an `Err` result stands for, when it makes the case unjudged.
@@ -553,10 +601,178 @@ pub(crate) fn incomplete(result: &CaseResult) -> Option<UnjudgedReason> {
 /// Why one leaf is not an end a complete set may hold: a clean `stuck` leaf, or an undefined
 /// step unclean only by its halt.
 fn incomplete_leaf(leaf: &LeafReport) -> Option<UnjudgedReason> {
-    match UnjudgedReason::of_halt(leaf.halt) {
+    match UnjudgedReason::of_leaf_halt(leaf) {
         None => beyond_halt(leaf),
         Some(halt) => Some(beyond_halt(leaf).map_or(halt, |reason| reason.min(halt))),
     }
+}
+
+/// What a leaf's structured cause (`ExecutionLeaf::cause`) says of its halt `halt`
+/// (FZ-CRASH-CAUSE), read from the typed cause and never from the leaf's text; `detail` (the
+/// leaf's text) only words an internal halt's message. `None` when the halt's own reason stands
+/// ([`UnjudgedReason::of_halt`]).
+///
+/// - A `simplification-error` halt: `iteration-limit` and `predicate-iteration-limit` are the
+///   option bound ([`UnjudgedReason::HaltIterationLimit`]); `stack-exhausted` a lack of stack;
+///   `conflicting-results` and `unsupported-hook` constructs k-rust leaves undecided by design
+///   ([`UnjudgedReason::HaltUnsupportedConstruct`]); a solver failure is read as below. A
+///   `builtin` failure or an `invalid-builtin-result-symbol` is internal: terms are sort-checked,
+///   so a builtin hook meets arguments it does not take, or a result symbol it cannot build,
+///   only when a hook was declared at a signature (or in a definition) its builtin does not fit
+///   and k-rust did not refuse it, or when k-rust built the application wrong; a `Float` value
+///   outside `FLOAT-SYNTAX` (`invalid-float-token`) is not one k-rust admits as a value either.
+///   Any other cause, and no cause at all, breaks k-rust's contract for the halt: internal.
+/// - An `indeterminate` halt: a macro or alias at run time (`surviving-macro-or-alias`) is
+///   internal, since macros and aliases are expanded when the definition is compiled and
+///   validation refuses one in the initial state; a solver failure (`smt`, or a `remainder`
+///   whose satisfiability is an error) is read as below; any other cause keeps
+///   [`UnjudgedReason::HaltIndeterminate`].
+/// - A solver failure: no answer for the query ([`UnjudgedReason::HaltSmt`]) when it does not
+///   translate, the build has no solver, the solver answered `unknown`, or it rejected a script
+///   not blamed on k-rust's translation (the definition's or the user's SMT text may be at
+///   fault); internal when the ground truth k-rust passed is inconsistent, the rejected script
+///   holds only k-rust's own text (`translationBlamed`), or the model k-rust asked for is
+///   missing or unreadable.
+#[must_use]
+pub fn halt_cause(
+    halt: HaltReasonOutput,
+    cause: Option<&SearchFailureOutput>,
+    detail: Option<&str>,
+) -> Option<HaltCause> {
+    use SearchFailureOutput as F;
+    let internal = |site: String| {
+        let message = detail.map_or_else(|| site.clone(), str::to_owned);
+        Some(HaltCause::Internal(InternalHalt { site, message }))
+    };
+    match halt {
+        HaltReasonOutput::SimplificationError => {
+            let Some(cause) = cause else {
+                return internal(cause_site("missing-cause", &["simplification-error"]));
+            };
+            match cause {
+                F::StackExhausted => Some(HaltCause::Unjudged(UnjudgedReason::StackExhausted)),
+                F::IterationLimit { .. } | F::PredicateIterationLimit { .. } => {
+                    Some(HaltCause::Unjudged(UnjudgedReason::HaltIterationLimit))
+                }
+                F::ConflictingResults { .. } | F::UnsupportedHook { .. } => Some(
+                    HaltCause::Unjudged(UnjudgedReason::HaltUnsupportedConstruct),
+                ),
+                F::Smt { error, .. } | F::SmtPredicate { error, .. } => {
+                    Some(smt_cause(error, detail))
+                }
+                F::Builtin { error } => internal(builtin_site(error)),
+                F::InvalidBuiltinResultSymbol { hook, symbol } => internal(cause_site(
+                    INVALID_BUILTIN_RESULT_SYMBOL_SITE,
+                    &[hook, symbol],
+                )),
+                F::SurvivingMacroOrAlias { .. }
+                | F::InconsistentGroundTruth { .. }
+                | F::Match { .. }
+                | F::Instantiation { .. }
+                | F::Requires { .. }
+                | F::Concreteness { .. }
+                | F::Remainder { .. } => internal(cause_site(
+                    "unexpected-cause",
+                    &["simplification-error", &cause_kind(cause)],
+                )),
+            }
+        }
+        HaltReasonOutput::Indeterminate => match cause? {
+            F::SurvivingMacroOrAlias { symbol } => {
+                internal(cause_site("surviving-macro-or-alias", &[symbol]))
+            }
+            F::Smt { error, .. }
+            | F::SmtPredicate { error, .. }
+            | F::Remainder {
+                satisfiability: SatisfiabilityOutput::Error { error },
+                ..
+            } => Some(smt_cause(error, detail)),
+            F::StackExhausted
+            | F::Builtin { .. }
+            | F::ConflictingResults { .. }
+            | F::InconsistentGroundTruth { .. }
+            | F::IterationLimit { .. }
+            | F::PredicateIterationLimit { .. }
+            | F::InvalidBuiltinResultSymbol { .. }
+            | F::UnsupportedHook { .. }
+            | F::Match { .. }
+            | F::Instantiation { .. }
+            | F::Requires { .. }
+            | F::Concreteness { .. }
+            | F::Remainder { .. } => None,
+        },
+        HaltReasonOutput::Stuck
+        | HaltReasonOutput::Trivial
+        | HaltReasonOutput::Vacuous
+        | HaltReasonOutput::Branch
+        | HaltReasonOutput::CutPoint
+        | HaltReasonOutput::Terminal
+        | HaltReasonOutput::DepthBound
+        | HaltReasonOutput::BreadthBound
+        | HaltReasonOutput::WorkBound
+        | HaltReasonOutput::UnsupportedHook
+        | HaltReasonOutput::Timeout
+        | HaltReasonOutput::Cancelled => None,
+    }
+}
+
+/// What a solver failure says of a halt ([`halt_cause`]).
+fn smt_cause(error: &SmtFailureOutput, detail: Option<&str>) -> HaltCause {
+    let site = match error {
+        SmtFailureOutput::Translation { .. }
+        | SmtFailureOutput::Unavailable
+        | SmtFailureOutput::Unknown { .. }
+        | SmtFailureOutput::MalformedScript {
+            translation_blamed: false,
+            ..
+        } => return HaltCause::Unjudged(UnjudgedReason::HaltSmt),
+        SmtFailureOutput::InconsistentGroundTruth => "inconsistent-ground-truth",
+        SmtFailureOutput::MalformedScript {
+            translation_blamed: true,
+            ..
+        } => "malformed-script",
+        SmtFailureOutput::MissingModel => "missing-model",
+        SmtFailureOutput::MissingModelValue { .. } => "missing-model-value",
+        SmtFailureOutput::InvalidModelValue { .. } => "invalid-model-value",
+    };
+    let site = cause_site("smt", &[site]);
+    let message = detail.map_or_else(|| site.clone(), str::to_owned);
+    HaltCause::Internal(InternalHalt { site, message })
+}
+
+/// The site of a builtin hook's failure: its kind and the hook it names, when it names one.
+fn builtin_site(error: &BuiltinFailureOutput) -> String {
+    match error {
+        BuiltinFailureOutput::WrongArity { hook, .. } => {
+            cause_site(BUILTIN_SITE, &["wrong-arity", hook])
+        }
+        BuiltinFailureOutput::UnexpectedSort { hook, .. } => {
+            cause_site(BUILTIN_SITE, &["unexpected-sort", hook])
+        }
+        BuiltinFailureOutput::AlternativeSortsDiffer { .. } => {
+            cause_site(BUILTIN_SITE, &["alternative-sorts-differ"])
+        }
+        BuiltinFailureOutput::IncompatibleMapSorts { .. } => {
+            cause_site(BUILTIN_SITE, &["incompatible-map-sorts"])
+        }
+        BuiltinFailureOutput::InvalidFloatToken { hook, .. } => {
+            cause_site(BUILTIN_SITE, &["invalid-float-token", hook])
+        }
+    }
+}
+
+/// A search failure's kind, its wire name (`match`, `requires`, ...).
+fn cause_kind(cause: &SearchFailureOutput) -> String {
+    serde_json::to_value(cause)
+        .ok()
+        .and_then(|value| match value {
+            Value::Object(fields) => fields
+                .get("kind")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            _ => None,
+        })
+        .unwrap_or_else(|| "unknown".to_owned())
 }
 
 #[cfg(test)]
@@ -651,6 +867,7 @@ mod tests {
     fn a_cancellation_is_told_from_a_clock() {
         let leaf = |halt| LeafReport {
             halt,
+            halt_cause: None,
             depth: 1,
             state: k_rust::kore::parser::parse_pattern(r"\top{SortK{}}()").expect("parses"),
             unclean: vec![UncleanReason::Halt],
@@ -707,6 +924,7 @@ mod tests {
     fn a_leaf_reason_beyond_the_halt_is_chosen_by_declaration_order() {
         let leaf = LeafReport {
             halt: HaltReasonOutput::Stuck,
+            halt_cause: None,
             depth: 1,
             state: k_rust::kore::parser::parse_pattern(r"\top{SortK{}}()").expect("parses"),
             unclean: vec![

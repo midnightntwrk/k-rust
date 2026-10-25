@@ -1575,9 +1575,10 @@ pub enum AbortKind {
     RebuildFailed,
 }
 
-/// What crashed: a panic, or an error k-rust or the engine answered that a correct build never
+/// What crashed: a panic, an error k-rust or the engine answered that a correct build never
 /// answers for its input (a request it built that its own schema refuses, a result it cannot
-/// encode or decode).
+/// encode or decode), or a leaf whose halt's structured cause no correct k-rust gives
+/// (FZ-CRASH-CAUSE).
 #[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum CrashKind {
@@ -1585,6 +1586,12 @@ pub enum CrashKind {
     Panic,
     /// An error without a typed kind that is not a stop or a refused state.
     InternalError,
+    /// A leaf halted on a cause that is a defect of k-rust, or of a hook declaration k-rust should
+    /// have refused (`crate::exec::InternalHalt`): a builtin hook applied at a signature it does
+    /// not take, a builtin result symbol the definition lacks, a solver failure of k-rust's own
+    /// making, a macro or alias at run time, or a failed simplification without its cause. The
+    /// backend did not panic, so nothing is rebuilt.
+    InternalHalt,
 }
 
 /// Where a crash happened: a definition's run (with its judgement), or the engine around it.
@@ -1621,13 +1628,16 @@ pub enum SiteKind {
     /// The message's class: its first line before its first `:`, with quoted spans and digits
     /// masked (an internal error, or a panic without a usable location).
     Message,
+    /// An internal halt's structured cause: its kind and the hook or symbol it names, never an
+    /// input value (`builtin:wrong-arity:INT.add`, `smt:missing-model`).
+    Cause,
 }
 
 /// The identity of a crash: crashes with equal signatures are counted as one finding.
 #[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "kebab-case", deny_unknown_fields)]
 pub struct CrashSignature {
-    /// A panic or an internal error.
+    /// A panic, an internal error or an internal halt.
     pub kind: CrashKind,
     /// Which run, or the engine.
     pub side: CrashSide,
@@ -1635,7 +1645,7 @@ pub struct CrashSignature {
     pub stage: CrashStage,
     /// What [`Self::site`] is.
     pub site_kind: SiteKind,
-    /// The normalized location, or the message's class.
+    /// The normalized location, the message's class, or the internal halt's cause.
     pub site: String,
 }
 
@@ -1728,9 +1738,11 @@ pub struct CrashFinding {
 }
 
 /// The first case of each crash signature of a campaign (FZ-CRASH, D30, D32): a panic or an
-/// internal error of k-rust or of the engine during a case. The case keeps its class
-/// (`unsupported`, or `baseline-incomplete` when a differential baseline crashed) with the
-/// reason `panic` or `internal-error`; the campaign goes on. A crash is a defect of k-rust or of
+/// internal error of k-rust or of the engine during a case, or a leaf of a run whose halt's
+/// structured cause is a defect of k-rust or of a hook declaration (an internal halt,
+/// FZ-CRASH-CAUSE). The case keeps its class (`unsupported`, or `baseline-incomplete` when a
+/// differential baseline crashed) with the reason `panic`, `internal-error` or `internal-halt`;
+/// the campaign goes on. A crash is a defect of k-rust or of
 /// the engine: the definition may have triggered it, but k-rust should have rejected or reported
 /// it. Crashes are incidental: no target looks for one, and keeping one moves no case, class or
 /// budget. Environment refusals (a stack segment the host refused to map, a request deeper than
@@ -1773,17 +1785,27 @@ impl CrashFindings {
                 let what = match crash.signature.kind {
                     CrashKind::Panic => "panicked",
                     CrashKind::InternalError => "answered an internal error",
+                    CrashKind::InternalHalt => "halted on an internal cause",
                 };
                 let count = if crash.count > 1 {
                     format!(", {} cases in all", crash.count)
                 } else {
                     String::new()
                 };
+                let defect = if crash.signature.kind == CrashKind::InternalHalt
+                    && crate::crash::blames_a_hook_declaration(&crash.signature.site)
+                {
+                    "a defect of the definition's hook declaration or of k-rust (terms are \
+                     sort-checked, so a builtin hook applied where it does not apply means a hook \
+                     declared at a signature or in a definition its builtin does not fit, which \
+                     k-rust should have refused, or a k-rust defect)"
+                } else {
+                    "a k-rust defect (the definition may have triggered it, but k-rust should \
+                     have rejected or reported it)"
+                };
                 format!(
                     "crash: case {}{holes} {what} at {} ({}{count}): k-rust crashed on this \
-                     input: a k-rust defect (the definition may have triggered it, but k-rust \
-                     should have rejected or reported it); please report it with the report's \
-                     `crashes[{index}]`",
+                     input: {defect}; please report it with the report's `crashes[{index}]`",
                     crash.case,
                     crash.signature.site,
                     serde_json::to_value(crash.signature.side)
@@ -2145,6 +2167,33 @@ mod tests {
             }
             assert!(!declarations.contains("'backend-error'"));
             assert!(declarations.contains("version 8 (docs/compatibility.md)"));
+        }
+    }
+
+    /// (FZ-CRASH-CAUSE) Both bindings declare every crash kind and site kind, and no longer the
+    /// reason `halt-simplification-error`, which the leaf's cause splits.
+    #[test]
+    fn typescript_declarations_name_the_crash_kinds_and_site_kinds() {
+        let name_of = |value: serde_json::Value| value.as_str().unwrap_or_default().to_owned();
+        let crash_kinds = [
+            CrashKind::Panic,
+            CrashKind::InternalError,
+            CrashKind::InternalHalt,
+        ]
+        .map(|kind| name_of(serde_json::to_value(kind).unwrap_or_default()));
+        let site_kinds = [SiteKind::Location, SiteKind::Message, SiteKind::Cause]
+            .map(|kind| name_of(serde_json::to_value(kind).unwrap_or_default()));
+        for declarations in [
+            include_str!("../../k-rust-napi/typescript/index.ts"),
+            include_str!("../../k-rust-wasm/typescript/index.ts"),
+        ] {
+            for name in crash_kinds.iter().chain(&site_kinds) {
+                assert!(
+                    declarations.contains(&format!("'{name}'")),
+                    "`{name}` is not declared"
+                );
+            }
+            assert!(!declarations.contains("'halt-simplification-error'"));
         }
     }
 

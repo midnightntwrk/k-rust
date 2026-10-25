@@ -359,17 +359,21 @@ enum Recorded<'a> {
 
 /// Whether the replay's crash `now` reproduces the recorded `then`: the same kind, side and
 /// stage, from a build with the same debug assertions (whose panics a release build does not
-/// raise), and the same site when both sites are locations (a site that is a message class
-/// depends on no location, and a location the hook did not see falls back to one).
+/// raise), and the same site when both sites are locations or both are causes (a site that is a
+/// message class depends on no location, and a location the hook did not see falls back to one;
+/// an internal halt's cause is typed, so it is compared).
 pub fn crash_reproduced(then: &CrashFinding, now: &CrashFinding) -> bool {
     let (then_signature, now_signature) = (&then.signature, &now.signature);
+    let sites_compared = then_signature.site_kind == now_signature.site_kind
+        && matches!(
+            then_signature.site_kind,
+            SiteKind::Location | SiteKind::Cause
+        );
     then_signature.kind == now_signature.kind
         && then_signature.side == now_signature.side
         && then_signature.stage == now_signature.stage
         && then.debug_assertions == now.debug_assertions
-        && (then_signature.site_kind != SiteKind::Location
-            || now_signature.site_kind != SiteKind::Location
-            || then_signature.site == now_signature.site)
+        && (!sites_compared || then_signature.site == now_signature.site)
 }
 
 /// How the replay's report differs from the recorded crash: empty when one of its crashes

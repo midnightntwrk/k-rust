@@ -293,12 +293,42 @@ pub enum DeterminismBreak {
     AllowanceRefusal,
 }
 
+/// What a leaf's structured cause (`ExecutionLeaf::cause`) says of its halt (FZ-CRASH-CAUSE),
+/// read from the typed cause, never from the leaf's text ([`reasons::halt_cause`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum HaltCause {
+    /// The halt stands for this reason: an option bound, a query the solver did not answer, a
+    /// construct k-rust leaves undecided, a lack of stack.
+    Unjudged(UnjudgedReason),
+    /// The cause is a defect of k-rust, or of a hook declaration k-rust should have refused: the
+    /// case is unjudged with the reason [`UnjudgedReason::InternalHalt`], and the report's
+    /// `crashes` records it.
+    Internal(InternalHalt),
+}
+
+/// A leaf's halt on a cause no correct k-rust gives (FZ-CRASH-CAUSE): a crash finding of kind
+/// `internal-halt` (`crate::report::CrashKind::InternalHalt`). The backend did not panic and is
+/// not poisoned, so nothing is rebuilt.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct InternalHalt {
+    /// The crash's site: the cause's kind and the hook or symbol it names, never an input value
+    /// (`builtin:wrong-arity:INT.add`, `invalid-builtin-result-symbol:IO.logString:dotk`,
+    /// `smt:missing-model`, `surviving-macro-or-alias:<symbol>`).
+    pub site: String,
+    /// What the leaf says of the cause (its `detail`, or the site when it has none), for the
+    /// finding's message.
+    pub message: String,
+}
+
 /// One leaf of a case's result with its clean-leaf and natural-end judgements
 /// (ARCHITECTURE 5.2).
 #[derive(Clone, Debug)]
 pub struct LeafReport {
     /// The leaf's halt, as the backend reports it.
     pub halt: HaltReasonOutput,
+    /// What the leaf's structured cause says of its halt ([`reasons::halt_cause`]); `None` when
+    /// the halt's own reason stands ([`UnjudgedReason::of_halt`]).
+    pub halt_cause: Option<HaltCause>,
     /// The leaf's depth (rewrite steps on its path).
     pub depth: u64,
     /// The leaf's configuration as KORE, after k-rust's normalization. For a `work-bound`,
@@ -370,6 +400,15 @@ impl LeafReport {
     #[must_use]
     pub fn natural_end_undecided(&self) -> bool {
         self.unclean.contains(&UncleanReason::NaturalEndUndecided)
+    }
+
+    /// The leaf's internal halt, when its halt's cause is one ([`HaltCause::Internal`]).
+    #[must_use]
+    pub fn internal_halt(&self) -> Option<&InternalHalt> {
+        match &self.halt_cause {
+            Some(HaltCause::Internal(internal)) => Some(internal),
+            Some(HaltCause::Unjudged(_)) | None => None,
+        }
     }
 }
 
@@ -491,6 +530,27 @@ pub struct CaseResult {
 }
 
 impl CaseResult {
+    /// The first leaf's internal halt, in leaf order (FZ-CRASH-CAUSE): the run's crash when its
+    /// failure is none.
+    #[must_use]
+    pub fn internal_halt(&self) -> Option<&InternalHalt> {
+        self.leaves.iter().find_map(LeafReport::internal_halt)
+    }
+
+    /// The reason of the run's crash, when it crashed (FZ-CRASH, FZ-CRASH-CAUSE): its failure's
+    /// (`panic`, `internal-error`) when that is a crash, else `internal-halt` when a leaf halted
+    /// on an internal cause.
+    #[must_use]
+    pub fn crash_reason(&self) -> Option<UnjudgedReason> {
+        match &self.failure {
+            Some(failure) if failure.crash_kind().is_some() => {
+                Some(UnjudgedReason::of_failure(failure))
+            }
+            Some(_) => None,
+            None => self.internal_halt().map(|_| UnjudgedReason::InternalHalt),
+        }
+    }
+
     /// The facts that put this case outside the determinism contract (ARCHITECTURE 5.4), sorted,
     /// each once.
     #[must_use]
@@ -787,6 +847,15 @@ pub(crate) fn classify_ends_explained(
         // Also a result with no leaf: the initial state has no instance.
         return Ok((OutcomeClass::Rejected, None));
     }
+    // A leaf that halted on an internal cause shows k-rust (or a hook declaration it should
+    // have refused) broke on this run, so no leaf of the run is evidence: the case is unjudged
+    // whatever another leaf reaches, as a crashed run is (FZ-CRASH-CAUSE).
+    if result.internal_halt().is_some() {
+        return Ok((
+            OutcomeClass::Unsupported,
+            Some(UnjudgedReason::InternalHalt),
+        ));
+    }
     let breaks = result.determinism_breaks();
     let mut best = None::<OutcomeClass>;
     let mut consider = |class: OutcomeClass| {
@@ -850,13 +919,16 @@ pub(crate) fn classify_ends_explained(
 /// leaf unclean by its halt alone, that halt, or, when it reaches the target, that the target
 /// was reached on no end.
 fn leaf_reason(leaf: &LeafReport, reached: bool) -> UnjudgedReason {
+    if leaf.internal_halt().is_some() {
+        return UnjudgedReason::InternalHalt;
+    }
     if let Some(reason) = reasons::beyond_halt(leaf) {
         return reason;
     }
     if leaf.is_clean() {
         return UnjudgedReason::NaturalEndUndecided;
     }
-    match UnjudgedReason::of_halt(leaf.halt) {
+    match UnjudgedReason::of_leaf_halt(leaf) {
         None if reached && leaf.halt == HaltReasonOutput::Trivial => {
             UnjudgedReason::ReachedUndefinedStep
         }

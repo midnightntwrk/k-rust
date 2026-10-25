@@ -28,6 +28,7 @@ use k_rust::{
 use super::{
     Abort, CaseFailure, CaseRequestShape, CaseResult, FailureCause, LOAD_ALLOWANCE_REFUSAL,
     LOAD_STACK_STOP, LeafDiagnostic, LeafReport, NormalEndKind, UncleanReason, UnjudgedReason,
+    reasons,
 };
 use crate::{
     assemble::ProgramAssembly,
@@ -924,6 +925,7 @@ impl Executor {
     pub(super) fn judge_stuck_leaf(&mut self, state: KorePattern) -> (Vec<UncleanReason>, bool) {
         let leaf = LeafReport {
             halt: HaltReasonOutput::Stuck,
+            halt_cause: None,
             depth: 0,
             state,
             unclean: Vec::new(),
@@ -1326,6 +1328,11 @@ impl Judge<'_> {
             unclean.extend(self.leaf_reasons(leaf));
             leaves.push(LeafReport {
                 halt: leaf.reason,
+                halt_cause: reasons::halt_cause(
+                    leaf.reason,
+                    leaf.cause.as_ref(),
+                    leaf.detail.as_deref(),
+                ),
                 depth: leaf.depth,
                 state,
                 unclean,

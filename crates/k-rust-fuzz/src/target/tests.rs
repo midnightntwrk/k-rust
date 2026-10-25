@@ -322,6 +322,7 @@ fn fired_always_traces_and_stops_early_without_run_to_completion() {
 fn leaf(halt: HaltReasonOutput, unclean: Vec<UncleanReason>, natural_end: bool) -> LeafReport {
     LeafReport {
         halt,
+        halt_cause: None,
         depth: 1,
         state: parse_pattern(r"\top{SortGeneratedTopCell{}}()").expect("a KORE pattern"),
         unclean,

@@ -7,7 +7,9 @@
 
 use k_rust::{
     backend::{
-        CancellationToken, ExecutionStrategy, HaltReasonOutput, ResultModalityOutput, StopCause,
+        BuiltinFailureOutput, CancellationToken, ExecutionStrategy, HaltReasonOutput,
+        ResultModalityOutput, SatisfiabilityOutput, SearchFailureOutput, SmtFailureOutput,
+        StopCause,
     },
     kore::{ast::Pattern as KorePattern, parser::parse_pattern, printer::Printer as KorePrinter},
 };
@@ -778,6 +780,7 @@ fn a_state_the_backend_refuses_is_rejected() {
 fn leaf(halt: HaltReasonOutput, unclean: &[UncleanReason], natural_end: bool) -> LeafReport {
     LeafReport {
         halt,
+        halt_cause: None,
         depth: 3,
         state: parse_pattern(r"\top{SortGeneratedTopCell{}}()").expect("a pattern"),
         unclean: unclean.to_vec(),
@@ -1511,10 +1514,9 @@ fn reasons_of_halts_failures_and_natural_ends() {
     for (halt, expected) in [
         (H::Indeterminate, UnjudgedReason::HaltIndeterminate),
         (H::UnsupportedHook, UnjudgedReason::HaltUnsupportedHook),
-        (
-            H::SimplificationError,
-            UnjudgedReason::HaltSimplificationError,
-        ),
+        // A `simplification-error` halt read without its cause breaks k-rust's contract
+        // (FZ-CRASH-CAUSE); with one, the cause decides (`reasons::halt_cause`).
+        (H::SimplificationError, UnjudgedReason::InternalHalt),
         (H::Vacuous, UnjudgedReason::HaltVacuous),
     ] {
         let mut halted = halted(halt);
@@ -1717,4 +1719,313 @@ fn patterns_compiled_once_prepare_on_fresh_backends() {
         compiler.normal_end(&fixture.grammar, &refused),
         Err(CampaignError::NormalEndPattern { .. })
     ));
+}
+
+// ------------------------------------------------- halts read by their cause (FZ-CRASH-CAUSE)
+
+/// A leaf halted `halt` whose structured cause is `cause`, read as `exec::run` reads it.
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "the callers build the cause in place"
+)]
+fn caused(halt: HaltReasonOutput, cause: Option<SearchFailureOutput>) -> LeafReport {
+    LeafReport {
+        halt_cause: reasons::halt_cause(halt, cause.as_ref(), Some("the leaf's detail")),
+        ..halted(halt)
+    }
+}
+
+fn smt_failure(error: SmtFailureOutput) -> SearchFailureOutput {
+    SearchFailureOutput::Smt {
+        rule: Some("r".into()),
+        error,
+    }
+}
+
+fn malformed(translation_blamed: bool) -> SmtFailureOutput {
+    SmtFailureOutput::MalformedScript {
+        message: "unknown constant".into(),
+        translation_blamed,
+    }
+}
+
+/// Every cause of a `simplification-error` or `indeterminate` leaf reads as its reason, and only
+/// the causes no correct k-rust gives are internal halts, with a site that names the cause and
+/// its hook or symbol but no input value.
+#[test]
+#[expect(clippy::too_many_lines, reason = "one row per cause")]
+fn a_halt_is_read_by_its_typed_cause() {
+    use HaltReasonOutput as H;
+    use SearchFailureOutput as F;
+    let unjudged = |reason| Some(HaltCause::Unjudged(reason));
+    let internal = |site: &str| {
+        Some(HaltCause::Internal(InternalHalt {
+            site: site.into(),
+            message: "the leaf's detail".into(),
+        }))
+    };
+    let term = serde_json::json!({"tag": "EVar"});
+    let cases: Vec<(H, Option<F>, Option<HaltCause>)> = vec![
+        (
+            H::SimplificationError,
+            Some(F::IterationLimit {
+                limit: 5,
+                term: Some(term.clone()),
+            }),
+            unjudged(UnjudgedReason::HaltIterationLimit),
+        ),
+        (
+            H::SimplificationError,
+            Some(F::PredicateIterationLimit {
+                limit: 5,
+                predicate: None,
+            }),
+            unjudged(UnjudgedReason::HaltIterationLimit),
+        ),
+        (
+            H::SimplificationError,
+            Some(F::StackExhausted),
+            unjudged(UnjudgedReason::StackExhausted),
+        ),
+        (
+            H::SimplificationError,
+            Some(F::ConflictingResults {
+                rules: vec!["r".into(), "r".into()],
+            }),
+            unjudged(UnjudgedReason::HaltUnsupportedConstruct),
+        ),
+        (
+            H::SimplificationError,
+            Some(smt_failure(SmtFailureOutput::Unknown {
+                reason: "timeout".into(),
+            })),
+            unjudged(UnjudgedReason::HaltSmt),
+        ),
+        (
+            H::SimplificationError,
+            Some(smt_failure(SmtFailureOutput::Unavailable)),
+            unjudged(UnjudgedReason::HaltSmt),
+        ),
+        (
+            H::SimplificationError,
+            Some(smt_failure(malformed(false))),
+            unjudged(UnjudgedReason::HaltSmt),
+        ),
+        (
+            H::SimplificationError,
+            Some(smt_failure(malformed(true))),
+            internal("smt:malformed-script"),
+        ),
+        (
+            H::SimplificationError,
+            Some(F::SmtPredicate {
+                predicate: term.clone(),
+                error: SmtFailureOutput::MissingModel,
+            }),
+            internal("smt:missing-model"),
+        ),
+        (
+            H::SimplificationError,
+            Some(smt_failure(SmtFailureOutput::InconsistentGroundTruth)),
+            internal("smt:inconsistent-ground-truth"),
+        ),
+        (
+            H::SimplificationError,
+            Some(F::Builtin {
+                error: BuiltinFailureOutput::UnexpectedSort {
+                    hook: "MAP.update".into(),
+                    expected: "SortMap{}".into(),
+                    actual: "SortInt{}".into(),
+                },
+            }),
+            internal("builtin:unexpected-sort:MAP.update"),
+        ),
+        (
+            H::SimplificationError,
+            Some(F::Builtin {
+                error: BuiltinFailureOutput::InvalidFloatToken {
+                    hook: "FLOAT.add".into(),
+                    token: "1.0q".into(),
+                },
+            }),
+            internal("builtin:invalid-float-token:FLOAT.add"),
+        ),
+        (
+            H::SimplificationError,
+            Some(F::InvalidBuiltinResultSymbol {
+                hook: "IO.logString".into(),
+                symbol: "dotk".into(),
+            }),
+            internal("invalid-builtin-result-symbol:IO.logString:dotk"),
+        ),
+        // A simplification-error leaf without a cause, or with one no simplification gives,
+        // breaks k-rust's contract for the halt.
+        (
+            H::SimplificationError,
+            None,
+            internal("missing-cause:simplification-error"),
+        ),
+        (
+            H::SimplificationError,
+            Some(F::Requires {
+                rule: "r".into(),
+                predicates: Vec::new(),
+            }),
+            internal("unexpected-cause:simplification-error:requires"),
+        ),
+        // An indeterminate leaf keeps its reason, except for a macro or alias at run time, which
+        // compilation expands and validation refuses, and a solver failure.
+        (
+            H::Indeterminate,
+            Some(F::SurvivingMacroOrAlias {
+                symbol: "Lblmacro".into(),
+            }),
+            internal("surviving-macro-or-alias:Lblmacro"),
+        ),
+        (
+            H::Indeterminate,
+            Some(F::Requires {
+                rule: "r".into(),
+                predicates: Vec::new(),
+            }),
+            None,
+        ),
+        (
+            H::Indeterminate,
+            Some(smt_failure(malformed(false))),
+            unjudged(UnjudgedReason::HaltSmt),
+        ),
+        (
+            H::Indeterminate,
+            Some(F::Remainder {
+                rules: Vec::new(),
+                predicates: Vec::new(),
+                satisfiability: SatisfiabilityOutput::Error {
+                    error: malformed(true),
+                },
+            }),
+            internal("smt:malformed-script"),
+        ),
+        (
+            H::Indeterminate,
+            Some(F::Remainder {
+                rules: Vec::new(),
+                predicates: Vec::new(),
+                satisfiability: SatisfiabilityOutput::Unknown {
+                    reason: "timeout".into(),
+                },
+            }),
+            None,
+        ),
+        // Other halts are read by their kind.
+        (H::UnsupportedHook, None, None),
+        (H::Stuck, None, None),
+    ];
+    for (halt, cause, expected) in cases {
+        assert_eq!(
+            reasons::halt_cause(halt, cause.as_ref(), Some("the leaf's detail")),
+            expected,
+            "{halt:?} {cause:?}"
+        );
+    }
+}
+
+/// (Mutation check) The translation blame alone tells an internal halt from a query the solver
+/// did not answer: a malformed script blamed on k-rust's translation is a crash, one that may be
+/// the definition's or the user's SMT text is `halt-smt`, and neither leaves a crash behind the
+/// other's reason.
+#[test]
+fn the_translation_blame_tells_an_internal_halt_from_an_unanswered_query() {
+    use HaltReasonOutput as H;
+    let blamed = result(vec![caused(
+        H::SimplificationError,
+        Some(smt_failure(malformed(true))),
+    )]);
+    assert_eq!(
+        reason(&blamed, &[false], false),
+        UnjudgedReason::InternalHalt
+    );
+    assert_eq!(
+        blamed.internal_halt().map(|halt| halt.site.as_str()),
+        Some("smt:malformed-script")
+    );
+    let unblamed = result(vec![caused(
+        H::SimplificationError,
+        Some(smt_failure(malformed(false))),
+    )]);
+    assert_eq!(reason(&unblamed, &[false], false), UnjudgedReason::HaltSmt);
+    assert_eq!(unblamed.internal_halt(), None);
+    assert_eq!(unblamed.crash_reason(), None);
+    // The wire leaves an unblamed rejection's JSON as it was: no blame field.
+    let unblamed_json = serde_json::to_value(malformed(false)).expect("JSON");
+    assert_eq!(
+        unblamed_json,
+        serde_json::json!({"kind": "malformed-script", "message": "unknown constant"})
+    );
+    let blamed_json = serde_json::to_value(malformed(true)).expect("JSON");
+    assert_eq!(blamed_json["translationBlamed"], true);
+    let back: SmtFailureOutput = serde_json::from_value(blamed_json).expect("reads back");
+    assert_eq!(back, malformed(true));
+}
+
+/// An internal halt on one leaf makes the whole run unjudged: no other leaf of it is evidence,
+/// so a clean reaching leaf beside it is no hit (FZ-CRASH-CAUSE). An iteration bound is no
+/// crash: the case is `unsupported` with `halt-iteration-limit` and no internal halt.
+#[test]
+fn an_internal_halt_makes_the_run_unjudged_and_a_bound_does_not_crash() {
+    use HaltReasonOutput as H;
+    let builtin = caused(
+        H::SimplificationError,
+        Some(SearchFailureOutput::Builtin {
+            error: BuiltinFailureOutput::WrongArity {
+                hook: "INT.add".into(),
+                expected: 2,
+                actual: 3,
+            },
+        }),
+    );
+    let run = result(vec![natural(), builtin.clone()]);
+    assert_eq!(
+        classify_explained(&run, &[true, false], false).expect("no defect"),
+        (
+            OutcomeClass::Unsupported,
+            Some(UnjudgedReason::InternalHalt)
+        )
+    );
+    assert_eq!(run.crash_reason(), Some(UnjudgedReason::InternalHalt));
+    // A leaf's own facts beyond its halt do not hide the internal halt.
+    let mut stopped = builtin;
+    stopped.unclean.push(UncleanReason::StackStops);
+    assert_eq!(
+        reason(&result(vec![stopped]), &[false], false),
+        UnjudgedReason::InternalHalt
+    );
+    let bound = result(vec![caused(
+        H::SimplificationError,
+        Some(SearchFailureOutput::IterationLimit {
+            limit: 5,
+            term: None,
+        }),
+    )]);
+    assert_eq!(
+        reason(&bound, &[false], false),
+        UnjudgedReason::HaltIterationLimit
+    );
+    assert_eq!(bound.internal_halt(), None);
+    assert_eq!(bound.crash_reason(), None);
+    // A surviving macro or alias is a compilation defect.
+    let macro_leaf = result(vec![caused(
+        H::Indeterminate,
+        Some(SearchFailureOutput::SurvivingMacroOrAlias {
+            symbol: "Lblm".into(),
+        }),
+    )]);
+    assert_eq!(
+        reason(&macro_leaf, &[false], false),
+        UnjudgedReason::InternalHalt
+    );
+    assert_eq!(
+        macro_leaf.internal_halt().map(|halt| halt.site.as_str()),
+        Some("surviving-macro-or-alias:Lblm")
+    );
 }

@@ -36,7 +36,9 @@
 //! Crashes are told apart by their [`CrashSignature`]: kind, side, stage, and the site, which is
 //! the panic's location normalized to start at its crate's `src` directory, or, for an internal
 //! error, for a panic without a location and for one located in toolchain or generated source,
-//! the message's class ([`message_class`]).
+//! the message's class ([`message_class`]). An internal halt's site is its structured cause
+//! ([`cause_signature`], FZ-CRASH-CAUSE): the cause's kind and the hook or symbol it names, which
+//! the run's leaf carries typed, so no text is read and no input value enters it.
 
 use std::{
     cell::{Cell, RefCell},
@@ -210,7 +212,7 @@ pub(crate) fn signature(
 ) -> CrashSignature {
     let located = match kind {
         CrashKind::Panic => location.and_then(normalized_location),
-        CrashKind::InternalError => None,
+        CrashKind::InternalError | CrashKind::InternalHalt => None,
     };
     let (site_kind, place) = match located {
         Some(place) => (SiteKind::Location, place),
@@ -223,6 +225,44 @@ pub(crate) fn signature(
         site_kind,
         site: place,
     }
+}
+
+/// The signature of an internal halt on `side` at `stage` whose cause's site is `cause`
+/// ([`cause_site`]).
+pub(crate) fn cause_signature(side: CrashSide, stage: CrashStage, cause: &str) -> CrashSignature {
+    CrashSignature {
+        kind: CrashKind::InternalHalt,
+        side,
+        stage,
+        site_kind: SiteKind::Cause,
+        site: cause.to_owned(),
+    }
+}
+
+/// The site kind of an internal halt on a builtin hook's failure (`builtin:<failure>[:<hook>]`).
+pub(crate) const BUILTIN_SITE: &str = "builtin";
+
+/// The site kind of an internal halt on a builtin result symbol the definition lacks or declares
+/// otherwise than the hook needs (`invalid-builtin-result-symbol:<hook>:<symbol>`).
+pub(crate) const INVALID_BUILTIN_RESULT_SYMBOL_SITE: &str = "invalid-builtin-result-symbol";
+
+/// An internal halt's site: the cause's kind, then each of `parts` (a failure's kind, a hook, a
+/// symbol), joined by `:`. A part names the definition or k-rust, never an input value.
+pub(crate) fn cause_site(kind: &str, parts: &[&str]) -> String {
+    std::iter::once(kind)
+        .chain(parts.iter().copied())
+        .collect::<Vec<_>>()
+        .join(":")
+}
+
+/// Whether an internal halt at `site` may be a defect of the definition's hook declaration
+/// rather than of k-rust alone: a builtin hook's failure or an invalid builtin result symbol.
+/// Terms are sort-checked, so a hook that meets arguments it does not take, or a result symbol
+/// it cannot build, was declared at a signature (or in a definition) its builtin does not fit,
+/// which k-rust should have refused, unless k-rust itself built the ill-fitting application.
+pub(crate) fn blames_a_hook_declaration(site: &str) -> bool {
+    let kind = site.split(':').next().unwrap_or_default();
+    kind == BUILTIN_SITE || kind == INVALID_BUILTIN_RESULT_SYMBOL_SITE
 }
 
 /// A panic location `file:line:column` normalized so that one source gives one site wherever it
