@@ -1346,7 +1346,7 @@ fn emit(
                 if !cont_emitted {
                     writeln!(
                         o,
-                        "/-- The continuations of a free-key equation agree at every binding: case on the bound value, push `tr`, and\ncompute, through a nested free-key equation too. -/\nlocal syntax \"choose_cont \" term:max term:max term:max : tactic\nmacro_rules\n  | `(tactic| choose_cont $pw $pres $phi) => `(tactic| (\n    intro k v hc hc'\n    cases v <;> (try push_ctor) <;> first\n      | rfl\n      | (split <;> first | rfl | (simp only [k2l_rel]; done))\n      | (k2l_choose $pw $pres $phi <;> first | rfl | choose_cont $pw $pres $phi)))"
+                        "/-- The continuations of a free-key equation agree at every binding: case on the bound value (`k2l_cases`: on the arity family, its sort's values only), push `tr`, and\ncompute, through a nested free-key equation too. -/\nlocal syntax \"choose_cont \" term:max term:max term:max : tactic\nmacro_rules\n  | `(tactic| choose_cont $pw $pres $phi) => `(tactic| (\n    intro k v hc hc'\n    k2l_cases v <;> (try push_ctor) <;> first\n      | rfl\n      | (split <;> first | rfl | (simp only [k2l_rel]; done))\n      | (k2l_choose $pw $pres $phi <;> first | rfl | choose_cont $pw $pres $phi)))"
                     )
                     .unwrap();
                     cont_emitted = true;
