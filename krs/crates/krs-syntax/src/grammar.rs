@@ -7,8 +7,8 @@ use syn::spanned::Spanned;
 use syn::{Fields, Ident, ItemImpl, ItemStruct, ItemType, LitInt, LitStr, Path, Token, Type};
 
 use crate::parse::{
-    KrsSyntax, ParseError, ProvenanceAnchors, checked_ordinal, duplicate, first_non_doc_attribute,
-    invalid_argument, missing, structured, unknown,
+    KeyAllocator, KrsSyntax, ParseError, duplicate, first_non_doc_attribute, invalid_argument,
+    missing, structured, unknown,
 };
 use crate::path::{is_plain_path, path_text, unqualified_path_ident};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
@@ -122,29 +122,22 @@ impl SyntaxTemplate {
         Ok(())
     }
 
-    pub(crate) fn provenance(
+    /// Keys each item, and each field's value reference after its item, at
+    /// the template literal.
+    pub(crate) fn allocate_keys(
         &self,
+        keys: &mut KeyAllocator,
         item_role: ProvenanceRole,
         field_role: ProvenanceRole,
-    ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+    ) -> Result<(), SyntaxError> {
         let range = TokenRange::for_tokens(&self.literal)?;
-        let mut ordinals = ProvenanceAnchors::default();
-        let mut anchors = Vec::new();
         for item in &self.items {
-            anchors.push(ProvenanceAnchor::new(
-                item_role,
-                ordinals.next(item_role, self.literal.span())?,
-                range,
-            ));
+            keys.key(item_role, range)?;
             if matches!(item, SyntaxTemplateItem::Field(_)) {
-                anchors.push(ProvenanceAnchor::new(
-                    field_role,
-                    ordinals.next(field_role, self.literal.span())?,
-                    range,
-                ));
+                keys.key(field_role, range)?;
             }
         }
-        Ok(anchors)
+        Ok(())
     }
 }
 
@@ -364,24 +357,16 @@ impl SmtTemplate {
         Ok(())
     }
 
-    pub(crate) fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+    /// Keys the hook and each placeholder, at the template literal.
+    pub(crate) fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
         let range = TokenRange::for_tokens(&self.literal)?;
-        let mut anchors = vec![ProvenanceAnchor::new(
-            ProvenanceRole::FunctionSmtHook,
-            0,
-            range,
-        )];
-        let mut ordinals = ProvenanceAnchors::default();
+        keys.key(ProvenanceRole::FunctionSmtHook, range)?;
         for fragment in &self.fragments {
             if matches!(fragment, SmtTemplateFragment::Field(_)) {
-                anchors.push(ProvenanceAnchor::new(
-                    ProvenanceRole::SmtHookPlaceholder,
-                    ordinals.next(ProvenanceRole::SmtHookPlaceholder, self.literal.span())?,
-                    range,
-                ));
+                keys.key(ProvenanceRole::SmtHookPlaceholder, range)?;
             }
         }
-        Ok(anchors)
+        Ok(())
     }
 }
 
@@ -773,19 +758,17 @@ impl StructuredFormat {
         Ok(())
     }
 
-    pub(crate) fn provenance(
+    /// Keys each fragment, at the format literal.
+    pub(crate) fn allocate_keys(
         &self,
+        keys: &mut KeyAllocator,
         role: ProvenanceRole,
-    ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+    ) -> Result<(), SyntaxError> {
         let range = TokenRange::for_tokens(&self.literal)?;
-        self.fragments
-            .iter()
-            .enumerate()
-            .map(|(ordinal, _)| {
-                checked_ordinal(ordinal, role, self.literal.span())
-                    .map(|ordinal| ProvenanceAnchor::new(role, ordinal, range))
-            })
-            .collect()
+        for _ in &self.fragments {
+            keys.key(role, range)?;
+        }
+        Ok(())
     }
 }
 
@@ -871,27 +854,33 @@ impl TokenAttribute {
         }
     }
 
-    /// Returns the content anchor and the optional precedence anchor, at
-    /// `ordinal`, this attribute's position among the stacked attributes of
-    /// its kind (regex or terminal).
+    /// Returns the content anchor and the optional precedence anchor of this
+    /// attribute alone, the first of its kind.
     ///
     /// # Errors
     ///
     /// Returns an endpoint error only for a tokenless parsed Rust node.
-    pub fn provenance(&self, ordinal: u32) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![ProvenanceAnchor::new(
+    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys)?;
+        Ok(keys.into_anchors())
+    }
+
+    /// Keys the content, as the next of its kind, and its lexical
+    /// precedence, which is numbered as its regex is.
+    pub(crate) fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        let content = keys.key(
             self.content.role(),
-            ordinal,
             TokenRange::for_tokens(self.content.literal())?,
-        )];
+        )?;
         if let Some((literal, _)) = &self.lexical_precedence {
-            anchors.push(ProvenanceAnchor::new(
+            keys.paired(
                 ProvenanceRole::TokenLexicalPrecedence,
-                ordinal,
+                &content,
                 TokenRange::for_tokens(literal)?,
-            ));
+            );
         }
-        Ok(anchors)
+        Ok(())
     }
 }
 
@@ -977,11 +966,13 @@ impl TokenStack {
     ///
     /// Returns an endpoint error only for a tokenless parsed Rust node.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::new();
-        for (ordinal, attribute) in self.ordinals() {
-            anchors.extend(attribute.provenance(ordinal)?);
+        // Each content role numbers its own kind, regexes and terminals
+        // apart, as `Self::ordinals` does.
+        let mut keys = KeyAllocator::default();
+        for attribute in &self.attributes {
+            attribute.allocate_keys(&mut keys)?;
         }
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 }
 
@@ -1315,11 +1306,12 @@ impl TokenDeclaration {
     ///
     /// Returns an endpoint error only for a tokenless name.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(vec![ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        keys.key(
             ProvenanceRole::TokenDeclaration,
-            0,
             TokenRange::for_tokens(self.name())?,
-        )])
+        )?;
+        Ok(keys.into_anchors())
     }
 }
 
@@ -1369,26 +1361,27 @@ impl BracketAttribute {
     ///
     /// Returns an endpoint error only for a tokenless literal.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut keys = KeyAllocator::default();
         if let Some(tokens) = &self.delimiter_tokens {
+            // The two delimiters and the value between them, all at the pair.
             let range = TokenRange::for_tokens(tokens)?;
-            return Ok(vec![
-                ProvenanceAnchor::new(ProvenanceRole::BracketDeclaration, 0, range),
-                ProvenanceAnchor::new(ProvenanceRole::BracketSyntaxItem, 0, range),
-                ProvenanceAnchor::new(ProvenanceRole::BracketSyntaxItem, 1, range),
-                ProvenanceAnchor::new(ProvenanceRole::BracketSyntaxItem, 2, range),
-                ProvenanceAnchor::new(ProvenanceRole::BracketValueReference, 0, range),
-            ]);
+            keys.key(ProvenanceRole::BracketDeclaration, range)?;
+            for _ in 0..3 {
+                keys.key(ProvenanceRole::BracketSyntaxItem, range)?;
+            }
+            keys.key(ProvenanceRole::BracketValueReference, range)?;
+            return Ok(keys.into_anchors());
         }
-        let mut anchors = vec![ProvenanceAnchor::new(
+        keys.key(
             ProvenanceRole::BracketDeclaration,
-            0,
             TokenRange::for_tokens(self.template.literal())?,
-        )];
-        anchors.extend(self.template.provenance(
+        )?;
+        self.template.allocate_keys(
+            &mut keys,
             ProvenanceRole::BracketSyntaxItem,
             ProvenanceRole::BracketValueReference,
-        )?);
-        Ok(anchors)
+        )?;
+        Ok(keys.into_anchors())
     }
 }
 
@@ -1610,35 +1603,32 @@ impl StrictnessAttribute {
     ///
     /// Returns an endpoint error only for a tokenless parsed Rust node.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![ProvenanceAnchor::new(
-            ProvenanceRole::StrictnessDeclaration,
-            0,
-            self.range,
-        )];
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys)?;
+        Ok(keys.into_anchors())
+    }
+
+    /// Keys the declaration, the optional context alias, each field
+    /// reference, then the result sort.
+    pub(crate) fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        keys.key(ProvenanceRole::StrictnessDeclaration, self.range)?;
         if let Some(using) = &self.using {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::StrictnessContextAliasReference,
-                0,
                 TokenRange::for_tokens(using)?,
-            ));
+            )?;
         }
-        for (ordinal, field) in self.fields.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
+        for field in &self.fields {
+            keys.key(
                 ProvenanceRole::StrictnessFieldReference,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::StrictnessFieldReference,
-                    field.span(),
-                )?,
                 TokenRange::for_tokens(field)?,
-            ));
+            )?;
         }
-        anchors.push(ProvenanceAnchor::new(
+        keys.key(
             ProvenanceRole::StrictnessResultSort,
-            0,
             TokenRange::for_tokens(&self.result_sort)?,
-        ));
-        Ok(anchors)
+        )?;
+        Ok(())
     }
 }
 
@@ -1849,36 +1839,19 @@ impl PrecedenceDeclaration {
     ///
     /// Returns an overflow error for more than `u32::MAX` occurrences.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![ProvenanceAnchor::new(
-            ProvenanceRole::PrecedenceDeclaration,
-            0,
-            self.range,
-        )];
-        let mut group_ordinal = 0_usize;
-        for (chain_ordinal, chain) in self.chains.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::PrecedenceChain,
-                checked_ordinal(
-                    chain_ordinal,
-                    ProvenanceRole::PrecedenceChain,
-                    chain.range.first(),
-                )?,
-                chain.range,
-            ));
+        let mut keys = KeyAllocator::default();
+        keys.key(ProvenanceRole::PrecedenceDeclaration, self.range)?;
+        // Group references are numbered across the chains.
+        for chain in &self.chains {
+            keys.key(ProvenanceRole::PrecedenceChain, chain.range)?;
             for group in &chain.groups {
-                anchors.push(ProvenanceAnchor::new(
+                keys.key(
                     ProvenanceRole::PrecedenceGroupReference,
-                    checked_ordinal(
-                        group_ordinal,
-                        ProvenanceRole::PrecedenceGroupReference,
-                        group.span(),
-                    )?,
                     TokenRange::for_tokens(group)?,
-                ));
-                group_ordinal += 1;
+                )?;
             }
         }
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 }
 
@@ -2010,36 +1983,19 @@ impl AssociativityDeclaration {
     ///
     /// Returns an overflow error for more than `u32::MAX` occurrences.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![ProvenanceAnchor::new(
-            ProvenanceRole::AssociativityDeclaration,
-            0,
-            self.range,
-        )];
-        let mut group_ordinal = 0_usize;
-        for (sentence_ordinal, sentence) in self.sentences.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::AssociativitySentence,
-                checked_ordinal(
-                    sentence_ordinal,
-                    ProvenanceRole::AssociativitySentence,
-                    sentence.range.first(),
-                )?,
-                sentence.range,
-            ));
+        let mut keys = KeyAllocator::default();
+        keys.key(ProvenanceRole::AssociativityDeclaration, self.range)?;
+        // Group references are numbered across the sentences.
+        for sentence in &self.sentences {
+            keys.key(ProvenanceRole::AssociativitySentence, sentence.range)?;
             for group in &sentence.groups {
-                anchors.push(ProvenanceAnchor::new(
+                keys.key(
                     ProvenanceRole::AssociativityGroupReference,
-                    checked_ordinal(
-                        group_ordinal,
-                        ProvenanceRole::AssociativityGroupReference,
-                        group.span(),
-                    )?,
                     TokenRange::for_tokens(group)?,
-                ));
-                group_ordinal += 1;
+                )?;
             }
         }
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 }
 
@@ -2289,23 +2245,20 @@ impl SubsortDeclaration {
         &self,
         attribute: &crate::SubsortAttribute,
     ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(vec![
-            ProvenanceAnchor::new(
-                ProvenanceRole::SubsortDeclaration,
-                0,
-                TokenRange::for_tokens(&self.item)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::SubsortSuperSort,
-                0,
-                TokenRange::for_tokens(attribute.sort())?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::SubsortSubSort,
-                0,
-                TokenRange::for_tokens(&self.sub_sort)?,
-            ),
-        ])
+        let mut keys = KeyAllocator::default();
+        keys.key(
+            ProvenanceRole::SubsortDeclaration,
+            TokenRange::for_tokens(&self.item)?,
+        )?;
+        keys.key(
+            ProvenanceRole::SubsortSuperSort,
+            TokenRange::for_tokens(attribute.sort())?,
+        )?;
+        keys.key(
+            ProvenanceRole::SubsortSubSort,
+            TokenRange::for_tokens(&self.sub_sort)?,
+        )?;
+        Ok(keys.into_anchors())
     }
 }
 

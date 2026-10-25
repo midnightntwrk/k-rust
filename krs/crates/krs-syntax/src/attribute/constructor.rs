@@ -5,7 +5,7 @@ use syn::spanned::Spanned;
 use syn::{Expr, Ident, LitBool, LitStr, Path, Token};
 
 use crate::grammar::{StructuredFormat, SyntaxTemplate};
-use crate::parse::{KrsSyntax, ParseError, structured};
+use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
 use crate::{
     ConstructorDeclaration, ProvenanceAnchor, ProvenanceRole, SortArgument, SyntaxError,
     SyntaxErrorKind, TokenRange,
@@ -160,17 +160,12 @@ impl PlacementFlags {
         self.flag.as_ref().map(|(_, key)| key)
     }
 
-    pub(crate) fn anchors(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        self.flag
-            .iter()
-            .map(|(flag, key)| {
-                Ok(ProvenanceAnchor::new(
-                    flag.role(),
-                    0,
-                    TokenRange::for_tokens(key)?,
-                ))
-            })
-            .collect()
+    /// Keys the placement flag's key, if any.
+    pub(crate) fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        if let Some((flag, key)) = &self.flag {
+            keys.key(flag.role(), TokenRange::for_tokens(key)?)?;
+        }
+        Ok(())
     }
 }
 
@@ -300,34 +295,28 @@ impl ProductionColors {
             .map(|(_, literals)| literals.as_slice())
     }
 
-    pub(crate) fn anchors(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::new();
+    /// Keys the `color` value or the `colors` array and each of its entries;
+    /// a production has at most one of the two.
+    pub(crate) fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
         if let Some(color) = &self.color {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConstructorColor,
-                0,
                 TokenRange::for_tokens(color)?,
-            ));
+            )?;
         }
         if let Some((array, literals)) = &self.colors {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConstructorColor,
-                0,
                 TokenRange::for_tokens(array)?,
-            ));
-            for (ordinal, literal) in literals.iter().enumerate() {
-                anchors.push(ProvenanceAnchor::new(
+            )?;
+            for literal in literals {
+                keys.key(
                     ProvenanceRole::ConstructorColorsEntry,
-                    crate::parse::checked_ordinal(
-                        ordinal,
-                        ProvenanceRole::ConstructorColorsEntry,
-                        literal.span(),
-                    )?,
                     TokenRange::for_tokens(literal)?,
-                ));
+                )?;
             }
         }
-        Ok(anchors)
+        Ok(())
     }
 }
 
@@ -548,54 +537,42 @@ impl FunctionAttribute {
     /// Returns an endpoint error only if a parsed token-bearing node emits no
     /// leaves.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = self.constructor.full_provenance()?;
+        let mut keys = KeyAllocator::default();
+        self.constructor.allocate_full_keys(&mut keys)?;
         let (role, marker) = match &self.totality {
             FunctionTotality::Total(marker) => (ProvenanceRole::FunctionTotal, marker),
             FunctionTotality::Partial(marker) => (ProvenanceRole::FunctionPartial, marker),
         };
-        anchors.push(ProvenanceAnchor::new(
-            role,
-            0,
-            TokenRange::for_tokens(marker)?,
-        ));
+        keys.key(role, TokenRange::for_tokens(marker)?)?;
         if let Some(memo) = &self.memo {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::FunctionMemo,
-                0,
-                TokenRange::for_tokens(memo)?,
-            ));
+            keys.key(ProvenanceRole::FunctionMemo, TokenRange::for_tokens(memo)?)?;
         }
         if let Some(flag) = &self.fresh_generator {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::FunctionFreshGenerator,
-                0,
                 TokenRange::for_tokens(flag)?,
-            ));
+            )?;
         }
         if let Some(hook) = &self.hook {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::FunctionHook,
-                0,
-                hook.range()?,
-            ));
+            keys.key(ProvenanceRole::FunctionHook, hook.range()?)?;
         }
         match &self.smt {
-            Some(FunctionSmt::Smtlib(literal)) => anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::FunctionSmtlib,
-                0,
-                TokenRange::for_tokens(literal)?,
-            )),
-            Some(FunctionSmt::Hook(template)) => anchors.extend(template.provenance()?),
+            Some(FunctionSmt::Smtlib(literal)) => {
+                keys.key(
+                    ProvenanceRole::FunctionSmtlib,
+                    TokenRange::for_tokens(literal)?,
+                )?;
+            }
+            Some(FunctionSmt::Hook(template)) => template.allocate_keys(&mut keys)?,
             None => {}
         }
         if let Some(reason) = &self.underspecified {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::FunctionUnderspecified,
-                0,
                 TokenRange::for_tokens(reason)?,
-            ));
+            )?;
         }
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 }
 
@@ -814,54 +791,56 @@ impl VariantSyntaxAttribute {
     /// Returns an endpoint error only if a parsed token-bearing node emits no
     /// leaves.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys)?;
+        Ok(keys.into_anchors())
+    }
+
+    /// Keys the syntax, its template, then the metadata.
+    pub(crate) fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        keys.key(
             ProvenanceRole::ConstructorSyntax,
-            0,
             TokenRange::for_tokens(&self.syntax)?,
-        )];
-        anchors.extend(self.syntax_template.provenance(
+        )?;
+        self.syntax_template.allocate_keys(
+            keys,
             ProvenanceRole::ConstructorSyntaxItem,
             ProvenanceRole::ConstructorSyntaxFieldReference,
-        )?);
+        )?;
         if let Some(group) = &self.group {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConstructorGroup,
-                0,
                 TokenRange::for_tokens(group)?,
-            ));
+            )?;
         }
         if let Some(avoid) = &self.avoid_literal {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConstructorAvoid,
-                0,
                 TokenRange::for_tokens(avoid)?,
-            ));
+            )?;
         }
         if let Some(prefer) = &self.prefer_literal {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConstructorPrefer,
-                0,
                 TokenRange::for_tokens(prefer)?,
-            ));
+            )?;
         }
-        anchors.extend(self.placement.anchors()?);
+        self.placement.allocate_keys(keys)?;
         if let Some(overload) = &self.overload {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConstructorOverload,
-                0,
                 TokenRange::for_tokens(overload)?,
-            ));
+            )?;
         }
-        anchors.extend(self.colors.anchors()?);
+        self.colors.allocate_keys(keys)?;
         if let Some(format) = &self.structured_format {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConstructorFormat,
-                0,
                 TokenRange::for_tokens(format.literal())?,
-            ));
-            anchors.extend(format.provenance(ProvenanceRole::ConstructorFormatFragment)?);
+            )?;
+            format.allocate_keys(keys, ProvenanceRole::ConstructorFormatFragment)?;
         }
-        Ok(anchors)
+        Ok(())
     }
 }
 
@@ -953,19 +932,24 @@ impl ConstructorAttribute {
     ///
     /// Returns an endpoint error only if a parsed Rust node emits no tokens.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys)?;
+        Ok(keys.into_anchors())
+    }
+
+    /// Keys the sort and the optional syntax.
+    fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        keys.key(
             ProvenanceRole::ConstructorSort,
-            0,
             TokenRange::for_tokens(&self.sort)?,
-        )];
+        )?;
         if let Some(syntax) = &self.syntax {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConstructorSyntax,
-                0,
                 TokenRange::for_tokens(syntax)?,
-            ));
+            )?;
         }
-        Ok(anchors)
+        Ok(())
     }
 
     /// Returns one anchor per element type of a function's typed collection
@@ -988,52 +972,55 @@ impl ConstructorAttribute {
     ///
     /// Returns an endpoint error only if a parsed Rust node emits no tokens.
     pub fn full_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = self.provenance()?;
+        let mut keys = KeyAllocator::default();
+        self.allocate_full_keys(&mut keys)?;
+        Ok(keys.into_anchors())
+    }
+
+    /// Keys the compact catalog, then the syntax template and the metadata.
+    pub(crate) fn allocate_full_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.allocate_keys(keys)?;
         if let Some(template) = &self.syntax_template {
-            anchors.extend(template.provenance(
+            template.allocate_keys(
+                keys,
                 ProvenanceRole::ConstructorSyntaxItem,
                 ProvenanceRole::ConstructorSyntaxFieldReference,
-            )?);
+            )?;
         }
         if let Some(group) = &self.group {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConstructorGroup,
-                0,
                 TokenRange::for_tokens(group)?,
-            ));
+            )?;
         }
         if let Some(avoid) = &self.avoid_literal {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConstructorAvoid,
-                0,
                 TokenRange::for_tokens(avoid)?,
-            ));
+            )?;
         }
         if let Some(prefer) = &self.prefer_literal {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConstructorPrefer,
-                0,
                 TokenRange::for_tokens(prefer)?,
-            ));
+            )?;
         }
-        anchors.extend(self.placement.anchors()?);
+        self.placement.allocate_keys(keys)?;
         if let Some(overload) = &self.overload {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConstructorOverload,
-                0,
                 TokenRange::for_tokens(overload)?,
-            ));
+            )?;
         }
-        anchors.extend(self.colors.anchors()?);
+        self.colors.allocate_keys(keys)?;
         if let Some(format) = &self.structured_format {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConstructorFormat,
-                0,
                 TokenRange::for_tokens(format.literal())?,
-            ));
-            anchors.extend(format.provenance(ProvenanceRole::ConstructorFormatFragment)?);
+            )?;
+            format.allocate_keys(keys, ProvenanceRole::ConstructorFormatFragment)?;
         }
-        Ok(anchors)
+        Ok(())
     }
 }
 

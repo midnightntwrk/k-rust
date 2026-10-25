@@ -13,7 +13,7 @@ use proc_macro2::{Span, TokenStream};
 use syn::{Attribute, Ident, LitStr, Token};
 
 use crate::grammar::validate_regex;
-use crate::parse::{KrsSyntax, ParseError, checked_ordinal, first_non_doc_attribute, structured};
+use crate::parse::{KeyAllocator, KrsSyntax, ParseError, first_non_doc_attribute, structured};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// One `Name = r"..";` entry of a `k::lexical!` block.
@@ -65,22 +65,15 @@ impl LexicalDeclaration {
     ///
     /// Returns an overflow error for more than `u32::MAX` entries.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::with_capacity(self.entries.len() * 2);
-        for (index, entry) in self.entries.iter().enumerate() {
-            let ordinal =
-                checked_ordinal(index, ProvenanceRole::LexicalDeclaration, entry.name.span())?;
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::LexicalDeclaration,
-                ordinal,
-                entry.range,
-            ));
-            anchors.push(ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        for entry in &self.entries {
+            keys.key(ProvenanceRole::LexicalDeclaration, entry.range)?;
+            keys.key(
                 ProvenanceRole::LexicalRegex,
-                ordinal,
                 TokenRange::for_tokens(&entry.regex)?,
-            ));
+            )?;
         }
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 }
 
@@ -154,17 +147,11 @@ impl LayoutDeclaration {
     ///
     /// Returns an overflow error for more than `u32::MAX` regexes.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        self.regexes
-            .iter()
-            .enumerate()
-            .map(|(index, regex)| {
-                Ok(ProvenanceAnchor::new(
-                    ProvenanceRole::LayoutRegex,
-                    checked_ordinal(index, ProvenanceRole::LayoutRegex, regex.span())?,
-                    TokenRange::for_tokens(regex)?,
-                ))
-            })
-            .collect()
+        let mut keys = KeyAllocator::default();
+        for regex in &self.regexes {
+            keys.key(ProvenanceRole::LayoutRegex, TokenRange::for_tokens(regex)?)?;
+        }
+        Ok(keys.into_anchors())
     }
 }
 

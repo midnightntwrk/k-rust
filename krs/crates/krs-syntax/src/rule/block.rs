@@ -12,11 +12,11 @@ use super::condition::{
 use super::item::RuleItem;
 use super::machine::parse_machine_clause;
 use super::pattern::{
-    RuleTermCounters, RuleTermSide, append_rule_pattern_anchors, append_rule_term_anchors,
+    RuleTermSide, allocate_rule_pattern_keys, allocate_rule_term_keys, allocate_wildcard_keys,
     parse_pattern_with_signs,
 };
 use crate::parse::{
-    KrsSyntax, ParseError, checked_ordinal, structured,
+    KeyAllocator, KrsSyntax, ParseError, structured,
     unsupported_rule_signature as unsupported_signature,
 };
 use crate::path::{is_plain_path, parametric_collection_error};
@@ -425,15 +425,12 @@ impl RuleClause {
         self.claim.as_ref()
     }
 
-    /// Anchors a clause's literal islands (`k::id!`, `k::bytes!`, and a
+    /// Keys a clause's literal islands (`k::id!`, `k::bytes!`, and a
     /// claim's `k::anonymous!`, `k::or_bool!`), each kind numbered in one sequence
     /// across the clause in the order expansion visits the clause's terms:
     /// the subject's terms, then the result's, then the `requires` and
     /// `ensures` conditions.
-    fn append_claim_literal_anchors(
-        &self,
-        anchors: &mut Vec<ProvenanceAnchor>,
-    ) -> Result<(), SyntaxError> {
+    fn allocate_claim_literal_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
         fn state_nodes<'a>(state: &'a crate::StateTerm, output: &mut Vec<&'a [TermNode]>) {
             output.extend(state.terms().into_iter().map(TermExpression::nodes));
             for nested in state.nested_states() {
@@ -490,7 +487,7 @@ impl RuleClause {
         if let Some(ensures) = self.rule.existentials().ensures() {
             nodes.push(ensures.nodes());
         }
-        crate::state_rule::append_claim_node_anchors(nodes, anchors)
+        crate::state_rule::allocate_claim_node_keys(keys, nodes)
     }
 
     /// Returns the provenance of the clause's metadata attribute:
@@ -593,9 +590,18 @@ impl RuleClause {
                     | ProvenanceRole::ClaimOrBool
             )
         });
-        self.append_claim_literal_anchors(&mut anchors)?;
-        // A claim clause is a claim: its declaration has the claim role, and
-        // its name, its label, is anchored by its `#[k::claim(..)]` (F7).
+        let mut keys = KeyAllocator::continuing(anchors);
+        self.allocate_claim_literal_keys(&mut keys)?;
+        // A claim clause's name, its label, is anchored by its
+        // `#[k::claim(..)]` (F7).
+        if self.claim.is_none() && self.attribute.label().is_none() {
+            keys.key(
+                ProvenanceRole::RuleLabel,
+                TokenRange::for_tokens(&self.rule.item.sig.ident)?,
+            )?;
+        }
+        let mut anchors = keys.into_anchors();
+        // A claim clause is a claim: its declaration has the claim role.
         if self.claim.is_some() {
             anchors = anchors
                 .into_iter()
@@ -611,12 +617,6 @@ impl RuleClause {
                     }
                 })
                 .collect();
-        } else if self.attribute.label().is_none() {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleLabel,
-                0,
-                TokenRange::for_tokens(&self.rule.item.sig.ident)?,
-            ));
         }
         anchors.retain(|anchor| {
             !matches!(
@@ -662,379 +662,104 @@ impl RuleClause {
                         | ProvenanceRole::RuleLeftWildcard
                 )
             });
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RulePattern,
-                0,
-                self.layout.pattern,
-            ));
         }
-        anchors.push(ProvenanceAnchor::new(
+        // The clause's own keys number on after the subject's: the
+        // computation items after the first, the cells read, and the
+        // wildcards of extra-cell patterns, such as `frame: _`, continue the
+        // subject's left-hand ordinals in clause order.
+        let mut keys = KeyAllocator::continuing(anchors);
+        if !subject {
+            keys.key(ProvenanceRole::RulePattern, self.layout.pattern)?;
+        }
+        keys.key(
             ProvenanceRole::RuleResult,
-            0,
             self.head_result
                 .as_ref()
                 .map_or(Ok(self.layout.result), RuleHeadResult::range)?,
-        ));
-        let mut right = RuleTermCounters::default();
+        )?;
+        // Optional and collection states (KF-023) number their K-sequence
+        // and instance keys per side; the right side continues after a
+        // spliced head result's sequence keys.
         match &self.head_result {
             None | Some(RuleHeadResult::Erase(_)) => {}
             Some(RuleHeadResult::Replace(term)) => {
-                append_rule_term_anchors(&mut anchors, term, RuleTermSide::Right, &mut right)?;
+                allocate_rule_term_keys(&mut keys, term, RuleTermSide::Right)?;
             }
             Some(RuleHeadResult::Splice { range, items }) => {
-                anchors.push(ProvenanceAnchor::new(
-                    ProvenanceRole::RuleRightKSequencePayload,
-                    0,
-                    *range,
-                ));
-                for (ordinal, item) in items.iter().enumerate() {
-                    anchors.push(ProvenanceAnchor::new(
+                keys.key(ProvenanceRole::RuleRightKSequencePayload, *range)?;
+                for item in items {
+                    keys.key(
                         ProvenanceRole::RuleRightKSequenceItem,
-                        checked_ordinal(
-                            ordinal,
-                            ProvenanceRole::RuleRightKSequenceItem,
-                            item.expression().span(),
-                        )?,
                         TokenRange::for_tokens(item.expression())?,
-                    ));
-                    append_rule_term_anchors(&mut anchors, item, RuleTermSide::Right, &mut right)?;
+                    )?;
+                    allocate_rule_term_keys(&mut keys, item, RuleTermSide::Right)?;
                 }
             }
         }
-
-        let mut left = if subject {
-            let mut left =
-                RuleTermCounters::from_rule_pattern(self.rule.parameter().pattern.nodes());
-            let mut subject_fields = Vec::new();
-            self.rule
-                .subject_tree()
-                .record_field_names_preorder(&mut subject_fields);
-            left.field = subject_fields.len();
-            left
-        } else {
-            RuleTermCounters::default()
-        };
-        let mut have_cell = 0_usize;
-        let mut have_entry = 0_usize;
-        let mut update_cell = 0_usize;
-        // Optional and collection states (KF-023) number their K-sequence
-        // and instance anchors per side; the right side continues after a
-        // spliced head result's sequence anchors.
-        let mut left_states = ReadableStateCounters::default();
-        let mut right_states = ReadableStateCounters::after_head(self.head_result.as_ref());
-        // Wildcards in extra-cell patterns, such as `frame: _`, continue the
-        // subject's wildcard ordinals in clause order.
-        let mut wildcard = anchors
-            .iter()
-            .filter(|anchor| anchor.role() == ProvenanceRole::RuleLeftWildcard)
-            .count();
-        // The computation items after the first continue the subject's
-        // ordinals, before the other cells.
         for item in self.head.iter().flat_map(|head| &head.following) {
-            append_rule_pattern_anchors(&mut anchors, &item.pattern, &item.tree, &mut left)?;
-            append_wildcard_anchors(&mut anchors, &item.tree, &mut wildcard)?;
+            allocate_rule_pattern_keys(&mut keys, &item.pattern, &item.tree)?;
+            allocate_wildcard_keys(&mut keys, &item.tree, ProvenanceRole::RuleLeftWildcard)?;
         }
         for extra in &self.extras {
-            match extra {
-                RuleExtra::HaveMap { cell, entries } => {
-                    let ordinal = checked_ordinal(
-                        have_cell,
-                        ProvenanceRole::RuleLeftCellsField,
-                        cell.span(),
-                    )?;
-                    have_cell += 1;
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::RuleLeftCellsField,
-                        ordinal,
-                        TokenRange::for_tokens(cell)?,
-                    ));
-                    // Keys and values are numbered per entry, across every map read.
-                    for RuleMapEntry { key, value } in entries {
-                        let entry = checked_ordinal(
-                            have_entry,
-                            ProvenanceRole::RuleLeftMapKey,
-                            value.span(),
-                        )?;
-                        have_entry += 1;
-                        anchors.push(ProvenanceAnchor::new(
-                            ProvenanceRole::RuleLeftMapKey,
-                            entry,
-                            TokenRange::for_tokens(key.expression())?,
-                        ));
-                        anchors.push(ProvenanceAnchor::new(
-                            ProvenanceRole::RuleLeftMapValue,
-                            entry,
-                            TokenRange::for_tokens(value)?,
-                        ));
-                        append_rule_term_anchors(&mut anchors, key, RuleTermSide::Left, &mut left)?;
-                        // A `_` key matches any entry's key.
-                        append_wildcard_anchors(&mut anchors, key.tree(), &mut wildcard)?;
-                    }
-                }
-                RuleExtra::UpdateMap { cell, update, .. } => {
-                    let [base, key, value] = update.arguments();
-                    let ordinal = checked_ordinal(
-                        update_cell,
-                        ProvenanceRole::RuleRightCellsField,
-                        cell.span(),
-                    )?;
-                    update_cell += 1;
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::RuleRightCellsField,
-                        ordinal,
-                        TokenRange::for_tokens(cell)?,
-                    ));
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::RuleRightMapUpdateBase,
-                        ordinal,
-                        TokenRange::for_tokens(base)?,
-                    ));
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::RuleRightMapKey,
-                        ordinal,
-                        TokenRange::for_tokens(key)?,
-                    ));
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::RuleRightMapValue,
-                        ordinal,
-                        TokenRange::for_tokens(value)?,
-                    ));
-                    append_rule_term_anchors(
-                        &mut anchors,
-                        update.term(),
-                        RuleTermSide::Right,
-                        &mut right,
-                    )?;
-                }
-                RuleExtra::RewriteState {
-                    cell,
-                    before,
-                    result_cell,
-                    after,
-                } => {
-                    let left_ordinal = checked_ordinal(
-                        have_cell,
-                        ProvenanceRole::RuleLeftCellsField,
-                        cell.span(),
-                    )?;
-                    have_cell += 1;
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::RuleLeftCellsField,
-                        left_ordinal,
-                        TokenRange::for_tokens(cell)?,
-                    ));
-                    append_readable_state_anchors(
-                        &mut anchors,
-                        before,
-                        RuleTermSide::Left,
-                        &mut left,
-                        &mut left_states,
-                        &mut wildcard,
-                    )?;
-                    if let (Some(result_cell), Some(after)) = (result_cell, after) {
-                        let right_ordinal = checked_ordinal(
-                            update_cell,
-                            ProvenanceRole::RuleRightCellsField,
-                            result_cell.span(),
-                        )?;
-                        update_cell += 1;
-                        anchors.push(ProvenanceAnchor::new(
-                            ProvenanceRole::RuleRightCellsField,
-                            right_ordinal,
-                            TokenRange::for_tokens(result_cell)?,
-                        ));
-                        append_readable_state_anchors(
-                            &mut anchors,
-                            after,
-                            RuleTermSide::Right,
-                            &mut right,
-                            &mut right_states,
-                            &mut wildcard,
-                        )?;
-                    }
-                }
-                RuleExtra::RewriteList {
-                    cell,
-                    before,
-                    result_cell,
-                    after,
-                } => {
-                    let left_ordinal = checked_ordinal(
-                        have_cell,
-                        ProvenanceRole::RuleLeftCellsField,
-                        cell.span(),
-                    )?;
-                    have_cell += 1;
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::RuleLeftCellsField,
-                        left_ordinal,
-                        TokenRange::for_tokens(cell)?,
-                    ));
-                    for item in before.patterns() {
-                        append_rule_pattern_anchors(
-                            &mut anchors,
-                            &item.pattern,
-                            &item.tree,
-                            &mut left,
-                        )?;
-                        append_wildcard_anchors(&mut anchors, &item.tree, &mut wildcard)?;
-                    }
-                    if let (Some(result_cell), Some(after)) = (result_cell, after) {
-                        let right_ordinal = checked_ordinal(
-                            update_cell,
-                            ProvenanceRole::RuleRightCellsField,
-                            result_cell.span(),
-                        )?;
-                        update_cell += 1;
-                        anchors.push(ProvenanceAnchor::new(
-                            ProvenanceRole::RuleRightCellsField,
-                            right_ordinal,
-                            TokenRange::for_tokens(result_cell)?,
-                        ));
-                        for term in after.terms() {
-                            append_rule_term_anchors(
-                                &mut anchors,
-                                term,
-                                RuleTermSide::Right,
-                                &mut right,
-                            )?;
-                        }
-                    }
-                }
-                RuleExtra::RewriteCell {
-                    cell,
-                    before,
-                    before_tree,
-                    after,
-                } => {
-                    let left_ordinal = checked_ordinal(
-                        have_cell,
-                        ProvenanceRole::RuleLeftCellsField,
-                        cell.span(),
-                    )?;
-                    have_cell += 1;
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::RuleLeftCellsField,
-                        left_ordinal,
-                        TokenRange::for_tokens(cell)?,
-                    ));
-                    append_rule_pattern_anchors(&mut anchors, before, before_tree, &mut left)?;
-                    append_wildcard_anchors(&mut anchors, before_tree, &mut wildcard)?;
-
-                    // A cell the result leaves out is read only and has no
-                    // result anchors.
-                    if let Some(after) = after {
-                        let right_ordinal = checked_ordinal(
-                            update_cell,
-                            ProvenanceRole::RuleRightCellsField,
-                            cell.span(),
-                        )?;
-                        update_cell += 1;
-                        anchors.push(ProvenanceAnchor::new(
-                            ProvenanceRole::RuleRightCellsField,
-                            right_ordinal,
-                            TokenRange::for_tokens(cell)?,
-                        ));
-                        append_rule_term_anchors(
-                            &mut anchors,
-                            after,
-                            RuleTermSide::Right,
-                            &mut right,
-                        )?;
-                    }
-                }
-            }
+            allocate_extra_keys(&mut keys, extra)?;
         }
         if let Some(alternative) = &self.bracket_alternative {
             // The List reading's cell names and instance structure, numbered
             // after every other extra; its instance children are the head
-            // record's terms, already anchored above.
-            anchors.push(ProvenanceAnchor::new(
+            // record's terms, already keyed above.
+            keys.key(
                 ProvenanceRole::RuleLeftCellsField,
-                checked_ordinal(
-                    have_cell,
-                    ProvenanceRole::RuleLeftCellsField,
-                    alternative.cell.span(),
-                )?,
                 TokenRange::for_tokens(&alternative.cell)?,
-            ));
-            append_alternative_state_anchors(
-                &mut anchors,
-                &alternative.before,
-                RuleTermSide::Left,
-                &mut left_states,
             )?;
+            allocate_alternative_state_keys(&mut keys, &alternative.before, RuleTermSide::Left)?;
             if let (Some(result_cell), Some(after)) = (&alternative.result_cell, &alternative.after)
             {
-                anchors.push(ProvenanceAnchor::new(
+                keys.key(
                     ProvenanceRole::RuleRightCellsField,
-                    checked_ordinal(
-                        update_cell,
-                        ProvenanceRole::RuleRightCellsField,
-                        result_cell.span(),
-                    )?,
                     TokenRange::for_tokens(result_cell)?,
-                ));
-                append_alternative_state_anchors(
-                    &mut anchors,
-                    after,
-                    RuleTermSide::Right,
-                    &mut right_states,
                 )?;
+                allocate_alternative_state_keys(&mut keys, after, RuleTermSide::Right)?;
             }
         }
-        for (ordinal, narrowing) in self.narrowings.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
+        for narrowing in &self.narrowings {
+            keys.key(
                 ProvenanceRole::RuleBindingType,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::RuleBindingType,
-                    narrowing.sort.span(),
-                )?,
                 TokenRange::for_tokens(&narrowing.sort)?,
-            ));
+            )?;
         }
-        self.lexeme_anchors(&mut anchors)?;
-        Ok(anchors)
+        self.allocate_island_keys(&mut keys)?;
+        Ok(keys.into_anchors())
     }
 
     /// Numbers `k::lexeme!` terms, then `k::is!` and `k::project!` terms, in
     /// expansion order: the subject, the cells read, the head result, the
     /// cells written, the condition, then the ensures condition.
-    fn lexeme_anchors(&self, anchors: &mut Vec<ProvenanceAnchor>) -> Result<(), SyntaxError> {
-        use crate::term::{push_lexeme_anchors, push_sort_test_anchors};
+    fn allocate_island_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        use crate::term::{allocate_lexeme_keys, allocate_sort_test_keys};
         let terms = self.expansion_order_nodes();
-        let mut ordinal = 0_usize;
         for nodes in &terms {
-            push_lexeme_anchors(anchors, nodes, &mut ordinal)?;
+            allocate_lexeme_keys(keys, nodes)?;
         }
-        let mut ordinal = 0_usize;
         for nodes in &terms {
-            push_sort_test_anchors(anchors, nodes, &mut ordinal)?;
+            allocate_sort_test_keys(keys, nodes)?;
         }
-        let mut ordinal = 0_usize;
         for nodes in &terms {
-            crate::term::push_application_instance_anchors(anchors, nodes, &mut ordinal)?;
+            crate::term::allocate_application_instance_keys(keys, nodes)?;
         }
-        let mut ordinal = 0_usize;
         for nodes in &terms {
-            crate::term::push_pattern_as_anchors(anchors, nodes, &mut ordinal)?;
+            crate::term::allocate_pattern_as_keys(keys, nodes)?;
         }
-        let mut ordinal = 0_usize;
         for nodes in &terms {
-            crate::term::push_pattern_or_anchors(anchors, nodes, &mut ordinal)?;
+            crate::term::allocate_pattern_or_keys(keys, nodes)?;
         }
-        let (mut matches, mut wildcards) = (0_usize, 0_usize);
         for nodes in &terms {
-            crate::term::push_matches_anchors(anchors, nodes, &mut matches, &mut wildcards)?;
+            crate::term::allocate_matches_keys(keys, nodes)?;
         }
-        let (mut lets, mut let_wildcards) = (0_usize, 0_usize);
         for nodes in &terms {
-            crate::term::push_let_anchors(anchors, nodes, &mut lets, &mut let_wildcards)?;
+            crate::term::allocate_let_keys(keys, nodes)?;
         }
-        let mut closures = 0_usize;
         for nodes in &terms {
-            crate::term::push_ml_binder_anchors(anchors, nodes, &mut closures)?;
+            crate::term::allocate_ml_binder_keys(keys, nodes)?;
         }
         Ok(())
     }
@@ -1101,22 +826,123 @@ impl RuleClause {
     }
 }
 
-/// Anchors the wildcards of a left-side readable pattern, continuing the
-/// clause's wildcard ordinals.
-fn append_wildcard_anchors(
-    anchors: &mut Vec<ProvenanceAnchor>,
-    tree: &TermTree,
-    wildcard: &mut usize,
-) -> Result<(), SyntaxError> {
-    let mut wildcards = Vec::new();
-    tree.wildcard_ranges_preorder(&mut wildcards);
-    for range in wildcards {
-        anchors.push(ProvenanceAnchor::new(
-            ProvenanceRole::RuleLeftWildcard,
-            checked_ordinal(*wildcard, ProvenanceRole::RuleLeftWildcard, range.first())?,
-            range,
-        ));
-        *wildcard += 1;
+/// Keys one extra cell: its field on each side it is written on, then its
+/// terms. A map read numbers its keys and values per entry, across every
+/// map read; a map update's base, key, and value are numbered as its
+/// result cell is.
+#[expect(
+    clippy::too_many_lines,
+    reason = "One arm per extra-cell form, each keying its cells in expansion order."
+)]
+fn allocate_extra_keys(keys: &mut KeyAllocator, extra: &RuleExtra) -> Result<(), SyntaxError> {
+    match extra {
+        RuleExtra::HaveMap { cell, entries } => {
+            keys.key(
+                ProvenanceRole::RuleLeftCellsField,
+                TokenRange::for_tokens(cell)?,
+            )?;
+            for RuleMapEntry { key, value } in entries {
+                keys.key(
+                    ProvenanceRole::RuleLeftMapKey,
+                    TokenRange::for_tokens(key.expression())?,
+                )?;
+                keys.key(
+                    ProvenanceRole::RuleLeftMapValue,
+                    TokenRange::for_tokens(value)?,
+                )?;
+                allocate_rule_term_keys(keys, key, RuleTermSide::Left)?;
+                // A `_` key matches any entry's key.
+                allocate_wildcard_keys(keys, key.tree(), ProvenanceRole::RuleLeftWildcard)?;
+            }
+        }
+        RuleExtra::UpdateMap { cell, update, .. } => {
+            let [base, key, value] = update.arguments();
+            let field = keys.key(
+                ProvenanceRole::RuleRightCellsField,
+                TokenRange::for_tokens(cell)?,
+            )?;
+            keys.paired(
+                ProvenanceRole::RuleRightMapUpdateBase,
+                &field,
+                TokenRange::for_tokens(base)?,
+            );
+            keys.paired(
+                ProvenanceRole::RuleRightMapKey,
+                &field,
+                TokenRange::for_tokens(key)?,
+            );
+            keys.paired(
+                ProvenanceRole::RuleRightMapValue,
+                &field,
+                TokenRange::for_tokens(value)?,
+            );
+            allocate_rule_term_keys(keys, update.term(), RuleTermSide::Right)?;
+        }
+        RuleExtra::RewriteState {
+            cell,
+            before,
+            result_cell,
+            after,
+        } => {
+            keys.key(
+                ProvenanceRole::RuleLeftCellsField,
+                TokenRange::for_tokens(cell)?,
+            )?;
+            allocate_readable_state_keys(keys, before, RuleTermSide::Left)?;
+            if let (Some(result_cell), Some(after)) = (result_cell, after) {
+                keys.key(
+                    ProvenanceRole::RuleRightCellsField,
+                    TokenRange::for_tokens(result_cell)?,
+                )?;
+                allocate_readable_state_keys(keys, after, RuleTermSide::Right)?;
+            }
+        }
+        RuleExtra::RewriteList {
+            cell,
+            before,
+            result_cell,
+            after,
+        } => {
+            keys.key(
+                ProvenanceRole::RuleLeftCellsField,
+                TokenRange::for_tokens(cell)?,
+            )?;
+            for item in before.patterns() {
+                allocate_rule_pattern_keys(keys, &item.pattern, &item.tree)?;
+                allocate_wildcard_keys(keys, &item.tree, ProvenanceRole::RuleLeftWildcard)?;
+            }
+            if let (Some(result_cell), Some(after)) = (result_cell, after) {
+                keys.key(
+                    ProvenanceRole::RuleRightCellsField,
+                    TokenRange::for_tokens(result_cell)?,
+                )?;
+                for term in after.terms() {
+                    allocate_rule_term_keys(keys, term, RuleTermSide::Right)?;
+                }
+            }
+        }
+        RuleExtra::RewriteCell {
+            cell,
+            before,
+            before_tree,
+            after,
+        } => {
+            keys.key(
+                ProvenanceRole::RuleLeftCellsField,
+                TokenRange::for_tokens(cell)?,
+            )?;
+            allocate_rule_pattern_keys(keys, before, before_tree)?;
+            allocate_wildcard_keys(keys, before_tree, ProvenanceRole::RuleLeftWildcard)?;
+            // A cell the result leaves out is read only and has no
+            // result keys.
+            if let Some(after) = after {
+                keys.key(
+                    ProvenanceRole::RuleRightCellsField,
+                    TokenRange::for_tokens(cell)?,
+                )?;
+                allocate_rule_term_keys(keys, after, RuleTermSide::Right)?;
+            }
+        }
     }
     Ok(())
 }
@@ -1156,72 +982,47 @@ impl ReadableStateCounters {
     }
 }
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "Anchors follow the expansion order of every state shape in one walk, matching the wire counters."
-)]
-fn append_readable_state_anchors(
-    anchors: &mut Vec<ProvenanceAnchor>,
+/// Keys a readable cell state on `side`: a term's nodes, a `k!`'s structure
+/// and items, and a collection's instances, child fields, and rest, in the
+/// order expansion visits them.
+fn allocate_readable_state_keys(
+    keys: &mut KeyAllocator,
     state: &crate::StateTerm,
     side: RuleTermSide,
-    terms: &mut RuleTermCounters,
-    counters: &mut ReadableStateCounters,
-    wildcard: &mut usize,
 ) -> Result<(), SyntaxError> {
     let left = matches!(side, RuleTermSide::Left);
     let role = |left_role: ProvenanceRole, right_role: ProvenanceRole| {
         if left { left_role } else { right_role }
     };
-    let push = |anchors: &mut Vec<ProvenanceAnchor>,
-                role: ProvenanceRole,
-                counter: &mut usize,
-                range: TokenRange| {
-        anchors.push(ProvenanceAnchor::new(
-            role,
-            checked_ordinal(*counter, role, range.first())?,
-            range,
-        ));
-        *counter += 1;
-        Ok::<_, SyntaxError>(())
-    };
     match state {
         crate::StateTerm::Present(inner) => {
-            append_readable_state_anchors(anchors, inner, side, terms, counters, wildcard)?;
+            allocate_readable_state_keys(keys, inner, side)?;
         }
         crate::StateTerm::Absent(_) => {}
         crate::StateTerm::Term(term) | crate::StateTerm::Group(term) => {
-            append_readable_term_anchors(anchors, term, side, terms, wildcard)?;
+            allocate_readable_term_keys(keys, term, side)?;
         }
         crate::StateTerm::KSequence(sequence) => {
             for anchor in sequence.provenance()? {
                 let target = match anchor.role() {
-                    ProvenanceRole::KSequencePayload => (
-                        role(
-                            ProvenanceRole::RuleLeftKSequencePayload,
-                            ProvenanceRole::RuleRightKSequencePayload,
-                        ),
-                        &mut counters.k_payload,
+                    ProvenanceRole::KSequencePayload => role(
+                        ProvenanceRole::RuleLeftKSequencePayload,
+                        ProvenanceRole::RuleRightKSequencePayload,
                     ),
-                    ProvenanceRole::KSequenceItem => (
-                        role(
-                            ProvenanceRole::RuleLeftKSequenceItem,
-                            ProvenanceRole::RuleRightKSequenceItem,
-                        ),
-                        &mut counters.k_item,
+                    ProvenanceRole::KSequenceItem => role(
+                        ProvenanceRole::RuleLeftKSequenceItem,
+                        ProvenanceRole::RuleRightKSequenceItem,
                     ),
-                    ProvenanceRole::KSequenceTail => (
-                        role(
-                            ProvenanceRole::RuleLeftKSequenceTail,
-                            ProvenanceRole::RuleRightKSequenceTail,
-                        ),
-                        &mut counters.k_tail,
+                    ProvenanceRole::KSequenceTail => role(
+                        ProvenanceRole::RuleLeftKSequenceTail,
+                        ProvenanceRole::RuleRightKSequenceTail,
                     ),
                     _ => continue,
                 };
-                push(anchors, target.0, target.1, anchor.range())?;
+                keys.key(target, anchor.range())?;
             }
             for item in sequence.items() {
-                append_readable_term_anchors(anchors, item, side, terms, wildcard)?;
+                allocate_readable_term_keys(keys, item, side)?;
             }
         }
         crate::StateTerm::Map(_) => {
@@ -1234,154 +1035,107 @@ fn append_readable_state_anchors(
             ));
         }
         crate::StateTerm::Instances(list) => {
-            let instance = |anchors: &mut Vec<ProvenanceAnchor>,
-                            item: &crate::InstanceItem,
-                            counters: &mut ReadableStateCounters,
-                            terms: &mut RuleTermCounters,
-                            wildcard: &mut usize| {
-                push(
-                    anchors,
+            let instance = |keys: &mut KeyAllocator, item: &crate::InstanceItem| {
+                keys.key(
                     role(
                         ProvenanceRole::RuleLeftCellsInstance,
                         ProvenanceRole::RuleRightCellsInstance,
                     ),
-                    &mut counters.instance,
                     item.range(),
                 )?;
                 for field in item.fields() {
-                    push(
-                        anchors,
+                    keys.key(
                         role(
                             ProvenanceRole::RuleLeftCellsInstanceField,
                             ProvenanceRole::RuleRightCellsInstanceField,
                         ),
-                        &mut counters.instance_field,
                         TokenRange::for_tokens(field.name())?,
                     )?;
-                    append_readable_state_anchors(
-                        anchors,
-                        field.value(),
-                        side,
-                        terms,
-                        counters,
-                        wildcard,
-                    )?;
+                    allocate_readable_state_keys(keys, field.value(), side)?;
                 }
                 Ok::<_, SyntaxError>(())
             };
             for item in list.front() {
-                instance(anchors, item, counters, terms, wildcard)?;
+                instance(keys, item)?;
             }
             if let Some(range) = list.rest().range() {
-                push(
-                    anchors,
+                keys.key(
                     role(
                         ProvenanceRole::RuleLeftCellsInstancesRest,
                         ProvenanceRole::RuleRightCellsInstancesRest,
                     ),
-                    &mut counters.instances_rest,
                     range,
                 )?;
             }
             for item in list.back() {
-                instance(anchors, item, counters, terms, wildcard)?;
+                instance(keys, item)?;
             }
         }
     }
     Ok(())
 }
 
-/// The structural anchors of a bracket alternative's instance list: each
+/// Keys the structure of a bracket alternative's instance list: each
 /// instance record, each child name, and the rest. The children's terms are
-/// the head record's, which the clause anchors already.
-fn append_alternative_state_anchors(
-    anchors: &mut Vec<ProvenanceAnchor>,
+/// the head record's, which the clause keys already.
+fn allocate_alternative_state_keys(
+    keys: &mut KeyAllocator,
     state: &crate::StateTerm,
     side: RuleTermSide,
-    counters: &mut ReadableStateCounters,
 ) -> Result<(), SyntaxError> {
     let left = matches!(side, RuleTermSide::Left);
     let role = |left_role: ProvenanceRole, right_role: ProvenanceRole| {
         if left { left_role } else { right_role }
     };
-    let push = |anchors: &mut Vec<ProvenanceAnchor>,
-                role: ProvenanceRole,
-                counter: &mut usize,
-                range: TokenRange| {
-        anchors.push(ProvenanceAnchor::new(
-            role,
-            checked_ordinal(*counter, role, range.first())?,
-            range,
-        ));
-        *counter += 1;
-        Ok::<_, SyntaxError>(())
-    };
     let crate::StateTerm::Instances(list) = state else {
         return Ok(());
     };
-    let mut instance = |anchors: &mut Vec<ProvenanceAnchor>, item: &crate::InstanceItem| {
-        push(
-            anchors,
+    let instance = |keys: &mut KeyAllocator, item: &crate::InstanceItem| {
+        keys.key(
             role(
                 ProvenanceRole::RuleLeftCellsInstance,
                 ProvenanceRole::RuleRightCellsInstance,
             ),
-            &mut counters.instance,
             item.range(),
         )?;
         for field in item.fields() {
-            push(
-                anchors,
+            keys.key(
                 role(
                     ProvenanceRole::RuleLeftCellsInstanceField,
                     ProvenanceRole::RuleRightCellsInstanceField,
                 ),
-                &mut counters.instance_field,
                 TokenRange::for_tokens(field.name())?,
             )?;
         }
         Ok::<_, SyntaxError>(())
     };
     for item in list.front() {
-        instance(anchors, item)?;
+        instance(keys, item)?;
     }
     for item in list.back() {
-        instance(anchors, item)?;
+        instance(keys, item)?;
     }
     if let Some(range) = list.rest().range() {
-        push(
-            anchors,
+        keys.key(
             role(
                 ProvenanceRole::RuleLeftCellsInstancesRest,
                 ProvenanceRole::RuleRightCellsInstancesRest,
             ),
-            &mut counters.instances_rest,
             range,
         )?;
     }
     Ok(())
 }
 
-fn append_readable_term_anchors(
-    anchors: &mut Vec<ProvenanceAnchor>,
+/// Keys a readable term's nodes on `side` and, on the left, its wildcards.
+fn allocate_readable_term_keys(
+    keys: &mut KeyAllocator,
     term: &TermExpression,
     side: RuleTermSide,
-    terms: &mut RuleTermCounters,
-    wildcard: &mut usize,
 ) -> Result<(), SyntaxError> {
-    let left = matches!(side, RuleTermSide::Left);
-    append_rule_term_anchors(anchors, term, side, terms)?;
-    if left {
-        let mut wildcards = Vec::new();
-        term.tree().wildcard_ranges_preorder(&mut wildcards);
-        for range in wildcards {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleLeftWildcard,
-                checked_ordinal(*wildcard, ProvenanceRole::RuleLeftWildcard, range.first())?,
-                range,
-            ));
-            *wildcard += 1;
-        }
+    allocate_rule_term_keys(keys, term, side)?;
+    if matches!(side, RuleTermSide::Left) {
+        allocate_wildcard_keys(keys, term.tree(), ProvenanceRole::RuleLeftWildcard)?;
     }
     Ok(())
 }

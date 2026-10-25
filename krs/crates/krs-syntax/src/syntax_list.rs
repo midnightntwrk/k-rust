@@ -22,7 +22,7 @@ use syn::{Attribute, Fields, Ident, ItemEnum, LitStr, Meta, Path, Token, Variant
 use crate::grammar::{StrictnessAttribute, StrictnessKind, push_terminal};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
 use crate::parse::{
-    KrsSyntax, ParseError, checked_ordinal, duplicate, first_non_doc_attribute, structured, unknown,
+    KeyAllocator, KrsSyntax, ParseError, duplicate, first_non_doc_attribute, structured, unknown,
 };
 use crate::term_sort::{parse_readable_sort, parse_term_sort};
 use crate::{
@@ -65,24 +65,30 @@ impl SyntaxListAttribute {
     }
 
     /// Returns the list-declaration, separator, and `non_empty` anchors.
-    #[must_use]
-    pub fn provenance(&self) -> Vec<ProvenanceAnchor> {
-        let mut anchors = vec![
-            ProvenanceAnchor::new(ProvenanceRole::ListDeclaration, 0, self.range),
-            ProvenanceAnchor::new(
-                ProvenanceRole::ListSeparator,
-                0,
-                TokenRange::new(self.separator.span(), self.separator.span()),
-            ),
-        ];
+    ///
+    /// # Errors
+    ///
+    /// Returns an overflow error only for more than `u32::MAX` occurrences.
+    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys)?;
+        Ok(keys.into_anchors())
+    }
+
+    /// Keys the list declaration, the separator, then the `non_empty` flag.
+    fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        keys.key(ProvenanceRole::ListDeclaration, self.range)?;
+        keys.key(
+            ProvenanceRole::ListSeparator,
+            TokenRange::new(self.separator.span(), self.separator.span()),
+        )?;
         if let Some(flag) = &self.non_empty {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ListNonEmpty,
-                0,
                 TokenRange::new(flag.span(), flag.span()),
-            ));
+            )?;
         }
-        anchors
+        Ok(())
     }
 }
 
@@ -367,40 +373,29 @@ impl SyntaxListDeclaration {
     ///
     /// Returns an endpoint error only for a tokenless parsed Rust node.
     pub fn cons_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = self.variant_anchors(&self.cons.variant)?;
-        for (ordinal, field) in self.cons.fields().into_iter().enumerate() {
-            let range = TokenRange::for_tokens(field.term_sort().sort())?;
-            anchors.push(ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        self.allocate_variant_keys(&mut keys, &self.cons.variant)?;
+        for field in self.cons.fields() {
+            keys.key(
                 ProvenanceRole::ConstructorFieldSort,
-                checked_ordinal(ordinal, ProvenanceRole::ConstructorFieldSort, range.first())?,
-                range,
-            ));
-            anchors.push(ProvenanceAnchor::new(
+                TokenRange::for_tokens(field.term_sort().sort())?,
+            )?;
+            keys.key(
                 ProvenanceRole::ConstructorFieldDeclaration,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::ConstructorFieldDeclaration,
-                    field.name().span(),
-                )?,
                 TokenRange::for_tokens(field.name())?,
-            ));
+            )?;
         }
-        for (ordinal, documentation) in self.cons.documentation.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
+        for documentation in &self.cons.documentation {
+            keys.key(
                 ProvenanceRole::ConstructorDocumentation,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::ConstructorDocumentation,
-                    documentation.literal().span(),
-                )?,
                 TokenRange::for_tokens(documentation.literal())?,
-            ));
+            )?;
         }
         if let Some(strictness) = &self.cons.strictness {
-            anchors.extend(strictness.provenance()?);
+            strictness.allocate_keys(&mut keys)?;
         }
-        anchors.extend(self.attribute.provenance());
-        Ok(anchors)
+        self.attribute.allocate_keys(&mut keys)?;
+        Ok(keys.into_anchors())
     }
 
     /// Returns the terminator production's anchors: the list sort, the
@@ -410,29 +405,28 @@ impl SyntaxListDeclaration {
     ///
     /// Returns an endpoint error only for a tokenless parsed Rust node.
     pub fn terminator_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = self.variant_anchors(&self.terminator.variant)?;
-        anchors.extend(
-            self.attribute
-                .provenance()
-                .into_iter()
-                .filter(|anchor| anchor.role() == ProvenanceRole::ListDeclaration),
-        );
-        Ok(anchors)
+        let mut keys = KeyAllocator::default();
+        self.allocate_variant_keys(&mut keys, &self.terminator.variant)?;
+        // Of the list attribute, the terminator carries the declaration alone.
+        keys.key(ProvenanceRole::ListDeclaration, self.attribute.range)?;
+        Ok(keys.into_anchors())
     }
 
-    fn variant_anchors(&self, variant: &Variant) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(vec![
-            ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorSort,
-                0,
-                TokenRange::for_tokens(&self.item.ident)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorDeclaration,
-                0,
-                TokenRange::for_tokens(&variant.ident)?,
-            ),
-        ])
+    /// Keys the list sort, then the variant's declaration.
+    fn allocate_variant_keys(
+        &self,
+        keys: &mut KeyAllocator,
+        variant: &Variant,
+    ) -> Result<(), SyntaxError> {
+        keys.key(
+            ProvenanceRole::ConstructorSort,
+            TokenRange::for_tokens(&self.item.ident)?,
+        )?;
+        keys.key(
+            ProvenanceRole::ConstructorDeclaration,
+            TokenRange::for_tokens(&variant.ident)?,
+        )?;
+        Ok(())
     }
 }
 

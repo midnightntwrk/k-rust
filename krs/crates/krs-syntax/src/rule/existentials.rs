@@ -15,10 +15,10 @@ use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Meta, Path};
 
-use super::pattern::{push_term_node_anchors, push_term_reference_candidates};
+use super::pattern::{allocate_term_node_keys, push_term_reference_candidates};
 use crate::attribute::{ClaimBinder, ExistsAttribute};
-use crate::parse::{KrsSyntax, checked_ordinal, unsupported_rule_signature};
-use crate::term::push_record_field_anchors;
+use crate::parse::{KeyAllocator, KrsSyntax, checked_ordinal, unsupported_rule_signature};
+use crate::term::allocate_record_field_keys;
 use crate::{
     ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, SyntaxErrorKind,
     TermExpression, TermSymbolKind, TokenRange,
@@ -255,79 +255,58 @@ impl RuleExistentials {
     ///
     /// Returns an endpoint or occurrence-overflow error.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = Vec::new();
-        for (index, binder) in self.binders().iter().enumerate() {
-            let ordinal = checked_ordinal(
-                index,
-                ProvenanceRole::RuleExistentialBinder,
-                binder.name().span(),
-            )?;
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleExistentialBinder,
-                ordinal,
-                TokenRange::for_tokens(binder.name())?,
-            ));
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleExistentialBinderName,
-                ordinal,
-                TokenRange::for_tokens(binder.name())?,
-            ));
-            output.push(ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys)?;
+        Ok(keys.into_anchors())
+    }
+
+    /// Keys each existential binder with its name and sort, each fresh binder
+    /// with its name and sort, then the ensures condition with its paths,
+    /// nodes, and record field names.
+    pub(crate) fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        for binder in self.binders() {
+            let name = TokenRange::for_tokens(binder.name())?;
+            keys.key(ProvenanceRole::RuleExistentialBinder, name)?;
+            keys.key(ProvenanceRole::RuleExistentialBinderName, name)?;
+            keys.key(
                 ProvenanceRole::RuleExistentialBinderSort,
-                ordinal,
                 TokenRange::for_tokens(binder.sort())?,
-            ));
+            )?;
         }
-        for (index, binder) in self.fresh().iter().enumerate() {
-            let ordinal =
-                checked_ordinal(index, ProvenanceRole::RuleFreshBinder, binder.name().span())?;
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleFreshBinder,
-                ordinal,
-                TokenRange::for_tokens(binder.name())?,
-            ));
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleFreshBinderName,
-                ordinal,
-                TokenRange::for_tokens(binder.name())?,
-            ));
-            output.push(ProvenanceAnchor::new(
+        for binder in self.fresh() {
+            let name = TokenRange::for_tokens(binder.name())?;
+            keys.key(ProvenanceRole::RuleFreshBinder, name)?;
+            keys.key(ProvenanceRole::RuleFreshBinderName, name)?;
+            keys.key(
                 ProvenanceRole::RuleFreshBinderSort,
-                ordinal,
                 TokenRange::for_tokens(binder.sort())?,
-            ));
+            )?;
         }
         if let Some(ensures) = &self.ensures {
-            output.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::RuleEnsures,
-                0,
                 TokenRange::for_tokens(ensures.expression())?,
-            ));
-            for (ordinal, symbol) in ensures.symbols().iter().enumerate() {
-                output.push(ProvenanceAnchor::new(
+            )?;
+            for symbol in ensures.symbols() {
+                keys.key(
                     ProvenanceRole::RuleEnsuresPath,
-                    checked_ordinal(
-                        ordinal,
-                        ProvenanceRole::RuleEnsuresPath,
-                        symbol.path().span(),
-                    )?,
                     TokenRange::for_tokens(symbol.path())?,
-                ));
+                )?;
             }
-            push_term_node_anchors(
-                &mut output,
+            allocate_term_node_keys(
+                keys,
                 ensures.nodes(),
                 ProvenanceRole::RuleEnsuresApplicationHead,
                 ProvenanceRole::RuleEnsuresReference,
                 ProvenanceRole::RuleEnsuresLiteral,
             )?;
-            push_record_field_anchors(
-                &mut output,
+            allocate_record_field_keys(
+                keys,
                 ensures.tree(),
                 ProvenanceRole::RuleEnsuresRecordFieldName,
             )?;
         }
-        Ok(output)
+        Ok(())
     }
 
     /// The binder sort paths, keyed by `RuleExistentialBinderSort` ordinals,

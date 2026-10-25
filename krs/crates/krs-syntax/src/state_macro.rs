@@ -6,7 +6,7 @@ use syn::parse::ParseStream;
 use syn::spanned::Spanned;
 use syn::{Expr, Ident, Path, Token, parenthesized};
 
-use crate::parse::{KrsSyntax, checked_ordinal, structured_with};
+use crate::parse::{KeyAllocator, KrsSyntax, structured_with};
 use crate::path::{path_text, plain_path_last};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TermExpression, TermNode,
@@ -136,39 +136,28 @@ impl KSequence {
     ///
     /// Returns an endpoint or ordinal-overflow error.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = Vec::new();
+        let mut keys = KeyAllocator::default();
         if !self.tokens.is_empty() {
-            output.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::KSequencePayload,
-                0,
                 TokenRange::for_tokens(&self.tokens)?,
-            ));
+            )?;
         }
-        for (index, item) in self.items.iter().enumerate() {
-            output.push(ProvenanceAnchor::new(
+        for item in &self.items {
+            keys.key(
                 ProvenanceRole::KSequenceItem,
-                checked_ordinal(
-                    index,
-                    ProvenanceRole::KSequenceItem,
-                    item.expression().span(),
-                )?,
                 TokenRange::for_tokens(item.expression())?,
-            ));
+            )?;
         }
         if let Some(range) = self.tail.range() {
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::KSequenceTail,
-                0,
-                range,
-            ));
+            keys.key(ProvenanceRole::KSequenceTail, range)?;
         } else if self.notation == KSequenceNotation::DotK {
-            output.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::KSequenceTail,
-                0,
                 TokenRange::for_tokens(&self.tokens)?,
-            ));
+            )?;
         }
-        Ok(output)
+        Ok(keys.into_anchors())
     }
 }
 
@@ -305,61 +294,46 @@ impl MapExpression {
     ///
     /// Returns endpoint or ordinal-overflow errors only.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = Vec::new();
+        let mut keys = KeyAllocator::default();
         if !self.tokens.is_empty() {
-            output.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::MapPayload,
-                0,
                 TokenRange::for_tokens(&self.tokens)?,
-            ));
+            )?;
         }
         match &self.body {
             MapBody::Empty { .. } => {}
             MapBody::Items { items, remainder } => {
-                for (index, item) in items.iter().enumerate() {
-                    let ordinal = checked_ordinal(
-                        index,
+                for item in items {
+                    keys.key(
                         ProvenanceRole::MapKey,
-                        item.key.expression().span(),
-                    )?;
-                    output.push(ProvenanceAnchor::new(
-                        ProvenanceRole::MapKey,
-                        ordinal,
                         TokenRange::for_tokens(item.key.expression())?,
-                    ));
-                    output.push(ProvenanceAnchor::new(
+                    )?;
+                    keys.key(
                         ProvenanceRole::MapValue,
-                        ordinal,
                         TokenRange::for_tokens(item.value.expression())?,
-                    ));
+                    )?;
                 }
                 if let Some(range) = remainder.range() {
-                    output.push(ProvenanceAnchor::new(
-                        ProvenanceRole::MapRemainder,
-                        0,
-                        range,
-                    ));
+                    keys.key(ProvenanceRole::MapRemainder, range)?;
                 }
             }
             MapBody::Update { base, key, value } => {
-                output.push(ProvenanceAnchor::new(
+                keys.key(
                     ProvenanceRole::MapUpdateBase,
-                    0,
                     TokenRange::for_tokens(base.expression())?,
-                ));
-                output.push(ProvenanceAnchor::new(
+                )?;
+                keys.key(
                     ProvenanceRole::MapKey,
-                    0,
                     TokenRange::for_tokens(key.expression())?,
-                ));
-                output.push(ProvenanceAnchor::new(
+                )?;
+                keys.key(
                     ProvenanceRole::MapValue,
-                    0,
                     TokenRange::for_tokens(value.expression())?,
-                ));
+                )?;
             }
         }
-        Ok(output)
+        Ok(keys.into_anchors())
     }
 }
 
@@ -730,34 +704,29 @@ impl CellsExpression {
     ///
     /// Returns endpoint or ordinal-overflow errors only.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = vec![ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        keys.key(
             ProvenanceRole::CellsPayload,
-            0,
             TokenRange::for_tokens(&self.tokens)?,
-        )];
-        for (index, entry) in self.entries.iter().enumerate() {
-            let ordinal = checked_ordinal(index, ProvenanceRole::CellsField, entry.name.span())?;
-            output.push(ProvenanceAnchor::new(
+        )?;
+        for entry in &self.entries {
+            let field = keys.key(
                 ProvenanceRole::CellsField,
-                ordinal,
                 TokenRange::for_tokens(&entry.name)?,
-            ));
+            )?;
+            // A wrapper is numbered as its field is.
             if let Some(wrapper) = &entry.wrapper {
-                output.push(ProvenanceAnchor::new(
+                keys.paired(
                     ProvenanceRole::CellsWrapper,
-                    ordinal,
+                    &field,
                     TokenRange::for_tokens(wrapper)?,
-                ));
+                );
             }
         }
         if let Some(range) = self.remainder.range() {
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::CellsRemainder,
-                0,
-                range,
-            ));
+            keys.key(ProvenanceRole::CellsRemainder, range)?;
         }
-        Ok(output)
+        Ok(keys.into_anchors())
     }
 }
 

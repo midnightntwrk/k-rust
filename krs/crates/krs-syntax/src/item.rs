@@ -5,7 +5,7 @@ use syn::{
     TraitBoundModifier, TypeParamBound,
 };
 
-use crate::parse::{KrsSyntax, checked_ordinal, first_non_doc_attribute};
+use crate::parse::{KeyAllocator, KrsSyntax, first_non_doc_attribute};
 use crate::path::is_plain_path;
 use crate::term_sort::{TermSort, parse_typed_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
@@ -208,28 +208,30 @@ impl ConstructorDeclaration {
     ///
     /// Returns an endpoint error only if a parsed Rust node emits no leaves.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::with_capacity(self.fields.len() + self.parameters.len() + 1);
-        anchors.push(ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys)?;
+        Ok(keys.into_anchors())
+    }
+
+    /// Keys the declaration, each sort parameter, then each field sort.
+    fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        keys.key(
             ProvenanceRole::ConstructorDeclaration,
-            0,
             TokenRange::for_tokens(&self.item.ident)?,
-        ));
-        for (ordinal, parameter) in self.parameters.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
+        )?;
+        for parameter in &self.parameters {
+            keys.key(
                 ProvenanceRole::SortParameter,
-                checked_ordinal(ordinal, ProvenanceRole::SortParameter, parameter.span())?,
                 TokenRange::for_tokens(parameter)?,
-            ));
+            )?;
         }
-        for (ordinal, field) in self.fields.iter().enumerate() {
-            let range = TokenRange::for_tokens(field.term_sort.sort())?;
-            anchors.push(ProvenanceAnchor::new(
+        for field in &self.fields {
+            keys.key(
                 ProvenanceRole::ConstructorFieldSort,
-                checked_ordinal(ordinal, ProvenanceRole::ConstructorFieldSort, range.first())?,
-                range,
-            ));
+                TokenRange::for_tokens(field.term_sort.sort())?,
+            )?;
         }
-        Ok(anchors)
+        Ok(())
     }
 
     /// Returns one anchor per element type of a typed collection field sort,
@@ -251,30 +253,21 @@ impl ConstructorDeclaration {
     ///
     /// Returns an endpoint error only if a parsed node emits no leaves.
     pub fn full_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = self.provenance()?;
-        for (ordinal, field) in self.fields.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys)?;
+        for field in &self.fields {
+            keys.key(
                 ProvenanceRole::ConstructorFieldDeclaration,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::ConstructorFieldDeclaration,
-                    field.name.span(),
-                )?,
                 TokenRange::for_tokens(&field.name)?,
-            ));
+            )?;
         }
-        for (ordinal, documentation) in self.documentation.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
+        for documentation in &self.documentation {
+            keys.key(
                 ProvenanceRole::ConstructorDocumentation,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::ConstructorDocumentation,
-                    documentation.literal.span(),
-                )?,
                 TokenRange::for_tokens(&documentation.literal)?,
-            ));
+            )?;
         }
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 }
 
@@ -547,11 +540,12 @@ impl RawKItem {
     ///
     /// Returns an endpoint error only if the literal emits no tokens.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(vec![ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        keys.key(
             ProvenanceRole::RawKDeclaration,
-            0,
             TokenRange::for_tokens(&self.literal)?,
-        )])
+        )?;
+        Ok(keys.into_anchors())
     }
 
     /// Checks the outer shape of a raw K text: it starts with `rule`, `claim`,

@@ -5,13 +5,13 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Expr, ExprCall, Ident, Meta, Token, bracketed};
 
 use super::machine::parse_expression_before_arrow;
-use super::pattern::{RulePattern, push_term_node_anchors, push_term_reference_candidates};
+use super::pattern::{RulePattern, allocate_term_node_keys, push_term_reference_candidates};
 use crate::parse::{
-    KrsSyntax, ParseError, checked_ordinal, unsupported_rule_signature as unsupported_signature,
+    KeyAllocator, KrsSyntax, ParseError, unsupported_rule_signature as unsupported_signature,
     validate_authored_binder,
 };
 use crate::path::is_plain_path;
-use crate::term::push_record_field_anchors;
+use crate::term::allocate_record_field_keys;
 use crate::{
     ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, TermExpression,
     TermSymbolKind, TermTree, TokenRange,
@@ -36,35 +36,36 @@ impl RuleCondition {
     ///
     /// Returns endpoint or occurrence-overflow errors only.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        self.allocate_keys(&mut keys)?;
+        Ok(keys.into_anchors())
+    }
+
+    /// Keys the condition, then its paths, its application head, reference,
+    /// and literal nodes, and its record field names.
+    pub(crate) fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        keys.key(
             ProvenanceRole::RuleRequires,
-            0,
             TokenRange::for_tokens(self.term.expression())?,
-        )];
-        for (ordinal, symbol) in self.term.symbols().iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
+        )?;
+        for symbol in self.term.symbols() {
+            keys.key(
                 ProvenanceRole::RuleRequiresPath,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::RuleRequiresPath,
-                    symbol.path().span(),
-                )?,
                 TokenRange::for_tokens(symbol.path())?,
-            ));
+            )?;
         }
-        push_term_node_anchors(
-            &mut anchors,
+        allocate_term_node_keys(
+            keys,
             self.term.nodes(),
             ProvenanceRole::RuleRequiresApplicationHead,
             ProvenanceRole::RuleRequiresReference,
             ProvenanceRole::RuleRequiresLiteral,
         )?;
-        push_record_field_anchors(
-            &mut anchors,
+        allocate_record_field_keys(
+            keys,
             self.term.tree(),
             ProvenanceRole::RuleRequiresRecordFieldName,
-        )?;
-        Ok(anchors)
+        )
     }
 
     /// Returns rustc-resolvable condition references, excluding pre-bindings.

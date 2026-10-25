@@ -12,7 +12,7 @@ use crate::attribute::{
 };
 use crate::grammar::{GroupAssociativity, StrictnessAttribute, StrictnessKind};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
-use crate::parse::{KrsSyntax, checked_ordinal, first_non_doc_attribute};
+use crate::parse::{KeyAllocator, KrsSyntax, first_non_doc_attribute};
 use crate::term_sort::{parse_typed_readable_sort, parse_typed_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
@@ -193,78 +193,53 @@ impl EnumConstructorVariant {
     /// Returns an endpoint error only if a parsed token-bearing node emits no
     /// leaves, or if an invocation exceeds the `u32` occurrence catalog.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        keys.key(
             ProvenanceRole::ConstructorSort,
-            0,
             TokenRange::for_tokens(&self.constructor_sort)?,
-        )];
+        )?;
         if let Some(syntax) = &self.syntax {
-            anchors.extend(syntax.provenance()?);
+            syntax.allocate_keys(&mut keys)?;
         }
-        anchors.push(ProvenanceAnchor::new(
+        keys.key(
             ProvenanceRole::ConstructorDeclaration,
-            0,
             TokenRange::for_tokens(&self.variant.ident)?,
-        ));
-        for (ordinal, field) in self.fields.iter().enumerate() {
-            let range = TokenRange::for_tokens(field.term_sort().sort())?;
-            anchors.push(ProvenanceAnchor::new(
+        )?;
+        for field in &self.fields {
+            keys.key(
                 ProvenanceRole::ConstructorFieldSort,
-                checked_ordinal(ordinal, ProvenanceRole::ConstructorFieldSort, range.first())?,
-                range,
-            ));
+                TokenRange::for_tokens(field.term_sort().sort())?,
+            )?;
         }
-        for (ordinal, field) in self.fields.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
+        for field in &self.fields {
+            keys.key(
                 ProvenanceRole::ConstructorFieldDeclaration,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::ConstructorFieldDeclaration,
-                    field.name().span(),
-                )?,
                 TokenRange::for_tokens(field.name())?,
-            ));
+            )?;
         }
-        for (ordinal, documentation) in self.documentation.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
+        for documentation in &self.documentation {
+            keys.key(
                 ProvenanceRole::ConstructorDocumentation,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::ConstructorDocumentation,
-                    documentation.literal().span(),
-                )?,
                 TokenRange::for_tokens(documentation.literal())?,
-            ));
+            )?;
         }
         if let Some(range) = self.precedence_member_range {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConstructorGroup,
-                0,
-                range,
-            ));
+            keys.key(ProvenanceRole::ConstructorGroup, range)?;
         }
         if let Some(range) = self.cons_list_range {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConsListDeclaration,
-                0,
-                range,
-            ));
+            keys.key(ProvenanceRole::ConsListDeclaration, range)?;
         }
         if let Some(strictness) = &self.strictness {
-            anchors.extend(strictness.provenance()?);
+            strictness.allocate_keys(&mut keys)?;
         }
         if let Some(marker) = &self.static_marker {
-            anchors.push(ProvenanceAnchor::new(
-                marker.attribute.mode().production_role(),
-                0,
-                marker.range,
-            ));
-            anchors.extend(marker.attribute.provenance());
+            keys.key(marker.attribute.mode().production_role(), marker.range)?;
+            marker.attribute.allocate_keys(&mut keys)?;
         }
         if let Some(symbol) = &self.explicit_symbol {
-            anchors.extend(symbol.provenance()?);
+            symbol.allocate_keys(&mut keys)?;
         }
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 }
 
@@ -634,29 +609,18 @@ impl EnumConstructorDeclaration {
         let Some(groups) = self.precedence_chain_groups() else {
             return Ok(None);
         };
-        let mut anchors = vec![
-            ProvenanceAnchor::new(ProvenanceRole::PrecedenceDeclaration, 0, declaration_range),
-            ProvenanceAnchor::new(ProvenanceRole::PrecedenceChain, 0, chain_range),
-        ];
-        let group_anchors = groups
-            .iter()
-            .enumerate()
-            .map(|(ordinal, group)| {
-                Ok(ProvenanceAnchor::new(
-                    ProvenanceRole::PrecedenceGroupReference,
-                    checked_ordinal(
-                        ordinal,
-                        ProvenanceRole::PrecedenceGroupReference,
-                        group.range.first(),
-                    )?,
-                    group.reference_range,
-                ))
-            })
-            .collect::<Result<Vec<_>, SyntaxError>>()?;
-        anchors.extend(group_anchors);
+        let mut keys = KeyAllocator::default();
+        keys.key(ProvenanceRole::PrecedenceDeclaration, declaration_range)?;
+        keys.key(ProvenanceRole::PrecedenceChain, chain_range)?;
+        for group in groups.iter() {
+            keys.key(
+                ProvenanceRole::PrecedenceGroupReference,
+                group.reference_range,
+            )?;
+        }
         Ok(Some(EnumPrecedenceDescriptor {
             groups,
-            provenance: anchors,
+            provenance: keys.into_anchors(),
         }))
     }
 
@@ -677,29 +641,16 @@ impl EnumConstructorDeclaration {
         if associated.is_empty() {
             return Ok(None);
         }
-        let mut anchors = vec![ProvenanceAnchor::new(
-            ProvenanceRole::AssociativityDeclaration,
-            0,
-            declaration_range,
-        )];
-        for (ordinal, group) in associated.into_iter().enumerate() {
-            let ordinal = checked_ordinal(
-                ordinal,
-                ProvenanceRole::AssociativitySentence,
-                group.range.first(),
-            )?;
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::AssociativitySentence,
-                ordinal,
-                group.range,
-            ));
-            anchors.push(ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        keys.key(ProvenanceRole::AssociativityDeclaration, declaration_range)?;
+        for group in associated {
+            keys.key(ProvenanceRole::AssociativitySentence, group.range)?;
+            keys.key(
                 ProvenanceRole::AssociativityGroupReference,
-                ordinal,
                 group.reference_range,
-            ));
+            )?;
         }
-        Ok(Some(anchors))
+        Ok(Some(keys.into_anchors()))
     }
 }
 

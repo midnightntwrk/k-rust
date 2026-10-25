@@ -26,7 +26,7 @@ use syn::{Attribute, Expr, Ident, ItemFn, ItemUse, Pat, Path, Token};
 use super::block::RuleClauseLayout;
 use super::item::RuleItem;
 use super::pattern::NegativeLiteralSpans;
-use crate::parse::{KrsSyntax, ParseError, structured};
+use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
 use crate::surface::{AttributeMacro, helper_entry};
 use crate::{EquationAttribute, ProvenanceAnchor, SyntaxError, SyntaxErrorKind, TokenRange};
 
@@ -104,9 +104,10 @@ impl EquationRow {
     ///
     /// Returns an endpoint error only if a parsed node emits no tokens.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = self.rule.full_provenance()?;
-        anchors.extend(self.equation.provenance()?);
-        Ok(anchors)
+        let mut keys = KeyAllocator::default();
+        self.rule.allocate_full_keys(&mut keys)?;
+        self.equation.allocate_keys(&mut keys)?;
+        Ok(keys.into_anchors())
     }
 }
 

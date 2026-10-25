@@ -9,7 +9,7 @@ use syn::{
 };
 
 use crate::ReferenceCandidate;
-use crate::parse::{KrsSyntax, checked_ordinal};
+use crate::parse::{KeyAllocator, KrsSyntax};
 use crate::path::{is_plain_path, without_last_arguments};
 use crate::{
     CellAttributePayload, ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind,
@@ -84,18 +84,13 @@ impl SortArgument {
         lists: impl IntoIterator<Item = &'a [Self]>,
         role: ProvenanceRole,
     ) -> Result<Vec<crate::ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::new();
+        let mut keys = KeyAllocator::default();
         for arguments in lists {
             for argument in Self::preorder(arguments) {
-                let range = TokenRange::for_tokens(&argument.path)?;
-                anchors.push(crate::ProvenanceAnchor::new(
-                    role,
-                    crate::parse::checked_ordinal(anchors.len(), role, range.first())?,
-                    range,
-                ));
+                keys.key(role, TokenRange::for_tokens(&argument.path)?)?;
             }
         }
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 }
 
@@ -314,31 +309,20 @@ impl ConfigurationDeclaration {
     ///
     /// Returns endpoint/ordinal errors only for invalid token metadata.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        keys.key(
             ProvenanceRole::ConfigurationDeclaration,
-            0,
             TokenRange::for_tokens(&self.item.ident)?,
-        )];
-        let mut argument_ordinal = 0_usize;
-        for (ordinal, cell) in self.cells.iter().enumerate() {
-            let ordinal = checked_ordinal(
-                ordinal,
+        )?;
+        for cell in &self.cells {
+            let field = keys.key(
                 ProvenanceRole::ConfigurationField,
-                cell.name.span(),
-            )?;
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConfigurationField,
-                ordinal,
                 TokenRange::for_tokens(&cell.name)?,
-            ));
+            )?;
             // Cell-attribute anchors in the payload's order (name, color, multiplicity,
             // type, stream, exit), at this field's ordinal.
             for anchor in cell.attribute.provenance()? {
-                anchors.push(ProvenanceAnchor::new(
-                    anchor.role(),
-                    ordinal,
-                    anchor.range(),
-                ));
+                keys.paired(anchor.role(), &field, anchor.range());
             }
             match &cell.content {
                 ConfigurationCellContent::Leaf {
@@ -348,43 +332,35 @@ impl ConfigurationDeclaration {
                     inferred_wrapper,
                     ..
                 } => {
-                    anchors.push(ProvenanceAnchor::new(
+                    keys.paired(
                         ProvenanceRole::ConfigurationCellWrapper,
-                        ordinal,
+                        &field,
                         if *inferred_wrapper {
                             TokenRange::for_tokens(ty)?
                         } else {
                             TokenRange::for_tokens(wrapper)?
                         },
-                    ));
-                    anchors.push(ProvenanceAnchor::new(
+                    );
+                    keys.key(
                         ProvenanceRole::ConfigurationCellContent,
-                        ordinal,
                         TokenRange::for_tokens(ty)?,
-                    ));
+                    )?;
                     for argument in SortArgument::preorder(arguments) {
-                        anchors.push(ProvenanceAnchor::new(
+                        keys.key(
                             ProvenanceRole::ConfigurationCellContentArgument,
-                            checked_ordinal(
-                                argument_ordinal,
-                                ProvenanceRole::ConfigurationField,
-                                argument.path.span(),
-                            )?,
                             TokenRange::for_tokens(&argument.path)?,
-                        ));
-                        argument_ordinal += 1;
+                        )?;
                     }
                 }
                 ConfigurationCellContent::Nested { declaration } => {
-                    anchors.push(ProvenanceAnchor::new(
+                    keys.key(
                         ProvenanceRole::ConfigurationCellContent,
-                        ordinal,
                         TokenRange::for_tokens(declaration)?,
-                    ));
+                    )?;
                 }
             }
         }
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 
     /// Returns wrapper/content/nested paths with keys matching [`Self::provenance`].

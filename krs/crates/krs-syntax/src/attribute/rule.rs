@@ -4,7 +4,7 @@ use syn::parse::{Parse, ParseStream, Parser};
 use syn::spanned::Spanned;
 use syn::{Expr, ExprLit, Ident, Lit, LitInt, LitStr, Path, Token};
 
-use crate::parse::{KrsSyntax, ParseError, checked_ordinal, structured};
+use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 use super::value::parse_rule_label_value;
@@ -147,33 +147,28 @@ impl ClaimAttribute {
     ///
     /// Returns an endpoint error if an authored token has no recoverable range.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![
-            ProvenanceAnchor::new(
-                ProvenanceRole::ClaimModality,
-                0,
-                TokenRange::for_tokens(&self.modality_ident)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::ClaimLabel,
-                0,
-                TokenRange::for_tokens(&self.label)?,
-            ),
-        ];
+        let mut keys = KeyAllocator::default();
+        keys.key(
+            ProvenanceRole::ClaimModality,
+            TokenRange::for_tokens(&self.modality_ident)?,
+        )?;
+        keys.key(
+            ProvenanceRole::ClaimLabel,
+            TokenRange::for_tokens(&self.label)?,
+        )?;
         if let Some(marker) = &self.circularity {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ClaimCircularity,
-                0,
                 TokenRange::for_tokens(marker)?,
-            ));
+            )?;
         }
         if let Some(marker) = &self.trusted {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ClaimTrusted,
-                0,
                 TokenRange::for_tokens(marker)?,
-            ));
+            )?;
         }
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 }
 
@@ -216,30 +211,17 @@ impl ExistsAttribute {
     /// Returns an endpoint or occurrence-overflow error if exact provenance
     /// cannot be represented.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = Vec::new();
-        for (index, binder) in self.binders.iter().enumerate() {
-            let ordinal = checked_ordinal(
-                index,
-                ProvenanceRole::ClaimExistentialBinder,
-                binder.name.span(),
-            )?;
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::ClaimExistentialBinder,
-                ordinal,
-                TokenRange::for_tokens(&binder.name)?,
-            ));
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::ClaimBinderName,
-                ordinal,
-                TokenRange::for_tokens(&binder.name)?,
-            ));
-            output.push(ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        for binder in &self.binders {
+            let name = TokenRange::for_tokens(&binder.name)?;
+            keys.key(ProvenanceRole::ClaimExistentialBinder, name)?;
+            keys.key(ProvenanceRole::ClaimBinderName, name)?;
+            keys.key(
                 ProvenanceRole::ClaimBinderSort,
-                ordinal,
                 TokenRange::for_tokens(&binder.sort)?,
-            ));
+            )?;
         }
-        Ok(output)
+        Ok(keys.into_anchors())
     }
 }
 
@@ -313,71 +295,51 @@ impl RuleAttribute {
     ///
     /// Returns an endpoint error only if the parsed literal emits no tokens.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::with_capacity(2);
+        let mut keys = KeyAllocator::default();
         // A context (KF-021) anchors its keys under the context roles.
         let kind = self.evaluation.as_ref().map(|(kind, _)| *kind);
         if let Some(label) = &self.label {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 if kind == Some(krs_ir::EvaluationKind::Context) {
                     ProvenanceRole::ContextLabel
                 } else {
                     ProvenanceRole::RuleLabel
                 },
-                0,
                 TokenRange::for_tokens(label)?,
-            ));
+            )?;
         }
         if let Some(owise) = &self.owise {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleOwise,
-                0,
-                TokenRange::for_tokens(owise)?,
-            ));
+            keys.key(ProvenanceRole::RuleOwise, TokenRange::for_tokens(owise)?)?;
         }
         if let Some(priority) = &self.priority {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::RulePriority,
-                0,
                 TokenRange::for_tokens(&priority.literal)?,
-            ));
+            )?;
         }
         if let Some(nondet) = &self.nondet {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::RuleNondetGroup,
-                0,
                 TokenRange::for_tokens(nondet)?,
-            ));
+            )?;
         }
         if let Some(anywhere) = &self.anywhere {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::RuleAnywhere,
-                0,
                 TokenRange::for_tokens(anywhere)?,
-            ));
+            )?;
         }
         if let Some((kind, marker)) = &self.evaluation {
-            anchors.push(ProvenanceAnchor::new(
-                kind.role(),
-                0,
-                TokenRange::for_tokens(marker)?,
-            ));
+            keys.key(kind.role(), TokenRange::for_tokens(marker)?)?;
         }
         let kind = kind.unwrap_or(krs_ir::EvaluationKind::Heat);
         if let Some(hole) = &self.hole {
-            anchors.push(ProvenanceAnchor::new(
-                kind.hole_role(),
-                0,
-                TokenRange::for_tokens(hole)?,
-            ));
+            keys.key(kind.hole_role(), TokenRange::for_tokens(hole)?)?;
         }
         if let Some(result) = &self.result {
-            anchors.push(ProvenanceAnchor::new(
-                kind.result_role(),
-                0,
-                TokenRange::for_tokens(result)?,
-            ));
+            keys.key(kind.result_role(), TokenRange::for_tokens(result)?)?;
         }
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 }
 

@@ -11,7 +11,7 @@ use syn::{
 
 use crate::ReferenceCandidate;
 use crate::parse::{
-    KrsSyntax, checked_ordinal, structured_args,
+    KeyAllocator, KrsSyntax, checked_ordinal, structured_args,
     unsupported_configuration_variable as unsupported_variable,
     unsupported_initializer_body as unsupported_body,
     unsupported_initializer_signature as unsupported_signature,
@@ -328,103 +328,70 @@ impl InitializerFunction {
     ///
     /// Returns an endpoint error only if a parsed node emits no tokens.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut argument_ordinal = 0;
-        let mut anchors = vec![
-            ProvenanceAnchor::new(
-                ProvenanceRole::InitializerDeclaration,
-                0,
-                TokenRange::for_tokens(&self.item.sig.ident)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::InitializerResultType,
-                0,
-                TokenRange::for_tokens(&self.result_type)?,
-            ),
-        ];
-        for (ordinal, variable) in self.variables.iter().enumerate() {
-            let ordinal = checked_ordinal(
-                ordinal,
-                ProvenanceRole::ConfigurationVariable,
-                variable.binding.span(),
-            )?;
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::ConfigurationVariable,
-                ordinal,
-                TokenRange::for_tokens(&variable.binding)?,
-            ));
-            anchors.push(ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        keys.key(
+            ProvenanceRole::InitializerDeclaration,
+            TokenRange::for_tokens(&self.item.sig.ident)?,
+        )?;
+        keys.key(
+            ProvenanceRole::InitializerResultType,
+            TokenRange::for_tokens(&self.result_type)?,
+        )?;
+        for variable in &self.variables {
+            let binding = TokenRange::for_tokens(&variable.binding)?;
+            let key = keys.key(ProvenanceRole::ConfigurationVariable, binding)?;
+            keys.key(
                 ProvenanceRole::ConfigurationVariableName,
-                ordinal,
                 if variable.attribute.inferred_name {
-                    TokenRange::for_tokens(&variable.binding)?
+                    binding
                 } else {
                     TokenRange::for_tokens(&variable.attribute.name)?
                 },
-            ));
-            anchors.push(ProvenanceAnchor::new(
+            )?;
+            keys.key(
                 ProvenanceRole::ConfigurationVariableType,
-                ordinal,
                 TokenRange::for_tokens(&*variable.parameter.ty)?,
-            ));
+            )?;
             for argument in crate::SortArgument::preorder(&variable.arguments) {
-                anchors.push(ProvenanceAnchor::new(
+                keys.key(
                     ProvenanceRole::ConfigurationVariableTypeArgument,
-                    checked_ordinal(
-                        argument_ordinal,
-                        ProvenanceRole::ConfigurationVariableTypeArgument,
-                        argument.path.span(),
-                    )?,
                     TokenRange::for_tokens(&argument.path)?,
-                ));
-                argument_ordinal += 1;
+                )?;
             }
+            // `main` is numbered as its variable is.
             if let Some(main) = &variable.attribute.main {
-                anchors.push(ProvenanceAnchor::new(
+                keys.paired(
                     ProvenanceRole::ConfigurationVariableMain,
-                    ordinal,
+                    &key,
                     TokenRange::for_tokens(main)?,
-                ));
+                );
             }
         }
-        anchors.push(ProvenanceAnchor::new(
+        keys.key(
             ProvenanceRole::InitializerBody,
-            0,
             TokenRange::for_tokens(&self.body)?,
-        ));
-        append_initializer_anchors(
-            &self.cells,
-            &mut anchors,
-            &mut InitializerAnchorCounters::default(),
         )?;
+        allocate_initializer_keys(&mut keys, &self.cells)?;
         // Constant islands are numbered per kind over the initializer's terms
         // in the order expansion visits them.
         let mut terms = Vec::new();
         collect_initializer_terms(&self.cells, &mut terms);
-        crate::state_rule::append_claim_node_anchors(
+        crate::state_rule::allocate_claim_node_keys(
+            &mut keys,
             terms.iter().map(|term| term.nodes()),
-            &mut anchors,
         )?;
-        let mut lexeme_ordinal = 0;
         for term in &terms {
-            crate::term::push_lexeme_anchors(&mut anchors, term.nodes(), &mut lexeme_ordinal)?;
+            crate::term::allocate_lexeme_keys(&mut keys, term.nodes())?;
         }
         // Record field names, numbered in preorder across the terms.
-        let mut fields = Vec::new();
         for term in &terms {
-            term.tree().record_field_names_preorder(&mut fields);
-        }
-        for (ordinal, field) in fields.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
+            crate::term::allocate_record_field_keys(
+                &mut keys,
+                term.tree(),
                 ProvenanceRole::InitializerRecordFieldName,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::InitializerRecordFieldName,
-                    field.span(),
-                )?,
-                TokenRange::for_tokens(field)?,
-            ));
+            )?;
         }
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 
     /// Returns rustc-resolvable result-type, variable-sort, and constructor candidates.
@@ -1126,41 +1093,19 @@ fn parse_initializer_state_term(
     )?))
 }
 
-/// Ordinals of the initializer's cell, constructor, term, and `k!`/`map!`
-/// structure anchors. Each runs across the whole initializer, in the order
+/// Keys the initializer's cells, constructors, terms, and `k!`/`map!`
+/// structure. Each role runs across the whole initializer, in the order
 /// expansion visits the nodes (cells in declaration order, nested groups in
 /// place), because a provenance key names one authored node of the sentence.
-#[derive(Default)]
-struct InitializerAnchorCounters {
-    cell: usize,
-    constructor: usize,
-    term: usize,
-    structure: crate::parse::ProvenanceAnchors,
-}
-
-fn append_initializer_anchors(
+/// A cell's field and constructor are numbered as the cell is.
+fn allocate_initializer_keys(
+    keys: &mut KeyAllocator,
     cells: &[FixedCellInitializer],
-    output: &mut Vec<ProvenanceAnchor>,
-    counters: &mut InitializerAnchorCounters,
 ) -> Result<(), SyntaxError> {
     for cell in cells {
-        let current = checked_ordinal(
-            counters.cell,
-            ProvenanceRole::InitializerCell,
-            cell.name.span(),
-        )?;
-        counters.cell += 1;
         let range = TokenRange::for_tokens(&cell.field.member)?;
-        output.push(ProvenanceAnchor::new(
-            ProvenanceRole::InitializerCell,
-            current,
-            range,
-        ));
-        output.push(ProvenanceAnchor::new(
-            ProvenanceRole::InitializerField,
-            current,
-            range,
-        ));
+        let key = keys.key(ProvenanceRole::InitializerCell, range)?;
+        keys.key(ProvenanceRole::InitializerField, range)?;
         match &cell.content {
             InitializerCellContent::Leaf {
                 constructor,
@@ -1168,39 +1113,27 @@ fn append_initializer_anchors(
                 inferred_constructor,
                 ..
             } => {
-                let current = checked_ordinal(
-                    counters.constructor,
+                keys.paired(
                     ProvenanceRole::InitializerCellConstructor,
-                    constructor.span(),
-                )?;
-                counters.constructor += 1;
-                output.push(ProvenanceAnchor::new(
-                    ProvenanceRole::InitializerCellConstructor,
-                    current,
+                    &key,
                     if *inferred_constructor {
                         TokenRange::for_tokens(&cell.field.expr)?
                     } else {
                         TokenRange::for_tokens(constructor)?
                     },
-                ));
-                append_state_term_anchors(value, output, counters)?;
+                );
+                allocate_state_term_keys(keys, value)?;
             }
             InitializerCellContent::Nested {
                 constructor,
                 children,
             } => {
-                let current = checked_ordinal(
-                    counters.constructor,
+                keys.paired(
                     ProvenanceRole::InitializerNestedConstructor,
-                    constructor.span(),
-                )?;
-                counters.constructor += 1;
-                output.push(ProvenanceAnchor::new(
-                    ProvenanceRole::InitializerNestedConstructor,
-                    current,
+                    &key,
                     TokenRange::for_tokens(constructor)?,
-                ));
-                append_initializer_anchors(children, output, counters)?;
+                );
+                allocate_initializer_keys(keys, children)?;
             }
         }
     }
@@ -1223,95 +1156,63 @@ fn collect_initializer_terms<'a>(
     }
 }
 
-fn append_state_term_anchors(
-    value: &StateTerm,
-    output: &mut Vec<ProvenanceAnchor>,
-    counters: &mut InitializerAnchorCounters,
-) -> Result<(), SyntaxError> {
-    let term_ordinal = &mut counters.term;
+fn allocate_state_term_keys(keys: &mut KeyAllocator, value: &StateTerm) -> Result<(), SyntaxError> {
     match value {
         // Initializers hold templates only, never `Some`/`None` or instance lists.
         StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => Ok(()),
-        StateTerm::Term(term) | StateTerm::Group(term) => {
-            append_term_anchors(term, output, term_ordinal)
-        }
+        StateTerm::Term(term) | StateTerm::Group(term) => allocate_term_keys(keys, term),
         StateTerm::KSequence(sequence) => {
-            append_structure_anchors(sequence.provenance()?, &mut counters.structure, output)?;
+            allocate_structure_keys(keys, sequence.provenance()?)?;
             for term in sequence.items() {
-                append_term_anchors(term, output, term_ordinal)?;
+                allocate_term_keys(keys, term)?;
             }
             Ok(())
         }
         StateTerm::Map(map) => {
-            append_structure_anchors(map.provenance()?, &mut counters.structure, output)?;
+            allocate_structure_keys(keys, map.provenance()?)?;
             match map.body() {
                 MapBody::Empty { .. } => Ok(()),
                 MapBody::Items { items, .. } => {
                     for item in items {
-                        append_term_anchors(item.key(), output, term_ordinal)?;
-                        append_term_anchors(item.value(), output, term_ordinal)?;
+                        allocate_term_keys(keys, item.key())?;
+                        allocate_term_keys(keys, item.value())?;
                     }
                     Ok(())
                 }
                 MapBody::Update { base, key, value } => {
-                    append_term_anchors(base, output, term_ordinal)?;
-                    append_term_anchors(key, output, term_ordinal)?;
-                    append_term_anchors(value, output, term_ordinal)
+                    allocate_term_keys(keys, base)?;
+                    allocate_term_keys(keys, key)?;
+                    allocate_term_keys(keys, value)
                 }
             }
         }
     }
 }
 
-/// Renumbers one `k!` or `map!` node's structure anchors, which its own
-/// `provenance` numbers from 0, so that a second node of the same role
+/// Keys the nodes of one `k!` or `map!` node's structure anchors, which its
+/// own `provenance` numbers from 0, so that a second node of the same role
 /// continues after the first instead of repeating its keys.
-fn append_structure_anchors(
+fn allocate_structure_keys(
+    keys: &mut KeyAllocator,
     anchors: Vec<ProvenanceAnchor>,
-    structure: &mut crate::parse::ProvenanceAnchors,
-    output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
     for anchor in anchors {
-        let ordinal = structure.next(anchor.role(), anchor.range().first())?;
-        output.push(ProvenanceAnchor::new(
-            anchor.role(),
-            ordinal,
-            anchor.range(),
-        ));
+        keys.key(anchor.role(), anchor.range())?;
     }
     Ok(())
 }
 
-fn append_term_anchors(
-    term: &TermExpression,
-    output: &mut Vec<ProvenanceAnchor>,
-    term_ordinal: &mut usize,
-) -> Result<(), SyntaxError> {
-    let current = checked_ordinal(
-        *term_ordinal,
+/// Keys a term, then its paths.
+fn allocate_term_keys(keys: &mut KeyAllocator, term: &TermExpression) -> Result<(), SyntaxError> {
+    keys.key(
         ProvenanceRole::InitializerTerm,
-        term.expression().span(),
-    )?;
-    *term_ordinal += 1;
-    output.push(ProvenanceAnchor::new(
-        ProvenanceRole::InitializerTerm,
-        current,
         TokenRange::for_tokens(term.expression())?,
-    ));
+    )?;
     for symbol in term.symbols() {
-        let ordinal = output
-            .iter()
-            .filter(|anchor| anchor.role() == ProvenanceRole::InitializerTermPath)
-            .count();
-        output.push(ProvenanceAnchor::new(
+        keys.key(
             ProvenanceRole::InitializerTermPath,
-            checked_ordinal(
-                ordinal,
-                ProvenanceRole::InitializerTermPath,
-                symbol.path().span(),
-            )?,
             TokenRange::for_tokens(symbol.path())?,
-        ));
+        )?;
     }
     Ok(())
 }

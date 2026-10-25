@@ -190,40 +190,109 @@ fn occurrence_overflow(role: ProvenanceRole, span: Span) -> SyntaxError {
     )
 }
 
-/// Assigns zero-based ordinals independently for each provenance role.
-#[derive(Default)]
-pub struct ProvenanceAnchors(BTreeMap<ProvenanceRole, u32>);
+/// Allocates the provenance keys of one sentence and records each key's anchor.
+///
+/// A key is `(role, ordinal)`, where the ordinal counts the sentence's earlier
+/// nodes of that role in the order the sentence's keying pass visits them. The
+/// allocator hands out the next ordinal of a role and records the anchor of the
+/// node that receives it, so the sentence's anchors are exactly the keys it
+/// handed out, in allocation order, and no key is handed out twice.
+#[derive(Clone, Debug, Default)]
+pub struct KeyAllocator {
+    next: BTreeMap<ProvenanceRole, u32>,
+    anchors: Vec<crate::ProvenanceAnchor>,
+}
 
-impl ProvenanceAnchors {
-    /// Counters for `roles` that continue after the anchors already in
-    /// `existing`, so a later part of a sentence numbers on from an earlier one.
+impl KeyAllocator {
+    /// An allocator that continues after `anchors`, which it records first:
+    /// each role's next ordinal follows the last one `anchors` hold.
     #[must_use]
-    pub fn continuing(existing: &[crate::ProvenanceAnchor], roles: &[ProvenanceRole]) -> Self {
-        let mut counters = BTreeMap::new();
-        for role in roles {
-            let next = existing
-                .iter()
-                .filter(|anchor| anchor.role() == *role)
-                .map(|anchor| anchor.ordinal().saturating_add(1))
-                .max()
-                .unwrap_or(0);
-            counters.insert(*role, next);
+    pub fn continuing(anchors: Vec<crate::ProvenanceAnchor>) -> Self {
+        Self {
+            next: BTreeMap::new(),
+            anchors,
         }
-        Self(counters)
     }
 
-    /// Returns the next ordinal for a role, reporting overflow at its node.
+    /// Hands out the next key of `role` to the node at `range` and records its
+    /// anchor.
     ///
     /// # Errors
     ///
-    /// Returns an occurrence overflow error at `span` after the last `u32` ordinal.
-    pub fn next(&mut self, role: ProvenanceRole, span: Span) -> Result<u32, SyntaxError> {
-        let value = self.0.entry(role).or_default();
-        let current = *value;
-        *value = value
-            .checked_add(1)
-            .ok_or_else(|| occurrence_overflow(role, span))?;
-        Ok(current)
+    /// Returns an occurrence overflow error at the node after the last `u32`
+    /// ordinal of `role`.
+    pub fn key(
+        &mut self,
+        role: ProvenanceRole,
+        range: crate::TokenRange,
+    ) -> Result<ProvenanceKey, SyntaxError> {
+        let ordinal = self.next_ordinal(role);
+        self.next.insert(
+            role,
+            ordinal
+                .checked_add(1)
+                .ok_or_else(|| occurrence_overflow(role, range.first()))?,
+        );
+        self.anchors
+            .push(crate::ProvenanceAnchor::new(role, ordinal, range));
+        Ok(role.key(ordinal))
+    }
+
+    /// The key the next [`Self::key`] of `role` hands out, without handing it
+    /// out, for a node [`Self::paired`] with an owner that is keyed after it.
+    #[must_use]
+    pub fn next_key(&self, role: ProvenanceRole) -> ProvenanceKey {
+        role.key(self.next_ordinal(role))
+    }
+
+    /// The next ordinal of `role`. Before the first [`Self::key`] of `role`,
+    /// it follows the last ordinal of `role` among the anchors recorded so
+    /// far, which are those the allocator continues after and any
+    /// [`Self::paired`] keys.
+    fn next_ordinal(&self, role: ProvenanceRole) -> u32 {
+        self.next.get(&role).copied().unwrap_or_else(|| {
+            self.anchors
+                .iter()
+                .filter(|anchor| anchor.role() == role)
+                .map(|anchor| anchor.ordinal().saturating_add(1))
+                .max()
+                .unwrap_or(0)
+        })
+    }
+
+    /// Hands out the key of `role` that shares the ordinal of `owner` to the
+    /// node at `range`, and records its anchor. A node that exists only as an
+    /// optional part of another, such as a token regex's lexical precedence,
+    /// is numbered as its owner is, so its key names the owner's.
+    ///
+    /// A role keyed this way is never keyed by [`Self::key`] in the same
+    /// sentence, so its keys are distinct when the owners' are.
+    pub fn paired(
+        &mut self,
+        role: ProvenanceRole,
+        owner: &ProvenanceKey,
+        range: crate::TokenRange,
+    ) -> ProvenanceKey {
+        debug_assert!(
+            !self.next.contains_key(&role),
+            "a paired role is never numbered on its own"
+        );
+        let ordinal = owner.ordinal();
+        self.anchors
+            .push(crate::ProvenanceAnchor::new(role, ordinal, range));
+        role.key(ordinal)
+    }
+
+    /// The anchors recorded so far, in allocation order.
+    #[must_use]
+    pub fn anchors(&self) -> &[crate::ProvenanceAnchor] {
+        &self.anchors
+    }
+
+    /// The anchors of every key handed out, in allocation order.
+    #[must_use]
+    pub fn into_anchors(self) -> Vec<crate::ProvenanceAnchor> {
+        self.anchors
     }
 }
 

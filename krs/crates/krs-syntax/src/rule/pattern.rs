@@ -5,13 +5,15 @@ use syn::parse::Parser;
 use syn::spanned::Spanned;
 use syn::{Ident, Member, Pat, PatIdent, PatMacro, Path};
 
-use crate::parse::{checked_ordinal, unsupported_rule_pattern as unsupported_pattern};
+use crate::parse::{
+    KeyAllocator, checked_ordinal, unsupported_rule_pattern as unsupported_pattern,
+};
 use crate::path::is_plain_path;
-use crate::term::{is_term_macro, unexpected_macro};
+use crate::term::{allocate_record_field_keys, is_term_macro, unexpected_macro};
 use crate::{
-    CellTerm, IntegerLiteral, ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError,
-    TermApplication, TermArguments, TermExpression, TermLiteral, TermNamedArgument, TermNode,
-    TermSymbolKind, TermTree, TokenRange,
+    CellTerm, IntegerLiteral, ProvenanceRole, ReferenceCandidate, SyntaxError, TermApplication,
+    TermArguments, TermExpression, TermLiteral, TermNamedArgument, TermNode, TermSymbolKind,
+    TermTree, TokenRange,
 };
 
 /// The `-` and digits spans of each negative literal in a pattern's source
@@ -208,28 +210,22 @@ impl RulePattern {
     }
 }
 
-pub(super) fn append_rule_pattern_anchors(
-    anchors: &mut Vec<ProvenanceAnchor>,
+/// Keys a left-hand pattern's paths, then its application head, reference,
+/// and literal nodes, then its record field names, each as the next of its
+/// left-hand role.
+pub(super) fn allocate_rule_pattern_keys(
+    keys: &mut KeyAllocator,
     pattern: &RulePattern,
     tree: &TermTree,
-    counters: &mut RuleTermCounters,
 ) -> Result<(), SyntaxError> {
     for range in pattern.path_ranges()? {
-        anchors.push(ProvenanceAnchor::new(
-            ProvenanceRole::RuleLeftPath,
-            checked_ordinal(counters.path, ProvenanceRole::RuleLeftPath, range.first())?,
-            range,
-        ));
-        counters.path += 1;
+        keys.key(ProvenanceRole::RuleLeftPath, range)?;
     }
     for node in pattern.nodes() {
-        let (role, counter) = match node {
-            TermNode::ApplicationHead(_) => (
-                ProvenanceRole::RuleLeftApplicationHead,
-                &mut counters.application,
-            ),
-            TermNode::Reference(_) => (ProvenanceRole::RuleLeftReference, &mut counters.reference),
-            TermNode::Literal(_) => (ProvenanceRole::RuleLeftLiteral, &mut counters.literal),
+        let role = match node {
+            TermNode::ApplicationHead(_) => ProvenanceRole::RuleLeftApplicationHead,
+            TermNode::Reference(_) => ProvenanceRole::RuleLeftReference,
+            TermNode::Literal(_) => ProvenanceRole::RuleLeftLiteral,
             TermNode::IdToken(_)
             | TermNode::BytesToken(_)
             | TermNode::Anonymous { .. }
@@ -245,29 +241,9 @@ pub(super) fn append_rule_pattern_anchors(
             | TermNode::LetWildcard(_)
             | TermNode::Rewrite { .. } => continue,
         };
-        let range = node.range()?;
-        anchors.push(ProvenanceAnchor::new(
-            role,
-            checked_ordinal(*counter, role, range.first())?,
-            range,
-        ));
-        *counter += 1;
+        keys.key(role, node.range()?)?;
     }
-    let mut fields = Vec::new();
-    tree.record_field_names_preorder(&mut fields);
-    for field in fields {
-        anchors.push(ProvenanceAnchor::new(
-            ProvenanceRole::RuleLeftRecordFieldName,
-            checked_ordinal(
-                counters.field,
-                ProvenanceRole::RuleLeftRecordFieldName,
-                field.span(),
-            )?,
-            TokenRange::for_tokens(&field)?,
-        ));
-        counters.field += 1;
-    }
-    Ok(())
+    allocate_record_field_keys(keys, tree, ProvenanceRole::RuleLeftRecordFieldName)
 }
 
 #[derive(Clone, Copy)]
@@ -276,51 +252,13 @@ pub(super) enum RuleTermSide {
     Right,
 }
 
-#[derive(Default)]
-pub(super) struct RuleTermCounters {
-    path: usize,
-    application: usize,
-    reference: usize,
-    literal: usize,
-    pub(super) field: usize,
-}
-
-impl RuleTermCounters {
-    pub(super) fn from_rule_pattern(nodes: &[TermNode]) -> Self {
-        let mut counters = Self {
-            path: nodes.iter().filter(|node| node.path().is_some()).count(),
-            ..Self::default()
-        };
-        for node in nodes {
-            match node {
-                TermNode::ApplicationHead(_) => counters.application += 1,
-                TermNode::Reference(_) => counters.reference += 1,
-                TermNode::Literal(_) => counters.literal += 1,
-                TermNode::IdToken(_)
-                | TermNode::BytesToken(_)
-                | TermNode::Anonymous { .. }
-                | TermNode::OrBool(_)
-                | TermNode::Lexeme { .. }
-                | TermNode::SortTest { .. }
-                | TermNode::As { .. }
-                | TermNode::Or(_)
-                | TermNode::Matches(_)
-                | TermNode::MatchesWildcard(_)
-                | TermNode::Let { .. }
-                | TermNode::Closure { .. }
-                | TermNode::LetWildcard(_)
-                | TermNode::Rewrite { .. } => {}
-            }
-        }
-        counters
-    }
-}
-
-pub(super) fn append_rule_term_anchors(
-    anchors: &mut Vec<ProvenanceAnchor>,
+/// Keys a term's symbol paths, then its application head, reference, and
+/// literal nodes, then its record field names, each as the next of its role
+/// on `side`.
+pub(super) fn allocate_rule_term_keys(
+    keys: &mut KeyAllocator,
     term: &TermExpression,
     side: RuleTermSide,
-    counters: &mut RuleTermCounters,
 ) -> Result<(), SyntaxError> {
     let (path_role, application_role, reference_role, literal_role, field_role) = match side {
         RuleTermSide::Left => (
@@ -339,52 +277,16 @@ pub(super) fn append_rule_term_anchors(
         ),
     };
     for symbol in term.symbols() {
-        anchors.push(ProvenanceAnchor::new(
-            path_role,
-            checked_ordinal(counters.path, path_role, symbol.path().span())?,
-            TokenRange::for_tokens(symbol.path())?,
-        ));
-        counters.path += 1;
+        keys.key(path_role, TokenRange::for_tokens(symbol.path())?)?;
     }
-    for node in term.nodes() {
-        let (role, counter) = match node {
-            TermNode::ApplicationHead(_) => (application_role, &mut counters.application),
-            TermNode::Reference(_) => (reference_role, &mut counters.reference),
-            TermNode::Literal(_) => (literal_role, &mut counters.literal),
-            TermNode::IdToken(_)
-            | TermNode::BytesToken(_)
-            | TermNode::Anonymous { .. }
-            | TermNode::OrBool(_)
-            | TermNode::Lexeme { .. }
-            | TermNode::SortTest { .. }
-            | TermNode::As { .. }
-            | TermNode::Or(_)
-            | TermNode::Matches(_)
-            | TermNode::MatchesWildcard(_)
-            | TermNode::Let { .. }
-            | TermNode::Closure { .. }
-            | TermNode::LetWildcard(_)
-            | TermNode::Rewrite { .. } => continue,
-        };
-        let span = node.range()?;
-        anchors.push(ProvenanceAnchor::new(
-            role,
-            checked_ordinal(*counter, role, span.first())?,
-            span,
-        ));
-        *counter += 1;
-    }
-    let mut fields = Vec::new();
-    term.tree().record_field_names_preorder(&mut fields);
-    for field in fields {
-        anchors.push(ProvenanceAnchor::new(
-            field_role,
-            checked_ordinal(counters.field, field_role, field.span())?,
-            TokenRange::for_tokens(&field)?,
-        ));
-        counters.field += 1;
-    }
-    Ok(())
+    allocate_term_node_keys(
+        keys,
+        term.nodes(),
+        application_role,
+        reference_role,
+        literal_role,
+    )?;
+    allocate_record_field_keys(keys, term.tree(), field_role)
 }
 
 /// What a rule pattern's root is, which decides how the root reads.
@@ -1067,33 +969,20 @@ pub(super) fn is_bound_path(path: &Path, bindings: &[Ident]) -> bool {
     })
 }
 
-pub(crate) fn push_term_node_anchors(
-    anchors: &mut Vec<ProvenanceAnchor>,
+/// Keys each application head, reference, and literal node of `nodes`, as
+/// the next of its role.
+pub(crate) fn allocate_term_node_keys(
+    keys: &mut KeyAllocator,
     nodes: &[TermNode],
     application_role: ProvenanceRole,
     reference_role: ProvenanceRole,
     literal_role: ProvenanceRole,
 ) -> Result<(), SyntaxError> {
-    let mut application_ordinal = 0_usize;
-    let mut reference_ordinal = 0_usize;
-    let mut literal_ordinal = 0_usize;
     for node in nodes {
-        let (role, ordinal) = match node {
-            TermNode::ApplicationHead(_) => {
-                let ordinal = application_ordinal;
-                application_ordinal += 1;
-                (application_role, ordinal)
-            }
-            TermNode::Reference(_) => {
-                let ordinal = reference_ordinal;
-                reference_ordinal += 1;
-                (reference_role, ordinal)
-            }
-            TermNode::Literal(_) => {
-                let ordinal = literal_ordinal;
-                literal_ordinal += 1;
-                (literal_role, ordinal)
-            }
+        let role = match node {
+            TermNode::ApplicationHead(_) => application_role,
+            TermNode::Reference(_) => reference_role,
+            TermNode::Literal(_) => literal_role,
             TermNode::IdToken(_)
             | TermNode::BytesToken(_)
             | TermNode::Anonymous { .. }
@@ -1109,29 +998,21 @@ pub(crate) fn push_term_node_anchors(
             | TermNode::LetWildcard(_)
             | TermNode::Rewrite { .. } => continue,
         };
-        let range = term_node_range(node)?;
-        anchors.push(ProvenanceAnchor::new(
-            role,
-            checked_ordinal(ordinal, role, range.first())?,
-            range,
-        ));
+        keys.key(role, term_node_range(node)?)?;
     }
     Ok(())
 }
 
-pub(super) fn push_wildcard_anchors(
-    anchors: &mut Vec<ProvenanceAnchor>,
+/// Keys each `_` of `tree` in preorder.
+pub(super) fn allocate_wildcard_keys(
+    keys: &mut KeyAllocator,
     tree: &TermTree,
     role: ProvenanceRole,
 ) -> Result<(), SyntaxError> {
     let mut ranges = Vec::new();
     tree.wildcard_ranges_preorder(&mut ranges);
-    for (ordinal, range) in ranges.into_iter().enumerate() {
-        anchors.push(ProvenanceAnchor::new(
-            role,
-            checked_ordinal(ordinal, role, range.first())?,
-            range,
-        ));
+    for range in ranges {
+        keys.key(role, range)?;
     }
     Ok(())
 }

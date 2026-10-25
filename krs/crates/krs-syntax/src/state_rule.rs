@@ -8,20 +8,20 @@ use syn::{
 use crate::ReferenceCandidate;
 use crate::attribute::{ClaimBinder, ExistsAttribute};
 use crate::parse::{
-    KrsSyntax, ProvenanceAnchors, checked_ordinal, unsupported_rule_pattern as pattern_error,
+    KeyAllocator, KrsSyntax, checked_ordinal, unsupported_rule_pattern as pattern_error,
     unsupported_rule_signature as signature_error,
 };
 use crate::path::{is_plain_path, unqualified_path_ident as bare_ident};
 use crate::provenance::RuleSide;
 use crate::rule::{BINDER_LIST_CONTRACT, RuleCondition, RuleExistentials, take_requires_helper};
 use crate::term::{
-    local_rewrite_error, push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors,
+    allocate_lexeme_keys, allocate_record_field_keys, allocate_sort_test_keys, local_rewrite_error,
 };
 use crate::term_sort::{TermSort, parse_term_or_readable_sort};
 use crate::{
     CellsExpression, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole, RuleRole,
-    StateMacroRemainder, StateTerm, SyntaxError, SyntaxErrorKind, TermExpression, TermLiteral,
-    TermNode, TokenRange, parse_cells_expression, parse_cells_pattern,
+    StateMacroRemainder, StateTerm, SyntaxError, SyntaxErrorKind, TermExpression, TermNode,
+    TokenRange, parse_cells_expression, parse_cells_pattern,
 };
 
 /// Semantic class of one binding introduced by a configuration-rule subject.
@@ -217,93 +217,72 @@ impl StateClaimItem {
                     | ProvenanceRole::ClaimOrBool
             )
         });
-        output.push(ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::continuing(output);
+        keys.key(
             ProvenanceRole::ClaimDeclaration,
-            0,
             TokenRange::for_tokens(&self.rule.item.sig.ident)?,
-        ));
-        let mut universal_ordinal = 0_u32;
+        )?;
         for binding in &self.rule.bindings {
             if binding.kind == StateRuleBindingKind::Term {
-                output.push(ProvenanceAnchor::new(
-                    ProvenanceRole::ClaimUniversalBinder,
-                    universal_ordinal,
-                    TokenRange::for_tokens(&binding.name)?,
-                ));
-                output.push(ProvenanceAnchor::new(
-                    ProvenanceRole::ClaimBinderName,
-                    universal_ordinal,
-                    TokenRange::for_tokens(&binding.name)?,
-                ));
+                let name = TokenRange::for_tokens(&binding.name)?;
+                keys.key(ProvenanceRole::ClaimUniversalBinder, name)?;
+                keys.key(ProvenanceRole::ClaimBinderName, name)?;
                 let Some(sort) = binding.term_sort() else {
                     return Err(signature_error(
                         "term claim binding is missing its sort",
                         binding.name.span(),
                     ));
                 };
-                output.push(ProvenanceAnchor::new(
+                keys.key(
                     ProvenanceRole::ClaimBinderSort,
-                    universal_ordinal,
                     TokenRange::for_tokens(sort.sort())?,
-                ));
-                universal_ordinal = universal_ordinal.checked_add(1).ok_or_else(|| {
-                    signature_error("too many universal claim binders", binding.name.span())
-                })?;
+                )?;
             }
         }
+        // The existential binders, then their names and sorts, which number
+        // on after the universal binders'.
         if let Some(exists) = &self.exists {
-            let mut anchors = exists.provenance()?;
-            anchors.retain(|anchor| {
-                !matches!(
-                    anchor.role(),
-                    ProvenanceRole::ClaimBinderName | ProvenanceRole::ClaimBinderSort
-                )
-            });
-            output.extend(anchors);
-            for (index, binder) in exists.binders().iter().enumerate() {
-                let ordinal = universal_ordinal
-                    .checked_add(u32::try_from(index).map_err(|_| {
-                        signature_error("too many existential binders", binder.name().span())
-                    })?)
-                    .ok_or_else(|| {
-                        signature_error("too many claim binders", binder.name().span())
-                    })?;
-                output.push(ProvenanceAnchor::new(
-                    ProvenanceRole::ClaimBinderName,
-                    ordinal,
+            for binder in exists.binders() {
+                keys.key(
+                    ProvenanceRole::ClaimExistentialBinder,
                     TokenRange::for_tokens(binder.name())?,
-                ));
-                output.push(ProvenanceAnchor::new(
+                )?;
+            }
+            for binder in exists.binders() {
+                keys.key(
+                    ProvenanceRole::ClaimBinderName,
+                    TokenRange::for_tokens(binder.name())?,
+                )?;
+                keys.key(
                     ProvenanceRole::ClaimBinderSort,
-                    ordinal,
                     TokenRange::for_tokens(binder.sort())?,
-                ));
+                )?;
             }
         }
         if let Some(ensures) = &self.ensures {
-            output.extend(ensures.term.provenance_with_roles(
+            ensures.term.allocate_keys(
+                &mut keys,
                 ProvenanceRole::ClaimEnsures,
                 ProvenanceRole::ClaimEnsuresPath,
-            )?);
-            output.extend(
-                ensures
-                    .term
-                    .full_provenance_with_roles(
-                        ProvenanceRole::ClaimEnsures,
-                        ProvenanceRole::ClaimEnsuresApplicationHead,
-                        ProvenanceRole::ClaimEnsuresReference,
-                        ProvenanceRole::ClaimEnsuresLiteral,
-                        ProvenanceRole::ClaimEnsuresRecordFieldName,
-                    )?
-                    .into_iter()
-                    .skip(1),
-            );
+            )?;
+            ensures.term.allocate_node_keys(
+                &mut keys,
+                ProvenanceRole::ClaimEnsuresApplicationHead,
+                ProvenanceRole::ClaimEnsuresReference,
+                ProvenanceRole::ClaimEnsuresLiteral,
+                ProvenanceRole::ClaimEnsuresRecordFieldName,
+            )?;
         }
-        append_claim_special_anchors(&self.rule, self.ensures.as_ref(), &mut output)?;
+        allocate_claim_node_keys(
+            &mut keys,
+            claim_terms(&self.rule, self.ensures.as_ref())
+                .into_iter()
+                .map(TermExpression::nodes),
+        )?;
         if let Some(ensures) = &self.ensures {
-            push_claim_ensures_anchors(&self.rule, ensures, &mut output)?;
+            allocate_claim_ensures_keys(&mut keys, ensures)?;
         }
-        Ok(output)
+        Ok(keys.into_anchors())
     }
     /// Returns claim-only sort paths needing rustc/collector resolution.
     ///
@@ -479,32 +458,23 @@ impl StateContextAliasItem {
     ///
     /// Returns endpoint or ordinal overflow failures only.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = vec![
-            ProvenanceAnchor::new(
-                ProvenanceRole::RulePattern,
-                0,
-                TokenRange::for_tokens(&self.pattern_macro)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::RuleType,
-                0,
-                TokenRange::for_tokens(&self.configuration_type)?,
-            ),
-        ];
-        for (ordinal, sort) in self
-            .bindings
-            .iter()
-            .filter_map(StateRuleBinding::term_sort)
-            .enumerate()
-        {
-            output.push(ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        keys.key(
+            ProvenanceRole::RulePattern,
+            TokenRange::for_tokens(&self.pattern_macro)?,
+        )?;
+        keys.key(
+            ProvenanceRole::RuleType,
+            TokenRange::for_tokens(&self.configuration_type)?,
+        )?;
+        for sort in self.bindings.iter().filter_map(StateRuleBinding::term_sort) {
+            keys.key(
                 ProvenanceRole::RuleBindingType,
-                checked_ordinal(ordinal, ProvenanceRole::RuleBindingType, sort.sort().span())?,
                 TokenRange::for_tokens(sort.sort())?,
-            ));
+            )?;
         }
-        append_cells_provenance(&self.pattern, RuleSide::Left, &mut output)?;
-        Ok(output)
+        allocate_cells_keys(&mut keys, &self.pattern, RuleSide::Left)?;
+        Ok(keys.into_anchors())
     }
 
     /// Returns rustc-resolvable paths with parser-owned keys.
@@ -787,161 +757,109 @@ impl StateRuleItem {
     /// # Errors
     ///
     /// Returns endpoint or ordinal-overflow errors only.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "One table numbers every anchor role of the sentence in expansion order."
-    )]
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = vec![
-            ProvenanceAnchor::new(
-                ProvenanceRole::RuleDeclaration,
-                0,
-                TokenRange::for_tokens(&self.item.sig.ident)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::RulePattern,
-                0,
-                TokenRange::for_tokens(&self.subject_macro)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::RuleType,
-                0,
-                TokenRange::for_tokens(&self.subject_type)?,
-            ),
-        ];
+        let mut keys = KeyAllocator::default();
+        keys.key(
+            ProvenanceRole::RuleDeclaration,
+            TokenRange::for_tokens(&self.item.sig.ident)?,
+        )?;
+        keys.key(
+            ProvenanceRole::RulePattern,
+            TokenRange::for_tokens(&self.subject_macro)?,
+        )?;
+        keys.key(
+            ProvenanceRole::RuleType,
+            TokenRange::for_tokens(&self.subject_type)?,
+        )?;
         if let Some(result) = &self.result {
-            output.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::RuleResultType,
-                0,
                 TokenRange::for_tokens(&result.result_type)?,
-            ));
-            output.push(ProvenanceAnchor::new(
+            )?;
+            keys.key(
                 ProvenanceRole::RuleResult,
-                0,
                 TokenRange::for_tokens(&result.result_macro)?,
-            ));
+            )?;
         }
-        for (ordinal, sort) in self
-            .bindings
-            .iter()
-            .filter_map(StateRuleBinding::term_sort)
-            .enumerate()
-        {
-            output.push(ProvenanceAnchor::new(
+        for sort in self.bindings.iter().filter_map(StateRuleBinding::term_sort) {
+            keys.key(
                 ProvenanceRole::RuleBindingType,
-                checked_ordinal(ordinal, ProvenanceRole::RuleBindingType, sort.sort().span())?,
                 TokenRange::for_tokens(sort.sort())?,
-            ));
+            )?;
         }
-        append_cells_provenance(&self.subject, RuleSide::Left, &mut output)?;
+        allocate_cells_keys(&mut keys, &self.subject, RuleSide::Left)?;
         if let Some(result) = &self.result {
-            append_cells_provenance(&result.result, RuleSide::Right, &mut output)?;
+            allocate_cells_keys(&mut keys, &result.result, RuleSide::Right)?;
         }
         if let Some(requires) = &self.requires {
-            output.extend(requires.provenance()?);
+            requires.allocate_keys(&mut keys)?;
         }
-        output.extend(self.existentials.provenance()?);
+        self.existentials.allocate_keys(&mut keys)?;
+        let ensures = self.existentials.ensures();
         // `k::rewrite!` shells and sides (KF-011), in subject order.
-        let mut rewrites = 0_usize;
         for term in claim_terms(self, None) {
-            crate::term::push_rewrite_anchors(&mut output, term.nodes(), &mut rewrites)?;
-        }
-        let mut lexemes = 0_usize;
-        let mut sort_tests = 0_usize;
-        for term in claim_terms(self, None) {
-            push_lexeme_anchors(&mut output, term.nodes(), &mut lexemes)?;
-        }
-        if let Some(ensures) = self.existentials.ensures() {
-            push_lexeme_anchors(&mut output, ensures.nodes(), &mut lexemes)?;
+            crate::term::allocate_rewrite_keys(&mut keys, term.nodes())?;
         }
         for term in claim_terms(self, None) {
-            push_sort_test_anchors(&mut output, term.nodes(), &mut sort_tests)?;
+            allocate_lexeme_keys(&mut keys, term.nodes())?;
         }
-        let mut aliases = 0_usize;
+        if let Some(ensures) = ensures {
+            allocate_lexeme_keys(&mut keys, ensures.nodes())?;
+        }
         for term in claim_terms(self, None) {
-            crate::term::push_pattern_as_anchors(&mut output, term.nodes(), &mut aliases)?;
+            allocate_sort_test_keys(&mut keys, term.nodes())?;
         }
-        let mut alternatives = 0_usize;
         for term in claim_terms(self, None) {
-            crate::term::push_pattern_or_anchors(&mut output, term.nodes(), &mut alternatives)?;
+            crate::term::allocate_pattern_as_keys(&mut keys, term.nodes())?;
         }
-        if let Some(ensures) = self.existentials.ensures() {
-            push_sort_test_anchors(&mut output, ensures.nodes(), &mut sort_tests)?;
-            crate::term::push_pattern_as_anchors(&mut output, ensures.nodes(), &mut aliases)?;
-            crate::term::push_pattern_or_anchors(&mut output, ensures.nodes(), &mut alternatives)?;
+        for term in claim_terms(self, None) {
+            crate::term::allocate_pattern_or_keys(&mut keys, term.nodes())?;
+        }
+        if let Some(ensures) = ensures {
+            allocate_sort_test_keys(&mut keys, ensures.nodes())?;
+            crate::term::allocate_pattern_as_keys(&mut keys, ensures.nodes())?;
+            crate::term::allocate_pattern_or_keys(&mut keys, ensures.nodes())?;
         }
         // Turbofish sort markers (KF-027), in expansion order, like sort tests.
-        let mut instances = 0_usize;
         for term in claim_terms(self, None) {
-            crate::term::push_application_instance_anchors(
-                &mut output,
-                term.nodes(),
-                &mut instances,
-            )?;
+            crate::term::allocate_application_instance_keys(&mut keys, term.nodes())?;
         }
-        if let Some(ensures) = self.existentials.ensures() {
-            crate::term::push_application_instance_anchors(
-                &mut output,
-                ensures.nodes(),
-                &mut instances,
-            )?;
+        if let Some(ensures) = ensures {
+            crate::term::allocate_application_instance_keys(&mut keys, ensures.nodes())?;
         }
         // `k::matches!` shells and pattern wildcards (KF-031), in expansion
         // order: the cells, the condition, then the ensures condition.
-        let (mut matches, mut wildcards) = (0_usize, 0_usize);
         for term in claim_terms(self, None) {
-            crate::term::push_matches_anchors(
-                &mut output,
-                term.nodes(),
-                &mut matches,
-                &mut wildcards,
-            )?;
+            crate::term::allocate_matches_keys(&mut keys, term.nodes())?;
         }
-        if let Some(ensures) = self.existentials.ensures() {
-            crate::term::push_matches_anchors(
-                &mut output,
-                ensures.nodes(),
-                &mut matches,
-                &mut wildcards,
-            )?;
+        if let Some(ensures) = ensures {
+            crate::term::allocate_matches_keys(&mut keys, ensures.nodes())?;
         }
         // `let` statements and their pattern wildcards (KF-032), likewise.
-        let (mut lets, mut let_wildcards) = (0_usize, 0_usize);
         for term in claim_terms(self, None) {
-            crate::term::push_let_anchors(
-                &mut output,
-                term.nodes(),
-                &mut lets,
-                &mut let_wildcards,
-            )?;
+            crate::term::allocate_let_keys(&mut keys, term.nodes())?;
         }
-        if let Some(ensures) = self.existentials.ensures() {
-            crate::term::push_let_anchors(
-                &mut output,
-                ensures.nodes(),
-                &mut lets,
-                &mut let_wildcards,
-            )?;
+        if let Some(ensures) = ensures {
+            crate::term::allocate_let_keys(&mut keys, ensures.nodes())?;
         }
         // `ml::exists` closures (KF-039), likewise.
-        let mut closures = 0_usize;
         for term in claim_terms(self, None) {
-            crate::term::push_ml_binder_anchors(&mut output, term.nodes(), &mut closures)?;
+            crate::term::allocate_ml_binder_keys(&mut keys, term.nodes())?;
         }
-        if let Some(ensures) = self.existentials.ensures() {
-            crate::term::push_ml_binder_anchors(&mut output, ensures.nodes(), &mut closures)?;
+        if let Some(ensures) = ensures {
+            crate::term::allocate_ml_binder_keys(&mut keys, ensures.nodes())?;
         }
         // Builtin `Id` and `Bytes` literals, each kind numbered across the
         // cells, the condition, then the ensures condition (a claim numbers
         // its own, with its claim-only islands).
-        append_claim_node_anchors(
+        allocate_claim_node_keys(
+            &mut keys,
             claim_terms(self, None)
                 .into_iter()
                 .map(TermExpression::nodes)
-                .chain(self.existentials.ensures().map(TermExpression::nodes)),
-            &mut output,
+                .chain(ensures.map(TermExpression::nodes)),
         )?;
-        Ok(output)
+        Ok(keys.into_anchors())
     }
 
     /// Returns every rustc-resolvable type/wrapper/term path with the same
@@ -1205,54 +1123,18 @@ impl FunctionContext {
             .collect()
     }
 
-    /// The parameter anchors (`function_context`, `function_context_type`)
-    /// and the cell anchors, whose left-hand term ordinals continue after
-    /// the subject's in `existing`.
-    ///
-    /// # Errors
-    ///
-    /// Returns endpoint or ordinal-overflow errors only.
-    pub(crate) fn provenance(
-        &self,
-        existing: &[ProvenanceAnchor],
-    ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut output = vec![
-            ProvenanceAnchor::new(
-                ProvenanceRole::FunctionContext,
-                0,
-                TokenRange::for_tokens(&self.pattern_macro)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::FunctionContextType,
-                0,
-                TokenRange::for_tokens(&self.configuration_type)?,
-            ),
-        ];
-        let mut counters = ProvenanceAnchors::continuing(
-            existing,
-            &[
-                ProvenanceRole::RuleLeftApplicationHead,
-                ProvenanceRole::RuleLeftReference,
-                ProvenanceRole::RuleLeftLiteral,
-                ProvenanceRole::RuleLeftRecordFieldName,
-                ProvenanceRole::RuleLeftWildcard,
-            ],
-        );
-        append_remapped(
-            self.pattern.provenance()?,
-            RuleSide::Left,
-            &mut counters,
-            &mut output,
+    /// Keys the parameter (`function_context`, `function_context_type`), then
+    /// the cells, whose left-hand term ordinals continue after the subject's.
+    pub(crate) fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        keys.key(
+            ProvenanceRole::FunctionContext,
+            TokenRange::for_tokens(&self.pattern_macro)?,
         )?;
-        for entry in self.pattern.entries() {
-            append_state_term_provenance(
-                entry.value(),
-                RuleSide::Left,
-                &mut counters,
-                &mut output,
-            )?;
-        }
-        Ok(output)
+        keys.key(
+            ProvenanceRole::FunctionContextType,
+            TokenRange::for_tokens(&self.configuration_type)?,
+        )?;
+        allocate_cells_keys(keys, &self.pattern, RuleSide::Left)
     }
 }
 
@@ -1889,62 +1771,61 @@ fn validate_condition_reuses(
     Ok(())
 }
 
-fn append_cells_provenance(
+/// Keys a `cells!` expression's own nodes under `side`'s roles, then each
+/// entry's state.
+fn allocate_cells_keys(
+    keys: &mut KeyAllocator,
     cells: &CellsExpression,
     side: RuleSide,
-    output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
-    let mut counters = ProvenanceAnchors::default();
-    append_remapped(cells.provenance()?, side, &mut counters, output)?;
+    allocate_remapped_keys(keys, cells.provenance()?, side)?;
     for entry in cells.entries() {
-        append_state_term_provenance(entry.value(), side, &mut counters, output)?;
+        allocate_state_term_keys(keys, entry.value(), side)?;
     }
     Ok(())
 }
 
-fn append_state_term_provenance(
+fn allocate_state_term_keys(
+    keys: &mut KeyAllocator,
     term: &StateTerm,
     side: RuleSide,
-    counters: &mut ProvenanceAnchors,
-    output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
     match term {
-        StateTerm::Present(inner) => append_state_term_provenance(inner, side, counters, output),
+        StateTerm::Present(inner) => allocate_state_term_keys(keys, inner, side),
         StateTerm::Absent(_) => Ok(()),
         StateTerm::Instances(list) => {
             // The instance, child-field, and rest roles each count in
-            // traversal order; the children's own anchors follow.
-            append_remapped(list.provenance()?, side, counters, output)?;
+            // traversal order; the children's own keys follow.
+            allocate_remapped_keys(keys, list.provenance()?, side)?;
             for nested in term.nested_states() {
-                append_state_term_provenance(nested, side, counters, output)?;
+                allocate_state_term_keys(keys, nested, side)?;
             }
             Ok(())
         }
-        StateTerm::Term(term) | StateTerm::Group(term) => {
-            append_term_provenance(term, side, counters, output)
-        }
+        StateTerm::Term(term) | StateTerm::Group(term) => allocate_term_keys(keys, term, side),
         StateTerm::KSequence(sequence) => {
-            append_remapped(sequence.provenance()?, side, counters, output)?;
+            allocate_remapped_keys(keys, sequence.provenance()?, side)?;
             for item in sequence.items() {
-                append_term_provenance(item, side, counters, output)?;
+                allocate_term_keys(keys, item, side)?;
             }
             Ok(())
         }
         StateTerm::Map(map) => {
-            append_remapped(map.provenance()?, side, counters, output)?;
+            allocate_remapped_keys(keys, map.provenance()?, side)?;
             for term in map_terms(map) {
-                append_term_provenance(term, side, counters, output)?;
+                allocate_term_keys(keys, term, side)?;
             }
             Ok(())
         }
     }
 }
 
-fn append_term_provenance(
+/// Keys a cell term's application head, reference, and literal nodes, its
+/// record field names, and, on the left, its wildcards.
+fn allocate_term_keys(
+    keys: &mut KeyAllocator,
     term: &TermExpression,
     side: RuleSide,
-    counters: &mut ProvenanceAnchors,
-    output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
     let (application_role, reference_role, literal_role, field_role) = match side {
         RuleSide::Left => (
@@ -1960,71 +1841,36 @@ fn append_term_provenance(
             ProvenanceRole::RuleRightRecordFieldName,
         ),
     };
-    for node in term.nodes() {
-        let role = match node {
-            TermNode::ApplicationHead(_) => application_role,
-            TermNode::Reference(_) => reference_role,
-            TermNode::Literal(_) => literal_role,
-            TermNode::IdToken(_)
-            | TermNode::BytesToken(_)
-            | TermNode::Anonymous { .. }
-            | TermNode::OrBool(_)
-            | TermNode::Lexeme { .. }
-            | TermNode::SortTest { .. }
-            | TermNode::As { .. }
-            | TermNode::Or(_)
-            | TermNode::Matches(_)
-            | TermNode::MatchesWildcard(_)
-            | TermNode::Let { .. }
-            | TermNode::Closure { .. }
-            | TermNode::LetWildcard(_)
-            | TermNode::Rewrite { .. } => continue,
-        };
-        output.push(ProvenanceAnchor::new(
-            role,
-            counters.next(role, node_span(node))?,
-            node_range(node)?,
-        ));
-    }
-    let mut fields = Vec::new();
-    push_record_field_anchors(&mut fields, term.tree(), field_role)?;
-    for field in fields {
-        output.push(ProvenanceAnchor::new(
-            field_role,
-            counters.next(field_role, field.range().first())?,
-            field.range(),
-        ));
-    }
+    crate::rule::allocate_term_node_keys(
+        keys,
+        term.nodes(),
+        application_role,
+        reference_role,
+        literal_role,
+    )?;
+    allocate_record_field_keys(keys, term.tree(), field_role)?;
     if matches!(side, RuleSide::Left) {
         let mut wildcards = Vec::new();
         term.tree().wildcard_ranges_preorder(&mut wildcards);
         for range in wildcards {
-            output.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleLeftWildcard,
-                counters.next(ProvenanceRole::RuleLeftWildcard, range.first())?,
-                range,
-            ));
+            keys.key(ProvenanceRole::RuleLeftWildcard, range)?;
         }
     }
     Ok(())
 }
 
-fn append_remapped(
+/// Keys the nodes of a state macro's standalone anchors under their roles on
+/// `side`, each as the next of its role.
+fn allocate_remapped_keys(
+    keys: &mut KeyAllocator,
     anchors: Vec<ProvenanceAnchor>,
     side: RuleSide,
-    counters: &mut ProvenanceAnchors,
-    output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
     for anchor in anchors {
         let Some(role) = RuleRole::from_standalone(anchor.role()) else {
             continue;
         };
-        let role = role.on_side(side);
-        output.push(ProvenanceAnchor::new(
-            role,
-            counters.next(role, anchor.range().first())?,
-            anchor.range(),
-        ));
+        keys.key(role.on_side(side), anchor.range())?;
     }
     Ok(())
 }
@@ -2035,21 +1881,21 @@ fn append_cells_candidates(
     bindings: &[StateRuleBinding],
     output: &mut Vec<ReferenceCandidate<StateRuleReferenceKind>>,
 ) -> Result<(), SyntaxError> {
-    let mut counters = ProvenanceAnchors::default();
+    // Candidates take the keys the cells' anchors take.
+    let mut keys = KeyAllocator::default();
     for entry in cells.entries() {
         let wrapper_role = match side {
             RuleSide::Left => ProvenanceRole::RuleLeftCellsWrapper,
             RuleSide::Right => ProvenanceRole::RuleRightCellsWrapper,
         };
         if let Some(wrapper) = entry.wrapper() {
-            let ordinal = counters.next(wrapper_role, wrapper.span())?;
             output.push(ReferenceCandidate {
-                key: key(wrapper_role, ordinal),
+                key: keys.key(wrapper_role, TokenRange::for_tokens(wrapper)?)?,
                 path: wrapper.clone(),
                 kind: StateRuleReferenceKind::CellWrapper,
             });
         }
-        append_state_term_candidates(entry.value(), side, bindings, &mut counters, output)?;
+        append_state_term_candidates(entry.value(), side, bindings, &mut keys, output)?;
     }
     Ok(())
 }
@@ -2058,28 +1904,28 @@ fn append_state_term_candidates(
     state: &StateTerm,
     side: RuleSide,
     bindings: &[StateRuleBinding],
-    counters: &mut ProvenanceAnchors,
+    keys: &mut KeyAllocator,
     output: &mut Vec<ReferenceCandidate<StateRuleReferenceKind>>,
 ) -> Result<(), SyntaxError> {
     match state {
         StateTerm::Present(_) | StateTerm::Absent(_) | StateTerm::Instances(_) => {
             for nested in state.nested_states() {
-                append_state_term_candidates(nested, side, bindings, counters, output)?;
+                append_state_term_candidates(nested, side, bindings, keys, output)?;
             }
             Ok(())
         }
         StateTerm::Term(term) | StateTerm::Group(term) => {
-            append_term_candidates(term, side, bindings, counters, output)
+            append_term_candidates(term, side, bindings, keys, output)
         }
         StateTerm::KSequence(sequence) => {
             for term in sequence.items() {
-                append_term_candidates(term, side, bindings, counters, output)?;
+                append_term_candidates(term, side, bindings, keys, output)?;
             }
             Ok(())
         }
         StateTerm::Map(map) => {
             for term in map_terms(map) {
-                append_term_candidates(term, side, bindings, counters, output)?;
+                append_term_candidates(term, side, bindings, keys, output)?;
             }
             Ok(())
         }
@@ -2090,7 +1936,7 @@ fn append_term_candidates(
     term: &TermExpression,
     side: RuleSide,
     bindings: &[StateRuleBinding],
-    counters: &mut ProvenanceAnchors,
+    keys: &mut KeyAllocator,
     output: &mut Vec<ReferenceCandidate<StateRuleReferenceKind>>,
 ) -> Result<(), SyntaxError> {
     let (application_role, reference_role) = match side {
@@ -2106,15 +1952,14 @@ fn append_term_candidates(
     for node in term.nodes() {
         match node {
             TermNode::ApplicationHead(path) => {
-                let ordinal = counters.next(application_role, path.span())?;
                 output.push(ReferenceCandidate {
-                    key: key(application_role, ordinal),
+                    key: keys.key(application_role, TokenRange::for_tokens(path)?)?,
                     path: path.clone(),
                     kind: StateRuleReferenceKind::ApplicationHead,
                 });
             }
             TermNode::Reference(path) => {
-                let ordinal = counters.next(reference_role, path.span())?;
+                let reference = keys.key(reference_role, TokenRange::for_tokens(path)?)?;
                 let bound = bare_ident(path).is_some_and(|candidate| {
                     bindings.iter().any(|binding| {
                         binding.name == *candidate && binding.kind == StateRuleBindingKind::Term
@@ -2122,7 +1967,7 @@ fn append_term_candidates(
                 });
                 if !bound {
                     output.push(ReferenceCandidate {
-                        key: key(reference_role, ordinal),
+                        key: reference,
                         path: path.clone(),
                         kind: StateRuleReferenceKind::Reference,
                     });
@@ -2156,54 +2001,6 @@ fn map_terms(map: &MapExpression) -> Vec<&TermExpression> {
             .flat_map(|item| [item.key(), item.value()])
             .collect(),
         MapBody::Update { base, key, value } => vec![base, key, value],
-    }
-}
-
-fn node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
-    match node {
-        TermNode::ApplicationHead(path) | TermNode::Reference(path) => TokenRange::for_tokens(path),
-        TermNode::Literal(TermLiteral::Integer(value)) => Ok(value.range()),
-        TermNode::Literal(TermLiteral::Float(value)) => Ok(value.range()),
-        TermNode::Literal(TermLiteral::Boolean(value)) => TokenRange::for_tokens(value),
-        TermNode::Literal(TermLiteral::String(value)) | TermNode::IdToken(value) => {
-            TokenRange::for_tokens(value)
-        }
-        TermNode::BytesToken(value) => TokenRange::for_tokens(value),
-        TermNode::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
-        TermNode::OrBool(range)
-        | TermNode::SortTest { range, .. }
-        | TermNode::As { range, .. }
-        | TermNode::Or(range)
-        | TermNode::Matches(range)
-        | TermNode::MatchesWildcard(range)
-        | TermNode::Let { range, .. }
-        | TermNode::Closure { range, .. }
-        | TermNode::LetWildcard(range)
-        | TermNode::Rewrite { range, .. } => Ok(*range),
-        TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
-    }
-}
-
-fn node_span(node: &TermNode) -> proc_macro2::Span {
-    match node {
-        TermNode::ApplicationHead(path) | TermNode::Reference(path) => path.span(),
-        TermNode::Literal(TermLiteral::Integer(value)) => value.span(),
-        TermNode::Literal(TermLiteral::Float(value)) => value.span(),
-        TermNode::Literal(TermLiteral::Boolean(value)) => value.span(),
-        TermNode::Literal(TermLiteral::String(value)) | TermNode::IdToken(value) => value.span(),
-        TermNode::BytesToken(value) => value.span(),
-        TermNode::Anonymous { spelling, .. } => spelling.span(),
-        TermNode::OrBool(range)
-        | TermNode::SortTest { range, .. }
-        | TermNode::As { range, .. }
-        | TermNode::Or(range)
-        | TermNode::Matches(range)
-        | TermNode::MatchesWildcard(range)
-        | TermNode::Let { range, .. }
-        | TermNode::Closure { range, .. }
-        | TermNode::LetWildcard(range)
-        | TermNode::Rewrite { range, .. } => range.first(),
-        TermNode::Lexeme { text, .. } => text.span(),
     }
 }
 
@@ -2284,58 +2081,23 @@ fn take_ensures_helper(
     Ok(found)
 }
 
-/// Appends the lexeme, sort-test, `name @ ..`, `A | B`, and `k::matches!`
-/// anchors of a claim's ensures condition, whose ordinals continue after the
-/// rule's subject, result, and condition (the rule's own anchors number
-/// those).
-fn push_claim_ensures_anchors(
-    rule: &StateRuleItem,
+/// Keys the lexeme, sort-test, `name @ ..`, `A | B`, `k::matches!`, `let`,
+/// `ml::exists`, and turbofish nodes of a claim's ensures condition, whose
+/// ordinals continue after the rule's subject, result, and condition (the
+/// rule's own keys number those).
+fn allocate_claim_ensures_keys(
+    keys: &mut KeyAllocator,
     ensures: &ClaimEnsures,
-    output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
-    let count = |wanted: fn(&TermNode) -> bool| {
-        claim_terms(rule, None)
-            .iter()
-            .flat_map(|term| term.nodes())
-            .filter(|node| wanted(node))
-            .count()
-    };
     let nodes = ensures.term.nodes();
-    let mut lexemes = count(|node| matches!(node, TermNode::Lexeme { .. }));
-    push_lexeme_anchors(output, nodes, &mut lexemes)?;
-    let mut sort_tests = count(|node| matches!(node, TermNode::SortTest { .. }));
-    push_sort_test_anchors(output, nodes, &mut sort_tests)?;
-    let mut aliases = count(|node| matches!(node, TermNode::As { .. }));
-    crate::term::push_pattern_as_anchors(output, nodes, &mut aliases)?;
-    let mut alternatives = count(|node| matches!(node, TermNode::Or(_)));
-    crate::term::push_pattern_or_anchors(output, nodes, &mut alternatives)?;
-    let mut matches = count(|node| matches!(node, TermNode::Matches(_)));
-    let mut wildcards = count(|node| matches!(node, TermNode::MatchesWildcard(_)));
-    crate::term::push_matches_anchors(output, nodes, &mut matches, &mut wildcards)?;
-    let mut lets = count(|node| matches!(node, TermNode::Let { .. }));
-    let mut let_wildcards = count(|node| matches!(node, TermNode::LetWildcard(_)));
-    crate::term::push_let_anchors(output, nodes, &mut lets, &mut let_wildcards)?;
-    let mut closures = count(|node| matches!(node, TermNode::Closure { .. }));
-    crate::term::push_ml_binder_anchors(output, nodes, &mut closures)?;
-    let mut instances = claim_terms(rule, None)
-        .iter()
-        .flat_map(|term| term.nodes())
-        .map(application_instance_count)
-        .sum();
-    crate::term::push_application_instance_anchors(output, nodes, &mut instances)
-}
-
-/// The number of turbofish sort markers on an application-head node.
-fn application_instance_count(node: &TermNode) -> usize {
-    match node {
-        TermNode::ApplicationHead(path) => {
-            match path.segments.last().map(|segment| &segment.arguments) {
-                Some(syn::PathArguments::AngleBracketed(arguments)) => arguments.args.len(),
-                _ => 0,
-            }
-        }
-        _ => 0,
-    }
+    allocate_lexeme_keys(keys, nodes)?;
+    allocate_sort_test_keys(keys, nodes)?;
+    crate::term::allocate_pattern_as_keys(keys, nodes)?;
+    crate::term::allocate_pattern_or_keys(keys, nodes)?;
+    crate::term::allocate_matches_keys(keys, nodes)?;
+    crate::term::allocate_let_keys(keys, nodes)?;
+    crate::term::allocate_ml_binder_keys(keys, nodes)?;
+    crate::term::allocate_application_instance_keys(keys, nodes)
 }
 
 fn claim_terms<'a>(
@@ -2375,82 +2137,39 @@ fn append_state_terms<'a>(state: &'a StateTerm, output: &mut Vec<&'a TermExpress
     }
 }
 
-fn append_claim_special_anchors(
-    rule: &StateRuleItem,
-    ensures: Option<&ClaimEnsures>,
-    output: &mut Vec<ProvenanceAnchor>,
-) -> Result<(), SyntaxError> {
-    append_claim_node_anchors(
-        claim_terms(rule, ensures)
-            .into_iter()
-            .map(TermExpression::nodes),
-        output,
-    )
-}
-
-/// Anchors the claim-only nodes (`k::id!`, `k::bytes!`, `k::anonymous!`,
+/// Keys the claim-only nodes (`k::id!`, `k::bytes!`, `k::anonymous!`,
 /// `k::or_bool!`) of a claim's terms, each kind numbered in one sequence in
 /// the order of `terms`, which is the order expansion visits them.
-pub(crate) fn append_claim_node_anchors<'a>(
+pub(crate) fn allocate_claim_node_keys<'a>(
+    keys: &mut KeyAllocator,
     terms: impl IntoIterator<Item = &'a [TermNode]>,
-    output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
-    let mut id_ordinal = 0_u32;
-    let mut bytes_ordinal = 0_u32;
-    let mut anonymous_ordinal = 0_u32;
-    let mut or_ordinal = 0_u32;
     for nodes in terms {
         for node in nodes {
             match node {
                 TermNode::IdToken(literal) => {
-                    output.push(ProvenanceAnchor::new(
+                    keys.key(
                         ProvenanceRole::ClaimIdToken,
-                        id_ordinal,
                         TokenRange::for_tokens(literal)?,
-                    ));
-                    id_ordinal = id_ordinal
-                        .checked_add(1)
-                        .ok_or_else(|| signature_error("too many Id tokens", literal.span()))?;
+                    )?;
                 }
                 TermNode::BytesToken(literal) => {
-                    output.push(ProvenanceAnchor::new(
+                    keys.key(
                         ProvenanceRole::ClaimBytesToken,
-                        bytes_ordinal,
                         TokenRange::for_tokens(literal)?,
-                    ));
-                    bytes_ordinal = bytes_ordinal
-                        .checked_add(1)
-                        .ok_or_else(|| signature_error("too many Bytes tokens", literal.span()))?;
+                    )?;
                 }
                 TermNode::Anonymous { sort, spelling } => {
-                    output.push(ProvenanceAnchor::new(
-                        ProvenanceRole::ClaimAnonymous,
-                        anonymous_ordinal,
-                        TokenRange::for_tokens(spelling)?,
-                    ));
-                    output.push(ProvenanceAnchor::new(
+                    let spelling = TokenRange::for_tokens(spelling)?;
+                    keys.key(ProvenanceRole::ClaimAnonymous, spelling)?;
+                    keys.key(
                         ProvenanceRole::ClaimAnonymousSort,
-                        anonymous_ordinal,
                         TokenRange::for_tokens(sort)?,
-                    ));
-                    output.push(ProvenanceAnchor::new(
-                        ProvenanceRole::ClaimAnonymousSpelling,
-                        anonymous_ordinal,
-                        TokenRange::for_tokens(spelling)?,
-                    ));
-                    anonymous_ordinal = anonymous_ordinal.checked_add(1).ok_or_else(|| {
-                        signature_error("too many anonymous occurrences", spelling.span())
-                    })?;
+                    )?;
+                    keys.key(ProvenanceRole::ClaimAnonymousSpelling, spelling)?;
                 }
                 TermNode::OrBool(range) => {
-                    output.push(ProvenanceAnchor::new(
-                        ProvenanceRole::ClaimOrBool,
-                        or_ordinal,
-                        *range,
-                    ));
-                    or_ordinal = or_ordinal.checked_add(1).ok_or_else(|| {
-                        signature_error("too many Boolean disjunctions", range.first())
-                    })?;
+                    keys.key(ProvenanceRole::ClaimOrBool, *range)?;
                 }
                 TermNode::ApplicationHead(_)
                 | TermNode::Reference(_)

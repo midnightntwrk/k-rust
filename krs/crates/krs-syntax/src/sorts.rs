@@ -1,9 +1,8 @@
 use proc_macro2::TokenStream;
 use syn::parse::{Parse, ParseStream};
-use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Path, Token};
 
-use crate::parse::{KrsSyntax, checked_ordinal};
+use crate::parse::{KeyAllocator, KrsSyntax};
 use crate::{BracketAttribute, ProvenanceAnchor, ProvenanceRole, SyntaxError, TokenRange};
 
 /// One declaration or membership sentence in `k::sorts!`.
@@ -48,19 +47,15 @@ impl SortsSort {
     ///
     /// Returns an endpoint error only if a parsed node emits no token leaves.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        keys.key(
             ProvenanceRole::SortDeclaration,
-            0,
             TokenRange::for_tokens(&self.name)?,
-        )];
-        for (ordinal, parent) in self.parents.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::SortParent,
-                checked_ordinal(ordinal, ProvenanceRole::SortParent, parent.span())?,
-                TokenRange::for_tokens(parent)?,
-            ));
+        )?;
+        for parent in &self.parents {
+            keys.key(ProvenanceRole::SortParent, TokenRange::for_tokens(parent)?)?;
         }
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 
     /// Returns one bracket descriptor's anchors plus its owning sort anchor.
@@ -72,13 +67,12 @@ impl SortsSort {
         &self,
         bracket: &BracketAttribute,
     ) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = bracket.provenance()?;
-        anchors.push(ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::continuing(bracket.provenance()?);
+        keys.key(
             ProvenanceRole::SortDeclaration,
-            0,
             TokenRange::for_tokens(&self.name)?,
-        ));
-        Ok(anchors)
+        )?;
+        Ok(keys.into_anchors())
     }
 }
 
@@ -111,23 +105,20 @@ impl SortsMembership {
     ///
     /// Returns an endpoint error only if a parsed path emits no token leaves.
     pub fn member_provenance(&self, member: &Path) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(vec![
-            ProvenanceAnchor::new(
-                ProvenanceRole::SubsortDeclaration,
-                0,
-                TokenRange::for_tokens(member)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::SubsortSuperSort,
-                0,
-                TokenRange::for_tokens(&self.supersort)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::SubsortSubSort,
-                0,
-                TokenRange::for_tokens(member)?,
-            ),
-        ])
+        let mut keys = KeyAllocator::default();
+        keys.key(
+            ProvenanceRole::SubsortDeclaration,
+            TokenRange::for_tokens(member)?,
+        )?;
+        keys.key(
+            ProvenanceRole::SubsortSuperSort,
+            TokenRange::for_tokens(&self.supersort)?,
+        )?;
+        keys.key(
+            ProvenanceRole::SubsortSubSort,
+            TokenRange::for_tokens(member)?,
+        )?;
+        Ok(keys.into_anchors())
     }
 }
 

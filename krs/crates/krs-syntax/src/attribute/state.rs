@@ -2,7 +2,7 @@ use proc_macro2::TokenStream;
 use syn::parse::{Parse, ParseStream};
 use syn::{Expr, Ident, LitStr, Token};
 
-use crate::parse::{KrsSyntax, ParseError, structured};
+use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 use super::value::{parse_empty_attribute, parse_empty_tokens, parse_string_value};
@@ -38,19 +38,14 @@ impl ConfigurationAttribute {
     ///
     /// Returns an endpoint error only if the parsed literal emits no tokens.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        self.root
-            .as_ref()
-            .map(|root| {
-                TokenRange::for_tokens(root).map(|range| {
-                    vec![ProvenanceAnchor::new(
-                        ProvenanceRole::ConfigurationRoot,
-                        0,
-                        range,
-                    )]
-                })
-            })
-            .transpose()
-            .map(Option::unwrap_or_default)
+        let mut keys = KeyAllocator::default();
+        if let Some(root) = &self.root {
+            keys.key(
+                ProvenanceRole::ConfigurationRoot,
+                TokenRange::for_tokens(root)?,
+            )?;
+        }
+        Ok(keys.into_anchors())
     }
 }
 
@@ -124,57 +119,50 @@ impl CellAttributePayload {
     ///
     /// Returns an endpoint error only if an authored literal has no leaves.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::with_capacity(6);
+        let mut keys = KeyAllocator::default();
         if let Some(name) = &self.name {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConfigurationCellName,
-                0,
                 TokenRange::for_tokens(name)?,
-            ));
+            )?;
         }
         if let Some(color) = &self.color {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConfigurationCellColor,
-                0,
                 TokenRange::for_tokens(color)?,
-            ));
+            )?;
         }
         if let Some(multiplicity) = &self.multiplicity {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConfigurationCellMultiplicity,
-                0,
                 TokenRange::for_tokens(multiplicity)?,
-            ));
+            )?;
         }
         if let Some(cell_type) = &self.cell_type {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConfigurationCellType,
-                0,
                 TokenRange::for_tokens(cell_type)?,
-            ));
+            )?;
         }
         if let Some(stream) = &self.stream {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConfigurationCellStream,
-                0,
                 TokenRange::for_tokens(stream)?,
-            ));
+            )?;
         }
         if let Some(exit) = &self.exit {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConfigurationCellExit,
-                0,
                 TokenRange::for_tokens(exit)?,
-            ));
+            )?;
         }
         if let Some(initial) = &self.initial {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::ConfigurationCellInitial,
-                0,
                 TokenRange::for_tokens(initial)?,
-            ));
+            )?;
         }
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 }
 

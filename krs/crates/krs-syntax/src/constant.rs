@@ -17,6 +17,7 @@
 use syn::spanned::Spanned;
 use syn::{Expr, Ident, ItemConst};
 
+use crate::parse::KeyAllocator;
 use crate::term::TermExpression;
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TermSort, TokenRange};
 
@@ -85,47 +86,38 @@ impl ConstantItem {
     ///
     /// Returns endpoint or occurrence-overflow errors.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![
-            ProvenanceAnchor::new(
-                ProvenanceRole::ConstantDeclaration,
-                0,
-                TokenRange::for_tokens(&self.item.ident)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::ConstantType,
-                0,
-                TokenRange::for_tokens(self.sort.ty())?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::ConstantValue,
-                0,
-                TokenRange::for_tokens(&self.item.expr)?,
-            ),
-        ];
-        for (ordinal, symbol) in self.value.symbols().iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
+        let mut keys = KeyAllocator::default();
+        keys.key(
+            ProvenanceRole::ConstantDeclaration,
+            TokenRange::for_tokens(&self.item.ident)?,
+        )?;
+        keys.key(
+            ProvenanceRole::ConstantType,
+            TokenRange::for_tokens(self.sort.ty())?,
+        )?;
+        keys.key(
+            ProvenanceRole::ConstantValue,
+            TokenRange::for_tokens(&self.item.expr)?,
+        )?;
+        for symbol in self.value.symbols() {
+            keys.key(
                 ProvenanceRole::RuleRightPath,
-                crate::parse::checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::RuleRightPath,
-                    symbol.path().span(),
-                )?,
                 TokenRange::for_tokens(symbol.path())?,
-            ));
+            )?;
         }
-        crate::rule::push_term_node_anchors(
-            &mut anchors,
+        crate::rule::allocate_term_node_keys(
+            &mut keys,
             self.value.nodes(),
             ProvenanceRole::RuleRightApplicationHead,
             ProvenanceRole::RuleRightReference,
             ProvenanceRole::RuleRightLiteral,
         )?;
-        crate::term::push_record_field_anchors(
-            &mut anchors,
+        crate::term::allocate_record_field_keys(
+            &mut keys,
             self.value.tree(),
             ProvenanceRole::RuleRightRecordFieldName,
         )?;
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 }
 

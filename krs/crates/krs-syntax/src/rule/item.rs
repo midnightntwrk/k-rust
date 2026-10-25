@@ -6,16 +6,14 @@ use syn::{Expr, FnArg, Ident, ItemFn, Pat, PatType, ReturnType, Stmt, Type};
 use super::condition::{RuleCondition, take_requires_helper};
 use super::existentials::RuleExistentials;
 use super::pattern::{
-    NegativeLiteralSpans, PatternRoot, RulePattern, canonical_key, is_bound_path,
-    is_bound_reference, parse_rule_pattern, push_candidate, push_term_node_anchors,
-    push_term_reference_candidates, push_wildcard_anchors,
+    NegativeLiteralSpans, PatternRoot, RulePattern, allocate_term_node_keys,
+    allocate_wildcard_keys, canonical_key, is_bound_path, is_bound_reference, parse_rule_pattern,
+    push_candidate, push_term_reference_candidates,
 };
-use crate::parse::{
-    KrsSyntax, checked_ordinal, unsupported_rule_signature as unsupported_signature,
-};
+use crate::parse::{KeyAllocator, KrsSyntax, unsupported_rule_signature as unsupported_signature};
 use crate::state_rule::{FUNCTION_CONTEXT_ONLY_ON_EQUATIONS, FunctionContext, is_cells_parameter};
 use crate::term::{
-    is_term_macro, push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors,
+    allocate_lexeme_keys, allocate_record_field_keys, allocate_sort_test_keys, is_term_macro,
     unexpected_macro,
 };
 use crate::term_sort::{
@@ -608,81 +606,53 @@ impl RuleItem {
     ///
     /// Returns an endpoint error only if a parsed Rust node emits no leaves.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = vec![
-            ProvenanceAnchor::new(
-                ProvenanceRole::RuleDeclaration,
-                0,
-                TokenRange::for_tokens(&self.item.sig.ident)?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::RulePattern,
-                0,
-                self.parameter.pattern.range()?,
-            ),
-            ProvenanceAnchor::new(
-                ProvenanceRole::RuleType,
-                0,
-                TokenRange::for_tokens(self.parameter.term_sort.ty())?,
-            ),
-        ];
+        let mut keys = KeyAllocator::default();
+        self.allocate_catalog_keys(&mut keys)?;
+        Ok(keys.into_anchors())
+    }
+
+    /// Keys the declaration, pattern, and types, the result, each binder's
+    /// parameter and type, then the subject's and the result's paths.
+    fn allocate_catalog_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        keys.key(
+            ProvenanceRole::RuleDeclaration,
+            TokenRange::for_tokens(&self.item.sig.ident)?,
+        )?;
+        keys.key(ProvenanceRole::RulePattern, self.parameter.pattern.range()?)?;
+        keys.key(
+            ProvenanceRole::RuleType,
+            TokenRange::for_tokens(self.parameter.term_sort.ty())?,
+        )?;
         if let (Some(result_sort), Some(result)) = (&self.result_sort, &self.result) {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::RuleResultType,
-                0,
                 TokenRange::for_tokens(result_sort.ty())?,
-            ));
-            anchors.push(ProvenanceAnchor::new(
+            )?;
+            keys.key(
                 ProvenanceRole::RuleResult,
-                0,
                 TokenRange::for_tokens(result.expression())?,
-            ));
+            )?;
         }
-        for (ordinal, binder) in self.binders.iter().enumerate() {
-            anchors.push(ProvenanceAnchor::new(
+        for binder in &self.binders {
+            keys.key(
                 ProvenanceRole::RuleBindingParameter,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::RuleBindingParameter,
-                    binder.name.span(),
-                )?,
                 TokenRange::for_tokens(&binder.parameter)?,
-            ));
-            anchors.push(ProvenanceAnchor::new(
+            )?;
+            keys.key(
                 ProvenanceRole::RuleBindingType,
-                checked_ordinal(
-                    ordinal,
-                    ProvenanceRole::RuleBindingType,
-                    binder.term_sort.sort().span(),
-                )?,
                 TokenRange::for_tokens(binder.term_sort.sort())?,
-            ));
+            )?;
         }
-        for (ordinal, range) in self
-            .parameter
-            .pattern
-            .path_ranges()?
-            .into_iter()
-            .enumerate()
-        {
-            anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::RuleLeftPath,
-                checked_ordinal(ordinal, ProvenanceRole::RuleLeftPath, range.first())?,
-                range,
-            ));
+        for range in self.parameter.pattern.path_ranges()? {
+            keys.key(ProvenanceRole::RuleLeftPath, range)?;
         }
-        for (ordinal, symbol) in self
-            .result
-            .iter()
-            .flat_map(TermExpression::symbols)
-            .enumerate()
-        {
-            anchors.push(ProvenanceAnchor::new(
+        for symbol in self.result.iter().flat_map(TermExpression::symbols) {
+            keys.key(
                 ProvenanceRole::RuleRightPath,
-                checked_ordinal(ordinal, ProvenanceRole::RuleRightPath, symbol.path().span())?,
                 TokenRange::for_tokens(symbol.path())?,
-            ));
+            )?;
         }
-        Ok(anchors)
+        Ok(())
     }
 
     /// Returns the compact catalog plus typed subject/result term-node
@@ -691,34 +661,33 @@ impl RuleItem {
     /// # Errors
     ///
     /// Returns endpoint or occurrence-overflow errors.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "One pass over the subject, function context, result, and conditions in provenance order."
-    )]
     pub fn full_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = self.provenance()?;
-        push_term_node_anchors(
-            &mut anchors,
+        let mut keys = KeyAllocator::default();
+        self.allocate_full_keys(&mut keys)?;
+        Ok(keys.into_anchors())
+    }
+
+    /// Keys the compact catalog, then the subject, the function context, the
+    /// result, and the conditions, in provenance order.
+    pub(crate) fn allocate_full_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.allocate_catalog_keys(keys)?;
+        allocate_term_node_keys(
+            keys,
             self.parameter.pattern.nodes(),
             ProvenanceRole::RuleLeftApplicationHead,
             ProvenanceRole::RuleLeftReference,
             ProvenanceRole::RuleLeftLiteral,
         )?;
-        push_record_field_anchors(
-            &mut anchors,
+        allocate_record_field_keys(
+            keys,
             &self.subject_tree,
             ProvenanceRole::RuleLeftRecordFieldName,
         )?;
-        push_wildcard_anchors(
-            &mut anchors,
-            &self.subject_tree,
-            ProvenanceRole::RuleLeftWildcard,
-        )?;
+        allocate_wildcard_keys(keys, &self.subject_tree, ProvenanceRole::RuleLeftWildcard)?;
         // A function context's cells continue the subject's left-hand
         // ordinals: they are expanded right after it (KF-025).
         if let Some(context) = &self.function_context {
-            let context_anchors = context.provenance(&anchors)?;
-            anchors.extend(context_anchors);
+            context.allocate_keys(keys)?;
         }
         let context_terms = self
             .function_context
@@ -726,40 +695,35 @@ impl RuleItem {
             .map(FunctionContext::terms)
             .unwrap_or_default();
         let result_nodes = self.result.as_ref().map_or(&[][..], TermExpression::nodes);
-        push_term_node_anchors(
-            &mut anchors,
+        allocate_term_node_keys(
+            keys,
             result_nodes,
             ProvenanceRole::RuleRightApplicationHead,
             ProvenanceRole::RuleRightReference,
             ProvenanceRole::RuleRightLiteral,
         )?;
         if let Some(result) = &self.result {
-            push_record_field_anchors(
-                &mut anchors,
+            allocate_record_field_keys(
+                keys,
                 result.tree(),
                 ProvenanceRole::RuleRightRecordFieldName,
             )?;
-            push_wildcard_anchors(
-                &mut anchors,
-                result.tree(),
-                ProvenanceRole::RuleRightWildcard,
-            )?;
+            allocate_wildcard_keys(keys, result.tree(), ProvenanceRole::RuleRightWildcard)?;
         }
         if let Some(requires) = &self.requires {
-            anchors.extend(requires.provenance()?);
+            requires.allocate_keys(keys)?;
         }
-        anchors.extend(self.existentials.provenance()?);
-        let mut lexemes = 0_usize;
-        push_lexeme_anchors(&mut anchors, self.parameter.pattern.nodes(), &mut lexemes)?;
+        self.existentials.allocate_keys(keys)?;
+        allocate_lexeme_keys(keys, self.parameter.pattern.nodes())?;
         for term in &context_terms {
-            push_lexeme_anchors(&mut anchors, term.nodes(), &mut lexemes)?;
+            allocate_lexeme_keys(keys, term.nodes())?;
         }
-        push_lexeme_anchors(&mut anchors, result_nodes, &mut lexemes)?;
+        allocate_lexeme_keys(keys, result_nodes)?;
         if let Some(requires) = &self.requires {
-            push_lexeme_anchors(&mut anchors, requires.term().nodes(), &mut lexemes)?;
+            allocate_lexeme_keys(keys, requires.term().nodes())?;
         }
         if let Some(ensures) = self.existentials.ensures() {
-            push_lexeme_anchors(&mut anchors, ensures.nodes(), &mut lexemes)?;
+            allocate_lexeme_keys(keys, ensures.nodes())?;
         }
         // `name @ ..` and `A | B` occur in the subject, the function context,
         // and in `k::matches!` patterns; with `k::matches!` shells and pattern
@@ -778,60 +742,44 @@ impl RuleItem {
         // Builtin `Id` and `Bytes` literals, each kind numbered in one
         // sequence in expansion order (the claim-only islands never reach a
         // rule's descriptor: expansion rejects them).
-        crate::state_rule::append_claim_node_anchors(sides.iter().copied(), &mut anchors)?;
-        let mut aliases = 0_usize;
+        crate::state_rule::allocate_claim_node_keys(keys, sides.iter().copied())?;
         for nodes in &sides {
-            crate::term::push_pattern_as_anchors(&mut anchors, nodes, &mut aliases)?;
+            crate::term::allocate_pattern_as_keys(keys, nodes)?;
         }
-        let mut alternatives = 0_usize;
         for nodes in &sides {
-            crate::term::push_pattern_or_anchors(&mut anchors, nodes, &mut alternatives)?;
+            crate::term::allocate_pattern_or_keys(keys, nodes)?;
         }
-        let (mut matches, mut wildcards) = (0_usize, 0_usize);
         for nodes in &sides {
-            crate::term::push_matches_anchors(&mut anchors, nodes, &mut matches, &mut wildcards)?;
+            crate::term::allocate_matches_keys(keys, nodes)?;
         }
-        let (mut lets, mut let_wildcards) = (0_usize, 0_usize);
         for nodes in &sides {
-            crate::term::push_let_anchors(&mut anchors, nodes, &mut lets, &mut let_wildcards)?;
+            crate::term::allocate_let_keys(keys, nodes)?;
         }
-        let mut closures = 0_usize;
         for nodes in &sides {
-            crate::term::push_ml_binder_anchors(&mut anchors, nodes, &mut closures)?;
+            crate::term::allocate_ml_binder_keys(keys, nodes)?;
         }
-        let mut sort_tests = 0_usize;
-        push_sort_test_anchors(
-            &mut anchors,
-            self.parameter.pattern.nodes(),
-            &mut sort_tests,
-        )?;
+        allocate_sort_test_keys(keys, self.parameter.pattern.nodes())?;
         for term in &context_terms {
-            push_sort_test_anchors(&mut anchors, term.nodes(), &mut sort_tests)?;
+            allocate_sort_test_keys(keys, term.nodes())?;
         }
-        push_sort_test_anchors(&mut anchors, result_nodes, &mut sort_tests)?;
+        allocate_sort_test_keys(keys, result_nodes)?;
         // `k::rewrite!` shells and sides of a single-body rule (KF-011).
-        let mut rewrites = 0_usize;
-        crate::term::push_rewrite_anchors(
-            &mut anchors,
-            self.parameter.pattern.nodes(),
-            &mut rewrites,
-        )?;
+        crate::term::allocate_rewrite_keys(keys, self.parameter.pattern.nodes())?;
         if let Some(requires) = &self.requires {
-            push_sort_test_anchors(&mut anchors, requires.term().nodes(), &mut sort_tests)?;
+            allocate_sort_test_keys(keys, requires.term().nodes())?;
         }
         if let Some(ensures) = self.existentials.ensures() {
-            push_sort_test_anchors(&mut anchors, ensures.nodes(), &mut sort_tests)?;
+            allocate_sort_test_keys(keys, ensures.nodes())?;
         }
-        let mut instances = 0_usize;
         let instance_sides = std::iter::once(self.parameter.pattern.nodes())
             .chain(context_terms.iter().map(|term| term.nodes()))
             .chain(self.result.iter().map(TermExpression::nodes))
             .chain(self.requires.iter().map(|requires| requires.term().nodes()))
             .chain(self.existentials.ensures().map(TermExpression::nodes));
         for nodes in instance_sides {
-            crate::term::push_application_instance_anchors(&mut anchors, nodes, &mut instances)?;
+            crate::term::allocate_application_instance_keys(keys, nodes)?;
         }
-        Ok(anchors)
+        Ok(())
     }
 
     /// Returns rustc-resolvable type and constructor references in canonical order.

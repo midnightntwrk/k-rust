@@ -19,7 +19,7 @@ use syn::punctuated::Punctuated;
 use syn::spanned::Spanned;
 use syn::{Ident, Item, ItemMod, LitStr, Path, Token};
 
-use crate::parse::{KrsSyntax, ParseError, duplicate, structured, unknown};
+use crate::parse::{KeyAllocator, KrsSyntax, ParseError, duplicate, structured, unknown};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// The reserved suffix of program-syntax modules (X12).
@@ -51,30 +51,20 @@ impl SpecModuleAttribute {
     ///
     /// Returns a syntax error when an import path has no tokens.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut anchors = Vec::new();
+        let mut keys = KeyAllocator::default();
         if let Some(name) = &self.name {
-            anchors.push(ProvenanceAnchor::new(
+            keys.key(
                 ProvenanceRole::SpecModuleName,
-                0,
                 TokenRange::new(name.span(), name.span()),
-            ));
+            )?;
         }
-        for (ordinal, import) in self.imports.iter().enumerate() {
-            let ordinal = u32::try_from(ordinal).map_err(|_| {
-                SyntaxError::new(
-                    SyntaxErrorKind::TooManyProvenanceOccurrences {
-                        role: "spec_module_import",
-                    },
-                    import.span(),
-                )
-            })?;
-            anchors.push(ProvenanceAnchor::new(
+        for import in &self.imports {
+            keys.key(
                 ProvenanceRole::SpecModuleImport,
-                ordinal,
                 TokenRange::for_tokens(import)?,
-            ));
+            )?;
         }
-        Ok(anchors)
+        Ok(keys.into_anchors())
     }
 }
 
