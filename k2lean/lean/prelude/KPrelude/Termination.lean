@@ -42,7 +42,8 @@ proofs need and the tactic the generator emits:
 * `k2l_decreasing [r₁, …]` closes a goal of `decreasing_by`: the facts, each failed guard
   (`(if h : c then … else none) = none`) turned into `¬ c`, the integer and Boolean hooks
   unfolded, lexicographic goals split by `Prod.lex_def`, the given rank functions unfolded,
-  then `omega`; `k2l_decreasing_m [m₁, …] using [d₁, …]` first unfolds and splits the measures
+  then `omega`, and where that fails `simp_all` (which knows the `sizeOf` of the generated
+  constructors) and `omega`; `k2l_decreasing_m [m₁, …] using [d₁, …]` first unfolds and splits the measures
   that are definitions by cases (`f.k2l_measure`) and unfolds the shapes and constructors `dᵢ`.
 
 No statement here depends on the exact `sizeOf` of an injection (`Term.inj`): the size laws are
@@ -756,7 +757,10 @@ macro_rules
       (try simp only [Prod.lex_def] at ⊢)
       (try dsimp only [$ranks,*] at ⊢)
       (try simp only [true_and, and_true, Nat.lt_irrefl, false_or, or_false] at ⊢)
-      first | done | omega)))
+      -- last, the default simp set, which has the `sizeOf` equations of the generated
+      -- constructors: a call on the payload of an injected list element needs
+      -- `sizeOf (inj x) = n + sizeOf x` beside the list's fact (simp's step bound ends it)
+      first | done | omega | ((try simp_all) <;> omega))))
 
 end KPrelude
 
