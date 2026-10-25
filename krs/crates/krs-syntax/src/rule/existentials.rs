@@ -268,10 +268,9 @@ impl RuleExistentials {
     /// Forgets the keys of the binders and of the ensures condition, before
     /// a sentence's pass keys them.
     pub(crate) fn clear_keys(&mut self) {
+        self.anchors.clear();
         for helper in self.exists.iter_mut().chain(&mut self.fresh) {
-            for binder in helper.binders_mut() {
-                binder.clear_keys();
-            }
+            helper.clear_keys();
         }
         if let Some(ensures) = &mut self.ensures {
             ensures.clear_keys();

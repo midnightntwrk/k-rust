@@ -217,11 +217,15 @@ impl CellAttributePayload {
     /// Keys each authored value in name, color, multiplicity, type, stream,
     /// exit, initial order: as the next of its role, or, inside a
     /// configuration, at the ordinal of its field's key `field`.
+    /// The anchors of the payload's own keying are forgotten here and
+    /// recorded again by that keying: an enclosing sentence's pass leaves
+    /// the payload with that sentence's keys and no anchors of its own.
     pub(crate) fn allocate_keys(
         &mut self,
         keys: &mut KeyAllocator,
         field: Option<&ProvenanceKey>,
     ) -> Result<(), SyntaxError> {
+        self.anchors.clear();
         self.keys = CellAttributeKeys::default();
         let slots: [(
             ProvenanceRole,

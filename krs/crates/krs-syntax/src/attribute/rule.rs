@@ -336,6 +336,15 @@ impl ExistsAttribute {
         &mut self.binders
     }
 
+    /// Forgets the binders' keys and the attribute's anchors, before the
+    /// sentence that declares the binders keys them.
+    pub(crate) fn clear_keys(&mut self) {
+        for binder in &mut self.binders {
+            binder.clear_keys();
+        }
+        self.anchors.clear();
+    }
+
     /// Returns exact declaration/name/sort anchors.
     ///
     /// # Errors

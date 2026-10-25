@@ -2,25 +2,12 @@
 
 use crate::ExpandError;
 use krs_diagnostic::codes::expand;
-use krs_syntax::{KSequence, MapExpression, ProvenanceRole, TermLiteral};
+use krs_syntax::TermLiteral;
 use proc_macro2::TokenStream;
 use quote::{ToTokens, format_ident, quote};
 use syn::parse::Parser;
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Meta, Path};
-
-pub(super) fn sequence_has_role(sequence: &KSequence, role: ProvenanceRole) -> crate::Result<bool> {
-    sequence
-        .provenance()
-        .map(|anchors| anchors.iter().any(|anchor| anchor.role() == role))
-        .map_err(ExpandError::from)
-}
-
-pub(super) fn map_has_role(map: &MapExpression, role: ProvenanceRole) -> crate::Result<bool> {
-    map.provenance()
-        .map(|anchors| anchors.iter().any(|anchor| anchor.role() == role))
-        .map_err(ExpandError::from)
-}
 
 pub(super) fn wire_literal(literal: &TermLiteral) -> krs_ir::DescriptorLiteral {
     match literal {

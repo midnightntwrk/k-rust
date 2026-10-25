@@ -1446,10 +1446,13 @@ impl TermExpression {
         (&self.nodes, &self.tree, &mut self.keys)
     }
 
-    /// Forgets the term's keys, before an enclosing sentence's pass keys it
-    /// with the roles of its position.
+    /// Forgets the term's keys and the anchors of its standalone keying,
+    /// before an enclosing sentence's pass keys it with the roles of its
+    /// position: the term then holds that sentence's keys, and its anchors
+    /// are that sentence's.
     pub(crate) fn clear_keys(&mut self) {
         self.keys.clear();
+        self.anchors.clear();
     }
 
     /// Keys the term as a sentence of its own: its payload, its paths, its

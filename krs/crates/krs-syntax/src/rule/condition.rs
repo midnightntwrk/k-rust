@@ -66,6 +66,7 @@ impl RuleCondition {
     /// keys it.
     pub(crate) fn clear_keys(&mut self) {
         self.term.clear_keys();
+        self.anchors.clear();
     }
 
     /// Keys the condition (its term's payload), then its paths, its

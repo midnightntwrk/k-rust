@@ -946,7 +946,11 @@ impl TokenAttribute {
 
     /// Keys the content, as the next of its kind, and its lexical
     /// precedence, which is numbered as its regex is.
+    /// The anchors of the attribute's own keying are forgotten here and
+    /// recorded again by that keying: an enclosing sentence's pass leaves
+    /// the attribute with that sentence's keys and no anchors of its own.
     pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.anchors.clear();
         let content = keys.key(
             self.content.role(),
             TokenRange::for_tokens(self.content.literal())?,
@@ -1846,7 +1850,11 @@ impl StrictnessAttribute {
 
     /// Keys the declaration, the optional context alias, each field
     /// reference, then the result sort.
+    /// The anchors of the attribute's own keying are forgotten here and
+    /// recorded again by that keying: an enclosing sentence's pass leaves
+    /// the attribute with that sentence's keys and no anchors of its own.
     pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.anchors.clear();
         self.key = Some(keys.key(ProvenanceRole::StrictnessDeclaration, self.range)?);
         self.using_key = match &self.using {
             Some(using) => Some(keys.key(

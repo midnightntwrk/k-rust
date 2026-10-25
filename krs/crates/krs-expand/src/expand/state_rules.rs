@@ -35,8 +35,8 @@ use super::island_checks::{consumed_state_island_import_checks, wrapper_type_che
 use super::nonce::expansion_nonce;
 use super::terms::{TermBuilder, TermRole, TermSide, WireSlots, wire_key, wire_sort_reference};
 use super::tokens::{
-    call_site_cfg_attributes, call_site_path, is_bound_ident_path, map_has_role, sequence_has_role,
-    sort_type_tokens, spelling, take_counter, wire_literal,
+    call_site_cfg_attributes, call_site_path, is_bound_ident_path, sort_type_tokens, spelling,
+    take_counter, wire_literal,
 };
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -782,7 +782,7 @@ impl<'a> StateRuleBuilder<'a> {
         sequence: &KSequence,
         slots: &mut WireSlots,
     ) -> crate::Result<ProtocolRuleKSequence<WireTerm>> {
-        let payload_key = if sequence_has_role(sequence, ProvenanceRole::KSequencePayload)? {
+        let payload_key = if sequence.payload_key().is_some() {
             let ordinal = take_counter(&mut self.counters.k_payload)?;
             Some(self.key(RuleRole::KSequencePayload, ordinal))
         } else {
@@ -826,7 +826,7 @@ impl<'a> StateRuleBuilder<'a> {
         map: &MapExpression,
         slots: &mut WireSlots,
     ) -> crate::Result<ProtocolRuleMap<WireTerm>> {
-        let payload_key = if map_has_role(map, ProvenanceRole::MapPayload)? {
+        let payload_key = if map.payload_key().is_some() {
             let ordinal = take_counter(&mut self.counters.map_payload)?;
             Some(self.key(RuleRole::MapPayload, ordinal))
         } else {

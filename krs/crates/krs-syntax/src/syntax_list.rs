@@ -108,7 +108,11 @@ impl SyntaxListAttribute {
     }
 
     /// Keys the list declaration, the separator, then the `non_empty` flag.
+    /// The anchors of the attribute's own keying are forgotten here and
+    /// recorded again by that keying: an enclosing sentence's pass leaves
+    /// the attribute with that sentence's keys and no anchors of its own.
     fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.anchors.clear();
         self.key = Some(keys.key(ProvenanceRole::ListDeclaration, self.range)?);
         self.separator_key = Some(keys.key(
             ProvenanceRole::ListSeparator,

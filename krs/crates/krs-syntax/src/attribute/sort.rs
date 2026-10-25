@@ -211,7 +211,11 @@ impl SymbolAttribute {
     }
 
     /// Keys the override literal.
+    /// The anchors of the attribute's own keying are forgotten here and
+    /// recorded again by that keying: an enclosing sentence's pass leaves
+    /// the attribute with that sentence's keys and no anchors of its own.
     pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.anchors.clear();
         self.key = Some(keys.key(
             ProvenanceRole::StableSymbol,
             TokenRange::for_tokens(&self.literal)?,
@@ -267,9 +271,6 @@ pub struct MatchRestriction {
     symbolic: Option<RestrictionKey>,
     smt_lemma: Option<Ident>,
     smt_lemma_key: Option<ProvenanceKey>,
-    /// The anchors of the restriction's standalone keying, which
-    /// [`Self::provenance`] returns.
-    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl MatchRestriction {
@@ -297,32 +298,10 @@ impl MatchRestriction {
         self.concrete.is_none() && self.symbolic.is_none() && self.smt_lemma.is_none()
     }
 
-    /// Returns exact provenance: each key under its role, and each listed
-    /// binder under [`ProvenanceRole::RestrictionVariable`], numbered across
-    /// `concrete` then `symbolic`.
-    ///
-    /// The restriction's roles are its own, so its keys are the same alone
-    /// and in the attribute that holds it.
-    ///
-    /// # Errors
-    ///
-    /// None: the restriction was keyed when its attribute was parsed.
-    pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        Ok(self.anchors.clone())
-    }
-
     /// The key of the `smt_lemma` flag.
     #[must_use]
     pub const fn smt_lemma_key(&self) -> Option<&ProvenanceKey> {
         self.smt_lemma_key.as_ref()
-    }
-
-    /// Keys the restriction as a sentence of its own.
-    fn rekey(&mut self) -> Result<(), SyntaxError> {
-        let mut keys = KeyAllocator::default();
-        self.allocate_keys(&mut keys)?;
-        self.anchors = keys.into_anchors();
-        Ok(())
     }
 
     /// Keys each written restriction key with its variables, numbered across
@@ -532,10 +511,8 @@ impl EquationAttribute {
         self.priority_key.as_ref()
     }
 
-    /// Keys the attribute as a sentence of its own, after keying its
-    /// restriction alone.
+    /// Keys the attribute as a sentence of its own.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
-        self.restriction.rekey()?;
         let mut keys = KeyAllocator::default();
         self.allocate_keys(&mut keys)?;
         self.anchors = keys.into_anchors();
@@ -602,10 +579,8 @@ impl SimplificationAttribute {
         self.priority_key.as_ref()
     }
 
-    /// Keys the priority, then the restriction, after keying the
-    /// restriction alone.
+    /// Keys the priority, then the restriction.
     fn keyed(mut self) -> Result<Self, SyntaxError> {
-        self.restriction.rekey()?;
         let mut keys = KeyAllocator::default();
         self.priority_key = match &self.priority {
             Some((literal, _)) => Some(keys.key(
@@ -955,7 +930,11 @@ impl StaticProductionAttribute {
     }
 
     /// Keys the `recursive` keyword, when written.
+    /// The anchors of the attribute's own keying are forgotten here and
+    /// recorded again by that keying: an enclosing sentence's pass leaves
+    /// the attribute with that sentence's keys and no anchors of its own.
     pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.anchors.clear();
         self.recursive_key = match self.recursive {
             Some(range) => Some(keys.key(ProvenanceRole::StaticRecursive, range)?),
             None => None,

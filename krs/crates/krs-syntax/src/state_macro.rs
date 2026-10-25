@@ -235,11 +235,13 @@ impl KSequence {
         Ok(self)
     }
 
-    /// Forgets the keys of the sequence and of its items, before an
-    /// enclosing sentence's pass keys them.
+    /// Forgets the keys of the sequence and of its items, and the anchors
+    /// of its standalone keying, before an enclosing sentence's pass keys
+    /// them.
     pub(crate) fn clear_keys(&mut self) {
         self.payload_key = None;
         self.tail_key = None;
+        self.anchors.clear();
         for item in &mut self.items {
             item.clear_keys();
         }
@@ -464,11 +466,12 @@ impl MapExpression {
         }
     }
 
-    /// Forgets the keys of the map and of its terms, before an enclosing
-    /// sentence's pass keys them.
+    /// Forgets the keys of the map and of its terms, and the anchors of its
+    /// standalone keying, before an enclosing sentence's pass keys them.
     pub(crate) fn clear_keys(&mut self) {
         self.payload_key = None;
         self.remainder_key = None;
+        self.anchors.clear();
         for term in self.terms_mut() {
             term.clear_keys();
         }
@@ -1043,11 +1046,13 @@ impl CellsExpression {
         Ok(self)
     }
 
-    /// Forgets the keys of the cells and of every entry's state, before an
-    /// enclosing sentence's pass keys them.
+    /// Forgets the keys of the cells and of every entry's state, and the
+    /// anchors of its standalone keying, before an enclosing sentence's pass
+    /// keys them.
     pub(crate) fn clear_keys(&mut self) {
         self.payload_key = None;
         self.remainder_key = None;
+        self.anchors.clear();
         for entry in &mut self.entries {
             entry.name_key = None;
             entry.wrapper_key = None;

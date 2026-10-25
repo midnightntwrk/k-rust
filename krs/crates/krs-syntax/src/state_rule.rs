@@ -265,12 +265,8 @@ impl StateClaimItem {
     /// Forgets every key of the claim, before its pass keys it.
     fn clear_keys(&mut self) {
         self.rule.clear_keys();
-        for binder in self
-            .exists
-            .iter_mut()
-            .flat_map(ExistsAttribute::binders_mut)
-        {
-            binder.clear_keys();
+        if let Some(exists) = &mut self.exists {
+            exists.clear_keys();
         }
         if let Some(ensures) = &mut self.ensures {
             ensures.term.clear_keys();
@@ -899,8 +895,10 @@ impl StateRuleItem {
         Ok(self)
     }
 
-    /// Forgets every key of the rule, before a sentence's pass keys it.
+    /// Forgets every key of the rule and the anchors of its keying, before a
+    /// sentence's pass keys it.
     fn clear_keys(&mut self) {
+        self.anchors.clear();
         self.declaration_key = None;
         self.pattern_key = None;
         self.type_key = None;

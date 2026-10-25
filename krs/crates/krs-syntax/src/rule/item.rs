@@ -727,10 +727,14 @@ impl RuleItem {
         self.allocate_term_keys(keys, view)
     }
 
-    /// Forgets every key of the rule, before a sentence's pass keys it. A
-    /// readable clause's pass leaves the nodes it does not anchor without
-    /// keys: the result term and a placeholder subject.
+    /// Forgets every key of the rule and the anchors of its keying, before a
+    /// sentence's pass keys it. A readable clause's pass leaves the nodes it
+    /// does not anchor without keys (the result term and a placeholder
+    /// subject), and the rule without anchors of its own: the clause's are
+    /// the anchors of its keys.
     pub(crate) fn clear_keys(&mut self) {
+        self.anchors.clear();
+        self.full_anchors.clear();
         self.declaration_key = None;
         self.result_type_key = None;
         self.parameter.type_key = None;

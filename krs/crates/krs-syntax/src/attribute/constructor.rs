@@ -1039,7 +1039,11 @@ impl VariantSyntaxAttribute {
     }
 
     /// Keys the syntax, its template, then the metadata.
+    /// The anchors of the attribute's own keying are forgotten here and
+    /// recorded again by that keying: an enclosing sentence's pass leaves
+    /// the attribute with that sentence's keys and no anchors of its own.
     pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.anchors.clear();
         self.keys = ProductionKeys::default();
         self.keys.syntax = Some(keys.key(
             ProvenanceRole::ConstructorSyntax,
