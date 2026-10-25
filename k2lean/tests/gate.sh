@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # k2lean's regression gate.
 # Regenerates every library and demonstration from the K sources with the generator under test,
-# builds them in a scratch work tree, and compares what it measures with tests/baseline.toml.
+# builds them in a scratch work tree, and compares what it measures with the baseline
+# (tests/baseline/AREA.toml, with the recorded outputs in tests/expected/AREA/).
 #
 #   k2lean/tests/gate.sh light    generator unit and snapshot tests; kimp (goldens, step traces
 #                                 against krust and the K LLVM backend), kimp-d2 (kimp with one
@@ -42,9 +43,17 @@
 #                                 built with their axiom guards, kimp's goldens and
 #                                 step traces, SIMPLE's cases against krust; their recorded outputs
 #                                 must equal the default encoding's (expected/)
-#   k2lean/tests/gate.sh accept   make the last run's measurements the baseline (tests/baseline.toml
-#                                 and tests/expected/); a light run replaces only the light entries,
-#                                 an arity run only the arity entries (and no recorded output)
+#   k2lean/tests/gate.sh list [TIER]
+#                                 print the registered entries by area: kind, name, tier, and the
+#                                 tiers that only compare it (all entries, or those a TIER run measures)
+#   k2lean/tests/gate.sh accept [--area NAME]
+#                                 make the last run's measurements the baseline, of every area, or of
+#                                 area NAME only, which is refused (naming the entries) when another
+#                                 area's measured entries differ from that area's baseline; entries
+#                                 of the tiers the run did not include are kept, and a recorded output
+#                                 is rewritten only when its normalized content changes
+#
+# What is measured is registered by area, in tests/areas/AREA.py (each entry with its tier).
 #
 # Exit status: 0 the tier passes; 1 a regression (the `FAIL` lines say which); 2 a setup error.
 # A clean light run builds eleven Lean libraries and six Lean projects: on 2026-10-24, on Lean
@@ -83,8 +92,8 @@
 #   GATE_CLEAN=1        delete the work tree's .lake/ directories and Cargo target first
 #   GATE_RETRY_OPEN=1   start every library from an empty open-obligation list, so every open
 #                       obligation is attempted again (finds removals; rebuilds every Equations)
-#   GATE_BASELINE=FILE  the baseline (default tests/baseline.toml next to this script); its
-#                       expected outputs are in expected/ beside it
+#   GATE_BASELINE=DIR   the baseline (default tests/baseline next to this script): one AREA.toml per
+#                       area; the recorded outputs are in expected/AREA/ beside it
 #   GATE_CACHE=DIR      outputs cached by the hash of their inputs (default target/k2lean-gate/cache
 #                       in the checkout holding this script): kimp's K LLVM interpreter, SIMPLE's
 #                       krust-derived cases; GATE_CLEAN keeps it. Concurrent runs may share it: each
@@ -102,8 +111,11 @@ SELF=$(cd "$(dirname "$0")/.." && pwd)   # the k2lean directory holding this scr
 REPO=$(dirname "$SELF")                  # the k-rust checkout holding it
 CHECK=$SELF/tests/gate-check.py
 RT=$SELF/tests/rtime.py
-BASE=${GATE_BASELINE:-$SELF/tests/baseline.toml}
+BASE=${GATE_BASELINE:-$SELF/tests/baseline}
 ROOT=$(cd "${GATE_ROOT:-$SELF}" && pwd)
+# the registrations (tests/libs.sh and tests/areas/): the tree under test's, else this one's
+TESTS=$ROOT/tests; [ -f "$TESTS/libs.sh" ] && [ -d "$TESTS/areas" ] || TESTS=$SELF/tests
+export GATE_AREAS=$TESTS/areas
 if [ "$ROOT" = "$SELF" ]; then name=main; else name=$(basename "$(dirname "$ROOT")")-$(printf %s "$ROOT" | sha256sum | cut -c1-8); fi
 W=${GATE_WORK:-$REPO/target/k2lean-gate/work/$name}
 CACHE=${GATE_CACHE:-$REPO/target/k2lean-gate/cache}
@@ -112,7 +124,8 @@ W=$(cd "$W" && pwd) CACHE=$(cd "$CACHE" && pwd)
 
 case $TIER in
   light|heavy|arity) ;;
-  accept) exec python3 -I "$CHECK" accept "$W" "$BASE" ;;
+  list) shift; exec python3 -I "$CHECK" list "$@" ;;
+  accept) shift; exec python3 -I "$CHECK" accept "$W" "$BASE" "$@" ;;
   *) sed -n '2,/^set -uo/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 2 ;;
 esac
 
@@ -157,10 +170,9 @@ D=$T/demos
 KO=$W/kore             # krust's compiled definitions
 L=$W/logs
 MEAS=$W/measured       # what this run measured (gate-check.py reads it)
-# the generator calls (shared with demos/regen.sh): the tree under test's tests/libs.sh, else this one's
-LIBS=$ROOT/tests/libs.sh; [ -f "$LIBS" ] || LIBS=$SELF/tests/libs.sh
+# the generator calls (tests/libs.sh, shared with demos/regen.sh)
 # shellcheck source=libs.sh
-. "$LIBS"
+. "$TESTS/libs.sh"
 DEMOS=$D KRS=$D/k/krs-imp FIXTURES=$ROOT/tests/fixtures
 kore_dir() { echo "$KO/$1"; }
 rm -rf "$L" "$MEAS"

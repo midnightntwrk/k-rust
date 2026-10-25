@@ -1,0 +1,47 @@
+# k2lean regression gate baseline of the soundness area (k2lean/tests/gate.sh, k2lean/tests/gate-check.py).
+# Accept a new one after a deliberate change: run the tier, read its FAIL lines, then
+#   k2lean/tests/gate.sh accept --area soundness
+# (with the same GATE_WORK/GATE_ROOT as the run); a light run replaces only the light entries.
+# The recorded outputs that `outputs` names are in expected/soundness/ beside this directory.
+
+
+[lib.imptypes]
+tier = "light"
+stated = 100
+open = ["Eqn.«_|Set__SET_Set_Set_Set_1»"]
+guarded = 114
+overlaps = 0
+unwitnessed = 0
+
+[demo.ImpTypes]
+tier = "light"
+guarded = 43
+preserve = [{ where = "ImpTypes/Preserve.lean:19", closed = 77, total = 79, open = ["«CALC.var»", "«CALC.assign»"] }, { where = "ImpTypes/PreservesOf.lean:27", closed = 77, total = 79, open = ["«CALC.var»", "«CALC.assign»"] }, { where = "ImpTypes/Soundness.lean:33", closed = 77, total = 79, open = [], hand = ["«CALC.var»", "«CALC.assign»"] }]
+
+[sources]
+
+[sources.sha256]
+"demos/ImpTypes/ImpTypes/Soundness.lean" = { tier = "light", sha256 = "0aaaa6c6b3c83e36e211f78005262faa5df0cba62e49843ed28ae06b10936697" }
+"demos/ImpTypes/ImpTypes/Tr.lean" = { tier = "light", sha256 = "65f2d2ad4d36233ea1d49e76fb069089dc0b7e216fc9e039a14e6e0658a79e81" }
+"demos/ImpTypes/ImpTypes/Typing.lean" = { tier = "light", sha256 = "957c208135f81a8cf2d4836b16d039baf63cc4bf4e856dea25a52f1c2f734ec4" }
+"demos/ImpTypes/correspondence.toml" = { tier = "light", sha256 = "d718a02a680fc8ebdc94898d98af4ef880e228e13fcbc185f1170668c8194572" }
+"generated/imptypes/KImpTypes.lean" = { tier = "light", sha256 = "ad949103cca9bbc3eba082ef541111a7c382edde0b0d3c09731e91a3087647a9" }
+"generated/imptypes/KImpTypes/Adequacy.lean" = { tier = "light", sha256 = "d8429a00e01f64bed0a6a6cea68f066224656e8e3e68b45fd40a791cad39ccd7" }
+"generated/imptypes/KImpTypes/Determinism.lean" = { tier = "light", sha256 = "e75c7d010426a632701d1e003f45d0bd2df08a077fd43f89fb02ce131f8c0106" }
+"generated/imptypes/KImpTypes/Determinism/L1.lean" = { tier = "light", sha256 = "cd84153c7f5488c4b64e7c68f126f3f8d70b0fd73655b5d9899fe5b9435af579" }
+"generated/imptypes/KImpTypes/Determinism/L2.lean" = { tier = "light", sha256 = "acc4032e61e0311f4b75b7125b8f6a0109164790d7fad776168cafe3baad6722" }
+"generated/imptypes/KImpTypes/Determinism/L3.lean" = { tier = "light", sha256 = "b63796261bd79e2b6442fee4ec4f9c6879d61f29e0f199254ab62e84e341d8ae" }
+"generated/imptypes/KImpTypes/Determinism/L4.lean" = { tier = "light", sha256 = "9a47fa31ad0fa5ba70e64693122f14ebc8165cbf4ed166530b9e2fb2ef2691ea" }
+"generated/imptypes/KImpTypes/Determinism/Pre.lean" = { tier = "light", sha256 = "70f6e80ba13100f5930b0bdb2b278a7c97a5d4e7444c05a1414d20909b315c39" }
+"generated/imptypes/KImpTypes/Equations.lean" = { tier = "light", sha256 = "a8620d0a01d418d775b3a90cce2b250ee78c367958b205a3ebe92f7c9bca83c6" }
+"generated/imptypes/KImpTypes/Functions.lean" = { tier = "light", sha256 = "7854f25018bb7a9840ba75bc3168022d7b1cdc2f76e1cbbb34a48b3ee18b2531" }
+"generated/imptypes/KImpTypes/Init.lean" = { tier = "light", sha256 = "2a284800985121681519ef6a253341ab5a8af9cfd0e871607e4a18b153bda4fb" }
+"generated/imptypes/KImpTypes/Preserves.lean" = { tier = "light", sha256 = "fc366c4cd3bf1546dfa7e7a41f1c16b781085934c7e719e07d85b0fbd5dce840" }
+"generated/imptypes/KImpTypes/Rules.lean" = { tier = "light", sha256 = "14b169433c2d98f99ab6dbf02f1793dd55b4228985798642e41c3cf57543ff0c" }
+"generated/imptypes/KImpTypes/Terms.lean" = { tier = "light", sha256 = "ea7f6870130ec757ace6bf84158ccfb85b01aa9aa7937378b79a01735342e9f8" }
+"generated/imptypes/KImpTypesBench/Main.lean" = { tier = "light", sha256 = "3d5fadd8e52b7478a763474dceab2e9e716580ee5fb0f834bd2a0295af2799d4" }
+"generated/imptypes/KImpTypesTest/Axioms.lean" = { tier = "light", sha256 = "ca0dc3d1de2fbab5ea29ec258d247b43367d0f743c2c33602b9a76c4041a08ff" }
+"generated/imptypes/KImpTypesTest/DetAxioms.lean" = { tier = "light", sha256 = "d426cfe378b06608db3d6c46bf197b192d90ec8b7801845a0fe5566cac88eec8" }
+"generated/imptypes/KImpTypesTest/Main.lean" = { tier = "light", sha256 = "b5e34ddedb5ceab2eda28e51f6971bcfc5030efdbc789b1ef229a532cbfe4c31" }
+"generated/imptypes/lakefile.lean" = { tier = "light", sha256 = "b0ce2ad1a134b47f60e07b966beec8fe31f30768266aae69cae5b3e64f6c32d5" }
+"generated/imptypes/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }
