@@ -14,15 +14,16 @@ use crate::parse::{
 use crate::path::{is_plain_path, unqualified_path_ident as bare_ident};
 use crate::provenance::RuleSide;
 use crate::rule::{BINDER_LIST_CONTRACT, RuleCondition, RuleExistentials, take_requires_helper};
+use crate::state_macro::StatePosition;
 use crate::term::TermKeys;
 use crate::term::{
     allocate_lexeme_keys, allocate_record_field_keys, allocate_sort_test_keys, local_rewrite_error,
 };
 use crate::term_sort::{TermSort, parse_term_or_readable_sort};
 use crate::{
-    CellsExpression, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole, RuleRole,
-    StateMacroRemainder, StateTerm, SyntaxError, SyntaxErrorKind, TermExpression, TermNode,
-    TokenRange, parse_cells_expression, parse_cells_pattern,
+    CellsExpression, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole, StateMacroRemainder,
+    StateTerm, SyntaxError, SyntaxErrorKind, TermExpression, TermNode, TokenRange,
+    parse_cells_expression, parse_cells_pattern,
 };
 
 /// Semantic class of one binding introduced by a configuration-rule subject.
@@ -475,7 +476,7 @@ impl StateContextAliasItem {
                 TokenRange::for_tokens(sort.sort())?,
             )?;
         }
-        allocate_cells_keys(&mut keys, &self.pattern, RuleSide::Left)?;
+        allocate_cells_keys(&mut keys, &mut self.pattern.unkeyed(), RuleSide::Left)?;
         Ok(keys.into_anchors())
     }
 
@@ -791,9 +792,9 @@ impl StateRuleItem {
                 TokenRange::for_tokens(sort.sort())?,
             )?;
         }
-        allocate_cells_keys(&mut keys, &self.subject, RuleSide::Left)?;
+        allocate_cells_keys(&mut keys, &mut self.subject.unkeyed(), RuleSide::Left)?;
         if let Some(result) = &self.result {
-            allocate_cells_keys(&mut keys, &result.result, RuleSide::Right)?;
+            allocate_cells_keys(&mut keys, &mut result.result.unkeyed(), RuleSide::Right)?;
         }
         if let Some(requires) = &self.requires {
             requires.allocate_keys(&mut keys)?;
@@ -1138,7 +1139,7 @@ impl FunctionContext {
             ProvenanceRole::FunctionContextType,
             TokenRange::for_tokens(&self.configuration_type)?,
         )?;
-        allocate_cells_keys(keys, &self.pattern, RuleSide::Left)
+        allocate_cells_keys(keys, &mut self.pattern.unkeyed(), RuleSide::Left)
     }
 }
 
@@ -1776,47 +1777,51 @@ fn validate_condition_reuses(
 }
 
 /// Keys a `cells!` expression's own nodes under `side`'s roles, then each
-/// entry's state.
-fn allocate_cells_keys(
+/// entry's state. The cells are keyed as part of the rule: the caller clears
+/// their keys first.
+pub(crate) fn allocate_cells_keys(
     keys: &mut KeyAllocator,
-    cells: &CellsExpression,
+    cells: &mut CellsExpression,
     side: RuleSide,
 ) -> Result<(), SyntaxError> {
-    allocate_remapped_keys(keys, cells.provenance()?, side)?;
-    for entry in cells.entries() {
-        allocate_state_term_keys(keys, entry.value(), side)?;
+    cells.allocate_keys(keys, StatePosition::Rule(side))?;
+    for entry in cells.entries_mut() {
+        allocate_state_term_keys(keys, entry.value_mut(), side)?;
     }
     Ok(())
 }
 
+/// Keys a state's own nodes under `side`'s roles, then the terms and states
+/// inside it.
 fn allocate_state_term_keys(
     keys: &mut KeyAllocator,
-    term: &StateTerm,
+    term: &mut StateTerm,
     side: RuleSide,
 ) -> Result<(), SyntaxError> {
+    let position = StatePosition::Rule(side);
     match term {
         StateTerm::Present(inner) => allocate_state_term_keys(keys, inner, side),
         StateTerm::Absent(_) => Ok(()),
         StateTerm::Instances(list) => {
             // The instance, child-field, and rest roles each count in
             // traversal order; the children's own keys follow.
-            allocate_remapped_keys(keys, list.provenance()?, side)?;
-            for nested in term.nested_states() {
+            list.allocate_keys(keys, position)?;
+            for nested in list.nested_states_mut() {
                 allocate_state_term_keys(keys, nested, side)?;
             }
             Ok(())
         }
         StateTerm::Term(term) | StateTerm::Group(term) => allocate_term_keys(keys, term, side),
         StateTerm::KSequence(sequence) => {
-            allocate_remapped_keys(keys, sequence.provenance()?, side)?;
-            for item in sequence.items() {
+            sequence.allocate_keys(keys, position)?;
+            for item in sequence.items_mut() {
                 allocate_term_keys(keys, item, side)?;
             }
             Ok(())
         }
         StateTerm::Map(map) => {
-            allocate_remapped_keys(keys, map.provenance()?, side)?;
-            for term in map_terms(map) {
+            map.allocate_keys(keys, position)?;
+            for term in map.terms_mut() {
                 allocate_term_keys(keys, term, side)?;
             }
             Ok(())
@@ -1828,7 +1833,7 @@ fn allocate_state_term_keys(
 /// record field names, and, on the left, its wildcards.
 fn allocate_term_keys(
     keys: &mut KeyAllocator,
-    term: &TermExpression,
+    term: &mut TermExpression,
     side: RuleSide,
 ) -> Result<(), SyntaxError> {
     let (application_role, reference_role, literal_role, field_role) = match side {
@@ -1845,37 +1850,23 @@ fn allocate_term_keys(
             ProvenanceRole::RuleRightRecordFieldName,
         ),
     };
+    let (nodes, tree, term_keys) = term.keying();
     crate::rule::allocate_term_node_keys(
         keys,
-        term.nodes(),
-        &mut TermKeys::default(),
+        nodes,
+        term_keys,
         application_role,
         reference_role,
         literal_role,
     )?;
-    allocate_record_field_keys(keys, term.tree(), &mut TermKeys::default(), field_role)?;
+    allocate_record_field_keys(keys, tree, term_keys, field_role)?;
     if matches!(side, RuleSide::Left) {
-        let mut wildcards = Vec::new();
-        term.tree().wildcard_ranges_preorder(&mut wildcards);
-        for range in wildcards {
-            keys.key(ProvenanceRole::RuleLeftWildcard, range)?;
-        }
-    }
-    Ok(())
-}
-
-/// Keys the nodes of a state macro's standalone anchors under their roles on
-/// `side`, each as the next of its role.
-fn allocate_remapped_keys(
-    keys: &mut KeyAllocator,
-    anchors: Vec<ProvenanceAnchor>,
-    side: RuleSide,
-) -> Result<(), SyntaxError> {
-    for anchor in anchors {
-        let Some(role) = RuleRole::from_standalone(anchor.role()) else {
-            continue;
-        };
-        keys.key(role.on_side(side), anchor.range())?;
+        crate::rule::allocate_wildcard_keys(
+            keys,
+            tree,
+            term_keys,
+            ProvenanceRole::RuleLeftWildcard,
+        )?;
     }
     Ok(())
 }

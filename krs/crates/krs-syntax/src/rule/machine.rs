@@ -424,7 +424,7 @@ fn parse_readable_child(
             group.stream(),
             items,
             tail,
-        )));
+        )?));
     }
     Ok(StateTerm::Term(readable_term(tokens, context)?))
 }

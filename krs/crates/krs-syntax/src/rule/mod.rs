@@ -23,6 +23,6 @@ pub use existentials::RuleExistentials;
 pub use item::{BINDER_LIST_CONTRACT, RuleBinder, RuleItem, RuleParameter};
 pub use pattern::RulePattern;
 pub(crate) use pattern::{
-    NegativeLiteralSpans, allocate_term_node_keys, parse_pattern_with_signs,
-    validate_pattern_literal,
+    NegativeLiteralSpans, allocate_term_node_keys, allocate_wildcard_keys,
+    parse_pattern_with_signs, validate_pattern_literal,
 };
