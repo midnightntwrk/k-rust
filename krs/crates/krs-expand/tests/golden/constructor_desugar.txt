@@ -66,28 +66,6 @@ fn __krs_constructor_descriptor_9bb06ac28e815adc() -> ::core::result::Result<
                             true,
                         ),
                     ),
-                    (
-                        ::k::ProvenanceRole::ConstructorSyntax,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (2u32, 40u32),
-                            (2u32, 46u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::ConstructorDeclaration,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (4u32, 12u32),
-                            (4u32, 16u32),
-                            true,
-                        ),
-                    ),
                 ];
                 &::k::__KrsRawProvenance::new(
                     &["src/lib.rs"],

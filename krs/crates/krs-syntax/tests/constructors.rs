@@ -40,9 +40,9 @@ fn constructor_provenance_keys_declaration_and_inner_field_sorts() {
         "struct Pair { left: Term<dyn syntax::Expr>, right: Term<value::Value> }",
     )
     .unwrap();
-    let anchors = constructor.provenance().unwrap();
+    let anchors = constructor.full_provenance().unwrap();
 
-    assert_eq!(anchors.len(), 3);
+    assert_eq!(anchors.len(), 5);
     assert_eq!(anchors[0].role(), ProvenanceRole::ConstructorDeclaration);
     assert_eq!(
         anchors[0].key().role(),
@@ -57,6 +57,18 @@ fn constructor_provenance_keys_declaration_and_inner_field_sorts() {
     );
     assert_eq!(anchors[1].range().start().column, 29);
     assert_eq!(anchors[1].range().end().column, 41);
+    // The constructor descriptor denotes the field sorts, not the
+    // declaration or the field names, which are the grammar descriptor's.
+    let keys = |anchors: &[krs_syntax::ProvenanceAnchor]| {
+        anchors
+            .iter()
+            .map(krs_syntax::ProvenanceAnchor::key)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        keys(&constructor.sort_provenance().unwrap()),
+        keys(&anchors[1..3])
+    );
 }
 
 #[test]

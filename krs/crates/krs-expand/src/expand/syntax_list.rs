@@ -275,10 +275,20 @@ impl ListContext<'_> {
         }
     }
 
+    /// The anchors of the variant's production, its grammar descriptor's.
     fn anchors(&self, role: Role) -> crate::Result<Vec<ProvenanceAnchor>> {
         Ok(match role {
             Role::Cons => self.declaration.cons_provenance()?,
             Role::Terminator => self.declaration.terminator_provenance()?,
+        })
+    }
+
+    /// The anchors of the nodes the variant's constructor descriptor
+    /// denotes: the list sort, and the cons variant's field sorts.
+    fn constructor_anchors(&self, role: Role) -> crate::Result<Vec<ProvenanceAnchor>> {
+        Ok(match role {
+            Role::Cons => self.declaration.cons_constructor_provenance()?,
+            Role::Terminator => self.declaration.terminator_constructor_provenance()?,
         })
     }
 
@@ -325,9 +335,11 @@ impl ListContext<'_> {
         let grammar_name = format!("__krs_grammar_{enum_name}_{variant_name}");
         let anchors = self.anchors(role)?;
         let provenance = host_provenance(self.env, facade, self.fallback, &anchors);
-        // The variant's constructor and production descriptors share its
-        // anchors, and their wire nodes together denote them.
         let ledger = KeyLedger::new(&anchors, &[]);
+        let constructor_anchors = self.constructor_anchors(role)?;
+        let constructor_provenance =
+            host_provenance(self.env, facade, self.fallback, &constructor_anchors);
+        let constructor_ledger = KeyLedger::new(&constructor_anchors, &[]);
 
         let mut slots = WireSlots::new(facade);
         let result_slot = slots.type_slot(quote!(#facade::HostTypeKey(#enum_key)));
@@ -357,12 +369,10 @@ impl ListContext<'_> {
                         }
                     });
                     let spelling = field.term_sort().sort_token_text();
-                    // The production's nonterminal below defines the field
-                    // sort's key: the two descriptors share their anchors.
                     fields.push(WireConstructorFieldDescriptor {
                         name: field.name().to_string(),
                         sort: WireSortReference {
-                            key: ledger.refer(field.sort_key())?,
+                            key: constructor_ledger.define(field.sort_key())?,
                             target: WireTypeReference {
                                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
                                 authored_path: spelling.clone(),
@@ -451,11 +461,10 @@ impl ListContext<'_> {
             }
         }
         let application_path = format!("{enum_name}::{variant_name}");
-        // The constructor descriptor's sort defines the sort's key.
         let result_sort = wire_sort_reference(
             &mut grammar_slots,
             facade,
-            ledger.refer(self.declaration.sort_key())?,
+            ledger.define(self.declaration.sort_key())?,
             enum_key,
             enum_name,
         );
@@ -486,7 +495,7 @@ impl ListContext<'_> {
         let constructor_wire = WirePayload::Constructor(WireConstructorDescriptor {
             parameters: Vec::new(),
             sort: WireSortReference {
-                key: ledger.define(self.declaration.sort_key())?,
+                key: constructor_ledger.define(self.declaration.sort_key())?,
                 target: WireTypeReference {
                     slot: result_slot,
                     authored_path: enum_name.clone(),
@@ -496,6 +505,7 @@ impl ListContext<'_> {
             arguments: Vec::new(),
         });
         ledger.finish()?;
+        constructor_ledger.finish()?;
         let constructor_wire = serde_json::to_string(&constructor_wire)
             .expect("list-constructor wire is serializable");
         let slot_tokens = slots.tokens();
@@ -520,7 +530,7 @@ impl ListContext<'_> {
             payload: FactoryPayload::wire(constructor_wire, slot_tokens),
             cfg: quote!(::core::default::Default::default()),
             attributes: quote!(#(#cfg)*),
-            provenance: quote!(#provenance),
+            provenance: quote!(#constructor_provenance),
             prelude: TokenStream::new(),
         }
         .render();

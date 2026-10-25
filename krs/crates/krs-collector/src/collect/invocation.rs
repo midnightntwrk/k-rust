@@ -749,25 +749,33 @@ fn collect_syntax_list_invocations(
         ParsedInvocationPayload::Declaration,
     )?);
     let visibility = rust_visibility(&item_enum.vis)?;
-    for (name, anchors) in [
+    // Each variant declares its constructor, whose anchors are the nodes its
+    // payload denotes, and its production, whose anchors are the variant's.
+    for (name, constructor, production) in [
         (
             declaration.cons().name(),
+            declaration
+                .cons_constructor_provenance()
+                .map_err(source_syntax)?,
             declaration.cons_provenance().map_err(source_syntax)?,
         ),
         (
             declaration.terminator().name(),
+            declaration
+                .terminator_constructor_provenance()
+                .map_err(source_syntax)?,
             declaration.terminator_provenance().map_err(source_syntax)?,
         ),
     ] {
-        for role in [
-            ProvenanceRole::ConstructorSort,
-            ProvenanceRole::ConstructorDeclaration,
+        for (role, anchors) in [
+            (ProvenanceRole::ConstructorSort, constructor),
+            (ProvenanceRole::ConstructorDeclaration, production),
         ] {
             output.push(with_visibility(
                 parsed_invocation(
                     role,
                     name.to_string(),
-                    anchors.clone(),
+                    anchors,
                     ParsedInvocationPayload::Declaration,
                 )?,
                 visibility.clone(),

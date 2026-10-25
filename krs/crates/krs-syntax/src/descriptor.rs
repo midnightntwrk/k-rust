@@ -17,12 +17,12 @@ use syn::Ident;
 use crate::parse::KeyAllocator;
 use crate::{
     BracketAttribute, ClaimAttribute, ConfigurationAttribute, ConfigurationDeclaration,
-    ConstructorAttribute, ConstructorDeclaration, ContextAliasAttribute, ContextAttribute,
-    DesugarAttribute, EnumConstructorVariant, EquationAttribute, FunctionAttribute,
-    ProvenanceAnchor, ProvenanceRole, RuleAttribute, RuleClause, RuleItem, SimplificationAttribute,
-    SortAttribute, SpecModuleAttribute, SpecModuleItem, StateClaimItem, StateContextAliasItem,
-    StateRuleItem, StaticProductionAttribute, StrictnessAttribute, SymbolAttribute, SyntaxError,
-    TokenDeclaration, TokenRange, TokenStack,
+    ConstructorAttribute, ConstructorDeclaration, ConstructorField, ContextAliasAttribute,
+    ContextAttribute, DesugarAttribute, EnumConstructorVariant, EquationAttribute,
+    FunctionAttribute, ProvenanceAnchor, ProvenanceRole, RuleAttribute, RuleClause, RuleItem,
+    SimplificationAttribute, SortAttribute, SpecModuleAttribute, SpecModuleItem, StateClaimItem,
+    StateContextAliasItem, StateRuleItem, StaticProductionAttribute, StrictnessAttribute,
+    SymbolAttribute, SyntaxError, TokenDeclaration, TokenRange, TokenStack,
 };
 
 /// The attribute that makes a rule fn one kind of sentence.
@@ -369,10 +369,12 @@ pub struct ProductionItem<'a> {
 }
 
 impl ProductionItem<'_> {
-    /// Returns the anchors of the constructor descriptor: the production's
-    /// compact view, the struct, the element types of the result and of the
-    /// fields, which only this descriptor references, then the symbol
-    /// override.
+    /// Returns the anchors of the constructor descriptor, the nodes its
+    /// payload denotes: the production's sort, the struct's sort parameters
+    /// and field sorts, the element types of the result and of the fields,
+    /// which only this descriptor references, then the symbol override. The
+    /// production's syntax and metadata, and the struct's name, field names
+    /// and documentation, are its grammar descriptor's.
     ///
     /// # Errors
     ///
@@ -380,8 +382,8 @@ impl ProductionItem<'_> {
     pub fn constructor_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let production = self.attribute.production();
         let mut keys = KeyAllocator::default();
-        keys.append(&production.provenance()?)?;
-        keys.append(&self.declaration.provenance()?)?;
+        keys.append(&production.sort_provenance()?)?;
+        keys.append(&self.declaration.sort_provenance()?)?;
         keys.append(&production.sort_argument_provenance()?)?;
         keys.append(&self.declaration.argument_provenance()?)?;
         if let Some(symbol) = self.symbol {
@@ -481,16 +483,31 @@ impl ProductionDescriptor {
 }
 
 impl EnumConstructorVariant {
-    /// Returns the anchors of the variant's constructor descriptor: its
-    /// production, then the element types of its field sorts, which only
-    /// this descriptor references.
+    /// Returns the anchors of the variant's constructor descriptor, the
+    /// nodes its payload denotes: of the variant's production, the sort, the
+    /// field sorts and the symbol override, then the element types of the
+    /// field sorts, which only this descriptor references. The rest of the
+    /// production is its grammar descriptor's.
     ///
     /// # Errors
     ///
     /// None: the variant was keyed when it was parsed.
     pub fn constructor_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        let denoted = std::iter::once(self.sort_key())
+            .chain(self.fields().iter().map(ConstructorField::sort_key))
+            .chain(std::iter::once(
+                self.explicit_symbol().and_then(SymbolAttribute::key),
+            ))
+            .flatten()
+            .collect::<Vec<_>>();
         let mut keys = KeyAllocator::default();
-        keys.append(&self.provenance()?)?;
+        keys.append(
+            &self
+                .provenance()?
+                .into_iter()
+                .filter(|anchor| denoted.contains(&&anchor.key()))
+                .collect::<Vec<_>>(),
+        )?;
         keys.append(&self.argument_provenance()?)?;
         Ok(keys.into_anchors())
     }

@@ -80,28 +80,6 @@ fn __krs_constructor_descriptor_54aeae99bc279287() -> ::core::result::Result<
                         ),
                     ),
                     (
-                        ::k::ProvenanceRole::ConstructorSyntax,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (2u32, 61u32),
-                            (2u32, 80u32),
-                            true,
-                        ),
-                    ),
-                    (
-                        ::k::ProvenanceRole::ConstructorDeclaration,
-                        0u32,
-                        ::k::__KrsRawAnchor::new(
-                            0usize,
-                            false,
-                            (3u32, 12u32),
-                            (3u32, 21u32),
-                            true,
-                        ),
-                    ),
-                    (
                         ::k::ProvenanceRole::ConstructorFieldSort,
                         0u32,
                         ::k::__KrsRawAnchor::new(

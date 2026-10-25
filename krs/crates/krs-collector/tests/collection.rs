@@ -1194,20 +1194,22 @@ impl TestPackage {
         };
         let parsed = krs_syntax::ConstructorAttribute::parse_tokens(list.tokens.clone()).unwrap();
         let declaration = ConstructorDeclaration::from_item(item.clone()).unwrap();
-        let mut provenance = parsed.provenance().unwrap();
-        provenance.extend(declaration.provenance().unwrap());
-        if let Some(symbol) = item
+        let symbol = item
             .attrs
             .iter()
             .find(|attribute| is_symbol_attribute(attribute))
-        {
-            provenance.extend(
-                krs_syntax::SymbolAttribute::parse_tokens(attribute_tokens(symbol))
-                    .unwrap()
-                    .provenance()
-                    .unwrap(),
-            );
+            .map(|symbol| {
+                krs_syntax::SymbolAttribute::parse_tokens(attribute_tokens(symbol)).unwrap()
+            });
+        let provenance = krs_syntax::ProductionItem {
+            attribute: krs_syntax::ProductionAttribute::Constructor(&parsed),
+            declaration: &declaration,
+            symbol: symbol.as_ref(),
+            static_markers: &[],
+            strictness: &[],
         }
+        .constructor_provenance()
+        .unwrap();
         let fields = match &item.fields {
             syn::Fields::Named(fields) => fields
                 .named
