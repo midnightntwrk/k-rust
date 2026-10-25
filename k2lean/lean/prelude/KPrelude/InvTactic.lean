@@ -84,7 +84,8 @@ budget (a runtime exception, which `try … catch` rethrows) leaves its rule ope
 the log line `k2l_preserve: rule r reached the heartbeat limit …`; the other rules are still
 attempted, and in the per-case mode the case is reported not closed. A per-case theorem has
 spent its whole budget by then, so its elaboration after the tactic times out too (a second
-error, at the theorem); the log line names the rule.
+error, at the theorem); the log line names the rule. A closer step that reaches the recursion-depth
+limit (`maxRecDepth`, the other runtime exception) fails like any other step (`tryRec`).
 
 The unfolding set is: the head constant of `P` (for `OnCell proj Q`, also the heads of `proj`
 and `Q`; for `fun c => A c ∧ B c`, the heads of `A` and `B`), the `@[k2l_pres]` simp set, and
@@ -164,15 +165,27 @@ def checkSimpNames (g : MVarId) (args : Array SimpArg) : TacticM Unit := g.withC
     if (← Simp.getSimprocExtension? n').isSome then continue
     throwErrorAt t "k2l_preserve: unknown name `{n'}` in the simp list (not a hypothesis, a constant or a simp set)"
 
+/-- `x`, or `h` from the state before `x` when `x` fails, the recursion-depth limit
+(`maxRecDepth`) included. That limit is a runtime exception, which `try … catch` rethrows, so
+without this a closer step that recurses too deeply (a unification or a simp call on a large
+term) would end `k2l_preserve` with an error instead of failing like any other step, and the
+steps after it would not be tried. The heartbeat limit and interrupts are still rethrown: the
+heartbeat limit leaves the whole rule open (`closeRule`), since every step after it would reach
+it too. -/
+def tryRec {α : Type} (x : TacticM α) (h : TacticM α) : TacticM α := do
+  let s ← saveState
+  tryCatchRuntimeEx x fun e => do
+    if e.isMaxHeartbeat || e.isInterrupt then throw e
+    s.restore
+    h
+
 /-- Run `tac` on the main goal; true when it closes every goal it produced. Restores the state
 otherwise. -/
 def closes (tac : TSyntax `tactic) : TacticM Bool := do
   let s ← saveState
-  try
-    evalTactic tac
-    if (← getGoals).isEmpty then return true
-    s.restore; return false
-  catch _ => s.restore; return false
+  let ok ← tryRec (do evalTactic tac; pure (← getGoals).isEmpty) (pure false)
+  unless ok do s.restore
+  return ok
 
 /-- Rewrite each hypothesis `proj_A_B y = some x` with the generated `proj_eq_some_A_B`, then
 substitute. -/
@@ -192,8 +205,8 @@ def projToEq : TacticM Unit := do
     return acc
   unless lems.isEmpty do
     let args : Array SimpArg ← lems.mapM fun n => (simpArgOfName n : TacticM SimpArg)
-    try evalTactic (← `(tactic| simp only [$args,*] at *)) catch _ => pure ()
-    try evalTactic (← `(tactic| subst_vars)) catch _ => pure ()
+    tryRec (evalTactic (← `(tactic| simp only [$args,*] at *))) (pure ())
+    tryRec (evalTactic (← `(tactic| subst_vars))) (pure ())
 
 /-- Is `ty` an enumeration type (an inductive whose constructors have no fields)? -/
 def isEnumType (ty : Expr) : MetaM Bool := do
@@ -208,7 +221,7 @@ def isEnumType (ty : Expr) : MetaM Bool := do
 
 /-- Split conjunctions among the hypotheses. -/
 def splitAnds : TacticM Unit := do
-  try liftMetaTactic fun g => return [← g.casesAnd] catch _ => pure ()
+  tryRec (liftMetaTactic fun g => return [← g.casesAnd]) (pure ())
 
 /-- The *collections* closer: conjunctions, hypotheses, `@[k2l_coll]` lemmas, and a
 discharger for the leaves. When no lemma applies to a goal, it is normalized by `norm` (the
@@ -223,50 +236,42 @@ partial def collClose (disch : TSyntax `tactic) (lemmas : Array Name) (norm : TS
     if ← closes (← `(tactic| assumption)) then return true
     let g ← getMainGoal
     let tgt ← whnfR (← instantiateMVars (← g.getType))
+    -- every goal of `gs` closed by the closer at `depth`
+    let all (gs : List MVarId) (depth : Nat) : TacticM Bool := do
+      for g' in gs do
+        if ← g'.isAssigned then continue
+        setGoals [g']
+        unless ← collClose disch lemmas norm norms depth do return false
+      return true
     if tgt.isAppOfArity ``And 2 then
       let s ← saveState
-      try
-        evalTactic (← `(tactic| refine ⟨?_, ?_⟩))
-        let gs ← getGoals
-        let mut ok := true
-        for g' in gs do
-          setGoals [g']
-          unless ← collClose disch lemmas norm norms depth do
-            ok := false
-            break
+      let ok ← tryRec (do
+          evalTactic (← `(tactic| refine ⟨?_, ?_⟩))
+          all (← getGoals) depth) (pure false)
+      if ok then
+        setGoals []
+        return true
+      s.restore
+    if depth > 0 then
+      for L in lemmas do
+        let s ← saveState
+        let ok ← tryRec (do
+            evalTactic (← `(tactic| apply $(mkIdent L):ident))
+            all (← getGoals) (depth - 1)) (pure false)
         if ok then
           setGoals []
           return true
         s.restore
-      catch _ => s.restore
-    if depth > 0 then
-      for L in lemmas do
-        let s ← saveState
-        try
-          evalTactic (← `(tactic| apply $(mkIdent L):ident))
-          let gs ← getGoals
-          let mut ok := true
-          for g' in gs do
-            if ← g'.isAssigned then continue
-            setGoals [g']
-            unless ← collClose disch lemmas norm norms (depth - 1) do
-              ok := false
-              break
-          if ok then
-            setGoals []
-            return true
-          s.restore
-        catch _ => s.restore
     if norms > 0 then
       let s ← saveState
-      try
-        evalTactic norm
-        if (← getGoals).isEmpty then return true
-        if ← collClose disch lemmas norm (norms - 1) 3 then
-          setGoals []
-          return true
-        s.restore
-      catch _ => s.restore
+      let ok ← tryRec (do
+          evalTactic norm
+          if (← getGoals).isEmpty then return true
+          collClose disch lemmas norm (norms - 1) 3) (pure false)
+      if ok then
+        setGoals []
+        return true
+      s.restore
     closes disch
 
 /-- `EntriesOn Q m` (a `KPrelude.MapHook.EntriesOn` application): `(Q, m)`. -/
@@ -319,11 +324,10 @@ partial def forwardColl (norm : Array Name → TacticM Unit) (rounds : Nat)
               else `KPrelude.MapHook.entry_of_concat_element_right
             else if left then `KPrelude.MapHook.entriesOn_of_concat_left
             else `KPrelude.MapHook.entriesOn_of_concat_right
-          try
-            let pf ← mkAppM lem #[.fvar hc, .fvar he]
-            let ty ← instantiateMVars (← inferType pf)
-            out := out.push (ty, pf)
-          catch _ => pure ()
+          let fact ← tryRec (do
+              let pf ← mkAppM lem #[.fvar hc, .fvar he]
+              pure (some (← instantiateMVars (← inferType pf), pf))) (pure none)
+          if let some f := fact then out := out.push f
     return (out, done)
   if new.isEmpty then return
   let hs : Array Hypothesis := new.mapIdx fun i (ty, pf) =>
@@ -342,8 +346,8 @@ partial def splitLoop (simpU : TSyntax `tactic) (simpAllU : TSyntax `tactic)
     (heads : Array Name) : Nat → TacticM Unit
   | fuel => do
     if (← getGoals).isEmpty then return
-    try evalTactic simpU catch _ => pure ()
-    evalTactic (← `(tactic| try (intro _hw; $simpAllU; done)))
+    tryRec (evalTactic simpU) (pure ())
+    tryRec (evalTactic (← `(tactic| (intro _hw; $simpAllU; done)))) (pure ())
     if (← getGoals).isEmpty || fuel = 0 then return
     let g ← getMainGoal
     let tgt ← instantiateMVars (← g.getType)
@@ -366,10 +370,7 @@ partial def splitLoop (simpU : TSyntax `tactic) (simpAllU : TSyntax `tactic)
       for f in enumFields do
         let mut next := #[]
         for c in cur do
-          try
-            let r ← c.cases f
-            next := next ++ r.map (·.mvarId)
-          catch _ => next := next.push c
+          next := next ++ (← tryRec (do return (← c.cases f).map (·.mvarId)) (pure #[c]))
         cur := next
       gs' := gs' ++ cur
     let mut out := #[]
@@ -449,29 +450,24 @@ partial def closeRuleAux (k : Closers) (depth : Nat := 2) : TacticM Bool := do
   let mut ok := false
   -- 2. compute (first when `split` heads are given: it is the closer the user asked for)
   unless k.heads.isEmpty do
-    try
-      splitLoop k.simpU k.simpAllU k.heads k.fuel
-      ok := (← getGoals).isEmpty
-    catch _ => ok := false
+    ok ← tryRec (do splitLoop k.simpU k.simpAllU k.heads k.fuel; pure (← getGoals).isEmpty)
+      (pure false)
     unless ok do s1.restore
   -- 3. collections (with the facts read off the rule's matched collections)
   unless ok do
-    try
-      -- a list pattern binds its list by an equation (`hli : concat (element x) t = l`): substitute
-      -- it, so the invariant of `l` reads as that of its parts
-      evalTactic (← `(tactic| (intro h; try subst_vars; $(k.unfoldBoth))))
-      splitAnds
-      let U := k.U
-      forwardColl (fun hs => do
-        for h in hs do
-          try evalTactic (← `(tactic| simp only [$U,*] at $(mkIdent h):ident)) catch _ => pure ()
-          if (← getGoals).isEmpty then return) 4
-      if (← getGoals).isEmpty then ok := true
-      else
-        ok ← collClose k.disch k.coll k.norm 2 3
-      if ok then setGoals []
-    catch _ => pure ()
-    unless ok do s1.restore
+    ok ← tryRec (do
+        -- a list pattern binds its list by an equation (`hli : concat (element x) t = l`):
+        -- substitute it, so the invariant of `l` reads as that of its parts
+        evalTactic (← `(tactic| (intro h; try subst_vars; $(k.unfoldBoth))))
+        splitAnds
+        let U := k.U
+        forwardColl (fun hs => do
+          for h in hs do
+            tryRec (evalTactic (← `(tactic| simp only [$U,*] at $(mkIdent h):ident))) (pure ())
+            if (← getGoals).isEmpty then return) 4
+        if (← getGoals).isEmpty then return true
+        collClose k.disch k.coll k.norm 2 3) (pure false)
+    if ok then setGoals [] else s1.restore
   -- 4. simp
   unless ok do
     ok ← closes (← `(tactic| (intro h; $(k.simpAllU); done)))
@@ -486,19 +482,18 @@ partial def closeRuleAux (k : Closers) (depth : Nat := 2) : TacticM Bool := do
     let cands ← g.withContext do injVars (← instantiateMVars (← g.getType))
     for (x, inj) in cands do
       let s ← saveState
-      let closed ← try
+      let closed ← tryRec (do
           -- on the arity-indexed family, only the cases of the sort's values (`familyCases`)
           let sgs ← familyCases g x
           let mut all := true
           for (sg, _) in sgs do
             setGoals [sg]
-            try evalTactic (← `(tactic| simp only [$(mkCIdent inj):ident] at *)) catch _ => pure ()
+            tryRec (evalTactic (← `(tactic| simp only [$(mkCIdent inj):ident] at *))) (pure ())
             if (← getGoals).isEmpty then continue
             unless ← closeRuleAux k (depth - 1) do
               all := false
               break
-          pure all
-        catch _ => pure false
+          pure all) (pure false)
       if closed then
         setGoals []
         ok := true
