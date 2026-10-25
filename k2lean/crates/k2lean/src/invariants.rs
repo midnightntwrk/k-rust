@@ -1,5 +1,7 @@
 //! Kind 1 preserved invariants (`k2lean/docs/invariants.md`, part 2): `k2lean gen --invariant NAME[@CELL]`
-//! and `k2lean gen --sidecar FILE` write `{ns}/InvariantDefs.lean` and `{ns}/Invariants.lean`.
+//! and `k2lean gen --sidecar FILE` write `{ns}/InvariantDefs.lean` and `{ns}/Invariants.lean`, and
+//! beside the library `invariant-unfold.txt`, the invariant's unfolding set (below) as data for
+//! `k2lean claims --assume-invariant`.
 //!
 //! **The predicate.** An invariant is a K function `NAME` of the definition with result `Bool`.
 //! With `@CELL` its argument is the content of the cell `<CELL>` (or the cell itself), otherwise
@@ -1132,6 +1134,9 @@ pub struct Out {
     pub defs: String,
     pub theorems: String,
     pub open_list: String,
+    /// `invariant-unfold.txt`: the unfolding set of `k2l_inv`, one Lean name per line, for
+    /// `claims --assume-invariant` (which unfolds the invariant where no rule applies).
+    pub unfold_list: String,
     /// The skeleton of the hand module, when it does not exist and some case is open.
     pub hand_skeleton: Option<String>,
     pub notes: Vec<String>,
@@ -2279,10 +2284,16 @@ namespace {ns}\n\nopen KPrelude\n\n{skel}end {ns}\n",
             simp.join(", ")
         )
     });
+    let unfold_list = format!(
+        "# The unfolding set of the invariant `{ns}.Invariant` (`k2lean gen --invariant`, `--sidecar`): the lemmas\n\
+# of `k2l_inv` in {ns}/Invariants.lean, one per line. `k2lean claims --assume-invariant` reads it.\n{}\n",
+        simp.join("\n")
+    );
     Ok(Out {
         defs: d,
         theorems: t,
         open_list: ol,
+        unfold_list,
         hand_skeleton,
         notes,
     })

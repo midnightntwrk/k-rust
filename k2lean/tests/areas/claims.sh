@@ -82,14 +82,15 @@ kimp_claims() {
 kimpinv_claims() {
   # claims under a preserved invariant (`--assume-invariant`): the kind 1 invariant of kimpinv
   # (`envOk` and `storeNoIds`, invariants area), whose library is built there only as far as
-  # Invariants.lean; the claims need the rest (Rules, Adequacy, Determinism)
+  # Invariants.lean; the claims need the rest (Rules, Adequacy, Determinism). The invariant's
+  # unfolding set is read from the library's invariant-unfold.txt (the default of --invariant-unfold)
   phase "kimpinv claims"
   local OUTI=$GEN/kimpinv-claims
   if lbuild "$GEN/kimpinv" build-kimpinv-full KImpInv; then
     ok "build kimpinv" "$L/build-kimpinv-full.log"
     if "$G" claims --kore "$KO/kimp-inv/definition.kore" --spec "$KO/imp-inv-spec/definition.kore" \
         --out "$OUTI" --name KImpInvClaims --semantics KImpInv --semantics-path ../kimpinv --kclaims-path ../../lean/claims \
-        --assume-invariant Invariant --invariant-unfold "$GEN/kimpinv/KImpInv/Invariants.lean" > "$L/claims-inv-gen.log" 2>&1; then
+        --assume-invariant Invariant > "$L/claims-inv-gen.log" 2>&1; then
       ok "claims-inv gen"
       cp "$OUTI/claims.toml" "$MEAS/claims-inv.toml"
       if lbuild "$OUTI" build-claims-inv; then
