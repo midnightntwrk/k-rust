@@ -91,8 +91,9 @@ pub enum UnjudgedReason {
     /// A leaf halted where no request asks it to (`branch`, `cut-point`, or a `terminal` halt on
     /// the baseline of a differential case).
     HaltUnexpected,
-    /// A leaf's configuration holds an application of a partial function (or a malformed map or
-    /// set), so it may denote no value (`ceil_free` fails, T-1). It precedes
+    /// A leaf's configuration is not shown to exist (k-rust's `ground_defined` fails, T-1): it
+    /// holds an application of a partial function that no ceil equation or `value-production`
+    /// discharges, or map keys or set elements not shown apart, so it may denote no value. It precedes
     /// [`Self::UndecidedState`]: a sibling leaf's open constraint is often the complementary
     /// condition of the same undefined application (the step's `#Not(#Ceil(...))`), and this
     /// reason names the function. At `any-state`, also a reached state the target pattern
@@ -420,11 +421,11 @@ impl UnjudgedReason {
                  `CaseOptions::normal_end_pattern`)"
             }
             Self::NotCeilFree => {
-                "a leaf holds an application of a partial function that no equation evaluates \
-                 (often a function only through `anywhere` or overload rules, as SIMPLE's \
-                 array lookup `_[_]`), so the configuration may denote no value and this case \
-                 cannot be judged; a warning names the function when it is known; choose a \
-                 program or hole range whose runs do not reach that application"
+                "a leaf holds an application of a partial function that no equation evaluates and \
+                 whose definedness k-rust does not show (as one an `anywhere` rule of its head \
+                 still matches), or map keys not shown apart, so the configuration may denote no \
+                 value and this case cannot be judged; a warning names the function when it is \
+                 known; choose a program or hole range whose runs do not reach that application"
             }
             Self::MutantEndNotData | Self::BaselineEndNotData => NOT_DATA_REMEDY,
             Self::DefinitionNotConfluent => DEFINITION_NOT_CONFLUENT_REMEDY,

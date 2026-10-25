@@ -213,10 +213,14 @@ pub enum UncleanReason {
     /// from the constraints (`ExecutionState::defined_where`), so the leaf may denote nothing
     /// (D16, review B2). Not a decided state.
     Undecided,
-    /// Its internalized term is not `ceil_free`: an application of a partial function, a
-    /// term-level `\and` of two different conjuncts, or a malformed map or set (T-1). The K label of
-    /// the first partial function application found (in preorder), or `\and` when a conjunction
-    /// is found first (`run::AND_NOTE`), when there is one.
+    /// Its internalized term is not shown to exist (k-rust's `ground_defined`, the definedness
+    /// walk on a decided state; `ceil_free` on an undecided one, which is unclean anyway): an
+    /// application of a partial function that no ceil equation or `value-production` discharges,
+    /// a term-level `\and` of two different conjuncts, or map keys or set elements not shown
+    /// apart (T-1). The K label of the first such partial function application found (in
+    /// preorder), or `\and` when a conjunction is found first (`run::AND_NOTE`), when there is
+    /// one. The name is the report's `not-ceil-free`, kept from when the stored attribute decided
+    /// it; every term the attribute accepts is still accepted.
     NotCeilFree(Option<String>),
     /// Its diagnostics carry an implementation-chosen value.
     ImplementationChosenValue,
@@ -356,7 +360,7 @@ pub struct LeafReport {
     /// When the request asked for it and the leaf is a decided end: the leaf's internalized
     /// configuration is data (`k_rust_backend::definition::BackendDefinition::is_data`): free
     /// constructors, injections, domain values, well-formed collections and irreducible
-    /// applications of the definition's overload data heads, no member of a broken overload
+    /// applications of the definition's data heads, no member of a broken overload
     /// family, so that it denotes itself and differs from every other data term; in a
     /// differential pair, data in the other definition too (differential condition 4,
     /// ARCHITECTURE 4.3, T-16;

@@ -1,0 +1,5 @@
+// Declares an array and prints its size; no indexing.
+function main() {
+  var a[4];
+  print(sizeOf(a), "\n");
+}

@@ -145,7 +145,8 @@ pub enum ComparableCondition {
     Halt,
     /// P2: a leaf has constraints or variables, so it is not ground and decided.
     UndecidedState,
-    /// P2: a leaf's term is not `ceil_free`: it may denote no value.
+    /// P2: a leaf's term is not shown to exist (k-rust's `ground_defined`): it may denote no
+    /// value.
     NotCeilFree,
     /// P2: a leaf could not be internalized in its definition.
     InternalizationFailed,

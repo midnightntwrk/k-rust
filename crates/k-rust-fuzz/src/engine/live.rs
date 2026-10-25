@@ -1721,9 +1721,10 @@ fn partial_warnings(result: &CaseResult, reason: Option<UnjudgedReason>) -> Vec<
             }
             format!(
                 "not-ceil-free: a leaf holds an application of `{function}` that no equation \
-                 evaluates (a partial function, or one defined only by `anywhere` or overload \
-                 rules), so the configuration may denote no value and the case could not be \
-                 judged; a program or hole range whose runs avoid that application can be"
+                 evaluates and whose definedness k-rust does not show (a partial function, or \
+                 an application an `anywhere` equation of its head still matches), so the \
+                 configuration may denote no value and the case could not be judged; a program \
+                 or hole range whose runs avoid that application can be"
             )
         })
         .collect()

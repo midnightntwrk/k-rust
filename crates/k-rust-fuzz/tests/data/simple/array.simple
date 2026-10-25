@@ -1,0 +1,8 @@
+// Fill an array with squares using a for loop and ++.
+function main() {
+  var a[4];
+  for (var i = 0; i < 4; ++i) {
+    a[i] = i * i;
+  }
+  print(a[2], " ", a[3], " ", sizeOf(a), "\n");
+}

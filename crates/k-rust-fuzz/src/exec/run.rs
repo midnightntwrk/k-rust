@@ -11,6 +11,7 @@ use k_rust::{
     definition::{AttributeKey, Attributes, ProductionItem, ResolvedDefinition, Sentence},
     k_rust_backend::{
         data_term::DataHeads,
+        definedness::application_owes_nothing,
         definition::BackendDefinition,
         evaluation::{EvaluationMode, with_evaluation},
         rewrite::Pattern,
@@ -533,7 +534,7 @@ pub(crate) struct Executor {
     max_simplification_iterations: usize,
     /// Stops for lack of stack in the definition's load (ARCHITECTURE 5.4).
     load_stack_stops: usize,
-    /// The definition's overload data heads and refused symbols
+    /// The definition's data heads and refused symbols
     /// ([`BackendDefinition::data_heads`]), which [`LeafReport::data_end`] reads; computed on
     /// first need ([`Self::data_heads`]), since it runs the definition's full critical-pair
     /// check, or given by the campaign's cache ([`Self::with_data_heads`]).
@@ -1394,10 +1395,21 @@ impl Judge<'_> {
         if !decided {
             internal.reasons.push(UncleanReason::Undecided);
         }
-        if !attributes.ceil_free() {
+        // Existence is k-rust's one predicate on a decided state (`ground_defined`: the
+        // definedness walk owes nothing), which also discharges an irreducible
+        // `value-production` application such as SIMPLE's stored `a[4]`. An undecided leaf is
+        // unclean already; the stored `ceil_free` attribute, which every `ground_defined` term
+        // without variables has, then only adds the note naming what may be undefined.
+        let defined = if decided {
+            definition.ground_defined(&pattern.term)
+        } else {
+            attributes.ceil_free()
+        };
+        if !defined {
             internal
                 .reasons
                 .push(UncleanReason::NotCeilFree(partial_application(
+                    definition,
                     &pattern.term,
                 )));
         }
@@ -1568,14 +1580,16 @@ fn initial_has_k(backend: &mut Backend, state: &KorePattern) -> Option<bool> {
 /// conjuncts differ.
 pub(crate) const AND_NOTE: &str = r"\and";
 
-/// The K label of the first application of a partial function in `term`, in preorder, looking
-/// only into subterms that are not `ceil_free`, or [`AND_NOTE`] for a term-level conjunction
-/// found first whose sides' first conjuncts differ (`Term::first_conjunct`), which owes their
-/// equality and may denote nothing (`k_rust_backend::definedness::ceil_term`); `None` when the
-/// term is not ceil-free for another reason (a malformed map or set, a set variable). A
-/// conjunction of one first conjunct, such as `1 /\ (1 /\ 1)`, owes nothing of its own, so the
-/// search passes on to its sides.
-fn partial_application(term: &Term) -> Option<String> {
+/// The K label of the first application of a partial function in `term` that owes definedness
+/// of its own (`k_rust_backend::definedness::application_owes_nothing` fails: no ceil equation
+/// and no `value-production` discharges it), in preorder, looking only into subterms that are
+/// not `ceil_free`, or [`AND_NOTE`] for a term-level conjunction found first whose sides' first
+/// conjuncts differ (`Term::first_conjunct`), which owes their equality and may denote nothing
+/// (`k_rust_backend::definedness::ceil_term`); `None` when the term is not shown defined for
+/// another reason (map keys or set elements not shown apart, a set variable). A conjunction of
+/// one first conjunct, such as `1 /\ (1 /\ 1)`, owes nothing of its own, so the search passes
+/// on to its sides, as it does past an irreducible `value-production` application.
+fn partial_application(definition: &BackendDefinition, term: &Term) -> Option<String> {
     if term.attributes().ceil_free() {
         return None;
     }
@@ -1584,7 +1598,9 @@ fn partial_application(term: &Term) -> Option<String> {
         TermKind::Application {
             symbol, arguments, ..
         } => {
-            if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial) {
+            if symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Partial)
+                && !application_owes_nothing(definition, term)
+            {
                 let name: &str = &symbol.name;
                 return Some(
                     k_rust::kast::identifier::decode_label(name)
@@ -1619,7 +1635,9 @@ fn partial_application(term: &Term) -> Option<String> {
         }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
     }
-    children.into_iter().find_map(partial_application)
+    children
+        .into_iter()
+        .find_map(|child| partial_application(definition, child))
 }
 
 /// Whether `term` holds a term-level `\and` anywhere (`k_rust_backend::term::TermKind::And`),

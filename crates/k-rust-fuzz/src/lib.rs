@@ -134,6 +134,13 @@ pub use values::{Constraints, Value};
 /// of distinct states (verdict moves V1 to V7 of `docs/compatibility.md`, "Format versions"),
 /// which moves `Budget::Work`, the corpus's and the climb's scores and the solve proposer's
 /// budget, scaled from a blocked case's work.
+///
+/// Within version 7 (KRUST-ANYWHERE-HEAD, the same round-3 wave): a leaf's or reached state's
+/// existence is k-rust's `ground_defined` (the definedness walk on the decided state) where it
+/// was the stored `ceil_free` attribute, and an end's data judgement admits the instance-normal
+/// applications of plain `anywhere` data heads (SIMPLE's stored `a[4]`). Cases on such programs
+/// move from `unsupported` or `baseline-incomplete` (`not-ceil-free`, an end not data) to judged
+/// classes, which the proposers read; every case judged before is judged alike.
 pub const ENGINE_VERSION: u32 = 7;
 
 #[cfg(test)]
