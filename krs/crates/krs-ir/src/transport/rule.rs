@@ -1660,9 +1660,7 @@ impl DescriptorConfigurationRule {
     }
 
     /// Returns every key this rule's nodes carry, with its fixed declaration
-    /// key. A node that denotes a node of its own but carries no key (a
-    /// claim's anonymous constant's spelling, a condition's fragment path)
-    /// adds none.
+    /// key.
     ///
     /// # Errors
     ///

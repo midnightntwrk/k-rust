@@ -1079,10 +1079,8 @@ impl DescriptorHeadRule {
 
 impl HostHeadRule {
     /// Checks that the clause's keys are exactly `anchors`, its descriptor's:
-    /// each key field has its field's role and defines its key once, the
-    /// fixed declaration key is the rule clause's or the claim clause's, and
-    /// the nodes that carry no key of their own pair with the anchors of
-    /// their roles.
+    /// each key field has its field's role and defines its key once, and the
+    /// fixed declaration key is the rule clause's or the claim clause's.
     ///
     /// The check reads the clause as the expander built it. The collector
     /// then keeps one of a bracketed value's two readings, moves a cell's
