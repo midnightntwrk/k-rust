@@ -524,7 +524,6 @@ impl<'a> InitializerBuilder<'a> {
         // place for yet: the remainder is refused where it is written
         // rather than dropped.
         if let Some(range) = sequence.tail().range() {
-            ledger.define(sequence.tail_key())?;
             return Err(ExpandError::at_range(
                 codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
                 range,
@@ -550,7 +549,7 @@ impl<'a> InitializerBuilder<'a> {
             MapBody::Empty { explicit_dot } => ProtocolMapBody::Empty {
                 explicit_dot: *explicit_dot,
             },
-            MapBody::Items { items, .. } => {
+            MapBody::Items { items, remainder } => {
                 let mut output = Vec::new();
                 for item in items {
                     let key_key = ledger.define(item.key().keys().payload())?;
@@ -563,6 +562,18 @@ impl<'a> InitializerBuilder<'a> {
                         value_key,
                         value,
                     });
+                }
+                // `..pgm` after the items denotes `items $PGM`, the items
+                // joined with the variable's map, which the initializer's
+                // map has no place for: its body holds the items only. The
+                // remainder is refused where it is written rather than
+                // dropped.
+                if let Some(range) = remainder.range() {
+                    return Err(ExpandError::at_range(
+                        codes::syntax::UNSUPPORTED_INITIALIZER_BODY,
+                        range,
+                        "unsupported declarative initializer body: an initializer's `map!` does not take a remainder; list the map's items",
+                    ));
                 }
                 ProtocolMapBody::Items { items: output }
             }
