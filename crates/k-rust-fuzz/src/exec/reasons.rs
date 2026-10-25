@@ -722,11 +722,13 @@ fn smt_cause(error: &SmtFailureOutput, detail: Option<&str>) -> HaltCause {
         SmtFailureOutput::Translation { .. }
         | SmtFailureOutput::Unavailable
         | SmtFailureOutput::Unknown { .. }
+        // An unsatisfiable path condition shows the state empty, not k-rust wrong: a state
+        // keeps a condition whose earlier checks the solver left undecided.
+        | SmtFailureOutput::InconsistentGroundTruth
         | SmtFailureOutput::MalformedScript {
             translation_blamed: false,
             ..
         } => return HaltCause::Unjudged(UnjudgedReason::HaltSmt),
-        SmtFailureOutput::InconsistentGroundTruth => "inconsistent-ground-truth",
         SmtFailureOutput::MalformedScript {
             translation_blamed: true,
             ..

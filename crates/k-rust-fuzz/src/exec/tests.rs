@@ -1827,7 +1827,7 @@ fn a_halt_is_read_by_its_typed_cause() {
         (
             H::SimplificationError,
             Some(smt_failure(SmtFailureOutput::InconsistentGroundTruth)),
-            internal("smt:inconsistent-ground-truth"),
+            unjudged(UnjudgedReason::HaltSmt),
         ),
         (
             H::SimplificationError,
