@@ -1,0 +1,113 @@
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: 1.2rem;
+  align-items: start;
+}
+
+.source {
+  container-type: inline-size;
+  border: 1px solid var(--vocs-border-color-primary);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+
+.label {
+  padding: 0.6rem 0.8rem;
+  border-bottom: 1px solid var(--vocs-border-color-primary);
+  color: var(--vocs-text-color-secondary);
+  font-size: 0.75rem;
+}
+
+.source pre,
+.proof pre {
+  margin: 0;
+  padding: 0.8rem;
+  font-size: 0.73rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.source pre > code,
+.proof pre > code {
+  display: block;
+  padding: 0;
+}
+
+.execution {
+  display: grid;
+  align-content: start;
+  gap: 0.7rem;
+  padding-block: 0.25rem;
+}
+
+.execution > strong { font-size: 0.95rem; }
+.quantifier { color: var(--vocs-text-color-secondary); font-size: 0.8rem; }
+
+.trace {
+  display: grid;
+  gap: 0.7rem;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trace li {
+  display: grid;
+  gap: 0.35rem;
+  margin: 0;
+}
+
+.trace li > span { font-size: 0.75rem; color: var(--vocs-text-color-secondary); }
+.trace code { padding: 0; font-size: 0.8rem; }
+.hidden { visibility: hidden; }
+.proven { color: var(--ok); font-weight: 600; font-size: 0.85rem; }
+.pending { color: var(--vocs-text-color-secondary); font-size: 0.8rem; }
+.raw { font-size: 0.8rem; }
+.raw summary { cursor: pointer; }
+.link { font-size: 0.8rem; }
+
+.proof {
+  border: 1px solid var(--vocs-border-color-primary);
+  border-radius: 0.5rem;
+  min-width: 0;
+}
+
+.proof > strong { display: block; padding: 0.7rem 0.8rem 0; font-size: 0.85rem; }
+
+@media (max-width: 640px) {
+  .layout { grid-template-columns: minmax(0, 1fr); }
+}
+
+.codeLine {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-inline: -0.25rem;
+  padding-inline: 0.25rem;
+  border-radius: 0.2rem;
+  white-space: normal;
+}
+
+.lineText {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.annotation {
+  font-family: var(--vocs-font-sans);
+  font-size: 0.65rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.claimLine { background: var(--tint-focus); }
+.startLine { background: var(--tint-a); }
+.endLine { background: var(--tint-ok); }
+
+@container (max-width: 350px) {
+  .codeLine { grid-template-columns: minmax(0, 1fr); gap: 0; }
+  .annotation { justify-self: end; }
+}

@@ -159,6 +159,10 @@
     "inputs": "07b198a0cc36f6eacb741aaa99b2d0c2019daf9c3a852f04f31f907786ff4194",
     "output": "66f534a24edf4676e278e1c260ac55331519cb558ff1c2f4fc3ab978f3de7cdd"
   },
+  "story-prove": {
+    "inputs": "25bfe631e5cba9c058399cf2b75c463acd67ae5140e1d56aa4e3952785f41671",
+    "output": "7e0838bf3fabfaf7991a0acc9f3dc87b8f0afc89dc975a9f6b1407e4d1ec60aa"
+  },
   "story-search": {
     "inputs": "2b5bd947b73efde9f9d8fe36301354059c54d97cb1ba3bc5ccb0d34316578604",
     "output": "bf78c947c8de9d24bfc6e73fe7ed214b1542e64230f66b416ff85293ca46179f"

@@ -1,4 +1,4 @@
 # The introduction's specification and its mutants; scripts/sync-story.py generates mutants/.
 [workspace]
 resolver = "3"
-members = ["plus", "mutants/a", "mutants/b", "mutants/c"]
+members = ["plus", "mutants/a", "mutants/b", "mutants/c", "claims"]

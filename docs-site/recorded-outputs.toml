@@ -217,6 +217,13 @@ args = ["emit-k", "--output", "target/krs-k"]
 show = "target/krs-k/definition.k"
 
 [[output]]
+id = "story-prove"
+fixture = "story"
+package = "story-plus-claims"
+definition = "main"
+args = ["prove", "--dependency", "story-plus:main", "--claim", "add-one"]
+
+[[output]]
 id = "story-base-t1"
 fixture = "story/plus"
 package = "story-plus"

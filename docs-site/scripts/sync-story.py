@@ -79,6 +79,7 @@ def manifest_block(story: dict) -> str:
     entry("story-parse", "story/plus", "story-plus", ["parse", "programs/t3.nat"])
     entry("story-search", "story/plus", "story-plus", ["search", "programs/t3.nat"])
     entry("story-emit-k", "story/plus", "story-plus", ["emit-k", "--output", "target/krs-k"], "target/krs-k/definition.k")
+    entry("story-prove", "story", "story-plus-claims", ["prove", "--dependency", "story-plus:main", "--claim", "add-one"])
     for variant, fixture, package in variants(story):
         for test in story["test"]:
             entry(f"story-{variant}-{test['id']}", fixture, package, ["run", f"programs/{test['id']}.nat"])
@@ -87,7 +88,7 @@ def manifest_block(story: dict) -> str:
 
 
 def output_ids(story: dict) -> list[str]:
-    tools = ["story-check", "story-parse", "story-search", "story-emit-k"]
+    tools = ["story-check", "story-parse", "story-search", "story-emit-k", "story-prove"]
     return tools + [f"story-{v}-{t['id']}" for v, _, _ in variants(story) for t in story["test"]]
 
 
@@ -135,6 +136,9 @@ def run_result(identifier: str) -> str:
 
 
 def check_expectations(story: dict) -> None:
+    proof = (OUTPUTS / "story-prove.txt").read_text(encoding="utf-8")
+    if "NAT-CLAIMS-SPEC.add-one: proven" not in proof.splitlines() or "exit status" in proof:
+        fail("the introduction's add-one claim must have a recorded proven result")
     for mutation in story["mutation"]:
         caught = [
             test["id"] for test in story["test"]
@@ -159,8 +163,8 @@ def main() -> None:
     expected[MANIFEST] = manifest[:start] + manifest_block(story) + manifest[end:]
 
     workspace = tomllib.loads((STORY / "Cargo.toml").read_text(encoding="utf-8"))["workspace"]["members"]
-    if workspace != ["plus"] + [f"mutants/{m['id']}" for m in story["mutation"]]:
-        fail("story/Cargo.toml must list plus and every mutants/<id>, in story.toml order")
+    if workspace != ["plus"] + [f"mutants/{m['id']}" for m in story["mutation"]] + ["claims"]:
+        fail("story/Cargo.toml must list plus, every mutants/<id> in story.toml order, and claims")
     generated_mutants = {path.name for path in (STORY / "mutants").iterdir()} if (STORY / "mutants").is_dir() else set()
     extra = sorted(generated_mutants - {m["id"] for m in story["mutation"]})
     if extra:
