@@ -11,6 +11,22 @@ pub struct HookImpl {
     pub partial: bool,
 }
 
+/// The hooks the generator implements by an adapter over a prelude definition, with the KORE
+/// constructors the adapter compares an argument with (`funcs.rs`, `bytes_adapter`): they are
+/// implemented in a definition that has those constructors. `domains.md` documents the hooks'
+/// flag arguments as these constructors (`bigEndianBytes`, `signedBytes`).
+pub const ADAPTERS: &[(&str, &[&str])] = &[
+    ("BYTES.int2bytes", &["LblbigEndianBytes"]),
+    ("BYTES.bytes2int", &["LblbigEndianBytes", "LblsignedBytes"]),
+];
+
+/// Whether `hook` is implemented by an adapter in a definition whose constructors satisfy `has`.
+pub fn adapted(hook: &str, has: impl Fn(&str) -> bool) -> bool {
+    ADAPTERS
+        .iter()
+        .any(|(h, cs)| *h == hook && cs.iter().all(|c| has(c)))
+}
+
 pub fn lookup(hook: &str) -> Option<HookImpl> {
     let (lean, partial) = match hook {
         "INT.add" => ("KPrelude.IntHook.add", false),

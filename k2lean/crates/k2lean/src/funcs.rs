@@ -1237,6 +1237,9 @@ fn bytes_adapter(
     result: &str,
 ) -> Option<(String, String)> {
     let ctor = |k: &str| m.ctors.get(k).map(|_| m.ctor_path(k));
+    if !crate::hooks::adapted(hook?, |c| m.ctors.contains_key(c)) {
+        return None;
+    }
     let big = ctor("LblbigEndianBytes")?;
     match (hook?, args) {
         ("BYTES.int2bytes", [l, i, e]) => Some((

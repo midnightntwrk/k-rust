@@ -189,7 +189,7 @@ pub fn run(def: &Def, rest: &[String]) {
         let ns = h.split('.').next().unwrap_or("").to_string();
         let e = hook_ns.entry(ns).or_default();
         e.0 += 1;
-        if hooks::lookup(&h).is_some() {
+        if hooks::lookup(&h).is_some() || adapted(def, &h) {
             e.1 += 1;
         } else {
             missing_hooks.insert(h);
@@ -457,18 +457,14 @@ pub fn run(def: &Def, rest: &[String]) {
     }
     let hooked_impl = reach
         .iter()
-        .filter(|f| {
-            def.symbols
-                .get(*f)
-                .is_some_and(|d| crate::hooks::for_symbol(d).is_some())
-        })
+        .filter(|f| def.symbols.get(*f).is_some_and(|d| implemented(def, d)))
         .count();
     let hooked_missing: BTreeSet<String> = reach
         .iter()
         .filter_map(|f| {
             let d = def.symbols.get(f)?;
             let h = d.hook()?;
-            (crate::hooks::for_symbol(d).is_none() && !eqs.contains_key(f)).then_some(h)
+            (!implemented(def, d) && !eqs.contains_key(f)).then_some(h)
         })
         .collect();
     let with_eqs = reach
@@ -513,6 +509,16 @@ pub fn run(def: &Def, rest: &[String]) {
     }
     println!("\n[hooks.missing] # hooks of declared function symbols with no implementation");
     println!("list = {missing_hooks:?}");
+}
+
+/// Whether hook `h` is implemented by one of the generator's adapters in this definition.
+fn adapted(def: &Def, h: &str) -> bool {
+    hooks::adapted(h, |c| def.symbols.contains_key(c))
+}
+
+/// Whether the generator implements the hooked function `d` (the hook library, or an adapter).
+fn implemented(def: &Def, d: &crate::ir::SymbolDecl) -> bool {
+    hooks::for_symbol(d).is_some() || d.hook().is_some_and(|h| adapted(def, &h))
 }
 
 fn recursive_fns_cache_contains(
