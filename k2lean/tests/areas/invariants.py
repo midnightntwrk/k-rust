@@ -11,7 +11,9 @@ LIBS = {
     "kimpboth": {"ns": "KImpInv", "tier": "light", "guard": False},
     "nested": {"ns": "KNested", "tier": "light", "guard": False},
     "range": {"ns": "KRange", "tier": "light", "guard": False},
-    "walk": {"ns": "KWalk", "tier": "light", "guard": False},
+    # per-sort: on the arity universe the backward direction of `workersIn`'s walk lemma
+    # (InvariantDefs.lean) leaves the match's catch-all arm on the one-constructor cell sort open
+    "walk": {"ns": "KWalk", "tier": "light", "guard": False, "encoding": "per-sort"},
     "simpleinv": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
     "simplestore": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
     "simplet": {"ns": "KSimpleInv", "tier": "heavy", "guard": False},
