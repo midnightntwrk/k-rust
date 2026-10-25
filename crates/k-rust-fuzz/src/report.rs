@@ -1148,13 +1148,14 @@ impl Comparability {
     /// the determinism contract and every condition it names, and whether it holds, is a
     /// function of the case. A judgement that names a clock, a solver `unknown`, a stop for lack
     /// of stack or an allowance refusal may name other conditions, or hold, on another run.
-    /// One that holds is always reproducible.
+    /// So may one that names `run-failed`: a run that fails to start (a solver prelude refused
+    /// by the environment, outside the case for a judgement made after shrinking) says nothing
+    /// about the case. One that holds is always reproducible.
     #[must_use]
     pub fn reproducible(&self) -> bool {
-        !self
-            .reasons
-            .iter()
-            .any(|condition| condition.breaks_determinism())
+        !self.reasons.iter().any(|condition| {
+            condition.breaks_determinism() || *condition == ComparableCondition::RunFailed
+        })
     }
 }
 

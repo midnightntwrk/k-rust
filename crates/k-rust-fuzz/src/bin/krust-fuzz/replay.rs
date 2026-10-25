@@ -362,8 +362,8 @@ fn differences(recorded: &WitnessCase, report: &FuzzReport) -> Vec<String> {
 /// Whether the replayed comparable judgement reproduces the recorded one (FZ-COMPARABLE-A).
 /// Only a judgement whose run was inside the determinism contract repeats
 /// ([`Comparability::reproducible`]), so two such judgements must be equal; when either names a
-/// clock, a solver `unknown`, a stop for lack of stack or an allowance refusal, both were made
-/// by a run that may end otherwise on another attempt (without `comparable-end`, the judgement
+/// clock, a solver `unknown`, a stop for lack of stack, an allowance refusal or a failed run, both
+/// were made by a run that may end otherwise on another attempt (without `comparable-end`, the judgement
 /// of a one-path witness is made outside the case, whose determinism does not cover it), and
 /// they are not compared. A witness without the judgement (a differential or observer witness)
 /// compares nothing.
@@ -404,6 +404,7 @@ mod tests {
         let bound = judged(&[C::WorkBound]);
         let clock = judged(&[C::Clock, C::WorkBound]);
         let unknown = judged(&[C::SmtUnknowns]);
+        let failed = judged(&[C::RunFailed]);
         assert!(comparable_reproduced(Some(&holds), Some(&holds)));
         assert!(comparable_reproduced(Some(&bound), Some(&bound)));
         assert!(!comparable_reproduced(Some(&holds), Some(&bound)));
@@ -412,5 +413,7 @@ mod tests {
         assert!(comparable_reproduced(Some(&holds), Some(&clock)));
         assert!(comparable_reproduced(Some(&unknown), Some(&holds)));
         assert!(comparable_reproduced(None, Some(&holds)));
+        assert!(comparable_reproduced(Some(&failed), Some(&holds)));
+        assert!(comparable_reproduced(Some(&holds), Some(&failed)));
     }
 }
