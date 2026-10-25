@@ -2125,56 +2125,6 @@ stage_shape! {
     }
 }
 
-/// The roles of the production's nodes that a constructor's descriptor
-/// repeats from its grammar descriptor, whose wire alone denotes them: the
-/// declaration and its field names and documentation, the syntax with its
-/// template and format, the metadata, the tier membership and the
-/// cons-list marker, the alias or desugar marker and its payload, and the
-/// strictness. The constructor's wire denotes the rest itself: the
-/// constructed sort, its sort parameters and element types, and each
-/// field's sort with its element types.
-///
-/// The expander's ledger accepts these anchors of a constructor's descriptor
-/// when the grammar descriptor's wire defines them; the transport, which
-/// validates each descriptor alone, leaves them to the grammar descriptor's
-/// closure.
-pub const REPEATED_PRODUCTION_ROLES: [ProvenanceRole; 24] = [
-    ProvenanceRole::ConstructorDeclaration,
-    ProvenanceRole::ConstructorFieldDeclaration,
-    ProvenanceRole::ConstructorDocumentation,
-    ProvenanceRole::ConstructorSyntax,
-    ProvenanceRole::ConstructorSyntaxItem,
-    ProvenanceRole::ConstructorSyntaxFieldReference,
-    ProvenanceRole::ConstructorFormat,
-    ProvenanceRole::ConstructorFormatFragment,
-    ProvenanceRole::ConstructorGroup,
-    ProvenanceRole::ConstructorAvoid,
-    ProvenanceRole::ConstructorPrefer,
-    ProvenanceRole::ConstructorInternal,
-    ProvenanceRole::ConstructorProgram,
-    ProvenanceRole::ConstructorOverload,
-    ProvenanceRole::ConstructorColor,
-    ProvenanceRole::ConstructorColorsEntry,
-    ProvenanceRole::ConsListDeclaration,
-    ProvenanceRole::AliasProduction,
-    ProvenanceRole::DesugarProduction,
-    ProvenanceRole::StaticRecursive,
-    ProvenanceRole::StrictnessDeclaration,
-    ProvenanceRole::StrictnessContextAliasReference,
-    ProvenanceRole::StrictnessFieldReference,
-    ProvenanceRole::StrictnessResultSort,
-];
-
-/// The roles of a syntax list's attribute nodes, which a list variant's
-/// constructor descriptor repeats beside [`REPEATED_PRODUCTION_ROLES`]: the
-/// variant's constructor and grammar descriptors share the production's
-/// anchors, and only the grammar descriptor's wire denotes these.
-pub const REPEATED_LIST_ROLES: [ProvenanceRole; 3] = [
-    ProvenanceRole::ListDeclaration,
-    ProvenanceRole::ListSeparator,
-    ProvenanceRole::ListNonEmpty,
-];
-
 /// Descriptor-stage form of [`StructuredRule`].
 pub type StructuredRuleDescriptor = StructuredRule<DescriptorStage>;
 

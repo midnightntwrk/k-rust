@@ -1066,14 +1066,9 @@ impl HostSortDescriptor {
 
 impl HostConstructorDescriptor {
     /// Checks that the constructor's anchors are its sort, its sort
-    /// parameters, its fields' sorts, and the element types of those sorts,
-    /// besides the production's nodes the descriptor repeats from its
-    /// grammar descriptor, which that descriptor's own closure covers
-    /// ([`crate::transport::grammar::REPEATED_PRODUCTION_ROLES`], and a list
-    /// variant's [`crate::transport::grammar::REPEATED_LIST_ROLES`]).
-    /// The transport validates each descriptor alone, so it exempts these
-    /// roles where the expander's ledger requires the grammar wire to define
-    /// them.
+    /// parameters, its fields' sorts, and the element types of those sorts:
+    /// the nodes its payload denotes. The production's other nodes are its
+    /// grammar descriptor's.
     ///
     /// The check reads the payload before the collector resolves it: the
     /// resolved payload carries no key.
@@ -1099,11 +1094,7 @@ impl HostConstructorDescriptor {
                 &mut keys,
             )?;
         }
-        let repeated = |role| {
-            crate::transport::grammar::REPEATED_PRODUCTION_ROLES.contains(&role)
-                || crate::transport::grammar::REPEATED_LIST_ROLES.contains(&role)
-        };
-        Ok(keys.close(payload_anchors(anchors).filter(|key| !repeated(key.role())))?)
+        Ok(keys.close(payload_anchors(anchors))?)
     }
 }
 
@@ -1180,11 +1171,12 @@ mod tests {
         );
     }
 
-    /// A constructor defines its sort and its fields' sorts, and leaves the
-    /// production's repeated nodes to its grammar descriptor; any other
-    /// anchor is its own to consume.
+    /// A constructor's anchors are the nodes its payload denotes, its sort
+    /// and its fields' sorts here, and the stable symbol, the collector's
+    /// node; a production node its payload does not carry, such as the
+    /// declaration, is left over.
     #[test]
-    fn a_constructor_is_closed_beside_its_repeated_production_nodes() {
+    fn a_constructor_is_closed_over_the_nodes_its_payload_denotes() {
         let constructor = HostConstructorDescriptor {
             sort: crate::HostSortReference {
                 key: ProvenanceKey::new(ProvenanceRole::ConstructorSort, 0),
@@ -1205,15 +1197,22 @@ mod tests {
             authored(ProvenanceRole::StableSymbol, 0),
             authored(ProvenanceRole::ConstructorSort, 0),
             authored(ProvenanceRole::ConstructorFieldSort, 0),
-            authored(ProvenanceRole::ConstructorDeclaration, 0),
-            authored(ProvenanceRole::ConstructorFieldDeclaration, 0),
         ];
         assert_eq!(constructor.validate_complete_provenance(&anchors), Ok(()));
-        anchors.push(authored(ProvenanceRole::SortParameter, 0));
+        anchors.push(authored(ProvenanceRole::ConstructorDeclaration, 0));
         assert_eq!(
             constructor.validate_complete_provenance(&anchors),
             Err(StateTransportError::ExtraProvenance(ProvenanceKey::new(
-                ProvenanceRole::SortParameter,
+                ProvenanceRole::ConstructorDeclaration,
+                0
+            )))
+        );
+        anchors.pop();
+        anchors.pop();
+        assert_eq!(
+            constructor.validate_complete_provenance(&anchors),
+            Err(StateTransportError::MissingProvenance(ProvenanceKey::new(
+                ProvenanceRole::ConstructorFieldSort,
                 0
             )))
         );

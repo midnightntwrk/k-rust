@@ -13,8 +13,6 @@ use syn::{Attribute, Ident, Path};
 use super::ledger::KeyLedger;
 use super::tokens::{call_site_path, enum_variant_parts, spelling, variant_marker_function};
 use krs_ir::ProvenanceKey;
-/// The production roles a constructor's descriptor repeats from its grammar descriptor.
-pub(super) use krs_ir::transport::grammar::REPEATED_PRODUCTION_ROLES;
 
 pub(super) fn strictness_key_function<'a>(
     strictness: Option<&StrictnessAttribute>,

@@ -101,34 +101,9 @@ impl<'a> KeyLedger<'a> {
     /// Requires every anchored key to be defined, except the kind's fixed
     /// keys: the first one left is an authored node the expansion dropped.
     pub(super) fn finish(&self) -> crate::Result<()> {
-        self.finish_with(|_| false)
-    }
-
-    /// [`Self::finish`] for a descriptor whose anchors repeat nodes of
-    /// `sibling`, the other descriptor of the same item, whose wire nodes
-    /// denote them: a constructor's descriptor lists its production's
-    /// syntax, which only its grammar descriptor carries. An anchor of a
-    /// role in `repeated` must be defined by the sibling; every other
-    /// anchor, by this descriptor.
-    pub(super) fn finish_beside(
-        &self,
-        sibling: &KeyLedger<'_>,
-        repeated: &[ProvenanceRole],
-    ) -> crate::Result<()> {
-        self.finish_with(|key| repeated.contains(&key.role()) && sibling.defines(key))
-    }
-
-    /// Whether a wire node of this descriptor took `key` as its own.
-    fn defines(&self, key: &ProvenanceKey) -> bool {
-        self.index
-            .get(key)
-            .is_some_and(|index| self.defined[*index].get())
-    }
-
-    fn finish_with(&self, elsewhere: impl Fn(&ProvenanceKey) -> bool) -> crate::Result<()> {
         for (anchor, defined) in self.anchors.iter().zip(&self.defined) {
             let key = anchor.key();
-            if !defined.get() && !self.fixed.contains(&key) && !elsewhere(&key) {
+            if !defined.get() && !self.fixed.contains(&key) {
                 return Err(ExpandError::at_range(
                     expand::UNCONSUMED_PROVENANCE_KEY,
                     anchor.range(),
@@ -251,47 +226,5 @@ mod tests {
         }
         let missing = ledger.define(None).unwrap_err();
         assert_eq!(located(&missing).0, expand::MISSING_PROVENANCE_KEY);
-    }
-
-    #[test]
-    fn a_descriptor_finishes_beside_its_sibling() {
-        let (anchors, spans) = anchors([
-            (ProvenanceRole::ConstructorSort, 0),
-            (ProvenanceRole::ConstructorSyntax, 0),
-            (ProvenanceRole::ConstructorDeclaration, 0),
-        ]);
-        let repeated = [
-            ProvenanceRole::ConstructorSyntax,
-            ProvenanceRole::ConstructorDeclaration,
-        ];
-        // The constructor defines its sort; the grammar, the repeated nodes.
-        let ledger = KeyLedger::new(&anchors, &[]);
-        let sibling = KeyLedger::new(&anchors, &[]);
-        ledger.define_key(anchors[0].key()).unwrap();
-        sibling.define_key(anchors[1].key()).unwrap();
-        sibling.define_key(anchors[2].key()).unwrap();
-        ledger.finish_beside(&sibling, &repeated).unwrap();
-
-        // A repeated node the sibling did not define is dropped.
-        let ledger = KeyLedger::new(&anchors, &[]);
-        let sibling = KeyLedger::new(&anchors, &[]);
-        ledger.define_key(anchors[0].key()).unwrap();
-        sibling.define_key(anchors[1].key()).unwrap();
-        let error = ledger.finish_beside(&sibling, &repeated).unwrap_err();
-        let (code, span) = located(&error);
-        assert_eq!(code, expand::UNCONSUMED_PROVENANCE_KEY);
-        assert_eq!(span.unwrap().start(), spans[2].start());
-
-        // A node of no repeated role is this descriptor's to define, even
-        // when the sibling defined it.
-        let ledger = KeyLedger::new(&anchors, &[]);
-        let sibling = KeyLedger::new(&anchors, &[]);
-        for anchor in &anchors {
-            sibling.define_key(anchor.key()).unwrap();
-        }
-        let error = ledger.finish_beside(&sibling, &repeated).unwrap_err();
-        let (code, span) = located(&error);
-        assert_eq!(code, expand::UNCONSUMED_PROVENANCE_KEY);
-        assert_eq!(span.unwrap().start(), spans[0].start());
     }
 }
