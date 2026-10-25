@@ -111,9 +111,13 @@ pub use values::{Constraints, Value};
 /// (FZ-EMPTYJOIN-CLAIMS), splits a residual into the cases its equations distinguish
 /// (FZ-CONFLUENCE-F), reads a leaf with a term-level `\and` of different sides conservatively
 /// (FZ-ADOPT-AND) and widens `genuine` (S2B-T3), which moves the findings and the classes the
-/// proposers read; a pattern target `at: any-state` now runs (FZ-ANYSTATE); and a rule or pattern
-/// hit under `comparable` or `query-confirmable` may take one more charged run, which moves
-/// `Budget::Work` and shrinking (FZ-COMPARABLE-AQ).
+/// proposers read; a pattern target `at: any-state` now runs (FZ-ANYSTATE); and under
+/// `comparable` a rule or pattern hit is also judged on the program's run of every path, and one
+/// whose case ran one path or stopped at the target's rule takes one more run of every path,
+/// counted in the case's work, which moves `Budget::Work` and shrinking, and refuses hits
+/// (FZ-COMPARABLE-AQ). `query-confirmable` runs nothing more. A campaign with neither option keeps
+/// its case sequence: its witness cases' comparable judgement is made after the search, outside
+/// every case, and its run adds to `totals.work` alone.
 pub const ENGINE_VERSION: u32 = 6;
 
 #[cfg(test)]

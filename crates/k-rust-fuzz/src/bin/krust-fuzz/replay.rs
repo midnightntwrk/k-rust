@@ -12,7 +12,9 @@ use std::path::Path;
 
 use k_rust_fuzz::{
     Budget, Campaign, ProposerConfig,
-    report::{FuzzReport, REPORT_SCHEMA, REPORT_VERSION, ReportIdentity, WitnessCase},
+    report::{
+        Comparability, FuzzReport, REPORT_SCHEMA, REPORT_VERSION, ReportIdentity, WitnessCase,
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -351,10 +353,64 @@ fn differences(recorded: &WitnessCase, report: &FuzzReport) -> Vec<String> {
     {
         differences.push("where or how the target was reached differs".to_owned());
     }
-    // Whether the program's run of every path is comparable is a fact of the witness case too
-    // (FZ-COMPARABLE-A); absent from a witness recorded before it existed, which is not compared.
-    if recorded.comparable.is_some() && replayed.comparable != recorded.comparable {
+    if !comparable_reproduced(recorded.comparable.as_ref(), replayed.comparable.as_ref()) {
         differences.push("whether the run of every path is comparable differs".to_owned());
     }
     differences
+}
+
+/// Whether the replayed comparable judgement reproduces the recorded one (FZ-COMPARABLE-A).
+/// Only a judgement whose run was inside the determinism contract repeats
+/// ([`Comparability::reproducible`]), so two such judgements must be equal; when either names a
+/// clock, a solver `unknown`, a stop for lack of stack or an allowance refusal, both were made
+/// by a run that may end otherwise on another attempt (without `comparable-end`, the judgement
+/// of a one-path witness is made outside the case, whose determinism does not cover it), and
+/// they are not compared. A witness without the judgement (a differential or observer witness)
+/// compares nothing.
+fn comparable_reproduced(
+    recorded: Option<&Comparability>,
+    replayed: Option<&Comparability>,
+) -> bool {
+    match (recorded, replayed) {
+        (None, _) => true,
+        (Some(recorded), Some(replayed))
+            if !recorded.reproducible() || !replayed.reproducible() =>
+        {
+            true
+        }
+        (Some(recorded), replayed) => replayed == Some(recorded),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use k_rust_fuzz::{exec::ComparableCondition as C, report::Comparability};
+
+    use super::comparable_reproduced;
+
+    fn judged(reasons: &[C]) -> Comparability {
+        Comparability {
+            holds: reasons.is_empty(),
+            reasons: reasons.to_vec(),
+        }
+    }
+
+    /// Judgements made inside the determinism contract must be equal; one that names a fact
+    /// breaking determinism (a clock, a solver `unknown`, ...) is not compared, on either side
+    /// (INT9 review S2).
+    #[test]
+    fn only_reproducible_comparable_judgements_are_compared() {
+        let holds = judged(&[]);
+        let bound = judged(&[C::WorkBound]);
+        let clock = judged(&[C::Clock, C::WorkBound]);
+        let unknown = judged(&[C::SmtUnknowns]);
+        assert!(comparable_reproduced(Some(&holds), Some(&holds)));
+        assert!(comparable_reproduced(Some(&bound), Some(&bound)));
+        assert!(!comparable_reproduced(Some(&holds), Some(&bound)));
+        assert!(!comparable_reproduced(Some(&bound), None));
+        assert!(comparable_reproduced(Some(&clock), Some(&bound)));
+        assert!(comparable_reproduced(Some(&holds), Some(&clock)));
+        assert!(comparable_reproduced(Some(&unknown), Some(&holds)));
+        assert!(comparable_reproduced(None, Some(&holds)));
+    }
 }

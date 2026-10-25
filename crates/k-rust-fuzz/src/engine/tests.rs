@@ -19,11 +19,11 @@ use super::{
 };
 use crate::{
     error::CampaignError,
-    exec::{Abort, OutcomeClass},
+    exec::{Abort, ComparableCondition, OutcomeClass},
     holes::HoleLocation,
     report::{
-        CampaignOutcome, DefinitionIdentity, DefinitionRole, FuzzReport, HitLabel, HoleValue,
-        KillKind, Reaching, RejectionReason, ReportIdentity, Totals, WitnessSide,
+        CampaignOutcome, Comparability, DefinitionIdentity, DefinitionRole, FuzzReport, HitLabel,
+        HoleValue, KillKind, Reaching, RejectionReason, ReportIdentity, Totals, WitnessSide,
     },
     spec::{Budget, CaseOptions, PathMode, ProposerConfig, ProposerKind},
     values::{Constraints, GenerationBounds, IntRange, LengthRange, Value},
@@ -132,6 +132,11 @@ struct Scripted {
     confirmed: Vec<Vec<Value>>,
     /// The classes the loop said it kept an incidental finding of, in order.
     kept: Vec<OutcomeClass>,
+    /// The work of the comparable judgement a witness case's case did not make
+    /// ([`CaseRunner::comparability`]); `None` gives none.
+    judgement_work: Option<u64>,
+    /// The values of every comparable judgement asked for, in order.
+    judged: Vec<Vec<Value>>,
 }
 
 impl Scripted {
@@ -148,6 +153,8 @@ impl Scripted {
             cases: Vec::new(),
             confirmed: Vec::new(),
             kept: Vec::new(),
+            judgement_work: None,
+            judged: Vec::new(),
         }
     }
 }
@@ -187,6 +194,22 @@ impl CaseRunner for Scripted {
 
     fn incidental_kept(&mut self, class: OutcomeClass) {
         self.kept.push(class);
+    }
+
+    fn comparability(
+        &mut self,
+        values: &[Value],
+        _cancel: Option<&CancellationToken>,
+    ) -> Option<(Comparability, u64)> {
+        let work = self.judgement_work?;
+        self.judged.push(values.to_vec());
+        Some((
+            Comparability {
+                holds: false,
+                reasons: vec![ComparableCondition::Clock],
+            },
+            work,
+        ))
     }
 }
 
@@ -403,6 +426,56 @@ fn a_work_budget_charges_confirmation_and_shrinking() {
         witness.shrunk.expect("a shrunk witness").holes[0].value,
         int(50)
     );
+}
+
+/// A witness case's comparable judgement that its case did not make is made after shrinking,
+/// once per reported witness case, outside every case (INT9 review S2): under a work budget the
+/// same cases, confirmations and shrink candidates run as without it, and its work goes to the
+/// total alone.
+#[test]
+fn a_comparable_judgement_outside_the_case_moves_no_case_or_shrink_run() {
+    let mut runner = Scripted::new(
+        |values| {
+            if as_int(&values[0]) >= 40 {
+                hit(values, 10, "end")
+            } else {
+                run(OutcomeClass::Miss, 10)
+            }
+        },
+        |values| Ok(hit(values, 5, "end")),
+    );
+    runner.judgement_work = Some(1000);
+    let mut schedule = Schedule::new(
+        1,
+        Vec::new(),
+        vec![(1, Counter::boxed(ProposerKind::Blind, 100, 0))],
+    );
+    let report = run_loop(
+        &mut runner,
+        &mut schedule,
+        &settings(1),
+        Budget::Work(60),
+        None,
+    );
+    // As in `a_work_budget_charges_confirmation_and_shrinking`.
+    let runs: Vec<i64> = runner
+        .cases
+        .iter()
+        .map(|values| as_int(&values[0]))
+        .collect();
+    assert_eq!(runs, [100, 0, 50, 25, 37]);
+    assert_eq!(runner.confirmed, [vec![int(100)], vec![int(50)]]);
+    assert_eq!(runner.judged, [vec![int(50)], vec![int(100)]]);
+    assert_eq!(report.totals.work, 60 + 2 * 1000);
+    assert_eq!(report.totals.cases, 1);
+    assert_eq!(report.totals.outside_determinism, 0);
+    let witness = report.witness().cloned().expect("a witness");
+    let judged = Some(Comparability {
+        holds: false,
+        reasons: vec![ComparableCondition::Clock],
+    });
+    assert_eq!(witness.first.comparable, judged);
+    assert_eq!(witness.shrunk.expect("a shrunk witness").comparable, judged);
 }
 
 #[test]

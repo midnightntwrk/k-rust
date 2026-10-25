@@ -153,7 +153,9 @@ pub(crate) struct HitDetail {
     /// The instantiated program text, for a campaign with a program text.
     pub(crate) program: Option<String>,
     /// For a rule or pattern hit, whether the program's run of every path is comparable
-    /// ([`crate::report::WitnessCase::comparable`]); `None` for every other target.
+    /// ([`crate::report::WitnessCase::comparable`]), when the case judged it; `None` for every
+    /// other target, and for a hit whose judgement the loop makes outside the case
+    /// ([`CaseRunner::comparability`]).
     pub(crate) comparable: Option<Comparability>,
     /// The instantiated configuration-variable bindings ([`crate::report::WitnessCase::config_vars`]).
     pub(crate) config_vars: BTreeMap<String, String>,
@@ -206,6 +208,22 @@ pub(crate) trait CaseRunner {
     /// Whether `value` satisfies hole `hole`'s sort and constraints; shrink moves that leave
     /// them are never run.
     fn admissible(&self, hole: usize, value: &Value) -> bool;
+
+    /// The comparable judgement of a witness case with `values` that its case did not make
+    /// (`crate::target::ResolvedTarget::comparability`: a rule or pattern target without
+    /// `comparable-end` whose cases run one path or stop at the target's rule), with the work
+    /// of the run of every path it made, within `cancel`'s scope, on the campaign's own
+    /// backend. The run is part of no case: the loop calls this once per reported witness
+    /// case, after shrinking, and charges the work to the campaign's total alone, so that it
+    /// moves no case's class, determinism, coverage or work. `None` when the case made the
+    /// judgement or the target carries none, and by default.
+    fn comparability(
+        &mut self,
+        _values: &[Value],
+        _cancel: Option<&CancellationToken>,
+    ) -> Option<(Comparability, u64)> {
+        None
+    }
 
     /// The loop kept an incidental finding of `class` ([`CaseRun::incidental`]): later cases
     /// of that class need not describe one, which spares building a finding no report holds.

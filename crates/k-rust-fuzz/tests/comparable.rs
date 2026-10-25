@@ -2,7 +2,7 @@
 //! the conditions kink's verdicts rest on, read from k-rust's facts.
 //!
 //! `comparable-end` ([`Target::comparable`]) makes a rule or pattern hit also require that the
-//! witness program's all-paths run is complete and comparable (conditions P1, P2, P4 and P5);
+//! witness program's all-paths run is complete and comparable (conditions P1 to P5);
 //! without it, a witness still carries that judgement. `query-confirmable`
 //! ([`Target::query_confirmable`]) makes a pattern hit also require no diagnostic anywhere in
 //! the run, read over the whole run (conditions Q2', Q4' and Q5'). Every campaign fixes its
@@ -22,7 +22,7 @@ use k_rust_fuzz::{
 };
 use num_bigint::BigInt;
 use serde_json::{Value as Json, json};
-use support::{COMPARABLE, COMPARABLE_ENDS, Fixture, LOADCLAIM};
+use support::{COMPARABLE, COMPARABLE_COND, COMPARABLE_ENDS, Fixture, LOADCLAIM};
 
 /// An `Int` hole `N` at `literal` in `find` of `program`, over `min..=max`.
 fn hole(program: &str, find: &str, literal: &str, (min, max): (i64, i64)) -> HoleDecl {
@@ -230,13 +230,15 @@ fn a_hit_on_a_definition_whose_load_contradicts_a_claim_is_not_comparable() {
 }
 
 /// `cond(N)` ends with the unevaluated total `f(N)`, a clean leaf for the fuzz, which carries
-/// the `undecided-condition` of `f-pos` unless N is 0. Kink makes any diagnosed leaf incomplete
-/// (P1), so under `comparable-end` only `cond(0)` is a hit.
+/// the `undecided-condition` of `f-some` unless N is 0. Kink makes any diagnosed leaf incomplete
+/// (P1), and the diagnostic, which says why the end stayed unevaluated, is named first. `f-some`
+/// also leaves the definition without data, so no end of it is comparable (P3): `cond(0)` is
+/// refused for that alone.
 #[test]
 fn an_all_paths_end_carrying_an_undecided_condition_is_not_comparable() {
     let campaign = |target, range| {
         spec(
-            &COMPARABLE,
+            &COMPARABLE_COND,
             "comparable/cond.pgm",
             vec![hole("comparable/cond.pgm", "cond(3)", "3", range)],
             target,
@@ -247,21 +249,150 @@ fn an_all_paths_end_carrying_an_undecided_condition_is_not_comparable() {
     assert!(witness_found(&off), "{}", json(&off));
     assert_eq!(
         witness_comparable(&off),
-        json!({"holds": false, "reasons": ["undecided-condition"]})
+        json!({"holds": false, "reasons": ["undecided-condition", "end-not-data"]})
     );
     let on = run(campaign(comparable(plain(fired("cond"))), (1, 9)), 4);
     refused_for(&on, "end-not-comparable:undecided-condition");
-    // Over 0..=9 the campaign finds `cond(0)`, whose run is comparable.
-    let zero = run(campaign(comparable(plain(fired("cond"))), (0, 9)), 40);
-    assert!(witness_found(&zero), "{}", json(&zero));
+    // Over 0..=9 the witness shrinks to `cond(0)`, whose end carries no diagnostic and is
+    // still not data.
+    let zero = run(campaign(plain(fired("cond")), (0, 9)), 4);
     let witness = &json(&zero)["outcome"]["witness"];
-    let last = if witness["shrunk"].is_null() {
-        &witness["first"]
-    } else {
-        &witness["shrunk"]
+    assert_eq!(witness["shrunk"]["holes"][0]["k-text"], "0", "{witness}");
+    assert_eq!(
+        witness["shrunk"]["comparable"],
+        json!({"holds": false, "reasons": ["end-not-data"]})
+    );
+}
+
+/// `stay(N)` ends with the irreducible `g(N)`: a clean leaf with no diagnostic, but not data,
+/// so its end cannot be compared by its term (P3, INT9 review S3), on one path or all.
+#[test]
+fn a_hit_whose_end_is_not_data_is_not_comparable() {
+    for paths in [PathMode::OnePath, PathMode::AllPaths] {
+        let campaign = |target| {
+            spec(
+                &COMPARABLE,
+                "comparable/stay.pgm",
+                vec![hole("comparable/stay.pgm", "stay(3)", "3", (1, 9))],
+                target,
+                options(paths),
+            )
+        };
+        let off = run(campaign(plain(fired("stay"))), 4);
+        assert!(witness_found(&off), "{paths:?}: {}", json(&off));
+        assert_eq!(
+            witness_comparable(&off),
+            json!({"holds": false, "reasons": ["end-not-data"]}),
+            "{paths:?}"
+        );
+        let on = run(campaign(comparable(plain(fired("stay")))), 4);
+        refused_for(&on, "end-not-comparable:end-not-data");
+    }
+}
+
+/// Without `comparable-end`, the run of every path that judges a one-path witness is not part
+/// of the hit case (INT9 review S2): a clock that stops it does not put the case outside the
+/// determinism contract. The judgement names the clock, so it says that it may not repeat.
+/// With the option the run is part of the case, and its clock makes the case `timeout`, as every
+/// case a clock was involved in.
+#[test]
+fn a_clock_in_the_run_of_every_path_stays_out_of_the_hit_case_without_the_option() {
+    let options = CaseOptions {
+        // The loop on the other path runs into the clock long before this bound.
+        max_work: Some(1_000_000_000),
+        safety_limit_ms: Some(1_000),
+        ..options(PathMode::OnePath)
     };
-    assert_eq!(last["comparable"], json!({"holds": true, "reasons": []}));
-    assert_eq!(last["holes"][0]["k-text"], "0", "{witness}");
+    let campaign = |target| {
+        spec(
+            &COMPARABLE,
+            "comparable/start.pgm",
+            Vec::new(),
+            target,
+            options.clone(),
+        )
+    };
+    let off = run(campaign(plain(fired("finish"))), 1);
+    assert!(witness_found(&off), "{}", json(&off));
+    assert_eq!(off.totals.outside_determinism, 0, "{}", json(&off));
+    let judged = witness_comparable(&off);
+    assert_eq!(judged["holds"], false, "{judged}");
+    assert!(
+        judged["reasons"]
+            .as_array()
+            .is_some_and(|reasons| reasons.contains(&json!("clock"))),
+        "{judged}"
+    );
+    let on = run(campaign(comparable(plain(fired("finish")))), 1);
+    assert!(!witness_found(&on), "{}", json(&on));
+    assert_eq!(
+        on.totals.classes.get(&OutcomeClass::Timeout).copied(),
+        Some(1),
+        "{}",
+        json(&on)
+    );
+    assert_eq!(on.totals.outside_determinism, 1, "{}", json(&on));
+}
+
+/// The run of every path that judges a one-path hit has a work bound even when the campaign
+/// bounds only the depth (INT9 review S2): `start(5)`'s loop is cut by the default work bound,
+/// long before the depth bound, with the option or without it.
+#[test]
+fn the_run_of_every_path_is_work_bounded_when_the_campaign_bounds_only_the_depth() {
+    let options = CaseOptions {
+        max_depth: Some(300_000),
+        ..options(PathMode::OnePath)
+    };
+    assert_eq!(options.max_work, None);
+    let campaign = |target| {
+        spec(
+            &COMPARABLE,
+            "comparable/start.pgm",
+            Vec::new(),
+            target,
+            options.clone(),
+        )
+    };
+    let off = run(campaign(plain(fired("finish"))), 1);
+    assert!(witness_found(&off), "{}", json(&off));
+    assert_eq!(
+        witness_comparable(&off),
+        json!({"holds": false, "reasons": ["work-bound"]})
+    );
+    let on = run(campaign(comparable(plain(fired("finish")))), 1);
+    refused_for(&on, "end-not-comparable:work-bound");
+}
+
+/// The witness names the options it was checked under among its clean-leaf facts (INT9 review
+/// F1): a `comparable` judgement that holds reads the same with the option and without it, and
+/// `query-confirmable` leaves no other trace in the report.
+#[test]
+fn the_clean_leaf_facts_name_the_options_a_witness_was_checked_under() {
+    let campaign = |target| {
+        spec(
+            &COMPARABLE,
+            "comparable/stay-zero.pgm",
+            Vec::new(),
+            target,
+            options(PathMode::AllPaths),
+        )
+    };
+    let facts = |report: &FuzzReport| {
+        report.witness().map_or_else(
+            || panic!("a witness: {}", json(report)),
+            |witness| witness.clean_leaf_facts.clone(),
+        )
+    };
+    let target = || plain(pattern("<out> 1 </out>", PatternAt::Final));
+    let off = facts(&run(campaign(target()), 1));
+    assert!(!off.iter().any(|fact| fact == "comparable-end"), "{off:?}");
+    assert!(
+        !off.iter().any(|fact| fact == "query-confirmable"),
+        "{off:?}"
+    );
+    let on = facts(&run(campaign(query_confirmable(comparable(target()))), 1));
+    assert!(on.iter().any(|fact| fact == "comparable-end"), "{on:?}");
+    assert!(on.iter().any(|fact| fact == "query-confirmable"), "{on:?}");
 }
 
 /// The named programs ([`support::COMPARABLE_ENDS`]): each one's witness carries the expected
@@ -320,7 +451,7 @@ fn a_pattern_hit_whose_leaf_carries_an_undecided_condition_is_not_query_confirma
     for at in [PatternAt::Final, PatternAt::AnyState] {
         let campaign = |target| {
             spec(
-                &COMPARABLE,
+                &COMPARABLE_COND,
                 "comparable/cond.pgm",
                 vec![hole("comparable/cond.pgm", "cond(3)", "3", (1, 9))],
                 target,
@@ -350,7 +481,7 @@ fn query_confirmable_reads_every_diagnostic_of_the_run() {
     for options in [options(PathMode::AllPaths), unbudgeted] {
         let campaign = |target| {
             spec(
-                &COMPARABLE,
+                &COMPARABLE_COND,
                 "comparable/both.pgm",
                 vec![hole("comparable/both.pgm", "both(3)", "3", (3, 3))],
                 target,

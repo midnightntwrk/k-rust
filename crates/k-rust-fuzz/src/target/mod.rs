@@ -72,16 +72,20 @@ pub struct Target {
     pub data_end: bool,
     /// For a rule or pattern target (`comparable-end`): a hit also requires that the witness
     /// program's run of every path is one kink can compare (P7-ADDENDUM section 4, conditions
-    /// P1, P2, P4 and P5; [`crate::exec::comparable::end_conditions`]): complete, every leaf an
-    /// end or an undefined step, decided, with no diagnostic of any kind on any leaf, and no
-    /// stack stop, chosen value, contradicted claim, allowance refusal or unsupported hook in the
-    /// run or the definition's load. That run is the hit case's own when it ran every path with
-    /// no terminal rule; otherwise one more run of every path, counted in the case's work. A hit
-    /// that fails is `unsupported`, with the reason `end-not-comparable:CONDITION`
-    /// ([`crate::exec::UnjudgedReason::EndNotComparable`]). Without the option, the witness of a
-    /// rule or pattern target still carries the judgement
-    /// ([`crate::report::WitnessCase::comparable`]). `false` by default (absent from a
-    /// serialized target when `false`); ignored by the differential and observer targets.
+    /// P1 to P5; [`crate::exec::comparable::end_conditions`]): complete, every leaf an end or an
+    /// undefined step, decided, every such leaf's term data (k-rust's `is_data`), with no
+    /// diagnostic of any kind on any leaf, and no stack stop, chosen value, contradicted claim,
+    /// allowance refusal or unsupported hook in the run or the definition's load. That run is the
+    /// hit case's own when it ran every path with no terminal rule; otherwise one more run of
+    /// every path (with [`crate::spec::DEFAULT_MAX_WORK`] when the campaign sets no work bound),
+    /// part of the case, which counts its work and determinism. A hit that fails is
+    /// `unsupported`, with the reason `end-not-comparable:CONDITION`
+    /// ([`crate::exec::UnjudgedReason::EndNotComparable`]), or `timeout` when a clock stopped that
+    /// run. Without the option, the witness of a rule or pattern target still carries the
+    /// judgement ([`crate::report::WitnessCase::comparable`]), made outside every case when it
+    /// needs the extra run, so that the option's absence leaves the campaign's cases as they
+    /// were. `false` by default (absent from a serialized target when `false`); ignored by the
+    /// differential and observer targets.
     #[serde(default, skip_serializing_if = "is_false")]
     pub comparable: bool,
     /// For a pattern target (`query-confirmable`): a hit also requires that no leaf of the run

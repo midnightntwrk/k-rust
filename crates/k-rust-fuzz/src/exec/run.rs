@@ -657,9 +657,10 @@ impl Executor {
         })
     }
 
-    /// Whether `state`, an end of the other definition of a differential pair, is data in this
-    /// executor's definition as well (`k_rust_backend::data_term`, "Two definitions"): it
-    /// internalizes here, is decided, and [`BackendDefinition::is_data`] holds with this
+    /// Whether `state` is data in this executor's definition: an end of the other definition of
+    /// a differential pair (`k_rust_backend::data_term`, "Two definitions"), or an end of this
+    /// one that its run did not judge (the comparable judgement, `crate::target::comparable`).
+    /// It internalizes here, is decided, and [`BackendDefinition::is_data`] holds with this
     /// definition's own heads. Any failure reads as not data.
     pub(crate) fn is_data_here(&mut self, state: &KorePattern) -> bool {
         if self.data_heads().is_err() {

@@ -65,8 +65,9 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// Version 7 (phase 8) widens a finding's `genuine` verdict and adds `instance.stuck` (S2B-T3);
 /// accepts a pattern target's `at: any-state`, so a witness's `reaching.step` may be 0
 /// (FZ-ANYSTATE); adds a rule or pattern witness case's `comparable`, the target keys
-/// `comparable` and `query-confirmable` and the reasons `end-not-comparable:*` and
-/// `query-not-confirmable:*` (FZ-COMPARABLE-AQ); and adds a witness case's `config-vars`, the
+/// `comparable` and `query-confirmable`, the clean-leaf facts `comparable-end` and
+/// `query-confirmable` and the reasons `end-not-comparable:*` and `query-not-confirmable:*`
+/// (FZ-COMPARABLE-AQ); and adds a witness case's `config-vars`, the
 /// instantiated bindings (KF-T3b). A version-6 reader refuses the new fields, key values and
 /// reasons.
 pub const REPORT_VERSION: u32 = 7;
@@ -1121,7 +1122,10 @@ pub struct WitnessCase {
     pub steps: Option<u64>,
     /// For a rule or pattern witness, whether the program's run of every path is one kink can
     /// compare (`crate::Target::comparable`, P7-ADDENDUM section 4): with the `comparable-end`
-    /// option it holds on every witness. Absent for every other target.
+    /// option it holds on every witness. Without the option, a case that ran one path or
+    /// stopped at the target's rule is judged by one more run of every path, made outside the
+    /// case after the campaign's search, so the judgement may name a fact that breaks
+    /// determinism ([`Comparability::reproducible`]). Absent for every other target.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comparable: Option<Comparability>,
 }
@@ -1136,6 +1140,22 @@ pub struct Comparability {
     /// The conditions that fail, in [`ComparableCondition`]'s order, each once; empty exactly
     /// when [`Self::holds`].
     pub reasons: Vec<ComparableCondition>,
+}
+
+impl Comparability {
+    /// Whether the judgement repeats on every run of its case: it names no condition that
+    /// breaks determinism ([`ComparableCondition::breaks_determinism`]), so its run was inside
+    /// the determinism contract and every condition it names, and whether it holds, is a
+    /// function of the case. A judgement that names a clock, a solver `unknown`, a stop for lack
+    /// of stack or an allowance refusal may name other conditions, or hold, on another run.
+    /// One that holds is always reproducible.
+    #[must_use]
+    pub fn reproducible(&self) -> bool {
+        !self
+            .reasons
+            .iter()
+            .any(|condition| condition.breaks_determinism())
+    }
 }
 
 /// Where a witness case reached its target.
