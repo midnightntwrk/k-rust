@@ -3299,8 +3299,8 @@ fn emit_ordered(
         "/-! ## Forward simulation: every step of `{na}` is a step of `{nb}` -/\n"
     )
     .unwrap();
-    writeln!(o, "set_option hygiene false in\n/-- The priority hypothesis of a step of `{nb}` from that of `{na}`. -/\nlocal macro \"hpri_fwd\" : tactic => `(tactic| (intro j hj hb; exact hpri j hj (app_bwd trivial (by simpa only [k2l_rel] using hb))))\n").unwrap();
-    writeln!(o, "set_option hygiene false in\n/-- The priority hypothesis of a step of `{na}` from that of `{nb}`. -/\nlocal macro \"hpri_bwd\" : tactic => `(tactic| (intro j hj ha; exact hpri j hj (by simpa only [{push}] using app_fwd trivial ha)))\n").unwrap();
+    writeln!(o, "set_option hygiene false in\n/-- The priority hypothesis of a step of `{nb}` from that of `{na}`. -/\nlocal macro \"hpri_fwd\" : tactic => `(tactic| first\n  | (intro j hj hb; exact hpri j hj (app_bwd trivial hb))\n  | (intro j hj hb; exact hpri j hj (app_bwd trivial (by simpa only [k2l_rel] using hb))))\n").unwrap();
+    writeln!(o, "set_option hygiene false in\n/-- The priority hypothesis of a step of `{na}` from that of `{nb}`: directly while it reads the translation\nof the configuration, else after folding it back into one. -/\nlocal macro \"hpri_bwd\" : tactic => `(tactic| first\n  | (intro j hj ha; exact hpri j hj (app_fwd trivial ha))\n  | (intro j hj ha; exact hpri j hj (by simpa only [{push}] using app_fwd trivial ha)))\n").unwrap();
     let hpri_arg = |side: &Side, r: &Rule| {
         if side.ranked && side.rank(r) > 0 {
             " hpri"

@@ -599,10 +599,16 @@ end KEqHook
 
 open Lean Meta Elab Tactic in
 /-- `k2l_inv`: repeatedly (1) substitute variables, (2) split conjunctions, (3) for a hypothesis
-`h : e = f x` (or `f x = e`) where `f` is a translation function (its name has a component
-starting with `tr_`), `x` a local variable and `e` not a variable, case on `x` and simplify `h`
-with `f`'s equations (on the arity-indexed family, the `k2l_tr` equations after `familyCases`):
-constructor clashes close the goal, matching constructors give equations between the arguments. Terminates because `e` gets smaller. -/
+`h : f a = f b` where `f` is a translation function (its name has a component starting with
+`tr_`), rewrite it to `a = b` by `f`'s injectivity (`tr_eq_iff_S` beside `f`), or, for a token sort
+(a structure over its string, with no such lemma), destructure both sides and inject, and (4) for a
+hypothesis `h : e = f x` (or `f x = e`) where `x` is a local variable and `e` is not a variable nor
+a translation, case on `x` and simplify `h` with `f`'s equations, read off its folding lemmas
+`fold_S_k : B.C (tr a) = tr (A.C a)` reversed (else `f`'s own equations): constructor clashes close
+the goal, matching constructors give equations between the arguments. Terminates because `e`
+gets smaller.
+The folding lemmas are `rfl` lemmas of the relation's module; `f`'s own equations would be derived
+on first use (`f.eq_def` of the mutual block of translations, seconds each on SIMPLE). -/
 partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
   if fuel = 0 then return
   if (← getGoals).isEmpty then return
@@ -618,32 +624,56 @@ partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
       else none
     | _ => none
   let found ← withMainContext do
+    -- injectivity: `f a = f b` gives `a = b`
+    for ldecl in (← getLCtx) do
+      if ldecl.isImplementationDetail then continue
+      let ty ← instantiateMVars ldecl.type
+      let some (_, l, r) := ty.eq? | continue
+      let (some (f1, a), some (f2, b)) := (isTr l, isTr r) | continue
+      unless f1 == f2 do continue
+      let hid := mkIdent ldecl.userName
+      let lem := f1.getPrefix ++ Name.mkSimple ("tr_eq_iff_" ++ (f1.components.getLast!.toString.drop 3))
+      let s ← saveState
+      try
+        evalTactic (← `(tactic| rw [$(mkIdent lem):ident] at $hid:ident))
+        return true
+      catch _ => s.restore
+      unless a.isFVar && b.isFVar do continue
+      let s ← saveState
+      try
+        let ha ← Term.exprToSyntax a
+        let hb ← Term.exprToSyntax b
+        evalTactic (← `(tactic| (cases $ha:term; cases $hb:term; simp only [$(mkIdent f1):ident] at $hid:ident; injection $hid:ident)))
+        return true
+      catch _ => s.restore
+    -- a case split where the other side is a constructor term
     for ldecl in (← getLCtx) do
       if ldecl.isImplementationDetail then continue
       let ty ← instantiateMVars ldecl.type
       let some (_, l, r) := ty.eq? | continue
       let cand := match isTr r, isTr l with
-        | some t, _ => if l.isFVar then none else some t
+        | some t, none => if l.isFVar then none else some t
         | none, some t => if r.isFVar then none else some t
-        | none, none => none
+        | _, _ => none
       let some (fn, x) := cand | continue
       unless x.isFVar do continue
       let s ← saveState
       try
         let hx ← Term.exprToSyntax x
         let hid := mkIdent ldecl.userName
-        let fid := mkIdent fn
-        if (← whnfR (← inferType x)).getAppFn.constName?.any (isFamilyName (← getEnv)) then
-          -- on the arity-indexed family: the cases of the sort's values only (`familyCases`)
-          let gs ← familyCases (← getMainGoal) x.fvarId!
-          let mut out := #[]
-          for (g, _) in gs do
-            setGoals [g]
-            evalTactic (← `(tactic| simp [k2l_tr] at $hid:ident))
-            out := out ++ (← getGoals)
-          setGoals out.toList
+        let sfx := fn.components.getLast!.toString.drop 3
+        let env ← getEnv
+        let mut lems : Array (TSyntax `Lean.Parser.Tactic.simpLemma) := #[]
+        let mut k := 0
+        while true do
+          let n := fn.getPrefix ++ Name.mkSimple s!"fold_{sfx}_{k}"
+          unless env.contains n do break
+          lems := lems.push (← `(Lean.Parser.Tactic.simpLemma| ← $(mkIdent n):ident))
+          k := k + 1
+        if lems.isEmpty then
+          evalTactic (← `(tactic| cases $hx:term <;> simp [$(mkIdent fn):ident] at $hid:ident))
         else
-          evalTactic (← `(tactic| cases $hx:term <;> simp [$fid:ident] at $hid:ident))
+          evalTactic (← `(tactic| cases $hx:term <;> simp only [$lems,*, reduceCtorEq] at $hid:ident <;> (try injection $hid:ident)))
         return true
       catch _ => s.restore
     return false
