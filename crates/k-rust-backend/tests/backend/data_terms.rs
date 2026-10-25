@@ -220,6 +220,13 @@ fn a_head_with_an_overload_equation_of_another_shape_is_not_a_data_head() {
     );
     assert!(!heads.confluent());
     assert!(!data(&definition, &heads, "fun{}()"));
+    // Assuming the shape row met reads the family as lowered, but the head roots an overload
+    // equation of another shape, so it is still no data head (DIFF-OVERLOAD-DIAMOND B1).
+    let assumed = definition.data_heads_assuming(&heads, |finding| {
+        matches!(finding, k_rust_backend::data_term::Finding::Precondition(_))
+    });
+    assert!(!assumed.names().any(|name| name.as_ref() == "exps"));
+    assert!(!data(&definition, &assumed, FUN_EXPS));
 }
 
 /// Two total-function equations at one root with different results (`q(X) = one`, `q(X) =
@@ -357,24 +364,35 @@ fn a_pair_whose_conditions_hold_on_no_tried_instance_is_undecided() {
     assert!(!pairs[0].is_genuine(), "{:?}", pairs[0].instance());
 }
 
+/// A plain `anywhere` equation beside the overload ones (`rename-fun`: `exps(fun, Es) =
+/// exps(name, Es)`, which joins with `aux-cons` at `getMatchingAux(exps(fun, Es), vals(V, Vs))`)
+/// no longer withdraws the head (KRUST-ANYWHERE-HEAD): `exps` is declared `functional`, so its
+/// irreducible applications are elements, and an `anywhere` equation reads only the term it
+/// matches. Instance normality now carries the guard: `exps(fun, .Exps)` is reducible by
+/// `rename-fun` and is not data, while `exps(name, .Exps)` (an `Exp` that is neither `fun` nor a
+/// `Val`) matches no equation and is. A `simplification` lemma at the head still withdraws it.
 #[test]
-fn a_head_with_another_equation_or_a_lemma_is_not_a_data_head() {
+fn a_plain_anywhere_equation_keeps_the_head_and_a_lemma_withdraws_it() {
     let anywhere = with_sentences(
         r#"
     axiom{R} \implies{R}(
         \and{R}(\top{R}(),
             \and{R}(\in{SortExp{}, R}(X0:SortExp{}, fun{}()),
             \and{R}(\in{SortExps{}, R}(X1:SortExps{}, Es:SortExps{}), \top{R}()))),
-        \equals{SortExps{}, R}(exps{}(X0:SortExp{}, X1:SortExps{}), \and{SortExps{}}(Es:SortExps{}, \top{SortExps{}}())))
-        [label{}("drop-fun"), anywhere{}()]
+        \equals{SortExps{}, R}(exps{}(X0:SortExp{}, X1:SortExps{}),
+            \and{SortExps{}}(exps{}(inj{SortName{}, SortExp{}}(name{}()), Es:SortExps{}), \top{SortExps{}}())))
+        [label{}("rename-fun"), anywhere{}()]
 "#,
     );
-    assert!(
-        !anywhere
-            .data_heads()
-            .names()
-            .any(|name| name.as_ref() == "exps")
-    );
+    let heads = anywhere.data_heads();
+    assert!(heads.confluent(), "{:?}", heads.findings());
+    assert!(heads.names().any(|name| name.as_ref() == "exps"));
+    assert!(!data(&anywhere, &heads, FUN_EXPS));
+    assert!(data(
+        &anywhere,
+        &heads,
+        &format!("exps{{}}(inj{{SortName{{}}, SortExp{{}}}}(name{{}}()), {EMPTY_EXPS})")
+    ));
     let lemma = with_sentences(
         r#"
     axiom{R} \implies{R}(

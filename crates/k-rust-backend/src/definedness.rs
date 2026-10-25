@@ -102,6 +102,60 @@ pub fn ceil_term(
     ceil_term_walk(definition, term, AtCeilFree::Skip)
 }
 
+impl BackendDefinition {
+    /// Whether the term `term` is shown to exist in this definition: it is ground (no variable
+    /// of either kind) and its definedness walk ([`ceil_term`]) states no obligation other than
+    /// `\top`, with no deferred operand left undecided. This is the one existence predicate a
+    /// client reads on an execution leaf, a reached state or a matched state; a search match
+    /// states the same walk of each binding.
+    ///
+    /// A ground term denotes at most one element, and exactly one when every obligation of its
+    /// walk holds: the `\ceil` of each application of a partial function, unless a ceil equation
+    /// of this definition decides it (its condition is then the obligation) or the application
+    /// is of a `value-production` symbol that no equation reduces on any instance (that
+    /// declaration makes such an application a value of its sort,
+    /// [`Self::irreducible_application_is_defined`]); the disequality of each pair of map keys
+    /// or set elements not shown apart (`elements_are_apart`); and, for a term-level `\and`, the
+    /// equality of its sides' first conjuncts. So the term exists when every obligation is
+    /// `\top`. Ceil equations come before the `value-production` discharge, as in every use of
+    /// the walk: a ceil lemma is an equality of the definition.
+    ///
+    /// It accepts every ground term whose stored `ceil_free` attribute is true, in O(1) (the
+    /// walk skips such a term, `ceilFree_sound`), and beyond those a term holding an irreducible
+    /// `value-production` application (SIMPLE's stored `a[4]`) or a map or set whose keys of
+    /// several shapes are shown apart. Solver-free and deterministic: a function of the term
+    /// and the definition, with one memo of instance normality per call.
+    #[must_use]
+    pub fn ground_defined(&self, term: &Term) -> bool {
+        term.attributes().variables.is_empty()
+            && crate::instance_normal::with_scan_memo(|| ceil_term(self, term))
+                .is_ok_and(|obligations| only_top(&obligations))
+    }
+}
+
+/// Whether every obligation is `\top`.
+fn only_top(obligations: &[Predicate]) -> bool {
+    obligations
+        .iter()
+        .all(|obligation| matches!(obligation, Predicate::True))
+}
+
+/// Whether the definedness walk ([`ceil_term`]) owes nothing at the node `term` itself, beyond
+/// what its arguments owe: `term` is not an application of a partial function, or it is one
+/// whose own obligation the walk discharges (a ceil equation whose condition is `\top`, or an
+/// application of a `value-production` symbol that no equation reduces). A client naming the
+/// first application by which a term is not shown defined reads this;
+/// [`BackendDefinition::ground_defined`] is the judgement.
+#[must_use]
+pub fn application_owes_nothing(definition: &BackendDefinition, term: &Term) -> bool {
+    let TermKind::Application { symbol, .. } = term.kind() else {
+        return true;
+    };
+    symbol.attributes.symbol_type != SymbolType::Function(FunctionType::Partial)
+        || crate::instance_normal::with_scan_memo(|| apply_ceil_equation(definition, term))
+            .is_some_and(|obligations| only_top(&obligations))
+}
+
 /// The definedness walk without the `ceil_free` shortcut at any depth: the reference the
 /// shortcut is checked against (`tests::definedness`).
 #[cfg(test)]

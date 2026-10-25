@@ -1,6 +1,6 @@
-//! Data terms: ground terms whose meaning in a definition is fixed by its constructors and its
-//! overload lowering alone, so that two different data terms denote different values of the
-//! definition. A client comparing ends of two definitions (a differential test) compares only
+//! Data terms: ground terms whose meaning in a definition is fixed by its constructors and by
+//! the normal forms of its equations alone, so that two different data terms denote different
+//! values of the definition. A client comparing ends of two definitions (a differential test) compares only
 //! terms that are data in both, each judged by its own definition.
 //!
 //! # The class
@@ -18,15 +18,64 @@
 //! - domain values, sort injections and free-constructor applications ([`HeadRole::FreeConstructor`]);
 //! - map, list and set terms without an opaque rest, whose keys, values or elements are data and
 //!   whose map keys and set elements are pairwise distinct;
-//! - applications of an *overload data head* ([`DataHeads`]) that are instance-normal
+//! - applications of a *data head* ([`DataHeads`]) that are instance-normal
 //!   (`BackendDefinition::instance_normal`: no equation offered the application, from the
-//!   definition's own equations, with its own subsort order, can apply to it), whose arguments
-//!   are data. An overload data head `g` is an `anywhere` production that is not a declared
-//!   function, has no hook, roots no `simplification` lemma, and roots at least one executable
-//!   equation, every one of which is a *canonical* overload equation of `g`:
+//!   definition's own equations, with its own subsort order, can apply to any instance of it),
+//!   whose arguments are data.
+//!
+//! A data head `g` is a symbol that meets all of the following:
+//!
+//! - **H1, an equation head.** `g` is `anywhere` and not a declared function
+//!   ([`HeadRole::EquationHead`]): on the KORE, `anywhere` with no `function` attribute, or with
+//!   `function` beside `value-production`, which k-rust's compiler adds together to a non-function
+//!   production that has `anywhere` rules (a source `[function]` production never gets
+//!   `value-production`). An `assoc`, `comm` or `idem` symbol is uninterpreted and a macro is
+//!   residual, so neither is an equation head. A declared partial function that no equation
+//!   rewrites is `\bottom` in `M_NF` (compat, "Anywhere rules"), so a stuck application of one
+//!   never denotes a value.
+//! - **H2, its irreducible applications are elements.** `g` is declared total (its symbol type is
+//!   not partial: `functional`, `total` or `constructor`), or it is a `value-production`, which
+//!   states that an application no equation reduces is a value of its sort. Without either, an
+//!   irreducible application is a normal form of `M_NF` whose `\ceil` nothing discharges, so it
+//!   need not denote an element of another model, and it is not data. This drops the overload
+//!   heads of hand-written KORE declared with neither (k-rust's compiler always declares one): a
+//!   deliberate tightening, since every data term must exist (below).
+//! - **H3, hygiene.** `g` has no hook; no `simplification` lemma and no ceil equation is offered at
+//!   its index (a ceil lemma would state the existence of its applications, which the walk honours
+//!   before `value-production`, so a head with one is never data whatever the lemma says); the
+//!   load-time critical-pair check admits its index (`ValueClaims::admit`); and it roots at least
+//!   one equation, every equation rooted at it is executable, and every one that carries an
+//!   `overload` attribute is a *canonical* overload equation of `g`:
 //!   `g(p1, ..., pn) = inj{R,T}(h(x1, ..., xn))` (or `h(x1, ..., xn)`) with each `pi` the
 //!   variable `xi` or `inj{Si,Ti}(xi)`, the variables distinct, `h` its overload partner
-//!   (`RuleAttributes::overload`), and no `requires` or `ensures`.
+//!   (`RuleAttributes::overload`), and no `requires` or `ensures`. A K-placed overload (an overload
+//!   equation of another shape) is never data, whatever is assumed of its precondition row. A
+//!   plain `anywhere` equation may have any shape: conditional, `owise` or prioritized (SIMPLE's
+//!   `_[_]`, whose equations `V:Val[N1, N2, Vs] => V[N1][N2, Vs]` and
+//!   `array(L, _)[N:Int] => lookup(L +Int N)` are plain).
+//!
+//! Why an instance-normal application of a data head over data is a normal form in every context:
+//! an `anywhere` equation reads only the term it matches (a non-function head never receives the
+//! configuration), and the instance-normality scan ignores `requires` and priorities, so an
+//! instance that no equation of `g` (or rooted at a bare variable) can match is rewritten in no
+//! context, wherever it is stored (an `a[4]` kept inside a stored function body) and whatever
+//! later surrounds it. A transition rule rooted at `g` changes states, not values. An equation
+//! rooted at another symbol `h` that mentions `g` below its root applies only at an `h` node,
+//! which is a free constructor, an injection or a collection (then a precondition row, so no
+//! data at all), a function (not data), or another data head (scanned at its own node); its
+//! overlap with `g`'s equations is a pair of the full check. An `owise` equation counts as
+//! applying wherever its left-hand side matches, so a head with `g(X) => ... [owise]` has no data
+//! application; an equation whose left-hand side matches but whose `requires` is false still
+//! withholds data. Both lose precision only.
+//!
+//! Data implies existence: with H2 and instance normality, `\ceil(g(t1, ..., tn))` is
+//! `\ceil(t1) /\ ... /\ \ceil(tn)` (`definedness::ceil_term` owes nothing at a total head, and
+//! discharges an irreducible `value-production` application,
+//! `BackendDefinition::irreducible_application_is_defined`; H3 leaves no ceil equation to come
+//! first), so a data term whose maps and sets have keys k-rust shows apart is
+//! [`BackendDefinition::ground_defined`]. Distinct data keys of several shapes may be equal in
+//! another model, so this existence holds in `M+` (where they are distinct normal forms), which
+//! is the model the argument below reads.
 //!
 //! # What a data term denotes, and why two of them differ
 //!
@@ -55,7 +104,10 @@
 //! - **A2 (lemmas).** The axioms no check pairs, `simplification` lemmas and `[symbolic]`
 //!   function equations, are theorems of the executable equations, as every use of them assumes
 //!   (compat, "Anywhere rules"), and the declarations the check reads as true hold (the verdict
-//!   contract of `CheckScope::All`).
+//!   contract of `CheckScope::All`). Its reach grows with the data heads: a predicate lemma that
+//!   mentions a data head below its root (an `#Equals` between applications of `g`, say) is
+//!   neither an equation the instance-normality scan reads nor one the check pairs, so only A2
+//!   keeps it from identifying two data terms, as for overload heads before.
 //!
 //! A local check cannot replace the global one. An identification anywhere reaches other terms
 //! through congruence: if two terms are equal, every equation that tells them apart equates its
@@ -71,8 +123,9 @@
 //! and witness equations, so of the definition (`M_NF` is the part of `M+` free of the
 //! constants). Every data term is free of the constants and a normal form: no executable equation
 //! is rooted at a free constructor, an injection or a collection (no precondition row), an
-//! instance-normal overload application over normal forms is one, and no witness applies to a
-//! term free of the constants. Distinct normal forms are distinct elements of `M+`, so two
+//! instance-normal application of a data head over normal forms is one (no equation applies at
+//! its root in any context, "The class"), and no witness applies to a term free of the
+//! constants. Distinct normal forms are distinct elements of `M+`, so two
 //! different data terms are kept apart by a model, and they differ in the initial model.
 //! (Syntactic difference is read on k-rust's internal normal form, below.)
 //!
@@ -82,8 +135,10 @@
 //! Each definition reads the ends with its own theory, and the two theories may differ on any
 //! symbol: a constructor free in one may be an overload head of the other (a mutant that adds
 //! `Bot ::= f(Bot) [overload(f)]` lowers the baseline's normal form `f_Nm(inj(b))` to
-//! `inj(f_Bot(b))`), an `anywhere` rule may be added (`c(1) => d`), a subsort may be added below
-//! an overload argument sort, parametric instances such as `MInt{8}` included. So the comparison
+//! `inj(f_Bot(b))`), an `anywhere` rule may be added (`c(1) => d`, or `X:Id[N] => ...` beside
+//! SIMPLE's `_[_]`), a subsort may be added below an argument sort of a data head's equation
+//! (`Id < Val`, which lets SIMPLE's `_[_]` equations reach `a[4]`), parametric instances such as
+//! `MInt{8}` included. So the comparison
 //! is sound when every term compared is data in *both* definitions, each judged by
 //! [`BackendDefinition::is_data`] with that definition's own [`DataHeads`] (its own full check,
 //! equations and overload families, its own full subsort order through its matcher), so each of
@@ -142,14 +197,17 @@
 //! never applies, so there is no reading of it as written to assume.
 //!
 //! Every finding that can be assumed bears on data only through the load verdict
-//! (`ValueClaims`), which still withholds what it taints. The overload data heads and the
+//! (`ValueClaims`), which still withholds what it taints. The data heads and the
 //! instance-normal scan read that verdict, which withdraws the claims an assumed pair's or hook
-//! equation's taint closure reaches; an overload head whose equations are not canonical overload
-//! equations is never a data head, whatever is assumed of an overload row; and the heads a
+//! equation's taint closure reaches; an overload head whose overload equations are not canonical
+//! is never a data head, whatever is assumed of an overload row; and the heads a
 //! pinned injective symbol pins keep their withheld claims. Free-constructor applications,
 //! injections, domain values and collections do not depend on any assumable finding. So an
 //! assumed finding can only make fewer terms data than the definition read as if it were
-//! resolved.
+//! resolved. This reaches the plain `anywhere` heads as it reaches overload heads: a pair of one
+//! head's own equations with different results at an overlap (`g(X) => a` beside `g(c) => b`)
+//! assumed joined leaves `g` withdrawn by the load, so no application of it becomes data under
+//! the premise.
 //!
 //! # Names
 //!
@@ -168,11 +226,11 @@ pub use instance::{GroundInstance, Stuck};
 use crate::{
     confluence::{UnjoinedPair, Violation},
     definition::BackendDefinition,
-    rule::{RuleRhs, TermIndex},
-    term::{HeadRole, Name, Term, TermKind},
+    rule::{RuleRhs, TermIndex, applicable_groups},
+    term::{FunctionType, HeadRole, Name, SymbolType, Term, TermKind},
 };
 
-/// The overload data heads of one definition and the findings of its full critical-pair check
+/// The data heads of one definition and the findings of its full critical-pair check
 /// (the [module documentation](self), "The class"), built by [`BackendDefinition::data_heads`]
 /// and read only by [`BackendDefinition::is_data`] of the same definition.
 #[derive(Clone, Debug, Default)]
@@ -378,15 +436,16 @@ impl DataHeads {
 }
 
 impl BackendDefinition {
-    /// The overload data heads of this definition and the findings of its full critical-pair
+    /// The data heads of this definition and the findings of its full critical-pair
     /// check (the [module documentation](self), "The class"). The check runs in
     /// [`CheckScope::All`](crate::confluence::CheckScope::All), which classifies every pair of
     /// executable equations, not only those that can change a value claim; it costs about as
     /// much as the definition's load (0.03 s on SIMPLE, 0.2 s on WASM), so a client computes
-    /// this once per definition. A head is an `anywhere` production that is not a declared
-    /// function, has no hook, roots no simplification, roots at least one executable equation
-    /// and only canonically shaped overload equations rooted at itself; when the check has a
-    /// finding there is no head.
+    /// this once per definition. A head meets H1-H3 of the module documentation: an `anywhere`
+    /// production that is not a declared function, declared total or a `value-production`,
+    /// with no hook, no lemma or ceil equation at its index, an index the load admits, and at
+    /// least one equation rooted at it, all executable, the overload ones canonical; when the
+    /// check has a finding there is no head.
     ///
     /// Each pair finding is searched for a [`GroundInstance`] (the [module
     /// documentation](self), "Findings: genuine or undecided"), a bounded search whose cost is
@@ -407,7 +466,7 @@ impl BackendDefinition {
             };
         }
         DataHeads {
-            heads: self.overload_data_heads(),
+            heads: self.data_head_names(),
             findings,
             assumed: Vec::new(),
             counts,
@@ -419,7 +478,7 @@ impl BackendDefinition {
     /// `assumed` holds read as resolved (the [module documentation](self), "Assumed pairs"): a
     /// pair as joining, an equation as agreeing with its hook or applied to every subject it
     /// describes, a precondition row as met. Such findings move to [`DataHeads::assumed`], and
-    /// when no other finding is left the definition has data, with its overload data heads. A
+    /// when no other finding is left the definition has data, with its data heads. A
     /// decided finding ([`Finding::is_decided`]) is never moved, whatever `assumed` says.
     #[must_use]
     pub fn data_heads_assuming(
@@ -437,7 +496,7 @@ impl BackendDefinition {
             }
         }
         let names = if kept.is_empty() {
-            self.overload_data_heads()
+            self.data_head_names()
         } else {
             BTreeSet::new()
         };
@@ -450,18 +509,27 @@ impl BackendDefinition {
         }
     }
 
-    /// The overload data heads (the [module documentation](self), "The class"), read without
+    /// The data heads (the [module documentation](self), "The class": H1-H3), read without
     /// regard to the full check's findings.
-    fn overload_data_heads(&self) -> BTreeSet<Name> {
+    fn data_head_names(&self) -> BTreeSet<Name> {
         let mut heads = BTreeSet::new();
         for (name, symbol) in self.symbols() {
-            if symbol.attributes.head_role() != HeadRole::EquationHead
-                || symbol.attributes.hook.is_some()
+            let attributes = &symbol.attributes;
+            // H1, and no hook (H3).
+            if attributes.head_role() != HeadRole::EquationHead || attributes.hook.is_some() {
+                continue;
+            }
+            // H2: an irreducible application is an element.
+            if attributes.symbol_type == SymbolType::Function(FunctionType::Partial)
+                && !self.is_value_production(name)
             {
                 continue;
             }
+            // H3: no lemma or ceil equation is offered at the index (the ceil equations as the
+            // definedness walk offers them, a bare-variable one included), and the load admits it.
             let index = TermIndex::Symbol(name.clone());
             if self.simplification_theory().contains_key(&index)
+                || !applicable_groups(self.ceil_theory(), &index).is_empty()
                 || self.value_claims().admit(&index).is_none()
             {
                 continue;
@@ -470,11 +538,13 @@ impl BackendDefinition {
                 continue;
             };
             let mut rules = groups.values().flatten().peekable();
-            let overload_only = rules.peek().is_some()
+            let hygienic = rules.peek().is_some()
                 && rules.all(|rule| {
-                    rule.attributes.executable && canonical_overload_equation(name, rule)
+                    rule.attributes.executable
+                        && (rule.attributes.overload.is_none()
+                            || canonical_overload_equation(name, rule))
                 });
-            if overload_only {
+            if hygienic {
                 heads.insert(name.clone());
             }
         }

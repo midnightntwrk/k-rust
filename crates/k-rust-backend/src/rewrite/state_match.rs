@@ -22,8 +22,9 @@
 //! reached it is handled by [`StateMatcher::absorbed`]).
 //!
 //! The verdict of a state ([`Verdict`]) is decided as a final configuration's would be: a state
-//! *reaches* when it is decided (no constraint, no variable), ceil-free (it denotes exactly one
-//! value) and the pattern matches it with empty constraints, in execution mode and, when the
+//! *reaches* when it is decided (no constraint, no variable), shown to exist
+//! ([`BackendDefinition::ground_defined`]: it denotes exactly one value) and the pattern matches
+//! it with empty constraints, in execution mode and, when the
 //! request asks for proof agreement, in proof mode too, where a value the definition leaves to
 //! the implementation stays unevaluated. It is *refuted* when every required mode refutes it,
 //! and *undecided* otherwise. A state with constraints is first simplified once more as a leaf
@@ -96,8 +97,12 @@ pub enum UndecidedMatchReason {
     /// The state has a constraint or a variable after its normalization: it may stand for
     /// several configurations, some of which may match.
     UndecidedState,
-    /// The pattern matches, but the state's term is not ceil-free: it holds an application of a
-    /// partial function or a malformed collection, so it may denote nothing.
+    /// The pattern matches, but the state's term is not shown to exist
+    /// ([`BackendDefinition::ground_defined`]): it holds an application of a partial function
+    /// whose definedness the walk does not discharge, map keys not shown apart, or a term-level
+    /// `\and` of different sides, so it may denote nothing. (The name is the wire's
+    /// `not-ceil-free`, kept from when the stored `ceil_free` attribute decided it; every term
+    /// that attribute accepts is still accepted.)
     NotCeilFree,
     /// The matcher left the match undecided, matched only under constraints, the two required
     /// modes disagreed, or a stop interrupted the match.
@@ -379,7 +384,7 @@ impl<'a> StateMatcher<'a> {
             ModeVerdict::Undecided
         };
         match answer {
-            ModeVerdict::Matched if attributes.ceil_free() => Verdict::Reach {
+            ModeVerdict::Matched if definition.ground_defined(&pattern.term) => Verdict::Reach {
                 term_conjunction: holds_term_conjunction(&pattern.term),
             },
             ModeVerdict::Matched => Verdict::Undecided(UndecidedMatchReason::NotCeilFree),

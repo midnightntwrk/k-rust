@@ -2279,9 +2279,15 @@ impl BackendDefinition {
         let TermKind::Application { symbol, .. } = term.kind() else {
             return false;
         };
-        self.value_productions.contains(&symbol.name)
+        self.is_value_production(&symbol.name)
             && (crate::term::head::certified_ground_normal_form(term)
                 || self.instance_normal(term).is_some())
+    }
+
+    /// Whether the definition declares `symbol` a `value-production`: an application of it that
+    /// no equation reduces is a value of its sort.
+    pub(crate) fn is_value_production(&self, symbol: &Name) -> bool {
+        self.value_productions.contains(symbol)
     }
 
     /// Names of the symbols declared with the KORE `function` attribute whose role is a function

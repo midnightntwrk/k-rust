@@ -268,6 +268,18 @@ fn ceil_free_shortcut_returns_the_full_walk() {
             full,
             "case {case}: the shortcut changed the obligations of {term:?}"
         );
+        // The existence predicate is the walk on a ground term, so it accepts every ground term
+        // the stored attribute accepts (the definition declares no value production).
+        let ground = term.attributes().variables.is_empty();
+        assert_eq!(
+            definition.ground_defined(&term),
+            ground && full.iter().all(|obligation| *obligation == Predicate::True),
+            "case {case}: ground_defined is not the walk on {term:?}"
+        );
+        assert!(
+            !(free && ground) || definition.ground_defined(&term),
+            "case {case}: a ground ceil_free term is not ground_defined: {term:?}"
+        );
         *kinds.entry((kind_name(&term), free)).or_default() += 1;
         if closed_keys(&term).is_some() {
             closed[usize::from(free)] += 1;
