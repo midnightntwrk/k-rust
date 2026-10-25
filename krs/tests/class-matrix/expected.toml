@@ -2123,12 +2123,77 @@ configuration
 """
 
 [accept."init/order/nested-reversed"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map </env>
+<frame>
+<ret> 0 </ret>
+<aux> 1 </aux>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
 
 [accept."init/order/pc-first"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map </env>
+<frame>
+<ret> 0 </ret>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
 
 [accept."init/order/queue-first"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map </env>
+<frame>
+<ret> 0 </ret>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
 
 [accept."init/order/reversed"]
+k = """
+configuration
+<k> $PGM:Stmt </k>
+<pc> 0 </pc>
+<stack> .List </stack>
+<env> .Map </env>
+<frame>
+<ret> 0 </ret>
+</frame>
+<counter multiplicity="?"> 0 </counter>
+<queue>
+<job multiplicity="*" type="List">
+<payload> 0 </payload>
+</job>
+</queue>
+"""
 
 [accept."init/pc/0"]
 k = """
