@@ -876,7 +876,6 @@ theorem obs_confluent {{c n₁ n₂ : {top}}} (hc : {h} c) (h₁ : Star {name}.S
     );
 }
 
-
 /// `--threads CELL`: the joins of a definition whose threads are the bindings of a cell map
 /// (SIMPLE's `<threads>`), proved through one view per rule instead of one obligation per pair
 /// (`k2lean/docs/design.md`, §3.6).
@@ -897,7 +896,9 @@ mod views {
 
     fn is_cell_sort(m: &Model, s: &str) -> Option<String> {
         let info = m.sorts.get(s)?;
-        let [c] = info.own.as_slice() else { return None };
+        let [c] = info.own.as_slice() else {
+            return None;
+        };
         let k = &m.ctors[c].klabel;
         (k.starts_with('<') && k.ends_with('>')).then(|| c.clone())
     }
@@ -913,7 +914,8 @@ mod views {
             Leaf(usize),
         }
         fn walk(m: &Model, s: &str, leaves: &mut Vec<Leaf>, name: &str) -> Node {
-            let c = is_cell_sort(m, s).unwrap_or_else(|| super::fail(&format!("{s} is not a cell")));
+            let c =
+                is_cell_sort(m, s).unwrap_or_else(|| super::fail(&format!("{s} is not a cell")));
             let args = m.ctors[&c].args.clone();
             if !args.is_empty() && args.iter().all(|a| is_cell_sort(m, a).is_some()) {
                 Node::Inner(
@@ -921,7 +923,11 @@ mod views {
                     args.iter().map(|a| walk(m, a, leaves, name)).collect(),
                 )
             } else {
-                let label = m.ctors[&c].klabel.trim_start_matches('<').trim_end_matches('>').to_string();
+                let label = m.ctors[&c]
+                    .klabel
+                    .trim_start_matches('<')
+                    .trim_end_matches('>')
+                    .to_string();
                 leaves.push(Leaf {
                     field: names::ident(&label.replace('-', "_")),
                     label,
@@ -952,7 +958,6 @@ mod views {
         Write,
     }
 
-
     /// A key pattern, as `KPrelude.KeyPat`.
     #[derive(Clone, PartialEq)]
     pub(super) enum KeyP {
@@ -968,8 +973,12 @@ mod views {
                 KeyP::Dotk => "KeyPat.dotk".into(),
                 KeyP::Item(i, o) => format!(
                     "KeyPat.item {} {}",
-                    i.as_ref().map(|x| format!("(some {x:?})")).unwrap_or("none".into()),
-                    o.as_ref().map(|x| format!("(some {x:?})")).unwrap_or("none".into())
+                    i.as_ref()
+                        .map(|x| format!("(some {x:?})"))
+                        .unwrap_or("none".into()),
+                    o.as_ref()
+                        .map(|x| format!("(some {x:?})"))
+                        .unwrap_or("none".into())
                 ),
             }
         }
@@ -988,19 +997,31 @@ mod views {
     /// The key of a thread rule, read off its map hypothesis: the first item of the thread's `<k>`
     /// (its injection, and the constructor under it when that is an application).
     fn key_pat(hyp: &str) -> KeyP {
-        let Some(i) = hyp.find("«<k>» ") else { return KeyP::Any };
+        let Some(i) = hyp.find("«<k>» ") else {
+            return KeyP::Any;
+        };
         let rest = &hyp[i + "«<k>» ".len()..];
         if rest.starts_with("SortK.dotk") {
             return KeyP::Dotk;
         }
-        let Some(rest) = rest.strip_prefix("(SortK.kseq ") else { return KeyP::Any };
-        let Some(rest) = rest.strip_prefix('(') else { return KeyP::Any };
-        let head: String = rest.chars().take_while(|c| *c != ' ' && *c != ')').collect();
-        let Some(inj) = head.strip_prefix("SortKItem.") else { return KeyP::Any };
+        let Some(rest) = rest.strip_prefix("(SortK.kseq ") else {
+            return KeyP::Any;
+        };
+        let Some(rest) = rest.strip_prefix('(') else {
+            return KeyP::Any;
+        };
+        let head: String = rest
+            .chars()
+            .take_while(|c| *c != ' ' && *c != ')')
+            .collect();
+        let Some(inj) = head.strip_prefix("SortKItem.") else {
+            return KeyP::Any;
+        };
         let after = &rest[head.len()..];
         let own = after.strip_prefix(" (").and_then(|r| {
             let o = own_name(r);
-            (!o.is_empty() && !o.chars().next().unwrap().is_lowercase() || r.starts_with("Sort")).then_some(o)
+            (!o.is_empty() && !o.chars().next().unwrap().is_lowercase() || r.starts_with("Sort"))
+                .then_some(o)
         });
         KeyP::Item(Some(inj.to_string()), own)
     }
@@ -1043,15 +1064,32 @@ mod views {
         let tcell = &leaves[ti];
         let tctor = is_cell_sort(&lib.m, &tcell.sort).unwrap();
         let tmap = lib.m.ctors[&tctor].args[0].clone();
-        let shared: Vec<&Leaf> = leaves.iter().enumerate().filter(|(i, _)| *i != ti).map(|(_, l)| l).collect();
+        let shared: Vec<&Leaf> = leaves
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| *i != ti)
+            .map(|(_, l)| l)
+            .collect();
         let topt = format!("{name}.{}", lib.top);
         let ty = |s: &str| format!("{name}.{s}");
         let mut o = String::new();
-        writeln!(o, "import {name}.Preserves\nimport KPrelude.Scaffold\nimport KPrelude.Tactic\n").unwrap();
-        writeln!(o, "/-! Generated by `k2lean confluence --threads {threads}`; do not edit. -/\n").unwrap();
+        writeln!(
+            o,
+            "import {name}.Preserves\nimport KPrelude.Scaffold\nimport KPrelude.Tactic\n"
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "/-! Generated by `k2lean confluence --threads {threads}`; do not edit. -/\n"
+        )
+        .unwrap();
         writeln!(o, "set_option maxHeartbeats 0\nset_option linter.unusedVariables false\n\nnamespace {ns}\n\nopen KPrelude\n").unwrap();
         // the shared cells, the configuration from the threads and them, and their changes
-        writeln!(o, "/-- The cells of a configuration other than `<{threads}>`. -/\nstructure Shared where").unwrap();
+        writeln!(
+            o,
+            "/-- The cells of a configuration other than `<{threads}>`. -/\nstructure Shared where"
+        )
+        .unwrap();
         for l in &shared {
             writeln!(o, "  {} : {}", l.field, ty(&l.sort)).unwrap();
         }
@@ -1069,10 +1107,21 @@ mod views {
             writeln!(o, "  {} : Ch {} := none", l.field, ty(&l.sort)).unwrap();
         }
         let conj = |f: &dyn Fn(&str) -> String| -> String {
-            shared.iter().map(|l| f(&l.field)).collect::<Vec<_>>().join(" ∧ ")
+            shared
+                .iter()
+                .map(|l| f(&l.field))
+                .collect::<Vec<_>>()
+                .join(" ∧ ")
         };
         let anon = |f: &dyn Fn(&str) -> String| -> String {
-            format!("⟨{}⟩", shared.iter().map(|l| f(&l.field)).collect::<Vec<_>>().join(", "))
+            format!(
+                "⟨{}⟩",
+                shared
+                    .iter()
+                    .map(|l| f(&l.field))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         };
         // projections of the n-fold conjunction
         let n = shared.len();
@@ -1086,14 +1135,47 @@ mod views {
             }
             t
         };
-        writeln!(o, "\ndef Change.pre (c : Change) (s : Shared) : Prop :=\n  {}", conj(&|f| format!("c.{f}.pre s.{f}"))).unwrap();
-        writeln!(o, "def Change.apply (c : Change) (s : Shared) : Shared :=\n  {}", anon(&|f| format!("c.{f}.apply s.{f}"))).unwrap();
-        writeln!(o, "def Change.Compat (a b : Change) : Prop :=\n  {}", conj(&|f| format!("a.{f}.Compat b.{f}"))).unwrap();
-        let pa: Vec<String> = (0..n).map(|i| format!("Ch.pre_apply {} {} {}", proj("h", i), proj("ha", i), proj("hb", i))).collect();
+        writeln!(
+            o,
+            "\ndef Change.pre (c : Change) (s : Shared) : Prop :=\n  {}",
+            conj(&|f| format!("c.{f}.pre s.{f}"))
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "def Change.apply (c : Change) (s : Shared) : Shared :=\n  {}",
+            anon(&|f| format!("c.{f}.apply s.{f}"))
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "def Change.Compat (a b : Change) : Prop :=\n  {}",
+            conj(&|f| format!("a.{f}.Compat b.{f}"))
+        )
+        .unwrap();
+        let pa: Vec<String> = (0..n)
+            .map(|i| {
+                format!(
+                    "Ch.pre_apply {} {} {}",
+                    proj("h", i),
+                    proj("ha", i),
+                    proj("hb", i)
+                )
+            })
+            .collect();
         writeln!(o, "\ntheorem Change.pre_apply {{a b : Change}} {{s : Shared}} (h : a.Compat b) (ha : a.pre s) (hb : b.pre s) :\n    b.pre (a.apply s) :=\n  ⟨{}⟩", pa.join(",\n    ")).unwrap();
         let sy: Vec<String> = (0..n).map(|i| format!("{}.symm", proj("h", i))).collect();
         writeln!(o, "\ntheorem Change.Compat.symm {{a b : Change}} (h : a.Compat b) : b.Compat a :=\n  ⟨{}⟩", sy.join(", ")).unwrap();
-        let ac: Vec<String> = (0..n).map(|i| format!("Ch.apply_comm {} {} {}", proj("h", i), proj("ha", i), proj("hb", i))).collect();
+        let ac: Vec<String> = (0..n)
+            .map(|i| {
+                format!(
+                    "Ch.apply_comm {} {} {}",
+                    proj("h", i),
+                    proj("ha", i),
+                    proj("hb", i)
+                )
+            })
+            .collect();
         writeln!(o, "\ntheorem Change.apply_comm {{a b : Change}} {{s : Shared}} (h : a.Compat b) (ha : a.pre s) (hb : b.pre s) :\n    b.apply (a.apply s) = a.apply (b.apply s) := by\n  simp only [Change.apply, {}]", ac.join(",\n    ")).unwrap();
         // a step of one thread, and its frame
         let els = lib.m.sort(&tmap).elems.clone();
@@ -1143,7 +1225,12 @@ mod views {
                 let cl = lib.m.ctors[c].lean.clone();
                 writeln!(inner, "      | .{cl} .. => {:?}", cl).unwrap();
             }
-            writeln!(own_arms, "    | .{short} x => ({:?}, match x with\n{inner}      )", short).unwrap();
+            writeln!(
+                own_arms,
+                "    | .{short} x => ({:?}, match x with\n{inner}      )",
+                short
+            )
+            .unwrap();
         }
         // the own constructors of KItem itself (freezers)
         if !kitem.own.is_empty() {
@@ -1152,17 +1239,35 @@ mod views {
                 let cl = lib.m.ctors[c].lean.clone();
                 writeln!(inner, "      | .{cl} .. => {:?}", cl).unwrap();
             }
-            writeln!(own_arms, "    | .inj_KItem x => (\"inj_KItem\", match x with\n{inner}      )").unwrap();
+            writeln!(
+                own_arms,
+                "    | .inj_KItem x => (\"inj_KItem\", match x with\n{inner}      )"
+            )
+            .unwrap();
         }
-        let vargs: Vec<String> = (0..lib.m.ctors[&vc].args.len()).map(|i| if i == kpos { "kc".to_string() } else { "_".to_string() }).collect();
+        let vargs: Vec<String> = (0..lib.m.ctors[&vc].args.len())
+            .map(|i| {
+                if i == kpos {
+                    "kc".to_string()
+                } else {
+                    "_".to_string()
+                }
+            })
+            .collect();
         writeln!(o, "\n/-- The first item of a thread's `<k>`: its injection into `KItem` and the constructor of the\ninjected value (`(\"dotk\", \"\")` when `<k>` is empty). -/\ndef tkey (t : {vt}) : String × String :=\n  match t with\n  | {name}.{} {} =>\n    match kc with\n    | {name}.{} k =>\n      match k with\n      | .dotk => (\"dotk\", \"\")\n      | .kseq it _ =>\n        match it with\n{own_arms}",
             lib.m.ctor_path(&vc), vargs.join(" "), lib.m.ctor_path(&kctor)).unwrap();
         // the rules: their kind, rank, class and key
         let field_of = |key: &str| -> Option<usize> {
-            shared.iter().position(|l| l.label == key || l.sort.trim_start_matches("Sort") == key)
+            shared
+                .iter()
+                .position(|l| l.label == key || l.sort.trim_start_matches("Sort") == key)
         };
         #[derive(PartialEq, Clone, Copy)]
-        enum Kind { Thread, Shared, Global }
+        enum Kind {
+            Thread,
+            Shared,
+            Global,
+        }
         let mut kinds = vec![];
         let mut touches: Vec<Vec<Touch>> = vec![];
         let mut keys: Vec<String> = vec![];
@@ -1177,7 +1282,15 @@ mod views {
                     continue;
                 }
                 match field_of(key) {
-                    Some(f) => touch[f] = if *wr { Touch::Write } else if *rd { Touch::Read } else { Touch::None },
+                    Some(f) => {
+                        touch[f] = if *wr {
+                            Touch::Write
+                        } else if *rd {
+                            Touch::Read
+                        } else {
+                            Touch::None
+                        }
+                    }
                     None => unknown = true,
                 }
             }
@@ -1200,20 +1313,45 @@ mod views {
         }
         // the classes: the distinct ways of touching the shared cells
         let mut classes: Vec<Vec<Touch>> = vec![];
-        let cls: Vec<usize> = touches.iter().map(|t| {
-            if let Some(i) = classes.iter().position(|c| c == t) { i } else { classes.push(t.clone()); classes.len() - 1 }
-        }).collect();
+        let cls: Vec<usize> = touches
+            .iter()
+            .map(|t| {
+                if let Some(i) = classes.iter().position(|c| c == t) {
+                    i
+                } else {
+                    classes.push(t.clone());
+                    classes.len() - 1
+                }
+            })
+            .collect();
         writeln!(o, "\n/-- The ways a rule touches the shared cells. -/\ninductive Cls where\n  {}\n  deriving DecidableEq", (0..classes.len()).map(|i| format!("| c{i}")).collect::<Vec<_>>().join(" ")).unwrap();
         writeln!(o, "\ndef InClass : Cls → Change → Prop").unwrap();
         for (ci, c) in classes.iter().enumerate() {
-            let parts: Vec<String> = (0..n).filter_map(|f| match c[f] {
-                Touch::None => Some(format!("ch.{} = none", shared[f].field)),
-                Touch::Read => Some(format!("(∃ x, ch.{} = some (x, x))", shared[f].field)),
-                Touch::Write => None,
-            }).collect();
-            writeln!(o, "  | .c{ci}, ch => {}", if parts.is_empty() { "True".into() } else { parts.join(" ∧ ") }).unwrap();
+            let parts: Vec<String> = (0..n)
+                .filter_map(|f| match c[f] {
+                    Touch::None => Some(format!("ch.{} = none", shared[f].field)),
+                    Touch::Read => Some(format!("(∃ x, ch.{} = some (x, x))", shared[f].field)),
+                    Touch::Write => None,
+                })
+                .collect();
+            writeln!(
+                o,
+                "  | .c{ci}, ch => {}",
+                if parts.is_empty() {
+                    "True".into()
+                } else {
+                    parts.join(" ∧ ")
+                }
+            )
+            .unwrap();
         }
-        let compat = |a: &[Touch], b: &[Touch]| (0..n).all(|f| a[f] == Touch::None || b[f] == Touch::None || (a[f] == Touch::Read && b[f] == Touch::Read));
+        let compat = |a: &[Touch], b: &[Touch]| {
+            (0..n).all(|f| {
+                a[f] == Touch::None
+                    || b[f] == Touch::None
+                    || (a[f] == Touch::Read && b[f] == Touch::Read)
+            })
+        };
         writeln!(o, "\ndef compatTbl : Cls → Cls → Bool").unwrap();
         for (i, a) in classes.iter().enumerate() {
             for (j, b) in classes.iter().enumerate() {
@@ -1223,38 +1361,67 @@ mod views {
         // compat_of: by cases on the two classes; each compatible pair field by field
         let idx = |i: usize, k: usize| -> String {
             // the i-th component of an InClass conjunction of k parts
-            if k <= 1 { return String::new(); }
+            if k <= 1 {
+                return String::new();
+            }
             let mut t = String::new();
-            for _ in 0..i { t.push_str(".2"); }
-            if i + 1 < k { t.push_str(".1"); }
+            for _ in 0..i {
+                t.push_str(".2");
+            }
+            if i + 1 < k {
+                t.push_str(".1");
+            }
             t
         };
         let mut arms = String::new();
         for (i, a) in classes.iter().enumerate() {
             for (j, b) in classes.iter().enumerate() {
                 if !compat(a, b) {
-                    writeln!(arms, "  | .c{i}, .c{j}, h, _, _, _, _ => by simp [compatTbl] at h").unwrap();
+                    writeln!(
+                        arms,
+                        "  | .c{i}, .c{j}, h, _, _, _, _ => by simp [compatTbl] at h"
+                    )
+                    .unwrap();
                     continue;
                 }
                 let ka = a.iter().filter(|t| **t != Touch::Write).count();
                 let kb = b.iter().filter(|t| **t != Touch::Write).count();
-                let pos = |c: &[Touch], f: usize| c[..f].iter().filter(|t| **t != Touch::Write).count();
-                let fs: Vec<String> = (0..n).map(|f| {
-                    if a[f] == Touch::None {
-                        format!("Or.inl h₁{}", idx(pos(a, f), ka))
-                    } else if b[f] == Touch::None {
-                        format!("Or.inr (Or.inl h₂{})", idx(pos(b, f), kb))
-                    } else {
-                        format!("Or.inr (Or.inr ⟨h₁{}, h₂{}⟩)", idx(pos(a, f), ka), idx(pos(b, f), kb))
-                    }
-                }).collect();
-                writeln!(arms, "  | .c{i}, .c{j}, _, _, _, h₁, h₂ => ⟨{}⟩", fs.join(", ")).unwrap();
+                let pos =
+                    |c: &[Touch], f: usize| c[..f].iter().filter(|t| **t != Touch::Write).count();
+                let fs: Vec<String> = (0..n)
+                    .map(|f| {
+                        if a[f] == Touch::None {
+                            format!("Or.inl h₁{}", idx(pos(a, f), ka))
+                        } else if b[f] == Touch::None {
+                            format!("Or.inr (Or.inl h₂{})", idx(pos(b, f), kb))
+                        } else {
+                            format!(
+                                "Or.inr (Or.inr ⟨h₁{}, h₂{}⟩)",
+                                idx(pos(a, f), ka),
+                                idx(pos(b, f), kb)
+                            )
+                        }
+                    })
+                    .collect();
+                writeln!(
+                    arms,
+                    "  | .c{i}, .c{j}, _, _, _, h₁, h₂ => ⟨{}⟩",
+                    fs.join(", ")
+                )
+                .unwrap();
             }
         }
         writeln!(o, "\ntheorem compat_of : ∀ (a b : Cls), compatTbl a b = true → ∀ (ch₁ ch₂ : Change),\n    InClass a ch₁ → InClass b ch₂ → ch₁.Compat ch₂\n{arms}").unwrap();
         // priorities: which cells the rules of each rank read, and that a step leaving them alone
         // keeps a rule of that rank from applying where it did not
-        let max_rank = lib.rules.iter().zip(&kinds).filter(|(_, k)| **k != Kind::Global).map(|(r, _)| rank(r)).max().unwrap_or(0);
+        let max_rank = lib
+            .rules
+            .iter()
+            .zip(&kinds)
+            .filter(|(_, k)| **k != Kind::Global)
+            .map(|(r, _)| rank(r))
+            .max()
+            .unwrap_or(0);
         let mut reads: Vec<Option<Vec<usize>>> = vec![]; // per rank below max_rank: the fields, or None if threads
         for j in 0..max_rank {
             let mut fs: Vec<usize> = vec![];
@@ -1263,16 +1430,24 @@ mod views {
                 if rank(r) != j {
                     continue;
                 }
-                if kinds[ri] == Kind::Thread || kinds[ri] == Kind::Global && !matches!(roles[ri], MapRole::None) {
+                if kinds[ri] == Kind::Thread
+                    || kinds[ri] == Kind::Global && !matches!(roles[ri], MapRole::None)
+                {
                     threads_read = true;
                 }
                 for (key, (rd, wr)) in &feet[ri] {
                     if key == &tcell.label || key == tcell.sort.trim_start_matches("Sort") {
-                        if *rd || *wr { threads_read = true; }
+                        if *rd || *wr {
+                            threads_read = true;
+                        }
                         continue;
                     }
                     match field_of(key) {
-                        Some(f) => if (*rd || *wr) && !fs.contains(&f) { fs.push(f) },
+                        Some(f) => {
+                            if (*rd || *wr) && !fs.contains(&f) {
+                                fs.push(f)
+                            }
+                        }
                         None => threads_read = true,
                     }
                 }
@@ -1281,7 +1456,9 @@ mod views {
             reads.push((!threads_read).then_some(fs));
         }
         let safe_tbl = |j: usize, c: usize| -> bool {
-            reads[j].as_ref().is_some_and(|fs| fs.iter().all(|&f| classes[c][f] == Touch::None))
+            reads[j]
+                .as_ref()
+                .is_some_and(|fs| fs.iter().all(|&f| classes[c][f] == Touch::None))
         };
         for (j, r) in reads.iter().enumerate() {
             if r.is_none() {
@@ -1301,15 +1478,42 @@ mod views {
         let app = |j: &str, c: &str| format!("{name}.App {j} {c}");
         for (j, fs) in reads.iter().enumerate() {
             let Some(fs) = fs else { continue };
-            let hyps: Vec<String> = fs.iter().map(|&f| format!("ch.{} = none", shared[f].field)).collect();
-            let hyp = if hyps.is_empty() { "True".to_string() } else { hyps.join(" ∧ ") };
+            let hyps: Vec<String> = fs
+                .iter()
+                .map(|&f| format!("ch.{} = none", shared[f].field))
+                .collect();
+            let hyp = if hyps.is_empty() {
+                "True".to_string()
+            } else {
+                hyps.join(" ∧ ")
+            };
             let rules_j: Vec<&Rule> = lib.rules.iter().filter(|r| rank(r) == j).collect();
-            let alts: Vec<String> = rules_j.iter().map(|r| format!("    | (apply {name}.App.{} <;> assumption)", r.lean)).collect();
+            let alts: Vec<String> = rules_j
+                .iter()
+                .map(|r| format!("    | (apply {name}.App.{} <;> assumption)", r.lean))
+                .collect();
             let hs: Vec<String> = (0..fs.len()).map(|i| format!("hf{i}")).collect();
-            let pat = if hs.is_empty() { "-".to_string() } else if hs.len() == 1 { format!("⟨{}⟩", hs[0]) } else { format!("⟨{}⟩", hs.join(", ")) };
-            for (nm, def) in [("app_back", "TStep k t t' ch c c'"), ("app_back_s", "SStep ch c c'")] {
-                let binders = if nm == "app_back" { "{k t t' ch}" } else { "{ch}" };
-                let (destr, s1) = if nm == "app_back" { ("⟨m, R, r, s, rfl, -, -, -, rfl⟩", "r") } else { ("⟨tc, s, rfl, -, rfl⟩", "tc") };
+            let pat = if hs.is_empty() {
+                "-".to_string()
+            } else if hs.len() == 1 {
+                format!("⟨{}⟩", hs[0])
+            } else {
+                format!("⟨{}⟩", hs.join(", "))
+            };
+            for (nm, def) in [
+                ("app_back", "TStep k t t' ch c c'"),
+                ("app_back_s", "SStep ch c c'"),
+            ] {
+                let binders = if nm == "app_back" {
+                    "{k t t' ch}"
+                } else {
+                    "{ch}"
+                };
+                let (destr, s1) = if nm == "app_back" {
+                    ("⟨m, R, r, s, rfl, -, -, -, rfl⟩", "r")
+                } else {
+                    ("⟨tc, s, rfl, -, rfl⟩", "tc")
+                };
                 let _ = s1;
                 let mut body = if hs.len() == 1 {
                     format!("  have hf0 := hf\n  obtain {destr} := h\n")
@@ -1324,23 +1528,46 @@ mod views {
                 if !es.is_empty() {
                     writeln!(body, "  subst {}", es.join(" ")).unwrap();
                 }
-                writeln!(body, "  cases ha\n  all_goals first\n{}", if alts.is_empty() { "    | skip".into() } else { alts.join("\n") }).unwrap();
+                writeln!(
+                    body,
+                    "  cases ha\n  all_goals first\n{}",
+                    if alts.is_empty() {
+                        "    | skip".into()
+                    } else {
+                        alts.join("\n")
+                    }
+                )
+                .unwrap();
                 writeln!(o, "\ntheorem {nm}_{j} {binders} {{c c' : {topt}}} (h : {def}) (hf : {hyp})\n    (ha : {}) : {} := by\n{body}", app(&j.to_string(), "c'"), app(&j.to_string(), "c")).unwrap();
             }
             // the cells, from the class
-            let arms: Vec<String> = (0..classes.len()).map(|c| {
-                if safe_tbl(j, c) {
-                    let parts: Vec<String> = fs.iter().map(|&f| {
-                        let k = classes[c].iter().filter(|t| **t != Touch::Write).count();
-                        let pos = classes[c][..f].iter().filter(|t| **t != Touch::Write).count();
-                        format!("hc{}", idx(pos, k))
-                    }).collect();
-                    let v = if parts.is_empty() { "trivial".into() } else if parts.len() == 1 { parts[0].clone() } else { format!("⟨{}⟩", parts.join(", ")) };
-                    format!("  | .c{c}, _, _, hc => {v}")
-                } else {
-                    format!("  | .c{c}, _, h, _ => by simp [appSafe, appSafe{j}] at h")
-                }
-            }).collect();
+            let arms: Vec<String> = (0..classes.len())
+                .map(|c| {
+                    if safe_tbl(j, c) {
+                        let parts: Vec<String> = fs
+                            .iter()
+                            .map(|&f| {
+                                let k = classes[c].iter().filter(|t| **t != Touch::Write).count();
+                                let pos = classes[c][..f]
+                                    .iter()
+                                    .filter(|t| **t != Touch::Write)
+                                    .count();
+                                format!("hc{}", idx(pos, k))
+                            })
+                            .collect();
+                        let v = if parts.is_empty() {
+                            "trivial".into()
+                        } else if parts.len() == 1 {
+                            parts[0].clone()
+                        } else {
+                            format!("⟨{}⟩", parts.join(", "))
+                        };
+                        format!("  | .c{c}, _, _, hc => {v}")
+                    } else {
+                        format!("  | .c{c}, _, h, _ => by simp [appSafe, appSafe{j}] at h")
+                    }
+                })
+                .collect();
             writeln!(o, "\ntheorem none_of_class_{j} : ∀ (c : Cls) (ch : Change), appSafe {j} c = true → InClass c ch → {hyp}\n{}", arms.join("\n")).unwrap();
         }
         // app_back for every rank
@@ -1348,26 +1575,105 @@ mod views {
         let mut arms_s = String::new();
         for (j, fs) in reads.iter().enumerate() {
             if fs.is_some() {
-                writeln!(arms_t, "  | {j}, c, h, hc, ht, ha => app_back_{j} ht (none_of_class_{j} c _ h hc) ha").unwrap();
-                writeln!(arms_s, "  | {j}, c, h, hc, ht, ha => app_back_s_{j} ht (none_of_class_{j} c _ h hc) ha").unwrap();
+                writeln!(
+                    arms_t,
+                    "  | {j}, c, h, hc, ht, ha => app_back_{j} ht (none_of_class_{j} c _ h hc) ha"
+                )
+                .unwrap();
+                writeln!(
+                    arms_s,
+                    "  | {j}, c, h, hc, ht, ha => app_back_s_{j} ht (none_of_class_{j} c _ h hc) ha"
+                )
+                .unwrap();
             } else {
-                writeln!(arms_t, "  | {j}, c, h, _, _, _ => by simp [appSafe, appSafe{j}] at h").unwrap();
-                writeln!(arms_s, "  | {j}, c, h, _, _, _ => by simp [appSafe, appSafe{j}] at h").unwrap();
+                writeln!(
+                    arms_t,
+                    "  | {j}, c, h, _, _, _ => by simp [appSafe, appSafe{j}] at h"
+                )
+                .unwrap();
+                writeln!(
+                    arms_s,
+                    "  | {j}, c, h, _, _, _ => by simp [appSafe, appSafe{j}] at h"
+                )
+                .unwrap();
             }
         }
-        writeln!(arms_t, "  | _ + {max_rank}, _, h, _, _, _ => by simp [appSafe] at h").unwrap();
-        writeln!(arms_s, "  | _ + {max_rank}, _, h, _, _, _ => by simp [appSafe] at h").unwrap();
+        writeln!(
+            arms_t,
+            "  | _ + {max_rank}, _, h, _, _, _ => by simp [appSafe] at h"
+        )
+        .unwrap();
+        writeln!(
+            arms_s,
+            "  | _ + {max_rank}, _, h, _, _, _ => by simp [appSafe] at h"
+        )
+        .unwrap();
         writeln!(o, "\ntheorem app_back {{k t t' ch}} {{c c' : {topt}}} : ∀ (j : Nat) (cl : Cls), appSafe j cl = true → InClass cl ch →\n    TStep k t t' ch c c' → {} → {}\n{arms_t}", app("j", "c'"), app("j", "c")).unwrap();
         writeln!(o, "\ntheorem app_back_s {{ch}} {{c c' : {topt}}} : ∀ (j : Nat) (cl : Cls), appSafe j cl = true → InClass cl ch →\n    SStep ch c c' → {} → {}\n{arms_s}", app("j", "c'"), app("j", "c")).unwrap();
         writeln!(o, "\ndef safe (cl : Cls) (i : Nat) : Bool := (List.range i).all (fun j => appSafe j cl)\n\ntheorem safe_spec {{cl : Cls}} {{i j : Nat}} (h : safe cl i = true) (hj : j < i) : appSafe j cl = true := by\n  unfold safe at h\n  rw [List.all_eq_true] at h\n  exact h j (List.mem_range.2 hj)").unwrap();
         // the rules
         let rs = &lib.rules;
-        writeln!(o, "\n/-- The rules. -/\ninductive Rule where\n{}\n  deriving DecidableEq", rs.iter().map(|r| format!("  | {}", r.lean)).collect::<Vec<_>>().join("\n")).unwrap();
-        writeln!(o, "\ninductive RKind where\n  | thread | shared | global\n  deriving DecidableEq").unwrap();
-        writeln!(o, "\ndef Rule.rank : Rule → Nat\n{}", rs.iter().map(|r| format!("  | .{} => {}", r.lean, rank(r))).collect::<Vec<_>>().join("\n")).unwrap();
-        writeln!(o, "\ndef Rule.kind : Rule → RKind\n{}", rs.iter().zip(&kinds).map(|(r, k)| format!("  | .{} => .{}", r.lean, match k { Kind::Thread => "thread", Kind::Shared => "shared", Kind::Global => "global" })).collect::<Vec<_>>().join("\n")).unwrap();
-        writeln!(o, "\ndef Rule.cls : Rule → Cls\n{}", rs.iter().zip(&cls).map(|(r, c)| format!("  | .{} => .c{c}", r.lean)).collect::<Vec<_>>().join("\n")).unwrap();
-        writeln!(o, "\ndef Rule.key : Rule → KeyPat\n{}", rs.iter().zip(&keys).map(|(r, k)| format!("  | .{} => {k}", r.lean)).collect::<Vec<_>>().join("\n")).unwrap();
+        writeln!(
+            o,
+            "\n/-- The rules. -/\ninductive Rule where\n{}\n  deriving DecidableEq",
+            rs.iter()
+                .map(|r| format!("  | {}", r.lean))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "\ninductive RKind where\n  | thread | shared | global\n  deriving DecidableEq"
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "\ndef Rule.rank : Rule → Nat\n{}",
+            rs.iter()
+                .map(|r| format!("  | .{} => {}", r.lean, rank(r)))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "\ndef Rule.kind : Rule → RKind\n{}",
+            rs.iter()
+                .zip(&kinds)
+                .map(|(r, k)| format!(
+                    "  | .{} => .{}",
+                    r.lean,
+                    match k {
+                        Kind::Thread => "thread",
+                        Kind::Shared => "shared",
+                        Kind::Global => "global",
+                    }
+                ))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "\ndef Rule.cls : Rule → Cls\n{}",
+            rs.iter()
+                .zip(&cls)
+                .map(|(r, c)| format!("  | .{} => .c{c}", r.lean))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+        .unwrap();
+        writeln!(
+            o,
+            "\ndef Rule.key : Rule → KeyPat\n{}",
+            rs.iter()
+                .zip(&keys)
+                .map(|(r, k)| format!("  | .{} => {k}", r.lean))
+                .collect::<Vec<_>>()
+                .join("\n")
+        )
+        .unwrap();
         writeln!(o, "\n/-- A step by rule `r`: every per-rule property of `r` holds of it. -/\ndef StepBy : Rule → {topt} → {topt} → Prop\n{}", rs.iter().map(|r| format!("  | .{l}, c, c' => ∀ Q, {name}.Step.Rel.{l} Q → Q c c'", l = r.lean)).collect::<Vec<_>>().join("\n")).unwrap();
         writeln!(o, "\n/-- What a step by `r` is, beyond `Step`: one thread's step, a step of the shared cells, or nothing\nmore (`global`). -/\ndef VPart (r : Rule) (c c' : {topt}) : Prop :=\n  match r.kind with\n  | .thread => ∃ k t t' ch, TStep k t t' ch c c' ∧ Local r.rank k t t' ch ∧ InClass r.cls ch ∧ r.key.matches (tkey t) = true\n  | .shared => ∃ ch, SStep ch c c' ∧ LocalS r.rank ch ∧ InClass r.cls ch\n  | .global => True").unwrap();
         writeln!(o, "\ndef ViewOf (r : Rule) (c c' : {topt}) : Prop :=\n  {name}.App r.rank c ∧ (∀ j, j < r.rank → ¬ {name}.App j c) ∧ StepBy r c c' ∧ VPart r c c'").unwrap();
@@ -1380,43 +1686,100 @@ mod views {
             if rk > 0 && !args.iter().any(|a| a == "hpri") {
                 args.push("hpri".into());
             }
-            let app_named: String = r.app.hyps.iter().map(|(h, _)| format!(" ({h} := {h})")).collect();
-            let pri = if rk > 0 { "hpri".to_string() } else { "fun j hj => absurd hj (Nat.not_lt_zero j)".to_string() };
+            let app_named: String = r
+                .app
+                .hyps
+                .iter()
+                .map(|(h, _)| format!(" ({h} := {h})"))
+                .collect();
+            let pri = if rk > 0 {
+                "hpri".to_string()
+            } else {
+                "fun j hj => absurd hj (Nat.not_lt_zero j)".to_string()
+            };
             let touch = &touches[ri];
             let c = &classes[cls[ri]];
             let k = c.iter().filter(|t| **t != Touch::Write).count();
             let inclass = {
-                let parts: Vec<&str> = (0..n).filter_map(|f| match touch[f] { Touch::None => Some("rfl"), Touch::Read => Some("⟨_, rfl⟩"), Touch::Write => None }).collect();
-                if parts.is_empty() { "trivial".to_string() } else if parts.len() == 1 { parts[0].to_string() } else { format!("⟨{}⟩", parts.join(", ")) }
+                let parts: Vec<&str> = (0..n)
+                    .filter_map(|f| match touch[f] {
+                        Touch::None => Some("rfl"),
+                        Touch::Read => Some("⟨_, rfl⟩"),
+                        Touch::Write => None,
+                    })
+                    .collect();
+                if parts.is_empty() {
+                    "trivial".to_string()
+                } else if parts.len() == 1 {
+                    parts[0].to_string()
+                } else {
+                    format!("⟨{}⟩", parts.join(", "))
+                }
             };
             let _ = k;
             let chlit = {
-                let fs: Vec<String> = (0..n).filter(|&i| touch[i] != Touch::None).map(|i| format!("{} := some (_, _)", shared[i].field)).collect();
-                if fs.is_empty() { "{}".to_string() } else { format!("{{ {} }}", fs.join(", ")) }
+                let fs: Vec<String> = (0..n)
+                    .filter(|&i| touch[i] != Touch::None)
+                    .map(|i| format!("{} := some (_, _)", shared[i].field))
+                    .collect();
+                if fs.is_empty() {
+                    "{}".to_string()
+                } else {
+                    format!("{{ {} }}", fs.join(", "))
+                }
             };
-            let pres: Vec<&str> = (0..n).map(|i| if touch[i] == Touch::None { "Ch.pre_none" } else { "Ch.pre_self" }).collect();
+            let pres: Vec<&str> = (0..n)
+                .map(|i| {
+                    if touch[i] == Touch::None {
+                        "Ch.pre_none"
+                    } else {
+                        "Ch.pre_self"
+                    }
+                })
+                .collect();
             let unders = vec!["_"; n].join(", ");
             let vars: Vec<String> = (0..n).map(|i| format!("v{i}")).collect();
-            let cases_pre: String = (0..n).filter(|&i| touch[i] != Touch::None).map(|i| format!("    cases ({} _ rfl)\n", proj("hpre", i))).collect();
+            let cases_pre: String = (0..n)
+                .filter(|&i| touch[i] != Touch::None)
+                .map(|i| format!("    cases ({} _ rfl)\n", proj("hpre", i)))
+                .collect();
             let vpart = match kinds[ri] {
                 Kind::Thread => {
-                    let MapRole::Update { hm, hr } = &roles[ri] else { unreachable!() };
+                    let MapRole::Update { hm, hr } = &roles[ri] else {
+                        unreachable!()
+                    };
                     let mut named = format!("({hm} := hm') ({hr} := hr')");
-                    if rk > 0 { named.push_str(" (hpri := hpri')"); }
-                    for (h, _) in &r.step.hyps {
-                        if h != hm && h != hr && h != "hpri" { write!(named, " ({h} := {h})").unwrap(); }
+                    if rk > 0 {
+                        named.push_str(" (hpri := hpri')");
                     }
-                    format!("  simp only [VPart, Rule.kind, Rule.rank, Rule.cls, Rule.key, InClass]\n  refine ⟨_, _, _, {chlit}, ⟨_, _, _, ⟨{unders}⟩, rfl, {hm}, {hr}, ⟨{}⟩, rfl⟩, ?_, {inclass}, rfl⟩\n  rintro d d' ⟨_, _, _, ⟨{}⟩, rfl, hm', hr', hpre, rfl⟩ hpri'\n{}  exact {name}.Step.{l} {named} ..",
-                        pres.join(", "), vars.join(", "), cases_pre.replace("    cases", "  cases"))
+                    for (h, _) in &r.step.hyps {
+                        if h != hm && h != hr && h != "hpri" {
+                            write!(named, " ({h} := {h})").unwrap();
+                        }
+                    }
+                    format!(
+                        "  simp only [VPart, Rule.kind, Rule.rank, Rule.cls, Rule.key, InClass]\n  refine ⟨_, _, _, {chlit}, ⟨_, _, _, ⟨{unders}⟩, rfl, {hm}, {hr}, ⟨{}⟩, rfl⟩, ?_, {inclass}, rfl⟩\n  rintro d d' ⟨_, _, _, ⟨{}⟩, rfl, hm', hr', hpre, rfl⟩ hpri'\n{}  exact {name}.Step.{l} {named} ..",
+                        pres.join(", "),
+                        vars.join(", "),
+                        cases_pre.replace("    cases", "  cases")
+                    )
                 }
                 Kind::Shared => {
                     let mut named = String::new();
-                    if rk > 0 { named.push_str(" (hpri := hpri')"); }
-                    for (h, _) in &r.step.hyps {
-                        if h != "hpri" { write!(named, " ({h} := {h})").unwrap(); }
+                    if rk > 0 {
+                        named.push_str(" (hpri := hpri')");
                     }
-                    format!("  simp only [VPart, Rule.kind, Rule.rank, Rule.cls, InClass]\n  refine ⟨{chlit}, ⟨_, ⟨{unders}⟩, rfl, ⟨{}⟩, rfl⟩, ?_, {inclass}⟩\n  rintro d d' ⟨_, ⟨{}⟩, rfl, hpre, rfl⟩ hpri'\n{}  exact {name}.Step.{l}{named} ..",
-                        pres.join(", "), vars.join(", "), cases_pre.replace("    cases", "  cases"))
+                    for (h, _) in &r.step.hyps {
+                        if h != "hpri" {
+                            write!(named, " ({h} := {h})").unwrap();
+                        }
+                    }
+                    format!(
+                        "  simp only [VPart, Rule.kind, Rule.rank, Rule.cls, InClass]\n  refine ⟨{chlit}, ⟨_, ⟨{unders}⟩, rfl, ⟨{}⟩, rfl⟩, ?_, {inclass}⟩\n  rintro d d' ⟨_, ⟨{}⟩, rfl, hpre, rfl⟩ hpri'\n{}  exact {name}.Step.{l}{named} ..",
+                        pres.join(", "),
+                        vars.join(", "),
+                        cases_pre.replace("    cases", "  cases")
+                    )
                 }
                 Kind::Global => "  simp only [VPart, Rule.kind]".to_string(),
             };
@@ -1512,7 +1875,8 @@ def SameThreadJoins : Prop :=
                 if rank(r1) != rank(r2) {
                     continue;
                 }
-                if kinds[i] == Kind::Thread && kinds[j] == Kind::Thread && !keyps[i].disj(&keyps[j]) {
+                if kinds[i] == Kind::Thread && kinds[j] == Kind::Thread && !keyps[i].disj(&keyps[j])
+                {
                     c.same_thread += 1;
                 }
                 if kinds[i] == Kind::Global || kinds[j] == Kind::Global {
@@ -1551,13 +1915,19 @@ impl Counts {
     fn report(&self) -> String {
         format!(
             "\n[threads]\nrules = {}\nthread = {}\nshared = {}\nglobal = {}\nclasses = {}\nopen = {}\nopen-global = {}\nopen-cells = {}\nopen-priority = {}\nsame-thread = {}\n",
-            self.rules, self.thread, self.shared, self.global, self.classes,
+            self.rules,
+            self.thread,
+            self.shared,
+            self.global,
+            self.classes,
             self.open_global + self.open_cells + self.open_priority,
-            self.open_global, self.open_cells, self.open_priority, self.same_thread
+            self.open_global,
+            self.open_cells,
+            self.open_priority,
+            self.same_thread
         )
     }
 }
-
 
 #[cfg(test)]
 mod tests {

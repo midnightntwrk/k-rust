@@ -730,7 +730,17 @@ fn confluence_threads_leaves_the_global_and_same_thread_pairs_open() {
         .arg("confluence")
         .arg("--kore")
         .arg(&fx)
-        .args(["--name", "T", "--ns", "TV", "--threads", "threads", "--obs", "ended", "--out"])
+        .args([
+            "--name",
+            "T",
+            "--ns",
+            "TV",
+            "--threads",
+            "threads",
+            "--obs",
+            "ended",
+            "--out",
+        ])
         .arg(&out)
         .arg("--report")
         .arg(&report)

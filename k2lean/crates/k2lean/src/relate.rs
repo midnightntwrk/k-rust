@@ -3179,7 +3179,10 @@ fn split_modules(lean: &str, out: &str, ns: &str) -> Result<Vec<(String, String)
     let app_bwd = app
         + lean[app..fwd]
             .find("\nopen ")
-            .filter(|&i| lean[app + i..].starts_with("\nopen ") && lean[app + i..fwd].contains("theorem appbwd."))
+            .filter(|&i| {
+                lean[app + i..].starts_with("\nopen ")
+                    && lean[app + i..fwd].contains("theorem appbwd.")
+            })
             .or_else(|| lean[app..fwd].find("\ntheorem app_bwd"))
             .ok_or("--split: no `app_bwd`")?
         + 1;
@@ -3378,7 +3381,11 @@ fn emit_ordered(
     let arm_lemmas = ARM_LEMMAS.load(std::sync::atomic::Ordering::Relaxed);
     // the statement of a per-rule lemma: `B`'s binders and hypotheses, read in `B`'s namespace
     let arm_binders = |rel: &crate::render::Rel, hpri: Option<String>| -> String {
-        let mut bs: String = rel.binders.iter().map(|(x, t)| format!(" ({x} : {t})")).collect();
+        let mut bs: String = rel
+            .binders
+            .iter()
+            .map(|(x, t)| format!(" ({x} : {t})"))
+            .collect();
         for (h, p) in &rel.hyps {
             write!(bs, "\n    ({h} : {p})").unwrap();
         }
@@ -3390,14 +3397,29 @@ fn emit_ordered(
     let mut app_arms = String::new();
     for (j, rb) in b.rules.iter().enumerate() {
         let Some(i) = back_of.get(&j) else {
-            writeln!(app_arms, "  | {} {} =>\n    k2l_inv", rb.lean, rules::ctor_args(&rb.app).join(" ")).unwrap();
+            writeln!(
+                app_arms,
+                "  | {} {} =>\n    k2l_inv",
+                rb.lean,
+                rules::ctor_args(&rb.app).join(" ")
+            )
+            .unwrap();
             continue;
         };
         let mut body = String::from("    k2l_inv\n");
         bwd_hyps(&mut body, rb, &rb.app);
-        writeln!(body, "    all_goals (apply {na}.App.{} <;> hyp_bwd)", a.rules[*i].lean).unwrap();
+        writeln!(
+            body,
+            "    all_goals (apply {na}.App.{} <;> hyp_bwd)",
+            a.rules[*i].lean
+        )
+        .unwrap();
         if arm_lemmas {
-            let app = if b.ranked { format!("{na}.App {}", b.rank(rb)) } else { format!("{na}.App") };
+            let app = if b.ranked {
+                format!("{na}.App {}", b.rank(rb))
+            } else {
+                format!("{na}.App")
+            };
             writeln!(
                 o,
                 "open {nb} in\ntheorem appbwd.{} {{c : {na}.{top}}} (hi : Inv c){}\n    (hd : {trt} c = {}) : {app} c := by\n{body}",
@@ -3407,9 +3429,20 @@ fn emit_ordered(
             )
             .unwrap();
             let args = rules::ctor_args(&rb.app).join(" ");
-            writeln!(app_arms, "  | {} {args} =>\n    exact appbwd.{} hi {args} hd", rb.lean, rb.lean).unwrap();
+            writeln!(
+                app_arms,
+                "  | {} {args} =>\n    exact appbwd.{} hi {args} hd",
+                rb.lean, rb.lean
+            )
+            .unwrap();
         } else {
-            writeln!(app_arms, "  | {} {} =>\n{body}", rb.lean, rules::ctor_args(&rb.app).join(" ")).unwrap();
+            writeln!(
+                app_arms,
+                "  | {} {} =>\n{body}",
+                rb.lean,
+                rules::ctor_args(&rb.app).join(" ")
+            )
+            .unwrap();
         }
     }
     writeln!(o, "theorem app_bwd {jb}{{c : {na}.{top}}} (hi : Inv c) (h : {nb}.App{ja} ({trt} c)) : {na}.App{ja} c := by\n  generalize hd : {trt} c = d0 at h\n  cases h with").unwrap();
@@ -3454,7 +3487,11 @@ fn emit_ordered(
     writeln!(o, "/-! ## Backward simulation: every step of `{nb}` from a translation is the translation of a step of `{na}` -/\n").unwrap();
     let mut bwd_arms = String::new();
     for (j, rb) in b.rules.iter().enumerate() {
-        let args = format!("{}{}", rules::ctor_args(&rb.step).join(" "), hpri_arg(b, rb));
+        let args = format!(
+            "{}{}",
+            rules::ctor_args(&rb.step).join(" "),
+            hpri_arg(b, rb)
+        );
         let Some(i) = back_of.get(&j) else {
             assert!(unmatched_b.contains(&j));
             writeln!(bwd_arms, "  | {} {args} =>\n    k2l_inv", rb.lean).unwrap();
@@ -3475,7 +3512,12 @@ fn emit_ordered(
                 rb.rhs.subst(&rb.step.subst).render_arg()
             )
             .unwrap();
-            writeln!(bwd_arms, "  | {} {args} =>\n    exact bwd.{} hi {args} hd", rb.lean, rb.lean).unwrap();
+            writeln!(
+                bwd_arms,
+                "  | {} {args} =>\n    exact bwd.{} hi {args} hd",
+                rb.lean, rb.lean
+            )
+            .unwrap();
         } else {
             writeln!(bwd_arms, "  | {} {args} =>\n{body}", rb.lean).unwrap();
         }
