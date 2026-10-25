@@ -295,6 +295,30 @@ With a Bool-valued function, all of it is as above (ImpTypes generates as before
 On EXPR (2026-10-25, Lean v4.34.0): 16 inversion lemmas, 24 cases of `plug`, `k2l_preserve` 66 of 66 rules, and `Soundness.lean` builds in about 20 s; nothing is written by hand.
 Not supported (the command stops with a message): rules of several priorities; a top cell whose children are not leaf cells; holes of several sorts; types that are not an enumeration; typing functions that are not `Option`-valued or take other than a term and an environment; a store-reading rule whose head of `<k>` is not a `KItem` injection of variables, or two such rules with one head.
 
+**Shapes beyond the supported ones**, in the order a typed SIMPLE would meet them (SND-3; none built).
+Each says what the statement would become and what obligation it adds.
+
+1. *A checker written as rewrite rules.* SIMPLE's type system (`pl-tutorial/2_languages/1_simple/2_typed/1_static/simple-typed-static.md`) computes types on `<k>`, with typing tasks in a `<tasks>` cell (each function body typed in a task of its own) and types as `KResult`s; `soundness` reads typing functions.
+   The direct route is a checker written as functions (`typeOf(Exp, Map)`, and `wt(Stmt, Map, Type)` with the enclosing function's return type, item 4), which also makes the checker's results equations of `gen` rather than outcomes of a run.
+   Relating the two runs (the static semantics' run accepts, so the dynamic one does not get stuck) would be a different theorem: a simulation between two semantics, of `refine`'s kind (§3.5).
+2. *A top cell whose children are not leaf cells, and a thread cell map* (every SIMPLE configuration: `<T>`, `<threads>`, `<thread>*`, `<env>` per thread, a shared `<store>`).
+   `WTc` quantifies over threads: each thread's `<k>` typed by `kty` under its environment's typing, and the store typed once; `Final c` holds when every thread's `<k>` is empty or one value.
+   A thread whose head is a synchronization (`acquire`, `join`, `rendezvous`) can have no rule, legitimately, so the statement becomes `Final c ∨ App c ∨ Blocked c`, with `Blocked c` stating that every thread not final is at a synchronization whose condition is false.
+   The obligations added: for each synchronization rule, a hand progress case (its head with the condition true has the rule apply, as store-reading rules have); and preservation of a per-thread typing over the thread cell map, whose cases have the element-wise shape of INV-2's walks (`invariants.md`, §3).
+3. *Types that are not an enumeration* (`Types -> Type`, `Type[]`).
+   `Ty` becomes the checker's sort of types, as terms with a decidable equality (generated), and `kty` stays computable.
+   `dflt t`, the placeholder value of type `t`, does not exist for every type: a function type has lambdas, but an array type's values are locations, typed only through the store typing.
+   So the freezer typing quantifies over the values of the hole's type instead (`item G (some t) f` holds when `item0 G (plug f v)` does for every `v` of type `t`), `kty` becomes a proposition, and preservation needs, per freezer, a lemma that the plugged item's typing depends only on the value's type: what is now computed ("a value and the placeholder of its type are typed alike") is then stated and proved.
+4. *Typing functions with other arguments than a term and an environment* (SIMPLE's statements need the return type), or that are total.
+   The environment generalizes to a structure of the extra arguments, as long as no rule changes them; a total typing function is the `Option`-valued one composed with `some`.
+5. *Holes of several sorts* (SIMPLE's calls and `print` evaluate `Exps`, lists of expressions).
+   The pending typing becomes `Option (HoleSort × Ty)` (a list of values is typed by `Types`), with one `plug` per hole sort, and the obligation of item 3 per hole sort.
+6. *A store-reading rule whose head is not a `KItem` injection of variables, or two such rules with one head* (SIMPLE reads a variable through `<env>` and then `<store>`, and `++X` and `X = V` read its location through `lvalue`).
+   The hand progress case is keyed by the rule rather than by the head: the head is cased like the other leaves, and the hand case receives the case's shape.
+7. *Rules of several priorities* (none in SIMPLE).
+   A lower-priority rule's `Step` constructor carries the premise that no rule of a higher priority applies.
+   The statements stay as they are: `App c` is "some rule applies", and one generic lemma turns an applicable rule into a step by the highest-priority applicable one; preservation ignores the extra premise.
+
 ### 3.4 Scaffolds: what is generated and what is supplied
 
 Three theorem templates need an argument no generator has: a correspondence that is not a renaming (refinement), a commutation argument (confluence), a relation between two runs (noninterference).
