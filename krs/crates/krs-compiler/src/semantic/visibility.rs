@@ -40,7 +40,8 @@ pub(super) fn check_proof_visibility(
         // The sentence's serialized form holds every declaration it names,
         // in terms, conditions, and binders, so the search covers every
         // shape.
-        let sentence = serde_json::to_value(rule).map_err(json_error)?;
+        let sentence = serde_json::to_value(rule)
+            .map_err(|error| json_error(error).within(rule.id(), None))?;
         if let Some(production) = private
             .iter()
             .find(|(id, _)| contains(&sentence, id))

@@ -15,65 +15,75 @@ pub(super) fn validate_all_stable_references(
     declarations: &DescriptorIndex<'_>,
 ) -> Result<(), DescriptorLoweringError> {
     for descriptor in descriptors {
-        match descriptor.payload() {
-            DescriptorPayload::Sort(sort) => {
-                for parent in &sort.parents {
-                    declarations.sort(parent)?;
-                }
+        validate_descriptor_references(descriptor, declarations)
+            .map_err(|error| error.within(descriptor.id(), None))?;
+    }
+    Ok(())
+}
+
+/// The stable references of one descriptor, each naming a declaration of its kind.
+fn validate_descriptor_references(
+    descriptor: &Descriptor,
+    declarations: &DescriptorIndex<'_>,
+) -> Result<(), DescriptorLoweringError> {
+    match descriptor.payload() {
+        DescriptorPayload::Sort(sort) => {
+            for parent in &sort.parents {
+                declarations.sort(parent)?;
             }
-            DescriptorPayload::Constructor(constructor) => {
-                validate_sort_ref(&constructor.sort, declarations)?;
-                for field in &constructor.fields {
-                    let sort = field.sort.as_ref().ok_or_else(|| {
-                        DescriptorLoweringError::unsupported_shape(
-                            "constructor field",
-                            format!(
-                                "field {:?} on {} has no resolved sort",
-                                field.name,
-                                descriptor.id()
-                            ),
-                        )
-                    })?;
-                    validate_sort_ref(sort, declarations)?;
-                }
-            }
-            DescriptorPayload::Grammar(grammar) => {
-                validate_grammar_references(grammar, declarations)?;
-            }
-            DescriptorPayload::StructuredRule(rule) => {
-                validate_structured_rule_references(rule, declarations)?;
-            }
-            DescriptorPayload::FixedConfiguration(configuration) => {
-                validate_fixed_configuration_references(configuration, declarations)?;
-            }
-            DescriptorPayload::Cell(declaration) => {
-                validate_cell_declaration_references(declaration, declarations)?;
-            }
-            DescriptorPayload::ConfigurationRule(rule) => {
-                declarations.configuration(&rule.subject_configuration.configuration)?;
-                if let Some(result_configuration) = &rule.result_configuration {
-                    declarations.configuration(&result_configuration.configuration)?;
-                }
-                validate_configuration_rule_references(rule, declarations)?;
-            }
-            DescriptorPayload::HeadRule(rule) => {
-                declarations.configuration(&rule.configuration)?;
-                if let Some(head_sort) = &rule.head_sort {
-                    validate_sort_ref(&head_sort.sort, declarations)?;
-                }
-                for binding in &rule.bindings {
-                    if let Some(refinement) = &binding.refinement {
-                        validate_sort_ref(&refinement.sort, declarations)?;
-                    }
-                }
-            }
-            DescriptorPayload::ContextAlias(alias) => {
-                declarations.configuration(&alias.configuration.configuration)?;
-                validate_rule_cells_references(&alias.pattern, declarations)?;
-            }
-            // Constants are substituted at their uses before lowering.
-            DescriptorPayload::Constant(_) => {}
         }
+        DescriptorPayload::Constructor(constructor) => {
+            validate_sort_ref(&constructor.sort, declarations)?;
+            for field in &constructor.fields {
+                let sort = field.sort.as_ref().ok_or_else(|| {
+                    DescriptorLoweringError::unsupported_shape(
+                        "constructor field",
+                        format!(
+                            "field {:?} on {} has no resolved sort",
+                            field.name,
+                            descriptor.id()
+                        ),
+                    )
+                })?;
+                validate_sort_ref(sort, declarations)?;
+            }
+        }
+        DescriptorPayload::Grammar(grammar) => {
+            validate_grammar_references(grammar, declarations)?;
+        }
+        DescriptorPayload::StructuredRule(rule) => {
+            validate_structured_rule_references(rule, declarations)?;
+        }
+        DescriptorPayload::FixedConfiguration(configuration) => {
+            validate_fixed_configuration_references(configuration, declarations)?;
+        }
+        DescriptorPayload::Cell(declaration) => {
+            validate_cell_declaration_references(declaration, declarations)?;
+        }
+        DescriptorPayload::ConfigurationRule(rule) => {
+            declarations.configuration(&rule.subject_configuration.configuration)?;
+            if let Some(result_configuration) = &rule.result_configuration {
+                declarations.configuration(&result_configuration.configuration)?;
+            }
+            validate_configuration_rule_references(rule, declarations)?;
+        }
+        DescriptorPayload::HeadRule(rule) => {
+            declarations.configuration(&rule.configuration)?;
+            if let Some(head_sort) = &rule.head_sort {
+                validate_sort_ref(&head_sort.sort, declarations)?;
+            }
+            for binding in &rule.bindings {
+                if let Some(refinement) = &binding.refinement {
+                    validate_sort_ref(&refinement.sort, declarations)?;
+                }
+            }
+        }
+        DescriptorPayload::ContextAlias(alias) => {
+            declarations.configuration(&alias.configuration.configuration)?;
+            validate_rule_cells_references(&alias.pattern, declarations)?;
+        }
+        // Constants are substituted at their uses before lowering.
+        DescriptorPayload::Constant(_) => {}
     }
     Ok(())
 }

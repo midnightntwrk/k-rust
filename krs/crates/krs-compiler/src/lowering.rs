@@ -772,7 +772,7 @@ impl NamingPass {
                     || sort.id().item_name().to_owned(),
                     |symbol| symbol.final_component().to_owned(),
                 );
-                validate_sort_name(&name)?;
+                validate_sort_name(&name).map_err(|error| error.within(sort.id()))?;
                 claim(
                     &mut identities,
                     id.as_str().to_owned(),
@@ -801,7 +801,8 @@ impl NamingPass {
                 let owner = stable_symbol_text(production.id(), production.explicit_symbol());
                 let id = SymbolId::new(format!("production:{}", lower_hex(owner.as_bytes())))?;
                 let name = production_symbol_name(production, &owner);
-                validate_label_name("production symbol", &name)?;
+                validate_label_name("production symbol", &name)
+                    .map_err(|error| error.within(production.id()))?;
                 claim(
                     &mut identities,
                     id.as_str().to_owned(),
@@ -872,7 +873,8 @@ impl NamingPass {
             // so the name is claimed once, by the first of them.
             let mut alias_names = BTreeSet::new();
             for alias in module.context_aliases() {
-                validate_label_name("context alias", alias.name())?;
+                validate_label_name("context alias", alias.name())
+                    .map_err(|error| error.within(alias.id()))?;
                 if !alias_names.insert(alias.name().to_owned()) {
                     continue;
                 }
@@ -902,7 +904,8 @@ impl NamingPass {
                     },
                     |label| label.name().to_owned(),
                 );
-                validate_label_name("rule label", &name)?;
+                validate_label_name("rule label", &name)
+                    .map_err(|error| error.within(rule.id()))?;
                 claim(
                     &mut labels,
                     id.as_str().to_owned(),
@@ -1101,7 +1104,10 @@ impl OriginPass {
         }
         let key = SourceMapKey::new(format!("def.{role}.{}", short_hash(&seed)))?;
         if !self.keys.insert(key.clone()) {
-            return Err(LoweringError::SourceMapCollision { key, item: None });
+            return Err(LoweringError::SourceMapCollision {
+                key,
+                item: item.cloned().map(Box::new),
+            });
         }
         let mut stack = semantic.origin().clone();
         stack.push(OriginFrame::Transformation {

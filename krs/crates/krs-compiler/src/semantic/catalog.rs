@@ -219,7 +219,8 @@ pub(super) fn build_production_catalog(
                 return Err(DescriptorLoweringError::unsupported_shape(
                     "production catalog",
                     format!("more than one grammar descriptor owns {id}"),
-                ));
+                )
+                .within(descriptor.id(), None));
             }
         }
     }
@@ -230,7 +231,8 @@ pub(super) fn build_production_catalog(
         return Err(DescriptorLoweringError::unsupported_shape(
             "constructor",
             format!("no grammar descriptor owns constructor {}", descriptor.id()),
-        ));
+        )
+        .within(descriptor.id(), None));
     }
     Ok(catalog)
 }

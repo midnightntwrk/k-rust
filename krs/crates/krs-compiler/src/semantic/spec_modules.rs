@@ -471,6 +471,7 @@ pub(super) fn check_spec_identifiers(
                     "spec module",
                     format!("cannot inspect a spec-module sentence: {error}"),
                 )
+                .within(rule.id(), None)
             })?;
             let mut identifiers = BTreeSet::new();
             collect_identifiers(&value, &mut identifiers);

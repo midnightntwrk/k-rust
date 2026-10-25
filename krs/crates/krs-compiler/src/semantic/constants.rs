@@ -165,8 +165,15 @@ fn constant_uses(term: &DescriptorTerm, output: &mut BTreeSet<StableItemId>) {
 }
 
 /// `descriptor` with `values` substituted at every use, or `None` when it
-/// uses no constant.
+/// uses no constant; a failure is about `descriptor`.
 fn substitute(
+    descriptor: &Descriptor,
+    values: &BTreeMap<StableItemId, DescriptorTerm>,
+) -> Result<Option<Descriptor>, DescriptorLoweringError> {
+    substitute_uses(descriptor, values).map_err(|error| error.within(descriptor.id(), None))
+}
+
+fn substitute_uses(
     descriptor: &Descriptor,
     values: &BTreeMap<StableItemId, DescriptorTerm>,
 ) -> Result<Option<Descriptor>, DescriptorLoweringError> {
