@@ -1,0 +1,179 @@
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.editor {
+  border: 1px solid var(--vocs-border-color-primary);
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: var(--vocs-background-color-code-block);
+}
+
+.heading,
+.runHeading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+  font-size: 0.8rem;
+}
+
+.heading {
+  padding: 0.6rem 0.9rem;
+  border-bottom: 1px solid var(--vocs-border-color-primary);
+  color: var(--vocs-text-color-secondary);
+  font-family: var(--vocs-font-mono);
+}
+
+.code {
+  margin: 0;
+  padding: 1rem 0.9rem;
+  font-size: 0.85rem;
+  line-height: 1.9;
+  min-height: 7rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.code > code > span {
+  display: block;
+}
+
+.changed {
+  background: var(--tint-a);
+  color: var(--vocs-text-color-primary);
+  border-radius: 0.2rem;
+  outline: 1px solid var(--bind-a);
+}
+
+.runs {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  gap: 1.5rem;
+}
+
+.runHeading {
+  flex-direction: column;
+}
+
+.runHeading > span:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.5rem;
+}
+
+.runHeading code {
+  display: inline-block;
+  padding: 0;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.run {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.runHeading > span:last-child,
+.timing {
+  color: var(--vocs-text-color-secondary);
+}
+
+.runHeading > .survived {
+  color: var(--vocs-color-yellow);
+}
+
+.track {
+  height: 0.6rem;
+  border: 1px solid var(--vocs-border-color-primary);
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--vocs-background-color-code-block);
+}
+
+.fill {
+  height: 100%;
+  background: var(--vocs-color-blue);
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.running {
+  animation: compile 2400ms linear forwards;
+}
+
+.complete {
+  transform: scaleX(1);
+}
+
+.timing {
+  font-size: 0.75rem;
+}
+
+@keyframes compile {
+  to { transform: scaleX(1); }
+}
+
+@media (max-width: 440px) {
+  .code { font-size: 0.75rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .running { animation-duration: 600ms; }
+}
+
+.output {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.35rem 1rem;
+  padding: 0.65rem 0.9rem;
+  border-top: 1px solid var(--vocs-border-color-primary);
+  font-size: 0.75rem;
+}
+
+.outputLabel {
+  color: var(--vocs-text-color-secondary);
+  margin-right: 0.5rem;
+}
+
+.unchanged {
+  color: var(--vocs-text-color-secondary);
+  padding: 0.1rem 0.35rem;
+  border-radius: 0.25rem;
+}
+
+.pulse {
+  color: var(--vocs-text-color-primary);
+  background: var(--tint-a);
+  font-weight: 600;
+  animation: notice 650ms ease-in-out 2;
+}
+
+@keyframes notice {
+  50% {
+    background: var(--bind-a);
+    transform: scale(1.08);
+  }
+}
+
+@media (max-width: 640px) {
+  .layout {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 1rem;
+  }
+
+  .runHeading {
+    flex-direction: row;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse { animation: none; }
+}
