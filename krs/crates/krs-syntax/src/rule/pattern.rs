@@ -1082,34 +1082,23 @@ pub(crate) fn allocate_wildcard_keys(
     Ok(())
 }
 
+/// Pushes a candidate for each application head and each reference of
+/// `nodes` that is not one of `bindings`, keyed as its sentence keyed the
+/// node: the first key of the node in `term_keys`.
 pub(super) fn push_term_reference_candidates(
     candidates: &mut Vec<ReferenceCandidate<TermSymbolKind>>,
     nodes: &[TermNode],
+    term_keys: &TermKeys,
     bindings: &[Ident],
-    application_role: ProvenanceRole,
-    reference_role: ProvenanceRole,
-) -> Result<(), SyntaxError> {
-    let mut application_ordinal = 0_usize;
-    let mut reference_ordinal = 0_usize;
-    for node in nodes {
-        let (path, kind, role, ordinal) = match node {
-            TermNode::ApplicationHead(path) => {
-                let ordinal = application_ordinal;
-                application_ordinal += 1;
-                (
-                    path,
-                    TermSymbolKind::ApplicationHead,
-                    application_role,
-                    ordinal,
-                )
-            }
+) {
+    for (index, node) in nodes.iter().enumerate() {
+        let (path, kind) = match node {
+            TermNode::ApplicationHead(path) => (path, TermSymbolKind::ApplicationHead),
             TermNode::Reference(path) => {
-                let ordinal = reference_ordinal;
-                reference_ordinal += 1;
                 if is_bound_path(path, bindings) {
                     continue;
                 }
-                (path, TermSymbolKind::Reference, reference_role, ordinal)
+                (path, TermSymbolKind::Reference)
             }
             TermNode::Literal(_)
             | TermNode::IdToken(_)
@@ -1127,14 +1116,16 @@ pub(super) fn push_term_reference_candidates(
             | TermNode::LetWildcard(_)
             | TermNode::Rewrite { .. } => continue,
         };
-        let ordinal = checked_ordinal(ordinal, role, path.span())?;
+        let key = term_keys
+            .node(index)
+            .first()
+            .expect("a keyed sentence keys every application head and reference");
         candidates.push(ReferenceCandidate {
-            key: canonical_key(role, ordinal),
+            key: key.clone(),
             path: path.clone(),
             kind,
         });
     }
-    Ok(())
 }
 
 fn term_node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {

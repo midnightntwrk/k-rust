@@ -797,9 +797,9 @@ impl StateRuleItem {
             allocate_cells_keys(&mut keys, &mut result.result.unkeyed(), RuleSide::Right)?;
         }
         if let Some(requires) = &self.requires {
-            requires.allocate_keys(&mut keys)?;
+            requires.unkeyed().allocate_keys(&mut keys)?;
         }
-        self.existentials.allocate_keys(&mut keys)?;
+        self.existentials.unkeyed().allocate_keys(&mut keys)?;
         let ensures = self.existentials.ensures();
         // `k::rewrite!` shells and sides (KF-011), in subject order.
         for term in claim_terms(self, None) {
@@ -971,6 +971,8 @@ pub struct FunctionContext {
     configuration_type: Path,
     pattern: CellsExpression,
     bindings: Vec<StateRuleBinding>,
+    key: Option<ProvenanceKey>,
+    type_key: Option<ProvenanceKey>,
 }
 
 impl FunctionContext {
@@ -1049,6 +1051,8 @@ impl FunctionContext {
             configuration_type: path.path.clone(),
             pattern,
             bindings,
+            key: None,
+            type_key: None,
         })
     }
 
@@ -1128,18 +1132,49 @@ impl FunctionContext {
             .collect()
     }
 
+    /// The key of the `k::cells! { .. }` parameter pattern; its cells hold
+    /// their own keys.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// The key of the configuration type.
+    #[must_use]
+    pub const fn type_key(&self) -> Option<&ProvenanceKey> {
+        self.type_key.as_ref()
+    }
+
+    /// The context's cell terms in expansion order, for a pass that keys
+    /// them.
+    pub(crate) fn terms_mut(&mut self) -> Vec<&mut TermExpression> {
+        self.pattern
+            .entries_mut()
+            .iter_mut()
+            .flat_map(|entry| entry.value_mut().terms_mut())
+            .collect()
+    }
+
+    /// Forgets the keys of the parameter and of its cells, before the
+    /// equation's pass keys them.
+    pub(crate) fn clear_keys(&mut self) {
+        self.key = None;
+        self.type_key = None;
+        self.pattern.clear_keys();
+    }
+
     /// Keys the parameter (`function_context`, `function_context_type`), then
     /// the cells, whose left-hand term ordinals continue after the subject's.
-    pub(crate) fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
-        keys.key(
+    pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.key = Some(keys.key(
             ProvenanceRole::FunctionContext,
             TokenRange::for_tokens(&self.pattern_macro)?,
-        )?;
-        keys.key(
+        )?);
+        self.type_key = Some(keys.key(
             ProvenanceRole::FunctionContextType,
             TokenRange::for_tokens(&self.configuration_type)?,
-        )?;
-        allocate_cells_keys(keys, &mut self.pattern.unkeyed(), RuleSide::Left)
+        )?);
+        allocate_cells_keys(keys, &mut self.pattern, RuleSide::Left)
     }
 }
 

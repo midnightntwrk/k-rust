@@ -11,7 +11,6 @@ use crate::parse::{
     validate_authored_binder,
 };
 use crate::path::is_plain_path;
-use crate::term::TermKeys;
 use crate::term::allocate_record_field_keys;
 use crate::{
     ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, TermExpression,
@@ -22,51 +21,81 @@ use crate::{
 #[derive(Clone, Debug)]
 pub struct RuleCondition {
     term: TermExpression,
+    /// The anchors of the condition's standalone keying.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl RuleCondition {
+    /// A condition over `term`, keyed as a sentence of its own.
+    fn keyed(term: TermExpression) -> Result<Self, SyntaxError> {
+        let mut condition = Self {
+            term,
+            anchors: Vec::new(),
+        };
+        let mut keys = KeyAllocator::default();
+        condition.clear_keys();
+        condition.allocate_keys(&mut keys)?;
+        condition.anchors = keys.into_anchors();
+        Ok(condition)
+    }
+
     /// Returns the complete structured condition term.
     #[must_use]
     pub const fn term(&self) -> &TermExpression {
         &self.term
     }
 
-    /// Returns complete and nested parser-owned condition anchors.
+    /// Returns the condition term, for a pass that keys it.
+    pub(crate) const fn term_mut(&mut self) -> &mut TermExpression {
+        &mut self.term
+    }
+
+    /// Returns complete and nested parser-owned condition anchors of the
+    /// condition's standalone keying.
     ///
     /// # Errors
     ///
-    /// Returns endpoint or occurrence-overflow errors only.
+    /// None: the condition was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut keys = KeyAllocator::default();
-        self.allocate_keys(&mut keys)?;
-        Ok(keys.into_anchors())
+        Ok(self.anchors.clone())
     }
 
-    /// Keys the condition, then its paths, its application head, reference,
-    /// and literal nodes, and its record field names.
-    pub(crate) fn allocate_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
-        keys.key(
+    /// Forgets the keys of the condition's term, before a sentence's pass
+    /// keys it.
+    pub(crate) fn clear_keys(&mut self) {
+        self.term.clear_keys();
+    }
+
+    /// A copy without keys, for a producer that computes its anchors on
+    /// demand; the copy's keys are discarded with it.
+    pub(crate) fn unkeyed(&self) -> Self {
+        let mut copy = self.clone();
+        copy.clear_keys();
+        copy
+    }
+
+    /// Keys the condition (its term's payload), then its paths, its
+    /// application head, reference, and literal nodes, and its record field
+    /// names.
+    pub(crate) fn allocate_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.term.allocate_keys(
+            keys,
             ProvenanceRole::RuleRequires,
-            TokenRange::for_tokens(self.term.expression())?,
+            ProvenanceRole::RuleRequiresPath,
         )?;
-        for symbol in self.term.symbols() {
-            keys.key(
-                ProvenanceRole::RuleRequiresPath,
-                TokenRange::for_tokens(symbol.path())?,
-            )?;
-        }
+        let (nodes, tree, term_keys) = self.term.keying();
         allocate_term_node_keys(
             keys,
-            self.term.nodes(),
-            &mut TermKeys::default(),
+            nodes,
+            term_keys,
             ProvenanceRole::RuleRequiresApplicationHead,
             ProvenanceRole::RuleRequiresReference,
             ProvenanceRole::RuleRequiresLiteral,
         )?;
         allocate_record_field_keys(
             keys,
-            self.term.tree(),
-            &mut TermKeys::default(),
+            tree,
+            term_keys,
             ProvenanceRole::RuleRequiresRecordFieldName,
         )
     }
@@ -84,10 +113,9 @@ impl RuleCondition {
         push_term_reference_candidates(
             &mut candidates,
             self.term.nodes(),
+            self.term.keys(),
             bindings,
-            ProvenanceRole::RuleRequiresApplicationHead,
-            ProvenanceRole::RuleRequiresReference,
-        )?;
+        );
         Ok(candidates)
     }
 }
@@ -384,7 +412,7 @@ pub(crate) fn take_requires_helper(
                 term.expression().span(),
             ));
         }
-        condition = Some(RuleCondition { term });
+        condition = Some(RuleCondition::keyed(term)?);
     }
     *attributes = retained;
     Ok(condition)

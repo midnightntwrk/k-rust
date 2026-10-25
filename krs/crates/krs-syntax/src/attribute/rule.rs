@@ -6,6 +6,7 @@ use syn::{Expr, ExprLit, Ident, Lit, LitInt, LitStr, Path, Token};
 
 use crate::parse::{KeyAllocator, KrsSyntax, ParseError, structured};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
+use krs_ir::ProvenanceKey;
 
 use super::value::parse_rule_label_value;
 
@@ -177,6 +178,9 @@ impl ClaimAttribute {
 pub struct ClaimBinder {
     name: Ident,
     sort: Path,
+    key: Option<ProvenanceKey>,
+    name_key: Option<ProvenanceKey>,
+    sort_key: Option<ProvenanceKey>,
 }
 
 impl ClaimBinder {
@@ -189,6 +193,47 @@ impl ClaimBinder {
     #[must_use]
     pub const fn sort(&self) -> &Path {
         &self.sort
+    }
+
+    /// The key of the binder declaration, given by the sentence that
+    /// declares it (a rule's existential or fresh binder).
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// The key of the binder's name.
+    #[must_use]
+    pub const fn name_key(&self) -> Option<&ProvenanceKey> {
+        self.name_key.as_ref()
+    }
+
+    /// The key of the binder's sort.
+    #[must_use]
+    pub const fn sort_key(&self) -> Option<&ProvenanceKey> {
+        self.sort_key.as_ref()
+    }
+
+    /// Forgets the binder's keys, before a sentence's pass keys it.
+    pub(crate) fn clear_keys(&mut self) {
+        self.key = None;
+        self.name_key = None;
+        self.sort_key = None;
+    }
+
+    /// Keys the binder, its name and its sort, each as the next of its role.
+    pub(crate) fn allocate_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        binder_role: ProvenanceRole,
+        name_role: ProvenanceRole,
+        sort_role: ProvenanceRole,
+    ) -> Result<(), SyntaxError> {
+        let name = TokenRange::for_tokens(&self.name)?;
+        self.key = Some(keys.key(binder_role, name)?);
+        self.name_key = Some(keys.key(name_role, name)?);
+        self.sort_key = Some(keys.key(sort_role, TokenRange::for_tokens(&self.sort)?)?);
+        Ok(())
     }
 }
 
@@ -204,6 +249,12 @@ impl ExistsAttribute {
     pub fn binders(&self) -> &[ClaimBinder] {
         &self.binders
     }
+
+    /// Declared binders in source order, for a pass that keys them.
+    pub(crate) fn binders_mut(&mut self) -> &mut [ClaimBinder] {
+        &mut self.binders
+    }
+
     /// Returns exact declaration/name/sort anchors.
     ///
     /// # Errors
@@ -567,7 +618,13 @@ impl KrsSyntax for ExistsAttribute {
                 {
                     return Err(syn::Error::new(name.span(), "duplicate existential binder"));
                 }
-                binders.push(ClaimBinder { name, sort });
+                binders.push(ClaimBinder {
+                    name,
+                    sort,
+                    key: None,
+                    name_key: None,
+                    sort_key: None,
+                });
                 if input.is_empty() {
                     break;
                 }

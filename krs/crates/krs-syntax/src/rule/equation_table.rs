@@ -47,6 +47,8 @@ pub struct EquationRow {
     /// Whether the row has an authored `#[k::requires]`; a `k::bits!`
     /// template's guard is not one.
     authored_requires: bool,
+    /// The anchors of the row's keying.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl EquationRow {
@@ -102,12 +104,21 @@ impl EquationRow {
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed node emits no tokens.
+    /// None: the row was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.anchors.clone())
+    }
+
+    /// Keys the row as a sentence of its own: the equation's full view, then
+    /// its `#[k::equation]` keys. The equation is re-keyed as part of the row,
+    /// which numbers it as the equation numbers itself.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
+        self.rule.clear_keys();
         self.rule.allocate_full_keys(&mut keys)?;
         self.equation.allocate_keys(&mut keys)?;
-        Ok(keys.into_anchors())
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -296,7 +307,9 @@ fn parse_row(input: ParseStream<'_>, function: &Path) -> Result<EquationRow, Par
         source_range: TokenRange::new(row_start, semicolon.span),
         layout,
         authored_requires,
-    })
+        anchors: Vec::new(),
+    }
+    .keyed()?)
 }
 
 /// A row's attributes: its `#[k::equation(..)]` keys, parsed and authored,

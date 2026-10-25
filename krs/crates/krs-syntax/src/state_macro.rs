@@ -569,6 +569,22 @@ impl StateTerm {
         }
     }
 
+    /// Every term of the state, mutably, in [`Self::terms`] order.
+    pub(crate) fn terms_mut(&mut self) -> Vec<&mut TermExpression> {
+        match self {
+            Self::Term(term) | Self::Group(term) => vec![term],
+            Self::KSequence(sequence) => sequence.items.iter_mut().collect(),
+            Self::Map(map) => map.terms_mut(),
+            Self::Present(inner) => inner.terms_mut(),
+            Self::Absent(_) => Vec::new(),
+            Self::Instances(list) => list
+                .nested_states_mut()
+                .into_iter()
+                .flat_map(Self::terms_mut)
+                .collect(),
+        }
+    }
+
     /// Forgets the keys of the state and of everything inside it, before an
     /// enclosing sentence's pass keys them.
     pub(crate) fn clear_keys(&mut self) {

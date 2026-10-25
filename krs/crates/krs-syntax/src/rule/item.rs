@@ -1,3 +1,4 @@
+use krs_ir::ProvenanceKey;
 use proc_macro2::TokenStream;
 use syn::ext::IdentExt;
 use syn::spanned::Spanned;
@@ -7,12 +8,11 @@ use super::condition::{RuleCondition, take_requires_helper};
 use super::existentials::RuleExistentials;
 use super::pattern::{
     NegativeLiteralSpans, PatternRoot, RulePattern, allocate_term_node_keys,
-    allocate_wildcard_keys, canonical_key, is_bound_path, is_bound_reference, parse_rule_pattern,
-    push_candidate, push_term_reference_candidates,
+    allocate_wildcard_keys, is_bound_path, is_bound_reference, parse_rule_pattern, push_candidate,
+    push_term_reference_candidates,
 };
 use crate::parse::{KeyAllocator, KrsSyntax, unsupported_rule_signature as unsupported_signature};
 use crate::state_rule::{FUNCTION_CONTEXT_ONLY_ON_EQUATIONS, FunctionContext, is_cells_parameter};
-use crate::term::TermKeys;
 use crate::term::{
     allocate_lexeme_keys, allocate_record_field_keys, allocate_sort_test_keys, is_term_macro,
     unexpected_macro,
@@ -33,6 +33,23 @@ pub struct RuleParameter {
     pub pattern: RulePattern,
     /// Rust-resolved term sort.
     pub term_sort: TermSort,
+    pattern_key: Option<ProvenanceKey>,
+    type_key: Option<ProvenanceKey>,
+}
+
+impl RuleParameter {
+    /// The key of the whole subject pattern; its nodes hold their own keys
+    /// ([`RulePattern::keys`]).
+    #[must_use]
+    pub const fn pattern_key(&self) -> Option<&ProvenanceKey> {
+        self.pattern_key.as_ref()
+    }
+
+    /// The key of the subject's type.
+    #[must_use]
+    pub const fn type_key(&self) -> Option<&ProvenanceKey> {
+        self.type_key.as_ref()
+    }
 }
 
 /// The binder-list contract shared by every fn-shaped sentence (X5), as a
@@ -46,6 +63,8 @@ pub struct RuleBinder {
     name: Ident,
     term_sort: TermSort,
     parameter: PatType,
+    parameter_key: Option<ProvenanceKey>,
+    sort_key: Option<ProvenanceKey>,
 }
 
 impl RuleBinder {
@@ -66,6 +85,18 @@ impl RuleBinder {
     pub const fn parameter(&self) -> &PatType {
         &self.parameter
     }
+
+    /// The key of the `name: Type` parameter.
+    #[must_use]
+    pub const fn parameter_key(&self) -> Option<&ProvenanceKey> {
+        self.parameter_key.as_ref()
+    }
+
+    /// The key of the declared sort path.
+    #[must_use]
+    pub const fn sort_key(&self) -> Option<&ProvenanceKey> {
+        self.sort_key.as_ref()
+    }
 }
 
 /// Validated one-clause rule function.
@@ -84,6 +115,12 @@ pub struct RuleItem {
     /// Result names a desugar clause's `unbound_variables` lists (KF-046).
     unbound: Vec<Ident>,
     function_context: Option<FunctionContext>,
+    declaration_key: Option<ProvenanceKey>,
+    result_type_key: Option<ProvenanceKey>,
+    /// The anchors of the catalog view ([`Self::provenance`]).
+    anchors: Vec<ProvenanceAnchor>,
+    /// The anchors of the full view ([`Self::full_provenance`]).
+    full_anchors: Vec<ProvenanceAnchor>,
 }
 
 /// Which fn sentence a rule item is parsed as.
@@ -450,12 +487,14 @@ impl RuleItem {
             )?;
         }
 
-        Ok(Self {
+        Self {
             item: item.clone(),
             binders,
             parameter: RuleParameter {
                 pattern,
                 term_sort: parameter_sort,
+                pattern_key: None,
+                type_key: None,
             },
             result_sort,
             result,
@@ -464,7 +503,12 @@ impl RuleItem {
             existentials,
             unbound: Vec::new(),
             function_context,
-        })
+            declaration_key: None,
+            result_type_key: None,
+            anchors: Vec::new(),
+            full_anchors: Vec::new(),
+        }
+        .keyed()
     }
 
     /// Checks a desugar clause's `unbound_variables = [x, _]` against the
@@ -601,87 +645,134 @@ impl RuleItem {
         bindings
     }
 
-    /// Returns canonical rule node anchors and nested path anchors.
+    /// The key of the rule's name, its declaration.
+    #[must_use]
+    pub const fn declaration_key(&self) -> Option<&ProvenanceKey> {
+        self.declaration_key.as_ref()
+    }
+
+    /// The key of the result type; the result term's key is its payload key.
+    #[must_use]
+    pub const fn result_type_key(&self) -> Option<&ProvenanceKey> {
+        self.result_type_key.as_ref()
+    }
+
+    /// Keys the rule as a sentence of its own. The catalog view is a prefix
+    /// of the full view, so one pass keys both: every node holds the same key
+    /// in each view, and the catalog's anchors are those recorded before the
+    /// subject's nodes.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.clear_keys();
+        self.allocate_catalog_keys(&mut keys)?;
+        self.anchors = keys.anchors().to_vec();
+        self.allocate_term_keys(&mut keys)?;
+        self.full_anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// Forgets every key of the rule, before a sentence's pass keys it.
+    pub(crate) fn clear_keys(&mut self) {
+        self.declaration_key = None;
+        self.result_type_key = None;
+        self.parameter.pattern_key = None;
+        self.parameter.type_key = None;
+        self.parameter.pattern.clear_keys();
+        for binder in &mut self.binders {
+            binder.parameter_key = None;
+            binder.sort_key = None;
+        }
+        if let Some(result) = &mut self.result {
+            result.clear_keys();
+        }
+        if let Some(requires) = &mut self.requires {
+            requires.clear_keys();
+        }
+        self.existentials.clear_keys();
+        if let Some(context) = &mut self.function_context {
+            context.clear_keys();
+        }
+    }
+
+    /// Returns canonical rule node anchors and nested path anchors: the
+    /// catalog view of the rule's keying.
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if a parsed Rust node emits no leaves.
+    /// None: the rule was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut keys = KeyAllocator::default();
-        self.allocate_catalog_keys(&mut keys)?;
-        Ok(keys.into_anchors())
+        Ok(self.anchors.clone())
     }
 
     /// Keys the declaration, pattern, and types, the result, each binder's
     /// parameter and type, then the subject's and the result's paths.
-    fn allocate_catalog_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
-        keys.key(
+    fn allocate_catalog_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        self.declaration_key = Some(keys.key(
             ProvenanceRole::RuleDeclaration,
             TokenRange::for_tokens(&self.item.sig.ident)?,
-        )?;
-        keys.key(ProvenanceRole::RulePattern, self.parameter.pattern.range()?)?;
-        keys.key(
+        )?);
+        let parameter = &mut self.parameter;
+        parameter.pattern_key =
+            Some(keys.key(ProvenanceRole::RulePattern, parameter.pattern.range()?)?);
+        parameter.type_key = Some(keys.key(
             ProvenanceRole::RuleType,
-            TokenRange::for_tokens(self.parameter.term_sort.ty())?,
-        )?;
-        if let (Some(result_sort), Some(result)) = (&self.result_sort, &self.result) {
-            keys.key(
+            TokenRange::for_tokens(parameter.term_sort.ty())?,
+        )?);
+        if let (Some(result_sort), Some(result)) = (&self.result_sort, &mut self.result) {
+            self.result_type_key = Some(keys.key(
                 ProvenanceRole::RuleResultType,
                 TokenRange::for_tokens(result_sort.ty())?,
-            )?;
-            keys.key(
-                ProvenanceRole::RuleResult,
-                TokenRange::for_tokens(result.expression())?,
-            )?;
+            )?);
+            result.allocate_payload_key(keys, ProvenanceRole::RuleResult)?;
         }
-        for binder in &self.binders {
-            keys.key(
+        for binder in &mut self.binders {
+            binder.parameter_key = Some(keys.key(
                 ProvenanceRole::RuleBindingParameter,
                 TokenRange::for_tokens(&binder.parameter)?,
-            )?;
-            keys.key(
+            )?);
+            binder.sort_key = Some(keys.key(
                 ProvenanceRole::RuleBindingType,
                 TokenRange::for_tokens(binder.term_sort.sort())?,
-            )?;
+            )?);
         }
-        for range in self.parameter.pattern.path_ranges()? {
-            keys.key(ProvenanceRole::RuleLeftPath, range)?;
-        }
-        for symbol in self.result.iter().flat_map(TermExpression::symbols) {
-            keys.key(
-                ProvenanceRole::RuleRightPath,
-                TokenRange::for_tokens(symbol.path())?,
-            )?;
+        self.parameter
+            .pattern
+            .allocate_path_keys(keys, ProvenanceRole::RuleLeftPath)?;
+        if let Some(result) = &mut self.result {
+            result.allocate_symbol_keys(keys, ProvenanceRole::RuleRightPath)?;
         }
         Ok(())
     }
 
     /// Returns the compact catalog plus typed subject/result term-node
-    /// anchors required by protocol v6.
+    /// anchors required by protocol v6: the full view of the rule's keying.
     ///
     /// # Errors
     ///
-    /// Returns endpoint or occurrence-overflow errors.
+    /// None: the rule was keyed when it was parsed.
     pub fn full_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
-        let mut keys = KeyAllocator::default();
-        self.allocate_full_keys(&mut keys)?;
-        Ok(keys.into_anchors())
+        Ok(self.full_anchors.clone())
     }
 
     /// Keys the compact catalog, then the subject, the function context, the
     /// result, and the conditions, in provenance order.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "One pass keys every node of the sentence in provenance order."
-    )]
-    pub(crate) fn allocate_full_keys(&self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
-        // Not keyed at parse yet: the keys this view hands out are discarded.
-        let scratch = &mut TermKeys::default();
+    pub(crate) fn allocate_full_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+    ) -> Result<(), SyntaxError> {
         self.allocate_catalog_keys(keys)?;
+        self.allocate_term_keys(keys)
+    }
+
+    /// Keys the subject's nodes, record field names and wildcards, the
+    /// function context, the result's, the conditions, then the islands of
+    /// every term in expansion order.
+    fn allocate_term_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        let (nodes, term_keys) = self.parameter.pattern.keying();
         allocate_term_node_keys(
             keys,
-            self.parameter.pattern.nodes(),
-            &mut TermKeys::default(),
+            nodes,
+            term_keys,
             ProvenanceRole::RuleLeftApplicationHead,
             ProvenanceRole::RuleLeftReference,
             ProvenanceRole::RuleLeftLiteral,
@@ -689,119 +780,115 @@ impl RuleItem {
         allocate_record_field_keys(
             keys,
             &self.subject_tree,
-            &mut TermKeys::default(),
+            term_keys,
             ProvenanceRole::RuleLeftRecordFieldName,
         )?;
         allocate_wildcard_keys(
             keys,
             &self.subject_tree,
-            &mut TermKeys::default(),
+            term_keys,
             ProvenanceRole::RuleLeftWildcard,
         )?;
         // A function context's cells continue the subject's left-hand
         // ordinals: they are expanded right after it (KF-025).
-        if let Some(context) = &self.function_context {
+        if let Some(context) = &mut self.function_context {
             context.allocate_keys(keys)?;
         }
-        let context_terms = self
-            .function_context
-            .as_ref()
-            .map(FunctionContext::terms)
-            .unwrap_or_default();
-        let result_nodes = self.result.as_ref().map_or(&[][..], TermExpression::nodes);
-        allocate_term_node_keys(
-            keys,
-            result_nodes,
-            &mut TermKeys::default(),
-            ProvenanceRole::RuleRightApplicationHead,
-            ProvenanceRole::RuleRightReference,
-            ProvenanceRole::RuleRightLiteral,
-        )?;
-        if let Some(result) = &self.result {
+        if let Some(result) = &mut self.result {
+            let (nodes, tree, term_keys) = result.keying();
+            allocate_term_node_keys(
+                keys,
+                nodes,
+                term_keys,
+                ProvenanceRole::RuleRightApplicationHead,
+                ProvenanceRole::RuleRightReference,
+                ProvenanceRole::RuleRightLiteral,
+            )?;
             allocate_record_field_keys(
                 keys,
-                result.tree(),
-                &mut TermKeys::default(),
+                tree,
+                term_keys,
                 ProvenanceRole::RuleRightRecordFieldName,
             )?;
-            allocate_wildcard_keys(
-                keys,
-                result.tree(),
-                &mut TermKeys::default(),
-                ProvenanceRole::RuleRightWildcard,
-            )?;
+            allocate_wildcard_keys(keys, tree, term_keys, ProvenanceRole::RuleRightWildcard)?;
         }
-        if let Some(requires) = &self.requires {
+        if let Some(requires) = &mut self.requires {
             requires.allocate_keys(keys)?;
         }
         self.existentials.allocate_keys(keys)?;
-        allocate_lexeme_keys(keys, self.parameter.pattern.nodes(), scratch)?;
-        for term in &context_terms {
-            allocate_lexeme_keys(keys, term.nodes(), scratch)?;
+        self.allocate_island_keys(keys)
+    }
+
+    /// Keys the islands of the subject, the function context, the result,
+    /// the condition, then the ensures condition, which is the order they
+    /// expand in.
+    fn allocate_island_keys(&mut self, keys: &mut KeyAllocator) -> Result<(), SyntaxError> {
+        // Each term's nodes with its keys, in expansion order; the subject,
+        // the function context, and the result come before the conditions.
+        let mut sides = vec![self.parameter.pattern.keying()];
+        if let Some(context) = &mut self.function_context {
+            sides.extend(context.terms_mut().into_iter().map(|term| {
+                let (nodes, _, term_keys) = term.keying();
+                (nodes, term_keys)
+            }));
         }
-        allocate_lexeme_keys(keys, result_nodes, scratch)?;
-        if let Some(requires) = &self.requires {
-            allocate_lexeme_keys(keys, requires.term().nodes(), scratch)?;
+        if let Some(result) = &mut self.result {
+            let (nodes, _, term_keys) = result.keying();
+            sides.push((nodes, term_keys));
         }
-        if let Some(ensures) = self.existentials.ensures() {
-            allocate_lexeme_keys(keys, ensures.nodes(), scratch)?;
+        let before_conditions = sides.len();
+        if let Some(requires) = &mut self.requires {
+            let (nodes, _, term_keys) = requires.term_mut().keying();
+            sides.push((nodes, term_keys));
+        }
+        if let Some(ensures) = self.existentials.ensures_mut() {
+            let (nodes, _, term_keys) = ensures.keying();
+            sides.push((nodes, term_keys));
+        }
+        for (nodes, term_keys) in &mut sides {
+            allocate_lexeme_keys(keys, nodes, term_keys)?;
         }
         // `name @ ..` and `A | B` occur in the subject, the function context,
         // and in `k::matches!` patterns; with `k::matches!` shells and pattern
         // wildcards (KF-031) they are numbered in expansion order: the
         // subject, the function context, the result, the condition, then the
         // ensures condition.
-        let mut sides = vec![self.parameter.pattern.nodes()];
-        sides.extend(context_terms.iter().map(|term| term.nodes()));
-        sides.push(result_nodes);
-        if let Some(requires) = &self.requires {
-            sides.push(requires.term().nodes());
-        }
-        if let Some(ensures) = self.existentials.ensures() {
-            sides.push(ensures.nodes());
-        }
         // Builtin `Id` and `Bytes` literals, each kind numbered in one
         // sequence in expansion order (the claim-only islands never reach a
         // rule's descriptor: expansion rejects them).
         crate::state_rule::allocate_claim_node_keys(
             keys,
-            sides.iter().map(|nodes| (*nodes, TermKeys::default())),
+            sides
+                .iter_mut()
+                .map(|(nodes, term_keys)| (*nodes, &mut **term_keys)),
         )?;
-        for nodes in &sides {
-            crate::term::allocate_pattern_as_keys(keys, nodes, scratch)?;
+        for (nodes, term_keys) in &mut sides {
+            crate::term::allocate_pattern_as_keys(keys, nodes, term_keys)?;
         }
-        for nodes in &sides {
-            crate::term::allocate_pattern_or_keys(keys, nodes, scratch)?;
+        for (nodes, term_keys) in &mut sides {
+            crate::term::allocate_pattern_or_keys(keys, nodes, term_keys)?;
         }
-        for nodes in &sides {
-            crate::term::allocate_matches_keys(keys, nodes, scratch)?;
+        for (nodes, term_keys) in &mut sides {
+            crate::term::allocate_matches_keys(keys, nodes, term_keys)?;
         }
-        for nodes in &sides {
-            crate::term::allocate_let_keys(keys, nodes, scratch)?;
+        for (nodes, term_keys) in &mut sides {
+            crate::term::allocate_let_keys(keys, nodes, term_keys)?;
         }
-        for nodes in &sides {
-            crate::term::allocate_ml_binder_keys(keys, nodes, scratch)?;
+        for (nodes, term_keys) in &mut sides {
+            crate::term::allocate_ml_binder_keys(keys, nodes, term_keys)?;
         }
-        allocate_sort_test_keys(keys, self.parameter.pattern.nodes(), scratch)?;
-        for term in &context_terms {
-            allocate_sort_test_keys(keys, term.nodes(), scratch)?;
+        let (unconditioned, conditions) = sides.split_at_mut(before_conditions);
+        for (nodes, term_keys) in unconditioned.iter_mut() {
+            allocate_sort_test_keys(keys, nodes, term_keys)?;
         }
-        allocate_sort_test_keys(keys, result_nodes, scratch)?;
         // `k::rewrite!` shells and sides of a single-body rule (KF-011).
-        crate::term::allocate_rewrite_keys(keys, self.parameter.pattern.nodes(), scratch)?;
-        if let Some(requires) = &self.requires {
-            allocate_sort_test_keys(keys, requires.term().nodes(), scratch)?;
+        let (subject_nodes, subject_keys) = &mut unconditioned[0];
+        crate::term::allocate_rewrite_keys(keys, subject_nodes, subject_keys)?;
+        for (nodes, term_keys) in conditions.iter_mut() {
+            allocate_sort_test_keys(keys, nodes, term_keys)?;
         }
-        if let Some(ensures) = self.existentials.ensures() {
-            allocate_sort_test_keys(keys, ensures.nodes(), scratch)?;
-        }
-        let instance_sides = std::iter::once(self.parameter.pattern.nodes())
-            .chain(context_terms.iter().map(|term| term.nodes()))
-            .chain(self.result.iter().map(TermExpression::nodes))
-            .chain(self.requires.iter().map(|requires| requires.term().nodes()))
-            .chain(self.existentials.ensures().map(TermExpression::nodes));
-        for nodes in instance_sides {
-            crate::term::allocate_application_instance_keys(keys, nodes, scratch)?;
+        for (nodes, term_keys) in &mut sides {
+            crate::term::allocate_application_instance_keys(keys, nodes, term_keys)?;
         }
         Ok(())
     }
@@ -817,15 +904,20 @@ impl RuleItem {
     ///
     /// Returns a structured overflow error if one path role has more than
     /// `u32::MAX` occurrences.
+    ///
+    /// # Panics
+    ///
+    /// Never: parsing keys every type, sort and path a candidate names.
     pub fn reference_candidates(&self) -> Result<Vec<ReferenceCandidate>, SyntaxError> {
+        let keyed = "a rule is keyed when it is parsed";
         let mut candidates = vec![ReferenceCandidate {
-            key: canonical_key(ProvenanceRole::RuleType, 0),
+            key: self.parameter.type_key().expect(keyed).clone(),
             path: self.parameter.term_sort.sort().clone(),
             kind: (),
         }];
         if let Some(result_sort) = &self.result_sort {
             candidates.push(ReferenceCandidate {
-                key: canonical_key(ProvenanceRole::RuleResultType, 0),
+                key: self.result_type_key().expect(keyed).clone(),
                 path: result_sort.sort().clone(),
                 kind: (),
             });
@@ -874,44 +966,19 @@ impl RuleItem {
                 }
             }
             RulePattern::TermMacro { term, bindings, .. } => {
-                for (ordinal, symbol) in term.symbols().iter().enumerate() {
-                    if is_bound_reference(symbol, bindings) {
-                        continue;
-                    }
-                    push_candidate(
-                        &mut candidates,
-                        ProvenanceRole::RuleLeftPath,
-                        ordinal,
-                        symbol.path(),
-                    )?;
-                }
+                push_symbol_candidates(&mut candidates, term, bindings);
             }
         }
 
-        let bindings = self.result_bindings();
-        for (ordinal, symbol) in self
-            .result
-            .iter()
-            .flat_map(TermExpression::symbols)
-            .enumerate()
-        {
-            if is_bound_reference(symbol, &bindings) {
-                continue;
-            }
-            push_candidate(
-                &mut candidates,
-                ProvenanceRole::RuleRightPath,
-                ordinal,
-                symbol.path(),
-            )?;
+        if let Some(result) = &self.result {
+            push_symbol_candidates(&mut candidates, result, &self.result_bindings());
         }
-        for (ordinal, binder) in self.binders.iter().enumerate() {
-            push_candidate(
-                &mut candidates,
-                ProvenanceRole::RuleBindingType,
-                ordinal,
-                binder.term_sort.sort(),
-            )?;
+        for binder in &self.binders {
+            candidates.push(ReferenceCandidate {
+                key: binder.sort_key().expect(keyed).clone(),
+                path: binder.term_sort.sort().clone(),
+                kind: (),
+            });
         }
         Ok(candidates)
     }
@@ -933,23 +1000,46 @@ impl RuleItem {
         push_term_reference_candidates(
             &mut candidates,
             self.parameter.pattern.nodes(),
+            self.parameter.pattern.keys(),
             self.parameter.pattern.bindings(),
-            ProvenanceRole::RuleLeftApplicationHead,
-            ProvenanceRole::RuleLeftReference,
-        )?;
+        );
         let result_bindings = self.result_bindings();
-        push_term_reference_candidates(
-            &mut candidates,
-            self.result.as_ref().map_or(&[][..], TermExpression::nodes),
-            &result_bindings,
-            ProvenanceRole::RuleRightApplicationHead,
-            ProvenanceRole::RuleRightReference,
-        )?;
+        if let Some(result) = &self.result {
+            push_term_reference_candidates(
+                &mut candidates,
+                result.nodes(),
+                result.keys(),
+                &result_bindings,
+            );
+        }
         if let Some(requires) = &self.requires {
             candidates.extend(requires.reference_candidates(self.parameter.pattern.bindings())?);
         }
         candidates.extend(self.existentials.reference_candidates(&result_bindings)?);
         Ok(candidates)
+    }
+}
+
+/// Pushes a candidate for each path of `term` that is not a bare reference
+/// to one of `bindings`, keyed as the rule keyed the path.
+fn push_symbol_candidates(
+    candidates: &mut Vec<ReferenceCandidate>,
+    term: &TermExpression,
+    bindings: &[Ident],
+) {
+    for (index, symbol) in term.symbols().iter().enumerate() {
+        if is_bound_reference(symbol, bindings) {
+            continue;
+        }
+        let key = term
+            .keys()
+            .symbol(index)
+            .expect("a rule keys every path of its subject and result");
+        candidates.push(ReferenceCandidate {
+            key: key.clone(),
+            path: symbol.path().clone(),
+            kind: (),
+        });
     }
 }
 
@@ -1095,6 +1185,8 @@ fn parse_rule_binders(item: &ItemFn, trailing: usize) -> Result<Vec<RuleBinder>,
             name: pattern.ident.clone(),
             term_sort,
             parameter: argument.clone(),
+            parameter_key: None,
+            sort_key: None,
         });
     }
     Ok(binders)
