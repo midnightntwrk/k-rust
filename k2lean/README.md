@@ -89,7 +89,7 @@ target/release/k2lean claims --kore out/my/definition.kore --spec out/my-spec/de
 | `--induction FILE` | the termination of a sublanguage of a syntax sort (TOML: classes and constructor typings), by structural induction, one obligation per typing |
 
 A claim proved on one definition holds on another that `k2lean relate` proves bisimilar: `KClaims.AF.of_bisim` and its `EF` and `Reach` forms (`demos/ImpRelClaims`).
-`docs/design.md`, §3.2, says what each statement means and how it is proved.
+`docs/design.md`, §3.8, says what each statement means and how it is proved.
 
 ## Type soundness
 

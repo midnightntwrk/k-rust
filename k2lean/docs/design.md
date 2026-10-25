@@ -161,42 +161,6 @@ The gate's light tier builds kimp with one exclusive pair listed as overlapping 
 The gate (`tests/gate.sh`, `docs/testing.md` of the repository) regenerates every library and demonstration and fails when an open set grows, a guard loses a theorem, a `k2l_preserve` call closes fewer rules, a recorded output changes, a generated file changes without an accepted baseline, or any Lean source contains `sorry`, `admit` or an `axiom`.
 The inputs a person writes (the open lists and the kind 1 hand modules) are not generated files: the gate does not hash them, and the builds that use them check them.
 
-### 3.2 Claims that K's prover cannot state
-
-`k2lean claims` (`crates/k2lean/src/claims.rs`, `lean/claims`) has three statements beyond the translation of K claims; their proofs are generic and checked by the kernel, like the claims'.
-
-**Transfer along a bisimulation** (`KClaims/Bisim.lean`).
-A strong bisimulation `R` between `S₁` and `S₂` relates states whose successors correspond in both directions, and the claim modalities look only at successors and at the target, so `AF.of_bisim : Bisimulation S₁ S₂ R → (∀ a b, R a b → P a → Q b) → R c d → AF S₁ P c → AF S₂ Q d`, its converse, and `AF_bisim_iff` when `P a ↔ Q b` on related states; `EF` and `Reach` likewise.
-The all-path transfer needs both directions of the bisimulation (`fwd` gives the related state a successor, `bwd` sends each of its successors back), the one-path and reachability transfers only `fwd`.
-`demos/ImpRelClaims` carries kimp's `sum-N` (proved by the generated claims, with `sum-loop` as a lemma) to the KRS IMP port through `relate`'s `ImpRel.bisim`, with the port's program written in the port's own constructors and no step of the port explored.
-The continuation is a translated kimp continuation: `bisim` relates only translations, and the port has constructs kimp lacks.
-
-**Claims under a preserved invariant** (`--assume-invariant NAME`).
-A claim generated with it is `∀ vars, hyps → NAME lhs → AF Step Q lhs`: it says nothing of a left-hand side outside `NAME`, so it is weaker than the K claim, and holds for every configuration reachable from one that satisfies `NAME`.
-`NAME` is a predicate on the top cell with a theorem `NAME.preserved : Preserved Step NAME` (`--invariant-preserved`), declared in `--invariant-module` (default: the kind 1 invariant of `gen --invariant`, `Invariant` in `NS.Invariants`).
-The proof is `AF.circularity_inst_inv` with the target strengthened to `NAME d ∧ Q d`, so that the state a circularity or a proved claim leads to satisfies `NAME` too; `kc_auto … inv [NAME.preserved]` steps by `AFn.of_rule_inv`, which puts `NAME` of the successor in context (`hinv`), carries it through Boolean splits and claim applications, and, where no rule applies, opens a copy of it (the `kc_inv` simp set: the unfolding set of the kind 1 invariant, read from `--invariant-unfold`, and the collections' `toList`; then `kc_inv_fns`, the functions it calls) and splits on a projection it constrains (`proj_KItem_Value x`: the case `none` contradicts the invariant, in the case `some y` the variable `x` becomes the injection of `y`).
-Sound because `Preserved` is a theorem: every state on a path from a state satisfying `NAME` satisfies it, which is all `AF.circularity_inv` assumes.
-
-**Termination of a sublanguage** (`--induction FILE`).
-FILE names a syntax sort, classes of the sublanguage with the sort of their values, and typings of constructors (`demos/claims/kimp-expr-eval.toml`: kimp's arithmetic and Boolean expressions without variables or division).
-The generated module states the sublanguage as an inductive predicate `Sub cl e`, one obligation per typing ("if the arguments are in their classes and each, in any continuation, reaches a value of its class, the constructor's term does"), and `holds : Sub cl e → ∀ K cells, Reach Step (Target cl K cells) (cfg e K cells)` by induction on `Sub`, with the obligations of the open list as hypotheses.
-`Reach` is a finite path to the target: total correctness, not the partial correctness of `AF`; with a deterministic `Step` it says that the run terminates in a value.
-The induction hypotheses are claims over strict subterms, so the tactic may apply them anywhere, not only after a step as a circularity.
-An obligation is closed by `kc_auto using [ih…] split`: where no rule applies it splits a variable of a type with at most 8 constructors, none of which has a field of the type itself (an argument expression into value and compound), refutes the cases whose `Sub` hypothesis no constructor of `Sub` can prove (inversion), and drops the Boolean cases whose arithmetic hypotheses contradict each other.
-The `split` behaviour is off for the translated K claims, so their proofs and statistics are as before.
-
-Measured on 2026-10-24 (Lean v4.30.0, shared 32-CPU host, load 15 to 35, each module built on its own after its dependencies):
-
-| statement | result | module build |
-|---|---|---|
-| `sum-N` transferred to KRS IMP (`demos/ImpRelClaims`) | proved by a 3-line proof (`AF.of_bisim`) | 0.8 s |
-| `copy`, `copy-loop` under kimpinv's `envOk` (`generated/kimpinv-claims`) | both proved generically (10 and 47 configurations); both false over kimp (`krust kprove` fails them, `Hand.copy_false`, `Hand.copy_loop_false`) | 4.7 s, after the rest of kimpinv's library (138 s wall, 125 s CPU, 3.8 GB) |
-| kimp's expressions without variables or division (`ExprEval`) | 15 of 15 obligations closed, `holds` unconditional | 2.5 to 3.9 s |
-| with `_/_` (`ExprDiv`) | its obligation does not close (4 goals left at `i / j`), and is false (`Hand.expr_div_false` at `1 / 0`) | under 1 s |
-
-kimpinv's invariant now also conjoins `storeNoIds` (no store value is an `Id`), so the two claims assume both parts, though their truth needs only `envOk`.
-On Lean v4.34.0, with that invariant, the heavy gate of 2026-10-24 proved both generically in the same 10 and 47 configurations.
-
 ### 3.2 Relating two definitions (`relate`)
 
 `k2lean relate` reads the compiled KORE of two definitions `A` and `B` of one language, each generated into its own library, and pairs them:
@@ -335,6 +299,42 @@ On kimp the structure has 240 fields (3 per rule for 79 rules, and 3), and none 
 The relation that would satisfy them is known (estimate: T3's cost doubled): `Sync` relates configurations with the same `<k>`, low-equal stores and a well-labelled `<k>` (the stack typing of §3.3 at levels), so a step of either is a step of the other by the same rule, by determinism; `Left` and `Right` relate a confined prefix of `<k>` over a common continuation, whose steps keep the low part of the store (confinement is a unary invariant, `k2l_preserve`'s kind).
 Generating that relation from the checker is the next experiment.
 
+### 3.8 Claims that K's prover cannot state
+
+`k2lean claims` (`crates/k2lean/src/claims.rs`, `lean/claims`) has three statements beyond the translation of K claims; their proofs are generic and checked by the kernel, like the claims'.
+
+**Transfer along a bisimulation** (`KClaims/Bisim.lean`).
+A strong bisimulation `R` between `S₁` and `S₂` relates states whose successors correspond in both directions, and the claim modalities look only at successors and at the target, so `AF.of_bisim : Bisimulation S₁ S₂ R → (∀ a b, R a b → P a → Q b) → R c d → AF S₁ P c → AF S₂ Q d`, its converse, and `AF_bisim_iff` when `P a ↔ Q b` on related states; `EF` and `Reach` likewise.
+The all-path transfer needs both directions of the bisimulation (`fwd` gives the related state a successor, `bwd` sends each of its successors back), the one-path and reachability transfers only `fwd`.
+`demos/ImpRelClaims` carries kimp's `sum-N` (proved by the generated claims, with `sum-loop` as a lemma) to the KRS IMP port through `relate`'s `ImpRel.bisim`, with the port's program written in the port's own constructors and no step of the port explored.
+The continuation is a translated kimp continuation: `bisim` relates only translations, and the port has constructs kimp lacks.
+
+**Claims under a preserved invariant** (`--assume-invariant NAME`).
+A claim generated with it is `∀ vars, hyps → NAME lhs → AF Step Q lhs`: it says nothing of a left-hand side outside `NAME`, so it is weaker than the K claim, and holds for every configuration reachable from one that satisfies `NAME`.
+`NAME` is a predicate on the top cell with a theorem `NAME.preserved : Preserved Step NAME` (`--invariant-preserved`), declared in `--invariant-module` (default: the kind 1 invariant of `gen --invariant`, `Invariant` in `NS.Invariants`).
+The proof is `AF.circularity_inst_inv` with the target strengthened to `NAME d ∧ Q d`, so that the state a circularity or a proved claim leads to satisfies `NAME` too; `kc_auto … inv [NAME.preserved]` steps by `AFn.of_rule_inv`, which puts `NAME` of the successor in context (`hinv`), carries it through Boolean splits and claim applications, and, where no rule applies, opens a copy of it (the `kc_inv` simp set: the unfolding set of the kind 1 invariant, read from `--invariant-unfold`, and the collections' `toList`; then `kc_inv_fns`, the functions it calls) and splits on a projection it constrains (`proj_KItem_Value x`: the case `none` contradicts the invariant, in the case `some y` the variable `x` becomes the injection of `y`).
+Sound because `Preserved` is a theorem: every state on a path from a state satisfying `NAME` satisfies it, which is all `AF.circularity_inv` assumes.
+
+**Termination of a sublanguage** (`--induction FILE`).
+FILE names a syntax sort, classes of the sublanguage with the sort of their values, and typings of constructors (`demos/claims/kimp-expr-eval.toml`: kimp's arithmetic and Boolean expressions without variables or division).
+The generated module states the sublanguage as an inductive predicate `Sub cl e`, one obligation per typing ("if the arguments are in their classes and each, in any continuation, reaches a value of its class, the constructor's term does"), and `holds : Sub cl e → ∀ K cells, Reach Step (Target cl K cells) (cfg e K cells)` by induction on `Sub`, with the obligations of the open list as hypotheses.
+`Reach` is a finite path to the target: total correctness, not the partial correctness of `AF`; with a deterministic `Step` it says that the run terminates in a value.
+The induction hypotheses are claims over strict subterms, so the tactic may apply them anywhere, not only after a step as a circularity.
+An obligation is closed by `kc_auto using [ih…] split`: where no rule applies it splits a variable of a type with at most 8 constructors, none of which has a field of the type itself (an argument expression into value and compound), refutes the cases whose `Sub` hypothesis no constructor of `Sub` can prove (inversion), and drops the Boolean cases whose arithmetic hypotheses contradict each other.
+The `split` behaviour is off for the translated K claims, so their proofs and statistics are as before.
+
+Measured on 2026-10-24 (Lean v4.30.0, shared 32-CPU host, load 15 to 35, each module built on its own after its dependencies):
+
+| statement | result | module build |
+|---|---|---|
+| `sum-N` transferred to KRS IMP (`demos/ImpRelClaims`) | proved by a 3-line proof (`AF.of_bisim`) | 0.8 s |
+| `copy`, `copy-loop` under kimpinv's `envOk` (`generated/kimpinv-claims`) | both proved generically (10 and 47 configurations); both false over kimp (`krust kprove` fails them, `Hand.copy_false`, `Hand.copy_loop_false`) | 4.7 s, after the rest of kimpinv's library (138 s wall, 125 s CPU, 3.8 GB) |
+| kimp's expressions without variables or division (`ExprEval`) | 15 of 15 obligations closed, `holds` unconditional | 2.5 to 3.9 s |
+| with `_/_` (`ExprDiv`) | its obligation does not close (4 goals left at `i / j`), and is false (`Hand.expr_div_false` at `1 / 0`) | under 1 s |
+
+kimpinv's invariant now also conjoins `storeNoIds` (no store value is an `Id`), so the two claims assume both parts, though their truth needs only `envOk`.
+On Lean v4.34.0, with that invariant, the heavy gate of 2026-10-24 proved both generically in the same 10 and 47 configurations.
+
 ## 4. Commands
 
 | command | does |
@@ -348,7 +348,7 @@ Generating that relation from the checker is the next experiment.
 | `refine` | a stuttering bisimulation between two definitions whose steps do not correspond one to one, from `relate --per-rule` and a hand module (§3.5) |
 | `confluence` | the determinism of observations modulo scheduling, one join per ordered pair of rules, and a classification of the pairs (§3.6) |
 | `noninterference` | termination-insensitive noninterference reduced to a product relation and its obligations (§3.7) |
-| `claims`, `claims replay` | K claims as Lean statements and proofs; with `--assume-invariant`, under a preserved invariant; with `--induction`, the termination of a sublanguage (§3.2) |
+| `claims`, `claims replay` | K claims as Lean statements and proofs; with `--assume-invariant`, under a preserved invariant; with `--induction`, the termination of a sublanguage (§3.8) |
 | `new-invariant` | the skeleton of a kind 2 invariant project (`invariants.md`, §4) |
 | `diff OLD NEW [--hand PATH]…` | the rules whose `Step.Case` changed between two generations, the generated functions whose definitions changed with the rules that call them, and the hand-written references to both (`invariants.md`, §7) |
 
