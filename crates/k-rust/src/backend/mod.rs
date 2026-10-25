@@ -5716,26 +5716,43 @@ endmodule
     }
 
     /// An n-ary `\and` of term arguments is internalized as a chain of `n - 1` binary
-    /// conjunctions, so a wide request is deep inside the backend: 50,000 conjuncts execute on
-    /// Node's main thread, and 200,000 execute as well where the backend provides the stack
-    /// for them (an optimized build) and are otherwise refused, never overflowing the thread.
-    /// The requests take about 10 MB of text each; at opt-level 1 the test peaks at about 300 MB
-    /// of resident memory and takes under a second.
+    /// conjunctions nested to the right, and a request may nest binary ones to the left, so a
+    /// wide request is deep inside the backend: 50,000 conjuncts execute on Node's main thread,
+    /// and 200,000 execute as well where the backend provides the stack for them (an optimized
+    /// build) and are otherwise refused, never overflowing the thread. A chain of one conjunct
+    /// owes no definedness obligation in either nesting (`definedness::and_side` relates first
+    /// conjuncts). The requests take 10 to 25 MB of text each; at opt-level 1 the test peaks at
+    /// about 500 MB of resident memory and takes about two seconds.
     #[test]
     fn wide_conjunctions_execute_or_are_refused() {
         on_thread(NODE_MAIN_STACK, || {
             let mut backend =
                 Backend::new(DEEP_DEFINITION, "MAIN", BackendOptions::default()).unwrap();
             let constant = r#"{"tag":"App","name":"a","sorts":[],"args":[]}"#;
-            for conjuncts in [50_000, 200_000] {
+            let and =
+                r#"{"tag":"And","sort":{"tag":"SortApp","name":"SortS","args":[]},"patterns":["#;
+            for (conjuncts, left) in [
+                (50_000, false),
+                (50_000, true),
+                (200_000, false),
+                (200_000, true),
+            ] {
+                let term = if left {
+                    format!(
+                        "{}{constant}{}",
+                        and.repeat(conjuncts - 1),
+                        format!(",{constant}]}}").repeat(conjuncts - 1)
+                    )
+                } else {
+                    format!("{and}{}]}}", vec![constant; conjuncts].join(","))
+                };
                 let request = deserialize_request::<ExecuteRequest>(&format!(
-                    r#"{{"state":{{"format":"KORE","version":1,"term":{{"tag":"And","sort":{{"tag":"SortApp","name":"SortS","args":[]}},"patterns":[{}]}}}},"maxDepth":0}}"#,
-                    vec![constant; conjuncts].join(",")
+                    r#"{{"state":{{"format":"KORE","version":1,"term":{term}}},"maxDepth":0}}"#
                 ))
                 .unwrap();
                 let outcome = backend.execute_json(request);
                 if conjuncts <= k_rust_backend::nesting::max_depth() {
-                    outcome.unwrap_or_else(|error| panic!("{conjuncts}: {error}"));
+                    outcome.unwrap_or_else(|error| panic!("{conjuncts}, left {left}: {error}"));
                 } else {
                     let error = outcome.unwrap_err();
                     assert!(

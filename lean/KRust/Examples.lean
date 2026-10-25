@@ -75,6 +75,17 @@ def evar (x : String) : Term := .var .element "SortInt" x
 #guard !ceilFree (.map "M" [(int "1", int "1"), (int "1", int "2")] none)
 #guard !ceilFree (.and (int "1") (int "2"))
 #guard ceilFree (.and (int "1") (int "1"))
+-- A chain of one conjunct is ceil-free in either nesting; another conjunct owes its equality
+-- with the first conjunct once, and a set variable is not read through first conjuncts.
+#guard ceilFree (.and (int "1") (.and (int "1") (int "1")))
+#guard ceilFree (.and (.and (int "1") (int "1")) (int "1"))
+#guard !ceilFree (.and (int "1") (.and (int "1") (int "2")))
+#guard (andSide (int "1") (.and (int "1") (int "2"))).isEmpty
+#guard (andSide (.and (int "1") (int "2")) (int "3")).length == 1
+#guard !ceilFree (.and (.and (.var .set "SortInt" "S") (int "1"))
+                       (.and (.var .set "SortInt" "S") (int "2")))
+#guard (andSide (.and (.var .set "SortInt" "S") (int "1"))
+                (.and (.var .set "SortInt" "S") (int "2"))).length == 1
 -- Keys of free constructors over domain values, such as cell-map keys `<id>(1)`, share a header
 -- when they have one skeleton; keys of two constructors, or under an equation head, do not.
 #guard ceilFree (.map "M" [(.app (ctor "id") [] [int "1"], int "0"),

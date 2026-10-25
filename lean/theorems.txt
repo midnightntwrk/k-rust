@@ -47,6 +47,10 @@ KRust.TermAttributes.apartZip_of_sameSkeletonList
 KRust.TermAttributes.apart_complete
 KRust.TermAttributes.apart_of_sameSkeleton
 KRust.TermAttributes.ceilEntries_sound
+KRust.TermAttributes.ceilFreeEntries_holdsNoSetVariable
+KRust.TermAttributes.ceilFreeList_holdsNoSetVariable
+KRust.TermAttributes.ceilFreeRest_holdsNoSetVariable
+KRust.TermAttributes.ceilFree_holdsNoSetVariable
 KRust.TermAttributes.ceilFree_sound
 KRust.TermAttributes.ceilList_sound
 KRust.TermAttributes.ceilRest_sound

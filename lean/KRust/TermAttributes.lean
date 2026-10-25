@@ -50,7 +50,8 @@ Rust modelled here, anchors verified at ce4084a5 (the sites are unchanged since 
   crates/k-rust-kore/src/names.rs:45  (KCell spelling)
   crates/k-rust-backend/src/definedness.rs
     ceil_term :94-97, ceil_term_recursive :99-189,
-    elements_are_apart :269-283, apply_ceil_equation :216, and_side,
+    elements_are_apart :269-283, apply_ceil_equation :216, and_side (with term.rs
+    Term::first_conjunct and the stored `variables` attribute),
     not_in_collection :284, deduplicate :307-310
   crates/k-rust-backend/src/rule.rs
     rule_index :766-777, find_k_cells :789-840
@@ -341,9 +342,6 @@ structure Oracles where
   /-- The sort graph's answer for two injections with different sources or targets
   (definedness.rs `terms_apart`). -/
   injectionsDistinct : Term → Term → Bool
-  /-- Whether the term holds a set variable: the greatest variable of its stored `variables`
-  attribute is a set variable (definedness.rs `and_side`). -/
-  holdsSetVariable : Term → Bool
   /-- `not_in_collection` (definedness.rs): the hook, the map or set definition, the key or
   element, and the rest; no entry value, as the absence it states does not depend on one. -/
   notInCollection : String → String → Term → Term → Pred
@@ -382,14 +380,51 @@ def setSide (O : Oracles) (d : String) : List Term → Option Term → List Pred
           | none   => [])
       ++ setSide O d es rest
 
+/- Whether the term holds a set variable: definedness.rs `and_side` reads it from the stored
+`variables` attribute (the term's variables, whose greatest is a set variable exactly when one is,
+since `Ord for Variable` compares kinds first and `Element < Set`). -/
+mutual
+def holdsSetVariable : Term → Bool
+  | .app _ _ args   => holdsSetVariableList args
+  | .and l r        => holdsSetVariable l || holdsSetVariable r
+  | .inj _ _ t      => holdsSetVariable t
+  | .dv _ _         => false
+  | .var k _ _      => k == .set
+  | .map _ es rest  => holdsSetVariableEntries es || holdsSetVariableOpt rest
+  | .list _ hs rest => holdsSetVariableList hs || holdsSetVariableRest rest
+  | .set _ es rest  => holdsSetVariableList es || holdsSetVariableOpt rest
+def holdsSetVariableList : List Term → Bool
+  | []      => false
+  | t :: ts => holdsSetVariable t || holdsSetVariableList ts
+def holdsSetVariableEntries : List (Term × Term) → Bool
+  | []           => false
+  | (k, v) :: es => holdsSetVariable k || holdsSetVariable v || holdsSetVariableEntries es
+def holdsSetVariableOpt : Option Term → Bool
+  | none   => false
+  | some t => holdsSetVariable t
+def holdsSetVariableRest : Option (Term × List Term) → Bool
+  | none         => false
+  | some (m, ts) => holdsSetVariable m || holdsSetVariableList ts
+end
+
+/-- term.rs `Term::first_conjunct`, stored per node: the term unless it is a conjunction, the first
+conjunct of its left side if it is. -/
+def firstConjunct : Term → Term
+  | .and l _ => firstConjunct l
+  | t        => t
+
 /-- definedness.rs `and_side`: the obligation of `l ∧ r` of its own, beside its sides'. Nothing
-for equal sides (`t ∧ t` is `t`), their equality when the conjunction holds no set variable (two
-terms that each denote at most one element share one exactly when they are equal), and the
-conjunction's own ceil otherwise. -/
-def andSide (O : Oracles) (l r : Term) : List Pred :=
+for equal sides (`t ∧ t` is `t`), the conjunction's own ceil when it holds a set variable, and
+otherwise the equality of the sides' first conjuncts, or nothing when those are equal. A term
+without a set variable denotes at most one element; under its obligations it denotes exactly one,
+which each of its conjuncts denotes too. So with the sides' obligations, which the walk states
+beside this one, the equality of their first conjuncts is that of the sides, and `⌈l ∧ r⌉`
+exactly. -/
+def andSide (l r : Term) : List Pred :=
   if l = r then []
-  else if O.holdsSetVariable (.and l r) then [.ceil (.and l r)]
-  else [.equals l r]
+  else if holdsSetVariable (.and l r) then [.ceil (.and l r)]
+  else if firstConjunct l = firstConjunct r then []
+  else [.equals (firstConjunct l) (firstConjunct r)]
 
 /- `ceil_term_recursive` (definedness.rs:99-189). Each arm builds its list, then `deduplicate`. -/
 mutual
@@ -399,7 +434,7 @@ def ceilTerm (O : Oracles) : Term → List Pred
         O.dedup ((O.ceilEquation (.app s ss args)).getD [.ceil (.app s ss args)] ++ ceilList O args)
       else
         O.dedup (ceilList O args)
-  | .and l r         => O.dedup (ceilTerm O l ++ ceilTerm O r ++ andSide O l r)
+  | .and l r         => O.dedup (ceilTerm O l ++ ceilTerm O r ++ andSide l r)
   | .inj _ _ t       => O.dedup (ceilTerm O t)
   | .dv _ _          => O.dedup []
   | .var .element _ _ => O.dedup []
@@ -471,12 +506,14 @@ def adjacentElementsDiffer : List Term → Bool
   | a :: b :: rest => decide (a ≠ b) && adjacentElementsDiffer (b :: rest)
   | _              => true
 
-/- `ceil_free`, computed bottom-up by the constructors. `and` holds when its sides are equal and
-ceil-free: its arm of the walk adds the equality of two different sides to theirs (`andSide`). -/
+/- `ceil_free`, computed bottom-up by the constructors. `and` holds when its sides are ceil-free
+and have one first conjunct: a ceil-free side holds no set variable
+(`ceilFree_holdsNoSetVariable`), and its arm of the walk adds to its sides' obligations only the
+equality of different first conjuncts (`andSide`). -/
 mutual
 def ceilFree : Term → Bool
   | .app s _ args   => !s.isPartial && ceilFreeList args
-  | .and l r        => ceilFree l && decide (l = r)
+  | .and l r        => ceilFree l && ceilFree r && decide (firstConjunct l = firstConjunct r)
   | .inj _ _ t      => ceilFree t
   | .dv _ _         => true
   | .var k _ _      => k == .element
@@ -861,6 +898,60 @@ theorem set_normDistinct {le : Term → Term → Bool} (hle : TotalOrder le) (O 
   have := oneHeader_same _ hh a ha b hb
   simp [normDistinct, apart_complete O.evaluated O.injectionsDistinct a b this.1 this.2 hne]
 
+/-! ## 8b. A ceil-free term holds no set variable
+
+No arm of `ceilFree` holds for a set variable, and every arm requires each child ceil-free. The
+conjunction's arm of `ceilFree_sound` uses it: two ceil-free sides with one first conjunct owe
+nothing of their own, because neither holds a set variable (`andSide`). -/
+mutual
+theorem ceilFree_holdsNoSetVariable : ∀ t, ceilFree t = true → holdsSetVariable t = false
+  | .app _ _ args, hc => by
+      simp only [ceilFree, Bool.and_eq_true] at hc
+      simp [holdsSetVariable, ceilFreeList_holdsNoSetVariable args hc.2]
+  | .and l r, hc => by
+      simp only [ceilFree, Bool.and_eq_true] at hc
+      simp [holdsSetVariable, ceilFree_holdsNoSetVariable l hc.1.1,
+        ceilFree_holdsNoSetVariable r hc.1.2]
+  | .inj _ _ t, hc => by
+      simp [holdsSetVariable, ceilFree_holdsNoSetVariable t hc]
+  | .dv _ _, _ => by simp [holdsSetVariable]
+  | .var .element _ _, _ => by simp [holdsSetVariable]
+  | .var .set _ _, hc => by simp [ceilFree] at hc
+  | .map _ es rest, hc => by
+      simp only [ceilFree, Bool.and_eq_true, Option.isNone_iff_eq_none] at hc
+      obtain ⟨⟨⟨he, rfl⟩, _⟩, _⟩ := hc
+      simp [holdsSetVariable, holdsSetVariableOpt, ceilFreeEntries_holdsNoSetVariable es he]
+  | .list _ hs rest, hc => by
+      simp only [ceilFree, Bool.and_eq_true] at hc
+      simp [holdsSetVariable, ceilFreeList_holdsNoSetVariable hs hc.1,
+        ceilFreeRest_holdsNoSetVariable rest hc.2]
+  | .set _ es rest, hc => by
+      simp only [ceilFree, Bool.and_eq_true, Option.isNone_iff_eq_none] at hc
+      obtain ⟨⟨⟨he, rfl⟩, _⟩, _⟩ := hc
+      simp [holdsSetVariable, holdsSetVariableOpt, ceilFreeList_holdsNoSetVariable es he]
+theorem ceilFreeList_holdsNoSetVariable :
+    ∀ ts, ceilFreeList ts = true → holdsSetVariableList ts = false
+  | [], _ => rfl
+  | t :: ts, hc => by
+      simp only [ceilFreeList, Bool.and_eq_true] at hc
+      simp [holdsSetVariableList, ceilFree_holdsNoSetVariable t hc.1,
+        ceilFreeList_holdsNoSetVariable ts hc.2]
+theorem ceilFreeEntries_holdsNoSetVariable :
+    ∀ es, ceilFreeEntries es = true → holdsSetVariableEntries es = false
+  | [], _ => rfl
+  | (k, v) :: es, hc => by
+      simp only [ceilFreeEntries, Bool.and_eq_true] at hc
+      simp [holdsSetVariableEntries, ceilFree_holdsNoSetVariable k hc.1.1,
+        ceilFree_holdsNoSetVariable v hc.1.2, ceilFreeEntries_holdsNoSetVariable es hc.2]
+theorem ceilFreeRest_holdsNoSetVariable :
+    ∀ r, ceilFreeRest r = true → holdsSetVariableRest r = false
+  | none, _ => rfl
+  | some (m, ts), hc => by
+      simp only [ceilFreeRest, Bool.and_eq_true] at hc
+      simp [holdsSetVariableRest, ceilFree_holdsNoSetVariable m hc.1,
+        ceilFreeList_holdsNoSetVariable ts hc.2]
+end
+
 /-! ## 9. Case study 1: the attribute is sound for the early return
 
 Equality proved: list equality of `ceil_term_recursive`'s output (the empty list), for every
@@ -875,8 +966,11 @@ theorem ceilFree_sound (O : Oracles) {le : Term → Term → Bool} (hle : TotalO
       simp [ceilTerm, hc.1, ceilList_sound O hle args hw hc.2, O.dedup_nil]
   | .and l r, hw, hc => by
       simp only [ceilFree, Bool.and_eq_true, decide_eq_true_eq] at hc
-      obtain ⟨hl, rfl⟩ := hc
-      simp [ceilTerm, andSide, ceilFree_sound O hle l hw.1 hl, O.dedup_nil]
+      obtain ⟨⟨hl, hr⟩, hfc⟩ := hc
+      have hs : holdsSetVariable (.and l r) = false := by
+        simp [holdsSetVariable, ceilFree_holdsNoSetVariable l hl, ceilFree_holdsNoSetVariable r hr]
+      simp [ceilTerm, andSide, hs, hfc, ceilFree_sound O hle l hw.1 hl,
+        ceilFree_sound O hle r hw.2 hr, O.dedup_nil]
   | .inj _ _ t, hw, hc => by
       simp [ceilTerm, ceilFree_sound O hle t hw hc, O.dedup_nil]
   | .dv _ _, _, _ => by simp [ceilTerm, O.dedup_nil]
@@ -938,7 +1032,7 @@ def walk (O : Oracles) (skip : Bool) : Term → List Pred
           else [])
         ++ walkList O skip args
   | .and l r =>
-      if skip && ceilFree (.and l r) then [] else walk O skip l ++ walk O skip r ++ andSide O l r
+      if skip && ceilFree (.and l r) then [] else walk O skip l ++ walk O skip r ++ andSide l r
   | .inj a b t => if skip && ceilFree (.inj a b t) then [] else walk O skip t
   | .dv _ _ => []
   | .var .element _ _ => []

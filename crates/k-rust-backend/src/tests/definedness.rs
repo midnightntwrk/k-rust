@@ -124,6 +124,124 @@ fn a_term_conjunction_owes_the_equality_of_its_sides() {
     );
 }
 
+/// Under its sides' obligations each side of `l /\ r` denotes the element its first conjunct
+/// denotes, so a conjunction owes only the equality of its sides' first conjuncts
+/// (`definedness::and_side`, `Term::first_conjunct`): `1 /\ (1 /\ 1)` owes nothing, and
+/// `1 /\ (1 /\ 2)` owes only its inner `1 = 2`. A set variable is not read through the first
+/// conjuncts: `(@S /\ 1) /\ (@S /\ 2)` is empty where `S` holds `1` and `2`, though both
+/// sides' first conjunct is `@S`, so it owes its own ceil.
+#[test]
+fn a_term_conjunction_owes_the_equality_of_its_sides_first_conjuncts() {
+    let definition = definition();
+    let int = |value: &str| Term::raw_domain_value(Sort::simple("SortInt"), value);
+    let walks = |term: &Term| {
+        let walk = ceil_term(&definition, term).unwrap();
+        assert_eq!(
+            walk,
+            ceil_term_without_attribute(&definition, term).unwrap()
+        );
+        walk
+    };
+    for one in [
+        Term::and(int("1"), Term::and(int("1"), int("1"))),
+        Term::and(Term::and(int("1"), int("1")), int("1")),
+        Term::and(Term::and(int("1"), int("1")), Term::and(int("1"), int("1"))),
+    ] {
+        assert!(one.attributes().ceil_free(), "{one:?}");
+        assert!(walks(&one).is_empty(), "{one:?}");
+    }
+    let equals = |left: &str, right: &str| Predicate::Equals(int(left), int(right));
+    let inner = Term::and(int("1"), Term::and(int("1"), int("2")));
+    assert!(!inner.attributes().ceil_free());
+    assert_eq!(walks(&inner), [equals("1", "2")]);
+    let four = Term::and(Term::and(int("1"), int("2")), Term::and(int("3"), int("4")));
+    assert_eq!(
+        walks(&four),
+        [equals("1", "2"), equals("3", "4"), equals("1", "3")]
+    );
+
+    let x = Term::variable(Variable::new("X", Sort::simple("SortInt")));
+    let y = Term::variable(Variable::new("Y", Sort::simple("SortInt")));
+    assert_eq!(
+        walks(&Term::and(x.clone(), Term::and(y.clone(), x.clone()))),
+        [
+            Predicate::Equals(y.clone(), x.clone()),
+            Predicate::Equals(x, y)
+        ]
+    );
+
+    let set = Term::variable(Variable::set("S", Sort::simple("SortInt")));
+    let with_one = Term::and(set.clone(), int("1"));
+    let with_two = Term::and(set.clone(), int("2"));
+    let both = Term::and(with_one.clone(), with_two.clone());
+    assert!(!both.attributes().ceil_free());
+    assert_eq!(
+        walks(&both),
+        [
+            Predicate::Ceil(set),
+            Predicate::Ceil(with_one),
+            Predicate::Ceil(with_two),
+            Predicate::Ceil(both.clone()),
+        ]
+    );
+}
+
+/// A wide n-ary `\and` is a chain of binary conjunctions, nested to the right or to the left.
+/// Over one conjunct the chain is `ceil_free` with no obligation, and with one other conjunct at
+/// either end it owes that conjunct's equality with the first one once, in either nesting:
+/// building the chain and walking it take O(1) per conjunction. With an equality owed per level
+/// over the rest of the chain, as when only equal sides were read as one element, this took
+/// minutes.
+#[test]
+fn wide_conjunction_chains_owe_their_conjuncts_equality_once_in_either_nesting() {
+    const CONJUNCTS: usize = 50_000;
+    let definition = definition();
+    let int = |value: &str| Term::raw_domain_value(Sort::simple("SortInt"), value);
+    let walks = |term: &Term| {
+        let walk = ceil_term(&definition, term).unwrap();
+        assert_eq!(
+            walk,
+            ceil_term_without_attribute(&definition, term).unwrap()
+        );
+        walk
+    };
+    // `first` then `CONJUNCTS - 2` copies of `1` then `last`, as a chain nested to the right
+    // (`first /\ (1 /\ (... /\ last))`) or to the left (`((first /\ 1) /\ ...) /\ last`).
+    let chain = |right: bool, first: &str, last: &str| {
+        let middle = (0..CONJUNCTS - 2).map(|_| int("1"));
+        if right {
+            let conjuncts: Vec<Term> = std::iter::once(int(first)).chain(middle).collect();
+            conjuncts
+                .into_iter()
+                .rev()
+                .fold(int(last), |rest, conjunct| Term::and(conjunct, rest))
+        } else {
+            middle
+                .chain(std::iter::once(int(last)))
+                .fold(int(first), Term::and)
+        }
+    };
+    for right in [true, false] {
+        let one = chain(right, "1", "1");
+        assert!(one.attributes().ceil_free(), "right: {right}");
+        assert!(walks(&one).is_empty(), "right: {right}");
+        let first = chain(right, "2", "1");
+        assert!(!first.attributes().ceil_free(), "right: {right}");
+        assert_eq!(
+            walks(&first),
+            [Predicate::Equals(int("2"), int("1"))],
+            "right: {right}"
+        );
+        let last = chain(right, "1", "2");
+        assert!(!last.attributes().ceil_free(), "right: {right}");
+        assert_eq!(
+            walks(&last),
+            [Predicate::Equals(int("1"), int("2"))],
+            "right: {right}"
+        );
+    }
+}
+
 #[test]
 fn ceil_free_shortcut_returns_the_full_walk() {
     let definition = definition();

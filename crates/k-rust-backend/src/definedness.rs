@@ -86,8 +86,9 @@ pub(crate) fn rule_is_defined(definition: &BackendDefinition, rule: &RewriteRule
 
 /// The definedness obligations of `term`, deduplicated: the ceil of every partial application
 /// (or the instance of its ceil equation), the ceil of every set variable, the disequalities
-/// and not-in atoms of every map and set, and the equality of the sides of every term-level
-/// `\and` whose sides differ (`and_side`), in the order `ceil_term_walk` gives.
+/// and not-in atoms of every map and set, and the equality of the first conjuncts of the sides
+/// of every term-level `\and` whose first conjuncts differ (`and_side`), in the order
+/// `ceil_term_walk` gives.
 ///
 /// An operand of `#if`, `andThenBool` or `orElseBool` that is not evaluated states its
 /// definedness as deferred atoms (`crate::deferred`); when that definedness depends on an impure
@@ -449,24 +450,37 @@ fn push_list_items<'a>(
 }
 
 /// The obligation of a term-level conjunction `and` = `left /\ right` of its own, beside its
-/// sides' obligations, which the walk collects: `None` when the sides are equal, `left = right`
-/// when neither side holds a set variable, and `\ceil(and)` otherwise.
+/// sides' obligations, which the walk collects: `None` when the sides are equal, `\ceil(and)`
+/// when the conjunction holds a set variable, and otherwise the equality of the sides' first
+/// conjuncts ([`Term::first_conjunct`]), or `None` when those are equal.
 ///
 /// In matching logic `left /\ right` denotes the elements both sides denote. A term without a
 /// set variable denotes at most one element: a variable or a domain value one, an application of
 /// a constructor or a function one or none (its arguments' elements, if any, determine it), a
 /// collection one or none, and a conjunction of two such terms the element they share, if they
 /// share one. For two such terms, `⌈left /\ right⌉` is therefore `⌈left⌉ /\ ⌈right⌉ /\ left =
-/// right`, exactly: the first two are the sides' obligations, the third is this one. With equal
-/// sides, `t /\ t` is `t`, and the equality is `\top`. A set variable may denote several
-/// elements, and the intersection of a term holding one with another term is not an equality, so
-/// its definedness is stated as the conjunction's own `\ceil`, which is exact and opaque. The
-/// obligation is exact in each case, so a caller may assume it (a claim's left-hand side, an
-/// initial configuration's definedness) as well as require it.
+/// right`, exactly. The first two are the sides' obligations. Under them each side denotes one
+/// element, which each of its conjuncts denotes too (a conjunct that denotes at most one element
+/// and contains that one denotes exactly it), so `left = right` is there equivalent to the
+/// equality of any conjunct of `left` with any conjunct of `right`: this one takes the first
+/// conjuncts, which are never conjunctions, and are equal for `t /\ t`. So the obligation is
+/// the equality of two terms no deeper than the sides' first conjuncts, and none at all for a
+/// chain `a /\ (a /\ ...)` of one conjunct, however long; the walk does O(1) work per
+/// conjunction beside that equality's comparison, in a left- or right-nested chain alike.
+///
+/// A set variable may denote several elements, and the intersection of a term holding one with
+/// another term is not an equality, so its definedness is stated as the conjunction's own
+/// `\ceil`, which is exact and opaque; `t /\ t` is `t` there too. The obligation is exact in
+/// each case together with the sides' obligations, which the walk states with it, so a caller
+/// may assume the walk's list (a claim's left-hand side, an initial configuration's
+/// definedness) as well as require it.
 ///
 /// So `\and{SortInt{}}(\dv{SortInt{}}("1"), \dv{SortInt{}}("2"))` owes `1 = 2` and denotes
 /// nothing. `simplify::without_term_conjunctions` reads a conjunction nested in a term the same
-/// way. The attribute `ceil_free` of a conjunction requires equal sides (term.rs `ceil_free`).
+/// way: it replaces it by its first conjunct and states the equality of its sides' first
+/// conjuncts. The attribute `ceil_free` of a conjunction requires sides without obligations
+/// and equal first conjuncts (term.rs `ceil_free`). This is `andSide` of
+/// `lean/KRust/TermAttributes.lean`.
 fn and_side(and: &Term, left: &Term, right: &Term) -> Option<Predicate> {
     if left == right {
         return None;
@@ -476,11 +490,11 @@ fn and_side(and: &Term, left: &Term, right: &Term) -> Option<Predicate> {
         .variables
         .last()
         .is_some_and(|greatest| greatest.kind == VariableKind::Set);
-    Some(if holds_set_variable {
-        Predicate::Ceil(and.clone())
-    } else {
-        Predicate::Equals(left.clone(), right.clone())
-    })
+    if holds_set_variable {
+        return Some(Predicate::Ceil(and.clone()));
+    }
+    let (left, right) = (left.first_conjunct(), right.first_conjunct());
+    (left != right).then(|| Predicate::Equals(left.clone(), right.clone()))
 }
 
 /// One node of the definedness walk: appends the node's own obligations to `before` and its

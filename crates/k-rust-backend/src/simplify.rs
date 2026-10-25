@@ -4003,8 +4003,9 @@ fn strict_variables(
 /// derives for it is `known`. `ceil_term` derives nothing for a term built from constructors,
 /// total symbols, domain values, and element variables. A term-level `\and` is the
 /// intersection of its operands (`Y /\ Z` over two element variables is empty unless `Y = Z`);
-/// `ceil_term` states it as the equality of its operands (`definedness::and_side`), but a term
-/// that contains one anywhere is still never provably defined here.
+/// `ceil_term` states it as the equality of its operands' first conjuncts
+/// (`definedness::and_side`), but a term that contains one anywhere is still never provably
+/// defined here.
 pub(crate) fn term_is_provably_defined(
     definition: &BackendDefinition,
     term: &Term,
@@ -4049,8 +4050,11 @@ pub(crate) fn contains_term_conjunction(term: &Term) -> bool {
 /// application, an injection, a collection) is strict, empty where an argument is, so a term
 /// `C[t1 /\ t2]` is `C[t1]` where `t1 = t2` and empty elsewhere, and `⌈C[t1 /\ t2]⌉` is
 /// `⌈C[t1]⌉ /\ t1 = t2`. A conjunction nested in an operand is read first, so each equality is
-/// over terms without one. A set variable may denote several values, and the intersection of
-/// such a term with another is not an equality; a term that holds one is not read here.
+/// over terms without one: a conjunction becomes its first conjunct ([`Term::first_conjunct`])
+/// with its own conjunctions replaced, and its equality relates its sides' first conjuncts so
+/// replaced, as `definedness::and_side` states it. A set variable may denote several values,
+/// and the intersection of such a term with another is not an equality; a term that holds one
+/// is not read here.
 pub(crate) fn without_term_conjunctions(term: &Term) -> Option<(Term, Vec<Predicate>)> {
     // `try_map_children` keeps a term whose children are unchanged, so a subterm without a
     // conjunction is returned as it is.

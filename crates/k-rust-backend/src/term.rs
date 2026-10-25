@@ -748,7 +748,7 @@ pub enum TermKind {
     },
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct TermAttributes {
     pub variables: Variables,
     pub evaluated: bool,
@@ -765,6 +765,9 @@ pub struct TermAttributes {
     k_cells: u8,
     /// See [`TermAttributes::may_be_rigid`]; set only by `Term::allocate`, from the kind.
     may_be_rigid: bool,
+    /// The first conjunct of a conjunction, `None` for any other kind: see
+    /// [`Term::first_conjunct`]; set only by `Term::allocate`, from the kind.
+    first_conjunct: Option<Term>,
     hash: u64,
 }
 
@@ -781,8 +784,33 @@ impl Default for TermAttributes {
             has_macro_or_alias: false,
             k_cells: 0,
             may_be_rigid: false,
+            first_conjunct: None,
             hash: 0,
         }
+    }
+}
+
+/// Every field but `first_conjunct`, which is a subterm the kind printed beside the attributes
+/// already holds (a chain of conjunctions would print it again at every level).
+impl fmt::Debug for TermAttributes {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("TermAttributes")
+            .field("variables", &self.variables)
+            .field("evaluated", &self.evaluated)
+            .field("value_claimed", &self.value_claimed)
+            .field("constructor_like", &self.constructor_like)
+            .field(
+                "concrete_after_normalization",
+                &self.concrete_after_normalization,
+            )
+            .field("can_be_evaluated", &self.can_be_evaluated)
+            .field("ceil_free", &self.ceil_free)
+            .field("has_macro_or_alias", &self.has_macro_or_alias)
+            .field("k_cells", &self.k_cells)
+            .field("may_be_rigid", &self.may_be_rigid)
+            .field("hash", &self.hash)
+            .finish()
     }
 }
 
@@ -1642,6 +1670,21 @@ impl Term {
         &self.0.attributes
     }
 
+    /// The first conjunct of this term: the term itself unless it is a conjunction `l /\ r`,
+    /// and the first conjunct of `l` if it is, so never a conjunction. Stored per node
+    /// (`Term::allocate`), so reading it takes O(1) whatever the shape of a chain of
+    /// conjunctions.
+    ///
+    /// Where `⌈self⌉` holds and `self` holds no set variable, `self` and its first conjunct
+    /// denote one element: each conjunct of `l /\ r` denotes at most one element, and `l /\ r`
+    /// denotes the element both share. So a conjunction's definedness need only relate its sides'
+    /// first conjuncts (`definedness::and_side`), as `simplify::without_term_conjunctions`
+    /// does when it replaces a conjunction by its first conjunct. This is `firstConjunct` of
+    /// `lean/KRust/TermAttributes.lean`.
+    pub fn first_conjunct(&self) -> &Term {
+        self.0.attributes.first_conjunct.as_ref().unwrap_or(self)
+    }
+
     /// Return this term with the simplifier's fixed-point cache set.
     ///
     /// Construction deliberately leaves equation-headed applications unevaluated. The only
@@ -2131,6 +2174,10 @@ fn set_kind_attributes(kind: &TermKind, attributes: &mut TermAttributes) {
     attributes.has_macro_or_alias = has_macro_or_alias(kind);
     attributes.k_cells = k_cells(kind);
     attributes.may_be_rigid = may_be_rigid(kind);
+    attributes.first_conjunct = match kind {
+        TermKind::And(left, _) => Some(left.first_conjunct().clone()),
+        _ => None,
+    };
     attributes.hash = calculate_hash(kind);
 }
 
@@ -2269,8 +2316,8 @@ pub(crate) fn children_lacking(kind: &TermKind, flag: Flag) -> Vec<&Term> {
 /// The `ceil_free` attribute of a node with this kind, from its children's stored attributes, in
 /// time linear in the number of children; for a map, from its entries' summary, which holds the
 /// same conjunction, key header and repeated-key test over them; for an `And`, from a comparison
-/// of its sides (`Eq for Term`), linear in their size only when their hashes agree and they are
-/// not one `Arc`.
+/// of its sides' stored first conjuncts (`Eq for Term`), linear in their size only when their
+/// hashes agree and they are not one `Arc`.
 ///
 /// Meaning: when it is true, the definedness walk (`definedness::ceil_term_walk`) returns no
 /// predicate for the term, whatever the definition. Each arm follows from what the walk emits
@@ -2278,7 +2325,10 @@ pub(crate) fn children_lacking(kind: &TermKind, flag: Flag) -> Vec<&Term> {
 /// these cases:
 /// - an application of a `Partial` function emits its ceil (or a ceil equation's predicates);
 ///   any other application only collects its arguments' predicates;
-/// - `And` emits the equality of its two sides unless they are equal (`definedness::and_side`);
+/// - `And` emits the equality of its two sides' first conjuncts ([`Term::first_conjunct`])
+///   unless they are equal, or its own ceil when it holds a set variable and its sides differ
+///   (`definedness::and_side`). A `ceil_free` term holds no set variable: no arm holds for a
+///   set variable, and every arm requires each child `ceil_free`;
 /// - an injection and a list only collect their children's predicates;
 /// - a domain value and an element variable emit nothing; a set variable emits its ceil;
 /// - a map or a set emits a not-in predicate per key or element when it has a rest, and a
@@ -2315,9 +2365,13 @@ fn ceil_free(kind: &TermKind) -> bool {
             symbol.attributes.symbol_type != SymbolType::Function(FunctionType::Partial)
                 && arguments.iter().all(free)
         }
-        // `t /\ t` is `t`; two different sides owe their equality (`definedness::and_side`).
-        // Equal sides are compared in O(1) when the hashes differ or the sides are one `Arc`.
-        TermKind::And(left, right) => free(left) && left == right,
+        // Sides without obligations hold no set variable and each denote one element, the one
+        // their first conjuncts denote; the conjunction owes nothing more exactly when those
+        // are equal (`definedness::and_side`). Stored, so this is O(1) for a chain of any shape,
+        // and the comparison is O(1) when the hashes differ or the conjuncts are one `Arc`.
+        TermKind::And(left, right) => {
+            free(left) && free(right) && left.first_conjunct() == right.first_conjunct()
+        }
         TermKind::Injection { term, .. } => free(term),
         TermKind::DomainValue { .. } => true,
         TermKind::Variable(variable) => variable.kind == VariableKind::Element,
