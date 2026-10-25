@@ -64,7 +64,8 @@ the outcomes must agree:
   collection with sibling cells, a `?` cell on a plain field, an `Option`
   field without `multiplicity = "?"`, a `None` template, `..ghost` naming no
   labelled instance, braces on a List collection, one List rule changing
-  both ends, and a created Map instance without its key. A `?` template that
+  both ends, a created Map instance without its key, and a stream cell
+  inside a `?` group. A `?` template that
   reads a configuration variable without `initial` is accepted with a
   pinned warning.
 
@@ -319,6 +320,7 @@ NEGATIVE = (
     "list-braces",
     "list-both-ends",
     "map-created-without-key",
+    "stream-in-optional",
 )
 
 # Accepted, with a pinned warning: a `?` template that reads a configuration

@@ -219,6 +219,16 @@ impl ConsoleCells {
                         origin,
                     ));
                 }
+                // A stream is one channel, and a cell below a `?` or `*` cell is not one cell: it
+                // has as many instances as its repeated ancestor, none when that is absent.
+                if let Some(repeated) = repeated {
+                    return Err(console_error(
+                        format!(
+                            "stream cell `{name}` is inside the repeated cell `{repeated}`; K connects a stream to one cell, so it must be outside every multiplicity cell"
+                        ),
+                        origin,
+                    ));
+                }
                 if let Some((first, ..)) = self.streams.get(value) {
                     return Err(console_error(
                         format!(

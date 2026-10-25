@@ -462,6 +462,23 @@ fn an_exit_cell_must_be_an_int_outside_every_repeated_cell() {
 }
 
 #[test]
+fn a_stream_cell_is_outside_every_repeated_cell() {
+    let error = console_error(|configuration| {
+        let env = &mut configuration.declaration.fields[1];
+        set_leaf_sort(env, BuiltinSort::List);
+        env.multiplicity = Some(krs_ir::DescriptorCellMultiplicity {
+            key: key(ProvenanceRole::ConfigurationCellMultiplicity, 1),
+            value: "?".into(),
+        });
+        env.stream = Some(stream(1, CellStream::Stdout));
+    });
+    assert!(
+        error.contains("stream cell `env` is inside the repeated cell `env`"),
+        "{error}"
+    );
+}
+
+#[test]
 fn at_most_one_cell_reads_standard_input() {
     let error = console_error(|configuration| {
         let owner = configuration.initializer.owner.clone();
