@@ -17,13 +17,13 @@
   ],
   "productions": [
     {
-      "symbol": "bar",
+      "symbol": "objectBar",
       "terminals": [
         "bar"
       ]
     },
     {
-      "symbol": "foo",
+      "symbol": "objectFoo",
       "terminals": [
         "foo"
       ]
@@ -64,7 +64,7 @@
           {
             "kind": "application",
             "sort": "ObjectTerm",
-            "symbol": "foo",
+            "symbol": "objectFoo",
             "arguments": []
           }
         ]
@@ -83,7 +83,7 @@
             {
               "kind": "application",
               "sort": "ObjectTerm",
-              "symbol": "foo",
+              "symbol": "objectFoo",
               "arguments": []
             }
           ]
@@ -95,7 +95,7 @@
             {
               "kind": "application",
               "sort": "ObjectTerm",
-              "symbol": "bar",
+              "symbol": "objectBar",
               "arguments": []
             }
           ]

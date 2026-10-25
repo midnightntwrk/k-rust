@@ -23,15 +23,17 @@ partition end to end on both routes:
   and K has no LIST-SYNTAX module, so both are placed in `KRS-EVM`; the
   `krs check --partition` text is pinned and programs cannot contain them;
 - `program-warning`: the same production marked `program` gives the pinned
-  `krs::partition::not-program-syntax` warning;
+  `krs::partition::not-program-syntax` warning, which `krs expand` and
+  `krs run` report as `krs check` does, and which a failing `krs parse` of
+  `logEntry(1, .List, .Bytes)` reports before its parse error;
 - `prefer`: `prefer` on `IfThen` resolves the dangling else, so
   `if true then if false then first else second` parses as
-  `ifThen(true, ifThenElse(false, first, second))` on both routes and runs to
+  `stmtSyntaxIfThen(true, stmtSyntaxIfThenElse(false, first, second))` on both routes and runs to
   `second`, and an unambiguous program is unaffected; `prefer` is a parser
   attribute that K 7.1.337 does not write to KORE, and the native
   `syntaxDefinition.kore` agrees (pinned);
-- `overload`: `LValSyntax::Dot` overloads `ExpSyntax::Dot`; the same-named
-  variants derive the symbols `lValSyntaxDot` and `expSyntaxDot`, so `a.b`
+- `overload`: `LValSyntax::Dot` overloads `ExpSyntax::Dot`; the variants
+  derive the symbols `lValSyntaxDot` and `expSyntaxDot`, so `a.b`
   parses as `lValSyntaxDot(a, b)` on both routes and the rule written on the
   `LVal` production fires, while `1.b` stays an `expSyntaxDot`; both KOREs
   carry the one `symbol-overload` axiom of the family. `overload-ambiguous`,
@@ -75,6 +77,10 @@ partition end to end on both routes:
   record form `sum(... items: 1, 2)` is rejected on both routes, and the
   `format` of `sum` and `count` in `syntaxDefinition.kore` agrees (pinned),
   so a stuck `sum()` prints as `sum ( .Ints )`;
+- `symbols`: a production's symbol depends only on its own declaration:
+  `Ops::Dot` is `opsDot` and `Other::Dot` is `otherDot`, the unshared
+  `Ops::Solo` is still `opsSolo`, the struct `Plain` is `plain`, and
+  `#[k::symbol("symbols::Plus")]` names the variant `Ops::Add` `plus`;
 - `strict-lists`: K's `Vals` idiom. `Exps` is a `seqstrict` list and
   `impl Exps for Vals` makes `Vals` its value list, so both list sentences
   carry `overload(expsCons)`; call arguments evaluate left to right to a
@@ -98,7 +104,10 @@ partition end to end on both routes:
   lexical declared twice, a regex that refers to an undefined lexical, two
   lexicals that refer to each other, a production whose symbol is a list's
   derived `intsCons`, a constructor of a list sort, a subsort into a list
-  that is not strict, and a value list that is not a `KResult`.
+  that is not strict, a value list that is not a `KResult`, a variant and a
+  struct that derive one symbol (`Op::Add` and `OpAdd`), a function whose
+  symbol is K's sort predicate `isExp`, and two explicit symbols with one
+  final component.
 
 Run it from the repository root; `--record` rewrites the measured pins after
 every step passes, and `--refresh-reference` reruns Java K instead of
@@ -118,12 +127,12 @@ import tempfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry, krs_gate  # noqa: E402
-from support.fixture_gate import Emitted, Fixture, FixtureGate, Program, kore_attribute_lines  # noqa: E402
+from support.fixture_gate import Emitted, Fixture, FixtureGate, Program, diagnostic_lines, kore_attribute_lines  # noqa: E402
 from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.reference import Key, Output, Pin, Snapshot, add_refresh_argument, repository_inputs  # noqa: E402
-from support.tools import checkout_scratch, z3_environment  # noqa: E402
+from support.tools import target_environment, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -149,22 +158,25 @@ VISIBILITY_PROGRAMS = (
     Program("goto", "goto done", "accepted", "7"),
     Program("goto-hidden", "goto #done", "rejected"),
 )
-VISIBILITY_ATTRIBUTES = (("inc", "wrap"), ("private",))
+VISIBILITY_ATTRIBUTES = (("expSyntaxInc", "helperWrap"), ("private",))
 INDUCED_MODULE = "KRS-VISIBILITY-INDUCED"
 MEMO = Fixture(MANIFEST, "krs-grammar-memo")
+SYMBOLS = Fixture(MANIFEST, "krs-grammar-symbols")
+SYMBOLS_EXPECTED = {"opsDot", "opsSolo", "otherDot", "plain", "plus"}
+SYMBOLS_ABSENT = {"dot", "solo", "add", "opsAdd"}
 TOKENS = Fixture(MANIFEST, "krs-grammar-tokens")
 TOKENS_PROGRAMS = (
-    Program("call-main", "call main", "accepted", "halt", kast='call(#token("main","Name"))'),
-    Program("call-foo", "call foo", "accepted", "other", kast='call(#token("foo","Name"))'),
+    Program("call-main", "call main", "accepted", "halt", kast='stmtSyntaxCall(#token("main","Name"))'),
+    Program("call-foo", "call foo", "accepted", "other", kast='stmtSyntaxCall(#token("foo","Name"))'),
     Program("call-bar", "call bar", "accepted", "call bar"),
     Program("call-while", "call while", "rejected"),
-    Program("call-dollar", "call $x", "accepted", "call $x", kast='call(#token("$x","Name"))'),
+    Program("call-dollar", "call $x", "accepted", "call $x", kast='stmtSyntaxCall(#token("$x","Name"))'),
     Program("say-hi", "say \"hi\"", "accepted", "halt"),
 )
 TOKEN_ID = Fixture(MANIFEST, "krs-grammar-token-id")
 TOKEN_ID_PROGRAMS = (
-    Program("jump-label", "jump @top", "accepted", "halt", kast='jump(#token("@top","Id"))'),
-    Program("jump-id", "jump top", "accepted", "halt", kast='jump(#token("top","Id"))'),
+    Program("jump-label", "jump @top", "accepted", "halt", kast='stmtSyntaxJump(#token("@top","Id"))'),
+    Program("jump-id", "jump top", "accepted", "halt", kast='stmtSyntaxJump(#token("top","Id"))'),
     Program("jump-number", "jump 1", "rejected"),
 )
 TOKENS_SOURCE_FRAGMENTS = (
@@ -177,11 +189,11 @@ LAYOUT = Fixture(MANIFEST, "krs-grammar-layout")
 LAYOUT_PROGRAMS = (
     Program(
         "comment", "call main ; jump to main", "accepted", "halt",
-        kast='call(#token("main","Name"))',
+        kast='stmtSyntaxCall(#token("main","Name"))',
     ),
     Program(
         "multiline", "; a leading comment\ncall\n\tFoo_1 ; a trailing comment\n", "accepted", "other",
-        kast='call(#token("Foo_1","Name"))',
+        kast='stmtSyntaxCall(#token("Foo_1","Name"))',
     ),
     Program("double-slash", "call main // not a comment here", "rejected"),
 )
@@ -220,15 +232,15 @@ STRICT_LISTS = Fixture(MANIFEST, "krs-grammar-strict-lists")
 STRICT_LISTS_PROGRAMS = (
     Program(
         "left-to-right", "f(tick, tick, tick)", "accepted", "123",
-        kast='call(#token("f","Id"),expsCons(tick(.KList),expsCons(tick(.KList),'
-        'expsCons(tick(.KList),expsNil(.KList)))))',
+        kast='syntaxCall(#token("f","Id"),expsCons(syntaxTick(.KList),expsCons(syntaxTick(.KList),'
+        'expsCons(syntaxTick(.KList),expsNil(.KList)))))',
     ),
     Program("mixed", "f(5, tick, 7)", "accepted", "517"),
     Program(
         "values", "f(1, 2)", "accepted", "12",
-        kast='call(#token("f","Id"),valsCons(#token("1","Int"),valsCons(#token("2","Int"),valsNil(.KList))))',
+        kast='syntaxCall(#token("f","Id"),valsCons(#token("1","Int"),valsCons(#token("2","Int"),valsNil(.KList))))',
     ),
-    Program("empty", "f()", "accepted", "0", kast='call(#token("f","Id"),valsNil(.KList))'),
+    Program("empty", "f()", "accepted", "0", kast='syntaxCall(#token("f","Id"),valsNil(.KList))'),
     Program("nested", "g(f(tick, 2), tick)", "accepted", "122"),
     Program("terminator", "f(1, .Vals)", "rejected"),
 )
@@ -242,7 +254,7 @@ STRICT_LISTS_SOURCE_FRAGMENTS = (
 STRICT_LISTS_ATTRIBUTES = (("expsCons", "expsNil", "valsCons", "valsNil"), ("overload",))
 MEMO_PROGRAMS = (Program("compute", "compute 3", "accepted", "9"),)
 MEMO_ATTRIBUTES = (("square",), ("memo",))
-FORMAT_LABELS = ("while", "block", "assignX", "skip")
+FORMAT_LABELS = ("stmtSyntaxWhile", "stmtSyntaxBlock", "stmtSyntaxAssignX", "stmtSyntaxSkip")
 FORMAT_ATTRIBUTES = ("format", "color", "colors")
 FORMAT_PROGRAM = "while (1) { x = 2; }"
 FORMAT_SOURCE_FRAGMENTS = (
@@ -256,21 +268,21 @@ PARTITION_PROGRAMS = (
     Program("and-bool-operator", "true andBool false", "rejected"),
     Program("internal-inc", "#inc(1)", "rejected"),
     Program("int-operator", "1 +Int 2", "rejected"),
-    Program("unsigned-literal", "-1", "accepted", "0", kast='neg(#token("1","Int"))'),
+    Program("unsigned-literal", "-1", "accepted", "0", kast='expSyntaxNeg(#token("1","Int"))'),
     Program("spaced-negation", "- 1", "accepted", "0"),
 )
 PREFER_PROGRAMS = (
     Program(
         "dangling-else", "if true then if false then first else second", "accepted", "second",
-        kast='ifThen(#token("true","Bool"),ifThenElse(#token("false","Bool"),first(.KList),second(.KList)))',
+        kast='stmtSyntaxIfThen(#token("true","Bool"),stmtSyntaxIfThenElse(#token("false","Bool"),stmtSyntaxFirst(.KList),stmtSyntaxSecond(.KList)))',
     ),
     Program(
         "if-then-else", "if true then first else second", "accepted", "first",
-        kast='ifThenElse(#token("true","Bool"),first(.KList),second(.KList))',
+        kast='stmtSyntaxIfThenElse(#token("true","Bool"),stmtSyntaxFirst(.KList),stmtSyntaxSecond(.KList))',
     ),
     Program("if-then", "if false then first", "accepted", "skip"),
 )
-PREFER_ATTRIBUTES = (("ifThen", "ifThenElse"), ("prefer", "avoid"))
+PREFER_ATTRIBUTES = (("stmtSyntaxIfThen", "stmtSyntaxIfThenElse"), ("prefer", "avoid"))
 OVERLOAD_PROGRAMS = (
     Program(
         "lval-access", "a.b", "accepted", "lvalue",
@@ -331,6 +343,9 @@ NEGATIVE = (
     ("list-constructor", "list-constructor", "krs-grammar-list-constructor", ()),
     ("list-value-not-strict", "list-value-not-strict", "krs-grammar-list-value-not-strict", ()),
     ("list-value-result", "list-value-result", "krs-grammar-list-value-result", ()),
+    ("symbol-variant-struct", "symbol-variant-struct", "krs-grammar-symbol-variant-struct", ()),
+    ("symbol-generated", "symbol-generated", "krs-grammar-symbol-generated", ()),
+    ("symbol-explicit", "symbol-explicit", "krs-grammar-symbol-explicit", ()),
 )
 
 
@@ -523,11 +538,10 @@ def main() -> int:
     if pins.get("schema") != 1:
         raise GateError("pins.json is not the schema-1 grammar-lexing ledger")
 
-    target = checkout_scratch() / "grammar-lexing-target"
-    environment = {**z3_environment(), "CARGO_TARGET_DIR": os.fspath(target), "CARGO_TERM_COLOR": "never"}
+    environment = {**z3_environment(), **target_environment(), "CARGO_TERM_COLOR": "never"}
     krs = build(environment)
     gate = krs_gate.configured_or_build()
-    check_packages("grammar-lexing", krs=krs, env=environment, target_dir=target)
+    check_packages("grammar-lexing", krs=krs, env=environment)
 
     with tempfile.TemporaryDirectory(prefix="krs-grammar-lexing-") as temporary:
         workspace = Path(temporary)
@@ -615,6 +629,17 @@ def main() -> int:
             raise GateError(f"the memo function's KORE symbol lacks memo: {harness.kore_attributes[MEMO.package]!r}")
         print("PASS memo: square(3) is 9 on both routes; memo on the symbol in both KOREs")
 
+        harness.check(SYMBOLS)
+        harness.expand(SYMBOLS)
+        symbols = harness.emit(SYMBOLS)
+        rows = krs_gate.ir_query(
+            gate, symbols.directory, {"kind": "productions", "sort": "Exp"}, environment=environment,
+        )["rows"]
+        names = {row["symbol"] for row in rows}
+        if not SYMBOLS_EXPECTED <= names or names & SYMBOLS_ABSENT:
+            raise GateError(f"symbols: expected {sorted(SYMBOLS_EXPECTED)} and none of {sorted(SYMBOLS_ABSENT)}: {sorted(names)}")
+        print("PASS symbols: variants are enum-qualified whatever else is declared; a struct keeps its name; #[k::symbol] on a variant names it")
+
         harness.check(TOKENS)
         harness.expand(TOKENS)
         tokens = harness.emit(TOKENS)
@@ -685,7 +710,30 @@ def main() -> int:
         _, warnings = harness.partition(PROGRAM_WARNING)
         if not any("krs::partition::not-program-syntax" in line for line in warnings):
             raise GateError(f"program-warning: no not-program-syntax warning: {warnings}")
-        print("PASS program-warning: pinned krs::partition::not-program-syntax warning")
+        for command in ("expand", "run"):
+            reported = diagnostic_lines(harness._krs(PROGRAM_WARNING, command).stderr)
+            if reported != warnings:
+                raise GateError(f"program-warning: krs {command} reports {reported}, krs check {warnings}")
+        # A failing command reports the warning too, before its error: here the
+        # warning is what explains the parse failure.
+        program = harness.workspace / "program-warning.log"
+        program.write_text("logEntry(1, .List, .Bytes)\n", encoding="utf-8")
+        parsed = harness._krs(PROGRAM_WARNING, "parse", "--sort", "LogEntry", program, check=False)
+        reported = diagnostic_lines(parsed.stderr)
+        if (
+            parsed.returncode != 1
+            or not reported
+            or reported[:-1] != warnings
+            or not reported[-1].startswith("error[krs::exec::parse]: ")
+        ):
+            raise GateError(
+                f"program-warning: krs parse exited {parsed.returncode} reporting {reported}, "
+                f"expected krs check's {warnings} before a krs::exec::parse error"
+            )
+        print(
+            "PASS program-warning: pinned krs::partition::not-program-syntax warning, also reported by expand and run, "
+            "and before the error of a parse it explains"
+        )
 
         for name, directory, package, dependencies in NEGATIVE:
             manifest = materialize(directory, workspace)

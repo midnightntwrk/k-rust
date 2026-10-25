@@ -16,6 +16,15 @@ pub enum LexicalProblem {
     Recursive,
 }
 
+/// How an operator (`a + b`) fails to denote one builtin operation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OperatorProblem {
+    /// The operands' sorts choose no builtin domain, or two.
+    Ambiguous,
+    /// The chosen domain defines no such operation (`&` on `Bool`).
+    Undefined,
+}
+
 /// The fresh-value rule a definition breaks (KF-022).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FreshProblem {
@@ -37,11 +46,25 @@ pub enum DescriptorLoweringError {
         id: Box<StableItemId>,
         /// Compiler builtin sort to use.
         builtin: BuiltinSort,
+        /// The exact authored range of the error's subject, when it has one.
+        range: Option<Box<SourceRange>>,
     },
     /// Lowering requires exactly one selected configuration descriptor.
-    ConfigurationCount(usize),
+    ConfigurationCount {
+        /// The names of the configurations selected, in descriptor order.
+        names: Vec<String>,
+        /// The exact authored range of the second configuration, when there are several.
+        range: Option<Box<SourceRange>>,
+        /// The exact authored range of the first configuration, when there are several.
+        first: Option<Box<SourceRange>>,
+    },
     /// A stable reference names no selected descriptor.
-    DanglingReference(Box<StableItemId>),
+    DanglingReference {
+        /// The reference.
+        id: Box<StableItemId>,
+        /// The exact authored range of the error's subject, when it has one.
+        range: Option<Box<SourceRange>>,
+    },
     /// A reference or term uses a declaration in the wrong namespace.
     ReferenceKindMismatch {
         /// Referenced stable item.
@@ -50,6 +73,8 @@ pub enum DescriptorLoweringError {
         expected: ItemKind,
         /// Actual namespace.
         actual: ItemKind,
+        /// The exact authored range of the error's subject, when it has one.
+        range: Option<Box<SourceRange>>,
     },
     /// A required parser-keyed origin or reference was absent or unexpected.
     ParserReferenceDisagreement {
@@ -57,6 +82,8 @@ pub enum DescriptorLoweringError {
         id: Box<StableItemId>,
         /// Stable diagnostic detail.
         detail: String,
+        /// The exact authored range of the error's subject, when it has one.
+        range: Option<Box<SourceRange>>,
     },
     /// The term could not be represented structurally.
     InvalidTerm {
@@ -64,6 +91,8 @@ pub enum DescriptorLoweringError {
         id: Box<StableItemId>,
         /// Stable diagnostic detail.
         detail: String,
+        /// The innermost enclosing term with an exact authored range.
+        range: Option<Box<krs_ir::SourceRange>>,
     },
     /// The descriptor graph is outside the supported shape.
     UnsupportedShape {
@@ -71,6 +100,8 @@ pub enum DescriptorLoweringError {
         node: &'static str,
         /// Stable diagnostic detail.
         detail: String,
+        /// The exact authored range of the error's subject, when it has one.
+        range: Option<Box<SourceRange>>,
     },
     /// Two readable head-rule patterns can match one configuration state.
     OverlappingRules {
@@ -80,6 +111,38 @@ pub enum DescriptorLoweringError {
         second: Box<StableItemId>,
         /// Sole exact authored range of the second rule's application head.
         second_head_range: Option<Box<SourceRange>>,
+    },
+    /// Two equations of one function at one priority apply to one argument
+    /// and give it different results.
+    OverlappingEquations {
+        /// The function, rendered.
+        function: String,
+        /// First equation in deterministic stable-identity order.
+        first: Box<StableItemId>,
+        /// Second equation in deterministic stable-identity order.
+        second: Box<StableItemId>,
+        /// The application both apply to, rendered.
+        application: String,
+        /// The first and the second equation's result there, rendered.
+        results: Box<(String, String)>,
+        /// Sole exact authored range of the second equation's head.
+        second_head_range: Option<Box<SourceRange>>,
+    },
+    /// Two arms of one function shorthand body's `match` both apply to one
+    /// argument and give it different results.
+    OverlappingMatchArms {
+        /// The function, rendered.
+        function: String,
+        /// First arm's equation in deterministic stable-identity order.
+        first: Box<StableItemId>,
+        /// Second arm's equation in deterministic stable-identity order.
+        second: Box<StableItemId>,
+        /// The application both apply to, rendered.
+        application: String,
+        /// The first and the second arm's result there, rendered.
+        results: Box<(String, String)>,
+        /// The exact authored ranges of the first and the second arm.
+        arms: Box<(SourceRange, SourceRange)>,
     },
     /// Two alternatives of one `A | B` or-pattern can match the same term with
     /// different bindings (F2 amendment clause 8, KF-030).
@@ -109,6 +172,15 @@ pub enum DescriptorLoweringError {
         /// Stable reason naming both productions.
         reason: String,
         /// Sole exact authored range of the target path.
+        range: Option<Box<SourceRange>>,
+    },
+    /// A constructor family without a `#[k::precedence]` chain has a variant
+    /// that can sit directly at the edge of another of its variants, where a
+    /// chain decides how they parse.
+    MissingPrecedenceChain {
+        /// Complete reason naming the family and every such variant.
+        reason: String,
+        /// Sole exact authored range of the first such variant.
         range: Option<Box<SourceRange>>,
     },
     /// An author spec module breaks a K proof-module rule (KF-041).
@@ -181,6 +253,16 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending occurrence.
         range: Option<Box<SourceRange>>,
     },
+    /// A `k::bits!` template, which matches an `Int`, stands at a position
+    /// of a sort neither `Int` nor above it.
+    BitTemplateSort {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the position's sort.
+        reason: String,
+        /// Sole exact authored range of the template.
+        range: Option<Box<SourceRange>>,
+    },
     /// A typed binder's declared sort is not below the sort one of its
     /// occurrences needs (KF-009).
     IncompatibleBinder {
@@ -189,6 +271,33 @@ pub enum DescriptorLoweringError {
         /// Stable reason naming the binder and both sorts.
         reason: String,
         /// Sole exact authored range of the binder's declared type.
+        range: Option<Box<SourceRange>>,
+        /// The occurrence's exact authored range and the sort it needs.
+        occurrence: Option<(Box<SourceRange>, String)>,
+        /// The declaration that fits, when there is one.
+        help: Option<String>,
+    },
+    /// A term at a typed collection position (`Map<K, V>`, `List<T>`,
+    /// `Set<T>`) does not fit its element types, a read asks for a sort the
+    /// collection never holds, or a collection type has the wrong number of
+    /// arguments.
+    CollectionElementSort {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the position, its declared type, and the term.
+        reason: String,
+        /// Sole exact authored range of the offending term.
+        range: Option<Box<SourceRange>>,
+    },
+    /// A collection whose element types nothing declares (a bare `Map`
+    /// cell, field, parameter, or result, or a binder matched in one) is
+    /// written at a typed collection position.
+    UntypedCollection {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the term, why it is untyped, and the position.
+        reason: String,
+        /// Sole exact authored range of the offending term.
         range: Option<Box<SourceRange>>,
     },
     /// A `name @ pattern` (K's `#as`) reaches a position that is not a
@@ -201,6 +310,16 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the `name @ pattern`.
         range: Option<Box<SourceRange>>,
     },
+    /// A record update `Ctor { f: e, ..t }` (F5) whose base is not the alias
+    /// of one record of the same constructor or cell in the left-hand side.
+    InvalidRecordUpdate {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the base.
+        reason: String,
+        /// Sole exact authored range of the base or the alias.
+        range: Option<Box<SourceRange>>,
+    },
     /// An `A | B` or-pattern (K's `#Or`) reaches a position that is not a
     /// pattern, or its alternatives bind a name at different sorts (KF-030).
     InvalidPatternOr {
@@ -209,6 +328,18 @@ pub enum DescriptorLoweringError {
         /// Stable reason.
         reason: String,
         /// Sole exact authored range of the or-pattern.
+        range: Option<Box<SourceRange>>,
+    },
+    /// An operator's operands choose no single builtin domain, or the domain
+    /// they choose does not define the operator.
+    InvalidOperator {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Which of the two failures it is.
+        problem: OperatorProblem,
+        /// Stable reason, naming the calls to write instead.
+        reason: String,
+        /// Sole exact authored range of the operator.
         range: Option<Box<SourceRange>>,
     },
     /// A `k::matches!` (K's `:=K`) pattern name shadows a rule binder or is
@@ -336,6 +467,36 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending occurrence.
         range: Option<Box<SourceRange>>,
     },
+    /// Bracket list notation stands where no cons list is expected, or a
+    /// readable record's bracketed value names a cell no reading fits (F6).
+    InvalidListNotation {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the position's sort and the fix.
+        reason: String,
+        /// Sole exact authored range of the brackets.
+        range: Option<Box<SourceRange>>,
+    },
+    /// A builtin `List` pattern holds two or more parts that are not single
+    /// elements, so it matches some lists in several ways.
+    AmbiguousListPattern {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason counting the open parts and naming the fix.
+        reason: String,
+        /// Sole exact authored range of the pattern.
+        range: Option<Box<SourceRange>>,
+    },
+    /// A `#[k::cons_list]` enum does not build a cons list of its own sort,
+    /// or two cons-list declarations construct one sort (F6).
+    InvalidConsList {
+        /// Item the diagnostic is about.
+        item: Box<StableItemId>,
+        /// Stable reason naming the constructor and the fix.
+        reason: String,
+        /// Sole exact authored range of the offending declaration.
+        range: Option<Box<SourceRange>>,
+    },
     /// A `k::lexical!` name or a `{Name}` regex reference is invalid (KF-004).
     InvalidLexical {
         /// Which rule the definition breaks.
@@ -388,6 +549,14 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the clause name or production marker.
         range: Option<Box<SourceRange>>,
     },
+    /// A named constant's value is not a ground constructor term, the
+    /// constants form a cycle, or a use applies a constant to arguments.
+    InvalidConstant {
+        /// Stable reason naming the constant and the offending term.
+        reason: String,
+        /// Sole exact authored range of the offending term or use.
+        range: Option<Box<SourceRange>>,
+    },
     /// An `smt_lemma` mentions a function Z3 cannot see (KF-043).
     SmtLemmaUntranslatable {
         /// Stable reason naming the function and the fix.
@@ -418,10 +587,34 @@ pub enum DescriptorLoweringError {
         /// Sole exact authored range of the offending entry.
         range: Option<Box<SourceRange>>,
     },
+    /// A configuration entry whose wrapper is not its cell's.
+    CellWrapper {
+        /// Stable reason naming the cell and the wrapper it takes.
+        reason: String,
+        /// Sole exact authored range of the entry.
+        range: Option<Box<SourceRange>>,
+    },
+    /// A configuration variable no cell's initial content reads.
+    UnusedConfigurationVariable {
+        /// Stable reason naming the variable.
+        reason: String,
+        /// The exact authored range of the parameter.
+        range: Option<Box<SourceRange>>,
+    },
     /// A compiler-generated module, semantic, or source-map identity was invalid.
-    InvalidGeneratedIdentity(String),
+    InvalidGeneratedIdentity {
+        /// Stable diagnostic detail.
+        detail: String,
+        /// The exact authored range of the error's subject, when it has one.
+        range: Option<Box<SourceRange>>,
+    },
     /// Whole-theory validation rejected the constructed graph.
-    InvalidSemanticTheory(SemanticValidationError),
+    InvalidSemanticTheory {
+        /// The validator's error.
+        error: SemanticValidationError,
+        /// The exact authored range of the error's subject, when it has one.
+        range: Option<Box<SourceRange>>,
+    },
 }
 
 /// How a `nondet = group` key fails group validation (F2 amendment, clause 3).
@@ -446,6 +639,184 @@ pub enum NondetGroupProblem {
     },
 }
 
+/// Matches every variant of a [`DescriptorLoweringError`] by its authored-location slot, binding
+/// it to `$range` (an overlap names its second head; two overlapping match arms are located by
+/// construction and have none). Explicit for every variant, so a new one cannot be added without
+/// deciding where it is located.
+macro_rules! by_location_slot {
+    ($error:expr, $range:ident => $located:expr, arms => $arms:expr) => {
+        match $error {
+            DescriptorLoweringError::OverlappingRules {
+                second_head_range: $range,
+                ..
+            }
+            | DescriptorLoweringError::OverlappingEquations {
+                second_head_range: $range,
+                ..
+            }
+            | DescriptorLoweringError::BuiltinSortNameCollision { range: $range, .. }
+            | DescriptorLoweringError::ConfigurationCount { range: $range, .. }
+            | DescriptorLoweringError::DanglingReference { range: $range, .. }
+            | DescriptorLoweringError::ReferenceKindMismatch { range: $range, .. }
+            | DescriptorLoweringError::ParserReferenceDisagreement { range: $range, .. }
+            | DescriptorLoweringError::InvalidTerm { range: $range, .. }
+            | DescriptorLoweringError::UnsupportedShape { range: $range, .. }
+            | DescriptorLoweringError::AmbiguousOrPattern { range: $range, .. }
+            | DescriptorLoweringError::NondetGroup { range: $range, .. }
+            | DescriptorLoweringError::InvalidOverload { range: $range, .. }
+            | DescriptorLoweringError::MissingPrecedenceChain { range: $range, .. }
+            | DescriptorLoweringError::InvalidSpecModule { range: $range, .. }
+            | DescriptorLoweringError::PrivateProductionInSpec { range: $range, .. }
+            | DescriptorLoweringError::RuleChangesNoCell { range: $range, .. }
+            | DescriptorLoweringError::GroupAndDescendant { range: $range, .. }
+            | DescriptorLoweringError::AmbiguousCellSort { range: $range, .. }
+            | DescriptorLoweringError::AlwaysEnabledRule { range: $range, .. }
+            | DescriptorLoweringError::InvalidSortTest { range: $range, .. }
+            | DescriptorLoweringError::BitTemplateSort { range: $range, .. }
+            | DescriptorLoweringError::IncompatibleBinder { range: $range, .. }
+            | DescriptorLoweringError::CollectionElementSort { range: $range, .. }
+            | DescriptorLoweringError::UntypedCollection { range: $range, .. }
+            | DescriptorLoweringError::InvalidPatternAs { range: $range, .. }
+            | DescriptorLoweringError::InvalidRecordUpdate { range: $range, .. }
+            | DescriptorLoweringError::InvalidPatternOr { range: $range, .. }
+            | DescriptorLoweringError::InvalidOperator { range: $range, .. }
+            | DescriptorLoweringError::InvalidMatches { range: $range, .. }
+            | DescriptorLoweringError::InvalidLet { range: $range, .. }
+            | DescriptorLoweringError::MlPlacement { range: $range, .. }
+            | DescriptorLoweringError::InvalidMlPredicate { range: $range, .. }
+            | DescriptorLoweringError::InvalidLocalRewrite { range: $range, .. }
+            | DescriptorLoweringError::InvalidFunctionContext { range: $range, .. }
+            | DescriptorLoweringError::InvalidParametricProduction { range: $range, .. }
+            | DescriptorLoweringError::ParametricInstance { range: $range, .. }
+            | DescriptorLoweringError::NativeInstance { range: $range, .. }
+            | DescriptorLoweringError::InvalidTokenSort { range: $range, .. }
+            | DescriptorLoweringError::TokenCollision { range: $range, .. }
+            | DescriptorLoweringError::InvalidSyntaxList { range: $range, .. }
+            | DescriptorLoweringError::InvalidListNotation { range: $range, .. }
+            | DescriptorLoweringError::AmbiguousListPattern { range: $range, .. }
+            | DescriptorLoweringError::InvalidConsList { range: $range, .. }
+            | DescriptorLoweringError::InvalidLexical { range: $range, .. }
+            | DescriptorLoweringError::InvalidEvaluationStep { range: $range, .. }
+            | DescriptorLoweringError::InvalidContext { range: $range, .. }
+            | DescriptorLoweringError::InvalidFresh { range: $range, .. }
+            | DescriptorLoweringError::InvalidMatchRestriction { range: $range, .. }
+            | DescriptorLoweringError::InvalidStaticClause { range: $range, .. }
+            | DescriptorLoweringError::InvalidConstant { range: $range, .. }
+            | DescriptorLoweringError::SmtLemmaUntranslatable { range: $range, .. }
+            | DescriptorLoweringError::DuplicateSmtlib { range: $range, .. }
+            | DescriptorLoweringError::InvalidConsoleCell { range: $range, .. }
+            | DescriptorLoweringError::CellCollection { range: $range, .. }
+            | DescriptorLoweringError::CellWrapper { range: $range, .. }
+            | DescriptorLoweringError::UnusedConfigurationVariable { range: $range, .. }
+            | DescriptorLoweringError::InvalidGeneratedIdentity { range: $range, .. }
+            | DescriptorLoweringError::InvalidSemanticTheory { range: $range, .. } => $located,
+            DescriptorLoweringError::OverlappingMatchArms { .. } => $arms,
+        }
+    };
+}
+
+impl DescriptorLoweringError {
+    /// The exact authored range of the error's subject, if known.
+    #[must_use]
+    pub fn range(&self) -> Option<&SourceRange> {
+        by_location_slot!(self, range => range.as_deref(), arms => None)
+    }
+
+    /// This error located at `range` when it has no location yet: the traversal that encloses a
+    /// failure attaches its node's range, innermost first, so the innermost keyed node around
+    /// the raise site becomes the error's subject.
+    #[must_use]
+    pub fn within(mut self, range: Option<&SourceRange>) -> Self {
+        if let Some(range) = range {
+            by_location_slot!(&mut self, slot => {
+                if slot.is_none() {
+                    *slot = Some(Box::new(range.clone()));
+                }
+            }, arms => ());
+        }
+        self
+    }
+
+    /// The item the error is about, when the error names one: an error without a range names its
+    /// item instead, so a tool can still group it.
+    fn subject_item(&self) -> Option<&StableItemId> {
+        match self {
+            Self::InvalidSpecModule { item, .. }
+            | Self::InvalidSortTest { item, .. }
+            | Self::BitTemplateSort { item, .. }
+            | Self::IncompatibleBinder { item, .. }
+            | Self::CollectionElementSort { item, .. }
+            | Self::UntypedCollection { item, .. }
+            | Self::InvalidPatternAs { item, .. }
+            | Self::InvalidRecordUpdate { item, .. }
+            | Self::InvalidPatternOr { item, .. }
+            | Self::InvalidOperator { item, .. }
+            | Self::InvalidMatches { item, .. }
+            | Self::InvalidLet { item, .. }
+            | Self::MlPlacement { item, .. }
+            | Self::InvalidMlPredicate { item, .. }
+            | Self::InvalidLocalRewrite { item, .. }
+            | Self::InvalidFunctionContext { item, .. }
+            | Self::InvalidParametricProduction { item, .. }
+            | Self::ParametricInstance { item, .. }
+            | Self::NativeInstance { item, .. }
+            | Self::InvalidTokenSort { item, .. }
+            | Self::TokenCollision { item, .. }
+            | Self::InvalidSyntaxList { item, .. }
+            | Self::InvalidListNotation { item, .. }
+            | Self::AmbiguousListPattern { item, .. }
+            | Self::InvalidConsList { item, .. }
+            | Self::BuiltinSortNameCollision { id: item, .. }
+            | Self::DanglingReference { id: item, .. }
+            | Self::ReferenceKindMismatch { id: item, .. }
+            | Self::ParserReferenceDisagreement { id: item, .. }
+            | Self::InvalidTerm { id: item, .. } => Some(item),
+            _ => None,
+        }
+    }
+
+    /// A wrapper error about the cell `name` (this cell, when no name is at hand), which takes
+    /// `wrapper` (`None` for a group).
+    pub(crate) fn cell_wrapper(
+        name: Option<&str>,
+        wrapper: Option<krs_ir::CellWrapper>,
+        range: Option<Box<SourceRange>>,
+    ) -> Self {
+        let cell = name.map_or_else(|| "this cell".to_owned(), |name| format!("`{name}`"));
+        let reason = match wrapper {
+            Some(krs_ir::CellWrapper::KCell) => format!(
+                "{cell} is the computation cell: its entry is `k::configuration::KCell(..)` around its items, or its items in brackets"
+            ),
+            Some(krs_ir::CellWrapper::Cell) => format!(
+                "{cell} is a leaf cell: its entry is `k::configuration::Cell(..)` around its content"
+            ),
+            None => format!(
+                "{cell} is a nested cell group: its entry is the group itself (a binder, `_`, `k::fragment![..]` or the group's record), with no wrapper"
+            ),
+        };
+        Self::CellWrapper { reason, range }
+    }
+
+    /// An unsupported-shape error, without a range: the traversal that encloses it locates it.
+    pub(crate) fn unsupported_shape(node: &'static str, detail: impl Into<String>) -> Self {
+        Self::UnsupportedShape {
+            node,
+            detail: detail.into(),
+            range: None,
+        }
+    }
+
+    /// An invalid-term error for the descriptor `id`, without a range: where
+    /// it arises in a term, sort inference and lowering locate it.
+    pub(crate) fn invalid_term(id: &StableItemId, detail: impl Into<String>) -> Self {
+        Self::InvalidTerm {
+            id: Box::new(id.clone()),
+            detail: detail.into(),
+            range: None,
+        }
+    }
+}
+
 impl fmt::Display for DescriptorLoweringError {
     #[expect(
         clippy::too_many_lines,
@@ -453,35 +824,45 @@ impl fmt::Display for DescriptorLoweringError {
     )]
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::BuiltinSortNameCollision { id, builtin } => write!(
+            Self::BuiltinSortNameCollision { id, builtin, .. } => write!(
                 formatter,
                 "declared sort {id} has K name `{}`; use `k::builtin::{}` instead",
                 builtin.k_name(),
                 builtin.marker_name()
             ),
-            Self::ConfigurationCount(count) => write!(
+            Self::ConfigurationCount { names, .. } if names.is_empty() => formatter.write_str(
+                "the definition has no `#[k::configuration]`; every definition declares its state with exactly one",
+            ),
+            Self::ConfigurationCount { names, .. } => write!(
                 formatter,
-                "descriptor bundle requires exactly one configuration, found {count}"
+                "the definition declares {} configurations, {}; a definition has exactly one",
+                names.len(),
+                names
+                    .iter()
+                    .map(|name| format!("`{name}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
             Self::ReferenceKindMismatch {
                 id,
                 expected,
                 actual,
+                ..
             } => write!(
                 formatter,
                 "descriptor reference {id} has kind {actual}, expected {expected}"
             ),
-            Self::DanglingReference(id) => {
+            Self::DanglingReference { id, .. } => {
                 write!(formatter, "dangling descriptor reference {id}")
             }
-            Self::ParserReferenceDisagreement { id, detail } => write!(
+            Self::ParserReferenceDisagreement { id, detail, .. } => write!(
                 formatter,
                 "parser/reference disagreement for {id}: {detail}"
             ),
-            Self::InvalidTerm { id, detail } => {
+            Self::InvalidTerm { id, detail, .. } => {
                 write!(formatter, "invalid descriptor term for {id}: {detail}")
             }
-            Self::UnsupportedShape { node, detail } => {
+            Self::UnsupportedShape { node, detail, .. } => {
                 write!(formatter, "unsupported {node}: {detail}")
             }
             Self::OverlappingRules { first, second, .. } => write!(
@@ -489,6 +870,36 @@ impl fmt::Display for DescriptorLoweringError {
                 "rules `{}` and `{}` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`.",
                 first.item_name(),
                 second.item_name()
+            ),
+            Self::OverlappingEquations {
+                function,
+                first,
+                second,
+                application,
+                results,
+                ..
+            } => write!(
+                formatter,
+                "equations `{}` and `{}` of `{function}` both apply to `{application}` at the same priority and give it different results, `{}` and `{}`; equations are unordered, so the definition would state that these are equal. Make the equations disjoint (a pattern, or a `requires` that excludes the argument), or give one of them another priority (`owise` or `priority = N`).",
+                first.item_name(),
+                second.item_name(),
+                results.0,
+                results.1
+            ),
+            Self::OverlappingMatchArms {
+                function,
+                first,
+                second,
+                application,
+                results,
+                ..
+            } => write!(
+                formatter,
+                "branches `{}` and `{}` of `{function}` both apply to `{application}` and give it different results, `{}` and `{}`; Rust would take the earlier arm, but each branch is an equation and equations are unordered, so the arms of a branching body must not overlap. Make them disjoint with a pattern or a guard that excludes the argument.",
+                first.item_name(),
+                second.item_name(),
+                results.0,
+                results.1
             ),
             Self::AmbiguousOrPattern { first, second, .. } => write!(
                 formatter,
@@ -548,12 +959,18 @@ impl fmt::Display for DescriptorLoweringError {
                 rule.item_name()
             ),
             Self::InvalidSpecModule { reason, .. }
+            | Self::MissingPrecedenceChain { reason, .. }
             | Self::InvalidTokenSort { reason, .. }
             | Self::TokenCollision { reason, .. }
             | Self::InvalidSortTest { reason, .. }
+            | Self::BitTemplateSort { reason, .. }
             | Self::IncompatibleBinder { reason, .. }
+            | Self::CollectionElementSort { reason, .. }
+            | Self::UntypedCollection { reason, .. }
             | Self::InvalidPatternAs { reason, .. }
+            | Self::InvalidRecordUpdate { reason, .. }
             | Self::InvalidPatternOr { reason, .. }
+            | Self::InvalidOperator { reason, .. }
             | Self::InvalidMatches { reason, .. }
             | Self::InvalidLet { reason, .. }
             | Self::MlPlacement { reason, .. }
@@ -570,12 +987,18 @@ impl fmt::Display for DescriptorLoweringError {
             | Self::DuplicateSmtlib { reason, .. }
             | Self::InvalidMatchRestriction { reason, .. }
             | Self::InvalidStaticClause { reason, .. }
+            | Self::InvalidConstant { reason, .. }
             | Self::SmtLemmaUntranslatable { reason, .. }
             | Self::InvalidSyntaxList { reason, .. }
+            | Self::InvalidListNotation { reason, .. }
+            | Self::AmbiguousListPattern { reason, .. }
+            | Self::InvalidConsList { reason, .. }
             | Self::InvalidConsoleCell { reason, .. }
-            | Self::CellCollection { reason, .. } => formatter.write_str(reason),
-            Self::InvalidGeneratedIdentity(detail) => formatter.write_str(detail),
-            Self::InvalidSemanticTheory(error) => error.fmt(formatter),
+            | Self::CellCollection { reason, .. }
+            | Self::CellWrapper { reason, .. }
+            | Self::UnusedConfigurationVariable { reason, .. } => formatter.write_str(reason),
+            Self::InvalidGeneratedIdentity { detail, .. } => formatter.write_str(detail),
+            Self::InvalidSemanticTheory { error, .. } => error.fmt(formatter),
         }
     }
 }
@@ -597,8 +1020,8 @@ impl ToDiagnostic for DescriptorLoweringError {
     fn to_diagnostic(&self) -> Diagnostic {
         let code = match self {
             Self::BuiltinSortNameCollision { .. } => codes::analysis::BUILTIN_SORT_NAME_COLLISION,
-            Self::ConfigurationCount(_) => codes::analysis::CONFIGURATION_COUNT,
-            Self::DanglingReference(_) => codes::analysis::DANGLING_REFERENCE,
+            Self::ConfigurationCount { .. } => codes::analysis::CONFIGURATION_COUNT,
+            Self::DanglingReference { .. } => codes::analysis::DANGLING_REFERENCE,
             Self::ReferenceKindMismatch { .. } => codes::analysis::REFERENCE_KIND_MISMATCH,
             Self::ParserReferenceDisagreement { .. } => {
                 codes::analysis::PARSER_REFERENCE_DISAGREEMENT
@@ -606,9 +1029,12 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidTerm { .. } => codes::analysis::INVALID_TERM,
             Self::UnsupportedShape { .. } => codes::analysis::UNSUPPORTED_SHAPE,
             Self::OverlappingRules { .. } => codes::analysis::OVERLAPPING_RULE_HEADS,
+            Self::OverlappingEquations { .. } => codes::analysis::OVERLAPPING_EQUATIONS,
+            Self::OverlappingMatchArms { .. } => codes::analysis::OVERLAPPING_MATCH_ARMS,
             Self::AmbiguousOrPattern { .. } => codes::analysis::AMBIGUOUS_OR_PATTERN,
             Self::NondetGroup { .. } => codes::analysis::NONDET_GROUP,
             Self::InvalidOverload { .. } => codes::analysis::INVALID_OVERLOAD,
+            Self::MissingPrecedenceChain { .. } => codes::analysis::MISSING_PRECEDENCE_CHAIN,
             Self::PrivateProductionInSpec { .. } => codes::analysis::PRIVATE_PRODUCTION_IN_SPEC,
             Self::InvalidSpecModule { .. } => codes::analysis::INVALID_SPEC_MODULE,
             Self::RuleChangesNoCell { .. } => codes::analysis::RULE_CHANGES_NO_CELL,
@@ -618,9 +1044,17 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidTokenSort { .. } => codes::analysis::INVALID_TOKEN_SORT,
             Self::TokenCollision { .. } => codes::analysis::TOKEN_COLLISION,
             Self::InvalidSortTest { .. } => codes::analysis::INVALID_SORT_TEST,
+            Self::BitTemplateSort { .. } => codes::analysis::BIT_TEMPLATE_SORT,
             Self::IncompatibleBinder { .. } => codes::analysis::INCOMPATIBLE_BINDER,
+            Self::CollectionElementSort { .. } => codes::analysis::COLLECTION_ELEMENT_SORT,
+            Self::UntypedCollection { .. } => codes::analysis::UNTYPED_COLLECTION,
             Self::InvalidPatternAs { .. } => codes::analysis::INVALID_PATTERN_AS,
+            Self::InvalidRecordUpdate { .. } => codes::analysis::INVALID_RECORD_UPDATE,
             Self::InvalidPatternOr { .. } => codes::analysis::INVALID_PATTERN_OR,
+            Self::InvalidOperator { problem, .. } => match problem {
+                OperatorProblem::Ambiguous => codes::analysis::AMBIGUOUS_OPERATOR,
+                OperatorProblem::Undefined => codes::syntax::INVALID_EXPRESSION_NOTATION,
+            },
             Self::InvalidMatches { .. } => codes::analysis::INVALID_MATCHES,
             Self::InvalidLet { .. } => codes::analysis::INVALID_LET,
             Self::MlPlacement { .. } => codes::analysis::ML_PLACEMENT,
@@ -633,6 +1067,9 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::ParametricInstance { .. } => codes::analysis::PARAMETRIC_INSTANCE,
             Self::NativeInstance { .. } => codes::analysis::NATIVE_INSTANCE,
             Self::InvalidSyntaxList { .. } => codes::analysis::INVALID_SYNTAX_LIST,
+            Self::InvalidListNotation { .. } => codes::analysis::INVALID_LIST_NOTATION,
+            Self::AmbiguousListPattern { .. } => codes::analysis::AMBIGUOUS_LIST_PATTERN,
+            Self::InvalidConsList { .. } => codes::analysis::INVALID_CONS_LIST,
             Self::InvalidLexical { problem, .. } => match problem {
                 LexicalProblem::Duplicate => codes::analysis::DUPLICATE_LEXICAL,
                 LexicalProblem::Undefined => codes::analysis::UNDEFINED_LEXICAL,
@@ -651,63 +1088,80 @@ impl ToDiagnostic for DescriptorLoweringError {
             Self::InvalidMatchRestriction { .. } => codes::analysis::INVALID_MATCH_RESTRICTION,
             Self::SmtLemmaUntranslatable { .. } => codes::analysis::SMT_LEMMA_UNTRANSLATABLE,
             Self::InvalidStaticClause { .. } => codes::analysis::INVALID_STATIC_CLAUSE,
-            Self::InvalidGeneratedIdentity(_) => codes::analysis::INVALID_GENERATED_IDENTITY,
-            Self::InvalidSemanticTheory(_) => codes::analysis::INVALID_SEMANTIC_THEORY,
+            Self::InvalidConstant { .. } => codes::analysis::INVALID_CONSTANT,
+            Self::CellWrapper { .. } => codes::analysis::CELL_WRAPPER,
+            Self::UnusedConfigurationVariable { .. } => {
+                codes::analysis::UNUSED_CONFIGURATION_VARIABLE
+            }
+            Self::InvalidGeneratedIdentity { .. } => codes::analysis::INVALID_GENERATED_IDENTITY,
+            // The validators state two language rules a front stage has not checked yet; their
+            // failures are the author's mistakes, and only the rest are KRS's.
+            Self::InvalidSemanticTheory { error, .. } => match error {
+                SemanticValidationError::InvalidPatternOr => codes::analysis::INVALID_PATTERN_OR,
+                SemanticValidationError::InvalidPatternAs => codes::syntax::INVALID_PATTERN_AS,
+                _ => codes::analysis::INVALID_SEMANTIC_THEORY,
+            },
         };
         let location = match self {
-            Self::OverlappingRules {
-                second_head_range, ..
-            } => second_head_range
-                .as_deref()
+            // The later arm is the one Rust would not reach.
+            Self::OverlappingMatchArms { arms, .. } => Location::Source(later_arm(arms).1.clone()),
+            located => located
+                .range()
                 .cloned()
                 .map_or(Location::None, Location::Source),
-            Self::NondetGroup { range, .. }
-            | Self::AmbiguousOrPattern { range, .. }
-            | Self::InvalidOverload { range, .. }
-            | Self::PrivateProductionInSpec { range, .. }
-            | Self::InvalidSpecModule { range, .. }
-            | Self::RuleChangesNoCell { range, .. }
-            | Self::AlwaysEnabledRule { range, .. }
-            | Self::GroupAndDescendant { range, .. }
-            | Self::AmbiguousCellSort { range, .. }
-            | Self::InvalidTokenSort { range, .. }
-            | Self::TokenCollision { range, .. }
-            | Self::InvalidSortTest { range, .. }
-            | Self::IncompatibleBinder { range, .. }
-            | Self::InvalidPatternAs { range, .. }
-            | Self::InvalidPatternOr { range, .. }
-            | Self::InvalidMatches { range, .. }
-            | Self::InvalidLet { range, .. }
-            | Self::MlPlacement { range, .. }
-            | Self::InvalidMlPredicate { range, .. }
-            | Self::InvalidLocalRewrite { range, .. }
-            | Self::InvalidFunctionContext { range, .. }
-            | Self::InvalidParametricProduction { range, .. }
-            | Self::ParametricInstance { range, .. }
-            | Self::NativeInstance { range, .. }
-            | Self::InvalidSyntaxList { range, .. }
-            | Self::InvalidLexical { range, .. }
-            | Self::InvalidFresh { range, .. }
-            | Self::InvalidEvaluationStep { range, .. }
-            | Self::InvalidContext { range, .. }
-            | Self::DuplicateSmtlib { range, .. }
-            | Self::InvalidMatchRestriction { range, .. }
-            | Self::InvalidStaticClause { range, .. }
-            | Self::SmtLemmaUntranslatable { range, .. }
-            | Self::InvalidConsoleCell { range, .. }
-            | Self::CellCollection { range, .. } => range
-                .as_deref()
-                .cloned()
-                .map_or(Location::None, Location::Source),
-            _ => Location::None,
         };
-        let diagnostic = Diagnostic::error(code, self.to_string(), location);
+        let unlocated = matches!(location, Location::None);
+        let mut diagnostic = Diagnostic::error(code, self.to_string(), location);
+        if unlocated && let Some(item) = self.subject_item() {
+            diagnostic = diagnostic.with_item(item.to_string());
+        }
         match self {
             Self::OverlappingRules { first, second, .. } => diagnostic
                 .with_note(format!("first rule: {first}"))
                 .with_note(format!("second rule: {second}")),
+            Self::OverlappingEquations { first, second, .. } => diagnostic
+                .with_note(format!("first equation: {first}"))
+                .with_note(format!("second equation: {second}")),
+            Self::OverlappingMatchArms {
+                first,
+                second,
+                arms,
+                ..
+            } => diagnostic
+                .with_secondary({
+                    let (earlier, name) = if later_arm(arms).1 == &arms.1 {
+                        (&arms.0, first.item_name())
+                    } else {
+                        (&arms.1, second.item_name())
+                    };
+                    krs_diagnostic::Label::new(Location::Source(earlier.clone()))
+                        .with_message(format!("the earlier arm, `{name}`, also applies"))
+                })
+                .with_note(format!("first equation: {first}"))
+                .with_note(format!("second equation: {second}")),
             Self::NondetGroup { rule, .. } | Self::AmbiguousOrPattern { rule, .. } => {
                 diagnostic.with_note(format!("rule: {rule}"))
+            }
+            Self::ConfigurationCount {
+                first: Some(first), ..
+            } => diagnostic.with_secondary(
+                krs_diagnostic::Label::new(Location::Source((**first).clone()))
+                    .with_message("the first configuration"),
+            ),
+            Self::IncompatibleBinder {
+                occurrence, help, ..
+            } => {
+                let diagnostic = match occurrence {
+                    Some((range, needed)) => diagnostic.with_secondary(
+                        krs_diagnostic::Label::new(Location::Source((**range).clone()))
+                            .with_message(format!("this occurrence needs `{needed}`")),
+                    ),
+                    None => diagnostic,
+                };
+                match help {
+                    Some(help) => diagnostic.with_help(help.clone()),
+                    None => diagnostic,
+                }
             }
             Self::PrivateProductionInSpec {
                 sentence,
@@ -729,7 +1183,7 @@ impl ToDiagnostic for DescriptorLoweringError {
 impl Error for DescriptorLoweringError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
-            Self::InvalidSemanticTheory(error) => Some(error),
+            Self::InvalidSemanticTheory { error, .. } => Some(error),
             _ => None,
         }
     }
@@ -737,13 +1191,16 @@ impl Error for DescriptorLoweringError {
 
 impl From<IrIdentityError> for DescriptorLoweringError {
     fn from(error: IrIdentityError) -> Self {
-        Self::InvalidGeneratedIdentity(error.to_string())
+        Self::InvalidGeneratedIdentity {
+            detail: error.to_string(),
+            range: None,
+        }
     }
 }
 
 impl From<SemanticValidationError> for DescriptorLoweringError {
     fn from(error: SemanticValidationError) -> Self {
-        Self::InvalidSemanticTheory(error)
+        Self::InvalidSemanticTheory { error, range: None }
     }
 }
 
@@ -752,6 +1209,7 @@ impl From<krs_ir::StateShapeError> for DescriptorLoweringError {
         Self::UnsupportedShape {
             node: "fixed configuration",
             detail: error.to_string(),
+            range: None,
         }
     }
 }
@@ -759,7 +1217,7 @@ impl From<krs_ir::StateShapeError> for DescriptorLoweringError {
 impl From<krs_ir::LookupError> for DescriptorLoweringError {
     fn from(error: krs_ir::LookupError) -> Self {
         match error {
-            krs_ir::LookupError::Missing { id } => Self::DanglingReference(id),
+            krs_ir::LookupError::Missing { id } => Self::DanglingReference { id, range: None },
             krs_ir::LookupError::WrongKind {
                 id,
                 expected,
@@ -768,8 +1226,18 @@ impl From<krs_ir::LookupError> for DescriptorLoweringError {
                 id,
                 expected,
                 actual,
+                range: None,
             },
         }
+    }
+}
+
+/// The earlier and the later of two arms, by their authored position.
+fn later_arm(arms: &(SourceRange, SourceRange)) -> (&SourceRange, &SourceRange) {
+    if arms.1.start_byte >= arms.0.start_byte {
+        (&arms.0, &arms.1)
+    } else {
+        (&arms.1, &arms.0)
     }
 }
 
@@ -802,6 +1270,42 @@ mod tests {
                 format!("first rule: {first}"),
                 format!("second rule: {second}"),
             ]
+        );
+    }
+
+    #[test]
+    fn overlapping_match_arms_point_at_the_later_arm_and_name_the_earlier() {
+        // Stable-identity order puts `f_10` before `f_2`; the arm written
+        // later is still the primary location.
+        let first = krs_ir::testing::item("arms", "f_10", ItemKind::Equation);
+        let second = krs_ir::testing::item("arms", "f_2", ItemKind::Equation);
+        let later = krs_ir::testing::authored(40, 45)
+            .exact_authored_range()
+            .unwrap();
+        let earlier = krs_ir::testing::authored(10, 15)
+            .exact_authored_range()
+            .unwrap();
+        let error = DescriptorLoweringError::OverlappingMatchArms {
+            function: "F".to_owned(),
+            first: Box::new(first),
+            second: Box::new(second),
+            application: "F(0)".to_owned(),
+            results: Box::new(("1".to_owned(), "2".to_owned())),
+            arms: Box::new((later.clone(), earlier.clone())),
+        };
+        let diagnostic = error.to_diagnostic();
+        assert_eq!(diagnostic.code, codes::analysis::OVERLAPPING_MATCH_ARMS);
+        let Location::Source(primary) = diagnostic.primary.location else {
+            panic!("missing the later arm");
+        };
+        assert_eq!(primary, later);
+        let [label] = diagnostic.secondary.as_slice() else {
+            panic!("one secondary label");
+        };
+        assert!(matches!(&label.location, Location::Source(range) if *range == earlier));
+        assert_eq!(
+            label.message.as_deref(),
+            Some("the earlier arm, `f_2`, also applies")
         );
     }
 }

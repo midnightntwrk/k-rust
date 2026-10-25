@@ -100,6 +100,20 @@ symbol = "Counter::ALL"
 
 [[node]]
 kind = "observation"
+id = "CoverageOfferMatches"
+provenance = "table"
+area = "coverage"
+name = "CoverageOfferMatches"
+table = "Counter::ALL"
+registry_name = "coverage.offer_matches"
+
+[node.anchor]
+crate = "k-rust-kore"
+file = "crates/k-rust-kore/src/measure.rs"
+symbol = "Counter::CoverageOfferMatches"
+
+[[node]]
+kind = "observation"
 id = "ExecutionStatesMerged"
 provenance = "table"
 area = "execution"
@@ -1396,7 +1410,7 @@ table = "TRANSFORM_STAGES"
 call = "subsort_kitem"
 behavior = "generating"
 generating_passes = ["subsort-kitem"]
-sequence = 28
+sequence = 29
 
 [node.anchor]
 crate = "k-rust"
@@ -1412,7 +1426,7 @@ name = "add cool-like attributes"
 table = "TRANSFORM_STAGES"
 call = "add_cool_like_attributes"
 behavior = "metadata-only"
-sequence = 46
+sequence = 50
 
 [node.anchor]
 crate = "k-rust"
@@ -1429,7 +1443,7 @@ table = "TRANSFORM_STAGES"
 call = "add_implicit_computation_cell"
 behavior = "generating"
 generating_passes = ["add-implicit-computation-cell"]
-sequence = 36
+sequence = 40
 
 [node.anchor]
 crate = "k-rust"
@@ -1445,7 +1459,7 @@ name = "add semantics module"
 table = "TRANSFORM_STAGES"
 call = "add_semantics_module"
 behavior = "structural-origin-free"
-sequence = 44
+sequence = 48
 
 [node.anchor]
 crate = "k-rust"
@@ -1462,7 +1476,7 @@ table = "EMISSION_STAGES"
 call = "add_sort_injections_to_definition"
 behavior = "generating"
 generating_passes = ["add-sort-injections"]
-sequence = 49
+sequence = 53
 
 [node.anchor]
 crate = "k-rust"
@@ -1763,7 +1777,7 @@ symbol = "BackendDefinition::discharge_rewrite_definedness"
 
 [[node.cost]]
 mode = "one term (ceil_term)"
-bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once and the items of a collection that are not ceil_free reached through its summaries, O(log m) each, and one deduplication clone per obligation emitted, plus, per map or set of at least four keys other than one without rest whose keys share one header and repeat none (read from its summary, no key obligation), O(k) to group its keys by apartness skeleton (term.rs rigid_apart_skeleton_hash, and same_apart_skeleton against each group of the same hash) and, per key, the later keys to check: O(m) to scan them when fewer later keys of its group are skipped than checked, otherwise O(g log m + c log c) to gather and sort the c later keys of other groups and of equal keys; then one apartness check per pair of keys that are not both rigid with one skeleton and per pair of equal keys (at most m^2 / 2, none for distinct keys of one skeleton), each a walk of the two elements' shared fixed-root spine that stops at the first open root, by recursion for eight levels and on a work list below them, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application, and, for an application of a value-production symbol that no ceil equation decides and the simplifier has not certified, one instance-normality scan of it (instance_normal.rs)"
+bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once and the items of a collection that are not ceil_free reached through its summaries, O(log m) each, and one deduplication clone per obligation emitted, plus, per map or set of at least four keys other than one without rest whose keys share one header and repeat none (read from its summary, no key obligation), O(k) to group its keys by apartness skeleton (term.rs rigid_apart_skeleton_hash, O(1) for a key whose stored may_be_rigid is false, and same_apart_skeleton against each group of the same hash) and, per key, the later keys to check: O(m) to scan them when fewer later keys of its group are skipped than checked, otherwise O(g log m + c log c) to gather and sort the c later keys of other groups and of equal keys; then one apartness check per pair of keys that are not both rigid with one skeleton and per pair of equal keys (at most m^2 / 2, none for distinct keys of one skeleton), each a walk of the two elements' shared fixed-root spine that stops at the first open root, by recursion for eight levels and on a work list below them, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application, and, for an application of a value-production symbol that no ceil equation decides and the simplifier has not certified, one instance-normality scan of it (instance_normal.rs)"
 
 [[node.cost]]
 mode = "one rule or equation condition (condition_definedness)"
@@ -1887,7 +1901,7 @@ symbol = "internalize_axiom"
 
 [[node.cost]]
 mode = "one definition load"
-bound = "O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge, plus, after the critical-pair check, one walk of the executable left-hand sides and of the predicate simplification lemmas' left-hand sides and at most r + 1 rounds of one instance-normality scan per ground term an equation-head application of them denotes, not yet recorded, for r recorded terms (record_pattern_tokens), plus, per reachability claim and side (its left-hand side and each right-hand disjunct) whose constraints are not ceil_free, one definedness statement of those constraints (claim::with_explicit_definedness, definedness::request_definedness)"
+bound = '''O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus one walk of each predicate simplification lemma's left-hand side bringing it to its written form (simplify::written_lemma_left_side, one ceil_term call per atom of each conjunction that holds a \ceil, deferred, membership, absence or negation conjunct), plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge, plus, after the critical-pair check, one walk of the executable left-hand sides and of the predicate simplification lemmas' left-hand sides and at most r + 1 rounds of one instance-normality scan per ground term an equation-head application of them denotes, not yet recorded, for r recorded terms (record_pattern_tokens), plus, per reachability claim and side (its left-hand side and each right-hand disjunct) whose constraints are not ceil_free, one definedness statement of those constraints (claim::with_explicit_definedness, definedness::request_definedness)'''
 
 [[node.cost]]
 mode = "one term or pattern request (internalize_term, internalize_pattern)"
@@ -2398,7 +2412,7 @@ symbol = "stuck_leaf"
 
 [[node.cost]]
 mode = "one proof"
-bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus for each Stuck leaf on a certifiable trace (stuck_leaf) up to two is_sat queries and two rewrite steps"
+bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus for each Stuck leaf on a certifiable trace (stuck_leaf) up to two is_sat queries and two rewrite steps, plus for a step's undefined step (decide_undefined_step, shared with executions) one normalization of each sibling candidate not yet normalized, one predicate simplification and one is_sat per undefined candidate and trivial entry, and one more simplification when several are non-empty over one term; a step with trivial entries and an applied candidate normalizes each candidate within the step"
 
 [[node]]
 kind = "algorithm"
@@ -2518,7 +2532,7 @@ symbol = "enqueue_execution_states"
 
 [[node.cost]]
 mode = "bounded execution"
-bound = "O(min(states, max_work)), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None, max_work = None); one integer comparison per state for the work budget; each state performs one term simplification, predicate pass, and rewrite step (a successor whose step already normalized it under strategy any takes that normalization instead), plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step, and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
+bound = "O(min(states, max_work)), with states at most b^d when both bounds are set and unbounded under the defaults (max_depth = u64::MAX, max_breadth = None, max_work = None); one integer comparison per state for the work budget; each state performs one term simplification, predicate pass, and rewrite step (a successor whose step already normalized it under strategy any takes that normalization instead), plus one predicate simplification and one satisfiability query per undefined-step (trivial) entry of its step; a step with such entries and an applied candidate (unless it stops at a branch with several candidates or a remainder), or one exploring all paths with several candidates, no remainder and a candidate a cut-point or terminal rule selects, normalizes each candidate's successor, which a defined one's successor takes instead of normalizing itself; a successor that normalizes to bottom, the first of its step to do so, normalizes each sibling candidate not yet normalized; and a step's undefined step, whichever route finds its candidates undefined (the step itself, stopping at branches, or a successor's normalization), takes one predicate simplification and one satisfiability query per undefined candidate, and one more predicate simplification when several candidates are left non-empty over one term; and a state stopped at max_depth is simplified once more; an initial state the run does not assume defined also walks its term's definedness once and simplifies the obligations that walk finds once"
 
 [[node.cost]]
 mode = "final leaf merge (merge_equal_final_leaves)"
@@ -2679,13 +2693,22 @@ crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rewrite/step.rs"
 symbol = "SequentialDeterminism::record"
 
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/coverage.rs"
+symbol = "offer"
+
 [[node.cost]]
 mode = "All"
 bound = "O(c) rule attempts plus one SAT check per productive group and one remainder term simplification before the first lower group and after each productive lower group"
 
 [[node.cost]]
 mode = "Any"
-bound = "O(c) rule attempts plus one predicate simplification per applied application group and per priority whose rules left some applicable instance without a defined result, one SAT check per candidate of an application group after a rule's first (restricted to the instances the earlier groups left), one SAT check per step, and one normalization (a predicate simplification and a term simplification, execute::normalize_successor) of each applied candidate's successor when a later application group of its rule or a later rule of its priority is left, which a kept candidate's successor takes instead of normalizing itself (the one-path proof route normalizes it again)"
+bound = "O(c) rule attempts plus one predicate simplification per applied application group and per priority whose rules left some applicable instance without a defined result, one SAT check per candidate of an application group after a rule's first (restricted to the instances the earlier groups left), one SAT check per step, and one normalization (a predicate simplification and a term simplification, execute::normalize_successor) of each applied candidate's successor when a later application group of its rule or a later rule of its priority is left, which a kept candidate's successor takes instead of normalizing itself (the one-path proof route normalizes it again, and also asks one SAT check of each such normalized successor's constraints, SuccessorSatisfiability::Asked)"
+
+[[node.cost]]
+mode = "collecting the offered coverage level (ExecutionOptions::collect_offered)"
+bound = "the cost of the mode plus at most one isolated left-hand-side match per candidate the step never tried, none for an axiom the run's coverage already holds (CoverageOfferMatches)"
 
 [[node.cost]]
 mode = "Any with dropped-successor tracking (SequentialDeterminism)"
@@ -2742,6 +2765,11 @@ symbol = "fetch_k_cell"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/rule.rs"
+symbol = "k_cell_is_exact"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rule.rs"
 symbol = "first_with_k_cell"
 
 [[node.sites]]
@@ -2759,7 +2787,7 @@ bound = "O(k log k) index lookups plus O(r) covers checks plus O(c) candidate cl
 
 [[node.cost]]
 mode = "subject_index"
-bound = "O(1) unless the subject's stored k_cells count is 1, then O(d x a) to fetch the cell"
+bound = "O(1) when the subject's stored k_cells count is 0; for 1, O(d x a) to check (k_cell_is_exact) and fetch the cell, plus the items of each collection on the path when the subject is not constructor_like; for a variable-free subject with several, the same check over every path to a cell, plus O(c log c) to collect and sort the c cells' keys"
 
 [[node]]
 kind = "algorithm"
@@ -2907,7 +2935,7 @@ symbol = "search_paths_collecting"
 
 [[node.cost]]
 mode = "simple paths"
-bound = "exponential in b and d, plus O(d) visited-list work per pop and O(KORE text bytes) per transition for the returned path identity; digest memory is O(printer traversal stack)"
+bound = "exponential in b and d, plus O(1) visited-set work per pop, O(1) per fork and O(d) to copy a branch's visited set at its first state after the fork, and O(KORE text bytes) per transition for the returned path identity; digest memory is O(printer traversal stack)"
 
 [[node]]
 kind = "algorithm"
@@ -3019,6 +3047,21 @@ symbol = "PredicateAssumptions"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "written_predicate"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "set_aside_definedness"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "reattach_set_aside"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "apply_predicate_theory"
 
 [[node.sites]]
@@ -3040,6 +3083,11 @@ symbol = "normalize_root"
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "normalize_hereditary"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/rewrite/predicates.rs"
+symbol = "free_variables_by_first_occurrence"
 
 [[node.sites]]
 crate = "k-rust-backend"
@@ -3101,7 +3149,7 @@ bound = "per visited sub-predicate and its simplified form: its key and its nega
 
 [[node.cost]]
 mode = "predicate equations (apply_predicate_theory)"
-bound = "per visited sub-predicate: the equations of its top connective only (indexed at load), each matched against it as deep as its left-hand side; the sub-predicate is walked for a name shared with the equation, and the equation renamed apart, only when the equation matched, could match, or met a shared name; a quantifier hides from the assumptions under it only the assumed conjuncts that mention its variable, the conjunct being simplified not among them"
+bound = 'per visited sub-predicate: the equations of its top connective only (indexed at load), each matched against it as deep as its left-hand side; the sub-predicate is walked for a name shared with the equation, and the equation renamed apart, only when the equation matched, could match, or met a shared name; a quantifier hides from the assumptions under it only the assumed conjuncts that mention its variable, the conjunct being simplified not among them; before the equations, when its top connective has any, one walk of the sub-predicate, no deeper than the deepest left-hand side of those equations, that sets aside hoisted definedness conjuncts (written_predicate), with one ceil_term call per atom of each conjunction that holds a \ceil, deferred, membership, absence or negation conjunct, and after an equation applies, one ceil_term call per conjunct atom of its result when a conjunct was set aside on the whole subject'
 
 [[node.cost]]
 mode = "normalization of a simplified sub-predicate (normalize_root, normalize_hereditary)"
@@ -3224,6 +3272,11 @@ symbol = "apply_equation"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/simplify.rs"
+symbol = "simplify_child"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/simplify.rs"
 symbol = "simplify_on_stack"
 
 [[node.cost]]
@@ -3313,7 +3366,7 @@ bound = "O(e) evictions for e oldest entries removed to satisfy both limits"
 
 [[node.cost]]
 mode = "prelude consistency"
-bound = "zero checks after a sat query; otherwise at most one prelude check, with configured retries, before the first unsat answer"
+bound = "zero checks after a sat query; otherwise at most one prelude check, with configured retries, before the first unsat answer or rejected script"
 
 [[node]]
 kind = "algorithm"
@@ -3806,6 +3859,22 @@ bound = "O(n x s x t)"
 
 [[node]]
 kind = "phase"
+id = "check matching-logic positions"
+provenance = "table"
+area = "kompile"
+name = "check matching-logic positions"
+table = "TRANSFORM_STAGES"
+call = "check_ml_positions"
+behavior = "validation"
+sequence = 38
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "check_ml_positions"
+
+[[node]]
+kind = "phase"
 id = "check outer modules"
 provenance = "table"
 area = "kompile"
@@ -3827,7 +3896,7 @@ name = "check simplification rules"
 table = "TRANSFORM_STAGES"
 call = "check_simplification_rules"
 behavior = "validation"
-sequence = 41
+sequence = 45
 
 [node.anchor]
 crate = "k-rust"
@@ -3841,7 +3910,7 @@ provenance = "table"
 area = "kompile"
 name = "collect configuration variables"
 table = "EMISSION_PHASES"
-sequence = 55
+sequence = 59
 
 [node.anchor]
 crate = "k-rust"
@@ -3855,7 +3924,7 @@ provenance = "table"
 area = "kompile"
 name = "collect execution rewrite order"
 table = "EMISSION_PHASES"
-sequence = 52
+sequence = 56
 
 [node.anchor]
 crate = "k-rust"
@@ -3872,7 +3941,7 @@ table = "TRANSFORM_STAGES"
 call = "concretize_cells"
 behavior = "generating"
 generating_passes = ["concretize-cells"]
-sequence = 43
+sequence = 47
 
 [node.anchor]
 crate = "k-rust"
@@ -3889,7 +3958,7 @@ table = "TRANSFORM_STAGES"
 call = "constant_fold"
 behavior = "generating"
 generating_passes = ["constant-folding"]
-sequence = 29
+sequence = 30
 
 [node.anchor]
 crate = "k-rust"
@@ -4037,7 +4106,7 @@ name = "declare deferred totality"
 table = "TRANSFORM_STAGES"
 call = "declare_deferred_totality"
 behavior = "metadata-only"
-sequence = 40
+sequence = 44
 
 [node.anchor]
 crate = "k-rust"
@@ -5089,7 +5158,7 @@ provenance = "table"
 area = "kompile"
 name = "emit KORE"
 table = "EMISSION_PHASES"
-sequence = 57
+sequence = 61
 
 [node.anchor]
 crate = "k-rust"
@@ -5120,7 +5189,7 @@ table = "TRANSFORM_STAGES"
 call = "expand_macros"
 behavior = "generating"
 generating_passes = ["macro-expansion"]
-sequence = 35
+sequence = 36
 
 [node.anchor]
 crate = "k-rust"
@@ -5137,7 +5206,7 @@ table = "TRANSFORM_STAGES"
 call = "subsort_kitem"
 behavior = "generating"
 generating_passes = ["subsort-kitem"]
-sequence = 42
+sequence = 46
 
 [node.anchor]
 crate = "k-rust"
@@ -5151,7 +5220,7 @@ provenance = "table"
 area = "kompile"
 name = "generate bison parser"
 table = "EMISSION_PHASES"
-sequence = 61
+sequence = 65
 
 [node.anchor]
 crate = "k-rust"
@@ -5168,7 +5237,7 @@ table = "TRANSFORM_STAGES"
 call = "generate_sort_predicate_rules"
 behavior = "generating"
 generating_passes = ["generate-sort-predicate-rules"]
-sequence = 47
+sequence = 51
 
 [node.anchor]
 crate = "k-rust"
@@ -5185,7 +5254,7 @@ table = "TRANSFORM_STAGES"
 call = "generate_sort_predicate_syntax"
 behavior = "generating"
 generating_passes = ["generate-sort-predicate-syntax"]
-sequence = 33
+sequence = 34
 
 [node.anchor]
 crate = "k-rust"
@@ -5202,7 +5271,7 @@ table = "TRANSFORM_STAGES"
 call = "generate_sort_projections"
 behavior = "generating"
 generating_passes = ["generate-sort-projections"]
-sequence = 34
+sequence = 35
 
 [node.anchor]
 crate = "k-rust"
@@ -5219,7 +5288,7 @@ table = "TRANSFORM_STAGES"
 call = "guard_or_patterns"
 behavior = "generating"
 generating_passes = ["guard-or-patterns"]
-sequence = 31
+sequence = 32
 
 [node.anchor]
 crate = "k-rust"
@@ -5233,7 +5302,7 @@ provenance = "table"
 area = "kompile"
 name = "hook namespace checks"
 table = "EMISSION_PHASES"
-sequence = 56
+sequence = 60
 
 [node.anchor]
 crate = "k-rust"
@@ -6068,7 +6137,7 @@ id = "kompile.kore.owise"
 provenance = "declared"
 area = "kompile"
 name = "construction of owise competitor predicates"
-variable = "R = module rules; O = owise equations; I = sort-injection and equation-shape work per rule; m = competitors sharing an owise equation's label and argument sorts; c = per-competitor refresh, matching and conversion work"
+variable = "R = module rules; G = generated axioms; O = owise equations; I = sort-injection and equation-shape work per rule; m = competitors of an owise equation (rules sharing its label and argument sorts, and generated equations of its head symbol); c = per-competitor refresh, matching and conversion work"
 table = "Algorithm::ALL"
 registry_name = "KompileKoreOwise"
 
@@ -6094,7 +6163,7 @@ symbol = "OwiseCompetitors::scan"
 
 [[node.cost]]
 mode = "one module"
-bound = "O(R x (I + log R) + O x (m x c + log R))"
+bound = "O(G log G + R x (I + log R) + O x (m x c + log R + log G))"
 
 [[node]]
 kind = "algorithm"
@@ -6132,7 +6201,7 @@ id = "kompile.labels.backward_closure"
 provenance = "declared"
 area = "kompile"
 name = "backward closure over the label-dependency graph"
-variable = "V = function labels; E = rule dependency edges; R = rules; N_f = term nodes of function rules"
+variable = "V = function, anywhere, (under EFFECTS) simplification-head and (under READS and EFFECTS) macro labels; E = rule dependency edges; R = rules; N_f = term nodes of the rules that give edges"
 no_counter = "label-dependency closure has no dedicated counter"
 table = "Algorithm::ALL"
 registry_name = "KompileLabelsBackwardClosure"
@@ -6151,6 +6220,11 @@ symbol = "LabelDependencyGraph::build"
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/label_graph.rs"
 symbol = "LabelDependencyGraph::backward_closure"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/label_graph.rs"
+symbol = "impure_labels"
 
 [[node.cost]]
 mode = "graph construction"
@@ -7043,6 +7117,23 @@ symbol = "LOAD_PHASES"
 
 [[node]]
 kind = "phase"
+id = "lower term conjunctions"
+provenance = "table"
+area = "kompile"
+name = "lower term conjunctions"
+table = "TRANSFORM_STAGES"
+call = "lower_term_conjunctions"
+behavior = "generating"
+generating_passes = ["lower-term-conjunctions"]
+sequence = 39
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "lower_term_conjunctions"
+
+[[node]]
+kind = "phase"
 id = "minimize term construction"
 provenance = "table"
 area = "kompile"
@@ -7051,7 +7142,7 @@ table = "EMISSION_STAGES"
 call = "minimize_term_construction"
 behavior = "generating"
 generating_passes = ["minimize-term-construction"]
-sequence = 51
+sequence = 55
 
 [node.anchor]
 crate = "k-rust"
@@ -7067,7 +7158,7 @@ name = "number sentences"
 table = "TRANSFORM_STAGES"
 call = "number_sentences"
 behavior = "metadata-only"
-sequence = 25
+sequence = 26
 
 [node.anchor]
 crate = "k-rust"
@@ -7083,7 +7174,7 @@ name = "number sentences (final)"
 table = "TRANSFORM_STAGES"
 call = "number_sentences"
 behavior = "metadata-only"
-sequence = 48
+sequence = 52
 
 [node.anchor]
 crate = "k-rust"
@@ -7310,6 +7401,11 @@ symbol = "Derivations::insert_uncovered"
 crate = "k-rust"
 file = "crates/k-rust/src/inner/parser/chart.rs"
 symbol = "Derivations::covers_extension"
+
+[[node.sites]]
+crate = "k-rust"
+file = "crates/k-rust/src/inner/parser/chart.rs"
+symbol = "Chart::add_prediction"
 
 [[node.sites]]
 crate = "k-rust"
@@ -8820,7 +8916,7 @@ provenance = "table"
 area = "kompile"
 name = "print definition.kore"
 table = "EMISSION_PHASES"
-sequence = 58
+sequence = 62
 
 [node.anchor]
 crate = "k-rust"
@@ -8834,7 +8930,7 @@ provenance = "table"
 area = "kompile"
 name = "print macros.kore"
 table = "EMISSION_PHASES"
-sequence = 60
+sequence = 64
 
 [node.anchor]
 crate = "k-rust"
@@ -8848,7 +8944,7 @@ provenance = "table"
 area = "kompile"
 name = "print syntaxDefinition.kore"
 table = "EMISSION_PHASES"
-sequence = 59
+sequence = 63
 
 [node.anchor]
 crate = "k-rust"
@@ -8864,7 +8960,7 @@ name = "propagate macro attributes"
 table = "TRANSFORM_STAGES"
 call = "propagate_macro_attributes"
 behavior = "metadata-only"
-sequence = 30
+sequence = 31
 
 [node.anchor]
 crate = "k-rust"
@@ -8894,7 +8990,7 @@ name = "regenerate sort predicate syntax"
 table = "TRANSFORM_STAGES"
 call = "regenerate_sort_predicate_syntax"
 behavior = "metadata-only"
-sequence = 38
+sequence = 42
 
 [node.anchor]
 crate = "k-rust"
@@ -8911,7 +9007,7 @@ table = "TRANSFORM_STAGES"
 call = "generate_sort_projections"
 behavior = "generating"
 generating_passes = ["generate-sort-projections"]
-sequence = 39
+sequence = 43
 
 [node.anchor]
 crate = "k-rust"
@@ -8928,12 +9024,28 @@ table = "EMISSION_STAGES"
 call = "remove_unit"
 behavior = "generating"
 generating_passes = ["remove-unit"]
-sequence = 50
+sequence = 54
 
 [node.anchor]
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/pipeline.rs"
 symbol = "remove_unit"
+
+[[node]]
+kind = "phase"
+id = "rename bound variables apart"
+provenance = "table"
+area = "kompile"
+name = "rename bound variables apart"
+table = "TRANSFORM_STAGES"
+call = "rename_bound_apart"
+behavior = "metadata-only"
+sequence = 17
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "rename_bound_apart"
 
 [[node]]
 kind = "invariant"
@@ -9016,11 +9128,100 @@ symbol = "Items::join"
 
 [[node]]
 kind = "invariant"
+id = "representation.backend.sort"
+provenance = "declared"
+area = "backend"
+name = "hash-consed backend sort with a pointer equality and a name-prefix order key"
+invariant = "The interner's initialization interns the builtin sorts first; after it, Sort::of_node is the only place a Sort is built, and it returns the node the interner holds for the content (variant, name text, argument handles), leaking a new one only when there is none; Sorts::new likewise returns the interned slice of the given handles. The arguments of an interned node are interned handles, so by induction on depth two handles are the same pointer exactly when their sorts are structurally equal: Eq for Sort is pointer equality, and Eq for Sorts is pointer equality of nonempty slices (all empty ones are equal). Ord for Sort is the order of the variants (Application before Variable), then of the names as byte strings, then of the arguments lexicographically; it decides equal pointers as Equal and otherwise compares the order key first, the first 16 bytes of the name big-endian and zero-padded, which orders two names as their bytes do whenever the keys differ, and compares the full names only when the keys agree. Hash and Debug of Sort and Sorts are those of the node and of the slice, so they write the same bytes and text as a derived enum Sort { Application { name, arguments: Vec<Sort> }, Variable(name) }. Nodes are never freed: their number is that of the distinct sorts the process builds."
+type_path = "k_rust_backend::term::Sort"
+
+[node.anchor]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "Sort"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "Sort"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "SortNode"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "Sorts"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "Sort::application"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "Sort::simple"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "Sort::variable"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "Sort::builtin"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "Sort::of_node"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "Sorts::new"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "Sort::eq"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "Sort::cmp"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "Sort::hash"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "Sorts::eq"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "Sorts::cmp"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term/sort.rs"
+symbol = "order_key"
+
+[[node]]
+kind = "invariant"
 id = "representation.backend.term"
 provenance = "declared"
 area = "backend"
 name = "immutable backend term with a cached structural hash"
-invariant = "Term::allocate is the only place a TermData is built, and a TermData is never mutated after it is shared, except for the debug-only mark of definedness::check_ceil_free, which nothing else reads: Term and TermData keep their fields private. Term::allocate sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind; below RECURSIVE_COMPARISON_LEVELS levels of recursion both continue on a work list (equal_nodes, order_nodes) that makes the derived comparisons of each pair of nodes in field order. Term::allocate also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the children's stored values, are hasMacro and kCells of the Lean model. Only Term::map_of_items builds a Map kind: it unites entries in nondecreasing (key, value) order with those of a same-definition rest, which keeps that order, retaining repeated keys and bindings; Term::map orders its entries with order_collection first, and the other callers hand over entries edited from a map's in their order. Only Term::set_of_items builds a Set kind, with elements the same way, retaining repeated elements; Term::set orders them first. Only Term::list_of_items builds a List kind, in the items' given order: it joins the heads and tails of a same-definition list middle with its own, so no stored list has such a middle. Allocation synthesizes shape from the completed kind and every immediate child: a repeated map key or set element anywhere below a term excludes constructor_like and concrete_after_normalization; a collision root also excludes structural evaluated. with_evaluated_cache rebuilds through the same allocator from its immutable source: the kind is the source's, and an Application keeps every other stored attribute of the source, which equals the structural and kind-derived value for that kind (checked against recomputation in debug); other kinds recompute them. Only evaluated is overridden, with a collision root taking precedence. The Lean ceilFree proofs concern the separate conservative ceil_free attribute, not this hereditary shape exclusion."
+invariant = "Term::allocate is the only place a TermData is built, and a TermData is never mutated after it is shared, except for the debug-only mark of definedness::check_ceil_free, which nothing else reads: Term and TermData keep their fields private. Term::allocate sets the stored hash to calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) is structural equality of the kind, and Ord for Term is the derived order on the kind (a Sort orders by variant, name bytes and arguments, representation.backend.sort); below RECURSIVE_COMPARISON_LEVELS levels of recursion both continue on a work list (equal_nodes, order_nodes) that makes the derived comparisons of each pair of nodes in field order. Term::allocate also sets the stored ceil_free attribute to ceil_free of the kind, which reads only the kind and the children's stored ceil_free, so the stored value of every Term is ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the children's stored values, are hasMacro and kCells of the Lean model. may_be_rigid, from the kind and the children's stored values, is false exactly when some node is a variable, a conjunction, a collection, or an application of a function, residual or uninterpreted symbol, the nodes at which rigid_apart_skeleton_hash and has_key_header stop. Only Term::map_of_items builds a Map kind: it unites entries in nondecreasing (key, value) order with those of a same-definition rest, which keeps that order, retaining repeated keys and bindings; Term::map orders its entries with order_collection first, and the other callers hand over entries edited from a map's in their order. Only Term::set_of_items builds a Set kind, with elements the same way, retaining repeated elements; Term::set orders them first. Only Term::list_of_items builds a List kind, in the items' given order: it joins the heads and tails of a same-definition list middle with its own, so no stored list has such a middle. Allocation synthesizes shape from the completed kind and every immediate child: a repeated map key or set element anywhere below a term excludes constructor_like and concrete_after_normalization; a collision root also excludes structural evaluated. with_evaluated_cache rebuilds through the same allocator from its immutable source: the kind is the source's, and an Application keeps every other stored attribute of the source, which equals the structural and kind-derived value for that kind (checked against recomputation in debug); other kinds recompute them. Only evaluated is overridden, with a collision root taking precedence. The Lean ceilFree proofs concern the separate conservative ceil_free attribute, not this hereditary shape exclusion."
 type_path = "k_rust_backend::term::Term"
 lean = [
     "KRust.TermAttributes.ceilFree_sound",
@@ -9141,6 +9342,11 @@ symbol = "k_cells"
 [[node.sites]]
 crate = "k-rust-backend"
 file = "crates/k-rust-backend/src/term.rs"
+symbol = "may_be_rigid"
+
+[[node.sites]]
+crate = "k-rust-backend"
+file = "crates/k-rust-backend/src/term.rs"
 symbol = "Term::eq"
 
 [[node.sites]]
@@ -9168,7 +9374,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_io"
 behavior = "generating"
 generating_passes = ["resolve-io"]
-sequence = 18
+sequence = 19
 
 [node.anchor]
 crate = "k-rust"
@@ -9199,7 +9405,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_anon_vars"
 behavior = "generating"
 generating_passes = ["resolve-anonymous-variables"]
-sequence = 23
+sequence = 24
 
 [node.anchor]
 crate = "k-rust"
@@ -9216,12 +9422,28 @@ table = "TRANSFORM_STAGES"
 call = "resolve_comm"
 behavior = "generating"
 generating_passes = ["resolve-comm"]
-sequence = 17
+sequence = 18
 
 [node.anchor]
 crate = "k-rust"
 file = "crates/k-rust/src/kompile/pipeline.rs"
 symbol = "resolve_comm"
+
+[[node]]
+kind = "phase"
+id = "resolve condition conjunctions"
+provenance = "table"
+area = "kompile"
+name = "resolve condition conjunctions"
+table = "TRANSFORM_STAGES"
+call = "resolve_condition_conjunctions"
+behavior = "metadata-only"
+sequence = 37
+
+[node.anchor]
+crate = "k-rust"
+file = "crates/k-rust/src/kompile/pipeline.rs"
+symbol = "resolve_condition_conjunctions"
 
 [[node]]
 kind = "phase"
@@ -9247,7 +9469,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_config_var"
 behavior = "generating"
 generating_passes = ["resolve-function-with-config"]
-sequence = 45
+sequence = 49
 
 [node.anchor]
 crate = "k-rust"
@@ -9264,7 +9486,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_contexts"
 behavior = "generating"
 generating_passes = ["resolve-contexts"]
-sequence = 24
+sequence = 25
 
 [node.anchor]
 crate = "k-rust"
@@ -9295,7 +9517,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_fresh_config_constants"
 behavior = "generating"
 generating_passes = ["resolve-fresh-config-constants"]
-sequence = 32
+sequence = 33
 
 [node.anchor]
 crate = "k-rust"
@@ -9312,7 +9534,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_fresh_constants"
 behavior = "generating"
 generating_passes = ["resolve-fresh-constants"]
-sequence = 37
+sequence = 41
 
 [node.anchor]
 crate = "k-rust"
@@ -9329,7 +9551,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_function_with_config"
 behavior = "generating"
 generating_passes = ["resolve-function-with-config"]
-sequence = 21
+sequence = 22
 
 [node.anchor]
 crate = "k-rust"
@@ -9346,7 +9568,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_heat_cool_attributes"
 behavior = "generating"
 generating_passes = ["resolve-heat-cool"]
-sequence = 26
+sequence = 27
 
 [node.anchor]
 crate = "k-rust"
@@ -9363,7 +9585,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_fun"
 behavior = "generating"
 generating_passes = ["resolve-fun"]
-sequence = 19
+sequence = 20
 
 [node.anchor]
 crate = "k-rust"
@@ -9422,7 +9644,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_semantic_casts"
 behavior = "generating"
 generating_passes = ["semantic-casts"]
-sequence = 27
+sequence = 28
 
 [node.anchor]
 crate = "k-rust"
@@ -9439,7 +9661,7 @@ table = "TRANSFORM_STAGES"
 call = "resolve_strict"
 behavior = "generating"
 generating_passes = ["resolve-strict"]
-sequence = 22
+sequence = 23
 
 [node.anchor]
 crate = "k-rust"
@@ -9453,7 +9675,7 @@ provenance = "table"
 area = "kompile"
 name = "resolve transformed definition"
 table = "EMISSION_PHASES"
-sequence = 53
+sequence = 57
 
 [node.anchor]
 crate = "k-rust"
@@ -9548,7 +9770,7 @@ table = "TRANSFORM_STAGES"
 call = "generate_sort_predicate_syntax"
 behavior = "generating"
 generating_passes = ["generate-sort-predicate-syntax"]
-sequence = 20
+sequence = 21
 
 [node.anchor]
 crate = "k-rust"
@@ -9590,7 +9812,7 @@ provenance = "table"
 area = "kompile"
 name = "singleton overload checks"
 table = "EMISSION_PHASES"
-sequence = 54
+sequence = 58
 
 [node.anchor]
 crate = "k-rust"
@@ -9636,7 +9858,7 @@ provenance = "table"
 area = "kompile"
 name = "write artifacts"
 table = "EMISSION_PHASES"
-sequence = 62
+sequence = 66
 
 [node.anchor]
 crate = "k-rust"
@@ -9666,28 +9888,28 @@ kind = "follows"
 from = "add KItem subsorts"
 to = "constant folding"
 provenance = "table"
-order = 28
+order = 29
 
 [[edge]]
 kind = "follows"
 from = "add cool-like attributes"
 to = "generate sort predicate rules"
 provenance = "table"
-order = 46
+order = 50
 
 [[edge]]
 kind = "follows"
 from = "add implicit computation cell"
 to = "resolve fresh constants"
 provenance = "table"
-order = 36
+order = 40
 
 [[edge]]
 kind = "follows"
 from = "add semantics module"
 to = "resolve configuration variables"
 provenance = "table"
-order = 44
+order = 48
 
 [[edge]]
 kind = "contains"
@@ -9700,7 +9922,7 @@ kind = "follows"
 from = "add sort injections"
 to = "remove units"
 provenance = "table"
-order = 49
+order = 53
 
 [[edge]]
 kind = "measured-by"
@@ -9981,6 +10203,12 @@ provenance = "declared"
 [[edge]]
 kind = "measured-by"
 from = "backend.rewrite.step"
+to = "CoverageOfferMatches"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "backend.rewrite.step"
 to = "RewriteRulesApplied"
 provenance = "declared"
 
@@ -10178,10 +10406,17 @@ provenance = "declared"
 
 [[edge]]
 kind = "follows"
+from = "check matching-logic positions"
+to = "lower term conjunctions"
+provenance = "table"
+order = 38
+
+[[edge]]
+kind = "follows"
 from = "check simplification rules"
 to = "finalize KItem subsorts"
 provenance = "table"
-order = 41
+order = 45
 
 [[edge]]
 kind = "contains"
@@ -10194,7 +10429,7 @@ kind = "follows"
 from = "concretize cells"
 to = "add semantics module"
 provenance = "table"
-order = 43
+order = 47
 
 [[edge]]
 kind = "contains"
@@ -10207,14 +10442,14 @@ kind = "follows"
 from = "constant folding"
 to = "propagate macro attributes"
 provenance = "table"
-order = 29
+order = 30
 
 [[edge]]
 kind = "follows"
 from = "declare deferred totality"
 to = "check simplification rules"
 provenance = "table"
-order = 40
+order = 44
 
 [[edge]]
 kind = "contains"
@@ -10609,9 +10844,9 @@ provenance = "derived"
 [[edge]]
 kind = "follows"
 from = "expand macros"
-to = "add implicit computation cell"
+to = "resolve condition conjunctions"
 provenance = "table"
-order = 35
+order = 36
 
 [[edge]]
 kind = "contains"
@@ -10624,7 +10859,7 @@ kind = "follows"
 from = "finalize KItem subsorts"
 to = "concretize cells"
 provenance = "table"
-order = 42
+order = 46
 
 [[edge]]
 kind = "contains"
@@ -10637,7 +10872,7 @@ kind = "follows"
 from = "generate sort predicate rules"
 to = "number sentences (final)"
 provenance = "table"
-order = 47
+order = 51
 
 [[edge]]
 kind = "contains"
@@ -10650,7 +10885,7 @@ kind = "follows"
 from = "generate sort predicate syntax"
 to = "generate sort projections"
 provenance = "table"
-order = 33
+order = 34
 
 [[edge]]
 kind = "contains"
@@ -10663,14 +10898,14 @@ kind = "follows"
 from = "generate sort projections"
 to = "expand macros"
 provenance = "table"
-order = 34
+order = 35
 
 [[edge]]
 kind = "follows"
 from = "guard or-patterns"
 to = "resolve fresh configuration constants"
 provenance = "table"
-order = 31
+order = 32
 
 [[edge]]
 kind = "consumes"
@@ -10877,6 +11112,13 @@ to = "KoreTextNodesWritten"
 provenance = "declared"
 
 [[edge]]
+kind = "follows"
+from = "lower term conjunctions"
+to = "add implicit computation cell"
+provenance = "table"
+order = 39
+
+[[edge]]
 kind = "contains"
 from = "minimize term construction"
 to = "kompile.terms.minimize"
@@ -10893,7 +11135,7 @@ kind = "follows"
 from = "number sentences"
 to = "resolve heat/cool attributes"
 provenance = "table"
-order = 25
+order = 26
 
 [[edge]]
 kind = "contains"
@@ -10906,7 +11148,7 @@ kind = "follows"
 from = "number sentences (final)"
 to = "add sort injections"
 provenance = "table"
-order = 48
+order = 52
 
 [[edge]]
 kind = "consumes"
@@ -11196,7 +11438,7 @@ kind = "follows"
 from = "propagate macro attributes"
 to = "guard or-patterns"
 provenance = "table"
-order = 30
+order = 31
 
 [[edge]]
 kind = "contains"
@@ -11209,7 +11451,7 @@ kind = "follows"
 from = "regenerate sort predicate syntax"
 to = "regenerate sort projections"
 provenance = "table"
-order = 38
+order = 42
 
 [[edge]]
 kind = "contains"
@@ -11222,14 +11464,21 @@ kind = "follows"
 from = "regenerate sort projections"
 to = "declare deferred totality"
 provenance = "table"
-order = 39
+order = 43
 
 [[edge]]
 kind = "follows"
 from = "remove units"
 to = "minimize term construction"
 provenance = "table"
-order = 50
+order = 54
+
+[[edge]]
+kind = "follows"
+from = "rename bound variables apart"
+to = "resolve commutative rules"
+provenance = "table"
+order = 17
 
 [[edge]]
 kind = "measured-by"
@@ -11241,6 +11490,12 @@ provenance = "declared"
 kind = "measured-by"
 from = "representation.backend.items"
 to = "crates/k-rust-backend/src/term/items.rs"
+provenance = "declared"
+
+[[edge]]
+kind = "measured-by"
+from = "representation.backend.sort"
+to = "crates/k-rust-backend/tests/backend/term_order.rs"
 provenance = "declared"
 
 [[edge]]
@@ -11266,28 +11521,35 @@ kind = "follows"
 from = "resolve I/O streams"
 to = "resolve local functions"
 provenance = "table"
-order = 18
+order = 19
 
 [[edge]]
 kind = "follows"
 from = "resolve anonymous variables"
 to = "resolve contexts"
 provenance = "table"
-order = 23
+order = 24
 
 [[edge]]
 kind = "follows"
 from = "resolve commutative rules"
 to = "resolve I/O streams"
 provenance = "table"
-order = 17
+order = 18
+
+[[edge]]
+kind = "follows"
+from = "resolve condition conjunctions"
+to = "check matching-logic positions"
+provenance = "table"
+order = 37
 
 [[edge]]
 kind = "follows"
 from = "resolve configuration variables"
 to = "add cool-like attributes"
 provenance = "table"
-order = 45
+order = 49
 
 [[edge]]
 kind = "contains"
@@ -11300,14 +11562,14 @@ kind = "follows"
 from = "resolve contexts"
 to = "number sentences"
 provenance = "table"
-order = 24
+order = 25
 
 [[edge]]
 kind = "follows"
 from = "resolve fresh configuration constants"
 to = "generate sort predicate syntax"
 provenance = "table"
-order = 32
+order = 33
 
 [[edge]]
 kind = "contains"
@@ -11320,21 +11582,21 @@ kind = "follows"
 from = "resolve fresh constants"
 to = "regenerate sort predicate syntax"
 provenance = "table"
-order = 37
+order = 41
 
 [[edge]]
 kind = "follows"
 from = "resolve function configuration"
 to = "resolve strictness"
 provenance = "table"
-order = 21
+order = 22
 
 [[edge]]
 kind = "follows"
 from = "resolve heat/cool attributes"
 to = "resolve semantic casts"
 provenance = "table"
-order = 26
+order = 27
 
 [[edge]]
 kind = "contains"
@@ -11347,14 +11609,14 @@ kind = "follows"
 from = "resolve local functions"
 to = "seed sort predicate syntax"
 provenance = "table"
-order = 19
+order = 20
 
 [[edge]]
 kind = "follows"
 from = "resolve semantic casts"
 to = "add KItem subsorts"
 provenance = "table"
-order = 27
+order = 28
 
 [[edge]]
 kind = "contains"
@@ -11367,7 +11629,7 @@ kind = "follows"
 from = "resolve strictness"
 to = "resolve anonymous variables"
 provenance = "table"
-order = 22
+order = 23
 
 [[edge]]
 kind = "measured-by"
@@ -11398,7 +11660,7 @@ kind = "follows"
 from = "seed sort predicate syntax"
 to = "resolve function configuration"
 provenance = "table"
-order = 20
+order = 21
 
 [[edge]]
 kind = "follows"

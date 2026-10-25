@@ -31,7 +31,7 @@ use crate::{
     definedness::{ceil_term, condition_definedness},
     definition::BackendDefinition,
     diagnostic,
-    rewrite::{Truth, predicates_truth, substitute_predicates},
+    rewrite::{Truth, alpha_normal, predicates_truth, substitute_predicates},
     rule::{Predicate, rename_predicates},
     simplify::{RuleCondition, SimplificationError, hook_argument_definedness},
     stop::Stoppable,
@@ -385,8 +385,22 @@ impl MatchSolution {
     }
 
     /// Put the conjuncts in canonical order and remove repetitions.
+    ///
+    /// The order does not depend on the names of bound variables: conjuncts are compared with
+    /// each bound variable named by its binder's position ([`alpha_normal`]), free variables by
+    /// name, and only alpha-equivalent conjuncts, which differ in bound names alone, by those
+    /// names. A conjunction without a quantifier is ordered exactly as by the derived order.
     pub(crate) fn sort_conditions(&mut self) {
-        self.conditions.sort();
+        if self.conditions.iter().any(holds_quantifier) {
+            let mut keyed = std::mem::take(&mut self.conditions)
+                .into_iter()
+                .map(|condition| (alpha_normal(&condition), condition))
+                .collect::<Vec<_>>();
+            keyed.sort();
+            self.conditions = keyed.into_iter().map(|(_, condition)| condition).collect();
+        } else {
+            self.conditions.sort();
+        }
         self.conditions.dedup();
     }
 
@@ -401,6 +415,27 @@ impl MatchSolution {
             "a match condition mentions a variable its substitution binds: {self:?}"
         );
         (self.substitution, self.conditions)
+    }
+}
+
+/// Whether `predicate` holds a quantifier.
+fn holds_quantifier(predicate: &Predicate) -> bool {
+    match predicate {
+        Predicate::Exists(..) | Predicate::Forall(..) => true,
+        Predicate::Not(inner) => holds_quantifier(inner),
+        Predicate::And(inner) | Predicate::Or(inner) => inner.iter().any(holds_quantifier),
+        Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+            holds_quantifier(left) || holds_quantifier(right)
+        }
+        Predicate::True
+        | Predicate::False
+        | Predicate::Term(_)
+        | Predicate::Equals(..)
+        | Predicate::Ceil(_)
+        | Predicate::Floor(_)
+        | Predicate::In(..)
+        | Predicate::Absent(_)
+        | Predicate::Defined(_) => false,
     }
 }
 
@@ -1186,8 +1221,8 @@ mod tests {
     #[test]
     fn a_match_solution_states_its_conditions_under_its_substitution() {
         let sort = Sort::simple("SortInt");
-        let x = Variable::new("X", sort.clone());
-        let a = Term::variable(Variable::new("A", sort.clone()));
+        let x = Variable::new("X", sort);
+        let a = Term::variable(Variable::new("A", sort));
         let b = Term::variable(Variable::new("B", sort));
         let substitution = Substitution::from([(x.clone(), b.clone())]);
         let (kept, conditions) = MatchSolution::from_parts(
@@ -1205,8 +1240,8 @@ mod tests {
     #[test]
     fn binding_a_match_solution_restates_an_earlier_condition() {
         let sort = Sort::simple("SortInt");
-        let x = Variable::new("X", sort.clone());
-        let y = Variable::new("Y", sort.clone());
+        let x = Variable::new("X", sort);
+        let y = Variable::new("Y", sort);
         let a = Term::variable(Variable::new("A", sort));
         let mut matched =
             MatchSolution::new(Substitution::from([(y.clone(), Term::variable(x.clone()))]));

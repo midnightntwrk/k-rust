@@ -46,7 +46,7 @@ obtains its `spec.kore` with `kprove --dry-run`, and passes that module to
 It passes one `--label` mapping per entry of `native_comparison.label_map` in
 `tests/imp/pins.json`, each from `KRS-IMP-SPEC.<label>` to `KRS-IMP.<label>`,
 and rejects a map that is not exactly that 20-claim mapping.
-Two native builds must be byte-identical; `pins.json` pins only their KRS-owned ownership marker (`native_artifact_sha256`), since the KORE is k-rust's output.
+Two native builds must be byte-identical; `pins.json` pins only their KRS-owned artifacts (`native_artifact_sha256`), the ownership marker and `k2lean-sidecar.json`, the declared cell type `env: Map<Id, Value>` that k2lean reads, since the KORE is k-rust's output.
 
 The LLVM route omits all 20 claims, since that backend executes but does not
 prove; its two builds must be byte-identical too.

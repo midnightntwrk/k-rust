@@ -1,0 +1,220 @@
+# Mutations of IMP's rules (imp.k in this directory; line numbers are this copy's).
+# Each mutation is a plausible bug in a language definition; see README.md for the results.
+
+# --- AExp ---------------------------------------------------------------
+
+[[mutation]]
+id = "lookup-returns-zero"
+note = "variable lookup ignores the store and returns 0"
+
+  [[mutation.edit]]
+  line = 44
+  find = "X:Id => I ...</k>"
+  replace = "X:Id => 0 ...</k>"
+
+[[mutation]]
+id = "div-becomes-mul"
+note = "division multiplies"
+
+  [[mutation.edit]]
+  line = 45
+  find = "I1 /Int I2"
+  replace = "I1 *Int I2"
+
+[[mutation]]
+id = "div-operands-swapped"
+note = "division divides the divisor by the dividend"
+
+  [[mutation.edit]]
+  line = 45
+  find = "I1 /Int I2"
+  replace = "I2 /Int I1"
+
+[[mutation]]
+id = "div-guard-dropped"
+note = "division by zero is no longer stuck"
+
+  [[mutation.edit]]
+  line = 45
+  find = "  requires I2 =/=Int 0"
+  replace = ""
+
+[[mutation]]
+id = "add-becomes-sub"
+note = "addition subtracts"
+
+  [[mutation.edit]]
+  line = 46
+  find = "I1 +Int I2"
+  replace = "I1 -Int I2"
+
+[[mutation]]
+id = "add-commuted"
+note = "addition with its operands swapped: equivalent, because +Int is commutative and the rule only fires on two Int values; the run's one survivor, kept on purpose"
+
+  [[mutation.edit]]
+  line = 46
+  find = "I1 +Int I2"
+  replace = "I2 +Int I1"
+
+[[mutation]]
+id = "neg-drops-sign"
+note = "unary minus returns its operand"
+
+  [[mutation.edit]]
+  line = 47
+  find = "0 -Int I1"
+  replace = "I1"
+
+# --- BExp ---------------------------------------------------------------
+
+[[mutation]]
+id = "leq-becomes-lt"
+note = "<= is strict"
+
+  [[mutation.edit]]
+  line = 49
+  find = "I1 <=Int I2"
+  replace = "I1 <Int I2"
+
+[[mutation]]
+id = "not-is-identity"
+note = "negation returns its operand"
+
+  [[mutation.edit]]
+  line = 50
+  find = "notBool T"
+  replace = "T"
+
+[[mutation]]
+id = "and-true-ignores-rhs"
+note = "true && B is true whatever B is"
+
+  [[mutation.edit]]
+  line = 51
+  find = "true && B => B"
+  replace = "true && _ => true"
+
+[[mutation]]
+id = "and-false-returns-rhs"
+note = "false && B evaluates B instead of short-circuiting"
+
+  [[mutation.edit]]
+  line = 52
+  find = "false && _ => false"
+  replace = "false && B => B"
+
+# --- Block and Stmt -----------------------------------------------------
+
+[[mutation]]
+id = "empty-block-deleted"
+note = "the empty block has no rule"
+
+  [[mutation.edit]]
+  line = 54
+  delete = true
+
+[[mutation]]
+id = "assign-off-by-one"
+note = "assignment stores the value plus one"
+
+  [[mutation.edit]]
+  line = 57
+  find = "(_ => I)"
+  replace = "(_ => I +Int 1)"
+
+[[mutation]]
+id = "seq-reversed"
+note = "a statement sequence runs its second statement first"
+
+  [[mutation.edit]]
+  line = 58
+  find = "S1 ~> S2"
+  replace = "S2 ~> S1"
+
+[[mutation]]
+id = "if-true-takes-else"
+note = "if (true) runs the else branch"
+
+  [[mutation.edit]]
+  line = 59
+  find = "if (true)  S else _ => S"
+  replace = "if (true)  _ else S => S"
+
+[[mutation]]
+id = "while-runs-once"
+note = "while runs its body at most once"
+
+  [[mutation.edit]]
+  line = 61
+  find = "{S while (B) S}"
+  replace = "{S}"
+
+# --- Pgm ----------------------------------------------------------------
+
+[[mutation]]
+id = "decl-initialises-one"
+note = "declared variables start at 1"
+
+  [[mutation.edit]]
+  line = 63
+  find = "X|->0"
+  replace = "X|->1"
+
+[[mutation]]
+id = "decl-allows-redeclaration"
+note = "a variable may be declared twice"
+
+  [[mutation.edit]]
+  line = 64
+  find = "requires notBool (X in keys(Rho))"
+  replace = "requires true"
+
+# --- Correlated mutations -----------------------------------------------
+
+[[mutation]]
+id = "store-plus-one-load-minus-one"
+note = "correlated: assignment stores I + 1 and lookup returns the stored value minus 1, so programs compute the same values"
+
+  [[mutation.edit]]
+  line = 44
+  find = "X:Id => I ...</k>"
+  replace = "X:Id => I -Int 1 ...</k>"
+
+  [[mutation.edit]]
+  line = 57
+  find = "(_ => I)"
+  replace = "(_ => I +Int 1)"
+
+[[mutation]]
+id = "leq-negated-and-not-identity"
+note = "correlated: <= computes >, and ! returns its operand, so !(a <= b) is unchanged"
+
+  [[mutation.edit]]
+  line = 49
+  find = "I1 <=Int I2"
+  replace = "notBool (I1 <=Int I2)"
+
+  [[mutation.edit]]
+  line = 50
+  find = "notBool T"
+  replace = "T"
+
+[[mutation]]
+id = "if-swapped-and-not-identity"
+note = "correlated: if runs the other branch, and ! returns its operand, so if (!b) and while (!b) are unchanged"
+
+  [[mutation.edit]]
+  line = 50
+  find = "notBool T"
+  replace = "T"
+
+  [[mutation.edit]]
+  line = 59
+  find = "if (true)  S else _ => S"
+  replace = "if (true)  _ else S => S"
+
+  [[mutation.edit]]
+  line = 60
+  find = "if (false) _ else S => S"
+  replace = "if (false) S else _ => S"

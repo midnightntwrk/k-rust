@@ -301,6 +301,10 @@ pub struct FixedCell<S, C> {
     /// Definition IR names the cell by its symbol instead and omits it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     declaration: Option<StableItemId>,
+    /// The Rust field of the configuration or nested-cell struct that declares
+    /// the cell, which may differ from its K name (`#[k::cell(name = ..)]`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    field: Option<String>,
 }
 
 impl<S, C> FixedCell<S, C> {
@@ -322,8 +326,12 @@ impl<S, C> FixedCell<S, C> {
             id,
             name,
             attributes,
-            content: FixedCellContent::Term { sort },
+            content: FixedCellContent::Term {
+                sort,
+                arguments: Vec::new(),
+            },
             declaration: None,
+            field: None,
         })
     }
 
@@ -352,6 +360,7 @@ impl<S, C> FixedCell<S, C> {
             attributes,
             content: FixedCellContent::Children { children },
             declaration: None,
+            field: None,
         })
     }
 
@@ -390,6 +399,32 @@ impl<S, C> FixedCell<S, C> {
     pub fn with_declaration(mut self, declaration: StableItemId) -> Self {
         self.declaration = Some(declaration);
         self
+    }
+
+    /// Records the element types of a leaf cell's collection content
+    /// (`Id` and `Value` of `Map<Id, Value>`); a nested cell ignores them.
+    #[must_use]
+    pub fn with_arguments(mut self, arguments: Vec<CellSortArgument<S>>) -> Self {
+        if let FixedCellContent::Term {
+            arguments: slot, ..
+        } = &mut self.content
+        {
+            *slot = arguments;
+        }
+        self
+    }
+
+    /// Records the Rust field that declares the cell.
+    #[must_use]
+    pub fn with_field(mut self, field: impl Into<String>) -> Self {
+        self.field = Some(field.into());
+        self
+    }
+
+    /// Returns the Rust field that declares the cell; absent in hand-built IR.
+    #[must_use]
+    pub fn field(&self) -> Option<&str> {
+        self.field.as_deref()
     }
 
     /// Returns the nominal declaration of a nested cell in Semantic IR.
@@ -437,12 +472,31 @@ pub enum FixedCellContent<S, C> {
     Term {
         /// Exact leaf content sort.
         sort: S,
+        /// The element types of a collection content sort, in order (`Id`
+        /// and `Value` of `Map<Id, Value>`); empty for a bare collection and
+        /// for every other sort. K erases them; they state the invariant
+        /// every value of the cell keeps, which execution checks for the
+        /// configuration values it is given.
+        #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
+        arguments: Vec<CellSortArgument<S>>,
     },
     /// Structural content made exclusively of fixed children.
     Children {
         /// Ordered exactly-once child cells.
         children: Vec<FixedCell<S, C>>,
     },
+}
+
+/// One element type of a cell's collection content: a sort, or a collection
+/// type with element types of its own (`Set<Int>` in `Map<Int, Set<Int>>`).
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CellSortArgument<S> {
+    /// The argument's sort.
+    pub sort: S,
+    /// The element types of a collection argument, in order.
+    #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
+    pub arguments: Vec<CellSortArgument<S>>,
 }
 
 /// One ordered external configuration variable.
@@ -453,6 +507,12 @@ pub struct FixedConfigurationVariable<S> {
     id: SemanticId,
     external_name: String,
     sort: S,
+    /// The element types of a collection sort (`Value` of `xs: List<Value>`),
+    /// nested ones kept; empty for a bare collection and every other sort.
+    /// K erases them; execution checks every value of the variable against
+    /// them, wherever the initializer places it.
+    #[serde(default = "Vec::new", skip_serializing_if = "Vec::is_empty")]
+    arguments: Vec<CellSortArgument<S>>,
     main: bool,
 }
 
@@ -477,8 +537,24 @@ impl<S> FixedConfigurationVariable<S> {
                 external_name.into(),
             )?,
             sort,
+            arguments: Vec::new(),
             main,
         })
+    }
+
+    /// Records the element types of a collection-typed variable
+    /// (`Value` of `xs: List<Value>`).
+    #[must_use]
+    pub fn with_arguments(mut self, arguments: Vec<CellSortArgument<S>>) -> Self {
+        self.arguments = arguments;
+        self
+    }
+
+    /// Returns the element types of a collection-typed variable; empty for a
+    /// bare collection and every other sort.
+    #[must_use]
+    pub fn arguments(&self) -> &[CellSortArgument<S>] {
+        &self.arguments
     }
 
     /// Returns provenance for the authored configuration variable.

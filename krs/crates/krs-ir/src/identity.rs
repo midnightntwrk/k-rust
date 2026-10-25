@@ -270,6 +270,9 @@ pub enum ItemKind {
     Desugar,
     /// An evaluation context (K's `context`, KF-021).
     Context,
+    /// A named constant, `#[k::constant]`: a name for a ground constructor
+    /// term, which the compiler substitutes at every use and never emits.
+    Constant,
 }
 
 /// A stable declaration identity, independent of linker and collection order.

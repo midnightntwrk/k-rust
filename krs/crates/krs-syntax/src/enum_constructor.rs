@@ -8,12 +8,12 @@ use syn::{Attribute, Fields, Ident, ItemEnum, LitStr, Meta, Path, Token, Variant
 
 use crate::attribute::{
     ConstructorFamilyMode, ConstructorsAttribute, PlacementFlag, StaticMode,
-    StaticProductionAttribute, VariantSyntaxAttribute,
+    StaticProductionAttribute, SymbolAttribute, VariantSyntaxAttribute,
 };
 use crate::grammar::{GroupAssociativity, StrictnessAttribute, StrictnessKind};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
-use crate::parse::{KrsSyntax, checked_ordinal};
-use crate::term_sort::{parse_readable_sort, parse_term_sort};
+use crate::parse::{KrsSyntax, checked_ordinal, first_non_doc_attribute};
+use crate::term_sort::{parse_typed_readable_sort, parse_typed_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// One tier in an exhaustive enum-level readable-family precedence chain.
@@ -80,9 +80,35 @@ pub struct EnumConstructorVariant {
     static_marker: Option<VariantStaticMarker>,
     precedence_group: Option<usize>,
     precedence_member_range: Option<TokenRange>,
+    explicit_symbol: Option<SymbolAttribute>,
+    /// The enum's `#[k::cons_list]` marker, on its cons variant (F6).
+    cons_list_range: Option<TokenRange>,
 }
 
 impl EnumConstructorVariant {
+    /// Returns one anchor per element type of a typed collection field sort,
+    /// which only the variant's constructor descriptor references.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only if a parsed node emits no leaves.
+    pub fn argument_provenance(&self) -> Result<Vec<crate::ProvenanceAnchor>, SyntaxError> {
+        crate::SortArgument::anchors(
+            self.fields
+                .iter()
+                .map(|field| field.term_sort().arguments()),
+            crate::ProvenanceRole::ConstructorFieldSortArgument,
+        )
+    }
+
+    /// Returns the variant's `#[k::symbol("path::Name")]` override: a pinned
+    /// public identity whose final component names the emitted symbol in
+    /// place of the default `lowerCamel(Enum)` + `Variant`.
+    #[must_use]
+    pub const fn explicit_symbol(&self) -> Option<&SymbolAttribute> {
+        self.explicit_symbol.as_ref()
+    }
+
     /// Returns the span-preserving Rust variant after KRS helper attributes
     /// have been consumed.
     #[must_use]
@@ -217,6 +243,13 @@ impl EnumConstructorVariant {
                 range,
             ));
         }
+        if let Some(range) = self.cons_list_range {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::ConsListDeclaration,
+                0,
+                range,
+            ));
+        }
         if let Some(strictness) = &self.strictness {
             anchors.extend(strictness.provenance()?);
         }
@@ -227,6 +260,9 @@ impl EnumConstructorVariant {
                 marker.range,
             ));
             anchors.extend(marker.attribute.provenance());
+        }
+        if let Some(symbol) = &self.explicit_symbol {
+            anchors.extend(symbol.provenance()?);
         }
         Ok(anchors)
     }
@@ -279,6 +315,9 @@ pub struct EnumConstructorDeclaration {
     precedence_groups: Option<EnumPrecedenceGroups>,
     precedence_declaration_range: Option<TokenRange>,
     precedence_chain_range: Option<TokenRange>,
+    /// The indices of the cons and the empty variant of a `#[k::cons_list]`
+    /// enum (F6).
+    cons_list: Option<(usize, usize)>,
 }
 
 impl EnumConstructorDeclaration {
@@ -355,7 +394,10 @@ impl EnumConstructorDeclaration {
             ));
         }
         let reference_family = attribute.is_reference();
-        let precedence = take_enum_precedence(&mut item.attrs)?;
+        let EnumHelpers {
+            precedence,
+            cons_list,
+        } = take_enum_helpers(&mut item.attrs)?;
         if reference_family && precedence.is_some() {
             return Err(invalid_enum_precedence(
                 "a reference constructor family carries precedence in freestanding family-owned grammar blocks",
@@ -383,12 +425,6 @@ impl EnumConstructorDeclaration {
                 if reference_family && helpers.format.is_some() {
                     return Err(unsupported_enum(
                         "a reference variant materializes format inside `syntax`, not as a sibling helper",
-                        variant.ident.span(),
-                    ));
-                }
-                if reference_family && syntax.group().is_none() {
-                    return Err(unsupported_enum(
-                        "a reference variant requires an explicit `group` in `syntax`",
                         variant.ident.span(),
                     ));
                 }
@@ -443,6 +479,8 @@ impl EnumConstructorDeclaration {
                 static_marker: helpers.static_marker,
                 precedence_group: None,
                 precedence_member_range: None,
+                explicit_symbol: helpers.symbol,
+                cons_list_range: None,
             });
         }
         if variants.is_empty() {
@@ -452,23 +490,38 @@ impl EnumConstructorDeclaration {
             ));
         }
 
+        // A chain is optional: without one the variants belong to no
+        // production group. Whether the family needs one depends on the
+        // assembled sort order, so `krs::analysis::missing-precedence-chain`
+        // checks it over the whole definition.
         let (precedence_groups, precedence_declaration_range, precedence_chain_range) =
-            if reference_family {
-                (None, None, None)
-            } else {
-                let precedence = precedence.ok_or_else(|| {
-                    invalid_enum_precedence(
-                        "a readable constructor family requires one exhaustive enum-level `#[k::precedence((Variant, ...) > ...)]` chain",
-                        item.ident.span(),
+            match precedence {
+                Some(precedence) => {
+                    validate_precedence_members(&precedence, &item.ident, &mut variants)?;
+                    (
+                        EnumPrecedenceGroups::from_vec(precedence.groups),
+                        Some(precedence.declaration_range),
+                        Some(precedence.chain_range),
                     )
-                })?;
-                validate_precedence_members(&precedence, &item.ident, &mut variants)?;
-                (
-                    EnumPrecedenceGroups::from_vec(precedence.groups),
-                    Some(precedence.declaration_range),
-                    Some(precedence.chain_range),
-                )
+                }
+                None if reference_family => {
+                    validate_reference_groups(&item.ident, &variants)?;
+                    (None, None, None)
+                }
+                None => {
+                    validate_chainless_groups(&item.ident, &variants)?;
+                    (None, None, None)
+                }
             };
+
+        let cons_list = match cons_list {
+            Some(range) => {
+                let (cons, empty) = cons_list_shape(&item.ident, &variants, range)?;
+                variants[cons].cons_list_range = Some(range);
+                Some((cons, empty))
+            }
+            None => None,
+        };
 
         Ok(Self {
             item,
@@ -478,7 +531,15 @@ impl EnumConstructorDeclaration {
             precedence_groups,
             precedence_declaration_range,
             precedence_chain_range,
+            cons_list,
         })
+    }
+
+    /// Returns the indices, in [`Self::variants`], of the cons and the empty
+    /// variant of a `#[k::cons_list]` enum (F6).
+    #[must_use]
+    pub const fn cons_list(&self) -> Option<(usize, usize)> {
+        self.cons_list
     }
 
     /// Returns the span-preserving Rust enum after consuming only KRS helper
@@ -513,7 +574,8 @@ impl EnumConstructorDeclaration {
         self.reference_family
     }
 
-    /// Returns exhaustive precedence groups in tightest-to-weakest order.
+    /// Returns exhaustive precedence groups in tightest-to-weakest order; none
+    /// when the family has no chain.
     pub fn precedence_groups(&self) -> impl Iterator<Item = &EnumPrecedenceGroup> {
         self.precedence_groups
             .iter()
@@ -755,13 +817,33 @@ fn parse_enum_precedence_group(input: ParseStream<'_>) -> syn::Result<EnumPreced
     })
 }
 
-fn take_enum_precedence(
-    attributes: &mut Vec<Attribute>,
-) -> Result<Option<EnumPrecedenceChain>, SyntaxError> {
+/// The enum-level helpers `#[k::constructors]` consumes.
+struct EnumHelpers {
+    precedence: Option<EnumPrecedenceChain>,
+    /// The `#[k::cons_list]` marker's range (F6).
+    cons_list: Option<TokenRange>,
+}
+
+fn take_enum_helpers(attributes: &mut Vec<Attribute>) -> Result<EnumHelpers, SyntaxError> {
     let mut precedence = None;
+    let mut cons_list = None;
     let mut retained = Vec::with_capacity(attributes.len());
     for attribute in std::mem::take(attributes) {
-        if let Some(marker) = helper_marker(&attribute, "precedence") {
+        if let Some(marker) = helper_marker(&attribute, "cons_list") {
+            if cons_list.is_some() {
+                return Err(invalid_cons_list(
+                    "an enum carries one `#[k::cons_list]` attribute",
+                    attribute.span(),
+                ));
+            }
+            if !matches!(attribute.meta, Meta::Path(_)) {
+                return Err(invalid_cons_list(
+                    "`#[k::cons_list]` takes no arguments: the constructors' shapes say which is the empty list and which the cons",
+                    attribute.span(),
+                ));
+            }
+            cons_list = Some(TokenRange::for_tokens(marker)?);
+        } else if let Some(marker) = helper_marker(&attribute, "precedence") {
             if precedence.is_some() {
                 return Err(invalid_enum_precedence(
                     "a readable constructor family may declare only one precedence chain",
@@ -783,7 +865,7 @@ fn take_enum_precedence(
             });
         } else if is_k_helper(&attribute) {
             return Err(unsupported_enum(
-                "readable constructor-family enums support only the invoking `constructors` attribute and one enum-level `precedence` chain",
+                "readable constructor-family enums support only the invoking `constructors` attribute, one enum-level `precedence` chain, and `cons_list`",
                 attribute.span(),
             ));
         } else {
@@ -791,7 +873,123 @@ fn take_enum_precedence(
         }
     }
     *attributes = retained;
-    Ok(precedence)
+    Ok(EnumHelpers {
+        precedence,
+        cons_list,
+    })
+}
+
+/// Checks the shape a `#[k::cons_list]` enum declares (F6): exactly two
+/// constructors, one with no field (the empty list) and one with two (the
+/// head and the tail), and returns their indices, cons first. That the tail
+/// has the enum's own sort is checked once sorts are resolved.
+fn cons_list_shape(
+    name: &Ident,
+    variants: &[EnumConstructorVariant],
+    range: TokenRange,
+) -> Result<(usize, usize), SyntaxError> {
+    const SHAPE: &str = "a cons list has one constructor with no field, the empty list, and one with two, the head and the tail";
+    if let Some(variant) = variants
+        .iter()
+        .find(|variant| !matches!(variant.fields.len(), 0 | 2))
+    {
+        let count = variant.fields.len();
+        return Err(invalid_cons_list(
+            format!(
+                "`{}` has {count} field{}: {SHAPE}",
+                variant.name(),
+                if count == 1 { "" } else { "s" }
+            ),
+            variant.name().span(),
+        ));
+    }
+    if let [_, _, third, ..] = variants {
+        return Err(invalid_cons_list(
+            format!(
+                "`{}` is a third constructor of `{name}`: {SHAPE}, and nothing else",
+                third.name()
+            ),
+            third.name().span(),
+        ));
+    }
+    match variants {
+        [first, second] if first.fields.len() == second.fields.len() => {
+            let shape = if first.fields.is_empty() {
+                "no field"
+            } else {
+                "two fields"
+            };
+            Err(invalid_cons_list(
+                format!(
+                    "`{}` and `{}` both have {shape}: {SHAPE}",
+                    first.name(),
+                    second.name()
+                ),
+                second.name().span(),
+            ))
+        }
+        [first, _] if first.fields.len() == 2 => Ok((0, 1)),
+        [_, _] => Ok((1, 0)),
+        _ => Err(invalid_cons_list(
+            format!("`{name}` has one constructor: {SHAPE}"),
+            range.first(),
+        )),
+    }
+}
+
+fn invalid_cons_list(reason: impl Into<String>, span: Span) -> SyntaxError {
+    SyntaxError::new(
+        SyntaxErrorKind::InvalidConsList {
+            reason: reason.into(),
+        },
+        span,
+    )
+}
+
+/// A readable variant's group comes from the chain, so a family without one
+/// names no group.
+fn validate_chainless_groups(
+    family: &Ident,
+    variants: &[EnumConstructorVariant],
+) -> Result<(), SyntaxError> {
+    if let Some(group) = variants
+        .iter()
+        .find_map(|variant| variant.syntax().and_then(VariantSyntaxAttribute::group))
+    {
+        return Err(invalid_enum_precedence(
+            format!(
+                "variant group `{}` needs a chain: `{family}` has no `#[k::precedence]`, and a readable variant's group comes from it (a one-tier chain `name (A, B)` names a group)",
+                group.value()
+            ),
+            group.span(),
+        ));
+    }
+    Ok(())
+}
+
+/// A reference family is the materialized form of a readable one, whose
+/// variants are either all grouped (a chain) or none (no chain).
+fn validate_reference_groups(
+    family: &Ident,
+    variants: &[EnumConstructorVariant],
+) -> Result<(), SyntaxError> {
+    let mut syntax = variants
+        .iter()
+        .filter_map(|variant| variant.syntax().map(|syntax| (variant, syntax)));
+    let Some((_, first)) = syntax.clone().next() else {
+        return Ok(());
+    };
+    let grouped = first.group().is_some();
+    if let Some((variant, _)) = syntax.find(|(_, syntax)| syntax.group().is_some() != grouped) {
+        return Err(invalid_enum_precedence(
+            format!(
+                "reference family `{family}` gives `group` to some variants but not to `{}`: either every variant with `syntax` names its group or none does",
+                variant.name()
+            ),
+            variant.name().span(),
+        ));
+    }
+    Ok(())
 }
 
 fn validate_precedence_members(
@@ -912,6 +1110,7 @@ struct VariantHelpers {
     format: Option<LitStr>,
     strictness: Option<VariantStrictness>,
     static_marker: Option<VariantStaticMarker>,
+    symbol: Option<SymbolAttribute>,
 }
 
 /// A variant's `#[k::alias]` or `#[k::desugar]` marker (KF-028).
@@ -972,6 +1171,8 @@ fn take_variant_helpers(
                 ));
             };
             helpers.syntax = Some(VariantSyntaxAttribute::parse_tokens(list.tokens.clone())?);
+        } else if is_helper_named(&attribute, "symbol") {
+            helpers.symbol = Some(variant_symbol(&attribute, helpers.symbol.is_some())?);
         } else if is_helper_named(&attribute, "format") {
             if helpers.format.is_some() {
                 return Err(unsupported_enum(
@@ -985,12 +1186,15 @@ fn take_variant_helpers(
                     attribute.span(),
                 ));
             };
-            helpers.format = Some(syn::parse2::<LitStr>(list.tokens.clone()).map_err(|_| {
-                unsupported_enum(
-                    "`k::format` requires exactly one string literal",
-                    list.tokens.span(),
-                )
-            })?);
+            helpers.format = Some(
+                syn::parse2::<LitStr>(crate::parse::strip_trailing_comma(list.tokens.clone()))
+                    .map_err(|_| {
+                        unsupported_enum(
+                            "`k::format` requires exactly one string literal",
+                            list.tokens.span(),
+                        )
+                    })?,
+            );
         } else if let Some((kind, mode)) = variant_strictness_helper(&attribute, family) {
             if helpers.strictness.is_some() {
                 return Err(unsupported_enum(
@@ -1037,7 +1241,7 @@ fn take_variant_helpers(
             });
         } else if is_k_helper(&attribute) {
             return Err(unsupported_enum(
-                "readable enum variants support only `syntax`, `format`, `strict`, `seqstrict`, `alias`, and `desugar` KRS helpers; precedence belongs on the enum",
+                "enum constructor variants support only `syntax`, `format`, `strict`, `seqstrict`, `alias`, `desugar`, and `symbol` KRS helpers; precedence belongs on the enum",
                 attribute.span(),
             ));
         } else {
@@ -1046,6 +1250,24 @@ fn take_variant_helpers(
     }
     *attributes = retained;
     Ok(helpers)
+}
+
+/// A variant's `#[k::symbol("path::Name")]` helper; `duplicate` when the
+/// variant already carries one.
+fn variant_symbol(attribute: &Attribute, duplicate: bool) -> Result<SymbolAttribute, SyntaxError> {
+    if duplicate {
+        return Err(unsupported_enum(
+            "an enum constructor variant may carry only one `#[k::symbol]` helper",
+            attribute.span(),
+        ));
+    }
+    let Meta::List(list) = &attribute.meta else {
+        return Err(unsupported_enum(
+            "`k::symbol` requires one parenthesized string literal, such as `#[k::symbol(\"api::Name\")]`",
+            attribute.span(),
+        ));
+    };
+    SymbolAttribute::parse_tokens(list.tokens.clone())
 }
 
 fn marker_tokens(attribute: &Attribute) -> Result<TokenStream, SyntaxError> {
@@ -1068,9 +1290,9 @@ fn parse_variant_fields(
         Fields::Named(named) => {
             let mut parsed = Vec::with_capacity(named.named.len());
             for field in &named.named {
-                if let Some(attribute) = field.attrs.first() {
+                if let Some(attribute) = first_non_doc_attribute(&field.attrs) {
                     return Err(unsupported_enum(
-                        "enum constructor field attributes are unsupported",
+                        "an enum constructor field takes only doc comments",
                         attribute.span(),
                     ));
                 }
@@ -1081,9 +1303,9 @@ fn parse_variant_fields(
                     ));
                 };
                 let term_sort = if reference_family {
-                    parse_term_sort(field.ty.clone())?
+                    parse_typed_term_sort(field.ty.clone())?
                 } else {
-                    parse_readable_sort(field.ty.clone())?
+                    parse_typed_readable_sort(field.ty.clone())?
                 };
                 parsed.push(ConstructorField {
                     field: field.clone(),
@@ -1133,6 +1355,7 @@ fn is_k_helper(attribute: &Attribute) -> bool {
         "syntax",
         "format",
         "precedence",
+        "cons_list",
         "strict",
         "seqstrict",
         "constructors",

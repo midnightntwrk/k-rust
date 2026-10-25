@@ -95,12 +95,11 @@ fn with_diagnostic_sidecar(
     result
 }
 
+/// Writes the collection error as one envelope, located or not, so its code crosses the process
+/// boundary.
 fn write_diagnostic(error: &CollectionError, path: &std::path::Path) -> Result<(), RunError> {
-    if let Some(envelope) =
-        diagnostic_envelope(error.to_diagnostic(), DiagnosticStage::Analysis, |_| None)
-    {
-        std::fs::write(path, envelope.to_json_line()?)?;
-    }
+    let envelope = diagnostic_envelope(error.to_diagnostic(), DiagnosticStage::Analysis, |_| None);
+    std::fs::write(path, envelope.to_json_line()?)?;
     Ok(())
 }
 
@@ -218,12 +217,16 @@ mod tests {
     }
 
     #[test]
-    fn failure_sidecar_round_trip_requires_an_exact_location() {
+    fn failure_sidecar_round_trips_located_and_unlocated_errors() {
         let sidecar = tempfile::NamedTempFile::new().unwrap();
         let error =
             CollectionError::new(CollectionErrorKind::UnresolvedTypeReference, "unresolved");
         write_diagnostic(&error, sidecar.path()).unwrap();
-        assert!(std::fs::read(sidecar.path()).unwrap().is_empty());
+        let text = std::fs::read_to_string(sidecar.path()).unwrap();
+        let envelopes = DiagnosticEnvelope::from_json_lines(&text).unwrap();
+        assert_eq!(envelopes.len(), 1);
+        assert_eq!(envelopes[0].code, "krs::collect::unresolved-type-reference");
+        assert_eq!(envelopes[0].authored_range, None);
         let file = SourceFileId::new(
             PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap(),
             "src/lib.rs",
@@ -237,7 +240,7 @@ mod tests {
         assert_eq!(envelopes.len(), 1);
         assert_eq!(envelopes[0].stage, DiagnosticStage::Analysis);
         assert_eq!(envelopes[0].code, "krs::collect::unresolved-type-reference");
-        assert_eq!(envelopes[0].authored_range, range);
+        assert_eq!(envelopes[0].authored_range, Some(range));
         assert_eq!(envelopes[0].message, "unresolved");
     }
 }

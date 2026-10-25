@@ -139,10 +139,10 @@ fn fixed_configuration_owner_hooks_preserve_first_errors_and_host_aliases() {
     );
     assert_eq!(descriptor.validate(&item(ItemKind::Configuration)), Ok(()));
     descriptor.initializer.owner = item(ItemKind::Cell);
-    assert_eq!(
+    assert!(matches!(
         descriptor.validate(&item(ItemKind::Configuration)),
-        Err(StateTransportError::InitializerDeclarationMismatch)
-    );
+        Err(StateTransportError::InitializerDeclarationMismatch { .. })
+    ));
     descriptor.root = DescriptorConfigurationRoot::Named {
         key: key(ProvenanceRole::InitializerDeclaration),
         name: "root".into(),
@@ -167,10 +167,10 @@ fn fixed_configuration_owner_hooks_preserve_first_errors_and_host_aliases() {
     let alias = HostTypeKey(TypeId::of::<Owner>);
     assert_eq!(host.validate(alias), Ok(()));
     host.initializer.owner = type_key::<Nested>();
-    assert_eq!(
+    assert!(matches!(
         host.validate(type_key::<Owner>()),
-        Err(StateTransportError::InitializerDeclarationMismatch)
-    );
+        Err(StateTransportError::InitializerDeclarationMismatch { .. })
+    ));
     host.root = descriptor.root;
     assert_eq!(
         host.validate(type_key::<Nested>()),
@@ -380,7 +380,7 @@ fn initializer_field_joins_check_stable_spelling_only_for_descriptors() {
     let cells = vec![initializer_cell::<DescriptorStage>(descriptor_reference(
         ProvenanceRole::InitializerField,
     ))];
-    assert_eq!(
+    assert!(matches!(
         validate_initializer_cells::<DescriptorStage>(
             &cells,
             &descriptor.fields,
@@ -389,8 +389,8 @@ fn initializer_field_joins_check_stable_spelling_only_for_descriptors() {
             &mut InitializerCounters::default(),
             &mut BTreeSet::new(),
         ),
-        Err(StateTransportError::InitializerDeclarationMismatch)
-    );
+        Err(StateTransportError::InitializerDeclarationMismatch { .. })
+    ));
     let mut host = declaration::<HostStage>(
         host_reference(ProvenanceRole::ConfigurationField),
         host_sort(ProvenanceRole::ConfigurationCellContent),
@@ -419,6 +419,7 @@ fn variable<S>(sort: S) -> ProtocolConfigurationVariable<S> {
         external_name_key: key(ProvenanceRole::ConfigurationVariableName),
         external_name: "$INPUT".into(),
         sort,
+        arguments: Vec::new(),
         main_key: None,
     }
 }
@@ -472,6 +473,8 @@ fn initializer_application_targets_are_checked_only_for_descriptors() {
             },
             path_key: path_key.clone(),
             arguments: crate::Arguments::default(),
+            update: None,
+            open: false,
         }),
         Err(StateTransportError::InvalidTerm(
             StateTermReason::InvalidApplicationTarget
@@ -490,6 +493,8 @@ fn initializer_application_targets_are_checked_only_for_descriptors() {
             },
             path_key,
             arguments: crate::Arguments::default(),
+            update: None,
+            open: false,
         }),
         Ok(())
     );
@@ -548,6 +553,73 @@ fn initializer_context_preserves_restrictions_and_first_errors_on_both_stages() 
     assert_initializer_context::<HostStage>();
 }
 
+/// A builtin literal and a lexeme are constants: an initializer term with
+/// its own provenance ordinal, and the literal must be valid for its sort.
+fn assert_initializer_constants<S: ConfigurationValidationStage>(sort: impl Fn() -> S::Sort) {
+    for (sort_of_token, value, role) in [
+        (BuiltinSort::Id, "$main", ProvenanceRole::ClaimIdToken),
+        (
+            BuiltinSort::Bytes,
+            r#"b"\x7f\x45""#,
+            ProvenanceRole::ClaimBytesToken,
+        ),
+    ] {
+        assert_eq!(
+            initializer_term::<S>(Term::BuiltinToken {
+                key: key(role),
+                sort: sort_of_token,
+                value: value.into(),
+            }),
+            Ok(())
+        );
+        assert_eq!(
+            initializer_term::<S>(Term::BuiltinToken {
+                key: ProvenanceKey::new(role, 1),
+                sort: sort_of_token,
+                value: value.into(),
+            }),
+            Err(StateTransportError::UnexpectedProvenance {
+                expected: key(role),
+                actual: ProvenanceKey::new(role, 1),
+            })
+        );
+    }
+    assert_eq!(
+        initializer_term::<S>(Term::BuiltinToken {
+            key: key(ProvenanceRole::ClaimIdToken),
+            sort: BuiltinSort::Id,
+            value: "main".into(),
+        }),
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::InvalidCompilerOwnedBuiltinToken
+        ))
+    );
+    assert_eq!(
+        initializer_term::<S>(Term::Lexeme {
+            key: key(ProvenanceRole::LexemeText),
+            sort: sort(),
+            text: "entry".into(),
+        }),
+        Ok(())
+    );
+    assert_eq!(
+        initializer_term::<S>(Term::Lexeme {
+            key: key(ProvenanceRole::LexemeText),
+            sort: sort(),
+            text: String::new(),
+        }),
+        Err(StateTransportError::InvalidTerm(
+            StateTermReason::EmptyLexemeText
+        ))
+    );
+}
+
+#[test]
+fn initializer_constants_are_accepted_on_both_stages() {
+    assert_initializer_constants::<DescriptorStage>(|| descriptor_sort(ProvenanceRole::LexemeSort));
+    assert_initializer_constants::<HostStage>(|| host_sort(ProvenanceRole::LexemeSort));
+}
+
 fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Application) {
     let named = || TermArgument::Named {
         key: key(ProvenanceRole::InitializerTermPath),
@@ -562,11 +634,40 @@ fn assert_argument_context<S: ConfigurationValidationStage>(reference: &S::Appli
         path_key: key(ProvenanceRole::InitializerTermPath),
         reference: reference.clone(),
         arguments: crate::Arguments::try_from(arguments).unwrap(),
+        update: None,
+        open: false,
     };
     assert_eq!(
         initializer_term::<S>(application(vec![named()])),
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::InitializerRecordFieldProvenance
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: key(ProvenanceRole::InitializerRecordFieldName),
+            actual: key(ProvenanceRole::InitializerTermPath),
+        })
+    );
+    // A record argument names its field with its own provenance ordinal.
+    let field = |ordinal, name| TermArgument::Named {
+        key: ProvenanceKey::new(ProvenanceRole::InitializerRecordFieldName, ordinal),
+        field: ProductionFieldId::new(name).unwrap(),
+        value: Box::new(Term::Literal {
+            key: key(ProvenanceRole::InitializerTerm),
+            literal: DescriptorLiteral::Int("1".into()),
+        }),
+    };
+    assert_eq!(
+        initializer_term::<S>(application(vec![field(0, "value"), field(1, "other")])),
+        Ok(())
+    );
+    assert_eq!(
+        initializer_term::<S>(application(vec![field(1, "value")])),
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: key(ProvenanceRole::InitializerRecordFieldName),
+            actual: ProvenanceKey::new(ProvenanceRole::InitializerRecordFieldName, 1),
+        })
+    );
+    assert_eq!(
+        initializer_term::<S>(application(vec![field(0, "value"), field(1, "value")])),
+        Err(StateTransportError::DuplicateValue(
+            TransportField::RuleApplicationRecordFields
         ))
     );
     assert!(matches!(
@@ -644,7 +745,7 @@ fn assert_duplicate_nested_children<S: ConfigurationValidationStage>(
         initializer_cell::<S>(reference.clone()),
         initializer_cell::<S>(reference),
     ];
-    assert_eq!(
+    assert!(matches!(
         validate_nested_children::<S>(
             &cells,
             owner,
@@ -652,8 +753,8 @@ fn assert_duplicate_nested_children<S: ConfigurationValidationStage>(
             &mut InitializerCounters::default(),
             &mut BTreeSet::new(),
         ),
-        Err(StateTransportError::InitializerDeclarationMismatch)
-    );
+        Err(StateTransportError::InitializerDeclarationMismatch { .. })
+    ));
 }
 
 #[test]
@@ -688,4 +789,58 @@ fn cell_and_sibling_identities_preserve_owner_and_field_comparisons_on_both_stag
         HostStage::cell_identity(&other_host)
     );
     assert_duplicate_nested_children::<HostStage>(host, &type_key::<Owner>());
+}
+
+/// A one-item `k!` shell whose payload, item, and term keys carry `ordinal`;
+/// the item's literal is keyed by the item.
+fn k_sequence_shell(ordinal: u32) -> ProtocolInitializerStateTerm<Term<DescriptorStage>> {
+    let item = ProvenanceKey::new(ProvenanceRole::KSequenceItem, ordinal);
+    ProtocolInitializerStateTerm::KSequence(ProtocolKSequence {
+        payload_key: Some(ProvenanceKey::new(
+            ProvenanceRole::KSequencePayload,
+            ordinal,
+        )),
+        dot_k_key: None,
+        notation: DescriptorKSequenceNotation::Comma,
+        items: vec![ProtocolKSequenceItem {
+            key: item.clone(),
+            value: ProtocolInitializerTerm {
+                key: ProvenanceKey::new(ProvenanceRole::InitializerTerm, ordinal),
+                term: Term::Literal {
+                    key: item,
+                    literal: DescriptorLiteral::Int("1".into()),
+                },
+            },
+        }],
+    })
+}
+
+/// The `k!` shells of one initializer are numbered across it: a second shell
+/// continues at payload 1, and one that repeats payload 0 is rejected.
+#[test]
+fn k_sequence_shells_are_numbered_across_the_initializer() {
+    let validate = |second| {
+        let mut counters = InitializerCounters::default();
+        let mut keys = BTreeSet::new();
+        validate_state_term::<DescriptorStage>(
+            &k_sequence_shell(0),
+            &BTreeSet::new(),
+            &mut counters,
+            &mut keys,
+        )?;
+        validate_state_term::<DescriptorStage>(
+            &k_sequence_shell(second),
+            &BTreeSet::new(),
+            &mut counters,
+            &mut keys,
+        )
+    };
+    assert_eq!(validate(1), Ok(()));
+    assert_eq!(
+        validate(0),
+        Err(StateTransportError::UnexpectedProvenance {
+            expected: ProvenanceKey::new(ProvenanceRole::KSequencePayload, 1),
+            actual: key(ProvenanceRole::KSequencePayload),
+        })
+    );
 }

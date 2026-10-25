@@ -2,77 +2,77 @@
   "schema": 1,
   "expand": {
     "krs-rule-forms-priority": "1e58516f0df71440c0ddc01cbe465a380710cf7279e2077a78bc443ca4f34d9e",
-    "krs-rule-forms-nondet": "506052cf9063b348f0bd8a0b10cb92416c94e5a5dccb61583f9da8dded2c1c77",
+    "krs-rule-forms-nondet": "d3d2e88f75ae2bf3b8b5ec26f70af4b3cfba6c0f9cee9430ddfcc448c4d39bd8",
     "krs-rule-forms-anywhere": "f71bf961706e9c2102f3ee2c6044b41f9885608c49610eb5978f8f7424f2febf",
     "krs-rule-forms-casts": "3b3fd4ca305f6599d34a0fc02b9098fd1a12cc238301a8a125592c00d157cdb6",
     "krs-rule-forms-fresh": "bec7452965097741b27a12e94bd541e6288002e30c841ec1e6aa97a45906f5d2",
     "krs-rule-forms-macros": "056ff86c9326630a574c5ce271f41314771334d138e8faa3f6b31a45148059a0",
     "krs-rule-forms-local-rewrite": "9a662ec82271a9cf2020f8a89cd380e6a931d7d1766ace7f7be26fb6e701142b",
     "krs-rule-forms-local-term": "2bfd40690b28c39fdc54258115f4753260a04db8cf9c8751984d9906db56b690",
-    "krs-rule-forms-heat-cool": "783bed83efcfb03409d6c847cd274b3a87354aa60552b3b48911811e2762b9bf",
+    "krs-rule-forms-heat-cool": "ed5aa7b9240e9fbf0fcfacc17d4730513b969186b1297adf1d84b7cf7c324172",
     "krs-rule-forms-contexts": "c50732ffc14df3fd201ab48fbabcdaa173ce6af2d081c5b3b80aa525df10120b",
     "krs-rule-forms-contexts-lvalue": "6f20ce814890248a7332fe96b0acfd6980fe9f636f226ec810093164e636993b",
     "krs-rule-forms-contexts-evaluate": "c51b0810811f7210229793b1923a31663894c37f24038b70cf65fc3b30bc6c42"
   },
   "emitted": {
     "krs-rule-forms-priority": {
-      "definition.k": "ae24e87b44019cb73f8d92516fffd48264ab29642fdfce613935e6ccd310f840"
+      "definition.k": "04cd626ba03151e2ae2226a95abca650579907ecab0f916e270702a59aee9a37"
     },
     "krs-rule-forms-nondet": {
-      "definition.k": "5af41292fbeeca999cb0f3f24fb4f7a7bd82ea05651506a86f31a9ec635a8111"
+      "definition.k": "c9e0982b9169053bd75cbf50975a6095e534b191273571d1fbecb4c266cb21bd"
     },
     "krs-rule-forms-anywhere": {
-      "definition.k": "b01afd6c438255b1e85927785b4496d27a68630b788f81885434359597a92d04"
+      "definition.k": "55c8128e14f362e437e7c8fd566227fc1f484a7be2641f857b977294f68cdd4a"
     },
     "krs-rule-forms-casts": {
-      "definition.k": "6b7c1e0d35a507e879059c1404b65f5111cf7c53efa147a5f01f26032ee6fcb6"
+      "definition.k": "18ab6361df9ec6f8074c9e95fa35429ea9d6dff4833e016f8a017c2440917078"
     },
     "krs-rule-forms-fresh": {
-      "definition.k": "d231d7982f6ffa3c5bc774e9d203c19225339840941a2af068193999ea3fd86a"
+      "definition.k": "860c57d1f6d326a50aac6fd49963c240f788a8934e7c681489bd050f1b811bfd"
     },
     "krs-rule-forms-macros": {
-      "definition.k": "e42cc5364c8f0464c56ba3bd9d33fbc0776d71196b3140640d0bec20e0bce64e"
+      "definition.k": "678fa1fe96cf5958471f7d0be834ace69a6f5202708fec12e3b9674a6242ba46"
     },
     "krs-rule-forms-local-rewrite": {
-      "definition.k": "6cdbfb4d1d01ccfc598df821c20e451336c03ebb44fc14b94d1c4bd4e1b9d701"
+      "definition.k": "a6d587bd60e27a7c6e7c82911c7985b2c77a612a2449c10be3c332068df3d480"
     },
     "krs-rule-forms-restating-imp": {
-      "definition.k": "1bc6e7bf824dd37458459b5cf6ebc71327d77796b90f6e87dbebde851fa9a976"
+      "definition.k": "9ffeb1976a5663544643d6dd9f4a604057d746f45aeffc2494f3aaa8b5b9c73e"
     },
     "krs-rule-forms-local-term": {
-      "definition.k": "0073384173b989249120d644328e3b2f279fea3ed8ab0f2bda1970fbab92b6d3"
+      "definition.k": "14ba65f801cc27238d8b2aba8f6963662457d01716e328bbc8573b491a7bc92b"
     },
     "krs-rule-forms-heat-cool": {
-      "definition.k": "83d2418a7ba5ef08b53beb8a4cbd66f9d3c7e45cf1d4da3a9fcb6b90ea4f043a"
+      "definition.k": "0873eccd6da0d93d6e179f0f4a9244fb23db4f9fcdad60e0607d99ab6bdb4413"
     },
     "krs-rule-forms-heat-cool-strict": {
-      "definition.k": "886d36d213505e9a24149e46484f8a49aa3f445b05594049e4c16a8c4638a017"
+      "definition.k": "786938fc768e88193ded2eb0365df297affa214dba976fe787cee8d6653d617a"
     },
     "krs-rule-forms-contexts": {
-      "definition.k": "c41a76d044639f2c3915470240fdc641cc864b90e46117a631b1e64337f5f3f1"
+      "definition.k": "68650f413d988f72757c7fc976206d63bfa8a6f38fd7f638b7df77ca3c58a8b1"
     },
     "krs-rule-forms-contexts-lvalue": {
-      "definition.k": "f4a5f9826441dfe99e6b2023e1c82100852acc89c98e15909e87a8a57318d272"
+      "definition.k": "339023d67a12326963bf0dc55f8a500ac07766f210b50111e4ef46808225658c"
     },
     "krs-rule-forms-contexts-evaluate": {
-      "definition.k": "ff97369b241de1a13d5cc2157d493da4fbd42844230443f2f9303277897344cd"
+      "definition.k": "862e3f5e29f3020e8023b1ffa027c03bca9016d1b1a77f13a538e5f3c985db7f"
     }
   },
   "reference_sha256": {
-    "krs-rule-forms-priority": "0202e94e00b86f71a5cee3eb585419499d433ba39d3dc400261934b2fdc63789",
-    "krs-rule-forms-nondet": "0d02da019bf4780642dbd96320b10d6215548a8faf2ad04d9706e1918b6a65a5",
-    "krs-rule-forms-anywhere": "aa123df748e232b1331bd8dcb81eb2bebad3cef80b7d96306f82302b8dd3c61a",
-    "krs-rule-forms-casts": "a3e8ce5d2ffa1f5b9c720cdc62b29ee5e90563761553e290f8b3d1b6a8f136a0",
-    "krs-rule-forms-fresh": "3f27187918954b99620f5821f2c332297e96e6d3ff4fb3ac235ac19507c9edad",
-    "krs-rule-forms-macros": "5d046f98abd1d9d698845850df164ba22ca537c37c8e532242757705c7bca979",
-    "krs-rule-forms-local-rewrite": "68758ed2ebe5cf015b74354fc444ef5189d9680c1b15d3deab3eaaadd65bef0c",
-    "krs-rule-forms-restating-imp": "97f1597562a5a56008ace0607393e5dca16e1ac3bbfaa474e3b731eb9b486cc6",
-    "krs-rule-forms-local-term": "6d994189b28396badbbb9bc0251ca43157f562e6cce6253c6065343e9ad0c2ee",
-    "krs-rule-forms-heat-cool": "406f0db83692929c4621492ef19ef3bd5f6ce871b3a399477f3398eb636de28b",
-    "krs-rule-forms-heat-cool-strict": "d68989ac4fa0be529d2b4ffa21b44047e00b168752892048a943c448486b9345",
-    "krs-rule-forms-contexts": "7c40b35aba35d6259eafe8413c1d5f4f849cb50bd7f4a4c96eb325a59a679f30",
-    "krs-rule-forms-contexts-lvalue": "bf4b1b44099e47523e2a660caa79dc55cd7632844e5a1f13809f1b7b9fe62285",
-    "krs-rule-forms-contexts-evaluate": "c25dd19fa75fea71e4b94b4d5e42b54863161bba2ab58ad9b5dd5e2e6300e8a8"
+    "krs-rule-forms-priority": "d30827f046e8c6f8d79c1e5a2f64894fcab0fb409e50cb64c23e3ac438a39bdf",
+    "krs-rule-forms-nondet": "a1a66f1764dfc2ed6b077741c7b5df627d6d34f7292397e1fd614ed2b4d70885",
+    "krs-rule-forms-anywhere": "01bd1be45a81002d4d1d14b9fcfefc598bcf2ba63f2bc1a2ad5b517683151240",
+    "krs-rule-forms-casts": "6f6984e36c3df23dfdf06b2b5ae79cc58a0414b92f67aaeddd9b757c13565f6a",
+    "krs-rule-forms-fresh": "f3658a7927331aa881b500b7c2fc0b5d642b86bc9d6d9163521b24614ff78e46",
+    "krs-rule-forms-macros": "ce568da83d6d380328403263c5f9c10d40e355268efa6ebd19f968aef35d1d56",
+    "krs-rule-forms-local-rewrite": "98525bc9c5b910cb2974bcd0e3922bff729329774fd4fd78a6e511caa3ff28b6",
+    "krs-rule-forms-restating-imp": "d261d05bb3a87908277492ab3630d853a74a57d42a43753568322a7cfc676534",
+    "krs-rule-forms-local-term": "42080d864f585d7a6c00ce23a085ea25f0e3778f4d8a865de303f8521aff3cdf",
+    "krs-rule-forms-heat-cool": "883cbf1783db3cf33cb807b16bb330fd772a0e9943ebafefdeb052c39633a2ed",
+    "krs-rule-forms-heat-cool-strict": "7e53e6cdb05575d64004b2e835d5175d869eb0d25a1f374e4542f43c74759a65",
+    "krs-rule-forms-contexts": "30123b598ec24f3b8eaf9f46d3f93e76a8844d23fd8f25136ee227d74623df97",
+    "krs-rule-forms-contexts-lvalue": "ec77b0870ada7c966baeea31bcaca7ed55a7b02e176e371025079d7cb27fdd31",
+    "krs-rule-forms-contexts-evaluate": "b2277087f1da392b32d900eba6cbc3eb1b6785725894fbed6d4edfe3ded7ca77"
   },
   "outcomes": {
     "krs-rule-forms-priority": {
@@ -173,7 +173,7 @@
       "reassociate": {
         "native": {
           "parse": "accepted",
-          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(Lblseq{}(Lblb{}(), Lblseq{}(Lblc{}(), Lbld{}()))), actual=inj{SortStmt{}, SortKItem{}}(Lblseq{}(Lblseq{}(Lblb{}(), Lblc{}()), Lbld{}()))"
+          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(LblstmtSyntaxSeq{}(LblstmtSyntaxB{}(), LblstmtSyntaxSeq{}(LblstmtSyntaxC{}(), LblstmtSyntaxD{}()))), actual=inj{SortStmt{}, SortKItem{}}(LblstmtSyntaxSeq{}(LblstmtSyntaxSeq{}(LblstmtSyntaxB{}(), LblstmtSyntaxC{}()), LblstmtSyntaxD{}()))"
         },
         "java": {
           "parse": "accepted",
@@ -183,7 +183,7 @@
       "reassociate-nested": {
         "native": {
           "parse": "accepted",
-          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(Lblwrap{}(Lblseq{}(Lblb{}(), Lblseq{}(Lblc{}(), Lbld{}())))), actual=inj{SortStmt{}, SortKItem{}}(Lblwrap{}(Lblseq{}(Lblseq{}(Lblb{}(), Lblc{}()), Lbld{}())))"
+          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(LblstmtSyntaxWrap{}(LblstmtSyntaxSeq{}(LblstmtSyntaxB{}(), LblstmtSyntaxSeq{}(LblstmtSyntaxC{}(), LblstmtSyntaxD{}())))), actual=inj{SortStmt{}, SortKItem{}}(LblstmtSyntaxWrap{}(LblstmtSyntaxSeq{}(LblstmtSyntaxSeq{}(LblstmtSyntaxB{}(), LblstmtSyntaxC{}()), LblstmtSyntaxD{}())))"
         },
         "java": {
           "parse": "accepted",
@@ -274,7 +274,7 @@
       "decl-one-step": {
         "native": {
           "parse": "accepted",
-          "run": "refused: invalid executable state: invalid executable input: macro or alias symbol 'LbldeclareOnce' survived expansion"
+          "run": "refused: invalid executable state: invalid executable input: macro or alias symbol 'LblsugarDeclareOnce' survived expansion"
         },
         "java": {
           "parse": "accepted",
@@ -805,6 +805,9 @@
     "unannotated-overlap": [
       "error[krs::analysis::overlapping-rule-heads]: rules `heads` and `tails` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."
     ],
+    "list-unit-overlap": [
+      "error[krs::analysis::overlapping-rule-heads]: rules `last_job` and `next_job` can both apply to the same configuration at the same priority; K would take either one (nondeterminism). If that is intended, put both in one group with `#[k::rule(nondet = NAME)]`; otherwise refine a pattern, add disjoint `where` sorts or complementary requires guards, or order them with `owise` or `priority = N`."
+    ],
     "single-member-group": [
       "error[krs::analysis::nondet-group]: nondet group `toss` has only one rule"
     ],
@@ -836,7 +839,7 @@
       "error[krs::syntax::unsupported-rule-signature]: unsupported rule signature: typed term parameters must declare every term binder of the subject and function context, in first-occurrence order (hole binders included; `_`, remainders, HERE, instance labels and local binders excluded); a term sentence declares no binders or all of them, here `left, right`"
     ],
     "binder-incompatible": [
-      "error[krs::analysis::incompatible-binder]: binder `value` is declared `Bool` but this occurrence needs `Exp`"
+      "error[krs::analysis::incompatible-binder]: binder `value` is declared `Bool`, but an occurrence needs `Exp`"
     ],
     "fresh-no-generator": [
       "error[krs::analysis::no-fresh-generator]: fresh binder `l` has sort `Loc`, which has no generator; declare `#[k::function(total, fresh_generator, sort = Loc, syntax = \"..\")]` with one Int field (Int and Id have K's own)"
@@ -898,7 +901,7 @@
       "reassociate": {
         "native": {
           "parse": "accepted",
-          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(Lblseq{}(Lblb{}(), Lblseq{}(Lblc{}(), Lbld{}()))), actual=inj{SortStmt{}, SortKItem{}}(Lblseq{}(Lblseq{}(Lblb{}(), Lblc{}()), Lbld{}()))"
+          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(LblstmtSyntaxSeq{}(LblstmtSyntaxB{}(), LblstmtSyntaxSeq{}(LblstmtSyntaxC{}(), LblstmtSyntaxD{}()))), actual=inj{SortStmt{}, SortKItem{}}(LblstmtSyntaxSeq{}(LblstmtSyntaxSeq{}(LblstmtSyntaxB{}(), LblstmtSyntaxC{}()), LblstmtSyntaxD{}()))"
         },
         "java": {
           "parse": "accepted",
@@ -908,7 +911,7 @@
       "reassociate-nested": {
         "native": {
           "parse": "accepted",
-          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(Lblwrap{}(Lblseq{}(Lblb{}(), Lblseq{}(Lblc{}(), Lbld{}())))), actual=inj{SortStmt{}, SortKItem{}}(Lblwrap{}(Lblseq{}(Lblseq{}(Lblb{}(), Lblc{}()), Lbld{}())))"
+          "run": "differs: gate expectation for <k> failed: expected=inj{SortStmt{}, SortKItem{}}(LblstmtSyntaxWrap{}(LblstmtSyntaxSeq{}(LblstmtSyntaxB{}(), LblstmtSyntaxSeq{}(LblstmtSyntaxC{}(), LblstmtSyntaxD{}())))), actual=inj{SortStmt{}, SortKItem{}}(LblstmtSyntaxWrap{}(LblstmtSyntaxSeq{}(LblstmtSyntaxSeq{}(LblstmtSyntaxB{}(), LblstmtSyntaxC{}()), LblstmtSyntaxD{}())))"
         },
         "java": {
           "parse": "accepted",
@@ -932,7 +935,7 @@
       "decl-one-step": {
         "native": {
           "parse": "accepted",
-          "run": "refused: invalid executable state: invalid executable input: macro or alias symbol 'LbldeclareOnce' survived expansion"
+          "run": "refused: invalid executable state: invalid executable input: macro or alias symbol 'LblsugarDeclareOnce' survived expansion"
         },
         "java": {
           "parse": "accepted",

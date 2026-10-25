@@ -550,11 +550,11 @@ mod tests {
             Term::application(
                 Arc::new(crate::term::Symbol::constructor(
                     name,
-                    vec![int.clone()],
-                    element_sort.clone(),
+                    vec![int],
+                    element_sort,
                 )),
                 Vec::new(),
-                vec![Term::variable(Variable::new(variable, int.clone()))],
+                vec![Term::variable(Variable::new(variable, int))],
             )
         };
         let a = application("a", "A");
@@ -790,27 +790,27 @@ mod tests {
             Term::application(
                 Arc::new(crate::term::Symbol::constructor(
                     name,
-                    vec![int.clone()],
-                    element_sort.clone(),
+                    vec![int],
+                    element_sort,
                 )),
                 Vec::new(),
                 vec![argument],
             )
         };
-        let symbolic = |name| Term::variable(Variable::new(name, int.clone()));
-        let one = Term::raw_domain_value(int.clone(), "1");
+        let symbolic = |name| Term::variable(Variable::new(name, int));
+        let one = Term::raw_domain_value(int, "1");
         let pool = [
             item("0"),
             item("1"),
             item("2"),
-            Term::variable(Variable::new("X", element_sort.clone())),
+            Term::variable(Variable::new("X", element_sort)),
             application("a", symbolic("A")),
             application("a", one.clone()),
             application("b", symbolic("B")),
         ];
         let probes = pool.iter().cloned().chain([
             item("3"),
-            Term::variable(Variable::new("Y", element_sort.clone())),
+            Term::variable(Variable::new("Y", element_sort)),
             application("a", symbolic("C")),
             application("b", one),
             application("c", symbolic("D")),
@@ -901,14 +901,10 @@ mod tests {
     fn absence_of_a_constructor_like_element_compares_it_only_with_the_symbolic_elements() {
         const ELEMENTS: u32 = 4096;
         let int = Sort::simple("SortInt");
-        let ground = (0..ELEMENTS)
-            .map(|index| applied("c", Term::raw_domain_value(int.clone(), index.to_string())));
-        let symbolic = (0..3).map(|index| {
-            applied(
-                "c",
-                Term::variable(Variable::new(format!("X{index}"), int.clone())),
-            )
-        });
+        let ground =
+            (0..ELEMENTS).map(|index| applied("c", Term::raw_domain_value(int, index.to_string())));
+        let symbolic = (0..3)
+            .map(|index| applied("c", Term::variable(Variable::new(format!("X{index}"), int))));
         let collection = Term::set(set_definition(), ground.chain(symbolic).collect(), None);
         let TermKind::Set { elements, .. } = collection.kind() else {
             unreachable!("a set term")
@@ -1117,6 +1113,28 @@ mod tests {
     }
 
     /// The empty set has no element, and `choice` is partial: the application is undefined.
+    /// `Set2List` and `choice` of two or more constructor-like elements are `order` and `item`;
+    /// of one element they are determined.
+    #[test]
+    fn set_listings_and_choices_of_several_elements_are_order_and_item() {
+        let of = |elements: &[Term]| Term::set(set_definition(), elements.to_vec(), None);
+        let class = |hook: &str, set: Term| {
+            crate::builtin::chosen_value(hook, &[set], None).map(|chosen| chosen.class)
+        };
+        let two = of(&[Term::int(1), Term::int(2)]);
+        let one = of(&[Term::int(1)]);
+        assert_eq!(
+            class("SET.set2list", two.clone()),
+            Some(crate::builtin::ChosenClass::Order)
+        );
+        assert_eq!(
+            class("SET.choice", two),
+            Some(crate::builtin::ChosenClass::Item)
+        );
+        assert_eq!(class("SET.set2list", one.clone()), None);
+        assert_eq!(class("SET.choice", one), None);
+    }
+
     #[test]
     fn choice_of_the_empty_collection_is_bottom() {
         assert_eq!(choice_of(set(&[])), BuiltinResult::Bottom);

@@ -115,6 +115,40 @@ pub enum BackendDiagnostic {
     /// result of it (`rewrite::SubjectDefinedness::Where`). Reported on the initial
     /// configuration's path, so every result of the run carries it.
     UndefinedInitialInstances { definedness: Vec<Predicate> },
+    /// The path read a value of `hook` the definition leaves open, of class `class`
+    /// (`builtin::chosen_value`): an evaluation of the path, or work its decisions rest on, took
+    /// one of several values the definition admits, so in another model of the definition that
+    /// agrees with the request's inputs the leaf may differ or be absent. Unlike every other
+    /// diagnostic it is a path fact (`crate::path_facts`): it is never withdrawn with the work
+    /// that found it (an attempt that did not apply, an undone or discarded attempt, a
+    /// refutation, a candidate that vanished), it is noted again wherever a stored evaluation is
+    /// reused, and it takes no part in a state-set merge's comparison of paths. It names no term.
+    ImplementationChosenValue {
+        hook: String,
+        class: crate::builtin::ChosenClass,
+    },
+    /// The path's decisions rest on an evaluation that found a claim of the definition
+    /// contradicted by its own equations ([`crate::path_facts::ContradictedClaim`]): a symbol
+    /// declared `total` whose equation reduced an application to defined arguments to bottom,
+    /// observed by the named rewrite rule's attempt or successor. The definition has no model
+    /// with the claim at that input when the record is ground; k-rust keeps reading the undefined
+    /// value as undefined (a condition over it is not true), which is the answer without the
+    /// claim, so in a model of the claim the decision may differ. A path fact, as
+    /// `ImplementationChosenValue` is: never withdrawn with the work that found it, noted again
+    /// wherever a stored evaluation is reused, and no part of a state-set merge's comparison.
+    ContradictedClaim(Box<crate::path_facts::ContradictedClaim>),
+}
+
+impl BackendDiagnostic {
+    /// Whether the diagnostic states a path fact (`crate::path_facts`): it is kept on every path
+    /// that depends on the work that found it, whatever became of that work, and takes no part
+    /// in a state-set merge's comparison of paths.
+    pub(crate) fn is_path_fact(&self) -> bool {
+        matches!(
+            self,
+            Self::ImplementationChosenValue { .. } | Self::ContradictedClaim(_)
+        )
+    }
 }
 
 /// A free variable of an [`BackendDiagnostic::UndecidedCondition`]'s predicates that is a
@@ -300,7 +334,13 @@ pub(crate) struct Sequenced {
 }
 
 /// Record a diagnostic when the current thread has an active collector.
+///
+/// An unsupported hook is also noted in the run-level record (`crate::path_facts`), which keeps
+/// it when the work that emitted it is undone, passed over or dropped, and so its report with it.
 pub fn emit(diagnostic: BackendDiagnostic) {
+    if let BackendDiagnostic::UnsupportedHookUnevaluated { hook, reason } = &diagnostic {
+        crate::path_facts::note_unevaluated_hook(hook, reason, false);
+    }
     record_in_sink(EmissionKind::Single(diagnostic));
 }
 
@@ -861,6 +901,22 @@ impl<'a> Occurrences<'a> {
     }
 }
 
+/// Run `action`, work that explains no result, with every diagnostic it emits dropped and the
+/// thread's next emission position restored afterwards, also when it unwinds: no collection
+/// receives its emissions, and every later emission takes the position it would have taken
+/// without it, so the order in which collected lists merge and the "nothing emitted since"
+/// tests of the caller ([`next_position`]) are unchanged.
+pub(crate) fn discarded<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(u64);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            NEXT_POSITION.set(self.0);
+        }
+    }
+    let _restore = Restore(NEXT_POSITION.get());
+    buffer(action).0
+}
+
 /// Run `action` with its emissions held in a [`Buffered`] instead of the current collector.
 ///
 /// Without a current collector nothing is recorded either way, and the buffer is empty. If
@@ -974,6 +1030,11 @@ impl IdSet {
         })
     }
 
+    /// Whether no id is in the set (a block exists only once an id of it was inserted).
+    fn is_empty(&self) -> bool {
+        self.blocks.iter().all(Option::is_none)
+    }
+
     fn insert(&mut self, id: u32) {
         let (block, word, bit) = Self::position(id);
         let blocks = Rc::make_mut(&mut self.blocks);
@@ -1000,7 +1061,10 @@ struct PathNode {
 pub(crate) struct PathDiagnostics {
     interner: Rc<RefCell<Interner>>,
     newest: Option<Rc<PathNode>>,
+    /// The diagnostics held other than path facts.
     members: IdSet,
+    /// The path facts held ([`BackendDiagnostic::is_path_fact`]).
+    facts: IdSet,
 }
 
 impl PathDiagnostics {
@@ -1010,6 +1074,7 @@ impl PathDiagnostics {
             interner: Rc::default(),
             newest: None,
             members: IdSet::default(),
+            facts: IdSet::default(),
         }
     }
 
@@ -1019,6 +1084,7 @@ impl PathDiagnostics {
             interner: Rc::clone(&self.interner),
             newest: None,
             members: IdSet::default(),
+            facts: IdSet::default(),
         }
     }
 
@@ -1029,8 +1095,13 @@ impl PathDiagnostics {
         let mut interner = self.interner.borrow_mut();
         for diagnostic in diagnostics {
             let (id, shared) = interner.intern(diagnostic);
-            if !self.members.contains(id) {
-                self.members.insert(id);
+            let set = if diagnostic.is_path_fact() {
+                &mut self.facts
+            } else {
+                &mut self.members
+            };
+            if !set.contains(id) {
+                set.insert(id);
                 self.newest = Some(Rc::new(PathNode {
                     diagnostic: shared,
                     parent: self.newest.take(),
@@ -1039,14 +1110,21 @@ impl PathDiagnostics {
         }
     }
 
-    /// Whether every diagnostic of this path is one of `other`'s. Both must be paths of one
-    /// request, which number their diagnostics alike.
-    pub(crate) fn is_subset_of(&self, other: &Self) -> bool {
+    /// Whether every diagnostic of this path but its path facts is one of `other`'s. Both must be
+    /// paths of one request, which number their diagnostics alike. Path facts are left out: they
+    /// say which paths read an open value, not what a path's result means, so they never decide
+    /// whether one path's subtree stands for another's.
+    pub(crate) fn is_subset_ignoring_facts(&self, other: &Self) -> bool {
         debug_assert!(
             Rc::ptr_eq(&self.interner, &other.interner),
             "paths of one request share one numbering"
         );
         self.members.is_subset_of(&other.members)
+    }
+
+    /// Whether the path holds a path fact ([`BackendDiagnostic::is_path_fact`]).
+    pub(crate) fn has_facts(&self) -> bool {
+        !self.facts.is_empty()
     }
 
     pub(crate) fn to_vec(&self) -> Vec<BackendDiagnostic> {

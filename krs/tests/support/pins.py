@@ -110,18 +110,24 @@ _MISSING = object()
 class Ledger:
     """One gate's pin file, opened in check mode or in record mode."""
 
-    def __init__(self, path: Path, *, record: bool = False, artifacts_only: bool = False) -> None:
+    def __init__(
+        self, path: Path, *, record: bool = False, artifacts_only: bool = False, emit_only: bool = False,
+    ) -> None:
         """Open `path`; `artifacts_only` marks a run that skips the comparison layers.
 
         Such a run vouches only for artifacts identical to their pins, so it
         cannot record, and a difference directs the author to the full gate.
+        `emit_only` marks a run of the emission layers alone (`krs-ports-emit`
+        reading a heavy gate's pins), which vouches for the same and no more.
         """
 
-        if record and artifacts_only:
-            raise GateError("--record needs every layer and cannot be combined with --artifacts-only")
+        if record and (artifacts_only or emit_only):
+            partial = "--artifacts-only" if artifacts_only else "an emission-only run"
+            raise GateError(f"--record needs every layer and cannot be combined with {partial}")
         self.path = path
         self.record = record
         self.artifacts_only = artifacts_only
+        self.emit_only = emit_only
         if path.suffix == ".toml":
             self.data = load_toml(path)
         elif path.suffix == ".json":
@@ -173,14 +179,26 @@ class Ledger:
                 "--artifacts-only vouches only for unchanged artifacts; "
                 "run the full gate, and --record if the change is intended"
             )
+        elif self.emit_only:
+            advice = (
+                "an emission-only run vouches only for unchanged artifacts; "
+                "run this port's full gate, and --record there if the change is intended"
+            )
         else:
             advice = "if the change is intended, run the gate with --record"
         if expected is _MISSING:
-            missing = advice if self.artifacts_only else "run the gate with --record"
+            missing = advice if self.artifacts_only or self.emit_only else "run the gate with --record"
             raise GateError(f"{self.path.name} has no pin {name}; {missing}")
         if expected != observed:
+            where = ""
+            if isinstance(expected, dict) and isinstance(observed, dict):
+                differing = sorted(
+                    key for key in expected.keys() | observed.keys()
+                    if expected.get(key, _MISSING) != observed.get(key, _MISSING)
+                )
+                where = f" at {', '.join(differing)}"
             raise GateError(
-                f"{self.path.name} {name} differs from its pin: "
+                f"{self.path.name} {name} differs from its pin{where}: "
                 f"observed={json.dumps(observed, sort_keys=True)}; {advice}"
             )
 

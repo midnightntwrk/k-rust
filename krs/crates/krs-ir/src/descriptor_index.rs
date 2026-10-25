@@ -346,7 +346,9 @@ mod tests {
                         "Sort",
                         ItemKind::Sort,
                     ))),
+                    arguments: Vec::new(),
                 }],
+                arguments: Vec::new(),
             }),
         )
     }
@@ -374,12 +376,13 @@ mod tests {
                 }),
                 bindings: Vec::new(),
                 head: Some(crate::ProtocolHeadRuleHead {
-                    subject: DescriptorTerm::Variable {
+                    items: vec![DescriptorTerm::Variable {
                         key: key(),
                         path_key: key(),
                         name: "head".into(),
-                    },
-                    result: ProtocolHeadRuleResult::Erase,
+                    }],
+                    exact: false,
+                    result: Some(ProtocolHeadRuleResult::Erase),
                 }),
                 requires: None,
                 extras: Vec::new(),
@@ -387,6 +390,7 @@ mod tests {
                 ensures: None,
                 fresh: Vec::new(),
                 evaluation: None,
+                claim: None,
             })),
         )
     }

@@ -22,8 +22,9 @@ use krs_syntax::{
     RuleRole, RuleSide, StateMacroRemainder, StateRuleBindingKind, StateRuleReferenceKind,
     StateTerm, TermArguments, TermTree, TokenRange, parse_state_context_alias_item,
 };
-use proc_macro2::{Span, TokenStream};
+use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Path};
 
@@ -79,7 +80,7 @@ pub(crate) fn context_alias(
     let mut key_functions = Vec::new();
     let mut term_ordinal = 0_u32;
     for binding in alias.bindings() {
-        let binding_name = binding.name().to_string();
+        let binding_name = binding.name().unraw().to_string();
         let kind = if binding.name() == alias.here() {
             ProtocolContextAliasBindingKind::Here
         } else {
@@ -275,7 +276,7 @@ pub(super) fn configuration_rule(
     let mut binding_key_functions = Vec::new();
     let mut term_ordinal = 0_u32;
     for binding in rule.bindings() {
-        let name = binding.name().to_string();
+        let name = binding.name().unraw().to_string();
         let kind = match binding.kind() {
             StateRuleBindingKind::Term => {
                 let sort = binding
@@ -318,8 +319,27 @@ pub(super) fn configuration_rule(
         };
         bindings.push(ProtocolRuleBinding { name, kind });
     }
+    // A result and a condition see every variable the left side binds: the
+    // term binders and the computation and map remainders (`Tail:K`,
+    // `Rest:Map`). The configuration and instance remainders bind none.
+    let remainder_idents = rule
+        .bindings()
+        .iter()
+        .filter(|binding| {
+            matches!(
+                binding.kind(),
+                StateRuleBindingKind::KSequenceFrame | StateRuleBindingKind::MapFrame
+            )
+        })
+        .map(|binding| binding.name().clone())
+        .collect::<Vec<_>>();
+    let requires_idents = binding_idents
+        .iter()
+        .chain(&remainder_idents)
+        .cloned()
+        .collect::<Vec<_>>();
     // The result and the ensures condition also see the existentials.
-    let result_idents = binding_idents
+    let result_idents = requires_idents
         .iter()
         .cloned()
         .chain(rule.existentials().names())
@@ -344,6 +364,9 @@ pub(super) fn configuration_rule(
         &result_idents,
         RuleSide::Right,
     );
+    // Builtin literal ordinals run across the whole rule, as a claim's do.
+    right.counters.id_token = left.counters.id_token;
+    right.counters.bytes_token = left.counters.bytes_token;
     right.terms.continue_ordinals(&left.terms);
     let result = match (rule.result(), &result_type) {
         (Some(result), Some(result_type)) => {
@@ -355,8 +378,10 @@ pub(super) fn configuration_rule(
         &facade,
         nonce ^ 0x4000_0000_0000_0000,
         &cfg,
-        &binding_idents,
+        &requires_idents,
     );
+    condition_builder.id_token_ordinal = right.counters.id_token;
+    condition_builder.bytes_token_ordinal = right.counters.bytes_token;
     condition_builder.continue_ordinals(&right.terms);
     let requires = if let Some(condition) = rule.requires() {
         let term = condition_builder.expand_wire(
@@ -876,14 +901,14 @@ impl<'a> StateRuleBuilder<'a> {
                 let ordinal = take_counter(counter)?;
                 Ok(ProtocolRuleFrame::Bind {
                     key: wire_key(side_role, ordinal),
-                    binding: binding.to_string(),
+                    binding: binding.unraw().to_string(),
                 })
             }
             StateMacroRemainder::Reuse { binding, .. } => {
                 let ordinal = take_counter(counter)?;
                 Ok(ProtocolRuleFrame::Reuse {
                     key: wire_key(side_role, ordinal),
-                    binding: binding.to_string(),
+                    binding: binding.unraw().to_string(),
                 })
             }
         }
@@ -899,10 +924,12 @@ impl<'a> StateRuleBuilder<'a> {
             TermTree::Application(application) => {
                 let ordinal = take_counter(&mut self.counters.application)?;
                 let key = self.term_key(TermRole::ApplicationHead, ordinal);
-                let target = self
-                    .terms
-                    .application_wire_slot(application.head(), slots)?;
-                let authored_path = self.terms.application_authored_path(application.head());
+                let target = self.terms.application_wire_slot(
+                    application.head(),
+                    application.is_notation(),
+                    slots,
+                )?;
+                let authored_path = spelling(application.head());
                 let instance = self.terms.application_instance_wire(application, slots)?;
                 let arguments = match application.arguments() {
                     TermArguments::Positional(values) => {
@@ -926,6 +953,9 @@ impl<'a> StateRuleBuilder<'a> {
                         krs_ir::Arguments::named(arguments)
                     }
                 };
+                if let Some(base) = application.update() {
+                    return Err(reference_record_update(base_span(base, application.head())));
+                }
                 Ok(WireTerm::Application {
                     instance,
                     head_class: DescriptorApplicationHeadClass::Applied,
@@ -936,6 +966,8 @@ impl<'a> StateRuleBuilder<'a> {
                     },
                     path_key: key,
                     arguments,
+                    update: None,
+                    open: application.is_open(),
                 })
             }
             TermTree::Reference(path) => {
@@ -945,20 +977,22 @@ impl<'a> StateRuleBuilder<'a> {
                     Ok(WireTerm::Variable {
                         key: key.clone(),
                         path_key: key,
-                        name: spelling(path),
+                        name: super::terms::binder_spelling(path),
                     })
                 } else {
-                    let target = self.terms.application_wire_slot(path, slots)?;
+                    let target = self.terms.application_wire_slot(path, false, slots)?;
                     Ok(WireTerm::Application {
                         instance: Vec::new(),
                         head_class: DescriptorApplicationHeadClass::BareReference,
                         reference: WireApplicationReference {
                             key: key.clone(),
                             target,
-                            authored_path: self.terms.application_authored_path(path),
+                            authored_path: spelling(path),
                         },
                         path_key: key,
                         arguments: krs_ir::Arguments::default(),
+                        update: None,
+                        open: false,
                     })
                 }
             }
@@ -969,11 +1003,11 @@ impl<'a> StateRuleBuilder<'a> {
                     literal: wire_literal(literal),
                 })
             }
-            TermTree::Wildcard(_) => {
+            TermTree::Wildcard(range) => {
                 if matches!(self.side, RuleSide::Right) {
-                    return Err(ExpandError::new(
+                    return Err(ExpandError::at_range(
                         expand::RULE_RESULT_WILDCARD,
-                        Span::call_site(),
+                        *range,
                         "rule results cannot contain wildcards",
                     ));
                 }
@@ -983,13 +1017,6 @@ impl<'a> StateRuleBuilder<'a> {
                 })
             }
             TermTree::IdToken { literal } => {
-                if !self.claim {
-                    return Err(ExpandError::new(
-                        expand::CLAIM_ONLY_TERM,
-                        literal.span(),
-                        "id! is currently claim-only",
-                    ));
-                }
                 let ordinal = take_counter(&mut self.counters.id_token)?;
                 Ok(WireTerm::BuiltinToken {
                     key: wire_key(ProvenanceRole::ClaimIdToken, ordinal),
@@ -998,13 +1025,6 @@ impl<'a> StateRuleBuilder<'a> {
                 })
             }
             TermTree::BytesToken { literal } => {
-                if !self.claim {
-                    return Err(ExpandError::new(
-                        expand::CLAIM_ONLY_TERM,
-                        literal.span(),
-                        "bytes! is currently claim-only",
-                    ));
-                }
                 let ordinal = take_counter(&mut self.counters.bytes_token)?;
                 Ok(WireTerm::BuiltinToken {
                     key: wire_key(ProvenanceRole::ClaimBytesToken, ordinal),
@@ -1041,7 +1061,7 @@ impl<'a> StateRuleBuilder<'a> {
                 Ok(WireTerm::As {
                     key,
                     binding_key,
-                    name: binding.to_string(),
+                    name: binding.unraw().to_string(),
                     pattern: Box::new(self.expand_term(pattern, slots)?),
                 })
             }
@@ -1053,7 +1073,7 @@ impl<'a> StateRuleBuilder<'a> {
                     return Err(ExpandError::new(
                         expand::PATTERN_OR_OUTSIDE_LHS,
                         range.first(),
-                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use bool::or or k::or_bool!",
+                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use `||`, bool::or, or k::or_bool!",
                     ));
                 }
                 let key = self.terms.take_pattern_or(range.first())?;
@@ -1125,11 +1145,11 @@ impl<'a> StateRuleBuilder<'a> {
                 self.terms.leave_rewrite();
                 Ok(super::terms::rewrite_wire(ordinal, from?, to?))
             }
-            TermTree::OrBool { arguments, .. } => {
+            TermTree::OrBool { range, arguments } => {
                 if !self.claim {
-                    return Err(ExpandError::new(
+                    return Err(ExpandError::at_range(
                         expand::CLAIM_ONLY_TERM,
-                        Span::call_site(),
+                        *range,
                         "or_bool! is currently claim-only",
                     ));
                 }
@@ -1155,10 +1175,18 @@ impl<'a> StateRuleBuilder<'a> {
                         value: Box::new(self.expand_term(field.value(), slots)?),
                     });
                 }
+                // A reference `cells!` term names every child: the readable
+                // forms that leave some out are written in full by `krs
+                // expand`.
+                if cell.is_open() || cell.update().is_some() {
+                    return Err(reference_record_update(cell.range().first()));
+                }
                 Ok(WireTerm::Cell {
                     key,
                     declaration,
                     fields,
+                    open: false,
+                    update: None,
                 })
             }
         }
@@ -1173,5 +1201,24 @@ pub(super) fn instance_rest(rest: &krs_syntax::InstanceRest) -> krs_ir::Protocol
         krs_syntax::InstanceRest::Update { label, .. } => krs_ir::ProtocolInstanceRest::Update {
             label: label.to_string(),
         },
+    }
+}
+
+/// A record update or a `..` group pattern in a reference `cells!` term,
+/// which names every field: the readable spellings are written in full by
+/// `krs expand`.
+fn reference_record_update(span: proc_macro2::Span) -> ExpandError {
+    ExpandError::new(
+        expand::INVALID_RECORD_UPDATE,
+        span,
+        "a `cells!` term names every field: write each one (`_` for a field a pattern leaves unconstrained); `Ctor { f: e, ..t }` and a `..` group pattern are readable-record notation",
+    )
+}
+
+/// The update's base when it is a name, and the record's constructor otherwise.
+fn base_span(base: &TermTree, head: &syn::Path) -> proc_macro2::Span {
+    match base {
+        TermTree::Reference(path) => syn::spanned::Spanned::span(path),
+        _ => syn::spanned::Spanned::span(head),
     }
 }

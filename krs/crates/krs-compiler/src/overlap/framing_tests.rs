@@ -9,9 +9,9 @@ use krs_ir::{
     ApplicationRef, BuiltinSort, ItemKind, NodeOrigin, PackageId, SemanticId, SourceMapKey,
     StableItemId,
 };
-use krs_ir_levels::{SemanticSortRef, SemanticTerm};
+use krs_ir_levels::{MapEntry, MapOperands, SemanticSortRef, SemanticTerm};
 
-use super::{ClauseView, SortGraph, clauses_overlap};
+use super::{ClauseView, Frame, SortGraph, clauses_overlap};
 
 fn graph() -> SortGraph {
     let mut graph = SortGraph {
@@ -75,7 +75,7 @@ fn exact<'a>(cell: &'a SemanticId, before: &'a SemanticTerm) -> ClauseView<'a> {
         cell,
         before,
         completed_head: false,
-        framed: false,
+        frame: Frame::Exact,
         unconstrained: false,
     }
 }
@@ -85,7 +85,17 @@ fn framed<'a>(cell: &'a SemanticId, before: &'a SemanticTerm) -> ClauseView<'a> 
         cell,
         before,
         completed_head: false,
-        framed: true,
+        frame: Frame::Sequence,
+        unconstrained: false,
+    }
+}
+
+fn framed_map<'a>(cell: &'a SemanticId, before: &'a SemanticTerm) -> ClauseView<'a> {
+    ClauseView {
+        cell,
+        before,
+        completed_head: false,
+        frame: Frame::Map,
         unconstrained: false,
     }
 }
@@ -212,6 +222,47 @@ fn two_group_variables_unify() {
         &[exact(&frame, &left)],
         None,
         &[exact(&frame, &right)],
+        None,
+        &graph,
+    ));
+}
+
+fn map_read(entries: &[(&str, &str)]) -> SemanticTerm {
+    SemanticTerm::map(
+        origin(),
+        MapOperands::items(
+            entries
+                .iter()
+                .map(|(key, value)| MapEntry {
+                    key: int(key),
+                    value: variable(value, BuiltinSort::Int),
+                })
+                .collect(),
+        )
+        .unwrap(),
+    )
+}
+
+#[test]
+fn framed_map_reads_overlap_whatever_entries_they_name() {
+    let graph = graph();
+    let mem = cell("mem");
+    let both = map_read(&[("0", "X"), ("1", "Y")]);
+    let other = map_read(&[("2", "Z")]);
+    let swapped = map_read(&[("1", "Y"), ("0", "X")]);
+    // One map can hold entries for 0, 1, and 2 at once, so a read of two
+    // entries and a read of another entry can apply to one configuration.
+    assert!(clauses_overlap(
+        &[framed_map(&mem, &both)],
+        None,
+        &[framed_map(&mem, &other)],
+        None,
+        &graph,
+    ));
+    assert!(clauses_overlap(
+        &[framed_map(&mem, &both)],
+        None,
+        &[framed_map(&mem, &swapped)],
         None,
         &graph,
     ));

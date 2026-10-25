@@ -772,6 +772,18 @@ fn emitted_kore_matches_the_reference_frontend() {
          variable (N45): {lifted_cells} in {} axioms",
         lifted.len()
     );
+    let fresh_offsets = normalize_fresh_offsets(&mut reference, &mut actual);
+    println!(
+        "axioms whose fresh offsets differ by a permutation of one set of literal offsets below \
+         the counter advance, numbered by first occurrence on both sides (N50): {fresh_offsets}"
+    );
+    let divergent = divergent_axioms_from_environment();
+    let removed = remove_divergent_axioms(&mut reference, &mut actual, &divergent)
+        .unwrap_or_else(|error| panic!("{error}"));
+    println!(
+        "axioms that state different things on the two sides, recorded as divergences and left \
+         out: {removed} pairs"
+    );
     compare_definitions(reference, actual);
 }
 
@@ -2019,6 +2031,406 @@ fn lifted_cells_from_environment() -> Vec<LiftedCell> {
         .collect()
 }
 
+/// The `divergent-axioms` entries of a compile case (UNIQUE'Unds'ID strings) the compile gate
+/// passes in `K_DIFFERENTIAL_DIVERGENT_AXIOMS`, a JSON array; none when the variable is unset or
+/// empty.
+fn divergent_axioms_from_environment() -> Vec<String> {
+    let Ok(json) = env::var("K_DIFFERENTIAL_DIVERGENT_AXIOMS") else {
+        return Vec::new();
+    };
+    if json.trim().is_empty() {
+        return Vec::new();
+    }
+    let entries: serde_json::Value = serde_json::from_str(&json)
+        .unwrap_or_else(|error| panic!("K_DIFFERENTIAL_DIVERGENT_AXIOMS is not JSON: {error}"));
+    entries
+        .as_array()
+        .expect("K_DIFFERENTIAL_DIVERGENT_AXIOMS is a JSON array")
+        .iter()
+        .map(|entry| {
+            entry
+                .as_str()
+                .filter(|id| !id.is_empty())
+                .unwrap_or_else(|| {
+                    panic!("divergent-axioms entry {entry} must be a UNIQUE'Unds'ID")
+                })
+                .to_owned()
+        })
+        .collect()
+}
+
+/// Leave out of the comparison the axioms a compile case records as divergent: axioms the two
+/// frontends write differently because their conditions state different things, so no
+/// normalization may identify them. Each listed UNIQUE'Unds'ID must name exactly one axiom on each
+/// side, and the two must differ as the comparison sees them; an entry whose axioms agree there (or are missing) is stale and
+/// refused. The divergence is in the condition only: the two axioms must be equal, as the
+/// comparison sees them, once each one's requires operand ([`requires_operand`]) is replaced by
+/// the same placeholder, so a difference anywhere else (a right side, an attribute) fails the
+/// gate. Returns the number of pairs removed.
+fn remove_divergent_axioms(
+    reference: &mut Definition,
+    actual: &mut Definition,
+    ids: &[String],
+) -> Result<usize, String> {
+    let locate = |definition: &Definition, id: &str| {
+        definition
+            .modules
+            .iter()
+            .enumerate()
+            .flat_map(|(module, declarations)| {
+                declarations
+                    .sentences
+                    .iter()
+                    .enumerate()
+                    .map(move |(index, sentence)| (module, index, sentence))
+            })
+            .filter(|(_, _, sentence)| {
+                matches!(sentence, Sentence::Axiom { .. })
+                    && sentence_attribute(sentence, "UNIQUE'Unds'ID").as_deref() == Some(id)
+            })
+            .map(|(module, index, _)| (module, index))
+            .collect::<Vec<_>>()
+    };
+    for id in ids {
+        let [(reference_module, reference_index)] = locate(reference, id)[..] else {
+            return Err(format!(
+                "divergent-axioms: the reference must state exactly one axiom {id}"
+            ));
+        };
+        let [(actual_module, actual_index)] = locate(actual, id)[..] else {
+            return Err(format!(
+                "divergent-axioms: k-rust must state exactly one axiom {id}"
+            ));
+        };
+        let reference_axiom = &reference.modules[reference_module].sentences[reference_index];
+        let actual_axiom = &actual.modules[actual_module].sentences[actual_index];
+        // Staleness is decided on what the comparison sees: the two frontends write different
+        // source positions for the same sentence, so raw sentences never agree.
+        if as_compared(reference_axiom) == as_compared(actual_axiom) {
+            return Err(format!(
+                "divergent-axioms: the two sides state axiom {id} alike, so the entry is stale"
+            ));
+        }
+        let (Some(reference_rest), Some(actual_rest)) = (
+            without_requires(reference_axiom),
+            without_requires(actual_axiom),
+        ) else {
+            return Err(format!(
+                "divergent-axioms: axiom {id} has no requires operand on both sides"
+            ));
+        };
+        if reference_rest != actual_rest {
+            return Err(format!(
+                "divergent-axioms: the two sides' axiom {id} differs outside its requires \
+                 operand, which a recorded divergence does not cover:\n  reference: \
+                 {reference_rest}\n  k-rust:    {actual_rest}"
+            ));
+        }
+        reference.modules[reference_module]
+            .sentences
+            .remove(reference_index);
+        actual.modules[actual_module].sentences.remove(actual_index);
+    }
+    Ok(ids.len())
+}
+
+/// The counter variable of fresh values, the integer addition that offsets it, and the counter
+/// cell, as KORE names them.
+const FRESH_COUNTER: &str = "Var'Hash'Fresh";
+const FRESH_OFFSET_ADDITION: &str = "Lbl'UndsPlus'Int'Unds'";
+const FRESH_COUNTER_CELL: &str = "Lbl'-LT-'generatedCounter'-GT-'";
+
+/// N50: compare an axiom's fresh offsets up to a permutation of one set of literal offsets. A
+/// fresh value of a rule is its generator applied to `#Fresh +Int n`, and the rule then advances
+/// the counter by `a`, so the next step draws from `#Fresh +Int a` on. A value is fresh only when
+/// its offset `n` lies in `[0, a)`: an offset at or beyond the advance gives a value a later step
+/// gives too. Within that range the offsets are only required to be distinct, so two axioms with
+/// the same advance and the same set of distinct offsets, all in range, that differ by a
+/// permutation of that set state the same rule.
+///
+/// For each axiom whose UNIQUE'Unds'ID names exactly one axiom on each side, and whose two sides
+/// differ as the comparison sees them ([`as_compared`]), both are renumbered
+/// ([`renumber_fresh_offsets`]). Both sides keep the renumbered form only when every offset of each
+/// side is a literal in the range of its counter advance, the two sides' sets of distinct offset
+/// values are equal, and the renumbered axioms agree. Agreement after renumbering means a
+/// one-to-one map from the offsets of one side to those of the other takes one axiom to the other,
+/// and with equal sets that map is a permutation of one set of offsets, each in `[0, a)` for the
+/// advance `a` both sides share. So any other difference still differs: two distinct offsets on one
+/// side where the other has one, offsets shifted or off by one against the other side's, an offset
+/// at or beyond the advance, or an offset that is a variable the left side does not identify with
+/// an integer. The counter cell's own advance is not an offset and stays compared. Returns the
+/// number of pairs renumbered.
+fn normalize_fresh_offsets(reference: &mut Definition, actual: &mut Definition) -> usize {
+    let positions = |definition: &Definition| {
+        let mut positions = BTreeMap::<String, Vec<(usize, usize)>>::new();
+        for (module, declarations) in definition.modules.iter().enumerate() {
+            for (index, sentence) in declarations.sentences.iter().enumerate() {
+                if matches!(sentence, Sentence::Axiom { .. })
+                    && let Some(id) = sentence_attribute(sentence, "UNIQUE'Unds'ID")
+                {
+                    positions.entry(id).or_default().push((module, index));
+                }
+            }
+        }
+        positions
+    };
+    let reference_positions = positions(reference);
+    let mut renumbered = 0;
+    for (id, actual_positions) in positions(actual) {
+        let (Some([(reference_module, reference_index)]), [(actual_module, actual_index)]) = (
+            reference_positions.get(&id).map(Vec::as_slice),
+            actual_positions.as_slice(),
+        ) else {
+            continue;
+        };
+        let reference_axiom = &reference.modules[*reference_module].sentences[*reference_index];
+        let actual_axiom = &actual.modules[*actual_module].sentences[*actual_index];
+        if as_compared(reference_axiom) == as_compared(actual_axiom) {
+            continue;
+        }
+        let (
+            Some((reference_renumbered, Some(reference_offsets))),
+            Some((actual_renumbered, Some(actual_offsets))),
+        ) = (
+            renumber_fresh_offsets(reference_axiom),
+            renumber_fresh_offsets(actual_axiom),
+        )
+        else {
+            continue;
+        };
+        if reference_offsets == actual_offsets
+            && as_compared(&reference_renumbered) == as_compared(&actual_renumbered)
+        {
+            reference.modules[*reference_module].sentences[*reference_index] = reference_renumbered;
+            actual.modules[*actual_module].sentences[*actual_index] = actual_renumbered;
+            renumbered += 1;
+        }
+    }
+    renumbered
+}
+
+/// `sentence` with the offset of each fresh value (the `n` of `#Fresh +Int n` outside the
+/// counter cell) replaced by the placeholder `\dv{SortInt{}}("fresh offset k")`, where `k`
+/// numbers the distinct offsets in the order they first occur, and the set of the distinct
+/// offsets' integer values. That set is `None` unless the counter cell advances once, by a
+/// literal `a` (`#Fresh +Int a`), and every offset is a literal ([`literal_offset`]) in
+/// `[0, a)`. `None` when the sentence has no such offset.
+fn renumber_fresh_offsets(sentence: &Sentence) -> Option<(Sentence, Option<BTreeSet<i128>>)> {
+    fn renumber(
+        pattern: &mut Pattern,
+        in_counter_cell: bool,
+        offsets: &mut Vec<Pattern>,
+        advances: &mut Vec<Pattern>,
+    ) {
+        if let Pattern::Application { symbol, arguments } = pattern {
+            if symbol.name == FRESH_OFFSET_ADDITION
+                && let [Pattern::Variable(counter), offset] = arguments.as_mut_slice()
+                && counter.name == FRESH_COUNTER
+            {
+                if in_counter_cell {
+                    advances.push(offset.clone());
+                    return;
+                }
+                let number = offsets
+                    .iter()
+                    .position(|seen| seen == offset)
+                    .unwrap_or_else(|| {
+                        offsets.push(offset.clone());
+                        offsets.len() - 1
+                    });
+                *offset = Pattern::DomainValue {
+                    sort: kore_sort("SortInt"),
+                    value: format!("fresh offset {number}").as_str().into(),
+                };
+                return;
+            }
+            let counter_cell = symbol.name == FRESH_COUNTER_CELL;
+            for argument in arguments {
+                renumber(argument, counter_cell, offsets, advances);
+            }
+            return;
+        }
+        for child in pattern_children_mut(pattern) {
+            renumber(child, false, offsets, advances);
+        }
+    }
+    let mut sentence = sentence.clone();
+    let Sentence::Axiom { pattern, .. } = &mut sentence else {
+        return None;
+    };
+    let aliases = match &**pattern {
+        Pattern::Rewrites { left, .. } => literal_aliases(left),
+        _ => Vec::new(),
+    };
+    let (mut offsets, mut advances) = (Vec::new(), Vec::new());
+    renumber(pattern, false, &mut offsets, &mut advances);
+    if offsets.is_empty() {
+        return None;
+    }
+    let advance = match advances.as_slice() {
+        [advance] => integer_literal(advance),
+        _ => None,
+    };
+    let values = advance.and_then(|advance| {
+        offsets
+            .iter()
+            .map(|offset| {
+                literal_offset(offset, &aliases).filter(|value| (0..advance).contains(value))
+            })
+            .collect::<Option<BTreeSet<_>>>()
+    });
+    Some((sentence, values))
+}
+
+/// The integer a fresh offset denotes, when it is a literal: an integer domain value, or a
+/// variable the rewrite's left side identifies with exactly one integer domain value
+/// (`aliases`, from [`literal_aliases`]). `None` for any other offset, whose value the axiom
+/// does not fix.
+fn literal_offset(offset: &Pattern, aliases: &[(Variable, i128)]) -> Option<i128> {
+    match offset {
+        Pattern::Variable(variable) => {
+            let mut values = aliases
+                .iter()
+                .filter(|(alias, _)| alias == variable)
+                .map(|(_, value)| *value);
+            let value = values.next()?;
+            values.all(|other| other == value).then_some(value)
+        }
+        _ => integer_literal(offset),
+    }
+}
+
+/// The value of an integer domain value `\dv{SortInt{}}("n")`.
+fn integer_literal(pattern: &Pattern) -> Option<i128> {
+    let Pattern::DomainValue {
+        sort: Sort::Application { name, arguments },
+        value,
+    } = pattern
+    else {
+        return None;
+    };
+    if name != "SortInt" || !arguments.is_empty() {
+        return None;
+    }
+    std::str::from_utf8(value.as_bytes()).ok()?.parse().ok()
+}
+
+/// The variables a rewrite's left side identifies with an integer domain value, each with that
+/// value: every `\and(\dv{SortInt{}}("n"), V)` (in either order) in `left`. Matching such a
+/// conjunction binds `V` to `n`.
+fn literal_aliases(left: &Pattern) -> Vec<(Variable, i128)> {
+    let mut aliases = Vec::new();
+    let mut stack = vec![left];
+    while let Some(pattern) = stack.pop() {
+        if let Pattern::And { arguments, .. } = pattern
+            && let [first, second] = arguments.as_slice()
+        {
+            for (literal, alias) in [(first, second), (second, first)] {
+                if let (Some(value), Pattern::Variable(variable)) =
+                    (integer_literal(literal), alias)
+                {
+                    aliases.push((variable.clone(), value));
+                }
+            }
+        }
+        stack.extend(pattern_children(pattern));
+    }
+    aliases
+}
+
+/// The direct subpatterns of `pattern`, mutably, in the order [`pattern_children`] gives them.
+fn pattern_children_mut(pattern: &mut Pattern) -> Vec<&mut Pattern> {
+    match pattern {
+        Pattern::Application { arguments, .. }
+        | Pattern::And { arguments, .. }
+        | Pattern::Or { arguments, .. }
+        | Pattern::AssociativeApplication { arguments, .. } => arguments.iter_mut().collect(),
+        Pattern::Not { argument, .. }
+        | Pattern::Next { argument, .. }
+        | Pattern::Ceil { argument, .. }
+        | Pattern::Floor { argument, .. } => vec![argument],
+        Pattern::Implies { left, right, .. }
+        | Pattern::Iff { left, right, .. }
+        | Pattern::Rewrites { left, right, .. }
+        | Pattern::Equals { left, right, .. }
+        | Pattern::In { left, right, .. } => vec![left, right],
+        Pattern::Exists { body, .. }
+        | Pattern::Forall { body, .. }
+        | Pattern::Mu { body, .. }
+        | Pattern::Nu { body, .. } => vec![body],
+        Pattern::String(_)
+        | Pattern::Variable(_)
+        | Pattern::Top { .. }
+        | Pattern::Bottom { .. }
+        | Pattern::DomainValue { .. } => Vec::new(),
+    }
+}
+
+/// The requires operand of an axiom: the condition conjunct of a rewrite rule's left side
+/// (`\rewrites(\and(left, requires), ..)`), or the antecedent of an equation's or a
+/// simplification's root `\implies`, without the argument matches an equation conjoins to it
+/// (`\and(requires, \and(\in(X0, ..), .. \top))`). `None` for any other axiom.
+fn requires_operand(pattern: &mut Pattern) -> Option<&mut Pattern> {
+    fn is_argument_matches(pattern: &Pattern) -> bool {
+        match pattern {
+            Pattern::Top { .. } => true,
+            Pattern::And { arguments, .. } => match &arguments[..] {
+                [Pattern::In { .. }, rest] => is_argument_matches(rest),
+                _ => false,
+            },
+            _ => false,
+        }
+    }
+    match pattern {
+        Pattern::Rewrites { left, .. } => match left.as_mut() {
+            Pattern::And { arguments, .. } if arguments.len() == 2 => arguments.get_mut(1),
+            _ => None,
+        },
+        Pattern::Implies { left, .. } => {
+            let matches = matches!(
+                left.as_ref(),
+                Pattern::And { arguments, .. }
+                    if arguments.len() == 2 && is_argument_matches(&arguments[1])
+            );
+            if !matches {
+                return Some(left.as_mut());
+            }
+            match left.as_mut() {
+                Pattern::And { arguments, .. } => arguments.get_mut(0),
+                _ => None,
+            }
+        }
+        _ => None,
+    }
+}
+
+/// A sentence as the comparison sees it: without source metadata ([`strip_attributes`]), in its
+/// canonical form ([`canonical_sentence`]).
+fn as_compared(sentence: &Sentence) -> String {
+    let mut sentence = sentence.clone();
+    if let Sentence::Axiom { attributes, .. } = &mut sentence {
+        strip_attributes(attributes);
+    }
+    canonical_sentence(&sentence)
+}
+
+/// An axiom as the comparison sees it ([`strip_source_metadata`], [`canonical_sentence`]), with
+/// its requires operand ([`requires_operand`]) replaced by a placeholder.
+fn without_requires(sentence: &Sentence) -> Option<String> {
+    let mut sentence = sentence.clone();
+    let Sentence::Axiom {
+        pattern,
+        attributes,
+        ..
+    } = &mut sentence
+    else {
+        return None;
+    };
+    strip_attributes(attributes);
+    *requires_operand(pattern)? = Pattern::String("divergent requires".into());
+    Some(canonical_sentence(&sentence))
+}
+
 /// N45: compare an axiom whose rule writes a cell inside a cell that does not contain it in the
 /// configuration against the reference axiom in which that cell is absent. For each entry, the
 /// axiom labelled `rule` must exist exactly once on each side; the two axioms are walked in
@@ -2610,6 +3022,251 @@ fn lifted_cell_entry(rule: &str, cell: &str) -> [LiftedCell; 1] {
         rule: rule.into(),
         cell: cell.into(),
     }]
+}
+
+/// A recorded divergence removes exactly the listed pair of axioms; an entry naming an axiom one
+/// side lacks, or whose two axioms agree, is refused.
+#[test]
+fn divergent_axioms_remove_exactly_the_listed_differing_pair() {
+    let definition = |condition: &str| {
+        parse_definition(&format!(
+            r#"[] module TEST
+            sort SortInt{{}} []
+            sort SortBool{{}} []
+            symbol Lblh{{}}(SortInt{{}}) : SortBool{{}} [function{{}}()]
+            axiom{{R}} \implies{{R}}({condition}, \equals{{SortBool{{}}, R}}(Lblh{{}}(VarX:SortInt{{}}), \dv{{SortBool{{}}}}("true"))) [UNIQUE'Unds'ID{{}}("d")]
+            axiom{{R}} \implies{{R}}(\top{{R}}(), \equals{{SortBool{{}}, R}}(Lblh{{}}(\dv{{SortInt{{}}}}("0")), \dv{{SortBool{{}}}}("false"))) [UNIQUE'Unds'ID{{}}("k")]
+            endmodule []"#
+        ))
+        .unwrap()
+    };
+    let literal = r#"\equals{SortBool{}, R}(\exists{SortBool{}}(VarY:SortInt{}, Lblh{}(VarY:SortInt{})), \dv{SortBool{}}("true"))"#;
+    let predicate = r#"\exists{R}(VarY:SortInt{}, \equals{SortBool{}, R}(Lblh{}(VarY:SortInt{}), \dv{SortBool{}}("true")))"#;
+    let ids = |ids: &[&str]| ids.iter().map(|id| (*id).to_owned()).collect::<Vec<_>>();
+
+    let (mut reference, mut actual) = (definition(literal), definition(predicate));
+    assert_eq!(
+        remove_divergent_axioms(&mut reference, &mut actual, &ids(&["d"])),
+        Ok(1)
+    );
+    assert_eq!(reference.modules[0].sentences.len(), 4);
+    assert_eq!(reference, actual);
+
+    let (mut reference, mut actual) = (definition(literal), definition(predicate));
+    assert_eq!(
+        remove_divergent_axioms(&mut reference, &mut actual, &[]),
+        Ok(0)
+    );
+    assert_ne!(reference, actual);
+
+    let (mut reference, mut actual) = (definition(literal), definition(literal));
+    let error = remove_divergent_axioms(&mut reference, &mut actual, &ids(&["d"])).unwrap_err();
+    assert!(error.contains("stale"), "{error}");
+    let error =
+        remove_divergent_axioms(&mut reference, &mut actual, &ids(&["missing"])).unwrap_err();
+    assert!(error.contains("exactly one axiom missing"), "{error}");
+}
+
+/// N50 identifies two axioms whose fresh offsets differ by a permutation of one set of literal
+/// offsets below the counter's advance, and only those: a rule whose offsets are 1, 0, 0, 2 on
+/// one side and 0, 1, 1, 2 on the other is the same rule, also when an offset is a variable the
+/// left side identifies with `0` (`\and(\dv 0, VarG)`). A different right side, two distinct
+/// offsets where the other side repeats one, a different advance of the counter cell, offsets off
+/// by one (2, 1, 1, 3) or shifted (8, 7, 7, 9) against the other side's, or an offset that is a
+/// variable only the right side holds, still differ and are left as they are; so does one set of
+/// offsets on both sides that holds an offset at the advance.
+#[test]
+fn fresh_offsets_compare_up_to_a_permutation_of_one_set_of_offsets_in_range_only() {
+    let definition = |offsets: [&str; 4], symbol: &str, advance: &str| {
+        let fresh = |offset: &str| {
+            let offset = if offset.starts_with("Var") {
+                format!("{offset}:SortInt{{}}")
+            } else {
+                format!(r#"\dv{{SortInt{{}}}}("{offset}")"#)
+            };
+            format!(
+                r#"Lblfresh{{}}(Lbl'UndsPlus'Int'Unds'{{}}(Var'Hash'Fresh:SortInt{{}}, {offset}))"#
+            )
+        };
+        parse_definition(&format!(
+            r#"[] module TEST
+            sort SortInt{{}} []
+            sort SortFoo{{}} []
+            sort SortTop{{}} []
+            symbol Lblfresh{{}}(SortInt{{}}) : SortFoo{{}} [function{{}}()]
+            symbol Lblfoo{{}}(SortFoo{{}}, SortFoo{{}}, SortFoo{{}}, SortFoo{{}}) : SortFoo{{}} []
+            symbol Lblbar{{}}(SortFoo{{}}, SortFoo{{}}, SortFoo{{}}, SortFoo{{}}) : SortFoo{{}} []
+            symbol Lbl'-LT-'generatedCounter'-GT-'{{}}(SortInt{{}}) : SortFoo{{}} []
+            symbol Lbltop{{}}(SortFoo{{}}, SortFoo{{}}) : SortTop{{}} []
+            symbol Lbl'UndsPlus'Int'Unds'{{}}(SortInt{{}}, SortInt{{}}) : SortInt{{}} [function{{}}()]
+            symbol Lblgo{{}}(SortInt{{}}) : SortFoo{{}} []
+            axiom{{}} \rewrites{{SortTop{{}}}}(Lbltop{{}}(Lblgo{{}}(\and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("0"), VarG:SortInt{{}})), Lbl'-LT-'generatedCounter'-GT-'{{}}(Var'Hash'Fresh:SortInt{{}})), Lbltop{{}}({symbol}{{}}({}, {}, {}, {}), Lbl'-LT-'generatedCounter'-GT-'{{}}(Lbl'UndsPlus'Int'Unds'{{}}(Var'Hash'Fresh:SortInt{{}}, \dv{{SortInt{{}}}}("{advance}"))))) [UNIQUE'Unds'ID{{}}("r")]
+            endmodule []"#,
+            fresh(offsets[0]),
+            fresh(offsets[1]),
+            fresh(offsets[2]),
+            fresh(offsets[3]),
+        ))
+        .unwrap()
+    };
+    let spelled = definition(["1", "0", "0", "2"], "Lblfoo", "3");
+
+    let (mut reference, mut actual) = (
+        spelled.clone(),
+        definition(["0", "1", "1", "2"], "Lblfoo", "3"),
+    );
+    assert_eq!(normalize_fresh_offsets(&mut reference, &mut actual), 1);
+    assert_eq!(reference, actual);
+
+    let (mut reference, mut actual) = (
+        spelled.clone(),
+        definition(["VarG", "1", "1", "2"], "Lblfoo", "3"),
+    );
+    assert_eq!(normalize_fresh_offsets(&mut reference, &mut actual), 1);
+    assert_eq!(reference, actual);
+
+    for (different, what) in [
+        (
+            definition(["0", "1", "1", "2"], "Lblbar", "3"),
+            "a right side",
+        ),
+        (
+            definition(["0", "0", "0", "2"], "Lblfoo", "3"),
+            "a non-injective offset map",
+        ),
+        (
+            definition(["0", "1", "2", "3"], "Lblfoo", "3"),
+            "a non-injective offset map",
+        ),
+        (
+            definition(["0", "1", "1", "2"], "Lblfoo", "4"),
+            "the counter's advance",
+        ),
+        (
+            definition(["2", "1", "1", "3"], "Lblfoo", "3"),
+            "offsets off by one",
+        ),
+        (
+            definition(["8", "7", "7", "9"], "Lblfoo", "3"),
+            "shifted offsets",
+        ),
+        (
+            definition(["1", "VarZ", "VarZ", "2"], "Lblfoo", "3"),
+            "a variable offset",
+        ),
+    ] {
+        let (mut reference, mut actual) = (spelled.clone(), different.clone());
+        assert_eq!(
+            normalize_fresh_offsets(&mut reference, &mut actual),
+            0,
+            "{what}"
+        );
+        assert_eq!(reference, spelled, "{what}");
+        assert_eq!(actual, different, "{what}");
+    }
+
+    // One set of offsets on both sides, but 3 is not below the advance 3: its value is the one
+    // the next step draws first, so permuting it with another offset changes the rule.
+    let beyond = definition(["1", "0", "0", "3"], "Lblfoo", "3");
+    let permuted = definition(["3", "1", "1", "0"], "Lblfoo", "3");
+    let (mut reference, mut actual) = (beyond.clone(), permuted.clone());
+    assert_eq!(normalize_fresh_offsets(&mut reference, &mut actual), 0);
+    assert_eq!((reference, actual), (beyond, permuted));
+
+    let (mut reference, mut actual) = (spelled.clone(), spelled.clone());
+    assert_eq!(normalize_fresh_offsets(&mut reference, &mut actual), 0);
+}
+
+/// A recorded divergence covers the requires operand only: two axioms that also differ in their
+/// right side or in an attribute the comparison reads are refused, while a Location the
+/// comparison does not read is no difference, so an entry whose conditions agree is stale even
+/// where the Locations differ. Rewrite rules and equations whose antecedent carries
+/// argument matches are masked at their requires alone.
+#[test]
+fn divergent_axioms_refuse_a_difference_outside_the_requires() {
+    let literal = r#"\equals{SortBool{}, R}(\exists{SortBool{}}(VarY:SortInt{}, Lblh{}(VarY:SortInt{})), \dv{SortBool{}}("true"))"#;
+    let predicate = r#"\exists{R}(VarY:SortInt{}, \equals{SortBool{}, R}(Lblh{}(VarY:SortInt{}), \dv{SortBool{}}("true")))"#;
+    let definition = |axiom: String| {
+        parse_definition(&format!(
+            r#"[] module TEST
+            sort SortInt{{}} []
+            sort SortBool{{}} []
+            symbol Lblh{{}}(SortInt{{}}) : SortBool{{}} [function{{}}()]
+            symbol Lblf{{}}(SortInt{{}}) : SortInt{{}} [function{{}}()]
+            {axiom}
+            endmodule []"#
+        ))
+        .unwrap()
+    };
+    let simplification = |condition: &str, value: &str, attributes: &str| {
+        definition(format!(
+            r#"axiom{{R}} \implies{{R}}({condition}, \equals{{SortBool{{}}, R}}(Lblh{{}}(VarX:SortInt{{}}), \dv{{SortBool{{}}}}("{value}"))) [UNIQUE'Unds'ID{{}}("d"){attributes}]"#
+        ))
+    };
+    let remove = |reference: Definition, actual: Definition| {
+        let (mut reference, mut actual) = (reference, actual);
+        remove_divergent_axioms(&mut reference, &mut actual, &["d".to_owned()])
+    };
+    let location = r#", org'Stop'kframework'Stop'attributes'Stop'Location{}("Location(1,1,1,2)")"#;
+
+    assert_eq!(
+        remove(
+            simplification(literal, "true", ""),
+            simplification(predicate, "true", location)
+        ),
+        Ok(1)
+    );
+    // Converged conditions are stale although the Locations differ, as they do between the two
+    // frontends.
+    let error = remove(
+        simplification(literal, "true", ""),
+        simplification(literal, "true", location),
+    )
+    .unwrap_err();
+    assert!(error.contains("stale"), "{error}");
+    let error = remove(
+        simplification(literal, "true", ""),
+        simplification(predicate, "false", ""),
+    )
+    .unwrap_err();
+    assert!(error.contains("differs outside its requires"), "{error}");
+    let error = remove(
+        simplification(literal, "true", ""),
+        simplification(predicate, "true", ", simplification{}()"),
+    )
+    .unwrap_err();
+    assert!(error.contains("differs outside its requires"), "{error}");
+
+    // A function equation: `\implies(\and(requires, matches), ..)`; the matches are compared.
+    let equation = |condition: &str, argument: &str| {
+        definition(format!(
+            r#"axiom{{R}} \implies{{R}}(\and{{R}}({condition}, \and{{R}}(\in{{SortInt{{}}, R}}(VarX0:SortInt{{}}, {argument}), \top{{R}}())), \equals{{SortInt{{}}, R}}(Lblf{{}}(VarX0:SortInt{{}}), \and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("0"), \top{{SortInt{{}}}}()))) [UNIQUE'Unds'ID{{}}("d")]"#
+        ))
+    };
+    let x = "VarX:SortInt{}";
+    assert_eq!(remove(equation(literal, x), equation(predicate, x)), Ok(1));
+    let error = remove(
+        equation(literal, x),
+        equation(predicate, r#"\dv{SortInt{}}("1")"#),
+    )
+    .unwrap_err();
+    assert!(error.contains("differs outside its requires"), "{error}");
+
+    // A rewrite rule: `\rewrites(\and(left, requires), right)`.
+    let rule = |condition: &str, right: &str| {
+        definition(format!(
+            r#"axiom{{}} \rewrites{{SortInt{{}}}}(\and{{SortInt{{}}}}(VarX:SortInt{{}}, {condition}), \and{{SortInt{{}}}}(\dv{{SortInt{{}}}}("{right}"), \top{{SortInt{{}}}}())) [UNIQUE'Unds'ID{{}}("d")]"#
+        ))
+    };
+    let (literal, predicate) = (
+        literal.replace(", R}", ", SortInt{}}"),
+        predicate
+            .replace("{R}", "{SortInt{}}")
+            .replace(", R}", ", SortInt{}}"),
+    );
+    assert_eq!(remove(rule(&literal, "1"), rule(&predicate, "1")), Ok(1));
+    let error = remove(rule(&literal, "1"), rule(&predicate, "2")).unwrap_err();
+    assert!(error.contains("differs outside its requires"), "{error}");
 }
 
 /// N45 accepts the lifted shape: with the port's `<stack>` applications replaced by the
@@ -5626,15 +6283,17 @@ fn executed_kore_matches_the_reference_backend() {
             "K_DIFFERENTIAL_STRATEGY=any cannot be combined with K_DIFFERENTIAL_ORACLE_EXCLUSION"
                 .into(),
         ),
-        (Ok("any"), Err(_)) => {
-            compare_execution_any_membership(&reference, &actual, oracle, &module).map(|unpaired| {
-                let total = execution_disjuncts(&reference).len();
-                println!(
-                    "any-strategy: {} of {total} reference leaves reached",
-                    total - unpaired
-                );
-            })
-        }
+        (Ok("any"), Err(_)) => compare_execution_any_membership(
+            &reference, &actual, oracle, &module,
+        )
+        .map(|membership| {
+            let total = execution_disjuncts(&reference).len();
+            println!(
+                "any-strategy: {} of {total} reference leaves reached",
+                total - membership.unpaired_reference
+            );
+            membership.evidence
+        }),
         (Ok("all") | Err(_), Ok("gotstuck")) => {
             let stop_path = env::var("K_DIFFERENTIAL_STOP_LEAVES")
                 .expect("K_DIFFERENTIAL_STOP_LEAVES is required for the gotstuck exclusion");
@@ -5650,7 +6309,15 @@ fn executed_kore_matches_the_reference_backend() {
         }
         (Ok(strategy), _) => Err(format!("unknown differential strategy: {strategy}")),
     };
-    result.unwrap_or_else(|error| panic!("{error}"));
+    let evidence = result.unwrap_or_else(|error| panic!("{error}"));
+    // N15 passes are the port's own judgement; say how many this comparison rests on, in the
+    // form the conformance driver reads.
+    if evidence.implication_pairs > 0 {
+        println!(
+            "{IMPLICATION_SUMMARY_PREFIX}{} paired disjunct(s) equal only by krust kore-implies (supplementary evidence)",
+            evidence.implication_pairs
+        );
+    }
 }
 
 /// An execution result file: KORE text, or the KORE JSON envelope (`format`, `version`, `term`)
@@ -5942,7 +6609,7 @@ fn committed_execution_oracle_exceptions_are_not_equivalent() {
             let reference = read(&exception["reference"]);
             let expected = read(&exception["expected"]);
             match compare_execution_modulo_implication(&reference, &expected, None, module) {
-                Ok(()) => panic!(
+                Ok(_) => panic!(
                     "committed oracle exception expectations for {name}:{program} are equivalent"
                 ),
                 Err(error) if error.contains("K_DIFFERENTIAL_DEFINITION is not set") => panic!(
@@ -6623,14 +7290,16 @@ fn execution_comparator_accepts_an_any_result_that_is_a_member_of_the_all_set() 
     for member in [r"\and{S{}}(a{}(), \top{S{}}())", "b{}()"] {
         let actual = normalize_execution_pattern(parse_pattern(member).unwrap());
         assert_eq!(
-            compare_execution_any_membership(&reference, &actual, None, "TEST"),
+            compare_execution_any_membership(&reference, &actual, None, "TEST")
+                .map(|membership| membership.unpaired_reference),
             Ok(1),
             "{member} is a member of the reference set"
         );
     }
     // A symbolic any-strategy run may reach several leaves; the whole set is a member of itself.
     assert_eq!(
-        compare_execution_any_membership(&reference, &reference, None, "TEST"),
+        compare_execution_any_membership(&reference, &reference, None, "TEST")
+            .map(|membership| membership.unpaired_reference),
         Ok(0)
     );
 }
@@ -6678,7 +7347,8 @@ fn execution_comparator_keeps_any_multiplicity() {
 
     let reference = normalize_execution_pattern(parse_pattern(r"\or{S{}}(a{}(), a{}())").unwrap());
     assert_eq!(
-        compare_execution_any_membership(&reference, &duplicated, None, "TEST"),
+        compare_execution_any_membership(&reference, &duplicated, None, "TEST")
+            .map(|membership| membership.unpaired_reference),
         Ok(0)
     );
 }
@@ -7018,9 +7688,10 @@ fn constraint_pairing_aligns_constraint_only_variables_onto_the_reference_names(
     write_executable(
         &oracle,
         &format!(
-            "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{calls}\nwhile (($#)); do case $1 in --antecedent) a=$2;; --consequent) c=$2;; esac; shift; done\nif grep -qFf {needle} \"$a\" && grep -qFf {needle} \"$c\"; then printf '{{\"status\":\"valid\"}}\\n'; else printf '{{\"status\":\"invalid\"}}\\n'; fi\n",
+            "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{calls}\nwhile (($#)); do case $1 in --antecedent) a=$2;; --consequent) c=$2;; esac; shift; done\nif grep -qFf {needle} \"$a\" && grep -qFf {needle} \"$c\"; then printf '%s\\n' '{valid}'; else printf '{{\"status\":\"invalid\"}}\\n'; fi\n",
             calls = calls.display(),
             needle = needle.display(),
+            valid = FAKE_IMPLIES_VALID,
         ),
     );
     let definition = directory.join("definition.kore");
@@ -7035,7 +7706,11 @@ fn constraint_pairing_aligns_constraint_only_variables_onto_the_reference_names(
         }),
         "TEST",
     );
-    result.expect("the aligned bijection pairs the remainders");
+    let evidence = result.expect("the aligned bijection pairs the remainders");
+    assert_eq!(
+        evidence.implication_pairs, 1,
+        "the pair rests on the implication oracle"
+    );
     let calls = fs::read_to_string(&calls).unwrap();
     assert!(
         calls.lines().count() >= 3,
@@ -7072,7 +7747,10 @@ fn execution_comparator_drops_a_reference_disjunct_only_when_the_reference_searc
     );
     write_executable(
         &krust,
-        "#!/usr/bin/env bash\nprintf '{\"status\":\"valid\"}\\n'\n",
+        &format!(
+            "#!/usr/bin/env bash\nprintf '%s\\n' '{valid}'\n",
+            valid = FAKE_IMPLIES_VALID
+        ),
     );
     let definition = directory.join("definition.kore");
     fs::write(&definition, "[]").unwrap();
@@ -7118,6 +7796,15 @@ fn execution_comparator_drops_a_reference_disjunct_only_when_the_reference_searc
     fs::remove_dir_all(directory).unwrap();
 }
 
+/// A `krust kore-implies` answer that every instance of the antecedent lies in the consequent:
+/// status `valid` and condition predicate `\top`, the wire form
+/// `kore_implies_decides_bottom_and_top_operands_and_refuses_a_top_antecedent` (cli.rs) pins.
+const FAKE_IMPLIES_VALID: &str = r#"{"condition":{"predicate":{"format":"KORE","version":1,"term":{"tag":"Top","sort":{"tag":"SortApp","name":"S","args":[]}}}},"status":"valid"}"#;
+
+/// A `krust kore-implies` answer that the antecedent has no instance: status `valid` and condition
+/// predicate `\bottom`, the wire form of a vacuously valid implication.
+const FAKE_IMPLIES_VACUOUS: &str = r#"{"condition":{"predicate":{"format":"KORE","version":1,"term":{"tag":"Bottom","sort":{"tag":"SortApp","name":"S","args":[]}}}},"status":"valid"}"#;
+
 #[test]
 fn implication_fallback_checks_both_directions_and_requires_valid() {
     let nonce = SystemTime::now()
@@ -7135,9 +7822,15 @@ fn implication_fallback_checks_both_directions_and_requires_valid() {
     write_executable(
         &valid,
         &format!(
-            "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{}\nprintf '{{\"status\":\"valid\"}}\\n'\n",
-            calls.display()
+            "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{calls}\nprintf '%s\\n' '{valid}'\n",
+            calls = calls.display(),
+            valid = FAKE_IMPLIES_VALID
         ),
+    );
+    let unlabelled = directory.join("unlabelled-krust");
+    write_executable(
+        &unlabelled,
+        "#!/usr/bin/env bash\nprintf '{\"status\":\"valid\"}\\n'\n",
     );
     write_executable(
         &invalid,
@@ -7155,8 +7848,11 @@ fn implication_fallback_checks_both_directions_and_requires_valid() {
     let definition = directory.join("definition.kore");
     fs::write(&definition, "[]").unwrap();
 
-    prove_implication_both_ways_with(&valid, &reference, &actual, &definition, "TEST")
-        .expect("both valid directions");
+    assert_eq!(
+        prove_implication_both_ways_with(&valid, &reference, &actual, &definition, "TEST")
+            .expect("both valid directions"),
+        [ImplicationAnswer::Holds, ImplicationAnswer::Holds]
+    );
     let calls = fs::read_to_string(&calls).unwrap();
     assert_eq!(calls.lines().count(), 2, "both implication directions");
     assert!(calls.lines().all(|line| line.contains("--module TEST")));
@@ -7170,6 +7866,251 @@ fn implication_fallback_checks_both_directions_and_requires_valid() {
         prove_implication_both_ways_with(&invalid, &reference, &actual, &definition, "TEST")
             .expect_err("an indeterminate answer cannot certify equivalence");
     assert!(error.contains("not valid"), "{error}");
+
+    // A `valid` whose condition does not say whether the antecedent has instances cannot be read
+    // as a match: it may rest on the port finding the antecedent empty.
+    let error =
+        prove_implication_both_ways_with(&unlabelled, &reference, &actual, &definition, "TEST")
+            .expect_err("a valid answer without a condition predicate is not a match");
+    assert!(error.contains("condition predicate"), "{error}");
+    fs::remove_dir_all(directory).unwrap();
+}
+
+/// N15 with vacuity: `krust kore-implies` answers `valid` with condition `\bottom` when it finds
+/// the antecedent empty, which says the port judged a disjunct to denote no configuration, not
+/// that the two constraint sets agree. Such a direction holds only when the reference's own search
+/// finds no instance of that antecedent (N48): it fails without a reference `kore-exec` and when
+/// the reference search finds an instance, and the reference is asked about the very disjunct the
+/// port found empty, of either side.
+#[test]
+fn implication_fallback_accepts_a_vacuous_direction_only_when_the_reference_finds_it_empty() {
+    fn oracle<'a>(
+        krust: &'a Path,
+        definition: &'a Path,
+        reference_kore_exec: Option<&'a Path>,
+    ) -> ImplicationOracle<'a> {
+        ImplicationOracle {
+            krust,
+            definition,
+            reference_kore_exec,
+        }
+    }
+
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = env::temp_dir().join(format!(
+        "k-rust-implication-vacuous-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir(&directory).unwrap();
+    let asked = directory.join("asked");
+    // Vacuous for the direction whose antecedent is the reference disjunct, a match otherwise.
+    let reference_vacuous = directory.join("reference-vacuous-krust");
+    write_executable(
+        &reference_vacuous,
+        &format!(
+            "#!/usr/bin/env bash\nwhile (($#)); do case $1 in --antecedent) a=$2;; esac; shift; done\nif [[ $a == */reference.kore ]]; then printf '%s\\n' '{vacuous}'; else printf '%s\\n' '{valid}'; fi\n",
+            vacuous = FAKE_IMPLIES_VACUOUS,
+            valid = FAKE_IMPLIES_VALID,
+        ),
+    );
+    let always_vacuous = directory.join("always-vacuous-krust");
+    write_executable(
+        &always_vacuous,
+        &format!(
+            "#!/usr/bin/env bash\nprintf '%s\\n' '{vacuous}'\n",
+            vacuous = FAKE_IMPLIES_VACUOUS
+        ),
+    );
+    // The reference search finds no instance of anything, or an instance of everything.
+    let finds_none = directory.join("finds-none-kore-exec");
+    write_executable(
+        &finds_none,
+        &format!(
+            "#!/usr/bin/env bash\nwhile (($#)); do case $1 in --pattern) p=$2;; --output) o=$2;; esac; shift; done\ncat \"$p\" >>{asked}; printf '\\n' >>{asked}\nprintf '\\\\bottom{{S{{}}}}()\\n' >\"$o\"\n",
+            asked = asked.display()
+        ),
+    );
+    let finds_some = directory.join("finds-some-kore-exec");
+    write_executable(
+        &finds_some,
+        "#!/usr/bin/env bash\nwhile (($#)); do case $1 in --pattern) p=$2;; --output) o=$2;; esac; shift; done\ncat \"$p\" >\"$o\"\n",
+    );
+    let definition = directory.join("definition.kore");
+    fs::write(&definition, "[]").unwrap();
+    let pattern = |text: &str| normalize_execution_pattern(parse_pattern(text).unwrap());
+    let reference =
+        pattern(r#"\and{S{}}(t{}(), \equals{Bool{}, S{}}(\dv{Bool{}}("true"), c{}()))"#);
+    let actual = pattern(r#"\and{S{}}(t{}(), \equals{Bool{}, S{}}(\dv{Bool{}}("true"), d{}()))"#);
+
+    let error = prove_implication_both_ways(
+        oracle(&reference_vacuous, &definition, None),
+        &reference,
+        &actual,
+        "TEST",
+    )
+    .expect_err("without the reference kore-exec the port's emptiness decides nothing");
+    assert!(
+        error.contains("finds the reference disjunct empty"),
+        "{error}"
+    );
+    let error = prove_implication_both_ways(
+        oracle(&reference_vacuous, &definition, Some(finds_some.as_path())),
+        &reference,
+        &actual,
+        "TEST",
+    )
+    .expect_err("a disjunct the reference search finds an instance of is not empty");
+    assert!(error.contains("does not confirm"), "{error}");
+
+    prove_implication_both_ways(
+        oracle(&reference_vacuous, &definition, Some(finds_none.as_path())),
+        &reference,
+        &actual,
+        "TEST",
+    )
+    .expect("the reference search agrees the reference disjunct is empty");
+    let questions = fs::read_to_string(&asked).unwrap();
+    assert_eq!(questions.lines().count(), 1, "{questions}");
+    assert!(questions.contains("c{}()"), "{questions}");
+
+    fs::remove_file(&asked).unwrap();
+    prove_implication_both_ways(
+        oracle(&always_vacuous, &definition, Some(finds_none.as_path())),
+        &reference,
+        &actual,
+        "TEST",
+    )
+    .expect("the reference search agrees both disjuncts are empty");
+    let questions = fs::read_to_string(&asked).unwrap();
+    assert_eq!(questions.lines().count(), 2, "{questions}");
+    assert!(questions.contains("c{}()"), "{questions}");
+    assert!(questions.contains("d{}()"), "{questions}");
+    let error = prove_implication_both_ways(
+        oracle(&always_vacuous, &definition, Some(finds_some.as_path())),
+        &reference,
+        &actual,
+        "TEST",
+    )
+    .expect_err("two disjuncts the port alone calls empty are not equivalent");
+    assert!(error.contains("does not confirm"), "{error}");
+    fs::remove_dir_all(directory).unwrap();
+}
+
+/// N15 is supplementary evidence, so a pass that rests on it is visible: the comparison counts the
+/// pairs only the implication oracle equated, prints each with its constraints under the N15
+/// label, and the comparator entry point prints the `N15 summary:` line the conformance driver
+/// reads. A pair equal structurally counts nothing and prints no N15 line.
+/// Runs this test binary's ignored comparator.
+#[test]
+fn execution_comparator_labels_and_counts_pairs_only_the_implication_oracle_equates() {
+    let nonce = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    let directory = env::temp_dir().join(format!(
+        "k-rust-implication-label-{}-{nonce}",
+        std::process::id()
+    ));
+    fs::create_dir(&directory).unwrap();
+    let krust = directory.join("krust");
+    write_executable(
+        &krust,
+        &format!(
+            "#!/usr/bin/env bash\nprintf '%s\\n' '{valid}'\n",
+            valid = FAKE_IMPLIES_VALID
+        ),
+    );
+    let definition = directory.join("definition.kore");
+    fs::write(&definition, "[]").unwrap();
+    let oracle = ImplicationOracle {
+        krust: &krust,
+        definition: &definition,
+        reference_kore_exec: None,
+    };
+    let reference_text = concat!(
+        r#"\or{S{}}(\and{S{}}(t{}(\dv{Int{}}("1")), \equals{Bool{}, S{}}(\dv{Bool{}}("true"), c{}())), "#,
+        r#"\and{S{}}(t{}(\dv{Int{}}("2")), \equals{Bool{}, S{}}(\dv{Bool{}}("true"), c{}())))"#,
+    );
+    let actual_text = concat!(
+        r#"\or{S{}}(\and{S{}}(t{}(\dv{Int{}}("1")), \equals{Bool{}, S{}}(\dv{Bool{}}("true"), d{}())), "#,
+        r#"\and{S{}}(t{}(\dv{Int{}}("2")), \equals{Bool{}, S{}}(\dv{Bool{}}("true"), c{}())))"#,
+    );
+    let pattern = |text: &str| normalize_execution_pattern(parse_pattern(text).unwrap());
+    let reference = pattern(reference_text);
+    let actual = pattern(actual_text);
+    assert_eq!(
+        compare_execution_modulo_implication(&reference, &actual, Some(oracle), "TEST"),
+        Ok(ComparisonEvidence {
+            implication_pairs: 1
+        })
+    );
+    assert_eq!(
+        compare_execution_modulo_implication(&reference, &reference, Some(oracle), "TEST"),
+        Ok(ComparisonEvidence::default())
+    );
+    assert_eq!(
+        compare_execution_any_membership(&reference, &actual, Some(oracle), "TEST"),
+        Ok(AnyMembership {
+            unpaired_reference: 0,
+            evidence: ComparisonEvidence {
+                implication_pairs: 1
+            }
+        })
+    );
+
+    let write = |name: &str, text: &str| {
+        let path = directory.join(name);
+        fs::write(&path, text).unwrap();
+        path
+    };
+    let reference_path = write("reference.kore", reference_text);
+    let actual_path = write("actual.kore", actual_text);
+    let compare = |actual: &Path| {
+        Command::new(env::current_exe().unwrap())
+            .args([
+                "--quiet",
+                "--ignored",
+                "--exact",
+                "executed_kore_matches_the_reference_backend",
+                "--nocapture",
+            ])
+            .env("K_REFERENCE_EXECUTION", &reference_path)
+            .env("K_RUST_EXECUTION", actual)
+            .env("K_DIFFERENTIAL_DEFINITION", &definition)
+            .env("K_DIFFERENTIAL_MODULE", "TEST")
+            .env("K_RUST_KRUST", &krust)
+            .env_remove("K_REFERENCE_KORE_EXEC")
+            .env_remove("K_DIFFERENTIAL_INITIAL_PATTERN")
+            .env_remove("K_DIFFERENTIAL_PATTERN_EXISTENTIALS")
+            .env_remove("K_DIFFERENTIAL_STRATEGY")
+            .env_remove("K_DIFFERENTIAL_ORACLE_EXCLUSION")
+            .output()
+            .unwrap()
+    };
+    let output = compare(&actual_path);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "{stdout}{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        stdout.contains(r#"N15: constraints of paired disjunct t{}(\dv{Int{}}("1")) equal only by krust kore-implies"#),
+        "{stdout}"
+    );
+    assert!(
+        stdout
+            .lines()
+            .any(|line| line.starts_with(&format!("{IMPLICATION_SUMMARY_PREFIX}1 "))),
+        "{stdout}"
+    );
+    let output = compare(&reference_path);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.status.success(), "{stdout}");
+    assert!(!stdout.contains("N15"), "{stdout}");
     fs::remove_dir_all(directory).unwrap();
 }
 
@@ -7180,7 +8121,10 @@ fn implication_fallback_checks_both_directions_and_requires_valid() {
 /// fake `krust kore-simplify` reduces every pattern to `\bottom` (a defect of that kind); a port
 /// result missing a reference branch, or holding an extra one, still fails, and the comparison
 /// never asks for a simplification. Reference results that only the reference's own simplifier
-/// reduces are handled per case by the execution gate (N41).
+/// reduces are handled per case by the execution gate (N41). The port's implication check can
+/// make the same judgement through vacuity: the fake `krust kore-implies` answers every direction
+/// `valid` because it finds the antecedent empty, and a term-equal pair whose constraints differ
+/// still fails.
 #[test]
 fn execution_comparator_never_asks_the_port_simplifier_to_drop_disjuncts() {
     let nonce = SystemTime::now()
@@ -7197,8 +8141,9 @@ fn execution_comparator_never_asks_the_port_simplifier_to_drop_disjuncts() {
     write_executable(
         &krust,
         &format!(
-            "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{calls}\n[[ $1 == kore-simplify ]] || exit 3\nprintf '\\\\bottom{{S{{}}}}()\\n'\n",
+            "#!/usr/bin/env bash\nprintf '%s\\n' \"$*\" >>{calls}\ncase $1 in\n  kore-simplify) printf '\\\\bottom{{S{{}}}}()\\n';;\n  kore-implies) printf '%s\\n' '{vacuous}';;\n  *) exit 3;;\nesac\n",
             calls = calls.display(),
+            vacuous = FAKE_IMPLIES_VACUOUS,
         ),
     );
     let definition = directory.join("definition.kore");
@@ -7238,6 +8183,18 @@ fn execution_comparator_never_asks_the_port_simplifier_to_drop_disjuncts() {
     )
     .expect_err("a reference the port's simplifier calls \\bottom is still compared as it is");
     assert!(error.contains("unpaired"), "{error}");
+    let error = compare_execution_modulo_implication(
+        &pattern(
+            r#"\and{S{}}(t{}(\dv{Int{}}("1")), \equals{Bool{}, S{}}(\dv{Bool{}}("true"), c{}()))"#,
+        ),
+        &pattern(
+            r#"\and{S{}}(t{}(\dv{Int{}}("1")), \equals{Bool{}, S{}}(\dv{Bool{}}("true"), d{}()))"#,
+        ),
+        Some(oracle),
+        "TEST",
+    )
+    .expect_err("constraints the port's implication check calls empty are still compared");
+    assert!(error.contains("disjunct empty"), "{error}");
     let calls = fs::read_to_string(&calls).unwrap_or_default();
     assert!(
         !calls.contains("kore-simplify"),
@@ -8119,12 +9076,39 @@ fn flatten_collection(symbol: &Symbol, mut pattern: Pattern, output: &mut Vec<Pa
     }
 }
 
+/// What a passing execution comparison rests on beyond structural equality.
+///
+/// A structural match of two normalized results is evidence that does not depend on the port.
+/// A pair whose constraints are equal only because `krust kore-implies` proves both implications
+/// (N15) rests on the port's own simplifier, definedness reasoning and SMT encoding, the same code
+/// whose results are being compared, so it is supplementary evidence (docs/testing.md,
+/// "Comparator evidence"). The comparison counts such pairs so a gate or the conformance driver
+/// can tell the two kinds of pass apart.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+struct ComparisonEvidence {
+    /// N15: paired disjuncts whose constraints are equal only by `krust kore-implies`.
+    implication_pairs: usize,
+}
+
+/// The prefix of the line `executed_kore_matches_the_reference_backend` prints after a pass that
+/// rests on N15, followed by the number of such pairs; `scripts/conformance/run.py` reads it to
+/// label the step.
+const IMPLICATION_SUMMARY_PREFIX: &str = "N15 summary: ";
+
+/// The result of an any-strategy membership comparison (N26).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct AnyMembership {
+    /// Reference disjuncts no port disjunct paired with.
+    unpaired_reference: usize,
+    evidence: ComparisonEvidence,
+}
+
 fn compare_execution_modulo_implication(
     reference: &Pattern,
     actual: &Pattern,
     oracle: Option<ImplicationOracle>,
     module: &str,
-) -> Result<(), String> {
+) -> Result<ComparisonEvidence, String> {
     compare_execution_disjuncts(reference, actual, oracle, module, None)
 }
 
@@ -8134,7 +9118,7 @@ fn compare_execution_modulo_gotstuck(
     stop_leaves: &Pattern,
     oracle: Option<ImplicationOracle>,
     module: &str,
-) -> Result<(), String> {
+) -> Result<ComparisonEvidence, String> {
     compare_execution_disjuncts(reference, actual, oracle, module, Some(stop_leaves))
 }
 
@@ -8144,20 +9128,20 @@ fn compare_execution_disjuncts(
     oracle: Option<ImplicationOracle>,
     module: &str,
     expected_unpaired_actual: Option<&Pattern>,
-) -> Result<(), String> {
+) -> Result<ComparisonEvidence, String> {
     if reference == actual {
         return match expected_unpaired_actual {
             Some(stop_leaves) if !is_empty_disjunction(stop_leaves) => Err(
                 "oracle exception no longer needed: no GotStuck leaves are missing from the reference"
                     .into(),
             ),
-            _ => Ok(()),
+            _ => Ok(ComparisonEvidence::default()),
         };
     }
 
     let reference_disjuncts = execution_disjuncts(reference);
     let actual_disjuncts = execution_disjuncts(actual);
-    let paired_actual = pair_disjuncts(
+    let (paired_actual, evidence) = pair_disjuncts(
         &reference_disjuncts,
         &actual_disjuncts,
         PairingDriver::Reference,
@@ -8194,33 +9178,36 @@ fn compare_execution_disjuncts(
         let (term, _) = split_constrained(disjunct);
         return Err(format!("unpaired disjunct: {term}"));
     }
-    Ok(())
+    Ok(evidence)
 }
 
 /// N26: every port disjunct pairs with a distinct reference disjunct (term equal, constraints
 /// equal under N4/N15); reference disjuncts may stay unpaired. Used for any-strategy runs, whose
 /// result is one member (a concrete run) or a sub-multiset (a symbolic run, where successive
 /// remainders can apply further rules) of the reference all-strategy result set. Returns the
-/// number of reference disjuncts left unpaired.
+/// number of reference disjuncts left unpaired and what the pairs rest on.
 fn compare_execution_any_membership(
     reference: &Pattern,
     actual: &Pattern,
     oracle: Option<ImplicationOracle>,
     module: &str,
-) -> Result<usize, String> {
+) -> Result<AnyMembership, String> {
     let reference_disjuncts = execution_disjuncts(reference);
     let actual_disjuncts = execution_disjuncts(actual);
     if actual_disjuncts.is_empty() {
         return Err("any-strategy result is empty".into());
     }
-    let paired_reference = pair_disjuncts(
+    let (paired_reference, evidence) = pair_disjuncts(
         &actual_disjuncts,
         &reference_disjuncts,
         PairingDriver::Actual,
         oracle,
         module,
     )?;
-    Ok(paired_reference.iter().filter(|paired| !**paired).count())
+    Ok(AnyMembership {
+        unpaired_reference: paired_reference.iter().filter(|paired| !**paired).count(),
+        evidence,
+    })
 }
 
 /// Which side drives a pairing: every driving disjunct needs a partner in the other side's pool.
@@ -8232,16 +9219,17 @@ enum PairingDriver {
 
 /// Pair every driving disjunct with a distinct pool disjunct whose term is equal and whose
 /// constraints compare equal under `compare_paired_constraints` (N4, N15), in driving order,
-/// taking the first unpaired pool candidate. Returns which pool disjuncts were paired; the first
-/// driving disjunct without a partner fails.
+/// taking the first unpaired pool candidate. Returns which pool disjuncts were paired and what the
+/// pairs rest on; the first driving disjunct without a partner fails.
 fn pair_disjuncts(
     driving: &[&Pattern],
     pool: &[&Pattern],
     driver: PairingDriver,
     oracle: Option<ImplicationOracle>,
     module: &str,
-) -> Result<Vec<bool>, String> {
+) -> Result<(Vec<bool>, ComparisonEvidence), String> {
     let mut paired = vec![false; pool.len()];
+    let mut evidence = ComparisonEvidence::default();
     for driving_disjunct in driving {
         let (driving_term, _) = split_constrained(driving_disjunct);
         let Some((pool_index, pool_disjunct)) =
@@ -8271,15 +9259,27 @@ fn pair_disjuncts(
         };
         let (_, mut reference_constraints) = split_constrained(reference_disjunct);
         reference_constraints.sort();
-        compare_paired_constraints(
+        match compare_paired_constraints(
             reference_disjunct,
             &reference_constraints,
             actual_disjunct,
             oracle,
             module,
-        )?;
+        )? {
+            PairEvidence::Structural => {}
+            PairEvidence::Implication => evidence.implication_pairs += 1,
+        }
     }
-    Ok(paired)
+    Ok((paired, evidence))
+}
+
+/// Why the constraints of a term-equal pair compared equal.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum PairEvidence {
+    /// Equal as normalized patterns, up to a renaming of constraint-only variables (N4).
+    Structural,
+    /// Equal only because `krust kore-implies` proves both implications (N15).
+    Implication,
 }
 
 /// Compare the constraints of two disjuncts whose terms paired.
@@ -8291,14 +9291,15 @@ fn pair_disjuncts(
 /// of a set concatenation against `\not(true = in(...))`). So the constraint sets are compared
 /// modulo a bijection of those variables within each sort: structurally first, then through the
 /// implication oracle (N15), identity first. The search is bounded; a larger group reports the
-/// identity failure.
+/// identity failure. A pair that only the implication oracle equates is printed with the N15
+/// label, since that equivalence is the port's own judgement.
 fn compare_paired_constraints(
     reference_disjunct: &Pattern,
     reference_constraints: &[Pattern],
     actual_disjunct: &Pattern,
     oracle: Option<ImplicationOracle>,
     module: &str,
-) -> Result<(), String> {
+) -> Result<PairEvidence, String> {
     let (actual_term, _) = split_constrained(actual_disjunct);
     let mut candidates = vec![actual_disjunct.clone()];
     for renaming in constraint_variable_renamings(reference_disjunct, actual_disjunct, actual_term)
@@ -8317,7 +9318,7 @@ fn compare_paired_constraints(
         let (_, mut candidate_constraints) = split_constrained(candidate);
         candidate_constraints.sort();
         if reference_constraints == candidate_constraints.as_slice() {
-            return Ok(());
+            return Ok(PairEvidence::Structural);
         }
     }
     let Some(oracle) = oracle else {
@@ -8329,11 +9330,32 @@ fn compare_paired_constraints(
     let mut last_error = None;
     for candidate in &candidates {
         match prove_implication_both_ways(oracle, reference_disjunct, candidate, module) {
-            Ok(()) => return Ok(()),
+            Ok(()) => {
+                let (term, _) = split_constrained(reference_disjunct);
+                let (_, candidate_constraints) = split_constrained(candidate);
+                println!(
+                    "N15: constraints of paired disjunct {term} equal only by krust kore-implies in both directions\n  reference: {}\n  actual: {}",
+                    constraint_list(reference_constraints),
+                    constraint_list(&candidate_constraints)
+                );
+                return Ok(PairEvidence::Implication);
+            }
             Err(error) => last_error = Some(error),
         }
     }
     Err(last_error.expect("the identity candidate is always tried"))
+}
+
+/// The constraints of a disjunct as one line, `\top` for none.
+fn constraint_list(constraints: &[Pattern]) -> String {
+    if constraints.is_empty() {
+        return r"\top".into();
+    }
+    constraints
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 const CONSTRAINT_RENAMING_LIMIT: usize = 24;
@@ -8746,22 +9768,73 @@ fn reference_finds_no_instance(
     result
 }
 
+/// N15: whether the term-equal disjuncts `reference` and `actual` denote the same configurations,
+/// by `krust kore-implies` in both directions.
+///
+/// A direction holds when every instance of its antecedent is an instance of its consequent.
+/// When `krust` answers `valid` only because it found the antecedent empty, it has not compared
+/// the two constraint sets at all: it has judged that a disjunct denotes no configuration, which
+/// is the decision no gate comparison leaves to the port (docs/testing.md, "Comparator
+/// evidence"). Such a direction holds only when the reference's own search finds no instance of
+/// that antecedent either (N48), and the pass is then printed with the N48 label. Without a
+/// reference `kore-exec` it fails.
 fn prove_implication_both_ways(
     oracle: ImplicationOracle,
     reference: &Pattern,
     actual: &Pattern,
     module: &str,
 ) -> Result<(), String> {
-    prove_implication_both_ways_with(oracle.krust, reference, actual, oracle.definition, module)
+    let answers = prove_implication_both_ways_with(
+        oracle.krust,
+        reference,
+        actual,
+        oracle.definition,
+        module,
+    )?;
+    let mut confirmed_empty = Vec::new();
+    for (answer, antecedent, side, direction) in [
+        (answers[0], reference, "reference", "reference => actual"),
+        (answers[1], actual, "port", "actual => reference"),
+    ] {
+        if answer == ImplicationAnswer::Holds {
+            continue;
+        }
+        let (term, _) = split_constrained(antecedent);
+        if !reference_finds_no_instance(Some(oracle), antecedent, module)? {
+            return Err(format!(
+                "constraint implication {direction} is valid only because krust kore-implies finds the {side} disjunct empty, which the reference search does not confirm: {term}\n  {side}: {antecedent}"
+            ));
+        }
+        confirmed_empty.push(format!(
+            "N48: the reference search finds no instance of the {side} disjunct that krust kore-implies found empty: {term}"
+        ));
+    }
+    for line in confirmed_empty {
+        println!("{line}");
+    }
+    Ok(())
 }
 
+/// What `krust kore-implies` established when it answered `valid`.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ImplicationAnswer {
+    /// Every instance of the antecedent is an instance of the consequent: the answer's condition
+    /// predicate is `\top`.
+    Holds,
+    /// The antecedent has no instance, by the port's own judgement: the condition predicate is
+    /// `\bottom`. The consequent was not compared with it.
+    AntecedentEmpty,
+}
+
+/// Both directions of `krust kore-implies` between `reference` and `actual`, each required to be
+/// `valid`: `[reference => actual, actual => reference]`.
 fn prove_implication_both_ways_with(
     krust: &Path,
     reference: &Pattern,
     actual: &Pattern,
     definition: &Path,
     module: &str,
-) -> Result<(), String> {
+) -> Result<[ImplicationAnswer; 2], String> {
     let nonce = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|error| format!("system clock before Unix epoch: {error}"))?
@@ -8779,27 +9852,33 @@ fn prove_implication_both_ways_with(
         .map_err(|error| format!("write actual implication pattern: {error}"))?;
 
     let result = (|| {
-        prove_implication(
-            krust,
-            &reference_path,
-            &actual_path,
-            definition,
-            module,
-            "reference => actual",
-        )?;
-        prove_implication(
-            krust,
-            &actual_path,
-            &reference_path,
-            definition,
-            module,
-            "actual => reference",
-        )
+        Ok([
+            prove_implication(
+                krust,
+                &reference_path,
+                &actual_path,
+                definition,
+                module,
+                "reference => actual",
+            )?,
+            prove_implication(
+                krust,
+                &actual_path,
+                &reference_path,
+                definition,
+                module,
+                "actual => reference",
+            )?,
+        ])
     })();
     let _ = fs::remove_dir_all(directory);
     result
 }
 
+/// One direction of `krust kore-implies`, required to be `valid`. The answer's condition tells a
+/// match that covers every instance of the antecedent (predicate `\top`) from an antecedent the
+/// port found empty (predicate `\bottom`); a `valid` answer whose condition says neither cannot be
+/// read as either, so it fails rather than being taken as a match.
 fn prove_implication(
     krust: &Path,
     antecedent: &Path,
@@ -8807,7 +9886,7 @@ fn prove_implication(
     definition: &Path,
     module: &str,
     direction: &str,
-) -> Result<(), String> {
+) -> Result<ImplicationAnswer, String> {
     let output = output_of(
         Command::new(krust)
             .arg("kore-implies")
@@ -8832,15 +9911,30 @@ fn prove_implication(
             String::from_utf8_lossy(&output.stdout)
         )
     })?;
+    let read_sides = || {
+        (
+            fs::read_to_string(antecedent).unwrap_or_default(),
+            fs::read_to_string(consequent).unwrap_or_default(),
+        )
+    };
     if response["status"] != "valid" {
-        let antecedent = fs::read_to_string(antecedent).unwrap_or_default();
-        let consequent = fs::read_to_string(consequent).unwrap_or_default();
+        let (antecedent, consequent) = read_sides();
         return Err(format!(
             "constraint implication {direction} is not valid (status {}):\n  antecedent: {antecedent}\n  consequent: {consequent}",
             response["status"]
         ));
     }
-    Ok(())
+    let predicate = &response["condition"]["predicate"]["term"]["tag"];
+    match predicate.as_str() {
+        Some("Top") => Ok(ImplicationAnswer::Holds),
+        Some("Bottom") => Ok(ImplicationAnswer::AntecedentEmpty),
+        _ => {
+            let (antecedent, consequent) = read_sides();
+            Err(format!(
+                "constraint implication {direction} is valid, but its condition predicate ({predicate}) says neither that every antecedent instance is covered nor that the antecedent is empty:\n  antecedent: {antecedent}\n  consequent: {consequent}"
+            ))
+        }
+    }
 }
 
 /// Writes `text` to `path` as a program its owner may execute.

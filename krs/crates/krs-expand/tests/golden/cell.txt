@@ -17,6 +17,14 @@ impl Store {
     pub fn __krs_configuration_sort___krs_cell_type_221054d221a44a51_0() -> ::core::any::TypeId {
         ::core::any::TypeId::of::<k::builtin::Map>()
     }
+    #[doc(hidden)]
+    pub fn __krs_configuration_sort_argument___krs_cell_type_221054d221a44a51_0() -> ::core::any::TypeId {
+        ::core::any::TypeId::of::<k::builtin::Id>()
+    }
+    #[doc(hidden)]
+    pub fn __krs_configuration_sort_argument___krs_cell_type_221054d221a44a51_1() -> ::core::any::TypeId {
+        ::core::any::TypeId::of::<::k::Term<dyn ValueSort>>()
+    }
 }
 #[doc(hidden)]
 fn __krs_cell_type_221054d221a44a51() -> ::core::any::TypeId {
@@ -53,9 +61,15 @@ fn __krs_cell_descriptor_221054d221a44a51() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"cell\":{\"key\":{\"role\":\"configuration_declaration\",\"ordinal\":0},\"fields\":[{\"reference\":{\"key\":{\"role\":\"configuration_field\",\"ordinal\":0},\"cell\":{\"owner\":1,\"field\":2}},\"rust_field\":\"env\",\"emitted_name\":null,\"color\":null,\"multiplicity\":null,\"cell_type\":null,\"content\":{\"content_kind\":\"leaf\",\"wrapper_key\":{\"role\":\"configuration_cell_wrapper\",\"ordinal\":0},\"wrapper\":\"cell\",\"sort\":{\"key\":{\"role\":\"configuration_cell_content\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"k :: builtin :: Map\"}}}}]}}",
+            "{\"cell\":{\"key\":{\"role\":\"configuration_declaration\",\"ordinal\":0},\"fields\":[{\"reference\":{\"key\":{\"role\":\"configuration_field\",\"ordinal\":0},\"cell\":{\"owner\":3,\"field\":4}},\"rust_field\":\"env\",\"emitted_name\":null,\"color\":null,\"multiplicity\":null,\"cell_type\":null,\"content\":{\"content_kind\":\"leaf\",\"wrapper_key\":{\"role\":\"configuration_cell_wrapper\",\"ordinal\":0},\"wrapper\":\"cell\",\"sort\":{\"key\":{\"role\":\"configuration_cell_content\",\"ordinal\":0},\"target\":{\"slot\":2,\"authored_path\":\"k :: builtin :: Map\"}},\"arguments\":[{\"sort\":{\"key\":{\"role\":\"configuration_cell_content_argument\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"k :: builtin :: Id\"}}},{\"sort\":{\"key\":{\"role\":\"configuration_cell_content_argument\",\"ordinal\":1},\"target\":{\"slot\":1,\"authored_path\":\"ValueSort\"}}}]}}]}}",
             ::k::__KrsSlots {
                 types: &[
+                    ::k::HostTypeKey(
+                        Store::__krs_configuration_sort_argument___krs_cell_type_221054d221a44a51_0,
+                    ),
+                    ::k::HostTypeKey(
+                        Store::__krs_configuration_sort_argument___krs_cell_type_221054d221a44a51_1,
+                    ),
                     ::k::HostTypeKey(
                         Store::__krs_configuration_sort___krs_cell_type_221054d221a44a51_0,
                     ),
@@ -116,6 +130,28 @@ fn __krs_cell_descriptor_221054d221a44a51() -> ::core::result::Result<
                             false,
                             (5u32, 9u32),
                             (5u32, 61u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConfigurationCellContentArgument,
+                        0u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 25u32),
+                            (5u32, 39u32),
+                            true,
+                        ),
+                    ),
+                    (
+                        ::k::ProvenanceRole::ConfigurationCellContentArgument,
+                        1u32,
+                        ::k::__KrsRawAnchor::new(
+                            0usize,
+                            false,
+                            (5u32, 50u32),
+                            (5u32, 59u32),
                             true,
                         ),
                     ),

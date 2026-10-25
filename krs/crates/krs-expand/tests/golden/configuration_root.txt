@@ -27,6 +27,14 @@ impl Machine {
     pub fn __krs_configuration_sort___krs_configuration_type_5b18fbd0ea8f5bd3_1() -> ::core::any::TypeId {
         ::core::any::TypeId::of::<k::builtin::Map>()
     }
+    #[doc(hidden)]
+    pub fn __krs_configuration_sort_argument___krs_configuration_type_5b18fbd0ea8f5bd3_0() -> ::core::any::TypeId {
+        ::core::any::TypeId::of::<k::builtin::Id>()
+    }
+    #[doc(hidden)]
+    pub fn __krs_configuration_sort_argument___krs_configuration_type_5b18fbd0ea8f5bd3_1() -> ::core::any::TypeId {
+        ::core::any::TypeId::of::<::k::Term<dyn ValueSort>>()
+    }
 }
 #[doc(hidden)]
 fn __krs_configuration_type_5b18fbd0ea8f5bd3() -> ::core::any::TypeId {
@@ -37,6 +45,8 @@ fn __krs_configuration_descriptor_5b18fbd0ea8f5bd3() -> ::core::result::Result<
     ::k::HostDescriptor,
     ::k::HostProvenanceError,
 > {
+    #[allow(unused_imports)]
+    use ::k::configuration::__KrsInitializerFallback as _;
     let (initializer, initializer_slots, initializer_provenance) = Machine::__krs_initializer_payload()?;
     ::core::result::Result::Ok(::k::HostDescriptor {
         protocol_version: ::k::SchemaVersion::CURRENT,
@@ -63,6 +73,12 @@ fn __krs_configuration_descriptor_5b18fbd0ea8f5bd3() -> ::core::result::Result<
                 ::k::HostTypeKey(__krs_configuration_type_5b18fbd0ea8f5bd3),
                 ::k::HostTypeKey(Machine::__krs_cell_field_type_id_k),
                 ::k::HostTypeKey(
+                    Machine::__krs_configuration_sort_argument___krs_configuration_type_5b18fbd0ea8f5bd3_0,
+                ),
+                ::k::HostTypeKey(
+                    Machine::__krs_configuration_sort_argument___krs_configuration_type_5b18fbd0ea8f5bd3_1,
+                ),
+                ::k::HostTypeKey(
                     Machine::__krs_configuration_sort___krs_configuration_type_5b18fbd0ea8f5bd3_1,
                 ),
                 ::k::HostTypeKey(Machine::__krs_cell_field_type_id_env),
@@ -71,7 +87,7 @@ fn __krs_configuration_descriptor_5b18fbd0ea8f5bd3() -> ::core::result::Result<
             targets: &[],
         })
             .__krs_fixed_configuration(
-                "[{\"root_kind\":\"named\",\"key\":{\"role\":\"configuration_root\",\"ordinal\":0},\"name\":\"machine\"},{\"key\":{\"role\":\"configuration_declaration\",\"ordinal\":0},\"fields\":[{\"reference\":{\"key\":{\"role\":\"configuration_field\",\"ordinal\":0},\"cell\":{\"owner\":1,\"field\":2}},\"rust_field\":\"k\",\"emitted_name\":null,\"color\":null,\"multiplicity\":null,\"cell_type\":null,\"content\":{\"content_kind\":\"leaf\",\"wrapper_key\":{\"role\":\"configuration_cell_wrapper\",\"ordinal\":0},\"wrapper\":\"k_cell\",\"sort\":{\"key\":{\"role\":\"configuration_cell_content\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"k :: builtin :: KSequence\"}}}},{\"reference\":{\"key\":{\"role\":\"configuration_field\",\"ordinal\":1},\"cell\":{\"owner\":1,\"field\":4}},\"rust_field\":\"env\",\"emitted_name\":{\"key\":{\"role\":\"configuration_cell_name\",\"ordinal\":1},\"value\":\"environment\"},\"color\":{\"key\":{\"role\":\"configuration_cell_color\",\"ordinal\":1},\"value\":\"blue\"},\"multiplicity\":null,\"cell_type\":null,\"content\":{\"content_kind\":\"leaf\",\"wrapper_key\":{\"role\":\"configuration_cell_wrapper\",\"ordinal\":1},\"wrapper\":\"cell\",\"sort\":{\"key\":{\"role\":\"configuration_cell_content\",\"ordinal\":1},\"target\":{\"slot\":3,\"authored_path\":\"k :: builtin :: Map\"}}}}]}]",
+                "[{\"root_kind\":\"named\",\"key\":{\"role\":\"configuration_root\",\"ordinal\":0},\"name\":\"machine\"},{\"key\":{\"role\":\"configuration_declaration\",\"ordinal\":0},\"fields\":[{\"reference\":{\"key\":{\"role\":\"configuration_field\",\"ordinal\":0},\"cell\":{\"owner\":1,\"field\":2}},\"rust_field\":\"k\",\"emitted_name\":null,\"color\":null,\"multiplicity\":null,\"cell_type\":null,\"content\":{\"content_kind\":\"leaf\",\"wrapper_key\":{\"role\":\"configuration_cell_wrapper\",\"ordinal\":0},\"wrapper\":\"k_cell\",\"sort\":{\"key\":{\"role\":\"configuration_cell_content\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"k :: builtin :: KSequence\"}}}},{\"reference\":{\"key\":{\"role\":\"configuration_field\",\"ordinal\":1},\"cell\":{\"owner\":1,\"field\":6}},\"rust_field\":\"env\",\"emitted_name\":{\"key\":{\"role\":\"configuration_cell_name\",\"ordinal\":1},\"value\":\"environment\"},\"color\":{\"key\":{\"role\":\"configuration_cell_color\",\"ordinal\":1},\"value\":\"blue\"},\"multiplicity\":null,\"cell_type\":null,\"content\":{\"content_kind\":\"leaf\",\"wrapper_key\":{\"role\":\"configuration_cell_wrapper\",\"ordinal\":1},\"wrapper\":\"cell\",\"sort\":{\"key\":{\"role\":\"configuration_cell_content\",\"ordinal\":1},\"target\":{\"slot\":5,\"authored_path\":\"k :: builtin :: Map\"}},\"arguments\":[{\"sort\":{\"key\":{\"role\":\"configuration_cell_content_argument\",\"ordinal\":0},\"target\":{\"slot\":3,\"authored_path\":\"k :: builtin :: Id\"}}},{\"sort\":{\"key\":{\"role\":\"configuration_cell_content_argument\",\"ordinal\":1},\"target\":{\"slot\":4,\"authored_path\":\"ValueSort\"}}}]}}]}]",
                 initializer,
                 initializer_slots,
             ),
@@ -180,6 +196,28 @@ fn __krs_configuration_descriptor_5b18fbd0ea8f5bd3() -> ::core::result::Result<
                                 false,
                                 (7u32, 9u32),
                                 (7u32, 61u32),
+                                true,
+                            ),
+                        ),
+                        (
+                            ::k::ProvenanceRole::ConfigurationCellContentArgument,
+                            0u32,
+                            ::k::__KrsRawAnchor::new(
+                                0usize,
+                                false,
+                                (7u32, 25u32),
+                                (7u32, 39u32),
+                                true,
+                            ),
+                        ),
+                        (
+                            ::k::ProvenanceRole::ConfigurationCellContentArgument,
+                            1u32,
+                            ::k::__KrsRawAnchor::new(
+                                0usize,
+                                false,
+                                (7u32, 50u32),
+                                (7u32, 59u32),
                                 true,
                             ),
                         ),

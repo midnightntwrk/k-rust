@@ -17,8 +17,9 @@ use sha2::{Digest, Sha256};
 
 use crate::{
     builtin::embedded,
-    definition::{AttributeKey, Definition, Sentence, json as definition_json},
+    definition::{Definition, json as definition_json},
     kast::Sort,
+    kompile::{retain_pattern_sentences, retain_runtime_frontend_sentences},
     outer::{ResolvedSource, SourceResolver, normalize_virtual_path},
     provenance::SourceTable,
 };
@@ -114,19 +115,10 @@ pub fn write_runnable_artifact(
     definition_kore: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     unpublish_runnable_artifact(directory)?;
-    // Execution consumes semantic rules from definition.kore. The transformed definition serves
-    // only command-line pattern compilation, whose catalogs need syntax sentences and macro-like
-    // rules. Removing the other generated sentences avoids serializing the large compiled rule set
-    // a second time. The source frontend keeps ordinary rules because macro attributes can be
-    // propagated from their head productions when a concrete program is expanded.
+    // Both payloads hold only what the runtime reads; removing the other generated sentences
+    // avoids serializing the large compiled rule set a second time.
     let mut runtime_frontend = frontend_definition.clone();
-    for module in &mut runtime_frontend.modules {
-        // Context aliases have already affected the transformed execution definition and KORE.
-        // The runtime parser does not consume them, so omit them from its pruned frontend payload.
-        module
-            .local_sentences
-            .retain(|sentence| !matches!(&**sentence, Sentence::ContextAlias { .. }));
-    }
+    retain_runtime_frontend_sentences(&mut runtime_frontend);
     let mut runtime_execution = execution_definition.clone();
     retain_pattern_sentences(&mut runtime_execution);
     let frontend = definition_json::to_provenance_string(&runtime_frontend, source_table)?;
@@ -157,26 +149,6 @@ pub fn write_runnable_artifact(
     let manifest = k_rust_kore::json_tree::to_vec_pretty(&manifest)?;
     write_atomic(&directory.join(RUNTIME_MANIFEST), &manifest)?;
     Ok(())
-}
-
-fn retain_pattern_sentences(definition: &mut Definition) {
-    for module in &mut definition.modules {
-        module.local_sentences.retain(|sentence| {
-            matches!(
-                &**sentence,
-                Sentence::SyntaxSort { .. }
-                    | Sentence::SortSynonym { .. }
-                    | Sentence::SyntaxLexical { .. }
-                    | Sentence::Production { .. }
-                    | Sentence::SyntaxAssociativity { .. }
-                    | Sentence::SyntaxPriority { .. }
-            ) || matches!(
-                &**sentence,
-                Sentence::Rule { attributes, .. }
-                    if attributes.has_any(&AttributeKey::MACRO_LIKE)
-            )
-        });
-    }
 }
 
 /// Load and validate a runnable compiled directory without consulting source files.
@@ -262,6 +234,50 @@ pub fn load_runnable_artifact(
         })?,
     })
 }
+
+/// The KORE files a compiled directory carries beside its runnable artifact, which a host that
+/// prints and reads back values of the definition's sorts needs and `krust krun` does not.
+#[derive(Clone, Debug)]
+pub struct KoreCompanions {
+    /// `syntaxDefinition.kore`: the productions with their formats.
+    pub syntax_definition_kore: String,
+    /// `macros.kore`: the macro rules a K text is expanded with when it is read.
+    pub macros_kore: String,
+}
+
+/// Read `syntaxDefinition.kore` and `macros.kore` of a compiled directory whose runnable artifact
+/// [`load_runnable_artifact`] loads.
+///
+/// The runtime manifest does not pin these files by digest. `krust kcompile` removes the
+/// manifest before it writes any file and publishes it after them, so a published manifest
+/// names a directory whose two files the same compilation wrote, unless they were changed by
+/// hand afterwards.
+pub fn load_kore_companions(
+    directory: &Path,
+) -> Result<KoreCompanions, Box<dyn std::error::Error>> {
+    let read = |name: &str| -> Result<String, Box<dyn std::error::Error>> {
+        let path = directory.join(name);
+        let bytes = fs::read(&path).map_err(|error| {
+            io::Error::new(
+                error.kind(),
+                format!(
+                    "compiled file `{}` is missing or unreadable: {error}; {RECOMPILE_REMEDY}",
+                    path.display()
+                ),
+            )
+        })?;
+        String::from_utf8(bytes)
+            .map_err(|error| corrupt_payload_error(name, error, RECOMPILE_REMEDY).into())
+    };
+    Ok(KoreCompanions {
+        syntax_definition_kore: read("syntaxDefinition.kore")?,
+        macros_kore: read("macros.kore")?,
+    })
+}
+
+/// The environment variable in which `krust fuzz` passes [`crate::build_identity`] to the
+/// `krust-fuzz` executable it runs.
+pub const FUZZ_PARENT_BUILD_ENV: &str = "KRUST_FUZZ_PARENT_BUILD";
 
 fn payload_identity(file: &str, bytes: &[u8]) -> PayloadIdentity {
     PayloadIdentity {

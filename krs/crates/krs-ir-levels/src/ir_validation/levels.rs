@@ -26,6 +26,7 @@ macro_rules! validation_error {
             }
             ValidationError::ParameterSortInTerm => $public::ParameterSortInTerm,
             ValidationError::CellFrameBindingMismatch(id) => $public::CellFrameBindingMismatch(id),
+            ValidationError::CellContentSortMismatch => $public::CellContentSortMismatch,
             ValidationError::CellFrameSortMismatch => $public::CellFrameSortMismatch,
             ValidationError::ContextAliasFrameSortMismatch => {
                 $public::ContextAliasFrameSortMismatch
@@ -55,6 +56,7 @@ macro_rules! validation_error {
                 $public::ExistentialScopeViolation(id)
             }
             ValidationError::InitializerLeafSortMismatch => $public::InitializerLeafSortMismatch,
+            ValidationError::CellArgumentArity => $public::CellArgumentArity,
             ValidationError::InitializerTreeMismatch => $public::InitializerTreeMismatch,
             ValidationError::InvalidAliasProduction => $public::InvalidAliasProduction,
             ValidationError::InvalidAliasRoot(id) => $public::InvalidAliasRoot($identity(id)),
@@ -109,6 +111,8 @@ macro_rules! validation_error {
             ValidationError::RewriteSortMismatch => $public::RewriteSortMismatch,
             ValidationError::InvalidPatternAs => $public::InvalidPatternAs,
             ValidationError::InvalidPatternOr => $public::InvalidPatternOr,
+            ValidationError::PatternAsSortMismatch => $public::PatternAsSortMismatch,
+            ValidationError::PatternOrSortMismatch => $public::PatternOrSortMismatch,
             ValidationError::InvalidMatches => $public::InvalidMatches,
             ValidationError::InvalidLet => $public::InvalidLet,
             ValidationError::InvalidMlPredicate => $public::InvalidMlPredicate,

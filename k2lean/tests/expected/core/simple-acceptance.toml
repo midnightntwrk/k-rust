@@ -1,0 +1,248 @@
+[[case]]
+name = "collatz"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "1461 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "div-nondet"
+mode = "search"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "via lean (equal configurations)"
+detail = "126 states, 3 final, krust 3, krust"s among ours: true, same set: true, complete: true, 11 ms"
+
+[[case]]
+name = "factorial"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "313 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "higher-order"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "3873 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "matrix"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "fail"
+krust_vs_out = "krust: error: captured output requires exactly one execution leaf, unconstrained and with exactly one stdout stream buffer; fou"
+detail = "49 steps, undefined step (rule STDIN-STREAM.stdinParseInt), equal to krust: false, 0 ms"
+
+[[case]]
+name = "sortings"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "9072 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "exceptions_01"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "96 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "exceptions_02"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "76 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "exceptions_03"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "85 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "exceptions_04"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "93 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "exceptions_05"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "344 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "exceptions_06"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "323 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "exceptions_07"
+mode = "search"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "via lean (equal configurations)"
+detail = "121 states, 2 final, krust 2, krust"s among ours: true, same set: true, complete: true, 14 ms"
+
+[[case]]
+name = "exceptions_08"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "168 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "exceptions_09"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "110 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "exceptions_10"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "53 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "exceptions_11"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "180 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "exceptions_12"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "161 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "exceptions_13"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "48 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "exceptions_14"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "27 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "exceptions_15"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "45 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "threads_01"
+mode = "search"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "via lean (equal configurations)"
+detail = "288 states, 2 final, krust 2, krust"s among ours: true, same set: true, complete: true, 45 ms"
+
+[[case]]
+name = "threads_02"
+mode = "search"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "via lean (equal configurations)"
+detail = "457 states, 3 final, krust 3, krust"s among ours: true, same set: true, complete: true, 87 ms"
+
+[[case]]
+name = "threads_04"
+mode = "search"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "via lean (equal configurations)"
+detail = "9546 states, 8 final, krust 8, krust"s among ours: true, same set: true, complete: true, 4199 ms"
+
+[[case]]
+name = "threads_05"
+mode = "search"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "via lean (equal configurations)"
+detail = "2568 states, 5 final, krust 5, krust"s among ours: true, same set: true, complete: false, 1153 ms"
+
+[[case]]
+name = "threads_06"
+mode = "search"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "via lean (equal configurations)"
+detail = "11237 states, 4 final, krust 4, krust"s among ours: true, same set: true, complete: true, 8211 ms"
+
+[[case]]
+name = "threads_07"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "115 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "threads_09"
+mode = "search"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "via lean (equal configurations)"
+detail = "837 states, 2 final, krust 2, krust"s among ours: true, same set: true, complete: true, 220 ms"
+
+[[case]]
+name = "threads_10"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "83 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "threads_11"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "113 steps, stuck, equal to krust: true, 0 ms"
+
+[[case]]
+name = "threads_12"
+mode = "run"
+lean_vs_krust = "pass"
+lean_vs_out = "pass"
+krust_vs_out = "pass"
+detail = "731 steps, stuck, equal to krust: true, 0 ms"
+

@@ -844,6 +844,8 @@ impl AlphaComparable for AppliedRule {
             pattern: self.pattern.rename_alpha(context)?,
             label: self.label.clone(),
             unique_id: self.unique_id.clone(),
+            identity: self.identity.clone(),
+            premises_depend: self.premises_depend,
             substitution: rename_substitution(&self.substitution, context),
             rule_substitution: rename_substitution(&self.rule_substitution, context),
             rule_predicates: rename_predicates(&self.rule_predicates, context),
@@ -1493,6 +1495,9 @@ impl AlphaComparable for ExecutionResult {
         if self.stack_stops != other.stack_stops {
             return Err("execution stack-stop counts differ".into());
         }
+        if self.smt_unknowns != other.smt_unknowns {
+            return Err("execution undecided-answer counts differ".into());
+        }
         if self.stopped != other.stopped {
             return Err("execution stop causes differ".into());
         }
@@ -1505,6 +1510,17 @@ impl AlphaComparable for ExecutionResult {
         // Coverage names axioms, not variables.
         if self.coverage != other.coverage {
             return Err("execution coverage differs".into());
+        }
+        // Marks name hooks and classes, not variables.
+        if self.implementation_chosen_values != other.implementation_chosen_values {
+            return Err("execution marks differ".into());
+        }
+        // A record's terms are compared as written: a ground one names no variable.
+        if self.contradicted_claims != other.contradicted_claims
+            || self.allowance_refusals != other.allowance_refusals
+            || self.unsupported_hooks != other.unsupported_hooks
+        {
+            return Err("execution run-level records differ".into());
         }
         Ok(())
     }
@@ -1519,7 +1535,12 @@ impl AlphaComparable for ExecutionResult {
             work: self.work,
             expanded: self.expanded,
             stack_stops: self.stack_stops,
+            smt_unknowns: self.smt_unknowns,
             stopped: self.stopped.clone(),
+            implementation_chosen_values: self.implementation_chosen_values.clone(),
+            contradicted_claims: self.contradicted_claims.clone(),
+            allowance_refusals: self.allowance_refusals.clone(),
+            unsupported_hooks: self.unsupported_hooks.clone(),
         })
     }
 }
@@ -1568,7 +1589,12 @@ fn result_with_transition(name: &str) -> ExecutionResult {
         work: 0,
         expanded: 0,
         stack_stops: 0,
+        smt_unknowns: 0,
         stopped: None,
+        implementation_chosen_values: Vec::new(),
+        contradicted_claims: Vec::new(),
+        allowance_refusals: Vec::new(),
+        unsupported_hooks: Vec::new(),
         modality: crate::search::ResultModality::StateSet,
         leaves: vec![ExecutionLeaf {
             pattern: after.clone(),
@@ -1751,8 +1777,8 @@ impl AlphaComparable for OrderedCollections {
 
 fn ordered_collections(first: &str, second: &str) -> OrderedCollections {
     let sort = Sort::simple("SortS");
-    let first_variable = Variable::new(first, sort.clone());
-    let second_variable = Variable::new(second, sort.clone());
+    let first_variable = Variable::new(first, sort);
+    let second_variable = Variable::new(second, sort);
     let symbols = CollectionSymbols {
         unit: "unit".into(),
         element: "element".into(),
@@ -1769,7 +1795,7 @@ fn ordered_collections(first: &str, second: &str) -> OrderedCollections {
         element_sort: Sort::simple("SortS"),
         list_sort: "SortSet".into(),
     });
-    let value = |text: &str| Term::raw_domain_value(sort.clone(), text);
+    let value = |text: &str| Term::raw_domain_value(sort, text);
     OrderedCollections {
         map: Pattern {
             term: Term::map(
@@ -1843,8 +1869,8 @@ fn ambiguous_set_then_ordered(first: &str, second: &str, ordered: &str) -> Ambig
             term: Term::set(
                 set_definition,
                 vec![
-                    Term::variable(Variable::new(first, sort.clone())),
-                    Term::variable(Variable::new(second, sort.clone())),
+                    Term::variable(Variable::new(first, sort)),
+                    Term::variable(Variable::new(second, sort)),
                 ],
                 None,
             ),

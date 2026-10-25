@@ -17,7 +17,6 @@ k::sorts! {
 }
 
 #[k::constructors(sort = IValType, result = KResult)]
-#[k::precedence((I32, I64))]
 pub enum IntegerType {
     #[k::syntax("i32")]
     I32,
@@ -26,7 +25,6 @@ pub enum IntegerType {
 }
 
 #[k::constructors(sort = IBinOp, result = KResult)]
-#[k::precedence((Add, Sub, Mul, DivU))]
 pub enum IntegerBinOp {
     #[k::syntax("add")]
     Add,
@@ -39,7 +37,6 @@ pub enum IntegerBinOp {
 }
 
 #[k::constructors(sort = Val, result = KResult)]
-#[k::precedence((Integer, Undefined))]
 pub enum Value {
     #[k::syntax("< {ty} > {value}")]
     Integer { ty: IValType, value: Int },
@@ -48,6 +45,7 @@ pub enum Value {
 }
 
 #[k::constructors(sort = ValStack, result = KResult)]
+#[k::cons_list]
 #[k::precedence((Empty, Cons))]
 pub enum Stack {
     #[k::syntax(".ValStack")]
@@ -57,7 +55,6 @@ pub enum Stack {
 }
 
 #[k::constructors(sort = Instr, result = KResult)]
-#[k::precedence((Const, Binary, Trap))]
 pub enum Instruction {
     #[k::syntax("{ty}.const {value}")]
     Const { ty: IValType, value: Int },
@@ -77,80 +74,48 @@ pub enum InstrList {
     InstrCons { head: Instr, tail: Instrs },
 }
 
-#[k::function(total, sort = Val, syntax = "#kwasmChop({ty}, {value})")]
-pub struct Chop {
-    pub ty: k::Term<IValType>,
-    pub value: k::Term<Int>,
+/// 2^32: `i32` arithmetic wraps modulo it.
+#[k::constant]
+pub const POW32: Int = 0x1_0000_0000;
+
+/// 2^64: `i64` arithmetic wraps modulo it.
+#[k::constant]
+pub const POW64: Int = 0x1_0000_0000_0000_0000;
+
+#[k::function(total, syntax = "#kwasmChop({ty}, {value})")]
+pub fn Chop(ty: k::Term<IValType>, value: k::Term<Int>) -> k::Term<Val>;
+
+#[k::function(total, syntax = "#kwasmIntBinOp({ty}, {op}, {lhs}, {rhs})")]
+pub fn IntBinOp(
+    ty: k::Term<IValType>,
+    op: k::Term<IBinOp>,
+    lhs: k::Term<Int>,
+    rhs: k::Term<Int>,
+) -> k::Term<Val>;
+
+k::equations! {
+    for Chop;
+    use IntegerType::*;
+    use Value::*;
+
+    chop_i32: (I32, value) => Integer(I32, int::rem_euclid(value, POW32));
+    chop_i64: (I64, value) => Integer(I64, int::rem_euclid(value, POW64));
 }
 
-#[k::function(
-    total,
-    sort = Val,
-    syntax = "#kwasmIntBinOp({ty}, {op}, {lhs}, {rhs})"
-)]
-pub struct IntBinOp {
-    pub ty: k::Term<IValType>,
-    pub op: k::Term<IBinOp>,
-    pub lhs: k::Term<Int>,
-    pub rhs: k::Term<Int>,
-}
+k::equations! {
+    for IntBinOp;
+    use IntegerBinOp::*;
+    use IntegerType::*;
+    use Value::*;
 
-#[k::equation]
-fn chop_i32(k::term![Chop(IntegerType::I32, value)]: k::Term<Val>) -> k::Term<Val> {
-    k::term![Value::Integer(
-        IntegerType::I32,
-        int::rem_euclid(value, 4_294_967_296),
-    )]
-}
-
-#[k::equation]
-fn chop_i64(k::term![Chop(IntegerType::I64, value)]: k::Term<Val>) -> k::Term<Val> {
-    k::term![Value::Integer(
-        IntegerType::I64,
-        int::rem_euclid(value, 18_446_744_073_709_551_616),
-    )]
-}
-
-#[k::equation]
-fn add(k::term![IntBinOp(ty, IntegerBinOp::Add, lhs, rhs)]: k::Term<Val>) -> k::Term<Val> {
-    k::term![Chop(ty, int::add(lhs, rhs))]
-}
-
-#[k::equation]
-fn sub_i32(
-    k::term![IntBinOp(IntegerType::I32, IntegerBinOp::Sub, lhs, rhs)]: k::Term<Val>,
-) -> k::Term<Val> {
-    k::term![Chop(
-        IntegerType::I32,
-        int::sub(int::add(lhs, 4_294_967_296), rhs)
-    )]
-}
-
-#[k::equation]
-fn sub_i64(
-    k::term![IntBinOp(IntegerType::I64, IntegerBinOp::Sub, lhs, rhs)]: k::Term<Val>,
-) -> k::Term<Val> {
-    k::term![Chop(
-        IntegerType::I64,
-        int::sub(int::add(lhs, 18_446_744_073_709_551_616), rhs),
-    )]
-}
-
-#[k::equation]
-fn mul(k::term![IntBinOp(ty, IntegerBinOp::Mul, lhs, rhs)]: k::Term<Val>) -> k::Term<Val> {
-    k::term![Chop(ty, int::mul(lhs, rhs))]
-}
-
-#[k::requires(int::ne(rhs, 0))]
-#[k::equation]
-fn div_u(k::term![IntBinOp(ty, IntegerBinOp::DivU, lhs, rhs)]: k::Term<Val>) -> k::Term<Val> {
-    k::term![Value::Integer(ty, int::div(lhs, rhs))]
-}
-
-#[k::requires(int::eq(rhs, 0))]
-#[k::equation]
-fn div_u_zero(k::term![IntBinOp(_, IntegerBinOp::DivU, _, rhs)]: k::Term<Val>) -> k::Term<Val> {
-    k::term![Value::Undefined()]
+    add       : (ty, Add(), lhs, rhs)  => Chop(ty, lhs + rhs);
+    sub_i32   : (I32, Sub(), lhs, rhs) => Chop(I32, lhs + POW32 - rhs);
+    sub_i64   : (I64, Sub(), lhs, rhs) => Chop(I64, lhs + POW64 - rhs);
+    mul       : (ty, Mul(), lhs, rhs)  => Chop(ty, lhs * rhs);
+    #[k::requires(rhs != 0)]
+    div_u     : (ty, DivU(), lhs, rhs) => Integer(ty, lhs / rhs);
+    #[k::requires(rhs == 0)]
+    div_u_zero: (_, DivU(), _, rhs)    => Undefined();
 }
 
 /// The two operational cells selected from `KWasm`'s `<wasm>` configuration.
@@ -183,8 +148,7 @@ k::rules! {
         instrs: [InstrCons(head, tail), ..],
     } => {
         instrs: [head, tail, ..],
-    }
-    where head: Instr, tail: Instrs;
+    };
 
     sequence_empty: {
         instrs: [InstrEmpty(), ..],
@@ -193,78 +157,62 @@ k::rules! {
     };
 }
 
-#[rustfmt::skip]
 k::rules! {
     for Machine;
     use Instruction::*;
+    use IntegerType::*;
+    use Value::*;
 
     constant_i32: {
-        instrs: [Const(IntegerType::I32, value), ..],
+        instrs: [Const(I32, value), ..],
     } => {
-        instrs: [crate::Chop(IntegerType::I32, int::add(value, 4_294_967_296)), ..],
-    }
-    where value: Int;
+        instrs: [Chop(I32, value + POW32), ..],
+    };
 
     constant_i64: {
-        instrs: [Const(IntegerType::I64, value), ..],
+        instrs: [Const(I64, value), ..],
     } => {
-        instrs: [crate::Chop(IntegerType::I64, int::add(value, 18_446_744_073_709_551_616),), ..],
-    }
-    where value: Int;
+        instrs: [Chop(I64, value + POW64), ..],
+    };
 
     undefined_traps: {
-        instrs: [Value::Undefined(), ..],
+        instrs: [Undefined(), ..],
     } => {
         instrs: [Trap(), ..],
     };
 
-    load_binary_i32: {
-        instrs: [Binary(IntegerType::I32, op), ..],
-        valstack: Stack::Cons(Value::Integer(IntegerType::I32, rhs), Stack::Cons(Value::Integer(IntegerType::I32, lhs), rest),),
+    load_binary: {
+        instrs: [Binary(ty, op), ..],
+        valstack: [Integer(ty, rhs), Integer(ty, lhs), rest @ ..],
     } => {
-        instrs: [crate::IntBinOp(IntegerType::I32, op, lhs, rhs), ..],
+        instrs: [IntBinOp(ty, op, lhs, rhs), ..],
         valstack: rest,
-    }
-    where op: IBinOp, lhs: Int, rhs: Int, rest: ValStack;
-
-    load_binary_i64: {
-        instrs: [Binary(IntegerType::I64, op), ..],
-        valstack: Stack::Cons(Value::Integer(IntegerType::I64, rhs), Stack::Cons(Value::Integer(IntegerType::I64, lhs), rest),),
-    } => {
-        instrs: [crate::IntBinOp(IntegerType::I64, op, lhs, rhs), ..],
-        valstack: rest,
-    }
-    where op: IBinOp, lhs: Int, rhs: Int, rest: ValStack;
+    };
 
     push_value: {
-        instrs: [Value::Integer(ty, value), ..],
+        instrs: [Integer(ty, value), ..],
         valstack: stack,
     } => {
         instrs: [..],
-        valstack: Stack::Cons(Value::Integer(ty, value), stack),
-    }
-    where ty: IValType, value: Int, stack: ValStack;
+        valstack: [Integer(ty, value), ..stack],
+    };
 }
 
-/// Executable all-path claim corresponding to `KWasm`'s simple-addition claim shape.
-#[k::claim(all_paths, label = "simple-addition")]
-fn simple_addition(
-    k::cells! {
-        instrs: k::configuration::KCell(
-            Instruction::Const(IntegerType::I32, 3),
-            Instruction::Const(IntegerType::I32, 4),
-            Instruction::Binary(IntegerType::I32, IntegerBinOp::Add)
-        ),
-        valstack: k::configuration::Cell(Stack::Empty()),
-    }: Machine,
-) -> Machine {
-    k::cells! {
-        instrs: k::configuration::KCell(.K),
-        valstack: k::configuration::Cell(Stack::Cons(
-            Value::Integer(IntegerType::I32, 7),
-            Stack::Empty(),
-        )),
-    }
+k::claims! {
+    for Machine;
+    use Instruction::*;
+    use IntegerType::*;
+    use Value::*;
+
+    /// Executable all-path claim corresponding to `KWasm`'s simple-addition claim shape.
+    #[k::claim(all_paths)]
+    simple_addition: {
+        instrs: [Const(I32, 3), Const(I32, 4), Binary(I32, IntegerBinOp::Add)],
+        valstack: [],
+    } => {
+        instrs: [],
+        valstack: [Integer(I32, 7)],
+    };
 }
 
 #[cfg(test)]
@@ -314,8 +262,8 @@ mod tests {
         let source = emitted.source();
         assert!(source.contains("<instrs>"));
         assert!(source.contains("<valstack>"));
-        assert!(source.contains("load-binary-i32"));
-        assert!(source.contains("load-binary-i64"));
+        assert!(source.contains("load-binary"));
+        assert!(source.contains("< Ty:IValType > Rhs:Int : < Ty:IValType > Lhs:Int"));
         assert!(source.contains("# kwasmIntBinOp"));
         assert!(source.contains("div_u"));
         assert!(source.contains("=> undefined"));

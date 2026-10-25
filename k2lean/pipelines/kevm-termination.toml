@@ -1,0 +1,16 @@
+# Termination inputs for KEVM's recursive functions that no generic rule covers
+# (`k2lean gen --arity-terms … --termination kevm-termination.toml`, run by kevm.sh beside this
+# file). Every other recursive function of KEVM gets its measure from the generator
+# (`crates/k2lean/src/termination.rs`, `docs/design.md`).
+#
+# Keys are K function labels as the generated `-- `label` (recursive)` comment prints them.
+# `partial_fixpoint` makes a function the least fixed point of its equations: for a function
+# whose rewriting does not terminate on some arguments, where no measure exists.
+
+# `senderTxData` normalizes the signature's v value: 0/1 become 27/28, and 2·CHAINID + 35/36
+# become (v - 35) mod 2. At CHAINID = -4 the two rules cycle (0 → 27 → 0, 1 → 28 → 1), so K's
+# rewriting diverges and the function has no value there; no measure exists. It is the least
+# fixed point of its equations, which is `none` exactly on those arguments
+# (`kevm-sender-diverges.lean` beside this file proves `senderTxData t 0 r s (-4) = none`).
+[functions."senderTxData"]
+partial_fixpoint = true

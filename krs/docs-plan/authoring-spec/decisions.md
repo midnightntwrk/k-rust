@@ -203,6 +203,22 @@ bug — report it, don't guess.
   `k::precedence!` chain block survives as the names-only case for
   cross-family precedence. Positional tier markers are rejected (two
   rounds of review + ecosystem survey). [r9; 11]
+  *Amendment (2026-10, SM83 feedback, optional chain):* the chain is
+  required exactly when it could change a parse. Its relations restrict only
+  a direct child at the first or last item of a parent of the same family,
+  so it matters exactly when some variant's template begins or ends with a
+  field whose sort admits the family's sort: the sort itself, a supersort
+  in the assembled subsort order, or `KItem`/`K`, which admit every sort.
+  Otherwise it may be omitted; the variants then belong to no production
+  group, and the reference form names no `group` (a reference family groups
+  all its variants or none). Because the subsort order is a fact of the
+  whole definition, the requirement is the analysis error
+  `krs::analysis::missing-precedence-chain`, raised on every path that
+  lowers a definition (`check`, `emit-k`, `build`, `run`, `prove`). A
+  present chain stays exhaustive and fail-fast at expansion: once a chain
+  can matter, a variant left out of it could still decide an ambiguity at
+  its parent's edge, so no variant gets a default tier. Declaration order
+  never supplies the chain.
 - **C8 — Nullary constructors are zero-field tuple variants**
   (`EmptyBlock()`) so the same spelling is a legal Rust pattern and
   constructor everywhere. [r6a]
@@ -226,13 +242,37 @@ bug — report it, don't guess.
   both reject, and one that matches a whole configuration cell name or cell
   property name at a `prec` at least as high as K's strongest token for it,
   which Java K's configuration parser then cannot read.
-  *Note (2026-10 follow-up, symbol collisions):* a production's emitted
-  symbol is its variant or struct name with a lowercase first letter. When
-  two enum variants of one definition would derive the same symbol, each of
-  them takes its enum's name as a prefix instead (`ExpSyntax::Dot` is
-  `expSyntaxDot`, `LValSyntax::Dot` is `lValSyntaxDot`); a variant with a
-  unique name keeps the short symbol, and a symbol that still collides is
-  rejected (`krs::analysis::symbol-name-collision`).
+  *Note (2026-10 follow-up, symbol collisions; superseded 2026-10-21):* a
+  production's emitted symbol depends only on its own declaration. A struct's
+  is its name with a lowercase first letter; an enum variant's is always its
+  enum's name with a lowercase first letter followed by the variant name
+  (`ExpSyntax::Dot` is `expSyntaxDot`, `Op::Add` is `opAdd`), and
+  `#[k::symbol]` on a struct or a variant pins another. The earlier rule
+  prefixed a variant only when another production shared its name, so adding
+  a declaration anywhere, even in a dependency, could rename an unrelated
+  symbol. A symbol that two productions derive, or that K generates itself
+  (`isExp`, `initKCell`), is rejected
+  (`krs::analysis::symbol-name-collision`); nothing is renamed.
+- **C11 — A function may be declared by a `fn`, and a function that is
+  not program syntax may omit its template** (2026-10, SM83 feedback
+  item 3). `#[k::function(..)]` on a `fn` is pure sugar for the struct
+  plus, when the `fn` has a body, its one `#[k::equation]`: the
+  parameters are the fields, the return type is the sort, and the body is
+  the equation over those variables (parameters are plain names; cases
+  belong to a table). The `fn` is named as its applications are written,
+  `fn Byte`, so declaration and uses spell one token; its equation takes
+  the snake-case name (`byte`), the name hand-written equations already
+  use, so migrating keeps every equation identity. A `fn` ending with `;`
+  declares the symbol only. `syntax` may be omitted on any function that
+  is `internal` or not `pub`; the default is the K symbol applied to the
+  fields, `byte({value})`. A program-syntax function keeps an explicit
+  template, because a default terminal would shadow an object-language
+  token in programs (`krs::syntax::missing-function-syntax`); a Map/List
+  field's automatic `<NS>` placement does not count, since it rests on K's
+  module layout. Rejected: deriving the struct name from a snake-case `fn`
+  (the struct's name would be written nowhere), a `name = ..` key (a
+  second spelling), and pattern parameters (Rust parameters are
+  irrefutable).
 
 ## D. Configuration
 
@@ -291,6 +331,17 @@ bug — report it, don't guess.
   constraint), slice patterns on the k sequence (`[head, ..]`, head-first
   — K's cons cell, not a Vec stack), result-side `..` (the framed tail).
   [r6a]
+  *E5 amendment (2026-10-21, SM83 feedback item 4).* The k-sequence
+  slice pattern is a front prefix of any length: `[p1, .., pn, ..]` (at
+  least n items, the rest kept) or `[p1, .., pn]` (exactly n items; `[]`
+  is `.K`). `..` ends the pattern and is anonymous, since the cell is the
+  continuation, read from its front; `[..]` alone is rejected. The result
+  is open exactly when the pattern is, so a missing `..` never drops the
+  continuation; dropping or capturing it stays in `cells!`. A `k` entry
+  the result leaves out is read only, like any other cell (E7). The rules
+  stay in the head-rule IR, which carries the items and an `exact` flag:
+  readable binder sorts are inferred (E3) and `cells!` binders are typed,
+  so one surface form keeps one IR.
 - **E6 — Builtins are term functions** (`int::add(lhs, rhs)`,
   `map::update(e, k, v)` — persistent update returning a new map); K's
   `E[X <- V]` sugar is removed from the language. Lowercase builtin
@@ -304,7 +355,10 @@ bug — report it, don't guess.
   mechanism; easiest to debug). A cell in the pattern but absent from the
   result is unchanged (framed) — the invisible-frame convention is
   accepted, mitigated by documentation (the Verus precedent).
-  A non-computation leaf cell may carry an ordinary constructor or literal pattern plus an ordinary replacement term; such a fixed-leaf rewrite must name the cell on both sides.
+  A non-computation leaf cell may carry an ordinary constructor or literal pattern plus an ordinary replacement term.
+  *E7 note: a matched cell may be left out of the result (2026-10).*
+  A fixed cell, leaf or nested group, that the pattern matches and the result leaves out is read only (`CellPost::Preserve`), as the framing convention above says; so is one the result restates as the same term, which denotes the same rule.
+  An entry `cell: _` left out of the result constrains and binds nothing, so it is a syntax error that asks for the entry to be removed.
   This is the protocol-16 W1 extension qualified by KWasm's `<valstack>` operand-loading rules; it preserves the distinct framed-map forms and does not imply repeated symbolic equality in patterns.
   *E7 note: the computation cell may be omitted (2026-10, KF-015).*
   The record may leave the computation cell out; it is then framed like
@@ -329,9 +383,53 @@ bug — report it, don't guess.
   ..] => [..]` is the front instance of a List collection `job` and the
   head of the computation cell `k`, and the cell's declared type, which
   the collector knows, picks the reading; a value that reads only one way
-  (`[.., Job { .. }]`, `[Push(), ..]`) is read that way, and a rule has
-  one computation cell. This replaces a syntactic rule that read a front
-  record naming every child as the computation cell's head.
+  (`[.., Job { payload, .. }]`, `[Push(), ..]`) is read that way, and a
+  rule has one computation cell. This replaces a syntactic rule that read
+  a front record naming every child as the computation cell's head.
+  *E7 note: builtin `List` brackets (2026-10, T2).* At a position whose
+  sort is K's builtin `List`, brackets are the list of their elements,
+  `[a, ..mid, z]` the term `list::concat(list::item(a), list::concat(mid,
+  list::item(z)))`, so list items need no longer be written with
+  `list::item`. A bracket holds at most one rest, anywhere, in patterns
+  and results: `_List_` is associative with unit `.List`, so the term has
+  one meaning however it nests, and a pattern with one rest matches a
+  list in at most one way while one with two (`Left ListItem(V) Right`,
+  also rejected when written explicitly) matches some lists in several.
+  A closed list is its items, without a trailing `.List`. A bracketed
+  value now has four readings, the computation cell's head, a List
+  collection's instances, and a cons list's or a `List`'s elements; a
+  value that reads as elements and as instances is read as elements and
+  carries its instances reading for the collector, which picks it on a
+  `*` cell. A cons list keeps its front-only rule, checked by analysis
+  once the position's sort is known.
+  *E7 note: the cell shorthand (2026-10, F4).* An entry that is a lone
+  cell name, `{ pc, gas }`, is Rust's field-init shorthand for `{ pc: pc,
+  gas: gas }` on either side; the binder is the name's own token. It is a
+  spelling of the long entry, so it inherits that entry's meaning: a
+  subject entry binds and reads the cell, a result entry writes the
+  binder, `{ gas } => { gas }` is a read, and a group cell's name binds the
+  whole nested cell.
+  *E7 note: updating a matched record (2026-10, F5).* `t @ Ctor { f: p,
+  .. }` then `Ctor { f: e, ..t }` (Rust's struct update, extended to enum
+  variants with the meaning "same constructor, these fields replaced") and
+  the same for `#[k::cell]` group records. K has no field projection, so
+  the update is defined by expansion in semantic lowering: each field an
+  update of `t` leaves out is bound in `t`'s record pattern, to the binder
+  the pattern gives it or to a hidden binder (`( p #as Hidden )` when the
+  pattern constrains it), and the update writes that binder back; an alias
+  used only as a base carries no `#as`. The base must be the alias of one
+  record of the same constructor or cell, bound once outside `|`, which
+  makes the meaning total and static. A subject group record may leave
+  children out, as a constructor record may. `krs expand` writes the long
+  form, so the reference `cells!` surface gains nothing and rejects the
+  notation.
+  *E7 note: readable claims (2026-10, F7).* `k::claims! { for Machine;
+  label: { .. } => { .. }; }` is to `#[k::claim] fn` what `k::rules!` is to
+  `#[k::rule] fn`: a clause is a readable record clause, with the same
+  grammar, framing, and binder inference, whose descriptor is a claim
+  carrying its `#[k::claim(..)]` modality and flags; the label is the
+  clause name. It adds no claim semantics: the emitted claim is the
+  reference fn's, which `krs expand` writes.
   Multi-cell rules are laid out multi-line, one cell per line (single-cell table
   clauses stay one-liners) — **conditional on `krs fmt` enforcing the
   layout (F1)**; the recorded fallback if that ever fails is the
@@ -342,6 +440,136 @@ bug — report it, don't guess.
 - **E8 — The fn/`cells!` form is purely the reference surface** and the
   graduation target for rules that outgrow `pattern => result (+ where)`.
   [r5]
+- **E9 — `k::equations!` tables are labelled equations** (2026-10, SM83
+  feedback item 2). `for F;` names a non-parametric function; each row
+  `label: args => result;` is the equation `F(args) = result` named
+  `label`, with `args` one pattern or a parenthesized list, and
+  `#[k::equation(..)]`/`#[k::requires(..)]` per row. Rows are unordered
+  and the label is the identity (F3.4), so reordering rows changes
+  nothing; the index is always written, never taken from an enum's
+  declaration order, which C7 keeps presentational. The table's `use`
+  items reach its rows only, and rustc resolves the rows' unqualified
+  names through them. Equations stay outside the overlap check of
+  transitions (F2.1); instead two table-local checks fail fast (F4), and
+  E11's overlap check of equations reads every equation of the function:
+  two unguarded rows at one
+  priority with the same literal arguments
+  (`krs::syntax::duplicate-equation-row`), and a catch-all row beside
+  others at its priority, which needs `owise`
+  (`krs::syntax::catch-all-equation-row`). `krs expand` prints each row as
+  its `#[k::equation]` fn, and `krs fmt` lays tables out as F5 lays out
+  `k::rules!`.
+- **E10 — `total` is linted for coverage, not proved** (2026-10, SM83
+  feedback item 5). `total` claims a value on every argument; where no
+  equation applies the value exists but is unconstrained, so a gap is
+  under-specification, never unsoundness, and the definition stays legal:
+  a warning, `krs::analysis::uncovered-total-function`, on by default and
+  reported by every command, never a fail-fast error (F4 does not apply).
+  It is judged on the assembled definition, because another package may
+  add constructors, subsorts, or a parametric constructor to a sort.
+  Priorities and `owise` decide which equation applies, never whether one
+  does, so they play no part. A guarded equation counts only through a
+  sound abstraction of its `requires` (Boolean structure, comparisons with
+  integer constants and between two integers, opaque atoms) whose every
+  operation is defined on every argument: a wrong "covered" is worse than
+  a false warning. Since 2026-10-22 (bit templates, E11) the abstraction
+  reads comparisons of `bitRangeInt(t, o, l)` and `t &Int m` (constant
+  `o`, `l`, `m`) as facts about the bits of `t` and skips valuations no
+  integer realizes, and counts `bitRangeInt` with constant non-negative
+  `o` and `l` as defined (it is `(I >>Int IDX) modInt (1 <<Int LEN)`,
+  defined for non-negative shifts); and where E11's ground analysis applies
+  to all of a function's equations, coverage is decided by evaluation
+  instead, exactly, with the first uncovered argument as the witness. Partial, hooked and `smt_hook` functions, and total
+  functions (or parametric instances) with no equation, are not linted.
+  `#[k::function(total, underspecified = "reason")]` states a gap on
+  purpose; it is KRS-only (lowering drops it before K) and warns when the
+  equations cover every argument after all
+  (`krs::analysis::stale-underspecified`).
+- **E11 — `k::bits!` templates are `Int` patterns, pure sugar** (2026-10,
+  SM83 feedback, `draft-personal/krs-sm83-feedback/designs/bit-patterns.md`).
+  `k::bits!("00 yyy 100")` stands in an `Int` argument of a rule's,
+  equation's, or table row's left-hand side, never in a result, a guard, a
+  cell pattern, a context, or an alternative of `|`. A template is a string
+  because Rust's lexer rejects `0b00yyy100`. Its characters are `0`/`1`
+  (fixed), `_` (either), a lowercase letter (a field bit), and spaces
+  (groups); its width is its number of bits. It matches exactly the
+  integers `0 <= n < 2^width` whose fixed bits are as written, and a field,
+  whose bits must be adjacent (a scattered field would need an assembly
+  order the template cannot state), names `bitRangeInt(n, offset,
+  length)`. The long form, written into the sentence before it is parsed:
+  the template becomes a variable, `op` for `op @ k::bits!(..)` and
+  otherwise a hidden binder holding the reserved marker, which no author
+  can write, shadow, or collide with (authored identifiers with the hidden
+  prefix are rejected before the rewrite, and only the binders the rewrite
+  inserts are exempt from the reserved-marker check); the `requires`
+  gains, before any authored condition (the template is part of the
+  pattern, and `&&` evaluates left to right, so an authored condition is
+  never evaluated outside the template's values), `n >= 0 && n <
+  2^width` and one `bitRangeInt(n, o, l) == v` per maximal run of fixed
+  bits within a space-separated group (so templates written on one grid
+  test the same terms); each field
+  occurrence becomes `n.bit_range::<Int>(o, l)`; and a template without
+  free bits is its decimal literal. A field letter that is also a binder,
+  a field of another template, or rebound by a `let` or `k::matches!` is
+  `krs::syntax::bit-field-collision`; a malformed template is
+  `krs::syntax::invalid-bit-template`; a misplaced one, or an unnamed one
+  in a sentence that lists its binders, is
+  `krs::syntax::bit-template-position`. In a table, two rows that match one
+  argument with templates of different widths are
+  `krs::syntax::bit-template-width-mismatch`, and E9's duplicate-row check
+  reads literals and templates as sets: two rows without an authored
+  `requires` at one priority whose sets meet in every argument are
+  `krs::syntax::duplicate-equation-row`, with a common argument. The
+  overlap check reads the guards as F2 clause 4's Int facts. No IR change.
+  Since 2026-10-22, equations of one function at one priority are checked
+  for overlap on the assembled definition, table rows and `#[k::equation]`
+  fns alike, guarded or not, by a ground analysis: when every equation
+  bounds each `Int` argument its `requires` reads to finitely many values
+  (literals, or top-level comparisons with constants, which a template's
+  range is) and those values, with one more outside them per argument, are
+  at most 2^16 argument vectors, every `requires` is evaluated on each
+  (outside the bounded values a bounded equation does not apply and the
+  others do not read the argument, so one value stands for all). Two
+  equations that apply to one argument with results that differ once it
+  is substituted and builtins on literals are evaluated are
+  `krs::analysis::overlapping-equations`, an error: equations are
+  unordered, so they would state the two results equal, which with free
+  constructors is a contradiction and on a backend an arbitrary choice.
+  Identical results agree, so the equations are confluent there and
+  nothing is reported; a warning would be noise nobody can silence. The
+  analysis decides nothing it is unsure of: a function call, an unbound
+  binder, an overflow, or an undefined operation not excluded by a false
+  top-level conjunct (matching logic reads `true orElseBool ⊥` as
+  undefined, a short-circuiting backend as true) gives up on the set,
+  which then is not checked. It is a new code, not a generalized
+  `duplicate-equation-row`, because it judges the assembled definition
+  across tables, fns and packages, at the analysis stage. The syntactic
+  table checks stay: they fail fast in the macro (an IDE nicety), and
+  they cover what the analysis does not, templates of any width in
+  unguarded rows; the analysis covers guarded rows and fns, which they
+  cannot read. SM83's HALT (`01 110 110`) against `LD r,r'` (`01 yyy
+  zzz`) without `op != 118` is the case in point. On the four ports the
+  analysis enumerates no equation group (their Int-keyed functions have
+  non-`Int` arguments or unbounded guards), adds no finding, and costs
+  under a millisecond.
+  `krs expand` prints the long form and names a hidden binder `bits` (or a
+  fresh variant) there. Rejected: a structured template in the IR (the
+  sugar and its long form would be checked differently), a guard spelled
+  as one `&Int` mask (different masks are unrelated terms, so neither a
+  simplifier nor a solver refutes two of them), and expansion into one
+  literal equation per value (exponential in the free bits).
+  The test form `k::bits!(e, "..")` (2026-10-22) is a `Bool` term,
+  allowed wherever one is (conditions, claims, results): `e >= 0 && e <
+  2^width` and the per-run `bitRangeInt` equalities, the pattern's guard
+  terms in the guard's order, so a claim can state exactly what a row
+  tests; an all-fixed template tests the same terms. Its letters and `_`
+  constrain and bind nothing (letters are accepted so a row's template
+  copies verbatim). `e` is a variable, a field, or a bit range of a
+  variable with literal bounds: the long form repeats it once per term, so
+  a larger term is named first (`op @`, `let`); terms are pure, so the
+  restriction is about the size and readability of the long form, not
+  meaning. In a pattern, `k::bits!` takes only the template; a second
+  argument is reserved for modifiers such as signed fields.
 
 ## F. Tooling (co-deliverables, not afterthoughts)
 
@@ -377,18 +605,48 @@ bug — report it, don't guess.
      priority. A group is scoped to its package; the key is check-only and
      emits nothing.
   4. *Complementary guards (KF-012)* separate two rules, decided
-     syntactically after unification with the unifier's substitution: a
-     conjunct `bool::not(g)` against a conjunct `g`; `int::lt`/`int::ge`,
-     `int::le`/`int::gt`, `int::eq`/`int::ne`, and `bool::eq`/`bool::ne`
-     on identical operands, with operand swaps normalised. A conjunct of
-     either guard that the substitution makes an Int comparison
-     (`int::lt`, `le`, `gt`, `ge`, `eq`, `ne`, or `bool::not` of one) of
-     two Int literals is evaluated, and a false one separates the rules on
-     its own: a rule on `0` and a rule on `x` with `int::ge(x, 10)` give
-     `0 >=Int 10` (K tutorial lesson 1.21, which therefore needs no
-     `nondet` group). Literals outside the 128-bit range and arithmetic
-     operands are not evaluated (decided 2026-10-10). Any other guard pair
-     is treated as possibly overlapping.
+     syntactically after unification with the unifier's substitution, with
+     no arithmetic beyond literals and no solver. The builtin catalog states
+     what each Bool-valued builtin means as a guard conjunct (a literal of a
+     canonical relation with a polarity, a connective, or opaque, with the
+     reason); a compile-time assertion makes that classification cover
+     exactly the Bool-valued builtins. Two conjuncts are complementary when
+     one is `bool::not` of the other, or both are literals of one relation
+     on the same operands (in either order for an equality) with opposite
+     polarity: `eq`/`ne` for Int, Bool, String, K (`kequal`) and Float,
+     `bool::xor` against `bool::eq`, and `lt`/`ge` and `le`/`gt` for Int and
+     String, whose orders are total. The Float orders are opaque: with a NaN
+     operand `a <Float b` and `a >=Float b` are both false, so neither is
+     the negation of the other. A conjunct of either guard that the
+     substitution makes ground is evaluated, and a false one separates the
+     rules on its own: an Int or String relation on two literals, a Bool
+     literal (a bare Bool guard the other rule binds to `false`), a
+     connective decided by its operands, and `kequal::eq`/`ne` on terms
+     built only from literals and free constructors (no function, hook,
+     alias, desugar or bracket production, and no anywhere rule's head),
+     which are equal exactly when they are identical. A rule on `0` and a
+     rule on `x` with `int::ge(x, 10)` give `0 >=Int 10` (K tutorial lesson
+     1.21, which therefore needs no `nondet` group). Int literals outside the
+     128-bit range, Float literals and arithmetic operands are not evaluated
+     (decided 2026-10-10; extended to the catalog's relations 2026-10-20,
+     CS-11-3). Since 2026-10-21 (SM83 feedback, bit templates, E11) ground
+     evaluation also computes the builtin Int operations `+`, `-`, `*`,
+     `&Int`, `>>Int` by a non-negative amount, `divInt` and `modInt` by a
+     non-zero divisor, and `bitRangeInt` with a non-negative index and
+     length on literals within 128 bits, and the conjuncts of both guards
+     are read as *Int facts* about terms: `bitRangeInt(t, o, l) ==Int v` and
+     `t &Int m ==Int v` (literal `o`, `l`, `m`, `v`) fix bits of `t`'s two's
+     complement, `t ==Int c` fixes its value, and `c <=Int t`, `t <Int c`
+     and their converses bound it. Two guards separate their rules when the
+     facts about one term (terms compared after the substitution) cannot all
+     hold: a bit both 0 and 1, two values, a value against a bit or bound,
+     an empty interval, or a non-negative term below a bound its known one
+     bits exceed. Each fact is implied by its conjunct, so this is sound;
+     an unrecognized conjunct states nothing. It keeps `k::bits!` templates
+     that differ in a fixed bit disjoint, and their hand-written guards
+     equally. Any other guard pair, including a disjoint but
+     non-complementary one such as `int::lt` against `int::gt` on the same
+     operands, is treated as possibly overlapping.
   5. *Disjoint footprints* are independent, because the rules commute
      (KF-015). The footprint of a rule is the cells it reads or writes
      (every cell in its pattern or result, the computation cell included
@@ -413,7 +671,21 @@ bug — report it, don't guess.
      (c) members of one overload family count as unifiable heads when their
      argument sorts are compatible (KF-038, after the KF-012 collection);
      (d) a parametric application's identity is its (symbol, instance)
-     pair (KF-027).
+     pair (KF-027); (e) List, Set and K-sequence patterns are unified
+     modulo their axioms (`_List_` and `~>` associative with a unit,
+     `_Set_` associative and commutative with a unit on disjoint operands),
+     because configurations hold collections modulo those axioms and a
+     syntactic mismatch of two collection patterns proves nothing. Each
+     side is flattened into elements and open segments (collection
+     variables, `K`-sorted items other than constructor applications, terms
+     the unifier does not model, and a cell's frame). Sequences unify their
+     forced positions, the elements before the first and after the last
+     open segment of both sides, and a closed side must have room for the
+     other's elements; sets compare cardinalities and unify elements only
+     when one element on each side is forced; anything else may overlap.
+     Bindings are committed only for forced positions, so the guard
+     procedure of clause 4 never reads an element pairing the unifier
+     chose (CS-11-2, decided 2026-10-20).
   8. *Intra-pattern check (KF-030),* for every sentence kind: two
      variable-binding or-alternatives that unify are rejected.
 
@@ -432,7 +704,8 @@ bug — report it, don't guess.
   (4) stable item identity (no span-derived nonces in anything authors
   reorder). [readability README §Method]
 - **F4 — Fail-fast expansion diagnostics** are part of every construct's
-  definition (precedence-chain totality C7, template↔field agreement C4,
+  definition (precedence-chain totality C7 once a chain is written,
+  template↔field agreement C4,
   reorder/rename producing compile errors not silent staleness). [r9;
   07 §1]
 - **F5 — Canonical `k::rules!` layout: deterministic collapse,

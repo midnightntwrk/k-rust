@@ -16,7 +16,7 @@
 //!
 //! [[cost]]
 //! mode = "one proof"
-//! bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus for each Stuck leaf on a certifiable trace (stuck_leaf) up to two is_sat queries and two rewrite steps"
+//! bound = "O(s) x (simplification + one is_sat + implication when depth >= min_depth + O(c) claim applications + one rewrite step), plus u leaf simplifications at the breadth limit, plus for each Stuck leaf on a certifiable trace (stuck_leaf) up to two is_sat queries and two rewrite steps, plus for a step's undefined step (decide_undefined_step, shared with executions) one normalization of each sibling candidate not yet normalized, one predicate simplification and one is_sat per undefined candidate and trivial entry, and one more simplification when several are non-empty over one term; a step with trivial entries and an applied candidate normalizes each candidate within the step"
 //! ```
 //!
 //! Reachability-logic proof search: per explored state one
@@ -57,12 +57,14 @@ use crate::{
         MatchMode, MatchResult, match_terms_in_definition, solve_collection_pairs_in_definition,
     },
     rewrite::{
-        IndeterminateReason, Pattern, RecoveredMatch, RemainderBranch, RewriteResult, TraceEntry,
-        TraceKind, TrivialApplication, Truth, UndecidedStep, collection_unification_definedness,
-        conjunctively_contains_alpha_equivalent, predicates_truth, quantify_introduced_variables,
-        recover_indeterminate_match, rewrite_step_sequential_tracking_dropped,
-        rewrite_step_sequential_with_options, rewrite_step_with_options, simplify_leaf_pattern,
-        substitute_predicates,
+        HaltReason, IndeterminateReason, Pattern, RecoveredMatch, RemainderBranch, RewriteResult,
+        Sibling, TraceEntry, TraceKind, Truth, UndecidedStep, UndefinedDecision, UndefinedGroup,
+        UndefinedPart, collection_unification_definedness, conjunctively_contains_alpha_equivalent,
+        decide_undefined_step, entry_undefined_part, predicates_truth,
+        quantify_introduced_variables, recover_indeterminate_match,
+        rewrite_step_sequential_tracking_dropped, rewrite_step_sequential_with_options,
+        rewrite_step_with_options, sibling_undefined_parts, simplify_leaf_pattern,
+        substitute_predicates, successor_undefinedness,
     },
     simplify::{
         ContradictedTotal, DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError,
@@ -304,14 +306,7 @@ pub fn prove_claim(
     // state, which reaches the same operand, is the unsupported-hook outcome.
     let initial_definedness = ceil_term(definition, &initial.term).unwrap_or_default();
     extend_unique(&mut initial.constraints, initial_definedness);
-    let mut pending = VecDeque::from([ProofState {
-        pattern: initial,
-        depth: 0,
-        trace: Vec::new(),
-        kind: ProofStateKind::Rewritable,
-        alternative_discarded: false,
-        destination_undecided: false,
-    }]);
+    let mut pending = VecDeque::from([ProofState::initial(initial)]);
     let mut leaves = Vec::new();
     // The claim's universals are fixed for the whole proof, including those that the path
     // has overwritten and that no longer occur in the current state; only the destination's
@@ -408,14 +403,17 @@ pub fn prove_claim(
         }
         // Record a leaf built by `externalise_leaf` or `stuck_leaf`, which refine an outcome that
         // is already decided, then poll for the stop that refinement may have forgone. A leaf the
-        // refinement proved (an empty state under `allow_vacuous`) rests on no missing answer.
+        // refinement proved (an empty state under `allow_vacuous`) rests on no missing answer, nor
+        // does a split part the refinement showed empty, which is no leaf.
         macro_rules! record_refined_leaf {
             ($leaf:expr) => {{
-                let leaf: ProofLeaf = $leaf;
-                if !is_proven(&leaf) {
-                    forgone_stop = forgone_stop.or_else(forgone_refinement_stop);
+                let leaf: Option<ProofLeaf> = $leaf;
+                if let Some(leaf) = leaf {
+                    if !is_proven(&leaf) {
+                        forgone_stop = forgone_stop.or_else(forgone_refinement_stop);
+                    }
+                    record_leaf!(leaf);
                 }
-                record_leaf!(leaf);
             }};
         }
         // The leaf of `stuck_leaf` for `$stuck`, recorded; a stop of its certification ends this
@@ -440,6 +438,51 @@ pub fn prove_claim(
                 }
             }};
         }
+        // A state that denotes no state, found by its normalization: when a rule step produced
+        // it, it is no successor of that step, and its instances are the step's undefined step
+        // where no other candidate takes them (`proof_undefined_step`); otherwise, or when the
+        // configuration the step was taken from has no instance, its emptiness is graded by what
+        // the state is (`vacuous_outcome`): `Vacuous` for a successor.
+        macro_rules! record_bottom {
+            ($contradicted_total:expr) => {{
+                let contradicted_total: Option<Box<ContradictedTotal>> = $contradicted_total;
+                match proof_undefined_step(
+                    definition,
+                    &state,
+                    contradicted_total.clone(),
+                    options,
+                    solver,
+                ) {
+                    Ok(ProofUndefined::Leaves(undefined)) => {
+                        for (undefined, contradicted_total) in undefined {
+                            if let Some(outcome) =
+                                vacuous_outcome(&undefined, options, ProofLeafOutcome::Trivial)
+                            {
+                                record_leaf!(
+                                    undefined
+                                        .leaf(outcome)
+                                        .with_contradicted_total(contradicted_total)
+                                );
+                            }
+                        }
+                    }
+                    Ok(ProofUndefined::Covered) => {}
+                    Ok(ProofUndefined::NoInstance) => {
+                        if let Some(outcome) =
+                            vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous)
+                        {
+                            record_leaf!(
+                                state
+                                    .leaf(outcome)
+                                    .with_contradicted_total(contradicted_total)
+                            );
+                        }
+                    }
+                    Err(stop) => publish_stop!(stop.into_cause()),
+                }
+                continue 'states;
+            }};
+        }
         finish_if_interrupted!();
         let simplified_constraints = match simplify_predicates_with_solver(
             definition,
@@ -462,9 +505,7 @@ pub fn prove_claim(
             }
         };
         if predicates_truth(&state.pattern.constraints) == Truth::False {
-            let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
-            record_leaf!(state.leaf(outcome));
-            continue;
+            record_bottom!(None);
         }
         let simplified = match simplify_with_solver(
             definition,
@@ -509,13 +550,7 @@ pub fn prove_claim(
             Err(stop) => publish_stop!(stop.into_cause()),
         };
         if bottom {
-            let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
-            record_leaf!(
-                state
-                    .leaf(outcome)
-                    .with_contradicted_total(contradicted_total)
-            );
-            continue;
+            record_bottom!(contradicted_total);
         }
 
         let mut implication_indeterminate = false;
@@ -540,44 +575,49 @@ pub fn prove_claim(
             };
             finish_if_interrupted!();
             let implication = implication.map_err(ProofError::Implication)?;
+            let partial_coverage = matches!(implication, Coverage::PartialCoverage { .. });
             match implication {
                 Coverage::Covered(bindings) => {
                     record_leaf!(state.leaf(ProofLeafOutcome::Proven(bindings.into())));
                     continue;
                 }
                 Coverage::Vacuous => {
-                    let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
-                    record_leaf!(state.leaf(outcome));
-                    continue;
+                    record_bottom!(None);
                 }
                 // Only a coverage condition says which part of the state already lies in the
                 // destination, so only its complement is the uncovered part. A refuted
                 // destination condition covers none of the state: its report (bindings and
                 // predicates) has no complement, and the whole state takes the arms below.
-                Coverage::PartialCoverage {
-                    coverage,
-                    refuted: _,
-                } => {
-                    let remainder =
-                        uncovered_remainder(&state.pattern, claim, &claim_universals, &coverage);
-                    // The uncovered part's destination obligation is refuted, so the stuck
-                    // check stops it.
-                    if options.stuck_check {
-                        record_stuck_leaf!(state.remaining(remainder), StuckEvidence::StepNotRun);
-                        continue;
-                    }
-                    implication_remainder = Some(remainder);
-                }
-                // A contingent destination covers part of the state; the part it does not cover
-                // may still rewrite into the destination, so it continues whatever the stuck
-                // check says.
-                Coverage::Contingent(coverage) => {
-                    implication_remainder = Some(uncovered_remainder(
+                // A coverage condition splits the state into the covered part, which needs no
+                // leaf, and the uncovered part. When the uncovered part is shown empty, the
+                // destination covers every configuration of the state, which is a proven leaf.
+                Coverage::PartialCoverage { coverage, .. } | Coverage::Contingent(coverage) => {
+                    let uncovered = match uncovered_remainder(
+                        definition,
                         &state.pattern,
                         claim,
                         &claim_universals,
                         &coverage,
-                    ));
+                        options,
+                        solver,
+                    ) {
+                        Ok(uncovered) => uncovered,
+                        Err(stop) => publish_stop!(stop.into_cause()),
+                    };
+                    finish_if_interrupted!();
+                    let Some(remainder) = uncovered else {
+                        record_leaf!(state.leaf(ProofLeafOutcome::Proven(coverage.to_condition())));
+                        continue;
+                    };
+                    // A partial coverage refutes the uncovered part's destination obligation, so
+                    // the stuck check stops it. A contingent destination's uncovered part may
+                    // still rewrite into the destination, so it continues whatever the stuck
+                    // check says.
+                    if partial_coverage && options.stuck_check {
+                        record_stuck_leaf!(state.remaining(remainder), StuckEvidence::StepNotRun);
+                        continue;
+                    }
+                    implication_remainder = Some(remainder);
                 }
                 Coverage::ConditionRefuted { .. } if options.stuck_check => {
                     record_stuck_leaf!(state, StuckEvidence::StepNotRun);
@@ -774,7 +814,7 @@ pub fn prove_claim(
             RewriteResult::Finished(applied) => {
                 if extend_frontier(
                     &mut pending,
-                    std::iter::once(state.rewritten(applied)),
+                    state.successors(vec![applied], false, 0, StepUndefinedness::default()),
                     options.breadth_limit,
                 ) {
                     return Ok(finish_at_breadth_limit(
@@ -794,10 +834,120 @@ pub fn prove_claim(
                 trivial,
                 ..
             } => {
-                let mut successors = branches
-                    .into_iter()
-                    .map(|applied| state.clone().rewritten(applied))
-                    .collect::<Vec<_>>();
+                // The instances the step itself left without a defined successor (its trivial
+                // entries) are parts of its undefined step, with those of the candidates whose
+                // successors normalize to `\bottom`: one undefined step, whose instances fail the
+                // claim, as any instance with no successor does. With such entries the
+                // candidates are normalized here, so that the undefined step is decided once;
+                // otherwise each successor decides it if it turns out to denote no state.
+                let depth = state.depth + 1;
+                let offset = trivial.len();
+                let mut parts = Vec::new();
+                for (index, entry) in trivial.iter().enumerate() {
+                    match entry_undefined_part(
+                        definition,
+                        options.max_simplification_iterations,
+                        solver,
+                        index,
+                        entry,
+                        depth,
+                    ) {
+                        Ok(Some(part)) => parts.push(part),
+                        Ok(None) => {}
+                        Err(stop) => publish_stop!(stop.into_cause()),
+                    }
+                }
+                finish_if_interrupted!();
+                let has_remainder = remainder.is_some();
+                let successors = if parts.is_empty() {
+                    state.successors(branches, has_remainder, offset, Default::default())
+                } else {
+                    let mut defined = Vec::with_capacity(branches.len());
+                    for (candidate, applied) in branches.into_iter().enumerate() {
+                        let rule = applied.observing_rule();
+                        let undefined = match successor_undefinedness(
+                            definition,
+                            &applied.pattern,
+                            &applied.before.constraints,
+                            simplification,
+                            solver,
+                            None,
+                        ) {
+                            Ok(undefined) => undefined,
+                            Err(stop) => publish_stop!(stop.into_cause()),
+                        };
+                        match undefined {
+                            Some(undefined) => parts.push(UndefinedPart::candidate(
+                                offset + candidate,
+                                &applied.before,
+                                &applied.pattern,
+                                &applied.unique_id,
+                                &applied.label,
+                                rule,
+                                undefined.halt(depth),
+                                Vec::new(),
+                                applied.remainder_simplifications.clone(),
+                            )),
+                            None => defined.push(applied),
+                        }
+                    }
+                    let built = defined
+                        .iter()
+                        .map(|applied| applied.pattern.clone())
+                        .collect::<Vec<_>>();
+                    let others = !built.is_empty() || has_remainder;
+                    let decision = decide_undefined_step(
+                        definition,
+                        options.max_simplification_iterations,
+                        solver,
+                        parts,
+                        &built.iter().collect::<Vec<_>>(),
+                        others,
+                        &mut crate::diagnostic::PathDiagnostics::new_request(),
+                    );
+                    let reported = matches!(decision, Ok(UndefinedDecision::Groups(..)));
+                    match decision {
+                        Ok(UndefinedDecision::Groups(groups, _)) => {
+                            for group in groups {
+                                let (undefined, contradicted_total) = state.undefined_group(group);
+                                if let Some(outcome) =
+                                    vacuous_outcome(&undefined, options, ProofLeafOutcome::Trivial)
+                                {
+                                    record_leaf!(
+                                        undefined
+                                            .leaf(outcome)
+                                            .with_contradicted_total(contradicted_total)
+                                    );
+                                }
+                            }
+                        }
+                        Ok(UndefinedDecision::Covered) => {}
+                        Ok(UndefinedDecision::NoInstance) => {
+                            // Nothing is dropped: no instance is left without a defined candidate
+                            // or a remainder to take it.
+                            debug_assert!(
+                                built.is_empty() && !has_remainder,
+                                "an undefined step with no instance leaves no defined candidate and no remainder"
+                            );
+                            if let Some(outcome) =
+                                vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous)
+                            {
+                                record_leaf!(state.clone().leaf(outcome));
+                            }
+                            continue;
+                        }
+                        Err(stop) => publish_stop!(stop.into_cause()),
+                    }
+                    finish_if_interrupted!();
+                    let count = defined.len();
+                    state.successors(
+                        defined,
+                        has_remainder,
+                        offset,
+                        StepUndefinedness::decided(offset, count, reported),
+                    )
+                };
+                let mut successors = successors;
                 if let Some(remainder) = remainder {
                     successors.push(state.clone().rewrite_remaining(remainder));
                 }
@@ -811,31 +961,6 @@ pub fn prove_claim(
                         options,
                         solver,
                     ));
-                }
-                // Every entry, refuted or carried, stands for the instances whose step is
-                // undefined: a rule applies to them, and neither it nor any applied sibling of
-                // its priority group gives them a defined successor. Such an instance reaches
-                // no configuration, so it fails the claim like any other empty result, unless
-                // the entry has no instance.
-                for trivial in trivial {
-                    let contradicted_total = trivial.contradicted_total.clone();
-                    // The stop is published before the poll, which would drop it unpublished.
-                    let trivial_state =
-                        match undefined_step_state(definition, &state, trivial, options, solver) {
-                            Ok(trivial_state) => trivial_state,
-                            Err(stop) => publish_stop!(stop.into_cause()),
-                        };
-                    finish_if_interrupted!();
-                    let Some(trivial_state) = trivial_state else {
-                        continue;
-                    };
-                    let outcome =
-                        vacuous_outcome(&trivial_state, options, ProofLeafOutcome::Trivial);
-                    record_leaf!(
-                        trivial_state
-                            .leaf(outcome)
-                            .with_contradicted_total(contradicted_total)
-                    );
                 }
             }
             RewriteResult::Stuck(_) => {
@@ -855,23 +980,27 @@ pub fn prove_claim(
                 let contradicted_total = applications
                     .into_iter()
                     .find_map(|application| application.contradicted_total);
+                // The step's result: a successor that denotes no state.
                 state.depth += 1;
+                state.origin = StateOrigin::Successor;
                 state.trace.push(TraceEntry {
                     depth: state.depth,
                     kind: TraceKind::Rewrite,
                     label: None,
                     unique_id: "trivial".into(),
                 });
-                let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Trivial);
-                record_leaf!(
-                    state
-                        .leaf(outcome)
-                        .with_contradicted_total(contradicted_total)
-                );
+                if let Some(outcome) = vacuous_outcome(&state, options, ProofLeafOutcome::Trivial) {
+                    record_leaf!(
+                        state
+                            .leaf(outcome)
+                            .with_contradicted_total(contradicted_total)
+                    );
+                }
             }
             RewriteResult::Vacuous(_) => {
-                let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
-                record_leaf!(state.leaf(outcome));
+                if let Some(outcome) = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous) {
+                    record_leaf!(state.leaf(outcome));
+                }
             }
             RewriteResult::Indeterminate { reason, .. } => {
                 record_refined_leaf!(externalise_leaf(
@@ -921,7 +1050,7 @@ fn finish_at_breadth_limit(
     solver: &dyn SmtSolver,
 ) -> ProofResult {
     let unexplored_states = pending.len() as u64;
-    leaves.extend(pending.into_iter().map(|state| {
+    leaves.extend(pending.into_iter().filter_map(|state| {
         externalise_leaf(
             definition,
             state,
@@ -941,16 +1070,17 @@ fn finish_at_breadth_limit(
 /// `BreadthBound`, and `Indeterminate` for a reason other than a simplification failure. A
 /// proven, trusted, trivial, vacuous, or stopped leaf is reported as it stands. A constraint
 /// set that simplifies to `\bottom` is an empty state and takes the outcome the loop head gives
-/// one. When the simplification fails, an `Indeterminate` leaf keeps its pattern and reason;
-/// any other leaf reports the failure as a failed loop-head simplification does. A stop keeps
-/// the decided outcome with the unsimplified pattern.
+/// one ([`vacuous_outcome`]), which is no leaf (`None`) for a split part. When the
+/// simplification fails, an `Indeterminate` leaf keeps its pattern and reason; any other leaf
+/// reports the failure as a failed loop-head simplification does. A stop keeps the decided
+/// outcome with the unsimplified pattern.
 fn externalise_leaf(
     definition: &BackendDefinition,
     mut state: ProofState,
     outcome: ProofLeafOutcome,
     options: ProofOptions,
     solver: &dyn SmtSolver,
-) -> ProofLeaf {
+) -> Option<ProofLeaf> {
     let externalised = match &outcome {
         ProofLeafOutcome::Stuck | ProofLeafOutcome::DepthBound | ProofLeafOutcome::BreadthBound => {
             true
@@ -965,9 +1095,9 @@ fn externalise_leaf(
         | ProofLeafOutcome::Stopped(_) => false,
     };
     if !externalised {
-        return state.leaf(outcome);
+        return Some(state.leaf(outcome));
     }
-    match simplify_leaf_pattern(
+    let leaf = match simplify_leaf_pattern(
         definition,
         &state.pattern,
         options.max_simplification_iterations,
@@ -977,7 +1107,7 @@ fn externalise_leaf(
     ) {
         Ok(Ok(simplified)) if predicates_truth(&simplified.pattern.constraints) == Truth::False => {
             state.pattern = simplified.pattern;
-            let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous);
+            let outcome = vacuous_outcome(&state, options, ProofLeafOutcome::Vacuous)?;
             state.leaf(outcome)
         }
         Ok(Ok(simplified)) => {
@@ -999,7 +1129,8 @@ fn externalise_leaf(
             stop.forgo_refinement();
             state.leaf(outcome)
         }
-    }
+    };
+    Some(leaf)
 }
 
 /// Whether the rewrite step on a `Stuck` leaf is already known to have no successor.
@@ -1046,6 +1177,7 @@ enum StuckEvidence {
 ///
 /// A stop of the certification is returned: a certification decided from a missing answer
 /// could certify a refutation that does not hold, so the state's step ends with the stop.
+/// A split part that externalisation shows empty is no leaf (`None`, [`vacuous_outcome`]).
 fn stuck_leaf(
     definition: &BackendDefinition,
     state: ProofState,
@@ -1054,9 +1186,13 @@ fn stuck_leaf(
     fresh_counter: &FreshCounter,
     options: ProofOptions,
     solver: &dyn SmtSolver,
-) -> Stoppable<ProofLeaf> {
+) -> Stoppable<Option<ProofLeaf>> {
     let path_certifiable = state.path_certifiable();
-    let mut leaf = externalise_leaf(definition, state, ProofLeafOutcome::Stuck, options, solver);
+    let Some(mut leaf) =
+        externalise_leaf(definition, state, ProofLeafOutcome::Stuck, options, solver)
+    else {
+        return Ok(None);
+    };
     let refutes = |instance: &Pattern, evidence: StuckEvidence| -> Stoppable<bool> {
         Ok(leaf_is_nonempty(definition, instance, solver)?
             && (evidence == StuckEvidence::StepStuck
@@ -1076,7 +1212,7 @@ fn stuck_leaf(
                 Some(instance) => refutes(&instance, StuckEvidence::StepNotRun)?,
                 None => false,
             });
-    Ok(leaf)
+    Ok(Some(leaf))
 }
 
 /// The instance of `pattern` that binds every variable of sort `K` to the empty computation
@@ -1185,7 +1321,13 @@ fn counterexample_limit_reached(leaves: &[ProofLeaf], options: ProofOptions) -> 
 struct ProofState {
     pattern: Pattern,
     depth: u64,
+    /// How the state was reached, for the report: the steps, claim applications and splits on
+    /// its path, and the equations its normalizations applied. It is never read for a verdict;
+    /// what the state is (the claim's left-hand side, a successor, or a split part) is `origin`.
     trace: Vec<TraceEntry>,
+    /// What the state's configurations are, which decides what its emptiness means
+    /// ([`vacuous_outcome`]).
+    origin: StateOrigin,
     kind: ProofStateKind,
     /// A one-path step on this trace may have dropped a successor of a configuration it covered:
     /// an overlapping rule of equal priority, a second collection match, or a rule whose
@@ -1195,6 +1337,48 @@ struct ProofState {
     /// was skipped (below the minimum depth) or undecided. Part of its configurations may then
     /// have satisfied the claim there, before the path went on.
     destination_undecided: bool,
+    /// The rule step that produced this state, for the undefined step it is when it turns out
+    /// to denote no state ([`proof_undefined_step`]); `None` for a state no rule step produced.
+    producer: Option<std::rc::Rc<ProofProducer>>,
+}
+
+/// The rule step that produced a proof state: the state it was taken from, the candidate whose
+/// successor the state is, the step's other applied candidates, whether it left a remainder,
+/// and what its successors have decided about its undefined step, shared among them.
+struct ProofProducer {
+    parent: ProofState,
+    candidate: Sibling,
+    siblings: Vec<Sibling>,
+    has_remainder: bool,
+    undefined: std::rc::Rc<std::cell::RefCell<StepUndefinedness>>,
+}
+
+/// What a step's undefined step has come to so far ([`proof_undefined_step`]).
+///
+/// A decision splits the step's candidates into parts, whose instances it reports where no
+/// candidate counted defined takes them, and candidates counted defined, whose instances it
+/// excludes. A candidate's normalization within the decision is not its proof state's: the
+/// state goes on to a satisfiability check of its whole constraint and to the destination
+/// check, either of which can show it denotes no state. A candidate counted defined whose state
+/// then denotes no state is no successor either, and its instances were excluded from every
+/// earlier decision; it takes its own decision, against the candidates still counted defined.
+#[derive(Clone, Debug, Default)]
+struct StepUndefinedness {
+    /// The candidates still counted defined; `None` until the step's first decision.
+    defined: Option<std::collections::BTreeSet<usize>>,
+    /// Whether a decision of the step reported an instance.
+    reported: bool,
+}
+
+impl StepUndefinedness {
+    /// A step whose undefined step was decided within it, counting every one of its `count`
+    /// successors (numbered from `offset`) defined; `reported` says whether it found instances.
+    fn decided(offset: usize, count: usize, reported: bool) -> Self {
+        Self {
+            defined: Some((offset..offset + count).collect()),
+            reported,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1203,7 +1387,42 @@ enum ProofStateKind {
     Remaining(Option<UndecidedStep>),
 }
 
+/// What a proof state's configurations are, relative to the claim's left-hand side.
+///
+/// A state's emptiness means something different for each ([`vacuous_outcome`]), so the
+/// provenance is recorded where the state is built, and never inferred from its depth or trace:
+/// normalizing a state appends the equations it applied to the trace without changing the
+/// configurations the state denotes, and a split appends a remainder entry without being a step.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum StateOrigin {
+    /// The claim's left-hand side, before or after normalization: exactly the configurations the
+    /// claim is about.
+    Initial,
+    /// A successor of a step: a rule step's result, a claim application's right-hand side, or a
+    /// group of a step's undefined step.
+    Successor,
+    /// A part of a state that one of the prover's case splits set aside: the part a destination
+    /// did not cover, the part a claim did not apply to, or the part no rule of a step took.
+    /// Its configurations are those of the state it was split from that the other side of the
+    /// split did not take.
+    Split,
+}
+
 impl ProofState {
+    /// The proof state of the claim's left-hand side `pattern`.
+    fn initial(pattern: Pattern) -> Self {
+        Self {
+            pattern,
+            depth: 0,
+            trace: Vec::new(),
+            origin: StateOrigin::Initial,
+            kind: ProofStateKind::Rewritable,
+            alternative_discarded: false,
+            destination_undecided: false,
+            producer: None,
+        }
+    }
+
     fn leaf(self, outcome: ProofLeafOutcome) -> ProofLeaf {
         ProofLeaf {
             pattern: self.pattern,
@@ -1227,6 +1446,8 @@ impl ProofState {
     }
 
     fn rewritten(mut self, applied: crate::rewrite::AppliedRule) -> Self {
+        self.producer = None;
+        self.origin = StateOrigin::Successor;
         for simplification in &applied.remainder_simplifications {
             self.trace.extend(
                 simplification
@@ -1254,6 +1475,8 @@ impl ProofState {
     }
 
     fn claimed(mut self, pattern: Pattern, label: Option<String>, unique_id: String) -> Self {
+        self.producer = None;
+        self.origin = StateOrigin::Successor;
         self.depth += 1;
         self.trace.push(TraceEntry {
             depth: self.depth,
@@ -1266,7 +1489,12 @@ impl ProofState {
         self
     }
 
+    /// The part `remainder` of this state that a split set aside. It is a `Split` whatever this
+    /// state is: its configurations are this state's that the other side of the split did not
+    /// take, so its emptiness says that side took every one of them.
     fn remaining(mut self, remainder: crate::rewrite::RemainderBranch) -> Self {
+        self.producer = None;
+        self.origin = StateOrigin::Split;
         self.trace.push(TraceEntry {
             depth: self.depth,
             kind: TraceKind::Remainder,
@@ -1294,6 +1522,105 @@ impl ProofState {
     fn rewrite_remaining(mut self, remainder: crate::rewrite::RemainderBranch) -> Self {
         self.kind = ProofStateKind::Remaining(remainder.indeterminate.clone());
         self.remaining(remainder)
+    }
+
+    /// The successors of the step `self` took, one per applied candidate, each knowing the
+    /// others for its undefined step; `offset` is the number of the step's trivial entries,
+    /// which come first among its candidates, and `undefined` what the step already decided
+    /// about its undefined step.
+    fn successors(
+        &self,
+        branches: Vec<crate::rewrite::AppliedRule>,
+        has_remainder: bool,
+        offset: usize,
+        undefined: StepUndefinedness,
+    ) -> Vec<ProofState> {
+        let parent = ProofState {
+            producer: None,
+            ..self.clone()
+        };
+        let candidates = branches
+            .iter()
+            .enumerate()
+            .map(|(index, applied)| Sibling::of(offset + index, applied))
+            .collect::<Vec<_>>();
+        let undefined = std::rc::Rc::new(std::cell::RefCell::new(undefined));
+        branches
+            .into_iter()
+            .zip(&candidates)
+            .map(|(applied, candidate)| {
+                let siblings = candidates
+                    .iter()
+                    .filter(|sibling| sibling.index != candidate.index)
+                    .cloned()
+                    .collect();
+                let mut successor = parent.clone().rewritten(applied);
+                successor.producer = Some(std::rc::Rc::new(ProofProducer {
+                    parent: parent.clone(),
+                    candidate: candidate.clone(),
+                    siblings,
+                    has_remainder,
+                    undefined: undefined.clone(),
+                }));
+                successor
+            })
+            .collect()
+    }
+
+    /// The proof state of one group of a step's undefined step taken from `self`: the
+    /// configuration under the group's conditions, one rewrite step below, on the path through
+    /// the remainder simplifications its first part went through, naming that part's rule.
+    fn undefined_group(
+        &self,
+        group: UndefinedGroup,
+    ) -> (ProofState, Option<Box<ContradictedTotal>>) {
+        let mut undefined = ProofState {
+            producer: None,
+            origin: StateOrigin::Successor,
+            ..self.clone()
+        };
+        for simplification in &group.remainder_simplifications {
+            undefined.trace.extend(
+                simplification
+                    .applied_rules
+                    .iter()
+                    .cloned()
+                    .map(|unique_id| TraceEntry {
+                        depth: self.depth,
+                        kind: TraceKind::Simplification,
+                        label: None,
+                        unique_id,
+                    }),
+            );
+        }
+        let (rule_id, label, contradicted_total) = match group.halt {
+            HaltReason::Trivial {
+                rule_id,
+                label,
+                contradicted_total,
+                ..
+            } => (rule_id, label, contradicted_total),
+            HaltReason::Stopped(_)
+            | HaltReason::Stuck
+            | HaltReason::Vacuous { .. }
+            | HaltReason::Branch { .. }
+            | HaltReason::CutPointRule { .. }
+            | HaltReason::TerminalRule { .. }
+            | HaltReason::DepthBound
+            | HaltReason::BreadthBound
+            | HaltReason::WorkBound
+            | HaltReason::Indeterminate(_)
+            | HaltReason::Simplification(_) => (None, None, None),
+        };
+        undefined.pattern = group.pattern;
+        undefined.depth += 1;
+        undefined.trace.push(TraceEntry {
+            depth: undefined.depth,
+            kind: TraceKind::Rewrite,
+            label,
+            unique_id: rule_id.unwrap_or_else(|| "trivial".into()),
+        });
+        (undefined, contradicted_total)
     }
 }
 
@@ -1324,9 +1651,20 @@ fn apply_claim(
         &claim.lhs.term,
         &subject.term,
     );
+    // A match the matcher could not decide leaves the claim's applicability open: some instance
+    // of the claim may apply, so it is not read as not applicable.
+    let undecided = || -> Stoppable<ClaimApplication> {
+        Ok(ClaimApplication::Indeterminate(
+            ClaimIndeterminateReason::Match {
+                substitution: Substitution::new(),
+                remainder: vec![(claim.lhs.term.clone(), subject.term.clone())],
+            },
+        ))
+    };
     let matched = match matched {
         MatchResult::Success(substitution) => MatchSolution::new(substitution),
         MatchResult::Failed(_) => return Ok(ClaimApplication::NotApplicable),
+        MatchResult::Undecided(_) => return undecided(),
         MatchResult::Indeterminate {
             substitution,
             remainder,
@@ -1351,6 +1689,7 @@ fn apply_claim(
             };
             match recovered {
                 RecoveredMatch::Failed(_) => return Ok(ClaimApplication::NotApplicable),
+                RecoveredMatch::Undecided(_) => return undecided(),
                 RecoveredMatch::Matched {
                     solution,
                     remainder,
@@ -1662,12 +2001,13 @@ fn apply_claim(
     })
 }
 
-/// The remainder of a claim application is the subject under the negated, quantified match
-/// condition. It is unsatisfiable when that condition simplifies to false or the solver refutes
-/// it together with `subject_knowledge`, the subject's `pattern_knowledge`; an undecided or
+/// Whether a split part, the subject under `negated` (the negated, quantified condition of the
+/// other side of the split: a claim's match condition, or a destination's coverage condition),
+/// is shown empty. It is when that condition simplifies to false or the solver refutes it
+/// together with `subject_knowledge`, the subject's `pattern_knowledge`; an undecided or
 /// unavailable solver, or a failed simplification, keeps it. A stop (a cancelled request, a
 /// passed step deadline, a failed solver prelude or an exhausted stack) is returned instead:
-/// keeping the remainder would turn a missing answer into a state the claim does not cover.
+/// keeping the remainder would turn a missing answer into a state the split does not cover.
 fn remainder_is_unsatisfiable(
     definition: &BackendDefinition,
     subject_knowledge: &[crate::rule::Predicate],
@@ -1948,53 +2288,109 @@ fn is_proven(leaf: &ProofLeaf) -> bool {
     )
 }
 
-/// The proof state of the instances `trivial` leaves with an undefined step, one rewrite step
-/// below `state`, or `None` when that set is shown empty
-/// ([`TrivialApplication::decided_undefined_instances`]).
+/// What a proof state that denotes no state comes to ([`proof_undefined_step`]).
+enum ProofUndefined {
+    /// The undefined step of the step that produced it: its `Trivial` states.
+    Leaves(Vec<(ProofState, Option<Box<ContradictedTotal>>)>),
+    /// No instance is left undefined: another candidate or the remainder takes every instance,
+    /// or an earlier decision of the step already reported its instances.
+    Covered,
+    /// The configuration the step was taken from has no instance, or no rule step produced the
+    /// state: it is `Vacuous`.
+    NoInstance,
+}
+
+/// `state`, which its normalization showed to denote no state: when a rule step produced it, it
+/// is no successor of that step, an all-path claim has no path through it, and its instances
+/// are the step's undefined step where no other candidate takes them, decided as an execution
+/// decides it ([`decide_undefined_step`]).
 ///
-/// The state is `trivial.before` (the pattern the rule was applied to, which for a lower
-/// priority group is the remainder of the higher ones) constrained by `trivial.undefined`, so an
-/// instance that a higher group or an applied sibling takes is not in it. An empty set holds no
-/// instance of the claim, so it is dropped rather than reported as a vacuous path.
-fn undefined_step_state(
+/// The first successor of a step to find this decides for the step, after normalizing the
+/// step's other candidates: those shown undefined are parts with it, the others are counted
+/// defined ([`StepUndefinedness`]). A later successor that was a part is covered: its instances
+/// are in that decision. A later successor that was counted defined had its instances excluded
+/// from every decision so far, so it takes its own decision, excluded by the candidates still
+/// counted defined; the instances it reports are disjoint from every earlier decision's, and an
+/// instance on which every candidate that applies denotes no state is reported by the decision
+/// of the last of them to be found so.
+fn proof_undefined_step(
     definition: &BackendDefinition,
     state: &ProofState,
-    trivial: TrivialApplication,
+    contradicted_total: Option<Box<ContradictedTotal>>,
     options: ProofOptions,
     solver: &dyn SmtSolver,
-) -> Stoppable<Option<ProofState>> {
-    let Some(pattern) = trivial.decided_undefined_instances(
+) -> Stoppable<ProofUndefined> {
+    let Some(producer) = &state.producer else {
+        return Ok(ProofUndefined::NoInstance);
+    };
+    let candidate = &producer.candidate;
+    let earlier = producer.undefined.borrow().clone();
+    if let Some(defined) = &earlier.defined
+        && !defined.contains(&candidate.index)
+    {
+        return Ok(ProofUndefined::Covered);
+    }
+    let depth = producer.parent.depth + 1;
+    let halt = HaltReason::Trivial {
+        depth,
+        rule_id: None,
+        label: None,
+        obligation: crate::rule::Predicate::False,
+        contradicted_total,
+    };
+    let mut parts = vec![candidate.part(halt)];
+    let mut diagnostics = crate::diagnostic::PathDiagnostics::new_request();
+    let defined = match &earlier.defined {
+        Some(defined) => producer
+            .siblings
+            .iter()
+            .filter(|sibling| defined.contains(&sibling.index))
+            .collect::<Vec<_>>(),
+        None => {
+            let mut defined = Vec::with_capacity(producer.siblings.len());
+            sibling_undefined_parts(
+                definition,
+                options.max_simplification_iterations,
+                solver,
+                None,
+                &producer.siblings,
+                depth,
+                &mut parts,
+                &mut defined,
+                &mut diagnostics,
+            )?;
+            defined
+        }
+    };
+    // An earlier decision's instances are accounted for, so this one finding none is no sign
+    // that the configuration has no instance.
+    let others = producer.has_remainder || !defined.is_empty() || earlier.reported;
+    let decision = decide_undefined_step(
         definition,
         options.max_simplification_iterations,
         solver,
-    )?
-    else {
-        return Ok(None);
+        parts,
+        &defined
+            .iter()
+            .map(|sibling| sibling.built())
+            .collect::<Vec<_>>(),
+        others,
+        &mut diagnostics,
+    )?;
+    *producer.undefined.borrow_mut() = StepUndefinedness {
+        defined: Some(defined.iter().map(|sibling| sibling.index).collect()),
+        reported: earlier.reported || matches!(decision, UndefinedDecision::Groups(..)),
     };
-    let mut undefined = state.clone();
-    undefined.pattern = pattern;
-    for simplification in &trivial.remainder_simplifications {
-        undefined.trace.extend(
-            simplification
-                .applied_rules
-                .iter()
-                .cloned()
-                .map(|unique_id| TraceEntry {
-                    depth: state.depth,
-                    kind: TraceKind::Simplification,
-                    label: None,
-                    unique_id,
-                }),
-        );
-    }
-    undefined.depth += 1;
-    undefined.trace.push(TraceEntry {
-        depth: undefined.depth,
-        kind: TraceKind::Rewrite,
-        label: trivial.label,
-        unique_id: trivial.rule_id,
-    });
-    Ok(Some(undefined))
+    Ok(match decision {
+        UndefinedDecision::Groups(groups, _) => ProofUndefined::Leaves(
+            groups
+                .into_iter()
+                .map(|group| producer.parent.undefined_group(group))
+                .collect(),
+        ),
+        UndefinedDecision::Covered => ProofUndefined::Covered,
+        UndefinedDecision::NoInstance => ProofUndefined::NoInstance,
+    })
 }
 
 /// Whether the state's constraints are shown unsatisfiable. A stop of the solver's query is
@@ -2007,23 +2403,36 @@ fn state_is_bottom(state: &ProofState, solver: &dyn SmtSolver) -> Stoppable<bool
         ))
 }
 
-/// A claim whose initial pattern is bottom denotes no state, so it holds vacuously and is proven.
-/// A state reached by rewriting that turns out bottom has no instance either, but it holds only
-/// because the path's own conditions contradict each other or its step is undefined; that is
-/// reported as `cause` rather than counted as a proof, unless the caller allows vacuous proofs.
+/// The leaf of a state shown to denote no configuration, decided by what the state is
+/// (`ProofState::origin`) and never by its depth or trace; `None` when the state is no leaf.
+///
+/// - The claim's left-hand side (`Initial`, before or after its normalization, which applies
+///   equalities and states definedness the left-hand side already implies): the claim is about no
+///   configuration, so it holds vacuously and the leaf is proven.
+/// - A successor (`Successor`): it has no instance because the path's own conditions contradict
+///   each other or its step is undefined; that is reported as `cause` rather than counted as a
+///   proof, unless the caller allows vacuous proofs.
+/// - A split part (`Split`): the parts of a split partition the state split, so an empty part
+///   means the other side took every configuration. No path ends here and there is nothing for
+///   the vacuity policy to reject, whatever `allow_vacuous` says: the part is no leaf.
+#[deny(clippy::wildcard_enum_match_arm)]
 fn vacuous_outcome(
     state: &ProofState,
     options: ProofOptions,
     cause: ProofLeafOutcome,
-) -> ProofLeafOutcome {
-    if (state.depth == 0 && state.trace.is_empty()) || options.allow_vacuous {
+) -> Option<ProofLeafOutcome> {
+    let proven = || {
         ProofLeafOutcome::Proven(ImplicationCondition {
             predicates: vec![crate::rule::Predicate::False],
             substitution: Substitution::new(),
             witnesses: Substitution::new(),
         })
-    } else {
-        cause
+    };
+    match state.origin {
+        StateOrigin::Initial => Some(proven()),
+        StateOrigin::Successor if options.allow_vacuous => Some(proven()),
+        StateOrigin::Successor => Some(cause),
+        StateOrigin::Split => None,
     }
 }
 
@@ -2037,21 +2446,37 @@ fn extend_unique(left: &mut Vec<crate::rule::Predicate>, right: Vec<crate::rule:
 
 /// The part of `pattern` a destination does not cover: `pattern` under the complement of the
 /// coverage condition (`complement_implication_condition`), recorded as a remainder of the
-/// destination's check.
+/// destination's check. `None` when that part is shown empty ([`remainder_is_unsatisfiable`]
+/// under the pattern's knowledge): the destination then covers every configuration of
+/// `pattern`. The check comes before the part is stepped, since an empty part that is stepped
+/// would yield successors that denote no state, which the vacuity policy rejects as paths whose
+/// own conditions contradict each other. A stop of the check is returned.
 fn uncovered_remainder(
+    definition: &BackendDefinition,
     pattern: &Pattern,
     claim: &ReachabilityClaim,
     universals: &BTreeSet<crate::term::Variable>,
     coverage: &CoverageCondition,
-) -> RemainderBranch {
+    options: ProofOptions,
+    solver: &dyn SmtSolver,
+) -> Stoppable<Option<RemainderBranch>> {
+    let complement = complement_implication_condition(pattern, universals, coverage);
+    let knowledge = pattern_knowledge(definition, pattern);
+    if remainder_is_unsatisfiable(
+        definition,
+        &knowledge,
+        &complement,
+        SimplificationOptions {
+            max_iterations: options.max_simplification_iterations,
+            ..SimplificationOptions::default()
+        },
+        solver,
+    )? {
+        return Ok(None);
+    }
     let mut constraints = pattern.constraints.clone();
-    extend_unique(
-        &mut constraints,
-        vec![complement_implication_condition(
-            pattern, universals, coverage,
-        )],
-    );
-    RemainderBranch {
+    extend_unique(&mut constraints, vec![complement]);
+    Ok(Some(RemainderBranch {
         pattern: Pattern {
             term: pattern.term.clone(),
             constraints,
@@ -2062,7 +2487,7 @@ fn uncovered_remainder(
         indeterminate: None,
         diagnostics: Vec::new(),
         observations: Vec::new(),
-    }
+    }))
 }
 
 /// The part of `pattern` that `coverage` does not cover: `¬∃E. covered`, where `covered` is the
@@ -2091,10 +2516,11 @@ fn complement_implication_condition(
         )
         .chain(universals.iter().cloned())
         .collect::<BTreeSet<_>>();
-    let introduced = covered
-        .free_variables()
-        .difference(&in_scope)
-        .cloned()
+    // Outermost first in order of first occurrence, so the binders' order depends on where the
+    // variables occur, not on their names.
+    let introduced = crate::rewrite::free_variables_by_first_occurrence(&covered)
+        .into_iter()
+        .filter(|variable| !in_scope.contains(variable))
         .collect::<Vec<_>>();
     for variable in introduced.into_iter().rev() {
         covered = crate::rule::Predicate::Exists(variable, Arc::new(covered));
@@ -4460,6 +4886,349 @@ mod tests {
                 ..
             }] if predicates == &[crate::rule::Predicate::False]
         ));
+    }
+
+    /// The proven `\bottom` leaf of an empty claim left-hand side.
+    fn is_vacuous_proof(outcome: &ProofLeafOutcome) -> bool {
+        matches!(
+            outcome,
+            ProofLeafOutcome::Proven(ImplicationCondition { predicates, .. })
+                if predicates == &[crate::rule::Predicate::False]
+        )
+    }
+
+    /// A state of the given origin, depth and trace over `a{}()`, with the constraint `\bottom`.
+    fn empty_state(
+        definition: &BackendDefinition,
+        origin: StateOrigin,
+        depth: u64,
+        trace: Vec<TraceEntry>,
+    ) -> ProofState {
+        let mut state = ProofState::initial(Pattern {
+            term: term(definition, "a{}()"),
+            constraints: vec![crate::rule::Predicate::False],
+        });
+        state.origin = origin;
+        state.depth = depth;
+        state.trace = trace;
+        state
+    }
+
+    /// An empty state's verdict is a function of what the state is, never of its depth or of the
+    /// equations and splits its trace reports (CS-10-1). The claim's left-hand side is proven
+    /// whatever its normalization recorded; a successor is rejected unless vacuous results are
+    /// allowed; a split part is no leaf, so a split at depth 0 with an empty trace is never taken
+    /// for the left-hand side and proven.
+    #[test]
+    fn vacuous_outcome_is_decided_by_the_state_origin_not_its_trace() {
+        let definition = definition("", "");
+        let simplification = TraceEntry {
+            depth: 0,
+            kind: TraceKind::Simplification,
+            label: None,
+            unique_id: "some-equation".into(),
+        };
+        for allow_vacuous in [false, true] {
+            let options = ProofOptions {
+                allow_vacuous,
+                ..ProofOptions::default()
+            };
+            for depth in [0, 1] {
+                for trace in [Vec::new(), vec![simplification.clone()]] {
+                    let label = format!("allow_vacuous {allow_vacuous}, depth {depth}, {trace:?}");
+                    let outcome = |origin| {
+                        vacuous_outcome(
+                            &empty_state(&definition, origin, depth, trace.clone()),
+                            options,
+                            ProofLeafOutcome::Vacuous,
+                        )
+                    };
+                    assert!(
+                        outcome(StateOrigin::Initial)
+                            .is_some_and(|outcome| is_vacuous_proof(&outcome)),
+                        "{label}"
+                    );
+                    let successor = outcome(StateOrigin::Successor).expect("a successor is a leaf");
+                    if allow_vacuous {
+                        assert!(is_vacuous_proof(&successor), "{label}: {successor:?}");
+                    } else {
+                        assert_eq!(successor, ProofLeafOutcome::Vacuous, "{label}");
+                    }
+                    assert_eq!(outcome(StateOrigin::Split), None, "{label}");
+                }
+            }
+        }
+    }
+
+    /// Externalising a leaf normalizes it for display, which may apply equations and show the
+    /// leaf empty; the empty leaf takes the outcome its origin gives, however the trace grew. A
+    /// depth-bound left-hand side (`--depth 0`) shown empty there is proven, not `Vacuous`.
+    #[test]
+    fn an_externalised_empty_leaf_takes_the_outcome_of_its_origin() {
+        let definition = definition(
+            r#"
+            symbol f{}() : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+                f{}(), \and{SortS{}}(a{}(), \top{SortS{}}())
+            )) [label{}("f-is-a"), simplification{}()]
+            "#,
+            "",
+        );
+        let normalized = TraceEntry {
+            depth: 0,
+            kind: TraceKind::Simplification,
+            label: None,
+            unique_id: "f-is-a".into(),
+        };
+        for allow_vacuous in [false, true] {
+            let options = ProofOptions {
+                allow_vacuous,
+                ..ProofOptions::default()
+            };
+            let externalise = |origin| {
+                let mut state = empty_state(&definition, origin, 0, vec![normalized.clone()]);
+                state.pattern.term = term(&definition, "f{}()");
+                externalise_leaf(
+                    &definition,
+                    state,
+                    ProofLeafOutcome::DepthBound,
+                    options,
+                    &NoSolver,
+                )
+            };
+            let initial = externalise(StateOrigin::Initial).expect("the left-hand side is a leaf");
+            assert!(is_vacuous_proof(&initial.outcome), "{initial:#?}");
+            assert_eq!(initial.depth, 0);
+            let successor = externalise(StateOrigin::Successor).expect("a successor is a leaf");
+            if allow_vacuous {
+                assert!(is_vacuous_proof(&successor.outcome), "{successor:#?}");
+            } else {
+                assert_eq!(
+                    successor.outcome,
+                    ProofLeafOutcome::Vacuous,
+                    "{successor:#?}"
+                );
+            }
+            assert!(externalise(StateOrigin::Split).is_none());
+        }
+    }
+
+    /// `f() ∧ opaque() = a()` denotes no configuration when the solver refutes its constraint, so
+    /// the claim holds vacuously, as `a() ∧ opaque() = a()` does in
+    /// `inconsistent_antecedent_is_accepted_at_depth_zero_including_smt_unsat`. Normalizing the
+    /// left-hand side applies `f() = a()` before the solver is asked, which records the equation
+    /// in the trace; an equality changes no configuration the state denotes, so the verdict is
+    /// the same (CS-10-1).
+    #[test]
+    fn an_initial_state_normalized_by_an_equation_and_refuted_by_smt_is_proven() {
+        let claims = r#"
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(
+                    f{}(),
+                    \equals{SortS{}, SortS{}}(opaque{}(), a{}())
+                ),
+                weakAlwaysFinally{SortS{}}(b{}())
+            ) [label{}("normalized-smt-unsat-antecedent")]
+        "#;
+        let definition = definition(
+            r#"
+            symbol opaque{}() : SortS{} [function{}()]
+            symbol f{}() : SortS{} [function{}(), total{}()]
+            axiom{R} \implies{R}(\top{R}(), \equals{SortS{}, R}(
+                f{}(), \and{SortS{}}(a{}(), \top{SortS{}}())
+            )) [label{}("f-is-a"), simplification{}()]
+            "#,
+            claims,
+        );
+        let claim = claim_with_label(&definition, "normalized-smt-unsat-antecedent");
+        for allow_vacuous in [false, true] {
+            let result = prove_claim(
+                &definition,
+                claim,
+                ProofOptions {
+                    allow_vacuous,
+                    ..ProofOptions::default()
+                },
+                &NonemptyUnsatSolver,
+            )
+            .unwrap();
+            assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+            let [leaf] = result.leaves.as_slice() else {
+                panic!("expected one leaf, found {result:#?}");
+            };
+            assert_eq!(leaf.depth, 0, "{result:#?}");
+            assert!(is_vacuous_proof(&leaf.outcome), "{result:#?}");
+            // The case the test is about: the left-hand side's normalization applied an equation.
+            assert!(
+                leaf.trace
+                    .iter()
+                    .any(|entry| entry.kind == TraceKind::Simplification),
+                "{result:#?}"
+            );
+        }
+    }
+
+    /// Refutes every query that holds a negation, anywhere in a conjunction, and finds every
+    /// condition contingent: the complement of a destination's or a rule's condition is empty,
+    /// while the condition itself is not decided.
+    struct ComplementUnsatSolver;
+
+    fn holds_a_negation(predicate: &crate::rule::Predicate) -> bool {
+        match predicate {
+            crate::rule::Predicate::Not(_) => true,
+            crate::rule::Predicate::And(conjuncts) => conjuncts.iter().any(holds_a_negation),
+            _ => false,
+        }
+    }
+
+    impl SmtSolver for ComplementUnsatSolver {
+        fn is_sat(
+            &self,
+            predicates: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            Ok(Ok(if predicates.iter().any(holds_a_negation) {
+                Satisfiability::Unsat
+            } else {
+                Satisfiability::Sat
+            }))
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+            _checked: &[crate::rule::Predicate],
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            Ok(Ok(Validity::Contingent))
+        }
+    }
+
+    /// `a()` reaches `a() ∧ opaque() = a()` where the destination's condition holds, and the
+    /// solver shows its complement empty: the destination covers every configuration of `a()`.
+    /// The part it does not cover is empty and is no state to step or to leave stuck; the claim
+    /// is proven by the covered state (CS-10-1).
+    #[test]
+    fn an_empty_uncovered_destination_part_leaves_the_state_proven() {
+        let claims = r#"
+            claim{} \implies{SortS{}}(
+                \and{SortS{}}(a{}(), \top{SortS{}}()),
+                weakAlwaysFinally{SortS{}}(
+                    \and{SortS{}}(a{}(), \equals{SortS{}, SortS{}}(opaque{}(), a{}()))
+                )
+            ) [label{}("contingent-destination")]
+        "#;
+        let definition = definition(
+            "symbol opaque{}() : SortS{} [function{}(), total{}()]",
+            claims,
+        );
+        let claim = claim_with_label(&definition, "contingent-destination");
+        for allow_vacuous in [false, true] {
+            for stuck_check in [true, false] {
+                let result = prove_claim(
+                    &definition,
+                    claim,
+                    ProofOptions {
+                        allow_vacuous,
+                        stuck_check,
+                        ..ProofOptions::default()
+                    },
+                    &ComplementUnsatSolver,
+                )
+                .unwrap();
+                let label = format!("allow_vacuous {allow_vacuous}, stuck_check {stuck_check}");
+                assert_eq!(result.status, ProofStatus::Proven, "{label}: {result:#?}");
+                assert!(
+                    result
+                        .leaves
+                        .iter()
+                        .all(|leaf| matches!(leaf.outcome, ProofLeafOutcome::Proven(_))
+                            && !is_vacuous_proof(&leaf.outcome)),
+                    "{label}: {result:#?}"
+                );
+            }
+        }
+    }
+
+    /// Answers the first query that holds a negation `Sat`, and refutes every later one; every
+    /// condition is contingent. It stands for a solver whose first answer about a split part
+    /// came from a translation too weak to refute it, while a later normalization shows it
+    /// empty.
+    #[derive(Default)]
+    struct LateComplementUnsatSolver {
+        negations: std::sync::atomic::AtomicUsize,
+    }
+
+    impl SmtSolver for LateComplementUnsatSolver {
+        fn is_sat(
+            &self,
+            predicates: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+        ) -> Stoppable<Result<Satisfiability, SmtError>> {
+            if !predicates.iter().any(holds_a_negation) {
+                return Ok(Ok(Satisfiability::Sat));
+            }
+            let earlier = self
+                .negations
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(Ok(if earlier == 0 {
+                Satisfiability::Sat
+            } else {
+                Satisfiability::Unsat
+            }))
+        }
+
+        fn check_predicates(
+            &self,
+            _known: &[crate::rule::Predicate],
+            _substitution: &Substitution,
+            _checked: &[crate::rule::Predicate],
+        ) -> Stoppable<Result<Validity, SmtError>> {
+            Ok(Ok(Validity::Contingent))
+        }
+    }
+
+    /// The rule takes `a()` to `b()` where `opaque() = a()`; the step keeps the part where the
+    /// condition fails, `a() ∧ ¬(opaque() = a())`, on a `Sat` answer, and that part is shown
+    /// empty only at the next state's normalization. Then the rule took every configuration of
+    /// `a()`: the empty part is no path whose conditions contradict each other, so it is no
+    /// `Vacuous` leaf, and the claim is proven by the rule's successor (CS-10-1).
+    #[test]
+    fn a_rewrite_remainder_shown_empty_later_is_no_vacuous_leaf() {
+        let rules = r#"
+            symbol opaque{}() : SortS{} [function{}(), total{}()]
+            axiom{} \rewrites{SortS{}}(
+                \and{SortS{}}(
+                    a{}(),
+                    \equals{SortS{}, SortS{}}(opaque{}(), a{}())
+                ),
+                b{}()
+            ) [label{}("a-to-b-under-opaque-condition")]
+        "#;
+        let claims = modal_claim(ReachabilityMode::AllPath, "a", "b", false);
+        let definition = definition(rules, &claims);
+        let claim = &definition.reachability_claims()[0];
+        for allow_vacuous in [false, true] {
+            let result = prove_claim(
+                &definition,
+                claim,
+                ProofOptions {
+                    allow_vacuous,
+                    ..ProofOptions::default()
+                },
+                &LateComplementUnsatSolver::default(),
+            )
+            .unwrap();
+            assert_eq!(result.status, ProofStatus::Proven, "{result:#?}");
+            assert!(
+                !result
+                    .leaves
+                    .iter()
+                    .any(|leaf| is_vacuous_proof(&leaf.outcome)
+                        || leaf.outcome == ProofLeafOutcome::Vacuous),
+                "{result:#?}"
+            );
+        }
     }
 
     #[test]

@@ -8,7 +8,7 @@
 #[allow(unused_imports)]
 use k::KResult;
 #[allow(unused_imports)]
-use k::builtin::{Bool, Id, Int, KSequence, Map, bool, int, map};
+use k::builtin::{Bool, Id, Int, KSequence, Map, map};
 #[allow(unused_imports)]
 use k::map;
 #[k::sort(alias = Expr)]

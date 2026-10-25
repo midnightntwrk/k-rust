@@ -78,6 +78,9 @@ pub fn __krs_host_payload(wire: &str, slots: __KrsSlots<'_>) -> HostDescriptorPa
         WirePayload::ContextAlias(value) => {
             HostDescriptorPayload::ContextAlias(Box::new(value.try_map_refs(map).unwrap()))
         }
+        WirePayload::Constant(value) => {
+            HostDescriptorPayload::Constant(Box::new(value.try_map_refs(map).unwrap()))
+        }
     }
 }
 
@@ -406,7 +409,9 @@ mod tests {
                     slot: TypeSlot(0),
                     authored_path: "u64".to_owned(),
                 },
+                arguments: Vec::new(),
             }],
+            arguments: Vec::new(),
         });
         let actual = decode(&wire, type_slots());
         let expected = HostDescriptorPayload::Constructor(HostConstructorDescriptor {
@@ -418,7 +423,9 @@ mod tests {
                     key: HostTypeKey(type_id),
                     authored_path: "u64".to_owned(),
                 },
+                arguments: Vec::new(),
             }],
+            arguments: Vec::new(),
         });
         assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
     }
@@ -664,8 +671,9 @@ mod tests {
             computation_cell_name: None,
             bindings: vec![],
             head: Some(krs_ir::ProtocolHeadRuleHead {
-                subject: wire_term(),
-                result: ProtocolHeadRuleResult::Erase,
+                items: vec![wire_term()],
+                exact: false,
+                result: Some(ProtocolHeadRuleResult::Erase),
             }),
             requires: None,
             extras: vec![],
@@ -674,6 +682,7 @@ mod tests {
             fresh: Vec::new(),
             evaluation: None,
             bracket_alternative: None,
+            claim: None,
         }));
         let encoded = serde_json::to_string(&wire).unwrap();
         let decoded: WirePayload = krs_ir::json::from_slice(encoded.as_bytes()).unwrap();
@@ -691,8 +700,9 @@ mod tests {
             computation_cell_name: None,
             bindings: vec![],
             head: Some(krs_ir::ProtocolHeadRuleHead {
-                subject: host_term(),
-                result: ProtocolHeadRuleResult::Erase,
+                items: vec![host_term()],
+                exact: false,
+                result: Some(ProtocolHeadRuleResult::Erase),
             }),
             requires: None,
             extras: vec![],
@@ -701,6 +711,7 @@ mod tests {
             fresh: Vec::new(),
             evaluation: None,
             bracket_alternative: None,
+            claim: None,
         }));
         assert_eq!(format!("{actual:?}"), format!("{expected:?}"));
     }
@@ -767,7 +778,10 @@ mod tests {
                         wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper),
                         wrapper: CellWrapper::Cell,
                         sort: wire_sort(),
-                        arguments: vec![wire_sort()],
+                        arguments: vec![krs_ir::ProtocolSortArgument {
+                            sort: wire_sort(),
+                            arguments: Vec::new(),
+                        }],
                     },
                 },
                 ProtocolCellField {
@@ -812,7 +826,10 @@ mod tests {
                         wrapper_key: key(ProvenanceRole::ConfigurationCellWrapper),
                         wrapper: CellWrapper::Cell,
                         sort: host_sort(),
-                        arguments: vec![host_sort()],
+                        arguments: vec![krs_ir::ProtocolSortArgument {
+                            sort: host_sort(),
+                            arguments: Vec::new(),
+                        }],
                     },
                 },
                 ProtocolCellField {
@@ -893,6 +910,7 @@ mod tests {
                 external_name_key: key(ProvenanceRole::ConfigurationVariable),
                 external_name: "INPUT".to_owned(),
                 sort: wire_sort(),
+                arguments: Vec::new(),
                 main_key: None,
             }],
             cells: vec![ProtocolInitializerCell {
@@ -937,6 +955,7 @@ mod tests {
                 external_name_key: key(ProvenanceRole::ConfigurationVariable),
                 external_name: "INPUT".to_owned(),
                 sort: host_sort(),
+                arguments: Vec::new(),
                 main_key: None,
             }],
             cells: vec![ProtocolInitializerCell {
@@ -1222,6 +1241,7 @@ mod tests {
             parameters: Vec::new(),
             sort: wire_sort(),
             fields: vec![],
+            arguments: Vec::new(),
         });
         let _ = decode(&wire, __KrsSlots::default());
     }

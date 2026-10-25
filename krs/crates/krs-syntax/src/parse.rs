@@ -118,6 +118,33 @@ pub fn tokens_from_source(source: &str) -> Result<TokenStream, SyntaxError> {
     })
 }
 
+/// Removes one trailing top-level comma that follows at least one token.
+///
+/// A trailing comma adds no element to a list, so every macro or attribute
+/// argument list accepts one; the parser then sees the list without it. A lone
+/// comma, or a second comma, is left for the parser to reject.
+#[must_use]
+pub fn strip_trailing_comma(tokens: TokenStream) -> TokenStream {
+    let mut tokens: Vec<_> = tokens.into_iter().collect();
+    let trailing = tokens.len() >= 2
+        && is_comma(&tokens[tokens.len() - 1])
+        && !is_comma(&tokens[tokens.len() - 2]);
+    if trailing {
+        tokens.pop();
+        // The new last token ends the stream, so it joins nothing.
+        if let Some(proc_macro2::TokenTree::Punct(last)) = tokens.last_mut() {
+            let mut alone = proc_macro2::Punct::new(last.as_char(), proc_macro2::Spacing::Alone);
+            alone.set_span(last.span());
+            *last = alone;
+        }
+    }
+    tokens.into_iter().collect()
+}
+
+fn is_comma(token: &proc_macro2::TokenTree) -> bool {
+    matches!(token, proc_macro2::TokenTree::Punct(punct) if punct.as_char() == ',')
+}
+
 /// Parses a syntax value from tokens or source text.
 pub trait KrsSyntax: Sized {
     /// Parses a complete token stream.
@@ -147,7 +174,8 @@ pub fn checked_ordinal(index: usize, role: ProvenanceRole, span: Span) -> Result
 }
 
 pub(crate) fn validate_authored_binder(spelling: &str, span: Span) -> Result<(), SyntaxError> {
-    if spelling.contains(krs_ir::ir::RESERVED_MARKER) {
+    if spelling.contains(krs_ir::ir::RESERVED_MARKER) && !crate::rule::is_generated_binder(spelling)
+    {
         return Err(SyntaxError::new(SyntaxErrorKind::ReservedBinder, span));
     }
     Ok(())
@@ -234,6 +262,15 @@ impl<K> ReferenceCandidate<K> {
     {
         self.kind
     }
+}
+
+/// The first attribute that is not documentation. Doc comments (`///`,
+/// `#[doc = ".."]`, `#[doc(..)]`) document the Rust item and carry no K
+/// meaning, so positions that take no attribute still accept them.
+pub(crate) fn first_non_doc_attribute(attributes: &[Attribute]) -> Option<&Attribute> {
+    attributes
+        .iter()
+        .find(|attribute| !attribute.path().is_ident("doc"))
 }
 
 pub(crate) fn duplicate(name: &'static str, span: Span) -> ParseError {

@@ -105,14 +105,39 @@ inference = [
   '^crates/k-rust/src/(lib|kompile/compile|kast/sort_role|backend/(mod|simplification))\.rs$',
   '^crates/k-rust/Cargo\.toml$',
 ]
-# KRS (krs/README.md): its crates, gates, and ports, the lock of the K, Z3, and schema versions its
-# gates read, and the site pages its tour gates quote. KRS lowers through krust's sources, so its entries also take [path-set.krust].
+# KRS (krs/README.md): its crates, gates, and ports, and the lock of the K, Z3, and schema versions its
+# gates read; krs-light reads or builds all of them. KRS lowers through krust's sources, so its
+# entries also take [path-set.krust]. The sets after it split KRS by what the port gates observe
+# (docs/testing.md, "What each KRS gate observes").
 krs = [
   '^krs/crates/',
   '^krs/tests/',
   '^krs/semantics/',
   '^krs/Krs\.lock$',
-  '^docs-site/src/pages/',
+]
+# What rustc sees of a port besides its own source: the facade, the macros, and the expander and
+# parser they render with. krs-ports-emit pins their output for every port source file.
+krs-front = ['^krs/crates/(krs|krs-macros|krs-expand|krs-syntax|krs-diagnostic)/']
+# The rest of the `krs` binary's own code: collection, compilation to K, and formatting.
+krs-emit = ['^krs/crates/(krs-collector|krs-compiler|krs-cli|krs-fmt)/']
+# The code that reads, validates, compiles, and executes emitted Definition IR, which the heavy
+# gates' native, behavior, and proof layers run and nothing cheaper pins.
+krs-native = ['^krs/crates/(krs-ir|krs-ir-levels|krs-k-rust|krs-exec|krs-unparse|krs-gate)/']
+# The harness every port gate runs through, and the lock of the versions it reads.
+krs-harness = ['^krs/tests/gates\.sh$', '^krs/tests/support/', '^krs/Krs\.lock$']
+# The workspace the three language ports build in.
+krs-ports = ['^krs/semantics/Cargo\.(toml|lock)$']
+# kink (kink/README.md, "Gate"): its crates, test data, tier configuration and tier script, and
+# the nextest configuration that holds its overrides and its tier profile.
+kink = [
+  '^kink/',
+  '^\.config/nextest\.toml$',
+]
+# k2lean (k2lean/README.md): its generator crate, Lean libraries, demos, gate and test data, and
+# the workflow that runs its light gate.
+k2lean = [
+  '^k2lean/',
+  '^\.github/workflows/k2lean\.yml$',
 ]
 
 [[gate]]
@@ -300,6 +325,36 @@ paths = [
   '^scripts/reference-differential\.toml$',
 ]
 
+# The matching-logic position matrix: every matching-logic construct at every sentence position
+# and on the search-pattern route, against the outcome its meaning states, with the cells still
+# pending a ticket listed in the test (crates/k-rust/tests/ml_positions.rs). Its shards are
+# ignored tests, run here in both builds and the test profile.
+[[gate]]
+name = "ml-positions"
+run = "certification"
+command = "scripts/ml-positions.sh"
+paths = [
+  "@krust",
+  '^scripts/ml-positions\.sh$',
+  '^crates/k-rust/tests/ml_positions(\.rs|/)',
+]
+
+# The alpha-invariance harness: every corpus definition and every definition of a generated
+# grammar of binders, compiled with each alpha-renaming of its sentences, against the base's KORE
+# up to alpha-equivalence and its krun answers, with the results that fail today listed in the
+# test with their tickets (crates/k-rust/tests/alpha_invariance.rs). Its whole-corpus and
+# whole-grammar tests are ignored tests, run here in both builds and the test profile.
+[[gate]]
+name = "alpha-invariance"
+run = "certification"
+command = "scripts/alpha-invariance.sh"
+paths = [
+  "@krust",
+  '^scripts/alpha-invariance\.sh$',
+  '^crates/k-rust/tests/alpha_invariance(\.rs|/)',
+  '^crates/k-rust/tests/owise_binders/',
+]
+
 # The Python unit tests of the scripts' helpers.
 [[gate]]
 name = "script-unit-tests"
@@ -377,30 +432,150 @@ run = "certification"
 command = "krs/tests/gates.sh light"
 paths = ["@krust", "@krs"]
 
+# The site pages whose proof claims the tour-proof-evidence gate checks against KRS's pinned
+# results (krs/tests/tour-proof-evidence/verify.py). No other KRS gate reads the site, so an edit to
+# any other page owes no KRS gate.
+[[gate]]
+name = "krs-tour-pages"
+run = "certification"
+command = "krs/tests/gates.sh tour-pages"
+paths = [
+  '^docs-site/src/pages/semantics/(static-semantics|applicability-and-failure)\.mdx$',
+  '^docs-site/src/pages/verification/reachability-claims\.mdx$',
+]
+
+# The four ports' emission against the heavy gates' own pins (krs/tests/ports-emit/verify.py): the
+# formatting, check, expansion, and artifact steps of each port gate, which read the port's packages
+# and the `krs` binary only, and the digest of what the macros hand rustc for each port source file,
+# the one pin it owns. While it passes, a heavy gate's native, behavior, and proof layers would read
+# the same artifact bytes, so only a change to the code those layers run, or to the port, owes them.
+[[gate]]
+name = "krs-ports-emit"
+run = "certification"
+command = "krs/tests/gates.sh ports-emit"
+paths = [
+  "@krust",
+  "@krs-front",
+  "@krs-emit",
+  "@krs-native",
+  "@krs-harness",
+  '^krs/semantics/',
+  '^krs/tests/(imp|kevm|kmir|kwasm|ports-emit)/',
+]
+
+# The class tests' full tier (krs/crates/krs-cli/tests/class_matrix.rs): every case the generator in
+# krs-test-support writes (one construct in one slot of an accepted base) through Cargo, rustc, the
+# collector, and emit-k's lowering, against the table-free invariants and
+# krs/tests/class-matrix/expected.toml, with the known failures in pending.toml, and KRS's sort
+# judges against k-rust's subsort relations of each base's emitted definition (the adapter, the
+# loader, and the relations). It observes the code from the macros to the emitted K, and the
+# generator and its table; not krust's compilation, the rest of the native code, or formatting.
+[[gate]]
+name = "krs-class"
+run = "certification"
+command = "scripts/krs-class.sh"
+paths = [
+  "@krs-front",
+  '^krs/crates/(krs-collector|krs-compiler|krs-cli|krs-ir|krs-ir-levels|krs-test-support)/',
+  '^krs/crates/krs-k-rust/',
+  '^crates/k-rust/src/(definition|outer)/',
+  '^krs/tests/class-matrix/',
+  '^scripts/krs-class\.sh$',
+]
+
+# The four port gates with `--artifacts-only`: their Rust checks (Clippy, tests, the MSRV check,
+# rust-analyzer) and emitted artifacts. Those checks see the macro output, which krs-ports-emit pins
+# only up to spans inside a segment, the facade crate, and the dependency versions, so a moved
+# macro-output pin, the facade, the macros, or the lock owes them.
+[[gate]]
+name = "krs-ports-rust"
+run = "heavy"
+host = "human-uid"
+command = "krs/tests/gates.sh ports-rust"
+paths = ['^krs/tests/ports-emit/pins\.toml$', '^krs/crates/(krs|krs-macros)/', '^Cargo\.lock$']
+
+# Each port's full gate: also its native compile, behavior corpus, and proofs, which read the
+# emitted artifacts through [path-set.krs-native] and krust. A change to the port's sources, corpus,
+# pins, or gate owes its own gate only.
 [[gate]]
 name = "krs-imp"
 run = "heavy"
 host = "human-uid"
 command = "krs/tests/gates.sh imp"
-paths = ["@krust", "@krs"]
+paths = [
+  "@krust",
+  "@krs-native",
+  "@krs-harness",
+  '^krs/tests/imp/',
+  # IMP's native and behavior layers also run `krs build` and `krs run` (tests/imp/verify.py).
+  '^krs/crates/krs-cli/',
+  # The input ledgers and corpora of the IMP gates whose inputs IMP reuses (tests/imp/corpus.json).
+  '^krs/tests/(imp-state|imp-control-flow|imp_static_semantics)/(pins\.json|corpus/|fixtures/|claims/)',
+]
 
 [[gate]]
 name = "krs-kevm"
 run = "heavy"
 host = "human-uid"
 command = "krs/tests/gates.sh kevm"
-paths = ["@krust", "@krs"]
+paths = ["@krust", "@krs-native", "@krs-harness", "@krs-ports", '^krs/semantics/kevm/', '^krs/tests/kevm/']
 
 [[gate]]
 name = "krs-kmir"
 run = "heavy"
 host = "human-uid"
 command = "krs/tests/gates.sh kmir"
-paths = ["@krust", "@krs"]
+paths = ["@krust", "@krs-native", "@krs-harness", "@krs-ports", '^krs/semantics/kmir/', '^krs/tests/kmir/']
 
 [[gate]]
 name = "krs-kwasm"
 run = "heavy"
 host = "human-uid"
 command = "krs/tests/gates.sh kwasm"
-paths = ["@krust", "@krs"]
+paths = ["@krust", "@krs-native", "@krs-harness", "@krs-ports", '^krs/semantics/kwasm/', '^krs/tests/kwasm/']
+
+# kink's test tiers (kink/scripts/kink-tier.py, kink/.config/kink-tiers.toml), in both solver
+# profiles: the Z3 profile (the kink packages' default features; Z3 acquired as for the other
+# gates, `KRUST_GATE_Z3=system` linking the Z3 the build environment provides) and the portable
+# one (`--portable`).
+[[gate]]
+# kink's per-change tier: light and kink in one run, both solver profiles.
+name = "kink"
+run = "certification"
+command = "kink/scripts/kink-tier.py run gate && kink/scripts/kink-tier.py run gate --portable"
+paths = ["@kink"]
+
+[[gate]]
+# kink's heavy tier: whole-fixture sweeps and full option matrices, both solver profiles. A k-rust
+# change can break a sweep that only heavy runs (k-rust nondeterminism, a fixture that stops
+# compiling), so it also follows [path-set.krust].
+name = "kink-heavy"
+run = "heavy"
+command = "kink/scripts/kink-tier.py run heavy && kink/scripts/kink-tier.py run heavy --portable"
+paths = ["@kink", "@krust"]
+
+# k2lean's gate tiers (k2lean/tests/gate.sh). They compile the K inputs with krust, regenerate the
+# Lean libraries with the generator, build them with Lean, and compare every count, output and
+# generated file with k2lean/tests/baseline/; krust's KORE is the generator's input, so a
+# change to krust's sources owes them too. light needs the pinned K release's kompile (kimp's
+# LLVM interpreter for the step traces) and Lean (elan); heavy adds SIMPLE, its invariants and the
+# kimp claims. .github/workflows/k2lean.yml runs light weekly and on demand.
+[[gate]]
+name = "k2lean-light"
+run = "certification"
+command = "k2lean/tests/gate.sh light"
+paths = ["@krust", "@k2lean"]
+
+[[gate]]
+name = "k2lean-heavy"
+run = "heavy"
+command = "k2lean/tests/gate.sh heavy"
+paths = ["@krust", "@k2lean"]
+
+# k2lean's arity tier: kimp and SIMPLE in the arity-indexed term universe (`gen --arity-terms`),
+# whose goldens, step traces and SIMPLE cases must equal the default encoding's.
+[[gate]]
+name = "k2lean-arity"
+run = "heavy"
+command = "k2lean/tests/gate.sh arity"
+paths = ["@krust", "@k2lean"]

@@ -28,11 +28,12 @@ pub enum TermRootKind {
     Wildcard,
 }
 
-/// An unsuffixed decimal Rust integer literal, optionally negative (`-1`).
+/// An unsuffixed Rust integer literal in any radix, optionally negative (`-1`,
+/// `0xFF0F`, `-0x10`).
 ///
 /// The sign belongs to the literal: a negative literal's token carries it, so
-/// its spelling is the signed K `Int` token, and its source range runs from the
-/// `-` through the digits.
+/// its decimal value ([`Self::base10_digits`]) is the signed K `Int` token,
+/// and its source range runs from the `-` through the digits.
 #[derive(Clone, Debug)]
 pub struct IntegerLiteral {
     literal: LitInt,
@@ -138,7 +139,7 @@ impl FloatLiteral {
 /// Exact literal families admitted by the term grammar.
 #[derive(Clone, Debug)]
 pub enum TermLiteral {
-    /// Unsuffixed decimal Rust integer literal, optionally negative (`-1`).
+    /// Unsuffixed Rust integer literal in any radix, optionally negative (`-1`).
     Integer(IntegerLiteral),
     /// Rust Boolean literal.
     Boolean(LitBool),
@@ -392,6 +393,11 @@ pub struct TermApplication {
     pub(crate) head: Path,
     pub(crate) arguments: TermArguments,
     pub(crate) instance: Vec<crate::TermSort>,
+    pub(crate) notation: bool,
+    /// The base `t` of a record update `Ctor { f: e, ..t }`, a reference.
+    pub(crate) update: Option<Box<TermTree>>,
+    /// Whether a record pattern ends in `..`, `Ctor { f: p, .. }`.
+    pub(crate) open: bool,
 }
 
 /// One compiler-owned complete parent-cell term.
@@ -400,6 +406,11 @@ pub struct CellTerm {
     pub(crate) range: TokenRange,
     pub(crate) owner: Path,
     pub(crate) fields: Vec<TermNamedArgument>,
+    /// Whether a pattern ends in `..`, leaving the children it does not
+    /// name unconstrained.
+    pub(crate) open: bool,
+    /// The base `t` of a group update `Group { f: e, ..t }`, a reference.
+    pub(crate) update: Option<Box<TermTree>>,
 }
 
 impl CellTerm {
@@ -419,6 +430,19 @@ impl CellTerm {
     #[must_use]
     pub fn fields(&self) -> &[TermNamedArgument] {
         &self.fields
+    }
+
+    /// Whether the pattern ends in `..`: the children it does not name are
+    /// unconstrained.
+    #[must_use]
+    pub const fn is_open(&self) -> bool {
+        self.open
+    }
+
+    /// Returns the base `t` of a group update `Group { f: e, ..t }`.
+    #[must_use]
+    pub fn update(&self) -> Option<&TermTree> {
+        self.update.as_deref()
     }
 }
 
@@ -441,6 +465,31 @@ impl TermApplication {
     #[must_use]
     pub fn instance(&self) -> &[crate::TermSort] {
         &self.instance
+    }
+
+    /// Whether the application is notation (`a && b`, `a || b`, or
+    /// `recv.op::<D>(..)`) for a builtin call. Its [`Self::head`] is then the
+    /// operation's path in the facade's `builtin` module (`bool::and_then`),
+    /// which expansion qualifies with the facade; an authored head is never
+    /// notation, whatever it spells.
+    #[must_use]
+    pub const fn is_notation(&self) -> bool {
+        self.notation
+    }
+
+    /// Returns the base `t` of a record update `Ctor { f: e, ..t }`: the
+    /// record is the matched record `t` with the listed fields replaced.
+    #[must_use]
+    pub fn update(&self) -> Option<&TermTree> {
+        self.update.as_deref()
+    }
+
+    /// Whether the application is a record pattern ending in `..`,
+    /// `Ctor { f: p, .. }`, whose unnamed fields are unconstrained; it may
+    /// name no field, `Ctor { .. }`.
+    #[must_use]
+    pub const fn is_open(&self) -> bool {
+        self.open
     }
 }
 
@@ -909,9 +958,11 @@ impl TermSymbol {
 /// A validated Rust-expression term in the deliberately small term grammar.
 ///
 /// Accepted nodes are plain paths, named calls, named record construction,
-/// parentheses/groups, and Rust literals below a named root. No operator,
-/// method, closure, control-flow, assignment, macro, update-rest, or arbitrary
-/// block expression is silently retained.
+/// parentheses/groups, and Rust literals below a named root, and the notation
+/// forms `a && b`, `a || b`, and `recv.op::<D>(..)`, each of which is the
+/// builtin call it denotes. No other operator, method, closure, control-flow,
+/// assignment, macro, update-rest, or arbitrary block expression is silently
+/// retained.
 #[derive(Clone, Debug)]
 pub struct TermExpression {
     expression: TermSource,
@@ -937,41 +988,46 @@ impl TermExpression {
     }
 
     fn from_expression_context(
-        expression: Expr,
+        mut expression: Expr,
         context: TermExpressionContext,
     ) -> Result<Self, SyntaxError> {
+        // A `k::bits!(value, "..")` test is sugar for its `Bool` long form.
+        if context == TermExpressionContext::Expression {
+            crate::rule::expand_bit_tests(&mut expression)?;
+        }
         let root = transparent_expression(&expression);
         let root_kind = match root {
-            Expr::Path(path) if float_constant_path(&path.path).is_some() => {
-                TermRootKind::Literal
-            }
+            Expr::Path(path) if float_constant_path(&path.path).is_some() => TermRootKind::Literal,
             Expr::Path(_) => TermRootKind::Named,
             Expr::Call(_) => TermRootKind::Call,
             Expr::Struct(_) => TermRootKind::Record,
             Expr::Lit(literal) if is_supported_literal(literal) => TermRootKind::Literal,
-            // `validate_expression` reports a minus on anything but a numeric literal.
+            // `validate_expression` reports the suffix of an Int literal.
+            Expr::Lit(literal)
+                if matches!(literal.lit, Lit::Int(_)) && literal.attrs.is_empty() =>
+            {
+                TermRootKind::Literal
+            }
+            // `a && b`, `a + b`, `!a`, `-a`, and `recv.op::<D>(..)` denote
+            // builtin calls.
+            other if crate::notation::is_expression_notation(other) => TermRootKind::Call,
+            // `[a, ..rest]` denotes one level of list notation.
+            Expr::Array(_) => TermRootKind::Call,
+            // The minus of a literal, which `validate_expression` checks.
             Expr::Unary(ExprUnary {
                 op: UnOp::Neg(_), ..
             }) => TermRootKind::Literal,
             Expr::Infer(_) if context == TermExpressionContext::Pattern => TermRootKind::Wildcard,
             // A term block (K's `#let`) applies a generated function.
             Expr::Block(_) if context == TermExpressionContext::Expression => TermRootKind::Call,
-            Expr::Binary(binary) if matches!(binary.op, syn::BinOp::BitOr(_)) => {
-                return Err(pattern_or_error(
-                    PATTERN_OR_OUTSIDE_LHS.to_owned(),
-                    binary.op.span(),
-                ));
-            }
             Expr::Macro(value) => special_macro_kind(&value.mac.path)
-                .ok_or_else(|| {
-                    SyntaxError::new(
-                        SyntaxErrorKind::UnsupportedTermExpression {
-                            reason: "the root must be a named path/call/record or an Int/Bool literal",
-                        },
-                        value.span(),
-                    )
-                })?
+                .ok_or_else(|| unsupported_root_macro(&value.mac.path, value.span()))?
                 .root_kind(),
+            other @ (Expr::Cast(_) | Expr::Range(_)) => {
+                return Err(
+                    rust_only_operator(other).expect("a cast and a range are Rust-only operators")
+                );
+            }
             other => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::UnsupportedTermExpression {
@@ -1017,6 +1073,10 @@ impl TermExpression {
                     if let Some(span) = first_block(&expression) {
                         return Err(let_error(LET_IN_PATTERN.to_owned(), span));
                     }
+                    // Nor is `&&`, `||`, or a method call.
+                    if let Some(error) = crate::notation::notation_in_pattern(&expression) {
+                        return Err(error);
+                    }
                     Self::from_expression(expression)?;
                 }
                 return Err(error.into());
@@ -1050,10 +1110,29 @@ impl TermExpression {
         })
     }
 
-    /// Returns the original span-preserving Rust expression or pattern.
+    /// Returns the original span-preserving Rust expression or pattern, as
+    /// authored: notation (`&&`, `||`, `recv.op::<D>(..)`) stays notation.
+    /// Ranges and spellings derive from it; code emitted for rustc must use
+    /// [`Self::denoted_tokens`] instead, which rustc can resolve.
     #[must_use]
     pub const fn expression(&self) -> &TermSource {
         &self.expression
+    }
+
+    /// Returns the Rust tokens for code that rustc checks: the authored
+    /// expression with each notation form replaced by the builtin call it
+    /// denotes, whose head is qualified by `builtin`, the facade's `builtin`
+    /// module. A pattern payload, which has no notation, keeps its tokens.
+    #[must_use]
+    pub fn denoted_tokens(&self, builtin: &Path) -> TokenStream {
+        match &self.expression {
+            TermSource::Expression(expression) => {
+                let mut expression = expression.clone();
+                crate::notation::denote_notation(&mut expression, builtin);
+                expression.into_token_stream()
+            }
+            TermSource::Pattern { .. } => self.expression.to_token_stream(),
+        }
     }
 
     /// Returns the syntactic root kind.
@@ -1340,7 +1419,7 @@ fn pattern_root_kind(pattern: &Pat) -> Result<TermRootKind, SyntaxError> {
         }) => return pattern_root_kind(subpattern),
         Pat::Path(path) if float_constant_path(&path.path).is_some() => TermRootKind::Literal,
         Pat::Path(_) | Pat::Ident(_) => TermRootKind::Named,
-        Pat::TupleStruct(_) => TermRootKind::Call,
+        Pat::TupleStruct(_) | Pat::Slice(_) => TermRootKind::Call,
         Pat::Struct(_) => TermRootKind::Record,
         Pat::Lit(_) => TermRootKind::Literal,
         Pat::Wild(_) => TermRootKind::Wildcard,
@@ -1349,14 +1428,7 @@ fn pattern_root_kind(pattern: &Pat) -> Result<TermRootKind, SyntaxError> {
             None => return Err(unsupported_pattern_form(pattern)),
         },
         Pat::Macro(value) => special_macro_kind(&value.mac.path)
-            .ok_or_else(|| {
-                SyntaxError::new(
-                    SyntaxErrorKind::UnsupportedTermExpression {
-                        reason: "the root must be a named path/call/record or an Int/Bool literal",
-                    },
-                    value.span(),
-                )
-            })?
+            .ok_or_else(|| unsupported_root_macro(&value.mac.path, value.span()))?
             .root_kind(),
         other => {
             return Err(unsupported_pattern_form(other));
@@ -1427,6 +1499,11 @@ pub(crate) fn validate_pattern_as(
         range: TokenRange::for_tokens(identifier)?,
     });
     let pattern = validate(subpattern, nodes)?;
+    if let Some(last) = trailing_negative_literal_end(subpattern, &nodes[index + 1..])
+        && let TermNode::As { range, .. } = &mut nodes[index]
+    {
+        *range = TokenRange::new(range.first(), last);
+    }
     for node in &nodes[index + 1..] {
         let inner = match node {
             TermNode::Reference(path) => path.get_ident(),
@@ -1450,13 +1527,34 @@ pub(crate) fn validate_pattern_as(
     })
 }
 
+/// Where a pattern that ends with a negative literal ends: at the literal's
+/// digits. syn joins `-1` into one token whose span, in a compiler host,
+/// covers only the `-`, so the span of the pattern's last token ends early
+/// there; the literal's validated range carries the scanned digit span.
+fn trailing_negative_literal_end(pattern: &Pat, nodes: &[TermNode]) -> Option<Span> {
+    fn ends_negative(pattern: &Pat) -> bool {
+        match pattern {
+            Pat::Lit(literal) => literal.lit.to_token_stream().to_string().starts_with('-'),
+            Pat::Or(or) => or.cases.last().is_some_and(ends_negative),
+            Pat::Ident(identifier) => identifier
+                .subpat
+                .as_ref()
+                .is_some_and(|(_, subpattern)| ends_negative(subpattern)),
+            _ => false,
+        }
+    }
+    if !ends_negative(pattern) {
+        return None;
+    }
+    nodes.iter().rev().find_map(|node| match node {
+        TermNode::Literal(literal) => literal.range().ok().map(TokenRange::last),
+        _ => None,
+    })
+}
+
 fn pattern_or_error(reason: String, span: Span) -> SyntaxError {
     SyntaxError::new(SyntaxErrorKind::InvalidPatternOr { reason }, span)
 }
-
-/// The reason given for `|` in a result or condition.
-pub(crate) const PATTERN_OR_OUTSIDE_LHS: &str =
-    "`|` is a pattern alternative; for Bool disjunction use bool::or or k::or_bool!";
 
 /// The reason given for `|` next to a `..` remainder.
 pub(crate) const PATTERN_OR_REMAINDER: &str = "or-patterns combine terms, not remainders";
@@ -1467,7 +1565,7 @@ fn pattern_binders(nodes: &[TermNode]) -> Vec<syn::Ident> {
     nodes
         .iter()
         .filter_map(|node| match node {
-            TermNode::Reference(path) if path.leading_colon.is_none() => path.get_ident().cloned(),
+            TermNode::Reference(path) => crate::path::pattern_binder(path).cloned(),
             TermNode::As { binding, .. } => Some(binding.clone()),
             _ => None,
         })
@@ -1496,6 +1594,7 @@ pub(crate) fn validate_pattern_or(
 ) -> Result<(TermTree, Vec<syn::Ident>), SyntaxError> {
     reject_attributes(&or.attrs, or.span())?;
     let range = TokenRange::for_tokens(or)?;
+    let index = nodes.len();
     nodes.push(TermNode::Or(range));
     let mut trees = Vec::with_capacity(or.cases.len());
     let mut bound = Vec::with_capacity(or.cases.len());
@@ -1529,6 +1628,13 @@ pub(crate) fn validate_pattern_or(
             spellings.insert(spelling);
         }
         bound.push(spellings);
+    }
+    if let Some(last) = or
+        .cases
+        .last()
+        .and_then(|case| trailing_negative_literal_end(case, &nodes[index + 1..]))
+    {
+        nodes[index] = TermNode::Or(TokenRange::new(range.first(), last));
     }
     for name in &names {
         let spelling = syn::ext::IdentExt::unraw(name).to_string();
@@ -1592,6 +1698,26 @@ fn validate_pattern(
         }
         Pat::Path(path) => validate_path_expression(path, symbols, nodes),
         Pat::TupleStruct(tuple) => validate_tuple_struct_pattern(tuple, signs, symbols, nodes),
+        Pat::Slice(slice) => {
+            let (head, elements) = crate::list_notation::pattern_level(slice)?;
+            symbols.push(TermSymbol {
+                path: head.clone(),
+                kind: TermSymbolKind::ApplicationHead,
+            });
+            nodes.push(TermNode::ApplicationHead(head.clone()));
+            let mut arguments = Vec::with_capacity(elements.len());
+            for element in &elements {
+                arguments.push(validate_pattern(element, signs, symbols, nodes)?);
+            }
+            Ok(TermTree::Application(TermApplication {
+                head,
+                arguments: TermArguments::Positional(arguments),
+                instance: Vec::new(),
+                notation: true,
+                update: None,
+                open: false,
+            }))
+        }
         Pat::Struct(record) => validate_struct_pattern(record, signs, symbols, nodes),
         Pat::Paren(paren) => {
             reject_attributes(&paren.attrs, paren.span())?;
@@ -1666,6 +1792,9 @@ fn validate_tuple_struct_pattern(
         head,
         arguments: TermArguments::Positional(arguments),
         instance,
+        notation: false,
+        update: None,
+        open: false,
     }))
 }
 
@@ -1686,6 +1815,7 @@ fn validate_struct_pattern(
     if let Some(rest) = &record.rest {
         reject_attributes(&rest.attrs, rest.span())?;
     }
+    let open = record.rest.is_some();
     symbols.push(TermSymbol {
         path: record.path.clone(),
         kind: TermSymbolKind::ApplicationHead,
@@ -1702,6 +1832,9 @@ fn validate_struct_pattern(
         head,
         arguments: TermArguments::Named(arguments),
         instance,
+        notation: false,
+        update: None,
+        open,
     }))
 }
 
@@ -1734,15 +1867,41 @@ fn validate_field_patterns(
     Ok(arguments)
 }
 
+/// The error for `as` and a range, Rust operators that no builtin operation
+/// stands behind, or `None` for any other expression.
+fn rust_only_operator(expression: &Expr) -> Option<SyntaxError> {
+    let (reason, span) = match expression {
+        Expr::Cast(cast) => (
+            "`as` converts Rust values, and no term operator does; convert with a builtin call such as `float::from_int(..)` or `string::from_int(..)`",
+            cast.as_token.span,
+        ),
+        Expr::Range(range) => (
+            "a range is not a term; `..` belongs only in a pattern, after the items it matches",
+            range.limits.span(),
+        ),
+        _ => return None,
+    };
+    Some(SyntaxError::new(
+        SyntaxErrorKind::InvalidExpressionNotation {
+            reason: reason.to_owned(),
+        },
+        span,
+    ))
+}
+
 fn validate_expression(
     expression: &Expr,
     context: TermExpressionContext,
     symbols: &mut Vec<TermSymbol>,
     nodes: &mut Vec<TermNode>,
 ) -> Result<TermTree, SyntaxError> {
+    // A notation form is the builtin application it denotes.
+    if let Some(call) = crate::notation::denoted_call(expression)? {
+        return validate_call(&call, true, context, symbols, nodes);
+    }
     match expression {
         Expr::Path(path) => validate_path_expression(path, symbols, nodes),
-        Expr::Call(call) => validate_call(call, context, symbols, nodes),
+        Expr::Call(call) => validate_call(call, false, context, symbols, nodes),
         Expr::Struct(record) => validate_record(record, context, symbols, nodes),
         Expr::Paren(ExprParen { attrs, expr, .. }) | Expr::Group(ExprGroup { attrs, expr, .. }) => {
             reject_attributes(attrs, expression.span())?;
@@ -1772,12 +1931,9 @@ fn validate_expression(
             CLOSURE_OUTSIDE_EXISTS.to_owned(),
             closure.span(),
         )),
-        // `A | B` is K's #Or only in a pattern; a result or condition has no
-        // alternatives (KF-030).
-        Expr::Binary(binary) if matches!(binary.op, syn::BinOp::BitOr(_)) => Err(pattern_or_error(
-            PATTERN_OR_OUTSIDE_LHS.to_owned(),
-            binary.op.span(),
-        )),
+        Expr::Cast(_) | Expr::Range(_) => {
+            Err(rust_only_operator(expression).expect("a cast and a range are Rust-only operators"))
+        }
         _ => Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
                 reason: "expected paths, named calls/records, parentheses, or literal arguments",
@@ -1814,6 +1970,72 @@ impl TermMacroKind {
     }
 }
 
+/// The error for a macro at a term's root that is no compiler-owned term
+/// island; a `k::bits!` template there is out of place.
+fn unsupported_root_macro(path: &Path, span: Span) -> SyntaxError {
+    if crate::rule::is_bits_macro(path) {
+        return crate::rule::misplaced_bit_template(path.span());
+    }
+    let reason = if path
+        .segments
+        .last()
+        .is_some_and(|segment| segment.ident == "map")
+    {
+        "`map![..]` is the spelling of a `cells!` entry or an initializer: in a term the empty map is `map::empty()`, and `map::update(..)` adds an entry"
+    } else {
+        "the root must be a named path/call/record or an Int/Bool literal"
+    };
+    SyntaxError::new(SyntaxErrorKind::UnsupportedTermExpression { reason }, span)
+}
+
+/// Whether `path` names a compiler-owned term island.
+#[must_use]
+pub fn is_island_macro(path: &Path) -> bool {
+    special_macro_kind(path).is_some()
+}
+
+/// Whether `path` names an island that denotes one constant of its sort:
+/// `k::bytes!`, `k::id!`, or `k::lexeme!`. Such a term has the same value in
+/// every sentence and in an initializer.
+#[must_use]
+pub fn is_constant_island_macro(path: &Path) -> bool {
+    matches!(
+        special_macro_kind(path),
+        Some(TermMacroKind::Bytes | TermMacroKind::Id | TermMacroKind::Lexeme)
+    )
+}
+
+/// Whether `path` names `k::fragment!`, a complete nested-cell term.
+pub(crate) fn is_fragment_macro(path: &Path) -> bool {
+    matches!(special_macro_kind(path), Some(TermMacroKind::Fragment))
+}
+
+/// Whether `path` names `k::rewrite!`, K's local rewrite.
+pub(crate) fn is_rewrite_macro(path: &Path) -> bool {
+    matches!(special_macro_kind(path), Some(TermMacroKind::Rewrite))
+}
+
+/// Validates a compiler-owned island inside a pattern that the pattern
+/// grammar of a `k::term!` payload would read: the island builds the tree
+/// and nodes it builds there, so a pattern means the same with or without
+/// the wrapper. `k::fragment!` is read by the caller, whose own grammar reads
+/// the cell's child patterns; `k::rewrite!` is read here, and its caller
+/// decides whether the position admits one. The island's negative literals
+/// leave `signs`, since the island parses its own tokens.
+pub(crate) fn validate_pattern_island(
+    value: &ExprMacro,
+    signs: &mut crate::rule::NegativeLiteralSpans,
+    symbols: &mut Vec<TermSymbol>,
+    nodes: &mut Vec<TermNode>,
+) -> Result<TermTree, SyntaxError> {
+    signs.skip(crate::rule::NegativeLiteralSpans::scan(value.mac.tokens.clone()).len());
+    if is_rewrite_macro(&value.mac.path) {
+        reject_attributes(&value.attrs, value.span())?;
+        return validate_rewrite(value, symbols, nodes);
+    }
+    validate_special_macro(value, TermExpressionContext::Pattern, symbols, nodes)
+}
+
 fn special_macro_kind(path: &Path) -> Option<TermMacroKind> {
     let name = path.segments.last()?.ident.to_string();
     match name.as_str() {
@@ -1847,7 +2069,8 @@ fn validate_special_macro(
     }
     match special_macro_kind(&value.mac.path) {
         Some(TermMacroKind::Id) => {
-            let literal: LitStr = syn::parse2(value.mac.tokens.clone())?;
+            let literal: LitStr =
+                syn::parse2(crate::parse::strip_trailing_comma(value.mac.tokens.clone()))?;
             let text = literal.value();
             if !valid_extended_id(&text) {
                 return Err(SyntaxError::new(
@@ -1861,7 +2084,8 @@ fn validate_special_macro(
             Ok(TermTree::IdToken { literal })
         }
         Some(TermMacroKind::Bytes) => {
-            let literal: LitByteStr = syn::parse2(value.mac.tokens.clone())?;
+            let literal: LitByteStr =
+                syn::parse2(crate::parse::strip_trailing_comma(value.mac.tokens.clone()))?;
             nodes.push(TermNode::BytesToken(literal.clone()));
             Ok(TermTree::BytesToken { literal })
         }
@@ -1875,7 +2099,8 @@ fn validate_special_macro(
                 }
                 Ok((sort, spelling))
             };
-            let (sort, spelling) = parser.parse2(value.mac.tokens.clone())?;
+            let (sort, spelling) =
+                parser.parse2(crate::parse::strip_trailing_comma(value.mac.tokens.clone()))?;
             let text = spelling.value();
             crate::parse::validate_authored_binder(&text, spelling.span())?;
             if !text.starts_with('_')
@@ -1949,9 +2174,12 @@ fn validate_special_macro(
             }
             validate_rewrite(value, symbols, nodes)
         }
+        None if crate::rule::is_bits_macro(&value.mac.path) => {
+            Err(crate::rule::misplaced_bit_template(value.mac.path.span()))
+        }
         None => Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "macros are not terms unless they are compiler-owned `id!`, `anonymous!`, `lexeme!`, `is!`, `project!`, `matches!`, or `or_bool!` islands",
+                reason: "macros are not terms unless they are compiler-owned `fragment!`, `id!`, `bytes!`, `anonymous!`, `lexeme!`, `is!`, `project!`, `matches!`, `or_bool!`, or `rewrite!` islands",
             },
             value.span(),
         )),
@@ -2016,6 +2244,7 @@ pub(crate) fn matched_matches(path: &Path) -> SyntaxError {
 /// Rejects anything but one term expression, a comma, and a pattern without
 /// an `if` guard.
 pub fn parse_matches_arguments(tokens: TokenStream) -> Result<(Expr, TokenStream), SyntaxError> {
+    let tokens = crate::parse::strip_trailing_comma(tokens);
     let shape =
         || "`k::matches!` expects `subject, pattern`: `k::matches!(t, Pair(_, _))`".to_owned();
     let parser = |input: syn::parse::ParseStream<'_>| -> syn::Result<(Expr, TokenStream)> {
@@ -2055,8 +2284,8 @@ fn local_binders(pattern: &TermTree, root_is_constructor: bool) -> Vec<syn::Iden
             }
         };
         match tree {
-            TermTree::Reference(path) if !root && path.leading_colon.is_none() => {
-                if let Some(ident) = path.get_ident() {
+            TermTree::Reference(path) if !root => {
+                if let Some(ident) = crate::path::pattern_binder(path) {
                     push(ident);
                 }
             }
@@ -2160,7 +2389,9 @@ pub(crate) fn local_rewrite_error(reason: String, span: Span) -> SyntaxError {
 
 /// Splits `k::rewrite!` arguments at the top-level `=>`.
 fn split_rewrite_arguments(tokens: &TokenStream) -> Option<(TokenStream, TokenStream)> {
-    let tokens = tokens.clone().into_iter().collect::<Vec<_>>();
+    let tokens = crate::parse::strip_trailing_comma(tokens.clone())
+        .into_iter()
+        .collect::<Vec<_>>();
     let arrow = tokens.windows(2).position(|pair| {
         matches!(&pair[0], proc_macro2::TokenTree::Punct(first)
             if first.as_char() == '=' && first.spacing() == proc_macro2::Spacing::Joint)
@@ -2292,8 +2523,7 @@ pub(crate) fn check_rewrite_right_bindings(
     let (_, right) = split_rewrite_images(nodes);
     for node in right {
         if let TermNode::Reference(path) = node
-            && path.leading_colon.is_none()
-            && let Some(name) = path.get_ident()
+            && let Some(name) = crate::path::pattern_binder(path)
             && !bindings.iter().any(|binding| binding == name)
         {
             return Err(local_rewrite_error(
@@ -2859,6 +3089,7 @@ pub fn parse_sort_test_arguments(
     kind: SortTestKind,
     tokens: TokenStream,
 ) -> Result<(Path, Expr), SyntaxError> {
+    let tokens = crate::parse::strip_trailing_comma(tokens);
     let parser = |input: syn::parse::ParseStream<'_>| -> syn::Result<(Path, Expr)> {
         let sort: Path = input.parse()?;
         input.parse::<Token![,]>()?;
@@ -2894,6 +3125,7 @@ pub fn parse_sort_test_arguments(
 /// Rejects anything but a plain sort path, a comma, and one nonempty string
 /// literal.
 pub fn parse_lexeme_arguments(tokens: TokenStream) -> Result<(Path, LitStr), SyntaxError> {
+    let tokens = crate::parse::strip_trailing_comma(tokens);
     let parser = |input: syn::parse::ParseStream<'_>| -> syn::Result<(Path, LitStr)> {
         let sort: Path = input.parse()?;
         input.parse::<Token![,]>()?;
@@ -2934,7 +3166,8 @@ fn validate_cell_term(
     symbols: &mut Vec<TermSymbol>,
     nodes: &mut Vec<TermNode>,
 ) -> Result<TermTree, SyntaxError> {
-    let record: ExprStruct = syn::parse2(value.mac.tokens.clone())?;
+    let record: ExprStruct =
+        syn::parse2(crate::parse::strip_trailing_comma(value.mac.tokens.clone()))?;
     reject_attributes(&record.attrs, record.span())?;
     if record.qself.is_some() || !is_plain_path(&record.path) {
         return Err(SyntaxError::new(
@@ -2942,13 +3175,9 @@ fn validate_cell_term(
             record.path.span(),
         ));
     }
-    if let Some(rest) = &record.rest {
-        return Err(SyntaxError::new(
-            SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "complete cell terms do not admit record update/rest syntax",
-            },
-            rest.span(),
-        ));
+    let base = record_update_base(&record, context)?;
+    if base.is_some() {
+        reject_repeated_fields(record.fields.iter().map(|field| &field.member))?;
     }
     symbols.push(TermSymbol {
         path: record.path.clone(),
@@ -2978,7 +3207,11 @@ fn validate_cell_term(
             value: validate_expression(&field.expr, context, symbols, nodes)?,
         });
     }
-    if fields.is_empty() {
+    // An update takes the children it does not list from its base.
+    let update = base
+        .map(|base| validate_path_expression(base, symbols, nodes).map(Box::new))
+        .transpose()?;
+    if fields.is_empty() && update.is_none() {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
                 reason: "complete cell terms require at least one child field",
@@ -2990,6 +3223,8 @@ fn validate_cell_term(
         range: TokenRange::for_tokens(value)?,
         owner: record.path,
         fields,
+        open: false,
+        update,
     }))
 }
 
@@ -3002,7 +3237,9 @@ fn validate_cell_pattern(
     nodes: &mut Vec<TermNode>,
 ) -> Result<TermTree, SyntaxError> {
     reject_attributes(&value.attrs, value.span())?;
-    let Pat::Struct(record) = Pat::parse_multi.parse2(value.mac.tokens.clone())? else {
+    let Pat::Struct(record) =
+        Pat::parse_multi.parse2(crate::parse::strip_trailing_comma(value.mac.tokens.clone()))?
+    else {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
                 reason: "fragment! requires one nominal cell record",
@@ -3017,14 +3254,14 @@ fn validate_cell_pattern(
             record.path.span(),
         ));
     }
-    if let Some(rest) = &record.rest {
-        return Err(SyntaxError::new(
-            SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "complete cell terms do not admit record update/rest syntax",
-            },
-            rest.span(),
-        ));
-    }
+    // `..` leaves the children the pattern does not name unconstrained.
+    let open = match &record.rest {
+        Some(rest) => {
+            reject_attributes(&rest.attrs, rest.span())?;
+            true
+        }
+        None => false,
+    };
     symbols.push(TermSymbol {
         path: record.path.clone(),
         kind: TermSymbolKind::ApplicationHead,
@@ -3037,7 +3274,7 @@ fn validate_cell_pattern(
         symbols,
         nodes,
     )?;
-    if fields.is_empty() {
+    if fields.is_empty() && !open {
         return Err(SyntaxError::new(
             SyntaxErrorKind::UnsupportedTermExpression {
                 reason: "complete cell terms require at least one child field",
@@ -3049,6 +3286,8 @@ fn validate_cell_pattern(
         range: TokenRange::for_tokens(value)?,
         owner: record.path,
         fields,
+        open,
+        update: None,
     }))
 }
 
@@ -3088,8 +3327,10 @@ fn validate_path_expression(
     Ok(TermTree::Reference(expression.path.clone()))
 }
 
+/// Validates a call; `notation` marks the call that a notation form denotes.
 fn validate_call(
     call: &ExprCall,
+    notation: bool,
     context: TermExpressionContext,
     symbols: &mut Vec<TermSymbol>,
     nodes: &mut Vec<TermNode>,
@@ -3132,6 +3373,9 @@ fn validate_call(
         head: head_path,
         arguments: TermArguments::Positional(arguments),
         instance,
+        notation,
+        update: None,
+        open: false,
     }))
 }
 
@@ -3225,13 +3469,9 @@ fn validate_record(
         ));
     }
     let (head, instance) = application_head(&record.path)?;
-    if let Some(rest) = &record.rest {
-        return Err(SyntaxError::new(
-            SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "record update/rest syntax is not supported in term construction",
-            },
-            rest.span(),
-        ));
+    let base = record_update_base(record, context)?;
+    if base.is_some() {
+        reject_repeated_fields(record.fields.iter().map(|field| &field.member))?;
     }
     symbols.push(TermSymbol {
         path: record.path.clone(),
@@ -3261,28 +3501,94 @@ fn validate_record(
             value: validate_expression(&field.expr, context, symbols, nodes)?,
         });
     }
+    // The base is read after the fields, where it is written.
+    let update = base
+        .map(|base| validate_path_expression(base, symbols, nodes).map(Box::new))
+        .transpose()?;
     Ok(TermTree::Application(TermApplication {
         head,
         arguments: TermArguments::Named(arguments),
         instance,
+        notation: false,
+        update,
+        open: false,
     }))
 }
 
+/// The base `t` of a record update `Ctor { f: e, ..t }` (F5): one binder,
+/// in a term. A pattern's `..` is written as a pattern, never with a base.
+fn record_update_base(
+    record: &ExprStruct,
+    context: TermExpressionContext,
+) -> Result<Option<&ExprPath>, SyntaxError> {
+    let Some(rest) = &record.rest else {
+        return Ok(None);
+    };
+    let invalid = |reason: &str, span| {
+        SyntaxError::new(
+            SyntaxErrorKind::InvalidRecordUpdate {
+                reason: reason.to_owned(),
+            },
+            span,
+        )
+    };
+    if context == TermExpressionContext::Pattern {
+        return Err(invalid(
+            "`..base` builds a record from a matched one, so it occurs in a result or condition, not in a pattern; a pattern leaves fields out with `..`",
+            rest.span(),
+        ));
+    }
+    match rest.as_ref() {
+        Expr::Path(path)
+            if path.attrs.is_empty() && path.qself.is_none() && path.path.get_ident().is_some() =>
+        {
+            Ok(Some(path))
+        }
+        _ => Err(invalid(
+            "the base of a record update is one binder, the alias `t` of a record matched as `t @ Ctor { .. }`",
+            rest.span(),
+        )),
+    }
+}
+
+/// Rejects a record that names one field twice: a field has one value.
+fn reject_repeated_fields<'a>(
+    members: impl IntoIterator<Item = &'a Member>,
+) -> Result<(), SyntaxError> {
+    let mut seen = Vec::<&syn::Ident>::new();
+    for member in members {
+        if let Member::Named(name) = member {
+            if seen.contains(&name) {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidRecordUpdate {
+                        reason: format!("the record names the field `{name}` twice"),
+                    },
+                    name.span(),
+                ));
+            }
+            seen.push(name);
+        }
+    }
+    Ok(())
+}
+
 /// The reason given for a unary minus that is not part of an Int literal.
-pub(crate) const UNARY_MINUS: &str =
-    "unary minus is part of a literal only; K has no unary minus on Int, write int::sub(0, x)";
+pub(crate) const UNARY_MINUS: &str = "this minus is a literal's sign, which only an unsuffixed integer literal (in any radix) or a float literal takes";
 
 /// The reason given for `-0`, which is not a canonical K `Int` token.
 pub(crate) const NEGATIVE_ZERO: &str = "`-0` is not an Int literal; write 0";
 
-/// Whether an integer literal is unsuffixed and written in decimal digits and `_`.
-pub(crate) fn is_unsuffixed_decimal(integer: &LitInt) -> bool {
+/// The reason given for an integer literal with a Rust width suffix.
+pub(crate) const INT_SUFFIX: &str =
+    "Int literals must be unsuffixed Rust integers (decimal, 0x hex, 0o octal, or 0b binary)";
+
+/// Whether an integer literal is unsuffixed, in any radix (`255`, `0xFF`,
+/// `0o377`, `0b1111_1111`). A radix is spelling: the literal denotes one
+/// integer, which [`LitInt::base10_digits`] holds in decimal without passing
+/// through a fixed-width Rust integer, so K receives that decimal value. A
+/// suffix names a Rust width, which K's unbounded `Int` does not have.
+pub(crate) fn is_unsuffixed_integer(integer: &LitInt) -> bool {
     integer.suffix().is_empty()
-        && integer
-            .to_string()
-            .trim_start_matches('-')
-            .chars()
-            .all(|character| character.is_ascii_digit() || character == '_')
 }
 
 /// Whether an integer literal's value is zero.
@@ -3294,8 +3600,8 @@ pub(crate) fn is_zero(integer: &LitInt) -> bool {
         .all(|digit| digit == b'0')
 }
 
-/// Accepts `-N`, a unary minus applied directly to an unsuffixed decimal integer
-/// literal, as one signed literal ranging from the `-` through the digits.
+/// Accepts `-N`, a unary minus applied directly to an unsuffixed integer
+/// literal in any radix, as one signed literal ranging from the `-` through the digits.
 fn negative_integer(unary: &ExprUnary) -> Result<IntegerLiteral, SyntaxError> {
     reject_attributes(&unary.attrs, unary.span())?;
     let UnOp::Neg(minus) = unary.op else {
@@ -3323,11 +3629,9 @@ fn negative_integer(unary: &ExprUnary) -> Result<IntegerLiteral, SyntaxError> {
             literal.span(),
         ));
     };
-    if !is_unsuffixed_decimal(integer) {
+    if !is_unsuffixed_integer(integer) {
         return Err(SyntaxError::new(
-            SyntaxErrorKind::UnsupportedTermExpression {
-                reason: "Int literals must be unsuffixed decimal Rust integers",
-            },
+            SyntaxErrorKind::UnsupportedTermExpression { reason: INT_SUFFIX },
             literal.span(),
         ));
     }
@@ -3562,7 +3866,7 @@ pub(crate) fn unsupported_literal(literal: &Lit) -> SyntaxError {
 fn validate_literal(literal: &ExprLit, nodes: &mut Vec<TermNode>) -> Result<TermTree, SyntaxError> {
     reject_attributes(&literal.attrs, literal.span())?;
     let literal = match &literal.lit {
-        Lit::Int(integer) if is_unsuffixed_decimal(integer) => {
+        Lit::Int(integer) if is_unsuffixed_integer(integer) => {
             TermLiteral::Integer(IntegerLiteral::unsigned(integer.clone())?)
         }
         Lit::Bool(boolean) => TermLiteral::Boolean(boolean.clone()),
@@ -3575,9 +3879,7 @@ fn validate_literal(literal: &ExprLit, nodes: &mut Vec<TermNode>) -> Result<Term
         }
         Lit::Int(_) => {
             return Err(SyntaxError::new(
-                SyntaxErrorKind::UnsupportedTermExpression {
-                    reason: "Int literals must be unsuffixed decimal Rust integers",
-                },
+                SyntaxErrorKind::UnsupportedTermExpression { reason: INT_SUFFIX },
                 literal.span(),
             ));
         }
@@ -3608,7 +3910,7 @@ fn is_supported_literal(literal: &ExprLit) -> bool {
     match &literal.lit {
         Lit::Bool(_) | Lit::Str(_) | Lit::Float(_) => literal.attrs.is_empty(),
         Lit::Int(_) if is_float_suffixed_int(&literal.lit) => literal.attrs.is_empty(),
-        Lit::Int(integer) => literal.attrs.is_empty() && is_unsuffixed_decimal(integer),
+        Lit::Int(integer) => literal.attrs.is_empty() && is_unsuffixed_integer(integer),
         _ => false,
     }
 }
@@ -3623,7 +3925,7 @@ fn transparent_expression(mut expression: &Expr) -> &Expr {
     }
 }
 
-fn reject_attributes(
+pub(crate) fn reject_attributes(
     attributes: &[syn::Attribute],
     span: proc_macro2::Span,
 ) -> Result<(), SyntaxError> {
@@ -3673,6 +3975,9 @@ pub(crate) fn matched_sort_test(path: &Path) -> SyntaxError {
 }
 
 pub(crate) fn unexpected_macro(path: &Path) -> SyntaxError {
+    if crate::rule::is_bits_macro(path) {
+        return crate::rule::misplaced_bit_template(path.span());
+    }
     SyntaxError::new(
         SyntaxErrorKind::UnexpectedMacro {
             path: path_text(path),
@@ -3712,7 +4017,7 @@ mod bytes_token_tests {
 
 #[cfg(test)]
 mod negative_literal_tests {
-    use super::{NEGATIVE_ZERO, TermExpression, TermLiteral, TermNode, TermRootKind, UNARY_MINUS};
+    use super::{INT_SUFFIX, NEGATIVE_ZERO, TermExpression, TermLiteral, TermNode, TermRootKind};
     use crate::{KrsSyntax, ProvenanceRole, SyntaxErrorKind};
 
     fn literals(source: &str) -> Vec<String> {
@@ -3738,6 +4043,34 @@ mod negative_literal_tests {
     }
 
     #[test]
+    fn a_radix_is_spelling_and_the_value_is_decimal() {
+        assert_eq!(
+            literals("Sgn(0xFF0F, 0o17, 0b1010, 1_000, 0x_ff)"),
+            ["65295", "15", "10", "1000", "255"]
+        );
+        assert_eq!(literals("int::add(-0x10, -0b1)"), ["-16", "-1"]);
+        assert_eq!(literals("0xFF0F"), ["65295"]);
+        assert_eq!(
+            literals("0x1_0000_0000_0000_0000_0000_0000_0000_0000"),
+            ["340282366920938463463374607431768211456"]
+        );
+    }
+
+    #[test]
+    fn a_suffixed_literal_is_rejected_in_every_radix() {
+        for source in ["Sgn(0xFFu8)", "Sgn(0b1i64)", "Sgn(0o7usize)", "Sgn(1u32)"] {
+            let error = TermExpression::parse_source(source).unwrap_err();
+            assert!(
+                matches!(
+                    error.kind(),
+                    SyntaxErrorKind::UnsupportedTermExpression { reason } if *reason == INT_SUFFIX
+                ),
+                "{source}: {error:?}"
+            );
+        }
+    }
+
+    #[test]
     fn the_literal_anchor_spans_the_sign_through_the_digits() {
         let expression = TermExpression::parse_source("Sgn(-12)").unwrap();
         let anchor = expression
@@ -3751,19 +4084,35 @@ mod negative_literal_tests {
     }
 
     #[test]
-    fn a_minus_on_anything_else_is_rejected() {
+    fn a_minus_on_anything_but_a_literal_is_the_negation_operator() {
+        for source in ["-x", "Sgn(-x)", "Sgn(-(1))", "Sgn(--1)", "Sgn(-Zero())"] {
+            let term = TermExpression::parse_source(source).unwrap();
+            let negations = term
+                .nodes()
+                .iter()
+                .filter(|node| {
+                    matches!(node, TermNode::ApplicationHead(path)
+                        if crate::path::path_text(path) == "__operator::neg")
+                })
+                .count();
+            assert_eq!(negations, 1, "{source}");
+        }
+        assert_eq!(
+            TermExpression::parse_source("-x").unwrap().root_kind(),
+            TermRootKind::Call
+        );
+        // `--1` negates the literal `-1`.
+        assert_eq!(literals("Sgn(--1)"), ["-1"]);
+    }
+
+    #[test]
+    fn a_malformed_signed_literal_is_rejected() {
         for (source, expected) in [
-            ("-x", UNARY_MINUS),
-            ("Sgn(-x)", UNARY_MINUS),
-            ("Sgn(-(1))", UNARY_MINUS),
-            ("Sgn(--1)", UNARY_MINUS),
-            ("Sgn(-Zero())", UNARY_MINUS),
             ("Sgn(-0)", NEGATIVE_ZERO),
             ("Sgn(-0_0)", NEGATIVE_ZERO),
-            (
-                "Sgn(-1i32)",
-                "Int literals must be unsuffixed decimal Rust integers",
-            ),
+            ("Sgn(-1i32)", INT_SUFFIX),
+            ("Sgn(-0xFFu8)", INT_SUFFIX),
+            ("Sgn(-0x0)", NEGATIVE_ZERO),
         ] {
             let error = TermExpression::parse_source(source).unwrap_err();
             assert!(

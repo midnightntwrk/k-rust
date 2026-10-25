@@ -9,7 +9,6 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Light, result = KResult)]
-#[k::precedence((Red, Green))]
 pub enum LightSyntax {
     #[k::syntax("red")]
     Red(),

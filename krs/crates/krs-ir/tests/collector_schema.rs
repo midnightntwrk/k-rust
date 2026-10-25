@@ -103,7 +103,9 @@ fn collector_encoding_is_pinned() {
             fields: vec![ConstructorFieldDescriptor {
                 name: "value".to_owned(),
                 sort: Some(DescriptorSortRef::Declared(sort_id)),
+                arguments: Vec::new(),
             }],
+            arguments: Vec::new(),
         }),
         false,
     );

@@ -35,7 +35,7 @@
 //!
 //! [[cost]]
 //! mode = "simple paths"
-//! bound = "exponential in b and d, plus O(d) visited-list work per pop and O(KORE text bytes) per transition for the returned path identity; digest memory is O(printer traversal stack)"
+//! bound = "exponential in b and d, plus O(1) visited-set work per pop, O(1) per fork and O(d) to copy a branch's visited set at its first state after the fork, and O(KORE text bytes) per transition for the returned path identity; digest memory is O(printer traversal stack)"
 //! ```
 //!
 //! ```toml algorithm
@@ -87,8 +87,8 @@
 //! deduplication, the pattern compared up to the names of the variables the request did not
 //! name (`RequestNames::state_key`, a canonical numbering per state), O(distinct states per
 //! depth) rewrite steps, `Counter::SearchStatesDeduplicated`; breadth-first enumeration of
-//! simple paths with a per-path visited list of the same keys, exponential in branching plus
-//! O(depth) per pop; both count the states they take from their frontier
+//! simple paths with a per-path visited set of the same keys (numbered per search), exponential
+//! in branching plus O(1) per pop; both count the states they take from their frontier
 //! (`Counter::SearchStatesVisited`); pattern search over the result set. A state result, and a
 //! pattern search's solution (`RequestNames::solution_key`), is retained once up to the same
 //! renaming, one key per result. `normalize_match_condition` is the
@@ -97,12 +97,16 @@
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque, btree_map::Entry};
+use std::{
+    cell::{Cell, RefCell},
+    collections::{BTreeMap, BTreeSet, HashMap, VecDeque, btree_map::Entry},
+    rc::Rc,
+};
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
-    builtin::BuiltinEffect,
+    builtin::{BuiltinEffect, ChosenValue},
     condition::{eliminate_bindings, instantiate_constraints},
     definedness::{FactsVerdict, UndecidedFacts, knowledge_facts, pattern_knowledge},
     definition::BackendDefinition,
@@ -116,7 +120,7 @@ use crate::{
     rewrite::{
         AppliedRule, IndeterminateReason, InitialDefinedness, Pattern, RemainderBranch,
         RewriteResult, TraceEntry, TraceKind, Truth, UndecidedStep, initial_definedness,
-        path_trace::PathTrace, predicates_truth, rewrite_step_restricted,
+        note_undefined_result, path_trace::PathTrace, predicates_truth, rewrite_step_restricted,
         rewrite_step_with_options, simplify_result_pattern, stuck,
     },
     rule::Predicate,
@@ -135,7 +139,7 @@ mod retention;
 pub use retention::{BreadthExceeded, Exhausted, FurtherResult, Truncation, UnexploredWork};
 use retention::{
     Remaining, StateRetention, WitnessRetention, breadth_exceeded, pop_or_exhausted, remaining,
-    retain_pattern_match, retain_state_result, retain_witness,
+    retain_pattern_match, retain_state_result, retain_witness, union_path_facts,
 };
 
 pub use crate::transition::{PatternDigest, TransitionId};
@@ -324,6 +328,21 @@ pub enum IncompleteSearch {
     },
 }
 
+impl IncompleteSearch {
+    /// The states the entry reports.
+    fn states_mut(&mut self) -> Vec<&mut SearchState> {
+        match self {
+            Self::BreadthBound(states) => states.iter_mut().collect(),
+            Self::DepthBound(state)
+            | Self::Indeterminate { state, .. }
+            | Self::Stopped { state, .. }
+            | Self::Simplification { state, .. }
+            | Self::Match { state, .. }
+            | Self::Smt { state, .. } => vec![state],
+        }
+    }
+}
+
 /// Why a search's exploration ended. `E` is what a result bound states about the results beyond
 /// the retained ones.
 ///
@@ -394,14 +413,17 @@ pub enum SearchEnd<E> {
 /// use k_rust_backend::search::SearchResult;
 ///
 /// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![],
-/// initial_bottom: false };
+/// initial_bottom: false, implementation_chosen_values: vec![], contradicted_claims: vec![],
+/// allowance_refusals: vec![], unsupported_hooks: vec![] };
 /// ```
 ///
 /// ```
 /// use k_rust_backend::{search::{SearchEnd, SearchResult}, stop::StopCause};
 ///
 /// let result = SearchResult { states: vec![], effects: vec![], incomplete: vec![], end:
-/// SearchEnd::Stopped(StopCause::Cancelled), initial_bottom: false };
+/// SearchEnd::Stopped(StopCause::Cancelled), initial_bottom: false,
+/// implementation_chosen_values: vec![], contradicted_claims: vec![], allowance_refusals: vec![],
+/// unsupported_hooks: vec![] };
 /// ```
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SearchResult {
@@ -417,6 +439,31 @@ pub struct SearchResult {
     /// result. False when an initial state was left undecided (a bound, a stop, an incomplete
     /// entry).
     pub initial_bottom: bool,
+    /// Every distinct value the definition leaves open that the search read, in the order it
+    /// first noted it (`builtin::chosen_value`, `crate::path_facts`), as for
+    /// [`crate::rewrite::ExecutionResult::implementation_chosen_values`]: those on the paths of
+    /// its results and entries (`BackendDiagnostic::ImplementationChosenValue`), and those of
+    /// work on no reported path, such as a candidate that vanished, the step that decided
+    /// whether a state at the result bound may expand, or a match. Empty exactly when no
+    /// evaluation of the search took such a value: then every model of the definition that
+    /// agrees with the request's inputs and k-rust's stated readings gives the same results,
+    /// entries and end.
+    pub implementation_chosen_values: Vec<ChosenValue>,
+    /// Every distinct contradicted claim the search observed and those the load of its
+    /// definition observed, first, in first-observed order, as for
+    /// [`crate::rewrite::ExecutionResult::contradicted_claims`]: those on the paths of its results
+    /// and entries (`BackendDiagnostic::ContradictedClaim`), and those of work on no reported
+    /// path. It is complete for contradictions found by evaluation on ground arguments.
+    pub contradicted_claims: Vec<crate::path_facts::ContradictedClaim>,
+    /// Every distinct `Bytes` result the memory allowance refused in the search or in the load of
+    /// its definition, whatever became of the work that met it, as for
+    /// [`crate::rewrite::ExecutionResult::allowance_refusals`]: when it is empty, the search gives
+    /// the same results under every allowance of at least as many bytes.
+    pub allowance_refusals: Vec<crate::path_facts::UnevaluatedHook>,
+    /// Every distinct application the search, or the load of its definition, left unevaluated as
+    /// an unsupported hook other than an allowance refusal, whatever became of the work that met
+    /// it, as for [`crate::rewrite::ExecutionResult::unsupported_hooks`].
+    pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
 }
 
 impl SearchResult {
@@ -460,6 +507,14 @@ pub struct PathSearchResult {
     pub end: SearchEnd<Truncation>,
     /// Whether every initial state had no instance, as for [`SearchResult::initial_bottom`].
     pub initial_bottom: bool,
+    /// As for [`SearchResult::implementation_chosen_values`].
+    pub implementation_chosen_values: Vec<ChosenValue>,
+    /// As for [`SearchResult::contradicted_claims`].
+    pub contradicted_claims: Vec<crate::path_facts::ContradictedClaim>,
+    /// As for [`SearchResult::allowance_refusals`].
+    pub allowance_refusals: Vec<crate::path_facts::UnevaluatedHook>,
+    /// As for [`SearchResult::unsupported_hooks`].
+    pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
 }
 
 impl PathSearchResult {
@@ -513,6 +568,14 @@ pub struct PatternSearchResult {
     pub end: SearchEnd<UnexploredWork>,
     /// Whether every initial state had no instance, as for [`SearchResult::initial_bottom`].
     pub initial_bottom: bool,
+    /// As for [`SearchResult::implementation_chosen_values`].
+    pub implementation_chosen_values: Vec<ChosenValue>,
+    /// As for [`SearchResult::contradicted_claims`].
+    pub contradicted_claims: Vec<crate::path_facts::ContradictedClaim>,
+    /// As for [`SearchResult::allowance_refusals`].
+    pub allowance_refusals: Vec<crate::path_facts::UnevaluatedHook>,
+    /// As for [`SearchResult::unsupported_hooks`].
+    pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
 }
 
 impl PatternSearchResult {
@@ -546,6 +609,14 @@ pub struct PatternPathSearchResult {
     pub end: SearchEnd<Truncation>,
     /// Whether every initial state had no instance, as for [`SearchResult::initial_bottom`].
     pub initial_bottom: bool,
+    /// As for [`SearchResult::implementation_chosen_values`].
+    pub implementation_chosen_values: Vec<ChosenValue>,
+    /// As for [`SearchResult::contradicted_claims`].
+    pub contradicted_claims: Vec<crate::path_facts::ContradictedClaim>,
+    /// As for [`SearchResult::allowance_refusals`].
+    pub allowance_refusals: Vec<crate::path_facts::UnevaluatedHook>,
+    /// As for [`SearchResult::unsupported_hooks`].
+    pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
 }
 
 impl PatternPathSearchResult {
@@ -707,16 +778,42 @@ fn search_graph_using(
     observation: Option<&ObservationOptions>,
     observe: impl FnMut(&BuiltinEffect),
 ) -> SearchResult {
-    search_graph_collecting(
-        definition,
-        initial,
-        RequestNames::default(),
-        options,
-        solver,
-        observation,
-        observe,
-        |_| false,
-    )
+    let (mut result, facts) = crate::path_facts::run(|| {
+        search_graph_collecting(
+            definition,
+            initial,
+            RequestNames::default(),
+            options,
+            solver,
+            observation,
+            observe,
+            |_| false,
+        )
+    });
+    result.implementation_chosen_values = chosen_values(&facts);
+    let record = run_record(definition, &facts);
+    result.contradicted_claims = record.contradicted_claims;
+    result.allowance_refusals = record.allowance_refusals;
+    result.unsupported_hooks = record.unsupported_hooks;
+    result
+}
+
+/// The chosen values among a search's run record (`crate::path_facts::run`).
+fn chosen_values(facts: &[crate::path_facts::PathFact]) -> Vec<ChosenValue> {
+    facts
+        .iter()
+        .filter_map(crate::path_facts::PathFact::chosen_value)
+        .cloned()
+        .collect()
+}
+
+/// The run-level lists of a search's run record, after its definition's load record, as an
+/// execution's (`crate::rewrite::ExecutionResult::contradicted_claims`).
+fn run_record(
+    definition: &BackendDefinition,
+    facts: &[crate::path_facts::PathFact],
+) -> crate::path_facts::RunRecord {
+    crate::path_facts::RunRecord::of(definition.load_record().iter().chain(facts))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -735,8 +832,8 @@ fn search_graph_collecting(
     let mut observation_log = ObservationLog::default();
     let request_diagnostics = PathDiagnostics::new_request();
     let mut states = Vec::new();
-    // The `RequestNames::state_key` of every state in `states`.
-    let mut retained = HashSet::new();
+    // The `RequestNames::state_key` of every state in `states`, with its index there.
+    let mut retained = HashMap::new();
     let mut effects = Vec::new();
     let mut incomplete = Vec::new();
     // One request: every name the search mints is apart from every variable of the initial
@@ -756,7 +853,11 @@ fn search_graph_collecting(
     // introduced a variable apart, since the request's counter names the two variables apart.
     // The keys are held per depth: a key is only ever compared with keys of its own depth, and
     // the depths below every state still to be popped are dropped (`forget_depths_below`).
-    let mut expanded: BTreeMap<u64, HashSet<(Pattern, bool)>> = BTreeMap::new();
+    // Each key holds the state kept for it ([`KeptState`]), which the duplicates dropped for it
+    // give their path facts.
+    let mut expanded: BTreeMap<u64, HashMap<(Pattern, bool), Rc<KeptState>>> = BTreeMap::new();
+    // The state being explored, once kept, with the index of its first entry in `incomplete`.
+    let mut current: Option<(Rc<KeptState>, usize)> = None;
 
     // The initial states, and those of them found to have no instance before any step.
     let initial_count = initial.len();
@@ -778,6 +879,8 @@ fn search_graph_collecting(
             observation: None,
             diagnostics: request_diagnostics.empty_like(),
             kind: QueuedStateKind::Rewritable,
+            rule: None,
+            parent: None,
         };
         if let Some(symbol) = work.state.pattern.macro_or_alias_symbol() {
             incomplete.push(IncompleteSearch::Indeterminate {
@@ -803,6 +906,10 @@ fn search_graph_collecting(
             incomplete,
             end: SearchEnd::BreadthBound(exceeded),
             initial_bottom: false,
+            implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
         };
     }
     if options.max_results == Some(0) {
@@ -812,6 +919,10 @@ fn search_graph_collecting(
             incomplete,
             end: remaining(&pending, || false).result_bound(|unexplored| unexplored),
             initial_bottom: false,
+            implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
         };
     }
 
@@ -819,10 +930,15 @@ fn search_graph_collecting(
     // a state still to be popped can have, so a state is expanded once per depth.
     // Invariant: `pending` holds unexpanded states no deeper than `max_depth`; `states` only grows.
     let end = loop {
-        let work = match pending.pop_front() {
+        // The previous state's entries are all in `incomplete`.
+        if let Some((kept, from)) = current.take() {
+            kept.incomplete.set((from, incomplete.len()));
+        }
+        let mut work = match pending.pop_front() {
             Ok(work) => work,
             Err(exhausted) => break SearchEnd::Exhausted(exhausted),
         };
+        work.inherit();
         measure::bump(Counter::SearchStatesVisited);
         forget_depths_below(&mut expanded, pending.floor(work.state.depth));
         // Publish a stop of the state's exploration as its `Stopped` entry; the search ends when
@@ -849,6 +965,9 @@ fn search_graph_collecting(
             observation: mut observation_head,
             mut diagnostics,
             kind,
+            rule,
+            // Taken by `inherit` above.
+            parent: _,
         } = work;
         let is_rewritable = matches!(kind, QueuedStateKind::Rewritable);
         if let Some(symbol) = state.pattern.macro_or_alias_symbol() {
@@ -864,14 +983,23 @@ fn search_graph_collecting(
             continue;
         }
         // The state's own constraint and term simplification is on its path: every result,
-        // incomplete entry and successor derived from this state carries it.
-        let (simplified_constraints, emitted) = diagnostic::collect(|| {
-            simplify_predicates_with_solver(
-                definition,
-                &state.pattern.constraints,
-                &[],
-                SimplificationOptions::keep_partial(options.max_simplification_iterations),
-                solver,
+        // incomplete entry and successor derived from this state carries it. It is the work of
+        // the rule that produced the state: a contradicted claim it observes names that rule.
+        // One normalization in two phases: what a record the term phase observes rests on is
+        // asked from the constraints' phase on (`crate::path_facts::observed_from`).
+        let normalization = crate::path_facts::marker();
+        let (simplified_constraints, emitted) = crate::path_facts::collect_with_diagnostics(|| {
+            crate::path_facts::observed_by(
+                || rule.clone(),
+                || {
+                    simplify_predicates_with_solver(
+                        definition,
+                        &state.pattern.constraints,
+                        &[],
+                        SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                        solver,
+                    )
+                },
             )
         });
         diagnostics.extend(&emitted);
@@ -900,13 +1028,28 @@ fn search_graph_collecting(
             ),
         }
         let pattern_before_simplification = state.pattern.clone();
-        let (simplified_term, emitted) = diagnostic::collect(|| {
-            simplify_with_solver(
-                definition,
-                &state.pattern.term,
-                &state.pattern.constraints,
-                SimplificationOptions::keep_partial(options.max_simplification_iterations),
-                solver,
+        let (simplified_term, emitted) = crate::path_facts::collect_with_diagnostics(|| {
+            crate::path_facts::observed_from(
+                normalization,
+                || rule.clone(),
+                || {
+                    let simplified = simplify_with_solver(
+                        definition,
+                        &state.pattern.term,
+                        &state.pattern.constraints,
+                        SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                        solver,
+                    );
+                    // A successor's term is the result term its step built.
+                    if let Ok(Ok(simplified)) = &simplified {
+                        note_undefined_result(
+                            &state.pattern.term,
+                            &state.pattern.constraints,
+                            simplified,
+                        );
+                    }
+                    simplified
+                },
             )
         });
         diagnostics.extend(&emitted);
@@ -1010,14 +1153,26 @@ fn search_graph_collecting(
             ),
         };
         // A duplicate takes its own path's diagnostics with it: the state kept for this key
-        // reports the path recorded first, like its trace.
-        if !expanded.entry(state.depth).or_default().insert((
+        // reports the path recorded first, like its trace. Its path facts are not dropped: the
+        // state kept for its key, its reports and every state derived from it carry them too
+        // ([`KeptState`]).
+        let kept = match expanded.entry(state.depth).or_default().entry((
             fresh_counter.request().state_key(&state.pattern),
             is_rewritable,
         )) {
-            measure::bump(Counter::SearchStatesDeduplicated);
-            continue;
-        }
+            std::collections::hash_map::Entry::Occupied(kept) => {
+                measure::bump(Counter::SearchStatesDeduplicated);
+                if diagnostics.has_facts() {
+                    kept.get()
+                        .absorb(&diagnostics.to_vec(), &mut states, &mut incomplete);
+                }
+                continue;
+            }
+            std::collections::hash_map::Entry::Vacant(slot) => {
+                Rc::clone(slot.insert(Rc::new(KeptState::default())))
+            }
+        };
+        current = Some((Rc::clone(&kept), incomplete.len()));
         let at_depth_bound = state.depth >= options.max_depth;
         let is_result = selects_reachable_state(options.search_type, state.depth)
             || (options.search_type == SearchType::Final && at_depth_bound);
@@ -1036,14 +1191,18 @@ fn search_graph_collecting(
                 &mut observation_log,
                 observation,
             ) {
-                Ok(Some(result)) => retain_state_result(
-                    &mut states,
-                    &mut retained,
-                    fresh_counter.request(),
-                    result,
-                    options.max_results,
-                    &mut pattern_bound_reached,
-                ),
+                Ok(Some(result)) => {
+                    let (retention, held_by) = retain_state_result(
+                        &mut states,
+                        &mut retained,
+                        fresh_counter.request(),
+                        result,
+                        options.max_results,
+                        &mut pattern_bound_reached,
+                    );
+                    kept.results.borrow_mut().push(held_by);
+                    retention
+                }
                 Ok(None) => StateRetention::Continue,
                 Err(cause) if stop_ends_search(&cause) => break SearchEnd::Stopped(cause),
                 // The state's result is not known, but its successors can still be explored.
@@ -1094,7 +1253,7 @@ fn search_graph_collecting(
             continue;
         }
 
-        let (rewrite, step_diagnostics) = step_search_state(
+        let (rewrite, step_diagnostics, step_facts) = step_search_state(
             definition,
             &state.pattern,
             &defined_where,
@@ -1103,6 +1262,7 @@ fn search_graph_collecting(
             &options,
             solver,
         );
+        diagnostics.extend(&step_facts);
         // A stopped step has no successor set: the state's entry carries the step's work.
         let rewrite = match rewrite {
             Ok(rewrite) => rewrite,
@@ -1142,14 +1302,18 @@ fn search_graph_collecting(
                     &mut observation_log,
                     observation,
                 ) {
-                    Ok(Some(result)) => retain_state_result(
-                        &mut states,
-                        &mut retained,
-                        fresh_counter.request(),
-                        result,
-                        options.max_results,
-                        &mut pattern_bound_reached,
-                    ),
+                    Ok(Some(result)) => {
+                        let (retention, held_by) = retain_state_result(
+                            &mut states,
+                            &mut retained,
+                            fresh_counter.request(),
+                            result,
+                            options.max_results,
+                            &mut pattern_bound_reached,
+                        );
+                        kept.results.borrow_mut().push(held_by);
+                        retention
+                    }
                     Ok(None) => StateRetention::Continue,
                     Err(cause) if stop_ends_search(&cause) => break SearchEnd::Stopped(cause),
                     Err(_) => StateRetention::Continue,
@@ -1195,17 +1359,20 @@ fn search_graph_collecting(
             }
             RewriteResult::Finished(applied) => {
                 record_applied_effects(&mut effects, &applied, &mut observe);
-                pending.push_back(next_search_work_state(
-                    definition,
-                    state.depth,
-                    trace,
-                    options.retain_trace,
-                    observation_head,
-                    diagnostics,
-                    applied,
-                    &mut observation_log,
-                    observation,
-                ));
+                pending.push_back(SearchWorkState {
+                    parent: Some(kept),
+                    ..next_search_work_state(
+                        definition,
+                        state.depth,
+                        trace,
+                        options.retain_trace,
+                        observation_head,
+                        diagnostics,
+                        applied,
+                        &mut observation_log,
+                        observation,
+                    )
+                });
                 if let Some(exceeded) =
                     pending.breadth_exceeded(&mut incomplete, options.max_breadth, |work| {
                         work.materialize(&observation_log)
@@ -1221,17 +1388,20 @@ fn search_graph_collecting(
             } => {
                 for applied in branches {
                     record_applied_effects(&mut effects, &applied, &mut observe);
-                    pending.push_back(next_search_work_state(
-                        definition,
-                        state.depth,
-                        trace.clone(),
-                        options.retain_trace,
-                        observation_head,
-                        diagnostics.clone(),
-                        applied,
-                        &mut observation_log,
-                        observation,
-                    ));
+                    pending.push_back(SearchWorkState {
+                        parent: Some(Rc::clone(&kept)),
+                        ..next_search_work_state(
+                            definition,
+                            state.depth,
+                            trace.clone(),
+                            options.retain_trace,
+                            observation_head,
+                            diagnostics.clone(),
+                            applied,
+                            &mut observation_log,
+                            observation,
+                        )
+                    });
                 }
                 if let Some(remainder) = remainder {
                     record_effects(
@@ -1251,7 +1421,10 @@ fn search_graph_collecting(
                         &mut observation_log,
                         observation,
                     );
-                    pending.push_back(remaining);
+                    pending.push_back(SearchWorkState {
+                        parent: Some(kept),
+                        ..remaining
+                    });
                 }
                 if let Some(exceeded) =
                     pending.breadth_exceeded(&mut incomplete, options.max_breadth, |work| {
@@ -1270,6 +1443,10 @@ fn search_graph_collecting(
         incomplete,
         end,
         initial_bottom: initial_count != 0 && initial_without_instance == initial_count,
+        implementation_chosen_values: Vec::new(),
+        contradicted_claims: Vec::new(),
+        allowance_refusals: Vec::new(),
+        unsupported_hooks: Vec::new(),
     }
 }
 
@@ -1345,7 +1522,7 @@ impl retention::Frontier for SearchFrontier {
 /// own depth, so no state will be compared with a dropped key: every deduplication decision,
 /// hence every state expanded and every result, is the one the search makes keeping every key,
 /// while the keys held are those of the depths the frontier spans rather than of every depth.
-fn forget_depths_below(expanded: &mut BTreeMap<u64, HashSet<(Pattern, bool)>>, floor: u64) {
+fn forget_depths_below<K>(expanded: &mut BTreeMap<u64, K>, floor: u64) {
     while let Some(lowest) = expanded.first_entry()
         && *lowest.key() < floor
     {
@@ -1365,6 +1542,72 @@ struct SearchWorkState {
     /// materialised into `SearchState::diagnostics` when the state is reported.
     diagnostics: PathDiagnostics,
     kind: QueuedStateKind,
+    /// The rule whose step produced this state, `None` for an initial state and a remainder: the
+    /// state's normalization is that rule's work, so a contradicted claim it observes names it
+    /// (`crate::path_facts::observed_by`).
+    rule: Option<crate::path_facts::ObservingRule>,
+    /// The state this one was derived from by a step, as the per-depth deduplication kept it
+    /// ([`KeptState`]): the path facts of the duplicates dropped for it are on this state's path
+    /// too. `None` for an initial state.
+    parent: Option<Rc<KeptState>>,
+}
+
+/// A state the per-depth deduplication kept (`expanded` in [`search_graph_collecting`]), with
+/// the path facts (`crate::path_facts`) of the duplicates dropped for it. A dropped duplicate
+/// has the kept state's successors, so the decisions its path rests on are theirs too: the
+/// kept state's own reports (its result and its incomplete entries) and every state derived
+/// from it carry its duplicates' facts.
+///
+/// A duplicate of a state is popped before any state derived from it: the rewritable states
+/// are popped breadth-first, so every state of the duplicate's depth is queued before the
+/// kept state's step queues its successors, and the remainder the step queues at the kept
+/// state's own depth comes after them. So the facts are complete when a derived state is popped
+/// ([`SearchWorkState::inherit`]).
+#[derive(Default)]
+struct KeptState {
+    /// The path facts of the duplicates dropped for this state, as diagnostics.
+    facts: RefCell<Vec<BackendDiagnostic>>,
+    /// The indices in the search's `states` of the results that hold this state's path: its own
+    /// result, or the earlier result it was found a duplicate of.
+    results: RefCell<Vec<usize>>,
+    /// The indices in the search's `incomplete` of this state's own entries.
+    incomplete: Cell<(usize, usize)>,
+    /// Whether a state derived from this one has taken its facts.
+    inherited: Cell<bool>,
+}
+
+impl KeptState {
+    /// Hand the path facts among `diagnostics`, a dropped duplicate's path, to this state's
+    /// reports and to the states derived from it.
+    fn absorb(
+        &self,
+        diagnostics: &[BackendDiagnostic],
+        states: &mut [SearchState],
+        incomplete: &mut [IncompleteSearch],
+    ) {
+        let facts = diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.is_path_fact())
+            .cloned()
+            .collect::<Vec<_>>();
+        if facts.is_empty() {
+            return;
+        }
+        debug_assert!(
+            !self.inherited.get(),
+            "a duplicate is popped after a state derived from the state kept for it"
+        );
+        extend_distinct(&mut self.facts.borrow_mut(), &facts);
+        for &index in self.results.borrow().iter() {
+            extend_distinct(&mut states[index].diagnostics, &facts);
+        }
+        let (from, to) = self.incomplete.get();
+        for entry in &mut incomplete[from..to] {
+            for state in entry.states_mut() {
+                extend_distinct(&mut state.diagnostics, &facts);
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -1374,7 +1617,17 @@ enum QueuedStateKind {
 }
 
 impl SearchWorkState {
-    fn materialize(self, observation_log: &ObservationLog) -> SearchState {
+    /// Take the path facts of the duplicates dropped for the state this one was derived from
+    /// ([`KeptState`]) onto this state's path.
+    fn inherit(&mut self) {
+        if let Some(parent) = self.parent.take() {
+            parent.inherited.set(true);
+            self.diagnostics.extend(&parent.facts.borrow());
+        }
+    }
+
+    fn materialize(mut self, observation_log: &ObservationLog) -> SearchState {
+        self.inherit();
         materialize_search_state(
             with_trace(self.state, self.trace),
             self.observation,
@@ -1414,15 +1667,16 @@ fn initial_state_definedness(
         max_iterations: max_simplification_iterations,
         ..SimplificationOptions::default()
     };
-    let (verdict, emitted) = diagnostic::collect(|| {
+    let (verdict, emitted) = crate::path_facts::collect_with_diagnostics(|| {
         UndecidedFacts::of_pattern(definition, &state.pattern).decide(definition, options, solver)
     });
     diagnostics.extend(&emitted);
     if let FactsVerdict::Refuted = verdict? {
         return Ok(Ok(None));
     }
-    let (definedness, emitted) =
-        diagnostic::collect(|| initial_definedness(definition, &state.pattern, options, solver));
+    let (definedness, emitted) = crate::path_facts::collect_with_diagnostics(|| {
+        initial_definedness(definition, &state.pattern, options, solver)
+    });
     diagnostics.extend(&emitted);
     Ok(match definedness? {
         InitialDefinedness::Undefined => Ok(None),
@@ -1453,7 +1707,48 @@ fn materialize_search_state(
 /// step has already attributed them to its candidates (`AppliedRule::diagnostics`,
 /// `RemainderBranch::diagnostics`), so the collection is for a step that ends the state's
 /// exploration ([`halts`]) or that stopped, whose entry carries the whole step.
+///
+/// The third list is the path facts the step noted outside its candidates' own right-hand sides
+/// (`crate::path_facts`), which are on the state's path whatever the step's answer: the caller
+/// adds them to it before deriving its successors. The candidates' own facts travel with their
+/// diagnostics, and the first list holds them too, for a step that halts or stopped.
 fn step_search_state(
+    definition: &BackendDefinition,
+    pattern: &Pattern,
+    defined_where: &[Predicate],
+    kind: QueuedStateKind,
+    fresh_counter: &mut FreshCounter,
+    options: &SearchOptions,
+    solver: &dyn SmtSolver,
+) -> (
+    Stoppable<RewriteResult>,
+    Vec<BackendDiagnostic>,
+    Vec<BackendDiagnostic>,
+) {
+    let ((rewrite, mut step_diagnostics), facts) = crate::path_facts::collect(|| {
+        step_search_diagnostics(
+            definition,
+            pattern,
+            defined_where,
+            kind,
+            fresh_counter,
+            options,
+            solver,
+        )
+    });
+    extend_distinct(
+        &mut step_diagnostics,
+        &crate::path_facts::diagnostics(&facts.owned),
+    );
+    (
+        rewrite,
+        step_diagnostics,
+        crate::path_facts::diagnostics(&facts.shared),
+    )
+}
+
+/// [`step_search_state`] without its path facts.
+fn step_search_diagnostics(
     definition: &BackendDefinition,
     pattern: &Pattern,
     defined_where: &[Predicate],
@@ -1519,7 +1814,7 @@ fn externalise_result(
     observation_log: &mut ObservationLog,
     observation_options: Option<&ObservationOptions>,
 ) -> Result<Option<SearchState>, StopCause> {
-    let (simplified, emitted) = diagnostic::collect(|| {
+    let (simplified, emitted) = crate::path_facts::collect_with_diagnostics(|| {
         simplify_result_pattern(
             definition,
             &state.pattern,
@@ -1592,6 +1887,7 @@ fn next_search_work_state(
         );
     }
     let observation = observation_log.append_applied(observation, &applied, observation_options);
+    let rule = Some(applied.observing_rule());
     let state = next_state(
         depth,
         &mut RetainedTrace::new(&mut trace, retain_trace),
@@ -1603,6 +1899,8 @@ fn next_search_work_state(
         observation,
         diagnostics,
         kind: QueuedStateKind::Rewritable,
+        rule,
+        parent: None,
     }
 }
 
@@ -1639,6 +1937,8 @@ fn remaining_search_work_state(
         observation,
         diagnostics,
         kind,
+        rule: None,
+        parent: None,
     }
 }
 
@@ -1724,15 +2024,23 @@ fn search_paths_using(
     observation: Option<&ObservationOptions>,
 ) -> PathSearchResult {
     let _evaluation = EvaluationScope::enter(options.evaluation);
-    search_paths_collecting(
-        definition,
-        initial,
-        RequestNames::default(),
-        options,
-        solver,
-        observation,
-        |_| false,
-    )
+    let (mut result, facts) = crate::path_facts::run(|| {
+        search_paths_collecting(
+            definition,
+            initial,
+            RequestNames::default(),
+            options,
+            solver,
+            observation,
+            |_| false,
+        )
+    });
+    result.implementation_chosen_values = chosen_values(&facts);
+    let record = run_record(definition, &facts);
+    result.contradicted_claims = record.contradicted_claims;
+    result.allowance_refusals = record.allowance_refusals;
+    result.unsupported_hooks = record.unsupported_hooks;
+    result
 }
 
 fn search_paths_collecting(
@@ -1758,6 +2066,8 @@ fn search_paths_collecting(
         FreshCounter::for_request_names(names)
     };
 
+    // The state keys this search has met, numbered: a path's `visited` holds the numbers.
+    let mut state_keys = StateKeyIds::default();
     let initial = PathSearchState {
         state: SearchState {
             pattern: initial,
@@ -1767,11 +2077,13 @@ fn search_paths_collecting(
             observations: Vec::new(),
             diagnostics: Vec::new(),
         },
-        id: Vec::new(),
-        visited: Vec::new(),
+        trace: PathTrace::default(),
+        id: PathIds::default(),
+        visited: VisitedStates::default(),
         observation: None,
         diagnostics: PathDiagnostics::new_request(),
         kind: QueuedStateKind::Rewritable,
+        rule: None,
     };
     let mut pending = VecDeque::with_capacity(1);
     // `pending` holds the initial path unless its state has a surviving macro or alias symbol,
@@ -1799,6 +2111,10 @@ fn search_paths_collecting(
             incomplete,
             end: SearchEnd::BreadthBound(exceeded),
             initial_bottom: false,
+            implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
         };
     }
     if options.max_results == Some(0) {
@@ -1808,6 +2124,10 @@ fn search_paths_collecting(
             incomplete,
             end: remaining(&pending, || false).result_bound(Truncation::UnexploredWork),
             initial_bottom: false,
+            implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
         };
     }
 
@@ -1847,14 +2167,24 @@ fn search_paths_collecting(
             continue;
         }
         // The path's own simplification of this state is on the path: every witness, incomplete
-        // entry and extension derived from it carries it.
-        let (simplified_constraints, emitted) = diagnostic::collect(|| {
-            simplify_predicates_with_solver(
-                definition,
-                &path.state.pattern.constraints,
-                &[],
-                SimplificationOptions::keep_partial(options.max_simplification_iterations),
-                solver,
+        // entry and extension derived from it carries it. It is the work of the rule that
+        // produced the state, as in the state-set search.
+        let rule = path.rule.clone();
+        // One normalization in two phases: what a record the term phase observes rests on is
+        // asked from the constraints' phase on (`crate::path_facts::observed_from`).
+        let normalization = crate::path_facts::marker();
+        let (simplified_constraints, emitted) = crate::path_facts::collect_with_diagnostics(|| {
+            crate::path_facts::observed_by(
+                || rule.clone(),
+                || {
+                    simplify_predicates_with_solver(
+                        definition,
+                        &path.state.pattern.constraints,
+                        &[],
+                        SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                        solver,
+                    )
+                },
             )
         });
         path.diagnostics.extend(&emitted);
@@ -1870,13 +2200,28 @@ fn search_paths_collecting(
             Err(stop) => publish_stop!(stop),
         }
         let pattern_before_simplification = path.state.pattern.clone();
-        let (simplified_term, emitted) = diagnostic::collect(|| {
-            simplify_with_solver(
-                definition,
-                &path.state.pattern.term,
-                &path.state.pattern.constraints,
-                SimplificationOptions::keep_partial(options.max_simplification_iterations),
-                solver,
+        let (simplified_term, emitted) = crate::path_facts::collect_with_diagnostics(|| {
+            crate::path_facts::observed_from(
+                normalization,
+                || rule.clone(),
+                || {
+                    let simplified = simplify_with_solver(
+                        definition,
+                        &path.state.pattern.term,
+                        &path.state.pattern.constraints,
+                        SimplificationOptions::keep_partial(options.max_simplification_iterations),
+                        solver,
+                    );
+                    // A successor's term is the result term its step built.
+                    if let Ok(Ok(simplified)) = &simplified {
+                        note_undefined_result(
+                            &path.state.pattern.term,
+                            &path.state.pattern.constraints,
+                            simplified,
+                        );
+                    }
+                    simplified
+                },
             )
         });
         path.diagnostics.extend(&emitted);
@@ -1895,14 +2240,14 @@ fn search_paths_collecting(
                     observation,
                 );
                 effects.extend(simplified.effects.iter().cloned());
-                path.state
-                    .trace
+                let depth = path.state.depth;
+                path.trace
                     .extend(
                         simplified
                             .applied_rules
                             .into_iter()
                             .map(|unique_id| TraceEntry {
-                                depth: path.state.depth,
+                                depth,
                                 kind: TraceKind::Simplification,
                                 label: None,
                                 unique_id,
@@ -1952,14 +2297,13 @@ fn search_paths_collecting(
         // A path that reaches a state it already visited, up to the names of the variables the
         // request did not name, is a cycle: the state's continuations are those of the earlier
         // visit, renamed.
-        let key = (
+        let key = state_keys.id((
             fresh_counter.request().state_key(&path.state.pattern),
             is_rewritable,
-        );
-        if path.visited.contains(&key) {
+        ));
+        if !path.visited.insert(key) {
             continue;
         }
-        path.visited.push(key);
 
         let at_depth_bound = path.state.depth >= options.max_depth;
         let is_result = selects_reachable_state(options.search_type, path.state.depth)
@@ -2022,7 +2366,7 @@ fn search_paths_collecting(
             continue;
         }
 
-        let (rewrite, step_diagnostics) = step_search_state(
+        let (rewrite, step_diagnostics, step_facts) = step_search_state(
             definition,
             &path.state.pattern,
             &defined_where,
@@ -2031,6 +2375,7 @@ fn search_paths_collecting(
             &options,
             solver,
         );
+        path.diagnostics.extend(&step_facts);
         // A stopped step has no successor set: the path's entry carries the step's work.
         let rewrite = match rewrite {
             Ok(rewrite) => rewrite,
@@ -2164,25 +2509,36 @@ fn search_paths_collecting(
         incomplete,
         end,
         initial_bottom,
+        implementation_chosen_values: Vec::new(),
+        contradicted_claims: Vec::new(),
+        allowance_refusals: Vec::new(),
+        unsupported_hooks: Vec::new(),
     }
 }
 
 #[derive(Clone)]
 struct PathSearchState {
+    /// The path's last state; its own `trace` stays empty while the path is queued.
     state: SearchState,
-    id: Vec<TransitionId>,
-    /// The `RequestNames::state_key` of every state on the path, with its rewritability.
-    visited: Vec<(Pattern, bool)>,
+    /// The path's trace, shared with the paths it forked from.
+    trace: PathTrace,
+    /// The path's transition identities, shared with the paths it forked from.
+    id: PathIds,
+    /// The `RequestNames::state_key` of every state on the path, with its rewritability, as
+    /// numbered by the search's [`StateKeyIds`].
+    visited: VisitedStates,
     observation: ObservationHead,
     /// The diagnostics of this path so far, shared with the paths that extend it.
     diagnostics: PathDiagnostics,
     kind: QueuedStateKind,
+    /// The rule whose step produced this state, as for `SearchWorkState::rule`.
+    rule: Option<crate::path_facts::ObservingRule>,
 }
 
 impl PathSearchState {
     fn materialize_state(self, observation_log: &ObservationLog) -> SearchState {
         materialize_search_state(
-            self.state,
+            with_trace(self.state, self.trace),
             self.observation,
             &self.diagnostics,
             observation_log,
@@ -2215,9 +2571,8 @@ fn next_path_state(
     }
     path.observation =
         observation_log.append_applied(path.observation, &applied, observation_options);
-    let mut trace = std::mem::take(&mut path.state.trace);
-    path.state = next_state(path.state.depth, &mut trace, applied);
-    path.state.trace = trace;
+    path.rule = Some(applied.observing_rule());
+    path.state = next_state(path.state.depth, &mut path.trace, applied);
     path.kind = QueuedStateKind::Rewritable;
     path
 }
@@ -2243,11 +2598,85 @@ fn remaining_path_state(
         observation_options,
     );
     path.observation = observation;
-    let mut trace = std::mem::take(&mut path.state.trace);
-    path.state = remaining_state(path.state.depth, &mut trace, remainder);
-    path.state.trace = trace;
+    path.state = remaining_state(path.state.depth, &mut path.trace, remainder);
     path.kind = kind;
+    path.rule = None;
     path
+}
+
+/// The state keys a path search has met, each numbered in the order it was first met: two keys
+/// have the same number exactly when they are equal.
+#[derive(Default)]
+struct StateKeyIds(rustc_hash::FxHashMap<(Pattern, bool), u32>);
+
+impl StateKeyIds {
+    fn id(&mut self, key: (Pattern, bool)) -> u32 {
+        let next = u32::try_from(self.0.len()).expect("a search meets fewer than 2^32 states");
+        *self.0.entry(key).or_insert(next)
+    }
+}
+
+/// The numbered state keys of one path's states. Paths that forked from one another share the
+/// set until one of them adds a key, which copies it for that path alone, so a fork costs a
+/// handle, a lookup and an addition to an unshared set are constant time, and a path's first
+/// addition after a fork copies its numbers once.
+#[derive(Clone, Default)]
+struct VisitedStates(Rc<rustc_hash::FxHashSet<u32>>);
+
+impl VisitedStates {
+    /// Adds `key` to the path's states; whether it was not among them.
+    fn insert(&mut self, key: u32) -> bool {
+        !self.0.contains(&key) && Rc::make_mut(&mut self.0).insert(key)
+    }
+}
+
+/// One path's transition identities, oldest first, as a persistent list whose nodes point at their
+/// predecessor: a fork clones a handle to the newest node, and an identity appended by one path
+/// is seen by that path only.
+#[derive(Clone, Default)]
+struct PathIds {
+    newest: Option<Rc<PathIdNode>>,
+    len: usize,
+}
+
+struct PathIdNode {
+    id: TransitionId,
+    parent: Option<Rc<PathIdNode>>,
+}
+
+impl PathIds {
+    fn push(&mut self, id: TransitionId) {
+        self.newest = Some(Rc::new(PathIdNode {
+            id,
+            parent: self.newest.take(),
+        }));
+        self.len += 1;
+    }
+
+    /// The path's identities, oldest first.
+    fn to_vec(&self) -> Vec<TransitionId> {
+        let mut ids = Vec::with_capacity(self.len);
+        let mut node = self.newest.as_deref();
+        while let Some(current) = node {
+            ids.push(current.id.clone());
+            node = current.parent.as_deref();
+        }
+        ids.reverse();
+        ids
+    }
+}
+
+impl Drop for PathIdNode {
+    /// Unlink a long unshared list iteratively rather than by recursive drops.
+    fn drop(&mut self) {
+        let mut parent = self.parent.take();
+        while let Some(node) = parent {
+            match Rc::try_unwrap(node) {
+                Ok(mut node) => parent = node.parent.take(),
+                Err(_) => break,
+            }
+        }
+    }
 }
 
 /// Search the selected execution states for instances of `target`.
@@ -2340,6 +2769,10 @@ fn search_pattern_using(
             incomplete: Vec::new(),
             end: remaining(initial.as_slice(), || false).result_bound(|unexplored| unexplored),
             initial_bottom: false,
+            implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
         };
     }
     let graph_options = SearchOptions {
@@ -2347,9 +2780,15 @@ fn search_pattern_using(
         ..options.clone()
     };
     let mut matches = Vec::new();
+    // For each match of `matches`, the indices in the graph's `states` of the results it holds
+    // the path of: its own, and those of the matches dropped as the same solution.
+    let mut held: Vec<Vec<usize>> = Vec::new();
     // The `RequestNames::solution_key` of every match in `matches`, over the names of the
-    // request: the initial patterns' and the target's.
-    let mut retained = HashSet::new();
+    // request: the initial patterns' and the target's, with its index there.
+    let mut retained = HashMap::new();
+    // The index in the graph's `states` of the next result offered: the collector sees each
+    // result as it is retained, once.
+    let mut next_result = 0;
     let request = {
         let mut names = RequestNames::of(&[target]);
         names.extend(&RequestNames::of(&initial.iter().collect::<Vec<_>>()));
@@ -2359,6 +2798,8 @@ fn search_pattern_using(
     let mut match_incomplete = Vec::new();
     let output_variables = pattern_variables(target);
     let mut collect_match = |state: &SearchState| {
+        let result_index = next_result;
+        next_result += 1;
         let (found, diagnostics) = match_search_result(
             definition,
             target,
@@ -2389,7 +2830,7 @@ fn search_pattern_using(
         // Each way the state matches is a solution of its own; the match's diagnostics concern
         // every one of them.
         found.into_iter().any(|found| {
-            retain_pattern_match(
+            let (bound_reached, index) = retain_pattern_match(
                 &mut matches,
                 &mut retained,
                 &request,
@@ -2400,20 +2841,41 @@ fn search_pattern_using(
                     diagnostics: diagnostics.clone(),
                 },
                 requested_bound,
-            )
+            );
+            if index == held.len() {
+                held.push(Vec::new());
+            }
+            if !held[index].contains(&result_index) {
+                held[index].push(result_index);
+            }
+            bound_reached
         })
     };
-    let graph = search_graph_collecting(
-        definition,
-        initial,
-        request.clone(),
-        graph_options,
-        solver,
-        observation,
-        |_| {},
-        &mut collect_match,
-    );
+    let (graph, facts) = crate::path_facts::run(|| {
+        search_graph_collecting(
+            definition,
+            initial,
+            request.clone(),
+            graph_options,
+            solver,
+            observation,
+            |_| {},
+            &mut collect_match,
+        )
+    });
+    // A result's path facts may grow after its match was taken: a duplicate dropped later for
+    // the state kept for it, or a later result dropped as its duplicate, gives the result its
+    // facts ([`KeptState`]). Each match takes those of every result it holds.
+    for (found, results) in matches.iter_mut().zip(&held) {
+        for &result in results {
+            union_path_facts(
+                &mut found.state.diagnostics,
+                &graph.states[result].diagnostics,
+            );
+        }
+    }
     let incomplete = merge_pattern_incomplete(graph.incomplete, match_incomplete);
+    let record = run_record(definition, &facts);
 
     PatternSearchResult {
         matches,
@@ -2421,6 +2883,10 @@ fn search_pattern_using(
         incomplete,
         end: graph.end,
         initial_bottom: graph.initial_bottom,
+        implementation_chosen_values: chosen_values(&facts),
+        contradicted_claims: record.contradicted_claims,
+        allowance_refusals: record.allowance_refusals,
+        unsupported_hooks: record.unsupported_hooks,
     }
 }
 
@@ -2503,6 +2969,10 @@ fn search_pattern_paths_using(
             end: remaining(std::slice::from_ref(&initial), || false)
                 .result_bound(Truncation::UnexploredWork),
             initial_bottom: false,
+            implementation_chosen_values: Vec::new(),
+            contradicted_claims: Vec::new(),
+            allowance_refusals: Vec::new(),
+            unsupported_hooks: Vec::new(),
         };
     }
     let graph_options = SearchOptions {
@@ -2553,16 +3023,19 @@ fn search_pattern_paths_using(
             requested_bound.is_some_and(|bound| matches.len() >= bound)
         })
     };
-    let graph = search_paths_collecting(
-        definition,
-        initial,
-        RequestNames::of(&[target]),
-        graph_options,
-        solver,
-        observation,
-        &mut collect_match,
-    );
+    let (graph, facts) = crate::path_facts::run(|| {
+        search_paths_collecting(
+            definition,
+            initial,
+            RequestNames::of(&[target]),
+            graph_options,
+            solver,
+            observation,
+            &mut collect_match,
+        )
+    });
     let incomplete = merge_pattern_incomplete(graph.incomplete, match_incomplete);
+    let record = run_record(definition, &facts);
 
     PatternPathSearchResult {
         matches,
@@ -2570,6 +3043,10 @@ fn search_pattern_paths_using(
         incomplete,
         end: graph.end,
         initial_bottom: graph.initial_bottom,
+        implementation_chosen_values: chosen_values(&facts),
+        contradicted_claims: record.contradicted_claims,
+        allowance_refusals: record.allowance_refusals,
+        unsupported_hooks: record.unsupported_hooks,
     }
 }
 
@@ -2587,7 +3064,7 @@ fn match_search_result(
     Stoppable<Result<Vec<PatternMatch>, PatternMatchError>>,
     Vec<BackendDiagnostic>,
 ) {
-    let (found, emitted) = diagnostic::collect(|| {
+    let (found, emitted) = crate::path_facts::collect_with_diagnostics(|| {
         match_pattern_with_variables(
             definition,
             target,
@@ -2702,6 +3179,14 @@ fn match_pattern_with_variables(
     ) {
         MatchResult::Success(substitution) => vec![substitution],
         MatchResult::Failed(_) => return Ok(Ok(Vec::new())),
+        // A question the matcher does not answer: the target may hold, so the match is
+        // undecided, never "no match".
+        MatchResult::Undecided(_) => {
+            return Ok(Err(PatternMatchError::Indeterminate {
+                substitution: Substitution::new(),
+                remainder: vec![(target.term.clone(), subject.term.clone())],
+            }));
+        }
         // The collection pairs the match deferred are solved for every way they hold; without
         // narrowing, the solver gives up instead of placing a pattern entry in an opaque part of
         // the subject, so the solutions it returns are every way there is.
@@ -3095,13 +3580,18 @@ fn state_may_expand(
     }
     // The public step does not read a variable-free state as one state, as search's own step
     // does; a step that halts there instead of narrowing is neither stuck, trivial nor vacuous.
-    match rewrite_step_with_options(
-        definition,
-        &state.pattern,
-        fresh_counter,
-        simplification_options(options),
-        solver,
-    ) {
+    // The values it reads decide the search's end, on no result's path: they are on the
+    // search's list only (`SearchResult::implementation_chosen_values`).
+    let (step, _facts) = crate::path_facts::collect(|| {
+        rewrite_step_with_options(
+            definition,
+            &state.pattern,
+            fresh_counter,
+            simplification_options(options),
+            solver,
+        )
+    });
+    match step {
         Ok(rewritten) => !matches!(
             rewritten,
             RewriteResult::Stuck(_) | RewriteResult::Trivial(_, _) | RewriteResult::Vacuous(_)
@@ -3751,6 +4241,64 @@ mod tests {
 
     fn initial(definition: &BackendDefinition) -> Pattern {
         pattern(definition, "initial{}()")
+    }
+
+    /// Two matches of one solution, found on two states: the second is dropped, and the match
+    /// kept for the solution carries the path facts of the dropped one's state (on its state's
+    /// path) and of its matching (on its own diagnostics), as a pattern search's retention keeps
+    /// them (`retention::retain_pattern_match`). In another model only the dropped one's state
+    /// may be reached, which reaches the solution through what it read.
+    #[test]
+    fn a_match_dropped_as_the_same_solution_gives_its_path_facts_to_the_kept_match() {
+        let definition = definition();
+        let fact = |hook: &str| BackendDiagnostic::ImplementationChosenValue {
+            hook: hook.to_owned(),
+            class: crate::builtin::ChosenClass::Order,
+        };
+        let found = |head: &str, path: Vec<BackendDiagnostic>, matching| SearchMatch {
+            substitution: Substitution::default(),
+            constraints: Vec::new(),
+            state: SearchState {
+                pattern: pattern(&definition, head),
+                depth: 1,
+                trace: Vec::new(),
+                branch: Vec::new(),
+                observations: Vec::new(),
+                diagnostics: path,
+            },
+            diagnostics: matching,
+        };
+        let mut matches = Vec::new();
+        let mut retained = HashMap::new();
+        let request = RequestNames::default();
+        assert_eq!(
+            retain_pattern_match(
+                &mut matches,
+                &mut retained,
+                &request,
+                found("next1{}()", Vec::new(), Vec::new()),
+                None,
+            ),
+            (false, 0)
+        );
+        assert_eq!(
+            retain_pattern_match(
+                &mut matches,
+                &mut retained,
+                &request,
+                found(
+                    "next2{}()",
+                    vec![fact("MAP.keys_list")],
+                    vec![fact("MAP.values")]
+                ),
+                None,
+            ),
+            (false, 0)
+        );
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].state.pattern, pattern(&definition, "next1{}()"));
+        assert_eq!(matches[0].state.diagnostics, [fact("MAP.keys_list")]);
+        assert_eq!(matches[0].diagnostics, [fact("MAP.values")]);
     }
 
     #[test]
@@ -4481,6 +5029,40 @@ mod tests {
         assert!(result.incomplete.is_empty());
     }
 
+    /// Paths that forked share their earlier trace and transition identities: each witness still
+    /// lists exactly the steps of its own path, in order, in both.
+    #[test]
+    fn forked_witnesses_list_their_own_steps_in_trace_and_id() {
+        let definition = diamond_definition(true);
+        let result = search_paths(
+            &definition,
+            initial(&definition),
+            SearchOptions {
+                search_type: SearchType::Star,
+                ..SearchOptions::default()
+            },
+        );
+        assert_eq!(result.witnesses.len(), 5);
+        for witness in &result.witnesses {
+            let steps = witness
+                .trace
+                .iter()
+                .filter_map(|entry| match entry.kind {
+                    TraceKind::Rewrite => Some(entry.unique_id.clone()),
+                    TraceKind::Remainder => Some(format!("remainder:{}", entry.unique_id)),
+                    TraceKind::Simplification | TraceKind::Claim => None,
+                })
+                .collect::<Vec<_>>();
+            let ids = witness
+                .id
+                .iter()
+                .map(|id| id.rule.clone())
+                .collect::<Vec<_>>();
+            assert_eq!(ids, steps, "{witness:?}");
+            assert_eq!(ids.len(), usize::try_from(witness.depth).unwrap());
+        }
+    }
+
     #[test]
     fn result_bound_truncates_witnesses_and_reports_incompleteness() {
         let definition = diamond_definition(false);
@@ -4907,6 +5489,8 @@ mod tests {
             observation: None,
             diagnostics: PathDiagnostics::new_request(),
             kind: QueuedStateKind::Rewritable,
+            rule: None,
+            parent: None,
         };
         let mut frontier = SearchFrontier::with_capacity(4);
         for depth in [1, 2, 1, 2] {
@@ -4922,7 +5506,7 @@ mod tests {
         assert_eq!(popped(&mut frontier), (2, 2));
         assert!(frontier.pop_front().is_err());
 
-        let mut expanded = BTreeMap::<u64, HashSet<(Pattern, bool)>>::new();
+        let mut expanded = BTreeMap::<u64, std::collections::HashSet<(Pattern, bool)>>::new();
         for depth in [1, 2, 3] {
             expanded.entry(depth).or_default();
         }
@@ -5782,16 +6366,12 @@ mod tests {
     #[test]
     fn projects_solved_path_equalities_onto_search_variables() {
         let sort = Sort::simple("SortS");
-        let result_variable = Variable::new("Result", sort.clone());
-        let configuration_variable = Variable::new("Configuration", sort.clone());
-        let left = Variable::new("Left", sort.clone());
-        let right = Variable::new("Right", sort.clone());
+        let result_variable = Variable::new("Result", sort);
+        let configuration_variable = Variable::new("Configuration", sort);
+        let left = Variable::new("Left", sort);
+        let right = Variable::new("Right", sort);
         let value = Term::application(
-            Arc::new(Symbol::constructor(
-                "arrow",
-                vec![sort.clone(), sort.clone()],
-                sort,
-            )),
+            Arc::new(Symbol::constructor("arrow", vec![sort, sort], sort)),
             Vec::new(),
             vec![Term::variable(left), Term::variable(right)],
         );
@@ -6073,7 +6653,7 @@ mod tests {
     /// another) and the target `pair(A, B)`, which has no constraints.
     fn unsaturated_partial_subject(definition: &BackendDefinition) -> (Pattern, Pattern) {
         let int = Sort::simple("SortInt");
-        let variable = |name: &str| Term::variable(Variable::new(name, int.clone()));
+        let variable = |name: &str| Term::variable(Variable::new(name, int));
         let subject = Pattern {
             term: pattern(definition, r#"pair{}(X:SortInt{}, Y:SortInt{})"#).term,
             constraints: vec![
@@ -6102,8 +6682,8 @@ mod tests {
         let int = Sort::simple("SortInt");
         let expected = Substitution::from([
             (
-                Variable::new("A", int.clone()),
-                Term::variable(Variable::new("X", int.clone())),
+                Variable::new("A", int),
+                Term::variable(Variable::new("X", int)),
             ),
             (
                 Variable::new("B", int),
@@ -6165,7 +6745,7 @@ mod tests {
     ) -> (Pattern, Pattern) {
         let int = Sort::simple("SortInt");
         let mut constraints = vec![Predicate::Equals(
-            Term::variable(Variable::new("A", int.clone())),
+            Term::variable(Variable::new("A", int)),
             pattern(definition, r#"\dv{SortInt{}}("0")"#).term,
         )];
         if ceil_second {
@@ -6362,8 +6942,8 @@ mod tests {
         let int = Sort::simple("SortInt");
         let expected = Substitution::from([
             (
-                Variable::new("A", int.clone()),
-                Term::variable(Variable::new("X", int.clone())),
+                Variable::new("A", int),
+                Term::variable(Variable::new("X", int)),
             ),
             (
                 Variable::new("B", int),
@@ -6407,7 +6987,7 @@ mod tests {
         let int = Sort::simple("SortInt");
         let expected = Substitution::from([
             (
-                Variable::new("A", int.clone()),
+                Variable::new("A", int),
                 pattern(&definition, r#"\dv{SortInt{}}("1")"#).term,
             ),
             (

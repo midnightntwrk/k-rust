@@ -1,0 +1,32 @@
+[package]
+name = "kink-corpus"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# kink's lints, written per crate as k-rust's own crates do (the workspace table is KRS's).
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+[dependencies]
+k-rust = { path = "../../../crates/k-rust", default-features = false }
+kink-native.workspace = true
+kink-patch.workspace = true
+kink-campaign.workspace = true
+kink-pattern.workspace = true
+serde_json.workspace = true
+
+[features]
+default = ["z3"]
+z3 = ["kink-campaign/z3"]
+
+[[bin]]
+name = "kink-corpus"
+path = "src/main.rs"

@@ -10,13 +10,16 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use krs_ir::{
-    BuiltinOperation, BuiltinSort, Descriptor, DescriptorApplicationRef, DescriptorBundle,
-    DescriptorHeadRule, DescriptorIndex, DescriptorPayload, DescriptorTerm,
-    ENUM_VARIANT_DISAMBIGUATOR_PREFIX, FacadeMarker, OriginFrame, PackageId, ProtocolHeadRuleExtra,
-    ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, Sha256Digest, SourceFileId,
-    StableItemId,
+    ApplicationRef, BuiltinOperation, BuiltinOperator, BuiltinSort, Descriptor,
+    DescriptorApplicationRef, DescriptorApplicationReference, DescriptorBundle, DescriptorHeadRule,
+    DescriptorIndex, DescriptorPayload, DescriptorStage, DescriptorTerm,
+    ENUM_VARIANT_DISAMBIGUATOR_PREFIX, FacadeMarker, ListNotation, OriginFrame, PackageId,
+    ProtocolHeadRuleExtra, ProtocolHeadRuleResult, ProvenanceRole, RangedOriginKind, RefMap,
+    Sha256Digest, SourceFileId, SourceMapKey, StableItemId, Stage,
 };
-use krs_ir_levels::{SemanticRule, SemanticSortRef, SemanticTheory};
+use krs_ir_levels::{
+    IrTermKind, RuleBodyRef, SemanticRule, SemanticSortRef, SemanticTerm, SemanticTheory,
+};
 use krs_syntax::surface::{self, FacadeScope, FunctionMacro, InvocationKind, Scope};
 use proc_macro2::{Ident, Span, TokenStream, TokenTree};
 use quote::{ToTokens, format_ident, quote};
@@ -204,14 +207,53 @@ pub fn expand_reference_source(
     let mut needs_map_macro = false;
     let mut items = Vec::new();
     for (index, mut item) in std::mem::take(&mut file.items).into_iter().enumerate() {
+        if let Some(long_form) = materialize_function_shorthand(&item)? {
+            for mut long_item in long_form {
+                if let syn::Item::Fn(item_fn) = &mut long_item
+                    && requires_holds_equality(item_fn)
+                {
+                    restate_requires(
+                        item_fn,
+                        package,
+                        module_path,
+                        bundle,
+                        &descriptor_index,
+                        &semantic_rules,
+                    )?;
+                }
+                items.push(long_item);
+            }
+            continue;
+        }
         if let syn::Item::Use(item_use) = &mut item {
             item_use
                 .attrs
                 .push(syn::parse_quote!(#[allow(unused_imports)]));
         }
+        // A rule or equation fn whose subject holds `k::bits!` templates
+        // is written as its long form, its condition restated from the
+        // descriptor as a table row's is.
+        // So is a fn whose `requires` holds `==`, which the printer would
+        // not write back as Rust (see [`requires_holds_equality`]).
+        if let syn::Item::Fn(item_fn) = &mut item
+            && (krs_syntax::desugar_bit_templates(item_fn)
+                .map_err(ReferenceExpansionError::KrsSyntax)?
+                .is_some()
+                || requires_holds_equality(item_fn))
+        {
+            restate_requires(
+                item_fn,
+                package,
+                module_path,
+                bundle,
+                &descriptor_index,
+                &semantic_rules,
+            )?;
+        }
         if let syn::Item::Struct(item_struct) = &mut item {
             materialize_configuration_wrappers(item_struct)?;
             materialize_constructor_flags(item_struct);
+            materialize_function_syntax(item_struct)?;
         }
         let trailing_enum_grammar = if let syn::Item::Enum(item_enum) = &mut item {
             materialize_syntax_list(item_enum, package, module_path, bundle, &descriptor_index)?;
@@ -241,13 +283,68 @@ pub fn expand_reference_source(
             items.extend(materialize_readable_sorts(invocation)?);
             continue;
         }
-        if entry != Some(&FunctionMacro::Rules) {
-            items.push(item);
-            items.extend(trailing_enum_grammar);
+        if entry == Some(&FunctionMacro::Equations) {
+            let table = krs_syntax::EquationTable::parse_tokens(invocation.mac.tokens.clone())
+                .map_err(ReferenceExpansionError::KrsSyntax)?;
+            for row in table.rows() {
+                let name = row.label().unraw().to_string();
+                if !rendered_names.insert(name.clone()) {
+                    return Err(ReferenceExpansionError::DuplicateRule(name));
+                }
+                let descriptors = descriptor_index
+                    .values()
+                    .filter_map(|descriptor| match descriptor.payload() {
+                        krs_ir::DescriptorPayload::StructuredRule(rule)
+                            if descriptor.id().package() == package
+                                && descriptor.id().module_path() == module_path
+                                && descriptor.id().item_name() == name
+                                && descriptor.id().item_kind() == krs_ir::ItemKind::Equation =>
+                        {
+                            Some((descriptor, rule.as_ref()))
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                let [(descriptor, rule)] = descriptors.as_slice() else {
+                    return Err(ReferenceExpansionError::RuleCoverage {
+                        name,
+                        found: descriptors.len(),
+                    });
+                };
+                let semantic_rule = semantic_rules.get(descriptor.id()).ok_or_else(|| {
+                    ReferenceExpansionError::MissingSemanticRule(Box::new(descriptor.id().clone()))
+                })?;
+                // A record update is written in full, as its fields (F5).
+                let rule = crate::semantic::structured_rule_long_form(descriptor, rule, bundle)
+                    .map_err(|error| ReferenceExpansionError::Lowering(Box::new(error)))?
+                    .try_map_refs(&mut OperatorCalls::new(descriptor, semantic_rule))?;
+                items.push(syn::Item::Fn(render_equation_row(
+                    row, &rule, package, bundle,
+                )?));
+            }
             continue;
         }
-        let block = krs_syntax::RuleBlock::parse_tokens(invocation.mac.tokens.clone())
-            .map_err(ReferenceExpansionError::KrsSyntax)?;
+        // A claim block's clauses are readable records too, whose
+        // descriptors are claims (F7).
+        let (block, kind) = match entry {
+            Some(FunctionMacro::Rules) => (
+                krs_syntax::RuleBlock::parse_tokens(invocation.mac.tokens.clone())
+                    .map_err(ReferenceExpansionError::KrsSyntax)?,
+                krs_ir::ItemKind::Rule,
+            ),
+            Some(FunctionMacro::Claims) => (
+                krs_syntax::ClaimBlock::parse_tokens(invocation.mac.tokens.clone())
+                    .map_err(ReferenceExpansionError::KrsSyntax)?
+                    .block()
+                    .clone(),
+                krs_ir::ItemKind::Claim,
+            ),
+            _ => {
+                items.push(item);
+                items.extend(trailing_enum_grammar);
+                continue;
+            }
+        };
         for clause in block.clauses() {
             let name = clause.rule().item().sig.ident.unraw().to_string();
             if !rendered_names.insert(name.clone()) {
@@ -259,6 +356,7 @@ pub fn expand_reference_source(
                     descriptor.id().package() == package
                         && descriptor.id().module_path() == module_path
                         && descriptor.id().item_name() == name
+                        && descriptor.id().item_kind() == kind
                 })
                 .collect::<Vec<_>>();
             let [(descriptor, rule)] = descriptors.as_slice() else {
@@ -271,9 +369,13 @@ pub fn expand_reference_source(
             let semantic_rule = semantic_rules.get(descriptor.id()).ok_or_else(|| {
                 ReferenceExpansionError::MissingSemanticRule(Box::new(descriptor.id().clone()))
             })?;
+            // A record update is written in full, as its fields (F5).
+            let rule = crate::semantic::head_rule_long_form(descriptor, rule, bundle)
+                .map_err(|error| ReferenceExpansionError::Lowering(Box::new(error)))?
+                .try_map_refs(&mut OperatorCalls::new(descriptor, semantic_rule))?;
             items.push(syn::Item::Fn(render_rule(
                 clause,
-                rule,
+                &rule,
                 semantic_rule,
                 package,
                 bundle,
@@ -297,11 +399,141 @@ pub fn expand_reference_source(
             items.insert(insertion, syn::Item::Use(map_use));
         }
     }
+    for item in &mut items {
+        rename_hidden_binders(item)?;
+    }
     file.items = items;
     let mut output =
         String::from("// @generated by `krs expand`; deterministic layer-2 reference surface.\n\n");
-    output.push_str(&prettyplease::unparse(&file));
+    output.push_str(&unparse_keeping_attribute_operators(file));
     Ok(output)
+}
+
+/// `file` printed by prettyplease, with each attribute argument that holds
+/// a comparison or a connective printed as the Rust expression it is.
+///
+/// prettyplease prints a list attribute's arguments token by token, with a
+/// space after every `=` and none before an operator, so
+/// `#[k::ensures(m == n + 1)]` would come out as `m = = n + 1`, which no
+/// longer parses, and `a != b && c <= d` as `a!= b&&c<= d`. Such an
+/// attribute's arguments are replaced by a placeholder before printing, and
+/// the placeholder by the arguments printed as expressions after it.
+fn unparse_keeping_attribute_operators(mut file: syn::File) -> String {
+    let mut arguments = Vec::new();
+    for item in &mut file.items {
+        let tokens = protect_attribute_operators(item.to_token_stream(), &mut arguments);
+        if let Ok(protected) = syn::parse2(tokens) {
+            *item = protected;
+        }
+    }
+    let mut output = prettyplease::unparse(&file);
+    for (index, text) in arguments.iter().enumerate().rev() {
+        output = output.replace(&format!("{ATTRIBUTE_PLACEHOLDER}{index}"), text);
+    }
+    output
+}
+
+/// The identifier that stands for one attribute's arguments while
+/// prettyplease prints the file, followed by the arguments' index.
+const ATTRIBUTE_PLACEHOLDER: &str = "__krs_attribute_arguments_";
+
+/// `tokens` with the arguments of each attribute `#[path(args)]` whose
+/// arguments hold `==`, `!=`, `<=`, `>=`, `=>`, `&&`, or `||` and are
+/// expressions replaced by a placeholder; `arguments` receives their printed
+/// text, in placeholder order.
+fn protect_attribute_operators(tokens: TokenStream, arguments: &mut Vec<String>) -> TokenStream {
+    fn holds_operator(tokens: &TokenStream) -> bool {
+        let mut joint = None;
+        for tree in tokens.clone() {
+            match tree {
+                TokenTree::Punct(punct) => {
+                    let pair = joint.map(|first| [first, punct.as_char()]);
+                    if matches!(
+                        pair,
+                        Some(['=' | '!' | '<' | '>', '='] | ['=', '>'] | ['&', '&'] | ['|', '|'])
+                    ) {
+                        return true;
+                    }
+                    joint =
+                        (punct.spacing() == proc_macro2::Spacing::Joint).then(|| punct.as_char());
+                }
+                TokenTree::Group(group) => {
+                    if holds_operator(&group.stream()) {
+                        return true;
+                    }
+                    joint = None;
+                }
+                _ => joint = None,
+            }
+        }
+        false
+    }
+    fn printed(tokens: TokenStream) -> Option<String> {
+        use syn::parse::Parser;
+        let expressions =
+            syn::punctuated::Punctuated::<syn::Expr, syn::Token![,]>::parse_terminated
+                .parse2(tokens)
+                .ok()?;
+        let printed = expressions
+            .iter()
+            .map(|expression| {
+                let text = prettyplease::unparse(&syn::parse_quote!(const _: () = #expression;));
+                text.trim_end()
+                    .strip_prefix("const _: () = ")
+                    .and_then(|text| text.strip_suffix(';'))
+                    .map(str::to_owned)
+            })
+            .collect::<Option<Vec<_>>>()?;
+        Some(printed.join(", "))
+    }
+    let mut output = Vec::new();
+    let mut trees = tokens.into_iter().peekable();
+    while let Some(tree) = trees.next() {
+        match tree {
+            TokenTree::Punct(punct) if punct.as_char() == '#' => {
+                output.push(TokenTree::Punct(punct));
+                let Some(TokenTree::Group(attribute)) = trees.peek().cloned() else {
+                    continue;
+                };
+                if attribute.delimiter() != proc_macro2::Delimiter::Bracket {
+                    continue;
+                }
+                trees.next();
+                let mut inner = attribute.stream().into_iter().collect::<Vec<_>>();
+                if let Some(TokenTree::Group(list)) = inner.last()
+                    && list.delimiter() == proc_macro2::Delimiter::Parenthesis
+                    && holds_operator(&list.stream())
+                    && let Some(text) = printed(list.stream())
+                {
+                    let placeholder = format_ident!("{ATTRIBUTE_PLACEHOLDER}{}", arguments.len());
+                    arguments.push(text);
+                    let mut group = proc_macro2::Group::new(
+                        proc_macro2::Delimiter::Parenthesis,
+                        quote!(#placeholder),
+                    );
+                    group.set_span(list.span());
+                    *inner.last_mut().expect("the list was matched above") =
+                        TokenTree::Group(group);
+                }
+                let mut group = proc_macro2::Group::new(
+                    proc_macro2::Delimiter::Bracket,
+                    inner.into_iter().collect(),
+                );
+                group.set_span(attribute.span());
+                output.push(TokenTree::Group(group));
+            }
+            TokenTree::Group(group) => {
+                let mut protected = proc_macro2::Group::new(
+                    group.delimiter(),
+                    protect_attribute_operators(group.stream(), arguments),
+                );
+                protected.set_span(group.span());
+                output.push(TokenTree::Group(protected));
+            }
+            other => output.push(other),
+        }
+    }
+    output.into_iter().collect()
 }
 
 fn reference_macro_entries(
@@ -367,18 +599,17 @@ fn materialize_enum_productions(
         let Some(syntax) = variant.syntax() else {
             continue;
         };
-        let group_ordinal = variant.precedence_group().ok_or_else(|| {
-            ReferenceExpansionError::GeneratedRust(syn::Error::new(
-                output_variant.ident.span(),
-                "readable enum variant has no checked precedence group",
-            ))
-        })?;
-        let group = declaration
-            .precedence_groups()
-            .nth(group_ordinal)
-            .expect("enum precedence ordinal identifies a parsed group")
-            .emitted_name(declaration.enum_name(), group_ordinal);
-        let group = syn::LitStr::new(&group, Span::call_site());
+        // A family without a chain has no groups, and its reference form
+        // names none.
+        let group = variant.precedence_group().map(|group_ordinal| {
+            let group = declaration
+                .precedence_groups()
+                .nth(group_ordinal)
+                .expect("enum precedence ordinal identifies a parsed group")
+                .emitted_name(declaration.enum_name(), group_ordinal);
+            let group = syn::LitStr::new(&group, Span::call_site());
+            quote!(group = #group,)
+        });
         let template = syntax.syntax();
         let format = syntax.format().ok_or_else(|| {
             ReferenceExpansionError::GeneratedRust(syn::Error::new(
@@ -400,7 +631,7 @@ fn materialize_enum_productions(
             .map(|colors| quote!(colors = [#(#colors),*],));
         let materialized: syn::Attribute = syn::parse_quote!(#[k::syntax(
             #template,
-            group = #group,
+            #group
             #avoid
             #prefer
             #placement
@@ -492,6 +723,166 @@ fn materialize_syntax_list(
 /// Writes the reference spelling `internal = true` / `program = true` for a
 /// bare placement flag in `#[k::constructor(..)]`; `#[k::function]` keeps its
 /// bare flags in both layers (decision X2).
+/// The `#[k::function(..)]` attribute of an item, by its last path segment.
+fn function_attribute_index(attributes: &[syn::Attribute]) -> Option<usize> {
+    attributes.iter().position(|attribute| {
+        attribute.path().segments.len() >= 2 && attribute_is(attribute, "function")
+    })
+}
+
+/// The attribute `#[prefix::name(tokens)]` beside `template`'s path.
+fn sibling_attribute(
+    template: &syn::Attribute,
+    name: &str,
+    tokens: &TokenStream,
+) -> syn::Attribute {
+    let mut path = template.path().clone();
+    if let Some(last) = path.segments.last_mut() {
+        last.ident = Ident::new(name, Span::call_site());
+    }
+    if tokens.is_empty() {
+        syn::parse_quote!(#[#path])
+    } else {
+        syn::parse_quote!(#[#path(#tokens)])
+    }
+}
+
+/// Writes the default syntax of a function struct that omits `syntax`, so
+/// the reference surface states every key.
+fn materialize_function_syntax(item: &mut syn::ItemStruct) -> Result<(), ReferenceExpansionError> {
+    let Some(index) = function_attribute_index(&item.attrs) else {
+        return Ok(());
+    };
+    let syn::Meta::List(list) = &item.attrs[index].meta else {
+        return Ok(());
+    };
+    let mut attribute = krs_syntax::FunctionAttribute::parse_tokens(list.tokens.clone())
+        .map_err(ReferenceExpansionError::KrsSyntax)?;
+    if attribute.has_authored_syntax() {
+        return Ok(());
+    }
+    let declaration = krs_syntax::ConstructorDeclaration::from_item(item.clone())
+        .map_err(ReferenceExpansionError::KrsSyntax)?;
+    attribute
+        .complete_default_syntax(&declaration)
+        .map_err(ReferenceExpansionError::KrsSyntax)?;
+    let syntax = attribute.production().syntax.clone();
+    let mut tokens = list.tokens.clone();
+    tokens.extend(quote!(, syntax = #syntax));
+    item.attrs[index] = sibling_attribute(&item.attrs[index], "function", &tokens);
+    Ok(())
+}
+
+/// The long form of `#[k::function(..)]` on a `fn`: the struct with its
+/// sort and syntax stated, and the `#[k::equation]` its body defines.
+fn materialize_function_shorthand(
+    item: &syn::Item,
+) -> Result<Option<Vec<syn::Item>>, ReferenceExpansionError> {
+    let Some(mut shorthand) = krs_syntax::ShorthandItem::from_item(item) else {
+        return Ok(None);
+    };
+    let Some(index) = function_attribute_index(&shorthand.attrs) else {
+        return Ok(None);
+    };
+    let function = shorthand.attrs.remove(index);
+    let tokens = match &function.meta {
+        syn::Meta::List(list) => list.tokens.clone(),
+        _ => TokenStream::new(),
+    };
+    let lowered = krs_syntax::FunctionShorthand::lower(tokens.clone(), shorthand)
+        .map_err(ReferenceExpansionError::KrsSyntax)?;
+    let production = lowered.attribute().production();
+    let sort = lowered.sort_type();
+    let mut keys = tokens;
+    keys.extend(quote!(, sort = #sort));
+    if !lowered.attribute().has_authored_syntax() {
+        let syntax = &production.syntax;
+        keys.extend(quote!(, syntax = #syntax));
+    }
+    let mut structure = lowered.structure().clone();
+    structure
+        .attrs
+        .push(sibling_attribute(&function, "function", &keys));
+    let mut items = vec![syn::Item::Struct(structure)];
+    for equation in lowered.equations() {
+        let mut item = equation.item().clone();
+        // A branch's guard tests a term with `k::matches!`; write it with the
+        // author's facade path.
+        for attribute in &mut item.attrs {
+            if let syn::Meta::List(list) = &mut attribute.meta {
+                list.tokens = with_facade_matches(list.tokens.clone(), function.path());
+                // The guard the lowering writes for an unguarded fn names
+                // `k::requires`; write it with the facade path too.
+                let synthesized = list.path.segments.len() == 2
+                    && list.path.segments[0].ident == "k"
+                    && list.path.segments[1].ident == "requires";
+                if synthesized {
+                    *attribute = sibling_attribute(&function, "requires", &list.tokens);
+                }
+            }
+        }
+        let keys = equation.equation_keys();
+        item.attrs
+            .insert(0, sibling_attribute(&function, "equation", &keys));
+        // The subject reads as a hand-written equation's, `k::term![F(x)]`.
+        let mut term_path = function.path().clone();
+        if let Some(last) = term_path.segments.last_mut() {
+            last.ident = Ident::new("term", Span::call_site());
+        }
+        if let Some(syn::FnArg::Typed(subject)) = item.sig.inputs.first_mut() {
+            let pattern = &subject.pat;
+            *subject.pat = syn::parse_quote!(#term_path![#pattern]);
+        }
+        items.push(syn::Item::Fn(item));
+    }
+    Ok(Some(items))
+}
+
+/// Rewrites `k::matches!` in `tokens` to the facade path of `template`, an
+/// attribute path such as `facade::function`.
+fn with_facade_matches(tokens: TokenStream, template: &syn::Path) -> TokenStream {
+    let facade = template
+        .segments
+        .iter()
+        .take(template.segments.len().saturating_sub(1))
+        .map(|segment| segment.ident.clone())
+        .collect::<Vec<_>>();
+    let tokens = tokens.into_iter().collect::<Vec<_>>();
+    let mut output = TokenStream::new();
+    let mut index = 0;
+    while index < tokens.len() {
+        let is_matches = matches!(
+            &tokens[index..],
+            [
+                proc_macro2::TokenTree::Ident(k),
+                proc_macro2::TokenTree::Punct(first),
+                proc_macro2::TokenTree::Punct(second),
+                proc_macro2::TokenTree::Ident(name),
+                proc_macro2::TokenTree::Punct(bang),
+                ..
+            ] if k == "k" && first.as_char() == ':' && second.as_char() == ':' && name == "matches" && bang.as_char() == '!'
+        );
+        if is_matches && !facade.is_empty() {
+            output.extend(quote!(#(#facade::)*matches!));
+            index += 5;
+            continue;
+        }
+        match &tokens[index] {
+            proc_macro2::TokenTree::Group(group) => {
+                let mut inner = proc_macro2::Group::new(
+                    group.delimiter(),
+                    with_facade_matches(group.stream(), template),
+                );
+                inner.set_span(group.span());
+                output.extend([proc_macro2::TokenTree::Group(inner)]);
+            }
+            other => output.extend([other.clone()]),
+        }
+        index += 1;
+    }
+    output
+}
+
 fn materialize_constructor_flags(item: &mut syn::ItemStruct) {
     for attribute in &mut item.attrs {
         if !attribute_is(attribute, "constructor") {
@@ -597,13 +988,19 @@ fn materialize_reference_variant_fields(
                         field: name.to_string(),
                     }
                 })?;
-                field.ty = syn::parse2(render_reference_term_type(
-                    sort,
-                    package,
-                    module_path,
-                    bundle,
-                )?)
-                .map_err(ReferenceExpansionError::GeneratedRust)?;
+                let ty = if descriptor_field.arguments.is_empty() {
+                    render_reference_term_type(sort, package, module_path, bundle)?
+                } else {
+                    let sort = render_reference_collection(
+                        sort,
+                        &descriptor_field.arguments,
+                        package,
+                        module_path,
+                        bundle,
+                    )?;
+                    quote!(k::Term<#sort>)
+                };
+                field.ty = syn::parse2(ty).map_err(ReferenceExpansionError::GeneratedRust)?;
             }
         }
         syn::Fields::Unnamed(fields) if fields.unnamed.is_empty() => {
@@ -636,6 +1033,38 @@ fn materialize_reference_variant_fields(
         }
     }
     Ok(())
+}
+
+/// A typed collection sort with its element types, `k::builtin::Set<..>`:
+/// a builtin argument by its marker, a nested collection likewise, and any
+/// other sort as the `k::Term<..>` a field of that sort has.
+fn render_reference_collection(
+    sort: &krs_ir::DescriptorSortRef,
+    arguments: &[krs_ir::ConstructorSortArgumentDescriptor],
+    package: &PackageId,
+    module_path: &[String],
+    bundle: &krs_ir::DescriptorBundle,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    let krs_ir::DescriptorSortRef::Builtin(builtin) = sort else {
+        return render_reference_term_type(sort, package, module_path, bundle);
+    };
+    let marker = render_builtin_sort(*builtin);
+    if arguments.is_empty() {
+        return Ok(marker);
+    }
+    let arguments = arguments
+        .iter()
+        .map(|argument| {
+            render_reference_collection(
+                &argument.sort.sort,
+                &argument.arguments,
+                package,
+                module_path,
+                bundle,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(quote!(#marker<#(#arguments),*>))
 }
 
 fn render_reference_term_type(
@@ -700,6 +1129,224 @@ fn is_group_cell(cell: &krs_ir::DescriptorCellIdentity, bundle: &krs_ir::Descrip
             field.rust_field == cell.field
                 && matches!(field.content, krs_ir::ProtocolCellContent::Nested { .. })
         })
+    })
+}
+
+/// Whether `cell` is a fixed optional (`?`) cell, whose `cells!` entry is `Some(..)` or `None`.
+fn is_optional_cell(
+    cell: &krs_ir::DescriptorCellIdentity,
+    bundle: &krs_ir::DescriptorBundle,
+) -> bool {
+    bundle.descriptors().iter().any(|descriptor| {
+        if descriptor.id() != &cell.owner {
+            return false;
+        }
+        let declaration = match descriptor.payload() {
+            DescriptorPayload::Cell(declaration) => declaration.as_ref(),
+            DescriptorPayload::FixedConfiguration(configuration) => &configuration.declaration,
+            _ => return false,
+        };
+        declaration.fields.iter().any(|field| {
+            field.rust_field == cell.field
+                && field
+                    .multiplicity
+                    .as_ref()
+                    .is_some_and(|multiplicity| multiplicity.value == "?")
+        })
+    })
+}
+
+/// The constructors of the cons list a list cell holds (F6).
+struct CellConsList {
+    sort: StableItemId,
+    cons: StableItemId,
+    empty: StableItemId,
+}
+
+/// The cons list the leaf cell `cell` holds, when its sort is one.
+fn cell_cons_list(
+    cell: &krs_ir::DescriptorCellIdentity,
+    bundle: &krs_ir::DescriptorBundle,
+) -> Option<CellConsList> {
+    let sort = bundle.descriptors().iter().find_map(|descriptor| {
+        if descriptor.id() != &cell.owner {
+            return None;
+        }
+        let declaration = match descriptor.payload() {
+            DescriptorPayload::Cell(declaration) => declaration.as_ref(),
+            DescriptorPayload::FixedConfiguration(configuration) => &configuration.declaration,
+            _ => return None,
+        };
+        declaration
+            .fields
+            .iter()
+            .find_map(|field| match &field.content {
+                krs_ir::ProtocolCellContent::Leaf { sort, .. }
+                    if field.rust_field == cell.field =>
+                {
+                    match &sort.sort {
+                        krs_ir::DescriptorSortRef::Declared(id) => Some(id.clone()),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })
+    })?;
+    bundle.descriptors().iter().find_map(|descriptor| {
+        let DescriptorPayload::Grammar(grammar) = descriptor.payload() else {
+            return None;
+        };
+        let krs_ir::GrammarDescriptor::Production(production) = grammar.as_ref() else {
+            return None;
+        };
+        if production.result_sort.sort != krs_ir::DescriptorSortRef::Declared(sort.clone()) {
+            return None;
+        }
+        let empty = production
+            .attributes
+            .iter()
+            .find_map(|attribute| match attribute {
+                krs_ir::DescriptorProductionAttribute::ListCons {
+                    terminator: empty, ..
+                }
+                | krs_ir::DescriptorProductionAttribute::ConsList { empty, .. } => {
+                    match &empty.application {
+                        DescriptorApplicationRef::Declared(id) => Some(id.clone()),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            })?;
+        let krs_ir::DescriptorProductionOwner::Constructor { constructor } = &production.owner
+        else {
+            return None;
+        };
+        let DescriptorApplicationRef::Declared(cons) = &constructor.application else {
+            return None;
+        };
+        Some(CellConsList {
+            sort: sort.clone(),
+            cons: cons.clone(),
+            empty,
+        })
+    })
+}
+
+/// Renders one side of a list cell as the constructor term it denotes:
+/// `Cons(a, Cons(b, rest))`.
+fn render_list(
+    list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
+    constructors: &CellConsList,
+    shared: Option<&Ident>,
+    pattern: bool,
+    package: &PackageId,
+    bundle: &krs_ir::DescriptorBundle,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    let mut rendered = match &list.rest {
+        krs_ir::ProtocolHeadRuleListRest::Exact => {
+            let empty = render_declared_application(&constructors.empty, package)?;
+            quote!(#empty())
+        }
+        krs_ir::ProtocolHeadRuleListRest::Shared => {
+            let rest = shared.ok_or(ReferenceExpansionError::UnresolvedListNotation)?;
+            quote!(#rest)
+        }
+        krs_ir::ProtocolHeadRuleListRest::Term(rest) => {
+            render_term(rest, pattern, package, bundle)?
+        }
+    };
+    let cons = render_declared_application(&constructors.cons, package)?;
+    for item in list.items.iter().rev() {
+        let item = render_term(item, pattern, package, bundle)?;
+        rendered = quote!(#cons(#item, #rendered));
+    }
+    Ok(rendered)
+}
+
+/// Renders one side of a builtin `List` cell as the term its brackets
+/// denote: `list::concat(list::item(a), rest)`, nested as
+/// [`render_builtin_list_level`] nests a term's brackets.
+fn render_builtin_list(
+    list: &krs_ir::ProtocolHeadRuleList<DescriptorTerm>,
+    shared: Option<&Ident>,
+    pattern: bool,
+    package: &PackageId,
+    bundle: &krs_ir::DescriptorBundle,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    let item = render_facade_marker(krs_ir::ListOperation::Item.facade_marker());
+    let concat = render_facade_marker(krs_ir::ListOperation::Concat.facade_marker());
+    let mut rendered = match &list.rest {
+        krs_ir::ProtocolHeadRuleListRest::Exact => None,
+        krs_ir::ProtocolHeadRuleListRest::Shared => {
+            let rest = shared.ok_or(ReferenceExpansionError::UnresolvedListNotation)?;
+            Some(quote!(#rest))
+        }
+        krs_ir::ProtocolHeadRuleListRest::Term(rest) => {
+            Some(render_term(rest, pattern, package, bundle)?)
+        }
+    };
+    for element in &list.back {
+        let element = render_term(element, pattern, package, bundle)?;
+        rendered = Some(rendered.map_or_else(
+            || quote!(#item(#element)),
+            |init| quote!(#concat(#init, #item(#element))),
+        ));
+    }
+    for element in list.items.iter().rev() {
+        let element = render_term(element, pattern, package, bundle)?;
+        rendered = Some(rendered.map_or_else(
+            || quote!(#item(#element)),
+            |tail| quote!(#concat(#item(#element), #tail)),
+        ));
+    }
+    Ok(rendered.unwrap_or_else(|| {
+        let empty = render_facade_marker(krs_ir::ListOperation::Empty.facade_marker());
+        quote!(#empty())
+    }))
+}
+
+/// Renders one level of brackets at the builtin `List` as the term it
+/// denotes: `[a, ..tail]` is `list::concat(list::item(a), tail)`, or
+/// `list::item(a)` when the tail is the empty list, and `[..init, z]` is
+/// `list::concat(init, list::item(z))`.
+fn render_builtin_list_level(
+    notation: ListNotation,
+    arguments: &krs_ir::Arguments<DescriptorStage>,
+    pattern: bool,
+    package: &PackageId,
+    bundle: &krs_ir::DescriptorBundle,
+) -> Result<TokenStream, ReferenceExpansionError> {
+    let krs_ir::Arguments::Positional(operands) = arguments else {
+        return Err(ReferenceExpansionError::UnresolvedListNotation);
+    };
+    let [first, second] = operands.as_slice() else {
+        return Err(ReferenceExpansionError::UnresolvedListNotation);
+    };
+    let item = render_facade_marker(krs_ir::ListOperation::Item.facade_marker());
+    let concat = render_facade_marker(krs_ir::ListOperation::Concat.facade_marker());
+    let is_empty = |term: &DescriptorTerm| {
+        matches!(
+            term,
+            DescriptorTerm::Application { reference, .. }
+                if reference.application
+                    == DescriptorApplicationRef::ListNotation(ListNotation::Empty)
+        )
+    };
+    let render = |term| render_term(term, pattern, package, bundle);
+    Ok(match notation {
+        ListNotation::Cons if is_empty(second) => {
+            let head = render(first)?;
+            quote!(#item(#head))
+        }
+        ListNotation::Cons => {
+            let (head, tail) = (render(first)?, render(second)?);
+            quote!(#concat(#item(#head), #tail))
+        }
+        ListNotation::Snoc => {
+            let (init, last) = (render(first)?, render(second)?);
+            quote!(#concat(#init, #item(#last)))
+        }
+        ListNotation::Empty => return Err(ReferenceExpansionError::UnresolvedListNotation),
     })
 }
 
@@ -1257,9 +1904,12 @@ fn render_rule(
         .iter()
         .map(|binding| binding.name.clone())
         .collect::<BTreeSet<_>>();
+    // An open pattern that rewrites the cell names its tail; one that only
+    // reads it keeps the tail anonymous.
     let tail = rule
         .head
         .as_ref()
+        .filter(|head| !head.exact && head.result.is_some())
         .map(|_| fresh_ident("tail", &mut reserved));
     let state = fresh_ident("state", &mut reserved);
     let mut parameters = Vec::new();
@@ -1272,32 +1922,48 @@ fn render_rule(
             }
         })?;
         let ty = render_sort_type(sort, package)?;
-        parameters.push(quote!(#name: #ty));
+        parameters.push((binding.name.clone(), quote!(#name: #ty)));
     }
 
     let mut left_cells = Vec::new();
     let mut right_cells = Vec::new();
     // A clause without the computation cell leaves it out of both sides (E7).
-    if let (Some(head), Some(computation), Some(tail)) = (&rule.head, &rule.computation_cell, &tail)
-    {
+    if let (Some(head), Some(computation)) = (&rule.head, &rule.computation_cell) {
         let computation = render_rule_cell_field(&computation.cell, &rule.configuration, package)?;
-        let subject = render_term(&head.subject, true, package, bundle)?;
-        left_cells.push(quote! {
-            #computation: k::configuration::KCell(#subject, #tail @ ..)
-        });
-        let result_items = match &head.result {
-            ProtocolHeadRuleResult::Replace(term) => {
-                vec![render_term(term, false, package, bundle)?]
-            }
-            ProtocolHeadRuleResult::Splice(items) => items
-                .iter()
-                .map(|term| render_term(term, false, package, bundle))
-                .collect::<Result<Vec<_>, _>>()?,
-            ProtocolHeadRuleResult::Erase => Vec::new(),
+        let subject = head
+            .items
+            .iter()
+            .map(|item| render_term(item, true, package, bundle))
+            .collect::<Result<Vec<_>, _>>()?;
+        let rest = match (&tail, head.exact) {
+            (_, true) => Vec::new(),
+            (Some(tail), false) => vec![quote!(#tail @ ..)],
+            (None, false) => vec![quote!(..)],
         };
-        right_cells.push(quote! {
-            #computation: k::configuration::KCell(#(#result_items,)* ..#tail)
+        left_cells.push(quote! {
+            #computation: k::configuration::KCell(#(#subject),* #(, #rest)*)
         });
+        if let Some(result) = &head.result {
+            let result_items = match result {
+                ProtocolHeadRuleResult::Replace(term) => {
+                    vec![render_term(term, false, package, bundle)?]
+                }
+                ProtocolHeadRuleResult::Splice(items) => items
+                    .iter()
+                    .map(|term| render_term(term, false, package, bundle))
+                    .collect::<Result<Vec<_>, _>>()?,
+                ProtocolHeadRuleResult::Erase => Vec::new(),
+            };
+            right_cells.push(if let Some(tail) = &tail {
+                quote! {
+                    #computation: k::configuration::KCell(#(#result_items,)* ..#tail)
+                }
+            } else {
+                quote! {
+                    #computation: k::configuration::KCell(#(#result_items),*)
+                }
+            });
+        }
     }
 
     let mut instance_tails = 0_usize;
@@ -1325,17 +1991,19 @@ fn render_rule(
                 left_cells.push(left);
                 right_cells.extend(right);
             }
-            ProtocolHeadRuleExtra::HaveMap {
-                cell,
-                key,
-                value_binding,
-            } => {
+            ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
                 let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
-                let key = render_term(key, true, package, bundle)?;
-                let value = rust_ident(value_binding);
+                let entries = entries
+                    .iter()
+                    .map(|entry| {
+                        let key = render_term(&entry.key, true, package, bundle)?;
+                        let value = rust_ident(&entry.value_binding);
+                        Ok(quote!(#key -> #value))
+                    })
+                    .collect::<Result<Vec<_>, ReferenceExpansionError>>()?;
                 let rest = fresh_ident(&format!("rest{ordinal}"), &mut reserved);
                 left_cells.push(quote! {
-                    #cell: k::configuration::Cell(map![#key -> #value, #rest @ ..])
+                    #cell: k::configuration::Cell(map![#(#entries,)* #rest @ ..])
                 });
             }
             ProtocolHeadRuleExtra::UpdateMap {
@@ -1351,6 +2019,67 @@ fn render_rule(
                     #cell: k::configuration::Cell(#update)
                 });
             }
+            ProtocolHeadRuleExtra::RewriteList {
+                cell,
+                before,
+                after,
+                ..
+            } => {
+                // A cell of the builtin `List` is the `list::item` and
+                // `list::concat` term its brackets denote; its anonymous
+                // `..` is a parameter both sides name.
+                let Some(list) = cell_cons_list(&cell.cell, bundle) else {
+                    let shared = matches!(before.rest, krs_ir::ProtocolHeadRuleListRest::Shared)
+                        .then(|| {
+                            let rest = fresh_ident("rest", &mut reserved);
+                            let ty = render_sort_type(
+                                &SemanticSortRef::Builtin(krs_ir::BuiltinSort::List),
+                                package,
+                            )?;
+                            parameters.push((rest.to_string(), quote!(#rest: #ty)));
+                            Ok::<_, ReferenceExpansionError>(rest)
+                        })
+                        .transpose()?;
+                    let field = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
+                    let before =
+                        render_builtin_list(before, shared.as_ref(), true, package, bundle)?;
+                    left_cells.push(quote! {
+                        #field: k::configuration::Cell(#before)
+                    });
+                    if let Some(after) = after {
+                        let after =
+                            render_builtin_list(after, shared.as_ref(), false, package, bundle)?;
+                        right_cells.push(quote! {
+                            #field: k::configuration::Cell(#after)
+                        });
+                    }
+                    continue;
+                };
+                // A list cell is the constructor term it denotes (F6); its
+                // anonymous `..` is a parameter both sides name.
+                let shared = matches!(before.rest, krs_ir::ProtocolHeadRuleListRest::Shared)
+                    .then(|| {
+                        let rest = fresh_ident("rest", &mut reserved);
+                        let ty = render_sort_type(
+                            &SemanticSortRef::Declared(list.sort.clone()),
+                            package,
+                        )?;
+                        parameters.push((rest.to_string(), quote!(#rest: #ty)));
+                        Ok::<_, ReferenceExpansionError>(rest)
+                    })
+                    .transpose()?;
+                let field = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
+                let before = render_list(before, &list, shared.as_ref(), true, package, bundle)?;
+                left_cells.push(quote! {
+                    #field: k::configuration::Cell(#before)
+                });
+                if let Some(after) = after {
+                    let after = render_list(after, &list, shared.as_ref(), false, package, bundle)?;
+                    right_cells.push(quote! {
+                        #field: k::configuration::Cell(#after)
+                    });
+                }
+            }
             ProtocolHeadRuleExtra::RewriteCell {
                 cell,
                 before,
@@ -1358,21 +2087,35 @@ fn render_rule(
                 ..
             } => {
                 let group = is_group_cell(&cell.cell, bundle);
+                let optional = is_optional_cell(&cell.cell, bundle);
                 let cell = render_rule_cell_field(&cell.cell, &rule.configuration, package)?;
                 let before = render_term(before, true, package, bundle)?;
-                let after = render_term(after, false, package, bundle)?;
-                if group {
-                    // A nested field's entry has no wrapper (KF-016).
-                    left_cells.push(quote!(#cell: #before));
-                    right_cells.push(quote!(#cell: #after));
-                } else {
-                    left_cells.push(quote! {
-                        #cell: k::configuration::Cell(#before)
-                    });
-                    right_cells.push(quote! {
-                        #cell: k::configuration::Cell(#after)
-                    });
-                }
+                let after = after
+                    .as_ref()
+                    .map(|after| render_term(after, false, package, bundle))
+                    .transpose()?;
+                // A nested field's entry has no wrapper (KF-016); a leaf's is `Cell(..)`. A
+                // value written on an optional cell matches or writes the cell present, which
+                // `cells!` spells `Some(..)` (KF-023).
+                let entry = |term: TokenStream| {
+                    let entry = if group {
+                        term
+                    } else {
+                        quote!(k::configuration::Cell(#term))
+                    };
+                    if optional {
+                        quote!(Some(#entry))
+                    } else {
+                        entry
+                    }
+                };
+                // A read-only cell is a subject entry without a result entry.
+                let before = entry(before);
+                left_cells.push(quote!(#cell: #before));
+                right_cells.extend(after.map(|after| {
+                    let after = entry(after);
+                    quote!(#cell: #after)
+                }));
             }
         }
     }
@@ -1416,28 +2159,201 @@ fn render_rule(
         })
         .transpose()?
         .unwrap_or_default();
-    let rule_attribute = reference_rule_attribute(
-        rule.priority.as_ref(),
-        &evaluation,
-        rule.nondet.as_ref(),
-        &label,
-    );
+    // A claim clause is the `#[k::claim]` fn its records stand for (F7).
+    let rule_attribute = match &rule.claim {
+        Some(claim) => reference_claim_attribute(claim, &label),
+        None => reference_rule_attribute(
+            rule.priority.as_ref(),
+            &evaluation,
+            rule.nondet.as_ref(),
+            &label,
+        ),
+    };
+    // A `cells!` rule declares its typed binders in their first-occurrence
+    // order in the subject, which lists the cells in another order than
+    // the readable record (map reads first), so the order is read back from
+    // the rendered subject.
+    let subject = quote!(#(#left_cells,)* #state @ ..);
+    // A `k::bits!` template's hidden binder is no authored binder, so the
+    // subject is read back with it renamed, and the names mapped back.
+    let (readable, renamed) = rename_hidden_tokens(subject.clone());
+    let order = krs_syntax::parse_cells_pattern(readable)
+        .and_then(|cells| krs_syntax::cells_pattern_term_binders(&cells))
+        .map_err(ReferenceExpansionError::KrsSyntax)?
+        .into_iter()
+        .map(|binder| {
+            renamed
+                .iter()
+                .find(|(_, fresh)| **fresh == binder)
+                .map_or(binder, |(hidden, fresh)| Ident::new(hidden, fresh.span()))
+        })
+        .collect::<Vec<_>>();
+    let position = |name: &str| {
+        order
+            .iter()
+            .position(|binder| binder.unraw() == name)
+            .unwrap_or(usize::MAX)
+    };
+    parameters.sort_by_key(|(name, _)| position(name));
+    let parameters = parameters.into_iter().map(|(_, parameter)| parameter);
+    // A `#[k::claim]` fn takes its helpers after the claim attribute, which
+    // reads them; a rule fn's `#[k::exists]` and `#[k::ensures]` precede it.
+    let (before, after) = if rule.claim.is_some() {
+        (Vec::new(), existential_helpers.to_vec())
+    } else {
+        (existential_helpers.to_vec(), Vec::new())
+    };
     syn::parse2(quote! {
         #(#attrs)*
-        #(#existential_helpers)*
+        #(#before)*
         #rule_attribute
+        #(#after)*
         #requires
         pub fn #name(
             #(#parameters,)*
-            k::cells! {
-                #(#left_cells,)*
-                #state @ ..
-            }: #configuration,
+            k::cells! { #subject }: #configuration,
         ) -> #configuration {
             k::cells! {
                 #(#right_cells,)*
                 ..#state
             }
+        }
+    })
+    .map_err(ReferenceExpansionError::GeneratedRust)
+}
+
+/// Whether a `#[k::requires]` of `item` holds the operator `==`.
+///
+/// prettyplease writes a list attribute's arguments as `key = value` pairs,
+/// with a space after every `=`, so it would print `a == b` as `a = = b`,
+/// which no longer parses as the condition; such a condition is restated in
+/// its call spelling instead.
+fn requires_holds_equality(item: &syn::ItemFn) -> bool {
+    fn holds(tokens: TokenStream) -> bool {
+        let mut previous_joint_eq = false;
+        for tree in tokens {
+            match tree {
+                proc_macro2::TokenTree::Punct(punct) if punct.as_char() == '=' => {
+                    if previous_joint_eq {
+                        return true;
+                    }
+                    previous_joint_eq = punct.spacing() == proc_macro2::Spacing::Joint;
+                }
+                proc_macro2::TokenTree::Group(group) => {
+                    if holds(group.stream()) {
+                        return true;
+                    }
+                    previous_joint_eq = false;
+                }
+                _ => previous_joint_eq = false,
+            }
+        }
+        false
+    }
+    item.attrs.iter().any(|attribute| {
+        attribute
+            .path()
+            .segments
+            .last()
+            .is_some_and(|segment| segment.ident == "requires")
+            && matches!(&attribute.meta, syn::Meta::List(list) if holds(list.tokens.clone()))
+    })
+}
+
+/// Restates the `requires` of a rule or equation fn from its descriptor, in
+/// the function-call spelling of a table row's or a readable clause's
+/// condition; the fn's attribute path and position are kept.
+fn restate_requires(
+    item: &mut syn::ItemFn,
+    package: &PackageId,
+    module_path: &[String],
+    bundle: &krs_ir::DescriptorBundle,
+    descriptor_index: &DescriptorIndex<'_>,
+    semantic_rules: &BTreeMap<&StableItemId, &SemanticRule>,
+) -> Result<(), ReferenceExpansionError> {
+    let name = item.sig.ident.unraw().to_string();
+    let condition = descriptor_index
+        .values()
+        .find_map(|descriptor| match descriptor.payload() {
+            krs_ir::DescriptorPayload::StructuredRule(rule)
+                if descriptor.id().package() == package
+                    && descriptor.id().module_path() == module_path
+                    && descriptor.id().item_name() == name =>
+            {
+                rule.requires
+                    .as_ref()
+                    .map(|condition| (descriptor, condition))
+            }
+            _ => None,
+        });
+    let Some((descriptor, condition)) = condition else {
+        return Ok(());
+    };
+    let semantic_rule = semantic_rules.get(descriptor.id()).ok_or_else(|| {
+        ReferenceExpansionError::MissingSemanticRule(Box::new(descriptor.id().clone()))
+    })?;
+    let condition = condition
+        .term
+        .clone()
+        .try_map_refs(&mut OperatorCalls::new(descriptor, semantic_rule))?;
+    let term = render_term(&condition, false, package, bundle)?;
+    for attribute in &mut item.attrs {
+        if attribute.path().segments.len() > 1
+            && attribute
+                .path()
+                .segments
+                .last()
+                .is_some_and(|segment| segment.ident == "requires")
+            && let syn::Meta::List(list) = &mut attribute.meta
+        {
+            list.tokens = term;
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// The `#[k::equation]` fn one `k::equations!` row stands for, with its
+/// paths qualified, since the table's `use` items do not reach it.
+fn render_equation_row(
+    row: &krs_syntax::EquationRow,
+    rule: &krs_ir::StructuredRuleDescriptor,
+    package: &PackageId,
+    bundle: &krs_ir::DescriptorBundle,
+) -> Result<syn::ItemFn, ReferenceExpansionError> {
+    let sort = match &rule.subject_sort.sort {
+        krs_ir::DescriptorSortRef::Builtin(sort) => {
+            let sort = render_builtin_sort(*sort);
+            quote!(k::Term<#sort>)
+        }
+        other => {
+            let sort = render_descriptor_sort(other, package)?;
+            quote!(k::Term<#sort>)
+        }
+    };
+    let subject = render_term(&rule.subject, true, package, bundle)?;
+    let result = rule
+        .result
+        .as_ref()
+        .map(|result| render_term(result, false, package, bundle))
+        .transpose()?;
+    let requires = rule
+        .requires
+        .as_ref()
+        .map(|condition| {
+            render_term(&condition.term, false, package, bundle)
+                .map(|term| quote!(#[k::requires(#term)]))
+        })
+        .transpose()?;
+    let keys = row.equation_keys().map(|keys| quote!((#keys)));
+    let attrs = &row.rule().item().attrs;
+    let name = row.label();
+    syn::parse2(quote! {
+        #(#attrs)*
+        #[k::equation #keys]
+        #requires
+        fn #name(k::term![#subject]: #sort) -> #sort {
+            #result
         }
     })
     .map_err(ReferenceExpansionError::GeneratedRust)
@@ -1667,6 +2583,22 @@ fn reference_rule_attribute(
     quote!(#[k::rule(#(#keys),*)])
 }
 
+/// The `#[k::claim(..)]` of a readable claim: its modality, label, and flags.
+fn reference_claim_attribute(claim: &krs_ir::HeadRuleClaim, label: &syn::LitStr) -> TokenStream {
+    let mut keys = vec![match claim.modality {
+        krs_ir::ClaimModality::AllPaths => quote!(all_paths),
+        krs_ir::ClaimModality::OnePath => quote!(one_path),
+    }];
+    keys.push(quote!(label = #label));
+    if claim.circularity_key.is_some() {
+        keys.push(quote!(circularity));
+    }
+    if claim.trusted_key.is_some() {
+        keys.push(quote!(trusted));
+    }
+    quote!(#[k::claim(#(#keys),*)])
+}
+
 fn render_rule_cell_field(
     cell: &krs_ir::DescriptorCellIdentity,
     configuration: &StableItemId,
@@ -1717,6 +2649,7 @@ fn render_term(
             head_class,
             arguments,
             instance,
+            open,
             ..
         } => {
             let head = match &reference.application {
@@ -1748,6 +2681,31 @@ fn render_term(
                     let name = format_ident!("{}", connective.facade_marker().name);
                     quote!(k::ml::#name)
                 }
+                // [`OperatorCalls`] leaves only `-x` on `Int` an operator:
+                // K has no unary minus on `Int`, so it is `int::sub(0, x)`.
+                DescriptorApplicationRef::Operator(BuiltinOperator::Neg) => {
+                    let krs_ir::Arguments::Positional(operands) = arguments else {
+                        return Err(ReferenceExpansionError::UnresolvedOperator("-"));
+                    };
+                    let [operand] = operands.as_slice() else {
+                        return Err(ReferenceExpansionError::UnresolvedOperator("-"));
+                    };
+                    let operand = render_term(operand, pattern, package, bundle)?;
+                    let sub = render_builtin_operation(BuiltinOperation::IntSub);
+                    return Ok(quote!(#sub(0, #operand)));
+                }
+                DescriptorApplicationRef::Operator(operator) => {
+                    return Err(ReferenceExpansionError::UnresolvedOperator(
+                        operator.symbol(),
+                    ));
+                }
+                // [`OperatorCalls`] leaves a level a notation only where it
+                // builds the builtin `List`.
+                DescriptorApplicationRef::ListNotation(notation) => {
+                    return render_builtin_list_level(
+                        *notation, arguments, pattern, package, bundle,
+                    );
+                }
             };
             if arguments.is_empty()
                 && matches!(
@@ -1757,18 +2715,21 @@ fn render_term(
             {
                 return Ok(head);
             }
-            if arguments.is_empty() {
+            // A pattern `Ctor { .. }` names no field: every field is `_`.
+            let fieldless = *open && pattern;
+            if arguments.is_empty() && !fieldless {
                 return Ok(quote!(#head()));
             }
             let arguments = match arguments {
-                krs_ir::Arguments::Positional(values) => {
+                krs_ir::Arguments::Positional(values) if !fieldless => {
                     let values = values
                         .iter()
                         .map(|value| render_term(value, pattern, package, bundle))
                         .collect::<Result<Vec<_>, _>>()?;
                     return Ok(quote!(#head(#(#values),*)));
                 }
-                krs_ir::Arguments::Named(values) => values,
+                krs_ir::Arguments::Positional(_) => Vec::new(),
+                krs_ir::Arguments::Named(values) => values.iter().collect(),
             };
             let DescriptorApplicationRef::Declared(id) = &reference.application else {
                 return Err(ReferenceExpansionError::NamedBuiltinApplication);
@@ -1965,10 +2926,11 @@ fn render_sort_type(
     package: &PackageId,
 ) -> Result<TokenStream, ReferenceExpansionError> {
     match sort {
+        // A framework sort, such as a computation item's `KItem`, is the
+        // facade's `k::KItem`.
+        SemanticSortRef::Declared(id) => render_sort_path(id, package),
         // A whole-group binder is typed by its nested `#[k::cell]` struct (KF-016).
-        SemanticSortRef::Declared(id) | SemanticSortRef::Cell(id) => {
-            render_declared_path(id, package)
-        }
+        SemanticSortRef::Cell(id) => render_declared_path(id, package),
         SemanticSortRef::Builtin(sort) => {
             let sort = render_builtin_sort(*sort);
             Ok(quote!(k::Term<#sort>))
@@ -2095,6 +3057,226 @@ fn render_builtin_sort(sort: BuiltinSort) -> TokenStream {
     quote!(k::builtin::#name)
 }
 
+/// The calls the operators and the list notation of one descriptor denote,
+/// read from the semantic rule lowered from it: each operator head becomes
+/// the operation semantic lowering applied at that head, and each bracket
+/// level the constructor, found by the source-map key lowering gives the
+/// application there. `-x` on `Int` applies `int::sub` to an operand the
+/// descriptor does not hold, so it stays the operator `-`, which
+/// [`render_term`] spells `int::sub(0, x)`.
+struct OperatorCalls<'a> {
+    descriptor: &'a Descriptor,
+    operations: BTreeMap<SourceMapKey, BuiltinOperation>,
+    constructors: BTreeMap<SourceMapKey, StableItemId>,
+    /// The keys of `.List` terms: `[]` at a builtin `List` position.
+    list_units: BTreeSet<SourceMapKey>,
+    /// The keys of every builtin `List` term, among them the `list::item`
+    /// of each bracket level at a builtin `List` position.
+    list_terms: BTreeSet<SourceMapKey>,
+}
+
+impl<'a> OperatorCalls<'a> {
+    fn new(descriptor: &'a Descriptor, rule: &SemanticRule) -> Self {
+        let mut operations = BTreeMap::new();
+        let mut constructors = BTreeMap::new();
+        let mut list_units = BTreeSet::new();
+        let mut list_terms = BTreeSet::new();
+        let mut pending = semantic_rule_terms(rule);
+        while let Some(term) = pending.pop() {
+            match term.kind() {
+                IrTermKind::Application {
+                    application: ApplicationRef::Builtin(operation),
+                    ..
+                } => {
+                    operations.insert(term.origin().key().clone(), *operation);
+                }
+                IrTermKind::Application {
+                    application: ApplicationRef::Declared(id),
+                    ..
+                } => {
+                    constructors.insert(term.origin().key().clone(), id.clone());
+                }
+                IrTermKind::List(operands) => {
+                    if matches!(**operands, krs_ir_levels::ListOperands::Empty) {
+                        list_units.insert(term.origin().key().clone());
+                    }
+                    list_terms.insert(term.origin().key().clone());
+                }
+                _ => {}
+            }
+            pending.extend(term.children());
+        }
+        Self {
+            descriptor,
+            operations,
+            constructors,
+            list_units,
+            list_terms,
+        }
+    }
+}
+
+/// Every term of a semantic rule, equation, or claim.
+fn semantic_rule_terms(rule: &SemanticRule) -> Vec<&SemanticTerm> {
+    let mut terms = Vec::new();
+    match rule.relational_body() {
+        RuleBodyRef::Term(rewrite) => {
+            terms.push(rewrite.from());
+            terms.push(rewrite.to());
+        }
+        RuleBodyRef::Configuration { body, .. } => {
+            for part in body.parts() {
+                terms.extend(part.terms());
+            }
+        }
+        RuleBodyRef::Predicate(body) => {
+            terms.extend(body.lhs().terms());
+            terms.extend(body.rhs().terms());
+        }
+    }
+    if let Some(context) = rule.function_context() {
+        terms.extend(
+            context
+                .cells()
+                .cells()
+                .iter()
+                .map(krs_ir::FixedCellPattern::pattern),
+        );
+    }
+    for condition in rule.requires().into_iter().chain(rule.ensures()) {
+        terms.extend(condition.terms());
+    }
+    terms
+}
+
+impl RefMap<DescriptorStage, DescriptorStage> for OperatorCalls<'_> {
+    type Error = ReferenceExpansionError;
+
+    fn application(
+        &mut self,
+        reference: DescriptorApplicationReference,
+    ) -> Result<DescriptorApplicationReference, Self::Error> {
+        if let DescriptorApplicationRef::ListNotation(notation) = reference.application {
+            let constructor =
+                crate::semantic::application_source_key(self.descriptor, &reference.key)
+                    .and_then(|key| self.constructors.get(&key).cloned());
+            let unit = crate::semantic::list_operation_source_key(self.descriptor, &reference.key)
+                .is_some_and(|key| self.list_units.contains(&key));
+            // A level at the builtin `List` stays notation, which
+            // [`render_term`] spells as the `list::item`/`list::concat` term
+            // it lowered to; so does the `[]` that ends a closed one, which
+            // lowered to nothing of its own.
+            let builtin =
+                crate::semantic::list_notation_source_key(self.descriptor, &reference.key)
+                    .is_some_and(|key| self.list_terms.contains(&key));
+            let application = if let Some(constructor) = constructor {
+                DescriptorApplicationRef::Declared(constructor)
+            } else if unit {
+                DescriptorApplicationRef::List(krs_ir::ListOperation::Empty)
+            } else if builtin || notation == ListNotation::Empty {
+                DescriptorApplicationRef::ListNotation(notation)
+            } else {
+                return Err(ReferenceExpansionError::UnresolvedListNotation);
+            };
+            return Ok(DescriptorApplicationReference {
+                key: reference.key,
+                application,
+            });
+        }
+        let DescriptorApplicationRef::Operator(operator) = reference.application else {
+            return Ok(reference);
+        };
+        let operation = crate::semantic::application_source_key(self.descriptor, &reference.key)
+            .and_then(|key| self.operations.get(&key).copied())
+            .ok_or(ReferenceExpansionError::UnresolvedOperator(
+                operator.symbol(),
+            ))?;
+        let application =
+            if operator == BuiltinOperator::Neg && operation == BuiltinOperation::IntSub {
+                DescriptorApplicationRef::Operator(operator)
+            } else {
+                DescriptorApplicationRef::Builtin(operation)
+            };
+        Ok(DescriptorApplicationReference {
+            key: reference.key,
+            application,
+        })
+    }
+
+    fn sort(
+        &mut self,
+        reference: <DescriptorStage as Stage>::Sort,
+    ) -> Result<<DescriptorStage as Stage>::Sort, Self::Error> {
+        Ok(reference)
+    }
+    fn nominal(
+        &mut self,
+        reference: <DescriptorStage as Stage>::Nominal,
+    ) -> Result<<DescriptorStage as Stage>::Nominal, Self::Error> {
+        Ok(reference)
+    }
+    fn context_alias(
+        &mut self,
+        reference: <DescriptorStage as Stage>::ContextAlias,
+    ) -> Result<<DescriptorStage as Stage>::ContextAlias, Self::Error> {
+        Ok(reference)
+    }
+    fn configuration(
+        &mut self,
+        reference: <DescriptorStage as Stage>::Configuration,
+    ) -> Result<<DescriptorStage as Stage>::Configuration, Self::Error> {
+        Ok(reference)
+    }
+    fn cell(
+        &mut self,
+        reference: <DescriptorStage as Stage>::Cell,
+    ) -> Result<<DescriptorStage as Stage>::Cell, Self::Error> {
+        Ok(reference)
+    }
+    fn head_rule_cell(
+        &mut self,
+        reference: <DescriptorStage as Stage>::HeadRuleCell,
+    ) -> Result<<DescriptorStage as Stage>::HeadRuleCell, Self::Error> {
+        Ok(reference)
+    }
+    fn item(
+        &mut self,
+        reference: <DescriptorStage as Stage>::Item,
+    ) -> Result<<DescriptorStage as Stage>::Item, Self::Error> {
+        Ok(reference)
+    }
+    fn cell_declaration(
+        &mut self,
+        reference: <DescriptorStage as Stage>::CellDeclaration,
+    ) -> Result<<DescriptorStage as Stage>::CellDeclaration, Self::Error> {
+        Ok(reference)
+    }
+    fn initializer_owner(
+        &mut self,
+        reference: <DescriptorStage as Stage>::InitializerOwner,
+    ) -> Result<<DescriptorStage as Stage>::InitializerOwner, Self::Error> {
+        Ok(reference)
+    }
+    fn parent(
+        &mut self,
+        reference: <DescriptorStage as Stage>::Parent,
+    ) -> Result<<DescriptorStage as Stage>::Parent, Self::Error> {
+        Ok(reference)
+    }
+    fn constructor_sort(
+        &mut self,
+        reference: <DescriptorStage as Stage>::ConstructorSort,
+    ) -> Result<<DescriptorStage as Stage>::ConstructorSort, Self::Error> {
+        Ok(reference)
+    }
+    fn constructor_field_sort(
+        &mut self,
+        reference: <DescriptorStage as Stage>::ConstructorFieldSort,
+    ) -> Result<<DescriptorStage as Stage>::ConstructorFieldSort, Self::Error> {
+        Ok(reference)
+    }
+}
+
 fn render_builtin_operation(operation: BuiltinOperation) -> TokenStream {
     let spec = operation.spec();
     let module = format_ident!("{}", spec.rust_module);
@@ -2107,6 +3289,91 @@ fn render_facade_marker(marker: FacadeMarker) -> TokenStream {
     let name = format_ident!("{}", marker.name);
     quote!(k::builtin::#module::#name)
 }
+
+/// Names the hidden binders of a `k::bits!` template's long form, which no
+/// author may write, `bits`, `bits1`, .. in the order of their ordinals,
+/// skipping every identifier the item already spells.
+fn rename_hidden_binders(item: &mut syn::Item) -> Result<(), ReferenceExpansionError> {
+    let (tokens, renamed) = rename_hidden_tokens(item.to_token_stream());
+    if !renamed.is_empty() {
+        *item = syn::parse2(tokens).map_err(ReferenceExpansionError::GeneratedRust)?;
+    }
+    Ok(())
+}
+
+/// `tokens` with each hidden template binder renamed as
+/// [`rename_hidden_binders`] does, and the renaming.
+fn rename_hidden_tokens(tokens: TokenStream) -> (TokenStream, BTreeMap<String, Ident>) {
+    fn identifiers(tokens: TokenStream, names: &mut BTreeSet<String>) {
+        for token in tokens {
+            match token {
+                proc_macro2::TokenTree::Ident(ident) => {
+                    names.insert(ident.to_string());
+                }
+                proc_macro2::TokenTree::Group(group) => identifiers(group.stream(), names),
+                _ => {}
+            }
+        }
+    }
+    fn rename(tokens: TokenStream, names: &BTreeMap<String, Ident>) -> TokenStream {
+        tokens
+            .into_iter()
+            .map(|token| match token {
+                proc_macro2::TokenTree::Ident(ident) => names
+                    .get(&ident.to_string())
+                    .map_or(proc_macro2::TokenTree::Ident(ident), |name| {
+                        proc_macro2::TokenTree::Ident(name.clone())
+                    }),
+                proc_macro2::TokenTree::Group(group) => {
+                    let mut renamed =
+                        proc_macro2::Group::new(group.delimiter(), rename(group.stream(), names));
+                    renamed.set_span(group.span());
+                    proc_macro2::TokenTree::Group(renamed)
+                }
+                other => other,
+            })
+            .collect()
+    }
+    let mut spelled = BTreeSet::new();
+    identifiers(tokens.clone(), &mut spelled);
+    let mut hidden = spelled
+        .iter()
+        .filter(|name| krs_syntax::is_hidden_binder(name))
+        .cloned()
+        .collect::<Vec<_>>();
+    // A record update's hidden binder (F5) is named after its alias and
+    // field, `saved_gas` for the field `gas` of `saved`.
+    let updates = spelled
+        .iter()
+        .filter_map(|name| {
+            name.strip_prefix(RECORD_UPDATE_BINDER)
+                .map(|readable| (name.clone(), readable.to_owned()))
+        })
+        .collect::<Vec<_>>();
+    if hidden.is_empty() && updates.is_empty() {
+        return (tokens, BTreeMap::new());
+    }
+    hidden.sort_by_key(|name| {
+        name.trim_start_matches(|character: char| !character.is_ascii_digit())
+            .parse::<u64>()
+            .unwrap_or(u64::MAX)
+    });
+    let mut names = hidden
+        .into_iter()
+        .map(|name| {
+            let fresh = fresh_ident("bits", &mut spelled);
+            (name, fresh)
+        })
+        .collect::<BTreeMap<_, _>>();
+    for (name, readable) in updates {
+        let fresh = fresh_ident(&readable, &mut spelled);
+        names.insert(name, fresh);
+    }
+    (rename(tokens, &names), names)
+}
+
+/// The spelling prefix of a record update's hidden binder (F5).
+const RECORD_UPDATE_BINDER: &str = "__krs_update_";
 
 fn fresh_ident(base: &str, reserved: &mut BTreeSet<String>) -> Ident {
     if !reserved.contains(base) {
@@ -2251,6 +3518,8 @@ pub enum ReferenceExpansionError {
     RustSyntax(syn::Error),
     /// One readable KRS island is malformed.
     KrsSyntax(krs_syntax::SyntaxError),
+    /// A readable sentence's long form could not be read from its descriptor.
+    Lowering(Box<crate::DescriptorLoweringError>),
     /// Generated Rust unexpectedly failed to parse.
     GeneratedRust(syn::Error),
     /// One rule name occurred in more than one readable table.
@@ -2348,6 +3617,10 @@ pub enum ReferenceExpansionError {
     UnsupportedBuiltinToken(BuiltinSort),
     /// A readable optional or collection entry has no reference spelling.
     UnsupportedState,
+    /// Semantic lowering chose no operation for an operator.
+    UnresolvedOperator(&'static str),
+    /// Semantic lowering recorded no constructor for bracket list notation.
+    UnresolvedListNotation,
 }
 
 impl ToDiagnostic for ReferenceExpansionError {
@@ -2360,6 +3633,7 @@ impl ToDiagnostic for ReferenceExpansionError {
                 diagnostic.message = self.to_string();
                 return diagnostic;
             }
+            Self::Lowering(error) => return error.to_diagnostic(),
             Self::GeneratedRust(_) => codes::reference::GENERATED_RUST,
             Self::DuplicateRule(_) => codes::reference::DUPLICATE_RULE,
             Self::RuleCoverage { .. } => codes::reference::RULE_COVERAGE,
@@ -2383,6 +3657,8 @@ impl ToDiagnostic for ReferenceExpansionError {
             Self::InvalidLiteral(_) => codes::reference::INVALID_LITERAL,
             Self::UnsupportedBuiltinToken(_) => codes::reference::UNSUPPORTED_BUILTIN_TOKEN,
             Self::UnsupportedState => codes::reference::UNSUPPORTED_STATE,
+            Self::UnresolvedOperator(_) => codes::reference::UNRESOLVED_OPERATOR,
+            Self::UnresolvedListNotation => codes::reference::UNRESOLVED_LIST_NOTATION,
         };
         Diagnostic::error(code, self.to_string(), Location::None)
     }
@@ -2394,6 +3670,7 @@ impl fmt::Display for ReferenceExpansionError {
             Self::Source(error) => error.fmt(formatter),
             Self::RustSyntax(error) => write!(formatter, "invalid Rust source: {error}"),
             Self::KrsSyntax(error) => write!(formatter, "invalid readable KRS source: {error}"),
+            Self::Lowering(error) => write!(formatter, "{error}"),
             Self::GeneratedRust(error) => write!(formatter, "invalid generated Rust: {error}"),
             Self::DuplicateRule(name) => write!(formatter, "readable rule `{name}` occurs twice"),
             Self::RuleCoverage { name, found } => write!(
@@ -2477,6 +3754,12 @@ impl fmt::Display for ReferenceExpansionError {
             }
             Self::UnsupportedState => formatter
                 .write_str("a readable optional or collection entry has no reference spelling"),
+            Self::UnresolvedOperator(operator) => write!(
+                formatter,
+                "semantic lowering chose no builtin operation for an operator `{operator}`"
+            ),
+            Self::UnresolvedListNotation => formatter
+                .write_str("semantic lowering chose no constructor for bracket list notation"),
         }
     }
 }
@@ -2487,6 +3770,7 @@ impl Error for ReferenceExpansionError {
             Self::Source(error) => error.source(),
             Self::RustSyntax(error) | Self::GeneratedRust(error) => Some(error),
             Self::KrsSyntax(error) => Some(error),
+            Self::Lowering(error) => Some(error.as_ref()),
             Self::DuplicateRule(_)
             | Self::RuleCoverage { .. }
             | Self::ConstructorCoverage { .. }
@@ -2506,7 +3790,9 @@ impl Error for ReferenceExpansionError {
             | Self::UnknownApplicationField { .. }
             | Self::InvalidLiteral(_)
             | Self::UnsupportedBuiltinToken(_)
-            | Self::UnsupportedState => None,
+            | Self::UnsupportedState
+            | Self::UnresolvedOperator(_)
+            | Self::UnresolvedListNotation => None,
         }
     }
 }
@@ -2631,6 +3917,8 @@ mod tests {
                 Box::new(variable("program", 0)),
                 Box::new(variable("index", 1)),
             ]),
+            update: None,
+            open: false,
         };
         let rendered = render_term(
             &lookup,

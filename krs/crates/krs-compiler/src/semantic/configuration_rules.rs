@@ -6,19 +6,24 @@ use krs_ir::{
     FixedCellPattern, FixedConfigurationPattern, FixedConfigurationRewrite, ItemKind,
     ProtocolCellContent, ProtocolContextAliasBindingKind, ProtocolRuleBindingKind,
     ProtocolRuleCell, ProtocolRuleFrame, ProtocolRuleMapBody, ProtocolRuleStateTerm, ProvenanceKey,
-    SemanticId, StableItemId,
+    SemanticId, SourceRange, StableItemId,
 };
 use krs_ir_levels::{
-    MapEntry, MapOperands, SemanticCondition, SemanticContextAlias, SemanticRule, SemanticSortRef,
-    SemanticTerm, SemanticVariable,
+    IrTermKind, MapEntry, MapOperands, SemanticCondition, SemanticContextAlias, SemanticRule,
+    SemanticSortRef, SemanticTerm, SemanticVariable,
 };
 use krs_syntax::ProvenanceRole;
 
 use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
+use super::collection_types::{CollectionTyping, Root, Walker};
 use super::configuration::{check_stdin_reads, stdin_cells};
 use super::error::DescriptorLoweringError;
-use super::infer::{StructuredTermBuilder, initial_binding_constraints};
-use super::origin::{generated_semantic_id, role_key, semantic_cell_id, semantic_origin};
+use super::infer::{
+    CollectionUse, StructuredTermBuilder, declared_existentials, initial_binding_constraints,
+};
+use super::origin::{
+    generated_semantic_id, key_range, role_key, semantic_cell_id, semantic_origin,
+};
 use super::references::require_cell_field;
 use super::rules::{
     check_group_descendants, framework_k_item_sort, lower_nondet_group, lower_rule_label,
@@ -28,6 +33,11 @@ use super::rules::{
 /// Stable rule cell as transported for configuration rules and context aliases.
 type DescriptorRuleCell = ProtocolRuleCell<DescriptorCellReference, DescriptorTerm>;
 
+/// The exact authored range of one `cells!` entry.
+fn entry_range(descriptor: &Descriptor, entry: &DescriptorRuleCell) -> Option<Box<SourceRange>> {
+    key_range(descriptor, &entry.field.key).map(Box::new)
+}
+
 /// Shared inputs for lowering the cell terms of one configuration rule or
 /// context alias, and the variables those terms introduce, in order.
 struct StateRuleTerms<'a> {
@@ -35,8 +45,16 @@ struct StateRuleTerms<'a> {
     declarations: &'a DescriptorIndex<'a>,
     sort_parents: &'a BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
     catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
+    /// The element types of the rule's typed cells.
+    collections: &'a CollectionTyping,
+    /// The rule's term, existential, and fresh binders at their declared
+    /// sorts.
+    declared_binders: BTreeMap<String, (SemanticSortRef, ProvenanceKey)>,
     wildcard_ordinal: usize,
     variables: Vec<SemanticVariable>,
+    /// Computation remainders the result does not put back, each with its
+    /// frame key: the rule moves them, so they must be used elsewhere.
+    moved_remainders: Vec<(SemanticId, ProvenanceKey)>,
 }
 
 impl StateRuleTerms<'_> {
@@ -59,19 +77,36 @@ impl StateRuleTerms<'_> {
             pattern_key: None,
             binding_sorts: BTreeMap::new(),
             binding_constraints: initial_binding_constraints(binding_sorts),
+            constraint_sites: BTreeMap::new(),
             wildcard_offset: self.wildcard_ordinal,
             wildcards: Vec::new(),
             result_wildcards: false,
             locals: super::infer::LocalBinders::default(),
             head_pending: false,
-            declared_binders: BTreeMap::new(),
+            operators: super::operators::OperatorInference::default(),
+            declared_binders: self.declared_binders.clone(),
+            subject_keys: BTreeMap::new(),
+            record_updates: super::record_updates::RecordUpdateState::default(),
+            collections: CollectionUse::new(self.collections),
         };
-        builder.infer(term, expected_sort, subject)?;
+        builder.infer_sentence(|builder| builder.infer(term, expected_sort, subject))?;
         builder.resolve_binding_sorts()?;
         let lowered = builder.lower(term, expected_sort, subject)?;
         self.wildcard_ordinal += builder.wildcards.len();
         self.variables.append(&mut builder.wildcards);
         Ok(lowered)
+    }
+
+    /// Infers and lowers one key or value of a `map![..]` state, at its
+    /// element sort when the map is typed and as a `KItem` otherwise.
+    fn element(
+        &mut self,
+        term: &DescriptorTerm,
+        binding_sorts: &BTreeMap<String, SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        let sort = self.collections.element_sort(term);
+        self.term(term, sort.as_ref(), binding_sorts, subject)
     }
 
     /// Infers and lowers one `requires` or `ensures` condition: an object
@@ -96,15 +131,20 @@ impl StateRuleTerms<'_> {
             pattern_key: None,
             binding_sorts: BTreeMap::new(),
             binding_constraints: initial_binding_constraints(binding_sorts),
+            constraint_sites: BTreeMap::new(),
             wildcard_offset: self.wildcard_ordinal,
             wildcards: Vec::new(),
             result_wildcards: false,
             locals: super::infer::LocalBinders::default(),
             head_pending: false,
-            declared_binders: BTreeMap::new(),
+            operators: super::operators::OperatorInference::default(),
+            declared_binders: self.declared_binders.clone(),
+            subject_keys: BTreeMap::new(),
+            record_updates: super::record_updates::RecordUpdateState::default(),
+            collections: CollectionUse::new(self.collections),
         };
         super::ml::check_condition_placement(&builder, kind, condition, ensures)?;
-        super::ml::infer_condition(&mut builder, condition)?;
+        builder.infer_sentence(|builder| super::ml::infer_condition(builder, condition))?;
         builder.resolve_binding_sorts()?;
         let lowered = super::ml::lower_condition(&mut builder, condition, role)?;
         self.wildcard_ordinal += builder.wildcards.len();
@@ -112,8 +152,22 @@ impl StateRuleTerms<'_> {
         Ok(lowered)
     }
 
-    /// Lowers one cell's state term: an ordinary term, a K sequence, or a map.
+    /// Lowers one entry's state; an error that names no narrower node is located at the entry,
+    /// `fallback_key`.
     fn state_term(
+        &mut self,
+        state: &ProtocolRuleStateTerm<DescriptorTerm>,
+        declared_sort: &SemanticSortRef,
+        fallback_key: &ProvenanceKey,
+        binding_sorts: &BTreeMap<String, SemanticSortRef>,
+        subject: bool,
+    ) -> Result<SemanticTerm, DescriptorLoweringError> {
+        self.entry_state_term(state, declared_sort, fallback_key, binding_sorts, subject)
+            .map_err(|error| error.within(key_range(self.descriptor, fallback_key).as_ref()))
+    }
+
+    /// Lowers one cell's state term: an ordinary term, a K sequence, or a map.
+    fn entry_state_term(
         &mut self,
         state: &ProtocolRuleStateTerm<DescriptorTerm>,
         declared_sort: &SemanticSortRef,
@@ -125,36 +179,39 @@ impl StateRuleTerms<'_> {
         match state {
             ProtocolRuleStateTerm::Present { .. }
             | ProtocolRuleStateTerm::Absent
-            | ProtocolRuleStateTerm::Instances(_) => Err(DescriptorLoweringError::InvalidTerm {
-                id: Box::new(descriptor.id().clone()),
-                detail: "an optional or collection entry occurs where a cell's content belongs"
-                    .into(),
-            }),
+            | ProtocolRuleStateTerm::Instances(_) => Err(DescriptorLoweringError::invalid_term(
+                descriptor.id(),
+                "an optional or collection entry occurs where a cell's content belongs",
+            )),
             ProtocolRuleStateTerm::Term(term) => {
                 if matches!(declared_sort, SemanticSortRef::Cell(_)) {
-                    return Err(DescriptorLoweringError::InvalidTerm {
-                        id: Box::new(descriptor.id().clone()),
-                        detail: "a nested cell entry is a binder, `_`, or fragment!, without a `Cell(..)` wrapper".into(),
-                    });
+                    return Err(DescriptorLoweringError::cell_wrapper(None, None, None));
                 }
                 self.term(term, Some(declared_sort), binding_sorts, subject)
             }
             ProtocolRuleStateTerm::Group(term) => {
                 if !matches!(declared_sort, SemanticSortRef::Cell(_)) {
-                    return Err(DescriptorLoweringError::InvalidTerm {
-                        id: Box::new(descriptor.id().clone()),
-                        detail: "a leaf cell entry needs its `Cell(..)` or `KCell(..)` wrapper"
-                            .into(),
-                    });
+                    let wrapper = super::cell_states::leaf_wrapper(declared_sort);
+                    return Err(DescriptorLoweringError::cell_wrapper(
+                        None,
+                        Some(wrapper),
+                        None,
+                    ));
                 }
                 self.term(term, Some(declared_sort), binding_sorts, subject)
             }
             ProtocolRuleStateTerm::KSequence(sequence) => {
+                let key = sequence
+                    .payload_key
+                    .as_ref()
+                    .or(sequence.dot_k_key.as_ref())
+                    .unwrap_or(fallback_key);
                 if *declared_sort != SemanticSortRef::k_sequence() {
-                    return Err(DescriptorLoweringError::InvalidTerm {
-                        id: Box::new(descriptor.id().clone()),
-                        detail: "K sequence occurs in a non-KSequence rule cell".into(),
-                    });
+                    return Err(DescriptorLoweringError::invalid_term(
+                        descriptor.id(),
+                        "K sequence occurs in a non-KSequence rule cell",
+                    )
+                    .within(key_range(descriptor, key).as_ref()));
                 }
                 let items = sequence
                     .items
@@ -162,12 +219,8 @@ impl StateRuleTerms<'_> {
                     .map(|item| self.term(&item.value, None, binding_sorts, subject))
                     .collect::<Result<Vec<_>, _>>()?;
                 let item_sort =
-                    common_sequence_item_sort(descriptor, &items, self.sort_parents, !subject)?;
-                let key = sequence
-                    .payload_key
-                    .as_ref()
-                    .or(sequence.dot_k_key.as_ref())
-                    .unwrap_or(fallback_key);
+                    common_sequence_item_sort(descriptor, &items, self.sort_parents, !subject)
+                        .map_err(|error| error.within(key_range(descriptor, key).as_ref()))?;
                 Ok(SemanticTerm::k_sequence(
                     semantic_origin(descriptor, key.clone(), "rule-k-sequence")?,
                     item_sort,
@@ -175,28 +228,29 @@ impl StateRuleTerms<'_> {
                 ))
             }
             ProtocolRuleStateTerm::Map(map) => {
-                if *declared_sort != SemanticSortRef::map() {
-                    return Err(DescriptorLoweringError::InvalidTerm {
-                        id: Box::new(descriptor.id().clone()),
-                        detail: "map occurs in a non-Map rule cell".into(),
-                    });
-                }
                 let key = map.payload_key.as_ref().unwrap_or(fallback_key);
+                if *declared_sort != SemanticSortRef::map() {
+                    return Err(DescriptorLoweringError::invalid_term(
+                        descriptor.id(),
+                        "map occurs in a non-Map rule cell",
+                    )
+                    .within(key_range(descriptor, key).as_ref()));
+                }
                 let operands = match &map.body {
                     ProtocolRuleMapBody::Empty { .. } => MapOperands::Empty,
                     ProtocolRuleMapBody::Items { items, .. } => {
                         let mut entries = Vec::with_capacity(items.len());
                         for item in items {
                             entries.push(MapEntry {
-                                key: self.term(&item.key, None, binding_sorts, subject)?,
-                                value: self.term(&item.value, None, binding_sorts, subject)?,
+                                key: self.element(&item.key, binding_sorts, subject)?,
+                                value: self.element(&item.value, binding_sorts, subject)?,
                             });
                         }
                         MapOperands::items(entries).map_err(|error| {
-                            DescriptorLoweringError::InvalidTerm {
-                                id: Box::new(descriptor.id().clone()),
-                                detail: error.to_string(),
-                            }
+                            DescriptorLoweringError::invalid_term(
+                                descriptor.id(),
+                                error.to_string(),
+                            )
                         })?
                     }
                     ProtocolRuleMapBody::Update {
@@ -208,8 +262,8 @@ impl StateRuleTerms<'_> {
                             binding_sorts,
                             subject,
                         )?,
-                        key: self.term(key, None, binding_sorts, subject)?,
-                        value: self.term(value, None, binding_sorts, subject)?,
+                        key: self.element(key, binding_sorts, subject)?,
+                        value: self.element(value, binding_sorts, subject)?,
                     },
                 };
                 Ok(SemanticTerm::map(
@@ -221,12 +275,14 @@ impl StateRuleTerms<'_> {
     }
 }
 
-/// Binding sorts visible to a configuration rule's subject and result, and the
-/// declared variables in binding order followed by the existentials and the
-/// fresh binders.
+/// Binding sorts visible to a configuration rule's subject, result, and
+/// conditions, and the declared variables in binding order followed by the
+/// existentials and the fresh binders. A condition sees every variable the
+/// left side binds, the computation (`K`) and map remainders included.
 struct ConfigurationRuleBindings {
     subject_sorts: BTreeMap<String, SemanticSortRef>,
     result_sorts: BTreeMap<String, SemanticSortRef>,
+    requires_sorts: BTreeMap<String, SemanticSortRef>,
     variables: Vec<SemanticVariable>,
 }
 
@@ -234,6 +290,7 @@ fn configuration_rule_bindings(
     rule: &krs_ir::DescriptorConfigurationRule,
 ) -> Result<ConfigurationRuleBindings, DescriptorLoweringError> {
     let mut subject_sorts = BTreeMap::new();
+    let mut remainder_sorts = BTreeMap::new();
     let mut variables = Vec::new();
     for binding in &rule.bindings {
         let sort = match &binding.kind {
@@ -245,6 +302,8 @@ fn configuration_rule_bindings(
         };
         if matches!(binding.kind, ProtocolRuleBindingKind::Term { .. }) {
             subject_sorts.insert(binding.name.clone(), sort.clone());
+        } else {
+            remainder_sorts.insert(binding.name.clone(), sort.clone());
         }
         variables.push(SemanticVariable::new(
             SemanticId::new(binding.name.clone())?,
@@ -268,11 +327,52 @@ fn configuration_rule_bindings(
             sort,
         ));
     }
+    let mut requires_sorts = subject_sorts.clone();
+    requires_sorts.extend(remainder_sorts.clone());
+    result_sorts.extend(remainder_sorts);
     Ok(ConfigurationRuleBindings {
         subject_sorts,
         result_sorts,
+        requires_sorts,
         variables,
     })
+}
+
+/// The element types of a `cells!` rule's typed cells: each subject cell at
+/// its type as a pattern, each result cell at its type as a written term.
+fn configuration_rule_typing(
+    descriptor: &Descriptor,
+    rule: &krs_ir::DescriptorConfigurationRule,
+    declarations: &DescriptorIndex<'_>,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+) -> Result<CollectionTyping, DescriptorLoweringError> {
+    let mut walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
+    if let Some(claim) = &rule.claim {
+        walker.existentials(&claim.existentials, true);
+    }
+    walker.existentials(&rule.existentials, rule.claim.is_some());
+    walker.checked_binders(rule.fresh.iter().map(|binder| binder.name.as_str()));
+    let mut roots = Vec::new();
+    for (cells, subject) in std::iter::once((&rule.subject, true))
+        .chain(rule.result.iter().map(|result| (result, false)))
+    {
+        for cell in &cells.cells {
+            let field = require_cell_field(&cell.field.cell, declarations)?;
+            walker.state_roots(&cell.value, field, subject, &mut roots)?;
+        }
+    }
+    roots.extend(
+        rule.requires
+            .iter()
+            .chain(&rule.ensures)
+            .map(|condition| Root::Term {
+                term: &condition.term,
+                ty: None,
+                subject: false,
+            }),
+    );
+    walker.run(&roots)
 }
 
 #[expect(
@@ -295,15 +395,38 @@ pub(super) fn lower_configuration_rule_descriptor(
     let ConfigurationRuleBindings {
         subject_sorts,
         result_sorts,
+        requires_sorts,
         variables,
     } = configuration_rule_bindings(rule)?;
+    let typing = configuration_rule_typing(descriptor, rule, declarations, catalog, sort_parents)?;
+    let mut declared_binders = declared_existentials(
+        rule.claim
+            .iter()
+            .flat_map(|claim| &claim.existentials)
+            .chain(&rule.existentials)
+            .chain(&rule.fresh),
+    );
+    // The binder list declares each term binder, as a `where` does: every
+    // cell term checks its occurrences against the declared sort.
+    declared_binders.extend(rule.bindings.iter().filter_map(|binding| {
+        let ProtocolRuleBindingKind::Term { sort } = &binding.kind else {
+            return None;
+        };
+        Some((
+            binding.name.clone(),
+            (semantic_sort_ref(&sort.sort), sort.key.clone()),
+        ))
+    }));
     let mut terms = StateRuleTerms {
         descriptor,
         declarations,
         sort_parents,
         catalog,
+        collections: &typing,
+        declared_binders,
         wildcard_ordinal: 0,
         variables,
+        moved_remainders: Vec::new(),
     };
     let clauses = lower_configuration_rule_clauses(
         &mut terms,
@@ -312,6 +435,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         &subject_sorts,
         &result_sorts,
     )?;
+    let unused_moved = moved_remainders_unused_by(&terms, &clauses);
     // A context's hole lies in the computation cell (KF-021).
     if rule.sentence_kind == krs_ir::ConfigurationSentenceKind::Context
         && let Some(step) = &rule.evaluation
@@ -377,6 +501,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "configuration rule remainder",
             detail: "an exact subject must select every fixed leaf cell".into(),
+            range: None,
         });
     }
 
@@ -401,7 +526,7 @@ pub(super) fn lower_configuration_rule_descriptor(
             terms.condition(
                 rule.sentence_kind.into(),
                 condition,
-                &subject_sorts,
+                &requires_sorts,
                 "rule-requires",
                 false,
             )
@@ -409,6 +534,7 @@ pub(super) fn lower_configuration_rule_descriptor(
         .transpose()?;
     let priority = lower_rule_priority(descriptor, rule.priority.as_ref())?;
     let (existentials, ensures) = lower_existentials(&mut terms, rule, &result_sorts)?;
+    check_moved_remainders(&unused_moved, requires.as_ref(), ensures.as_ref())?;
     Ok(SemanticRule::new_configuration(
         semantic_origin(
             descriptor,
@@ -476,6 +602,7 @@ fn lower_configuration_rule_clauses(
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "configuration rule",
             detail: "the result selects a fixed cell absent from the subject".into(),
+            range: None,
         });
     }
     if let Some(result) = &rule.result {
@@ -542,6 +669,12 @@ fn lower_configuration_state_clause(
 ) -> Result<ConfigurationClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = terms.descriptor;
     let declared = require_cell_field(&subject.field.cell, terms.declarations)?;
+    // An entry whose state belongs to another kind of cell than the declared one is the
+    // mistake, on whichever side it is written: `pc: Cell(x) => None` on a plain cell names the
+    // result.
+    for cell in std::iter::once(subject).chain(result) {
+        super::cell_states::check_state_kind(descriptor, declared, &cell.field, &cell.value)?;
+    }
     let expected_wrapper = match &declared.content {
         ProtocolCellContent::Leaf { wrapper, .. } => Some(*wrapper),
         ProtocolCellContent::Nested { .. } => None,
@@ -574,11 +707,13 @@ fn lower_configuration_state_clause(
             let after = match result.map(|result| &result.value) {
                 None => None,
                 Some(ProtocolRuleStateTerm::Instances(after)) => Some(after),
+                // The subject fits the collection, so the result is the entry that does not.
                 Some(_) => {
+                    let result = result.expect("a result state was matched");
                     return Err(super::cell_states::collection_error(
                         descriptor,
                         krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
-                        &subject.field.key,
+                        &result.field.key,
                         format!(
                             "the collection `{}` is written as an instance list on both sides",
                             subject.field.cell.field
@@ -670,19 +805,38 @@ fn lower_configuration_rule_clause(
 ) -> Result<FixedCellClause<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let descriptor = terms.descriptor;
     let declared = require_cell_field(&subject.field.cell, terms.declarations)?;
+    let name = &subject.field.cell.field;
+    // Neither entry is `Some`/`None` or an instance list, so on an optional cell or a collection,
+    // whose entries are written that way, the subject's spelling is that cell's mistake.
+    match declared
+        .multiplicity
+        .as_ref()
+        .map(|multiplicity| multiplicity.value.as_str())
+    {
+        Some("?") => {
+            return Err(super::cell_states::collection_error(
+                descriptor,
+                krs_diagnostic::codes::analysis::OPTIONAL_PRESENCE,
+                &subject.field.key,
+                super::cell_states::bare_optional(name),
+            ));
+        }
+        Some(_) => {
+            return Err(super::cell_states::collection_error(
+                descriptor,
+                krs_diagnostic::codes::analysis::COLLECTION_ENTRY,
+                &subject.field.key,
+                format!(
+                    "`{name}` is a cell collection: its entry is an instance list (`[..]` for a List collection, `{{ .. }}` for a Set or Map one), not one value"
+                ),
+            ));
+        }
+        None => {}
+    }
     let ProtocolCellContent::Leaf { wrapper, sort, .. } = &declared.content else {
         let ProtocolCellContent::Nested { declaration } = &declared.content else {
             unreachable!("a fixed cell is a leaf or nested");
         };
-        if declared.multiplicity.is_some() {
-            return Err(DescriptorLoweringError::UnsupportedShape {
-                node: "configuration rule cell",
-                detail: format!(
-                    "the repeated cell `{}` is a cell collection, not one nested cell, so a rule cannot name it as a whole",
-                    subject.field.cell.field
-                ),
-            });
-        }
         return lower_configuration_group_clause(
             terms,
             subject,
@@ -692,28 +846,17 @@ fn lower_configuration_rule_clause(
             result_sorts,
         );
     };
-    if subject.wrapper.is_none() || result.is_some_and(|result| result.wrapper.is_none()) {
-        return Err(DescriptorLoweringError::InvalidTerm {
-            id: Box::new(descriptor.id().clone()),
-            detail: format!(
-                "the leaf cell entry `{}` needs its `Cell(..)` or `KCell(..)` wrapper",
-                subject.field.cell.field
-            ),
-        });
-    }
-    if subject.wrapper != Some(*wrapper)
-        || result.is_some_and(|result| result.wrapper != Some(*wrapper))
-    {
-        return Err(DescriptorLoweringError::ParserReferenceDisagreement {
-            id: Box::new(subject.field.cell.owner.clone()),
-            detail: format!(
-                "rule wrapper disagrees with declared cell {:?}",
-                subject.field.cell.field
-            ),
-        });
+    // Each check names the entry that disagrees with the declaration, the subject first.
+    let entries = || std::iter::once(subject).chain(result);
+    if let Some(entry) = entries().find(|entry| entry.wrapper != Some(*wrapper)) {
+        return Err(DescriptorLoweringError::cell_wrapper(
+            Some(name),
+            Some(*wrapper),
+            entry_range(descriptor, entry),
+        ));
     }
     let declared_sort = semantic_sort_ref(&sort.sort);
-    let before = terms.state_term(
+    let mut before = terms.state_term(
         &subject.value,
         &declared_sort,
         &subject.field.key,
@@ -721,7 +864,7 @@ fn lower_configuration_rule_clause(
         true,
     )?;
     let subject_frame = rule_state_frame(&subject.value);
-    let frame = lower_subject_cell_frame(descriptor, &subject.value)?;
+    let mut frame = lower_subject_cell_frame(descriptor, &subject.value)?;
     let post = if let Some(result) = result {
         let after = terms.state_term(
             &result.value,
@@ -731,12 +874,17 @@ fn lower_configuration_rule_clause(
             false,
         )?;
         let result_frame = rule_state_frame(&result.value);
-        validate_state_frame_pair(
-            descriptor,
+        if let Some(moved) = pair_cell_frames(
+            terms,
+            &subject.field.cell.field,
             subject_frame,
             result_frame,
-            "cell content frame",
-        )?;
+            &before,
+        )? {
+            // The moved remainder is the subject's last item, not a frame.
+            before = moved;
+            frame = CellContentFrame::Exact;
+        }
         if semantic_terms_equivalent(&before, &after) {
             CellPost::Preserve
         } else {
@@ -769,14 +917,15 @@ fn lower_configuration_group_clause(
     let group_entry = |cell: &DescriptorRuleCell| {
         cell.wrapper.is_none() && matches!(cell.value, ProtocolRuleStateTerm::Group(_))
     };
-    if !group_entry(subject) || result.is_some_and(|result| !group_entry(result)) {
-        return Err(DescriptorLoweringError::InvalidTerm {
-            id: Box::new(descriptor.id().clone()),
-            detail: format!(
-                "the nested cell entry `{}` is a binder, `_`, or fragment!, without a `Cell(..)` wrapper",
-                subject.field.cell.field
-            ),
-        });
+    if let Some(entry) = std::iter::once(subject)
+        .chain(result)
+        .find(|entry| !group_entry(entry))
+    {
+        return Err(DescriptorLoweringError::cell_wrapper(
+            Some(&subject.field.cell.field),
+            None,
+            entry_range(descriptor, entry),
+        ));
     }
     let sort = SemanticSortRef::Cell(declaration.clone());
     let before = terms.state_term(
@@ -913,10 +1062,10 @@ pub(super) fn lower_context_alias_descriptor(
         .filter(|id| id.item_kind() == ItemKind::Sort && id.item_name() == "KItem")
         .collect::<Vec<_>>();
     let [k_item] = k_items.as_slice() else {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "context alias",
-            detail: "context aliases require exactly one declared KItem sort".into(),
-        });
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "context alias",
+            "context aliases require exactly one declared KItem sort",
+        ));
     };
     let mut binding_sorts = BTreeMap::new();
     let mut variables = Vec::new();
@@ -944,8 +1093,11 @@ pub(super) fn lower_context_alias_descriptor(
         declarations,
         sort_parents,
         catalog,
+        collections: CollectionTyping::empty(),
+        declared_binders: BTreeMap::new(),
         wildcard_ordinal: 0,
         variables,
+        moved_remainders: Vec::new(),
     };
     let cells = alias
         .pattern
@@ -962,10 +1114,10 @@ pub(super) fn lower_context_alias_descriptor(
         .collect::<BTreeSet<_>>();
     let omitted_siblings = omitted_leaf_cells(&configuration.declaration, declarations, &selected)?;
     if matches!(alias.pattern.remainder, ProtocolRuleFrame::Exact) && !omitted_siblings.is_empty() {
-        return Err(DescriptorLoweringError::UnsupportedShape {
-            node: "context alias remainder",
-            detail: "an exact pattern must select every fixed leaf cell".into(),
-        });
+        return Err(DescriptorLoweringError::unsupported_shape(
+            "context alias remainder",
+            "an exact pattern must select every fixed leaf cell",
+        ));
     }
     let body = FixedConfigurationPattern::new(
         semantic_origin(
@@ -1034,6 +1186,7 @@ pub(super) fn lower_function_context(
     descriptor: &Descriptor,
     context: &krs_ir::DescriptorFunctionContext,
     tables: StateRuleTables<'_>,
+    collections: &CollectionTyping,
     binding_sorts: &BTreeMap<String, SemanticSortRef>,
     wildcard_ordinal: usize,
 ) -> Result<
@@ -1059,8 +1212,11 @@ pub(super) fn lower_function_context(
         declarations,
         sort_parents,
         catalog,
+        collections,
+        declared_binders: BTreeMap::new(),
         wildcard_ordinal,
         variables: Vec::new(),
+        moved_remainders: Vec::new(),
     };
     let cells = context
         .cells
@@ -1144,18 +1300,19 @@ fn lower_function_context_cell(
         ));
     }
     if pattern.wrapper.is_none() {
-        return Err(DescriptorLoweringError::InvalidTerm {
-            id: Box::new(descriptor.id().clone()),
-            detail: format!(
+        return Err(DescriptorLoweringError::invalid_term(
+            descriptor.id(),
+            format!(
                 "the leaf cell entry `{}` needs its `Cell(..)` or `KCell(..)` wrapper",
                 pattern.field.cell.field
             ),
-        });
+        ));
     }
     if pattern.wrapper != Some(*wrapper) {
         return Err(DescriptorLoweringError::ParserReferenceDisagreement {
             id: Box::new(pattern.field.cell.owner.clone()),
             detail: "function-context wrapper disagrees with its cell declaration".into(),
+            range: None,
         });
     }
     let term = terms.state_term(
@@ -1208,12 +1365,14 @@ fn lower_context_alias_cell(
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "context alias cell",
             detail: "context aliases select leaf cells only".into(),
+            range: None,
         });
     };
     if pattern.wrapper != Some(*wrapper) {
         return Err(DescriptorLoweringError::ParserReferenceDisagreement {
             id: Box::new(pattern.field.cell.owner.clone()),
             detail: "context-alias wrapper disagrees with its cell declaration".into(),
+            range: None,
         });
     }
     let term = terms.state_term(
@@ -1337,8 +1496,164 @@ fn lower_subject_cell_frame(
         } => Err(DescriptorLoweringError::UnsupportedShape {
             node: "subject cell frame",
             detail: "a subject frame cannot reuse a result binding".into(),
+            range: None,
         }),
     }
+}
+
+/// The computation remainder `tail @ ..` and its frame key when the result
+/// writes the computation cell exactly, without `..tail`.
+fn moved_computation_remainder<'a>(
+    subject: RuleStateFrame<'a>,
+    result: RuleStateFrame<'_>,
+) -> Option<(&'a str, &'a ProvenanceKey)> {
+    match (subject, result) {
+        (
+            RuleStateFrame::Framed {
+                family: AssociativeStateFamily::KSequence,
+                frame: AssociativeStateFrame::Bind { key, binding },
+            },
+            RuleStateFrame::Exact,
+        ) => Some((binding, key)),
+        _ => None,
+    }
+}
+
+/// Checks that a leaf cell's subject and result frames agree. A result
+/// that does not put a bound computation remainder back writes the cell's
+/// whole new content, and the remainder, used elsewhere, has been moved:
+/// the pattern it returns ends in the remainder as its last item, and the
+/// clause keeps no frame. Moving a map remainder needs the pattern
+/// `items Rest` as one term, which the IR's map terms do not have yet.
+fn pair_cell_frames(
+    terms: &mut StateRuleTerms<'_>,
+    cell: &str,
+    subject_frame: RuleStateFrame<'_>,
+    result_frame: RuleStateFrame<'_>,
+    before: &SemanticTerm,
+) -> Result<Option<SemanticTerm>, DescriptorLoweringError> {
+    let descriptor = terms.descriptor;
+    if let Some((tail, key)) = moved_computation_remainder(subject_frame, result_frame) {
+        let tail = SemanticId::new(tail)?;
+        let moved = with_trailing_item(
+            descriptor,
+            before,
+            SemanticTerm::variable(
+                semantic_origin(descriptor, key.clone(), "rule-k-frame")?,
+                SemanticSortRef::k_sequence(),
+                tail.clone(),
+            ),
+        )?;
+        terms.moved_remainders.push((tail, key.clone()));
+        return Ok(Some(moved));
+    }
+    if let Some(rest) = moved_map_remainder(subject_frame, result_frame) {
+        return Err(DescriptorLoweringError::invalid_term(
+            descriptor.id(),
+            format!(
+                "the result writes the whole `{cell}` cell without putting back its map remainder `{rest}`; a rule cannot move a map remainder yet, so keep it with `..{rest}`"
+            ),
+        ));
+    }
+    validate_state_frame_pair(
+        descriptor,
+        subject_frame,
+        result_frame,
+        "cell content frame",
+    )?;
+    Ok(None)
+}
+
+/// The map remainder `rest @ ..` when the result writes the map cell
+/// exactly, without `..rest`.
+fn moved_map_remainder<'a>(
+    subject: RuleStateFrame<'a>,
+    result: RuleStateFrame<'_>,
+) -> Option<&'a str> {
+    match (subject, result) {
+        (
+            RuleStateFrame::Framed {
+                family: AssociativeStateFamily::Map,
+                frame: AssociativeStateFrame::Bind { binding, .. },
+            },
+            RuleStateFrame::Exact,
+        ) => Some(binding),
+        _ => None,
+    }
+}
+
+/// The computation pattern `items` followed by `item`.
+fn with_trailing_item(
+    descriptor: &Descriptor,
+    sequence: &SemanticTerm,
+    item: SemanticTerm,
+) -> Result<SemanticTerm, DescriptorLoweringError> {
+    let IrTermKind::KSequence { items, .. } = sequence.kind() else {
+        return Err(DescriptorLoweringError::UnsupportedShape {
+            node: "cell content frame",
+            detail: format!(
+                "rule {} binds a computation remainder outside a computation sequence",
+                descriptor.id()
+            ),
+            range: None,
+        });
+    };
+    let mut items = items.clone();
+    items.push(item);
+    Ok(SemanticTerm::k_sequence(
+        sequence.origin().clone(),
+        SemanticSortRef::k_sequence(),
+        items,
+    ))
+}
+
+/// The moved computation remainders no result term uses.
+fn moved_remainders_unused_by(
+    terms: &StateRuleTerms<'_>,
+    clauses: &[ConfigurationClause<SemanticId, SemanticTerm>],
+) -> Vec<SemanticId> {
+    terms
+        .moved_remainders
+        .iter()
+        .map(|(tail, _)| tail)
+        .filter(|tail| {
+            !clauses
+                .iter()
+                .flat_map(ConfigurationClause::parts)
+                .filter_map(|part| part.post_term())
+                .any(|term| super::evaluation::mentions(term, tail))
+        })
+        .cloned()
+        .collect()
+}
+
+/// A moved computation remainder must be used: in a result term or a
+/// condition. A bound remainder the rule neither puts back nor uses would
+/// be dropped silently, so it keeps the frame-mismatch error.
+fn check_moved_remainders(
+    unused: &[SemanticId],
+    requires: Option<&SemanticCondition>,
+    ensures: Option<&SemanticCondition>,
+) -> Result<(), DescriptorLoweringError> {
+    for tail in unused {
+        let used = requires
+            .into_iter()
+            .chain(ensures)
+            .flat_map(SemanticCondition::terms)
+            .any(|term| super::evaluation::mentions(term, tail));
+        if !used {
+            // A subject rest the result drops: the rest-mismatch mistake, whose code is the
+            // bracket notation's.
+            return Err(DescriptorLoweringError::CellCollection {
+                code: krs_diagnostic::codes::syntax::INVALID_LIST_NOTATION,
+                reason: format!(
+                    "the subject names the rest of the computation `..{tail}`, and the result neither puts it back with `..{tail}` nor uses it, so the rule would drop it: put it back with `..{tail}`, or use it in a condition"
+                ),
+                range: None,
+            });
+        }
+    }
+    Ok(())
 }
 
 fn state_frames_compatible(subject: RuleStateFrame<'_>, result: RuleStateFrame<'_>) -> bool {
@@ -1386,6 +1701,7 @@ fn validate_state_frame_pair(
                 "rule {} uses incompatible subject/result associative state families or frames",
                 descriptor.id()
             ),
+            range: None,
         })
     }
 }
@@ -1420,6 +1736,7 @@ fn validate_frame_pair(
                 "rule {} uses incompatible subject/result frames",
                 descriptor.id()
             ),
+            range: None,
         })
     }
 }
@@ -1626,5 +1943,60 @@ mod state_frame_tests {
             rule_state_frame(&framed_k),
             rule_state_frame(&framed_map)
         ));
+    }
+
+    /// A bound remainder whose result is written exactly is moved: the
+    /// computation remainder becomes the subject's last item, and a map
+    /// remainder is reported.
+    #[test]
+    fn a_bound_remainder_with_an_exact_result_is_moved() {
+        let framed_k = ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
+            payload_key: Some(key(ProvenanceRole::KSequencePayload)),
+            dot_k_key: None,
+            notation: krs_ir::DescriptorKSequenceNotation::Comma,
+            items: Vec::new(),
+            tail: ProtocolRuleFrame::Bind {
+                key: key(ProvenanceRole::KSequenceTail),
+                binding: "tail".into(),
+            },
+        });
+        let exact_k = ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
+            payload_key: Some(key(ProvenanceRole::KSequencePayload)),
+            dot_k_key: None,
+            notation: krs_ir::DescriptorKSequenceNotation::Comma,
+            items: Vec::new(),
+            tail: ProtocolRuleFrame::Exact,
+        });
+        let framed_map = map(ProtocolRuleMapBody::Items {
+            items: vec![krs_ir::ProtocolRuleMapItem {
+                key_key: key(ProvenanceRole::MapKey),
+                key: variable(ProvenanceRole::RuleLeftReference),
+                value_key: key(ProvenanceRole::MapValue),
+                value: variable(ProvenanceRole::RuleRightReference),
+            }],
+            remainder: ProtocolRuleFrame::Bind {
+                key: key(ProvenanceRole::MapRemainder),
+                binding: "rest".into(),
+            },
+        });
+        let empty = map(ProtocolRuleMapBody::Empty { explicit_dot: true });
+
+        assert_eq!(
+            moved_computation_remainder(rule_state_frame(&framed_k), rule_state_frame(&exact_k))
+                .map(|(binding, _)| binding),
+            Some("tail")
+        );
+        assert!(
+            moved_computation_remainder(rule_state_frame(&framed_k), rule_state_frame(&framed_k))
+                .is_none()
+        );
+        assert_eq!(
+            moved_map_remainder(rule_state_frame(&framed_map), rule_state_frame(&empty)),
+            Some("rest")
+        );
+        assert!(
+            moved_computation_remainder(rule_state_frame(&framed_map), rule_state_frame(&empty))
+                .is_none()
+        );
     }
 }

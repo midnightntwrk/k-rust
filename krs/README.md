@@ -13,8 +13,8 @@ The `krs` command collects the crate's descriptors, resolves one Semantic IR and
 
 `krs parse`, `run`, `search`, and `prove` play the roles of K's `kast`, `krun`, `krun --search`, and `kprove`: they compile the same Definition IR in-process through `krs-exec` and the `k-rust` symbolic backend, and `--output json` prints a `krs-exec/1` report.
 
-`krs check`, `expand`, `emit-k`, `build`, and the run commands render human-readable diagnostics on stderr by default, with diagnostic codes, notes, and authored source snippets when the source revision matches.
-Pass `--message-format=json` for machine consumption: located diagnostics use schema-1 JSON envelope lines, while unlocated diagnostics and other failures retain prose lines.
+`krs check`, `expand`, `emit-k`, `build`, and the run commands render human-readable diagnostics on stderr by default, with diagnostic codes, notes, help, and authored source snippets when the source revision matches.
+Pass `--message-format=json` for machine consumption: every diagnostic is a schema-2 JSON envelope line, with a `null` authored range when no authored text is its subject; only failures without a code (a usage error, a crashed collector) are prose lines.
 
 ## Current state
 
@@ -93,8 +93,11 @@ Review the resulting golden files and inline expectations before running the tes
 ### Gates
 
 Run every gate from the repository root with `PYTHONDONTWRITEBYTECODE=1 python3 tests/<gate>/verify.py`.
-The KWasm, KEVM, KMIR, and IMP gates are memory heavy and must run one at a time.
+The KWasm, KEVM, KMIR, and IMP gates are memory heavy: run several at once only when the available memory has room for them.
 `tests/imp/README.md` gives the memory-bounded recipe for IMP; other gate-specific instructions live in each gate directory's README where one exists.
+`tests/gates.sh light` runs every gate but the browser and heavy ones (`../docs/testing.md`, "KRS").
+Those gates build their tools, the packages they check, and the collectors `krs` generates for them in one Cargo target, the repository's `target/`, which `KRS_TOOL_TARGET` or `CARGO_TARGET_DIR` moves; the heavy gates keep their own targets under the scratch directory.
+The gates format-check the standalone test packages, and `tests/gates.sh lint`, which CI runs, lints them with Clippy and checks them on the MSRV.
 
 A gate pins what it does not control and what KRS produces, never KRS source:
 
@@ -146,4 +149,4 @@ The build runs the tour verifiers and several `cargo check` invocations, so it n
 ## License
 
 KRS (everything under `krs/`) is licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or [MIT license](LICENSE-MIT) at your option.
-The rest of the repository, `k-rust`, is licensed under the BSD 3-Clause license (`../LICENSE`).
+The rest of the repository, `k-rust`, is licensed the same way, except for the third-party material `../NOTICE` lists.

@@ -4457,6 +4457,213 @@ fn a_predicate_lemma_needs_no_strictness_in_an_operand_the_path_states_defined()
     assert!(!conjuncts.contains(&h_defined), "{result:?}");
 }
 
+/// `sf` is partial. `\or(\equals(sf(X), "c"), \equals(sf(X), "d"))` rewrites to
+/// `\equals(X, "c")`, and `\not(\and(\ceil(@W), \equals(@Z, "c")))` rewrites to `\top`: a
+/// left-hand side that only the hoisted form of an atom has, binding `@W` and `@Z` to the same
+/// operand. Its own atom does not imply its `\ceil`, so its written form is itself; the set
+/// variables bind operands with no obligation.
+fn written_predicate_definition() -> BackendDefinition {
+    definition(
+        r#"
+            symbol sf{}(SortS{}) : SortS{} [function{}()]
+            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+                \or{Q}(
+                    \equals{SortS{}, Q}(sf{}(X:SortS{}), \dv{SortS{}}("c")),
+                    \equals{SortS{}, Q}(sf{}(X:SortS{}), \dv{SortS{}}("d"))
+                ),
+                \and{Q}(\equals{SortS{}, Q}(X:SortS{}, \dv{SortS{}}("c")), \top{Q}())
+            )) [label{}("or-lhs"), simplification{}()]
+            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+                \not{Q}(\and{Q}(
+                    \ceil{SortS{}, Q}(@W:SortS{}),
+                    \equals{SortS{}, Q}(@Z:SortS{}, \dv{SortS{}}("c"))
+                )),
+                \and{Q}(\top{Q}(), \top{Q}())
+            )) [label{}("hoisted-only"), simplification{}()]
+            "#,
+    )
+}
+
+/// A predicate lemma `P = Q` states that `P` and `Q` are equal predicates, and is matched
+/// against the predicate as written. A condition's hoisted definedness conjoins
+/// `\ceil(sf(Y))` to each atom over `sf(Y)`, which equals the atom, so it is set aside: here it is
+/// in both disjuncts, hence a conjunct of the whole subject, which states the definedness of the
+/// operands the lemma consumes and is conjoined to the result. The written disjunction alone is
+/// not strict in `sf(Y)`, whose definedness is open, so the lemma is not used on it.
+#[test]
+fn a_predicate_lemma_matches_a_disjunction_with_its_hoisted_definedness_set_aside() {
+    let definition = written_predicate_definition();
+    let sf_y = term(&definition, r#"sf{}(Y:SortS{})"#);
+    let y = term(&definition, r#"Y:SortS{}"#);
+    let c = term(&definition, r#"\dv{SortS{}}("c")"#);
+    let d = term(&definition, r#"\dv{SortS{}}("d")"#);
+    let defined = Predicate::Ceil(sf_y.clone());
+    let is_c = Predicate::Equals(sf_y.clone(), c.clone());
+    let is_d = Predicate::Equals(sf_y, d);
+    let hoisted = Predicate::Or(
+        vec![
+            Predicate::And(vec![defined.clone(), is_c.clone()].into()),
+            Predicate::And(vec![defined.clone(), is_d.clone()].into()),
+        ]
+        .into(),
+    );
+    let simplify = |predicate: &Predicate| {
+        simplify_predicate_with_solver(
+            &definition,
+            predicate,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the predicate should simplify")
+    };
+
+    let result = simplify(&hoisted);
+    let conjuncts = match &result {
+        Predicate::And(conjuncts) => conjuncts.to_vec(),
+        other => vec![other.clone()],
+    };
+    assert_eq!(conjuncts.len(), 2, "{result:?}");
+    assert!(conjuncts.contains(&defined), "{result:?}");
+    assert!(
+        conjuncts.contains(&Predicate::Equals(y.clone(), c.clone()))
+            || conjuncts.contains(&Predicate::Equals(c, y)),
+        "{result:?}"
+    );
+
+    let written = Predicate::Or(vec![is_c, is_d].into());
+    assert_eq!(simplify(&written), written);
+}
+
+/// Negative control: a lemma whose left-hand side matches only the hoisted form of an atom
+/// (`\not(\and(\ceil(@W), \equals(@Z, "c")))`) does not apply to the hoisted form of
+/// `\not(\equals(sf(Y), "c"))`, whose written atom it does not match.
+#[test]
+fn a_predicate_lemma_that_matches_only_the_hoisted_form_of_an_atom_is_not_applied() {
+    let definition = written_predicate_definition();
+    let sf_y = term(&definition, r#"sf{}(Y:SortS{})"#);
+    let c = term(&definition, r#"\dv{SortS{}}("c")"#);
+    let hoisted = Predicate::Not(Arc::new(Predicate::And(
+        vec![Predicate::Ceil(sf_y.clone()), Predicate::Equals(sf_y, c)].into(),
+    )));
+    let result = simplify_predicate_with_solver(
+        &definition,
+        &hoisted,
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the predicate should simplify");
+    assert_eq!(result, hoisted);
+}
+
+/// The conjuncts of `predicate`: itself when it is not a conjunction.
+fn conjuncts_of(predicate: &Predicate) -> Vec<Predicate> {
+    match predicate {
+        Predicate::And(conjuncts) => conjuncts.to_vec(),
+        other => vec![other.clone()],
+    }
+}
+
+/// `pf` and `pg` are partial. `\not(\equals(@T, pg(Y)))`, as written, rewrites to
+/// `\equals(Y, "d")`; `\not(\and(\ceil(@W), \equals(@T, pg(Y))))`, a left-hand side that only the
+/// hoisted form has where `pg(Y)` is known defined, rewrites to `\top`. The set variables bind
+/// `pf(A)` with no obligation, so only `pg(B)`, known defined, is a consumed operand.
+fn known_defined_side_definition() -> BackendDefinition {
+    definition(
+        r#"
+            symbol pf{}(SortS{}) : SortS{} [function{}()]
+            symbol pg{}(SortS{}) : SortS{} [function{}()]
+            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+                \not{Q}(\equals{SortS{}, Q}(@T:SortS{}, pg{}(Y:SortS{}))),
+                \and{Q}(\equals{SortS{}, Q}(Y:SortS{}, \dv{SortS{}}("d")), \top{Q}())
+            )) [label{}("as-written"), simplification{}()]
+            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+                \not{Q}(\and{Q}(
+                    \ceil{SortS{}, Q}(@W:SortS{}),
+                    \equals{SortS{}, Q}(@T:SortS{}, pg{}(Y:SortS{}))
+                )),
+                \and{Q}(\top{Q}(), \top{Q}())
+            )) [label{}("hoisted-only"), simplification{}()]
+            "#,
+    )
+}
+
+/// Where `\ceil(pg(B))` is known, hoisting reads `\equals(pf(A), pg(B))` as an atom over
+/// `pf(A)` and states `\ceil(pf(A))` beside it. The set-aside step decides the atom under the
+/// same known predicates, so the lemma written as `\not(\equals(@T, pg(Y)))` applies, and the
+/// lemma that matches only the hoisted form does not.
+#[test]
+fn a_predicate_lemma_matches_an_atom_whose_defined_side_is_known_defined() {
+    let definition = known_defined_side_definition();
+    let pf_a = term(&definition, r#"pf{}(A:SortS{})"#);
+    let pg_b = term(&definition, r#"pg{}(B:SortS{})"#);
+    let b = term(&definition, r#"B:SortS{}"#);
+    let d = term(&definition, r#"\dv{SortS{}}("d")"#);
+    let known = [Predicate::Ceil(pg_b.clone())];
+    let hoisted = Predicate::Not(Arc::new(Predicate::And(
+        vec![Predicate::Ceil(pf_a.clone()), Predicate::Equals(pf_a, pg_b)].into(),
+    )));
+    let result = simplify_predicate_with_solver(
+        &definition,
+        &hoisted,
+        &known,
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the predicate should simplify");
+    assert_ne!(
+        result,
+        Predicate::True,
+        "the hoisted-only lemma applied: {result:?}"
+    );
+    let conjuncts = conjuncts_of(&result);
+    assert!(
+        conjuncts.contains(&Predicate::Equals(b.clone(), d.clone()))
+            || conjuncts.contains(&Predicate::Equals(d, b)),
+        "the as-written lemma did not apply: {result:?}"
+    );
+}
+
+/// `sf` is partial. A lemma whose left-hand side states `\ceil(@T)` beside the atom
+/// `\equals(@T, "c")`, which implies it, is the lemma without that conjunct.
+fn written_ceil_lemma_definition() -> BackendDefinition {
+    definition(
+        r#"
+            symbol sf{}(SortS{}) : SortS{} [function{}()]
+            axiom{R, Q} \implies{R}(\top{R}(), \equals{Q, R}(
+                \not{Q}(\and{Q}(
+                    \ceil{SortS{}, Q}(@T:SortS{}),
+                    \equals{SortS{}, Q}(@T:SortS{}, \dv{SortS{}}("c"))
+                )),
+                \and{Q}(\top{Q}(), \top{Q}())
+            )) [label{}("written-ceil"), simplification{}()]
+            "#,
+    )
+}
+
+/// `\ceil(t) /\ a` is `a` when `a` implies `\ceil(t)`, so a lemma whose left-hand side has an
+/// author-written `\ceil` beside an implying atom is matched in the same written form as its
+/// subjects, and applies to a condition written identically.
+#[test]
+fn a_predicate_lemma_with_a_written_ceil_beside_an_implying_atom_applies() {
+    let definition = written_ceil_lemma_definition();
+    let sf_y = term(&definition, r#"sf{}(Y:SortS{})"#);
+    let c = term(&definition, r#"\dv{SortS{}}("c")"#);
+    let written = Predicate::Not(Arc::new(Predicate::And(
+        vec![Predicate::Ceil(sf_y.clone()), Predicate::Equals(sf_y, c)].into(),
+    )));
+    let result = simplify_predicate_with_solver(
+        &definition,
+        &written,
+        &[],
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("the predicate should simplify");
+    assert_eq!(result, Predicate::True, "the lemma did not apply");
+}
+
 #[test]
 fn function_group_with_an_indeterminate_sibling_still_blocks_owise() {
     let syntax = parse_definition(
@@ -4815,6 +5022,160 @@ fn boolean_equalities_with_literals_normalize_to_term_predicates() {
         .expect("Boolean literal equality should simplify");
 
         assert_eq!(result, expected, "input: {predicate:#?}");
+    }
+}
+
+/// A definition with two partial Boolean functions `p` and `q` (no equation, so neither is
+/// shown defined anywhere) and the hooked connectives over them.
+fn partial_boolean_definition() -> BackendDefinition {
+    definition(
+        r#"
+            hooked-symbol andBool{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.and")]
+            hooked-symbol orBool{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.or")]
+            hooked-symbol notBool{}(SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.not")]
+            symbol p{}(SortS{}) : SortBool{} [function{}()]
+            symbol q{}(SortS{}) : SortBool{} [function{}()]
+        "#,
+    )
+}
+
+/// The members of `predicate` read as a conjunction.
+fn conjuncts(predicate: &Predicate) -> Vec<Predicate> {
+    match predicate {
+        Predicate::And(members) => members.iter().cloned().collect(),
+        other => vec![other.clone()],
+    }
+}
+
+fn simplified_predicate(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known: &[Predicate],
+) -> Predicate {
+    simplify_predicate_with_solver(
+        definition,
+        predicate,
+        known,
+        SimplificationOptions::default(),
+        &NoSolver,
+    )
+    .expect("predicate should simplify")
+}
+
+/// `t = false` holds only where `t` is defined: the application of a symbol to an undefined
+/// argument is undefined, and `\equals(\bottom, false)` is false. `\not(t)` alone also holds
+/// where `t` is undefined, so the normal form states `\ceil(t)` beside it, for either side of
+/// the equation and for `notBool t = true`. With `\ceil(t)` known the result is exactly
+/// `\not(t)`, and simplifying the normal form again changes nothing.
+#[test]
+fn a_false_equation_of_a_partial_boolean_keeps_its_definedness() {
+    let definition = partial_boolean_definition();
+    let p = term(&definition, r#"p{}(X:SortS{})"#);
+    let false_value = Term::raw_domain_value(Sort::simple("SortBool"), "false");
+    let true_value = Term::raw_domain_value(Sort::simple("SortBool"), "true");
+    let negation = Predicate::Not(Arc::new(Predicate::Term(p.clone())));
+    let ceil = Predicate::Ceil(p.clone());
+    let negated_application = term(&definition, r#"notBool{}(p{}(X:SortS{}))"#);
+
+    for predicate in [
+        Predicate::Equals(p.clone(), false_value.clone()),
+        Predicate::Equals(false_value.clone(), p.clone()),
+        Predicate::Equals(negated_application.clone(), true_value),
+        Predicate::Term(negated_application),
+    ] {
+        let result = simplified_predicate(&definition, &predicate, &[]);
+        let members = conjuncts(&result);
+        assert!(
+            members.len() == 2 && members.contains(&ceil) && members.contains(&negation),
+            "{predicate:?} simplified to {result:?}"
+        );
+        assert_eq!(
+            simplified_predicate(&definition, &result, &[]),
+            result,
+            "the normal form of {predicate:?} is a fixed point"
+        );
+        assert_eq!(
+            simplified_predicate(&definition, &predicate, std::slice::from_ref(&ceil)),
+            negation,
+            "{predicate:?} under its known definedness"
+        );
+    }
+}
+
+/// `(a andBool b) = false` and `(a orBool b) = true` are decided by one operand, but the
+/// connective is strict, so both hold only where both operands are defined: the disjunction of
+/// the operands' equations alone also holds at `a = false` with `b` undefined. The normal form
+/// conjoins both operands' `\ceil` to that disjunction; with both known, only the disjunction is
+/// left. The connectives decided by both operands (`andBool = true`, `orBool = false`) need no
+/// obligation beside the operands' own equations, which state it.
+#[test]
+fn a_connective_decided_by_one_partial_operand_keeps_both_operands_definedness() {
+    let definition = partial_boolean_definition();
+    let p = term(&definition, r#"p{}(X:SortS{})"#);
+    let q = term(&definition, r#"q{}(X:SortS{})"#);
+    let ceils = [Predicate::Ceil(p.clone()), Predicate::Ceil(q.clone())];
+    let value = |value: &str| Term::raw_domain_value(Sort::simple("SortBool"), value);
+    let atom = |term: &Term| Predicate::Term(term.clone());
+    let not_atom = |term: &Term| Predicate::Not(Arc::new(Predicate::Term(term.clone())));
+
+    for (connective, decided, disjuncts) in [
+        ("andBool", "false", vec![not_atom(&p), not_atom(&q)]),
+        ("orBool", "true", vec![atom(&p), atom(&q)]),
+    ] {
+        let application = term(
+            &definition,
+            &format!("{connective}{{}}(p{{}}(X:SortS{{}}), q{{}}(X:SortS{{}}))"),
+        );
+        let predicate = Predicate::Equals(application, value(decided));
+        let result = simplified_predicate(&definition, &predicate, &[]);
+        let members = conjuncts(&result);
+        assert!(
+            ceils.iter().all(|ceil| members.contains(ceil))
+                && members
+                    .iter()
+                    .any(|member| matches!(member, Predicate::Or(_))),
+            "{predicate:?} simplified to {result:?}"
+        );
+        assert_eq!(
+            simplified_predicate(&definition, &result, &[]),
+            result,
+            "the normal form of {predicate:?} is a fixed point"
+        );
+        assert_eq!(
+            simplified_predicate(&definition, &predicate, &ceils),
+            Predicate::Or(disjuncts.into()),
+            "{predicate:?} under both operands' known definedness"
+        );
+    }
+
+    for (connective, decided, expected) in [
+        ("andBool", "true", vec![atom(&p), atom(&q)]),
+        (
+            "orBool",
+            "false",
+            vec![
+                ceils[0].clone(),
+                not_atom(&p),
+                ceils[1].clone(),
+                not_atom(&q),
+            ],
+        ),
+    ] {
+        let application = term(
+            &definition,
+            &format!("{connective}{{}}(p{{}}(X:SortS{{}}), q{{}}(X:SortS{{}}))"),
+        );
+        let predicate = Predicate::Equals(application, value(decided));
+        let result = simplified_predicate(&definition, &predicate, &[]);
+        let members = conjuncts(&result);
+        assert!(
+            members.len() == expected.len()
+                && expected.iter().all(|member| members.contains(member)),
+            "{predicate:?} simplified to {result:?}"
+        );
     }
 }
 
@@ -6231,16 +6592,16 @@ fn an_equation_requirement_on_a_variable_the_match_leaves_unbound_is_not_capture
         panic!("expected one lhs variable");
     };
     let sort = Sort::simple("SortS");
-    let variable = |name: &str| Term::variable(Variable::new(name, sort.clone()));
+    let variable = |name: &str| Term::variable(Variable::new(name, sort));
     let rule_y = "Eq#Y";
     let input = k_rust_backend::substitution::substitute(
         &term(&definition, "f{}(budgetPair{}(A:SortS{}, B:SortS{}))"),
         &Substitution::from([
             (
-                Variable::new("A", sort.clone()),
+                Variable::new("A", sort),
                 Term::variable((*lhs_variable).clone()),
             ),
-            (Variable::new("B", sort.clone()), variable(rule_y)),
+            (Variable::new("B", sort), variable(rule_y)),
         ]),
     );
     let c = term(&definition, r#"\dv{SortS{}}("c")"#);
@@ -6738,6 +7099,79 @@ fn a_condition_over_a_hook_shortcut_becomes_its_definedness_obligation() {
     .unwrap();
 
     assert_eq!(result, Predicate::Ceil(term(&definition, TEN_BY_X)));
+}
+
+/// `(a andThenBool b) = true` holds exactly where `a = true` and `b = true` do, and
+/// `(a orElseBool b) = false` exactly where `a = false` and `b = false` do, whatever the
+/// definedness of `b` where `a` decides the connective: asserted, each reads as the conjunction
+/// of its operands' equations in their order, as its strict counterpart does. Split, a guard's
+/// second operand meets the other facts, so two guards that fix one term to different values
+/// contradict each other without a solver, where the connective as one atom would not.
+#[test]
+fn an_asserted_short_circuit_connective_reads_as_its_operands_equations() {
+    let definition = definition(
+        r#"
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.eq")]
+            hooked-symbol and{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.and")]
+            hooked-symbol andThen{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.andThen")]
+            hooked-symbol or{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.or")]
+            hooked-symbol orElse{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.orElse")]
+            symbol inRange{}(SortInt{}) : SortBool{} [function{}(), total{}(), no-evaluators{}()]
+            symbol field{}(SortInt{}) : SortInt{} [function{}(), total{}(), no-evaluators{}()]
+        "#,
+    );
+    let range = "inRange{}(X:SortInt{})";
+    let field_is = |value: &str| {
+        format!(r#"eqInt{{}}(field{{}}(X:SortInt{{}}), \dv{{SortInt{{}}}}("{value}"))"#)
+    };
+    let asserted = |connective: &str, value: &str, second: &str| {
+        Predicate::Equals(
+            term(&definition, &format!("{connective}{{}}({range}, {second})")),
+            term(&definition, &format!(r#"\dv{{SortBool{{}}}}("{value}")"#)),
+        )
+    };
+    for (short_circuit, strict, value) in [("andThen", "and", "true"), ("orElse", "or", "false")] {
+        let second = field_is("4");
+        let operands = Predicate::And(
+            [range, second.as_str()]
+                .map(|operand| {
+                    Predicate::Equals(
+                        term(&definition, operand),
+                        term(&definition, &format!(r#"\dv{{SortBool{{}}}}("{value}")"#)),
+                    )
+                })
+                .to_vec()
+                .into(),
+        );
+        let split = simplify_predicate(&definition, &asserted(short_circuit, value, &second));
+        assert!(
+            matches!(&split, Predicate::And(conjuncts) if conjuncts.len() == 2),
+            "{split:?}"
+        );
+        assert_eq!(
+            split,
+            simplify_predicate(&definition, &operands),
+            "{short_circuit}"
+        );
+        assert_eq!(
+            split,
+            simplify_predicate(&definition, &asserted(strict, value, &second)),
+            "{short_circuit}"
+        );
+    }
+    let guards = Predicate::And(
+        ["0", "2"]
+            .map(|value| asserted("andThen", "true", &field_is(value)))
+            .to_vec()
+            .into(),
+    );
+    assert_eq!(simplify_predicate(&definition, &guards), Predicate::False);
 }
 
 /// The declaration the unbound-result-variable tests add: a second partial function `p`, besides
@@ -7547,4 +7981,80 @@ fn a_condition_the_solver_leaves_undecided_carries_the_first_sentence_of_its_own
     let mut expected = origins;
     expected.sort();
     assert_eq!(reported, expected);
+}
+
+/// `t1 /\ t2` of two terms, each denoting at most one value, is that value where they are equal
+/// and nothing otherwise, so its definedness is `⌈t1⌉ /\ t1 = t2`, at the root and below a strict
+/// application alike; the definedness of the operands alone is not enough. A set variable may
+/// denote several values, so a conjunction with one keeps its `\ceil` as it is.
+#[test]
+fn the_definedness_of_a_term_conjunction_states_the_equality_of_its_operands() {
+    let definition = definition("");
+    let ceil = |source: &str| Predicate::Ceil(term(&definition, source));
+    let simplified = |predicate: &Predicate| {
+        simplify_predicate_with_solver(
+            &definition,
+            predicate,
+            &[],
+            SimplificationOptions::default(),
+            &NoSolver,
+        )
+        .expect("the predicate should simplify")
+    };
+    const A: &str = r#"\dv{SortS{}}("a")"#;
+    const B: &str = r#"\dv{SortS{}}("b")"#;
+    let and = |left: &str, right: &str| format!(r#"\and{{SortS{{}}}}({left}, {right})"#);
+    let wrap = |argument: &str| format!("wrap{{}}({argument})");
+
+    assert_eq!(simplified(&ceil(&and(A, B))), Predicate::False);
+    assert_eq!(simplified(&ceil(&and(A, A))), Predicate::True);
+    assert_eq!(simplified(&ceil(&wrap(&and(A, B)))), Predicate::False);
+    let equal = simplified(&Predicate::Equals(
+        term(&definition, "X:SortS{}"),
+        term(&definition, A),
+    ));
+    assert_ne!(equal, Predicate::True);
+    assert_eq!(simplified(&ceil(&and("X:SortS{}", A))), equal);
+    assert_eq!(simplified(&ceil(&wrap(&and("X:SortS{}", A)))), equal);
+
+    let opaque = ceil(&and("@S:SortS{}", A));
+    assert_eq!(simplified(&opaque), opaque);
+}
+
+/// The empty conjunction is `\top`: it simplifies to itself under any known facts and any
+/// budget, a zero one included, reports nothing, and counts as one simplifier entry.
+#[test]
+fn the_empty_conjunction_simplifies_to_itself_under_any_facts_and_budget() {
+    let definition = definition("");
+    let known = [
+        Predicate::Ceil(term(&definition, "f{}(X:SortS{})")),
+        Predicate::Equals(
+            term(&definition, "X:SortS{}"),
+            term(&definition, r#"\dv{SortS{}}("value")"#),
+        ),
+    ];
+    for options in [
+        SimplificationOptions::default(),
+        SimplificationOptions {
+            max_iterations: 0,
+            budget: BudgetPolicy::Fail,
+        },
+        SimplificationOptions {
+            max_iterations: 0,
+            budget: BudgetPolicy::KeepPartial,
+        },
+    ] {
+        for facts in [&known[..], &[]] {
+            let before = snapshot();
+            let (result, diagnostics) = diagnostic::collect(|| {
+                simplify_predicates_with_solver(&definition, &[], facts, options, &NoSolver)
+            });
+            assert_eq!(result, Ok(Vec::new()));
+            assert_eq!(diagnostics, []);
+            assert_eq!(
+                snapshot().delta(&before).get(Counter::SimplifyInvocations),
+                1
+            );
+        }
+    }
 }

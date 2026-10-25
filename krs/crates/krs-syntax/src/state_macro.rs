@@ -7,7 +7,7 @@ use syn::spanned::Spanned;
 use syn::{Expr, Ident, Path, Token, parenthesized};
 
 use crate::parse::{KrsSyntax, checked_ordinal, structured_with};
-use crate::path::{path_text, plain_path_last, unqualified_path_ident};
+use crate::path::{path_text, plain_path_last};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TermExpression, TermNode,
     TermTree, TokenRange,
@@ -237,7 +237,7 @@ impl MapPatternBindings {
             .flat_map(|item| [item.key(), item.value()])
             .flat_map(|term| crate::term::split_rewrite_images(term.nodes()).0)
             .filter_map(|node| match node {
-                TermNode::Reference(path) => unqualified_path_ident(path).cloned(),
+                TermNode::Reference(path) => crate::path::pattern_binder(path).cloned(),
                 TermNode::As { binding, .. } => Some(binding.clone()),
                 _ => None,
             })
@@ -259,6 +259,12 @@ pub struct MapExpression {
 }
 
 impl MapExpression {
+    /// Returns the tokens the expression was parsed from.
+    #[must_use]
+    pub const fn tokens(&self) -> &TokenStream {
+        &self.tokens
+    }
+
     fn empty(tokens: TokenStream, explicit_dot: bool, context: StateMacroContext) -> Self {
         Self {
             tokens,
@@ -874,6 +880,8 @@ fn parse_k_sequence(
     tokens: TokenStream,
     context: StateMacroContext,
 ) -> Result<KSequence, SyntaxError> {
+    // A trailing comma ends the list; it is no element.
+    let tokens = crate::parse::strip_trailing_comma(tokens);
     if context == StateMacroContext::Expression {
         crate::term::reject_pattern_alias(&tokens)?;
     }
@@ -1004,6 +1012,8 @@ fn parse_map(
     tokens: TokenStream,
     context: StateMacroContext,
 ) -> Result<MapExpression, SyntaxError> {
+    // A trailing comma ends the list; it is no element.
+    let tokens = crate::parse::strip_trailing_comma(tokens);
     if context == StateMacroContext::Expression {
         crate::term::reject_pattern_alias(&tokens)?;
     }
@@ -1076,6 +1086,7 @@ fn parse_map(
             }
 
             let first = parse_map_item_key(input)?;
+            let mut keys = vec![first.to_string()];
             parse_map_item_arrow(input)?;
             let value = parse_state_item(input, context)?;
             let mut items = vec![MapItem {
@@ -1093,6 +1104,19 @@ fn parse_map(
                     break;
                 }
                 let key = parse_map_item_key(input)?;
+                // A pattern's items are distinct entries of the map, so two
+                // keys that are the same term can never both match; two `_`
+                // keys match two distinct entries.
+                let text = key.to_string();
+                if context == StateMacroContext::Pattern && text != "_" && keys.contains(&text) {
+                    return Err(state_error(
+                        "map",
+                        "a map pattern names one key twice; \
+                         its items are distinct entries of the map, so no map matches it",
+                        key.span(),
+                    ));
+                }
+                keys.push(text);
                 parse_map_item_arrow(input)?;
                 let value = parse_state_item(input, context)?;
                 items.push(MapItem {
@@ -1147,6 +1171,8 @@ fn parse_cells(
     tokens: TokenStream,
     context: StateMacroContext,
 ) -> Result<CellsExpression, SyntaxError> {
+    // A trailing comma ends the list; it is no element.
+    let tokens = crate::parse::strip_trailing_comma(tokens);
     if context == StateMacroContext::Expression {
         crate::term::reject_pattern_alias(&tokens)?;
     }
@@ -1295,7 +1321,7 @@ fn parse_entry_value(
     let wrapper_name = last.ident.to_string();
     let value = match wrapper_name.as_str() {
         "KCell" => StateTerm::KSequence(parse_k_sequence(value_tokens, context)?),
-        "Cell" => parse_state_term(value_tokens, context)?,
+        "Cell" => parse_state_term(crate::parse::strip_trailing_comma(value_tokens), context)?,
         _ => {
             return Err(state_error(
                 "cells",
@@ -1446,7 +1472,7 @@ fn parse_instance_item(
         input.parse::<Token![!]>().map_err(SyntaxError::from)?;
         let group: proc_macro2::Group = input.parse().map_err(SyntaxError::from)?;
         let (owner, body) = structured_with(
-            group.stream(),
+            crate::parse::strip_trailing_comma(group.stream()),
             |inner| {
                 let owner: Path = inner.parse().map_err(SyntaxError::from)?;
                 let body: proc_macro2::Group = inner.parse().map_err(SyntaxError::from)?;
@@ -1654,20 +1680,27 @@ fn parse_group_entry(
     }
 }
 
+/// Parses a leaf cell's content. `k!` and `map!` are read by their last
+/// path segment, so `k::map![..]` is the same map as `map![..]`, as in
+/// instance children and initializers; another qualified macro, such as
+/// `k::fragment![..]`, is an ordinary term.
 fn parse_state_term(
     tokens: TokenStream,
     context: StateMacroContext,
 ) -> Result<StateTerm, SyntaxError> {
-    if let Some((name, payload)) = macro_payload(&tokens) {
-        return match name.as_str() {
-            "k" => Ok(StateTerm::KSequence(parse_k_sequence(payload, context)?)),
-            "map" => Ok(StateTerm::Map(parse_map(payload, context)?)),
-            _ => Err(state_error(
-                "cells",
-                "cell contents use only `k!` or `map!` state macros",
-                tokens.span(),
-            )),
-        };
+    if let Some((name, payload)) = qualified_macro_payload(&tokens) {
+        match name.as_str() {
+            "k" => return Ok(StateTerm::KSequence(parse_k_sequence(payload, context)?)),
+            "map" => return Ok(StateTerm::Map(parse_map(payload, context)?)),
+            _ if macro_payload(&tokens).is_some() => {
+                return Err(state_error(
+                    "cells",
+                    "cell contents use only `k!` or `map!` state macros",
+                    tokens.span(),
+                ));
+            }
+            _ => {}
+        }
     }
     Ok(StateTerm::Term(state_term_tokens(tokens, context)?))
 }
@@ -1761,9 +1794,10 @@ fn parse_state_item(
     match context {
         StateMacroContext::Pattern => {
             let start = input.cursor();
+            let fork = input.fork();
             let pattern = input
                 .call(syn::Pat::parse_multi)
-                .map_err(SyntaxError::from)?;
+                .map_err(|error| crate::notation::pattern_parse_error(&fork, error))?;
             let mut tokens = TokenStream::new();
             let mut cursor = start;
             while cursor != input.cursor() {
@@ -1777,8 +1811,10 @@ fn parse_state_item(
             TermExpression::from_pattern(pattern, tokens, signs)
         }
         StateMacroContext::Expression => {
+            // Full expression syntax, so an item may be a record constructor
+            // (`Tag { b: x }`), as any term may.
             let expression = input
-                .call(Expr::parse_without_eager_brace)
+                .call(<Expr as syn::parse::Parse>::parse)
                 .map_err(SyntaxError::from)?;
             TermExpression::from_expression(expression)
         }

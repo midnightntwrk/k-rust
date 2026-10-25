@@ -1,0 +1,2566 @@
+# The class-test cases known not to conform: the red list. Each entry is keyed by the case ID and
+# names the finding that owns the deviation, the deviation exactly as the harness prints it, and the
+# step (S1 to S6) whose design makes the case conform:
+#
+#    ["readable/result/pc/Some(x)"]
+#    finding = "B3"
+#    deviation = "E0277 @ item"
+#    step = "S3"
+#
+# A pending case that conforms, or deviates differently, fails until this file records it; see
+# `class_matrix::pending`. Keys: a case ID (K2, read by both tiers), `full/ID` (K2 where the full
+# tier observes a case otherwise than the front), `k1/ID`, `k3/ID`, `lattice/..` (K4) and
+# `entry/..` (K5).
+
+# S0-2: `for Nope;` in a sentence block reports rustc E0425 twice
+
+["entry/function/claims"]
+finding = "S0-2"
+deviation = "krs check: 2 errors [E0425], 0 warnings []; cargo check: 2 errors [E0425], 0 warnings []"
+step = "S3"
+
+["entry/function/rules"]
+finding = "S0-2"
+deviation = "krs check: 2 errors [E0425], 0 warnings []; cargo check: 2 errors [E0425], 0 warnings []"
+step = "S3"
+
+# S0-4: an initializer that reads a configuration variable twice is rustc E0382
+
+["init/typed/list/any"]
+finding = "S0-4"
+deviation = "E0382 @ item"
+step = "S3"
+
+["init/typed/map/any"]
+finding = "S0-4"
+deviation = "E0382 @ item"
+step = "S3"
+
+# S0-7: an existential closure in a local-rule subject is refused by the template's `k::rewrite!` rule, at the rewrite
+
+["terms/local-rule/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-7"
+deviation = "krs::syntax::invalid-local-rewrite @ item"
+step = "S3"
+
+# S0-8: the coverage lint's sort graph lacks the implicit `S ≤ KItem` edges
+
+["lattice/class-imported/coverage~k-rust-disambiguation/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 13 pairs only k-rust-disambiguation holds"
+step = "S4"
+
+["lattice/class-imported/coverage~k-rust-subsorts/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 13 pairs only k-rust-subsorts holds"
+step = "S4"
+
+["lattice/class-machine/coverage~k-rust-disambiguation/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 14 pairs only k-rust-disambiguation holds"
+step = "S4"
+
+["lattice/class-machine/coverage~k-rust-subsorts/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 14 pairs only k-rust-subsorts holds"
+step = "S4"
+
+["lattice/class-terms/coverage~k-rust-disambiguation/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 13 pairs only k-rust-disambiguation holds"
+step = "S4"
+
+["lattice/class-terms/coverage~k-rust-subsorts/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 13 pairs only k-rust-subsorts holds"
+step = "S4"
+
+["lattice/class-typed/coverage~k-rust-disambiguation/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 14 pairs only k-rust-disambiguation holds"
+step = "S4"
+
+["lattice/class-typed/coverage~k-rust-subsorts/s-kitem"]
+finding = "S0-8"
+deviation = "0 pairs only coverage holds; 14 pairs only k-rust-subsorts holds"
+step = "S4"
+
+["lattice/configuration-sort-chain/catalog~coverage/s-kitem"]
+finding = "S0-8"
+deviation = "13 pairs only catalog holds; 0 pairs only coverage holds"
+step = "S4"
+
+["lattice/configuration-sort-chain/definition-validator~coverage/s-kitem"]
+finding = "S0-8"
+deviation = "13 pairs only definition-validator holds; 0 pairs only coverage holds"
+step = "S4"
+
+["lattice/configuration-sort-chain/overlap~coverage/s-kitem"]
+finding = "S0-8"
+deviation = "13 pairs only overlap holds; 0 pairs only coverage holds"
+step = "S4"
+
+["lattice/configuration-sort-chain/semantic-validator~coverage/s-kitem"]
+finding = "S0-8"
+deviation = "13 pairs only semantic-validator holds; 0 pairs only coverage holds"
+step = "S4"
+
+["lattice/grammar-builtin-subsort/catalog~coverage/s-kitem"]
+finding = "S0-8"
+deviation = "10 pairs only catalog holds; 0 pairs only coverage holds"
+step = "S4"
+
+["lattice/grammar-builtin-subsort/definition-validator~coverage/s-kitem"]
+finding = "S0-8"
+deviation = "10 pairs only definition-validator holds; 0 pairs only coverage holds"
+step = "S4"
+
+["lattice/grammar-builtin-subsort/overlap~coverage/s-kitem"]
+finding = "S0-8"
+deviation = "10 pairs only overlap holds; 0 pairs only coverage holds"
+step = "S4"
+
+["lattice/grammar-builtin-subsort/semantic-validator~coverage/s-kitem"]
+finding = "S0-8"
+deviation = "10 pairs only semantic-validator holds; 0 pairs only coverage holds"
+step = "S4"
+
+# S0-9: one cell-entry mistake answers with the code of whichever layer meets it first: a readable result's spellings are checked by the macro's syntax layer (`invalid-state-macro`, `invalid-expression-notation`, `unsupported-rule-body`, `rust-syntax`, `syntax::invalid-list-notation`), a subject's by analysis, and brackets on a cell are read as an instance list
+
+["cells/result/counter/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
+finding = "S0-9"
+deviation = "krs::syntax::unsupported-rule-body @ spelling"
+step = "S5"
+
+["cells/result/env/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
+finding = "S0-9"
+deviation = "krs::syntax::unsupported-rule-body @ spelling"
+step = "S5"
+
+["cells/result/frame/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
+finding = "S0-9"
+deviation = "krs::syntax::unsupported-rule-body @ spelling"
+step = "S5"
+
+["cells/result/job/k::configuration::Cell(0)"]
+finding = "S0-9"
+deviation = "krs::analysis::optional-presence @ entry"
+step = "S5"
+
+["cells/result/job/k::configuration::Cell([x, y])"]
+finding = "S0-9"
+deviation = "krs::analysis::optional-presence @ entry"
+step = "S5"
+
+["cells/result/job/k::configuration::Cell(k::map![x -> y])"]
+finding = "S0-9"
+deviation = "krs::analysis::optional-presence @ entry"
+step = "S5"
+
+["cells/result/job/k::configuration::Cell(x)"]
+finding = "S0-9"
+deviation = "krs::analysis::optional-presence @ entry"
+step = "S5"
+
+["cells/result/job/k::configuration::KCell()"]
+finding = "S0-9"
+deviation = "krs::analysis::optional-presence @ entry"
+step = "S5"
+
+["cells/result/job/k::configuration::KCell(x)"]
+finding = "S0-9"
+deviation = "krs::analysis::optional-presence @ entry"
+step = "S5"
+
+["cells/result/k/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
+finding = "S0-9"
+deviation = "krs::syntax::unsupported-rule-body @ spelling"
+step = "S5"
+
+["cells/result/pc/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
+finding = "S0-9"
+deviation = "krs::syntax::unsupported-rule-body @ spelling"
+step = "S5"
+
+["cells/result/stack/[k::fragment![crate::Job { payload: x, ..old }], ..instances0]"]
+finding = "S0-9"
+deviation = "krs::syntax::unsupported-rule-body @ spelling"
+step = "S5"
+
+["claim/result/counter/0"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/counter/Frame { ret: x }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/counter/[.., Job { payload: 0, .. }]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/counter/[..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/counter/[Job { payload: x, .. }, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/counter/[]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/counter/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/counter/_"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/counter/x"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/counter/{ .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/counter/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/env/[.., Job { payload: 0, .. }]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["claim/result/env/[..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["claim/result/env/[Job { payload: x, .. }, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["claim/result/env/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["claim/result/env/{ .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+step = "S5"
+
+["claim/result/frame/[.., Job { payload: 0, .. }]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["claim/result/frame/[..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["claim/result/frame/[Job { payload: x, .. }, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["claim/result/frame/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["claim/result/frame/{ .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+step = "S5"
+
+["claim/result/frame/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S5"
+
+["claim/result/job/0"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/job/Frame { ret: x }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/job/None"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/job/Some(x)"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/job/[]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["claim/result/job/_"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/job/x"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/job/{ .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["claim/result/job/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S5"
+
+["claim/result/k/0"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["claim/result/k/Frame { ret: x }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["claim/result/k/None"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["claim/result/k/Some(x)"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["claim/result/k/[]"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["claim/result/k/_"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["claim/result/k/x"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["claim/result/k/{ .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["claim/result/k/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S5"
+
+["claim/result/pc/[.., Job { payload: 0, .. }]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["claim/result/pc/[..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["claim/result/pc/[Job { payload: x, .. }, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["claim/result/pc/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["claim/result/pc/{ .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+step = "S5"
+
+["claim/result/pc/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S5"
+
+["claim/result/stack/{ .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+step = "S5"
+
+["claim/result/stack/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S5"
+
+["claim/subject/counter/Frame { ret: x }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+step = "S5"
+
+["claim/subject/counter/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["claim/subject/counter/_"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["claim/subject/env/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["claim/subject/frame/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["claim/subject/job/0"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+step = "S5"
+
+["claim/subject/job/Frame { ret: x }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+step = "S5"
+
+["claim/subject/job/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["claim/subject/job/_"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["claim/subject/k/0"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+step = "S5"
+
+["claim/subject/k/Frame { ret: x }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+step = "S5"
+
+["claim/subject/k/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["claim/subject/k/_"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["claim/subject/pc/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["claim/subject/stack/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["readable/result/counter/0"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/counter/Frame { ret: x }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/counter/[.., Job { payload: 0, .. }]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/counter/[..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/counter/[Job { payload: x, .. }, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/counter/[]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/counter/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/counter/_"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/counter/x"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/counter/{ .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/counter/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/env/[.., Job { payload: 0, .. }]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["readable/result/env/[..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["readable/result/env/[Job { payload: x, .. }, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["readable/result/env/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["readable/result/env/{ .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+step = "S5"
+
+["readable/result/frame/[.., Job { payload: 0, .. }]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["readable/result/frame/[..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["readable/result/frame/[Job { payload: x, .. }, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["readable/result/frame/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["readable/result/frame/{ .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+step = "S5"
+
+["readable/result/frame/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S5"
+
+["readable/result/job/0"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/job/Frame { ret: x }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/job/None"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/job/Some(x)"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/job/[]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["readable/result/job/_"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/job/x"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/job/{ .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-state-macro @ spelling"
+step = "S5"
+
+["readable/result/job/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S5"
+
+["readable/result/k/0"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["readable/result/k/Frame { ret: x }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["readable/result/k/None"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["readable/result/k/Some(x)"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["readable/result/k/[]"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["readable/result/k/_"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["readable/result/k/x"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["readable/result/k/{ .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["readable/result/k/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S5"
+
+["readable/result/pc/[.., Job { payload: 0, .. }]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["readable/result/pc/[..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["readable/result/pc/[Job { payload: x, .. }, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["readable/result/pc/[x, ..]"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-list-notation @ spelling"
+step = "S5"
+
+["readable/result/pc/{ .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+step = "S5"
+
+["readable/result/pc/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S5"
+
+["readable/result/stack/{ .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::invalid-expression-notation @ spelling"
+step = "S5"
+
+["readable/result/stack/{ y -> x, .. }"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S5"
+
+["readable/subject/counter/Frame { ret: x }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+step = "S5"
+
+["readable/subject/counter/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["readable/subject/counter/_"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["readable/subject/env/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["readable/subject/frame/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["readable/subject/job/0"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+step = "S5"
+
+["readable/subject/job/Frame { ret: x }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+step = "S5"
+
+["readable/subject/job/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["readable/subject/job/_"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["readable/subject/k/0"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+step = "S5"
+
+["readable/subject/k/Frame { ret: x }"]
+finding = "S0-9"
+deviation = "krs::analysis::invalid-term @ spelling"
+step = "S5"
+
+["readable/subject/k/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["readable/subject/k/_"]
+finding = "S0-9"
+deviation = "krs::syntax::rust-syntax @ entry"
+step = "S5"
+
+["readable/subject/pc/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["readable/subject/stack/[..]"]
+finding = "S0-9"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+# S0-10: a term construct outside the positions it may stand at is refused with the generic parse code of the form that meets it (`rust-syntax`, `unsupported-term-expression`, `syntax::invalid-matches`, `syntax::invalid-let`, `unsupported-rule-signature`) instead of the construct's code
+
+["terms/claim/result/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/claim/result/y @ Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/claim/subject/k::is!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/claim/subject/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-matches @ spelling"
+step = "S3"
+
+["terms/claim/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/claim/subject/k::project!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/claim/subject/{ let y = x; y }"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/constant/value/y @ Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::expand::parse @ spelling"
+step = "S3"
+
+["terms/equation/guard/\"s\""]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/equation/guard/-1"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/equation/guard/1"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/equation/guard/1.5"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/equation/guard/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/equation/guard/k::anonymous!(Int, \"_V\")"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/equation/guard/k::bytes!(b\"ab\")"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/equation/guard/k::id!(\"$x\")"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/equation/guard/k::lexeme!(Word, \"word\")"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/equation/result/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/equation/result/y @ Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::expand::parse @ spelling"
+step = "S3"
+
+["terms/equation/subject-depth-2/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-matches @ spelling"
+step = "S3"
+
+["terms/equation/subject-depth-2/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/equation/subject-depth-2/{ let y = x; y }"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-let @ spelling"
+step = "S3"
+
+["terms/equation/subject/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-matches @ spelling"
+step = "S3"
+
+["terms/equation/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/equation/subject/{ let y = x; y }"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-let @ spelling"
+step = "S3"
+
+["terms/init/item-depth-2/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/init/item-depth-2/k::anonymous!(Int, \"_V\")"]
+finding = "S0-10"
+deviation = "krs::expand::claim-only-term @ spelling"
+step = "S3"
+
+["terms/init/item/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/init/item/k::anonymous!(Int, \"_V\")"]
+finding = "S0-10"
+deviation = "krs::expand::claim-only-term @ spelling"
+step = "S3"
+
+["terms/local-rule/subject/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-matches @ spelling"
+step = "S3"
+
+["terms/local-rule/subject/{ let y = x; y }"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-let @ spelling"
+step = "S3"
+
+["terms/readable/list-element/k::is!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/readable/list-element/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-matches @ spelling"
+step = "S3"
+
+["terms/readable/list-element/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/readable/list-element/k::project!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/readable/list-element/{ let y = x; y }"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/readable/map-key/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::expand::ml-placement @ spelling"
+step = "S3"
+
+["terms/readable/result-list-element/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/readable/result-list-element/y @ Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/readable/result/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/readable/result/y @ Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/readable/subject-depth-2/k::is!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/readable/subject-depth-2/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-matches @ spelling"
+step = "S3"
+
+["terms/readable/subject-depth-2/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/readable/subject-depth-2/k::project!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/readable/subject-depth-2/{ let y = x; y }"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/readable/subject/k::is!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/readable/subject/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-matches @ spelling"
+step = "S3"
+
+["terms/readable/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/readable/subject/k::project!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/readable/subject/{ let y = x; y }"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/rule/guard/\"s\""]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/rule/guard/-1"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/rule/guard/1"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/rule/guard/1.5"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/rule/guard/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/rule/guard/k::anonymous!(Int, \"_V\")"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/rule/guard/k::bytes!(b\"ab\")"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/rule/guard/k::id!(\"$x\")"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/rule/guard/k::lexeme!(Word, \"word\")"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/rule/result/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/rule/result/y @ Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::expand::parse @ spelling"
+step = "S3"
+
+["terms/rule/subject-depth-2/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-matches @ spelling"
+step = "S3"
+
+["terms/rule/subject-depth-2/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/rule/subject-depth-2/{ let y = x; y }"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-let @ spelling"
+step = "S3"
+
+["terms/rule/subject/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-matches @ spelling"
+step = "S3"
+
+["terms/rule/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/rule/subject/{ let y = x; y }"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-let @ spelling"
+step = "S3"
+
+["terms/shorthand/result/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/shorthand/result/y @ Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::expand::parse @ spelling"
+step = "S3"
+
+["terms/simplification/result/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/simplification/result/y @ Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::expand::parse @ spelling"
+step = "S3"
+
+["terms/simplification/subject/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-matches @ spelling"
+step = "S3"
+
+["terms/simplification/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/simplification/subject/{ let y = x; y }"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-let @ spelling"
+step = "S3"
+
+["terms/sort-rule/result/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/sort-rule/subject-depth-2/k::is!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/sort-rule/subject-depth-2/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-matches @ spelling"
+step = "S3"
+
+["terms/sort-rule/subject-depth-2/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/sort-rule/subject-depth-2/k::project!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/sort-rule/subject-depth-2/{ let y = x; y }"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/sort-rule/subject/k::is!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/sort-rule/subject/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-matches @ spelling"
+step = "S3"
+
+["terms/sort-rule/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/sort-rule/subject/k::project!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/sort-rule/subject/{ let y = x; y }"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/table/result/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/table/result/y @ Cmd::Hold(_)"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/table/subject-depth-2/k::is!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/table/subject-depth-2/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-matches @ spelling"
+step = "S3"
+
+["terms/table/subject-depth-2/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/table/subject-depth-2/k::project!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/table/subject-depth-2/{ let y = x; y }"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/table/subject/k::is!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/table/subject/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-10"
+deviation = "krs::syntax::invalid-matches @ spelling"
+step = "S3"
+
+["terms/table/subject/k::ml::exists(|v: Int| k::ml::equals(v, 0))"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["terms/table/subject/k::project!(Int, x)"]
+finding = "S0-10"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S3"
+
+["terms/table/subject/{ let y = x; y }"]
+finding = "S0-10"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+# S0-11: a function application below the root of a rewrite rule's or equation's pattern is accepted and emitted; k-rust refuses it (`IllegalFunctionOnLhs`)
+
+["terms/equation/subject-depth-2/Size(x)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/equation/subject-depth-2/k::builtin::int::add(1, 2)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/equation/subject/Size(x)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/equation/subject/k::builtin::int::add(1, 2)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/local-rule/subject/Size(x)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/local-rule/subject/k::builtin::int::add(1, 2)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/readable/subject-depth-2/Size(x)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/readable/subject-depth-2/k::builtin::int::add(1, 2)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/readable/subject/Size(x)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/readable/subject/k::builtin::int::add(1, 2)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/rule/subject-depth-2/Size(x)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/rule/subject-depth-2/k::builtin::int::add(1, 2)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/rule/subject/Size(x)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/rule/subject/k::builtin::int::add(1, 2)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/sort-rule/subject-depth-2/Size(x)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/sort-rule/subject-depth-2/k::builtin::int::add(1, 2)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/sort-rule/subject/Size(x)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/sort-rule/subject/k::builtin::int::add(1, 2)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/table/subject-depth-2/Size(x)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/table/subject-depth-2/k::builtin::int::add(1, 2)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/table/subject/Size(x)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+["terms/table/subject/k::builtin::int::add(1, 2)"]
+finding = "S0-11"
+deviation = "accepted"
+step = "S3"
+
+# S0-12: `k::fragment!` is refused outside configuration rules ("complete cell terms require configuration rules", under the internal `provenance-mismatch`, at the fragment), though `for Stmt` rules accept it
+
+["terms/equation/guard/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-12"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+step = "S3"
+
+["terms/equation/result/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-12"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+step = "S3"
+
+["terms/equation/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-12"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+step = "S3"
+
+["terms/equation/subject/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-12"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+step = "S3"
+
+["terms/local-rule/subject/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-12"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+step = "S3"
+
+["terms/rule/guard/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-12"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+step = "S3"
+
+["terms/rule/result/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-12"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+step = "S3"
+
+["terms/rule/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-12"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+step = "S3"
+
+["terms/rule/subject/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-12"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+step = "S3"
+
+["terms/shorthand/result/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-12"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+step = "S3"
+
+["terms/simplification/result/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-12"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+step = "S3"
+
+["terms/simplification/subject/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-12"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+step = "S3"
+
+["terms/table/result/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-12"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+step = "S3"
+
+["terms/table/subject-depth-2/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-12"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+step = "S3"
+
+["terms/table/subject/k::fragment![crate::Frame { ret: 1 }]"]
+finding = "S0-12"
+deviation = "krs::collect::provenance-mismatch @ spelling"
+step = "S3"
+
+# S0-13: literals refused where they are ground terms: `#[k::requires(true)]` as a "host literal", and `k::id!`/`k::bytes!`/`k::lexeme!` as a constant's value
+
+["terms/constant/value/k::bytes!(b\"ab\")"]
+finding = "S0-13"
+deviation = "krs::syntax::invalid-constant @ spelling"
+step = "S3"
+
+["terms/constant/value/k::id!(\"$x\")"]
+finding = "S0-13"
+deviation = "krs::syntax::invalid-constant @ spelling"
+step = "S3"
+
+["terms/constant/value/k::lexeme!(Word, \"word\")"]
+finding = "S0-13"
+deviation = "krs::syntax::invalid-constant @ spelling"
+step = "S3"
+
+["terms/equation/guard/true"]
+finding = "S0-13"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+["terms/rule/guard/true"]
+finding = "S0-13"
+deviation = "krs::syntax::unsupported-rule-signature @ spelling"
+step = "S3"
+
+# S0-14: a readable map read's key refuses the `@` and `|` patterns the reference documents for map keys
+
+["terms/readable/map-key/Cmd::Go() | Cmd::Hold(_)"]
+finding = "S0-14"
+deviation = "krs::syntax::unsupported-term-expression @ spelling"
+step = "S5"
+
+["terms/readable/map-key/y @ Cmd::Hold(_)"]
+finding = "S0-14"
+deviation = "krs::syntax::rust-syntax @ spelling"
+step = "S5"
+
+# S0-15: `job: []`, a List collection with no instance, is refused in a subject ("names no instance"), though the reference documents it
+
+["claim/subject/job/[]"]
+finding = "S0-15"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+["readable/subject/job/[]"]
+finding = "S0-15"
+deviation = "krs::analysis::collection-entry @ entry"
+step = "S5"
+
+# S0-16: an author mistake reported unlocated, at the wrong entry, or under an internal code (C5)
+
+["claim/result/job/[x, ..]"]
+finding = "S0-16"
+deviation = "krs::analysis::invalid-list-notation @ item"
+step = "S1"
+
+["init/pc/k::map![]"]
+finding = "S0-16"
+deviation = "krs::analysis::invalid-term @ entry"
+step = "S1"
+
+["init/stack/k::map![]"]
+finding = "S0-16"
+deviation = "krs::analysis::invalid-term @ entry"
+step = "S1"
+
+["readable/result/job/[x, ..]"]
+finding = "S0-16"
+deviation = "krs::analysis::invalid-list-notation @ item"
+step = "S1"
+
+# S0-17: a readable or `for Stmt` result accepts `k::matches!` and `let` blocks that the `cells!` rule `krs expand` prints refuses
+
+["k3/terms/readable/result-list-element/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/readable/result-list-element/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/readable/result/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/readable/result/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/k::matches!(x, Cmd::Hold(_))"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::matches-outside-condition @ item"
+step = "S6"
+
+["k3/terms/sort-rule/result/{ let y = x; y }"]
+finding = "S0-17"
+deviation = "printed surface refused: krs::expand::let-outside-term @ item"
+step = "S6"
+
+# S0-18: rustc reports beside KRS: a second, uncoded parse error at `@`, or a cascade of E0422/E0425 after a broken `k::equations!` header
+
+["entry/function/equations"]
+finding = "S0-18"
+deviation = "krs check: 4 errors [E0422, E0425], 0 warnings []; cargo check: 4 errors [E0422, E0425], 0 warnings []"
+step = "S3"
+
+["full/terms/constant/value/y @ Cmd::Hold(_)"]
+finding = "S0-18"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["full/terms/equation/result/y @ Cmd::Hold(_)"]
+finding = "S0-18"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::invalid-pattern-as @ spelling"
+step = "S3"
+
+["full/terms/rule/result/y @ Cmd::Hold(_)"]
+finding = "S0-18"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::rust-syntax @ spelling"
+step = "S3"
+
+["full/terms/shorthand/result/y @ Cmd::Hold(_)"]
+finding = "S0-18"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::missing-argument @ item"
+step = "S3"
+
+["full/terms/simplification/result/y @ Cmd::Hold(_)"]
+finding = "S0-18"
+deviation = "krs::rust-expansion::uncoded-error @ spelling; krs::syntax::invalid-pattern-as @ spelling"
+step = "S3"
+
+# B1: an initializer refuses bracket notation (`[]`, `[0]`, `[pgm]`) with the generic `unsupported-initializer-body`, also where it denotes a List or the computation
+
+["init/counter/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/counter/[]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/counter/[pgm]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/env/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/env/[]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/env/[pgm]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/frame/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/frame/[]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/frame/[pgm]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/job/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/job/[]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/job/[pgm]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/k/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/k/[]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/k/[pgm]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/pc/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/pc/[]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/pc/[pgm]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/stack/[0]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/stack/[]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+["init/stack/[pgm]"]
+finding = "B1"
+deviation = "krs::syntax::unsupported-initializer-body @ spelling"
+step = "S5"
+
+# B2: an initializer value of the wrong kind or sort is rustc E0308 at the generated types, not a KRS error
+
+["init/counter/0"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/Frame { ret: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/counter/Job { payload: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/counter/k::builtin::map::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/k::map![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/list::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/counter/pgm"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/env/Frame { ret: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/env/Job { payload: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/env/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/env/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/env/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/env/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/env/pgm"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/frame/0"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/Job { payload: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/frame/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/frame/k::builtin::map::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/k::map![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/list::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/frame/pgm"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/0"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/Frame { ret: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/job/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/job/k::builtin::map::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/k::map![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/list::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/job/pgm"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/k/0"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/k/Frame { ret: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/k/Job { payload: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/k/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/k/k::builtin::map::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/k/k::map![0 -> 1]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/k/k::map![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/k/list::empty()"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/k/pgm"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/pc/Frame { ret: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/pc/Job { payload: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/pc/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/pc/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/pc/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/pc/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/pc/pgm"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/stack/Frame { ret: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/stack/Job { payload: 0 }"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/stack/Some(0)"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/stack/k::k![0]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/stack/k::k![]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/stack/k::k![pgm]"]
+finding = "B2"
+deviation = "E0308 @ item"
+step = "S3"
+
+["init/stack/pgm"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/typed/boxed/any"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/typed/leaf/any"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/typed/opt/any"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/typed/slot/any"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+["init/typed/stmt/any"]
+finding = "B2"
+deviation = "E0308 @ spelling"
+step = "S3"
+
+# B3: `Some(..)`/`None` in a readable result on a cell that is not optional is rustc E0277 on a hidden facade trait at the whole block
+
+["claim/result/env/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/env/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/frame/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/frame/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/pc/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/pc/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/stack/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["claim/result/stack/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/env/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/env/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/frame/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/frame/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/pc/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/pc/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/stack/None"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+["readable/result/stack/Some(x)"]
+finding = "B3"
+deviation = "E0277 @ item"
+step = "S3"
+
+# B7: a bare entry on a `*` collection is accepted with a one-instance meaning
+
+["claim/subject/job/x"]
+finding = "B7"
+deviation = "accepted"
+step = "S5"
+
+["k3/claim/subject/job/x"]
+finding = "B7"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
+step = "S5"
+
+["k3/readable/subject/job/x"]
+finding = "B7"
+deviation = "printed surface refused: krs::analysis::collection-entry @ item"
+step = "S5"
+
+["readable/subject/job/x"]
+finding = "B7"
+deviation = "accepted"
+step = "S5"
+
+# B8: an optional cell's pattern accepts a leaf spelling (`counter: x`, `Cell(0)`) as present
+
+["claim/subject/counter/0"]
+finding = "B8"
+deviation = "accepted"
+step = "S5"
+
+["claim/subject/counter/x"]
+finding = "B8"
+deviation = "accepted"
+step = "S5"
+
+["readable/subject/counter/0"]
+finding = "B8"
+deviation = "accepted"
+step = "S5"
+
+["readable/subject/counter/x"]
+finding = "B8"
+deviation = "accepted"
+step = "S5"
+
+# N12: a failed item leaves an `unused_imports` warning under plain `cargo check`
+
+["entry/attribute/cell"]
+finding = "N12"
+deviation = "krs check: 1 errors [krs::syntax::unknown-argument], 0 warnings []; cargo check: 1 errors [krs::syntax::unknown-argument], 1 warnings [unused_imports]"
+step = "S3"
+
+["entry/attribute/configuration"]
+finding = "N12"
+deviation = "krs check: 1 errors [krs::syntax::unknown-argument], 0 warnings []; cargo check: 1 errors [krs::syntax::unknown-argument], 1 warnings [unused_imports]"
+step = "S3"
+
+["entry/attribute/init"]
+finding = "N12"
+deviation = "krs check: 1 errors [krs::syntax::unexpected-attribute-payload], 0 warnings []; cargo check: 1 errors [krs::syntax::unexpected-attribute-payload], 1 warnings [unused_imports]"
+step = "S3"
+
+["entry/function/k"]
+finding = "N12"
+deviation = "krs check: 1 errors [krs::syntax::invalid-state-macro], 0 warnings []; cargo check: 1 errors [krs::syntax::invalid-state-macro], 1 warnings [unused_imports]"
+step = "S3"
+
+# N22: a module-level `use Cmd::*;` does not reach the term positions (rustc E0573)
+
+["import/claim/result/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/claim/result/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/claim/subject/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/claim/subject/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/constant/value/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/guard/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/guard/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/result/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/result/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/subject-depth-2/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/subject-depth-2/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/subject/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/equation/subject/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/init/item-depth-2/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/init/item/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/local-rule/subject/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/local-rule/subject/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/list-element/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/list-element/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/map-key/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/map-key/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/result-list-element/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/result-list-element/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/result/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/result/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/subject-depth-2/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/subject-depth-2/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/subject/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/readable/subject/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/guard/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/guard/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/result/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/result/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/subject-depth-2/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/subject-depth-2/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/subject/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/rule/subject/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/shorthand/result/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/shorthand/result/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/simplification/result/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/simplification/result/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/simplification/subject/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/simplification/subject/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/sort-rule/result/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/sort-rule/result/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/sort-rule/subject-depth-2/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/sort-rule/subject-depth-2/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/sort-rule/subject/Go()"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+["import/sort-rule/subject/Hold(x)"]
+finding = "N22"
+deviation = "E0573 @ spelling"
+step = "S3"
+
+# N26: two literals in one initializer term give one semantic key twice
+
+["k1/terms/init/item-depth-2/k::builtin::int::add(1, 2)"]
+finding = "N26"
+deviation = "the semantic key sem.term-literal is not injective"
+step = "S2"
+
+["k1/terms/init/item/k::builtin::int::add(1, 2)"]
+finding = "N26"
+deviation = "the semantic key sem.term-literal is not injective"
+step = "S2"
+
+["terms/init/item-depth-2/k::builtin::int::add(1, 2)"]
+finding = "N26"
+deviation = "krs::analysis::invalid-semantic-theory @ item"
+step = "S2"
+
+["terms/init/item/k::builtin::int::add(1, 2)"]
+finding = "N26"
+deviation = "krs::analysis::invalid-semantic-theory @ item"
+step = "S2"
+
+# N27: an initializer value of a strict subsort of its cell's sort is refused by the IR validator (located at the value since S1)
+
+["init/typed/any/1"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+step = "S4"
+
+["init/typed/any/Cmd::Go()"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+step = "S4"
+
+["init/typed/any/Val::Unit()"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+step = "S4"
+
+["init/typed/boxed/1"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+step = "S4"
+
+["init/typed/leaf/1"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+step = "S4"
+
+["init/typed/opt/1"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+step = "S4"
+
+["init/typed/slot/1"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+step = "S4"
+
+["init/typed/stmt/1"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+step = "S4"
+
+["init/typed/stmt/Val::Unit()"]
+finding = "N27"
+deviation = "krs::analysis::invalid-semantic-theory @ spelling"
+step = "S4"
+
+# X1: initializer fields out of declaration order are a collector error (at the first field out of order since S1)
+
+["init/order/pc-first"]
+finding = "X1"
+deviation = "krs::collect::invalid-configuration @ spelling"
+step = "S2"
+
+["init/order/queue-first"]
+finding = "X1"
+deviation = "krs::collect::invalid-configuration @ spelling"
+step = "S2"
+
+["init/order/reversed"]
+finding = "X1"
+deviation = "krs::collect::invalid-configuration @ spelling"
+step = "S2"

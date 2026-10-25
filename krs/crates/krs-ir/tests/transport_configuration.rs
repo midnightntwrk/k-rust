@@ -99,6 +99,7 @@ fn variable(
             ordinal,
             sort_value,
         ),
+        arguments: Vec::new(),
         main_key: main.then(|| key(ProvenanceRole::ConfigurationVariableMain, ordinal)),
     }
 }
@@ -230,10 +231,10 @@ fn fixed_configuration_rejects_wrong_keys_duplicates_and_tree_drift() {
 
     let mut reordered = configuration.clone();
     reordered.initializer.cells.swap(0, 1);
-    assert_eq!(
+    assert!(matches!(
         reordered.validate(&owner),
-        Err(StateTransportError::InitializerDeclarationMismatch)
-    );
+        Err(StateTransportError::InitializerDeclarationMismatch { .. })
+    ));
 
     let expected = configuration.expected_provenance_keys(&owner).unwrap();
     let mut actual = expected.clone();
@@ -297,6 +298,15 @@ fn builtin_registry_resolves_map_and_id() {
         list_operations: keys(list_offset),
         set_operations: keys(set_offset),
         ml_connectives: keys(set_offset + krs_ir::SetOperation::ALL.len()),
+        operators: keys(
+            set_offset + krs_ir::SetOperation::ALL.len() + krs_ir::MlConnective::ALL.len(),
+        ),
+        list_notation: keys(
+            set_offset
+                + krs_ir::SetOperation::ALL.len()
+                + krs_ir::MlConnective::ALL.len()
+                + krs_ir::BuiltinOperator::ALL.len(),
+        ),
     };
     registry.validate().unwrap();
 
@@ -712,6 +722,10 @@ fn configuration_rule_protocol_rejects_alias_and_simplification_at_the_boundary(
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "One literal requires term and its exact provenance checks."
+)]
 fn configuration_requires_is_exact_and_term_binding_only() {
     let (_, mut rule) = var_configuration_rule();
     rule.requires = Some(DescriptorRuleCondition {
@@ -741,6 +755,8 @@ fn configuration_requires_is_exact_and_term_binding_only() {
             ]
             .try_into()
             .unwrap(),
+            update: None,
+            open: false,
         },
     });
 
@@ -752,26 +768,67 @@ fn configuration_requires_is_exact_and_term_binding_only() {
     assert!(expected.contains(&key(ProvenanceRole::RuleRequiresReference, 0)));
     assert!(expected.contains(&key(ProvenanceRole::RuleRequiresLiteral, 0)));
 
-    let mut structural_frame = rule.clone();
-    let DescriptorTerm::Application { arguments, .. } =
-        &mut structural_frame.requires.as_mut().unwrap().term
-    else {
-        unreachable!()
-    };
-    let krs_ir::Arguments::Positional(arguments) = arguments else {
-        unreachable!()
-    };
-    let value = &mut arguments[0];
-    let DescriptorTerm::Variable { name, .. } = value.as_mut() else {
-        unreachable!()
-    };
-    *name = "tail".into();
-    assert!(matches!(
-        structural_frame.validate(ItemKind::Rule),
-        Err(StateTransportError::InvalidTerm(
-            StateTermReason::RuleVariableBindingIsNotATerm
-        ))
-    ));
+    // A condition sees every variable the left side binds: the computation
+    // and map remainders are `Tail:K` and `Rest:Map`, while the
+    // configuration remainder binds no variable.
+    for (remainder, accepted) in [("tail", true), ("rest", true), ("state", false)] {
+        let mut structural_frame = rule.clone();
+        let DescriptorTerm::Application { arguments, .. } =
+            &mut structural_frame.requires.as_mut().unwrap().term
+        else {
+            unreachable!()
+        };
+        let krs_ir::Arguments::Positional(arguments) = arguments else {
+            unreachable!()
+        };
+        let DescriptorTerm::Variable { name, .. } = arguments[0].as_mut() else {
+            unreachable!()
+        };
+        *name = remainder.into();
+        let validated = structural_frame.validate(ItemKind::Rule);
+        if accepted {
+            assert!(validated.is_ok(), "{remainder}: {validated:?}");
+        } else {
+            assert!(
+                matches!(
+                    validated,
+                    Err(StateTransportError::InvalidTerm(
+                        StateTermReason::RuleVariableBindingIsNotATerm
+                    ))
+                ),
+                "{remainder}: {validated:?}"
+            );
+        }
+    }
+
+    // A result sees the same variables: the computation and map remainders
+    // are terms there too, while the configuration remainder is none.
+    for (remainder, accepted) in [("tail", true), ("rest", true), ("state", false)] {
+        let mut remainder_in_result = rule.clone();
+        let ProtocolRuleStateTerm::KSequence(sequence) =
+            &mut remainder_in_result.result.as_mut().unwrap().cells[0].value
+        else {
+            unreachable!()
+        };
+        let DescriptorTerm::Variable { name, .. } = &mut sequence.items[0].value else {
+            unreachable!()
+        };
+        *name = remainder.into();
+        let validated = remainder_in_result.validate(ItemKind::Rule);
+        if accepted {
+            assert!(validated.is_ok(), "{remainder}: {validated:?}");
+        } else {
+            assert!(
+                matches!(
+                    validated,
+                    Err(StateTransportError::InvalidTerm(
+                        StateTermReason::RuleVariableBindingIsNotATerm
+                    ))
+                ),
+                "{remainder}: {validated:?}"
+            );
+        }
+    }
 
     let mut state_role_in_term = rule.clone();
     let DescriptorTerm::Application { arguments, .. } =

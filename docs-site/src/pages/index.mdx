@@ -6,7 +6,7 @@ description: Write an executable specification in Rust, and use it to measure an
 import { Corpus } from '../components/story/Corpus'
 import { InteractionPatterns, TargetedFuzzing } from '../components/story/CorpusExpansion'
 import { EveryTool } from '../components/story/EveryTool'
-import { GreenButWrong } from '../components/story/GreenButWrong'
+import { MissedCases } from '../components/story/MissedCases'
 import { LeanBridge } from '../components/story/LeanBridge'
 import { MatchingLogic } from '../components/story/MatchingLogic'
 import { MutateTheSpec } from '../components/story/MutateTheSpec'
@@ -17,7 +17,7 @@ import { SpecCoverage } from '../components/story/SpecCoverage'
 import { SpecIsRust } from '../components/story/SpecIsRust'
 import { StandingOnK } from '../components/story/StandingOnK'
 import { TestSuiteCost } from '../components/story/TestSuiteCost'
-import { VersionTest } from '../components/story/VersionTest'
+import { TestsThatCheckNothing } from '../components/story/TestsThatCheckNothing'
 import { WhyTests } from '../components/story/WhyTests'
 import { WriteItDown } from '../components/story/WriteItDown'
 
@@ -29,7 +29,7 @@ AI is getting better at formal verification, but KRS allows it to also hill-clim
 
 ### Ever asked AI for tests that turned out to check nothing?
 
-<VersionTest />
+<TestsThatCheckNothing />
 
 ### Those tests add up
 
@@ -41,7 +41,7 @@ Meaningless tests slow down your development cycle and eat into your CI budget.
 
 Tests can check real results and still miss the cases that would catch a bug.
 
-<GreenButWrong />
+<MissedCases />
 
 ### Why tests, now
 

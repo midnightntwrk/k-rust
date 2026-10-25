@@ -7,6 +7,7 @@ The public TypeScript facade provides:
 - Concrete program parsing from in-memory K definitions and virtual `requires` sources.
 - Full in-memory definition compilation into backend-facing KORE artifacts.
 - Persistent in-process execution, simplification, implication, model, and proof sessions.
+- One-call `krust fuzz` campaigns that craft program inputs reaching a target, with a canonical report.
 - Typed KAST JSON v4 parsing and printing.
 - Typed KORE JSON v1 parsing and printing.
 - Width-aware formatting for complete textual KORE definitions.
@@ -120,3 +121,72 @@ A `trivial` or `vacuous` leaf whose emptiness comes from an equation of a `total
 The native addon is synchronous. Call it from a worker thread when parsing untrusted or especially
 large definitions or running long searches in latency-sensitive Node.js applications.
 Search cancellation and streaming/backpressure are not exposed by this synchronous API; use explicit depth, breadth, result, and simplification bounds.
+
+## Fuzzing example
+
+`runFuzzCampaign` runs one `krust fuzz` campaign of the [`k-rust-fuzz`](../k-rust-fuzz/README.md)
+library in one call: it compiles the definition, crafts values for the program's holes until the
+budget is spent or a concrete re-run confirms a witness, and returns the report. The campaign
+specification is the library's JSON, with kebab-case fields; `json` is the report's canonical text
+(schema `krust-fuzz-report`, version 6), and `report` the same document parsed.
+
+```typescript
+import { runFuzzCampaign } from '@midnightntwrk/k-rust'
+
+const { report } = runFuzzCampaign({
+  definition: impDefinition, // the IMP semantics, with module IMP-SYNTAX
+  moduleName: 'IMP',
+  includePrelude: true,
+  campaign: {
+    program: {
+      program: { name: 'le.imp', text: leProgram, 'start-sort': 'Pgm' },
+      'config-vars': [],
+    },
+    holes: [
+      { name: 'X', sort: 'Int', location: { kind: 'span', program: 'le.imp', find: 'x = 3;', literal: '3' } },
+      { name: 'Y', sort: 'Int', location: { kind: 'span', program: 'le.imp', find: 'y = 5;', literal: '5' } },
+    ],
+    target: {
+      kind: {
+        kind: 'pattern',
+        pattern: '<k> .K </k> <state> (#token("r", "Id") |-> R:Int) _:Map </state> requires R =/=Int 1',
+        at: 'final',
+      },
+      'run-to-completion': false,
+      'negated-property': true,
+    },
+    seed: '24301',
+    identity: { 'k-rust-revision': 'my-build' },
+    budget: { cases: '64' },
+  },
+})
+
+if (report.outcome.status === 'witness-found') {
+  console.log(report.outcome.witness.first.holes.map(hole => hole.value))
+}
+```
+
+`options`, `proposers` and `bounds` are partial: each field given replaces the library default, and
+an unknown field throws, at any depth of the specification (a misspelt `constraints` of a hole
+throws rather than leaving the hole unconstrained). The seed, the rejection cap and the budget's limit are canonical decimal
+strings. The default proposer is blind generation alone; `proposers: { weights: { blind: 1,
+dictionary: 1 } }` adds the dictionary, which draws values from the literals of the rules
+before the target, and the report then records its parameters in `identity.dictionary`. A `mutant` definition, with the same fields as the baseline's, is given exactly for a
+differential target. Observer targets are library-only. A campaign that runs returns its report
+whatever its outcome, and "no witness found" is never a proof that none exists; a malformed
+specification, a definition that does not compile, and a campaign the library refuses throw.
+
+The call is synchronous and holds the calling thread until the campaign ends; nothing cancels it,
+so bound it with the budget and the case options (`max-work`, `max-depth`, and
+`safety-limit-ms` for a per-case wall-clock limit), and call it from a worker thread in
+latency-sensitive applications. Without `safety-limit-ms` (the library default is none), a step
+whose function evaluation never terminates holds the calling thread for good.
+
+The compilation and the campaign run on a thread of the binding with a 256 MiB stack, as
+`krust fuzz` does, whichever thread calls: the backend stops a step for lack of stack from the
+stack that remains, so the outcome would otherwise depend on the caller's thread. The report
+records that size as `identity.thread-stack-size`, and a campaign that sets the field throws.
+Without an `identity`, the report's `k-rust-revision` is the build identity of the k-rust this
+package links (`<version>+src.<digest of its sources>`, as `krust-fuzz --version` prints it). A
+panic inside the campaign, which would be a k-rust defect, throws an error rather than ending
+the process. `includePrelude` defaults to `true` here, as `krust kcompile` loads the prelude.

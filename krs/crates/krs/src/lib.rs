@@ -82,11 +82,12 @@ pub use krs_ir::{
     ProtocolHeadRuleResult,
 };
 pub use krs_macros::{
-    alias, anonymous, associativity, bracket, bytes, cell, cells, claim, configuration,
-    constructor, constructors, context, context_alias, desugar, ensures, equation, exists,
-    fragment, fresh, function, id, init, is, k, layout, lexeme, lexical, map, matches, or_bool,
-    precedence, priority, project, raw_k, requires, rewrite, rule, rules, seqstrict,
-    simplification, sort, sorts, spec_module, strict, subsort, symbol, syntax_list, term, token,
+    alias, anonymous, associativity, bracket, bytes, cell, cells, claim, claims, configuration,
+    constant, constructor, constructors, context, context_alias, desugar, ensures, equation,
+    equations, exists, fragment, fresh, function, id, init, is, k, layout, lexeme, lexical, map,
+    matches, or_bool, precedence, priority, project, raw_k, requires, rewrite, rule, rules,
+    seqstrict, simplification, sort, sorts, spec_module, strict, subsort, symbol, syntax_list,
+    term, token,
 };
 
 /// Rust-resolved metadata for an unqualified constructor application in a
@@ -169,11 +170,12 @@ pub trait __KrsTurbofishMarkerKind {
 
 impl<T: ?Sized> __KrsTurbofishMarkerKind for __KrsTurbofishProbe<T> {}
 
-// Framework identities are ordinary readable sorts, requested lazily by a
-// definition whose sort graph names either one. The invocation lists their
-// factories only in `FRAMEWORK_FACTORIES`, which both entry points run when a
-// definition requests them. Collection reparses this file and resolves this
-// block through the crate facade name.
+// Framework identities are ordinary readable sorts that every definition
+// has: `KItem` is the sort of computation items and `KResult` of evaluated
+// results. The invocation lists their factories only in
+// `FRAMEWORK_FACTORIES`, which both entry points always run; lowering emits
+// their K module only where a declaration imports it. Collection reparses
+// this file and resolves this block through the crate facade name.
 use krs_macros::__framework_sorts;
 crate::__framework_sorts! {
     KItem;
@@ -214,6 +216,27 @@ macro_rules! builtin_sort_registry {
 
 krs_ir::__krs_builtin_sort_catalog!(builtin_sort_registry);
 
+/// Lets a one-segment path that names a builtin operation, such as
+/// `set(m, k, v)` under `use k::builtin::map::update as set;`, resolve
+/// through the same rustc witness as a constructor in a readable block or a
+/// table: the witness's `set { .. }` pattern infers the operation's marker,
+/// whose one impl fixes its defaulted parameters, and the target is the
+/// marker's registry identity.
+macro_rules! builtin_rule_applications {
+    ($($module:ident::$name:ident),* $(,)?) => {
+        $(
+            impl<const SELECTOR: u64> __KrsRuleApplication<SELECTOR> for builtin::$module::$name {
+                fn __krs_rule_application(authored_path: &str) -> HostApplicationTarget {
+                    HostApplicationTarget::Nominal(HostTypeReference {
+                        key: HostTypeKey(TypeId::of::<builtin::$module::$name>),
+                        authored_path: authored_path.to_owned(),
+                    })
+                }
+            }
+        )*
+    };
+}
+
 macro_rules! builtin_operation_registry {
     ($(
         $(#[$meta:meta])*
@@ -223,6 +246,7 @@ macro_rules! builtin_operation_registry {
             $($fact:tt)*
         }
     )*) => {
+        builtin_rule_applications!($($module::$name),*);
         fn builtin_operation_registry() -> [HostTypeKey; BuiltinOperation::ALL.len()] {
             [$(HostTypeKey(TypeId::of::<builtin::$module::$name>)),*]
         }
@@ -245,6 +269,7 @@ macro_rules! map_operation_registry {
             )*
         }
     ) => {
+        builtin_rule_applications!($($module::$name),*);
         fn map_operation_registry() -> [HostTypeKey; TermMapOperation::ALL.len()] {
             [$(HostTypeKey(TypeId::of::<builtin::$module::$name>)),*]
         }
@@ -264,6 +289,7 @@ macro_rules! list_operation_registry {
             }
         )*
     ) => {
+        builtin_rule_applications!($($module::$name),*);
         fn list_operation_registry() -> [HostTypeKey; ListOperation::ALL.len()] {
             [$(HostTypeKey(TypeId::of::<builtin::$module::$name>)),*]
         }
@@ -283,6 +309,7 @@ macro_rules! set_operation_registry {
             }
         )*
     ) => {
+        builtin_rule_applications!($($module::$name),*);
         fn set_operation_registry() -> [HostTypeKey; SetOperation::ALL.len()] {
             [$(HostTypeKey(TypeId::of::<builtin::$module::$name>)),*]
         }
@@ -307,6 +334,27 @@ macro_rules! ml_connective_registry {
 
 krs_ir::__krs_ml_connective_catalog!(ml_connective_registry);
 
+macro_rules! operator_registry {
+    ($(
+        $(#[$meta:meta])*
+        $variant:ident { rust_name: $name:ident, $($fact:tt)* }
+    )*) => {
+        fn operator_registry() -> [HostTypeKey; krs_ir::BuiltinOperator::ALL.len()] {
+            [$(HostTypeKey(TypeId::of::<builtin::__operator::$name>)),*]
+        }
+    };
+}
+
+krs_ir::__krs_builtin_operator_catalog!(operator_registry);
+
+fn list_notation_registry() -> [HostTypeKey; krs_ir::ListNotation::ALL.len()] {
+    [
+        HostTypeKey(TypeId::of::<builtin::__list::Cons>),
+        HostTypeKey(TypeId::of::<builtin::__list::Empty>),
+        HostTypeKey(TypeId::of::<builtin::__list::Snoc>),
+    ]
+}
+
 /// Constructs the complete process-local registry of builtin Rust markers.
 ///
 /// The registry joins rustc-resolved [`TypeId`] values to closed semantic
@@ -316,7 +364,8 @@ krs_ir::__krs_ml_connective_catalog!(ml_connective_registry);
 ///
 /// The returned registry has one entry for every [`BuiltinSort::ALL`],
 /// [`BuiltinOperation::ALL`], [`TermMapOperation::ALL`], [`ListOperation::ALL`],
-/// [`SetOperation::ALL`], and [`krs_ir::MlConnective::ALL`] member and passes
+/// [`SetOperation::ALL`], [`krs_ir::MlConnective::ALL`],
+/// [`krs_ir::BuiltinOperator::ALL`], and [`krs_ir::ListNotation::ALL`] member and passes
 /// [`HostBuiltinRegistry::validate`].
 #[must_use]
 pub fn builtin_registry() -> HostBuiltinRegistry {
@@ -327,6 +376,8 @@ pub fn builtin_registry() -> HostBuiltinRegistry {
         list_operations: list_operation_registry(),
         set_operations: set_operation_registry(),
         ml_connectives: ml_connective_registry(),
+        operators: operator_registry(),
+        list_notation: list_notation_registry(),
     }
 }
 
@@ -345,7 +396,7 @@ pub struct Term<S: ?Sized> {
 
 /// Returns all host descriptor factory results linked into this collector process.
 ///
-/// The framework `KItem`/`KResult` descriptor results are included when some linked definition requests them, matching [`host_descriptors_from`].
+/// The framework `KItem`/`KResult` descriptor results are always included, matching [`host_descriptors_from`].
 /// Each registered function constructs a fresh descriptor or returns a provenance error.
 /// Owned strings and vectors are legal descriptor data.
 /// The iterator follows the registration mechanism's unspecified enumeration order.
@@ -355,16 +406,7 @@ pub struct Term<S: ?Sized> {
 /// Collectors built without it enumerate generated tables through [`host_descriptors_from`].
 #[cfg(feature = "inventory")]
 pub fn host_descriptors() -> impl Iterator<Item = Result<HostDescriptor, HostProvenanceError>> {
-    let framework_requested = inventory::iter::<__private::FrameworkSortRequest>
-        .into_iter()
-        .next()
-        .is_some();
-    let framework: &[fn() -> Result<HostDescriptor, HostProvenanceError>] = if framework_requested {
-        FRAMEWORK_FACTORIES
-    } else {
-        &[]
-    };
-    framework
+    FRAMEWORK_FACTORIES
         .iter()
         .map(|factory| factory())
         .chain(
@@ -379,19 +421,16 @@ pub fn host_descriptors() -> impl Iterator<Item = Result<HostDescriptor, HostPro
 /// Returns the host descriptor factory results listed by explicit registration tables.
 ///
 /// Each table belongs to one semantics crate and is written by a whole-crate step, because a procedural macro invocation cannot enumerate its sibling invocations.
-/// The framework `KItem`/`KResult` descriptor results are included when some table requests them, matching [`host_descriptors`].
+/// The framework `KItem`/`KResult` descriptor results are always included, matching [`host_descriptors`].
 /// Collectors must deterministically select factory errors and order descriptors by stable identity.
 ///
 /// This entry point needs no linker-section support and is available whether or not the `inventory` feature is enabled.
 pub fn host_descriptors_from(
     tables: &[&__private::RegistrationTable],
 ) -> impl Iterator<Item = Result<HostDescriptor, HostProvenanceError>> {
-    let framework_requested = tables.iter().any(|table| table.requests_framework);
     let mut registrar = __private::Registrar::default();
-    if framework_requested {
-        for factory in FRAMEWORK_FACTORIES {
-            registrar.factory(*factory);
-        }
+    for factory in FRAMEWORK_FACTORIES {
+        registrar.factory(*factory);
     }
     for table in tables {
         (table.register)(&mut registrar);
@@ -444,37 +483,36 @@ macro_rules! __register_host_descriptor {
     };
 }
 
-/// Requests the framework `KItem`/`KResult` descriptors for one definition.
-///
-/// This is an expansion boundary; authors use it indirectly through
-/// `sorts!` whenever a parent or membership line names a framework sort.
-#[cfg(feature = "inventory")]
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __request_framework_sorts {
-    () => {
-        $crate::__private::inventory::submit! {
-            $crate::__private::FrameworkSortRequest::new(env!("CARGO_MANIFEST_DIR"))
-        }
-    };
-}
-
-/// Accepts a framework-sort request without registering it.
-///
-/// Without the `inventory` feature, the request is recorded by the crate's
-/// explicit registration table instead.
-#[cfg(not(feature = "inventory"))]
-#[doc(hidden)]
-#[macro_export]
-macro_rules! __request_framework_sorts {
-    () => {
-        const _: () = ();
-    };
-}
-
 #[doc(hidden)]
 #[path = "private.rs"]
 pub mod __private;
+
+/// A non-parametric `#[k::function]` production, which a `k::equations!`
+/// header names.
+///
+/// This is a hidden proc-macro implementation seam: every equation of a
+/// table takes its sort from [`Self::Result`], and each row's argument count
+/// is checked against [`Self::Arguments`].
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a non-parametric `#[k::function]`",
+    label = "a `k::equations!` header names the function its rows define",
+    note = "the header names a function declared with `#[k::function]`; a parametric function names its instance in each equation, so it takes `#[k::equation]` fns instead"
+)]
+pub trait __KrsFunction {
+    /// The function's result sort.
+    type Result: ?Sized + 'static;
+    /// The function's argument types, as a tuple.
+    type Arguments;
+}
+
+/// A value of any type, for the arity check of a `k::equations!` row; it is
+/// never called.
+#[doc(hidden)]
+#[must_use]
+pub fn __krs_argument<T>() -> T {
+    unreachable!("KRS arity checks are never evaluated")
+}
 
 #[cfg(test)]
 mod tests {
@@ -764,9 +802,8 @@ mod tests {
         registrar.factory(nested::descriptor);
     }
 
-    fn table(requests_framework: bool) -> __private::RegistrationTable {
+    fn table() -> __private::RegistrationTable {
         __private::RegistrationTable {
-            requests_framework,
             register: register_nested,
         }
     }
@@ -793,21 +830,11 @@ mod tests {
     }
 
     #[test]
-    fn explicit_tables_without_a_framework_request_omit_the_framework_pair() {
-        let downstream = table(false);
+    fn explicit_tables_always_include_the_framework_pair() {
+        assert_eq!(item_names(host_descriptors_from(&[])), ["KItem", "KResult"]);
+        let downstream = table();
         assert_eq!(
-            item_names(host_descriptors_from(&[&downstream])),
-            ["NestedSort"]
-        );
-        assert!(host_descriptors_from(&[]).next().is_none());
-    }
-
-    #[test]
-    fn explicit_downstream_framework_request_includes_the_framework_pair() {
-        let downstream = table(true);
-        let unrequested = table(false);
-        assert_eq!(
-            item_names(host_descriptors_from(&[&unrequested, &downstream])),
+            item_names(host_descriptors_from(&[&downstream, &downstream])),
             ["KItem", "KResult", "NestedSort", "NestedSort"]
         );
         let framework = host_descriptors_from(&[&downstream])
@@ -840,13 +867,11 @@ mod tests {
 
     #[cfg(feature = "inventory")]
     #[test]
-    fn unrequested_framework_factories_are_not_run() {
-        assert!(
-            __private::registration_census()
-                .framework_requests
-                .is_empty()
+    fn inventory_enumeration_includes_the_framework_pair() {
+        assert_eq!(
+            item_names(host_descriptors()),
+            ["KItem", "KResult", "NestedSort"]
         );
-        assert_eq!(item_names(host_descriptors()), ["NestedSort"]);
     }
 
     #[cfg(feature = "inventory")]
@@ -861,7 +886,7 @@ mod tests {
             .collect::<Vec<_>>();
         assert_eq!(own, ["krs::tests::nested::descriptor"]);
 
-        let explicit = table(!census.framework_requests.is_empty());
+        let explicit = table();
         assert_eq!(
             item_ids(host_descriptors_from(&[&explicit])),
             item_ids(host_descriptors())

@@ -13,7 +13,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from support import ROOT, GateError, entry  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import z3_environment  # noqa: E402
+from support.tools import target_environment, z3_environment  # noqa: E402
 
 
 def text(relative: str) -> str:
@@ -37,7 +37,7 @@ def require_named_tests(package: str, target: tuple[str, ...], *expected: str) -
     listed = run(
         ["cargo", "+stable", "test", "--locked", "-p", package, *target, "--", "--list"],
         cwd=ROOT,
-        environment=z3_environment(),
+        environment={**z3_environment(), **target_environment()},
         timeout=1800,
     )
     names = {
@@ -56,7 +56,7 @@ def require_sha256_pin(pins: Ledger, key: str) -> None:
         raise GateError(f"{pins.path.name} {key} output pin is absent")
 
 
-def verify_undefined_partial() -> None:
+def verify_uncovered_partial() -> None:
     source = require_fragments(
         "tests/imp/rust-definition/src/static_adjunct.rs",
         "#[k::function(partial, sort = Int, syntax = \"#nonnegativeIdentity({value})\")]",
@@ -74,7 +74,7 @@ def verify_undefined_partial() -> None:
     require_fragments(
         "../docs-site/src/pages/semantics/static-semantics.mdx",
         "#nonnegativeIdentity(-1)",
-        "the application has no denotation: semantic bottom",
+        "the application is unconstrained, not semantic bottom",
         "not a claimed `krun` trace",
     )
 
@@ -98,8 +98,8 @@ def verify_authored_trap() -> None:
     require_fragments(
         "semantics/kwasm/src/lib.rs",
         '#[k::syntax("trap")]\n    Trap(),',
-        "fn div_u_zero(",
-        "k::term![Value::Undefined()]",
+        "div_u_zero:",
+        "=> Undefined();",
         "undefined_traps:",
         "instrs: [Trap(), ..]",
     )
@@ -196,13 +196,13 @@ def verify_capability_matrix() -> None:
 
 
 def main() -> int:
-    verify_undefined_partial()
+    verify_uncovered_partial()
     verify_stuck_state()
     verify_authored_trap()
     verify_llvm_claim_omission()
     verify_capability_matrix()
     print(
-        "PASS tour proof evidence: undefined partial, stuck state, authored trap, "
+        "PASS tour proof evidence: uncovered partial, stuck state, authored trap, "
         "LLVM claim omission, and capability matrix"
     )
     return 0

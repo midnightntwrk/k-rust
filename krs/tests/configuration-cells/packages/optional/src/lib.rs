@@ -87,36 +87,36 @@ k::rules! {
     /// Create the counter; a second `enable` is stuck.
     enable: {
         k: [Enable(), ..],
-        counter: None
+        counter: None,
     } => {
         k: [..],
-        counter: Some(0)
+        counter: Some(0),
     };
 
     /// Increment the counter in place.
     inc: {
         k: [Inc(), ..],
-        counter: Some(n)
+        counter: Some(n),
     } => {
         k: [..],
-        counter: Some(int::add(n, 1))
+        counter: Some(int::add(n, 1)),
     };
 
     /// Write the counter to the computation cell; the counter is only read.
     read: {
         k: [Read(), ..],
-        counter: Some(n)
+        counter: Some(n),
     } => {
-        k: [n, ..]
+        k: [n, ..],
     };
 
     /// Delete the counter.
     disable: {
         k: [Disable(), ..],
-        counter: Some(_)
+        counter: Some(_),
     } => {
         k: [..],
-        counter: None
+        counter: None,
     };
 
     /// Create the mark from the counter.

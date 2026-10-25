@@ -1,0 +1,9 @@
+# kink-flow corpus manifest for the twin fixture (flow F-14): two identical rules.
+[spec]
+entry = "twin.k"
+main_module = "TWIN"
+syntax_module = "TWIN-SYNTAX"
+
+[[program]]
+id = "inc"
+text = "inc(1)"

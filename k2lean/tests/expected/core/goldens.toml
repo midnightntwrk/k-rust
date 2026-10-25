@@ -1,0 +1,882 @@
+[[case]]
+name = "krs-block-sequence"
+group = "krs-reference"
+pass = true
+steps = 19
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-dangling-else"
+group = "krs-reference"
+pass = true
+steps = 9
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-division-by-zero"
+group = "krs-reference"
+pass = true
+steps = 1
+outcome = "undefined step (rule X / Y)"
+
+[[case]]
+name = "krs-empty-block"
+group = "krs-reference"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-explicit-else"
+group = "krs-reference"
+pass = true
+steps = 2
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-expression-arithmetic-precedence"
+group = "krs-reference"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-expression-bool-plus-int"
+group = "krs-reference"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-expression-boolean-precedence"
+group = "krs-reference"
+pass = true
+steps = 10
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-expression-comparison-equality"
+group = "krs-reference"
+pass = true
+steps = 10
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-expression-division-left"
+group = "krs-reference"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-expression-division-parenthesized"
+group = "krs-reference"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-expression-not-int"
+group = "krs-reference"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-expression-parentheses-override"
+group = "krs-reference"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-expression-short-circuit-precedence"
+group = "krs-reference"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-expression-subtraction-left"
+group = "krs-reference"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-expression-unary-binding"
+group = "krs-reference"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-if-false"
+group = "krs-reference"
+pass = true
+steps = 3
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-if-true"
+group = "krs-reference"
+pass = true
+steps = 3
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-initial-environment"
+group = "krs-reference"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-lookup-evaluation-order"
+group = "krs-reference"
+pass = true
+steps = 15
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-nested-control"
+group = "krs-reference"
+pass = true
+steps = 59
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-right-associated-sequence"
+group = "krs-reference"
+pass = true
+steps = 14
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-single-assignment"
+group = "krs-reference"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-stuck-non-bool-if"
+group = "krs-reference"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-stuck-non-bool-while"
+group = "krs-reference"
+pass = true
+steps = 2
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-stuck-type-error"
+group = "krs-reference"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-stuck-undefined-condition"
+group = "krs-reference"
+pass = true
+steps = 2
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-stuck-undefined-variable"
+group = "krs-reference"
+pass = true
+steps = 2
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-update-existing"
+group = "krs-reference"
+pass = true
+steps = 9
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "krs-while-followed"
+group = "krs-reference"
+pass = true
+steps = 83
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "collatz-10"
+group = "kimp-llvm"
+pass = true
+steps = 4804
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "collatz-30"
+group = "kimp-llvm"
+pass = true
+steps = 30936
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "example-dangling-else"
+group = "kimp-llvm"
+pass = true
+steps = 9
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "example-expr-00"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "example-expr-01"
+group = "kimp-llvm"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "example-expr-02"
+group = "kimp-llvm"
+pass = true
+steps = 16
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "example-expr-03"
+group = "kimp-llvm"
+pass = true
+steps = 9
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "example-expr-04"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "example-expr-05"
+group = "kimp-llvm"
+pass = true
+steps = 10
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "example-expr-06"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "example-expr-07"
+group = "kimp-llvm"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "example-expr-08"
+group = "kimp-llvm"
+pass = true
+steps = 2
+outcome = "undefined step (rule X / Y)"
+
+[[case]]
+name = "example-expr-09"
+group = "kimp-llvm"
+pass = true
+steps = 2
+outcome = "undefined step (rule X / Y)"
+
+[[case]]
+name = "example-expr-10"
+group = "kimp-llvm"
+pass = true
+steps = 5
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "example-gcd-while"
+group = "kimp-llvm"
+pass = true
+steps = 163
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "example-sumto10"
+group = "kimp-llvm"
+pass = true
+steps = 404
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "example-while-and-following"
+group = "kimp-llvm"
+pass = true
+steps = 239
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-00"
+group = "kimp-llvm"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-01"
+group = "kimp-llvm"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-02"
+group = "kimp-llvm"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-03"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-04"
+group = "kimp-llvm"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-05"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-06"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-07"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-08"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-09"
+group = "kimp-llvm"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-10"
+group = "kimp-llvm"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-11"
+group = "kimp-llvm"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-12"
+group = "kimp-llvm"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-13"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-14"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-15"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-16"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-17"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-18"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-19"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-20"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-21"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-22"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-23"
+group = "kimp-llvm"
+pass = true
+steps = 10
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-24"
+group = "kimp-llvm"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-25"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-26"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-27"
+group = "kimp-llvm"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-28"
+group = "kimp-llvm"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-29"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-30"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-31"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-32"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-33"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-34"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-35"
+group = "kimp-llvm"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-36"
+group = "kimp-llvm"
+pass = true
+steps = 8
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-37"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-expr-38"
+group = "kimp-llvm"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-00"
+group = "kimp-llvm"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-01"
+group = "kimp-llvm"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-02"
+group = "kimp-llvm"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-03"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-04"
+group = "kimp-llvm"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-05"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-06"
+group = "kimp-llvm"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-07"
+group = "kimp-llvm"
+pass = true
+steps = 3
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-08"
+group = "kimp-llvm"
+pass = true
+steps = 3
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-09"
+group = "kimp-llvm"
+pass = true
+steps = 3
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-10"
+group = "kimp-llvm"
+pass = true
+steps = 14
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-11"
+group = "kimp-llvm"
+pass = true
+steps = 6
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-12"
+group = "kimp-llvm"
+pass = true
+steps = 6
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-13"
+group = "kimp-llvm"
+pass = true
+steps = 5
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-14"
+group = "kimp-llvm"
+pass = true
+steps = 5
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "kimp-test-imp-15"
+group = "kimp-llvm"
+pass = true
+steps = 48
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "primes-10"
+group = "kimp-llvm"
+pass = true
+steps = 2360
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "primes-30"
+group = "kimp-llvm"
+pass = true
+steps = 12315
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-and-returns-rhs-then-stuck-if"
+group = "kimp-llvm"
+pass = true
+steps = 4
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-bigint"
+group = "kimp-llvm"
+pass = true
+steps = 21
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-blocks-and-comments"
+group = "kimp-llvm"
+pass = true
+steps = 14
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-bool-ne"
+group = "kimp-llvm"
+pass = true
+steps = 9
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-comparison-chain"
+group = "kimp-llvm"
+pass = true
+steps = 21
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-dangling-else-taken"
+group = "kimp-llvm"
+pass = true
+steps = 6
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-empty-branches"
+group = "kimp-llvm"
+pass = true
+steps = 20
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-left-assoc-minus-div"
+group = "kimp-llvm"
+pass = true
+steps = 26
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-mixed-eq-stuck"
+group = "kimp-llvm"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-neg-bool-stuck"
+group = "kimp-llvm"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-not-int-stuck"
+group = "kimp-llvm"
+pass = true
+steps = 1
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-or-short-circuit-undefined"
+group = "kimp-llvm"
+pass = true
+steps = 9
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-reassign-type"
+group = "kimp-llvm"
+pass = true
+steps = 11
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-stuck-deep-cooling"
+group = "kimp-llvm"
+pass = true
+steps = 10
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-stuck-nested-cooling"
+group = "kimp-llvm"
+pass = true
+steps = 5
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-stuck-right-operand"
+group = "kimp-llvm"
+pass = true
+steps = 2
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-tdiv-both-neg"
+group = "kimp-llvm"
+pass = true
+steps = 10
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-tdiv-neg-dividend"
+group = "kimp-llvm"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-tdiv-neg-divisor"
+group = "kimp-llvm"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-unary-minus-literal"
+group = "kimp-llvm"
+pass = true
+steps = 20
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-while-cond-becomes-int"
+group = "kimp-llvm"
+pass = true
+steps = 68
+outcome = "stuck (no rule applies)"
+
+[[case]]
+name = "probe-while-stuck-after-iterations"
+group = "kimp-llvm"
+pass = true
+steps = 7
+outcome = "stuck (no rule applies)"
+

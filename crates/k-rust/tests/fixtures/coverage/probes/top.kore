@@ -1,0 +1,46 @@
+[]
+// `#Top` lemmas on an operand of a term-level conjunction (`offered_mutation.rs`,
+// `run_coverage.rs`): in `done(5 #And tp(5))`, `tpHigh` drops the operand `tp(5)` and `tpLow`, at
+// priority 60, is never tried.
+//
+// The definition and its states are written in KORE. The compiler refuses a simplification whose
+// left-hand side is a term and whose right-hand side is `#Top` (`MlConstructPosition`), and it
+// reads a rule's `X #And tp(X)` as a predicate on `X`. The backend reads both in KORE input, so
+// the selection of `#Top` lemmas is still a site that run coverage records.
+module TOP
+  hooked-sort SortInt{} [hasDomainValues{}(), hook{}("INT.Int")]
+  sort SortPgm{} []
+
+  symbol Lblgo{}(SortInt{}) : SortPgm{} [constructor{}(), functional{}(), injective{}()]
+  symbol Lbldone{}(SortInt{}) : SortPgm{} [constructor{}(), functional{}(), injective{}()]
+  symbol Lbltp{}(SortInt{}) : SortInt{}
+    [function{}(), functional{}(), no-evaluators{}(), total{}()]
+
+  axiom{R}
+    \exists{R}(Val:SortInt{}, \equals{SortInt{}, R}(Val:SortInt{}, Lbltp{}(K0:SortInt{})))
+    [functional{}()]
+
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{SortInt{}, R}(
+        Lbltp{}(Var'Unds'X:SortInt{}),
+        \and{SortInt{}}(\top{SortInt{}}(), \top{SortInt{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("top-tpHigh"), label{}("TOP.tpHigh"), simplification{}("")]
+  axiom{R}
+    \implies{R}(
+      \top{R}(),
+      \equals{SortInt{}, R}(
+        Lbltp{}(Var'Unds'X:SortInt{}),
+        \and{SortInt{}}(\top{SortInt{}}(), \top{SortInt{}}())
+      )
+    )
+    [UNIQUE'Unds'ID{}("top-tpLow"), label{}("TOP.tpLow"), simplification{}("60")]
+
+  axiom{} \rewrites{SortPgm{}}(
+    \and{SortPgm{}}(Lblgo{}(VarX:SortInt{}), \top{SortPgm{}}()),
+    \and{SortPgm{}}(Lbldone{}(VarX:SortInt{}), \top{SortPgm{}}())
+  ) [UNIQUE'Unds'ID{}("top-go"), label{}("TOP.go")]
+endmodule []

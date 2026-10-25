@@ -6,15 +6,15 @@
   },
   "emitted": {
     "krs-sorts-algebra-functions": {
-      "definition.k": "7a53f9b5f6a8a346eacc4e354e1ef6f5c8388526a44f6d2d335ffa0930d3cb38"
+      "definition.k": "38541cced73e18966c388d49e6d878339c176047695fa17fce763a30054eab44"
     },
     "krs-sorts-algebra-constructors": {
-      "definition.k": "f7455d1d974767aab55c87cbdb7d409fa4ae538c12f8739e9895a72feb5822f6"
+      "definition.k": "30dd1e26c57d957943ec01261e2b0e36b818cddca381a45bee8439a68568707b"
     }
   },
   "reference_sha256": {
-    "krs-sorts-algebra-functions-haskell": "a6e3e65f693dda924943044ffe4b22c324e4065620b2c06a97c1b097fe5857cb",
-    "krs-sorts-algebra-constructors": "cf325ef2b7e030bbccc35dc21df9d4be2373aa9b2032876a5675f8d74de62a86"
+    "krs-sorts-algebra-functions-haskell": "d1173698a0e2e1d53736ebd40d920acf115c075012070c5779ba260b8e262736",
+    "krs-sorts-algebra-constructors": "0a7f500ed285aaf1aa53cf12e257bf4b5bdf1d9dfc61e19076d895744decb64d"
   },
   "outcomes": {
     "krs-sorts-algebra-functions": {
@@ -116,10 +116,10 @@
       "error[krs::analysis::parametric-instance]: an argument of sort Int at a position of the sort parameter `S` of this head is not a variable, so K's strict cast cannot fix its instance `Exp`; match it with a variable of sort Exp and test it in `requires`"
     ],
     "head-binder-sort": [
-      "error[krs::analysis::incompatible-binder]: binder `a` is declared `Exp` but this occurrence needs `Int`"
+      "error[krs::analysis::incompatible-binder]: binder `a` is declared `Exp`, but an occurrence needs `Int`"
     ],
     "undetermined-instance": [
-      "error[krs::analysis::parametric-instance]: K cannot determine the sort parameter `S` of `Same` from its arguments (Int, Bool) and position: they have no common sort; give an argument a narrower sort with a typed binder or `where`"
+      "error[krs::analysis::parametric-instance]: K cannot determine the sort parameter `S` of `Same` from its arguments (K, Bool) and position: they have no common sort; give an argument a narrower sort with a typed binder or `where`"
     ],
     "native-instance": [
       "error[krs::analysis::native-instance]: label sort parameters cannot be written natively, so k-rust fixes this head's instance from its argument sorts: it would solve S = Int, not the turbofish's S = Exp. Give at least one parametric argument a variable of sort Exp."

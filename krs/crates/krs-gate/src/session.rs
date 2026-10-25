@@ -232,7 +232,7 @@ fn config_inputs(request: &Value) -> Result<ConfigInputs, Box<dyn Error>> {
             .iter()
             .map(|(name, text)| {
                 text.as_str()
-                    .map(|text| (name.clone(), text.to_owned()))
+                    .map(|text| (name.clone(), text.into()))
                     .ok_or_else(|| format!("variable `{name}` must be surface text"))
             })
             .collect::<Result<_, _>>()?,
@@ -288,6 +288,7 @@ impl Session {
                 | "k.load"
                 | "ir.query"
                 | "registration.table"
+                | "expansion.digest"
                 | "kast.normalize"
                 | "kast.project"
                 | "kast.frontier"
@@ -307,6 +308,7 @@ impl Session {
                     | "k.load"
                     | "ir.query"
                     | "registration.table"
+                    | "expansion.digest"
                     | "kast.normalize"
                     | "kast.project"
                     | "kast.frontier"
@@ -337,7 +339,7 @@ impl Session {
             "kore.instances" => Self::instances(request),
             "k.load" => Self::load_source(request),
             "ir.query" => crate::ir_query::dispatch(request),
-            "registration.table" => crate::registration::dispatch(request),
+            "registration.table" | "expansion.digest" => crate::registration::dispatch(request),
             "kast.normalize" | "kast.project" | "kast.frontier" | "kast.inspect" => {
                 crate::kast::dispatch(operation, request).map_err(Into::into)
             }
@@ -404,7 +406,7 @@ impl Session {
             .get("variables")
             .and_then(Value::as_object)
             .ok_or("request field `variables` must be an object")?;
-        self.semantics()?.configuration_mut().configure(variables)
+        self.semantics()?.configure_surface(variables)
     }
 
     /// `krs run` through `krs-exec`: configure from `program` and `variables`, then run with `depth` and `trace`.

@@ -3,7 +3,7 @@
 //! name = "priority-grouped rewriting with a complete remainder"
 //! sites = ["rewrite_step_all", "rewrite_step_any", "apply_priority_group", "first_productive_group", "fold_lower_priority_groups", "SequentialDeterminism::record"]
 //! variable = "c = candidate rules; k = sub-cases the dropped-successor tracker compares within one priority"
-//! counters = ["RewriteRulesApplied"]
+//! counters = ["RewriteRulesApplied", "CoverageOfferMatches"]
 //! span = "per call"
 //! consumes = [
 //!   { type = "k_rust_backend::definition::BackendDefinition", role = "internalized theory" },
@@ -17,7 +17,11 @@
 //!
 //! [[cost]]
 //! mode = "Any"
-//! bound = "O(c) rule attempts plus one predicate simplification per applied application group and per priority whose rules left some applicable instance without a defined result, one SAT check per candidate of an application group after a rule's first (restricted to the instances the earlier groups left), one SAT check per step, and one normalization (a predicate simplification and a term simplification, execute::normalize_successor) of each applied candidate's successor when a later application group of its rule or a later rule of its priority is left, which a kept candidate's successor takes instead of normalizing itself (the one-path proof route normalizes it again)"
+//! bound = "O(c) rule attempts plus one predicate simplification per applied application group and per priority whose rules left some applicable instance without a defined result, one SAT check per candidate of an application group after a rule's first (restricted to the instances the earlier groups left), one SAT check per step, and one normalization (a predicate simplification and a term simplification, execute::normalize_successor) of each applied candidate's successor when a later application group of its rule or a later rule of its priority is left, which a kept candidate's successor takes instead of normalizing itself (the one-path proof route normalizes it again, and also asks one SAT check of each such normalized successor's constraints, SuccessorSatisfiability::Asked)"
+//!
+//! [[cost]]
+//! mode = "collecting the offered coverage level (ExecutionOptions::collect_offered)"
+//! bound = "the cost of the mode plus at most one isolated left-hand-side match per candidate the step never tried, none for an axiom the run's coverage already holds (CoverageOfferMatches)"
 //!
 //! [[cost]]
 //! mode = "Any with dropped-successor tracking (SequentialDeterminism)"
@@ -39,8 +43,9 @@
 //! group, one SAT check per candidate of a rule's application group after its first, one SAT
 //! check per step, and one normalization of each applied candidate's successor that a later
 //! group or rule could stand in for, which decides whether its result is undefined before the
-//! step commits to it and which the successor reuses (`Any`);
-//! `Counter::RewriteRulesApplied`. A one-path proof step also asks `Any` whether it may have
+//! step commits to it and which the successor reuses (`Any`); the one-path proof route also asks
+//! whether each such normalized successor's constraints have an instance
+//! (`SuccessorSatisfiability::Asked`); `Counter::RewriteRulesApplied`. A one-path proof step also asks `Any` whether it may have
 //! dropped a successor (`SequentialDeterminism`): a rule of a priority that already applied is
 //! attempted once more on the whole subject, and the sub-cases of one priority are compared
 //! pairwise for overlap.
@@ -50,17 +55,24 @@ use std::{collections::BTreeMap, sync::Arc};
 use k_rust_kore::measure::{self, Algorithm, Counter};
 
 use crate::{
+    coverage::{Selection, by_priority, every, offer_all},
+    definedness::ceil_term,
     definition::BackendDefinition,
     diagnostic::{self, BackendDiagnostic, extend_distinct, in_emission_order},
     fresh::FreshCounter,
-    rule::{Predicate, RewriteRule, RuleRhs, SubjectKey, applicable_rewrite_groups, subject_index},
+    matching::{MatchResult, match_rule_in_definition},
+    rule::{
+        Predicate, RewriteRule, RuleRhs, SubjectKey, applicable_rewrite_groups, rename_apart,
+        subject_index,
+    },
     simplify::{
         SimplificationError, SimplificationOptions, simplify_predicates_with_solver,
         simplify_with_solver,
     },
     smt::{Satisfiability, SmtSolver},
     stop::Stoppable,
-    substitution::Substitution,
+    substitution::{Substitution, substitute},
+    term::TermKind,
     transition::ExecutionIoState,
 };
 
@@ -70,7 +82,7 @@ use super::{
     Truth, UndecidedStep,
     apply::{exclude_defined, restrict_to_undefined, undefined_successor_application},
     apply_rule,
-    execute::normalize_successor,
+    execute::{SuccessorCheck, UndefinedSuccessor, normalize_successor},
     extend_unique, predicates_truth,
     refutation_memo::RefutationMemo,
     restricted_to,
@@ -94,10 +106,10 @@ enum PriorityGroupOutcome {
 
 #[allow(clippy::too_many_arguments)]
 #[deny(clippy::wildcard_enum_match_arm)]
-fn apply_priority_group(
+fn apply_priority_group<'r>(
     definition: &BackendDefinition,
     pattern: &Pattern,
-    rules: &[Arc<RewriteRule>],
+    rules: impl IntoIterator<Item = &'r Arc<RewriteRule>>,
     fresh_counter: &mut FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
@@ -107,6 +119,14 @@ fn apply_priority_group(
 ) -> Stoppable<PriorityGroupOutcome> {
     let mut applied = Vec::new();
     let mut trivial = Vec::new();
+    // The subject's decided definedness the constraints do not already state: every part of the
+    // step (each successor, the remainder) is restricted to the instances where it holds.
+    let restriction = subject_definedness
+        .restriction()
+        .iter()
+        .filter(|obligation| !pattern.constraints.contains(obligation))
+        .cloned()
+        .collect::<Vec<_>>();
     // The work every application of the group (candidate or refuted) depends on: the remainder
     // is built from the negation of each application's applicability, so it depends on all of it.
     let mut remainder_work = Vec::new();
@@ -134,6 +154,7 @@ fn apply_priority_group(
                 for group in groups {
                     let common = group.common.unwrap_or_default();
                     for mut application in group.applied {
+                        restrict_successor(definition, &mut application.applied, &restriction);
                         application.applied.diagnostics =
                             in_emission_order([common.as_slice(), &application.diagnostics]);
                         undefined_work.extend(application.diagnostics.iter().cloned());
@@ -145,6 +166,8 @@ fn apply_priority_group(
                     remainder_work.extend(common);
                 }
             }
+            // The step ends undecided here: the rules after this one are never tried, which
+            // the caller's selection offers.
             RuleAttempt::Indeterminate(reason) => {
                 return Ok(PriorityGroupOutcome::Undecided(
                     UndecidedStep::Indeterminate(reason),
@@ -186,12 +209,6 @@ fn apply_priority_group(
     // The remainder is the part of the subject no rule of the group applies to, among its
     // instances: those where its decided definedness fails are none, so it is simplified
     // knowing that definedness and states it, `simplify(R | D) ∧ D` being `R ∧ D`.
-    let restriction = subject_definedness
-        .restriction()
-        .iter()
-        .filter(|obligation| !pattern.constraints.contains(obligation))
-        .cloned()
-        .collect::<Vec<_>>();
     let known = if restriction.is_empty() {
         std::borrow::Cow::Borrowed(pattern.constraints.as_slice())
     } else {
@@ -280,10 +297,10 @@ fn apply_priority_group(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn first_productive_group(
+fn first_productive_group<'r, G: IntoIterator<Item = &'r Arc<RewriteRule>>>(
     definition: &BackendDefinition,
     pattern: &Pattern,
-    groups: &mut impl Iterator<Item = Vec<Arc<RewriteRule>>>,
+    groups: impl Iterator<Item = G>,
     fresh_counter: &mut FreshCounter,
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
@@ -292,11 +309,11 @@ fn first_productive_group(
     ground_halt: bool,
 ) -> Stoppable<PriorityGroupOutcome> {
     // An unproductive group's attempts did not apply: no successor depends on their work.
-    for rules in groups.by_ref() {
+    for rules in groups {
         match apply_priority_group(
             definition,
             pattern,
-            &rules,
+            rules,
             fresh_counter,
             simplification_options,
             solver,
@@ -354,6 +371,110 @@ fn classify_first_group(
     }
 }
 
+/// `successor`, built by a rule applied to a subject whose decided definedness is `restriction`
+/// ([`SubjectDefinedness::Where`]), restricted to the instances where that definedness holds.
+///
+/// A step is a transition: its successor may denote only states some defined instance of the
+/// subject reaches. The subject denotes `⌈t⌉ ∧ t ∧ φ`, and `restriction` is what `⌈t⌉` leaves
+/// open under `φ`, so restricting the successor by it removes only instances reached from no
+/// configuration. The step states the definedness of what it binds and of the collections it
+/// consumes, but a subterm a recovery consumed (decided by a condition over its operands, such as
+/// an equality's operands or a conditional's taken branch) may leave nothing in the successor's
+/// term or constraints that keeps an instance where it is undefined out; stating the subject's
+/// definedness keeps every such instance out, whichever recovery consumed it. A successor's
+/// normalization has not run yet: the step's caller (or the sequential step, after this) does it
+/// on the restricted constraints.
+///
+/// The restriction is stated of the subject instance the step's bindings build
+/// ([`instantiated_restriction`]), so the successor does not restate, in an undecomposed form,
+/// a definedness its step already stated of that instance.
+fn restrict_successor(
+    definition: &BackendDefinition,
+    successor: &mut AppliedRule,
+    restriction: &[Predicate],
+) {
+    if !restriction.is_empty() {
+        let restriction = instantiated_restriction(definition, successor, restriction);
+        extend_unique(&mut successor.pattern.constraints, restriction);
+    }
+}
+
+/// `restriction`, the subject's decided definedness, stated of the subject instance `σ(t)` that
+/// `successor`'s step binds, where its match bound subject variables (`X = u` among the step's
+/// conditions, as when unification splits a symbolic collection); `restriction` itself where it
+/// bound none.
+///
+/// Every instance of the successor satisfies the bindings, so the predecessor instances it is
+/// reached from are those of `σ(t)`, and the definedness to state is `⌈σ(t)⌉`, which
+/// `ceil_term(σ(t))` states. An obligation of `restriction` that mentions no bound variable is
+/// unchanged by `σ` and is kept. One that mentions a bound variable and is a member of
+/// `ceil_term(t)` is the definedness of a subterm the bindings rewrite; `ceil_term(σ(t))` states
+/// the definedness of each rewritten subterm by its members that are not members of
+/// `ceil_term(t)` (a subterm `σ` leaves alone gives the same members in both), and those replace
+/// it. Stated this way they are decomposed through the bound value, as the step's own
+/// obligations of what it binds and consumes are, so the successor's normalization finds the
+/// ones the step already stated instead of carrying an undecomposed instance such as
+/// `\not(in_keys(a, (K |-> V) F))` beside them. An obligation that is no member of
+/// `ceil_term(t)` (the simplification under `φ` rewrote it) is kept as it is, and so is the
+/// whole restriction where either `ceil_term` cannot be stated: the normalization then replaces
+/// the bound variables in it, which states the same instances.
+fn instantiated_restriction(
+    definition: &BackendDefinition,
+    successor: &AppliedRule,
+    restriction: &[Predicate],
+) -> Vec<Predicate> {
+    let subject = &successor.before.term;
+    let mut bindings = successor
+        .rule_predicates
+        .iter()
+        .filter_map(|predicate| match predicate {
+            Predicate::Equals(left, right) => match left.kind() {
+                TermKind::Variable(variable)
+                    if subject.attributes().variables.contains(variable) =>
+                {
+                    Some((variable.clone(), right.clone()))
+                }
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect::<Substitution>();
+    // A binding whose value mentions a bound variable is left out, so that `σ` is idempotent and
+    // `σ(t)` mentions no bound variable.
+    let bound = bindings.keys().cloned().collect::<Vec<_>>();
+    bindings.retain(|_, value| {
+        !bound
+            .iter()
+            .any(|variable| value.attributes().variables.contains(variable))
+    });
+    let touches = |obligation: &Predicate| {
+        obligation
+            .free_variables()
+            .iter()
+            .any(|variable| bindings.contains_key(variable))
+    };
+    if bindings.is_empty() || !restriction.iter().any(touches) {
+        return restriction.to_vec();
+    }
+    let (Ok(stated), Ok(instantiated)) = (
+        ceil_term(definition, subject),
+        ceil_term(definition, &substitute(subject, &bindings)),
+    ) else {
+        return restriction.to_vec();
+    };
+    let mut result = restriction
+        .iter()
+        .filter(|obligation| !touches(obligation) || !stated.contains(obligation))
+        .cloned()
+        .collect::<Vec<_>>();
+    result.extend(
+        instantiated
+            .into_iter()
+            .filter(|obligation| !stated.contains(obligation)),
+    );
+    result
+}
+
 /// The subject of a step no rule applies to, as its stuck result: its instances where its
 /// decided definedness (`restriction`) fails are no configuration, so it is restricted to the
 /// others.
@@ -366,6 +487,24 @@ fn stuck_subject(
         stuck(definition, pattern)
     } else {
         stuck(definition, &restricted_to(pattern, restriction))
+    }
+}
+
+/// The probe of a rule a step selected for `pattern` and never tried
+/// (`crate::coverage::Selection`): whether its left-hand side matches the step's subject, by the
+/// match an attempt begins with (P1), of the rule renamed apart from the subject where they share
+/// a variable; an undecided match counts.
+fn rule_probe<'a>(
+    definition: &'a BackendDefinition,
+    pattern: &'a Pattern,
+) -> impl FnMut(&RewriteRule) -> bool + 'a {
+    move |rule| {
+        let renamed = rename_apart(rule, &pattern.term.attributes().variables, &[]);
+        let rule = renamed.as_ref().map_or(rule, |(renamed, _)| renamed);
+        !matches!(
+            match_rule_in_definition(definition, &rule.lhs, &pattern.term),
+            MatchResult::Failed(_)
+        )
     }
 }
 
@@ -389,12 +528,19 @@ pub(super) fn rewrite_step_all(
     if priority_groups.is_empty() {
         return stuck_subject(definition, pattern, subject_definedness.restriction());
     }
-    let mut groups = priority_groups.into_iter();
+    // The step stops at its first productive or undecided group: the rules it never tries on
+    // the subject are offered (`crate::coverage::Selection`), the lower groups' rules among them,
+    // which are tried only on the remainder.
+    let selection = Selection::new(
+        by_priority(&priority_groups),
+        every,
+        rule_probe(definition, pattern),
+    );
     let mut visited = 0;
     let outcome = first_productive_group(
         definition,
         pattern,
-        &mut groups.by_ref().map(|(priority, rules)| {
+        selection.groups().map(|(priority, rules)| {
             visited = priority;
             rules
         }),
@@ -409,12 +555,18 @@ pub(super) fn rewrite_step_all(
         PriorityGroupOutcome::NotProductive => {
             stuck_subject(definition, pattern, subject_definedness.restriction())?
         }
-        PriorityGroupOutcome::Undecided(undecided) => undecided.into_result(pattern.clone()),
+        PriorityGroupOutcome::Undecided(undecided) => {
+            drop(selection);
+            undecided.into_result(pattern.clone())
+        }
         PriorityGroupOutcome::Productive {
             mut branches,
             mut trivial,
             mut remainder,
         } => {
+            drop(selection);
+            let mut groups = priority_groups;
+            groups.retain(|priority, _| *priority > visited);
             fold_lower_priority_groups(
                 definition,
                 &mut branches,
@@ -423,7 +575,7 @@ pub(super) fn rewrite_step_all(
                 LowerGroups {
                     selected_for: subject,
                     visited,
-                    groups: groups.collect(),
+                    groups,
                 },
                 fresh_counter,
                 simplification_options,
@@ -457,7 +609,7 @@ pub(crate) fn rewrite_step_all_first_group_for_tests(
         match first_productive_group(
             definition,
             pattern,
-            &mut priority_groups.into_values(),
+            priority_groups.values(),
             fresh_counter,
             simplification_options,
             solver,
@@ -576,6 +728,12 @@ fn fold_lower_priority_groups(
                     }
                 }
                 Err(error) => {
+                    // The lower groups are never tried on the remainder.
+                    offer_all(
+                        by_priority(&lower.groups),
+                        every,
+                        rule_probe(definition, &current.pattern),
+                    );
                     current.indeterminate = Some(UndecidedStep::Simplification(error));
                     return Ok(());
                 }
@@ -599,11 +757,18 @@ fn fold_lower_priority_groups(
         let current = remainder
             .as_ref()
             .expect("remainder survived simplification");
+        // The group stops at a rule whose attempt leaves it undecided: the rules after it are
+        // offered against the remainder (`crate::coverage::Selection`).
+        let selection = Selection::new(
+            std::iter::once((priority, rules.as_slice())),
+            every,
+            rule_probe(definition, &current.pattern),
+        );
         let (outcome, diagnostics) = diagnostic::collect(|| {
             apply_priority_group(
                 definition,
                 &current.pattern,
-                &rules,
+                selection.groups().flat_map(|(_, rules)| rules),
                 fresh_counter,
                 simplification_options,
                 solver,
@@ -612,6 +777,7 @@ fn fold_lower_priority_groups(
                 ground_halt,
             )
         });
+        drop(selection);
         match outcome? {
             // The lower group did not apply to the remainder, which goes on unchanged.
             PriorityGroupOutcome::NotProductive => {}
@@ -619,6 +785,12 @@ fn fold_lower_priority_groups(
                 let current = remainder
                     .as_mut()
                     .expect("the current remainder is present");
+                // The lower groups after this one are never tried on the remainder.
+                offer_all(
+                    by_priority(&lower.groups),
+                    every,
+                    rule_probe(definition, &current.pattern),
+                );
                 extend_distinct(&mut current.diagnostics, &diagnostics);
                 current.indeterminate = Some(undecided);
                 return Ok(());
@@ -902,6 +1074,46 @@ fn close_priority(
     )
 }
 
+/// Whether the sequential step asks if a successor its normalization counts defined has an
+/// instance at all, before committing to it.
+///
+/// A successor denotes the states its constraints admit, so one whose constraints have none is
+/// no successor of its rule, however that was found. The one-path proof route reads a state
+/// whose constraints the solver refutes as no state (`proof::state_is_bottom`), so its step
+/// must choose among successors by the same reading: otherwise it commits to a rule that gives
+/// the instances no successor and drops the later rules of the priority that would give them
+/// one. Executions never read a state as empty by a solver query, so they do not ask.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum SuccessorSatisfiability {
+    /// The normalization alone decides whether a successor is undefined.
+    NotAsked,
+    /// A successor the normalization counts defined is undefined too when its normalized
+    /// constraints are refuted ([`may_have_instance`]).
+    Asked,
+}
+
+/// `checked`, a candidate's successor check, with a successor its normalization counted defined
+/// shown undefined when `satisfiability` asks and its normalized constraints have no instance.
+/// The obligation named is those refuted constraints.
+fn check_successor_satisfiability(
+    definition: &BackendDefinition,
+    mut checked: SuccessorCheck,
+    satisfiability: SuccessorSatisfiability,
+    solver: &dyn SmtSolver,
+) -> Stoppable<SuccessorCheck> {
+    if satisfiability == SuccessorSatisfiability::Asked
+        && checked.undefined.is_none()
+        && let Some(constraints) = &checked.constraints
+        && !may_have_instance(definition, constraints, solver)?
+    {
+        checked.undefined = Some(UndefinedSuccessor {
+            obligation: super::refuted_constraint(constraints),
+            contradicted_total: None,
+        });
+    }
+    Ok(checked)
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn rewrite_step_any(
     definition: &BackendDefinition,
@@ -914,6 +1126,7 @@ pub(super) fn rewrite_step_any(
     ground_halt: bool,
     mut determinism: Option<&mut SequentialDeterminism>,
     mut memo: Option<&mut RefutationMemo>,
+    satisfiability: SuccessorSatisfiability,
 ) -> Stoppable<RewriteResult> {
     let _apart = crate::rule::ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
@@ -949,11 +1162,20 @@ pub(super) fn rewrite_step_any(
     let mut priority_trivial = 0;
     // Each rule with whether it is its priority's last, after which no rule of the priority is
     // left to take the instances an undefined result leaves.
-    let rules = priority_groups.iter().flat_map(|(priority, rules)| {
-        rules
-            .iter()
-            .enumerate()
-            .map(move |(index, rule)| (*priority, rule, index + 1 == rules.len()))
+    //
+    // The step stops at the rule that took the state, or at an undecided attempt: the rules it
+    // never tries are offered (`crate::coverage::Selection`); a rule taken from the selection and
+    // then not tried is given back.
+    let selection = Selection::new(
+        by_priority(&priority_groups),
+        every,
+        rule_probe(definition, pattern),
+    );
+    let rules = selection.groups().flat_map(|(priority, mut rules)| {
+        std::iter::from_fn(move || {
+            let rule = rules.next()?;
+            Some((priority, rule, rules.is_exhausted()))
+        })
     });
     for (priority, rule, last_of_priority) in rules {
         if remaining.priority() != Some(priority) {
@@ -967,6 +1189,7 @@ pub(super) fn rewrite_step_any(
                 simplification_options,
                 solver,
             )? {
+                selection.give_back();
                 return Ok(RewriteResult::Simplification {
                     pattern: remaining.into_pattern(),
                     error,
@@ -991,6 +1214,9 @@ pub(super) fn rewrite_step_any(
                 )?;
                 continue;
             }
+            // Under `Any` the rule that took the state ends the step: this rule and the ones
+            // after it are never tried.
+            selection.give_back();
             break;
         }
         let attempt = RefutationMemo::apply_rule(
@@ -1039,35 +1265,74 @@ pub(super) fn rewrite_step_any(
                     }
                     let common = group.common.unwrap_or_default();
                     let mut group_trivial = group.trivial;
-                    // A candidate the step took as defined may still be undefined: an equation
-                    // of a `total` symbol, trusted as total, may reduce its result to `\bottom`,
-                    // which only its successor's normalization finds. The sequential step
-                    // commits to the candidates it keeps, so it decides that here when a later
-                    // application group of the rule or a later rule of the priority is left: an
-                    // undefined candidate is then an undefined result like those above, whose
-                    // instances are offered to them. With none left the instances have no other
-                    // successor, so the candidate is kept and its successor's normalization
-                    // reports the undefined step, with the same instances. A kept candidate
-                    // carries its normalization, which its successor takes instead of repeating
-                    // it.
+                    // The sequential step offers an undefined result's instances to the groups
+                    // and rules after it, so whether a later candidate is taken rests on the
+                    // undefined alternatives' own work: the path facts it noted
+                    // (`crate::path_facts`) are on the state's path, every successor's.
+                    crate::path_facts::replay(&crate::path_facts::of_diagnostics(
+                        group
+                            .trivial_work
+                            .iter()
+                            .map(|sequenced| &sequenced.diagnostic),
+                    ));
+                    // A candidate the step took as defined may still have no successor: its
+                    // result, trusted as defined (an equation of a `total` symbol, a declared
+                    // `preserves-definedness`), may normalize to `\bottom`, by an undefined
+                    // builtin application, an equation whose own result is `\bottom`, a refuted
+                    // equation `ensures` or any other conjoined `\bottom`, which only its
+                    // successor's normalization finds. A `\bottom` successor denotes no state,
+                    // and the sequential step chooses among the successors that exist, so it
+                    // decides that here when a later application group of the rule or a later
+                    // rule of the priority is left: such a candidate is then an undefined result
+                    // like those above, whose instances are offered to them. With none left the
+                    // instances have no other successor, so the candidate is kept and its
+                    // successor's normalization reports the undefined step, with the same
+                    // instances. A kept candidate carries its normalization, which its successor
+                    // takes instead of repeating it. When the caller reads a successor whose
+                    // constraints the solver refutes as no state (`SuccessorSatisfiability`), the
+                    // check asks that too: such a successor is undefined in the same way, and
+                    // committing to it would leave its instances on no rule's successor while a
+                    // later rule may give them one.
                     let later_alternative = !last_of_priority || group_index + 1 < group_count;
                     let mut applied_group = Vec::with_capacity(group.applied.len());
                     let mut undefined_work = Vec::new();
                     for mut application in group.applied {
+                        restrict_successor(definition, &mut application.applied, restriction);
                         if !later_alternative {
                             applied_group.push(application);
                             continue;
                         }
-                        let checked = normalize_successor(
+                        // The successor's normalization is its rule's work: a contradicted
+                        // claim it observes names the rule (`crate::path_facts`).
+                        let checked = crate::path_facts::observed_by(
+                            || Some(application.applied.observing_rule()),
+                            || {
+                                normalize_successor(
+                                    definition,
+                                    &application.applied.pattern,
+                                    &application.applied.before.constraints,
+                                    simplification_options,
+                                    solver,
+                                    application.applied.io.as_ref().or(io),
+                                )
+                            },
+                        )?;
+                        let checked = check_successor_satisfiability(
                             definition,
-                            &application.applied.pattern,
-                            &application.applied.before.constraints,
-                            simplification_options,
+                            checked,
+                            satisfiability,
                             solver,
-                            application.applied.io.as_ref().or(io),
                         )?;
                         match checked.undefined {
                             Some(undefined) => {
+                                // Rejected: its instances go to the groups and rules after it,
+                                // which rests on its own work too, as above.
+                                crate::path_facts::replay(&crate::path_facts::of_diagnostics(
+                                    application
+                                        .diagnostics
+                                        .iter()
+                                        .map(|sequenced| &sequenced.diagnostic),
+                                ));
                                 if let Some(normalization) = &checked.normalization {
                                     extend_distinct(
                                         &mut undefined_work,

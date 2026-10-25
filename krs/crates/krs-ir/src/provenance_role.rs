@@ -61,6 +61,12 @@ provenance_roles! {
     ConstructorDeclaration => "constructor_declaration",
     /// Object-language sort path of a constructor record field, in field order.
     ConstructorFieldSort => "constructor_field_sort",
+    /// One element type of a typed collection field sort (`Int` and `Set<Int>`
+    /// of `Map<Int, Set<Int>>`), in preorder over the fields in field order.
+    ConstructorFieldSortArgument => "constructor_field_sort_argument",
+    /// One element type of a function's typed collection result sort, in
+    /// preorder.
+    ConstructorSortArgument => "constructor_sort_argument",
     /// Name of a constructor field, in declaration order.
     ConstructorFieldDeclaration => "constructor_field_declaration",
     /// One ordered item in a checked constructor syntax template.
@@ -394,6 +400,9 @@ provenance_roles! {
     ListSeparator => "list_separator",
     /// The `non_empty` flag of `#[k::syntax_list]`.
     ListNonEmpty => "list_non_empty",
+    /// The `#[k::cons_list]` marker of a constructors enum, on its cons
+    /// constructor (F6).
+    ConsListDeclaration => "cons_list_declaration",
     /// Console stream value of a fixed cell (`stream = "stdin"`).
     ConfigurationCellStream => "configuration_cell_stream",
     /// Bare `exit` flag of a fixed cell.
@@ -438,6 +447,8 @@ provenance_roles! {
     FunctionSmtlib => "function_smtlib",
     /// `smt_hook = ".."` template string of a function production.
     FunctionSmtHook => "function_smt_hook",
+    /// `underspecified = ".."` reason string of a total function production.
+    FunctionUnderspecified => "function_underspecified",
     /// One `{field}` placeholder of a function's `smt_hook` template.
     SmtHookPlaceholder => "smt_hook_placeholder",
     /// `concrete` or `concrete(..)` of an equation or simplification.
@@ -550,6 +561,22 @@ provenance_roles! {
     RuleRightCellsInstanceField => "rule_right_cells_instance_field",
     /// The rest of a collection entry in a rule result.
     RuleRightCellsInstancesRest => "rule_right_cells_instances_rest",
+    /// Name of a `#[k::constant]` item.
+    ConstantDeclaration => "constant_declaration",
+    /// Declared sort path of a `#[k::constant]` item.
+    ConstantType => "constant_type",
+    /// Value expression of a `#[k::constant]` item.
+    ConstantValue => "constant_value",
+    /// One node of a constant's value substituted at a use of the constant.
+    /// The compiler numbers these per descriptor; their origin is the use.
+    InlinedConstant => "inlined_constant",
+    /// Field name of one record argument (`Tag { b: .. }`) in an initializer's
+    /// terms, in expansion order.
+    InitializerRecordFieldName => "initializer_record_field_name",
+    /// Sort path of one element type of a configuration variable's
+    /// collection type (`Value` of `xs: List<Value>`), nested ones included,
+    /// in preorder across the initializer's variables.
+    ConfigurationVariableTypeArgument => "configuration_variable_type_argument",
 }
 
 impl Serialize for ProvenanceRole {

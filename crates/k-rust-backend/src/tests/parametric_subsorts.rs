@@ -4,8 +4,11 @@ use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
 use crate::{
     definition::{BackendDefinition, DefinitionError},
-    matching::{MatchMode, MatchResult, SortError, match_terms_in_definition},
-    term::{Sort, Term, Variable},
+    matching::{
+        InjectionEquality, MatchMode, MatchResult, SortError, SortGraph, UndecidedReason,
+        match_injection_equality, match_terms_in_definition,
+    },
+    term::{Name, Sort, Term, Variable},
 };
 
 fn subsort_axiom(sub: &str, sup: &str) -> String {
@@ -136,7 +139,7 @@ fn d_overlap_requires_a_common_closed_subsort() {
 #[test]
 fn e_schematic_instances_report_variables_unless_every_instance_is_unrelated() {
     let definition = definition();
-    let schematic = Sort::application("SortMInt", vec![Sort::Variable("W".into())]);
+    let schematic = Sort::application("SortMInt", vec![Sort::variable("W")]);
     assert_eq!(
         definition
             .sort_graph()
@@ -338,4 +341,135 @@ fn j_total_builders_inhabit_closed_instances_and_their_supersorts() {
     assert!(definition.sort_is_inhabited(&mint("Sort8")));
     assert!(definition.sort_is_inhabited(&Sort::simple("SortKResult")));
     assert!(!definition.sort_is_inhabited(&mint("Sort16")));
+}
+
+fn schematic_mint() -> Sort {
+    Sort::application("SortMInt", vec![Sort::variable("W")])
+}
+
+/// A sort-parametric pattern stands for each of its closed instances: `inj{SortMInt{W},
+/// SortKItem}(X)` matches an injection from `SortMInt{Sort8}` at `W = Sort8`, and `X:SortMInt{W}`
+/// matches a value of `SortMInt{Sort8}` there. The matcher binds no sort variable, so it leaves
+/// both undecided in every mode, and mints no refutation from them.
+#[test]
+fn k_sort_variable_subsort_questions_leave_the_match_undecided() {
+    let definition = definition();
+    let schematic = schematic_mint();
+    let operand = Term::variable(Variable::new("X", schematic));
+    let injected = Term::injection(schematic, Sort::simple("SortKItem"), operand.clone());
+    let subject = checked_term(
+        &definition,
+        r#"inj{SortMInt{Sort8{}}, SortKItem{}}(\dv{SortMInt{Sort8{}}}("5p8"))"#,
+    );
+    let value = checked_term(&definition, r#"\dv{SortMInt{Sort8{}}}("5p8")"#);
+    let undecided = MatchResult::Undecided(UndecidedReason::Subsorting(
+        SortError::FoundSortVariable("W".into()),
+    ));
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        let matched = match_terms_in_definition(mode, &definition, &injected, &subject);
+        assert_eq!(matched, undecided, "{mode:?}");
+        assert!(matched.refutation().is_none(), "{mode:?}");
+        assert_eq!(
+            match_terms_in_definition(mode, &definition, &operand, &value),
+            undecided,
+            "{mode:?}"
+        );
+    }
+}
+
+/// `inj{A,C}(a) = inj{B,C}(b)` is decided only from what the subsort order establishes. One
+/// source below the other splits the equation, since `inj{A,C}(a) = inj{B,C}(inj{A,B}(a))`.
+/// Two sources neither of which is below the other share only the injections of values of
+/// common subsorts, which a constructor-like operand is not, so such an operand separates them,
+/// and so does the absence of a common subsort. Without the order, or where the answer depends
+/// on a sort variable, nothing is established.
+#[test]
+fn l_injection_equality_separates_only_established_incomparable_sources() {
+    let (a, b, c) = (
+        Sort::simple("SortA"),
+        Sort::simple("SortB"),
+        Sort::simple("SortC"),
+    );
+    let constructor_like = Term::raw_domain_value(a, "a");
+    let x = Term::variable(Variable::new("X", b));
+    let y = Term::variable(Variable::new("Y", a));
+    let inject = |source: &Sort, operand: &Term| Term::injection(*source, c, operand.clone());
+    let (left, symbolic_left, right) = (
+        inject(&a, &constructor_like),
+        inject(&a, &y),
+        inject(&b, &x),
+    );
+    // Each sort with every sort below it.
+    let graph = |pairs: Vec<(&str, Vec<&str>)>| {
+        let mut graph = SortGraph::default();
+        for (sup, subs) in pairs {
+            graph.insert(sup, subs.into_iter().map(Name::from));
+        }
+        graph
+    };
+
+    assert_eq!(
+        match_injection_equality(None, &left, &right),
+        Some(InjectionEquality::Unknown),
+        "no order: B may be above A"
+    );
+
+    let ordered = graph(vec![
+        ("SortC", vec!["SortA", "SortB"]),
+        ("SortB", vec!["SortA"]),
+        ("SortA", vec![]),
+    ]);
+    assert_eq!(
+        match_injection_equality(Some(&ordered), &left, &right),
+        Some(InjectionEquality::Split(
+            Term::injection(a, b, constructor_like.clone()),
+            x.clone(),
+        )),
+    );
+
+    let disjoint = graph(vec![
+        ("SortC", vec!["SortA", "SortB"]),
+        ("SortA", vec![]),
+        ("SortB", vec![]),
+    ]);
+    for left in [&left, &symbolic_left] {
+        assert_eq!(
+            match_injection_equality(Some(&disjoint), left, &right),
+            Some(InjectionEquality::Distinct),
+            "{left:?}"
+        );
+    }
+
+    let overlapping = graph(vec![
+        ("SortC", vec!["SortA", "SortB", "SortD"]),
+        ("SortA", vec!["SortD"]),
+        ("SortB", vec!["SortD"]),
+        ("SortD", vec![]),
+    ]);
+    assert_eq!(
+        match_injection_equality(Some(&overlapping), &left, &right),
+        Some(InjectionEquality::Distinct),
+    );
+    assert_eq!(
+        match_injection_equality(Some(&overlapping), &symbolic_left, &right),
+        Some(InjectionEquality::Unknown),
+    );
+
+    // `inj{SortMInt{W}, SortKItem}(X) = inj{SortMInt{Sort8}, SortKItem}(5p8)` holds at
+    // `W = Sort8, X = 5p8`.
+    let definition = definition();
+    let schematic = schematic_mint();
+    let open = Term::injection(
+        schematic,
+        Sort::simple("SortKItem"),
+        Term::variable(Variable::new("X", schematic)),
+    );
+    let closed = checked_term(
+        &definition,
+        r#"inj{SortMInt{Sort8{}}, SortKItem{}}(\dv{SortMInt{Sort8{}}}("5p8"))"#,
+    );
+    assert_eq!(
+        match_injection_equality(Some(definition.sort_graph()), &open, &closed),
+        Some(InjectionEquality::Unknown),
+    );
 }

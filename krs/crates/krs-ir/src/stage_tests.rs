@@ -122,6 +122,7 @@ fn variable() -> DescriptorConfigurationVariable {
         external_name_key: key(1),
         external_name: "INPUT".to_owned(),
         sort: sort(2),
+        arguments: Vec::new(),
         main_key: Some(key(3)),
     }
 }
@@ -212,7 +213,16 @@ fn declaration() -> DescriptorCellDeclaration {
                     wrapper_key: key(2),
                     wrapper: cfg::CellWrapper::Cell,
                     sort: sort(3),
-                    arguments: vec![sort(4), sort(5)],
+                    arguments: vec![
+                        cfg::ProtocolSortArgument {
+                            sort: sort(4),
+                            arguments: Vec::new(),
+                        },
+                        cfg::ProtocolSortArgument {
+                            sort: sort(5),
+                            arguments: Vec::new(),
+                        },
+                    ],
                 },
             ),
             field(
@@ -668,8 +678,9 @@ fn head_rule() -> DescriptorHeadRule {
         computation_cell: Some(cell(2)),
         bindings: Vec::new(),
         head: Some(crate::ProtocolHeadRuleHead {
-            subject: term(3),
-            result: crate::DescriptorHeadRuleResult::Replace(term(4)),
+            items: vec![term(3)],
+            exact: false,
+            result: Some(crate::DescriptorHeadRuleResult::Replace(term(4))),
         }),
         requires: None,
         extras: Vec::new(),
@@ -677,6 +688,7 @@ fn head_rule() -> DescriptorHeadRule {
         ensures: None,
         fresh: Vec::new(),
         evaluation: None,
+        claim: None,
     }
 }
 
@@ -740,12 +752,15 @@ fn sort_and_constructor_traversals_preserve_variant_data() {
             ConstructorFieldDescriptor {
                 name: "first".to_owned(),
                 sort: Some(DescriptorSortRef::Builtin(BuiltinSort::Int)),
+                arguments: Vec::new(),
             },
             ConstructorFieldDescriptor {
                 name: "second".to_owned(),
                 sort: None,
+                arguments: Vec::new(),
             },
         ],
+        arguments: Vec::new(),
     };
     assert_mapping!(
         constructor.fields[0].clone(),
@@ -780,12 +795,15 @@ fn declaration_payload_traversal_maps_references_and_propagates_errors() {
             ConstructorFieldDescriptor {
                 name: "first".to_owned(),
                 sort: Some(DescriptorSortRef::Builtin(BuiltinSort::Int)),
+                arguments: Vec::new(),
             },
             ConstructorFieldDescriptor {
                 name: "second".to_owned(),
                 sort: None,
+                arguments: Vec::new(),
             },
         ],
+        arguments: Vec::new(),
     };
     assert_mapping!(
         DescriptorPayload::Sort(sorts),

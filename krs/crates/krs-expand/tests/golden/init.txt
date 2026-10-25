@@ -1,7 +1,7 @@
 #[allow(clippy::must_use_candidate, clippy::needless_pass_by_value)]
 pub fn init() -> Self {
     Self {
-        k: ::k::configuration::KCell::new(k::k![Object::Foo()]),
+        k: ::k::configuration::KCell::new(::k::configuration::__term()),
     }
 }
 #[doc(hidden)]

@@ -20,7 +20,7 @@ use std::cell::OnceCell;
 
 use k_rust_backend::{
     builtin::DeclarationFacts,
-    term::{DomainKind, Sort as BackendSort},
+    term::{DomainKind, Sort as BackendSort, SortNode},
 };
 
 use super::module_to_kore::{emitted_subsort_pair, encode_kore_sort};
@@ -112,7 +112,7 @@ pub(crate) fn backend_sort(sort: &Sort) -> BackendSort {
             KoreSort::Application { name, arguments } => {
                 BackendSort::application(name.as_str(), arguments.iter().map(convert).collect())
             }
-            KoreSort::Variable(name) => BackendSort::Variable(name.as_str().into()),
+            KoreSort::Variable(name) => BackendSort::variable(name.as_str()),
         }
     }
     convert(&encode_kore_sort(sort))
@@ -121,7 +121,7 @@ pub(crate) fn backend_sort(sort: &Sort) -> BackendSort {
 /// The frontend sort the emitted KORE sort `sort` writes; `None` for a sort variable or a name
 /// that no frontend sort encodes.
 fn frontend_sort(sort: &BackendSort) -> Option<Sort> {
-    let BackendSort::Application { name, arguments } = sort else {
+    let SortNode::Application { name, arguments } = sort.node() else {
         return None;
     };
     Some(Sort::with_parameters(
@@ -139,6 +139,7 @@ mod tests {
 
     use k_rust_backend::{
         builtin::DeclarationFacts, definition::BackendDefinition, term::Sort as BackendSort,
+        term::SortNode,
     };
 
     use super::EmittedDeclarations;
@@ -211,7 +212,7 @@ mod tests {
                 .chain(std::iter::once(&symbol.result_sort))
             {
                 if !sort.has_variable() {
-                    sorts.insert(sort.clone());
+                    sorts.insert(*sort);
                 }
             }
         }
@@ -234,9 +235,9 @@ mod tests {
         let sorts = closed_sorts(&emitted);
         let names = sorts
             .iter()
-            .filter_map(|sort| match sort {
-                BackendSort::Application { name, .. } => Some(name.as_ref()),
-                BackendSort::Variable(_) => None,
+            .filter_map(|sort| match sort.node() {
+                SortNode::Application { name, .. } => Some(name.as_ref()),
+                SortNode::Variable(_) => None,
             })
             .collect::<BTreeSet<_>>();
         for name in compared {
@@ -258,7 +259,7 @@ mod tests {
         }
         let simple = sorts
             .iter()
-            .filter(|sort| matches!(sort, BackendSort::Application { arguments, .. } if arguments.is_empty()))
+            .filter(|sort| matches!(sort.node(), SortNode::Application { arguments, .. } if arguments.is_empty()))
             .collect::<Vec<_>>();
         for sub in simple
             .iter()

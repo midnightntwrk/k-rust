@@ -12,8 +12,8 @@
 //! Every statement of the definedness of (i) the operand a literal deciding operand discards, or
 //! (ii) an operand other than the deciding one while the deciding operand is not a literal (such
 //! operands are left unsimplified), exists only as [`Predicate::Defined`] atoms, created only by
-//! [`deferred_obligations`]. Such an operand is not evaluated beyond the bounded steps that decide
-//! its atoms: an atom is decided only by [`decide_defined`] (folding by pure builtin hooks on
+//! `deferred_obligations`. Such an operand is not evaluated beyond the bounded steps that decide
+//! its atoms: an atom is decided only by `decide_defined` (folding by pure builtin hooks on
 //! ground constructor-like arguments, collections included, with the value of one equation step on
 //! literal arguments whose right-hand side those hooks fold to a literal; ceil equations whose
 //! instantiated condition that folding decides, or whose instance is stated in the atom's place
@@ -25,7 +25,7 @@
 //!
 //! An operand whose definedness depends on an impure application (a console read, or a function
 //! whose equations perform an effect) cannot be decided without performing it, and a constraint
-//! must never hold an impure application: [`deferred_obligations`] returns that case as a
+//! must never hold an impure application: `deferred_obligations` returns that case as a
 //! [`DeferredOutcome`], which its callers turn into the step's unsupported-hook stop.
 
 use std::{cell::RefCell, collections::VecDeque, marker::PhantomData, sync::Arc};
@@ -39,11 +39,12 @@ use crate::{
     },
     definition::BackendDefinition,
     evaluation::EvaluationMode,
+    path_facts::FactSet,
     rule::{Predicate, RewriteRule, RuleRhs, applicable_groups, term_index},
     simplify::{EquationInstances, Instance, SimplificationError, equation_instances},
     stop::{self, Stoppable},
     substitution::{Substitution, substitute},
-    term::{FunctionType, NodeIdentity, Sort, Symbol, SymbolType, Term, TermKind, VariableKind},
+    term::{FunctionType, NodeIdentity, Sorts, Symbol, SymbolType, Term, TermKind, VariableKind},
 };
 
 /// The three hooked symbols whose deciding operand selects the operand that is evaluated.
@@ -131,7 +132,7 @@ impl DeferredOutcome {
         let TermKind::Application { symbol, .. } = application.kind() else {
             unreachable!("an impure subterm is an application");
         };
-        Self {
+        let outcome = Self {
             hook: symbol
                 .attributes
                 .hook
@@ -141,7 +142,11 @@ impl DeferredOutcome {
                 detail: detail.to_owned(),
             },
             term: application.clone(),
-        }
+        };
+        // The run record keeps it whatever becomes of the work that met it
+        // (`crate::path_facts`).
+        crate::path_facts::note_unevaluated_hook(&outcome.hook, &outcome.reason, false);
+        outcome
     }
 
     /// The hook of the impure application, or its symbol's name when it has none.
@@ -188,6 +193,162 @@ pub(crate) fn is_impure_symbol(definition: &BackendDefinition, symbol: &Symbol) 
             .hook
             .as_deref()
             .is_some_and(|hook| hook.starts_with("IO."))
+}
+
+/// The symbols of a definition whose applications may perform a console effect when they are
+/// evaluated, closed over the definition's own equations; computed once at load
+/// (`BackendDefinition::internalize`) and read by [`holds_console_effect`].
+///
+/// It holds every symbol with an `IO.` hook or declared `impure`, and every head of a function
+/// equation, an anywhere rule or a simplification (every equation that can rewrite an
+/// application) whose right-hand side, requires or ensures mentions a symbol it holds: such an
+/// application may be rewritten into one that performs the effect. The frontend declares `impure`
+/// by the same closure, from the same seeds over the same rules and rule parts, so on compiled
+/// KORE the load adds no symbol; hand-written KORE without the attribute is covered here too.
+///
+/// `unindexed` holds when an equation whose left-hand side has no symbol at its root (a
+/// collection, an injection, a variable) mentions such a symbol: it can rewrite terms the walk
+/// cannot attribute to a head, so every term may then perform an effect.
+///
+/// The cost is one visit per node of those equations' right-hand sides, requires and ensures,
+/// and one edge per (mentioned symbol, head) pair, followed once each: linear in the size of
+/// the definition's equations.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct ConsoleReach {
+    symbols: rustc_hash::FxHashSet<crate::term::Name>,
+    unindexed: bool,
+}
+
+impl ConsoleReach {
+    pub(crate) fn of(definition: &BackendDefinition) -> Self {
+        use crate::rule::{RuleRhs, TermIndex};
+        let mut callers: rustc_hash::FxHashMap<crate::term::Name, Vec<crate::term::Name>> =
+            rustc_hash::FxHashMap::default();
+        let mut unindexed_mentions: Vec<crate::term::Name> = Vec::new();
+        let theories = [
+            definition.function_theory(),
+            definition.simplification_theory(),
+        ];
+        for (index, groups) in theories.into_iter().flatten() {
+            for rule in groups.values().flatten() {
+                let mut mentioned = Vec::new();
+                let mut symbols = |term: &Term| {
+                    term.visit_symbols(&mut |symbol: &Symbol| mentioned.push(symbol.name.clone()))
+                };
+                match &rule.rhs {
+                    RuleRhs::Term(term) => symbols(term),
+                    RuleRhs::Disjunction(alternatives) => {
+                        for alternative in alternatives {
+                            symbols(&alternative.term);
+                            for predicate in alternative.ensures.iter() {
+                                predicate.visit_terms(&mut symbols);
+                            }
+                        }
+                    }
+                    RuleRhs::Predicates(predicates) => {
+                        for predicate in predicates {
+                            predicate.visit_terms(&mut symbols);
+                        }
+                    }
+                    RuleRhs::Top | RuleRhs::Bottom => {}
+                }
+                for predicate in rule.requires.iter().chain(rule.ensures.iter()) {
+                    predicate.visit_terms(&mut symbols);
+                }
+                match index {
+                    TermIndex::Symbol(head) => {
+                        for symbol in mentioned {
+                            callers.entry(symbol).or_default().push(head.clone());
+                        }
+                    }
+                    _ => unindexed_mentions.extend(mentioned),
+                }
+            }
+        }
+        let mut symbols = rustc_hash::FxHashSet::default();
+        let mut pending: Vec<crate::term::Name> = definition
+            .symbols()
+            .values()
+            .filter(|symbol| is_impure_symbol(definition, symbol))
+            .map(|symbol| symbol.name.clone())
+            .collect();
+        while let Some(symbol) = pending.pop() {
+            if symbols.insert(symbol.clone())
+                && let Some(heads) = callers.get(&symbol)
+            {
+                pending.extend(heads.iter().cloned());
+            }
+        }
+        let unindexed = unindexed_mentions
+            .iter()
+            .any(|symbol| symbols.contains(symbol));
+        Self { symbols, unindexed }
+    }
+
+    /// Whether an application of `symbol` may perform a console effect.
+    pub(crate) fn may_reach(&self, symbol: &Symbol) -> bool {
+        self.symbols.contains(&symbol.name)
+    }
+
+    /// The names of the symbols held, sorted; `None` when `unindexed` holds.
+    pub(crate) fn symbol_names(&self) -> Option<std::collections::BTreeSet<String>> {
+        (!self.unindexed).then(|| self.symbols.iter().map(|name| name.to_string()).collect())
+    }
+}
+
+/// Whether `term` holds an application that may perform a console effect when it is
+/// evaluated: of a symbol [`ConsoleReach`] holds, which over-approximates the console effects
+/// (every `IO.` hook is `impure`, and so is a symbol only declared so), as is sound for the marks
+/// it decides.
+///
+/// The walk stops at every constructor-like subterm (a domain value, a free-constructor
+/// application, a collection of them), which holds no application a function equation, an
+/// anywhere rule or a simplification heads (such a head is no free constructor), so it visits
+/// only the subterms that may hold one: a large evaluated state is one node. It keeps one work
+/// list per call, which allocates only when a node has children to visit, and none per node.
+pub(crate) fn holds_console_effect(definition: &BackendDefinition, term: &Term) -> bool {
+    let reach = definition.console_reach();
+    if reach.unindexed {
+        return true;
+    }
+    let mut pending: Vec<&Term> = Vec::new();
+    let mut next = Some(term);
+    while let Some(term) = next.take().or_else(|| pending.pop()) {
+        #[cfg(test)]
+        tests::CONSOLE_SCAN_NODES.with(|count| count.set(count.get() + 1));
+        if term.attributes().constructor_like {
+            continue;
+        }
+        match term.kind() {
+            TermKind::Application {
+                symbol, arguments, ..
+            } => {
+                if reach.may_reach(symbol) {
+                    return true;
+                }
+                pending.extend(arguments.iter());
+            }
+            TermKind::And(left, right) => pending.extend([left, right]),
+            TermKind::Injection { term, .. } => next = Some(term),
+            TermKind::Map { entries, rest, .. } => {
+                pending.extend(entries.iter().flat_map(|(key, value)| [key, value]));
+                pending.extend(rest);
+            }
+            TermKind::List { heads, rest, .. } => {
+                pending.extend(heads.iter());
+                if let Some((middle, tails)) = rest {
+                    pending.push(middle);
+                    pending.extend(tails.iter());
+                }
+            }
+            TermKind::Set { elements, rest, .. } => {
+                pending.extend(elements.iter());
+                pending.extend(rest);
+            }
+            TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
+        }
+    }
+    false
 }
 
 /// Whether `application`, a console hook application, has arguments in the console's domain,
@@ -389,8 +550,40 @@ pub(crate) enum Folded {
 ///
 /// A value only an execution chooses is not computed outside one, as in term simplification
 /// (`crate::evaluation`). A builtin failure leaves its application as it is.
+///
+/// The folded term's value is read, so every value the definition leaves open that the fold takes
+/// marks the paths that read it (`crate::path_facts`); [`fold_hooks_for_definedness`] is the fold
+/// whose result decides a definedness only.
 pub(crate) fn fold_hooks(definition: &BackendDefinition, term: &Term) -> Stoppable<Folded> {
-    fold(definition, term, false)
+    fold(definition, term, false, false)
+}
+
+/// [`fold_hooks`] of a term whose definedness alone is read: the operand a decided `#if`,
+/// `andThenBool` or `orElseBool` discards, or the subject of a deferred atom.
+///
+/// A value the definition leaves open is a defined value in every model (`builtin::chosen_value`),
+/// and an application of a `total` symbol or a constructor over defined arguments is defined in
+/// every model. So where every application enclosing such a value in `term` is of a `total`
+/// symbol or a constructor, which admitted value the fold took cannot change the definedness
+/// read, and its evaluation marks no path. Under any other application (a partial hook such as
+/// `/Int` or `_[_]`, a function not declared `total`) the value can decide whether that
+/// application is defined, and it marks the paths as [`fold_hooks`] does:
+/// `10 /Int (#if keys_list(M)[0] ==K 1 #then 1 #else 0 #fi)` on two keys is defined in one
+/// listing order and undefined in the other.
+pub(crate) fn fold_hooks_for_definedness(
+    definition: &BackendDefinition,
+    term: &Term,
+) -> Stoppable<Folded> {
+    fold(definition, term, false, true)
+}
+
+/// Whether an application of `symbol` is defined wherever its arguments are: a constructor, or a
+/// function declared `total`.
+fn preserves_definedness(symbol: &Symbol) -> bool {
+    matches!(
+        symbol.attributes.symbol_type,
+        SymbolType::Constructor | SymbolType::Function(FunctionType::Total)
+    )
 }
 
 /// [`fold_hooks`], where a ground application of a function that no hook folds also takes the
@@ -399,11 +592,21 @@ pub(crate) fn fold_hooks(definition: &BackendDefinition, term: &Term) -> Stoppab
 /// on literal arguments, with a right-hand side folded by hooks alone and never stepped again: no
 /// recursion of the definition's equations, no effect, and a bound of one selection scan per
 /// node of the term (F5 of the fix round; docs/compatibility.md).
+///
+/// It folds a deferred atom's subject, whose definedness alone is read, as
+/// [`fold_hooks_for_definedness`] does.
 fn fold_with_values(definition: &BackendDefinition, term: &Term) -> Stoppable<Folded> {
-    fold(definition, term, true)
+    fold(definition, term, true, true)
 }
 
-fn fold(definition: &BackendDefinition, term: &Term, values: bool) -> Stoppable<Folded> {
+/// `definedness_only`: the definedness of `term` alone is read, and every application above it
+/// in the folded term preserves definedness ([`fold_hooks_for_definedness`]).
+fn fold(
+    definition: &BackendDefinition,
+    term: &Term,
+    values: bool,
+    definedness_only: bool,
+) -> Stoppable<Folded> {
     stop::with_stack_headroom(|| {
         let (symbol, sort_arguments, arguments) = match term.kind() {
             TermKind::Application {
@@ -416,11 +619,9 @@ fn fold(definition: &BackendDefinition, term: &Term, values: bool) -> Stoppable<
                 target,
                 term: inner,
             } => {
-                return Ok(match fold(definition, inner, values)? {
+                return Ok(match fold(definition, inner, values, definedness_only)? {
                     Folded::Term(folded) if folded.ptr_eq(inner) => Folded::Term(term.clone()),
-                    Folded::Term(folded) => {
-                        Folded::Term(Term::injection(source.clone(), target.clone(), folded))
-                    }
+                    Folded::Term(folded) => Folded::Term(Term::injection(*source, *target, folded)),
                     bottom @ Folded::Bottom(_) => bottom,
                 });
             }
@@ -431,8 +632,9 @@ fn fold(definition: &BackendDefinition, term: &Term, values: bool) -> Stoppable<
         }
         let mut changed = false;
         let mut folded_arguments = Vec::with_capacity(arguments.len());
+        let arguments_definedness_only = definedness_only && preserves_definedness(symbol);
         for argument in arguments {
-            match fold(definition, argument, values)? {
+            match fold(definition, argument, values, arguments_definedness_only)? {
                 Folded::Term(folded) => {
                     changed |= !folded.ptr_eq(argument);
                     folded_arguments.push(folded);
@@ -441,7 +643,7 @@ fn fold(definition: &BackendDefinition, term: &Term, values: bool) -> Stoppable<
             }
         }
         let node = if changed {
-            Term::application(symbol.clone(), sort_arguments.clone(), folded_arguments)
+            Term::application(symbol.clone(), *sort_arguments, folded_arguments)
         } else {
             term.clone()
         };
@@ -466,7 +668,12 @@ fn fold(definition: &BackendDefinition, term: &Term, values: bool) -> Stoppable<
         if !pure_hook_on_values(definition, &node) {
             return Ok(Folded::Term(node));
         }
-        Ok(match evaluate_pure_hook(definition, &node)? {
+        let evaluated = if definedness_only {
+            crate::path_facts::suspend(|| evaluate_pure_hook(definition, &node))
+        } else {
+            evaluate_pure_hook(definition, &node)
+        };
+        Ok(match evaluated? {
             // Outside an execution the entry leaves a value only an execution chooses
             // unevaluated (`builtin::evaluate_declared`); no equation step stands in for it.
             Ok(BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { .. }))
@@ -526,8 +733,10 @@ fn defined_without_value(definition: &BackendDefinition, term: &Term) -> Stoppab
     if !pure_hook_on_values(definition, term) {
         return Ok(false);
     }
+    // Only the application's own definedness is read, which a value the definition leaves open
+    // has in every model: the evaluation marks no path (`crate::path_facts`).
     Ok(matches!(
-        evaluate_pure_hook(definition, term)?,
+        crate::path_facts::suspend(|| evaluate_pure_hook(definition, term))?,
         Ok(BuiltinResult::Value(_)
             | BuiltinResult::Unsupported(UnsupportedHookReason::Unspecified { defined: true, .. }))
     ))
@@ -577,12 +786,23 @@ fn evaluate_pure_hook(
             .and_then(|values| values.entry(mode, application))
             .map(|entry| entry.result.clone())
     });
-    if let Some(Some(result)) = seen {
+    if let Some(Some((result, facts))) = seen {
+        // The served read took the value the evaluation took: its path read it too.
+        crate::path_facts::replay(&facts);
         return Ok(result);
     }
     #[cfg(test)]
     tests::HOOK_EVALUATIONS.with(|count| count.set(count.get() + 1));
+    let marker = crate::path_facts::marker();
     let result = evaluate_in_definition(application, definition)?;
+    let facts = crate::path_facts::since(marker);
+    // `SUBSTITUTION.substOne` is `impure` (substitution.md), so it is never kept here: each
+    // application is evaluated, and noted, where it is read.
+    debug_assert!(
+        !matches!(application.kind(), TermKind::Application { symbol, .. }
+            if symbol.attributes.hook.as_deref() == Some("SUBSTITUTION.substOne")),
+        "substOne is never served from the hook memo"
+    );
     HOOK_VALUES.with_borrow_mut(|values| {
         let Some(values) = values
             .as_mut()
@@ -595,7 +815,7 @@ fn evaluate_pure_hook(
             .iter_mut()
             .find(|entry| entry.names(mode, application))
         {
-            entry.result = Some(result.clone());
+            entry.result = Some((result.clone(), facts));
             return;
         }
         if values.entries.len() >= HOOK_VALUES_CAPACITY {
@@ -619,10 +839,11 @@ const HOOK_VALUES_CAPACITY: usize = 4;
 struct HookValue {
     mode: EvaluationMode,
     symbol: Arc<Symbol>,
-    sort_arguments: Vec<Sort>,
+    sort_arguments: Sorts,
     arguments: Vec<NodeIdentity>,
-    /// The evaluator's result, kept from the second read on.
-    result: Option<Result<BuiltinResult, BuiltinError>>,
+    /// The evaluator's result, kept from the second read on, with the path facts its evaluation
+    /// noted (`crate::path_facts`), which every read it serves notes again.
+    result: Option<(Result<BuiltinResult, BuiltinError>, FactSet)>,
 }
 
 impl HookValue {
@@ -639,7 +860,7 @@ impl HookValue {
         Some(Self {
             mode,
             symbol: Arc::clone(symbol),
-            sort_arguments: sort_arguments.clone(),
+            sort_arguments: *sort_arguments,
             arguments: arguments.iter().map(Term::identity).collect(),
             result: None,
         })
@@ -688,6 +909,23 @@ impl HookValues {
 thread_local! {
     /// The results of the innermost open [`HookValueScope`] on this thread.
     static HOOK_VALUES: RefCell<Option<HookValues>> = const { RefCell::new(None) };
+}
+
+/// Run `action` with this thread's results of pure builtin hooks ([`HookValueScope`]) set aside:
+/// a scope opened inside holds its own results, which are dropped when `action` ends, and the
+/// enclosing results come back unchanged, also when `action` unwinds. Work done only to describe
+/// a run (`coverage::isolated`) thus fills no entry the run would later be served from.
+pub(crate) fn hook_values_aside<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore(Option<Option<HookValues>>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            if let Some(values) = self.0.take() {
+                HOOK_VALUES.set(values);
+            }
+        }
+    }
+    let _restore = Restore(Some(HOOK_VALUES.take()));
+    action()
 }
 
 /// A backend entry point's scope for the results of pure builtin hooks that the deferred
@@ -766,8 +1004,14 @@ fn step_value(definition: &BackendDefinition, application: &Term) -> Stoppable<O
 
 /// [`fold_hooks`] where a stop only forgoes the fold: the term is kept as it is, which is sound,
 /// and a stop of the request stays raised for its owner's next poll.
-pub(crate) fn fold_hooks_or_keep(definition: &BackendDefinition, term: &Term) -> Folded {
-    match fold_hooks(definition, term) {
+///
+/// `definedness_only`: as [`fold_hooks_for_definedness`].
+pub(crate) fn fold_hooks_or_keep(
+    definition: &BackendDefinition,
+    term: &Term,
+    definedness_only: bool,
+) -> Folded {
+    match fold(definition, term, false, definedness_only) {
         Ok(folded) => folded,
         Err(stop) => {
             stop.forgo_refinement();
@@ -941,71 +1185,102 @@ fn ceil_equation(
         _ => &[],
     };
     let groups = applicable_groups(definition.ceil_theory(), &term_index(term));
-    for rules in groups.values() {
+    // A decision ends the selection: the unconditional ceil equations after the one that
+    // decided are offered (`crate::coverage::Selection`).
+    let selection = crate::coverage::Selection::new(
+        crate::coverage::by_priority(&groups),
+        unconditional_ceil,
+        crate::simplify::scan::equation_probe(definition, term),
+    );
+    for (_, rules) in selection.groups() {
         for rule in rules {
-            if !rule.requires.is_empty()
-                || !rule.computed_attributes.unbound_result_variables.is_empty()
-                || !matches!(rule.rhs, RuleRhs::Predicates(_))
-            {
-                continue;
+            if let Some(decision) = ceil_equation_decision(definition, term, arguments, rule)? {
+                return Ok(Some(decision));
             }
-            let (rule, EquationInstances::Matched(instances)) =
-                equation_instances(definition, rule, term, &[])
-            else {
-                continue;
-            };
-            let RuleRhs::Predicates(predicates) = &rule.rhs else {
-                unreachable!("renaming keeps the kind of the right-hand side");
-            };
-            for instance in instances {
-                let Instance::Usable(substitution) = instance else {
-                    continue;
-                };
-                // The instance's condition is decided below (`crate::coverage`); an outcome from
-                // it uses the equation.
-                let rule_id = rule.attributes.unique_id.as_str();
-                crate::coverage::note_matched(rule_id);
-                let mut conjuncts = Vec::new();
-                for predicate in predicates {
-                    flatten_conjuncts(
-                        substitute_predicate(predicate, &substitution),
-                        &mut conjuncts,
-                    );
-                }
-                let mut residual = Vec::new();
-                for conjunct in conjuncts {
-                    match fold_predicate(definition, &conjunct, arguments)? {
-                        Some(false) => {
-                            crate::coverage::note_applied(rule_id);
-                            return Ok(Some(DeferredDecision::Refuted));
-                        }
-                        Some(true) => {}
-                        None => residual.push(conjunct),
-                    }
-                }
-                if residual.is_empty() {
+        }
+    }
+    Ok(None)
+}
+
+/// Whether D2 uses `rule`: a ceil equation with no `requires`, no unbound result variable and a
+/// predicate right-hand side.
+fn unconditional_ceil(rule: &RewriteRule) -> bool {
+    rule.requires.is_empty()
+        && rule.computed_attributes.unbound_result_variables.is_empty()
+        && matches!(rule.rhs, RuleRhs::Predicates(_))
+}
+
+/// The decision of [`ceil_equation`] from `rule`, an [`unconditional_ceil`] equation: from the
+/// first of its usable instances at `term` whose condition decides one.
+fn ceil_equation_decision(
+    definition: &BackendDefinition,
+    term: &Term,
+    arguments: &[Term],
+    rule: &RewriteRule,
+) -> Stoppable<Option<DeferredDecision>> {
+    let (rule, instances) = equation_instances(definition, rule, term, &[]);
+    let instances = match instances {
+        EquationInstances::NotMatched(_) => return Ok(None),
+        EquationInstances::Undecided => {
+            // The matching is undecided: the equation competed here (`crate::coverage`).
+            crate::coverage::note_offered(&rule.attributes.unique_id);
+            return Ok(None);
+        }
+        EquationInstances::Matched(instances) => instances,
+    };
+    // The left-hand side matched: whatever its instances give, the equation competed at this
+    // operand (`crate::coverage`).
+    crate::coverage::note_offered(&rule.attributes.unique_id);
+    let RuleRhs::Predicates(predicates) = &rule.rhs else {
+        unreachable!("renaming keeps the kind of the right-hand side");
+    };
+    for instance in instances {
+        let Instance::Usable(substitution) = instance else {
+            continue;
+        };
+        // The instance's condition is decided below (`crate::coverage`); an outcome from
+        // it uses the equation.
+        let rule_id = rule.attributes.unique_id.as_str();
+        crate::coverage::note_matched(rule_id);
+        let mut conjuncts = Vec::new();
+        for predicate in predicates {
+            flatten_conjuncts(
+                substitute_predicate(predicate, &substitution),
+                &mut conjuncts,
+            );
+        }
+        let mut residual = Vec::new();
+        for conjunct in conjuncts {
+            match fold_predicate(definition, &conjunct, arguments)? {
+                Some(false) => {
                     crate::coverage::note_applied(rule_id);
-                    return Ok(Some(DeferredDecision::Established));
+                    return Ok(Some(DeferredDecision::Refuted));
                 }
-                // D2': over hook arithmetic the instance of the ceil axiom is stated instead of
-                // the opaque atom (`W1 =/=Int 0` for `W0 /Int W1`). It is an equivalence, and its
-                // terms hold no part of the operand but variables and literals, so no definition
-                // equation can reach the operand through it.
-                if arguments
-                    .iter()
-                    .all(|argument| hook_arithmetic(definition, argument))
-                    && residual.iter().all(|predicate| {
-                        let mut arithmetic = true;
-                        predicate.visit_terms(&mut |term| {
-                            arithmetic &= hook_arithmetic(definition, term);
-                        });
-                        arithmetic
-                    })
-                {
-                    crate::coverage::note_applied(rule_id);
-                    return Ok(Some(DeferredDecision::Replaced(residual)));
-                }
+                Some(true) => {}
+                None => residual.push(conjunct),
             }
+        }
+        if residual.is_empty() {
+            crate::coverage::note_applied(rule_id);
+            return Ok(Some(DeferredDecision::Established));
+        }
+        // D2': over hook arithmetic the instance of the ceil axiom is stated instead of
+        // the opaque atom (`W1 =/=Int 0` for `W0 /Int W1`). It is an equivalence, and its
+        // terms hold no part of the operand but variables and literals, so no definition
+        // equation can reach the operand through it.
+        if arguments
+            .iter()
+            .all(|argument| hook_arithmetic(definition, argument))
+            && residual.iter().all(|predicate| {
+                let mut arithmetic = true;
+                predicate.visit_terms(&mut |term| {
+                    arithmetic &= hook_arithmetic(definition, term);
+                });
+                arithmetic
+            })
+        {
+            crate::coverage::note_applied(rule_id);
+            return Ok(Some(DeferredDecision::Replaced(residual)));
         }
     }
     Ok(None)
@@ -1144,7 +1419,16 @@ fn select_single_step(
     }
     let groups = applicable_groups(definition.function_theory(), &term_index(term));
     let mut arguments_normal = None;
-    for rules in groups.values() {
+    // The selection stops in some group before trying the rest of it (and every later group):
+    // those equations are offered (`crate::coverage::Selection`); the held candidate, whose
+    // left-hand side matched, is offered where it matched.
+    let selection = crate::coverage::Selection::new(
+        crate::coverage::by_priority(&groups),
+        crate::coverage::every,
+        crate::simplify::scan::equation_probe(definition, term),
+    );
+    let mut selected = None;
+    for (_, rules) in selection.groups() {
         let mut candidate: Option<(RewriteRule, Substitution)> = None;
         for rule in rules {
             if function_below_root(&rule.lhs)
@@ -1154,13 +1438,20 @@ fn select_single_step(
                         .all(|argument| definition.instance_normal(argument).is_some())
                 })
             {
+                // The selection gives up before trying this equation.
+                selection.give_back();
                 return Ok(None);
             }
             let (renamed, instances) = equation_instances(definition, rule, term, &[]);
             match instances {
                 EquationInstances::NotMatched(_) => {}
-                EquationInstances::Undecided => return Ok(None),
+                EquationInstances::Undecided => {
+                    // An undecided matching counts as a match of its left-hand side.
+                    crate::coverage::note_offered(&rule.attributes.unique_id);
+                    return Ok(None);
+                }
                 EquationInstances::Matched(mut instances) => {
+                    crate::coverage::note_offered(&rule.attributes.unique_id);
                     if candidate.is_some() || instances.len() != 1 {
                         return Ok(None);
                     }
@@ -1171,14 +1462,21 @@ fn select_single_step(
                 }
             }
         }
-        if let Some((rule, substitution)) = candidate {
-            return Ok(
-                selected_instance_applies(definition, &rule, &substitution, arguments)?
-                    .then_some((rule, substitution)),
-            );
+        if candidate.is_some() {
+            selected = candidate;
+            break;
         }
     }
-    Ok(None)
+    // The groups after the selected equation's are never tried; they are offered here, before
+    // the selected instance's check.
+    drop(selection);
+    let Some((rule, substitution)) = selected else {
+        return Ok(None);
+    };
+    Ok(
+        selected_instance_applies(definition, &rule, &substitution, arguments)?
+            .then_some((rule, substitution)),
+    )
 }
 
 /// Whether the selected instance of [`single_step`] applies: no `ensures`, no unbound result
@@ -1362,7 +1660,7 @@ impl EvaluatedOperands {
             if deferred.contains(&position) || impure_subterm(definition, operand).is_some() {
                 continue;
             }
-            let Folded::Term(folded) = fold_hooks_or_keep(definition, operand) else {
+            let Folded::Term(folded) = fold_hooks_or_keep(definition, operand, false) else {
                 continue;
             };
             if folded != *value && !folded.attributes().ceil_free() {
@@ -1390,7 +1688,7 @@ impl EvaluatedOperands {
         let operand = if replaced.ptr_eq(operand) {
             replaced
         } else {
-            match fold_hooks_or_keep(definition, &replaced) {
+            match fold_hooks_or_keep(definition, &replaced, true) {
                 Folded::Term(folded) => folded,
                 Folded::Bottom(_) => return Ok(vec![Predicate::False]),
             }
@@ -1428,7 +1726,7 @@ impl EvaluatedOperands {
                 {
                     term.clone()
                 } else {
-                    Term::application(symbol.clone(), sort_arguments.clone(), replaced)
+                    Term::application(symbol.clone(), *sort_arguments, replaced)
                 }
             }
             TermKind::Injection {
@@ -1440,7 +1738,7 @@ impl EvaluatedOperands {
                 if replaced.ptr_eq(inner) {
                     term.clone()
                 } else {
-                    Term::injection(source.clone(), target.clone(), replaced)
+                    Term::injection(*source, *target, replaced)
                 }
             }
             TermKind::And(left, right) => {
@@ -1468,16 +1766,19 @@ mod tests {
         definition::BackendDefinition,
         evaluation::EvaluationMode,
         proof::{ProofOptions, ProofStatus, prove_claim},
-        rewrite::{ExecutionOptions, Pattern, execute},
+        rewrite::{ExecutionOptions, Pattern, execute, execute_with_io_state},
         smt::NoSolver,
         stop::{CancellationToken, StopCause},
         term::{Sort, Symbol, Term, TermKind},
+        transition::ExecutionIoState,
     };
     use std::sync::Arc;
 
     thread_local! {
         /// Test builds: the evaluator calls [`super::evaluate_pure_hook`] made on this thread.
         pub(super) static HOOK_EVALUATIONS: Cell<usize> = const { Cell::new(0) };
+        /// Test builds: the nodes [`super::holds_console_effect`] visited on this thread.
+        pub(super) static CONSOLE_SCAN_NODES: Cell<usize> = const { Cell::new(0) };
     }
 
     fn hook_evaluations() -> usize {
@@ -1655,6 +1956,30 @@ mod tests {
         assert_eq!(evaluations(&first, &application), (0, value));
     }
 
+    /// A served read notes the path facts its evaluation noted (`crate::path_facts`): each of
+    /// three reads, the third served from the scope, marks the collection open around it.
+    #[test]
+    fn a_served_read_notes_the_facts_of_its_evaluation() {
+        let definition = definition();
+        let application = choice(&definition);
+        let _scope = HookValueScope::enter(&definition);
+        crate::evaluation::with_evaluation(EvaluationMode::Execution, || {
+            let counts = (0..3)
+                .map(|_| {
+                    let ((count, value), facts) =
+                        crate::path_facts::collect(|| evaluations(&definition, &application));
+                    assert!(matches!(value, BuiltinResult::Value(_)), "{value:?}");
+                    assert_eq!(
+                        format!("{:?}", facts.shared),
+                        r#"{ChosenValue(ChosenValue { hook: "MAP.choice", class: Item, withheld_in_proof: true })}"#
+                    );
+                    count
+                })
+                .collect::<Vec<_>>();
+            assert_eq!(counts, [1, 1, 0], "the third read is served");
+        });
+    }
+
     #[test]
     fn a_stopped_evaluation_is_not_kept() {
         // A read that stops records nothing: the next reads are a first and a second read.
@@ -1700,7 +2025,7 @@ mod tests {
     }
 
     /// `application`'s symbol, sort arguments and argument nodes.
-    fn parts(application: &Term) -> (Arc<Symbol>, Vec<Sort>, Vec<Term>) {
+    fn parts(application: &Term) -> (Arc<Symbol>, crate::term::Sorts, Vec<Term>) {
         let TermKind::Application {
             symbol,
             sort_arguments,
@@ -1709,7 +2034,7 @@ mod tests {
         else {
             panic!("{application:?} is no application");
         };
-        (symbol.clone(), sort_arguments.clone(), arguments.clone())
+        (symbol.clone(), *sort_arguments, arguments.clone())
     }
 
     #[test]
@@ -1755,5 +2080,114 @@ mod tests {
             [1, 1, 0]
         );
         assert_eq!(one_read(&definition, &at_state), 1);
+    }
+
+    /// `loop(I, M) => loop(I -Int 1, #if true #then M #else M #fi)` while `I > 0`: every step
+    /// decides an `#if` whose discarded operand is the map `M`.
+    fn map_loop_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortMap{}
+                    [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+                hooked-symbol mapUnit{}() : SortMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+                hooked-symbol mapItem{}(SortInt{}, SortInt{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("MAP.element")]
+                hooked-symbol mapConcat{}(SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+                hooked-symbol subInt{}(SortInt{}, SortInt{}) : SortInt{}
+                    [function{}(), total{}(), hook{}("INT.sub"), smt-hook{}("-")]
+                hooked-symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), hook{}("INT.gt"), smt-hook{}(">")]
+                hooked-symbol ite{}(SortBool{}, SortMap{}, SortMap{}) : SortMap{}
+                    [function{}(), total{}(), hook{}("KEQUAL.ite")]
+                sort SortState{} []
+                symbol loop{}(SortInt{}, SortMap{}) : SortState{} [constructor{}()]
+                axiom{} \rewrites{SortState{}}(
+                    \and{SortState{}}(
+                        loop{}(I:SortInt{}, M:SortMap{}),
+                        \equals{SortBool{}, SortState{}}(
+                            gtInt{}(I:SortInt{}, \dv{SortInt{}}("0")),
+                            \dv{SortBool{}}("true")
+                        )
+                    ),
+                    loop{}(
+                        subInt{}(I:SortInt{}, \dv{SortInt{}}("1")),
+                        ite{}(\dv{SortBool{}}("true"), M:SortMap{}, M:SortMap{})
+                    )
+                ) [label{}("step")]
+            endmodule []"#,
+        )
+        .expect("the definition parses");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("the definition internalizes")
+    }
+
+    #[test]
+    fn the_effect_scan_of_a_decided_if_stops_at_a_constructor_like_operand() {
+        // In a run with a console, each step scans the discarded `M`, a map of 20000 bindings of
+        // literals, for a console effect (`super::holds_console_effect`). `M` is constructor-like
+        // and so holds no function application: the scan visits its root alone, one node per
+        // step, rather than the 40001 nodes of the map.
+        const STEPS: usize = 50;
+        const BINDINGS: usize = 20_000;
+        let definition = map_loop_definition();
+        let small = term(
+            &definition,
+            r#"mapItem{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("0"))"#,
+        );
+        let TermKind::Map {
+            definition: map_definition,
+            ..
+        } = small.kind()
+        else {
+            panic!("{small:?} is no map");
+        };
+        let map = Term::map(
+            map_definition.clone(),
+            (0..BINDINGS)
+                .map(|index| (Term::int(index), Term::int(index)))
+                .collect(),
+            None,
+        );
+        assert!(map.attributes().constructor_like);
+        let TermKind::Application { symbol, .. } =
+            term(&definition, r#"loop{}(\dv{SortInt{}}("0"), mapUnit{}())"#)
+                .kind()
+                .clone()
+        else {
+            panic!("loop is an application");
+        };
+        let initial = |steps: usize| {
+            Term::application(
+                symbol.clone(),
+                Vec::new(),
+                vec![Term::int(steps), map.clone()],
+            )
+        };
+        let before = CONSOLE_SCAN_NODES.with(Cell::get);
+        let result = execute_with_io_state(
+            &definition,
+            Pattern {
+                term: initial(STEPS),
+                constraints: Vec::new(),
+            },
+            ExecutionOptions {
+                evaluation: EvaluationMode::Execution,
+                ..ExecutionOptions::default()
+            },
+            ExecutionIoState::new(Vec::new()),
+        );
+        let scanned = CONSOLE_SCAN_NODES.with(Cell::get) - before;
+        let [leaf] = result.leaves.as_slice() else {
+            panic!("{:?}", result.leaves);
+        };
+        assert_eq!(leaf.pattern.term, initial(0));
+        assert!(result.implementation_chosen_values.is_empty());
+        assert_eq!(
+            scanned, STEPS,
+            "nodes the effect scans visited over {STEPS} steps"
+        );
     }
 }

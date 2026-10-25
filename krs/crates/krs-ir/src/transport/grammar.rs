@@ -21,19 +21,20 @@ use super::detail::{
 use crate::host::{HostItemId, HostTypeKey, HostTypeReference};
 use crate::stage::{DescriptorStage, HostStage, protocol_shape, stage_shape};
 use crate::{
-    BuiltinOperation, BuiltinSort, FormatFragment, GroupAssociativity, HookOperation, ItemKind,
-    ListOperation, MlConnective, ProductionFieldId, ProductionGroupId, ProvenanceKey,
-    ProvenanceRole, RawSentenceKind, SentenceKind, SetOperation, SmtFragment, StableItemId,
-    StrictnessKind, TermMapOperation,
+    BuiltinOperation, BuiltinOperator, BuiltinSort, FormatFragment, GroupAssociativity,
+    HookOperation, ItemKind, ListNotation, ListOperation, MlConnective, ProductionFieldId,
+    ProductionGroupId, ProvenanceKey, ProvenanceRole, RawSentenceKind, SentenceKind, SetOperation,
+    SmtFragment, StableItemId, StrictnessKind, TermMapOperation,
 };
 
 /// Versioned stable-ID disambiguator prefix for enum constructor variants.
 ///
-/// A variant descriptor uses the variant identifier as `item_name` (so the
-/// emitted K label remains `true`, `false`, and so on) and
+/// A variant descriptor uses the variant identifier as `item_name` and
 /// `enum:<owning-enum>` as its disambiguator. This distinguishes
 /// `Boolean::False` from both a same-module `struct False` and
 /// `OtherBoolean::False` without putting `::` into an identity component.
+/// The emitted K symbol of a variant combines both: `lowerCamel(Enum)` +
+/// `Variant` (`booleanFalse`).
 pub const ENUM_VARIANT_DISAMBIGUATOR_PREFIX: &str = "enum:";
 
 /// Derives the stable [`crate::HostItemId`] disambiguator for every descriptor
@@ -110,6 +111,13 @@ pub enum DescriptorApplicationRef {
     /// A matching-logic connective of `k::ml` (KF-039): a predicate, never an
     /// object term.
     Ml(MlConnective),
+    /// A Rust operator (`a + b`), which denotes the builtin operation of the
+    /// domain semantic analysis chooses from its operands' inferred sorts.
+    Operator(BuiltinOperator),
+    /// One level of bracket list notation (`[head, ..tail]`, `[]`, F6),
+    /// which denotes the constructor of the cons list semantic analysis
+    /// finds at the position's expected sort.
+    ListNotation(ListNotation),
 }
 
 /// One stable application reference and its exact authored head location.
@@ -369,6 +377,10 @@ pub struct HostBuiltinRegistry {
     pub set_operations: [HostTypeKey; SetOperation::ALL.len()],
     /// Registered `k::ml` connective markers in [`MlConnective::ALL`] order (KF-039).
     pub ml_connectives: [HostTypeKey; MlConnective::ALL.len()],
+    /// Registered operator markers in [`BuiltinOperator::ALL`] order.
+    pub operators: [HostTypeKey; BuiltinOperator::ALL.len()],
+    /// Registered list-notation markers in [`ListNotation::ALL`] order (F6).
+    pub list_notation: [HostTypeKey; ListNotation::ALL.len()],
 }
 
 impl HostBuiltinRegistry {
@@ -388,6 +400,8 @@ impl HostBuiltinRegistry {
             .chain(&self.list_operations)
             .chain(&self.set_operations)
             .chain(&self.ml_connectives)
+            .chain(&self.operators)
+            .chain(&self.list_notation)
         {
             if !rust_ids.insert(target.resolve()) {
                 return Err(HostBuiltinRegistryError::ReusedRustType);
@@ -454,6 +468,26 @@ impl HostBuiltinRegistry {
             .zip(&self.ml_connectives)
             .find(|(_, key)| key.resolve() == target)
             .map(|(connective, _)| connective)
+    }
+
+    /// Resolves one build-local type as an operator.
+    #[must_use]
+    pub fn resolve_operator(&self, target: TypeId) -> Option<BuiltinOperator> {
+        BuiltinOperator::ALL
+            .into_iter()
+            .zip(&self.operators)
+            .find(|(_, key)| key.resolve() == target)
+            .map(|(operator, _)| operator)
+    }
+
+    /// Resolves one build-local type as a list-notation marker (F6).
+    #[must_use]
+    pub fn resolve_list_notation(&self, target: TypeId) -> Option<ListNotation> {
+        ListNotation::ALL
+            .into_iter()
+            .zip(&self.list_notation)
+            .find(|(_, key)| key.resolve() == target)
+            .map(|(notation, _)| notation)
     }
 }
 
@@ -739,6 +773,15 @@ stage_shape! {
             /// The cons variant of the same enum, keyed at the list attribute.
             cons: S::Application => [application],
         },
+        /// The cons constructor of a `#[k::cons_list]` constructors enum
+        /// (F6): bracket list notation at its sort denotes it and `empty`.
+        /// It is notation only, so it reaches neither the semantic IR nor K.
+        ConsList {
+            /// `#[k::cons_list]` attribute provenance.
+            key: ProvenanceKey => [keep],
+            /// The empty constructor of the same enum, keyed at the attribute.
+            empty: S::Application => [application],
+        },
         /// Quoted K hook name, checked against the pinned hook registry only.
         RawHook {
             /// Hook-string provenance.
@@ -766,6 +809,13 @@ stage_shape! {
             key: ProvenanceKey => [keep],
             /// Template fragments; each field fragment keeps its placeholder provenance.
             template: Vec<DescriptorSmtFragment> => [keep],
+        },
+        /// A total function's intended coverage gap (`underspecified = ".."`).
+        Underspecified {
+            /// Reason-string provenance.
+            key: ProvenanceKey => [keep],
+            /// The stated reason, nonempty.
+            reason: String => [keep],
         },
         /// Marks a constructor production as a one-way static desugar (K's `macro`).
         Desugar {
@@ -1426,6 +1476,17 @@ stage_shape! {
             /// when none was written.
             #[serde(default, skip_serializing_if = "Vec::is_empty")]
             instance: Vec<S::Sort> => [vec sort],
+            /// The base of a record update `Ctor { f: e, ..t }` (F5), a
+            /// variable: the record is the one matched as `t @ Ctor { .. }`
+            /// with the listed fields replaced. Absent for every other
+            /// application.
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            update: Option<Box<Term<S>>> => [option box nested],
+            /// Whether a record pattern ends in `..`, `Ctor { f: p, .. }`:
+            /// the fields it does not name are unconstrained, all of them
+            /// for `Ctor { .. }`, whose arguments are empty.
+            #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+            open: bool => [keep],
         },
         /// Exact Int/Bool literal.
         Literal {
@@ -1474,6 +1535,15 @@ stage_shape! {
             declaration: S::Nominal => [nominal],
             /// Authored child values; semantic lowering validates completeness and order.
             fields: Vec<CellTermField<S>> => [vec nested],
+            /// Whether a pattern ends in `..`: the children it does not name
+            /// are unconstrained.
+            #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+            open: bool => [keep],
+            /// The base of a group update `Group { f: e, ..t }` (F5), a
+            /// variable: the children it does not list are the matched
+            /// group `t`'s.
+            #[serde(default, skip_serializing_if = "Option::is_none")]
+            update: Option<Box<Term<S>>> => [option box nested],
         },
         /// `k::lexeme!(Sort, "text")`: one token of a user token sort, never
         /// re-lexed.
@@ -1576,6 +1646,7 @@ stage_shape! {
             to: Option<Box<Term<S>>> => [option box nested],
         },
     }
+    pre_map: term;
 }
 
 /// Which generated sort operation a [`Term::SortTest`] denotes.
@@ -2223,6 +2294,21 @@ impl DescriptorApplicationRef {
         }
         Ok(())
     }
+
+    /// Checks the stable namespace of a term's application head: a
+    /// constructor, or a named constant, which the compiler substitutes
+    /// before it reads the term.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`GrammarTransportError::ApplicationReferenceKind`] when a
+    /// declared head is neither a constructor nor a constant.
+    pub fn validate_term_head(&self) -> Result<(), GrammarTransportError> {
+        match self {
+            Self::Declared(id) if id.item_kind() == ItemKind::Constant => Ok(()),
+            _ => self.validate(),
+        }
+    }
 }
 
 impl DescriptorLiteral {
@@ -2280,7 +2366,9 @@ fn validate_collection_application_shape(
         // reports the connective's arity (KF-039).
         DescriptorApplicationRef::Declared(_)
         | DescriptorApplicationRef::Builtin(_)
-        | DescriptorApplicationRef::Ml(_) => {
+        | DescriptorApplicationRef::Ml(_)
+        | DescriptorApplicationRef::Operator(_)
+        | DescriptorApplicationRef::ListNotation(_) => {
             return Ok(());
         }
     };
@@ -3175,6 +3263,15 @@ impl DescriptorProduction {
                     self.validate_smt_template(template, provenance)?;
                     "smt"
                 }
+                DescriptorProductionAttribute::Underspecified { key, reason } => {
+                    require_key(key, provenance)?;
+                    if reason.trim().is_empty() {
+                        return Err(GrammarTransportError::InvalidProduction(
+                            GrammarProductionReason::EmptyUnderspecifiedReason,
+                        ));
+                    }
+                    "underspecified"
+                }
                 DescriptorProductionAttribute::ListCons {
                     key,
                     separator_key,
@@ -3195,6 +3292,12 @@ impl DescriptorProduction {
                     require_key(&cons.key, provenance)?;
                     cons.application.validate()?;
                     "list"
+                }
+                DescriptorProductionAttribute::ConsList { key, empty } => {
+                    require_key(key, provenance)?;
+                    require_key(&empty.key, provenance)?;
+                    empty.application.validate()?;
+                    "cons_list"
                 }
             };
             if !families.insert(family) {
@@ -3240,6 +3343,11 @@ impl DescriptorProduction {
         if families.contains("fresh_generator") && !families.contains("function") {
             return Err(GrammarTransportError::InvalidProduction(
                 GrammarProductionReason::FreshGeneratorWithoutFunction,
+            ));
+        }
+        if families.contains("underspecified") && !families.contains("total") {
+            return Err(GrammarTransportError::InvalidProduction(
+                GrammarProductionReason::UnderspecifiedWithoutTotal,
             ));
         }
         if families.contains("smt") && !families.contains("function") {
@@ -4002,6 +4110,9 @@ impl DescriptorProduction {
                 DescriptorProductionAttribute::Smtlib { key, .. } => {
                     insert_exact(keys, key, ProvenanceRole::FunctionSmtlib, 0)?;
                 }
+                DescriptorProductionAttribute::Underspecified { key, .. } => {
+                    insert_exact(keys, key, ProvenanceRole::FunctionUnderspecified, 0)?;
+                }
                 DescriptorProductionAttribute::SmtHook { key, template } => {
                     insert_exact(keys, key, ProvenanceRole::FunctionSmtHook, 0)?;
                     for (ordinal, key) in template
@@ -4033,6 +4144,10 @@ impl DescriptorProduction {
                 }
                 DescriptorProductionAttribute::ListTerminator { cons } => {
                     insert_exact(keys, &cons.key, ProvenanceRole::ListDeclaration, 0)?;
+                }
+                DescriptorProductionAttribute::ConsList { key, empty } => {
+                    insert_exact(keys, key, ProvenanceRole::ConsListDeclaration, 0)?;
+                    insert_exact(keys, &empty.key, ProvenanceRole::ConsListDeclaration, 0)?;
                 }
                 DescriptorProductionAttribute::Alias { key, recursive } => {
                     insert_exact(keys, key, ProvenanceRole::AliasProduction, 0)?;
@@ -4229,6 +4344,8 @@ impl StructuredRuleDescriptor {
         for key in &context_keys {
             let counter = match key.role() {
                 ProvenanceRole::LexemeText => &mut subject.lexeme,
+                ProvenanceRole::ClaimIdToken => &mut subject.id_token,
+                ProvenanceRole::ClaimBytesToken => &mut subject.bytes_token,
                 ProvenanceRole::SortTest => &mut subject.sort_test,
                 ProvenanceRole::PatternAs => &mut subject.pattern_as,
                 ProvenanceRole::PatternOr => &mut subject.pattern_or,
@@ -4393,6 +4510,10 @@ struct TermKeyCounters {
     /// Lexeme ordinals are side-neutral: they continue from the subject
     /// through the result and the condition.
     lexeme: u32,
+    /// Builtin `Id` and `Bytes` token ordinals, side-neutral like lexeme
+    /// ordinals.
+    id_token: u32,
+    bytes_token: u32,
     /// Sort-test ordinals are side-neutral like lexeme ordinals.
     sort_test: u32,
     /// Turbofish instance ordinals, side-neutral like sort tests (KF-027).
@@ -4432,6 +4553,8 @@ impl TermKeyCounters {
             record_field: 0,
             wildcard: 0,
             lexeme: self.lexeme,
+            id_token: self.id_token,
+            bytes_token: self.bytes_token,
             sort_test: self.sort_test,
             application_instance: self.application_instance,
             pattern_as: self.pattern_as,
@@ -4505,6 +4628,21 @@ fn increment(value: u32) -> Result<u32, GrammarTransportError> {
         .ok_or(GrammarTransportError::InvalidProduction(
             GrammarProductionReason::ProvenanceOrdinalExceedsU32,
         ))
+}
+
+/// Inserts a constant's type key and its value's keys, which are numbered
+/// as the nodes of a rule result are.
+pub(super) fn collect_constant_keys(
+    constant: &super::constant::ConstantDescriptor,
+    keys: &mut BTreeSet<ProvenanceKey>,
+) -> Result<(), GrammarTransportError> {
+    insert_exact(keys, &constant.sort.key, ProvenanceRole::ConstantType, 0)?;
+    constant.sort.sort.validate()?;
+    constant.value.collect_expected_term_keys(
+        keys,
+        TermSide::Right,
+        &mut TermKeyCounters::default(),
+    )
 }
 
 fn validate_sort_reference(
@@ -4691,6 +4829,8 @@ mod traversal_tests {
                     }]
                     .try_into()
                     .unwrap(),
+                    update: None,
+                    open: false,
                 },
                 Term::Literal {
                     key: key(4),
@@ -4715,6 +4855,8 @@ mod traversal_tests {
                         field: field(),
                         value: Box::new(anonymous()),
                     }],
+                    open: false,
+                    update: None,
                 },
             ]
             .try_into()

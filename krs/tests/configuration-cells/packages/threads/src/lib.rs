@@ -139,7 +139,7 @@ k::rules! {
         thread: { me @ Thread { k: [Spawn(body), ..], .. }, .. },
         next_id: n,
     } => {
-        thread: { Thread { k: [n, ..], .. me }, Thread { id: n, k: [body], .. }, .. },
+        thread: { Thread { k: [n, ..], ..me }, Thread { id: n, k: [body], .. }, .. },
         next_id: int::add(n, 1),
     };
 }

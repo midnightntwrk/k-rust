@@ -18,7 +18,7 @@ use k_rust_backend::{
 };
 use k_rust_kore::kore::parser::{parse_definition, parse_pattern};
 
-use crate::support::internal_term;
+use crate::support::{condition_exhausted, internal_term, rule, search_definition};
 
 const MODALITIES: [ResultModality; 2] = [ResultModality::PathSet, ResultModality::StateSet];
 
@@ -48,6 +48,38 @@ fn reading(
         leaf.effects.clone(),
         leaf.io.observable(),
     )
+}
+
+/// The prefix contract of the leaves finished before a stop: each is the leaf at its position in
+/// the larger run, by its reading, with the same diagnostics under `PathSet` and diagnostics
+/// among the larger leaf's under `StateSet`, where a later path merged into it adds its own.
+fn assert_prefix(
+    modality: ResultModality,
+    before: &[ExecutionLeaf],
+    larger: &[ExecutionLeaf],
+    context: &str,
+) {
+    assert!(larger.len() >= before.len(), "{context}");
+    for (position, (leaf, larger)) in before.iter().zip(larger).enumerate() {
+        assert_eq!(reading(leaf), reading(larger), "{context}, leaf {position}");
+        match modality {
+            ResultModality::PathSet => {
+                assert_eq!(
+                    leaf.diagnostics, larger.diagnostics,
+                    "{context}, leaf {position}"
+                );
+            }
+            ResultModality::StateSet => {
+                for diagnostic in &leaf.diagnostics {
+                    assert!(
+                        larger.diagnostics.contains(diagnostic),
+                        "{context}, leaf {position}: {diagnostic:?} not among {:?}",
+                        larger.diagnostics
+                    );
+                }
+            }
+        }
+    }
 }
 
 fn work_bound_leaves(result: &ExecutionResult) -> usize {
@@ -170,7 +202,11 @@ fn node(definition: &BackendDefinition, name: &str) -> Pattern {
 
 /// Test 1: on a run without end, every budget stops the run at the same state: one `WorkBound`
 /// leaf, last, after exactly `k` states, and the leaves before it are the first leaves of the
-/// same request with a larger budget; the same budget gives identical results.
+/// same request with a larger budget, diagnostics included (equal under `PathSet`, among the
+/// larger leaf's under `StateSet`); the same budget gives identical results. The comb's leaves
+/// carry no diagnostic, so the comparison of diagnostics also runs on a branching run whose one
+/// branch exhausts the simplification budget (`growing_equation_definition` in `rewrite.rs`),
+/// at every budget below its count.
 #[test]
 fn a_work_budget_stops_a_branching_run_at_the_same_state() {
     let definition = comb();
@@ -197,19 +233,104 @@ fn a_work_budget_stops_a_branching_run_at_the_same_state() {
             );
             assert_eq!(larger.work, k + 1000);
             assert!(larger.leaves.len() > before.len());
-            assert_eq!(
-                before.iter().map(reading).collect::<Vec<_>>(),
-                larger.leaves[..before.len()]
-                    .iter()
-                    .map(reading)
-                    .collect::<Vec<_>>(),
-                "{modality:?} k = {k}"
+            assert_prefix(
+                modality,
+                before,
+                &larger.leaves,
+                &format!("{modality:?} k = {k}"),
             );
 
             let again = execute(&definition, initial.clone(), options(modality, Some(k)));
             assert_eq!(again, bounded, "{modality:?} k = {k}");
         }
     }
+
+    let definition = crate::rewrite::growing_equation_definition(true);
+    let initial = pattern(&definition, "start{}()");
+    let growing = |modality, max_work| ExecutionOptions {
+        max_simplification_iterations: 3,
+        ..options(modality, max_work)
+    };
+    for modality in MODALITIES {
+        let unbounded = execute(&definition, initial.clone(), growing(modality, None));
+        assert_eq!(work_bound_leaves(&unbounded), 0, "{modality:?}");
+        let mut diagnosed_before_a_stop = false;
+        for k in 0..unbounded.work {
+            let bounded = execute(&definition, initial.clone(), growing(modality, Some(k)));
+            let (last, before) = bounded.leaves.split_last().expect("a leaf");
+            assert_eq!(
+                last.halt_reason,
+                HaltReason::WorkBound,
+                "{modality:?} k = {k}"
+            );
+            diagnosed_before_a_stop |= before.iter().any(|leaf| !leaf.diagnostics.is_empty());
+            assert_prefix(
+                modality,
+                before,
+                &unbounded.leaves,
+                &format!("growing {modality:?} k = {k}"),
+            );
+        }
+        assert!(
+            diagnosed_before_a_stop,
+            "{modality:?}: some budget stops the run after the diagnosed branch's leaf: \
+             {unbounded:#?}"
+        );
+    }
+}
+
+/// Under `StateSet` a leaf finished before the stop carries only the diagnostics of the paths
+/// merged into it before the stop, and a larger budget adds the later ones: `start` reaches the
+/// clean `c` (`to-c`) first, then `c` again through `norm(a)` (`to-norm`), whose evaluation
+/// exhausts the simplification budget on `norm-c`'s condition. The unbounded state-set leaf
+/// carries those diagnostics; a budget that stops the run after the first `c` reports it without
+/// them, a prefix of the unbounded result with strictly fewer diagnostics.
+#[test]
+fn a_state_set_leaf_finished_before_the_stop_gains_the_diagnostics_of_later_merged_paths() {
+    let definition = search_definition(
+        &[
+            rule("to-c", "start{}()", "c{}()"),
+            rule("to-norm", "start{}()", "norm{}(a{}())"),
+        ]
+        .concat(),
+    );
+    let initial = pattern(&definition, "start{}()");
+    let condition = condition_exhausted(&definition, "norm-c", 3);
+    let run = |max_work| {
+        execute(
+            &definition,
+            initial.clone(),
+            ExecutionOptions {
+                max_simplification_iterations: 3,
+                ..options(ResultModality::StateSet, max_work)
+            },
+        )
+    };
+    let unbounded = run(None);
+    let [leaf] = unbounded.leaves.as_slice() else {
+        panic!("one merged leaf expected: {:#?}", unbounded.leaves);
+    };
+    assert_eq!(leaf.halt_reason, HaltReason::Stuck);
+    assert_eq!(leaf.diagnostics, condition);
+    let mut grew = false;
+    for k in 0..unbounded.work {
+        let bounded = run(Some(k));
+        let (last, before) = bounded.leaves.split_last().expect("a leaf");
+        assert_eq!(last.halt_reason, HaltReason::WorkBound, "k = {k}");
+        assert_prefix(
+            ResultModality::StateSet,
+            before,
+            &unbounded.leaves,
+            &format!("k = {k}"),
+        );
+        grew |= before
+            .first()
+            .is_some_and(|leaf| leaf.diagnostics.len() < unbounded.leaves[0].diagnostics.len());
+    }
+    assert!(
+        grew,
+        "some budget stops the run after the clean leaf and before the diagnosed path"
+    );
 }
 
 /// The edges of `levels` chained diamonds, each with two routes to the next one and one stuck
@@ -632,8 +753,9 @@ fn a_vacuous_successor_is_not_expanded_and_a_deferred_initial_vacuity_is() {
 ///   right-hand side's definedness itself and answers `trivial`, so the undefined successor is
 ///   never a state of its own: one state visited, one expanded;
 /// - `R = dead("x")`, `dead` total: no term is undefined, so the successor is a state whose term
-///   simplification takes it to `\bottom`; the step's first guard answers it `vacuous` without
-///   matching a rule, and it is expanded: two states visited, two expanded.
+///   simplification takes it to `\bottom`; it denotes no state, so its normalization ends it as
+///   the undefined step of the configuration before the step (`trivial` at depth 0), before any
+///   step of its own: two states visited, one expanded.
 #[test]
 fn every_answer_of_the_step_is_an_expansion_a_guard_answer_included() {
     let shell = |symbols: &str, axioms: &str| {
@@ -684,15 +806,16 @@ fn every_answer_of_the_step_is_an_expansion_a_guard_answer_included() {
             0,
             (1, 1),
         ),
-        // `dead` is total: no term is undefined, and the step's guard answers.
+        // `dead` is total: no term is undefined, and the successor's normalization finds it
+        // `\bottom`.
         (
             shell(
                 "symbol dead{}(SortS{}) : SortS{} [function{}(), total{}()]",
                 &format!("{bottom_equation}{to_dead}"),
             ),
-            "vacuous",
-            1,
-            (2, 2),
+            "trivial",
+            0,
+            (2, 1),
         ),
     ];
     for (definition, halt, depth, counts) in cases {

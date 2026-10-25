@@ -33,6 +33,7 @@ fn descriptor(id: StableItemId, payload: DescriptorPayload) -> Descriptor {
         | ItemKind::Desugar
         | ItemKind::Context => ProvenanceRole::RuleDeclaration,
         ItemKind::ContextAlias => ProvenanceRole::ContextAliasDeclaration,
+        ItemKind::Constant => ProvenanceRole::ConstantDeclaration,
     };
     let primary_key = ProvenanceKey::new(role, 0);
     krs_ir::testing::descriptor(
@@ -67,7 +68,9 @@ fn populated_bundle() -> DescriptorBundle {
             fields: vec![ConstructorFieldDescriptor {
                 name: "value".into(),
                 sort: Some(DescriptorSortRef::Declared(k_item)),
+                arguments: Vec::new(),
             }],
+            arguments: Vec::new(),
         }),
     );
     let bar = descriptor(
@@ -76,6 +79,7 @@ fn populated_bundle() -> DescriptorBundle {
             parameters: Vec::new(),
             sort: DescriptorSortRef::Declared(value),
             fields: Vec::new(),
+            arguments: Vec::new(),
         }),
     );
 
@@ -392,6 +396,7 @@ fn bundles_reject_duplicate_identities_even_when_payloads_differ() {
         constructor.fields.push(ConstructorFieldDescriptor {
             name: "alternate".into(),
             sort: None,
+            arguments: Vec::new(),
         });
     }
     descriptors.push(alternate.build().unwrap());

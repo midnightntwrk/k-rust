@@ -31,6 +31,7 @@ Every field must be represented consistently, and placeholder names are checked 
 ## One exhaustive precedence chain
 
 The precedence attribute lists every variant exactly once.
+`Op` needs one, because `Add`'s template begins and ends with an `Expr` field, where another expression can sit directly; a family whose templates never begin or end with a field that admits the family's sort may omit the chain.
 Higher groups bind more tightly than groups below them, so multiplication binds more tightly than addition, which binds more tightly than comparisons and Boolean operators.
 
 `left` makes repeated members of a group left-associative.
@@ -45,7 +46,7 @@ The [evaluation chapter](/imp/evaluation) gives them their operational meaning.
 
 The checked statement grammar on the [configuration page](/imp/configuration-and-state) supplies the remaining production helpers.
 `#[k::format(...)]` controls canonical rendering without changing the parsed term, and the `avoid` flag makes a production lose an otherwise ambiguous parse—for IMP, it resolves the dangling `else`.
-Production doc comments become generated grammar documentation.
+Production doc comments become generated grammar documentation; doc comments on a production's fields document only the Rust item and stay in rustdoc.
 
 When same-tier nesting must be rejected, write `non_assoc` explicitly in an enum precedence group.
 Bare groups do not mean non-associative.

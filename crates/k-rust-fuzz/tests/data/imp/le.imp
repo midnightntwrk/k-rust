@@ -1,0 +1,4 @@
+int x, y, r;
+x = 3;
+y = 5;
+if (x <= y) { r = 1; } else { r = 0; }

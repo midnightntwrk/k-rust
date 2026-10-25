@@ -25,14 +25,45 @@ so fixtures beside a target are left alone unless named explicitly.
 Inside DSL macro bodies, use line comments: non-doc `/* ... */` comments are rejected because procedural macros cannot recover them reliably.
 The default aligned trailing-comment layout is provisional; `--trailing-comments gutter` selects the other implemented policy.
 
-`check` resolves Cargo metadata and selected facets, builds and runs the generated collector, validates descriptors, performs semantic analysis, and stops before K emission.
+`fmt` lays `k::rules!`, `k::equations!`, and `k::claims!` bodies out within the Rust formatter's `max_width` (100 unless a `rustfmt.toml` sets it), indentation included.
+The one-line rows of a block align their labels, `=>`, and `where` in columns.
+A row too long for its line is laid out on its own and widens no column: its label on one line, then its pattern and `=> result` indented, and `where` on a line of its own.
+A row that fits only without the alignment's padding stays on one line, unaligned.
+Cell records put one cell per line.
+Inside a term, a group too long for its line breaks from the outside in, as the Rust formatter breaks calls and struct literals: one argument, field, or element per line, indented, and an inner group breaks only when it still does not fit.
+An or-pattern too long for its line puts one alternative per line with a leading `|` under the first; in parentheses, as in `op @ (A | B)`, it hugs them.
+A condition breaks before `||`, else before `&&`, else before a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`), one level deeper.
+An operator stays on the line that ends the operand before it when that line ends at or before the operator's indentation, as when a record or call before it breaks anyway (`} != rhs`) or the operand is short (`x != Record {`), and the operator and the first line of its operand fit there; a line comment beside the operator keeps it at the start of its line, and a `=> result` whose first operand must break stays on the pattern's line, as for that operand alone.
+A call whose one argument is a delimited term (`f(..)`, `Record { .. }`, `m![..]`, or `[..]`) and which does not fit on its line hugs it, as the Rust formatter does: the call's delimiters stay on the argument's first and last lines, `list::item(Entry {` / fields / `}),`, and only the argument breaks; an argument with an alias, an operator, or a comment does not hug.
+A `where` list too long for its line puts one binder per line under `where`.
+A one-line attribute too long for its line breaks inside its arguments; one written over several lines keeps its layout.
+`fmt` never reorders a token, and the only token it adds or removes is a list's trailing comma: as the Rust formatter does, a list broken over lines ends with a comma and a list on one line has none, whatever the source wrote.
+A record's rest (`..`, `..base`) takes none, as in Rust, while a bracket's `..` or `rest @ ..` is an element and takes one; a `where` list takes none before its `;`, and `(a,)`, whose comma makes a 1-tuple, keeps it.
+A line comment inside a delimited group keeps its place and breaks the group; any other comment of a clause moves to the lines before the clause, and so do all of the clause's comments when one of them would otherwise move before a comment kept in place.
+Only a doc comment, a literal, or another token longer than the line leaves a line of a KRS body over the width.
+
+`check` resolves Cargo metadata and selected facets, builds and runs the generated collector, validates descriptors, performs semantic analysis, and then judges the definition as every later command that needs no K toolchain would: it renders what `emit-k` writes, and for each native route it consults the route's capability table and runs k-rust's preparation, definition checks, and compilation exactly as `build` does.
+On the `native-rust` route, which `build --backend haskell`, `run`, `search`, and `prove` share, it also loads the compiled definition as the run commands do, including each spec module's proof definition.
+It reports the same errors and warnings those commands report, but writes no artifacts.
+A passing `check` therefore means that `emit-k`, `build` on either backend, and the run commands accept the definition; what remains are refusals of one invocation, such as a program that does not parse, `search` on a definition with `stream` cells, or `prove --spec-module` naming no spec module.
+When a route refuses the definition, for example `native-llvm` refusing an existential rule result (`krs::capability::unavailable`), `check` fails with that refusal and a note naming the commands of that route.
+`--backend llvm` or `--backend haskell` narrows the judgement to `emit-k` and that backend's route, so `check --backend haskell` passes for a definition only the symbolic route runs, and `check --backend llvm` for one only concrete execution runs.
+The routes compile concurrently, so judging both costs about the time of the slower compile.
 Rust errors from the collector build are reported at authored source spans when Cargo provides a mappable primary span.
-`check`, `expand`, `emit-k`, `build`, and the run commands render human-readable diagnostics on stderr by default, including their codes, notes, and authored source snippets when the source revision matches.
+They keep rustc's notes and help, and a suggested replacement in authored source is spelled out as the edit it makes (``remove `()` at src/lib.rs:48:28``); a note or help that points only into macro-generated code is left out, because it describes tokens the author did not write.
+Under `deny(warnings)`, rustc also reports as unused an import that only a failed KRS item uses, because that item's expansion was withheld.
+`check` leaves such an error out when the failed item, in the import's module, names the import, and reports every other unused import, one per name; a glob import is always reported, since its names are not known without resolving it.
+`cargo check` and rust-analyzer still show it.
+`check`, `expand`, `emit-k`, `build`, and the run commands render human-readable diagnostics on stderr by default, including their codes, notes, help, and authored source snippets when the source revision matches.
 Pass `--message-format=json` when a tool consumes diagnostics.
-`check`, `emit-k`, `build`, and the run commands warn about each quoted hook and `k::raw_k!` sentence of a package that sets `allow-raw-k = true`; `--profile strict` overrides every package's `profile` and turns those warnings into errors, so CI can refuse the [raw K escapes](/reference/language#raw-k-escapes) a package allows.
-In JSON mode, located collector failures use schema-1 JSON envelopes on stderr, with stage `analysis`, a `krs::collect::*` code, and the exact authored file revision and byte range.
-Unlocated diagnostics and other failures retain prose lines in JSON mode.
-Collector process failures without structured diagnostics retain the process status and stderr detail.
+Every command that lowers the definition (all but `fmt`) reports the definition's warnings, such as an uncovered total function or a `program` production programs cannot contain; `check` and `build` add those of the backend routes they judge, and `prove` those of the claims it trusts.
+It reports them whether or not the command then succeeds: a failing command prints the warnings of the stages it completed before its error, so a `parse` that fails on a production placed outside program syntax shows the `krs::partition::not-program-syntax` warning that explains it.
+`check`, `expand`, `emit-k`, `build`, and the run commands warn about each quoted hook and `k::raw_k!` sentence of a package that sets `allow-raw-k = true`; `--profile strict` overrides every package's `profile` and turns those warnings into errors, so CI can refuse the [raw K escapes](/reference/language#raw-k-escapes) a package allows.
+In JSON mode, every diagnostic is one schema-2 JSON envelope line on stderr, with its stage, code, `kind`, severity, and message; collector failures have stage `analysis` and a `krs::collect::*` code.
+`kind` says who can act on it: `author` for a mistake in the program, the manifest, or the command line, `internal` for a KRS bug (human output prints its message as "internal error (a KRS bug): ..."), and `environment` for files, Cargo, the toolchain, or a stale build.
+`authored_range` is the exact authored file revision and byte range, or `null` when no authored text is the diagnostic's subject; then `item`, when present, names the item it is about.
+`labels` lists related authored locations, each a `range` with an optional `message`, such as the occurrence that contradicts a binder's declaration; human output underlines each in its source.
+Only a failure without a code, such as a usage error or a collector that crashed, is a prose line, with the process status and stderr detail.
 Run ordinary `cargo check` when you want Rust-only feedback on names, types, imports, and macro expansion while editing.
 
 ## Inspect the lowering
@@ -102,7 +133,7 @@ The current commands are `fmt`, `check`, `expand`, `emit-k`, `build`, `parse`, `
   A proc macro can report an error only as a message without a code, so in raw `cargo` and rust-analyzer output a KRS macro error carries its code in front of the message, as `[krs::syntax::invalid-color] message`; `krs` commands print the same error as `error[krs::syntax::invalid-color]: message`.
 - KRS analysis errors cover definition-wide identities, sort and grammar consistency, rule shapes, and overlap.
 - K frontend errors are translated through emitted source maps when an exact authored interval exists.
-- native definition-check errors come from `build` and point at the authored item whose sentence the checker rejected.
+- native definition-check errors come from `check` and `build` and point at the authored item whose sentence the checker rejected.
 
 Macro islands are not ordinary Rust expressions, so editor behavior is bounded.
 The repository's compatibility probes establish exact rustc and rust-analyzer selection for authored syntax tokens and exact K/source-sidecar translation for covered cases; they do not promise IDE understanding of every generated symbol or every DSL token.

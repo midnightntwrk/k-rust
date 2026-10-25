@@ -48,6 +48,30 @@ class PreflightToolTests(unittest.TestCase):
                 self.assertEqual(context().live_snapshots(), [])
                 self.assertEqual(context(refresh=True).live_snapshots(), list(verify.SNAPSHOTS))
 
+    def test_llvm_kompile_resolves_through_a_nix_wrapper_script(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            real = root / "store" / "abc-llvm-backend-0.1.140" / "bin" / "llvm-kompile"
+            real.parent.mkdir(parents=True)
+            real.write_text('#!/bin/bash\nset -e\nclang "$@"\n', encoding="utf-8")
+            wrapper = root / "bin" / "llvm-kompile"
+            wrapper.parent.mkdir()
+            wrapper.write_text(
+                f'#! /bin/bash -e\nexport X=1\nexec "{real}"  "$@" \n', encoding="utf-8"
+            )
+            link = root / "link"
+            link.symlink_to(wrapper)
+            self.assertEqual(verify.wrapped_executable(link), real.resolve())
+            ambiguous = root / "ambiguous"
+            ambiguous.write_text(f'#!/bin/sh\nexec "{real}"\nexec "{real}"\n', encoding="utf-8")
+            with self.assertRaises(verify.GateError):
+                verify.wrapped_executable(ambiguous)
+            unversioned = root / "unversioned"
+            unversioned.write_text("#!/bin/sh\nexec llvm-kompile \"$@\"\n", encoding="utf-8")
+            # A script without an absolute exec target is the program itself,
+            # whose path then fails the version check.
+            self.assertEqual(verify.wrapped_executable(unversioned), unversioned.resolve())
+
 
 class ExactSummaryTests(unittest.TestCase):
     def process(self, stdout: str, stderr: str = "") -> subprocess.CompletedProcess[str]:

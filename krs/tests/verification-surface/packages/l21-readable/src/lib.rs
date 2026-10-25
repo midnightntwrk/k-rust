@@ -34,17 +34,17 @@ k::rules! {
     #[k::exists(x: Int)]
     #[k::ensures(int::ne(x, 0))]
     zero_to_unknown: {
-        k: [0, ..]
+        k: [0, ..],
     } => {
-        k: [x, ..]
+        k: [x, ..],
     };
 
     /// A large integer becomes five.
     #[k::requires(int::ge(n, 10))]
     big_to_five: {
-        k: [n, ..]
+        k: [n, ..],
     } => {
-        k: [5, ..]
+        k: [5, ..],
     }
     where n: Int;
 }

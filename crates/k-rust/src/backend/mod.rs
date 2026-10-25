@@ -91,7 +91,14 @@
 //!    result is the same (docs/compatibility.md, "Work budget").
 //!
 //! With the `z3-inference` feature, a solver whose prelude failed stops every operation that uses
-//! it, as `Err(e)` with a `SolverPrelude` cause, at the boundary or during the run.
+//! it, as `Err(e)` with a `SolverPrelude` cause, at the boundary or during the run. A prelude
+//! whose check timed out (`PreludeFailure::Unknown`; the check runs under the solver's timeout
+//! the first time a query answers `unsat`) fails for a reason of time, not of the definition: the
+//! error is not a fact to cache, and since the `Backend` keeps the failure, a host rebuilds it.
+//! An execution's [`ExecutionResult::smt_unknowns`] counts the undecided solver answers (a
+//! timeout among them) the run took decisions from; a run that reports none gives the same
+//! result on a fresh and on a reused `Backend` (docs/compatibility.md, "Determinism and
+//! concurrency").
 //!
 //! An execution cancelled by a watchdog thread, with names from `k_rust` alone:
 //!
@@ -212,11 +219,21 @@ pub use k_rust_backend::stop::{
 pub use k_rust_backend::term::names::VARIABLE_IDENTITY;
 pub use k_rust_backend::timeout::StepTimeoutMode;
 
+/// The solver options of a [`Backend`]: how long each Z3 check may run and how often an unknown
+/// answer is retried. A build without Z3 reads none of them.
 #[derive(Clone, Copy, Debug, Deserialize)]
 #[serde(default, deny_unknown_fields, rename_all = "camelCase")]
 pub struct BackendOptions {
+    /// The first attempt's wall-clock timeout in milliseconds, doubled on each retry; unused
+    /// when [`Self::smt_resource_limit`] is set.
     pub smt_timeout_ms: u32,
+    /// The retries of an unknown answer.
     pub smt_retry_limit: u32,
+    /// The clock-free mode (wire `smtResourceLimit`): each Z3 attempt is bounded by this many Z3
+    /// resource units, doubled on each retry, and by no clock, so whether a query is decided
+    /// does not depend on the machine's speed or load (docs/compatibility.md, "Determinism and
+    /// concurrency"). `None` (the default) bounds attempts by [`Self::smt_timeout_ms`].
+    pub smt_resource_limit: Option<std::num::NonZeroU32>,
 }
 
 impl Default for BackendOptions {
@@ -224,7 +241,22 @@ impl Default for BackendOptions {
         Self {
             smt_timeout_ms: 125,
             smt_retry_limit: 3,
+            smt_resource_limit: None,
         }
+    }
+}
+
+/// The version of the Z3 library this build links, as Z3 reports it, which counts the resource
+/// units of [`BackendOptions::smt_resource_limit`]; `None` in a build without Z3.
+#[must_use]
+pub fn z3_version() -> Option<&'static str> {
+    #[cfg(feature = "z3-inference")]
+    {
+        Some(k_rust_backend::smt::z3_version())
+    }
+    #[cfg(not(feature = "z3-inference"))]
+    {
+        None
     }
 }
 
@@ -244,9 +276,48 @@ pub struct BackendCapabilities {
     /// `execute` and `execute_observed` report the run's coverage when the request sets
     /// `collect_coverage` ([`ExecuteRequest::collect_coverage`]).
     pub coverage: bool,
+    /// `execute` and `execute_observed` also report the offered level of the run's coverage
+    /// ([`RunCoverageOutput::offered`]) when the request sets `collect_offered` beside
+    /// `collect_coverage` ([`ExecuteRequest::collect_offered`]).
+    pub coverage_offered: bool,
+    /// `execute` and `execute_observed` also report how many times the run applied each rule and
+    /// equation of `applied` ([`RunCoverageOutput::applied_counts`]) when the request sets
+    /// `collect_counts` beside `collect_coverage` ([`ExecuteRequest::collect_counts`]).
+    pub coverage_counts: bool,
+    /// `execute` and `execute_observed` also report the condition records of the run's coverage
+    /// ([`RunCoverageOutput::conditions`]) when the request sets `collect_conditions` beside
+    /// `collect_coverage` ([`ExecuteRequest::collect_conditions`]).
+    pub coverage_conditions: bool,
     /// `execute` and `execute_observed` report the stack stops the run met
     /// ([`ExecutionResult::stack_stops`]).
     pub stack_stops: bool,
+    /// `execute` and `execute_observed` report the undecided solver answers the run's decisions
+    /// were taken from ([`ExecutionResult::smt_unknowns`]); in a build without a solver the count
+    /// is always zero.
+    pub smt_unknowns: bool,
+    /// `execute` and `execute_observed` mark each leaf whose path read a value the definition
+    /// leaves open (`BackendDiagnosticOutput::ImplementationChosenValue`) and list every such
+    /// value the run read ([`ExecutionResult::implementation_chosen_values`]); a search marks its
+    /// states, witnesses and matches alike and lists every such value it read
+    /// (`SearchResponse::implementation_chosen_values` and the other search responses').
+    pub implementation_chosen_values: bool,
+    /// `execute` and `execute_observed` mark each leaf whose path's decisions rest on a
+    /// contradicted claim the run observed (`BackendDiagnosticOutput::ContradictedClaim`), a
+    /// `total` attribute or a rule's `preserves-definedness`, and list every such record the run
+    /// and its definition's load observed ([`ExecutionResult::contradicted_claims`]); every search
+    /// marks its states, witnesses and matches alike and lists the records
+    /// (`SearchResponse::contradicted_claims` and the other search responses'). Proofs name a
+    /// contradicted total on their empty leaves only (docs/compatibility.md, "A contradicted
+    /// `preserves-definedness` attribute is named, not repaired").
+    pub contradicted_claims: bool,
+    /// `execute`, `execute_observed` and every search list every `Bytes` result the memory
+    /// allowance refused ([`ExecutionResult::allowance_refusals`]), whatever became of the work
+    /// that met it.
+    pub allowance_refusals: bool,
+    /// `execute`, `execute_observed` and every search list every application left unevaluated
+    /// as an unsupported hook ([`ExecutionResult::unsupported_hooks`]), whatever became of the
+    /// work that met it.
+    pub unsupported_hooks: bool,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -279,6 +350,9 @@ pub struct ExecuteRequest {
     pub cut_point_rules: Vec<String>,
     #[serde(default)]
     pub terminal_rules: Vec<String>,
+    /// The deadline of each step, in milliseconds (module documentation, point 5). Condition
+    /// records ([`Self::collect_conditions`]) run off this clock, so a recorded run is not
+    /// bounded in wall time by it alone ([`ConditionCollection::record_polls`]).
     #[serde(default)]
     pub step_timeout_ms: Option<u64>,
     #[serde(default)]
@@ -303,24 +377,65 @@ pub struct ExecuteRequest {
     /// ([`RunCoverageOutput`]). Off by default; collecting changes no other field of the result.
     #[serde(default)]
     pub collect_coverage: bool,
+    /// With [`Self::collect_coverage`], also report [`RunCoverageOutput::offered`] (wire
+    /// `collectOffered`): the rules and equations whose left-hand side matched a subject the run
+    /// selected them as candidates for, tried there or not. Off by default; a request that sets
+    /// it without `collect_coverage` is refused. Asking changes no other field of the result. A
+    /// candidate a site never tried costs one left-hand-side match at every visit of the site
+    /// while it has not matched, so the cost grows with the visits times the skipped candidates
+    /// (docs/compatibility.md, "Run coverage").
+    #[serde(default)]
+    pub collect_offered: bool,
+    /// With [`Self::collect_coverage`], also report [`RunCoverageOutput::applied_counts`] (wire
+    /// `collectCounts`): how many times the run applied each rule and equation of `applied`.
+    /// Off by default; a request that sets it without `collect_coverage` is refused. Asking
+    /// changes no other field of the result and costs only the map: the run counts at the
+    /// cost of the set's own lookup (docs/compatibility.md, "Run coverage").
+    #[serde(default)]
+    pub collect_counts: bool,
+    /// With [`Self::collect_coverage`], also report [`RunCoverageOutput::conditions`] (wire
+    /// `collectConditions`): for each rewrite rule it names whose `requires` the run began to
+    /// decide for a matched instance, the bindings of the variables the condition reads, the
+    /// condition with every node's truth and its atoms' operands evaluated under the instance, and
+    /// the attempt's verdict, up to its caps ([`ConditionCollection`]). Off by default; a request
+    /// that sets it without `collect_coverage` is refused. Asking changes no other field of the
+    /// result, also under a step timeout: the records are evaluated off the run's clock, each
+    /// bounded by its own budget of polls, and cost about one more evaluation of the condition
+    /// per new entry, in wall time (docs/compatibility.md, "Run coverage").
+    #[serde(default)]
+    pub collect_conditions: Option<ConditionCollection>,
     /// The most states the run may visit across all its paths (wire `maxWork`; absent: no
     /// bound). A state is visited when the run takes it from its worklist, whatever becomes of
     /// it; [`ExecutionResult::work`] reports the count. The run takes states in a fixed order, so
     /// it stops at the same state, with the same leaves finished before it, wherever its result
     /// is the same: within the execution determinism contract and its exclusions
     /// (docs/compatibility.md, "Determinism and concurrency", "Execute"), which leave out, among
-    /// others, a run in which an SMT query timed out in a build with Z3 (docs/compatibility.md,
-    /// "Work budget"). When a state remains after `max_work` states, it becomes the one
+    /// others, in a build with Z3, a run whose result reports a nonzero
+    /// [`ExecutionResult::smt_unknowns`] (wire `smtUnknowns`; docs/compatibility.md, "Work
+    /// budget"). When a state remains after `max_work` states, it becomes the one
     /// `work-bound` leaf ([`HaltReasonOutput::WorkBound`]), the last of the result, and the other
     /// pending states are not explored or reported; a budget at least the unbounded run's `work`
-    /// changes nothing, and a budget of 0 makes the first initial state, as the request gave it,
-    /// that leaf.
+    /// leaves every leaf's configuration, halt and order, the counts and the result's lists
+    /// unchanged, and its only change is that every leaf's diagnostics gain the run's path facts
+    /// (below); a budget of 0 makes the first initial state, as the request gave it, that leaf.
     ///
     /// It bounds the states, the leaves and the pending states; it does not bound the work of one
     /// state's step (a ground function evaluation runs to its value), the size of values, or the
     /// length of traces, so a host keeps its own time and memory limits. Under `state-set` a leaf
     /// finished before the stop carries the diagnostics of the paths merged into it before the
-    /// stop only, so they may differ from the same leaf's in a run with a larger budget.
+    /// stop only, so they may differ from the same leaf's in a run with a larger budget. In a run
+    /// with `maxWork` or `maxBreadth` set, every leaf carries every path fact the run noted so far
+    /// (each mark of [`ExecutionResult::implementation_chosen_values`] and each record of
+    /// [`ExecutionResult::contradicted_claims`] the run observed), since whether a bound fires
+    /// rests on the exploration of every path, in every model.
+    ///
+    /// Every leaf finished before the `work-bound` leaf is a leaf of every run of the same
+    /// request with a larger budget or none, at the same position: the result without its
+    /// `work-bound` leaf is a prefix of theirs. Under `path-set` the leaf is the same in every
+    /// field but its path facts, which are among the larger run's; under `state-set` it is the
+    /// same in every field but its diagnostics, which are among the larger run's (a later path
+    /// merged into it adds its own). This holds within the determinism contract above
+    /// (docs/compatibility.md, "Work budget").
     #[serde(default)]
     pub max_work: Option<u64>,
     /// Whether each leaf carries its path's trace ([`ExecutionLeaf::trace`]), O(depth) entries
@@ -366,6 +481,9 @@ impl ExecuteRequest {
             assume_state_defined: false,
             result_modality: ResultModalityOutput::StateSet,
             collect_coverage: false,
+            collect_offered: false,
+            collect_counts: false,
+            collect_conditions: None,
             max_work: None,
             trace: true,
             cancelled_result: CancelledResultOutput::Partial,
@@ -396,7 +514,7 @@ pub struct ExecutionResult<K = Value> {
     pub discarded: Vec<ObservationEventOutput<K>>,
     /// The run's coverage, present exactly when the request set `collect_coverage`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coverage: Option<RunCoverageOutput>,
+    pub coverage: Option<RunCoverageOutput<K>>,
     /// The states the run visited across all its paths, the unit
     /// [`ExecuteRequest::max_work`] bounds; reported whether or not a budget was set.
     pub work: u64,
@@ -414,6 +532,102 @@ pub struct ExecutionResult<K = Value> {
     /// (docs/compatibility.md, "Determinism and concurrency").
     #[serde(skip_serializing_if = "is_zero")]
     pub stack_stops: usize,
+    /// The undecided answers the solver delivered to the run's decisions (wire `smtUnknowns`):
+    /// each `unknown` of a satisfiability or validity query (a timeout, by default after 125 ms
+    /// with retries, the solver's resource limit, or its incompleteness), counted once after
+    /// retries (`k_rust_backend::rewrite::ExecutionResult::smt_unknowns`); absent when zero. A
+    /// run whose count is zero took every decision from a decided answer, which is a fact about
+    /// the query, and the solver's cache holds only decided answers, so within the execution
+    /// determinism contract it gives one result on a fresh `Backend` and on a reused one; a run
+    /// whose count is nonzero may differ (docs/compatibility.md, "Determinism and concurrency").
+    /// A build without a solver always reports zero.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub smt_unknowns: usize,
+    /// Every distinct value the definition leaves open that the run read (wire
+    /// `implementationChosenValues`), in the order the run first read it; absent when empty
+    /// (docs/compatibility.md, "Implementation-chosen hook values"). It holds the marks of the
+    /// leaves' paths (`BackendDiagnosticOutput::ImplementationChosenValue`) and those of work
+    /// that ended on no reported leaf: a candidate that vanished, a state a `state-set` merge
+    /// absorbed, a state whose successors were all absorbed. When it is empty, every model of the
+    /// definition that agrees with the request's inputs and k-rust's stated readings gives the
+    /// run the same leaves. In a run that sets `maxWork` or `maxBreadth` every leaf carries every
+    /// mark of this list, since where those bounds cut the run rests on the work of every path.
+    /// Under `state-set` so does every leaf a leaf of another halt class may stand for in the
+    /// final merge (a `depth-bound` or other unexplored or undecided leaf, and with
+    /// `terminalRules` a `stuck` or `terminal` one), since the leaf it is merged into may come
+    /// from a path of another model; an unmarked `state-set` leaf's configuration and halt are
+    /// in every such model, its depth and trace may not be.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub implementation_chosen_values: Vec<ChosenValueOutput>,
+    /// Every distinct contradicted claim the run observed (wire `contradictedClaims`), and those
+    /// the load of its definition observed, in first-observed order; absent when empty
+    /// (docs/compatibility.md, "A contradicted total attribute is named, not repaired" and "A
+    /// contradicted `preserves-definedness` attribute is named, not repaired"). It holds the
+    /// records of the leaves' paths (`BackendDiagnosticOutput::ContradictedClaim`) and those of
+    /// work that ended on no reported leaf: a candidate a defined sibling covered, a state a
+    /// `state-set` merge absorbed. It is complete for the `total` contradictions evaluation finds
+    /// on ground arguments, and for the `preserves-definedness` contradictions a successor's
+    /// normalization finds: a declared rule's result term found `\bottom`, by any route (for a
+    /// disjunctive right-hand side, every alternative's; a `#Bottom` right-hand side). A symbolic
+    /// state trusts the claims, so an empty list says nothing about a non-ground run. Each record
+    /// says who observed it (`observedIn`): the load's records are
+    /// facts about the definition, on this list and on no leaf, and a contradiction the load and
+    /// the run both observed is listed once for each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contradicted_claims: Vec<wire::ContradictedClaimOutput<K>>,
+    /// Every distinct `Bytes` result the memory allowance refused in the run or in the load of
+    /// its definition (wire `allowanceRefusals`), in first-met order, including a refusal inside
+    /// an attempt that was undone or passed over, which leaves no diagnostic; absent when empty.
+    /// A result without it is the result under every allowance of at least as many bytes
+    /// (docs/compatibility.md, "Resource bounds").
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowance_refusals: Vec<UnevaluatedHookOutput>,
+    /// Every distinct application left unevaluated as an unsupported hook, other than an
+    /// allowance refusal, in the run or in the load of its definition (wire `unsupportedHooks`),
+    /// in first-met order, whatever became of the work that met it; absent when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_hooks: Vec<UnevaluatedHookOutput>,
+}
+
+/// A hook application a run left unevaluated: the hook and why, in the text of the
+/// `unsupported-hook-unevaluated` diagnostic, and whether the definition's load or this run met
+/// it.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct UnevaluatedHookOutput {
+    pub hook: String,
+    pub reason: String,
+    pub observed_in: wire::ObservedInOutput,
+}
+
+impl From<&k_rust_backend::path_facts::UnevaluatedHook> for UnevaluatedHookOutput {
+    fn from(unevaluated: &k_rust_backend::path_facts::UnevaluatedHook) -> Self {
+        Self {
+            hook: unevaluated.hook.clone(),
+            reason: unevaluated.reason.to_string(),
+            observed_in: unevaluated.observed_in.into(),
+        }
+    }
+}
+
+/// A value the definition leaves open that a run read: the hook that computed it and what the
+/// definition leaves open about it (`class`, docs/compatibility.md, "Implementation-chosen hook
+/// values": `order`, `item`, `float-destination`, `nan-sign`, `letter-case`, `signed-zero`,
+/// `fresh-name`, `read-count`, `effect-order`).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ChosenValueOutput {
+    pub hook: String,
+    pub class: String,
+}
+
+impl From<&k_rust_backend::builtin::ChosenValue> for ChosenValueOutput {
+    fn from(chosen: &k_rust_backend::builtin::ChosenValue) -> Self {
+        Self {
+            hook: chosen.hook.to_string(),
+            class: chosen.class.name().to_owned(),
+        }
+    }
 }
 
 /// The rules and equations an execution used, by `UNIQUE_ID`, each list sorted and without
@@ -442,20 +656,350 @@ pub struct ExecutionResult<K = Value> {
 /// builtin hook, an `smt-lemma`, macro or alias rule, a claim, or an equation that only the
 /// load-time confluence check uses. A run that a stop, a timeout or a bound cut short reports
 /// what it collected before it ended, which depends on where it stopped.
+///
+/// - `offered`, present exactly when the request set `collect_offered`: `matched`, plus every
+///   rule and equation whose left-hand side matched (or was left undecided against) a subject
+///   the run selected it as a candidate for at a site that selects by priority group (a rewrite
+///   step and the fold of its lower groups, an equation scan of an application or a predicate,
+///   the `#Top` lemmas of a conjunction operand, the definedness analysis and the decisions of an
+///   unevaluated operand), whether the site tried it or stopped before it. An axiom in no list
+///   cannot change the run under a priority raise, an `owise` removal or a removed
+///   `concrete`/`symbolic` set-aside, nor under a lowering (a lower priority, an added `owise`,
+///   `concrete` or `symbolic`). `matched` does not reach lowerings: a candidate whose match was
+///   left undecided blocks the lower groups of its site and is recorded only in `offered`. No
+///   list reaches a left-hand-side edit, nor the load-time uses of an axiom.
+///
+/// - `conditions`, present exactly when the request set `collect_conditions`: for each rewrite
+///   rule it names whose `requires` the run began to decide (the rules it adds to `matched`),
+///   the records of those entries ([`RuleConditionsOutput`]). They cover every state the run
+///   explored, as the lists do, and are a deterministic function of the same inputs; unlike the
+///   lists they are kept in the order the run first made each distinct entry, up to the
+///   request's limit per rule.
+///
+/// - `applied_counts`, present exactly when the request set `collect_counts`: each id of
+///   `applied` with the number of times the run applied it (at least 1; its keys are
+///   `applied`): for a rewrite rule, the successors (one per right-hand-side alternative) and
+///   undefined-step entries its steps built; for an equation, the instances that gave a result
+///   where the run computed one, so an evaluation served from a memo of the run counts once.
+///   Unlike the lists, the counts grow with the states explored (a `state-set` run that skips a
+///   twin subtree counts less than the `path-set` run) and count attempts later undone as
+///   often as they ran; they are a deterministic function of the same inputs.
 #[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RunCoverageOutput {
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct RunCoverageOutput<K = Value> {
     pub applied: Vec<String>,
     pub matched: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offered: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub conditions: Option<Vec<RuleConditionsOutput<K>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub applied_counts: Option<BTreeMap<String, u64>>,
 }
 
-impl From<k_rust_backend::coverage::RunCoverage> for RunCoverageOutput {
-    fn from(coverage: k_rust_backend::coverage::RunCoverage) -> Self {
+/// Which rules' condition entries an execute request records (wire `collectConditions`), and
+/// how much it keeps ([`ExecuteRequest::collect_conditions`]).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+pub struct ConditionCollection {
+    /// The rewrite rules whose entries are recorded, each named by its `UNIQUE_ID` or its label
+    /// (as [`ExecuteRequest::terminal_rules`] names them). A name that is neither, or that
+    /// names an equation, records nothing.
+    pub rules: Vec<String>,
+    /// The most records kept per rule: the first `limit` distinct entries in the run's order
+    /// (default 32), with no preference among them, so an entry closer to satisfying the
+    /// condition that the run makes later can be left out; a rule with a further distinct entry
+    /// is marked [`RuleConditionsOutput::truncated`].
+    #[serde(default = "default_condition_limit")]
+    pub limit: usize,
+    /// The largest value a record holds, in term nodes (default 256); a larger one is reported
+    /// as [`RecordedValueOutput::Omitted`].
+    #[serde(default = "default_max_value_size")]
+    pub max_value_size: usize,
+    /// The most polls the evaluation of one record may make (default 1,000,000): its work bound,
+    /// since it runs off the run's clock. What the bound stops is reported as
+    /// [`RecordedValueOutput::Stopped`] and [`TruthOutput::Undecided`]. A run with a step timeout
+    /// may exceed it in wall time by at most (rules recorded × `limit`) records of up to this
+    /// many polls each; a caller that uses the step timeout as an overall wall-clock guard lowers
+    /// this bound, names fewer rules, or cancels the request.
+    #[serde(default = "default_record_polls")]
+    pub record_polls: u64,
+}
+
+impl ConditionCollection {
+    /// The rules `rules`, with the default caps.
+    pub fn new<S: Into<String>>(rules: impl IntoIterator<Item = S>) -> Self {
         Self {
-            applied: coverage.applied.into_iter().collect(),
-            matched: coverage.matched.into_iter().collect(),
+            rules: rules.into_iter().map(Into::into).collect(),
+            limit: default_condition_limit(),
+            max_value_size: default_max_value_size(),
+            record_polls: default_record_polls(),
         }
     }
+}
+
+fn default_condition_limit() -> usize {
+    k_rust_backend::coverage::DEFAULT_CONDITION_LIMIT
+}
+
+fn default_max_value_size() -> usize {
+    k_rust_backend::coverage::DEFAULT_MAX_VALUE_SIZE
+}
+
+fn default_record_polls() -> u64 {
+    k_rust_backend::coverage::DEFAULT_RECORD_POLLS
+}
+
+impl From<ConditionCollection> for k_rust_backend::coverage::ConditionCollection {
+    fn from(collection: ConditionCollection) -> Self {
+        let mut converted = Self::new(collection.rules);
+        converted.limit = collection.limit;
+        converted.max_value_size = collection.max_value_size;
+        converted.record_polls = collection.record_polls;
+        converted
+    }
+}
+
+/// The records of one rule's condition entries.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct RuleConditionsOutput<K = Value> {
+    /// The rule's `UNIQUE_ID`.
+    pub rule: String,
+    /// The distinct entries, in the order the run first made them. Two entries are the same when
+    /// they bind the condition's variables to the same terms under the same path and match
+    /// conditions.
+    pub records: Vec<ConditionRecordOutput<K>>,
+    /// Whether the run made a further distinct entry that the request's limit left out (wire:
+    /// present only when true).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub truncated: bool,
+}
+
+/// One entry into a rule's `requires` for a matched instance: the bindings, the condition with
+/// every node's truth as the record's evaluation decides it, and the attempt's verdict.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct ConditionRecordOutput<K = Value> {
+    /// The instance's binding of each variable of the `requires` that the match bound, as the
+    /// match bound it, sorted by variable; each variable is named as the rule is written in the
+    /// definition's KORE.
+    pub bindings: Vec<RecordedBindingOutput<K>>,
+    /// The `requires` as written, one predicate node per conjunct: it holds exactly when every
+    /// conjunct is `true`.
+    pub condition: Vec<ConditionNodeOutput<K>>,
+    /// What the attempt decided about the condition, with the run's solver (wire: absent only
+    /// when the attempt ended otherwise, by a panic).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verdict: Option<VerdictOutput>,
+    /// Whether a value the definition leaves open (`implementation-chosen-value`) was read by the
+    /// run before the entry, on any path, or by the record's evaluation, so that the record's
+    /// terms may be one model's (wire: present only when true).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub chosen: bool,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct RecordedBindingOutput<K = Value> {
+    pub variable: K,
+    pub value: RecordedValueOutput<K>,
+}
+
+/// What a rule attempt decided about its instantiated `requires`.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum VerdictOutput {
+    /// It holds for the instance, and the attempt goes on to build the rule's successor, which
+    /// can still fail (an indeterminate instantiation, no successor, an error).
+    Held,
+    /// It does not hold (false, undefined, or contradicted by the path): the rule does not
+    /// apply to the instance.
+    Refuted,
+    /// The attempt could not decide it (no solver, an undecided or untranslatable query): the
+    /// attempt is indeterminate or applies the rule under the condition left open.
+    Undecided,
+    /// A stop (lack of stack, a step deadline, a cancellation) ended the attempt while it
+    /// decided the condition.
+    Stopped,
+    /// The condition bound variables of the left-hand side the match left unbound, and the
+    /// attempt re-entered with them: the next record of the rule with those bindings is the
+    /// complete entry, and this one's operands over them are symbolic.
+    Reentered,
+}
+
+impl From<k_rust_backend::coverage::Verdict> for VerdictOutput {
+    fn from(verdict: k_rust_backend::coverage::Verdict) -> Self {
+        use k_rust_backend::coverage::Verdict;
+        match verdict {
+            Verdict::Held => Self::Held,
+            Verdict::Refuted => Self::Refuted,
+            Verdict::Undecided => Self::Undecided,
+            Verdict::Stopped => Self::Stopped,
+            Verdict::Reentered => Self::Reentered,
+        }
+    }
+}
+
+/// The truth of a node under the instance, as the record's evaluation decides it under the
+/// path and match conditions, without a solver.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum TruthOutput {
+    /// The node holds for the instance (a Boolean node evaluates to `true`), in every model
+    /// unless the record is `chosen`.
+    True,
+    /// The node does not hold (a Boolean node evaluates to `false`; a predicate is refuted).
+    False,
+    /// A Boolean node denotes no value for the instance: a partial operation in it is outside its
+    /// domain (also in an operand `andThenBool` or `orElseBool` discards), or the path and match
+    /// conditions have no model. Never on a predicate, which is two-valued.
+    Undefined,
+    /// Not decided: the node may be true, false or (if Boolean) undefined.
+    Undecided,
+}
+
+impl From<k_rust_backend::coverage::Truth> for TruthOutput {
+    fn from(truth: k_rust_backend::coverage::Truth) -> Self {
+        use k_rust_backend::coverage::Truth;
+        match truth {
+            Truth::True => Self::True,
+            Truth::False => Self::False,
+            Truth::Undefined => Self::Undefined,
+            Truth::Undecided => Self::Undecided,
+        }
+    }
+}
+
+/// A connective of a condition. The K Boolean connectives (`notBool` .. `xorBool`) are functions
+/// on `Bool` and strict, undefined wherever an operand is (also one `andThenBool` or
+/// `orElseBool` does not evaluate); the matching-logic ones (`\not` ..
+/// `\iff`) combine two-valued predicates.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, Hash, PartialEq, Serialize)]
+pub enum ConnectiveOutput {
+    #[serde(rename = "notBool")]
+    NotBool,
+    #[serde(rename = "andBool")]
+    AndBool,
+    #[serde(rename = "andThenBool")]
+    AndThenBool,
+    #[serde(rename = "orBool")]
+    OrBool,
+    #[serde(rename = "orElseBool")]
+    OrElseBool,
+    #[serde(rename = "impliesBool")]
+    ImpliesBool,
+    #[serde(rename = "xorBool")]
+    XorBool,
+    #[serde(rename = "\\not")]
+    Not,
+    #[serde(rename = "\\and")]
+    And,
+    #[serde(rename = "\\or")]
+    Or,
+    #[serde(rename = "\\implies")]
+    Implies,
+    #[serde(rename = "\\iff")]
+    Iff,
+}
+
+impl From<k_rust_backend::coverage::Connective> for ConnectiveOutput {
+    fn from(connective: k_rust_backend::coverage::Connective) -> Self {
+        use k_rust_backend::coverage::Connective;
+        match connective {
+            Connective::NotBool => Self::NotBool,
+            Connective::AndBool => Self::AndBool,
+            Connective::AndThenBool => Self::AndThenBool,
+            Connective::OrBool => Self::OrBool,
+            Connective::OrElseBool => Self::OrElseBool,
+            Connective::ImpliesBool => Self::ImpliesBool,
+            Connective::XorBool => Self::XorBool,
+            Connective::Not => Self::Not,
+            Connective::And => Self::And,
+            Connective::Or => Self::Or,
+            Connective::Implies => Self::Implies,
+            Connective::Iff => Self::Iff,
+        }
+    }
+}
+
+/// A node of a condition as written, with its truth (wire: `node` names the shape, and every
+/// node has `value`). A conjunct is a predicate: a matching-logic connective, an `equals`, or a
+/// predicate atom; below `equals` and the K Boolean connectives the nodes are `Bool` terms.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "node", rename_all = "kebab-case")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub enum ConditionNodeOutput<K = Value> {
+    /// A connective and its operands, in order.
+    Connective {
+        connective: ConnectiveOutput,
+        children: Vec<ConditionNodeOutput<K>>,
+        value: TruthOutput,
+    },
+    /// The predicate `\equals(b, literal)` of a Boolean term `b` (a K `requires b` is
+    /// `\equals(b, true)`): `true` exactly where `b` is defined and equal to `literal`, so an
+    /// undefined `b` makes it `false`.
+    Equals {
+        literal: bool,
+        child: Box<ConditionNodeOutput<K>>,
+        value: TruthOutput,
+    },
+    /// Anything else.
+    Atom(ConditionAtomOutput<K>),
+}
+
+/// An atom of a condition, evaluated under the instance.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct ConditionAtomOutput<K = Value> {
+    /// The KORE symbol of a Boolean application; the matching-logic connective of a predicate
+    /// atom (`\equals` of two terms other than a Boolean term and a literal, `\ceil`, `\floor`,
+    /// `\in`, `\exists`, `\forall`, `\top`, `\bottom`) or `absent` (a key's absence from a map or
+    /// set, operands the key and the collection); absent for a Boolean variable or literal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<String>,
+    /// The symbol's `hook`, when it has one (such as `INT.lt`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook: Option<String>,
+    /// The operands, each simplified under the instance and the path and match conditions: the
+    /// arguments of an application, the terms of `\equals`, `\ceil`, `\floor`, `\in` and
+    /// `absent`, the term itself when it is no application, none for the other connectives.
+    pub operands: Vec<RecordedValueOutput<K>>,
+    /// The positions in the record's `bindings` of the variables the atom mentions: the bound
+    /// values its operands depend on (wire: absent when empty).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reads: Vec<usize>,
+    /// The atom's truth.
+    pub value: TruthOutput,
+}
+
+/// A term of a record, marked by what it denotes (wire: `kind`, and `term` for the first three).
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "kebab-case")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub enum RecordedValueOutput<K = Value> {
+    /// A ground value: constructors, injections, domain values, and maps, sets and lists of
+    /// them, with no function application left. Its KORE means the same in every model of the
+    /// definition, unless the record is `chosen`.
+    Value { term: K },
+    /// Variable-free, but holding an application the evaluation left as it is (a function with
+    /// no applicable equation, an operation the simplification failed on): not a value, and its
+    /// meaning depends on the definition.
+    Unevaluated { term: K },
+    /// A term with variables.
+    Symbolic { term: K },
+    /// Found undefined (`\bottom`) under the instance.
+    Undefined,
+    /// A stop interrupted its evaluation (the record's budget or stack, or a cancellation):
+    /// nothing is known of its value.
+    Stopped,
+    /// Larger than the request's `maxValueSize` nodes.
+    Omitted,
 }
 
 fn is_zero(count: &usize) -> bool {
@@ -491,7 +1035,14 @@ pub struct ExecutionLeaf<K = Value> {
     /// The backend diagnostics of the work this leaf's path went through, each distinct one once.
     /// A leaf of a `state-set` result also carries those of every path whose equal configuration
     /// was merged into it, so its list may name work that is not on its own `trace`, and the
-    /// result is free of diagnostics exactly when the `path-set` result of the same request is.
+    /// result is free of diagnostics exactly when the `path-set` result of the same request is,
+    /// but for the `implementation-chosen-value` marks and `contradicted-claim` records of a
+    /// state merged during exploration, which are on
+    /// [`ExecutionResult::implementation_chosen_values`] and
+    /// [`ExecutionResult::contradicted_claims`] instead. Those are path facts: they stay on every
+    /// path whose decisions rest on the work that found them, whatever became of that work
+    /// (docs/compatibility.md, "Marks in executions", "A contradicted `total` attribute is
+    /// named, not repaired").
     /// A merged diagnostic names variables as the path that met it named them, so a variable the
     /// request does not name may not occur in this leaf's `state` (it is never one of the leaf's
     /// own variables), and diagnostics equal up to such names are each listed.
@@ -594,7 +1145,10 @@ pub enum HaltReasonOutput {
     Trivial,
     /// The path's constraint was shown unsatisfiable, so the leaf has no instance: it simplified
     /// to `false`, or a solver answered `Unsat` for it, which refutes it because the constraint
-    /// is definedness-explicit (see [`ExecutionLeaf`]).
+    /// is definedness-explicit (see [`ExecutionLeaf`]). A step's successor that normalizes to
+    /// `\bottom` is no successor, so it is reported as the step's `Trivial` leaf, or not at all
+    /// where another candidate takes its instances; a `Vacuous` leaf is the initial state, a
+    /// remainder, or the successor of a step whose pre-step state itself had no instance.
     Vacuous,
     Branch,
     CutPoint,
@@ -731,6 +1285,10 @@ impl ImplicationFailureOutput {
     ];
 }
 
+/// The version of the implication result schema, the `schemaVersion` of an
+/// [`ImplicationResult`]. It moves only when that schema changes; a change of which verdict,
+/// condition or failure an implication computes leaves it as it is, and the k-rust revision
+/// covers that ("Format versions" in `docs/compatibility.md`).
 pub const IMPLICATION_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Clone, Debug, Serialize)]
@@ -1101,7 +1659,15 @@ impl Backend {
             search: true,
             observation: true,
             coverage: true,
+            coverage_offered: true,
+            coverage_counts: true,
+            coverage_conditions: true,
             stack_stops: true,
+            smt_unknowns: true,
+            implementation_chosen_values: true,
+            contradicted_claims: true,
+            allowance_refusals: true,
+            unsupported_hooks: true,
         }
     }
 
@@ -1207,8 +1773,8 @@ impl Backend {
     /// `Backend` and on this one after other requests, in any process and on any thread, outside
     /// the exclusions of docs/compatibility.md, "Determinism and concurrency" (cancellation, step
     /// timeouts, a result whose `stack_stops` is nonzero, a `Bytes` hook the memory allowance
-    /// made refuse a result, a load-time check or discharge stopped for lack of stack, and SMT
-    /// timeouts in builds with Z3).
+    /// made refuse a result, a load-time check or discharge stopped for lack of stack, and in
+    /// builds with Z3 a result whose `smt_unknowns` is nonzero).
     ///
     /// stack-accepted(facade-value-results): the result's KORE is held as `serde_json::Value`, which its holder drops, clones, formats and serializes one stack frame per level on its own thread; [`Self::execute_json`] writes the same result as text inside the operation. See docs/backend-port.md#stack-bounds.
     ///
@@ -1238,6 +1804,21 @@ impl Backend {
         observation_rules: Option<Option<Vec<String>>>,
     ) -> Result<ExecutionResult<K>, BackendError> {
         validate_backend_schema_version(request.schema_version)?;
+        if request.collect_offered && !request.collect_coverage {
+            return Err(BackendError::new(
+                "collectOffered requires collectCoverage: the offered level is part of the run's coverage",
+            ));
+        }
+        if request.collect_counts && !request.collect_coverage {
+            return Err(BackendError::new(
+                "collectCounts requires collectCoverage: the counts are part of the run's coverage",
+            ));
+        }
+        if request.collect_conditions.is_some() && !request.collect_coverage {
+            return Err(BackendError::new(
+                "collectConditions requires collectCoverage: the condition records are part of the run's coverage",
+            ));
+        }
         #[cfg(target_arch = "wasm32")]
         if request.step_timeout_ms.is_some() || request.moving_average_timeout {
             return Err(BackendError::new(
@@ -1283,6 +1864,9 @@ impl Backend {
                 // operation has selected (and possibly built) the module, so the sets never hold
                 // what building a module applied.
                 collect_coverage: request.collect_coverage,
+                collect_offered: request.collect_offered,
+                collect_counts: request.collect_counts,
+                collect_conditions: request.collect_conditions.map(Into::into),
                 max_work: request.max_work,
                 discard_stopped: request.cancelled_result == CancelledResultOutput::Error,
             };
@@ -2018,6 +2602,7 @@ impl Backend {
             let options = Z3Options {
                 timeout_ms: self.options.smt_timeout_ms,
                 retry_limit: self.options.smt_retry_limit,
+                resource_limit: self.options.smt_resource_limit,
             };
             let solver = if let Some(prelude) = self.smt_prelude.as_deref() {
                 Z3Solver::with_options_and_prelude(&definition, options, Some(prelude))
@@ -2342,6 +2927,25 @@ mod tests {
     use crate::kore::{parser::parse_pattern, printer::Printer};
     use std::collections::BTreeSet;
 
+    /// The clock-free mode is off by default and read from `smtResourceLimit`, a positive unit
+    /// count (0, Z3's "no limit", is refused rather than read as unbounded).
+    #[test]
+    fn the_clock_free_solver_mode_is_opt_in_and_positive() {
+        assert_eq!(BackendOptions::default().smt_resource_limit, None);
+        let options: BackendOptions =
+            serde_json::from_str(r#"{"smtResourceLimit": 250000}"#).unwrap();
+        assert_eq!(
+            options.smt_resource_limit,
+            std::num::NonZeroU32::new(250_000)
+        );
+        assert_eq!(
+            options.smt_timeout_ms,
+            BackendOptions::default().smt_timeout_ms
+        );
+        assert!(serde_json::from_str::<BackendOptions>(r#"{"smtResourceLimit": 0}"#).is_err());
+        assert_eq!(z3_version().is_some(), cfg!(feature = "z3-inference"));
+    }
+
     /// The wire spellings of `all`, each read back as its value, as a set of distinct names.
     fn wire_names<T>(all: &[T]) -> BTreeSet<String>
     where
@@ -2386,6 +2990,343 @@ mod tests {
                 .collect();
             assert_eq!(&actual, expected, "{path} {interface}.{field}");
         }
+    }
+
+    /// Each package's TypeScript declaration of `interface` has the member line `member`.
+    fn assert_typescript_member(interface: &str, member: &str) {
+        for package in ["k-rust-napi", "k-rust-wasm"] {
+            let path = format!(
+                "{}/../{package}/typescript/index.ts",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let declaration = std::fs::read_to_string(&path).unwrap();
+            let body = declaration
+                .split_once(&format!("export interface {interface} {{\n"))
+                .unwrap()
+                .1;
+            let body = body.split_once("\n}\n").unwrap().0;
+            assert!(
+                body.lines().any(|line| line == format!("  {member}")),
+                "{path} {interface} lacks `{member}`"
+            );
+        }
+    }
+
+    /// The undecided-answer count is declared where the facade writes it: an optional number on
+    /// the execution result (absent at zero) and a capability flag, true in every build.
+    #[test]
+    fn the_undecided_answer_count_matches_typescript_declarations() {
+        assert_typescript_member("ExecutionResult", "smtUnknowns?: number");
+        assert_typescript_member("BackendCapabilities", "smtUnknowns: boolean");
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["smtUnknowns"], true);
+        assert_eq!(capabilities["stackStops"], true);
+    }
+
+    /// The offered level of run coverage is declared where the facade reads and writes it: the
+    /// request flag, the optional list of the coverage, and a capability flag, true in every
+    /// build.
+    #[test]
+    fn the_offered_coverage_matches_typescript_declarations() {
+        assert_typescript_member("ExecuteOptions", "collectOffered?: boolean");
+        assert_typescript_member("RunCoverage", "offered?: string[]");
+        assert_typescript_member("BackendCapabilities", "coverageOffered: boolean");
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["coverageOffered"], true);
+    }
+
+    /// The applied counts of run coverage are declared where the facade reads and writes them:
+    /// the request flag, the optional map of the coverage, and a capability flag, true in every
+    /// build.
+    #[test]
+    fn the_applied_counts_match_typescript_declarations() {
+        assert_typescript_member("ExecuteOptions", "collectCounts?: boolean");
+        assert_typescript_member("RunCoverage", "appliedCounts?: Record<string, number>");
+        assert_typescript_member("BackendCapabilities", "coverageCounts: boolean");
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["coverageCounts"], true);
+    }
+
+    /// The condition records of run coverage are declared where the facade reads and writes
+    /// them: the request's collection, the optional list of the coverage, the record types, and
+    /// a capability flag, true in every build.
+    #[test]
+    fn the_condition_records_match_typescript_declarations() {
+        assert_typescript_member("ExecuteOptions", "collectConditions?: ConditionCollection");
+        assert_typescript_member("RunCoverage", "conditions?: RuleConditions[]");
+        assert_typescript_member("ConditionCollection", "rules: string[]");
+        assert_typescript_member("ConditionCollection", "limit?: number");
+        assert_typescript_member("ConditionCollection", "maxValueSize?: number");
+        assert_typescript_member("ConditionCollection", "recordPolls?: number");
+        assert_typescript_member("RuleConditions", "rule: string");
+        assert_typescript_member("RuleConditions", "records: ConditionRecord[]");
+        assert_typescript_member("RuleConditions", "truncated?: boolean");
+        assert_typescript_member("ConditionRecord", "bindings: RecordedBinding[]");
+        assert_typescript_member("ConditionRecord", "condition: ConditionNode[]");
+        assert_typescript_member("ConditionRecord", "verdict?: ConditionVerdict");
+        assert_typescript_member("ConditionRecord", "chosen?: boolean");
+        assert_typescript_member("RecordedBinding", "variable: Kore");
+        assert_typescript_member("RecordedBinding", "value: RecordedValue");
+        assert_typescript_member("ConditionAtom", "head?: string");
+        assert_typescript_member("ConditionAtom", "hook?: string");
+        assert_typescript_member("ConditionAtom", "operands: RecordedValue[]");
+        assert_typescript_member("ConditionAtom", "reads?: number[]");
+        assert_typescript_member("ConditionAtom", "value: ConditionTruth");
+        assert_typescript_member("BackendCapabilities", "coverageConditions: boolean");
+        // Every wire spelling of the unions is declared in both packages.
+        for package in ["k-rust-napi", "k-rust-wasm"] {
+            let path = format!(
+                "{}/../{package}/typescript/index.ts",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let declaration = std::fs::read_to_string(&path).unwrap();
+            let spellings = |values: Vec<serde_json::Value>| {
+                values
+                    .into_iter()
+                    .map(|value| value.as_str().unwrap().to_owned())
+                    .collect::<Vec<_>>()
+            };
+            let verdicts = spellings(
+                [
+                    VerdictOutput::Held,
+                    VerdictOutput::Refuted,
+                    VerdictOutput::Undecided,
+                    VerdictOutput::Stopped,
+                    VerdictOutput::Reentered,
+                ]
+                .map(|verdict| serde_json::to_value(verdict).unwrap())
+                .to_vec(),
+            );
+            let truths = spellings(
+                [
+                    TruthOutput::True,
+                    TruthOutput::False,
+                    TruthOutput::Undefined,
+                    TruthOutput::Undecided,
+                ]
+                .map(|truth| serde_json::to_value(truth).unwrap())
+                .to_vec(),
+            );
+            let connectives = spellings(
+                [
+                    ConnectiveOutput::NotBool,
+                    ConnectiveOutput::AndBool,
+                    ConnectiveOutput::AndThenBool,
+                    ConnectiveOutput::OrBool,
+                    ConnectiveOutput::OrElseBool,
+                    ConnectiveOutput::ImpliesBool,
+                    ConnectiveOutput::XorBool,
+                    ConnectiveOutput::Not,
+                    ConnectiveOutput::And,
+                    ConnectiveOutput::Or,
+                    ConnectiveOutput::Implies,
+                    ConnectiveOutput::Iff,
+                ]
+                .map(|connective| serde_json::to_value(connective).unwrap())
+                .to_vec(),
+            );
+            for spelling in verdicts.iter().chain(&truths).chain(&connectives) {
+                let quoted = format!("'{}'", spelling.replace('\\', "\\\\"));
+                assert!(declaration.contains(&quoted), "{path} lacks {quoted}");
+            }
+            for kind in [
+                "value",
+                "unevaluated",
+                "symbolic",
+                "undefined",
+                "stopped",
+                "omitted",
+            ] {
+                assert!(
+                    declaration.contains(&format!("'{kind}'")),
+                    "{path} lacks {kind}"
+                );
+            }
+        }
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["coverageConditions"], true);
+        // The wire tags of a recorded value and of a condition node.
+        let value: RecordedValueOutput = serde_json::from_value(serde_json::json!({
+            "kind": "unevaluated",
+            "term": {"format": "KORE", "version": 1, "term": null},
+        }))
+        .unwrap();
+        assert!(matches!(value, RecordedValueOutput::Unevaluated { .. }));
+        for kind in ["undefined", "stopped", "omitted"] {
+            let value: RecordedValueOutput =
+                serde_json::from_value(serde_json::json!({ "kind": kind })).unwrap();
+            assert_eq!(serde_json::to_value(&value).unwrap()["kind"], kind);
+        }
+        let node: ConditionNodeOutput = serde_json::from_value(serde_json::json!({
+            "node": "connective",
+            "connective": "\\implies",
+            "children": [
+                {"node": "equals", "literal": false, "value": "true", "child": {
+                    "node": "atom", "operands": [], "value": "false",
+                }},
+                {"node": "connective", "connective": "notBool", "children": [], "value": "undefined"},
+            ],
+            "value": "undecided",
+        }))
+        .unwrap();
+        assert!(matches!(
+            node,
+            ConditionNodeOutput::Connective {
+                connective: ConnectiveOutput::Implies,
+                value: TruthOutput::Undecided,
+                ..
+            }
+        ));
+    }
+
+    /// The run-level records are declared where the facade writes them: the optional lists of
+    /// the execution result and of the four search responses, the record types with where each
+    /// record was observed, and three capability flags, true in every build.
+    #[test]
+    fn the_run_level_records_match_typescript_declarations() {
+        for result in [
+            "ExecutionResult",
+            "SearchResult",
+            "PathSearchResult",
+            "PatternSearchResult",
+            "PathPatternSearchResult",
+        ] {
+            assert_typescript_member(result, "contradictedClaims?: ContradictedClaim[]");
+            assert_typescript_member(result, "allowanceRefusals?: UnevaluatedHook[]");
+            assert_typescript_member(result, "unsupportedHooks?: UnevaluatedHook[]");
+        }
+        for capability in [
+            "contradictedClaims",
+            "allowanceRefusals",
+            "unsupportedHooks",
+        ] {
+            assert_typescript_member("BackendCapabilities", &format!("{capability}: boolean"));
+        }
+        for member in [
+            "ruleId: string",
+            "ruleLabel?: string",
+            "origin?: RuleOrigin",
+            "application: Kore",
+            "undefined: Kore",
+            "rewriteRuleId?: string",
+            "rewriteRuleLabel?: string",
+            "rewriteRuleOrigin?: RuleOrigin",
+            "ground: boolean",
+            "observedIn: ObservedIn",
+        ] {
+            assert_typescript_member("ContradictedClaimFields", member);
+        }
+        assert_typescript_member("UnevaluatedHook", "hook: string");
+        assert_typescript_member("UnevaluatedHook", "reason: string");
+        assert_typescript_member("UnevaluatedHook", "observedIn: ObservedIn");
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        for capability in [
+            "contradictedClaims",
+            "allowanceRefusals",
+            "unsupportedHooks",
+        ] {
+            assert_eq!(capabilities[capability], true, "{capability}");
+        }
+        let value = serde_json::json!({"hook": "BYTES.padRight", "reason": "too long", "observedIn": "load"});
+        let output: UnevaluatedHookOutput = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&output).unwrap(), value);
+    }
+
+    /// The marks of open values are declared where the facade writes them: the result's optional
+    /// list of `{hook, class}`, the class names, and a capability flag, true in every build.
+    #[test]
+    fn the_implementation_chosen_values_match_typescript_declarations() {
+        use k_rust_backend::builtin::ChosenClass;
+        for interface in [
+            "ExecutionResult",
+            "SearchResult",
+            "PathSearchResult",
+            "PatternSearchResult",
+            "PathPatternSearchResult",
+        ] {
+            assert_typescript_member(interface, "implementationChosenValues?: ChosenValue[]");
+        }
+        assert_typescript_member("BackendCapabilities", "implementationChosenValues: boolean");
+        assert_typescript_member("ChosenValue", "hook: string");
+        assert_typescript_member("ChosenValue", "class: ChosenClass");
+        let classes = [
+            ChosenClass::Order,
+            ChosenClass::Item,
+            ChosenClass::FloatDestination,
+            ChosenClass::NanSign,
+            ChosenClass::LetterCase,
+            ChosenClass::SignedZero,
+            ChosenClass::FreshName,
+            ChosenClass::ReadCount,
+            ChosenClass::EffectOrder,
+        ]
+        .map(|class| class.name().to_owned())
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+        for package in ["k-rust-napi", "k-rust-wasm"] {
+            let path = format!(
+                "{}/../{package}/typescript/index.ts",
+                env!("CARGO_MANIFEST_DIR")
+            );
+            let declaration = std::fs::read_to_string(&path).unwrap();
+            let union = declaration
+                .split_once("export type ChosenClass =\n")
+                .unwrap()
+                .1;
+            let declared: BTreeSet<String> = union
+                .lines()
+                .take_while(|line| line.trim_start().starts_with('|'))
+                .map(|line| {
+                    line.trim()
+                        .trim_start_matches('|')
+                        .trim()
+                        .trim_matches('\'')
+                        .to_owned()
+                })
+                .collect();
+            assert_eq!(declared, classes, "{path} ChosenClass");
+        }
+        let backend = Backend::new(
+            r#"[] module MAIN sort SortK{} [] endmodule []"#,
+            "MAIN",
+            BackendOptions::default(),
+        )
+        .unwrap();
+        let capabilities = serde_json::to_value(backend.capabilities()).unwrap();
+        assert_eq!(capabilities["implementationChosenValues"], true);
+        let value = serde_json::json!({"hook": "MAP.choice", "class": "item"});
+        let output: ChosenValueOutput = serde_json::from_value(value.clone()).unwrap();
+        assert_eq!(serde_json::to_value(&output).unwrap(), value);
     }
 
     #[test]
@@ -3530,14 +4471,14 @@ mod tests {
         let condition = ImplicationCondition {
             predicates: vec![Predicate::False],
             substitution: Substitution::from([(
-                Variable::new("X", sort.clone()),
+                Variable::new("X", sort),
                 definition
                     .admit_unverified(&parse_pattern("a{}()").unwrap(), &[])
                     .internalize_term()
                     .unwrap(),
             )]),
             witnesses: Substitution::from([(
-                Variable::new("Y", sort.clone()),
+                Variable::new("Y", sort),
                 definition
                     .admit_unverified(&parse_pattern("b{}()").unwrap(), &[])
                     .internalize_term()
@@ -4854,7 +5795,7 @@ endmodule
     /// The simplifier descends once per level of these terms, so its frames are among the passes
     /// over internal terms that the stack the backend provides per level must hold. At 5,000
     /// levels each request needs more than Node's main thread in every build (the simplifier
-    /// takes about 3 KiB per level in a release build), so the facade runs it on a segment of
+    /// takes about 2 KiB per level in a release build), so the facade runs it on a segment of
     /// exactly the size `nesting::stack_for_depth` gives for its height: a simplifier whose
     /// frames per level outgrew the bound stops with `StackExhausted` there, which the exact
     /// results rule out, or overflows the segment and aborts the test binary. At opt-level 1 each
@@ -4898,10 +5839,11 @@ endmodule
         });
     }
 
-    /// `lenb` counts a `cons` list like `len`, but its result nests two additions above the
-    /// count of the tail, so its simplification takes more stack per level of the list than the
-    /// backend provides per level (about 5.6 KiB in a release build, 8.1 KiB at opt-level 1 and
-    /// 35 KiB unoptimized, against 4, 6 and 24 KiB): on the segment the facade maps for 10,000
+    /// `lenb` counts a `cons` list like `len`, but its result nests four additions above the
+    /// count of the tail, each a level of the term simplifier's recursion (about 2 KiB in an
+    /// optimized build, `k_rust_backend`'s `tests::recursion_stack`), so its simplification takes
+    /// more stack per level of the list than the backend provides per level (4 KiB in a release
+    /// build, 6 KiB at opt-level 1, 24 KiB unoptimized): on the segment the facade maps for 10,000
     /// levels it reaches its red zone with thousands of levels of the list still below it. Each
     /// level binds the rest of the list, whose definedness is then derived, and the request must
     /// end with the count or with `StackExhausted`, not abort. Before the definedness walk kept
@@ -4923,7 +5865,7 @@ endmodule
                     \equals{SortInt{}, R}(
                         lenb{}(X0:SortL{}),
                         \and{SortInt{}}(
-                            intAdd{}(\dv{SortInt{}}("1"), intAdd{}(\dv{SortInt{}}("0"), lenb{}(T:SortL{}))),
+                            intAdd{}(\dv{SortInt{}}("1"), intAdd{}(\dv{SortInt{}}("0"), intAdd{}(\dv{SortInt{}}("0"), intAdd{}(\dv{SortInt{}}("0"), lenb{}(T:SortL{}))))),
                             \top{SortInt{}}()
                         )
                     )

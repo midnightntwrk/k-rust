@@ -53,12 +53,12 @@ k::rules! {
     use ExpSyntax::*;
 
     /// `#if` at the rule's sort Exp: the instance is Exp.
-    if_eval: If { condition: b, then: e1, otherwise: e2 } => kequal::ite(b, e1, e2)               where b: Bool;
+    if_eval: If { condition: b, then: e1, otherwise: e2 } => kequal::ite(b, e1, e2) where b: Bool;
     /// Syntactic equality of the unevaluated operand terms.
-    same   : Same { lhs, rhs }                            => kequal::eq(lhs, rhs);
-    differ : Differ { lhs, rhs }                          => kequal::ne(lhs, rhs);
+    same  : Same { lhs, rhs }     => kequal::eq(lhs, rhs);
+    differ: Differ { lhs, rhs }   => kequal::ne(lhs, rhs);
     /// Two Int branches at an Exp position: the instance is Int, then injected.
-    pick   : Pick { condition: b }                        => kequal::ite(b, 1, 2)                 where b: Bool;
+    pick  : Pick { condition: b } => kequal::ite(b, 1, 2)                 where b: Bool;
     /// The untaken branch is undefined: Java K's LLVM backend never evaluates it.
-    go     : Go()                                         => kequal::ite(true, 1, crate::Undef());
+    go    : Go()                  => kequal::ite(true, 1, crate::Undef());
 }

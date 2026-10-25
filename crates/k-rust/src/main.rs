@@ -51,7 +51,7 @@ use k_rust::{
     kast::{Sort as KastSort, WellKnownModule, parser::parse_sort},
     kompile::{
         CompilationBackend, CompileOptions, CompileSearchPatternError, CompiledSearchPattern,
-        ConfigurationAssembler, ConfigurationError, ProgramGrammar, compile_loaded_definition,
+        ConfigurationError, compile_loaded_definition_for_proof,
         compile_loaded_definition_with_timings, compile_search_pattern,
         pipeline::{emission_phase, load_phase},
     },
@@ -66,6 +66,7 @@ use k_rust::{
         printer::Printer as KorePrinter,
         walk::for_each_post_order,
     },
+    krun::{InitialTerm, KrunDefinition, ProgramText, with_initial_term},
     names::KoreAttribute,
     native::{
         ExecutionPayload, FileResolver, load_runnable_artifact, unpublish_runnable_artifact,
@@ -82,7 +83,7 @@ use k_rust_backend::{
     definition::Admission,
     externalize::{self, External},
     proof::{ProofError, ProofLeafOutcome, ProofOptions, ProofSearchOrder, ProofStatus},
-    rewrite::{ExecutionMode, Pattern},
+    rewrite::ExecutionMode,
     search::SearchType,
     simplify::DEFAULT_MAX_SIMPLIFICATION_ITERATIONS,
     smt::{ModelResult, Z3Options},
@@ -249,6 +250,96 @@ fn run(cli: Cli) -> Result<ExitCode, Box<dyn Error>> {
             kore_match_disjunction_command(options).map(|()| ExitCode::SUCCESS)
         }
         Command::Kprove(options) => kprove(options.into()).map(|()| ExitCode::SUCCESS),
+        Command::Fuzz(options) => Ok(fuzz(options)),
+    }
+}
+
+/// `krust fuzz ARGS`: run the `krust-fuzz` executable with `ARGS`, as `cargo` runs `cargo-NAME`.
+///
+/// The fuzz engine is the `k-rust-fuzz` package, which depends on this one, so `krust` cannot
+/// link it. The executable is looked up beside krust first and then on `PATH`, skipping files
+/// that are not executable, as a shell does. It receives the arguments after `fuzz` exactly as
+/// given, a leading `--` included, and this build's identity in
+/// [`k_rust::native::FUZZ_PARENT_BUILD_ENV`]; it refuses to run when it was built from other
+/// k-rust sources, so a stale `krust-fuzz` on `PATH` cannot answer for this krust. On Unix krust
+/// replaces itself with it, so its exit status and signals are krust's.
+///
+/// When no executable is found or it cannot be started, krust exits with status 2, which
+/// `krust-fuzz` uses for errors; its status 1 means that no witness was found.
+fn fuzz(options: FuzzArgs) -> ExitCode {
+    const FUZZ_ERROR: u8 = 2;
+    let name = format!("krust-fuzz{}", env::consts::EXE_SUFFIX);
+    let beside = env::current_exe()
+        .ok()
+        .and_then(|krust| krust.parent().map(|directory| directory.join(&name)));
+    let on_path: Vec<PathBuf> = env::var_os("PATH")
+        .map(|path| {
+            env::split_paths(&path)
+                .map(|directory| directory.join(&name))
+                .collect()
+        })
+        .unwrap_or_default();
+    let Some(executable) = beside
+        .into_iter()
+        .chain(on_path)
+        .find(|path| is_executable(path))
+    else {
+        eprintln!(
+            "error: `krust fuzz` runs the `{name}` executable, which is neither beside krust nor \
+             on PATH; install it from the release krust came from (k-rust-fuzz-installer.sh), \
+             or build it with `cargo build -p k-rust-fuzz --features cli,z3-gh-release --bin \
+             krust-fuzz`"
+        );
+        return ExitCode::from(FUZZ_ERROR);
+    };
+    // clap drops a leading `--` from the trailing arguments; the raw arguments keep it.
+    let mut raw = env::args_os();
+    let arguments: Vec<std::ffi::OsString> = match (raw.next(), raw.next()) {
+        (Some(_), Some(subcommand)) if subcommand == "fuzz" => raw.collect(),
+        _ => options.args,
+    };
+    let mut command = std::process::Command::new(&executable);
+    command.args(&arguments).env(
+        k_rust::native::FUZZ_PARENT_BUILD_ENV,
+        k_rust::build_identity(),
+    );
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt as _;
+        let error = command.exec();
+        eprintln!("error: could not run `{}`: {error}", executable.display());
+        ExitCode::from(FUZZ_ERROR)
+    }
+    #[cfg(not(unix))]
+    {
+        match command.status() {
+            Ok(status) => ExitCode::from(
+                status
+                    .code()
+                    .and_then(|code| u8::try_from(code).ok())
+                    .unwrap_or(FUZZ_ERROR),
+            ),
+            Err(error) => {
+                eprintln!("error: could not run `{}`: {error}", executable.display());
+                ExitCode::from(FUZZ_ERROR)
+            }
+        }
+    }
+}
+
+/// Whether `path` is a file this process may execute (on Unix: some execute bit is set).
+fn is_executable(path: &Path) -> bool {
+    let Ok(metadata) = fs::metadata(path) else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        metadata.is_file() && metadata.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(not(unix))]
+    {
+        metadata.is_file()
     }
 }
 
@@ -306,6 +397,21 @@ enum Command {
     KoreMatchDisjunction(KoreMatchDisjunctionArgs),
     /// Compile and prove modal reachability claims with the in-process Rust backend.
     Kprove(KproveArgs),
+    /// Craft input values that make a program reach a target, with the `krust-fuzz` executable
+    /// installed beside krust (`krust fuzz --help` shows its options).
+    #[command(disable_help_flag = true)]
+    Fuzz(FuzzArgs),
+}
+
+#[derive(Debug, Args)]
+struct FuzzArgs {
+    /// The arguments `krust-fuzz` receives, unchanged.
+    #[arg(
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        value_name = "ARGS"
+    )]
+    args: Vec<std::ffi::OsString>,
 }
 
 #[derive(Clone, Debug, Args)]
@@ -599,6 +705,7 @@ impl SmtArgs {
         Z3Options {
             timeout_ms: self.timeout.get(),
             retry_limit: self.retry_limit,
+            resource_limit: None,
         }
     }
 }
@@ -2467,7 +2574,6 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let program_parse_phase =
         tracing::info_span!("phase", name = tracing::field::display("program_parse")).entered();
     let started = Instant::now();
-    let available_config_vars = &compiled.configuration_variables;
     // The program is the value of `$PGM`. A program that is passed (an expression or a file)
     // is parsed and checked whether or not the definition declares `$PGM`. When none is
     // passed, a definition that declares `$PGM` takes it from standard input, and one that
@@ -2479,9 +2585,17 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             .program_file
             .as_deref()
             .is_none_or(|path| path == Path::new("-"));
+    let definition = KrunDefinition {
+        main_module: &compiled.main_module,
+        syntax_module: &compiled.syntax_module,
+        frontend_definition: &compiled.frontend_definition,
+        configuration_variables: &compiled.configuration_variables,
+        execution_rewrite_order: &compiled.execution_rewrite_order,
+        definition_kore: &compiled.definition_kore,
+    };
     // One resolution of the program grammar serves the search pattern and every input of the
     // initial configuration.
-    let program_grammar = ProgramGrammar::new(&compiled.frontend_definition)?;
+    let program_grammar = definition.program_grammar()?;
     let compiled_surface_pattern = if let Some(contents) = options.surface_pattern.as_deref() {
         let execution_resolved = compiled.execution_definition.resolve()?;
         let attributes = command_line_pattern_attributes(contents);
@@ -2505,18 +2619,20 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     };
     let match_target_source =
         select_match_target_source(options.search.as_ref(), compiled_surface_pattern);
-    let mut assembler = ConfigurationAssembler::new(
-        &program_grammar,
-        &compiled.main_module,
-        &compiled.syntax_module,
-        available_config_vars,
-    );
-    let program_bound = program_supplied || available_config_vars.contains_key("PGM");
+    // The binding steps below are `KrunAssembler::assemble`'s, in its order (`k_rust::krun`),
+    // taken one by one around the timing phases and the `NAME=VALUE` split of each `-c`.
+    let mut assembler = definition.assembler(&program_grammar);
+    let program_bound = assembler.binds_program(program_supplied);
     if program_bound {
         let (file, source) = read_program_source(options.expression, options.program_file)?;
         let start_sort = parse_sort(&options.sort)?;
+        let program = ProgramText {
+            text: &source,
+            file: &file,
+            from_standard_input: program_uses_stdin,
+        };
         assembler
-            .program_file(&start_sort, &source, &file)
+            .program(&start_sort, &program)
             .map_err(krun_configuration_error)?;
     }
     let program_parse_seconds = started.elapsed().as_secs_f64();
@@ -2524,7 +2640,6 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let config_vars_parse_phase =
         tracing::info_span!("phase", name = tracing::field::display("config_vars_parse")).entered();
     let started = Instant::now();
-    let program_uses_stdin = program_uses_stdin && program_bound;
     for assignment in &options.config_vars {
         let (name, source) = assignment.split_once('=').ok_or_else(|| {
             format!("invalid configuration variable `{assignment}`; expected NAME=VALUE")
@@ -2534,16 +2649,14 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             .map_err(krun_configuration_error)?;
     }
     assembler
-        .bind_stream_defaults(io, program_uses_stdin, || {
+        .bind_stream_defaults(io, || {
             if std::io::stdin().is_terminal() {
                 eprintln!(
                     "note: reading standard input into $STDIN until end of file (--io off); \
                      redirect from /dev/null or end the input with Ctrl-D"
                 );
             }
-            read_stdin_for_stream()
-                .map(buffered_stdin_bytes)
-                .map_err(Box::<dyn Error>::from)
+            read_stdin_for_stream().map_err(Box::<dyn Error>::from)
         })
         .map_err(|error| match error.downcast::<ConfigurationError>() {
             Ok(error) => krun_configuration_error(*error),
@@ -2560,7 +2673,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             name = tracing::field::display("parse_kore_definition")
         )
         .entered();
-        parse_kore_definition(&compiled.definition_kore)?
+        definition.parse_kore()?
     };
     let definition_parse_seconds = definition_parse_started.elapsed().as_secs_f64();
     // The console's input; `None` runs without a console (`--io off`). A run in which no
@@ -2603,25 +2716,15 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
     let internalize_phase =
         tracing::info_span!("phase", name = tracing::field::display("internalize")).entered();
     let started = Instant::now();
-    let backend = Backend::internalize_source_definition(
-        &syntax,
-        &compiled.main_module,
-        &compiled.execution_rewrite_order,
-    )?;
+    let backend = definition.internalize(&syntax)?;
     for warning in k_rust::backend::execution::value_claim_warnings(&backend) {
         eprintln!("{warning}");
     }
-    // The initial configuration is as deep as the program and the configuration values, which
-    // nothing bounds: validating, internalizing and executing it recurse over it, and so do the
-    // drops of the internal terms built from it. All of it runs on a stack the backend measures
-    // from the configuration and the definition (`BackendDefinition::with_stack_for`), which
-    // refuses a configuration too deep for any stack it provides.
-    let zone = backend.operation_depth(&[&initial]);
-    let (output, backend, internalize_seconds, execute_seconds) =
-        k_rust_backend::nesting::with_stack(zone, || -> Result<_, Box<dyn Error>> {
-            let function_symbols = backend.function_symbol_names();
-            backend.validate_executable_pattern(&initial)?;
-            let initial = backend.admit_unverified(&initial, &[]).internalize_term()?;
+    // The initial configuration is prepared and run on the stack the backend measures for it.
+    let (output, backend, internalize_seconds, execute_seconds) = with_initial_term(
+        backend,
+        &initial,
+        |backend, term: InitialTerm| -> Result<_, Box<dyn Error>> {
             let match_target = match match_target_source {
                 Some(MatchTargetSource::Surface(compiled)) => {
                     Some(prepare_backend_match_target(&backend, compiled)?)
@@ -2648,14 +2751,12 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
                 BackendOptions {
                     smt_timeout_ms: options.smt.timeout_ms,
                     smt_retry_limit: options.smt.retry_limit,
+                    smt_resource_limit: None,
                 },
             )?;
             let output = backend.run_cli(
                 None,
-                vec![Pattern {
-                    term: initial,
-                    constraints: Vec::new(),
-                }],
+                vec![term.pattern],
                 BackendRunOptions {
                     depth: options.depth,
                     max_simplification_iterations: options.max_simplification_iterations,
@@ -2666,7 +2767,7 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
                     strategy: options.strategy,
                     search: options.search,
                     match_target,
-                    function_symbols,
+                    function_symbols: term.function_symbols,
                     stop_leaves: None,
                     step_timeout: options.step_timeout,
                     moving_average_timeout: options.moving_average_timeout,
@@ -2677,10 +2778,8 @@ fn krun(options: KrunOptions) -> Result<ExitCode, Box<dyn Error>> {
             let execute_seconds = started.elapsed().as_secs_f64();
             drop(execute_phase);
             Ok((output, backend, internalize_seconds, execute_seconds))
-        })
-        .map_err(|error| {
-            format!("the initial configuration is too deep for the backend: {error}")
-        })??;
+        },
+    )?;
     let output_phase =
         tracing::info_span!("phase", name = tracing::field::display("output")).entered();
     let started = Instant::now();
@@ -2799,6 +2898,7 @@ fn kore_exec(options: KoreExecArgs) -> Result<ExitCode, Box<dyn Error>> {
     let backend_options = BackendOptions {
         smt_timeout_ms: options.smt.options().timeout_ms,
         smt_retry_limit: options.smt.options().retry_limit,
+        smt_resource_limit: None,
     };
     let mut backend = Backend::from_definition(definition, construction_module, backend_options)?;
     for path in &options.added_modules {
@@ -2886,6 +2986,7 @@ fn kore_rpc(options: KoreRpcArgs) -> Result<(), Box<dyn Error>> {
         BackendOptions {
             smt_timeout_ms: options.smt.timeout.get(),
             smt_retry_limit: options.smt.retry_limit,
+            smt_resource_limit: None,
         },
     )?;
     rpc::serve(backend, (options.host.as_str(), options.port))
@@ -2908,6 +3009,7 @@ fn kore_simplify(options: KoreSimplifyArgs) -> Result<(), Box<dyn Error>> {
         BackendOptions {
             smt_timeout_ms: options.smt.options().timeout_ms,
             smt_retry_limit: options.smt.options().retry_limit,
+            smt_resource_limit: None,
         },
     )?;
     let syntax = load_kore_syntax(&options.pattern, "simplification")?;
@@ -2932,6 +3034,7 @@ fn kore_get_model(options: KoreGetModelArgs) -> Result<(), Box<dyn Error>> {
         BackendOptions {
             smt_timeout_ms: options.smt.options().timeout_ms,
             smt_retry_limit: options.smt.options().retry_limit,
+            smt_resource_limit: None,
         },
     )?;
     let syntax = load_kore_syntax(&options.pattern, "model")?;
@@ -3008,6 +3111,7 @@ fn kore_implies_inner(options: KoreImpliesArgs) -> Result<(), Box<dyn Error>> {
         BackendOptions {
             smt_timeout_ms: options.smt.options().timeout_ms,
             smt_retry_limit: options.smt.options().retry_limit,
+            smt_resource_limit: None,
         },
     )?;
     let antecedent_syntax = load_kore_syntax(&options.antecedent, "antecedent")?;
@@ -3325,7 +3429,7 @@ fn compile_proof_source(
         )?
     };
     let builtin_source_prefixes = common.builtin_source_prefixes();
-    let compiled = match compile_loaded_definition(
+    let compiled = match compile_loaded_definition_for_proof(
         &loaded,
         CompileOptions {
             backend: CompilationBackend::Rust,
@@ -3345,7 +3449,9 @@ fn compile_proof_source(
         }
     };
     emit_diagnostics(&compiled.diagnostics);
-    Ok(parse_kore_definition(&compiled.definition_kore)?)
+    // The compiler's KORE value is what `definition.kore` prints for these options, and what
+    // parsing that text gives back, so the prover reads it without the round trip.
+    Ok(compiled.definition)
 }
 
 /// Load a specification against a prepared semantics directory, recording the prepared-artifact
@@ -3518,7 +3624,7 @@ fn kprove_stop_message(cause: StopCause) -> String {
         StopCause::SolverPrelude(PreludeFailure::Inconsistent) => {
             "the definitions sent to the solver are inconsistent".to_owned()
         }
-        StopCause::SolverPrelude(PreludeFailure::Unknown(_))
+        StopCause::SolverPrelude(PreludeFailure::Unknown(_) | PreludeFailure::Malformed(_))
         | StopCause::Cancelled
         | StopCause::Deadline(_)
         | StopCause::StackExhausted(_) => cause.to_string(),
@@ -3629,6 +3735,7 @@ fn kprove(options: KproveOptions) -> Result<(), Box<dyn Error>> {
         BackendOptions {
             smt_timeout_ms: options.smt.timeout_ms,
             smt_retry_limit: options.smt.retry_limit,
+            smt_resource_limit: None,
         },
         smt_prelude,
     )
@@ -4010,26 +4117,6 @@ fn read_stdin_for_stream() -> io::Result<Vec<u8>> {
     Ok(input)
 }
 
-/// The text `--io off` gives `$STDIN` (`docs/compatibility.md`, "Backend scope"): standard input
-/// with its trailing newlines replaced by exactly one, also when it is empty (`#buffer("\n")`);
-/// interior newlines and every other byte are kept.
-/// With the console off nothing extends the `stdin` stream's buffer, so a parse rule reads a token
-/// only when a delimiter already follows it there. The one newline ends the input's last line
-/// whether or not standard input ended it, so its last token is read like every other where the
-/// newline is a requested delimiter. The further trailing newlines are empty lines that hold no
-/// token; kept, two of them would leave a buffer that begins with two delimiters after the last
-/// token, which `stdinParseInt` reads as the undefined `String2Int("")` where the input has
-/// simply ended.
-fn buffered_stdin_bytes(mut input: Vec<u8>) -> Vec<u8> {
-    let trimmed = input
-        .iter()
-        .rposition(|byte| *byte != b'\n')
-        .map_or(0, |index| index + 1);
-    input.truncate(trimmed);
-    input.push(b'\n');
-    input
-}
-
 /// The located findings of the backend's load-time critical-pair check on the definition a Rust
 /// compilation emits (`k_rust::backend::execution::value_claim_diagnostics`): the definition is
 /// internalized as `krun` loads it. Without an `anywhere` symbol it declares no equation head,
@@ -4093,6 +4180,7 @@ mod tests {
         claim::ReachabilityMode,
         definition::{BackendDefinition, PatternOrPredicate},
         implication::ImplicationCondition,
+        rewrite::Pattern,
         rule::Predicate,
         search::PatternMatch,
         simplify::{
@@ -4163,7 +4251,7 @@ mod tests {
                 .map_err(|error| {
                     io::Error::other(format!("could not simplify KORE pattern: {error:?}"))
                 })?;
-                Ok(externalize::ml_pattern(&simplified, &result_sort))
+                Ok(externalize::predicate_pattern(&simplified, &result_sort))
             }
         }
     }
@@ -4200,20 +4288,6 @@ mod tests {
             .map_err(Into::into)
     }
 
-    #[test]
-    fn buffered_stdin_ends_in_exactly_one_newline() {
-        assert_eq!(buffered_stdin_bytes(Vec::new()), b"\n");
-        assert_eq!(buffered_stdin_bytes(b"ab".to_vec()), b"ab\n");
-        assert_eq!(buffered_stdin_bytes(b"ab\n".to_vec()), b"ab\n");
-        assert_eq!(buffered_stdin_bytes(b"ab\n\n\n".to_vec()), b"ab\n");
-        assert_eq!(buffered_stdin_bytes(b"\n\n".to_vec()), b"\n");
-        assert_eq!(
-            buffered_stdin_bytes(b"a\r\n\nb\r\n".to_vec()),
-            b"a\r\n\nb\r\n"
-        );
-        assert_eq!(buffered_stdin_bytes(vec![b'x', 0x80]), [b'x', 0x80, b'\n']);
-    }
-
     /// An exit status has 8 bits, so an `Int` result is taken modulo 256 (-1 gives 255, 256 gives
     /// 0); a result that is not an integer value has no exit code.
     #[test]
@@ -4238,7 +4312,7 @@ mod tests {
     fn disjuncts_are_printed_in_structural_order() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
         let state = |value: &str, constraints| Pattern {
-            term: Term::raw_domain_value(sort.clone(), value),
+            term: Term::raw_domain_value(sort, value),
             constraints,
         };
         let output = |states| {
@@ -4290,7 +4364,7 @@ mod tests {
                 state("z", Vec::new()),
                 state(
                     "a",
-                    vec![Predicate::Ceil(Term::raw_domain_value(sort.clone(), "x"))],
+                    vec![Predicate::Ceil(Term::raw_domain_value(sort, "x"))],
                 ),
                 state("a", vec![Predicate::False]),
             ]
@@ -4371,8 +4445,8 @@ mod tests {
             predicates: Vec::new(),
             substitution: Substitution::new(),
             witnesses: Substitution::from([(
-                Variable::new("Y!exists0", result_sort.clone()),
-                Term::variable(Variable::new("X", result_sort.clone())),
+                Variable::new("Y!exists0", result_sort),
+                Term::variable(Variable::new("X", result_sort)),
             )]),
         };
 
@@ -4408,8 +4482,8 @@ mod tests {
             predicates: Vec::new(),
             substitution: Substitution::new(),
             witnesses: Substitution::from([(
-                Variable::new("Y!exists0", result_sort.clone()),
-                Term::variable(Variable::new("Y", result_sort.clone())),
+                Variable::new("Y!exists0", result_sort),
+                Term::variable(Variable::new("Y", result_sort)),
             )]),
         };
         for (antecedent, binder) in [("Y:SortS{}", "Y-bexists0"), ("X:SortS{}", "Y")] {
@@ -4513,46 +4587,78 @@ mod tests {
         assert_eq!(binary, expected);
     }
 
+    /// A definition with only the sort Bool, over whose terms the predicates below are written.
     fn empty_predicate_definition() -> BackendDefinition {
         let syntax = parse_kore_definition(
             r#"[]
             module MAIN
-              sort SortK{} []
+              hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
             endmodule []"#,
         )
         .unwrap();
         BackendDefinition::internalize(&syntax, "MAIN").unwrap()
     }
 
-    fn simplify_predicate(source: &str) -> KorePattern {
+    fn simplify_predicate(source: &str) -> Result<KorePattern, Box<dyn Error>> {
         let syntax = parse_kore_pattern(source).unwrap();
-        simplify_kore_pattern(&empty_predicate_definition(), &syntax).unwrap()
+        simplify_kore_pattern(&empty_predicate_definition(), &syntax)
     }
+
+    /// The predicate `X = Y` over two Boolean variables, which is all of its sort or empty.
+    const EQUAL: &str = r"\equals{SortBool{}, SortBool{}}(X:SortBool{}, Y:SortBool{})";
 
     #[test]
     fn standalone_simplification_deduplicates_conjunctions() {
         assert_eq!(
-            simplify_predicate(
-                r"\and{SortK{}}(\not{SortK{}}(X:SortK{}), \not{SortK{}}(X:SortK{}))"
-            ),
-            parse_kore_pattern(r"\not{SortK{}}(X:SortK{})").unwrap()
+            simplify_predicate(&format!(
+                r"\and{{SortBool{{}}}}(\not{{SortBool{{}}}}({EQUAL}), \not{{SortBool{{}}}}({EQUAL}))"
+            ))
+            .unwrap(),
+            parse_kore_pattern(&format!(r"\not{{SortBool{{}}}}({EQUAL})")).unwrap()
         );
     }
 
+    /// A pattern that states no term and has no term in a predicate position is a predicate, read
+    /// as one: `not(X = Y) ∧ not(not(X = Y))` is a contradiction.
     #[test]
     fn standalone_simplification_detects_contradictions() {
         assert_eq!(
-            simplify_predicate(r"\and{SortK{}}(\not{SortK{}}(X:SortK{}), X:SortK{})"),
-            parse_kore_pattern(r"\bottom{SortK{}}()").unwrap()
+            simplify_predicate(&format!(
+                r"\and{{SortBool{{}}}}(\not{{SortBool{{}}}}({EQUAL}), \not{{SortBool{{}}}}(\not{{SortBool{{}}}}({EQUAL})))"
+            ))
+            .unwrap(),
+            parse_kore_pattern(r"\bottom{SortBool{}}()").unwrap()
         );
     }
 
     #[test]
     fn standalone_simplification_eliminates_double_negation() {
         assert_eq!(
-            simplify_predicate(r"\not{SortK{}}(\not{SortK{}}(X:SortK{}))"),
-            parse_kore_pattern("X:SortK{}").unwrap()
+            simplify_predicate(&format!(
+                r"\not{{SortBool{{}}}}(\not{{SortBool{{}}}}({EQUAL}))"
+            ))
+            .unwrap(),
+            parse_kore_pattern(EQUAL).unwrap()
         );
+    }
+
+    /// A pattern that states no term but has a term in a predicate position is a connective over
+    /// terms, a set of values, not a predicate: `\not(true)` and `\implies(true, false)` over Bool
+    /// are `{false}`, and `\not(X ∧ X = true)` is `{false}` where `X` is `true`. Each is refused,
+    /// not read with its terms as `t = true` (which answers `\bottom`, `\bottom` and `\not(X)`).
+    #[test]
+    fn standalone_simplification_refuses_a_term_below_a_connective_with_no_term() {
+        for pattern in [
+            r#"\not{SortBool{}}(\dv{SortBool{}}("true"))"#,
+            r#"\implies{SortBool{}}(\dv{SortBool{}}("true"), \dv{SortBool{}}("false"))"#,
+            r#"\not{SortBool{}}(\and{SortBool{}}(X:SortBool{}, \equals{SortBool{}, SortBool{}}(X:SortBool{}, \dv{SortBool{}}("true"))))"#,
+        ] {
+            let error = simplify_predicate(pattern).expect_err(pattern);
+            assert!(
+                error.to_string().contains("states no term"),
+                "{pattern}: {error}"
+            );
+        }
     }
 
     #[test]
@@ -5131,7 +5237,7 @@ mod tests {
             std::sync::Arc::new(Symbol {
                 name: "LbltestFunction".into(),
                 sort_variables: Vec::new(),
-                argument_sorts: vec![sort.clone(); arguments.len()],
+                argument_sorts: vec![sort; arguments.len()],
                 result_sort: sort,
                 attributes,
             }),
@@ -5189,8 +5295,8 @@ mod tests {
     #[test]
     fn hidden_bindings_drop_only_eligible_function_equalities() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
-        let variable = Variable::new("Var'Unds'Gen0", sort.clone());
-        let value = Term::raw_domain_value(sort.clone(), "value");
+        let variable = Variable::new("Var'Unds'Gen0", sort);
+        let value = Term::raw_domain_value(sort, "value");
         let one_use = Predicate::Equals(
             test_function(vec![Term::variable(variable.clone())]),
             value.clone(),
@@ -5220,10 +5326,12 @@ mod tests {
             KorePattern::Equals { .. }
         ));
 
+        // A ground function equality names no generated variable: it is a condition of the
+        // match, and is printed.
         let ground = Predicate::Equals(test_function(Vec::new()), value);
         assert!(matches!(
             pattern01d_condition_output(Substitution::new(), vec![ground], BTreeSet::new()),
-            KorePattern::Top { .. }
+            KorePattern::Equals { .. }
         ));
 
         let functional_only = Predicate::Equals(
@@ -5287,15 +5395,15 @@ mod tests {
     #[test]
     fn hidden_bindings_filter_after_boolean_orientation() {
         let sort = BackendSort::simple("SortBool");
-        let variable = Variable::new("Var'Unds'Gen0", sort.clone());
+        let variable = Variable::new("Var'Unds'Gen0", sort);
         let mut attributes = SymbolAttributes::constructor();
         attributes.symbol_type = SymbolType::Function(FunctionType::Total);
         let function = Term::application(
             std::sync::Arc::new(Symbol {
                 name: "LbltestFunction".into(),
                 sort_variables: Vec::new(),
-                argument_sorts: vec![sort.clone()],
-                result_sort: sort.clone(),
+                argument_sorts: vec![sort],
+                result_sort: sort,
                 attributes,
             }),
             Vec::new(),
@@ -5378,9 +5486,9 @@ mod tests {
     #[test]
     fn hidden_bindings_deduplicate_after_filtering() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
-        let first = Variable::new("Var'Unds'Gen0", sort.clone());
-        let second = Variable::new("Var'Unds'Gen1", sort.clone());
-        let value = Term::raw_domain_value(sort.clone(), "value");
+        let first = Variable::new("Var'Unds'Gen0", sort);
+        let second = Variable::new("Var'Unds'Gen1", sort);
+        let value = Term::raw_domain_value(sort, "value");
         let matches = [
             PatternMatch {
                 substitution: Substitution::from([(first.clone(), value.clone())]),
@@ -5406,15 +5514,15 @@ mod tests {
     #[test]
     fn hidden_bindings_flatten_and_deduplicate_disjuncts_across_matches() {
         let sort = BackendSort::simple("SortGeneratedTopCell");
-        let variable = Variable::new("VarX", sort.clone());
-        let generated = Variable::new("Var'Unds'Gen0", sort.clone());
-        let first_value = Term::raw_domain_value(sort.clone(), "first");
-        let second_value = Term::raw_domain_value(sort.clone(), "second");
+        let variable = Variable::new("VarX", sort);
+        let generated = Variable::new("Var'Unds'Gen0", sort);
+        let first_value = Term::raw_domain_value(sort, "first");
+        let second_value = Term::raw_domain_value(sort, "second");
         let first = Predicate::Equals(Term::variable(variable.clone()), first_value);
         let second = Predicate::Equals(Term::variable(variable), second_value);
         let generated_binding = Predicate::Equals(
             Term::variable(generated.clone()),
-            Term::raw_domain_value(sort.clone(), "generated"),
+            Term::raw_domain_value(sort, "generated"),
         );
         let matches = [
             PatternMatch {
@@ -5873,6 +5981,7 @@ mod tests {
             Z3Options {
                 timeout_ms: 1,
                 retry_limit: 5,
+                resource_limit: None,
             }
         );
     }
@@ -5921,15 +6030,15 @@ mod tests {
         let result_sort = BackendSort::simple("SortBool");
         let substitution = Substitution::from([
             (
-                Variable::new("X", value_sort.clone()),
-                Term::raw_domain_value(value_sort.clone(), "1"),
+                Variable::new("X", value_sort),
+                Term::raw_domain_value(value_sort, "1"),
             ),
             (
-                Variable::new("Y", value_sort.clone()),
-                Term::raw_domain_value(value_sort.clone(), "2"),
+                Variable::new("Y", value_sort),
+                Term::raw_domain_value(value_sort, "2"),
             ),
             (
-                Variable::new("Z", value_sort.clone()),
+                Variable::new("Z", value_sort),
                 Term::raw_domain_value(value_sort, "3"),
             ),
         ]);

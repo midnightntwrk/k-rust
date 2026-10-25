@@ -12,6 +12,7 @@ const {
   parseProgram,
   printKast,
   printKore,
+  runFuzzCampaign,
 } = require('../dist/index.js')
 
 const backendDefinition = String.raw`[]
@@ -88,9 +89,17 @@ test('exposes the diagnostic on only the branch candidate that emitted it', () =
 })
 
 const termExhausted = [{ kind: 'simplification-budget-exhausted', limit: 3, subject: 'term' }]
+// The fixture's KORE carries no source or location attributes, so a rule's origin is only its
+// sentence: its index among all of MAIN's sentences (the sort, nine symbols, then the axioms).
+const sentenceIndex = { 'norm-c': 11, 'check-ok': 12 }
 const conditionExhausted = (ruleId) => [
   { kind: 'simplification-budget-exhausted', limit: 3, subject: 'predicates' },
-  { kind: 'rule-condition-unsimplified', ruleId, limit: 3 },
+  {
+    kind: 'rule-condition-unsimplified',
+    ruleId,
+    origin: { source: null, location: null, sentence: { module: 'MAIN', index: sentenceIndex[ruleId] } },
+    limit: 3,
+  },
 ]
 const ending = (entries, field, symbol) =>
   entries.find((entry) => JSON.stringify(entry[field]).includes(`"name":"${symbol}"`))
@@ -248,6 +257,34 @@ test('round-trips KAST and KORE through typed JSON', () => {
   assert.equal(printKore(kore.kore), kore.text)
 })
 
+test('prints KAST text that reads back as the printed term', () => {
+  for (const [source, text] of [
+    ['``X~>foo(.KList)``=>Y', '``X~>foo(.KList)``=>Y'],
+    ['X~>``foo(.KList)=>Y``', 'X~>``foo(.KList)=>Y``'],
+    ['``X=>Y``=>Z', '``X=>Y``=>Z'],
+    ['``X #as Y``=>Z', '``X #as Y``=>Z'],
+  ]) {
+    const parsed = parseKast(source)
+    assert.equal(parsed.text, text)
+    assert.equal(printKast(parsed.kast), text)
+    assert.deepEqual(parseKast(printKast(parsed.kast)).kast, parsed.kast)
+  }
+  const rewrite = parseKast('``X~>foo(.KList)``=>Y').kast
+  assert.equal(rewrite.term.node, 'KRewrite')
+  assert.equal(rewrite.term.lhs.node, 'KSequence')
+
+  const variable = parseKast('X').kast
+  const sort = parseKast('#token("1","Int")').kast.term.sort
+  assert.throws(
+    () => printKast({ ...variable, term: { ...variable.term, sort } }),
+    /variable X has sort Int/,
+  )
+  assert.throws(
+    () => printKast({ ...variable, term: { ...variable.term, name: '@X' } }),
+    /not readable as textual KAST/,
+  )
+})
+
 test('reads deep typed JSON without a surface-specific recursion limit', () => {
   const kore = deeplyNestedKore(160)
   assert.equal((printKore(kore).match(/\\not/g) ?? []).length, 160)
@@ -348,12 +385,57 @@ test('searches and observes the persistent native backend graph', () => {
     'path-set',
   )
   assert.equal(backend.capabilities.coverage, true)
+  assert.equal(backend.capabilities.coverageOffered, true)
+  assert.equal(backend.capabilities.coverageCounts, true)
+  assert.equal(backend.capabilities.coverageConditions, true)
   assert.equal(backend.capabilities.stackStops, true)
+  assert.equal(backend.capabilities.smtUnknowns, true)
+  assert.equal(backend.capabilities.implementationChosenValues, true)
+  assert.equal(backend.execute({ state: a }).implementationChosenValues, undefined)
+  assert.equal(backend.search({ state: a }).implementationChosenValues, undefined)
+  assert.equal(backend.capabilities.contradictedClaims, true)
+  assert.equal(backend.capabilities.allowanceRefusals, true)
+  assert.equal(backend.capabilities.unsupportedHooks, true)
+  assert.equal(backend.execute({ state: a }).contradictedClaims, undefined)
+  assert.equal(backend.execute({ state: a }).allowanceRefusals, undefined)
+  assert.equal(backend.search({ state: a }).contradictedClaims, undefined)
+  assert.equal(backend.search({ state: a }).allowanceRefusals, undefined)
+  assert.equal(backend.search({ state: a }).unsupportedHooks, undefined)
+  assert.equal(backend.execute({ state: a }).unsupportedHooks, undefined)
+  assert.equal(backend.execute({ state: a }).smtUnknowns, undefined)
   assert.equal(backend.execute({ state: a }).coverage, undefined)
   assert.deepEqual(backend.execute({ state: a, collectCoverage: true }).coverage, {
     applied: ['a-to-b', 'b-to-c'],
     matched: ['a-to-b', 'b-to-c'],
   })
+  assert.deepEqual(
+    backend.execute({ state: a, collectCoverage: true, collectOffered: true }).coverage,
+    {
+      applied: ['a-to-b', 'b-to-c'],
+      matched: ['a-to-b', 'b-to-c'],
+      offered: ['a-to-b', 'b-to-c'],
+    },
+  )
+  assert.throws(
+    () => backend.execute({ state: a, collectOffered: true }),
+    /collectOffered requires collectCoverage/,
+  )
+  assert.deepEqual(
+    backend.execute({ state: a, collectCoverage: true, collectCounts: true }).coverage,
+    {
+      applied: ['a-to-b', 'b-to-c'],
+      matched: ['a-to-b', 'b-to-c'],
+      appliedCounts: { 'a-to-b': 1, 'b-to-c': 1 },
+    },
+  )
+  assert.throws(
+    () => backend.execute({ state: a, collectCounts: true }),
+    /collectCounts requires collectCoverage/,
+  )
+  assert.throws(
+    () => backend.execute({ state: a, collectConditions: { rules: ['a-to-b'] } }),
+    /collectConditions requires collectCoverage/,
+  )
   assert.ok(backend.execute({ state: a }).leaves.every(({ trace }) => trace.length > 0))
   assert.ok(backend.execute({ state: a, trace: false }).leaves.every(({ trace }) => trace.length === 0))
 
@@ -373,4 +455,132 @@ test('compileBackend compiles and creates a native session', () => {
   assert.equal(backend.capabilities.execution, true)
   assert.equal(backend.capabilities.smt, true)
   assert.equal(printKore(backend.simplify({ state: parseKore('Lbla{}()').kore })), 'Lblb{}()')
+})
+
+const readFixture = name =>
+  fs.readFileSync(path.join(__dirname, '../../k-rust-fuzz/tests/data/imp', name), 'utf8')
+const SOLVER = 'z3'
+
+// The IMP campaign of the crate's own test (src/fuzz.rs): blind values for `x` and `y` of `le.imp`
+// until one falsifies the claim that `r` ends as 1, which any `x > y` does.
+const impCampaign = (campaign = {}) => ({
+  definition: readFixture('imp.k'),
+  moduleName: 'IMP',
+  sourceName: 'imp.k',
+  includePrelude: true,
+  campaign: {
+    program: {
+      program: { name: 'le.imp', text: readFixture('le.imp'), 'start-sort': 'Pgm' },
+      'config-vars': [],
+    },
+    holes: [
+      { name: 'X', sort: 'Int', location: { kind: 'span', program: 'le.imp', find: 'x = 3;', literal: '3' } },
+      { name: 'Y', sort: 'Int', location: { kind: 'span', program: 'le.imp', find: 'y = 5;', literal: '5' } },
+    ],
+    target: {
+      kind: {
+        kind: 'pattern',
+        pattern: '<k> .K </k> <state> (#token("r", "Id") |-> R:Int) _:Map </state> requires R =/=Int 1',
+        at: 'final',
+      },
+      'run-to-completion': false,
+      'negated-property': true,
+    },
+    seed: '24301',
+    identity: { 'k-rust-revision': 'binding-test' },
+    budget: { cases: '64' },
+    ...campaign,
+  },
+})
+
+test('runs one fuzz campaign on IMP to a confirmed witness', () => {
+  const { json, report } = runFuzzCampaign(impCampaign())
+  assert.equal(report.schema, 'krust-fuzz-report')
+  assert.equal(report.version, 6)
+  assert.equal(report.identity.solver, SOLVER)
+  assert.equal(report.identity.seed, '24301')
+  assert.deepEqual(report.identity.budget, { cases: '64' })
+  assert.equal(report.outcome.status, 'witness-found')
+  const { witness } = report.outcome
+  assert.equal(witness.label, 'property-failure')
+  const [x, y] = (witness.shrunk ?? witness.first).holes.map(hole => BigInt(hole.value.int))
+  assert.ok(x > y, `${x} > ${y}`)
+  assert.deepEqual(report['engine-defects'], [])
+  // The report is a function of the specification: a second call gives the same bytes.
+  assert.equal(runFuzzCampaign(impCampaign()).json, json)
+})
+
+test('throws for a malformed campaign specification', () => {
+  assert.throws(
+    () => runFuzzCampaign(impCampaign({ options: { 'max-dept': 3 } })),
+    /campaign\.options: unknown field `max-dept`/,
+  )
+  assert.throws(() => runFuzzCampaign(impCampaign({ seed: 7 })), /invalid type/)
+})
+
+const readCoin = name =>
+  fs.readFileSync(path.join(__dirname, '../../k-rust-fuzz/tests/data/coin', name), 'utf8')
+// k-rust's build identity: its version and the digest of the sources it was built from.
+const BUILD_IDENTITY = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?\+src\.[0-9a-f]{32}$/
+// The campaign thread's stack, which the report records, as krust fuzz's.
+const STACK_SIZE = '268435456'
+
+test('runs the campaign on its own thread and refuses a caller stack size', () => {
+  assert.equal(runFuzzCampaign(impCampaign({ budget: { cases: '1' } })).report.identity['thread-stack-size'], STACK_SIZE)
+  assert.throws(
+    () => runFuzzCampaign(impCampaign({ identity: { 'k-rust-revision': 'r', 'thread-stack-size': 1 } })),
+    /campaign\.identity\.thread-stack-size: the campaign runs on a thread of this binding/,
+  )
+})
+
+// The differential campaign of the fuzz crate's own test: COIN against COIN-KILL, which adds the
+// end N + 2 for N > 10, over the `3` of `flip(3)`.
+const coinCampaign = () => ({
+  definition: readCoin('coin.k'),
+  moduleName: 'COIN',
+  sourceName: 'coin.k',
+  includePrelude: true,
+  mutant: { definition: readCoin('coin-kill.k'), moduleName: 'COIN', sourceName: 'coin-kill.k', includePrelude: true },
+  campaign: {
+    program: { program: { name: 'flip.pgm', text: readCoin('flip.pgm'), 'start-sort': 'Pgm' }, 'config-vars': [] },
+    holes: [{ name: 'N', sort: 'Int', location: { kind: 'span', program: 'flip.pgm', find: '3', literal: '3' } }],
+    target: { kind: { kind: 'differential' }, 'run-to-completion': false, 'negated-property': false },
+    proposers: { explicit: [{ N: { int: '10' } }] },
+    seed: '7',
+    identity: { 'k-rust-revision': 'binding-test' },
+    budget: { cases: '64' },
+  },
+})
+
+test('runs one differential fuzz campaign that kills a mutant', () => {
+  const { report } = runFuzzCampaign(coinCampaign())
+  assert.equal(report.identity.definitions.length, 2)
+  assert.equal(report.outcome.status, 'witness-found')
+  const { witness } = report.outcome
+  const killing = witness.shrunk ?? witness.first
+  assert.equal(killing.kill, 'added-end')
+  assert.ok(BigInt(killing.holes[0].value.int) > 10n, killing.holes[0].value.int)
+})
+
+test('refuses a misspelt field inside a hole', () => {
+  const options = impCampaign()
+  options.campaign.holes[0].constraint = { range: { min: '0', max: '0' } }
+  assert.throws(() => runFuzzCampaign(options), /unknown field `constraint`/)
+})
+
+test('refuses a misspelt option beside the campaign and in the mutant', () => {
+  const options = impCampaign()
+  options.syntaxModul = 'IMP-SYNTAX'
+  assert.throws(() => runFuzzCampaign(options), /unknown field `syntaxModul`/)
+  const coin = coinCampaign()
+  coin.mutant.includePrelud = true
+  assert.throws(() => runFuzzCampaign(coin), /unknown field `includePrelud`/)
+})
+
+test('names this build when the campaign gives no identity', () => {
+  const options = impCampaign({ budget: { cases: '1' } })
+  delete options.campaign.identity
+  const { report } = runFuzzCampaign(options)
+  assert.match(report.identity['k-rust-revision'], BUILD_IDENTITY)
+  assert.equal(report.identity['thread-stack-size'], STACK_SIZE)
 })

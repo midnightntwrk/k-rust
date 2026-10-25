@@ -155,8 +155,10 @@ pub(super) struct Definition {
     /// constructor `wrap : Mv -> S`. The oracle's engine has no maps or sets: such a definition
     /// is for the axiom-instance harness only (`axioms`).
     pub(super) collections: bool,
-    /// Whether the hooked function `hf : A -> S` is declared, with an `Int` hook (`INT.abs`)
-    /// that never applies to an `A`: its value on an `A` is given by its equations alone. For the
+    /// Whether the hooked function `hf : A -> S` is declared, with a hook no evaluator implements
+    /// ([`OPAQUE_FUNCTION_HOOK`]): the evaluator never applies a builtin at it, so its value is
+    /// given by its equations alone, which are its meaning (an equation at a hook the evaluator
+    /// applies is paired with the hook's written meaning instead, `confluence/hooks.rs`). For the
     /// axiom-instance harness only (`axioms`).
     pub(super) opaque_hook: bool,
     /// The equation heads written as hooked symbols, with a hook ([`HEAD_HOOK`]) no evaluator
@@ -165,7 +167,15 @@ pub(super) struct Definition {
     /// withdraw its claims by the same rules as an unhooked head's (a hook fixes the
     /// interpretation of a function, not of an equation head).
     pub(super) hooked_heads: Vec<String>,
+    /// Whether the hooked function `selA : Bool A A -> A` is declared, hooked to `KEQUAL.ite`,
+    /// whose builtin the evaluator applies before any equation and which has a written meaning
+    /// (`confluence/hooks.rs`). For the axiom-instance harness only (`axioms`).
+    pub(super) table_hooks: bool,
 }
+
+/// The hook of [`Definition::opaque_hook`]'s function: a name in no namespace the backend
+/// evaluates.
+pub(super) const OPAQUE_FUNCTION_HOOK: &str = "ORACLE.function";
 
 /// The hook of [`Definition::hooked_heads`]: a name in no namespace the backend evaluates.
 pub(super) const HEAD_HOOK: &str = "ORACLE.opaque";
@@ -270,6 +280,24 @@ impl Definition {
             name: "hf".into(),
             arguments: vec!["A".into()],
             result: "S".into(),
+            kind: Kind::Hook,
+        });
+        self
+    }
+
+    /// Declares the hooked function `selA` (see [`Definition::table_hooks`]) and the sort `A`.
+    pub(super) fn with_table_hooks(mut self) -> Self {
+        if self.table_hooks {
+            return self;
+        }
+        self.table_hooks = true;
+        if !self.sorts.iter().any(|sort| sort == "A") {
+            self.sorts.push("A".into());
+        }
+        self.symbols.push(Symbol {
+            name: "selA".into(),
+            arguments: vec!["Bool".into(), "A".into(), "A".into()],
+            result: "A".into(),
             kind: Kind::Hook,
         });
         self
@@ -576,8 +604,15 @@ impl Definition {
             );
         }
         if self.opaque_hook {
+            writeln!(
+                source,
+                "hooked-symbol hf{{}}(SortA{{}}) : SortS{{}} [function{{}}(), hook{{}}(\"{OPAQUE_FUNCTION_HOOK}\")]"
+            )
+            .unwrap();
+        }
+        if self.table_hooks {
             source.push_str(
-                "hooked-symbol hf{}(SortA{}) : SortS{} [function{}(), hook{}(\"INT.abs\")]\n",
+                "hooked-symbol selA{}(SortBool{}, SortA{}, SortA{}) : SortA{} [function{}(), total{}(), hook{}(\"KEQUAL.ite\")]\n",
             );
         }
         for symbol in self

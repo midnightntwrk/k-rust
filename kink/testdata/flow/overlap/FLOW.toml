@@ -1,0 +1,9 @@
+# kink-flow corpus manifest for the overlap fixture (re-pin R0c-fix-3).
+[spec]
+entry = "overlap.k"
+main_module = "OVERLAP"
+syntax_module = "OVERLAP-SYNTAX"
+
+[[program]]
+id = "minus-one"
+text = "sgn(-1)"

@@ -38,6 +38,16 @@ pub(super) fn validate_dsl_trivia(
                 parse_rule_block_source_with_trivia(body.source)
                     .map_err(|error| source_syntax_at(error, body.byte_offset))?;
             }
+            FunctionMacro::Claims => {
+                let body = macro_body_source(source, line_index, delimiter)?;
+                krs_syntax::parse_claim_block_source_with_trivia(body.source)
+                    .map_err(|error| source_syntax_at(error, body.byte_offset))?;
+            }
+            FunctionMacro::Equations => {
+                let body = macro_body_source(source, line_index, delimiter)?;
+                krs_syntax::parse_equation_table_source_with_trivia(body.source)
+                    .map_err(|error| source_syntax_at(error, body.byte_offset))?;
+            }
             FunctionMacro::Cells => {
                 validate_cells_trivia(macro_body_source(source, line_index, delimiter)?)?;
             }

@@ -1,7 +1,7 @@
 //! ```toml algorithm
 //! id = "backend.rule.select"
 //! name = "single-symbol rule selection"
-//! sites = ["applicable_groups", "applicable_rewrite_groups", "term_index", "rule_index", "subject_index", "fetch_k_cell", "first_with_k_cell", "find_k_cells"]
+//! sites = ["applicable_groups", "applicable_rewrite_groups", "term_index", "rule_index", "subject_index", "fetch_k_cell", "k_cell_is_exact", "first_with_k_cell", "find_k_cells"]
 //! variable = "k = index keys; c = candidate rules returned for one step; r = rules stored under the subject's key and the Variable key for rigid subjects, or all rules for a non-rigid subject; d = depth of the subject's one <k> cell; a = children of a node on the path to it"
 //! counters = []
 //! span = "per call"
@@ -18,7 +18,7 @@
 //!
 //! [[cost]]
 //! mode = "subject_index"
-//! bound = "O(1) unless the subject's stored k_cells count is 1, then O(d x a) to fetch the cell"
+//! bound = "O(1) when the subject's stored k_cells count is 0; for 1, O(d x a) to check (k_cell_is_exact) and fetch the cell, plus the items of each collection on the path when the subject is not constructor_like; for a variable-free subject with several, the same check over every path to a cell, plus O(c log c) to collect and sort the c cells' keys"
 //! ```
 //!
 //! Axiom-shape classification and rule indexes. Every theory uses the top-symbol `TermIndex`;
@@ -45,6 +45,13 @@
 //! conservative cases correspond to the matcher's overload, AC, variable, injection, and
 //! symbolic-function paths; a later matcher extension must keep this list sound.
 //!
+//! A subject's `<k>` cell is keyed only when every instance of the subject has it as its one
+//! `<k>` cell (`k_cell_is_exact`): not through a collection with a rest or with an item that is
+//! not `constructor_like`, whose instances may hold further cells, nor through a function.
+//! A variable-free subject with several `<k>` cells (several threads), each exact in that sense,
+//! is keyed by every one of them (`subject_cells`): a rule's one `<k>` cell meets one of them, so
+//! a rule is offered when its keys cover those of some cell. `RuleIndex::covers` reads them so.
+//!
 //! A subject's keys hold for the term they were computed from, and only for it: the matcher
 //! refutes a dropped candidate against that term. An `anywhere` head keyed `Overloaded`, a
 //! function keyed `Anything`, or the `<k>` cell itself can change when the term is simplified,
@@ -52,6 +59,7 @@
 //! again for it.
 
 use std::{
+    borrow::Cow,
     cell::Cell,
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -67,7 +75,9 @@ use k_rust_kore::names::{
 
 use crate::{
     condition::Condition,
-    definition::{BackendDefinition, DefinitionError, UnlicensedInjectionSite},
+    definition::{
+        BackendDefinition, DefinitionError, UnlicensedInjectionSite, UnstatedDefinedness,
+    },
     substitution::{Substitution, substitute},
     term::{
         AlgebraicAxioms, HeadRole, MapDefinition, Name, SetDefinition, Sort, Term, TermKind,
@@ -210,7 +220,7 @@ impl Absence {
             .map(|counter| {
                 Variable::new(
                     with_fresh_marker("Value", FreshMarker::Binder, counter),
-                    map.value_sort.clone(),
+                    map.value_sort,
                 )
             })
             .find(|binder| !taken.contains(&encode_variable_name(&binder.name)))
@@ -416,12 +426,27 @@ pub struct ComputedRuleAttributes {
     /// begins deciding the rule's `requires` reports both sets as its own
     /// (`crate::coverage::RunCoverage`): the discharge removed the obligations the run would
     /// otherwise decide, and a change to any of these equations can change the discharge.
-    pub discharged_by: crate::coverage::RunCoverage,
+    /// Shared, so that renaming the rule apart copies no set.
+    pub discharged_by: Arc<crate::coverage::RunCoverage>,
+    /// For a rewrite rule, whether the definition's load discharged its definedness
+    /// (`BackendDefinition::discharge_rewrite_definedness`): the rule is not declared
+    /// `preserves-definedness`, and the load showed its terms defined wherever its left-hand side
+    /// and `requires` hold, from the definition's ceil equations and value claims (at once when
+    /// its terms hold only total symbols). False for a declared rule, whose definedness is the
+    /// author's claim ([`RuleAttributes::preserves_definedness`]) and which the load did not
+    /// show; for a rule that keeps a run-time obligation (`undefined_symbols` not empty); and for
+    /// every other rule. The load sets it once: a second discharge keeps it.
+    pub definedness_discharged: bool,
+    /// The rule's shared identity, built at its first use (`path_facts::RuleIdentity::of`).
+    pub identity: crate::path_facts::RuleIdentityCell,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct RewriteRule {
     pub lhs: Term,
+    /// The position of this rule among the rules of its axiom, when the axiom has several: the
+    /// alternatives of a rewrite's disjunctive left-hand side, or a function equation's choices
+    /// of one alternative per argument binder. `None` for an axiom internalized as one rule.
     pub lhs_alternative: Option<usize>,
     pub rhs: RuleRhs,
     pub requires: Condition,
@@ -580,9 +605,15 @@ pub struct RuleIndex(Vec<CellIndex>);
 
 impl RuleIndex {
     /// Whether a rule with these keys may match the subject `subject` was computed from: every
-    /// cell key covers the subject's.
+    /// cell key covers the keys of one of the subject's `<k>` cells.
     pub fn covers(&self, subject: &SubjectKey) -> bool {
-        let subject = subject.cells();
+        subject
+            .cells
+            .iter()
+            .any(|cells| self.covers_cells(cells.cells()))
+    }
+
+    fn covers_cells(&self, subject: &[CellIndex]) -> bool {
         self.0.len() == subject.len()
             && self
                 .0
@@ -597,13 +628,15 @@ impl RuleIndex {
 }
 
 /// The keys rewrite selection uses for one subject, built only by [`subject_index`]: whether the
-/// subject's root is fixed, with its term index, and the cell keys of its `<k>` cell. Two subjects
-/// with equal keys are offered the same candidates, so a caller that reselects rules only when the
-/// keys change (the rewrite loop's remainder) compares this whole key, root fixedness included.
+/// subject's root is fixed, with its term index, and the cell keys of each of its `<k>` cells
+/// (one entry, all `Anything`, when no cell is keyed). Two subjects with equal keys are offered
+/// the same candidates, so a caller that reselects rules only when the keys change (the rewrite
+/// loop's remainder) compares this whole key, root fixedness included.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SubjectKey {
     top: TopKey,
-    cells: RuleIndex,
+    /// Sorted and without repeats; never empty.
+    cells: Vec<RuleIndex>,
 }
 
 /// The subject's term index, and whether its root is the root of every value the subject
@@ -620,9 +653,22 @@ enum TopKey {
 }
 
 impl SubjectKey {
-    /// The cell keys: the head of the subject's one `<k>` cell and the item after it.
+    /// The cell keys of a subject keyed by at most one `<k>` cell: the head of that cell and the
+    /// item after it, or `Anything` twice when no cell is keyed.
+    ///
+    /// # Panics
+    ///
+    /// If the subject is keyed by several `<k>` cells; read [`SubjectKey::cell_keys`] then.
     pub fn cells(&self) -> &[CellIndex] {
-        self.cells.cells()
+        let [cells] = self.cells.as_slice() else {
+            panic!("a subject keyed by several <k> cells has no single cell key");
+        };
+        cells.cells()
+    }
+
+    /// The cell keys of each `<k>` cell the subject is keyed by, sorted and without repeats.
+    pub fn cell_keys(&self) -> &[RuleIndex] {
+        &self.cells
     }
 
     /// The term-index buckets this key offers, in trial order: the own bucket, then `Variable`,
@@ -691,9 +737,46 @@ pub enum RulePatternError {
     /// A component `\not(φ)` of a rewrite left-hand side, after alias unfolding, with a term
     /// pattern in a predicate position of `φ`: it states that the subject is outside a set of
     /// configurations, which no predicate of a rule expresses, so it would be misread. Carries
-    /// the sentence of the refused axiom.
+    /// the refused axiom's name and position ([`RuleAttributes::diagnostic_name`]) and its
+    /// sentence.
     NegatedConfiguration {
+        axiom: String,
         sentence: Box<SentenceKey>,
+    },
+    /// A condition conjoined to a term (a non-term conjunct of a side or of a term-level `\and`,
+    /// after alias unfolding) that is a matching-logic connective (`connective`) with a term
+    /// pattern in a predicate position (`has_term_in_predicate_position`), such as the
+    /// `\implies{SortInt{}}(3, 4)` of `\and{SortInt{}}(\implies{SortInt{}}(3, 4), V)` or the
+    /// `\not{SortBool{}}(true)` of `\and{SortBool{}}(B, \not{SortBool{}}(true))`. Conjoined to a
+    /// term, a connective over terms denotes a set of values of their sort (`(Int ∖ {3}) ∪ {4}`,
+    /// `{false}`), not a condition: reading it as a predicate would read each of its terms as
+    /// `t = true`. In a rewrite left-hand side a `\not` is [`Self::NegatedConfiguration`]. When
+    /// the connective is in a definition's axiom, carries the axiom's name and position
+    /// ([`RuleAttributes::diagnostic_name`]) and its sentence.
+    TermConnectiveInConjunction {
+        connective: &'static str,
+        axiom: Option<String>,
+        sentence: Option<Box<SentenceKey>>,
+    },
+    /// A term of another sort than `SortBool{}` (`sort`, in its KORE form) where a predicate is
+    /// read: a term read as a predicate states that it is `true`, which has a meaning only for a
+    /// Boolean term. When the term is in a definition's axiom, carries the axiom's name and
+    /// position ([`RuleAttributes::diagnostic_name`]) and its sentence.
+    NonBoolTermAsPredicate {
+        sort: Box<kore::Sort>,
+        axiom: Option<String>,
+        sentence: Option<Box<SentenceKey>>,
+    },
+    /// A request read as a predicate (a pattern that states no term, or one that its operation
+    /// reads as a predicate) with a term pattern in a predicate position
+    /// (`has_term_in_predicate_position`): the pattern itself when `connective` is `None`, or a
+    /// term below its root matching-logic connective `connective`, as in
+    /// `\not{SortBool{}}(\dv{SortBool{}}("true"))`. A term denotes a value of its sort and a
+    /// connective over terms a set of values (that pattern is `{false}`), so such a pattern is
+    /// not a predicate (a pattern that is all of its sort or empty), and reading each of its
+    /// terms as `t = true` misreads it.
+    TermInPredicatePosition {
+        connective: Option<&'static str>,
     },
     /// An executable function or anywhere equation whose right-hand side gives no term, only
     /// `\top` or predicates (`#Top`, `#Top` with an `ensures`, `#Ceil(X)`). Such a right-hand
@@ -730,13 +813,64 @@ impl std::fmt::Display for RulePatternError {
                 formatter,
                 "the argument binder variable {variable} has another sort than a term it binds"
             ),
-            Self::NegatedConfiguration { sentence } => write!(
+            Self::NegatedConfiguration { axiom, sentence } => write!(
                 formatter,
-                "the left-hand side of the rewrite at sentence index {} (zero-based) of module {} \
-                 negates (\\not) a pattern with a term in a predicate position, which states \
-                 that the subject is outside a set of configurations, and no rule condition \
-                 states that",
+                "the left-hand side of the rewrite {axiom} at sentence index {} (zero-based) of \
+                 module {} negates (\\not) a pattern with a term in a predicate position, which \
+                 states that the subject is outside a set of configurations, and no rule \
+                 condition states that",
                 sentence.1, sentence.0
+            ),
+            Self::TermConnectiveInConjunction {
+                connective,
+                axiom,
+                sentence,
+            } => {
+                match (axiom, sentence) {
+                    (Some(axiom), Some(sentence)) => write!(
+                        formatter,
+                        "the axiom {axiom} at sentence index {} (zero-based) of module {} ",
+                        sentence.1, sentence.0
+                    )?,
+                    _ => formatter.write_str("the pattern ")?,
+                }
+                write!(
+                    formatter,
+                    "conjoins to a term a \\{connective} with a term in a predicate position, \
+                     which over terms denotes a set of values of their sort, not a condition, \
+                     and the backend reads no predicate from it"
+                )
+            }
+            Self::NonBoolTermAsPredicate {
+                sort,
+                axiom,
+                sentence,
+            } => {
+                write!(
+                    formatter,
+                    "a term of sort {sort} is read as a predicate, which states that the term is \
+                     true and has a meaning only for a term of sort SortBool{{}}"
+                )?;
+                match (axiom, sentence) {
+                    (Some(axiom), Some(sentence)) => write!(
+                        formatter,
+                        ", in the axiom {axiom} (sentence index {} of module {})",
+                        sentence.1, sentence.0
+                    ),
+                    _ => Ok(()),
+                }
+            }
+            Self::TermInPredicatePosition {
+                connective: Some(connective),
+            } => write!(
+                formatter,
+                "the pattern states no term and is a \\{connective} with a term in a predicate \
+                 position, which over terms denotes a set of values of their sort, not a \
+                 predicate, and the backend reads no predicate from it"
+            ),
+            Self::TermInPredicatePosition { connective: None } => formatter.write_str(
+                "the pattern is a term where a predicate is read; a term denotes a value of its \
+                 sort, not a predicate, and the backend reads no predicate from it",
             ),
             Self::TopFunctionEquation { axiom, head, .. } => write!(
                 formatter,
@@ -769,6 +903,10 @@ pub struct RuleAttributes {
     pub label: Option<String>,
     pub unique_id: String,
     pub simplification: bool,
+    /// The author's claim, as written: the axiom is declared `preserves-definedness`, which
+    /// states that its right-hand side is defined wherever its left-hand side and `requires` are.
+    /// Never changed after parsing; what the load showed is
+    /// [`ComputedRuleAttributes::definedness_discharged`].
     pub preserves_definedness: bool,
     pub concreteness: Concreteness,
     pub smt_lemma: bool,
@@ -1533,8 +1671,7 @@ impl<'a> VariableRenaming<'a> {
                 let right = live_constraints(right, &self.backward);
                 left.len() == right.len()
                     && left.iter().all(|((name, sort), kind)| {
-                        right.get(&(Name::from(self.forward[name.as_ref()]), sort.clone()))
-                            == Some(kind)
+                        right.get(&(Name::from(self.forward[name.as_ref()]), *sort)) == Some(kind)
                     })
             }
         }
@@ -1636,6 +1773,10 @@ pub fn internalize_axiom(
     axiom: &ClassifiedAxiom,
     sentence: &SentenceKey,
 ) -> Result<Vec<InternalizedRule>, DefinitionError> {
+    // Every predicate of the axiom is read by `internalize_predicate_reading`, as written except
+    // in the slots where a frontend writes a condition (`ConditionSlot`): the `requires` of an
+    // equation, and the conjunct a side's two-argument root `\and` holds beside the author's
+    // pattern, the `requires` of a rewrite and the `ensures` of every side.
     let injection_role = UnlicensedInjectionSite::InAxiom;
     let internalize = || match axiom {
         ClassifiedAxiom::Rewrite {
@@ -1657,6 +1798,8 @@ pub fn internalize_axiom(
                         sort_parameters,
                         injection_role,
                         Some((attributes, sentence)),
+                        ConditionSlot::Last,
+                        PredicateReading::Written,
                     ))?
                 {
                     live.push((index, lhs, requires));
@@ -1665,8 +1808,14 @@ pub fn internalize_axiom(
             if live.is_empty() {
                 return Ok(vec![]);
             }
-            let (rhs, ensures) =
-                internalize_term_rhs(definition, rhs, sort_parameters, injection_role)?;
+            let (rhs, ensures) = internalize_term_rhs(
+                definition,
+                rhs,
+                sort_parameters,
+                injection_role,
+                ConditionSlot::RewriteRight,
+                PredicateReading::Written,
+            )?;
             if matches!(rhs, RuleRhs::Top) {
                 return Err(DefinitionError::RulePattern(RulePatternError::MissingTerm));
             }
@@ -1717,18 +1866,40 @@ pub fn internalize_axiom(
             ..
         } => {
             if !is_term_pattern(lhs) {
-                let Some(lhs) = live_matched(internalize_predicate(
+                // A left-hand side that conjoins terms (`t1 #And t2 => t3`) rewrites a term-level
+                // conjunction, and its sides' terms are its conjuncts, of any sort.
+                // The left-hand side and the first conjunct of the right-hand side are the
+                // author's predicates, read as written; the `ensures` is the right-hand side's
+                // condition slot.
+                let reading = if is_term_conjunction(lhs) {
+                    PredicateReading::Conjunct
+                } else {
+                    PredicateReading::Written
+                };
+                let Some(lhs) = live_matched(internalize_predicate_reading(
                     definition,
                     lhs,
                     sort_parameters,
                     UnlicensedInjectionSite::InAxiomMatched,
+                    reading,
                 ))?
                 else {
                     return Ok(vec![]);
                 };
-                let requires =
-                    internalize_predicates(definition, requires, sort_parameters, injection_role)?;
-                let rhs = internalize_predicates(definition, rhs, sort_parameters, injection_role)?;
+                let requires = internalize_predicates_reading(
+                    definition,
+                    requires,
+                    sort_parameters,
+                    injection_role,
+                    PredicateReading::Slot,
+                )?;
+                let rhs = internalize_predicate_side(
+                    definition,
+                    rhs,
+                    sort_parameters,
+                    injection_role,
+                    reading,
+                )?;
                 let rename =
                     |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
                 let mut lhs = rename_predicates(&[lhs], rename);
@@ -1755,9 +1926,15 @@ pub fn internalize_axiom(
                 return Ok(vec![]);
             };
             let requires =
-                internalize_predicates(definition, requires, sort_parameters, injection_role)?;
-            let (rhs, ensures) =
-                internalize_term_rhs(definition, rhs, sort_parameters, injection_role)?;
+                internalize_requires(definition, requires, sort_parameters, injection_role)?;
+            let (rhs, ensures) = internalize_term_rhs(
+                definition,
+                rhs,
+                sort_parameters,
+                injection_role,
+                ConditionSlot::Last,
+                PredicateReading::Written,
+            )?;
             let rename =
                 |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
             Ok(vec![InternalizedRule::Term(
@@ -1795,47 +1972,77 @@ pub fn internalize_axiom(
             else {
                 return Ok(vec![]);
             };
-            let mut binding_alternatives = vec![Substitution::new()];
+            // The equation is `requires ∧ ⋀ Xi ∈ Pi → f(X⃗) = rhs`. Every symbol is interpreted
+            // pointwise, so a disjunction below a symbol of `Pi`, or below an operand of its
+            // `\and`, distributes to the root (`σ(.., A ∨ B, ..) = σ(.., A, ..) ∨ σ(.., B, ..)`,
+            // and `\and` distributes over `\or`), and `Xi ∈ (A ∨ B) → φ` is
+            // `(Xi ∈ A → φ) ∧ (Xi ∈ B → φ)`: one rule per choice of a disjunct for each argument,
+            // all of them with the axiom's attributes. A `\bottom` disjunct at the root is no
+            // value of `Xi`, so it gives no rule.
+            //
+            // Under `Xi ∈ Pi`, `Xi` is the subject's argument at position i. A right-hand side
+            // or requires that names `Xi` (an equation whose head carries a root alias states the
+            // alias as `f(X⃗)`) means that argument; putting `Pi` in place of `Xi` on the
+            // left-hand side only would leave `Xi` free in the other parts, a variable no match
+            // binds, and the rule would not state the axiom's equation. Where `Pi` denotes at
+            // most one element (`is_functional_pattern`: every symbol is interpreted as a partial
+            // function, an element variable denotes one element, and the pattern has no `\and`),
+            // `Xi ∈ Pi` is `Xi = Pi`, so the rule states `Pi` for `Xi` in its requires and
+            // right-hand side and keeps `f(.., Pi, ..)` as its left-hand side: a match of `Pi`
+            // instantiates it to the subject's argument. Otherwise, or where a quantifier of
+            // those parts would capture a variable of `Pi`, the left-hand side keeps `Xi` beside
+            // `Pi`, as `\and(Pi, Xi)`, and matching binds it to that argument. A rule whose other
+            // parts do not name `Xi` keeps `Pi` alone, which states the same equation.
+            let named = {
+                let mut named = rhs.free_variables();
+                named.extend(requires.free_variables());
+                named
+            };
+            let mut readings = vec![BinderReading {
+                bindings: Substitution::new(),
+                requires: Cow::Borrowed(requires),
+                rhs: Cow::Borrowed(rhs),
+            }];
             for binder in binders {
                 let variable =
                     definition.internalize_variable(&binder.variable, sort_parameters)?;
-                let alternatives = binder_term_alternatives(&binder.pattern)
+                let keeps_variable = named.contains(&binder.variable);
+                let alternatives = binder_disjuncts(&binder.pattern)
                     .into_iter()
                     .filter_map(|pattern| {
-                        live_matched(definition.internalize_term_with_validation(
-                            pattern,
+                        let term = live_matched(definition.internalize_term_with_validation(
+                            &pattern,
                             sort_parameters,
                             injection_role,
                         ))
-                        .transpose()
+                        .transpose()?;
+                        Some(term.map(|term| (pattern, term)))
                     })
                     .collect::<Result<Vec<_>, _>>()?;
                 if alternatives.is_empty() {
                     return Ok(vec![]);
                 }
-                for alternative in &alternatives {
+                for (_, alternative) in &alternatives {
                     if variable.sort != alternative.sort() {
                         return Err(DefinitionError::RulePattern(
                             RulePatternError::BinderSortMismatch(binder.variable.clone()),
                         ));
                     }
                 }
-                binding_alternatives = binding_alternatives
-                    .into_iter()
-                    .flat_map(|bindings| {
-                        alternatives.iter().cloned().map({
-                            let variable = variable.clone();
-                            move |alternative| {
-                                let mut bindings = bindings.clone();
-                                bindings.insert(variable.clone(), alternative);
-                                bindings
-                            }
-                        })
-                    })
-                    .collect();
+                let mut extended = Vec::with_capacity(readings.len() * alternatives.len());
+                for reading in &readings {
+                    for (pattern, term) in &alternatives {
+                        extended.push(reading.bind(
+                            &binder.variable,
+                            &variable,
+                            pattern,
+                            term,
+                            keeps_variable,
+                        ));
+                    }
+                }
+                readings = extended;
             }
-            let requires =
-                internalize_predicates(definition, requires, sort_parameters, injection_role)?;
             // A right-hand side that is `\top`, or `\top` with predicates (`#Top ensures P`),
             // gives the application no term to equal: it states that the application is every
             // value of its sort, which no application of a function or anywhere head is unless
@@ -1852,40 +2059,64 @@ pub fn internalize_axiom(
                     sentence: Box::new(sentence.clone()),
                 })
             };
-            let (rhs, ensures) =
-                internalize_term_rhs(definition, rhs, sort_parameters, injection_role).map_err(
-                    |error| match error {
-                        DefinitionError::RulePattern(RulePatternError::MissingTerm) => {
-                            top_function_equation()
-                        }
-                        error => error,
-                    },
-                )?;
-            if matches!(rhs, RuleRhs::Top) {
-                return Err(top_function_equation());
-            }
             let rename =
                 |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
-            let rhs = rename_rhs(rhs, rename);
-            let requires = rename_predicates(&requires, rename);
-            let ensures = rename_predicates(&ensures, rename);
-            Ok(binding_alternatives
+            let stated = |requires: &kore::Pattern,
+                          rhs: &kore::Pattern|
+             -> Result<(RuleRhs, Vec<Predicate>, Vec<Predicate>), DefinitionError> {
+                let requires =
+                    internalize_requires(definition, requires, sort_parameters, injection_role)?;
+                let (rhs, ensures) = internalize_term_rhs(
+                    definition,
+                    rhs,
+                    sort_parameters,
+                    injection_role,
+                    ConditionSlot::Last,
+                    PredicateReading::Written,
+                )
+                .map_err(|error| match error {
+                    DefinitionError::RulePattern(RulePatternError::MissingTerm) => {
+                        top_function_equation()
+                    }
+                    error => error,
+                })?;
+                if matches!(rhs, RuleRhs::Top) {
+                    return Err(top_function_equation());
+                }
+                Ok((
+                    rename_rhs(rhs, rename),
+                    rename_predicates(&requires, rename),
+                    rename_predicates(&ensures, rename),
+                ))
+            };
+            // The axiom's own requires and right-hand side, shared by every rule that states no
+            // binder pattern in them.
+            let written = stated(requires, rhs)?;
+            // The rules of one axiom are its alternatives, numbered as a rewrite's left-hand
+            // side alternatives are, so the axiom's identity names all of them as one axiom.
+            let split = readings.len() > 1;
+            readings
                 .into_iter()
-                .map(|bindings| {
-                    InternalizedRule::Term(
+                .enumerate()
+                .map(|(index, reading)| {
+                    let (rhs, requires, ensures) = match (&reading.requires, &reading.rhs) {
+                        (Cow::Borrowed(_), Cow::Borrowed(_)) => written.clone(),
+                        (requires, rhs) => stated(requires, rhs)?,
+                    };
+                    Ok(InternalizedRule::Term(
                         RuleKind::Function,
                         make_rule(
-                            rename_term(&substitute(&lhs, &bindings), rename),
-                            rhs.clone(),
-                            requires.clone(),
-                            ensures.clone(),
+                            rename_term(&substitute(&lhs, &reading.bindings), rename),
+                            rhs,
+                            requires,
+                            ensures,
                             attributes.clone(),
                             BTreeSet::new(),
-                            None,
+                            split.then_some(index),
                         ),
-                    )
+                    ))
                 })
-                .collect())
+                .collect()
         }
         ClassifiedAxiom::Ceil {
             sort_parameters,
@@ -1904,8 +2135,14 @@ pub fn internalize_axiom(
                 return Ok(vec![]);
             };
             let requires =
-                internalize_predicates(definition, requires, sort_parameters, injection_role)?;
-            let rhs = internalize_predicates(definition, rhs, sort_parameters, injection_role)?;
+                internalize_requires(definition, requires, sort_parameters, injection_role)?;
+            let rhs = internalize_predicate_side(
+                definition,
+                rhs,
+                sort_parameters,
+                injection_role,
+                PredicateReading::Written,
+            )?;
             let rename =
                 |variable: &Variable| variable.with_provenance(VariableProvenance::Equation);
             let lhs = rename_term(&lhs, rename);
@@ -1933,8 +2170,8 @@ pub fn internalize_axiom(
             )])
         }
     };
-    let mut rules = internalize()
-        .map_err(|error| written_injection_error(error, axiom.attributes(), sentence))?;
+    let mut rules =
+        internalize().map_err(|error| located_axiom_error(error, axiom.attributes(), sentence))?;
     for rule in &mut rules {
         if let InternalizedRule::Term(
             RuleKind::Function | RuleKind::Simplification | RuleKind::Ceil,
@@ -1993,20 +2230,50 @@ fn definition_spellings(variables: &BTreeSet<Variable>) -> Vec<String> {
         .collect()
 }
 
-pub(crate) fn written_injection_error(
+/// `error`, found internalizing the axiom with `attributes` at `sentence`, with the axiom named
+/// where the error is about what the axiom writes: an injection with no subsort path, and the
+/// refusals of the predicate reading ([`internalize_predicate_reading`]): an `\equals` that would
+/// read a term as a predicate ([`DefinitionError::AxiomReadsTermAsPredicate`]), a term of
+/// another sort than Bool read as a predicate, and a connective over terms conjoined to a term.
+pub(crate) fn located_axiom_error(
     error: DefinitionError,
     attributes: &RuleAttributes,
     sentence: &SentenceKey,
 ) -> DefinitionError {
-    let DefinitionError::NotSubsort { source, target } = error else {
-        return error;
-    };
-    let axiom = attributes.diagnostic_name(str::to_owned);
-    DefinitionError::UnlicensedInjection {
-        source,
-        target,
-        axiom,
-        sentence: Box::new(sentence.clone()),
+    let axiom = || attributes.diagnostic_name(str::to_owned);
+    let sentence = || Box::new(sentence.clone());
+    match error {
+        DefinitionError::NotSubsort { source, target } => DefinitionError::UnlicensedInjection {
+            source,
+            target,
+            axiom: axiom(),
+            sentence: sentence(),
+        },
+        DefinitionError::UnstatedDefinedness(UnstatedDefinedness::TermReadAsPredicate) => {
+            DefinitionError::AxiomReadsTermAsPredicate {
+                axiom: axiom(),
+                sentence: sentence(),
+            }
+        }
+        DefinitionError::RulePattern(RulePatternError::NonBoolTermAsPredicate {
+            sort,
+            axiom: None,
+            ..
+        }) => DefinitionError::RulePattern(RulePatternError::NonBoolTermAsPredicate {
+            sort,
+            axiom: Some(axiom()),
+            sentence: Some(sentence()),
+        }),
+        DefinitionError::RulePattern(RulePatternError::TermConnectiveInConjunction {
+            connective,
+            axiom: None,
+            ..
+        }) => DefinitionError::RulePattern(RulePatternError::TermConnectiveInConjunction {
+            connective,
+            axiom: Some(axiom()),
+            sentence: Some(sentence()),
+        }),
+        error => error,
     }
 }
 
@@ -2058,10 +2325,17 @@ fn index_of(definition: &BackendDefinition, term: &Term, side: KeySide) -> RuleI
     // are none or several. The stored count, saturated at 2, says which case holds, and the cell
     // is fetched only when it is 1: the same cell as the first that `find_k_cells` collects
     // (`rule_index_same` of lean/KRust/TermAttributes.lean).
+    // A subject's cell is keyed only when every instance of the subject has it as its one `<k>`
+    // cell (`k_cell_is_exact`): a rule's cell may otherwise match another cell of an instance.
     let cell = match term.attributes().k_cells() {
-        1 => fetch_k_cell(term),
+        1 if side == KeySide::Rule || k_cell_is_exact(term) => fetch_k_cell(term),
         _ => None,
     };
+    cell_keys(definition, cell, side)
+}
+
+/// The keys of the `<k>` cell `cell`, or `Anything` twice for no cell.
+fn cell_keys(definition: &BackendDefinition, cell: Option<&Term>, side: KeySide) -> RuleIndex {
     // The second key is the item after the head, when the cell is `kseq(head, kseq(next, _))`:
     // `kseq` is a constructor, so a pattern and a subject that both have that shape match only
     // if their next items match. The key rejects only a pair of distinct rigid items (a
@@ -2099,7 +2373,80 @@ pub fn subject_index(definition: &BackendDefinition, term: &Term) -> SubjectKey 
     };
     SubjectKey {
         top,
-        cells: index_of(definition, term, KeySide::Subject),
+        cells: subject_cells(definition, term),
+    }
+}
+
+/// The cell keys of a subject, one entry per `<k>` cell it is keyed by.
+///
+/// A rule's left-hand side keys its one `<k>` cell, and a rule with several keys nothing
+/// (`index_of`), so a rule that is keyed at all meets the subject through one cell. A subject with
+/// several `<k>` cells (several threads) is keyed by every one of them when it has no variable and
+/// every cell is exact in the sense of [`k_cell_is_exact`]: then every instance of the subject is
+/// the subject itself, its `<k>` cells are the ones written in it, and the rule's cell, which the
+/// matcher pairs with a subject `<k>` cell as for one cell, is paired with one of them. A rule
+/// whose keys cover none of theirs is refuted against each, so against the subject. Otherwise the
+/// subject keeps the single key of `index_of`, which is `Anything` for several cells.
+fn subject_cells(definition: &BackendDefinition, term: &Term) -> Vec<RuleIndex> {
+    if term.attributes().k_cells() < 2
+        || !term.attributes().variables.is_empty()
+        || !k_cell_is_exact(term)
+    {
+        return vec![index_of(definition, term, KeySide::Subject)];
+    }
+    let mut cells = Vec::new();
+    collect_k_cells(term, &mut cells);
+    let mut keys = cells
+        .into_iter()
+        .map(|cell| cell_keys(definition, Some(cell), KeySide::Subject))
+        .collect::<Vec<_>>();
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
+/// Every `<k>` cell of `term` not nested in a `<k>` cell, descending only into children that hold
+/// one by their stored count.
+fn collect_k_cells<'a>(term: &'a Term, cells: &mut Vec<&'a Term>) {
+    fn visit<'a>(term: &'a Term, cells: &mut Vec<&'a Term>) {
+        if term.attributes().k_cells() > 0 {
+            collect_k_cells(term, cells);
+        }
+    }
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            if symbol.is(WellKnownSymbol::KCell) {
+                cells.push(term);
+                return;
+            }
+            arguments.iter().for_each(|argument| visit(argument, cells));
+        }
+        TermKind::And(left, right) => {
+            visit(left, cells);
+            visit(right, cells);
+        }
+        TermKind::Injection { term, .. } => visit(term, cells),
+        TermKind::Map { entries, rest, .. } => {
+            for (key, value) in entries.iter() {
+                visit(key, cells);
+                visit(value, cells);
+            }
+            rest.iter().for_each(|rest| visit(rest, cells));
+        }
+        TermKind::List { heads, rest, .. } => {
+            heads.iter().for_each(|head| visit(head, cells));
+            if let Some((middle, tails)) = rest {
+                visit(middle, cells);
+                tails.iter().for_each(|tail| visit(tail, cells));
+            }
+        }
+        TermKind::Set { elements, rest, .. } => {
+            elements.iter().for_each(|element| visit(element, cells));
+            rest.iter().for_each(|rest| visit(rest, cells));
+        }
+        TermKind::DomainValue { .. } | TermKind::Variable(_) => {}
     }
 }
 
@@ -2140,6 +2487,77 @@ pub(crate) fn fetch_k_cell(term: &Term) -> Option<&Term> {
             first_with_k_cell(elements.first_with_k_cells().into_iter().chain(rest.iter()))
         }
         TermKind::DomainValue { .. } | TermKind::Variable(_) => None,
+    }
+}
+
+/// Whether the `<k>` cells written in `term` (whose stored `k_cells` count is not 0) are, in every
+/// instance of `term`, the only `<k>` cells a rule's `<k>` cell can be matched against: for one
+/// cell, the only one; for several, each through the path that leads to it.
+///
+/// A rule's left-hand side and the subject hold their `<k>` cells at the cell path the
+/// configuration declares. Along that path the matcher pairs a free constructor's arguments with
+/// the subject's arguments of the same symbol, position for position, and an injection's operand
+/// with the operand; so through those the rule's cell meets exactly the subject's term at the
+/// same position. A collection on the path pairs each pattern item with some subject item, or
+/// with the part of the subject its rest or a symbolic item denotes: an instance of a rest
+/// variable, or of a variable or function in another item, may hold further items with their own
+/// `<k>` cells, which the stored count, a count of the cells written in the term, does not see.
+/// The rule's cell may then be matched against one of those, whatever the visible cell's head.
+/// So the cell is exact only when every collection on the path has no rest and every item of it
+/// besides the one leading to the cell is `constructor_like` (it denotes itself, a term without
+/// a variable or a non-free root, and the count already says it holds no `<k>` cell), and every
+/// application on the path is a free constructor (a function or an equation head may denote a
+/// value whose subterms are not its arguments). A `constructor_like` term satisfies all of this
+/// below it, which decides a ground configuration at once. A conjunction is matched conjunct by
+/// conjunct against the same subject, and is not keyed.
+fn k_cell_is_exact(term: &Term) -> bool {
+    if term.attributes().constructor_like {
+        return true;
+    }
+    fn holds(term: &Term) -> bool {
+        term.attributes().k_cells() > 0
+    }
+    // The items of a list or a set: the one that leads to the cell is exact, the others rigid.
+    fn items_exact<'t>(mut items: impl Iterator<Item = &'t Term>) -> bool {
+        items.all(|item| {
+            if holds(item) {
+                k_cell_is_exact(item)
+            } else {
+                item.attributes().constructor_like
+            }
+        })
+    }
+    match term.kind() {
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            if symbol.is(WellKnownSymbol::KCell) {
+                return true;
+            }
+            symbol.attributes.head_role() == HeadRole::FreeConstructor
+                && arguments
+                    .iter()
+                    .filter(|argument| holds(argument))
+                    .all(k_cell_is_exact)
+        }
+        TermKind::Injection { term, .. } => k_cell_is_exact(term),
+        TermKind::Map { entries, rest, .. } => {
+            // The other part of the entry that leads to the cell (its key, when the cell is in
+            // its value) is not read: a pattern entry meets the cell only through this entry.
+            rest.is_none()
+                && entries
+                    .iter()
+                    .all(|(key, value)| match (holds(key), holds(value)) {
+                        (false, false) => {
+                            key.attributes().constructor_like && value.attributes().constructor_like
+                        }
+                        (true, _) => k_cell_is_exact(key),
+                        (false, true) => k_cell_is_exact(value),
+                    })
+        }
+        TermKind::List { heads, rest, .. } => rest.is_none() && items_exact(heads.iter()),
+        TermKind::Set { elements, rest, .. } => rest.is_none() && items_exact(elements.iter()),
+        TermKind::And(..) | TermKind::DomainValue { .. } | TermKind::Variable(_) => false,
     }
 }
 
@@ -2440,11 +2858,35 @@ pub fn applicable_rewrite_groups(
     groups
 }
 
+/// A standalone constrained pattern (a request, a search pattern), which has no condition slot:
+/// every predicate of it is read as written ([`PredicateReading::Written`]).
 pub(crate) fn internalize_rule_pattern(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
     injection_role: UnlicensedInjectionSite,
+) -> Result<(Term, Vec<Predicate>), DefinitionError> {
+    internalize_side(
+        definition,
+        pattern,
+        sort_parameters,
+        injection_role,
+        ConditionSlot::None,
+        PredicateReading::Written,
+    )
+}
+
+/// One side of an axiom or a claim (or a standalone pattern, with [`ConditionSlot::None`]),
+/// with its condition `slot` read as a frontend's condition and every other predicate with
+/// `reading` ([`PredicateReading::Written`], or [`PredicateReading::Unchecked`] for a claim
+/// already refused).
+pub(crate) fn internalize_side(
+    definition: &BackendDefinition,
+    pattern: &kore::Pattern,
+    sort_parameters: &[Name],
+    injection_role: UnlicensedInjectionSite,
+    slot: ConditionSlot,
+    reading: PredicateReading,
 ) -> Result<(Term, Vec<Predicate>), DefinitionError> {
     internalize_rule_pattern_with_position(
         definition,
@@ -2452,6 +2894,8 @@ pub(crate) fn internalize_rule_pattern(
         sort_parameters,
         injection_role,
         None,
+        slot,
+        reading,
     )
 }
 
@@ -2461,55 +2905,73 @@ fn internalize_rule_pattern_with_position(
     sort_parameters: &[Name],
     injection_role: UnlicensedInjectionSite,
     defer_written_conditions_for: Option<(&RuleAttributes, &SentenceKey)>,
+    slot: ConditionSlot,
+    reading: PredicateReading,
 ) -> Result<(Term, Vec<Predicate>), DefinitionError> {
     if contains_term_or(pattern) {
         return Err(DefinitionError::RulePattern(
             RulePatternError::TermDisjunction,
         ));
     }
-    let mut components = Vec::new();
-    flatten_and(pattern, &mut components);
+    let components = side_components(pattern, slot);
+    // A non-term component of a side with a term is conjoined to that term; a side with no term
+    // is a predicate, refused below as no term (`MissingTerm`) or read as one by the caller.
+    let conjoined = components
+        .iter()
+        .any(|(component, _)| is_term_pattern(component));
     let mut terms = Vec::new();
     let mut predicates = Vec::new();
+    // The written conditions of a rewrite's left-hand side, each with whether it is the slot.
     let mut deferred_predicates = Vec::new();
-    for component in components {
+    for (component, in_slot) in components {
         if is_term_pattern(component) {
+            let mut floated = Vec::new();
             terms.push(definition.internalize_term_collecting(
                 component,
                 sort_parameters,
                 injection_role,
                 &mut predicates,
-                defer_written_conditions_for.map(|_| &mut deferred_predicates),
+                defer_written_conditions_for.map(|_| &mut floated),
+                reading,
             )?);
+            deferred_predicates.extend(floated.into_iter().map(|predicate| (predicate, false)));
         } else if defer_written_conditions_for.is_some() {
-            deferred_predicates.push(component.clone());
+            deferred_predicates.push((component.clone(), in_slot));
         } else {
-            predicates.extend(internalize_predicates(
+            predicates.extend(internalize_component(
                 definition,
                 component,
                 sort_parameters,
                 injection_role,
+                in_slot,
+                conjoined,
+                reading,
             )?);
         }
     }
     // A dead matched term is discarded before any written condition is internalized.
-    for predicate in deferred_predicates {
+    for (predicate, in_slot) in deferred_predicates {
+        let (attributes, sentence) =
+            defer_written_conditions_for.expect("written conditions were deferred");
         if negates_configuration(&predicate) {
-            let (_, sentence) =
-                defer_written_conditions_for.expect("written conditions were deferred");
             return Err(DefinitionError::RulePattern(
                 RulePatternError::NegatedConfiguration {
+                    axiom: attributes.diagnostic_name(str::to_owned),
                     sentence: Box::new(sentence.clone()),
                 },
             ));
         }
         predicates.extend(
-            internalize_predicates(definition, &predicate, sort_parameters, injection_role)
-                .map_err(|error| {
-                    let (attributes, sentence) =
-                        defer_written_conditions_for.expect("written conditions were deferred");
-                    written_injection_error(error, attributes, sentence)
-                })?,
+            internalize_component(
+                definition,
+                &predicate,
+                sort_parameters,
+                injection_role,
+                in_slot,
+                conjoined,
+                reading,
+            )
+            .map_err(|error| located_axiom_error(error, attributes, sentence))?,
         );
     }
 
@@ -2523,12 +2985,202 @@ fn internalize_rule_pattern_with_position(
     Ok((term, predicates))
 }
 
+/// Where a side's condition slot is: the arguments of its root `\and` that a frontend writes
+/// beside the author's pattern. Each condition there is `\top`, `\equals{Bool, S}(c, true)`, or
+/// `\equals{Bool, S}(true, c)` (pyk's `mlEqualsTrue`), with `c` a Boolean term or a predicate
+/// over atoms. The slot shapes are exactly these:
+/// - k-rust's compiler (`side_condition`) and the pinned frontend write a rewrite as
+///   `\rewrites(\and(L, requires), \and(R, ensures))`, an equation's right-hand side as
+///   `\and(R, ensures)`, and a claim as `\implies(\and(requires, L), \and(R, ensures))` under its
+///   modality and existentials: the slot is one argument of a two-argument root `\and`;
+/// - pyk's `krule_to_kore` writes a rewrite's left-hand side as `\and(L, requires)`, with
+///   `requires` one condition or an `\and` of them, and its right-hand side as `R` with no
+///   `ensures`, `\and(R, e1)` with one, and `\and(R, e1, …, en)` with one argument per `ensures`
+///   conjunct when it has two or more ([`ConditionSlot::RewriteRight`]).
+///
+/// pyk also flattens an author's `R #And {P}` into that list of arguments, so in its output an
+/// author's condition and the frontend's are not told apart: both are read as a condition. An
+/// author's encoding-shaped `{C #Equals true}` there has the bytes of a frontend's condition and
+/// is read as `C`, which is not its meaning when `C` is a connective over terms; only a frontend
+/// can refuse it.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ConditionSlot {
+    /// No slot: a standalone pattern, or a hand-written side of another shape.
+    None,
+    /// The first argument of a two-argument root `\and` (a claim's left-hand side).
+    First,
+    /// The last argument of a two-argument root `\and` (a rewrite's left-hand side, an equation's
+    /// and a claim's right-hand side).
+    Last,
+    /// As [`Self::Last`], and every argument after the first of a root `\and` with three or more
+    /// arguments whose first argument is a term (a rewrite's right-hand side).
+    RewriteRight,
+}
+
+impl ConditionSlot {
+    /// Whether argument `index` of `arguments`, those of a side's root `\and`, is in the slot.
+    fn holds(self, arguments: &[kore::Pattern], index: usize) -> bool {
+        match (self, arguments.len()) {
+            (Self::First, 2) => index == 0,
+            (Self::Last | Self::RewriteRight, 2) => index == 1,
+            (Self::RewriteRight, 3..) => index > 0 && is_term_pattern(&arguments[0]),
+            _ => false,
+        }
+    }
+
+    /// Whether a side `pattern` has the shape whose slot this is.
+    fn fits(self, pattern: &kore::Pattern) -> bool {
+        match pattern {
+            kore::Pattern::And { arguments, .. } => {
+                (0..arguments.len()).any(|index| self.holds(arguments, index))
+            }
+            _ => false,
+        }
+    }
+}
+
+/// The components of `pattern` (nested `\and` flattened, in written order), each with whether it
+/// comes from the condition `slot` of `pattern`'s root `\and`. An argument at the slot is a
+/// condition only when it has no term in a predicate position, as every condition a frontend
+/// writes there (`\top`, `\equals{Bool, S}(c, true)`, a predicate over such atoms); any other
+/// argument there is conjoined to the side's term like the author's pattern.
+fn side_components(pattern: &kore::Pattern, slot: ConditionSlot) -> Vec<(&kore::Pattern, bool)> {
+    let mut components = Vec::new();
+    match pattern {
+        kore::Pattern::And { arguments, .. } => {
+            for (index, argument) in arguments.iter().enumerate() {
+                let in_slot =
+                    slot.holds(arguments, index) && !has_term_in_predicate_position(argument);
+                let mut flattened = Vec::new();
+                flatten_and(argument, &mut flattened);
+                components.extend(flattened.into_iter().map(|component| (component, in_slot)));
+            }
+        }
+        _ => components.push((pattern, false)),
+    }
+    components
+}
+
+/// The predicates of `component`, a non-term component of a side: the side's condition slot is
+/// read as a frontend's condition ([`PredicateReading::Slot`]); any other component is the
+/// author's, and when the side has a term it is conjoined to that term
+/// ([`refuse_term_connective`]).
+fn internalize_component(
+    definition: &BackendDefinition,
+    component: &kore::Pattern,
+    sort_parameters: &[Name],
+    injection_role: UnlicensedInjectionSite,
+    in_slot: bool,
+    conjoined: bool,
+    reading: PredicateReading,
+) -> Result<Vec<Predicate>, DefinitionError> {
+    let reading = if in_slot && reading != PredicateReading::Unchecked {
+        PredicateReading::Slot
+    } else {
+        if conjoined {
+            refuse_term_connective(component, reading)?;
+        }
+        reading
+    };
+    internalize_predicates_reading(
+        definition,
+        component,
+        sort_parameters,
+        injection_role,
+        reading,
+    )
+}
+
+/// Refuse `condition`, conjoined to a term, when it is a matching-logic connective with a term
+/// in a predicate position ([`term_connective`]): conjoined to a term of its sort, such a
+/// connective denotes a set of values of that sort (`B #And #Not(true)` is `B` where `B` is
+/// `false`), not a condition, and reading its terms as predicates (`t = true`) misreads it.
+pub(crate) fn refuse_term_connective(
+    condition: &kore::Pattern,
+    reading: PredicateReading,
+) -> Result<(), DefinitionError> {
+    match term_connective(condition) {
+        Some(connective) if reading != PredicateReading::Unchecked => Err(
+            DefinitionError::RulePattern(RulePatternError::TermConnectiveInConjunction {
+                connective,
+                axiom: None,
+                sentence: None,
+            }),
+        ),
+        _ => Ok(()),
+    }
+}
+
+/// The predicates of a predicate side `pattern` (a predicate simplification's or a ceil axiom's
+/// right-hand side): the first argument of a two-argument root `\and` is the author's, read with
+/// `reading`, and the last the frontend's `ensures` slot; any other shape is the author's.
+fn internalize_predicate_side(
+    definition: &BackendDefinition,
+    pattern: &kore::Pattern,
+    sort_parameters: &[Name],
+    injection_role: UnlicensedInjectionSite,
+    reading: PredicateReading,
+) -> Result<Vec<Predicate>, DefinitionError> {
+    let read = |pattern: &kore::Pattern, reading: PredicateReading| {
+        internalize_predicates_reading(
+            definition,
+            pattern,
+            sort_parameters,
+            injection_role,
+            reading,
+        )
+    };
+    match pattern {
+        kore::Pattern::And { arguments, .. } if arguments.len() == 2 => {
+            let mut predicates = read(&arguments[0], reading)?;
+            predicates.extend(read(&arguments[1], PredicateReading::Slot)?);
+            Ok(predicates)
+        }
+        pattern => read(pattern, reading),
+    }
+}
+
+/// The predicates of an equation's `requires`, a frontend's condition slot.
+fn internalize_requires(
+    definition: &BackendDefinition,
+    requires: &kore::Pattern,
+    sort_parameters: &[Name],
+    injection_role: UnlicensedInjectionSite,
+) -> Result<Vec<Predicate>, DefinitionError> {
+    internalize_predicates_reading(
+        definition,
+        requires,
+        sort_parameters,
+        injection_role,
+        PredicateReading::Slot,
+    )
+}
+
 fn internalize_term_rhs(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
     injection_role: UnlicensedInjectionSite,
+    slot: ConditionSlot,
+    reading: PredicateReading,
 ) -> Result<(RuleRhs, Vec<Predicate>), DefinitionError> {
+    // The split into alternatives keeps a root `\and` and its arity, so each alternative keeps
+    // the slot arguments; a side of another shape has no slot.
+    let slot = if slot.fits(pattern) {
+        slot
+    } else {
+        ConditionSlot::None
+    };
+    let side = |pattern: &kore::Pattern| {
+        internalize_side(
+            definition,
+            pattern,
+            sort_parameters,
+            injection_role,
+            slot,
+            reading,
+        )
+    };
     if contains_strict_bottom(pattern) {
         return Ok((RuleRhs::Bottom, Vec::new()));
     }
@@ -2545,20 +3197,14 @@ fn internalize_term_rhs(
     match alternatives.as_slice() {
         [] => Ok((RuleRhs::Bottom, Vec::new())),
         [single] => {
-            let (term, predicates) =
-                internalize_rule_pattern(definition, single, sort_parameters, injection_role)?;
+            let (term, predicates) = side(single)?;
             Ok((RuleRhs::Term(term), predicates))
         }
         many => Ok((
             RuleRhs::Disjunction(
                 many.iter()
                     .map(|alternative| {
-                        let (term, ensures) = internalize_rule_pattern(
-                            definition,
-                            alternative,
-                            sort_parameters,
-                            injection_role,
-                        )?;
+                        let (term, ensures) = side(alternative)?;
                         Ok(RhsAlternative {
                             term,
                             ensures: Condition::new(ensures),
@@ -2583,37 +3229,105 @@ fn contains_strict_bottom(pattern: &kore::Pattern) -> bool {
     }
 }
 
-fn internalize_predicates(
+/// How [`internalize_predicate_reading`], the one reading of KORE as backend predicates on every
+/// route, reads a pattern.
+///
+/// Every reading but [`Self::Unchecked`] reads each connective (`\and`, `\or`, `\not`,
+/// `\implies`, `\iff`, `\exists`, `\forall`) as the predicate connective and each atom as
+/// written: `\equals` of two terms is their equality; `\equals` of two predicate-shaped
+/// operands (no term in a predicate position, [`has_term_in_predicate_position`]) is their
+/// `\iff`, since a predicate is all of its sort or empty; and any other `\equals`, whose operand
+/// is a term beside a predicate or a connective over terms (a set of values: `B1 ∧ B2` of two
+/// Booleans is their intersection, `X = 1 ∨ 2` is `{X} = {1, 2}`), has no reading as a backend
+/// predicate and is refused ([`UnstatedDefinedness::TermReadAsPredicate`], located as
+/// [`DefinitionError::AxiomReadsTermAsPredicate`] in an axiom).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum PredicateReading {
+    /// As written, a term in a predicate position being the predicate that it is `true`
+    /// ([`Predicate::Term`]), which has a meaning only for a term of sort Bool, so a term of
+    /// another sort is refused ([`RulePatternError::NonBoolTermAsPredicate`]).
+    Written,
+    /// A frontend's condition slot ([`ConditionSlot`], an equation's `requires`): as
+    /// [`Self::Written`], and an `\equals{Bool, R}(P, true)` with `P` not a term (as k-rust's
+    /// compiler and the pinned frontend write it), or `\equals{Bool, R}(true, P)` (as pyk's
+    /// `mlEqualsTrue` writes it), `true` being `\dv{Bool}("true")`, reached from the slot's root
+    /// through connectives only, is the encoding of the condition "`P` holds", read as the `\iff`
+    /// of `P` and `true = true`, that is `P`. `P` itself is read [`Self::Written`]: an `\equals(P', true)` inside it is the
+    /// author's.
+    Slot,
+    /// The sides of a predicate simplification whose left-hand side conjoins terms
+    /// (`t1 #And t2 => t3`, [`is_term_conjunction`]): as [`Self::Written`], with a term of any
+    /// sort as a conjunct of the term-level conjunction being rewritten ([`Predicate::Term`]).
+    Conjunct,
+    /// With no refusal: every `\equals` with an operand that is not a term is the `\iff` of its
+    /// operands, every term in a predicate position is [`Predicate::Term`], and no condition
+    /// conjoined to a term is refused. Only for the sides of a claim already marked unstated
+    /// ([`crate::claim::ReachabilityClaim::unstated`]), which is never proven or applied, so
+    /// that it keeps its structure.
+    Unchecked,
+}
+
+/// Whether `pattern` is a conjunction (`\and`, nested or not) of term patterns and `\top`, with
+/// at least one term: a term-level conjunction, which a simplification with it as its left-hand
+/// side rewrites.
+fn is_term_conjunction(pattern: &kore::Pattern) -> bool {
+    fn conjuncts(pattern: &kore::Pattern, terms: &mut bool) -> bool {
+        match pattern {
+            kore::Pattern::And { arguments, .. } => {
+                arguments.iter().all(|argument| conjuncts(argument, terms))
+            }
+            kore::Pattern::Top { .. } => true,
+            pattern if is_term_pattern(pattern) => {
+                *terms = true;
+                true
+            }
+            _ => false,
+        }
+    }
+    let mut terms = false;
+    matches!(pattern, kore::Pattern::And { .. }) && conjuncts(pattern, &mut terms) && terms
+}
+
+fn internalize_predicates_reading(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
     injection_role: UnlicensedInjectionSite,
+    reading: PredicateReading,
 ) -> Result<Vec<Predicate>, DefinitionError> {
+    let predicate = |pattern: &kore::Pattern| {
+        internalize_predicate_reading(
+            definition,
+            pattern,
+            sort_parameters,
+            injection_role,
+            reading,
+        )
+    };
     match pattern {
         kore::Pattern::Top { .. } => Ok(Vec::new()),
         kore::Pattern::Bottom { .. } => Ok(vec![Predicate::False]),
         kore::Pattern::And { arguments, .. } => arguments
             .iter()
             .map(|argument| {
-                internalize_predicates(definition, argument, sort_parameters, injection_role)
+                internalize_predicates_reading(
+                    definition,
+                    argument,
+                    sort_parameters,
+                    injection_role,
+                    reading,
+                )
             })
             .collect::<Result<Vec<_>, _>>()
             .map(|predicates| predicates.into_iter().flatten().collect()),
         kore::Pattern::Or { arguments, .. } => Ok(vec![Predicate::Or(
             (arguments
                 .iter()
-                .map(|argument| {
-                    internalize_predicate(definition, argument, sort_parameters, injection_role)
-                })
+                .map(predicate)
                 .collect::<Result<Vec<_>, _>>()?)
             .into(),
         )]),
-        _ => Ok(vec![internalize_predicate(
-            definition,
-            pattern,
-            sort_parameters,
-            injection_role,
-        )?]),
+        _ => Ok(vec![predicate(pattern)?]),
     }
 }
 
@@ -2623,11 +3337,50 @@ pub(crate) fn internalize_predicate(
     sort_parameters: &[Name],
     injection_role: UnlicensedInjectionSite,
 ) -> Result<Predicate, DefinitionError> {
+    internalize_predicate_reading(
+        definition,
+        pattern,
+        sort_parameters,
+        injection_role,
+        PredicateReading::Written,
+    )
+}
+
+/// The one reading of a KORE pattern as a backend predicate ([`PredicateReading`]), which every
+/// route reaches: the conditions of axioms and claims, the non-term conjuncts of their sides and
+/// of term-level conjunctions, and every predicate of a request.
+pub(crate) fn internalize_predicate_reading(
+    definition: &BackendDefinition,
+    pattern: &kore::Pattern,
+    sort_parameters: &[Name],
+    injection_role: UnlicensedInjectionSite,
+    reading: PredicateReading,
+) -> Result<Predicate, DefinitionError> {
     let term = |pattern: &kore::Pattern| {
         definition.internalize_term_with_validation(pattern, sort_parameters, injection_role)
     };
     let predicate = |pattern: &kore::Pattern| {
-        internalize_predicate(definition, pattern, sort_parameters, injection_role)
+        internalize_predicate_reading(
+            definition,
+            pattern,
+            sort_parameters,
+            injection_role,
+            reading,
+        )
+    };
+    // Below an `\equals` no equality is a slot's encoding.
+    let operand = |pattern: &kore::Pattern| {
+        let reading = match reading {
+            PredicateReading::Slot => PredicateReading::Written,
+            reading => reading,
+        };
+        internalize_predicate_reading(
+            definition,
+            pattern,
+            sort_parameters,
+            injection_role,
+            reading,
+        )
     };
     // The written form of an absence is the absence (`Absence`), except in the left-hand side
     // of a predicate simplification, which is matched as written: there a `\ceil` of a set
@@ -2641,9 +3394,19 @@ pub(crate) fn internalize_predicate(
         {
             Ok(Predicate::Equals(term(left)?, term(right)?))
         }
-        kore::Pattern::Equals { left, right, .. } => Ok(Predicate::Iff(
-            Arc::new(predicate(left)?),
-            Arc::new(predicate(right)?),
+        kore::Pattern::Equals { left, right, .. }
+            if reading == PredicateReading::Unchecked
+                || (reading == PredicateReading::Slot && is_condition_encoding(left, right))
+                || (!has_term_in_predicate_position(left)
+                    && !has_term_in_predicate_position(right)) =>
+        {
+            Ok(Predicate::Iff(
+                Arc::new(operand(left)?),
+                Arc::new(operand(right)?),
+            ))
+        }
+        kore::Pattern::Equals { .. } => Err(DefinitionError::UnstatedDefinedness(
+            UnstatedDefinedness::TermReadAsPredicate,
         )),
         kore::Pattern::Ceil { argument, .. } => {
             let argument = term(argument)?;
@@ -2699,7 +3462,26 @@ pub(crate) fn internalize_predicate(
             definition.internalize_variable(variable, sort_parameters)?,
             Arc::new(predicate(body)?),
         )),
-        pattern if is_term_pattern(pattern) => Ok(Predicate::Term(term(pattern)?)),
+        // A term read as a predicate states that it is `true`, which says something only of a
+        // Boolean term.
+        pattern if is_term_pattern(pattern) => {
+            let term = term(pattern)?;
+            let sort = term.sort();
+            let any_sort = matches!(
+                reading,
+                PredicateReading::Conjunct | PredicateReading::Unchecked
+            );
+            if !any_sort && !sort.is_builtin(k_rust_kore::names::BuiltinSort::Bool) {
+                return Err(DefinitionError::RulePattern(
+                    RulePatternError::NonBoolTermAsPredicate {
+                        sort: Box::new(crate::externalize::sort(&sort)),
+                        axiom: None,
+                        sentence: None,
+                    },
+                ));
+            }
+            Ok(Predicate::Term(term))
+        }
         kore::Pattern::Next { .. } => Err(DefinitionError::RulePattern(
             RulePatternError::UnsupportedPredicate("next"),
         )),
@@ -2720,14 +3502,41 @@ pub(crate) fn internalize_predicate(
     }
 }
 
+/// The predicate part of a get-model request: its atoms (`\equals`, `\ceil`, `\floor`, `\in`, read
+/// by [`internalize_predicate`]) under the connectives it is built from, with the term conjuncts
+/// of each conjunction in a positive position dropped: the top `\and`, and an `\and` reached
+/// from it through `\or`, `\exists` and the right operand of `\implies` only. There `t ∧ φ` is
+/// nonempty only where `φ` is (`∃X.(t ∧ φ)` only where `∃X.φ`, `φ1 → (t ∧ φ2)` only where
+/// `¬φ1 ∨ φ2`), so a model of the predicate part is one of the pattern wherever `t` is defined.
+/// `None` when the pattern has no predicate part, or when a term stands below `\not`, `\forall`,
+/// `\iff` or the left operand of `\implies`, where the complement of `t ∧ φ` is not the
+/// complement of `φ` (`\not(X ∧ X = true)` at sort Bool is not `X ≠ true`).
 pub(crate) fn internalize_model_predicate(
     definition: &BackendDefinition,
     pattern: &kore::Pattern,
     sort_parameters: &[Name],
     injection_role: UnlicensedInjectionSite,
 ) -> Result<Option<Predicate>, DefinitionError> {
-    let recurse = |pattern: &kore::Pattern| {
-        internalize_model_predicate(definition, pattern, sort_parameters, injection_role)
+    internalize_model_predicate_below(definition, pattern, sort_parameters, injection_role, false)
+}
+
+/// [`internalize_model_predicate`] of `pattern`, with `strict` when `pattern` is below `\not`,
+/// `\forall`, `\iff` or the left operand of `\implies`, where no term may be dropped.
+fn internalize_model_predicate_below(
+    definition: &BackendDefinition,
+    pattern: &kore::Pattern,
+    sort_parameters: &[Name],
+    injection_role: UnlicensedInjectionSite,
+    strict: bool,
+) -> Result<Option<Predicate>, DefinitionError> {
+    let recurse = |pattern: &kore::Pattern, strict: bool| {
+        internalize_model_predicate_below(
+            definition,
+            pattern,
+            sort_parameters,
+            injection_role,
+            strict,
+        )
     };
     Ok(match pattern {
         kore::Pattern::Equals { .. }
@@ -2742,39 +3551,47 @@ pub(crate) fn internalize_model_predicate(
         kore::Pattern::And { arguments, .. } => {
             let predicates = arguments
                 .iter()
-                .map(recurse)
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>();
-            (!predicates.is_empty()).then_some(Predicate::And(predicates.into()))
+                .map(|argument| recurse(argument, strict))
+                .collect::<Result<Vec<_>, _>>()?;
+            if strict && predicates.iter().any(Option::is_none) {
+                None
+            } else {
+                let predicates = predicates.into_iter().flatten().collect::<Vec<_>>();
+                (!predicates.is_empty()).then_some(Predicate::And(predicates.into()))
+            }
         }
         kore::Pattern::Or { arguments, .. } => {
             let predicates = arguments
                 .iter()
-                .map(recurse)
+                .map(|argument| recurse(argument, strict))
                 .collect::<Result<Option<Vec<_>>, _>>()?;
             predicates.map(|predicates| Predicate::Or(predicates.into()))
         }
         kore::Pattern::Not { argument, .. } => {
-            recurse(argument)?.map(|inner| Predicate::Not(Arc::new(inner)))
+            recurse(argument, true)?.map(|inner| Predicate::Not(Arc::new(inner)))
         }
-        kore::Pattern::Implies { left, right, .. } => match (recurse(left)?, recurse(right)?) {
-            (Some(left), Some(right)) => Some(Predicate::Implies(Arc::new(left), Arc::new(right))),
-            _ => None,
-        },
-        kore::Pattern::Iff { left, right, .. } => match (recurse(left)?, recurse(right)?) {
-            (Some(left), Some(right)) => Some(Predicate::Iff(Arc::new(left), Arc::new(right))),
-            _ => None,
-        },
-        kore::Pattern::Exists { variable, body, .. } => recurse(body)?
+        kore::Pattern::Implies { left, right, .. } => {
+            match (recurse(left, true)?, recurse(right, strict)?) {
+                (Some(left), Some(right)) => {
+                    Some(Predicate::Implies(Arc::new(left), Arc::new(right)))
+                }
+                _ => None,
+            }
+        }
+        kore::Pattern::Iff { left, right, .. } => {
+            match (recurse(left, true)?, recurse(right, true)?) {
+                (Some(left), Some(right)) => Some(Predicate::Iff(Arc::new(left), Arc::new(right))),
+                _ => None,
+            }
+        }
+        kore::Pattern::Exists { variable, body, .. } => recurse(body, strict)?
             .map(|inner| {
                 definition
                     .internalize_variable(variable, sort_parameters)
                     .map(|variable| Predicate::Exists(variable, Arc::new(inner)))
             })
             .transpose()?,
-        kore::Pattern::Forall { variable, body, .. } => recurse(body)?
+        kore::Pattern::Forall { variable, body, .. } => recurse(body, true)?
             .map(|inner| {
                 definition
                     .internalize_variable(variable, sort_parameters)
@@ -2800,6 +3617,39 @@ pub(crate) fn flatten_and<'a>(pattern: &'a kore::Pattern, output: &mut Vec<&'a k
 /// not one.
 fn negates_configuration(component: &kore::Pattern) -> bool {
     matches!(component, kore::Pattern::Not { argument, .. } if has_term_in_predicate_position(argument))
+}
+
+/// The connective of `component` when it is a matching-logic connective with a term pattern in a
+/// predicate position ([`has_term_in_predicate_position`]), so a connective over terms (such as
+/// `\implies{SortInt{}}(3, 4)`) rather than over predicates (such as `\not(\equals(..))`).
+pub(crate) fn term_connective(component: &kore::Pattern) -> Option<&'static str> {
+    let connective = match component {
+        kore::Pattern::Not { .. } => "not",
+        kore::Pattern::And { .. } => "and",
+        kore::Pattern::Or { .. } => "or",
+        kore::Pattern::Implies { .. } => "implies",
+        kore::Pattern::Iff { .. } => "iff",
+        kore::Pattern::Exists { .. } => "exists",
+        kore::Pattern::Forall { .. } => "forall",
+        _ => return None,
+    };
+    has_term_in_predicate_position(component).then_some(connective)
+}
+
+/// Whether `\equals(left, right)` is a frontend's encoding of the condition "`P` holds": one
+/// operand the Boolean `true` and the other not a term, `true` on the right as k-rust's compiler
+/// and the pinned frontend write it, or on the left as pyk's `mlEqualsTrue` writes it.
+fn is_condition_encoding(left: &kore::Pattern, right: &kore::Pattern) -> bool {
+    fn is_true(pattern: &kore::Pattern) -> bool {
+        matches!(
+            pattern,
+            kore::Pattern::DomainValue {
+                sort: kore::Sort::Application { name, arguments },
+                value,
+            } if name == "SortBool" && arguments.is_empty() && value.as_utf8().ok() == Some("true")
+        )
+    }
+    (is_true(right) && !is_term_pattern(left)) || (is_true(left) && !is_term_pattern(right))
 }
 
 /// Whether `pattern` has a term pattern in a predicate position: `pattern` itself, or reached
@@ -3023,7 +3873,72 @@ pub(crate) fn term_disjuncts(pattern: &kore::Pattern) -> Vec<kore::Pattern> {
         .collect()
 }
 
-fn make_rule(
+/// One rule of a function or anywhere axiom `requires ∧ ⋀ Xi ∈ Pi → f(X⃗) = rhs` while its
+/// binders are read: the left-hand side's bindings of the binders read so far, and the requires
+/// and right-hand side with every `Pi` stated in them for its `Xi`.
+struct BinderReading<'a> {
+    bindings: Substitution,
+    requires: Cow<'a, kore::Pattern>,
+    rhs: Cow<'a, kore::Pattern>,
+}
+
+impl BinderReading<'_> {
+    /// This reading with `variable ∈ pattern` read as well (`internal` and `term` are their
+    /// internal forms). Where the requires or right-hand side names `variable` (`named`) and
+    /// `pattern` denotes at most one element, `variable ∈ pattern` is `variable = pattern`, so
+    /// `pattern` is stated for `variable` in them and `term` alone is bound. Where it names
+    /// `variable` otherwise, the binding keeps `variable` beside `term`, so matching binds it to
+    /// the subject's argument. Where it does not name `variable`, `term` alone is bound.
+    fn bind(
+        &self,
+        variable: &kore::Variable,
+        internal: &Variable,
+        pattern: &kore::Pattern,
+        term: &Term,
+        named: bool,
+    ) -> Self {
+        let stated = (named && crate::rewrite::is_functional_pattern(term))
+            .then(|| {
+                let requires = self.requires.substitute_free(variable, pattern)?;
+                let rhs = self.rhs.substitute_free(variable, pattern)?;
+                Some((requires, rhs))
+            })
+            .flatten();
+        let mut bindings = self.bindings.clone();
+        let (left, requires, rhs) = match stated {
+            Some((requires, rhs)) => (term.clone(), Cow::Owned(requires), Cow::Owned(rhs)),
+            None => {
+                let left = if named {
+                    Term::and(term.clone(), Term::variable(internal.clone()))
+                } else {
+                    term.clone()
+                };
+                (left, self.requires.clone(), self.rhs.clone())
+            }
+        };
+        bindings.insert(internal.clone(), left);
+        Self {
+            bindings,
+            requires,
+            rhs,
+        }
+    }
+}
+
+/// The disjuncts of a function equation's argument binder `Xi ∈ P`, `\bottom` ones dropped.
+///
+/// `P` is the set of values of a term variable, so it is read at a term position from its root:
+/// every `\or` in it splits, also one at the root whose operands are themselves disjunctions
+/// (`\or(\or(a, b), \or(c, d))` is `a`, `b`, `c` and `d`), which [`term_disjuncts`] keeps whole
+/// at the root of a pattern that may be a predicate.
+fn binder_disjuncts(pattern: &kore::Pattern) -> Vec<kore::Pattern> {
+    distribute_term_or_with_context(pattern, true)
+        .into_iter()
+        .filter(|alternative| !matches!(alternative, kore::Pattern::Bottom { .. }))
+        .collect()
+}
+
+pub(crate) fn make_rule(
     lhs: Term,
     rhs: RuleRhs,
     requires: Vec<Predicate>,
@@ -3264,6 +4179,21 @@ impl Drop for ApartScope {
     }
 }
 
+/// Run `action`, whose renamed terms do not outlive it, and restore the thread's
+/// `{name}!apart{counter}` counter afterwards, also when it unwinds: the renamings after it mint
+/// the names they would have minted without it, and none of them can meet a name it minted,
+/// since those are gone with its terms.
+pub(crate) fn with_apart_names_restored<T>(action: impl FnOnce() -> T) -> T {
+    struct Restore((usize, u64));
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            APART.with(|state| state.set(self.0));
+        }
+    }
+    let _restore = Restore(APART.with(Cell::get));
+    action()
+}
+
 fn next_apart_counter() -> u64 {
     APART.with(|state| {
         let (depth, next) = state.get();
@@ -3353,6 +4283,9 @@ where
             unbound_result_variables: computed.unbound_result_variables.clone(),
             unread_map_frames: rename_set(&computed.unread_map_frames),
             discharged_by: computed.discharged_by.clone(),
+            definedness_discharged: computed.definedness_discharged,
+            // A renaming of variables keeps the rule's id, label, origin and claim.
+            identity: computed.identity.sharing(),
         },
         existentials: rename_set(&rule.existentials),
     };
@@ -3619,7 +4552,7 @@ fn unread_map_frames(
             )
             .1
             .into_owned();
-            constrained.contains_key(&(Name::from(unmarked), variable.sort.clone()))
+            constrained.contains_key(&(Name::from(unmarked), variable.sort))
         }
     };
     frames
@@ -3699,9 +4632,9 @@ fn rename_concreteness(
     };
     let mut renamed = BTreeMap::new();
     for (variable, fresh) in renaming {
-        let key = (Name::from(unmarked(variable)), variable.sort.clone());
+        let key = (Name::from(unmarked(variable)), variable.sort);
         if let Some(kind) = constrained.remove(&key) {
-            renamed.insert((Name::from(unmarked(fresh)), fresh.sort.clone()), kind);
+            renamed.insert((Name::from(unmarked(fresh)), fresh.sort), kind);
         }
     }
     constrained.extend(renamed);
@@ -3905,19 +4838,6 @@ fn extract_binders(pattern: &kore::Pattern) -> Result<Vec<ArgumentBinder>, Axiom
         }
         _ => Err(AxiomError::MalformedArgumentBinder),
     }
-}
-
-fn binder_term_alternatives(pattern: &kore::Pattern) -> Vec<&kore::Pattern> {
-    let kore::Pattern::Or { arguments, .. } = pattern else {
-        return vec![pattern];
-    };
-    if arguments.is_empty() {
-        return vec![pattern];
-    }
-    arguments
-        .iter()
-        .flat_map(binder_term_alternatives)
-        .collect()
 }
 
 fn extract_existentials(mut pattern: kore::Pattern) -> (kore::Pattern, Vec<kore::Variable>) {
@@ -4644,29 +5564,181 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn rejects_disjunction_nested_below_a_binder_term_head() {
-        let error = internalize_function(
-            r#"axiom{R} \implies{R}(
-                \and{R}(
-                    \top{R}(),
-                    \and{R}(
-                        \in{SortS{}, R}(
-                            X:SortS{},
-                            wrap{}(\or{SortS{}}(a{}(), b{}()))
-                        ),
-                        \top{R}()
+    /// The rules of the one-argument equation of `unary` whose argument binder is `pattern`.
+    fn unary_equation_rules(pattern: &str) -> Vec<InternalizedRule> {
+        internalize_function(&format!(
+            r#"axiom{{R}} \implies{{R}}(
+                \and{{R}}(
+                    \top{{R}}(),
+                    \and{{R}}(
+                        \in{{SortS{{}}, R}}(X:SortS{{}}, {pattern}),
+                        \top{{R}}()
                     )
                 ),
-                \equals{SortS{}, R}(
-                    unary{}(X:SortS{}),
-                    \and{SortS{}}(result{}(), \top{SortS{}}())
+                \equals{{SortS{{}}, R}}(
+                    unary{{}}(X:SortS{{}}),
+                    \and{{SortS{{}}}}(result{{}}(), \top{{SortS{{}}}}())
                 )
-            ) [label{}("nested-term-or")]"#,
-        )
-        .expect_err("only a binder's top-level disjunction is admissible");
+            ) [label{{}}("nested-term-or")]"#
+        ))
+        .unwrap_or_else(|error| panic!("{pattern}: {error:?}"))
+    }
 
-        assert_eq!(error, DefinitionError::ExpectedTerm("or"));
+    /// A binder that loaded before nested disjunctions were distributed has a disjunction at
+    /// most at its root, nested only in further root disjunctions, and every alternative is a
+    /// term (the term reader refused anything else). On such a binder the distribution gives the
+    /// alternatives the root split gave, in the same order: the binder is read at a term
+    /// position, so its root disjunctions, disjunctions of disjunctions included, are flattened
+    /// left to right, and an alternative with no `\or` below its root is its own one
+    /// distribution. So every definition that loaded before gets the same function rules.
+    #[test]
+    fn distribution_of_a_root_disjunction_is_the_former_root_split() {
+        // The split of a binder's root disjunction before nested ones were distributed.
+        fn root_split(pattern: &kore::Pattern) -> Vec<&kore::Pattern> {
+            let kore::Pattern::Or { arguments, .. } = pattern else {
+                return vec![pattern];
+            };
+            if arguments.is_empty() {
+                return vec![pattern];
+            }
+            arguments.iter().flat_map(root_split).collect()
+        }
+        for binder in [
+            r"a{}()",
+            r"X:SortS{}",
+            r"wrap{}(\and{SortS{}}(Y:SortS{}, a{}()))",
+            r"\or{SortS{}}(a{}(), b{}())",
+            r"\or{SortS{}}(a{}(), \or{SortS{}}(b{}(), c{}()))",
+            r"\or{SortS{}}(\or{SortS{}}(a{}(), b{}()), c{}())",
+            r"\or{SortS{}}(\or{SortS{}}(a{}(), wrap{}(b{}())), \or{SortS{}}(\and{SortS{}}(Y:SortS{}, c{}()), Z:SortS{}))",
+            r#"\or{SortS{}}(wrap{}(wrap{}(a{}())), \dv{SortS{}}("1"), \and{SortS{}}(Y:SortS{}, wrap{}(Z:SortS{})))"#,
+        ] {
+            let pattern = k_rust_kore::kore::parser::parse_pattern(binder).unwrap();
+            let before = root_split(&pattern)
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>();
+            assert_eq!(binder_disjuncts(&pattern), before, "{binder}");
+        }
+    }
+
+    /// A disjunction below a symbol of an argument binder, or below its `\and`, is distributed
+    /// to the binder's root: the equation gives the rules of the binder's disjunction of
+    /// distributed terms, in the same order.
+    #[test]
+    fn distributes_a_disjunction_nested_below_a_binder_term_head() {
+        for (nested, distributed) in [
+            (
+                r"wrap{}(\or{SortS{}}(a{}(), b{}()))",
+                r"\or{SortS{}}(wrap{}(a{}()), wrap{}(b{}()))",
+            ),
+            (
+                r"wrap{}(wrap{}(\or{SortS{}}(a{}(), \or{SortS{}}(b{}(), c{}()))))",
+                r"\or{SortS{}}(wrap{}(wrap{}(a{}())), \or{SortS{}}(wrap{}(wrap{}(b{}())), wrap{}(wrap{}(c{}()))))",
+            ),
+            (
+                r"\and{SortS{}}(Y:SortS{}, \or{SortS{}}(a{}(), b{}()))",
+                r"\or{SortS{}}(\and{SortS{}}(Y:SortS{}, a{}()), \and{SortS{}}(Y:SortS{}, b{}()))",
+            ),
+            (
+                r"wrap{}(\and{SortS{}}(Y:SortS{}, \or{SortS{}}(a{}(), b{}())))",
+                r"\or{SortS{}}(wrap{}(\and{SortS{}}(Y:SortS{}, a{}())), wrap{}(\and{SortS{}}(Y:SortS{}, b{}())))",
+            ),
+        ] {
+            let rules = unary_equation_rules(nested);
+            assert_eq!(
+                rules.len(),
+                2 + usize::from(nested.contains("c{}")),
+                "{nested}"
+            );
+            assert_eq!(rules, unary_equation_rules(distributed), "{nested}");
+        }
+    }
+
+    /// A `\bottom` disjunct of an argument binder is no value of its variable, so it gives no
+    /// rule.
+    #[test]
+    fn a_bottom_disjunct_of_a_binder_gives_no_rule() {
+        assert_eq!(
+            unary_equation_rules(r"\or{SortS{}}(\bottom{SortS{}}(), a{}())"),
+            unary_equation_rules(r"a{}()"),
+        );
+        assert_eq!(
+            unary_equation_rules(r"wrap{}(\or{SortS{}}(\or{SortS{}}(), a{}()))"),
+            unary_equation_rules(r"wrap{}(a{}())"),
+        );
+    }
+
+    /// An equation whose right-hand side names its argument variable `X` (an alias of the
+    /// matched application, `f(X) #as V`, states `V` as `f(X)`) means by `X` the subject's
+    /// argument, and each rule has no unbound variable. Under `X ∈ P` with `P` denoting at most
+    /// one element, `X` is `P`: the rule states `P` for `X` in its right-hand side and keeps `P`
+    /// alone as the argument. Under a conjunction `P`, the rule binds `X` beside it, as
+    /// `\and(P, X)`. An equation whose right-hand side does not name `X` keeps the pattern
+    /// alone.
+    #[test]
+    fn an_argument_variable_the_right_hand_side_names_is_bound_by_the_left_hand_side() {
+        let equation = |binder: &str, right: &str| {
+            internalize_function(&format!(
+                r#"axiom{{R}} \implies{{R}}(
+                    \and{{R}}(
+                        \top{{R}}(),
+                        \and{{R}}(
+                            \in{{SortS{{}}, R}}(X:SortS{{}}, {binder}),
+                            \top{{R}}()
+                        )
+                    ),
+                    \equals{{SortS{{}}, R}}(
+                        unary{{}}(X:SortS{{}}),
+                        \and{{SortS{{}}}}({right}, \top{{SortS{{}}}}())
+                    )
+                ) [label{{}}("argument-named")]"#
+            ))
+            .unwrap_or_else(|error| panic!("{binder} = {right}: {error:?}"))
+            .into_iter()
+            .map(|rule| {
+                let InternalizedRule::Term(RuleKind::Function, rule) = rule else {
+                    panic!("expected function rule");
+                };
+                let TermKind::Application { arguments, .. } = rule.lhs.kind() else {
+                    panic!("expected function application lhs");
+                };
+                let [argument] = arguments.as_slice() else {
+                    panic!("expected one argument");
+                };
+                (
+                    matches!(argument.kind(), TermKind::And(..)),
+                    rule.computed_attributes.unbound_variables.is_empty(),
+                )
+            })
+            .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            equation(r"wrap{}(Y:SortS{})", r"wrap{}(X:SortS{})"),
+            [(false, true)]
+        );
+        assert_eq!(
+            equation(r"Y:SortS{}", r"wrap{}(X:SortS{})"),
+            [(false, true)]
+        );
+        assert_eq!(
+            equation(
+                r"\or{SortS{}}(a{}(), wrap{}(Y:SortS{}))",
+                r"wrap{}(X:SortS{})"
+            ),
+            [(false, true), (false, true)]
+        );
+        assert_eq!(
+            equation(
+                r"\and{SortS{}}(wrap{}(Y:SortS{}), Z:SortS{})",
+                r"wrap{}(X:SortS{})"
+            ),
+            [(true, true)]
+        );
+        assert_eq!(
+            equation(r"wrap{}(Y:SortS{})", r"wrap{}(Y:SortS{})"),
+            [(false, true)]
+        );
     }
 
     #[test]
@@ -4965,10 +6037,10 @@ mod tests {
             panic!("expected one term rule");
         };
         let sort = crate::term::Sort::simple("SortS");
-        let x = Variable::new("Eq#X", sort.clone());
-        let z = Variable::new("Eq#Z", sort.clone());
+        let x = Variable::new("Eq#X", sort);
+        let z = Variable::new("Eq#Z", sort);
         assert!(rule.lhs.attributes().variables.contains(&x));
-        let subject = BTreeSet::from([x.clone(), Variable::new("Eq#X!0", sort.clone())]);
+        let subject = BTreeSet::from([x.clone(), Variable::new("Eq#X!0", sort)]);
 
         let (renamed, renaming) =
             rename_apart(rule, &subject, &[]).expect("the rule shares Eq#X with the subject");
@@ -5044,7 +6116,7 @@ mod tests {
             panic!("expected one term rule");
         };
         let sort = crate::term::Sort::simple("SortS");
-        let y = Variable::new("Eq#Y", sort.clone());
+        let y = Variable::new("Eq#Y", sort);
         assert_eq!(
             rule.computed_attributes.unbound_variables,
             BTreeSet::from([y.clone()])
@@ -5074,9 +6146,9 @@ mod tests {
     #[test]
     fn predicate_rule_cached_variables_preserve_renaming() {
         let sort = crate::term::Sort::simple("SortS");
-        let x = Variable::new("Eq#X", sort.clone());
-        let y = Variable::new("Eq#Y", sort.clone());
-        let z = Variable::new("Eq#Z", sort.clone());
+        let x = Variable::new("Eq#X", sort);
+        let y = Variable::new("Eq#Y", sort);
+        let z = Variable::new("Eq#Z", sort);
         let lhs = Predicate::Equals(Term::variable(x.clone()), Term::variable(x.clone()));
         let rhs = vec![Predicate::Exists(
             z.clone(),

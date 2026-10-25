@@ -57,7 +57,6 @@ k::rules! {
         pc: p,
     } => {
         k: [..],
-        frame: f,
         pc: int::add(p, 1),
     };
 }

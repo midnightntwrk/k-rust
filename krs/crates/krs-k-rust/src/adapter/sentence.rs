@@ -378,8 +378,9 @@ impl Adapter<'_> {
                 attributes.insert("colors", json!(values.join(",")));
             }
             DefinitionProductionAttribute::Internal { .. }
-            | DefinitionProductionAttribute::Program { .. } => {
-                unreachable!("Definition IR validation rejects placement attributes")
+            | DefinitionProductionAttribute::Program { .. }
+            | DefinitionProductionAttribute::Underspecified { .. } => {
+                unreachable!("Definition IR validation rejects Semantic-only attributes")
             }
             DefinitionProductionAttribute::Strictness {
                 kind,

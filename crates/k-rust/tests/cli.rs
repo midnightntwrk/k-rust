@@ -469,8 +469,11 @@ endmodule
 fn a_function_equation_whose_right_hand_side_is_top_is_refused_at_load() {
     // `f(pair(_, _)) = #Top` states that `f(pair(1, 2))` is every value of `Exp`, which has
     // several, while a function application has at most one value: the definition has no model.
-    // `kcompile` does not load the backend definition, so it succeeds; `krun` and `kprove` refuse
-    // the definition when they load it, naming the equation at its written position.
+    // For the Rust target `kcompile` refuses both such equations at their written positions
+    // (`MlConstructPosition`), and so does `kprove`, which compiles the specification. The
+    // backend's own load refusal remains for KORE from another route: the definition compiled
+    // for the LLVM target, which keeps the equations, is refused by `kore-exec` when it loads it,
+    // naming the equation at its written position.
     let (root, _) = fixture();
     let source = root.join("skip.k");
     fs::write(&source, TOP_FUNCTION_EQUATIONS).unwrap();
@@ -483,7 +486,9 @@ fn a_function_equation_whose_right_hand_side_is_top_is_refused_at_load() {
         let column = line.len() - line.trim_start().len() + 1;
         format!("{}:{}:{column}", source.display(), index + 1)
     };
-    // The equation is named by its identifier, its written position and its head.
+    // The compile refusal of each `#Top` equation, located at it.
+    let compile_refusal = |rule: &str| format!("{}: Error[MlConstructPosition]: ", position(rule));
+    // The load refusal names the equation by its identifier, its written position and its head.
     let refusal = |rule: &str, head: &str| {
         format!(
             " at {} of {head} gives no term as its right-hand side, only \\top or predicates",
@@ -499,25 +504,11 @@ fn a_function_equation_whose_right_hand_side_is_top_is_refused_at_load() {
             syntax_module: "SKIP",
         },
     });
-    assert!(preparation.status.success(), "{preparation:?}");
-
-    let output = watchdog::output(watchdog::Request::Krun {
-        input: watchdog::Input::Compiled(&compiled),
-        main_module: "SKIP",
-        syntax_module: "SKIP",
-        sort: "Exp",
-        expression: "tp(pair(1, 2))",
-    });
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(!output.status.success(), "{output:?}");
-    assert_eq!(output.stdout, b"", "{output:?}");
-    // The first `#Top` equation the load meets is named; which of the two that is depends on
-    // the load order, so either one's position is accepted.
-    assert!(
-        stderr.contains(&refusal("rule f(pair", "Lblf"))
-            || stderr.contains(&refusal("rule fp(pair", "Lblfp")),
-        "{stderr}"
-    );
+    let stderr = String::from_utf8_lossy(&preparation.stderr);
+    assert!(!preparation.status.success(), "{preparation:?}");
+    for rule in ["rule f(pair", "rule fp(pair"] {
+        assert!(stderr.contains(&compile_refusal(rule)), "{rule}: {stderr}");
+    }
 
     let output = Command::new(env!("CARGO_BIN_EXE_krust"))
         .arg("kprove")
@@ -528,6 +519,47 @@ fn a_function_equation_whose_right_hand_side_is_top_is_refused_at_load() {
         .unwrap();
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(!output.status.success(), "{output:?}");
+    for rule in ["rule f(pair", "rule fp(pair"] {
+        assert!(stderr.contains(&compile_refusal(rule)), "{rule}: {stderr}");
+    }
+
+    let llvm = root.join("compiled-llvm");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(&source)
+        .args([
+            "--main-module",
+            "SKIP",
+            "--syntax-module",
+            "SKIP",
+            "--backend",
+            "llvm",
+        ])
+        .arg("--output-directory")
+        .arg(&llvm)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let pattern = root.join("tp.kore");
+    fs::write(
+        &pattern,
+        "Lbltp{}(Lblpair{}(inj{SortInt{}, SortExp{}}(\\dv{SortInt{}}(\"1\")), inj{SortInt{}, SortExp{}}(\\dv{SortInt{}}(\"2\"))))\n",
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kore-exec")
+        .arg(llvm.join("definition.kore"))
+        .args(["--module", "SKIP", "--pattern"])
+        .arg(&pattern)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{output:?}");
+    assert_eq!(output.stdout, b"", "{output:?}");
+    // The first `#Top` equation the load meets is named; which of the two that is depends on
+    // the load order, so either one's position is accepted.
     assert!(
         stderr.contains(&refusal("rule f(pair", "Lblf"))
             || stderr.contains(&refusal("rule fp(pair", "Lblfp")),
@@ -3716,7 +3748,17 @@ fn krun_io_on_preserves_descriptor_order_and_arbitrary_bytes() {
         String::from_utf8_lossy(&arbitrary.stderr)
     );
     assert_eq!(arbitrary.stdout, bytes);
-    assert!(arbitrary.stderr.is_empty());
+    // `#read(0, 4)` returned four characters, a count the definition leaves open (`read-count`,
+    // docs/compatibility.md, "Marks in executions"): the result's path is marked, and krun warns
+    // once.
+    let warning = String::from_utf8(arbitrary.stderr).unwrap();
+    assert_eq!(warning.lines().count(), 1, "{warning}");
+    assert!(
+        warning.starts_with("warning: ")
+            && warning.contains("IO.read")
+            && warning.contains("(read-count)"),
+        "{warning}"
+    );
 
     fs::remove_dir_all(root).unwrap();
 }
@@ -5942,6 +5984,111 @@ fn a_predicate_lemma_binding_a_discarded_operand_does_not_evaluate_it() {
     fs::remove_dir_all(root).unwrap();
 }
 
+/// Labels that reach a console read through an anywhere rule (`viaAny`, and `fa` through it), an
+/// `ensures` (`viaEns`) and a macro's right side (`m`), and one that reaches none (`clean`).
+const ANYWHERE_EFFECT: &str = r#"
+requires "domains.md"
+module EFF
+  imports K-IO
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  syntax Num ::= Int
+  syntax Int ::= fa() [function, symbol(fa)] | viaEns(Int) [function, symbol(viaEns)]
+  syntax Num ::= viaAny(Int) [symbol(viaAny)]
+               | m(Int) [macro, symbol(m)]
+               | usesM() [function, symbol(usesM)]
+               | clean(Int) [symbol(clean)]
+  rule viaAny(N) => {#getc(N)}:>Int [anywhere]
+  rule fa() => {viaAny(0)}:>Int
+  rule viaEns(N) => N ensures {#getc(0)}:>Int ==Int 65
+  rule m(N) => {#getc(N)}:>Int
+  rule usesM() => m(0)
+  rule clean(N) => N [anywhere]
+  syntax KItem ::= res(K) [symbol(res)]
+  syntax Pgm ::= "pRead" | "pIte" | "pIteEns" | "pMacro"
+  configuration <k> $PGM:Pgm </k>
+  rule pRead => res(fa()) ~> res(clean(1))
+  rule pIte => res(#if true #then 1 #else fa() #fi) ~> res(fa())
+  rule pIteEns => res(#if true #then 1 #else 1 /Int viaEns(1) #fi) ~> res(fa())
+  rule pMacro => res(usesM()) ~> res(fa())
+endmodule
+"#;
+
+/// An application whose evaluation reaches a console read through an anywhere rule or an
+/// `ensures` is impure for every reader of the attribute: the compiled KORE declares it so for
+/// both backends, a run performs it where it is evaluated, and the operand of a decided `#if`
+/// whose definedness depends on it is the unsupported-hook outcome, with nothing read, instead of
+/// a result constrained by the `\ceil` of an effect.
+#[test]
+fn an_effect_reached_through_an_anywhere_rule_or_an_ensures_is_impure_for_every_reader() {
+    let (root, _) = fixture();
+    let compiled = compiled_for_execution(&root, "eff", ANYWHERE_EFFECT, "EFF", "EFF");
+    let llvm = root.join("eff-llvm");
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .arg("kcompile")
+        .arg(root.join("eff.k"))
+        .args([
+            "--main-module",
+            "EFF",
+            "--backend",
+            "llvm",
+            "--output-directory",
+        ])
+        .arg(&llvm)
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    for directory in [&compiled, &llvm] {
+        let kore = fs::read_to_string(directory.join("definition.kore")).unwrap();
+        let impure = |symbol: &str| {
+            let start = kore
+                .find(&format!("symbol {symbol}{{}}("))
+                .unwrap_or_else(|| panic!("{symbol} should be declared"));
+            let attributes = &kore[start..];
+            let end = attributes.find("\n  ]").unwrap();
+            attributes[..end].contains("impure{}()")
+        };
+        for symbol in ["LblviaAny", "Lblfa", "LblviaEns", "Lblm", "LblusesM"] {
+            assert!(impure(symbol), "{symbol} in {}", directory.display());
+        }
+        assert!(!impure("Lblclean"), "{}", directory.display());
+    }
+    let run = |program: &str| {
+        output_with_stdin(
+            Command::new(env!("CARGO_BIN_EXE_krust"))
+                .arg("krun")
+                .arg("--definition")
+                .arg(&compiled)
+                .args(["--expression", program, "--sort", "Pgm", "--io", "on"]),
+            b"AB",
+        )
+    };
+    let read =
+        |code: &str| format!(r#"inj{{SortInt{{}}, SortKItem{{}}}}(\dv{{SortInt{{}}}}("{code}"))"#);
+    for program in ["pRead", "pMacro"] {
+        let output = run(program);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "{program}: {output:?}");
+        assert!(stdout.contains(&read("65")), "{program}: {stdout}");
+    }
+    assert!(String::from_utf8_lossy(&run("pMacro").stdout).contains(&read("66")));
+    for (program, symbol) in [("pIte", "Lblfa"), ("pIteEns", "LblviaEns")] {
+        let output = run(program);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(!output.status.success(), "{program}: {stdout}{stderr}");
+        assert!(
+            stderr.contains("depends on this impure application") && stderr.contains(symbol),
+            "{program}: {stderr}"
+        );
+        assert!(!stdout.contains("\\ceil"), "{program}: {stdout}");
+        assert!(!stdout.contains(&read("65")), "{program}: {stdout}");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// A conditional whose discarded operand's definedness depends on a console read.
 const IMPURE_OPERAND: &str = r#"
 requires "domains.md"
@@ -6658,7 +6805,7 @@ endmodule
     let stderr = String::from_utf8(output.stderr).unwrap();
     assert!(
         stderr.contains(
-            "execution ended with no successor at depth 1: rule step applied with a false path constraint; refuted obligation"
+            "execution ended with no successor at depth 1: the path constraint is false; refuted obligation"
         ),
         "{stderr}"
     );
@@ -8022,7 +8169,15 @@ endmodule
             "{order}: {stdout}"
         );
         assert!(!stderr.contains("E1 wrote"), "{order}: {stderr}");
-        assert!(!stderr.contains("warning"), "{order}: {stderr}");
+        // The two equations are at `STRING.substr`, a hook the evaluator applies before any
+        // equation and for which the critical-pair check has no written meaning: each is named
+        // as not shown to agree with its hook (`UnmodelledHook`), and nothing else is warned.
+        let other_warnings = stderr
+            .lines()
+            .filter(|line| line.contains("warning"))
+            .filter(|line| !line.contains("is at a symbol hooked to `STRING.substr`"))
+            .collect::<Vec<_>>();
+        assert!(other_warnings.is_empty(), "{order}: {stderr}");
     }
     fs::remove_dir_all(root).unwrap();
 }
@@ -8872,9 +9027,12 @@ const FOLDED_HOOK_CASES: &[FoldedHookCase] = &[
     ),
     (
         "STRING.base2string",
+        // A result with a letter digit has a case the definition leaves open, which the fold
+        // does not write (`leaves_values_the_definition_leaves_open_unfolded` in
+        // kompile_passes.rs); these results have none.
         &["Int", "Int"],
         "String",
-        &[&["255", "16"], &["-35", "36"], &["0", "2"]],
+        &[&["255", "10"], &["-9", "36"], &["0", "2"]],
     ),
     (
         "STRING.chr",
@@ -12369,6 +12527,53 @@ endmodule
     fs::remove_dir_all(root).unwrap();
 }
 
+/// A prelude Z3 does not read states none of its axioms, and a query posed under it would be
+/// answered about some other formula, so `kprove` stops with Z3's rejection of the prelude
+/// instead of proving or refuting a claim under it. The prelude is the axiom on `ff` of
+/// `kprove_reuses_a_saved_proof_only_under_its_smt_prelude_and_vacuity_policy` without its last
+/// closing parenthesis.
+#[test]
+fn kprove_stops_on_an_smt_prelude_the_solver_rejects() {
+    let source = r#"
+module PR
+  imports INT
+  imports BOOL
+  imports BASIC-K
+  syntax Int ::= f(Int) [function, total, smtlib(ff), no-evaluators, symbol(f)]
+  syntax Res ::= go(Int) [symbol(go)] | done() [symbol(done)]
+  configuration <k> $PGM:Res </k>
+  rule <k> go(X) => done() </k> requires f(X) >Int 0
+endmodule
+module PR-SPEC
+  imports PR
+  claim [p]: <k> go(X) => done() </k>
+endmodule
+"#;
+    let (root, definition) = fixture();
+    let prelude = root.join("pre.smt2");
+    fs::write(&prelude, "(assert (forall ((x Int)) (> (ff x) 0))\n").unwrap();
+    let output = kprove_saving(
+        &root,
+        &definition,
+        source,
+        ("PR-SPEC", "PR"),
+        "malformed",
+        &["--smt-prelude", prelude.to_str().unwrap()],
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!output.status.success(), "{output:?}");
+    assert!(
+        stderr.contains("the solver rejected the SMT prelude"),
+        "{stderr}"
+    );
+    let lines = claim_lines(&output);
+    assert!(
+        lines.iter().all(|line| !line.contains("proven")),
+        "{lines:?}"
+    );
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// The verdict word of each `claim <spec>.<label>: <word> ...` line of `output`, by label.
 fn claim_verdicts(output: &std::process::Output, spec: &str) -> BTreeMap<String, String> {
     claim_lines(output)
@@ -13578,6 +13783,110 @@ fn krun_lists_keys_in_the_documented_order() {
     );
 }
 
+/// Both results of the search read the listing order, a value the definition leaves open
+/// (docs/compatibility.md, "Marks in executions"): `krun` warns of the mark once per run, not
+/// once per result.
+#[test]
+fn krun_warns_of_a_mark_once_per_run() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module ONCE
+  imports DOMAINS
+  syntax Pgm ::= s(Map) | a(List) | b(List)
+  configuration <k> $PGM:Pgm </k>
+  rule s(M) => a(keys_list(M))
+  rule s(M) => b(keys_list(M))
+endmodule
+"#,
+    )
+    .unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args(["krun", definition.to_str().unwrap()])
+        .args(["--main-module", "ONCE", "--syntax-module", "ONCE"])
+        .args([
+            "--sort",
+            "Pgm",
+            "--expression",
+            "s(1 |-> 0 2 |-> 0)",
+            "--io",
+            "off",
+        ])
+        .arg("--search-final")
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    fs::remove_dir_all(root).unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stderr = String::from_utf8(output.stderr).unwrap();
+    assert!(output.status.success(), "{stdout}\n{stderr}");
+    assert!(
+        stdout.contains("Lbla'LPar") && stdout.contains("Lblb'LPar"),
+        "{stdout}"
+    );
+    let warnings = stderr
+        .lines()
+        .filter(|line| line.starts_with("warning: ") && line.contains("MAP.keys_list"))
+        .count();
+    assert_eq!(warnings, 1, "{stderr}");
+}
+
+/// A mark on the run's list alone still warns, once: under strategy all, the candidate that read
+/// the listing is undefined on two keys and vanishes beside its defined sibling, so no result
+/// carries the mark, but in another model the candidate may be defined and give another result.
+#[test]
+fn krun_warns_of_a_mark_on_the_run_list_alone() {
+    let (root, definition) = fixture();
+    fs::write(
+        &definition,
+        r#"
+module ALONE
+  imports DOMAINS
+  syntax Pgm ::= s(Map) | x(Int) | y(Int)
+  configuration <k> $PGM:Pgm </k>
+  rule s(M) => x(1 /Int (size(keys_list(M)) -Int 2))
+  rule s(_) => y(1)
+endmodule
+"#,
+    )
+    .unwrap();
+    for extra in [&["--strategy", "all"][..], &["--search-final"][..]] {
+        let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+            .args(["krun", definition.to_str().unwrap()])
+            .args(["--main-module", "ALONE", "--syntax-module", "ALONE"])
+            .args([
+                "--sort",
+                "Pgm",
+                "--expression",
+                "s(1 |-> 0 2 |-> 0)",
+                "--io",
+                "off",
+            ])
+            .args(extra)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8(output.stdout).unwrap();
+        let stderr = String::from_utf8(output.stderr).unwrap();
+        assert!(output.status.success(), "{extra:?}: {stdout}\n{stderr}");
+        assert!(
+            stdout.contains("Lbly'LPar") && !stdout.contains("Lblx'LPar"),
+            "{extra:?}: {stdout}"
+        );
+        let warnings = stderr
+            .lines()
+            .filter(|line| line.starts_with("warning: ") && line.contains("MAP.keys_list"))
+            .collect::<Vec<_>>();
+        assert_eq!(warnings.len(), 1, "{extra:?}: {stderr}");
+        assert!(
+            warnings[0].contains("another model of the definition may give other results"),
+            "{extra:?}: {stderr}"
+        );
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
 /// An execution evaluates every listing in its documented order, also in the conditions it
 /// decides: a rule `requires` (on 1) and a function equation's `requires` (on 2), with `krun` and
 /// with `krun --search-final`.
@@ -13717,6 +14026,70 @@ endmodule
         assert!(
             output.contains(r#"\dv{SortBool{}}("false")"#) && !output.contains("LblsignFloat"),
             "{program}: {output}"
+        );
+    }
+}
+
+/// A claim whose truth depends on a value the definition leaves open (Base2String's letter
+/// case, `minFloat` and `maxFloat` of `+0.0` and `-0.0`, the names `substOne` gives the binders
+/// it traverses) holds in some models of the definition and not in others, so it is neither
+/// proven nor disproved, whether its verdict came from the final state, from a rule condition
+/// (`cond-upper`) or from the apartness of `==K` against the other case (`eqk-false`). A withheld
+/// application is an unknown value of its sort, so `rt-valid`, which holds for every value the
+/// hook admits, is not proven either. Claims that need only that a value exists, claims over
+/// determined neighbours, and claims over k-rust's specified readings (String2Bytes byte per code
+/// point, Float2Int ties to even, the empty Bytes of a failed ECDSA recovery) are proven.
+#[test]
+fn kprove_proves_no_claim_that_depends_on_an_open_value() {
+    let source = format!(
+        r#"{}
+module OPEN-SPEC
+  imports OPEN
+  claim [b2s-lower]: <k> b2s(255, 16) => r("ff") </k>
+  claim [b2s-upper]: <k> b2s(255, 16) => r("FF") </k>
+  claim [case-cmp]: <k> ccase(255) => r(true) </k>
+  claim [min-zeros]: <k> mn(0.0, -0.0) => r(-0.0) </k>
+  claim [subst-y0]: <k> sub(lam(String2KVar("y"), app(String2KVar("x"), String2KVar("y"))), String2KVar("y"), String2KVar("x")) => r(lam(String2KVar("y0"), app(String2KVar("y"), String2KVar("y0")))) </k>
+  claim [rt-valid]: <k> rt(255, 16) => r(255) </k>
+  claim [max-zeros]: <k> mx(-0.0, 0.0) => r(0.0) </k>
+  claim [cond-upper]: <k> g(255) => r(2) </k>
+  claim [eqk-false]: <k> eqk(255) => r(false) </k>
+  claim [b2s-some]: <k> b2s(255, 16) => r(?_S:String) </k>
+  claim [b2s-digits]: <k> b2s(9, 10) => r("9") </k>
+  claim [mn-determined]: <k> mn(1.0, -0.0) => r(-0.0) </k>
+  claim [s2b-latin1]: <k> s2b("\xe9") => r(b"\xe9") </k>
+  claim [f2i-tie]: <k> f2i(2.5) => r(2) </k>
+  claim [ecdsa-failure]: <k> rec(b"", 29, b"", b"") => r(b"") </k>
+endmodule
+"#,
+        include_str!("fixtures/open-values.k")
+    );
+    let (verdicts, output) = order_claim_verdicts(&source, "OPEN", "OPEN-SPEC");
+    for claim in [
+        "b2s-lower",
+        "b2s-upper",
+        "case-cmp",
+        "min-zeros",
+        "subst-y0",
+        "rt-valid",
+        "max-zeros",
+        "cond-upper",
+        "eqk-false",
+    ] {
+        assert_undecided(&verdicts, claim, &output);
+    }
+    for claim in [
+        "b2s-some",
+        "b2s-digits",
+        "mn-determined",
+        "s2b-latin1",
+        "f2i-tie",
+        "ecdsa-failure",
+    ] {
+        assert_eq!(
+            claim_verdict(&verdicts, claim, &output),
+            "proven",
+            "{claim}: {output}"
         );
     }
 }
@@ -15932,8 +16305,8 @@ fn a_function_rule_applies_when_any_matching_of_its_map_pattern_satisfies_its_re
 
 /// An equation of a function declared `total` that reduces an application of it to bottom
 /// contradicts the attribute on that input (KK-81 probe). `krun` and `kprove` keep their
-/// outcomes (an undefined step; a failed claim with a `Vacuous` leaf, and a symbolic claim still
-/// proven, since the attribute is trusted), and name the symbol by its K label, the equation and
+/// outcomes (an undefined step; a failed claim on the undefined step's `Trivial` leaf, and a
+/// symbolic claim still proven, since the attribute is trusted), and name the symbol by its K label, the equation and
 /// its position.
 /// A partial function, or an argument that is bottom before the equation fires, names nothing;
 /// a nested total application names the innermost equation, and a total function whose equation
@@ -16028,7 +16401,7 @@ fn a_contradicted_total_attribute_is_named_without_changing_the_outcome() {
         let report = report(claim);
         assert!(
             report.starts_with("failed")
-                && report.contains("vacuous at depth 1")
+                && report.contains("trivial at depth 1")
                 && report.contains("attribute of")
                 && report.contains("is contradicted on this input"),
             "{claim}: {report}"
@@ -16094,7 +16467,7 @@ fn kprove_does_not_certify_a_stuck_leaf_from_an_uninterpreted_smtlib_model() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// `stay(X)` under `X &Int 1 ==Int 2` is empty, so it implies anything; `andInt` is an
+/// `stay(X)` under `X &Int 6 ==Int 1` is empty (`X &Int 6` is even), so it implies anything; `andInt` is an
 /// uninterpreted `smtlib` function, so the solver's `Sat` for it is no instance and the answer is
 /// `unknown`, never `invalid`. Under `X +Int 1 ==Int 2` the antecedent has the instance `X = 1`,
 /// so the refutations stay `invalid`.
@@ -16138,7 +16511,7 @@ fn kore_implies_reports_invalid_only_for_an_antecedent_shown_nonempty() {
         ("ant0", "bottom", "invalid", Some("Bottom")),
         // `A -> \not C` is invalid exactly when `A /\ C` is nonempty: `stay(1)` is common to
         // `ant0` and itself, `X +Int 1` is 2 and 3 on no shared `X`, and the solver's `Sat` for
-        // the uninterpreted `X &Int 1 ==Int 2` shows no common value.
+        // the uninterpreted `X &Int 6 ==Int 1` shows no common value.
         ("ant0", "not-ant0", "invalid", None),
         ("ant0", "not-con0", "valid", Some("Top")),
         ("ant", "not-ant", "unknown", None),
@@ -23386,6 +23759,303 @@ endmodule
         stdout.contains("Lbl'-LT-'mem'-GT-'{}(Lblb'Unds'MAIN'Unds'Foo{}())"),
         "{stdout}"
     );
+}
+
+/// The definition of the configuration-reading probes: `isZero()` reads the `<flag>` cell,
+/// `isZeroM()` is a macro for it, `g()` calls it in a condition, `f` is a function without rules
+/// of its own, and `go(N)` steps to `foo2(N)`; `rule` follows, at line 16, and `rest` after the
+/// module.
+fn configuration_reading_source(rule: &str, rest: &str) -> String {
+    format!(
+        "module MAIN\n  imports INT\n  imports BOOL\n  syntax Pgm ::= go(Int) [symbol(go)]\n  \
+         configuration <k> $PGM:Pgm </k> <flag> $FLAG:Int </flag>\n  \
+         syntax Bool ::= isZero() [function, symbol(isZero)]\n  \
+         rule [[ isZero() => F ==Int 0 ]] <flag> F </flag>\n  \
+         syntax Bool ::= isZeroM() [macro]\n  rule isZeroM() => isZero()\n  \
+         syntax Bool ::= g() [function, symbol(g)]\n  rule g() => true requires isZero()\n  \
+         rule g() => false [owise]\n  syntax Int ::= f(Int) [function, symbol(f)]\n  \
+         syntax KItem ::= done(Int) [symbol(done)] | foo2(Int) [symbol(foo2)] | bar2(Int) [symbol(bar2)] | bar3(Bool) [symbol(bar3)]\n  \
+         rule <k> go(N) => foo2(N) ... </k>\n  {rule}\nendmodule\n{rest}"
+    )
+}
+
+#[test]
+fn a_sentence_with_no_configuration_in_scope_cannot_read_it() {
+    // Reading the configuration needs one in scope. An anywhere rule whose head is not a
+    // function holds wherever its left-hand side occurs, also outside any configuration, so a
+    // call to a function that receives the configuration (one whose rules read it, or that calls
+    // such a function) in its conditions or its right-hand side, directly or through a macro,
+    // has nothing to pass. Each is rejected at the rule.
+    for (rule, part, reader) in [
+        (
+            "rule foo2(N) => bar2(N) requires isZero() [anywhere]",
+            "requires clause",
+            "isZero",
+        ),
+        (
+            "rule foo2(N) => bar2(N) ensures isZero() [anywhere]",
+            "ensures clause",
+            "isZero",
+        ),
+        (
+            "rule foo2(_N) => bar3(isZero()) [anywhere]",
+            "right-hand side",
+            "isZero",
+        ),
+        (
+            "rule foo2(N) => bar2(N) requires isZeroM() [anywhere]",
+            "requires clause",
+            "isZero",
+        ),
+        (
+            "rule foo2(N) => bar2(N) requires g() [anywhere]",
+            "requires clause",
+            "g",
+        ),
+    ] {
+        let source = configuration_reading_source(rule, "");
+        let output = kcompile_source(&source);
+        assert!(!output.status.success(), "{source}");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            stderr.contains(&format!(
+                "definition.k:16:3: Error[InvalidFunctionConfiguration]: An anywhere rule cannot read the configuration: its {part} calls {reader}, which reads it, and the rule has no configuration in scope:"
+            )),
+            "{source}\n{stderr}"
+        );
+        assert!(!stderr.contains("panicked"), "{stderr}");
+    }
+
+    // An equational claim states the value of a term, here an application of `f`, which does not
+    // receive the configuration: the claim is rejected at the claim when it is loaded.
+    let source = configuration_reading_source(
+        "",
+        "module SPEC\n  imports MAIN\n  claim f(3) => 3 requires isZero()\nendmodule\n",
+    );
+    let (root, definition) = fixture();
+    fs::write(&definition, &source).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_krust"))
+        .args([
+            "kprove",
+            definition.to_str().unwrap(),
+            "--main-module",
+            "SPEC",
+            "--definition-module",
+            "MAIN",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    fs::remove_dir_all(root).unwrap();
+    assert!(!output.status.success(), "{source}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "definition.k:20:3: Error[InvalidFunctionConfiguration]: A claim cannot read the configuration: its requires clause calls isZero, which reads it, and the claim has no configuration in scope:"
+        ),
+        "{source}\n{stderr}"
+    );
+    assert!(!stderr.contains("panicked"), "{stderr}");
+
+    // These have the configuration in scope: the anywhere rule without the read; a rewrite rule
+    // whose condition reads it, directly or through a macro, whose left-hand side matches the
+    // configuration; and anywhere rules on a function, whose applications receive it.
+    let run = |rule: &str, flag: &str| {
+        krun_success(
+            &configuration_reading_source(rule, ""),
+            &[
+                "--main-module",
+                "MAIN",
+                "--sort",
+                "Pgm",
+                "--expression",
+                "go(3)",
+                "-c",
+                &format!("FLAG={flag}"),
+                "--io",
+                "off",
+            ],
+        )
+    };
+    let stdout = run("rule foo2(N) => bar2(N) requires N >Int 0 [anywhere]", "1");
+    assert!(
+        stdout.contains(r#"Lblbar2{}(\dv{SortInt{}}("3"))"#),
+        "{stdout}"
+    );
+    for condition in ["isZero()", "isZeroM()"] {
+        for (flag, result) in [
+            ("0", r#"Lbldone{}(\dv{SortInt{}}("3"))"#),
+            ("1", r#"Lblfoo2{}(\dv{SortInt{}}("3"))"#),
+        ] {
+            let stdout = run(
+                &format!("rule <k> foo2(N) => done(N) ... </k> requires {condition}"),
+                flag,
+            );
+            assert!(stdout.contains(result), "{condition} FLAG={flag}\n{stdout}");
+        }
+    }
+    for (flag, result) in [
+        ("0", r#"Lbldone{}(\dv{SortInt{}}("3"))"#),
+        ("1", r#"Lbldone{}(\dv{SortInt{}}("0"))"#),
+    ] {
+        let stdout = run(
+            "rule f(N) => N requires isZero() [anywhere]\n  \
+             rule f(_) => 0 requires notBool isZero() [anywhere]\n  \
+             rule <k> foo2(N) => done(f(N)) ... </k>",
+            flag,
+        );
+        assert!(stdout.contains(result), "FLAG={flag}\n{stdout}");
+    }
+}
+
+#[test]
+fn a_function_reads_the_configuration_through_every_function_or_macro_it_reaches() {
+    // A function reads the configuration when its rules do, or when a function or macro that
+    // their requires, ensures or right-hand sides reach does: such a function receives the
+    // configuration, so its rules evaluate with the configuration of the application, and a
+    // rule with no configuration in scope that calls it is rejected. A simplification rule
+    // written with a macro or alias head is a rule of the function the head expands to. The
+    // debug krust checks invariant CF1 on each definition.
+    let run = |rules: &str, flag: &str| {
+        let source = configuration_reading_source(
+            &format!("{rules}\n  rule <k> foo2(N) => done(f(N)) ... </k>"),
+            "",
+        );
+        let output = krun_source(
+            &source,
+            &[
+                "--main-module",
+                "MAIN",
+                "--sort",
+                "Pgm",
+                "--expression",
+                "go(3)",
+                "-c",
+                &format!("FLAG={flag}"),
+                "--io",
+                "off",
+            ],
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(output.status.success(), "{source}\n{stderr}");
+        assert!(!stderr.contains("never applied"), "{source}\n{stderr}");
+        (String::from_utf8(output.stdout).unwrap(), stderr)
+    };
+    let done = |value: &str| format!(r#"Lbldone{{}}(\dv{{SortInt{{}}}}("{value}"))"#);
+    let alias = "syntax Int ::= fA(Int) [alias]\n  rule fA(N) => f(N)";
+    let mac = "syntax Int ::= fA(Int) [macro]\n  rule fA(N) => f(N)";
+    let mut table = vec![
+        // Through a macro in a condition (FU-29).
+        (
+            "rule f(_N) => 0 requires isZeroM()\n  rule f(N) => N [owise]".to_owned(),
+            [("0", "0"), ("1", "3")],
+        ),
+        // Through a macro whose right-hand side is a macro.
+        (
+            "syntax Bool ::= isZeroMM() [macro]\n  rule isZeroMM() => isZeroM()\n  \
+             rule f(_N) => 0 requires isZeroMM()\n  rule f(N) => N [owise]"
+                .to_owned(),
+            [("0", "0"), ("1", "3")],
+        ),
+        // Through an alias, and through a macro-rec chain.
+        (
+            "syntax Bool ::= isZeroA() [alias]\n  rule isZeroA() => isZero()\n  \
+             rule f(_N) => 0 requires isZeroA()\n  rule f(N) => N [owise]"
+                .to_owned(),
+            [("0", "0"), ("1", "3")],
+        ),
+        (
+            "syntax Bool ::= isZeroR() [macro-rec]\n  rule isZeroR() => isZeroM()\n  \
+             rule f(_N) => 0 requires isZeroR()\n  rule f(N) => N [owise]"
+                .to_owned(),
+            [("0", "0"), ("1", "3")],
+        ),
+        // Through a macro in an anywhere rule of the function.
+        (
+            "rule f(N) => N requires isZeroM() [anywhere]\n  rule f(_) => 0 [owise]".to_owned(),
+            [("0", "3"), ("1", "0")],
+        ),
+        // Through a function called in a condition of the function's rules.
+        (
+            "rule f(N) => N requires g()\n  rule f(_) => 0 [owise]".to_owned(),
+            [("0", "3"), ("1", "0")],
+        ),
+    ];
+    // A simplification rule with a macro or alias head, beside an equation of the function, in
+    // its requires and in its ensures (the equation decides the value).
+    for head in [alias, mac] {
+        for lemma in [
+            "rule fA(_N) => 0 requires isZero() [simplification]",
+            "rule fA(N) => N ensures isZero() [simplification]",
+        ] {
+            table.push((
+                format!("{head}\n  rule f(N) => N\n  {lemma}"),
+                [("0", "3"), ("1", "3")],
+            ));
+        }
+    }
+    for (rules, answers) in &table {
+        for (flag, value) in answers {
+            let (stdout, _) = run(rules, flag);
+            assert!(
+                stdout.contains(&done(value)),
+                "{rules} FLAG={flag}\n{stdout}"
+            );
+        }
+    }
+
+    // A function defined only by a simplification rule with a macro or alias head that reads the
+    // configuration: the rule applies where the configuration makes its condition hold, and the
+    // application stays, with the configuration it received, where it does not.
+    for head in [alias, mac] {
+        let rules = format!("{head}\n  rule fA(N) => N requires isZero() [simplification]");
+        let (stdout, _) = run(&rules, "0");
+        assert!(stdout.contains(&done("3")), "{rules}\n{stdout}");
+        let (stdout, _) = run(&rules, "1");
+        let compact = stdout.split_whitespace().collect::<String>();
+        assert!(
+            compact.contains(r#"Lblf{}(\dv{SortInt{}}("3"),Lbl'-LT-'generatedTop'-GT-'{}("#),
+            "{rules}\n{stdout}"
+        );
+    }
+
+    // Through an ensures: of a function rule, of an anywhere rule of the function, and of a
+    // callee through a macro. Where the ensures is false the application is undefined, so the
+    // step that builds it has an undefined result and no successor.
+    for rules in [
+        "rule f(N) => N ensures isZero()",
+        "rule f(N) => N ensures isZero() [anywhere]",
+        "syntax Int ::= h(Int) [function, symbol(h)]\n  rule h(N) => N ensures isZeroM()\n  \
+         rule f(N) => h(N)",
+    ] {
+        let (stdout, _) = run(rules, "0");
+        assert!(stdout.contains(&done("3")), "{rules}\n{stdout}");
+        let (stdout, stderr) = run(rules, "1");
+        assert!(
+            stderr.contains("no successor")
+                && stderr.contains("applied with an undefined result")
+                && !stdout.contains(&done("3")),
+            "{rules}\n{stdout}\n{stderr}"
+        );
+    }
+
+    // An anywhere rule on a constructor that calls a function reading the configuration through
+    // its ensures has no configuration to pass.
+    let source = configuration_reading_source(
+        "syntax Bool ::= ge() [function, symbol(ge)]\n  rule ge() => true ensures isZero()\n  \
+         rule foo2(N) => bar2(N) requires ge() [anywhere]",
+        "",
+    );
+    let output = kcompile_source(&source);
+    assert!(!output.status.success(), "{source}");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains(
+            "definition.k:18:3: Error[InvalidFunctionConfiguration]: An anywhere rule cannot read the configuration: its requires clause calls ge, which reads it, and the rule has no configuration in scope:"
+        ),
+        "{source}\n{stderr}"
+    );
+    assert!(!stderr.contains("panicked"), "{stderr}");
 }
 
 #[test]

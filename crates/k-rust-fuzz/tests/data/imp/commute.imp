@@ -1,0 +1,5 @@
+int x, y, a, b;
+x = 3;
+y = 5;
+a = x + y;
+b = y + x;

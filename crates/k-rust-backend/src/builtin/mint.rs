@@ -4,9 +4,11 @@
 //! elements are the `2^W` bit patterns of width `W`, with no sign of their own. An operation reads
 //! a pattern as its unsigned residue `u` in `[0, 2^W)`, or in two's complement as `s = u` when
 //! `u < 2^(W-1)` and `s = u - 2^W` otherwise. A total operation on patterns that agrees with
-//! `MInt2Unsigned` is arithmetic modulo `2^W`, and the declared `smt-hook`s (`bvadd`, `bvmul`,
-//! `bvult`, `bvslt`, `bv2int`, `int2bv`, ...) state exactly these operations to a solver, so an
-//! evaluator that disagreed with them would let the backend derive two values for one term.
+//! `MInt2Unsigned` is arithmetic modulo `2^W`, which is what the declared `smt-hook`s (`bvadd`,
+//! `bvmul`, `bvult`, `bvslt`, `bv2int`, `int2bv`, ...) describe. The backend's solver does not
+//! interpret `MInt` (only `Int` and `Bool`), so it never applies these hooks: an `MInt`
+//! application at a solver-visible position is an opaque value of its sort (`smt.rs`,
+//! `hook_is_well_sorted`). The evaluator is therefore the only reading of these operations.
 //!
 //! Division and remainder are partial: there is no quotient by zero, so a zero divisor is
 //! undefined (`\bottom`). SMT-LIB gives `bvudiv`, `bvurem`, `bvsdiv` and `bvsrem` values at a zero
@@ -123,7 +125,11 @@ fn literal_width(sort: &Sort) -> Option<Option<u64>> {
 }
 
 /// The machine integer `term` denotes, when it is a domain value of a machine-integer sort with a
-/// width: its canonical text is the decimal residue, `p`, and the digits of the sort's width.
+/// width in its canonical text: the decimal residue without a leading zero, `p`, and the digits
+/// of the sort's width. A machine-integer sort holds each element in that one text, so another
+/// text (`01p8`) is no element of it but a token of a sort that only shares its name, whose
+/// texts are distinct elements; reading it as the residue it spells would make two such tokens
+/// one machine integer.
 fn read_mint(term: &Term) -> Option<Word> {
     let TermKind::DomainValue { sort, value } = term.kind() else {
         return None;
@@ -133,6 +139,7 @@ fn read_mint(term: &Term) -> Option<Word> {
     if digits != mint_width_digits(sort)?
         || residue.is_empty()
         || !residue.bytes().all(|byte| byte.is_ascii_digit())
+        || (residue.len() > 1 && residue.starts_with('0'))
     {
         return None;
     }
@@ -141,7 +148,7 @@ fn read_mint(term: &Term) -> Option<Word> {
         return None;
     }
     Some(Word {
-        sort: sort.clone(),
+        sort: *sort,
         width,
         residue,
     })
@@ -167,7 +174,7 @@ fn read_pair(hook: &str, arguments: &[Term]) -> HookResult<Option<(Word, Word)>>
 
 /// The literal of `sort` whose residue is `residue`, in canonical text.
 fn word_term(sort: &Sort, residue: &BigUint) -> Term {
-    Term::mint_of_residue(sort.clone(), residue)
+    Term::mint_of_residue(*sort, residue)
 }
 
 /// The residue of `value` modulo `2^width` (no `width`: beyond `u64`), or `None` when computing
@@ -478,4 +485,36 @@ fn order(
             }))
         })
         .into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Only a machine integer's canonical text is read as one, also without a definition: `01p8`
+    /// is no text a sort hooked `MINT.MInt` holds, so `==MInt` and `MInt2Unsigned` do not read it
+    /// as the residue 1 it spells, while `0p8` and `1p8` read as 0 and 1.
+    #[test]
+    fn only_a_canonical_literal_is_read_as_a_machine_integer() {
+        let sort = Sort::application(k_rust_kore::names::MINT_SORT, vec![Sort::simple("Sort8")]);
+        let literal = |text: &str| Term::raw_domain_value(sort, text);
+        for text in ["01p8", "00p8", "001p8"] {
+            assert!(read_mint(&literal(text)).is_none(), "{text}");
+        }
+        for (text, residue) in [("0p8", 0_u32), ("1p8", 1), ("255p8", 255)] {
+            assert_eq!(
+                read_mint(&literal(text)).map(|word| word.residue),
+                Some(BigUint::from(residue)),
+                "{text}"
+            );
+        }
+        assert_eq!(
+            evaluate("MINT.eq", &[literal("01p8"), literal("1p8")], None, true).unwrap(),
+            BuiltinResult::NotApplicable
+        );
+        assert_eq!(
+            evaluate("MINT.uvalue", &[literal("01p8")], None, true).unwrap(),
+            BuiltinResult::NotApplicable
+        );
+    }
 }

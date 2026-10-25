@@ -11,6 +11,10 @@ Each verifier supplies surface configuration and report wording.
 `--artifacts-only` stops after the native definition: it checks every emitted
 artifact against its pin and skips the behavior and proof comparisons, which
 cannot find anything new while the artifacts are unchanged.
+
+`emission` is the formatting, check, expansion, and emission steps: the gate
+runs it, and `tests/ports-emit` runs it alone against the same pins, without
+the Rust checks, the native compile, or the external checkout.
 """
 
 from __future__ import annotations
@@ -161,11 +165,20 @@ def preflight(port: Port, pins: Ledger, corpus: Mapping[str, Any]) -> dict[str, 
         if not (port.checkout / relative).is_file():
             raise GateError(f"external {port.label} evidence is missing: {relative}")
 
+    return build_environment()
+
+
+def build_environment() -> dict[str, str]:
+    """The environment every step builds and runs the port in."""
+
     return {**z3_environment(), "CARGO_NET_OFFLINE": "true"}
 
 
 def rust_gate(port: Port, environment: Mapping[str, str]) -> tuple[Path, Path]:
-    """Build the CLI and native gate; check, test, lint, and format the port."""
+    """Build the CLI and native gate; check, test, and lint the port.
+
+    Formatting is checked with the artifacts (`emission`).
+    """
 
     root_target = port.target("root")
     root_env = {**environment, "CARGO_TARGET_DIR": os.fspath(root_target)}
@@ -181,11 +194,6 @@ def rust_gate(port: Port, environment: Mapping[str, str]) -> tuple[Path, Path]:
         environment=fixture_env,
         timeout=900,
     )
-    run(["cargo", "+stable", "fmt", "--check", "--manifest-path", port.manifest])
-    run(
-        [krs, "fmt", "--check", "--manifest-path", port.manifest],
-        environment=environment,
-    )
     run(["cargo", f"+{msrv()}", "check", *common, "--all-targets"], environment=fixture_env, timeout=900)
     analyzer = rust_analyzer()
     lsp_env = {**environment, "PATH": os.pathsep.join([os.fspath(analyzer.parent), os.environ["PATH"]])}
@@ -199,6 +207,29 @@ def rust_gate(port: Port, environment: Mapping[str, str]) -> tuple[Path, Path]:
     return krs, gate
 
 
+def format_gate(port: Port, krs: Path, environment: Mapping[str, str]) -> None:
+    """Require the port to be formatted as rustfmt and `krs fmt` format it."""
+
+    run(["cargo", "+stable", "fmt", "--check", "--manifest-path", port.manifest])
+    run(
+        [krs, "fmt", "--check", "--manifest-path", port.manifest],
+        environment=environment,
+    )
+
+
+def check_warnings(stderr: str) -> list[str]:
+    """The `warning[..]` headlines of `krs check`, sorted.
+
+    A warning is an expected output of a port: the
+    `krs::analysis::untyped-collection` warnings, for example, name each
+    collection whose element types nothing declares that a rule writes into
+    a typed cell, until the port declares them.
+    """
+
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", stderr)
+    return sorted(line for line in plain.splitlines() if line.startswith("warning["))
+
+
 def artifact_gate(
     port: Port,
     workspace: Path,
@@ -209,16 +240,18 @@ def artifact_gate(
 ) -> Path:
     """Check, expand, and emit the port fresh twice; compile the expansion independently.
 
-    Records the expansion and emitted-artifact digests, requires a cached replay
-    to equal the first fresh emission, requires the independently compiled
-    expansion to emit the same syntax, configuration, and sentence identities,
-    and returns the first emission directory.
+    Records the warnings of `krs check`, the expansion and emitted-artifact
+    digests, requires a cached replay to equal the first fresh emission,
+    requires the independently compiled expansion to emit the same syntax,
+    configuration, and sentence identities, and returns the first emission
+    directory.
     """
 
     invocation = Invocation(krs, port.manifest, port.package, "main")
     check = invocation.run("check", environment=environment)
     if f"{port.descriptors} descriptors" not in check.stdout:
         raise GateError(f"unexpected descriptor count: {check.stdout.strip()}")
+    pins.expect("check_warnings", check_warnings(check.stderr))
     expansions = [invocation.run("expand", environment=environment).stdout for _ in range(2)]
     if expansions[0] != expansions[1]:
         raise GateError("readable expansion is nondeterministic")
@@ -257,6 +290,28 @@ def artifact_gate(
         if readable_shape != expanded_shape:
             raise GateError("independently compiled expansion changed the typed definition shape")
     return emit_a
+
+
+def emission(
+    port: Port,
+    hooks: Hooks,
+    workspace: Path,
+    krs: Path,
+    pins: Ledger,
+    gate: Path,
+    environment: Mapping[str, str],
+) -> Path:
+    """Check the port's formatting, its emitted artifacts, and its definition checks.
+
+    These steps read the port's source and the KRS tools only, never the
+    external checkout; return the first emission directory.
+    """
+
+    format_gate(port, krs, environment)
+    artifacts = artifact_gate(port, workspace, krs, pins, gate, environment)
+    if hooks.definition_checks is not None:
+        hooks.definition_checks(artifacts, gate, environment)
+    return artifacts
 
 
 EXPECTATION_KEYS = frozenset(
@@ -550,9 +605,7 @@ def run_port(port: Port, hooks: Hooks) -> int:
     krs, gate = rust_gate(port, environment)
     with tempfile.TemporaryDirectory(prefix=f"krs-{port.key}-gate-", dir=scratch_root()) as temporary:
         workspace = Path(temporary)
-        artifacts = artifact_gate(port, workspace, krs, pins, gate, environment)
-        if hooks.definition_checks is not None:
-            hooks.definition_checks(artifacts, gate, environment)
+        artifacts = emission(port, hooks, workspace, krs, pins, gate, environment)
         definition_kore_sha256 = native_definition(workspace, artifacts, gate, pins, environment)
         if arguments.artifacts_only:
             print(f"PASS {hooks.label}: {artifacts_only_summary(port)}")

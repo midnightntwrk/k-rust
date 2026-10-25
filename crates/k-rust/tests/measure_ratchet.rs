@@ -46,6 +46,13 @@ fn report(snapshot: &Snapshot) -> String {
         .join("\n")
 }
 
+/// Pin `snapshot` as the snapshot `name`.
+///
+/// Last re-pin: the rule grammar's `Bool ::= KBott` (KAST prefix terms in rule clauses) adds one
+/// hop to every derivation at `Bool`. In the shared prelude part of the three kompile fixtures
+/// this is +1006 `parser.packed_structural_comparisons` (merges of equal trees), +309
+/// `parser.chart_revisit_pops` and +144 `kompile.order_queries`, the same amounts in each, and
+/// +2 chart items on the casted chain; the compiled KORE is unchanged.
 fn snapshot_report(name: &str, snapshot: &Snapshot, description: &'static str) {
     insta::with_settings!({
         description => description,

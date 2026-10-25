@@ -67,9 +67,9 @@ k::rules! {
 
     /// Sequencing: run the first statement, then the rest.
     seq: {
-        k: [Seq { first, rest }, ..]
+        k: [Seq { first, rest }, ..],
     } => {
-        k: [first, rest, ..]
+        k: [first, rest, ..],
     };
 
     /// Reading consumes the Int at the front of the input stream.
@@ -92,7 +92,6 @@ k::rules! {
     } => {
         k: [..],
         output: list::concat(out, list::item(s)),
-        sum: s,
     };
 
     /// Halting sets the exit status.
@@ -102,7 +101,6 @@ k::rules! {
         status: previous,
     } => {
         k: [..],
-        sum: s,
         status: s,
     };
 }

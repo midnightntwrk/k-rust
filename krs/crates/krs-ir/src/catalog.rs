@@ -2186,6 +2186,289 @@ impl BuiltinOperation {
     }
 }
 
+/// What a Bool-valued builtin states when it is a conjunct of a rule's
+/// `requires`, read without evaluating its operands: the facts the overlap
+/// check uses to decide that two guards cannot both hold.
+///
+/// Every operation whose catalog result sort is `Bool` has a meaning other
+/// than [`GuardMeaning::NonBoolean`], and only those do; a compile-time
+/// assertion below enforces it, so a new Bool-valued builtin cannot be added
+/// without deciding what it states.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum GuardMeaning {
+    /// The catalog result sort is not `Bool`.
+    NonBoolean,
+    /// `notBool g`: holds exactly when its one operand is false.
+    Negation,
+    /// `andBool` and `andThenBool`: hold exactly when both operands hold.
+    Conjunction,
+    /// `orBool` and `orElseBool`: hold exactly when an operand holds.
+    Disjunction,
+    /// `impliesBool`: holds unless the first operand holds and the second
+    /// does not.
+    Implication,
+    /// A binary relation literal; see [`RelationLiteral`].
+    Relation(RelationLiteral),
+    /// Bool-valued, with no complement among the builtins and no literal
+    /// evaluation; the text says why.
+    Opaque(&'static str),
+}
+
+/// `op(a, b)` read as a literal of a canonical relation `R`: it holds exactly
+/// when `R(a, b)` (or `R(b, a)` when `swapped`) holds, if `positive`, or
+/// exactly when it does not hold, otherwise.
+///
+/// Two literals of one relation on the same operands with opposite polarity
+/// are complements, so no valuation satisfies both.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct RelationLiteral {
+    /// The canonical relation, itself a positive, unswapped literal of itself.
+    pub relation: BuiltinOperation,
+    /// Whether the operands are read in reverse order.
+    pub swapped: bool,
+    /// Whether the literal is the relation (true) or its negation (false).
+    pub positive: bool,
+    /// Whether the relation is symmetric, so operand order never matters.
+    pub symmetric: bool,
+}
+
+const fn relation(
+    relation: BuiltinOperation,
+    swapped: bool,
+    positive: bool,
+    symmetric: bool,
+) -> GuardMeaning {
+    GuardMeaning::Relation(RelationLiteral {
+        relation,
+        swapped,
+        positive,
+        symmetric,
+    })
+}
+
+/// A strict total order `<`: `a < b`, `a > b` (`b < a`), `a >= b`
+/// (`not a < b`, by totality) and `a <= b` (`not b < a`).
+const fn order(less: BuiltinOperation, swapped: bool, positive: bool) -> GuardMeaning {
+    relation(less, swapped, positive, false)
+}
+
+/// An equality and its negation; equality is symmetric.
+const fn equality(equal: BuiltinOperation, positive: bool) -> GuardMeaning {
+    relation(equal, false, positive, true)
+}
+
+impl BuiltinOperation {
+    /// What the operation states as a guard conjunct (see [`GuardMeaning`]).
+    ///
+    /// Each classification follows from the operation's definition:
+    /// `=/=Int`, `=/=Bool`, `=/=String`, `=/=K` and `=/=Float` are defined
+    /// as `notBool` of the matching equality, and `xorBool` is `=/=Bool` by
+    /// its truth table. `<Int` and `<String` (lexicographic on code points)
+    /// are strict total orders, so `>=` is the negation of `<` and `<=` the
+    /// negation of the converse. IEEE 754 `<Float` is not total: with a NaN
+    /// operand `a <Float b` and `a >=Float b` are both false, so neither is
+    /// the negation of the other and the Float orders are opaque.
+    #[must_use]
+    pub const fn guard_meaning(self) -> GuardMeaning {
+        const FLOAT_ORDER: &str = "IEEE 754 order is partial: with a NaN operand a comparison \
+                                   and its converse-negation are both false, so neither is \
+                                   the negation of the other";
+        const PREDICATE: &str = "a predicate no builtin complements";
+        match self {
+            Self::IntLess => order(Self::IntLess, false, true),
+            Self::IntGreater => order(Self::IntLess, true, true),
+            Self::IntGreaterEqual => order(Self::IntLess, false, false),
+            Self::IntLessEqual => order(Self::IntLess, true, false),
+            Self::IntEqual => equality(Self::IntEqual, true),
+            Self::IntNotEqual => equality(Self::IntEqual, false),
+            Self::StringLess => order(Self::StringLess, false, true),
+            Self::StringGreater => order(Self::StringLess, true, true),
+            Self::StringGreaterEqual => order(Self::StringLess, false, false),
+            Self::StringLessEqual => order(Self::StringLess, true, false),
+            Self::StringEqual => equality(Self::StringEqual, true),
+            Self::StringNotEqual => equality(Self::StringEqual, false),
+            Self::BoolEqual => equality(Self::BoolEqual, true),
+            Self::BoolNotEqual | Self::BoolXor => equality(Self::BoolEqual, false),
+            Self::KEqualEq => equality(Self::KEqualEq, true),
+            Self::KEqualNe => equality(Self::KEqualEq, false),
+            Self::FloatEqual => equality(Self::FloatEqual, true),
+            Self::FloatNotEqual => equality(Self::FloatEqual, false),
+            Self::BoolNot => GuardMeaning::Negation,
+            Self::BoolAnd | Self::BoolAndThen => GuardMeaning::Conjunction,
+            Self::BoolOr | Self::BoolOrElse => GuardMeaning::Disjunction,
+            Self::BoolImplies => GuardMeaning::Implication,
+            Self::FloatLess
+            | Self::FloatLessEqual
+            | Self::FloatGreater
+            | Self::FloatGreaterEqual => GuardMeaning::Opaque(FLOAT_ORDER),
+            Self::IntDivides | Self::FloatIsNan | Self::FloatIsInfinite | Self::FloatSign => {
+                GuardMeaning::Opaque(PREDICATE)
+            }
+            Self::StringToBool => {
+                GuardMeaning::Opaque("a partial conversion, defined only on \"true\" and \"false\"")
+            }
+            _ => GuardMeaning::NonBoolean,
+        }
+    }
+}
+
+impl BuiltinOperation {
+    /// Whether the operation has a value on every argument of its sorts.
+    ///
+    /// `false` also when totality is not established here, so a reader that
+    /// needs a defined term (the coverage lint's guard reading) stays sound.
+    /// Excluded for a reason: division and remainder by zero, a negative
+    /// shift or exponent, `log2Int` of a non-positive Int, bit ranges and
+    /// byte operations with an out-of-range index or length, the conversions
+    /// partial on their input (`String2Int`, `String2Bool`, `String2Bytes`),
+    /// `findString` with a negative start, `chrChar`/`ordChar`, `_dividesInt_`
+    /// of zero, the polymorphic `#if`, every Float operation, and I/O.
+    #[must_use]
+    pub const fn is_total(self) -> bool {
+        matches!(
+            self,
+            Self::IntAdd
+                | Self::IntSub
+                | Self::IntMul
+                | Self::IntBitAnd
+                | Self::IntBitXor
+                | Self::IntBitOr
+                | Self::IntBitNot
+                | Self::IntMin
+                | Self::IntMax
+                | Self::IntAbs
+                | Self::IntLess
+                | Self::IntLessEqual
+                | Self::IntGreater
+                | Self::IntGreaterEqual
+                | Self::IntEqual
+                | Self::IntNotEqual
+                | Self::BoolNot
+                | Self::BoolEqual
+                | Self::BoolNotEqual
+                | Self::BoolAnd
+                | Self::BoolOr
+                | Self::BoolXor
+                | Self::BoolImplies
+                | Self::BoolAndThen
+                | Self::BoolOrElse
+                | Self::BytesLength
+                | Self::BytesEmpty
+                | Self::BytesConcat
+                | Self::BytesReverse
+                | Self::BytesToInt
+                | Self::BytesLittleEndian
+                | Self::BytesBigEndian
+                | Self::BytesSigned
+                | Self::BytesUnsigned
+                | Self::StringConcat
+                | Self::StringEqual
+                | Self::StringNotEqual
+                | Self::StringLess
+                | Self::StringLessEqual
+                | Self::StringGreater
+                | Self::StringGreaterEqual
+                | Self::StringLength
+                | Self::StringFromInt
+                | Self::StringFromBool
+                | Self::KEqualEq
+                | Self::KEqualNe
+        )
+    }
+}
+
+impl MapOperation {
+    /// Whether the operation has a value on every operand of its sorts.
+    ///
+    /// Lookup is undefined for an absent key, and a term of several items,
+    /// or a concatenation, is undefined when two of its keys are equal.
+    #[must_use]
+    pub const fn is_total(self) -> bool {
+        matches!(
+            self,
+            Self::Empty
+                | Self::Update
+                | Self::InKeys
+                | Self::Remove
+                | Self::RemoveAll
+                | Self::Keys
+                | Self::KeysList
+                | Self::Values
+                | Self::Size
+                | Self::UpdateAll
+                | Self::GetOrDefault
+        )
+    }
+}
+
+impl ListOperation {
+    /// Whether the operation has a value on every operand of its sorts.
+    ///
+    /// Indexed lookup, update, range and region replacement are undefined
+    /// out of range, and `makeList` for a negative length.
+    #[must_use]
+    pub const fn is_total(self) -> bool {
+        matches!(
+            self,
+            Self::Empty | Self::Item | Self::Concat | Self::Size | Self::Contains
+        )
+    }
+}
+
+impl SetOperation {
+    /// Whether the operation has a value on every operand of its sorts.
+    ///
+    /// Concatenation is defined only on disjoint operands, and `Set2List`
+    /// fixes no element order, so neither is counted.
+    #[must_use]
+    pub const fn is_total(self) -> bool {
+        matches!(
+            self,
+            Self::Empty
+                | Self::Item
+                | Self::Union
+                | Self::Contains
+                | Self::Difference
+                | Self::Intersect
+                | Self::Size
+                | Self::IsSubset
+                | Self::FromList
+        )
+    }
+}
+
+// Every Bool-valued builtin, and only those, has a guard meaning; a canonical
+// relation is a positive, unswapped literal of itself with the same symmetry,
+// and a symmetric relation never needs its operands swapped.
+const _: () = {
+    let mut index = 0;
+    while index < BuiltinOperation::ALL.len() {
+        let operation = BuiltinOperation::ALL[index];
+        let boolean = matches!(
+            operation.result_sort(),
+            OperationSort::Builtin(BuiltinSort::Bool)
+        );
+        let meaning = operation.guard_meaning();
+        assert!(
+            boolean != matches!(meaning, GuardMeaning::NonBoolean),
+            "a Bool-valued builtin needs a guard meaning, and only those have one"
+        );
+        if let GuardMeaning::Relation(literal) = meaning {
+            assert!(!(literal.symmetric && literal.swapped));
+            let GuardMeaning::Relation(canonical) = literal.relation.guard_meaning() else {
+                panic!("a canonical relation is a relation literal of itself");
+            };
+            assert!(
+                canonical.relation as usize == literal.relation as usize
+                    && !canonical.swapped
+                    && canonical.positive
+                    && canonical.symmetric == literal.symmetric
+            );
+        }
+        index += 1;
+    }
+};
+
 /// Sort constraint on one collection-operation operand.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CollectionOperandSort {
@@ -2313,16 +2596,6 @@ macro_rules! __krs_map_operation_catalog {
         $callback! {
             rust_module: map;
             structural {
-                /// Empty map unit (`.Map`).
-                Empty {
-                    description: "empty Map",
-                    k_label: ".Map",
-                    k_hook: Some("MAP.unit"),
-                    k_module: "MAP",
-                    k_notation: $crate::CollectionNotation::Mixfix { pieces: &[".Map"] },
-                    operand_sorts: [],
-                    result_sort: Builtin(Map)
-                }
                 /// One or more flattened key/value map items, also usable in associative matching.
                 Item {
                     description: "Map item",
@@ -2335,6 +2608,18 @@ macro_rules! __krs_map_operation_catalog {
                 }
             }
             term {
+                /// Empty map unit (`.Map`), `map::empty()` as a term and
+                /// `map![]` in a `cells!` entry or an initializer.
+                Empty {
+                    rust_name: empty,
+                    description: "empty Map",
+                    k_label: ".Map",
+                    k_hook: Some("MAP.unit"),
+                    k_module: "MAP",
+                    k_notation: $crate::CollectionNotation::Mixfix { pieces: &[".Map"] },
+                    operand_sorts: [],
+                    result_sort: Builtin(Map)
+                }
                 /// Functional map update.
                 Update {
                     rust_name: update,
@@ -2514,8 +2799,8 @@ macro_rules! define_map_operations {
         impl TermMapOperation {
             /// Map operations which may occur as ordinary authored term applications, in stable semantic order.
             ///
-            /// Empty maps and map items retain their dedicated `map!` structural syntax.
-            /// Update, lookup, and key membership resolve through the ordinary application-head registry.
+            /// Map items retain their dedicated `map!` structural syntax.
+            /// The empty map, update, lookup, and key membership resolve through the ordinary application-head registry.
             pub const ALL: [Self; [$(stringify!($term)),*].len()] = [$(Self::$term),*];
 
             /// Returns the pinned operation specification.

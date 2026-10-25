@@ -14,6 +14,7 @@ pub mod initial_configuration;
 #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
 mod invariants;
 mod label_graph;
+pub(crate) mod ml_constructs;
 mod module_to_kore;
 pub(crate) use module_to_kore::attribute_value_string;
 mod passes;
@@ -28,12 +29,14 @@ mod view;
 
 pub use compile::{
     CompilationBackend, CompileError, CompileOptions, CompiledKoreArtifacts,
-    EmittedSentenceProvenance, compile_loaded_definition, compile_loaded_definition_timed,
-    compile_loaded_definition_with_timings, on_definitions_stack,
+    CompiledProofDefinition, EmittedSentenceProvenance, compile_loaded_definition,
+    compile_loaded_definition_for_proof, compile_loaded_definition_timed,
+    compile_loaded_definition_with_timings, on_definitions_stack, retain_pattern_sentences,
+    retain_runtime_frontend_sentences,
 };
 pub use fresh_names::GeneratedVariableIdentity;
 pub use initial_configuration::{
-    ConfigurationAssembler, ConfigurationError, ProgramGrammar, UnlocatableTerm,
+    ConfigurationAssembler, ConfigurationError, ProgramGrammar, UnlocatableTerm, ValueSortMismatch,
     program_start_position,
 };
 #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]

@@ -42,6 +42,12 @@ pub enum CollectionErrorKind {
     ReferenceKindMismatch,
     /// A fixed configuration, cell, or configuration rule descriptor was malformed.
     InvalidConfiguration,
+    /// A rule at the head of the computation needs exactly one configuration, and the definition
+    /// has none or several.
+    ConfigurationCount,
+    /// A rule at the head of the computation needs exactly one top-level `KSequence` cell in its
+    /// configuration.
+    ComputationCell,
     /// A display filename was not a normalized relative source hint.
     InvalidDisplayFile,
     /// A display or resolved source file escaped its Cargo package directory.
@@ -75,6 +81,7 @@ pub struct CollectionError {
     source_range: Option<Box<SourceRange>>,
     input_range: Option<ByteRange>,
     reference_key: Option<ProvenanceKey>,
+    item: Option<String>,
 }
 
 impl CollectionError {
@@ -85,7 +92,14 @@ impl CollectionError {
             source_range: None,
             input_range: None,
             reference_key: None,
+            item: None,
         }
+    }
+
+    /// Names the item the error is about, which a diagnostic without a range reports instead.
+    pub(crate) fn with_item(mut self, item: &krs_ir::StableItemId) -> Self {
+        self.item = Some(item.to_string());
+        self
     }
 
     pub(crate) fn with_source_range(mut self, range: SourceRange) -> Self {
@@ -101,12 +115,13 @@ impl CollectionError {
     }
 
     pub(crate) fn with_provenance(self, provenance: &krs_ir::DescriptorProvenance) -> Self {
+        // The referenced node when the author's text locates it, the item otherwise.
         let range = self
             .reference_key
             .as_ref()
             .and_then(|key| provenance.origin_for(key))
-            .unwrap_or_else(|| provenance.primary_origin())
-            .exact_authored_range();
+            .and_then(krs_ir::OriginStack::exact_authored_range)
+            .or_else(|| provenance.primary_origin().exact_authored_range());
         match range {
             Some(range) => self.with_source_range(range),
             None => self,
@@ -189,6 +204,8 @@ impl ToDiagnostic for CollectionError {
             }
             CollectionErrorKind::ReferenceKindMismatch => codes::collect::REFERENCE_KIND_MISMATCH,
             CollectionErrorKind::InvalidConfiguration => codes::collect::INVALID_CONFIGURATION,
+            CollectionErrorKind::ConfigurationCount => codes::analysis::CONFIGURATION_COUNT,
+            CollectionErrorKind::ComputationCell => codes::analysis::COMPUTATION_CELL,
             CollectionErrorKind::InvalidDisplayFile => codes::collect::INVALID_DISPLAY_FILE,
             CollectionErrorKind::SourceOutsidePackage => codes::collect::SOURCE_OUTSIDE_PACKAGE,
             CollectionErrorKind::AmbiguousSourcePath => codes::collect::AMBIGUOUS_SOURCE_PATH,
@@ -207,13 +224,17 @@ impl ToDiagnostic for CollectionError {
             CollectionErrorKind::AmbiguousAnchor => codes::collect::AMBIGUOUS_ANCHOR,
             CollectionErrorKind::ProvenanceMismatch => codes::collect::PROVENANCE_MISMATCH,
         };
-        Diagnostic::error(
+        let diagnostic = Diagnostic::error(
             code,
             self.detail.clone(),
             self.source_range
                 .clone()
                 .map_or(Location::None, |range| Location::Source(*range)),
-        )
+        );
+        match (&self.source_range, &self.item) {
+            (None, Some(item)) => diagnostic.with_item(item.clone()),
+            _ => diagnostic,
+        }
     }
 }
 
@@ -311,6 +332,14 @@ mod tests {
             (
                 CollectionErrorKind::InvalidConfiguration,
                 codes::collect::INVALID_CONFIGURATION,
+            ),
+            (
+                CollectionErrorKind::ConfigurationCount,
+                codes::analysis::CONFIGURATION_COUNT,
+            ),
+            (
+                CollectionErrorKind::ComputationCell,
+                codes::analysis::COMPUTATION_CELL,
             ),
             (
                 CollectionErrorKind::InvalidDisplayFile,

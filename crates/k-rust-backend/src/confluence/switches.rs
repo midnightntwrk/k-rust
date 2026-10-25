@@ -62,7 +62,9 @@ pub(crate) struct Switches {
     /// where the gate admits it, as an equation head that is not overloaded is read.
     pub(crate) root_read_overloaded_patterns: bool,
     /// Normal-form sorts: no supersort closure (an overlap whose variable's sort gets its
-    /// elements only from a subsort is called vacuous).
+    /// elements only from a subsort is said to range over a sort with no normal form, which its
+    /// non-joined reason then names; such a pair withdraws no claim, so the switch keeps the
+    /// claims its closure would withdraw).
     pub(crate) drop_supersort_inhabitation: bool,
     /// Join: read every function application as never a normal form, and a stuck one as
     /// `\bottom` (revision 2's 3.13 (c) before R1.5).
@@ -72,6 +74,8 @@ pub(crate) struct Switches {
     pub(crate) collapse_every_total: bool,
     /// Conditions: read `a <=Int b` as `notBool (a <Int b)` instead of `notBool (b <Int a)`.
     pub(crate) misread_int_le: bool,
+    /// Conditions: read `a <Int b` as `a <=Int b` when bounding one integer term.
+    pub(crate) misread_interval_bound: bool,
     /// Never pair an equation with itself at the root (before the revision after review 2).
     pub(crate) drop_several_matches: bool,
     /// `SortReach`: no edges from a collection sort to its element, key and value sorts.
@@ -93,6 +97,31 @@ pub(crate) struct Switches {
     /// Simplify every condition of the check, reusing no answer (`ConditionMemo::Off` at every
     /// load, so that the oracle runs on definitions loaded without the memo).
     pub(crate) no_condition_memo: bool,
+    /// Hook gap: pair no equation at an evaluated hook with the hook's written meaning.
+    pub(crate) skip_hook_pairs: bool,
+    /// Conditions: merge the operands of a negative equality into one class, as a positive one.
+    pub(crate) misread_literal_classes: bool,
+    /// Conditions: substitute a class's literal through classes that also merge the operands of
+    /// negative equalities.
+    pub(crate) substitute_without_class: bool,
+    /// Conditions: use every linear constraint in the difference bounds, also a `\not` one whose
+    /// atoms are not shown defined.
+    pub(crate) drop_dbm_definedness_guard: bool,
+    /// Conditions: read the lengths, sizes and absolute values as at least 1.
+    pub(crate) misread_range_fact: bool,
+    /// Unifier: accept a relaxed solution (an equation of an undecided shape dropped) as fine,
+    /// without refuting the conditions at it.
+    pub(crate) defer_without_refutation: bool,
+    /// Conditions: refute a conjunction when one case of its disjunctions is contradictory,
+    /// instead of every case.
+    pub(crate) misread_disjunction: bool,
+    /// Conditions: read `INT.min` as at least its operands and `INT.max` as at most them.
+    pub(crate) misread_min_max: bool,
+    /// Conditions: give each member of an equality class the literal of another class.
+    pub(crate) misplace_class_literal: bool,
+    /// Conditions: read an ML `\equals` between integer terms as showing its atoms defined, also
+    /// when neither side is `ceil_free` (both sides undefined satisfy it).
+    pub(crate) misread_equals_definedness: bool,
 }
 
 #[cfg(test)]
@@ -124,6 +153,7 @@ thread_local! {
             stuck_total_is_bottom: false,
             collapse_every_total: false,
             misread_int_le: false,
+            misread_interval_bound: false,
             drop_several_matches: false,
             drop_collection_edges: false,
             drop_injected_inner: false,
@@ -132,6 +162,16 @@ thread_local! {
             relevance_ignores_tobs: false,
             relevance_needs_both: false,
             no_condition_memo: false,
+            skip_hook_pairs: false,
+            misread_literal_classes: false,
+            substitute_without_class: false,
+            drop_dbm_definedness_guard: false,
+            misread_range_fact: false,
+            defer_without_refutation: false,
+            misread_disjunction: false,
+            misread_min_max: false,
+            misplace_class_literal: false,
+            misread_equals_definedness: false,
         })
     };
 }

@@ -32,6 +32,7 @@ pub(super) fn validate_all_stable_references(
                                 field.name,
                                 descriptor.id()
                             ),
+                            range: None,
                         }
                     })?;
                     validate_sort_ref(sort, declarations)?;
@@ -71,6 +72,8 @@ pub(super) fn validate_all_stable_references(
                 declarations.configuration(&alias.configuration.configuration)?;
                 validate_rule_cells_references(&alias.pattern, declarations)?;
             }
+            // Constants are substituted at their uses before lowering.
+            DescriptorPayload::Constant(_) => {}
         }
     }
     Ok(())
@@ -253,6 +256,7 @@ fn validate_initializer_cell_references(
                 return Err(DescriptorLoweringError::ParserReferenceDisagreement {
                     id: Box::new(cell.field.cell.owner.clone()),
                     detail: "nested initializer declaration disagrees with its cell field".into(),
+                    range: None,
                 });
             }
             let nested_declaration = declarations.cell(&declaration.declaration)?;
@@ -266,6 +270,7 @@ fn validate_initializer_cell_references(
                     id: Box::new(declaration.declaration.clone()),
                     detail: "nested initializer children disagree with the nominal declaration"
                         .into(),
+                    range: None,
                 });
             }
             for child in children {
@@ -276,6 +281,7 @@ fn validate_initializer_cell_references(
         _ => Err(DescriptorLoweringError::ParserReferenceDisagreement {
             id: Box::new(cell.field.cell.owner.clone()),
             detail: "initializer cell content disagrees with its declaration".into(),
+            range: None,
         }),
     }
 }
@@ -390,5 +396,6 @@ pub(super) fn require_cell_field<'a>(
         .ok_or_else(|| DescriptorLoweringError::ParserReferenceDisagreement {
             id: Box::new(identity.owner.clone()),
             detail: format!("owner has no declared cell field {:?}", identity.field),
+            range: None,
         })
 }

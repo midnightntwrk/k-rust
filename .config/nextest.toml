@@ -12,6 +12,9 @@ nextest-version = { required = "0.9.91", recommended = "0.9.143" }
 # Tests that measure the machine: peak RSS and the wall-clock timing residual of a `krust
 # kcompile` child, judged against fixed bounds.
 machine-measurement = { max-threads = 1 }
+# kink's tests whose assertion compares elapsed wall time with a bound or with another run's: they
+# run one at a time, so that other tests' CPU contention does not move the time they compare.
+wall-clock = { max-threads = 1 }
 
 [profile.default]
 # Report a test as slow after each minute, and stop it after ten. The slowest tests take about
@@ -44,6 +47,27 @@ priority = 100
 filter = 'package(algo-graph) & binary(freshness)'
 success-output = "final"
 
+# kink (kink/README.md, "Gate"). Its tests' default slow timeout is the one above. Every filter
+# below names kink packages, binaries and test paths only; `kink/scripts/kink-tier.py lint` fails
+# when one of them stops matching a test.
+#
+# kink-campaign: the work-bounded run must stop within 3 s where the time-bounded one times out.
+[[profile.default.overrides]]
+filter = 'package(kink-campaign) & binary(work_budget) & test(=a_mutant_that_never_ends_is_unknown_under_a_work_budget)'
+test-group = "wall-clock"
+
+# kink-flow: the work-bounded run must finish within 30 s; and the slow program's recorded wall
+# time must exceed the fast one's.
+[[profile.default.overrides]]
+filter = 'package(kink-flow) & ((binary(work_budget) & test(=kink_tier::a_mutant_that_never_ends_is_unknown_under_the_work_budget_and_never_cached)) | (binary(usability) & test(=kink_tier::the_cheaper_killer_is_found_and_hinted_first)))'
+test-group = "wall-clock"
+
+# kink's heavy tests that take longer than the default ten minutes on a quiet host: the one-sided
+# differential over IMP and its mutants takes about 21 minutes alone.
+[[profile.default.overrides]]
+filter = 'package(kink-flow) & binary(one_sided) & test(=heavy::every_one_sided_kill_on_imp_agrees_with_the_unbounded_verdict)'
+slow-timeout = { period = "60s", terminate-after = 40 }
+
 # A profile for continuous integration: run every test even after a failure, as
 # `cargo test --no-fail-fast` does, and print each failure's output at the end as well.
 [profile.ci]
@@ -61,3 +85,12 @@ failure-output = "immediate-final"
 fail-fast = false
 failure-output = "immediate-final"
 default-filter = 'not (binary_id(k-rust::measure_ratchet) | package(k-rust-wasm))'
+
+# The profile of kink's tier runs (`kink/scripts/kink-tier.py run`): as `ci`, and it writes a
+# JUnit report (target/nextest/kink/junit.xml) whose per-test times the tier budget check reads.
+[profile.kink]
+fail-fast = false
+failure-output = "immediate-final"
+
+[profile.kink.junit]
+path = "junit.xml"

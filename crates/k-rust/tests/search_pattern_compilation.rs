@@ -274,14 +274,40 @@ fn pinned_collision_free_macro_roots_match_exactly() {
 
 #[test]
 fn pinned_ground_and_explicit_binder_patterns_match_exactly() {
-    for (contents, reference) in [
-        (GROUND, REFERENCE_GROUND),
-        (EXPLICIT_GEN_BINDER, REFERENCE_EXPLICIT_GEN_BINDER),
-    ] {
-        let reference = parse_pattern(reference.trim()).unwrap();
-        let rust = compile(contents).unwrap().pattern;
-        assert_eq!(rust, reference);
-    }
+    let reference = parse_pattern(REFERENCE_GROUND.trim()).unwrap();
+    let rust = compile(GROUND).unwrap().pattern;
+    assert_eq!(rust, reference);
+}
+
+/// The pattern's bound variable `_Gen0` is in scope only inside its binder, so the sort tests of
+/// its casts go inside the binder: `isExp`, which the variable's own sort `Exp` implies, is
+/// dropped, and `isK` of the binder's cast is conjoined with the binder's body. The pinned
+/// frontend writes both tests at the top of the condition, where `_Gen0` is free, so only the
+/// pattern's body is the reference's.
+#[test]
+fn the_explicit_binder_pattern_keeps_its_bound_variable_s_sort_test_inside_the_binder() {
+    let reference = parse_pattern(REFERENCE_EXPLICIT_GEN_BINDER.trim()).unwrap();
+    let rust = compile(EXPLICIT_GEN_BINDER).unwrap().pattern;
+    let (
+        Pattern::And {
+            arguments: rust_parts,
+            ..
+        },
+        Pattern::And {
+            arguments: reference_parts,
+            ..
+        },
+    ) = (&rust, &reference)
+    else {
+        panic!("both patterns are conjunctions: {rust}");
+    };
+    assert_eq!(rust_parts[0], reference_parts[0], "the body");
+    let gen0 = "Var'Unds'Gen0:SortExp{}";
+    let expected = parse_pattern(&format!(
+        "\\exists{{SortGeneratedTopCell{{}}}}({gen0}, \\equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}(Lbl'Unds'andBool'Unds'{{}}(LblisK{{}}(kseq{{}}(inj{{SortExp{{}}, SortKItem{{}}}}({gen0}), dotk{{}}())), Lblpredicate{{}}({gen0})), \\dv{{SortBool{{}}}}(\"true\")))"
+    ))
+    .unwrap();
+    assert_eq!(rust_parts[1..], [expected], "{rust}");
 }
 
 #[test]
@@ -317,13 +343,23 @@ fn search_pattern_compilation_user_gen0_is_named_in_ml_binder() {
             .generated_anonymous_variables
             .contains(&KoreVariableIdentity::element("Var'Unds'Gen0"))
     );
+    // The sort tests of `_Gen0` stand inside its binder (`isExp`, implied by its sort, dropped).
+    let mut inside = String::new();
+    walk(&compiled.pattern, &mut |pattern| {
+        if let Pattern::Exists { body, .. } = pattern {
+            inside = body.to_string();
+        }
+    });
     let rendered = compiled.pattern.to_string();
-    assert!(rendered.contains("LblisExp"), "{rendered}");
-    assert!(rendered.contains("LblisK"), "{rendered}");
+    assert!(inside.contains("LblisK"), "{rendered}");
+    assert!(!rendered.contains("LblisExp"), "{rendered}");
 }
 
+/// The macro `binderMacro => #Exists _ . predicate(_)` mints a fresh variable for each `_` at the
+/// use site. The binder binds only its own variable, so the body's `_` stays a free variable of
+/// the pattern; both are minted, so both are hidden from the results.
 #[test]
-fn search_pattern_compilation_macro_generated_ml_binder_is_anonymous() {
+fn search_pattern_compilation_macro_generated_ml_binder_binds_only_itself() {
     let compiled = compile("<k> a </k> requires binderMacro").unwrap();
     assert_eq!(
         compiled
@@ -331,7 +367,7 @@ fn search_pattern_compilation_macro_generated_ml_binder_is_anonymous() {
             .iter()
             .filter(|identity| identity.name.contains("Gen"))
             .count(),
-        1
+        2
     );
     let mut binders = Vec::new();
     walk(&compiled.pattern, &mut |pattern| {
@@ -345,6 +381,20 @@ fn search_pattern_compilation_macro_generated_ml_binder_is_anonymous() {
             .generated_anonymous_variables
             .iter()
             .any(|identity| identity.name == binders[0])
+    );
+    let free = compiled
+        .pattern
+        .free_variables()
+        .into_iter()
+        .map(|variable| variable.name)
+        .filter(|name| name.contains("Gen"))
+        .collect::<Vec<_>>();
+    assert_eq!(free.len(), 1, "{}", compiled.pattern);
+    assert_ne!(free[0], binders[0]);
+    assert!(
+        compiled
+            .generated_anonymous_variables
+            .contains(&KoreVariableIdentity::element(free[0].clone()))
     );
 }
 
@@ -458,6 +508,24 @@ fn search_pattern_compilation_retains_requires_after_transforms() {
     );
     assert_eq!(error.diagnostics[0].source.as_deref(), Some(PATTERN_SOURCE));
     assert_eq!(error.diagnostics[0].location, Some(PATTERN_LOCATION));
+}
+
+/// A quantifier binds an element variable, and a set variable is bound only by a fixpoint, so a
+/// pattern whose quantifier binds a set variable denotes nothing and is refused by the binder
+/// check, as a rule's is: one refusal, `InvalidBinder`, at the pattern.
+#[test]
+fn search_pattern_compilation_refuses_a_quantifier_over_a_set_variable() {
+    let error = compile("<k> X:Int </k> requires #Exists @S:Int . {X #Equals @S}").unwrap_err();
+    let CompileSearchPatternError::Denotation(diagnostic) = &error else {
+        panic!("expected a denotation error: {error:?}")
+    };
+    assert_eq!(
+        diagnostic.code,
+        k_rust::diagnostic::DiagnosticCode::InvalidBinder,
+        "{error}"
+    );
+    assert!(diagnostic.message.contains("@S"), "{error}");
+    assert_eq!(diagnostic.source.as_deref(), Some(PATTERN_SOURCE));
 }
 
 /// A pattern denotes the configurations its left side matches under its `requires`, and
@@ -840,4 +908,30 @@ fn a_compiled_search_condition_tests_only_variables_its_body_binds() {
         }
     }
     assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A pattern's sort tests do not depend on how its variables are spelled: the tests of the
+/// casts to one sort are conjoined in the order their casts first occur, so `pair(Y:Exp, X:Exp)`
+/// compiles to the pattern of `pair(X:Exp, Y:Exp)` with the two names exchanged.
+#[test]
+fn search_pattern_sort_tests_follow_first_occurrence_so_a_renaming_compiles_alike() {
+    let exchanged = |text: &str| {
+        text.replace("VarX:", "\u{0}")
+            .replace("VarY:", "VarX:")
+            .replace('\u{0}', "VarY:")
+    };
+    let renamed = compile("<k> pair(Y:Exp, X:Exp) </k>").unwrap().pattern;
+    let original = compile("<k> pair(X:Exp, Y:Exp) </k>").unwrap().pattern;
+    assert_eq!(exchanged(&renamed.to_string()), original.to_string());
+    let Pattern::And { arguments, .. } = &original else {
+        panic!("expected a conjunction: {original}")
+    };
+    let condition = arguments[1..]
+        .iter()
+        .map(ToString::to_string)
+        .collect::<String>();
+    assert!(
+        condition.find("VarX:").unwrap() < condition.find("VarY:").unwrap(),
+        "{original}"
+    );
 }

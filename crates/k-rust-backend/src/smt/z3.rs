@@ -17,16 +17,17 @@
 //!
 //! [[cost]]
 //! mode = "prelude consistency"
-//! bound = "zero checks after a sat query; otherwise at most one prelude check, with configured retries, before the first unsat answer"
+//! bound = "zero checks after a sat query; otherwise at most one prelude check, with configured retries, before the first unsat answer or rejected script"
 //! ```
 //!
 //! In-process Z3 behind a bounded FIFO result cache: `Counter::SmtQueries` in,
 //! `Counter::SmtSolverRuns` out (the lazy prelude check and the model path count solver
 //! runs without a query), O(L x log E) per hit for a script of L bytes among E cached entries,
-//! eviction pops the oldest entry until the entry and key-byte limits admit the new key. A solver
-//! is constructed per uncached query. Construction does not create a Z3 context; a satisfiable
-//! query establishes prelude consistency, while the first unsatisfiable answer requires one
-//! explicit prelude check.
+//! eviction pops the oldest entry until the entry and key-byte limits admit the new key. The
+//! attempts of an uncached query run on a Z3 context of their own (`on_own_context`), so its
+//! answer is a function of its script and options only. Constructing a `Z3Solver` creates no Z3
+//! context; a satisfiable query establishes prelude consistency, while the first unsatisfiable
+//! answer, and the first script Z3 rejects, requires one explicit prelude check.
 //! A validity check (`decide_validity`) issues a positive subquery, then a negative or a base
 //! subquery, and a third on the unknown path; each subquery goes through the cache.
 //!
@@ -46,8 +47,10 @@
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
+use std::num::NonZeroU32;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
+    ffi::CStr,
     str::FromStr,
     sync::{Arc, Mutex},
 };
@@ -64,7 +67,8 @@ use z3::{
 };
 
 use super::{
-    ModelResult, Satisfiability, SmtError, SmtPrelude, SmtSolver, TranslatedQuery, Validity,
+    APPROXIMATE_MODEL_REASON, ModelResult, Satisfiability, SmtError, SmtPrelude, SmtSolver,
+    TranslatedQuery, Validity,
 };
 use crate::{
     model::ModelQuery,
@@ -97,10 +101,120 @@ fn measured_check(solver: &Solver) -> SatResult {
     result
 }
 
+/// Why Z3 did not load a script: its own message, or the reason the script never reached it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct RejectedScript {
+    message: String,
+}
+
+/// Load `script` into `solver`, or say why Z3 rejected it. Every script reaches Z3 through here.
+///
+/// A check answers about the assertions the solver holds. Z3 adds a script's assertions only
+/// once the whole script parses and sort-checks, so after a parse error, a sort error, or an
+/// undeclared or redeclared symbol the solver holds none of them, and a check would answer `sat`
+/// about the empty formula instead of the one the script states. A rejected script must
+/// therefore never be checked. The `z3` crate's loader returns nothing and its contexts install
+/// no error handler, so the rejection is recorded only as the error code of the solver's
+/// context, which every later API call resets: it is read here, before any other call.
+fn load(solver: &Solver, script: &str) -> Result<(), RejectedScript> {
+    // Z3 reads the script as a C string, which a NUL byte would end early (and the `z3` crate
+    // panics on one), so a script with one cannot be read as written.
+    if script.as_bytes().contains(&0) {
+        return Err(RejectedScript {
+            message: "the script contains a NUL byte".into(),
+        });
+    }
+    solver.from_string(script);
+    let context = solver.get_context().get_z3_context();
+    // SAFETY: `context` is the live context `solver` holds, and no API call ran on it since the
+    // load, so its error code is the load's.
+    let code = unsafe { z3_sys::Z3_get_error_code(context) };
+    if code == z3_sys::ErrorCode::Ok {
+        return Ok(());
+    }
+    // SAFETY: as above; the message is a NUL-terminated string the context owns until its next
+    // API call, and it is copied before any.
+    let message = unsafe { z3_sys::Z3_get_error_msg(context, code) };
+    let message = if message.is_null() {
+        format!("{code:?}")
+    } else {
+        // SAFETY: a non-null message is a NUL-terminated string, valid until the next API call.
+        unsafe { CStr::from_ptr(message) }
+            .to_string_lossy()
+            .trim()
+            .to_owned()
+    };
+    Err(RejectedScript { message })
+}
+
+/// Run one query's attempts on a Z3 context of their own, created for the query and deleted
+/// after it.
+///
+/// Z3's search is a deterministic function of the assertions it checks, its parameters and the
+/// state of the context it runs in: the terms the context holds and what earlier checks on it
+/// left behind change the path the search takes. On a path that decides a query a check answers
+/// at once; on another it runs until its limit and answers unknown, so one query can be decided
+/// on one context and not on another (one nonlinear check on a context is enough to turn some
+/// `sat` answers there into `unknown`). The `z3` crate's default context is per thread and
+/// shared with every other Z3 user on the thread (checked sort inference among them), so an
+/// answer on it would depend on unrelated earlier work and would in turn change theirs.
+///
+/// A query's attempts share the context: each retry starts from the state the attempts before it
+/// left, which sets it on another path than theirs. A larger budget alone does not end a path
+/// that never decides the query (with Z3 4.16.0, the backend's `H *Int I ==Int 2021027` factoring
+/// check, from a fresh context, is undecided at 128,000,000 resource units, and decided by its
+/// third attempt at 1,000,000 after two at 250,000 and 500,000). The answer is then a function of the script,
+/// the attempts' parameters and the Z3 library only, as it is for the first query a process
+/// asks on a thread.
+///
+/// Every Z3 object the query makes belongs to that context (the `z3` crate creates objects on
+/// the thread's current context, which `with_z3_config` replaces for the call), and none can
+/// leave it: Z3 objects are neither `Send` nor `Sync`, which the bound on `R` requires. The crate
+/// puts the thread's previous context back only when the call returns, so a panic is caught
+/// inside the call and raised again after it: the thread's later Z3 users (checked sort
+/// inference after a caught panic, say) find their own context again.
+///
+/// Creating a context costs about 0.4 ms of mostly serial work in Z3: concurrent queries on many
+/// threads share that cost, so a process running many uncached queries at once pays more per
+/// query, and holds more memory at its peak, than one sharing a context per thread did
+/// (docs/compatibility.md, "Clock-free solver mode").
+fn on_own_context<R: Send + Sync>(query: impl FnOnce() -> R + Send + Sync) -> R {
+    let outcome = z3::with_z3_config(&z3::Config::new(), || {
+        // The query's state is dropped by the unwind and nothing observes it afterwards: the
+        // panic is raised again as soon as the thread's context is back.
+        std::panic::catch_unwind(std::panic::AssertUnwindSafe(query))
+            .map_err(|payload| Unwound(Mutex::new(payload)))
+    });
+    outcome.unwrap_or_else(|Unwound(payload)| {
+        std::panic::resume_unwind(
+            payload
+                .into_inner()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+        )
+    })
+}
+
+/// A panic caught inside [`on_own_context`], carried out of the call that installs the query's
+/// context. The payload is `Send` but not `Sync`, and the call requires both of its result; a
+/// mutex provides `Sync`, though the payload is only ever moved.
+struct Unwound(Mutex<Box<dyn std::any::Any + Send>>);
+
+/// How long each Z3 check of a query may run, and how often an unknown answer is retried.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Z3Options {
+    /// The first attempt's wall-clock timeout, doubled on each retry; unused under
+    /// [`Self::resource_limit`].
     pub timeout_ms: u32,
+    /// The retries of an unknown answer.
     pub retry_limit: u32,
+    /// The clock-free mode: when set, each attempt is bounded by this many Z3 resource units
+    /// (`rlimit`), doubled on each retry, and by no wall-clock timeout. Z3 counts these units in
+    /// its own search, and every query runs on a Z3 context of its own, so its answer (sat, unsat
+    /// or unknown) does not depend on the machine's speed or load nor on any other Z3 work in
+    /// the process: it is a function of the query, these options and the Z3 version. `None`
+    /// (the default) bounds attempts by [`Self::timeout_ms`], with a resource limit only as a
+    /// backstop ([`RESOURCE_UNITS_PER_MS`]).
+    pub resource_limit: Option<NonZeroU32>,
 }
 
 impl Default for Z3Options {
@@ -108,9 +222,21 @@ impl Default for Z3Options {
         Self {
             timeout_ms: 125,
             retry_limit: 3,
+            resource_limit: None,
         }
     }
 }
+
+/// The version of the Z3 library this build links, as Z3 reports it (`Z3_get_full_version`):
+/// the resource units of [`Z3Options::resource_limit`] are counted by this version's search.
+#[must_use]
+pub fn z3_version() -> &'static str {
+    z3::full_version()
+}
+
+/// One attempt's wall-clock timeout (`None`: no clock) and resource limit, as tests read them.
+#[cfg(test)]
+pub(crate) type AttemptLimit = (Option<u32>, u32);
 
 #[derive(Clone, Debug)]
 pub struct Z3Solver {
@@ -131,6 +257,10 @@ pub struct Z3Solver {
     /// cancellation Z3 has lost (see `RESOURCE_UNITS_PER_MS`).
     #[cfg(test)]
     without_clock: bool,
+    /// Every attempt's parameters, in order: its wall-clock timeout (`None`: no clock) and its
+    /// resource limit.
+    #[cfg(test)]
+    attempt_limits: Arc<Mutex<Vec<AttemptLimit>>>,
 }
 
 /// Z3 resource-limit units granted to an attempt per millisecond of its timeout.
@@ -162,8 +292,6 @@ fn resource_limit(timeout_ms: u32) -> u32 {
 
 const RESULT_CACHE_ENTRY_LIMIT: usize = 256;
 const RESULT_CACHE_KEY_BYTE_LIMIT: usize = 8 * 1024 * 1024;
-const APPROXIMATE_MODEL_REASON: &str =
-    "the query abstracts symbols or sorts; a solver model is not a model of the predicate";
 
 #[derive(Clone, Debug)]
 enum PreludeState {
@@ -270,6 +398,8 @@ impl Z3Solver {
             attempt_timeouts: Arc::new(Mutex::new(Vec::new())),
             #[cfg(test)]
             without_clock: false,
+            #[cfg(test)]
+            attempt_limits: Arc::new(Mutex::new(Vec::new())),
         };
         Ok(solver)
     }
@@ -290,18 +420,43 @@ impl Z3Solver {
         self
     }
 
-    /// The parameters of one attempt with the given timeout: the timeout and its resource limit.
-    fn attempt_parameters(&self, timeout: u32) -> Params {
+    /// The parameters of the attempt numbered `attempt` (0 first) with the given timeout: the
+    /// timeout and its resource limit, or under [`Z3Options::resource_limit`] that limit doubled
+    /// per retry and no timeout.
+    fn attempt_parameters(&self, timeout: u32, attempt: u32) -> Params {
         let mut parameters = Params::new();
-        parameters.set_u32("rlimit", resource_limit(timeout));
-        #[cfg(test)]
-        let clocked = !self.without_clock;
-        #[cfg(not(test))]
-        let clocked = true;
-        if clocked {
+        let (clock, units) = match self.options.resource_limit {
+            Some(units) => {
+                let scale = 1_u32.checked_shl(attempt).unwrap_or(u32::MAX);
+                (None, units.get().saturating_mul(scale))
+            }
+            None => {
+                #[cfg(test)]
+                let clocked = !self.without_clock;
+                #[cfg(not(test))]
+                let clocked = true;
+                (clocked.then_some(timeout), resource_limit(timeout))
+            }
+        };
+        parameters.set_u32("rlimit", units);
+        if let Some(timeout) = clock {
             parameters.set_u32("timeout", timeout);
         }
+        #[cfg(test)]
+        self.attempt_limits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .push((clock, units));
         parameters
+    }
+
+    /// Every attempt's wall-clock timeout (`None`: no clock) and resource limit, in order.
+    #[cfg(test)]
+    pub(crate) fn attempt_limits(&self) -> Vec<AttemptLimit> {
+        self.attempt_limits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     /// The timeouts of the Z3 checks run so far, in order, one per attempt.
@@ -334,7 +489,8 @@ impl Z3Solver {
         Stop::solver_prelude(failure)
     }
 
-    /// Check that the prelude (the definition's axioms and the user prelude) is satisfiable.
+    /// Check that the prelude (the definition's axioms and the user prelude) is a script Z3
+    /// reads, and that it is satisfiable.
     ///
     /// A failed prelude is a stop, not a query failure: no answer of the solver means anything
     /// under it, whichever operation asked. A check interrupted by a stop before its solve
@@ -356,12 +512,13 @@ impl Z3Solver {
         // solve keeps a stopped check from counting as a solver run.
         stop::check()?;
         let failure = match self.solve_uncached(&self.prelude.declarations().join("\n"))? {
-            Satisfiability::Sat => {
+            Ok(Satisfiability::Sat) => {
                 *state = PreludeState::Consistent;
                 return Ok(());
             }
-            Satisfiability::Unsat => PreludeFailure::Inconsistent,
-            Satisfiability::Unknown(reason) => PreludeFailure::Unknown(reason.into()),
+            Ok(Satisfiability::Unsat) => PreludeFailure::Inconsistent,
+            Ok(Satisfiability::Unknown(reason)) => PreludeFailure::Unknown(reason.into()),
+            Err(rejected) => PreludeFailure::Malformed(rejected.message.into()),
         };
         *state = PreludeState::Failed(failure.clone());
         Err(self.prelude_stop(failure))
@@ -396,9 +553,40 @@ impl Z3Solver {
         }
     }
 
+    /// Confirm a rejected script, `script` posing `query`, against the prelude. Every script
+    /// starts with the prelude, so the rejection is the query's own only once the prelude is
+    /// known to load; a prelude that does not load (or fails otherwise) is a stop. A rejection
+    /// itself never shows the prelude consistent: only the prelude's own check does.
+    ///
+    /// A query's rejection whose only possible cause is the text k-rust's translation wrote by
+    /// itself is a defect of k-rust, not a property of the definition or the request: a debug
+    /// build panics on it, so every test that reaches the solver checks that the translation
+    /// writes scripts the solver reads. A consumer that falls back on any query failure stays
+    /// sound, which is why a release build keeps the typed failure, but the fallback would hide
+    /// the defect. A rejection that text from the definition or the user may cause
+    /// (`SmtPrelude::blames_the_translation`) stays a typed failure in every build.
+    fn confirm_rejection(
+        &self,
+        rejected: RejectedScript,
+        query: &TranslatedQuery,
+        script: &str,
+    ) -> Stoppable<SmtError> {
+        self.check_prelude()?;
+        debug_assert!(
+            !self.prelude.blames_the_translation(query, script),
+            "Z3 rejected an SMT-LIB script k-rust's translation wrote by itself ({}):\n{script}",
+            rejected.message
+        );
+        Ok(SmtError::MalformedScript {
+            message: rejected.message,
+        })
+    }
+
     /// Solve `script` through the result cache. A stop observed before the lookup ends the
-    /// query: its answer is not needed, and neither the cache nor Z3 is consulted.
-    fn solve(&self, script: &str) -> Stoppable<Satisfiability> {
+    /// query: its answer is not needed, and neither the cache nor Z3 is consulted. Only answers
+    /// are cached; a rejected script is not, so the cache never answers for a script Z3 did not
+    /// read.
+    fn solve(&self, script: &str) -> Stoppable<Result<Satisfiability, RejectedScript>> {
         let _span = measure::algorithm_span(Algorithm::BackendSmtCache);
         stop::check()?;
         measure::bump(Counter::SmtQueries);
@@ -408,56 +596,59 @@ impl Z3Solver {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
             .get(script)
         {
-            return Ok(result);
+            return Ok(Ok(result));
         }
 
         let result = self.solve_uncached(script)?;
-        self.result_cache
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(script, &result);
+        if let Ok(answer) = &result {
+            self.result_cache
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .insert(script, answer);
+        }
         Ok(result)
     }
 
     /// Solve `script` with Z3, doubling the timeout on each retry of an unknown answer. Each
     /// attempt is preceded by a poll, so a stop raised meanwhile ends the query instead of
-    /// starting another attempt.
-    fn solve_uncached(&self, script: &str) -> Stoppable<Satisfiability> {
+    /// starting another attempt. A script Z3 rejects is not checked, and not retried: the
+    /// rejection does not depend on the timeout.
+    fn solve_uncached(&self, script: &str) -> Stoppable<Result<Satisfiability, RejectedScript>> {
         measure::bump(Counter::SmtSolverRuns);
         #[cfg(test)]
         self.uncached_solve_count.fetch_add(1, Ordering::Relaxed);
 
-        let mut timeout = self.options.timeout_ms;
-        for attempt in 0..=self.options.retry_limit {
-            stop::check()?;
-            let solver = Solver::new();
-            solver.set_params(&self.attempt_parameters(timeout));
-            #[cfg(test)]
-            self.record_attempt(timeout);
-            solver.from_string(script);
-            match measured_check(&solver) {
-                SatResult::Sat => return Ok(Satisfiability::Sat),
-                SatResult::Unsat => return Ok(Satisfiability::Unsat),
-                SatResult::Unknown if attempt < self.options.retry_limit => {
-                    timeout = timeout.saturating_mul(2);
+        on_own_context(|| {
+            let mut timeout = self.options.timeout_ms;
+            for attempt in 0..=self.options.retry_limit {
+                stop::check()?;
+                let solver = Solver::new();
+                solver.set_params(&self.attempt_parameters(timeout, attempt));
+                #[cfg(test)]
+                self.record_attempt(timeout);
+                if let Err(rejected) = load(&solver, script) {
+                    return Ok(Err(rejected));
                 }
-                SatResult::Unknown => {
-                    return Ok(Satisfiability::Unknown(
-                        solver
-                            .get_reason_unknown()
-                            .unwrap_or_else(|| "Z3 returned unknown".into()),
-                    ));
+                match measured_check(&solver) {
+                    SatResult::Sat => return Ok(Ok(Satisfiability::Sat)),
+                    SatResult::Unsat => return Ok(Ok(Satisfiability::Unsat)),
+                    SatResult::Unknown if attempt < self.options.retry_limit => {
+                        timeout = timeout.saturating_mul(2);
+                    }
+                    SatResult::Unknown => {
+                        return Ok(Ok(Satisfiability::Unknown(reason_unknown(&solver))));
+                    }
                 }
             }
-        }
-        unreachable!("the retry loop always returns")
+            unreachable!("the retry loop always returns")
+        })
     }
 
     fn solve_query(
         &self,
         query: &TranslatedQuery,
         assertion: Option<&str>,
-    ) -> Stoppable<Satisfiability> {
+    ) -> Stoppable<Result<Satisfiability, SmtError>> {
         let mut script = query.base().to_owned();
         if let Some(assertion) = assertion {
             script.push_str("\n(assert ");
@@ -467,7 +658,10 @@ impl Z3Solver {
         if let Some(failure) = self.prelude_failure() {
             return Err(self.prelude_stop(failure));
         }
-        self.confirm_answer(self.solve(&script)?)
+        match self.solve(&script)? {
+            Ok(answer) => self.confirm_answer(answer).map(Ok),
+            Err(rejected) => self.confirm_rejection(rejected, query, &script).map(Err),
+        }
     }
 
     fn solve_model(
@@ -479,46 +673,64 @@ impl Z3Solver {
         if let Some(failure) = self.prelude_failure() {
             return Err(self.prelude_stop(failure));
         }
-        let mut timeout = self.options.timeout_ms;
-        for attempt in 0..=self.options.retry_limit {
-            stop::check()?;
-            measure::bump(Counter::SmtSolverRuns);
-            let solver = Solver::new();
-            solver.set_params(&self.attempt_parameters(timeout));
-            #[cfg(test)]
-            self.record_attempt(timeout);
-            solver.from_string(query.base());
-            match measured_check(&solver) {
-                SatResult::Sat => {
-                    // confirm_answer returns its argument unchanged; only the prelude check matters
-                    // here.
-                    let _: Satisfiability = self.confirm_answer(Satisfiability::Sat)?;
-                    let Some(mappings) = query.model_mappings() else {
-                        return Ok(Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into())));
-                    };
-                    let Some(model) = solver.get_model() else {
-                        return Ok(Err(SmtError::MissingModel));
-                    };
-                    return Ok(self.extract_model(&model, mappings, variables));
+        // The model is read on the query's own context, the only place its values exist; the
+        // answer is confirmed against the prelude after the context is gone.
+        let outcome = on_own_context(|| {
+            let mut timeout = self.options.timeout_ms;
+            for attempt in 0..=self.options.retry_limit {
+                stop::check()?;
+                measure::bump(Counter::SmtSolverRuns);
+                let solver = Solver::new();
+                solver.set_params(&self.attempt_parameters(timeout, attempt));
+                #[cfg(test)]
+                self.record_attempt(timeout);
+                if let Err(rejected) = load(&solver, query.base()) {
+                    return Ok(Err(rejected));
                 }
-                SatResult::Unsat => {
-                    let _: Satisfiability = self.confirm_answer(Satisfiability::Unsat)?;
-                    return Ok(Ok(ModelResult::Unsat));
-                }
-                SatResult::Unknown if attempt < self.options.retry_limit => {
-                    timeout = timeout.saturating_mul(2);
-                }
-                SatResult::Unknown => {
-                    let reason = solver
-                        .get_reason_unknown()
-                        .unwrap_or_else(|| "Z3 returned unknown".into());
-                    let _: Satisfiability =
-                        self.confirm_answer(Satisfiability::Unknown(reason.clone()))?;
-                    return Ok(Ok(ModelResult::Unknown(reason)));
+                match measured_check(&solver) {
+                    SatResult::Sat => {
+                        let model = match query.model_mappings() {
+                            None => Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into())),
+                            Some(mappings) => match solver.get_model() {
+                                None => Err(SmtError::MissingModel),
+                                Some(model) => self.extract_model(&model, mappings, variables),
+                            },
+                        };
+                        return Ok(Ok(ModelAttempt::Sat(model)));
+                    }
+                    SatResult::Unsat => return Ok(Ok(ModelAttempt::Unsat)),
+                    SatResult::Unknown if attempt < self.options.retry_limit => {
+                        timeout = timeout.saturating_mul(2);
+                    }
+                    SatResult::Unknown => {
+                        return Ok(Ok(ModelAttempt::Unknown(reason_unknown(&solver))));
+                    }
                 }
             }
+            unreachable!("the retry loop always returns")
+        })?;
+        match outcome {
+            Err(rejected) => Ok(Err(self.confirm_rejection(
+                rejected,
+                query,
+                query.base(),
+            )?)),
+            Ok(ModelAttempt::Sat(model)) => {
+                // confirm_answer returns its argument unchanged; only the prelude check matters
+                // here.
+                let _: Satisfiability = self.confirm_answer(Satisfiability::Sat)?;
+                Ok(model)
+            }
+            Ok(ModelAttempt::Unsat) => {
+                let _: Satisfiability = self.confirm_answer(Satisfiability::Unsat)?;
+                Ok(Ok(ModelResult::Unsat))
+            }
+            Ok(ModelAttempt::Unknown(reason)) => {
+                let _: Satisfiability =
+                    self.confirm_answer(Satisfiability::Unknown(reason.clone()))?;
+                Ok(Ok(ModelResult::Unknown(reason)))
+            }
         }
-        unreachable!("the retry loop always returns")
     }
 
     fn extract_model(
@@ -549,7 +761,7 @@ impl Z3Solver {
                             value: value.to_string(),
                         }
                     })?;
-                    Term::domain_value_of(DomainKind::Int, variable.sort.clone(), rendered)
+                    Term::domain_value_of(DomainKind::Int, variable.sort, rendered)
                 }
                 sort if sort.is_builtin(BuiltinSort::Bool)
                     && self.model_kinds.bool == Some(DomainKind::Bool) =>
@@ -561,11 +773,7 @@ impl Z3Solver {
                         .eval(&Bool::new_const(name.clone()), true)
                         .and_then(|value| value.as_bool())
                         .ok_or_else(|| SmtError::MissingModelValue(variable.clone()))?;
-                    Term::domain_value_of(
-                        DomainKind::Bool,
-                        variable.sort.clone(),
-                        value.to_string(),
-                    )
+                    Term::domain_value_of(DomainKind::Bool, variable.sort, value.to_string())
                 }
                 _ => term,
             };
@@ -573,6 +781,22 @@ impl Z3Solver {
         }
         Ok(ModelResult::Sat(substitution))
     }
+}
+
+/// What a model query's last attempt found, read off its Z3 context before the context goes.
+enum ModelAttempt {
+    /// Satisfiable, with the model read as a K valuation, or why none was read.
+    Sat(Result<ModelResult, SmtError>),
+    Unsat,
+    /// Undecided, with Z3's reason.
+    Unknown(String),
+}
+
+/// Z3's reason for an unknown answer of `solver`'s last check.
+fn reason_unknown(solver: &Solver) -> String {
+    solver
+        .get_reason_unknown()
+        .unwrap_or_else(|| "Z3 returned unknown".into())
 }
 
 /// The kinds a definition gives the sorts the SMT translation reads by name.
@@ -599,31 +823,42 @@ enum ValiditySubquery {
     Negative,
 }
 
-fn decide_validity(
-    mut solve: impl FnMut(ValiditySubquery) -> Stoppable<Satisfiability>,
-) -> Stoppable<Validity> {
-    Ok(match solve(ValiditySubquery::Positive)? {
-        Satisfiability::Sat => match solve(ValiditySubquery::Negative)? {
+/// The validity the subqueries' answers decide. A subquery that fails (its script was not
+/// read, say) ends the decision with that failure: the answers of the others alone do not decide
+/// it.
+fn decide_validity<E>(
+    mut solve: impl FnMut(ValiditySubquery) -> Stoppable<Result<Satisfiability, E>>,
+) -> Stoppable<Result<Validity, E>> {
+    macro_rules! answer {
+        ($subquery:expr) => {
+            match solve($subquery)? {
+                Ok(answer) => answer,
+                Err(error) => return Ok(Err(error)),
+            }
+        };
+    }
+    Ok(Ok(match answer!(ValiditySubquery::Positive) {
+        Satisfiability::Sat => match answer!(ValiditySubquery::Negative) {
             Satisfiability::Unsat => Validity::Valid,
             Satisfiability::Sat => Validity::Contingent,
             Satisfiability::Unknown(reason) => Validity::Unknown(reason),
         },
-        Satisfiability::Unsat => match solve(ValiditySubquery::Base)? {
+        Satisfiability::Unsat => match answer!(ValiditySubquery::Base) {
             Satisfiability::Unsat => Validity::InconsistentGroundTruth,
             Satisfiability::Sat => Validity::Refuted,
             Satisfiability::Unknown(reason) => Validity::Unknown(reason),
         },
-        Satisfiability::Unknown(positive_reason) => match solve(ValiditySubquery::Base)? {
+        Satisfiability::Unknown(positive_reason) => match answer!(ValiditySubquery::Base) {
             Satisfiability::Unsat => Validity::InconsistentGroundTruth,
             Satisfiability::Unknown(reason) => Validity::Unknown(reason),
-            Satisfiability::Sat => match solve(ValiditySubquery::Negative)? {
+            Satisfiability::Sat => match answer!(ValiditySubquery::Negative) {
                 Satisfiability::Unsat => Validity::Valid,
                 Satisfiability::Sat | Satisfiability::Unknown(_) => {
                     Validity::Unknown(positive_reason)
                 }
             },
         },
-    })
+    }))
 }
 
 impl SmtSolver for Z3Solver {
@@ -639,7 +874,7 @@ impl SmtSolver for Z3Solver {
             Ok(query) => query,
             Err(error) => return Ok(Err(error.into())),
         };
-        self.solve_query(&query, None).map(Ok)
+        self.solve_query(&query, None)
     }
 
     fn check_predicates(
@@ -666,7 +901,6 @@ impl SmtSolver for Z3Solver {
                 self.solve_query(&query, Some(&format!("(not {checked})")))
             }
         })
-        .map(Ok)
     }
 
     fn get_model(&self, query: &ModelQuery<'_>) -> Stoppable<Result<ModelResult, SmtError>> {
@@ -1308,6 +1542,285 @@ mod tests {
         }
     }
 
+    /// Scripts Z3 does not read: an undeclared constant, a sort mismatch, an unbalanced
+    /// parenthesis, a redeclaration, and a NUL byte, which would end the C string Z3 reads.
+    const UNREADABLE_SCRIPTS: [&str; 5] = [
+        "(assert (> b 0))",
+        "(declare-sort S 0)\n(declare-const a S)\n(assert (> a 0))",
+        "(declare-const a Int",
+        "(declare-const a Int)\n(declare-const a Int)",
+        "(declare-const a Int)\u{0}\n(assert (> a 0))",
+    ];
+
+    /// A script Z3 does not read is rejected with a message, never loaded for a check that would
+    /// answer about none of its assertions. A rejection leaves nothing behind on the thread's
+    /// context: the next script loads and is checked as written.
+    #[test]
+    fn load_rejects_every_script_z3_does_not_read() {
+        for script in UNREADABLE_SCRIPTS {
+            match load(&Solver::new(), script) {
+                Err(RejectedScript { message }) => assert!(!message.is_empty(), "{script:?}"),
+                Ok(()) => panic!("Z3 loaded the unreadable script {script:?}"),
+            }
+            let solver = Solver::new();
+            assert_eq!(
+                load(
+                    &solver,
+                    "(declare-const a Int)\n(assert (> a 0))\n(assert (< a 0))"
+                ),
+                Ok(()),
+                "after {script:?}"
+            );
+            assert_eq!(solver.check(), SatResult::Unsat, "after {script:?}");
+        }
+        // Z3 adds none of a rejected script's assertions, so a check of it answers `sat` even
+        // when the script asserts `false` before its error: the answer every rejected script
+        // got while the error went unread.
+        let solver = Solver::new();
+        assert!(load(&solver, "(assert false)\n(assert (> b 0))").is_err());
+        assert_eq!(solver.check(), SatResult::Sat);
+    }
+
+    /// Whether a query stopped on a prelude Z3 rejected.
+    fn stopped_on_a_malformed_prelude(stopped: Result<(), StopCause>) -> bool {
+        matches!(
+            stopped,
+            Err(StopCause::SolverPrelude(PreludeFailure::Malformed(message))) if !message.is_empty()
+        )
+    }
+
+    /// A prelude Z3 does not read states none of its axioms, so no answer under it means
+    /// anything: the prelude check fails with Z3's rejection, and every query stops, whether it
+    /// is the query that finds the rejection or a later one. A user prelude that redeclares a
+    /// function the definition's `smtlib` attribute declares (`bitwise`) is such a prelude.
+    #[test]
+    fn a_prelude_z3_rejects_stops_the_query_that_finds_it_and_every_later_one() {
+        let definition = definition();
+        for prelude in UNREADABLE_SCRIPTS
+            .into_iter()
+            .chain(["(declare-fun bitwise (Int Int) Int)"])
+        {
+            let checked = Z3Solver::with_prelude(&definition, prelude).unwrap();
+            assert!(
+                stopped_on_a_malformed_prelude(cause(checked.check_prelude())),
+                "{prelude:?}"
+            );
+            assert!(
+                matches!(
+                    checked.prelude_signal.failure(),
+                    Some(PreludeFailure::Malformed(_))
+                ),
+                "{prelude:?}"
+            );
+            for (first, finds) in queries() {
+                let solver = Z3Solver::with_prelude(&definition, prelude).unwrap();
+                assert!(
+                    stopped_on_a_malformed_prelude(finds(&solver)),
+                    "{first} finds the rejection of {prelude:?}"
+                );
+                for (later, query) in queries() {
+                    assert!(
+                        stopped_on_a_malformed_prelude(query(&solver)),
+                        "{later} after {first} under {prelude:?}"
+                    );
+                    assert!(
+                        stopped_on_a_malformed_prelude(query(&checked)),
+                        "{later} after the check of {prelude:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A definition whose `bogus` is hooked to an operator Z3 does not have, so every query that
+    /// translates an application of it is a script Z3 rejects, while the prelude loads.
+    fn unreadable_hook_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                symbol bogus{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("no-such-operator")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// A query whose script Z3 rejects is a failure of that query, never an answer: not `Sat`
+    /// (which Z3 would give for the empty formula it holds), not a validity, not a model of
+    /// default values. The rejection is not cached, and it does not show the prelude consistent:
+    /// the prelude is solved on its own before the rejection is blamed on the query.
+    #[test]
+    fn a_query_z3_rejects_answers_nothing_and_is_not_cached() {
+        let definition = unreadable_hook_definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let bogus = [Predicate::Term(term(
+            &definition,
+            r#"bogus{}(X:SortInt{}, \dv{SortInt{}}("0"))"#,
+        ))];
+        fn rejected<T>(answer: &Result<Result<T, SmtError>, StopCause>) -> bool {
+            matches!(
+                answer,
+                Ok(Err(SmtError::MalformedScript { message })) if !message.is_empty()
+            )
+        }
+
+        let first: Result<Result<Satisfiability, SmtError>, StopCause> =
+            cause(solver.is_sat(&bogus, &Substitution::new()));
+        assert!(rejected(&first), "{first:?}");
+        assert_eq!(
+            solver.uncached_solve_count.load(Ordering::Relaxed),
+            2,
+            "the query and the prelude"
+        );
+        assert!(matches!(
+            *solver.prelude_state.lock().unwrap(),
+            PreludeState::Consistent
+        ));
+        let again = cause(solver.is_sat(&bogus, &Substitution::new()));
+        assert!(rejected(&again), "{again:?}");
+        assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 3);
+
+        let validity: Result<Result<Validity, SmtError>, StopCause> =
+            cause(solver.check_predicates(&[], &Substitution::new(), &bogus));
+        assert!(rejected(&validity), "{validity:?}");
+        let model: Result<Result<ModelResult, SmtError>, StopCause> =
+            cause(solver.get_model(&ModelQuery::for_solver_tests(&bogus, &Substitution::new())));
+        assert!(rejected(&model), "{model:?}");
+        // A query the solver reads still answers.
+        assert_eq!(
+            cause(solver.is_sat(&[], &Substitution::new())),
+            Ok(Ok(Satisfiability::Sat))
+        );
+    }
+
+    /// A model query whose script Z3 rejects is a failure too, and when it is the solver's first
+    /// query the prelude is checked before the rejection is blamed on the query.
+    #[test]
+    fn a_rejected_model_query_checks_the_prelude_first() {
+        let definition = unreadable_hook_definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let bogus = [Predicate::Term(term(
+            &definition,
+            r#"bogus{}(X:SortInt{}, \dv{SortInt{}}("0"))"#,
+        ))];
+        let model =
+            cause(solver.get_model(&ModelQuery::for_solver_tests(&bogus, &Substitution::new())));
+        assert!(
+            matches!(model, Ok(Err(SmtError::MalformedScript { .. }))),
+            "{model:?}"
+        );
+        assert!(matches!(
+            *solver.prelude_state.lock().unwrap(),
+            PreludeState::Consistent
+        ));
+        assert_eq!(solver.uncached_solve_count.load(Ordering::Relaxed), 1);
+    }
+
+    /// Whether each kind of query of `predicates` fails because Z3 rejects its script.
+    fn every_query_is_rejected(solver: &Z3Solver, predicates: &[Predicate]) -> bool {
+        fn rejected<T>(answer: Result<Result<T, SmtError>, StopCause>) -> bool {
+            matches!(answer, Ok(Err(SmtError::MalformedScript { message })) if !message.is_empty())
+        }
+        rejected(cause(solver.is_sat(predicates, &Substitution::new())))
+            && rejected(cause(solver.check_predicates(
+                &[],
+                &Substitution::new(),
+                predicates,
+            )))
+            && rejected(cause(solver.get_model(&ModelQuery::for_solver_tests(
+                predicates,
+                &Substitution::new(),
+            ))))
+    }
+
+    /// A script the translation wrote without any text of the definition or the user, here one
+    /// naming a sort the prelude does not declare, is a defect of k-rust when Z3 rejects it: a
+    /// debug build panics with Z3's message and the script, and a release build returns the
+    /// typed failure.
+    #[test]
+    #[cfg_attr(
+        debug_assertions,
+        should_panic(
+            expected = "Z3 rejected an SMT-LIB script k-rust's translation wrote by itself"
+        )
+    )]
+    fn a_rejected_script_the_translation_wrote_by_itself_is_a_defect_of_k_rust() {
+        let definition = definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let undeclared = Term::variable(Variable::new("U", Sort::simple("SortUndeclared")));
+        assert!(every_query_is_rejected(
+            &solver,
+            &[Predicate::Equals(undeclared.clone(), undeclared)]
+        ));
+    }
+
+    /// A rejection that text the translation did not write may cause is the definition's or the
+    /// user's, and stays a typed failure in a debug build too: an `smtlib` function whose name
+    /// is a name the query writes (the query's fresh `SMT-1` is redeclared), a user prelude
+    /// (which declares that name itself), and a domain value whose text is no SMT-LIB literal,
+    /// which the translation copies. An `smt-hook` Z3 does not have is the case of
+    /// `a_query_z3_rejects_answers_nothing_and_is_not_cached`.
+    #[test]
+    fn a_rejection_of_text_the_translation_did_not_write_is_a_typed_failure() {
+        let clashing = BackendDefinition::internalize(
+            &parse_definition(
+                r#"[]
+                module MAIN
+                    hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                    hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                    symbol c{}() : SortInt{} [function{}(), total{}(), smtlib{}("|SMT-1|")]
+                endmodule []"#,
+            )
+            .expect("definition should parse"),
+            "MAIN",
+        )
+        .expect("definition should internalize");
+        let solver = Z3Solver::new(&clashing).unwrap();
+        assert!(every_query_is_rejected(&solver, &x_is_one()), "smtlib");
+
+        let definition = definition();
+        let solver = Z3Solver::with_prelude(&definition, "(declare-const SMT-1 Int)").unwrap();
+        assert!(every_query_is_rejected(&solver, &x_is_one()), "prelude");
+
+        let solver = Z3Solver::new(&definition).unwrap();
+        let not_a_literal = [Predicate::Equals(
+            Term::variable(x()),
+            Term::raw_domain_value(Sort::simple("SortInt"), "one"),
+        )];
+        assert!(every_query_is_rejected(&solver, &not_a_literal), "literal");
+    }
+
+    /// K symbols that name one `smtlib` function with one SMT signature stand for one function,
+    /// declared once, so the prelude loads.
+    #[test]
+    fn symbols_sharing_an_smtlib_function_declare_it_once() {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                symbol f{}(SortInt{}) : SortInt{} [function{}(), total{}(), smtlib{}("ff")]
+                symbol g{}(SortInt{}) : SortInt{} [function{}(), total{}(), smtlib{}("ff")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        let definition =
+            BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize");
+        let solver = Z3Solver::new(&definition).unwrap();
+        assert_eq!(
+            solver
+                .prelude
+                .declarations()
+                .iter()
+                .filter(|declaration| declaration.as_str() == "(declare-fun ff (Int) Int)")
+                .count(),
+            1
+        );
+        assert_eq!(cause(solver.check_prelude()), Ok(()));
+    }
+
     /// A query posed under a cancelled request stops with the cancellation before it reaches the
     /// cache or Z3, and records nothing about the prelude: it stays unchecked even when it is
     /// inconsistent, and the first check after the cancellation finds that.
@@ -1747,8 +2260,9 @@ mod tests {
                     let mut queried = Vec::new();
                     let actual = decide_validity(|subquery| {
                         queried.push(subquery);
-                        Ok(fixed(subquery))
+                        Ok(Ok::<_, SmtError>(fixed(subquery)))
                     })
+                    .unwrap()
                     .unwrap();
 
                     if matches!(base, Outcome::Sat) || !matches!(positive, Outcome::Sat) {
@@ -2049,5 +2563,365 @@ mod tests {
                 "{checked:?} under {known:?}"
             );
         }
+    }
+
+    /// A definition whose `Float`, `MInt{8}` and renamed-`Int` operations carry the `smt-hook`s
+    /// `domains.md` gives them (and `fg.gt`, which names no SMT-LIB function): the solver
+    /// interprets none of these sorts.
+    fn uninterpreted_sort_hook_definition() -> BackendDefinition {
+        let syntax = parse_definition(
+            r#"[]
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+                hooked-sort SortFloat{} [hook{}("FLOAT.Float"), hasDomainValues{}()]
+                hooked-sort SortMInt{S} [hook{}("MINT.MInt"), hasDomainValues{}()]
+                sort Sort8{} []
+                hooked-sort SortMyInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                symbol ltInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("<")]
+                symbol gtInt{}(SortInt{}, SortInt{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}(">")]
+                symbol isNaN{}(SortFloat{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("fp.isNaN")]
+                symbol gtFloat{}(SortFloat{}, SortFloat{}) : SortBool{}
+                    [function{}(), smt-hook{}("fg.gt")]
+                symbol ultMInt{}(SortMInt{Sort8{}}, SortMInt{Sort8{}}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("bvult")]
+                symbol eqMInt{}(SortMInt{Sort8{}}, SortMInt{Sort8{}}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}("=")]
+                symbol int2MInt{}(SortInt{}) : SortMInt{Sort8{}}
+                    [function{}(), total{}(), smt-hook{}("int2bv")]
+                symbol mint2Unsigned{}(SortMInt{Sort8{}}) : SortInt{}
+                    [function{}(), total{}(), smt-hook{}("bv2int")]
+                symbol addMyInt{}(SortMyInt{}, SortMyInt{}) : SortMyInt{}
+                    [function{}(), total{}(), smt-hook{}("+")]
+                symbol gtMyInt{}(SortMyInt{}, SortMyInt{}) : SortBool{}
+                    [function{}(), total{}(), smt-hook{}(">")]
+                symbol iteK{S}(SortBool{}, S, S) : S
+                    [function{}(), total{}(), smt-hook{}("ite")]
+            endmodule []"#,
+        )
+        .expect("definition should parse");
+        BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+    }
+
+    /// An atom over a sort the solver does not interpret is an opaque Boolean, so the `Int`
+    /// facts beside it stay decidable: `X >Int 5 ∧ X <Int 3` is refuted whatever the atom says,
+    /// and `X >Int 5` still implies `X >Int 4` beside it.
+    #[test]
+    fn hooks_over_uninterpreted_sorts_leave_the_int_facts_decidable() {
+        let definition = uninterpreted_sort_hook_definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let fact = |source: &str| Predicate::Term(term(&definition, source));
+        let above = |bound: &str| {
+            fact(&format!(
+                r#"gtInt{{}}(X:SortInt{{}}, \dv{{SortInt{{}}}}("{bound}"))"#
+            ))
+        };
+        let below_three = fact(r#"ltInt{}(X:SortInt{}, \dv{SortInt{}}("3"))"#);
+        for atom in [
+            "isNaN{}(F:SortFloat{})",
+            "gtFloat{}(F:SortFloat{}, G:SortFloat{})",
+            "ultMInt{}(A:SortMInt{Sort8{}}, B:SortMInt{Sort8{}})",
+            "eqMInt{}(int2MInt{}(X:SortInt{}), int2MInt{}(Y:SortInt{}))",
+            "gtMyInt{}(addMyInt{}(M:SortMyInt{}, N:SortMyInt{}), M:SortMyInt{})",
+            r#"eqMInt{}(iteK{SortMInt{Sort8{}}}(C:SortBool{}, A:SortMInt{Sort8{}}, B:SortMInt{Sort8{}}), A:SortMInt{Sort8{}})"#,
+        ] {
+            let atom = fact(atom);
+            assert_eq!(
+                cause(solver.is_sat(
+                    &[atom.clone(), above("5"), below_three.clone()],
+                    &Substitution::new()
+                )),
+                Ok(Ok(Satisfiability::Unsat)),
+                "{atom:?}"
+            );
+            assert_eq!(
+                cause(solver.check_predicates(
+                    &[atom.clone(), above("5")],
+                    &Substitution::new(),
+                    &[above("4")]
+                )),
+                Ok(Ok(Validity::Valid)),
+                "{atom:?}"
+            );
+            assert_eq!(
+                cause(solver.is_sat(std::slice::from_ref(&atom), &Substitution::new())),
+                Ok(Ok(Satisfiability::Sat)),
+                "{atom:?}"
+            );
+        }
+    }
+
+    /// `MInt2Unsigned(Int2MInt(X)) <Int 0` holds of no 8-bit machine integer, but the solver
+    /// does not interpret `MInt`, so it reads the `MInt2Unsigned` value as an unconstrained
+    /// integer: the query is `Sat` of an approximate translation, which shows no K valuation, so
+    /// no model is returned for it.
+    #[test]
+    fn an_int_over_a_machine_integer_has_no_model_as_a_k_valuation() {
+        let definition = uninterpreted_sort_hook_definition();
+        let solver = Z3Solver::new(&definition).unwrap();
+        let negative = Predicate::Term(term(
+            &definition,
+            r#"ltInt{}(mint2Unsigned{}(int2MInt{}(X:SortInt{})), \dv{SortInt{}}("0"))"#,
+        ));
+        assert_eq!(
+            crate::smt::translation_exactness(std::slice::from_ref(&negative)),
+            crate::smt::Exactness::Approximate
+        );
+        assert_eq!(
+            cause(solver.is_sat(std::slice::from_ref(&negative), &Substitution::new())),
+            Ok(Ok(Satisfiability::Sat))
+        );
+        assert_eq!(
+            cause(solver.get_model(&ModelQuery::for_solver_tests(
+                &[negative],
+                &Substitution::new()
+            ))),
+            Ok(Ok(ModelResult::Unknown(APPROXIMATE_MODEL_REASON.into())))
+        );
+    }
+
+    /// The `requires` `2 ^Int X ==Int 3` of a rule, as the backend writes it for Z3. It is
+    /// satisfiable (`X = -1`, with the power outside the integers equal to 3), and Z3 either
+    /// decides it in a few thousand resource units or takes a path on which it never decides it;
+    /// which path it takes depends on everything the Z3 context it runs in has seen.
+    const PATH_SENSITIVE_QUERY: &str = r#"(declare-sort |SortFloat| 0)
+(declare-sort |SortGeneratedCounterCell| 0)
+(declare-sort |SortGeneratedCounterCellOpt| 0)
+(declare-sort |SortGeneratedTopCell| 0)
+(declare-sort |SortGeneratedTopCellFragment| 0)
+(declare-sort |SortK| 0)
+(declare-sort |SortKCell| 0)
+(declare-sort |SortKCellOpt| 0)
+(declare-sort |SortKConfigVar| 0)
+(declare-sort |SortKItem| 0)
+(declare-sort |SortList| 0)
+(declare-sort |SortMInt| 1)
+(declare-sort |SortMap| 0)
+(declare-sort |SortPgm| 0)
+(declare-sort |SortSet| 0)
+(declare-sort |SortString| 0)
+(declare-fun |KRUST-POWER-OUTSIDE-THE-INTEGERS| (Int Int) Real)
+(declare-fun smt_seq_nil () |SortList|)
+(declare-fun notInt (Int) Int)
+(declare-fun smt_seq_concat (|SortList| |SortList|) |SortList|)
+(declare-fun xorInt (Int Int) Int)
+(declare-fun shrInt (Int Int) Int)
+(declare-fun shlInt (Int Int) Int)
+(declare-fun andInt (Int Int) Int)
+(declare-fun orInt (Int Int) Int)
+(declare-fun smt_seq_elem (|SortKItem|) |SortList|)
+(declare-fun smt_seq_len (|SortList|) Int)
+(assert (forall ((KRUST-COLLECTION |SortList|)) (>= (smt_seq_len KRUST-COLLECTION) 0)))
+(declare-const SMT-2 Int)
+(declare-const SMT-1 Bool)
+(assert (and SMT-1 (= (ite (or (>= SMT-2 0) (= 2 1) (= 2 (- 1))) (^ 2 SMT-2) (|KRUST-POWER-OUTSIDE-THE-INTEGERS| 2 SMT-2)) 3)))"#;
+
+    /// A clock-free attempt limit about thirty times what the decided path of
+    /// [`PATH_SENSITIVE_QUERY`] consumes (under 1,000 units), so that only the path decides the
+    /// answer.
+    const PATH_SENSITIVE_OPTIONS: Z3Options = Z3Options {
+        timeout_ms: 125,
+        retry_limit: 0,
+        resource_limit: NonZeroU32::new(20_000),
+    };
+
+    /// A nonlinear integer query Z3 does not decide within [`PATH_SENSITIVE_OPTIONS`]: one such
+    /// check on a context is enough to change the path Z3 later takes on
+    /// [`PATH_SENSITIVE_QUERY`] there.
+    const NONLINEAR_QUERY: &str = "(declare-const x Int)\n(declare-const y Int)\n\
+        (declare-const z Int)\n(assert (> x 1))\n(assert (> y 1))\n(assert (> z 1))\n\
+        (assert (= (+ (* x x x) (* y y y)) (* z z z)))";
+
+    /// The answers of `count` uncached checks of `script` by `solver`, as `S`, `U` or `?`.
+    fn answers(solver: &Z3Solver, script: &str, count: usize) -> String {
+        (0..count)
+            .map(|_| match cause(solver.solve_uncached(script)) {
+                Ok(Ok(Satisfiability::Sat)) => 'S',
+                Ok(Ok(Satisfiability::Unsat)) => 'U',
+                Ok(Ok(Satisfiability::Unknown(_))) => '?',
+                other => panic!("{other:?}"),
+            })
+            .collect()
+    }
+
+    /// The answers of `count` checks of `script` on the thread's own Z3 context, by another Z3
+    /// user than the backend (checked sort inference, say), as `S`, `U` or `?`, each with the
+    /// resource limit of [`PATH_SENSITIVE_OPTIONS`].
+    fn thread_context_answers(script: &str, count: usize) -> String {
+        (0..count)
+            .map(|_| {
+                let solver = Solver::new();
+                let mut parameters = Params::new();
+                parameters.set_u32(
+                    "rlimit",
+                    PATH_SENSITIVE_OPTIONS.resource_limit.unwrap().get(),
+                );
+                solver.set_params(&parameters);
+                solver.from_string(script);
+                match solver.check() {
+                    SatResult::Sat => 'S',
+                    SatResult::Unsat => 'U',
+                    SatResult::Unknown => '?',
+                }
+            })
+            .collect()
+    }
+
+    /// A query's answer is a function of the query and the attempt's limit: it is the same on a
+    /// fresh thread, after unrelated Z3 work on the thread's own context (checked sort inference
+    /// runs there), and on every repetition, so two runs of one request, in one process or in
+    /// two, decide it alike.
+    #[test]
+    fn an_answer_does_not_depend_on_earlier_z3_work_on_the_thread() {
+        let run = |unrelated: bool| {
+            std::thread::spawn(move || {
+                if unrelated {
+                    assert_eq!(thread_context_answers(NONLINEAR_QUERY, 1), "?");
+                }
+                let solver = Z3Solver::with_options(&definition(), PATH_SENSITIVE_OPTIONS).unwrap();
+                answers(&solver, PATH_SENSITIVE_QUERY, 10)
+            })
+            .join()
+            .unwrap()
+        };
+        let fresh = run(false);
+        assert_eq!(fresh, "S".repeat(10));
+        assert_eq!(run(true), fresh);
+    }
+
+    /// The backend's queries leave the thread's own Z3 context as they found it, so another Z3
+    /// user on the thread answers as it would had the backend never run.
+    #[test]
+    fn backend_queries_do_not_change_another_z3_users_answers_on_the_thread() {
+        let run = |backend: bool| {
+            std::thread::spawn(move || {
+                if backend {
+                    let solver =
+                        Z3Solver::with_options(&definition(), PATH_SENSITIVE_OPTIONS).unwrap();
+                    assert_eq!(answers(&solver, NONLINEAR_QUERY, 1), "?");
+                }
+                thread_context_answers(PATH_SENSITIVE_QUERY, 10)
+            })
+            .join()
+            .unwrap()
+        };
+        let fresh = run(false);
+        assert_eq!(fresh, "S".repeat(10));
+        assert_eq!(run(true), fresh);
+    }
+
+    /// The feasibility check `H *Int I ==Int 2021027 andBool 1 <Int H andBool H <Int I` of a
+    /// rule, as the backend writes it for Z3. It is satisfiable (`2021027 = 1009 * 2003`), and the
+    /// path Z3 takes on it from a fresh context does not decide it.
+    const FACTORING_QUERY: &str = r#"(declare-sort |SortACell| 0)
+(declare-sort |SortACellOpt| 0)
+(declare-sort |SortBCell| 0)
+(declare-sort |SortBCellOpt| 0)
+(declare-sort |SortCCell| 0)
+(declare-sort |SortCCellOpt| 0)
+(declare-sort |SortDCell| 0)
+(declare-sort |SortDCellOpt| 0)
+(declare-sort |SortECell| 0)
+(declare-sort |SortECellOpt| 0)
+(declare-sort |SortFCell| 0)
+(declare-sort |SortFCellOpt| 0)
+(declare-sort |SortGCell| 0)
+(declare-sort |SortGCellOpt| 0)
+(declare-sort |SortGeneratedCounterCell| 0)
+(declare-sort |SortGeneratedTopCell| 0)
+(declare-sort |SortGeneratedTopCellFragment| 0)
+(declare-sort |SortHCell| 0)
+(declare-sort |SortHCellOpt| 0)
+(declare-sort |SortICell| 0)
+(declare-sort |SortICellOpt| 0)
+(declare-sort |SortK| 0)
+(declare-sort |SortKCell| 0)
+(declare-sort |SortKCellOpt| 0)
+(declare-sort |SortKConfigVar| 0)
+(declare-sort |SortKItem| 0)
+(declare-sort |SortList| 0)
+(declare-sort |SortMInt| 1)
+(declare-sort |SortMap| 0)
+(declare-sort |SortPgm| 0)
+(declare-sort |SortSet| 0)
+(declare-fun |KRUST-POWER-OUTSIDE-THE-INTEGERS| (Int Int) Real)
+(declare-fun smt_seq_nil () |SortList|)
+(declare-fun notInt (Int) Int)
+(declare-fun smt_seq_concat (|SortList| |SortList|) |SortList|)
+(declare-fun xorInt (Int Int) Int)
+(declare-fun shrInt (Int Int) Int)
+(declare-fun shlInt (Int Int) Int)
+(declare-fun andInt (Int Int) Int)
+(declare-fun orInt (Int Int) Int)
+(declare-fun smt_seq_elem (|SortKItem|) |SortList|)
+(declare-fun smt_seq_len (|SortList|) Int)
+(assert (forall ((KRUST-COLLECTION |SortList|)) (>= (smt_seq_len KRUST-COLLECTION) 0)))
+(declare-const SMT-1 Int)
+(declare-const SMT-2 Int)
+(assert (and (= (* SMT-1 SMT-2) 2021027) (< 1 SMT-1) (< SMT-1 SMT-2)))"#;
+
+    /// A query's retries run on the context its earlier attempts left, so a retry takes another
+    /// path than theirs. The answer is still the query's own: equal on a fresh thread and after
+    /// unrelated Z3 work, on every Z3 version. Which answers those are depends on the version:
+    /// with Z3 4.16.0 the factoring check is undecided by one attempt of 1,000,000 units on a
+    /// fresh context, and decided within three attempts of 250,000, 500,000 and 1,000,000 (4.12.5
+    /// decides it within neither).
+    #[test]
+    fn a_retry_starts_from_the_querys_earlier_attempts() {
+        let options = |resource_limit: u32, retry_limit: u32| Z3Options {
+            timeout_ms: 125,
+            retry_limit,
+            resource_limit: NonZeroU32::new(resource_limit),
+        };
+        let run = |options: Z3Options, unrelated: bool| {
+            std::thread::spawn(move || {
+                if unrelated {
+                    assert_eq!(thread_context_answers(NONLINEAR_QUERY, 1), "?");
+                }
+                let solver = Z3Solver::with_options(&definition(), options).unwrap();
+                answers(&solver, FACTORING_QUERY, 1)
+            })
+            .join()
+            .unwrap()
+        };
+        let single = run(options(1_000_000, 0), false);
+        let retried = run(options(250_000, 2), false);
+        assert_eq!(run(options(1_000_000, 0), true), single);
+        assert_eq!(run(options(250_000, 2), true), retried);
+        if z3_version().starts_with("Z3 4.16.0") {
+            assert_eq!((single.as_str(), retried.as_str()), ("?", "S"));
+        }
+    }
+
+    /// A panic inside a query reaches its caller, and leaves the thread on the Z3 context it was
+    /// on before the query, not on the query's own.
+    #[test]
+    fn a_panic_inside_a_query_restores_the_threads_context() {
+        std::thread::spawn(|| {
+            // The address of the thread's context, which the query must not hold.
+            let before = z3::Context::thread_local().get_z3_context().as_ptr() as usize;
+            let caught = std::panic::catch_unwind(|| {
+                on_own_context(|| {
+                    let solver = Solver::new();
+                    assert_ne!(
+                        solver.get_context().get_z3_context().as_ptr() as usize,
+                        before
+                    );
+                    panic!("a query panics");
+                })
+            });
+            let payload = caught.expect_err("the panic reaches the caller");
+            assert_eq!(payload.downcast_ref::<&str>(), Some(&"a query panics"));
+            assert_eq!(
+                z3::Context::thread_local().get_z3_context().as_ptr() as usize,
+                before
+            );
+            assert_eq!(thread_context_answers(PATH_SENSITIVE_QUERY, 1), "S");
+        })
+        .join()
+        .unwrap();
     }
 }

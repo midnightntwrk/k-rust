@@ -23,7 +23,7 @@
 //! Every response carries the same `id` and either `result` or an `error` object with a string `message` field.
 //!
 //! `definition.load` requires string `module` (the main module) and `definition_ir` (a path to emitted Definition IR) before definition-dependent operations.
-//! `kore.digest`, `kore.attributes`, `kore.instances`, `ir.query`, `registration.table`, and the `kast.*` operations may precede it.
+//! `kore.digest`, `kore.attributes`, `kore.instances`, `ir.query`, `registration.table`, `expansion.digest`, and the `kast.*` operations may precede it.
 //! Loading uses the same Definition IR reader and compilation API as `compile`, then constructs [`k_rust::backend::Backend`] from the compiled KORE and retains its frontend definition and variable sorts.
 //! Its result contains the loaded `module` and `definition_kore_sha256`, the lowercase SHA-256 hex digest of the compiled KORE text bytes, identical to the bytes written by `compile`.
 //! `definition.load` may be requested only once per session, including when loading fails.
@@ -58,10 +58,15 @@
 //! `crate_name` is the library crate name at the start of `module_path!()`, and `facade_alias` is the dependency name through which authored code names the KRS facade.
 //! It calls [`krs_expand::whole_file::expand_file`] with whole-file selection, module path `[crate_name]`, facade path `::<facade_alias>`, and `display_file` as the generated-file map label.
 //! Expansion failures return an error message listing every diagnostic's code and message.
-//! Its result contains `table`, the exact text [`krs_expand::whole_file::registration_table`] appends to that expansion, `requests_framework` (boolean), and `registrations` in expansion order.
+//! Its result contains `table`, the exact text [`krs_expand::whole_file::registration_table`] appends to that expansion, and `registrations` in expansion order.
 //! Each registration contains `module_path` (string array starting with the crate name), `factory` (string), and `cfg` (array of Rust attribute strings).
 //! The table preserves cfg attributes and uses the expansion's facade path rendered as tokens with spaces removed.
 //! The operation fails unless the generated file ends with exactly that table.
+//! `expansion.digest` operates independently of a loaded definition and requires string `source`, `display_file`, and `facade_alias` fields and a nonempty string array `module_path`, the file's module path starting with the crate name.
+//! Unknown request fields are errors.
+//! It calls [`krs_expand::whole_file::expand_file`] as `registration.table` does, with that module path, and digests what the macros hand rustc.
+//! Its result contains `text_sha256`, the SHA-256 of the generated text; `source_map_sha256`, the SHA-256 of the compact JSON of the generated text's source map (its version, file labels, every invocation's kind, call site, replaced range and parent, and every segment's generated range, class, authored range, owner and respanned range); and the `invocations` and `segments` counts.
+//! A file the expander refuses (for example one that defines descriptors in an inline module, which the crate-root registration table cannot name) is an observation, not an error: the result then contains instead `refusal_sha256`, the SHA-256 of the compact JSON of every diagnostic's code, message, class, authored range and invocation, and the `diagnostics` count.
 //! `ir.query` requires `artifacts` (an `emit-k` output directory) and a closed `query` object with `kind` and the parameters documented below.
 //! It operates independently of a loaded definition and reads only the artifacts required by the selected query.
 //! Descriptor, Semantic IR, and Definition IR inputs use [`krs_ir::json::from_slice`] with [`krs_ir::DescriptorBundle`], [`krs_ir_levels::SemanticTheory`], and [`krs_ir_levels::DefinitionIr`].
@@ -99,7 +104,7 @@
 //! `kind: "descriptor_details"` accepts exact `module_path` and `item_name` filters and `public_only` (default false).
 //! It returns `{rows}` with `module_path`, `item_name`, `item_kind`, exact `visibility`, optional `explicit_symbol`, and opaque `normalized` descriptors.
 //! Normalized descriptors remove provenance recursively and reduce every package to its `k_namespace`; all other descriptor fields remain exact.
-//! `kind: "head_rule_walkthrough"` requires `item_name` and selects exactly one head rule with a declared named-argument subject and builtin positional-variable replacement.
+//! `kind: "head_rule_walkthrough"` requires `item_name` and selects exactly one head rule with a declared named-argument subject and builtin or operator positional-variable replacement (`builtin:<operation>` or `operator:<operator>`).
 //! It returns `{id,kind,sentence_kind,label,configuration,cell,bindings,subject,result}`.
 //! `subject` and `result` each contain `application` and ordered `arguments`; builtin application names carry the `builtin:` prefix.
 //! Unsupported walkthrough shapes and ambiguous identities are errors.

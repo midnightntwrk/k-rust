@@ -3083,3 +3083,271 @@ fn terms_of_any_depth_are_injected_and_converted_on_a_small_stack() {
         .join()
         .expect("the worker should finish");
 }
+
+/// An `anywhere` rule and a rule whose top rewrite's left side is a function application state
+/// that the left side equals the right side at the left side's sort, so the right side must lie at
+/// or below it. Source text with another right side is refused by the parser; a structured edit
+/// (`LoadedDefinition::with_definition`) is refused by injection with the same requirement.
+mod equation_right_sides {
+    use k_rust::builtin;
+    use k_rust::definition::{AttributeKey, Sentence};
+    use k_rust::kast::Term;
+    use k_rust::kompile::{
+        CompilationBackend, CompileError, CompileOptions, SentenceTyper, SentenceTypingError,
+        compile_loaded_definition,
+    };
+    use k_rust::outer::{LoadOptions, LoadedDefinition, ResolvedSource, load_for_compilation};
+
+    /// Module EQ with `head` (the declarations of `A`'s production), `B ::= b(Int)`, `A2 ::=
+    /// a2(Int)` below `A`, `lattice`, and the rules `edited` (labelled `e`), `bb: b(X) => b(X)`
+    /// and `aa2: a2(X) => a2(X)`, whose right sides an edit splices into `e`.
+    fn source(head: &str, lattice: &str, edited: &str) -> String {
+        format!(
+            "module EQ-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= go(Int) [symbol(go)]
+endmodule
+
+module EQ
+  imports EQ-SYNTAX
+  imports INT
+  {head}
+  syntax A2 ::= a2(Int) [symbol(a2)]
+  syntax A ::= A2
+  syntax B ::= b(Int) [symbol(b)]
+  {lattice}
+  configuration <k> $PGM:Pgm </k>
+  rule [go]: go(X) => a2(X)
+  rule [e]: {edited}
+  rule [bb]: b(X) => b(X)
+  rule [aa2]: a2(X) => a2(X)
+endmodule
+"
+        )
+    }
+
+    fn load(name: &str, text: &str) -> LoadedDefinition {
+        let mut resolver = |_: &str, required: &str| {
+            builtin::embedded(required).ok_or_else(|| required.to_owned())
+        };
+        load_for_compilation(
+            ResolvedSource::new(name, text.to_owned()),
+            "EQ",
+            None,
+            &mut resolver,
+            &LoadOptions {
+                implicit_sources: vec![builtin::embedded("prelude.md").unwrap()],
+                excluded_module_attributes: vec![
+                    CompilationBackend::Rust
+                        .excluded_module_attribute()
+                        .to_owned(),
+                ],
+                ..LoadOptions::default()
+            },
+        )
+        .unwrap_or_else(|error| panic!("{name}: {error}"))
+        .0
+    }
+
+    fn labelled<'a>(loaded: &'a LoadedDefinition, label: &str) -> &'a Sentence {
+        loaded
+            .definition()
+            .modules
+            .iter()
+            .flat_map(|module| module.local_sentences.iter())
+            .map(|sentence| &**sentence)
+            .find(|sentence| sentence.attributes().string(AttributeKey::Label) == Some(label))
+            .unwrap_or_else(|| panic!("no sentence {label}"))
+    }
+
+    fn right_side(sentence: &Sentence) -> Term {
+        let Sentence::Rule { body, .. } = sentence else {
+            panic!("a rule")
+        };
+        let Term::Rewrite { right, .. } = body.unannotated() else {
+            panic!("a top rewrite: {body}")
+        };
+        right.as_ref().clone()
+    }
+
+    /// `loaded` with the right side of rule `e` replaced by the right side of rule `from`.
+    fn spliced(loaded: &LoadedDefinition, from: &str) -> LoadedDefinition {
+        fn set_right(term: &mut Term, right: Term) {
+            match term {
+                Term::Annotated { term, .. } => set_right(term, right),
+                Term::Rewrite { right: slot, .. } => **slot = right,
+                other => panic!("not a rewrite: {other}"),
+            }
+        }
+        let right = right_side(labelled(loaded, from));
+        let mut definition = loaded.definition().clone();
+        let slot = definition
+            .modules
+            .iter_mut()
+            .flat_map(|module| module.local_sentences.iter_mut())
+            .find(|sentence| sentence.attributes().string(AttributeKey::Label) == Some("EQ.e"))
+            .unwrap();
+        let Sentence::Rule { body, .. } = k_rust::definition::sentence_mut(slot) else {
+            panic!("a rule")
+        };
+        set_right(body, right);
+        loaded
+            .with_definition(definition)
+            .expect("the edit stays at the loaded stage")
+    }
+
+    fn compiled(loaded: &LoadedDefinition) -> Result<String, CompileError> {
+        compile_loaded_definition(loaded, CompileOptions::default())
+            .map(|artifacts| artifacts.definition_kore)
+    }
+
+    /// The axiom labelled `EQ.e`, without its attributes (they hold the edited rule's original
+    /// source location).
+    fn equation(kore: &str) -> &str {
+        let at = kore.find("label{}(\"EQ.e\")").expect("the axiom of e");
+        let start = kore[..at].rfind("axiom{").expect("an axiom");
+        let end = start + kore[start..].find("\n    [").expect("its attributes");
+        &kore[start..end]
+    }
+
+    const CONSTRUCTOR: &str = "syntax A ::= a(Int) [symbol(a)]";
+    const FUNCTION: &str = "syntax A ::= a(Int) [symbol(a), function]";
+    const SUPERSORT: &str = "syntax C ::= A | B";
+
+    /// The edits whose right side `b(X)` is of `B`, not at or below the left side's `A`: an
+    /// `anywhere` rule over a constructor or a function, under a common supersort `C` or none,
+    /// and a function rule. Each is refused at injection, at the rule's location.
+    #[test]
+    fn an_equation_whose_right_side_is_not_below_its_left_side_is_refused() {
+        for (name, head, lattice, rule) in [
+            (
+                "anywhere constructor",
+                CONSTRUCTOR,
+                SUPERSORT,
+                "a(X) => a2(X) [anywhere]",
+            ),
+            (
+                "anywhere function",
+                FUNCTION,
+                SUPERSORT,
+                "a(X) => a2(X) [anywhere]",
+            ),
+            (
+                "anywhere without a common supersort",
+                CONSTRUCTOR,
+                "",
+                "a(X) => a2(X) [anywhere]",
+            ),
+            ("function rule", FUNCTION, SUPERSORT, "a(X) => a2(X)"),
+        ] {
+            let loaded = load("eq.k", &source(head, lattice, rule));
+            assert!(compiled(&loaded).is_ok(), "{name}: the text compiles");
+            let edited = spliced(&loaded, "EQ.bb");
+            let error = compiled(&edited).expect_err(name);
+            assert_eq!(error.stage, "add sort injections", "{name}: {error}");
+            assert!(
+                error.message.contains("eq.k:16:")
+                    && error.message.contains(
+                        "has sort B, which is not a subsort of the sort A its position requires"
+                    ),
+                "{name}: {error}"
+            );
+            // Compilation's view returns the same error.
+            let typer = SentenceTyper::for_compilation(edited.resolved()).unwrap();
+            let Err(SentenceTypingError::Sort { error: typed, .. }) =
+                typer.typing_in(labelled(&edited, "EQ.e"), "EQ")
+            else {
+                panic!("{name}: the view types the edit")
+            };
+            assert!(
+                error.message.contains(&typed.to_string()),
+                "{name}: {error}\n{typed}"
+            );
+        }
+    }
+
+    /// The same edits with a right side below the left side's sort (`a2(X)` of `A2`, below `A`)
+    /// compile to the equation the text compiles to, and their view types.
+    #[test]
+    fn an_equation_whose_right_side_is_below_its_left_side_compiles_as_its_text() {
+        for (name, head, rule) in [
+            (
+                "anywhere constructor",
+                CONSTRUCTOR,
+                "a(X) => RIGHT [anywhere]",
+            ),
+            ("anywhere function", FUNCTION, "a(X) => RIGHT [anywhere]"),
+            ("function rule", FUNCTION, "a(X) => RIGHT"),
+        ] {
+            let text = |right: &str| source(head, SUPERSORT, &rule.replace("RIGHT", right));
+            // The edit splices `aa2`'s right side `a2(X)` into the rule written `a(X) => a(X)`.
+            let edited = spliced(&load("eq.k", &text("a(X)")), "EQ.aa2");
+            let kore = compiled(&edited).unwrap_or_else(|error| panic!("{name}: {error}"));
+            let written = compiled(&load("eq.k", &text("a2(X)")))
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+            assert_eq!(equation(&kore), equation(&written), "{name}");
+            let typer = SentenceTyper::for_compilation(edited.resolved()).unwrap();
+            typer
+                .typing_in(labelled(&edited, "EQ.e"), "EQ")
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+        }
+    }
+
+    /// Macro and simplification sentences are not checked: a macro's right side is checked by
+    /// injection where it is expanded, and a structured simplification compiles as written. A
+    /// rule headed by a macro-like production is a macro rule, `anywhere` or not, and the view
+    /// decides on its propagated macro attribute, as compilation does. Each edit splices `b(X)`
+    /// into a rule that would otherwise state an equation at `A`.
+    #[test]
+    fn macro_and_simplification_right_sides_are_compiled_as_before() {
+        for (name, head, rule) in [
+            ("simplification", FUNCTION, "a(X) => a2(X) [simplification]"),
+            (
+                "anywhere macro",
+                "syntax A ::= a(Int) [symbol(a), macro]",
+                "a(X) => a2(X) [anywhere]",
+            ),
+            (
+                "anywhere alias",
+                "syntax A ::= a(Int) [symbol(a), alias]",
+                "a(X) => a2(X) [anywhere]",
+            ),
+        ] {
+            let loaded = load("eq.k", &source(head, SUPERSORT, rule));
+            let edited = spliced(&loaded, "EQ.bb");
+            compiled(&edited).unwrap_or_else(|error| panic!("{name}: {error}"));
+            let typer = SentenceTyper::for_compilation(edited.resolved()).unwrap();
+            typer
+                .typing_in(labelled(&edited, "EQ.e"), "EQ")
+                .unwrap_or_else(|error| panic!("{name}: the view types the edit: {error}"));
+        }
+    }
+
+    /// Injection checks an equation after macro expansion: a right side `mac(X)` whose macro is
+    /// declared at `C` but expands to `a2(X)`, below `A`, compiles to a well-sorted equation, and
+    /// the view, which does not expand macros, does not refuse it.
+    #[test]
+    fn an_equation_whose_right_side_is_a_macro_is_checked_after_expansion() {
+        let macro_declarations = "syntax C ::= mac(Int) [symbol(mac), macro]
+  rule mac(X) => a2(X)
+  syntax C ::= fc(Int) [symbol(fc), function]
+  rule [fcr]: fc(X) => mac(X)";
+        for (name, head, rule) in [
+            ("function rule", FUNCTION, "a(X) => a2(X)"),
+            (
+                "anywhere constructor",
+                CONSTRUCTOR,
+                "a(X) => a2(X) [anywhere]",
+            ),
+        ] {
+            let head = format!("{head}\n  {macro_declarations}");
+            let loaded = load("eq.k", &source(&head, SUPERSORT, rule));
+            let edited = spliced(&loaded, "EQ.fcr");
+            compiled(&edited).unwrap_or_else(|error| panic!("{name}: {error}"));
+            let typer = SentenceTyper::for_compilation(edited.resolved()).unwrap();
+            typer
+                .typing_in(labelled(&edited, "EQ.e"), "EQ")
+                .unwrap_or_else(|error| panic!("{name}: the view types the edit: {error}"));
+        }
+    }
+}

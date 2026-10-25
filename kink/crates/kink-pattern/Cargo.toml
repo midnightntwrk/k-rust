@@ -1,0 +1,19 @@
+[package]
+name = "kink-pattern"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.99"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+k-rust = { path = "../../../crates/k-rust", default-features = false }
+
+# kink's lints, written per crate as k-rust's own crates do (the workspace table is KRS's).
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"

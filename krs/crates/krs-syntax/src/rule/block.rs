@@ -3,10 +3,10 @@ use quote::quote;
 use syn::ext::IdentExt;
 use syn::parse::ParseStream;
 use syn::spanned::Spanned;
-use syn::{Attribute, Expr, Ident, ItemFn, ItemUse, Meta, Path, Token, Type, UseTree};
+use syn::{Attribute, Expr, Ident, ItemFn, ItemUse, Meta, Path, Token, Type};
 
 use super::condition::{
-    HaveMapExtra, MapUpdateExtra, RuleExtra, condition_token_range, parse_have_extra,
+    HaveMapExtra, MapUpdateExtra, RuleExtra, RuleMapEntry, condition_token_range, parse_have_extra,
     parse_update_extra,
 };
 use super::item::RuleItem;
@@ -19,9 +19,11 @@ use crate::parse::{
     KrsSyntax, ParseError, checked_ordinal, structured,
     unsupported_rule_signature as unsupported_signature,
 };
-use crate::path::is_plain_path;
+use crate::path::{is_plain_path, parametric_collection_error};
 use crate::term_sort::{TermSort, parse_readable_sort};
-use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, TermExpression, TokenRange};
+use crate::{
+    ProvenanceAnchor, ProvenanceRole, SyntaxError, TermExpression, TermNode, TermTree, TokenRange,
+};
 
 enum TermTableExtra {
     Have(HaveMapExtra),
@@ -138,12 +140,169 @@ pub struct RuleClauseLayout {
     pub conditions: Option<TokenRange>,
 }
 
+/// The computation-cell items a readable clause matches: `[p1, .., pn, ..]`
+/// matches at least `n` items and keeps the rest, `[p1, .., pn]` exactly `n`.
+#[derive(Clone, Debug)]
+pub struct RuleHead {
+    pub(super) subject: bool,
+    pub(super) following: Vec<RuleHeadItem>,
+    pub(super) exact: bool,
+}
+
+/// One computation-cell item after the first that a readable clause matches.
+#[derive(Clone, Debug)]
+pub struct RuleHeadItem {
+    pub(super) pattern: crate::RulePattern,
+    pub(super) tree: TermTree,
+}
+
+/// The rest of one side of a list cell in a readable record (F6).
+#[derive(Clone, Debug)]
+pub enum RuleListRest<T> {
+    /// No rest: the list ends after the elements (`[a, b]`).
+    Exact,
+    /// The anonymous `..`, one rest that both sides share.
+    Shared(TokenRange),
+    /// A named rest: the binder of `rest @ ..` in the pattern, the term of
+    /// `..t` (or a whole term) in the result.
+    Named(T),
+}
+
+impl<T> RuleListRest<T> {
+    /// Whether this is the anonymous `..`.
+    #[must_use]
+    pub const fn is_shared(&self) -> bool {
+        matches!(self, Self::Shared(_))
+    }
+}
+
+/// The matched side of a list cell in a readable record (F6):
+/// `stack: [a, b, ..]`, `queue: [.., z]`.
+#[derive(Clone, Debug)]
+pub struct RuleListPattern {
+    pub(super) items: Vec<RuleHeadItem>,
+    pub(super) rest: RuleListRest<RuleHeadItem>,
+    pub(super) back: Vec<RuleHeadItem>,
+}
+
+impl RuleListPattern {
+    /// The matched elements before the rest, front first.
+    #[must_use]
+    pub fn items(&self) -> &[RuleHeadItem] {
+        &self.items
+    }
+
+    /// What the pattern matches between its front and back elements.
+    #[must_use]
+    pub const fn rest(&self) -> &RuleListRest<RuleHeadItem> {
+        &self.rest
+    }
+
+    /// The matched elements after the rest, front first; only a builtin
+    /// `List` has them.
+    #[must_use]
+    pub fn back(&self) -> &[RuleHeadItem] {
+        &self.back
+    }
+
+    /// The front element patterns, the named rest's binder, then the back
+    /// element patterns, in expansion order.
+    pub(super) fn patterns(&self) -> impl Iterator<Item = &RuleHeadItem> {
+        let rest = match &self.rest {
+            RuleListRest::Named(rest) => Some(rest),
+            RuleListRest::Exact | RuleListRest::Shared(_) => None,
+        };
+        self.items.iter().chain(rest).chain(&self.back)
+    }
+
+    /// The binders the pattern introduces, in order.
+    pub(super) fn bindings(&self) -> impl Iterator<Item = &Ident> {
+        self.patterns().flat_map(|item| item.pattern.bindings())
+    }
+}
+
+/// The rewritten side of a list cell in a readable record (F6):
+/// `stack: [c, ..]`, `logs: [..logs, entry]`.
+#[derive(Clone, Debug)]
+pub struct RuleListResult {
+    pub(super) items: Vec<TermExpression>,
+    pub(super) rest: RuleListRest<TermExpression>,
+    pub(super) back: Vec<TermExpression>,
+}
+
+impl RuleListResult {
+    /// The written elements before the rest, front first.
+    #[must_use]
+    pub fn items(&self) -> &[TermExpression] {
+        &self.items
+    }
+
+    /// What stands between the front and back elements.
+    #[must_use]
+    pub const fn rest(&self) -> &RuleListRest<TermExpression> {
+        &self.rest
+    }
+
+    /// The written elements after the rest, front first.
+    #[must_use]
+    pub fn back(&self) -> &[TermExpression] {
+        &self.back
+    }
+
+    /// The front element terms, the named rest's term, then the back
+    /// element terms, in expansion order.
+    #[must_use]
+    pub fn terms(&self) -> Vec<&TermExpression> {
+        let rest = match &self.rest {
+            RuleListRest::Named(rest) => Some(rest),
+            RuleListRest::Exact | RuleListRest::Shared(_) => None,
+        };
+        self.items.iter().chain(rest).chain(&self.back).collect()
+    }
+}
+
+impl RuleHead {
+    /// Whether the clause's rule subject is the first matched item; it is a
+    /// placeholder for `[]`, which matches no item.
+    #[must_use]
+    pub const fn subject(&self) -> bool {
+        self.subject
+    }
+
+    /// The matched items after the first, front first.
+    #[must_use]
+    pub fn following(&self) -> &[RuleHeadItem] {
+        &self.following
+    }
+
+    /// Whether the pattern names the whole cell, with no `..`.
+    #[must_use]
+    pub const fn exact(&self) -> bool {
+        self.exact
+    }
+}
+
+impl RuleHeadItem {
+    /// The item's rule pattern.
+    #[must_use]
+    pub const fn pattern(&self) -> &crate::RulePattern {
+        &self.pattern
+    }
+
+    /// The item's term tree.
+    #[must_use]
+    pub const fn tree(&self) -> &TermTree {
+        &self.tree
+    }
+}
+
 /// One named `pattern => result` clause in a readable rule block.
 #[derive(Clone, Debug)]
 pub struct RuleClause {
     pub(super) rule: RuleItem,
     pub(super) attribute: crate::RuleAttribute,
     pub(super) narrowings: Vec<RuleNarrowing>,
+    pub(super) head: Option<RuleHead>,
     pub(super) head_result: Option<RuleHeadResult>,
     pub(super) extras: Vec<RuleExtra>,
     pub(super) bindings: Vec<Ident>,
@@ -151,14 +310,26 @@ pub struct RuleClause {
     pub(super) source_range: TokenRange,
     pub(super) layout: RuleClauseLayout,
     pub(super) bracket_alternative: Option<Box<BracketAlternative>>,
+    /// The modality and flags of a `k::claims!` clause (F7), which is then a
+    /// claim and carries no `#[k::rule]` metadata.
+    pub(super) claim: Option<crate::ClaimAttribute>,
+}
+
+/// Which sentences a readable record block declares: `k::rules!` rules or
+/// `k::claims!` claims (F7).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum ReadableSentence {
+    Rule,
+    Claim,
 }
 
 /// The List-collection reading of a cell-record clause whose bracketed
-/// value reads both as the computation cell's `[head, ..]` and as a List
-/// collection's instances, such as `job: [Job { payload: p }, ..] => job:
-/// [..]` (KF-023). Only the cell's declared type, which the collector knows,
-/// tells them apart: the clause is parsed in its computation-cell reading
-/// and carries this one beside it.
+/// value reads both as a List collection's instances and as the computation
+/// cell's `[head, ..]` or a list's elements, such as `job: [Job { payload:
+/// p }, ..] => job: [..]` (KF-023) or `job: [.., Job { payload: p }]`. Only
+/// the cell's declared type, which the collector knows, tells them apart:
+/// the clause is parsed in its computation-cell or elements reading and
+/// carries this one beside it.
 #[derive(Clone, Debug)]
 pub struct BracketAlternative {
     pub(super) cell: Ident,
@@ -219,8 +390,11 @@ impl RuleClause {
         for extra in &self.extras {
             match extra {
                 RuleExtra::UpdateMap { update, .. } => written.push(update.term()),
-                RuleExtra::RewriteCell { after, .. } => written.push(after.as_ref()),
+                RuleExtra::RewriteCell { after, .. } => written.extend(after.as_deref()),
                 RuleExtra::RewriteState { after, .. } => {
+                    written.extend(after.iter().flat_map(|after| after.terms()));
+                }
+                RuleExtra::RewriteList { after, .. } => {
                     written.extend(after.iter().flat_map(|after| after.terms()));
                 }
                 RuleExtra::HaveMap { .. } => {}
@@ -244,14 +418,110 @@ impl RuleClause {
         &self.attribute
     }
 
+    /// Returns the modality and flags of a `k::claims!` clause (F7), which
+    /// is a claim labelled by its name; `None` for a rule.
+    #[must_use]
+    pub const fn claim(&self) -> Option<&crate::ClaimAttribute> {
+        self.claim.as_ref()
+    }
+
+    /// Anchors a clause's literal islands (`k::id!`, `k::bytes!`, and a
+    /// claim's `k::anonymous!`, `k::or_bool!`), each kind numbered in one sequence
+    /// across the clause in the order expansion visits the clause's terms:
+    /// the subject's terms, then the result's, then the `requires` and
+    /// `ensures` conditions.
+    fn append_claim_literal_anchors(
+        &self,
+        anchors: &mut Vec<ProvenanceAnchor>,
+    ) -> Result<(), SyntaxError> {
+        fn state_nodes<'a>(state: &'a crate::StateTerm, output: &mut Vec<&'a [TermNode]>) {
+            output.extend(state.terms().into_iter().map(TermExpression::nodes));
+            for nested in state.nested_states() {
+                state_nodes(nested, output);
+            }
+        }
+        let mut nodes: Vec<&[TermNode]> = Vec::new();
+        if let Some(head) = &self.head {
+            if head.subject {
+                nodes.push(self.rule.parameter().pattern.nodes());
+            }
+            nodes.extend(head.following.iter().map(|item| item.pattern.nodes()));
+        }
+        for extra in &self.extras {
+            match extra {
+                RuleExtra::HaveMap { entries, .. } => {
+                    nodes.extend(entries.iter().map(|entry| entry.key.nodes()));
+                }
+                RuleExtra::RewriteCell { before, .. } => nodes.push(before.nodes()),
+                RuleExtra::RewriteState { before, .. } => state_nodes(before, &mut nodes),
+                RuleExtra::RewriteList { before, .. } => {
+                    nodes.extend(before.patterns().map(|item| item.pattern.nodes()));
+                }
+                RuleExtra::UpdateMap { .. } => {}
+            }
+        }
+        match &self.head_result {
+            Some(RuleHeadResult::Replace(term)) => nodes.push(term.nodes()),
+            Some(RuleHeadResult::Splice { items, .. }) => {
+                nodes.extend(items.iter().map(TermExpression::nodes));
+            }
+            None | Some(RuleHeadResult::Erase(_)) => {}
+        }
+        for extra in &self.extras {
+            match extra {
+                RuleExtra::RewriteState {
+                    after: Some(after), ..
+                } => state_nodes(after, &mut nodes),
+                RuleExtra::UpdateMap { update, .. } => nodes.push(update.term().nodes()),
+                RuleExtra::RewriteCell {
+                    after: Some(after), ..
+                } => nodes.push(after.nodes()),
+                RuleExtra::RewriteList {
+                    after: Some(after), ..
+                } => {
+                    nodes.extend(after.terms().into_iter().map(TermExpression::nodes));
+                }
+                _ => {}
+            }
+        }
+        if let Some(requires) = self.rule.requires() {
+            nodes.push(requires.term().nodes());
+        }
+        if let Some(ensures) = self.rule.existentials().ensures() {
+            nodes.push(ensures.nodes());
+        }
+        crate::state_rule::append_claim_node_anchors(nodes, anchors)
+    }
+
+    /// Returns the provenance of the clause's metadata attribute:
+    /// `#[k::rule(..)]` for a rule, `#[k::claim(..)]` for a claim.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error if an authored token has no recoverable range.
+    pub fn attribute_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        match &self.claim {
+            Some(claim) => claim.provenance(),
+            None => self.attribute.provenance(),
+        }
+    }
+
     /// Returns binding refinements in authored order.
     #[must_use]
     pub fn narrowings(&self) -> &[RuleNarrowing] {
         &self.narrowings
     }
 
+    /// Returns the matched computation-cell items, absent for a cell-record
+    /// clause that leaves the computation cell out.
+    #[must_use]
+    pub const fn head(&self) -> Option<&RuleHead> {
+        self.head.as_ref()
+    }
+
     /// Returns replacement, splice, or erasure head meaning, absent for a
-    /// cell-record clause that leaves the computation cell out.
+    /// cell-record clause that leaves the computation cell out of its
+    /// pattern or its result (which only reads it).
     #[must_use]
     pub const fn head_result(&self) -> Option<&RuleHeadResult> {
         self.head_result.as_ref()
@@ -310,7 +580,38 @@ impl RuleClause {
     )]
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut anchors = self.rule.full_provenance()?;
-        if self.attribute.label().is_none() {
+        // The clause numbers its literal islands across all its cells, not
+        // across the head item's alone.
+        anchors.retain(|anchor| {
+            !matches!(
+                anchor.role(),
+                ProvenanceRole::ClaimIdToken
+                    | ProvenanceRole::ClaimBytesToken
+                    | ProvenanceRole::ClaimAnonymous
+                    | ProvenanceRole::ClaimAnonymousSort
+                    | ProvenanceRole::ClaimAnonymousSpelling
+                    | ProvenanceRole::ClaimOrBool
+            )
+        });
+        self.append_claim_literal_anchors(&mut anchors)?;
+        // A claim clause is a claim: its declaration has the claim role, and
+        // its name, its label, is anchored by its `#[k::claim(..)]` (F7).
+        if self.claim.is_some() {
+            anchors = anchors
+                .into_iter()
+                .map(|anchor| {
+                    if anchor.role() == ProvenanceRole::RuleDeclaration {
+                        ProvenanceAnchor::new(
+                            ProvenanceRole::ClaimDeclaration,
+                            anchor.key().ordinal(),
+                            anchor.range(),
+                        )
+                    } else {
+                        anchor
+                    }
+                })
+                .collect();
+        } else if self.attribute.label().is_none() {
             anchors.push(ProvenanceAnchor::new(
                 ProvenanceRole::RuleLabel,
                 0,
@@ -344,9 +645,10 @@ impl RuleClause {
                     | ProvenanceRole::RuleRightRecordFieldName
             )
         });
-        if self.head_result.is_none() {
+        let subject = self.head.as_ref().is_some_and(|head| head.subject);
+        if !subject {
             // The placeholder subject of a clause without the computation cell
-            // has no authored tokens: the pattern is the whole subject record,
+            // (or matching `[]`) has no authored tokens: the pattern is the whole subject record,
             // and every left-side anchor comes from the cell entries below.
             anchors.retain(|anchor| {
                 !matches!(
@@ -400,7 +702,7 @@ impl RuleClause {
             }
         }
 
-        let mut left = if self.head_result.is_some() {
+        let mut left = if subject {
             let mut left =
                 RuleTermCounters::from_rule_pattern(self.rule.parameter().pattern.nodes());
             let mut subject_fields = Vec::new();
@@ -413,6 +715,7 @@ impl RuleClause {
             RuleTermCounters::default()
         };
         let mut have_cell = 0_usize;
+        let mut have_entry = 0_usize;
         let mut update_cell = 0_usize;
         // Optional and collection states (KF-023) number their K-sequence
         // and instance anchors per side; the right side continues after a
@@ -425,9 +728,15 @@ impl RuleClause {
             .iter()
             .filter(|anchor| anchor.role() == ProvenanceRole::RuleLeftWildcard)
             .count();
+        // The computation items after the first continue the subject's
+        // ordinals, before the other cells.
+        for item in self.head.iter().flat_map(|head| &head.following) {
+            append_rule_pattern_anchors(&mut anchors, &item.pattern, &item.tree, &mut left)?;
+            append_wildcard_anchors(&mut anchors, &item.tree, &mut wildcard)?;
+        }
         for extra in &self.extras {
             match extra {
-                RuleExtra::HaveMap { cell, key, value } => {
+                RuleExtra::HaveMap { cell, entries } => {
                     let ordinal = checked_ordinal(
                         have_cell,
                         ProvenanceRole::RuleLeftCellsField,
@@ -439,17 +748,28 @@ impl RuleClause {
                         ordinal,
                         TokenRange::for_tokens(cell)?,
                     ));
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::RuleLeftMapKey,
-                        ordinal,
-                        TokenRange::for_tokens(key.expression())?,
-                    ));
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::RuleLeftMapValue,
-                        ordinal,
-                        TokenRange::for_tokens(value)?,
-                    ));
-                    append_rule_term_anchors(&mut anchors, key, RuleTermSide::Left, &mut left)?;
+                    // Keys and values are numbered per entry, across every map read.
+                    for RuleMapEntry { key, value } in entries {
+                        let entry = checked_ordinal(
+                            have_entry,
+                            ProvenanceRole::RuleLeftMapKey,
+                            value.span(),
+                        )?;
+                        have_entry += 1;
+                        anchors.push(ProvenanceAnchor::new(
+                            ProvenanceRole::RuleLeftMapKey,
+                            entry,
+                            TokenRange::for_tokens(key.expression())?,
+                        ));
+                        anchors.push(ProvenanceAnchor::new(
+                            ProvenanceRole::RuleLeftMapValue,
+                            entry,
+                            TokenRange::for_tokens(value)?,
+                        ));
+                        append_rule_term_anchors(&mut anchors, key, RuleTermSide::Left, &mut left)?;
+                        // A `_` key matches any entry's key.
+                        append_wildcard_anchors(&mut anchors, key.tree(), &mut wildcard)?;
+                    }
                 }
                 RuleExtra::UpdateMap { cell, update, .. } => {
                     let [base, key, value] = update.arguments();
@@ -533,6 +853,54 @@ impl RuleClause {
                         )?;
                     }
                 }
+                RuleExtra::RewriteList {
+                    cell,
+                    before,
+                    result_cell,
+                    after,
+                } => {
+                    let left_ordinal = checked_ordinal(
+                        have_cell,
+                        ProvenanceRole::RuleLeftCellsField,
+                        cell.span(),
+                    )?;
+                    have_cell += 1;
+                    anchors.push(ProvenanceAnchor::new(
+                        ProvenanceRole::RuleLeftCellsField,
+                        left_ordinal,
+                        TokenRange::for_tokens(cell)?,
+                    ));
+                    for item in before.patterns() {
+                        append_rule_pattern_anchors(
+                            &mut anchors,
+                            &item.pattern,
+                            &item.tree,
+                            &mut left,
+                        )?;
+                        append_wildcard_anchors(&mut anchors, &item.tree, &mut wildcard)?;
+                    }
+                    if let (Some(result_cell), Some(after)) = (result_cell, after) {
+                        let right_ordinal = checked_ordinal(
+                            update_cell,
+                            ProvenanceRole::RuleRightCellsField,
+                            result_cell.span(),
+                        )?;
+                        update_cell += 1;
+                        anchors.push(ProvenanceAnchor::new(
+                            ProvenanceRole::RuleRightCellsField,
+                            right_ordinal,
+                            TokenRange::for_tokens(result_cell)?,
+                        ));
+                        for term in after.terms() {
+                            append_rule_term_anchors(
+                                &mut anchors,
+                                term,
+                                RuleTermSide::Right,
+                                &mut right,
+                            )?;
+                        }
+                    }
+                }
                 RuleExtra::RewriteCell {
                     cell,
                     before,
@@ -551,33 +919,29 @@ impl RuleClause {
                         TokenRange::for_tokens(cell)?,
                     ));
                     append_rule_pattern_anchors(&mut anchors, before, before_tree, &mut left)?;
-                    let mut wildcards = Vec::new();
-                    before_tree.wildcard_ranges_preorder(&mut wildcards);
-                    for range in wildcards {
-                        anchors.push(ProvenanceAnchor::new(
-                            ProvenanceRole::RuleLeftWildcard,
-                            checked_ordinal(
-                                wildcard,
-                                ProvenanceRole::RuleLeftWildcard,
-                                range.first(),
-                            )?,
-                            range,
-                        ));
-                        wildcard += 1;
-                    }
+                    append_wildcard_anchors(&mut anchors, before_tree, &mut wildcard)?;
 
-                    let right_ordinal = checked_ordinal(
-                        update_cell,
-                        ProvenanceRole::RuleRightCellsField,
-                        cell.span(),
-                    )?;
-                    update_cell += 1;
-                    anchors.push(ProvenanceAnchor::new(
-                        ProvenanceRole::RuleRightCellsField,
-                        right_ordinal,
-                        TokenRange::for_tokens(cell)?,
-                    ));
-                    append_rule_term_anchors(&mut anchors, after, RuleTermSide::Right, &mut right)?;
+                    // A cell the result leaves out is read only and has no
+                    // result anchors.
+                    if let Some(after) = after {
+                        let right_ordinal = checked_ordinal(
+                            update_cell,
+                            ProvenanceRole::RuleRightCellsField,
+                            cell.span(),
+                        )?;
+                        update_cell += 1;
+                        anchors.push(ProvenanceAnchor::new(
+                            ProvenanceRole::RuleRightCellsField,
+                            right_ordinal,
+                            TokenRange::for_tokens(cell)?,
+                        ));
+                        append_rule_term_anchors(
+                            &mut anchors,
+                            after,
+                            RuleTermSide::Right,
+                            &mut right,
+                        )?;
+                    }
                 }
             }
         }
@@ -678,12 +1042,23 @@ impl RuleClause {
     /// The term nodes of the clause in expansion order.
     fn expansion_order_nodes(&self) -> Vec<&[crate::term::TermNode]> {
         let mut terms = vec![self.rule.parameter().pattern.nodes()];
+        terms.extend(
+            self.head
+                .iter()
+                .flat_map(|head| &head.following)
+                .map(|item| item.pattern.nodes()),
+        );
         for extra in &self.extras {
             match extra {
-                RuleExtra::HaveMap { key, .. } => terms.push(key.nodes()),
+                RuleExtra::HaveMap { entries, .. } => {
+                    terms.extend(entries.iter().map(|entry| entry.key.nodes()));
+                }
                 RuleExtra::RewriteCell { before, .. } => terms.push(before.nodes()),
                 RuleExtra::RewriteState { before, .. } => {
                     terms.extend(before.terms().into_iter().map(TermExpression::nodes));
+                }
+                RuleExtra::RewriteList { before, .. } => {
+                    terms.extend(before.patterns().map(|item| item.pattern.nodes()));
                 }
                 RuleExtra::UpdateMap { .. } => {}
             }
@@ -698,8 +1073,16 @@ impl RuleClause {
         for extra in &self.extras {
             match extra {
                 RuleExtra::UpdateMap { update, .. } => terms.push(update.term().nodes()),
-                RuleExtra::RewriteCell { after, .. } => terms.push(after.nodes()),
+                RuleExtra::RewriteCell { after, .. } => {
+                    terms.extend(after.iter().map(|after| after.nodes()));
+                }
                 RuleExtra::RewriteState { after, .. } => terms.extend(
+                    after
+                        .iter()
+                        .flat_map(|after| after.terms())
+                        .map(TermExpression::nodes),
+                ),
+                RuleExtra::RewriteList { after, .. } => terms.extend(
                     after
                         .iter()
                         .flat_map(|after| after.terms())
@@ -716,6 +1099,26 @@ impl RuleClause {
         }
         terms
     }
+}
+
+/// Anchors the wildcards of a left-side readable pattern, continuing the
+/// clause's wildcard ordinals.
+fn append_wildcard_anchors(
+    anchors: &mut Vec<ProvenanceAnchor>,
+    tree: &TermTree,
+    wildcard: &mut usize,
+) -> Result<(), SyntaxError> {
+    let mut wildcards = Vec::new();
+    tree.wildcard_ranges_preorder(&mut wildcards);
+    for range in wildcards {
+        anchors.push(ProvenanceAnchor::new(
+            ProvenanceRole::RuleLeftWildcard,
+            checked_ordinal(*wildcard, ProvenanceRole::RuleLeftWildcard, range.first())?,
+            range,
+        ));
+        *wildcard += 1;
+    }
+    Ok(())
 }
 
 /// Per-side ordinals of the K-sequence and collection anchors of readable
@@ -983,40 +1386,12 @@ fn append_readable_term_anchors(
     Ok(())
 }
 
-/// One block-local enum glob import consumed by `rules!` resolution.
-#[derive(Clone, Debug)]
-pub struct RuleImport {
-    item: ItemUse,
-    owner: Path,
-    variant: Option<Ident>,
-}
-
-impl RuleImport {
-    /// Returns the complete Rust `use Enum::*;` item.
-    #[must_use]
-    pub const fn item(&self) -> &ItemUse {
-        &self.item
-    }
-
-    /// Returns the enum owner used to qualify unqualified clause heads.
-    #[must_use]
-    pub const fn owner(&self) -> &Path {
-        &self.owner
-    }
-
-    /// Returns the one imported variant, or `None` for an enum glob.
-    #[must_use]
-    pub const fn variant(&self) -> Option<&Ident> {
-        self.variant.as_ref()
-    }
-}
-
 /// A readable family of independently named ordinary term rules.
 #[derive(Clone, Debug)]
 pub struct RuleBlock {
     sort: TermSort,
     configuration: bool,
-    imports: Vec<RuleImport>,
+    imports: Vec<ItemUse>,
     clauses: Vec<RuleClause>,
 }
 
@@ -1033,9 +1408,10 @@ impl RuleBlock {
         self.configuration
     }
 
-    /// Returns block-local enum imports in authored order.
+    /// Returns the block's `use` items in authored order. Every path of the
+    /// block resolves with them in scope, as the same items would in Rust.
     #[must_use]
-    pub fn imports(&self) -> &[RuleImport] {
+    pub fn imports(&self) -> &[ItemUse] {
         &self.imports
     }
 
@@ -1046,11 +1422,18 @@ impl RuleBlock {
         &self.clauses
     }
 
+    fn from_stream(input: ParseStream<'_>) -> Result<Self, ParseError> {
+        Self::from_stream_of(input, ReadableSentence::Rule)
+    }
+
     #[expect(
         clippy::too_many_lines,
         reason = "One linear parser keeps clause diagnostics at authored tokens."
     )]
-    fn from_stream(input: ParseStream<'_>) -> Result<Self, ParseError> {
+    fn from_stream_of(
+        input: ParseStream<'_>,
+        sentence: ReadableSentence,
+    ) -> Result<Self, ParseError> {
         input.parse::<Token![for]>()?;
         let sort_type: Type = input.parse()?;
         let sort = parse_readable_sort(sort_type.clone())?;
@@ -1063,22 +1446,12 @@ impl RuleBlock {
         }
         input.parse::<Token![;]>()?;
 
+        // Any number of `use` items, which resolve the block's paths as
+        // Rust resolves a scope's paths: an explicit import shadows a glob,
+        // and a name two globs supply is ambiguous only where it is used.
         let mut imports = Vec::new();
         while input.peek(Token![use]) {
-            let item: ItemUse = input.parse()?;
-            let (owner, variant) = enum_glob_owner(&item)?;
-            if !imports.is_empty() {
-                return Err(syn::Error::new(
-                    item.span(),
-                    "a readable term-rule block accepts exactly one enum glob import",
-                )
-                .into());
-            }
-            imports.push(RuleImport {
-                item,
-                owner,
-                variant,
-            });
+            imports.push(input.parse::<ItemUse>()?);
         }
 
         let mut clauses = Vec::new();
@@ -1099,6 +1472,14 @@ impl RuleBlock {
             }
             input.parse::<Token![:]>()?;
             let machine_clause = input.peek(syn::token::Brace);
+            // A claim states whole configurations (F7).
+            if sentence == ReadableSentence::Claim && !machine_clause {
+                return Err(syn::Error::new(
+                    name.span(),
+                    "a `k::claims!` clause is a pair of cell records `{ .. } => { .. }` over the block's configuration",
+                )
+                .into());
+            }
             if let Some(expected) = configuration {
                 if expected != machine_clause {
                     return Err(syn::Error::new(
@@ -1117,10 +1498,19 @@ impl RuleBlock {
                     &name,
                     &sort_type,
                     clause_start,
+                    sentence,
                 )?);
                 continue;
             }
-            let (pattern, signs) = parse_pattern_with_signs(input)?;
+            let fork = input.fork();
+            let (pattern, signs) = parse_pattern_with_signs(input)
+                .map_err(|error| crate::notation::pattern_parse_error(&fork, error))?;
+            // A pattern may stop before `&&`, `||`, or a method call.
+            if !input.peek(Token![=>])
+                && let Some(error) = crate::notation::notation_at(&fork)
+            {
+                return Err(error.into());
+            }
             input.parse::<Token![=>]>()?;
             let result_tokens = input.fork();
             let result = input.parse::<Expr>();
@@ -1134,7 +1524,12 @@ impl RuleBlock {
                 crate::term::reject_pattern_alias(&tokens)?;
             }
             let result: Expr = result?;
-            let head_result = parse_head_result(result.clone())?;
+            // The clause's item below may hold a placeholder result, so the
+            // fields of the pattern's bit templates are written into the
+            // clause's own result here.
+            let mut substituted = result.clone();
+            super::bits::substitute_clause_result(&pattern, &mut substituted)?;
+            let head_result = parse_head_result(substituted)?;
             let mut layout = RuleClauseLayout {
                 label: TokenRange::for_tokens(&name)?,
                 pattern: TokenRange::for_tokens(&pattern)?,
@@ -1156,6 +1551,9 @@ impl RuleBlock {
                             let binding = first;
                             input.parse::<Token![:]>()?;
                             let sort: Path = input.parse()?;
+                            if let Some(error) = parametric_collection_error(&sort, true) {
+                                return Err(error.into());
+                            }
                             if !is_plain_path(&sort) {
                                 return Err(syn::Error::new(
                                     sort.span(),
@@ -1182,10 +1580,9 @@ impl RuleBlock {
                         break;
                     }
                     input.parse::<Token![,]>()?;
+                    // A trailing comma before the `;` ends the list.
                     if input.peek(Token![;]) {
-                        return Err(input
-                            .error("expected a binding refinement after `,`")
-                            .into());
+                        break;
                     }
                 }
             }
@@ -1228,6 +1625,33 @@ impl RuleBlock {
                 }
                 bindings.push(introduced.clone());
             }
+            // `have` marks every name it introduces with `let`, so a key
+            // name is a reference to a binding of the rule; reading any
+            // entry is the record read's free key.
+            for extra in &extras {
+                let TermTableExtra::Have(have) = extra else {
+                    continue;
+                };
+                for node in have.key.nodes() {
+                    if let crate::TermNode::Reference(path) = node
+                        && let Some(name) = crate::path::pattern_binder(path)
+                        && !bindings
+                            .iter()
+                            .any(|binding| binding.unraw() == name.unraw())
+                    {
+                        return Err(syn::Error::new(
+                            name.span(),
+                            format!(
+                                "`{name}` is bound nowhere in this rule; `have` reads the entry at a key the rule already knows; to read any entry, bind the key with a record read `{cell}: {{ {name} -> {value}, .. }}`",
+                                name = name.unraw(),
+                                cell = have.cell.unraw(),
+                                value = have.value.unraw(),
+                            ),
+                        )
+                        .into());
+                    }
+                }
+            }
             let mut mentioned_cells = Vec::<Ident>::new();
             for extra in &extras {
                 let cell = extra.cell();
@@ -1262,6 +1686,11 @@ impl RuleBlock {
                 rule,
                 attribute,
                 narrowings,
+                head: Some(RuleHead {
+                    subject: true,
+                    following: Vec::new(),
+                    exact: false,
+                }),
                 head_result: Some(head_result),
                 extras: extras.into_iter().map(RuleExtra::from).collect(),
                 bindings,
@@ -1269,6 +1698,7 @@ impl RuleBlock {
                 source_range: TokenRange::new(clause_start, semicolon.span),
                 layout,
                 bracket_alternative: None,
+                claim: None,
             };
             clause.check_existentials()?;
             clauses.push(clause);
@@ -1277,15 +1707,6 @@ impl RuleBlock {
             return Err(input
                 .error("a readable rule block requires at least one clause")
                 .into());
-        }
-        if !configuration.unwrap_or(false)
-            && imports.iter().any(|import| import.variant().is_some())
-        {
-            return Err(syn::Error::new(
-                imports[0].item().span(),
-                "a `for Sort` rule table accepts only `use Enum::*;` imports",
-            )
-            .into());
         }
         Ok(Self {
             sort,
@@ -1332,6 +1753,67 @@ impl KrsSyntax for RuleBlock {
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         structured(tokens, Self::from_stream)
     }
+}
+
+/// A readable block of reachability claims, `k::claims!` (F7): the claim
+/// counterpart of a `for Configuration` rule block. Each clause `label:
+/// subject => result;` is the `#[k::claim]` fn whose `cells!` records its
+/// readable records stand for, labelled by its name.
+#[derive(Clone, Debug)]
+pub struct ClaimBlock {
+    block: RuleBlock,
+}
+
+impl ClaimBlock {
+    /// Returns the configuration type the clauses' records are over.
+    #[must_use]
+    pub const fn sort(&self) -> &TermSort {
+        self.block.sort()
+    }
+
+    /// Returns the block's `use` items in authored order.
+    #[must_use]
+    pub fn imports(&self) -> &[ItemUse] {
+        self.block.imports()
+    }
+
+    /// Returns the claims in authored order; each [`RuleClause::claim`] is
+    /// present.
+    #[must_use]
+    pub fn clauses(&self) -> &[RuleClause] {
+        self.block.clauses()
+    }
+
+    /// Returns the clauses as a configuration-owned readable block, which
+    /// they share the grammar and expansion of.
+    #[must_use]
+    pub const fn block(&self) -> &RuleBlock {
+        &self.block
+    }
+}
+
+impl KrsSyntax for ClaimBlock {
+    fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        structured(tokens, |input| -> Result<Self, ParseError> {
+            Ok(Self {
+                block: RuleBlock::from_stream_of(input, ReadableSentence::Claim)?,
+            })
+        })
+    }
+}
+
+/// Parses a readable claim block together with lossless source trivia.
+///
+/// # Errors
+///
+/// Returns the same semantic failures as [`ClaimBlock::parse_tokens`] and
+/// rejects non-documentation block comments with a byte-exact source range.
+pub fn parse_claim_block_source_with_trivia(
+    source: &str,
+) -> Result<(ClaimBlock, crate::TriviaTable), SyntaxError> {
+    let (tokens, trivia) = crate::trivia::tokenize_with_trivia(source)?;
+    trivia.reject_non_doc_block_comments("k::claims")?;
+    Ok((ClaimBlock::parse_tokens(tokens)?, trivia))
 }
 
 /// Parses a readable term-rule family together with lossless source trivia.
@@ -1389,27 +1871,61 @@ pub(super) fn take_rule_clause_attribute(
     Ok((rule.unwrap_or_default(), retained))
 }
 
-fn enum_glob_owner(item: &ItemUse) -> syn::Result<(Path, Option<Ident>)> {
-    fn visit(tree: &UseTree, segments: &mut Vec<Ident>) -> syn::Result<Option<Ident>> {
-        match tree {
-            UseTree::Path(path) => {
-                segments.push(path.ident.clone());
-                visit(&path.tree, segments)
+/// Takes a `k::claims!` clause's `#[k::claim(..)]`, which states its
+/// modality, and keeps the helpers a claim takes (`#[k::requires]`,
+/// `#[k::exists]`, `#[k::ensures]`, and doc comments) for its rule item. A
+/// rule's `#[k::rule(..)]` and `#[k::fresh]` have no meaning on a claim.
+pub(super) fn take_claim_clause_attribute(
+    attributes: Vec<Attribute>,
+    name: &Ident,
+) -> Result<(crate::ClaimAttribute, Vec<Attribute>), SyntaxError> {
+    let mut claim = None;
+    let mut retained = Vec::with_capacity(attributes.len());
+    for attribute in attributes {
+        let helper = attribute
+            .path()
+            .segments
+            .last()
+            .map(|segment| segment.ident.to_string());
+        match helper.as_deref() {
+            Some("claim") => {
+                if claim.is_some() {
+                    return Err(unsupported_signature(
+                        "a claim clause carries one `#[k::claim(..)]`",
+                        attribute.span(),
+                    ));
+                }
+                let Meta::List(list) = &attribute.meta else {
+                    return Err(unsupported_signature(
+                        "`#[k::claim(..)]` states the claim's modality: `#[k::claim(all_paths)]` or `#[k::claim(one_path)]`",
+                        attribute.span(),
+                    ));
+                };
+                claim = Some(crate::ClaimAttribute::parse_clause_tokens(
+                    list.tokens.clone(),
+                    name,
+                )?);
             }
-            UseTree::Glob(_) if !segments.is_empty() => Ok(None),
-            UseTree::Name(name) if !segments.is_empty() => Ok(Some(name.ident.clone())),
-            _ => Err(syn::Error::new(
-                tree.span(),
-                "readable rules accept only `use Enum::*;` or `use Enum::Variant;` imports",
-            )),
+            Some(other @ ("rule" | "fresh")) => {
+                return Err(unsupported_signature(
+                    if other == "rule" {
+                        "`#[k::rule(..)]` is a rule's metadata; a claim clause takes `#[k::claim(..)]`"
+                    } else {
+                        "`#[k::fresh]` draws values in a rule step; a claim has no fresh binders"
+                    },
+                    attribute.span(),
+                ));
+            }
+            _ => retained.push(attribute),
         }
     }
-
-    let mut segments = Vec::new();
-    let variant = visit(&item.tree, &mut segments)?;
-    let leading = item.leading_colon;
-    let owner = syn::parse2(quote!(#leading #(#segments)::*))?;
-    Ok((owner, variant))
+    let claim = claim.ok_or_else(|| {
+        unsupported_signature(
+            "a claim clause states its modality: write `#[k::claim(all_paths)]` or `#[k::claim(one_path)]` before it",
+            name.span(),
+        )
+    })?;
+    Ok((claim, retained))
 }
 
 #[cfg(test)]

@@ -256,10 +256,6 @@ fn malformed_rule_patterns_and_bodies_are_rejected() {
             "pattern",
         ),
         (
-            "fn rest(Foo { value, .. }: Term<Expr>) -> Term<Expr> { Done }",
-            "pattern",
-        ),
-        (
             "fn other(other![Foo]: Term<Expr>) -> Term<Expr> { Done }",
             "macro",
         ),
@@ -273,10 +269,7 @@ fn malformed_rule_patterns_and_bodies_are_rejected() {
             "fn statements(Foo: Term<Expr>) -> Term<Expr> { Done; Done }",
             "body",
         ),
-        (
-            "fn operator(Foo: Term<Expr>) -> Term<Expr> { lhs + rhs }",
-            "term",
-        ),
+        ("fn deref(Foo: Term<Expr>) -> Term<Expr> { *lhs }", "term"),
     ];
     for (source, expected) in cases {
         let error = krs_syntax::RuleItem::parse_source(source).unwrap_err();

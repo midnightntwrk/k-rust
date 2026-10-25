@@ -174,11 +174,11 @@
 
 use std::borrow::Cow;
 use std::cell::RefCell;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
 
 use k_rust_kore::measure::{self, Algorithm, Counter};
-use rustc_hash::FxHasher;
+use rustc_hash::{FxHashMap, FxHashSet, FxHasher};
 use std::hash::{Hash, Hasher};
 
 #[cfg(test)]
@@ -246,7 +246,7 @@ impl Alternative for Rc<PackedTerm> {
 }
 
 type PackedTransformResult = Result<Rc<PackedTerm>, ParseError>;
-type PackedTransformMemo = HashMap<*const PackedTerm, (Rc<PackedTerm>, PackedTransformResult)>;
+type PackedTransformMemo = FxHashMap<*const PackedTerm, (Rc<PackedTerm>, PackedTransformResult)>;
 /// Argument vectors, each a sequence of packed nodes.
 type ArgumentLists = Rc<Vec<Vec<Rc<PackedTerm>>>>;
 /// What one application-resolution pass keeps: the argument vectors of a `#KList` node up to
@@ -254,8 +254,8 @@ type ArgumentLists = Rc<Vec<Vec<Rc<PackedTerm>>>>;
 /// so that its address is not reused), and the structural comparisons its orderings made.
 #[derive(Default)]
 struct KListMemo {
-    flattened: HashMap<(*const PackedTerm, usize), (Rc<PackedTerm>, ArgumentLists)>,
-    shortest: HashMap<*const PackedTerm, (Rc<PackedTerm>, usize)>,
+    flattened: FxHashMap<(*const PackedTerm, usize), (Rc<PackedTerm>, ArgumentLists)>,
+    shortest: FxHashMap<*const PackedTerm, (Rc<PackedTerm>, usize)>,
     order: StructuralOrder,
 }
 /// What one packed-factoring pass before inference keeps: each node's factored result by
@@ -335,7 +335,7 @@ fn merges_distinct_nodes<'a>(
     set: &BTreeSet<Rc<PackedTerm>>,
     nodes: impl Iterator<Item = &'a Rc<PackedTerm>>,
 ) -> bool {
-    nodes.map(Rc::as_ptr).collect::<HashSet<_>>().len() != set.len()
+    nodes.map(Rc::as_ptr).collect::<FxHashSet<_>>().len() != set.len()
 }
 
 /// The production, instantiated parameters (`None` for a plain production), children and
@@ -404,7 +404,7 @@ fn rebuild_production(
     }
 }
 type PackedPriorityChildMemo =
-    HashMap<(*const PackedTerm, usize, Option<Side>), (Rc<PackedTerm>, PackedTransformResult)>;
+    FxHashMap<(*const PackedTerm, usize, Option<Side>), (Rc<PackedTerm>, PackedTransformResult)>;
 
 #[derive(Default)]
 pub(super) struct PackedPriorityMemos {
@@ -423,8 +423,8 @@ enum Choice {
 /// productions, by which a token leaf is classified, and each node's filtered result by
 /// identity, each entry keeping its node alive.
 struct PackedFilter {
-    preferred_sources: HashSet<ProductionIdentity>,
-    avoided_sources: HashSet<ProductionIdentity>,
+    preferred_sources: FxHashSet<ProductionIdentity>,
+    avoided_sources: FxHashSet<ProductionIdentity>,
     filtered: PackedNodeResults,
 }
 
@@ -1138,13 +1138,17 @@ impl Grammar {
         &self,
         forest: &Rc<PackedTerm>,
     ) -> Rc<PackedTerm> {
-        self.merge_alternatives_memo(forest, &mut HashMap::new(), &mut PositionUnions::new())
+        self.merge_alternatives_memo(
+            forest,
+            &mut FxHashMap::default(),
+            &mut PositionUnions::default(),
+        )
     }
 
     fn merge_alternatives_memo(
         &self,
         term: &Rc<PackedTerm>,
-        memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
+        memo: &mut FxHashMap<*const PackedTerm, (Rc<PackedTerm>, Rc<PackedTerm>)>,
         unions: &mut PositionUnions,
     ) -> Rc<PackedTerm> {
         if let Some((_, merged)) = memo.get(&Rc::as_ptr(term)) {
@@ -1300,7 +1304,13 @@ impl Grammar {
     /// alternatives of the ambiguity there, so they are in two parts of one of these.
     pub(super) fn structural_choices(&self, forest: &Rc<PackedTerm>) -> Vec<StructuralChoice> {
         let mut choices = Vec::new();
-        self.collect_structural_choices(forest, None, false, &mut HashSet::new(), &mut choices);
+        self.collect_structural_choices(
+            forest,
+            None,
+            false,
+            &mut FxHashSet::default(),
+            &mut choices,
+        );
         choices
     }
 
@@ -1309,7 +1319,7 @@ impl Grammar {
         term: &Rc<PackedTerm>,
         place: Option<StructuralPlace<'_>>,
         in_term: bool,
-        visited: &mut HashSet<StructuralPosition>,
+        visited: &mut FxHashSet<StructuralPosition>,
         choices: &mut Vec<StructuralChoice>,
     ) {
         let position = structural_position(term, place, in_term);
@@ -1386,7 +1396,7 @@ impl Grammar {
         choice: &StructuralChoice,
         part: &Rc<PackedTerm>,
     ) -> Option<Rc<PackedTerm>> {
-        self.readings_through_memo(forest, None, false, choice, part, &mut HashMap::new())
+        self.readings_through_memo(forest, None, false, choice, part, &mut FxHashMap::default())
     }
 
     fn readings_through_memo(
@@ -1396,7 +1406,7 @@ impl Grammar {
         in_term: bool,
         choice: &StructuralChoice,
         part: &Rc<PackedTerm>,
-        memo: &mut HashMap<StructuralPosition, Option<Rc<PackedTerm>>>,
+        memo: &mut FxHashMap<StructuralPosition, Option<Rc<PackedTerm>>>,
     ) -> Option<Rc<PackedTerm>> {
         let position = structural_position(term, place, in_term);
         if position == choice.position {
@@ -2012,7 +2022,7 @@ impl Grammar {
         let listed = self
             .add_packed_empty_lists_each_tree(&mut session, &resolved, start)
             .ok()?;
-        let mut known = rustc_hash::FxHashMap::default();
+        let mut known = FxHashMap::default();
         match self.each_tree_terms(&listed, &mut known).ok()? {
             EachTreeTerms::Listed(terms) if terms.len() == 1 => terms.first().cloned(),
             EachTreeTerms::Listed(_) | EachTreeTerms::Distinct => None,
@@ -2043,7 +2053,7 @@ impl Grammar {
     fn each_tree_terms(
         &self,
         term: &Rc<PackedTerm>,
-        known: &mut rustc_hash::FxHashMap<*const PackedTerm, (Rc<PackedTerm>, EachTreeTerms)>,
+        known: &mut FxHashMap<*const PackedTerm, (Rc<PackedTerm>, EachTreeTerms)>,
     ) -> Result<EachTreeTerms, ParseError> {
         if let Some((_, terms)) = known.get(&Rc::as_ptr(term)) {
             return Ok(terms.clone());
@@ -2089,7 +2099,7 @@ impl Grammar {
         parameters: Option<&Vec<Sort>>,
         children: &[Rc<PackedTerm>],
         metadata: &TermMetadata,
-        known: &mut rustc_hash::FxHashMap<*const PackedTerm, (Rc<PackedTerm>, EachTreeTerms)>,
+        known: &mut FxHashMap<*const PackedTerm, (Rc<PackedTerm>, EachTreeTerms)>,
     ) -> Result<EachTreeTerms, ParseError> {
         if let [child] = children
             && self.only_shapes_the_parse(production)
@@ -2678,7 +2688,7 @@ impl Grammar {
         term: &Rc<PackedTerm>,
     ) -> Rc<PackedTerm> {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationRemoveBracketsCasts);
-        let mut removed = rustc_hash::FxHashMap::default();
+        let mut removed = FxHashMap::default();
         self.remove_brackets_and_syntactic_casts_node(session, &mut removed, term)
     }
 
@@ -2699,7 +2709,7 @@ impl Grammar {
     fn remove_brackets_and_syntactic_casts_node(
         &self,
         session: &mut LoweringSession,
-        removed: &mut rustc_hash::FxHashMap<*const PackedTerm, Rc<PackedTerm>>,
+        removed: &mut FxHashMap<*const PackedTerm, Rc<PackedTerm>>,
         term: &Rc<PackedTerm>,
     ) -> Rc<PackedTerm> {
         if let Some(result) = removed.get(&Rc::as_ptr(term)) {
@@ -2707,7 +2717,7 @@ impl Grammar {
         }
         let result = crate::stack::guarded(|| {
             let rewrite = |session: &mut LoweringSession,
-                           removed: &mut rustc_hash::FxHashMap<_, _>,
+                           removed: &mut FxHashMap<_, _>,
                            children: &[Rc<PackedTerm>]| {
                 children
                     .iter()
@@ -2856,7 +2866,11 @@ impl Grammar {
         term: Rc<PackedTerm>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationResolveApplications);
-        self.resolve_packed_applications_memo(term, &mut HashMap::new(), &mut KListMemo::default())
+        self.resolve_packed_applications_memo(
+            term,
+            &mut FxHashMap::default(),
+            &mut KListMemo::default(),
+        )
     }
 
     fn resolve_packed_applications_memo(
@@ -3050,7 +3064,7 @@ impl Grammar {
             if let Some((_, flattened)) = klists.flattened.get(&key) {
                 return Ok(Rc::clone(flattened));
             }
-            let mut seen = HashSet::new();
+            let mut seen = FxHashSet::default();
             let mut flattened = Vec::new();
             let mut keep = |arguments: Vec<Rc<PackedTerm>>| {
                 if arguments.len() <= longest
@@ -3529,7 +3543,7 @@ impl Grammar {
         term: &Rc<PackedTerm>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationResolveTerminators);
-        let mut resolved = rustc_hash::FxHashMap::default();
+        let mut resolved = FxHashMap::default();
         self.resolve_overloaded_terminators_node(session, &mut resolved, term, false)
     }
 
@@ -3545,7 +3559,7 @@ impl Grammar {
         session: &mut LoweringSession,
         term: &Rc<PackedTerm>,
     ) -> Result<Rc<PackedTerm>, ParseError> {
-        let mut resolved = rustc_hash::FxHashMap::default();
+        let mut resolved = FxHashMap::default();
         self.resolve_overloaded_terminators_node(session, &mut resolved, term, true)
     }
 
@@ -3554,7 +3568,7 @@ impl Grammar {
     fn resolve_overloaded_terminators_node(
         &self,
         session: &mut LoweringSession,
-        resolved: &mut rustc_hash::FxHashMap<*const PackedTerm, PackedTransformResult>,
+        resolved: &mut FxHashMap<*const PackedTerm, PackedTransformResult>,
         term: &Rc<PackedTerm>,
         each_tree: bool,
     ) -> PackedTransformResult {
@@ -3822,7 +3836,7 @@ impl Grammar {
                 .iter()
                 .filter(|production| chooses(production))
                 .filter_map(|production| production.source_production)
-                .collect::<HashSet<_>>()
+                .collect::<FxHashSet<_>>()
         };
         PackedFilter {
             preferred_sources: sources(|production| production.prefer),
@@ -4001,7 +4015,7 @@ impl Grammar {
             }
             let nodes = alternatives.iter().cloned().collect::<Vec<_>>();
             let mut frontier = Vec::new();
-            collect_packed_frontier(order, &nodes, &mut HashSet::new(), &mut frontier);
+            collect_packed_frontier(order, &nodes, &mut FxHashSet::default(), &mut frontier);
             let classify = |choice: Choice| {
                 (0..nodes.len())
                     .map(|index| {
@@ -4329,13 +4343,16 @@ impl Grammar {
     /// Lift ambiguity in a top-level rewrite LHS above its `#RuleContent` wrapper.
     pub(super) fn push_top_lhs_packed_ambiguity_up(&self, term: Rc<PackedTerm>) -> Rc<PackedTerm> {
         let _span = measure::algorithm_span(Algorithm::ParserDisambiguationLiftTopLhs);
-        self.push_top_lhs_packed_ambiguity_up_memo(term, &mut HashMap::new())
+        self.push_top_lhs_packed_ambiguity_up_memo(term, &mut FxHashMap::default())
     }
 
     fn push_top_lhs_packed_ambiguity_up_memo(
         &self,
         term: Rc<PackedTerm>,
-        expansion_memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, BTreeSet<Rc<PackedTerm>>)>,
+        expansion_memo: &mut FxHashMap<
+            *const PackedTerm,
+            (Rc<PackedTerm>, BTreeSet<Rc<PackedTerm>>),
+        >,
     ) -> Rc<PackedTerm> {
         crate::stack::guarded(|| {
             // Invariant: every visited identity is memoized completely, and an ambiguity moves only
@@ -4397,7 +4414,7 @@ impl Grammar {
     fn expand_packed_rule_body_lhs(
         &self,
         body: Rc<PackedTerm>,
-        memo: &mut HashMap<*const PackedTerm, (Rc<PackedTerm>, BTreeSet<Rc<PackedTerm>>)>,
+        memo: &mut FxHashMap<*const PackedTerm, (Rc<PackedTerm>, BTreeSet<Rc<PackedTerm>>)>,
     ) -> BTreeSet<Rc<PackedTerm>> {
         crate::stack::guarded(|| {
             // Invariant: every memoized identity has all rewrite-LHS alternatives expanded once while
@@ -4615,16 +4632,16 @@ impl Grammar {
 /// reach a node.
 struct PackedReadings {
     /// The edges that are still to take each node's readings, of every node the root reaches.
-    pending: HashMap<*const PackedTerm, usize>,
+    pending: FxHashMap<*const PackedTerm, usize>,
     /// The readings of the nodes whose readings some edge is still to take. The forest's root
     /// keeps each node alive, so no address is reused while it is a key.
-    known: HashMap<*const PackedTerm, Readings>,
+    known: FxHashMap<*const PackedTerm, Readings>,
 }
 
 impl PackedReadings {
     /// The edges that reach each node of the forest at `root`, the root's caller included.
     fn new(root: &Rc<PackedTerm>) -> Self {
-        let mut pending = HashMap::new();
+        let mut pending = FxHashMap::default();
         pending.insert(Rc::as_ptr(root), 1);
         let mut unvisited = vec![Rc::clone(root)];
         // Invariant: a node is pushed when its first edge is counted, so the edges below each
@@ -4647,12 +4664,12 @@ impl PackedReadings {
         }
         Self {
             pending,
-            known: HashMap::new(),
+            known: FxHashMap::default(),
         }
     }
 
     fn count_edge(
-        pending: &mut HashMap<*const PackedTerm, usize>,
+        pending: &mut FxHashMap<*const PackedTerm, usize>,
         unvisited: &mut Vec<Rc<PackedTerm>>,
         node: &Rc<PackedTerm>,
     ) {
@@ -4781,19 +4798,19 @@ struct ReadingSets {
     /// its alternatives, `ReadingSets::union`).
     hashes: Vec<u64>,
     /// The nodes by the hash of their structure.
-    consed: HashMap<u64, Vec<usize>>,
-    keys: RefCell<HashMap<usize, Rc<[Key]>>>,
-    lengths: RefCell<HashMap<usize, Rc<[usize]>>>,
-    bounds: RefCell<HashMap<usize, Rc<ConcatBounds>>>,
+    consed: FxHashMap<u64, Vec<usize>>,
+    keys: RefCell<FxHashMap<usize, Rc<[Key]>>>,
+    lengths: RefCell<FxHashMap<usize, Rc<[usize]>>>,
+    bounds: RefCell<FxHashMap<usize, Rc<ConcatBounds>>>,
     subterms: BTreeMap<(usize, usize, Key), Readings>,
-    items: HashMap<(usize, usize, usize), Readings>,
+    items: FxHashMap<(usize, usize, usize), Readings>,
     /// The alternative of each union with the least reading (`ReadingSets::resolve`).
-    least_alternatives: RefCell<HashMap<usize, usize>>,
+    least_alternatives: RefCell<FxHashMap<usize, usize>>,
     /// The length of the least reading of each concatenation.
-    least_lengths: RefCell<HashMap<usize, usize>>,
-    least_words: RefCell<HashMap<(usize, usize), Word>>,
+    least_lengths: RefCell<FxHashMap<usize, usize>>,
+    least_words: RefCell<FxHashMap<(usize, usize), Word>>,
     /// The order of the least readings of pairs of nodes compared.
-    comparisons: RefCell<HashMap<(usize, usize), std::cmp::Ordering>>,
+    comparisons: RefCell<FxHashMap<(usize, usize), std::cmp::Ordering>>,
 }
 
 /// A word of a `~>` node's readings: its items, each standing for the least reading of its
@@ -4929,8 +4946,8 @@ impl ReadingSets {
     fn union(&mut self, alternatives: impl IntoIterator<Item = Readings>) -> Readings {
         let mut flat = Vec::new();
         let mut hashes = Vec::new();
-        let mut nodes = HashSet::new();
-        let mut terms = HashMap::<u64, Vec<usize>>::new();
+        let mut nodes = FxHashSet::default();
+        let mut terms = FxHashMap::<u64, Vec<usize>>::default();
         let mut add = |reading: Readings, flat: &mut Vec<Readings>, hashes: &mut Vec<u64>| {
             // The union holds the reading: share its term.
             let reading = reading.shared();
@@ -6027,7 +6044,7 @@ pub(crate) fn parse_apply_priority(source: &str) -> Result<BTreeSet<usize>, Pars
 fn collect_packed_frontier(
     order: &mut StructuralOrder,
     nodes: &[Rc<PackedTerm>],
-    visited: &mut HashSet<Vec<*const PackedTerm>>,
+    visited: &mut FxHashSet<Vec<*const PackedTerm>>,
     frontier: &mut Vec<Vec<Rc<PackedTerm>>>,
 ) {
     crate::stack::guarded(|| {
@@ -6184,7 +6201,7 @@ pub(super) struct StructuralPlace<'a> {
 /// it merged (`merge_alternatives_at_one_position`).
 #[derive(Default)]
 struct PreferenceMemo {
-    readings: HashMap<StructuralPosition, (Rc<PackedTerm>, Rc<PackedTerm>)>,
+    readings: FxHashMap<StructuralPosition, (Rc<PackedTerm>, Rc<PackedTerm>)>,
     unions: PositionUnions,
 }
 
@@ -6205,7 +6222,7 @@ thread_local! {
 /// made again for every group above that reaches them, so for every path down to them: with
 /// shared subforests, a number of times exponential in their depth. Interned, every group that
 /// reaches the same readings reaches one node, chosen once.
-type PositionUnions = HashMap<Vec<*const PackedTerm>, Rc<PackedTerm>>;
+type PositionUnions = FxHashMap<Vec<*const PackedTerm>, Rc<PackedTerm>>;
 
 /// A node of a forest at a place of one declared and one recognized sort, in a term no rule
 /// changes or not: one position of the readings that reach the node there
@@ -7988,7 +8005,7 @@ pub(super) mod tests {
 
     /// The session nodes reachable from `root`.
     fn packed_nodes(root: &Rc<PackedTerm>) -> usize {
-        let mut seen = HashSet::new();
+        let mut seen = FxHashSet::default();
         let mut pending = vec![Rc::clone(root)];
         while let Some(node) = pending.pop() {
             if !seen.insert(Rc::as_ptr(&node)) {

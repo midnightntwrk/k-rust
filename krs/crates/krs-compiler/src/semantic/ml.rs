@@ -152,7 +152,7 @@ impl StructuredTermBuilder<'_> {
     }
 
     /// The key that locates `term` in diagnostics.
-    fn term_key(term: &DescriptorTerm) -> &ProvenanceKey {
+    pub(super) fn term_key(term: &DescriptorTerm) -> &ProvenanceKey {
         match term {
             DescriptorTerm::Application { reference, .. } => &reference.key,
             DescriptorTerm::Variable { key, .. }

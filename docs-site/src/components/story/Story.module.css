@@ -99,11 +99,6 @@
   color: var(--ok);
 }
 
-.fail {
-  background: var(--tint-bad);
-  color: var(--bad);
-}
-
 .development,
 .running {
   background: var(--tint-focus);

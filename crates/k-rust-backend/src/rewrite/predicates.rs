@@ -25,7 +25,7 @@ use crate::{
     },
     substitution::{Substitution, substitute},
     term::{
-        Term, TermKind, Variable,
+        Term, TermKind, Variable, VariableKind, immediate_children,
         names::{FreshMarker, VariableProvenance, split_marker},
     },
 };
@@ -41,8 +41,10 @@ fn conjoin(mut predicates: Vec<Predicate>) -> Predicate {
 }
 
 /// The conjunction of `predicates`, with each of its free variables that `pattern` does not hold
-/// (neither its term nor its constraints) bound by an existential, outermost first in variable
-/// order.
+/// (neither its term nor its constraints) bound by an existential, outermost first in order of
+/// first occurrence in the conjunction ([`free_variables_by_first_occurrence`]). The order of the
+/// binders so depends on where the variables occur, not on their names, which a renaming of the
+/// rule that introduced them changes.
 ///
 /// The state's term is looked up variable by variable, never copied: a step on a configuration
 /// of `V` variables pays for the condition's variables, not for `V`. The constraints' variables
@@ -51,25 +53,170 @@ pub(crate) fn quantify_introduced_variables(
     pattern: &Pattern,
     predicates: Vec<Predicate>,
 ) -> Predicate {
+    let introduced_in = |condition: &Predicate| {
+        let state_term_variables = &pattern.term.attributes().variables;
+        let mut introduced = free_variables_by_first_occurrence(condition)
+            .into_iter()
+            .filter(|variable| !state_term_variables.contains(variable))
+            .collect::<Vec<_>>();
+        if !introduced.is_empty() {
+            let constraint_variables = pattern
+                .constraints
+                .iter()
+                .flat_map(Predicate::free_variables)
+                .collect::<BTreeSet<_>>();
+            introduced.retain(|variable| !constraint_variables.contains(variable));
+        }
+        introduced
+    };
+    let is_existential = |variable: &Variable| {
+        split_marker(&variable.name, &[VariableProvenance::Existential]).0
+            == Some(VariableProvenance::Existential)
+    };
     let mut condition = conjoin(predicates);
-    let state_term_variables = &pattern.term.attributes().variables;
-    let mut introduced = condition
-        .free_variables()
-        .into_iter()
-        .filter(|variable| !state_term_variables.contains(variable))
-        .collect::<Vec<_>>();
-    if !introduced.is_empty() {
-        let constraint_variables = pattern
-            .constraints
-            .iter()
-            .flat_map(Predicate::free_variables)
-            .collect::<BTreeSet<_>>();
-        introduced.retain(|variable| !constraint_variables.contains(variable));
+    let mut introduced = introduced_in(&condition);
+    // A rule's existential (`?Y`, marked `Ex#`) that a conjunct equates with a defined term is
+    // that term ([`eliminate_equated_variables`]); the step's other introduced variables are
+    // left as they were.
+    if introduced.iter().any(is_existential) {
+        let conjuncts = match &condition {
+            Predicate::And(conjuncts) => conjuncts.to_vec(),
+            Predicate::True => Vec::new(),
+            single => vec![single.clone()],
+        };
+        let eliminated = eliminate_equated_variables(conjuncts, |predicates| {
+            introduced_in(&conjoin(predicates.to_vec()))
+                .into_iter()
+                .filter(is_existential)
+                .collect()
+        });
+        condition = conjoin(eliminated);
+        introduced = introduced_in(&condition);
     }
     for variable in introduced.into_iter().rev() {
         condition = Predicate::Exists(variable, Arc::new(condition));
     }
     condition
+}
+
+/// `predicates` with each variable that `quantified` gives (the variables about to be bound by
+/// an existential) eliminated where a conjunct equates it with a defined term: an element
+/// variable `?Y` and a term `t` free of `?Y` and of the other quantified variables and with no
+/// undefined part make `∃?Y. (?Y = t ∧ ψ)` equal to `ψ[t/?Y]`, since an element variable
+/// denotes a defined element and `t` is one. So an `ensures` that binds a rule's existential
+/// to a value of the configuration states that value rather than an existential over it, which
+/// a solver may not decide.
+pub(crate) fn eliminate_equated_variables(
+    mut predicates: Vec<Predicate>,
+    quantified: impl Fn(&[Predicate]) -> BTreeSet<Variable>,
+) -> Vec<Predicate> {
+    loop {
+        let fresh = quantified(&predicates);
+        if fresh.is_empty() {
+            return predicates;
+        }
+        let binding = predicates
+            .iter()
+            .enumerate()
+            .find_map(|(index, predicate)| {
+                let Predicate::Equals(left, right) = predicate else {
+                    return None;
+                };
+                [(left, right), (right, left)]
+                    .into_iter()
+                    .find_map(|(variable, value)| match variable.kind() {
+                        TermKind::Variable(variable)
+                            if variable.kind == VariableKind::Element
+                                && fresh.contains(variable)
+                                && value.attributes().ceil_free()
+                                && value.attributes().variables.is_disjoint(&fresh) =>
+                        {
+                            Some((index, variable.clone(), value.clone()))
+                        }
+                        _ => None,
+                    })
+            });
+        let Some((index, variable, value)) = binding else {
+            return predicates;
+        };
+        predicates.remove(index);
+        #[expect(
+            clippy::disallowed_methods,
+            reason = "the one-point rule over an element variable and a defined (ceil-free) value: the binding states the value's definedness already, so no obligation is lost"
+        )]
+        let substituted =
+            substitute_predicates(&predicates, &Substitution::from([(variable, value)]));
+        predicates = substituted;
+    }
+}
+
+/// The free variables of `predicate`, each once, in order of first occurrence: its terms in the
+/// order [`Predicate::visit_terms`] visits them, each in preorder ([`immediate_children`]). An
+/// occurrence that a quantifier of `predicate` binds is not free. Like
+/// [`Predicate::free_variables`], it bumps `Counter::SimplifyPredicateNodesVisited` once per
+/// predicate node it reads.
+pub(crate) fn free_variables_by_first_occurrence(predicate: &Predicate) -> Vec<Variable> {
+    fn term(term: &Term, bound: &[Variable], found: &mut Vec<Variable>) {
+        let mut pending = vec![term];
+        // Invariant: `found` holds the free variables of the subterms visited so far, in order
+        // of first occurrence; `pending` the unvisited subterms that hold a variable, the next
+        // on top.
+        while let Some(node) = pending.pop() {
+            if node.attributes().variables.is_empty() {
+                continue;
+            }
+            if let TermKind::Variable(variable) = node.kind() {
+                if !bound.contains(variable) && !found.contains(variable) {
+                    found.push(variable.clone());
+                }
+                continue;
+            }
+            pending.extend(immediate_children(node.kind()).into_iter().rev());
+        }
+    }
+    fn walk(predicate: &Predicate, bound: &mut Vec<Variable>, found: &mut Vec<Variable>) {
+        measure::bump(Counter::SimplifyPredicateNodesVisited);
+        match predicate {
+            Predicate::True | Predicate::False => {}
+            Predicate::Term(inner)
+            | Predicate::Ceil(inner)
+            | Predicate::Defined(inner)
+            | Predicate::Floor(inner) => term(inner, bound, found),
+            Predicate::Equals(left, right) | Predicate::In(left, right) => {
+                term(left, bound, found);
+                term(right, bound, found);
+            }
+            Predicate::Absent(absence) => {
+                term(absence.key(), bound, found);
+                term(absence.rest(), bound, found);
+            }
+            Predicate::Not(inner) => walk(inner, bound, found),
+            Predicate::And(inner) | Predicate::Or(inner) => {
+                for predicate in inner.iter() {
+                    walk(predicate, bound, found);
+                }
+            }
+            Predicate::Implies(left, right) | Predicate::Iff(left, right) => {
+                walk(left, bound, found);
+                walk(right, bound, found);
+            }
+            Predicate::Exists(variable, inner) | Predicate::Forall(variable, inner) => {
+                bound.push(variable.clone());
+                walk(inner, bound, found);
+                bound.pop();
+            }
+        }
+    }
+    let mut found = Vec::new();
+    walk(predicate, &mut Vec::new(), &mut found);
+    found
+}
+
+/// `predicate` with each bound variable renamed to a name given by its binder's position (the
+/// binders numbered in preorder), and its free variables as they are: two predicates that differ
+/// only in the names of bound variables have the same key.
+pub(crate) fn alpha_normal(predicate: &Predicate) -> Predicate {
+    alpha_normalize(predicate, &mut 0)
 }
 
 pub(crate) fn conjunctively_contains_alpha_equivalent(
@@ -402,6 +549,15 @@ pub(crate) fn predicates_truth(predicates: &[Predicate]) -> Truth {
 }
 
 /// Detect a constructor exclusion that contradicts an internalized finite no-junk axiom.
+///
+/// Precondition: every term an exclusion `\not(s = c)` is about is defined wherever
+/// `predicates` hold. The no-junk axiom covers the elements of a sort, and an undefined `s` is
+/// none of them: `\not(s = c)` holds there for every constructor `c`, so exclusions of every
+/// constructor over a partial `s` (`f(X)` with `f` partial) are satisfiable exactly where `s` is
+/// undefined. The internal callers meet it by applying this to a remainder or path constraints
+/// conjoined to a pattern whose term holds `s` (where `s` is defined on every instance), or to
+/// exclusions whose normalization states `\ceil(s)` beside them; a caller with predicates of
+/// another origin must state the definedness of each such `s` first.
 pub(crate) fn violates_finite_constructor_domain(
     definition: &BackendDefinition,
     predicates: &[Predicate],
@@ -600,8 +756,8 @@ mod tests {
         let mut predicates = (0..20)
             .map(|index| {
                 Predicate::Equals(
-                    Term::variable(Variable::new(format!("X{index}"), sort.clone())),
-                    Term::raw_domain_value(sort.clone(), index.to_string()),
+                    Term::variable(Variable::new(format!("X{index}"), sort)),
+                    Term::raw_domain_value(sort, index.to_string()),
                 )
             })
             .collect::<Vec<_>>();

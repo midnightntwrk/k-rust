@@ -7,6 +7,7 @@ use krs_syntax::{
     SyntaxErrorKind,
 };
 use krs_test_support::assert_rejects;
+use quote::ToTokens;
 
 #[test]
 fn generated_and_named_roots_and_cell_payloads_are_closed() {
@@ -285,7 +286,7 @@ fn k_sequences_freeze_prefix_tail_dotk_and_operator_forms() {
 
     for (source, expected_kind) in [
         (
-            "S1,",
+            "S1 ~>",
             SyntaxErrorKind::InvalidStateMacro {
                 macro_name: "k",
                 reason: "a sequence separator requires another item",
@@ -1108,22 +1109,19 @@ fn machine_records_may_leave_the_computation_cell_out() {
         "the placeholder subject contributes no wildcard"
     );
 
-    for (source, expected) in [
-        (
-            "for Machine; idle: {} => {};",
-            "a machine rule selects at least one cell",
-        ),
-        (
-            "for Machine; two: { k: [A, ..], k2: [B, ..] } => { k: [..], k2: [..] };",
-            "a machine rule must match at most one computation-cell sequence",
-        ),
-    ] {
-        let error = krs_syntax::RuleBlock::parse_source(source).unwrap_err();
-        assert!(
-            error.to_string().contains(expected),
-            "expected {expected:?} in {error}"
-        );
-    }
+    let error = krs_syntax::RuleBlock::parse_source("for Machine; idle: {} => {};").unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("a machine rule selects at least one cell"),
+        "{error}"
+    );
+    // Two bracketed values read as one computation cell and one cons list
+    // (F6); the collector checks the configuration declares them so.
+    krs_syntax::RuleBlock::parse_source(
+        "for Machine; two: { k: [A, ..], k2: [B, ..] } => { k: [..], k2: [..] };",
+    )
+    .unwrap();
 }
 
 #[test]
@@ -1207,4 +1205,79 @@ fn whole_nested_cell_entries_are_binders_wildcards_or_fragments() {
     )
     .unwrap_err();
     assert_eq!(error.kind(), &group_entry);
+}
+
+#[test]
+fn qualified_state_macros_in_leaf_cells_read_as_the_unqualified_ones() {
+    for (qualified, unqualified) in [
+        (
+            "k: KCell(X, tail @ ..), env: Cell(k::map![X -> V, rest @ ..]), state @ ..",
+            "k: KCell(X, tail @ ..), env: Cell(map![X -> V, rest @ ..]), state @ ..",
+        ),
+        (
+            "k: k::configuration::KCell(X, ..), env: k::configuration::Cell(krs::map![X -> V, ..]), state @ ..",
+            "k: k::configuration::KCell(X, ..), env: k::configuration::Cell(map![X -> V, ..]), state @ ..",
+        ),
+    ] {
+        let parse = |source| {
+            krs_syntax::parse_cells_pattern(krs_syntax::parse::tokens_from_source(source).unwrap())
+                .unwrap()
+        };
+        // The two spellings differ only in token positions.
+        let shape = |cells: &krs_syntax::CellsExpression| {
+            let StateTerm::KSequence(_) = cells.entries()[0].value() else {
+                panic!("the computation cell is a K sequence")
+            };
+            let StateTerm::Map(map) = cells.entries()[1].value() else {
+                panic!("the env cell is a map")
+            };
+            let krs_syntax::MapBody::Items { items, remainder } = map.body() else {
+                panic!("the map has items")
+            };
+            let items = items
+                .iter()
+                .map(|item| {
+                    (
+                        item.key().expression().to_token_stream().to_string(),
+                        item.value().expression().to_token_stream().to_string(),
+                    )
+                })
+                .collect::<Vec<_>>();
+            (items, remainder.binding().map(ToString::to_string))
+        };
+        assert_eq!(shape(&parse(qualified)), shape(&parse(unqualified)));
+    }
+}
+
+#[test]
+fn map_patterns_reject_a_key_named_twice() {
+    let repeated = SyntaxErrorKind::InvalidStateMacro {
+        macro_name: "map",
+        reason: "a map pattern names one key twice; \
+                 its items are distinct entries of the map, so no map matches it",
+    };
+    assert_rejects!(
+        krs_syntax::parse_map_pattern(
+            krs_syntax::parse::tokens_from_source("Key(1) -> v, b -> w, Key(1) -> u, ..").unwrap()
+        ),
+        error if error.kind() == &repeated
+    );
+    assert_rejects!(
+        krs_syntax::parse_cells_pattern(
+            krs_syntax::parse::tokens_from_source(
+                "env: k::configuration::Cell(k::map![a -> x, a -> y, ..]), state @ .."
+            )
+            .unwrap()
+        ),
+        error if error.kind() == &repeated
+    );
+    krs_syntax::parse_map_pattern(
+        krs_syntax::parse::tokens_from_source("a -> x, b -> y, ..").unwrap(),
+    )
+    .unwrap();
+    // Two `_` keys match two distinct entries.
+    krs_syntax::parse_map_pattern(
+        krs_syntax::parse::tokens_from_source("_ -> x, _ -> y, ..").unwrap(),
+    )
+    .unwrap();
 }

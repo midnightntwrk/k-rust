@@ -11,7 +11,7 @@
 //!
 //! [[cost]]
 //! mode = "one term (ceil_term)"
-//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once and the items of a collection that are not ceil_free reached through its summaries, O(log m) each, and one deduplication clone per obligation emitted, plus, per map or set of at least four keys other than one without rest whose keys share one header and repeat none (read from its summary, no key obligation), O(k) to group its keys by apartness skeleton (term.rs rigid_apart_skeleton_hash, and same_apart_skeleton against each group of the same hash) and, per key, the later keys to check: O(m) to scan them when fewer later keys of its group are skipped than checked, otherwise O(g log m + c log c) to gather and sort the c later keys of other groups and of equal keys; then one apartness check per pair of keys that are not both rigid with one skeleton and per pair of equal keys (at most m^2 / 2, none for distinct keys of one skeleton), each a walk of the two elements' shared fixed-root spine that stops at the first open root, by recursion for eight levels and on a work list below them, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application, and, for an application of a value-production symbol that no ceil equation decides and the simplifier has not certified, one instance-normality scan of it (instance_normal.rs)"
+//! bound = "O(1) when the term's stored ceil_free attribute is true (term.rs ceil_free); otherwise O(t) visits of one loop over a work list of at most O(t) entries, on a native stack that does not grow with the term, a visit of a ceil_free subterm returning at once and the items of a collection that are not ceil_free reached through its summaries, O(log m) each, and one deduplication clone per obligation emitted, plus, per map or set of at least four keys other than one without rest whose keys share one header and repeat none (read from its summary, no key obligation), O(k) to group its keys by apartness skeleton (term.rs rigid_apart_skeleton_hash, O(1) for a key whose stored may_be_rigid is false, and same_apart_skeleton against each group of the same hash) and, per key, the later keys to check: O(m) to scan them when fewer later keys of its group are skipped than checked, otherwise O(g log m + c log c) to gather and sort the c later keys of other groups and of equal keys; then one apartness check per pair of keys that are not both rigid with one skeleton and per pair of equal keys (at most m^2 / 2, none for distinct keys of one skeleton), each a walk of the two elements' shared fixed-root spine that stops at the first open root, by recursion for eight levels and on a work list below them, with up to two matching problems for a pair of certified ground normal forms, plus O(y) per entry beside a rest and, when the definition declares no membership function at the entry's sorts, one absence atom (rule.rs Absence::new): a single-entry collection built over that rest and, for a map, a binder named apart from the O(v) variables of the key and the rest, plus q matches and one predicate simplification per partial application, and, for an application of a value-production symbol that no ceil equation decides and the simplifier has not certified, one instance-normality scan of it (instance_normal.rs)"
 //!
 //! [[cost]]
 //! mode = "one rule or equation condition (condition_definedness)"
@@ -604,7 +604,7 @@ fn deferred_operand_obligations(
     operand: &Term,
 ) -> Result<Vec<Predicate>, DeferredOutcome> {
     use crate::deferred::{Folded, deferred_obligations, fold_hooks_or_keep};
-    match fold_hooks_or_keep(definition, operand) {
+    match fold_hooks_or_keep(definition, operand, true) {
         Folded::Bottom(_) => Ok(vec![Predicate::False]),
         Folded::Term(folded) => deferred_obligations(definition, &folded),
     }
@@ -806,7 +806,9 @@ pub(crate) fn collection_disequalities(
 /// Apartness (A): no value of one term is a value of the other on any valuation.
 /// `Term::apart_with` supplies the fixed-root decision; the optional sort graph separates
 /// injections whose source sorts share no value, without requiring a normal-form certificate.
-/// Without a sort graph the callback retains only injection facts that need no subsort lookup.
+/// Without a sort graph the callback retains only injection facts that need no subsort lookup:
+/// two injections from one source compare their operands, and two from different sources are
+/// undecided, since one source may be below the other (`match_injection_equality`).
 pub(crate) fn terms_apart(sorts: Option<&SortGraph>, left: &Term, right: &Term) -> Option<Apart> {
     left.apart_with(
         right,
@@ -928,19 +930,32 @@ fn apply_ceil_equation(definition: &BackendDefinition, term: &Term) -> Option<Ve
 /// (`simplify::evaluate_equation_condition`).
 fn ceil_theory_condition(definition: &BackendDefinition, term: &Term) -> Option<Vec<Predicate>> {
     let groups = applicable_groups(definition.ceil_theory(), &term_index(term));
-    for rules in groups.values() {
+    // The first usable instance ends the selection: the unconditional ceil equations after its
+    // equation are offered (`crate::coverage::Selection`).
+    let selection = crate::coverage::Selection::new(
+        crate::coverage::by_priority(&groups),
+        |rule: &RewriteRule| {
+            rule.requires.is_empty()
+                && rule.computed_attributes.unbound_result_variables.is_empty()
+                && matches!(rule.rhs, RuleRhs::Predicates(_))
+        },
+        crate::simplify::scan::equation_probe(definition, term),
+    );
+    for (_, rules) in selection.groups() {
         for rule in rules {
-            if !rule.requires.is_empty()
-                || !rule.computed_attributes.unbound_result_variables.is_empty()
-                || !matches!(rule.rhs, RuleRhs::Predicates(_))
-            {
-                continue;
-            }
-            let (rule, EquationInstances::Matched(instances)) =
-                equation_instances(definition, rule, term, &[])
-            else {
-                continue;
+            let (rule, instances) = equation_instances(definition, rule, term, &[]);
+            let instances = match instances {
+                EquationInstances::NotMatched(_) => continue,
+                EquationInstances::Undecided => {
+                    // The matching is undecided: the equation competed here (`crate::coverage`).
+                    crate::coverage::note_offered(&rule.attributes.unique_id);
+                    continue;
+                }
+                EquationInstances::Matched(instances) => instances,
             };
+            // The left-hand side matched: whatever its instances give, the equation competed
+            // at this application (`crate::coverage`).
+            crate::coverage::note_offered(&rule.attributes.unique_id);
             let RuleRhs::Predicates(predicates) = &rule.rhs else {
                 unreachable!("renaming keeps the kind of the right-hand side");
             };
@@ -1208,6 +1223,22 @@ fn condition_atom_term<'a>(
         Predicate::Equals(left, right) if defined(right) => Some(left),
         Predicate::Equals(left, right) if defined(left) => Some(right),
         _ => None,
+    }
+}
+
+/// The definedness obligations an atom implies: those of the operand it asserts equal to a value
+/// defined under `known` ([`condition_atom_term`]), which is empty wherever that operand is, so
+/// wherever `known` holds the atom is `\ceil(b) /\ atom`. These are the obligations
+/// [`condition_definedness`] states beside or with the atom under the same known predicates.
+/// None for a predicate that is not such an atom.
+pub(crate) fn atom_definedness(
+    definition: &BackendDefinition,
+    predicate: &Predicate,
+    known: &[Predicate],
+) -> Result<Vec<Predicate>, DeferredOutcome> {
+    match condition_atom_term(definition, predicate, known) {
+        Some(term) => ceil_term_walk(definition, term, AtCeilFree::Skip),
+        None => Ok(Vec::new()),
     }
 }
 
@@ -1700,7 +1731,7 @@ mod tests {
     #[test]
     fn definedness_deduplication_preserves_first_occurrence_order() {
         let sort = Sort::simple("SortS");
-        let x = Term::variable(crate::term::Variable::new("X", sort.clone()));
+        let x = Term::variable(crate::term::Variable::new("X", sort));
         let y = Term::variable(crate::term::Variable::new("Y", sort));
         let first = Predicate::Ceil(x);
         let second = Predicate::Ceil(y);
@@ -1729,12 +1760,8 @@ mod tests {
     #[test]
     fn deduplicate_absorbs_a_deduplicated_part() {
         let sort = Sort::simple("SortS");
-        let alphabet = ["X", "Y", "Z"].map(|name| {
-            Predicate::Ceil(Term::variable(crate::term::Variable::new(
-                name,
-                sort.clone(),
-            )))
-        });
+        let alphabet = ["X", "Y", "Z"]
+            .map(|name| Predicate::Ceil(Term::variable(crate::term::Variable::new(name, sort))));
         let alphabet = &alphabet;
         let lists = |length: usize| {
             (0..alphabet.len().pow(length as u32)).map(move |mut code| {
@@ -2512,7 +2539,7 @@ mod tests {
         );
         let rule = rewrite_rule(&definition);
 
-        assert!(rule.attributes.preserves_definedness);
+        assert!(rule.computed_attributes.definedness_discharged);
         assert!(rule.computed_attributes.undefined_symbols.is_empty());
     }
 

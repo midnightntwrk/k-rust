@@ -17,20 +17,25 @@
 //! Compile-time evaluation of pure `BOOL`, `INT`, `STRING` and `FLOAT` hooks on literals, through
 //! the backend's evaluation entry ([`k_rust_backend::builtin::evaluate_declared`]): the fold
 //! writes the value the backend computes for an application outside an execution, at the
-//! application's declared sort, and computes nothing itself, in every build.
+//! application's declared sort, and computes nothing itself, in every build. A value the
+//! definition leaves open ([`k_rust_backend::builtin::chosen_value`]) is never written.
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::{collections::BTreeMap, fmt};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 
 use num_bigint::BigInt;
 
 use k_rust_backend::{
-    builtin::{BuiltinResult, DeclarationFacts, evaluate_declared},
+    builtin::{BuiltinResult, DeclarationFacts, chosen_value, evaluate_declared},
     evaluation::EvaluationMode,
     term::{DomainKind, Sort as BackendSort, Term as BackendTerm, TermKind},
 };
 
 use super::super::declaration_facts::{EmittedDeclarations, backend_sort};
+use super::super::label_graph::impure_labels;
 use super::super::module_to_kore::encode_kore_sort;
 use super::super::term_to_kore::{token_payload, token_text};
 use crate::definition::AttributeKey;
@@ -91,12 +96,23 @@ pub(crate) fn constant_fold_pass(
     // backend reads when it evaluates an application of the loaded definition.
     let main = resolved.main_module_id();
     let facts = EmittedDeclarations::new(views.sort_catalog(main), views.production_catalog(main));
+    // The labels whose application may perform an effect, over the rules of the main module,
+    // which the emitted definition evaluates. A macro's own rules are not yet marked here, so a
+    // macro rule is recognised by its head's production.
+    let main_productions = views.production_catalog(main);
+    let impure = impure_labels(main_productions, &resolved.rule_catalog(main), |rule| {
+        !rule.attributes().has(AttributeKey::Simplification)
+            && (rule.attributes().has_any(&AttributeKey::MACRO_LIKE)
+                || main_productions
+                    .attributes_for(&LabelHead::from(&crate::definition::match_rule_label(rule)))
+                    .is_some_and(|attributes| attributes.has_any(&AttributeKey::MACRO_LIKE)))
+    });
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         let module_id = resolved
             .module_id(&module.name)
             .expect("resolved definition contains every source module");
-        let folder = Folder::new(&views, module_id, &facts);
+        let folder = Folder::new(&views, module_id, &facts, &impure);
         for sentence in &mut module.local_sentences {
             // Only rules change. The kind is decided before taking a mutable sentence, which
             // copies a shared one, so every other kind stays shared.
@@ -142,6 +158,8 @@ enum Position {
 struct Folder<'view, 'definition> {
     productions: &'view ProductionCatalog<'definition>,
     facts: &'view EmittedDeclarations<'view, 'definition>,
+    /// The labels whose application may perform an effect ([`impure_labels`]).
+    impure: &'view BTreeSet<LabelHead>,
 }
 
 impl<'view, 'definition> Folder<'view, 'definition> {
@@ -149,10 +167,12 @@ impl<'view, 'definition> Folder<'view, 'definition> {
         views: &'view DefinitionViews<'definition>,
         module: ModuleId,
         facts: &'view EmittedDeclarations<'view, 'definition>,
+        impure: &'view BTreeSet<LabelHead>,
     ) -> Self {
         Self {
             productions: views.production_catalog(module),
             facts,
+            impure,
         }
     }
 
@@ -179,6 +199,10 @@ impl<'view, 'definition> Folder<'view, 'definition> {
                     .into_iter()
                     .map(|argument| self.fold(argument, position))
                     .collect::<Vec<_>>();
+                // A conjunction a pass added to a condition is decided once its operands are
+                // settled (tokens, here), so the fold evaluates it as the Bool conjunction it is.
+                let (label, arguments) =
+                    crate::kompile::ml_constructs::settle_conjunction(label, arguments);
                 // An application the fold does not evaluate keeps its meaning as written: the
                 // fold only replaces a term by a token that denotes the same value.
                 if position == Position::Right
@@ -228,11 +252,14 @@ impl<'view, 'definition> Folder<'view, 'definition> {
         };
         let hook = attributes.string(AttributeKey::Hook)?;
         // Only a `function` production is emitted as a hooked symbol, which the backend evaluates
-        // (`interpreted_hook`), and an `impure` one depends on more than its arguments. A `macro`
+        // (`interpreted_hook`). An application that may perform an effect (its production is
+        // declared `impure`, or a rule evaluation can apply to it reaches one: `impure_labels`)
+        // is more than its value: folding would drop the effect. A `macro`
         // or `alias` production means its expansion, which the definition's rules state and
         // macro expansion, after this pass, substitutes; the hook does not compute it.
         if !attributes.has(AttributeKey::Function)
             || attributes.has(AttributeKey::Impure)
+            || self.impure.contains(&LabelHead::from(label))
             || AttributeKey::MACRO_LIKE
                 .iter()
                 .any(|key| attributes.has(*key))
@@ -321,6 +348,13 @@ impl<'view, 'definition> Folder<'view, 'definition> {
         ) else {
             return None;
         };
+        // A value the definition leaves open (`chosen_value`) is one of several: a token for
+        // k-rust's would give the emitted definition fewer models than the source, whatever an
+        // evaluation outside an execution withholds, so the application stays as written, and a
+        // run computes it.
+        if chosen_value(application.hook, &arguments, Some(&value)).is_some() {
+            return None;
+        }
         // A value of a strict subsort of the result sort is an injection, which no token writes.
         let TermKind::DomainValue { sort, value } = value.kind() else {
             return None;
@@ -343,7 +377,7 @@ impl<'view, 'definition> Folder<'view, 'definition> {
     fn argument(&self, token: &str, sort: &Sort, declared: Option<&Sort>) -> Option<BackendTerm> {
         let (backend, encoding) = emitted(sort);
         let payload = token_payload(token, self.facts.hook(sort), encoding).ok()?;
-        let value = BackendTerm::domain_value_in(self.facts, backend.clone(), payload)?;
+        let value = BackendTerm::domain_value_in(self.facts, backend, payload)?;
         let Some(declared) = declared
             .map(backend_sort)
             .filter(|declared| *declared != backend)

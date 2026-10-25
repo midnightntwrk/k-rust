@@ -77,6 +77,7 @@ impl StepTimeoutController {
             StepTimer {
                 controller: self,
                 started,
+                off_the_clock: crate::stop::time_off_the_clock(),
                 _deadline: deadline,
                 record_elapsed: true,
             }
@@ -121,6 +122,10 @@ pub(crate) struct StepTimer<'a> {
     controller: &'a StepTimeoutController,
     #[cfg(not(target_arch = "wasm32"))]
     started: Instant,
+    /// The thread's time off the clock when the step began (`stop::off_the_clock`): the step's
+    /// measured time leaves out what it spent there since.
+    #[cfg(not(target_arch = "wasm32"))]
+    off_the_clock: Duration,
     /// The step's deadline, armed in the `stop` registry: a poll after it passed returns
     /// `StopCause::Deadline` with its mode. Restores the enclosing step's deadline when the
     /// timer is dropped.
@@ -140,7 +145,9 @@ impl Drop for StepTimer<'_> {
         #[cfg(not(target_arch = "wasm32"))]
         {
             if self.record_elapsed {
-                self.controller.record(self.started.elapsed());
+                let off = crate::stop::time_off_the_clock().saturating_sub(self.off_the_clock);
+                self.controller
+                    .record(self.started.elapsed().saturating_sub(off));
             }
         }
     }
@@ -220,6 +227,50 @@ mod tests {
             crate::stop::check().map_err(crate::stop::Stop::into_cause),
             Ok(())
         );
+    }
+
+    /// Work off the clock (`stop::off_the_clock`, a condition record's evaluation) is not
+    /// charged to the step: the deadline is lifted while it runs, moved later by its time
+    /// afterwards, and its time is left out of the step's measurement.
+    #[test]
+    fn work_off_the_clock_is_not_charged_to_the_step() {
+        let check = || crate::stop::check().map_err(crate::stop::Stop::into_cause);
+        // A deadline already passed does not stop work off the clock, and still stops the step.
+        let passed = StepTimeoutController::new(StepTimeoutOptions {
+            manual: Some(Duration::ZERO),
+            moving_average: false,
+        });
+        {
+            let _timer = passed.begin_step();
+            let (inside, spent) = crate::stop::off_the_clock(u64::MAX, check);
+            assert_eq!(inside, Ok(()));
+            assert!(!spent);
+            assert!(check().is_err());
+        }
+        // A deadline 300 ms away is still 300 ms away after 600 ms off the clock.
+        let later = StepTimeoutController::new(StepTimeoutOptions {
+            manual: Some(Duration::from_millis(300)),
+            moving_average: false,
+        });
+        {
+            let _timer = later.begin_step();
+            let ((), _) = crate::stop::off_the_clock(u64::MAX, || {
+                std::thread::sleep(Duration::from_millis(600));
+            });
+            assert_eq!(check(), Ok(()));
+        }
+        assert_eq!(
+            later
+                .moving_average_micros
+                .get()
+                .map(|micros| micros < 300_000),
+            Some(true)
+        );
+        // The work's own budget bounds it instead.
+        let (inside, spent) = crate::stop::off_the_clock(0, check);
+        assert!(inside.is_err());
+        assert!(spent);
+        assert_eq!(check(), Ok(()));
     }
 
     #[test]

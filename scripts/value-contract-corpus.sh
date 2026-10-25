@@ -144,7 +144,7 @@ with open(log_path) as log:
         if line.startswith("VALUE_CONTRACT "):
             row = json.loads(line[len("VALUE_CONTRACT "):])
             measured[row["name"]] = row
-keys = ["equations", "pairs", "overlaps", "separated", "refuted", "joined", "unjoined",
+keys = ["equations", "pairs", "overlaps", "uninhabited", "refuted", "joined", "unjoined",
         "relevant", "violations", "heads", "tainted_heads", "tainted_symbols", "several_matches",
         "families", "confluent_families", "relevant_equations", "skipped", "full_pairs",
         "full_unjoined", "full_tainted_symbols", "simplifier_calls", "condition_memo_hits",

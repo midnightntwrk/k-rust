@@ -951,6 +951,7 @@ fn ground_narrowing_definition() -> BackendDefinition {
 }
 
 /// Whether a pattern holds a variable a rewrite minted.
+#[cfg(feature = "z3")]
 fn holds_a_minted_variable(pattern: &Pattern) -> bool {
     format!("{pattern:?}").contains("Ex#")
 }
@@ -1836,6 +1837,10 @@ fn reports_vacuous_execution_paths() {
     ));
 }
 
+/// The initial state's contradiction, exposed only by its input substitution, does not prevent
+/// the first rewrite attempt; the step's successor then has no instance, and neither has the
+/// state it was taken from: one `Vacuous` leaf at the successor's depth, naming no rule, since
+/// nothing applied to an instance.
 #[test]
 fn input_substitution_contradictions_are_checked_after_the_first_rewrite_attempt() {
     let syntax = parse_definition(
@@ -1892,15 +1897,13 @@ fn input_substitution_contradictions_are_checked_after_the_first_rewrite_attempt
                 depth: 1,
                 halt_reason: HaltReason::Vacuous {
                     depth: 1,
-                    rule_id: Some(rule_id),
-                    label: Some(label),
+                    rule_id: None,
+                    label: None,
                     constraint,
                     contradicted_total: None,
                 },
                 ..
             }] if term == &internal_term(&definition, "d{}()")
-                && rule_id == "step"
-                && label == "step"
                 && matches!(constraint, Predicate::And(predicates)
                     if predicates.iter().any(|predicate| matches!(predicate, Predicate::False)))
                 && constraints.iter().any(|predicate| matches!(predicate, Predicate::False))
@@ -2023,6 +2026,9 @@ fn be08_s1_definition() -> BackendDefinition {
     symbolic_remainder_definition(&rules)
 }
 
+/// The BE08 fixtures' definition. `dead` is declared `total` and its lemma's result is
+/// `\bottom`, so a step whose result applies it observes a contradicted claim: the captures of
+/// such steps hold its records, on the leaves that rest on them and on the result's list.
 fn be08_portable_definition(rules: &str) -> BackendDefinition {
     let source = r#"[]
         module MAIN
@@ -3187,7 +3193,7 @@ fn cascades_a_remainder_through_every_lower_priority_group() {
     assert_be08_capture(
         "T1 complete ExecutionResult",
         &result,
-        "343273aa34d998219d35ebf8a377371bde2bdb4f3d086382b2a4706babe7324e",
+        "570df6b8a99a38aba28604720f7ae2c19beba6ea8112b1a7ea2e84e8e5836986",
     );
 }
 
@@ -3228,7 +3234,7 @@ fn stopped_branch_reports_lower_groups_before_the_first_productive_group() {
     assert_be08_capture(
         "T2 complete ExecutionResult",
         &result,
-        "8249e14a6e7ad1359d507fa29d793085f26d6c1933833db57b372ebac5baad33",
+        "4647430a9fd3f7a39c936288f61592bde44974cbcb63d43f300f1e03304f4058",
     );
 }
 
@@ -3285,7 +3291,7 @@ fn cascade_keeps_the_remainder_when_lower_groups_are_stuck() {
     assert_be08_capture(
         "T7 complete ExecutionResult",
         &result,
-        "3545f09d12d7620963faee625ce6e2f55b60cab31dbf3c400d353355b3492a0f",
+        "26020220f73eedad1979a0f52a0a0d5d938626badfa5f7e4dfe45626ed6d19cd",
     );
 }
 
@@ -3346,7 +3352,7 @@ fn any_mode_stopped_branch_uses_the_steps_remainder() {
     assert_be08_capture(
         "T15 complete ExecutionResult",
         &result,
-        "0e66f977b2f3877e86a45ba345cfe31f74190584d763e85e39a5a6218055a5e1",
+        "2dd3b89e41216249358b012dac350b4617983e0ad434c47876ae993c893a44e6",
     );
 }
 
@@ -3419,7 +3425,7 @@ fn later_group_simplification_error_is_reported_on_the_remainder() {
     assert_be08_capture(
         "T8 result and solver transcript",
         &(&result, &transcript),
-        "f940583cfedf309ead32406bbc1bda39196745de1bab6f625e1c810770ee20db",
+        "0dd743cbdb43b46ea06d3544954c831f26409159df1b61ab1e116e874f25659a",
     );
 }
 
@@ -3489,7 +3495,7 @@ fn cancellation_during_lower_group_work_is_observed_after_the_step() {
     assert_be08_capture(
         "T9 result and solver transcript",
         &(&result, &transcript),
-        "25208971a279cf43ce6b6b78026a556f88cfd1ca3c1ed8b07d79c04b8db3ed01",
+        "26e3695c0adbe8f6e2eadedbf082ba6bce15dff9c6c5fb02d76728dd2d10053d",
     );
     assert_eq!(leaf.halt_reason, HaltReason::Stopped(StopCause::Cancelled));
     assert!(result.discarded.is_empty(), "{result:#?}");
@@ -3639,7 +3645,7 @@ fn lower_group_budget_exhaustion_keeps_partial_successors_under_diagnostic_colle
     assert_be08_capture(
         "T12 result, diagnostics, and solver transcript",
         &(&result, &diagnostics, &transcript),
-        "d86d8bfac5a235c795166078a01ab95ea39511ceb9f3359791dd40af6036cd0c",
+        "4da30228891a2d56896ef203bc306223f2ffdf2a40e024f3cb7a0fbf7f09f2a9",
     );
 }
 
@@ -3703,7 +3709,7 @@ fn complete_step_classifies_effects_from_every_group() {
     assert_be08_capture(
         "T13 result and solver transcript",
         &(&result, &transcript),
-        "9820cc99ff81e6a99cbd7e8a5517302b62d04ec34f2a8338e3f46d6aa4c0368e",
+        "ed6779eb3e3fcec528cc778fcf2514a2ecca6353efcb8cef04707f73a88e7b74",
     );
 }
 
@@ -3765,12 +3771,18 @@ fn ground_io_candidates_are_rejected_without_touching_the_retained_cursor_across
     assert_be08_capture(
         "T14 result and solver transcript",
         &(&result, &transcript),
-        "56347d08f8ccf25a7651caa1cb4b8526bf38758bdb806ef6ffc608220e06a6cd",
+        "5371b54c750acbcf5f385efd87fdb68a207b5c8f7f7bea0bfb5b8a8c8eebcc09",
     );
 }
 
 /// T16 / cut_terminal. Both complete results captured at 40b5d6d214cdd833e027a814744d9f98c5e7542d;
-/// re-pinned after the branch-stop fix, where the sole surviving candidate honours the stop rules.
+/// re-pinned after the branch-stop fix, where the sole surviving candidate honours the stop rules,
+/// and again when a candidate whose successor normalizes to `\bottom` became the undefined step of
+/// its instances rather than a dropped candidate: `first-dead`'s result `dead(tag(10))` is
+/// `\bottom` through `dead`'s equation, so the instances `X <Int 0`, where it applies and blocks
+/// `stop`, are its `Trivial` leaf at depth 0 (one more satisfiability query, the leaf's), before
+/// the stop rule's leaf; and again when the stop rule's leaf came to stand only for `stop`'s own
+/// instances, `not (X <Int 0)`: the cut-point leaf's state is restricted to them.
 #[test]
 fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
     let definition = be08_portable_definition(
@@ -3792,7 +3804,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
         "#,
     );
     // The step after the survivor is no longer taken, so its validity query is not asked.
-    let cut_solver = be08_indeterminate_solver(1, 2);
+    let cut_solver = be08_indeterminate_solver(2, 2);
     let cut = execute_with_solver(
         &definition,
         be08_portable_subject(&definition),
@@ -3803,7 +3815,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
         },
         &cut_solver,
     );
-    let terminal_solver = be08_indeterminate_solver(1, 2);
+    let terminal_solver = be08_indeterminate_solver(2, 2);
     let terminal = execute_with_solver(
         &definition,
         be08_portable_subject(&definition),
@@ -3822,7 +3834,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
             &terminal,
             &*terminal_solver.transcript.borrow(),
         ),
-        "125f01e5e80b7c2ed92e17557aa0d423942623018431191469e7786588201442",
+        "60b671bcc824735b2c02752fc3d176bc3d1f3f7f03593949ef017264f946275a",
     );
     assert!(cut_solver.answers.borrow().is_empty());
     assert!(cut_solver.validity.borrow().is_empty());
@@ -3830,10 +3842,17 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
     assert!(terminal_solver.validity.borrow().is_empty());
 
     // The cascade leaves `stop` as the only candidate, the unique successor of the state: the
-    // cut point stops before it and the terminal rule stops after it.
-    let [cut_leaf] = cut.leaves.as_slice() else {
-        panic!("expected one cut-point leaf: {cut:#?}");
+    // cut point stops before it and the terminal rule stops after it. `first-dead`'s instances
+    // are its undefined step, at depth 0, first.
+    let undefined_step = |leaf: &ExecutionLeaf| {
+        leaf.depth == 0
+            && matches!(&leaf.halt_reason, HaltReason::Trivial { label, .. }
+                if label.as_deref() == Some("first-dead"))
     };
+    let [trivial, cut_leaf] = cut.leaves.as_slice() else {
+        panic!("expected a trivial and a cut-point leaf: {cut:#?}");
+    };
+    assert!(undefined_step(trivial), "{cut:#?}");
     assert_eq!(cut_leaf.depth, 0);
     let HaltReason::CutPointRule { rule, next_states } = &cut_leaf.halt_reason else {
         panic!("expected a cut-point halt: {:?}", cut_leaf.halt_reason);
@@ -3843,9 +3862,10 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
         panic!("expected one proposed successor: {next_states:?}");
     };
     assert_eq!(proposed.unique_id, "stop");
-    let [terminal_leaf] = terminal.leaves.as_slice() else {
-        panic!("expected one terminal leaf: {terminal:#?}");
+    let [trivial, terminal_leaf] = terminal.leaves.as_slice() else {
+        panic!("expected a trivial and a terminal leaf: {terminal:#?}");
     };
+    assert!(undefined_step(trivial), "{terminal:#?}");
     assert_eq!(terminal_leaf.depth, 1);
     assert_eq!(
         terminal_leaf.halt_reason,
@@ -4477,13 +4497,10 @@ fn a_request_spelled_like_a_mint_is_not_minted() {
         term: internal_term(&definition, "d{}()"),
         constraints: vec![
             Predicate::Equals(
-                Term::variable(Variable::new("Ex-hX-b0", sort.clone())),
+                Term::variable(Variable::new("Ex-hX-b0", sort)),
                 internal_term(&definition, "c{}()"),
             ),
-            Predicate::Exists(
-                Variable::new("Ex-hX-b1", sort.clone()),
-                Arc::new(Predicate::True),
-            ),
+            Predicate::Exists(Variable::new("Ex-hX-b1", sort), Arc::new(Predicate::True)),
         ],
     };
     let mut counter = FreshCounter::for_request(&[&initial]);
@@ -5166,7 +5183,7 @@ fn concrete_chain(definition: &BackendDefinition, depth: usize) -> Term {
 /// `start => held(g(a))` (and `start => b` when `branching`), with the simplification equation
 /// `g(X) = g(g(X))`: simplifying any `g` application exhausts every budget, and nothing else
 /// in the definition simplifies.
-fn growing_equation_definition(branching: bool) -> BackendDefinition {
+pub(crate) fn growing_equation_definition(branching: bool) -> BackendDefinition {
     let right_rule = if branching {
         r#"
                 axiom{} \rewrites{SortS{}}(
@@ -7860,7 +7877,11 @@ fn path_set_keeps_each_converging_path_with_its_own_observations() {
 /// depth-bound leaf says only that `d`'s subtree was not explored, so it does not stand for the
 /// stuck leaf, which says the subtree is `d` alone: when the bound leaf comes first both are kept.
 /// A stuck leaf says everything about `d`'s subtree, so when it comes first it absorbs the bound
-/// leaf. Depth-first order follows rule declaration order.
+/// leaf. Depth-first order follows rule declaration order. An absorbed leaf's diagnostics stay
+/// with the stuck leaf that absorbs it: `c` is stuck at depth 1 (`to-c`) and reached at the depth
+/// bound 2 through `b`, whose rule builds `norm(a)`, which `norm-c` evaluates to `c` on a condition
+/// whose simplification exhausts the budget; the state-set leaf is the stuck one, with the bound
+/// leaf's diagnostics.
 #[test]
 fn a_stuck_leaf_absorbs_a_later_bound_leaf_of_its_configuration_but_not_the_reverse() {
     let rule = |label: &str, from: &str, to: &str| {
@@ -7909,6 +7930,54 @@ fn a_stuck_leaf_absorbs_a_later_bound_leaf_of_its_configuration_but_not_the_reve
             expected
         );
     }
+
+    let definition = search_definition(
+        &[
+            crate::support::rule("to-c", "start{}()", "c{}()"),
+            crate::support::rule("to-b", "start{}()", "b{}()"),
+            crate::support::rule("b-norm", "b{}()", "norm{}(a{}())"),
+        ]
+        .concat(),
+    );
+    let start = Pattern {
+        term: internal_term(&definition, "start{}()"),
+        constraints: Vec::new(),
+    };
+    let c = internal_term(&definition, "c{}()");
+    let condition = condition_exhausted(&definition, "norm-c", 3);
+    let run = |result_modality| {
+        execute(
+            &definition,
+            start.clone(),
+            ExecutionOptions {
+                max_depth: 2,
+                max_simplification_iterations: 3,
+                result_modality,
+                ..ExecutionOptions::default()
+            },
+        )
+    };
+    let read = |leaf: &ExecutionLeaf| {
+        assert_eq!(leaf.pattern.term, c, "{leaf:#?}");
+        (
+            leaf.depth,
+            leaf.halt_reason.clone(),
+            leaf.diagnostics.clone(),
+        )
+    };
+    let path_set = run(ResultModality::PathSet);
+    assert_eq!(
+        path_set.leaves.iter().map(read).collect::<Vec<_>>(),
+        [
+            (1, HaltReason::Stuck, Vec::new()),
+            (2, HaltReason::DepthBound, condition.to_vec()),
+        ]
+    );
+    let state_set = run(ResultModality::StateSet);
+    assert_eq!(
+        state_set.leaves.iter().map(read).collect::<Vec<_>>(),
+        [(1, HaltReason::Stuck, condition.to_vec())]
+    );
 }
 
 /// Two paths end in the one configuration `c`: `start => c` (`to-c`), and `start => norm(a)`
@@ -8297,6 +8366,72 @@ fn observation_filter_rejects_identity_shared_across_theories() {
     );
 }
 
+/// The rules a function equation's disjunctive argument binder is internalized as are the
+/// alternatives of one axiom: its identity selects them all, at the root of the binder and below
+/// a symbol of it alike.
+#[test]
+fn observation_filter_selects_every_alternative_of_a_function_equation() {
+    let definition = definition(
+        r#"
+            sort SortB{} []
+            symbol box{}(SortS{}) : SortB{} [constructor{}(), functional{}()]
+            symbol pick{}(SortS{}) : SortS{} [function{}()]
+            symbol inner{}(SortB{}) : SortS{} [function{}()]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(
+                        \in{SortS{}, R}(
+                            X:SortS{},
+                            \or{SortS{}}(\dv{SortS{}}("one"), \dv{SortS{}}("two"))
+                        ),
+                        \top{R}()
+                    )
+                ),
+                \equals{SortS{}, R}(
+                    pick{}(X:SortS{}),
+                    \and{SortS{}}(\dv{SortS{}}("picked"), \top{SortS{}}())
+                )
+            ) [label{}("pick-either")]
+            axiom{R} \implies{R}(
+                \and{R}(
+                    \top{R}(),
+                    \and{R}(
+                        \in{SortB{}, R}(
+                            X:SortB{},
+                            box{}(\or{SortS{}}(\dv{SortS{}}("one"), \dv{SortS{}}("two")))
+                        ),
+                        \top{R}()
+                    )
+                ),
+                \equals{SortS{}, R}(
+                    inner{}(X:SortB{}),
+                    \and{SortS{}}(\dv{SortS{}}("picked"), \top{SortS{}}())
+                )
+            ) [label{}("inner-either")]
+            "#,
+    );
+    for identity in ["pick-either", "inner-either"] {
+        let alternatives = definition
+            .function_theory()
+            .values()
+            .flat_map(BTreeMap::values)
+            .flatten()
+            .filter(|rule| rule.attributes.unique_id == identity)
+            .map(|rule| rule.lhs_alternative)
+            .collect::<BTreeSet<_>>();
+        assert_eq!(
+            alternatives,
+            BTreeSet::from([Some(0), Some(1)]),
+            "{identity}"
+        );
+        assert!(
+            ObservationOptions::with_rules(&definition, [identity]).is_ok(),
+            "{identity}"
+        );
+    }
+}
+
 #[test]
 fn observation_filter_accepts_definedness_identity() {
     let definition = definition(
@@ -8667,7 +8802,10 @@ fn a_cut_point_candidate_owns_both_the_diagnostics_and_the_evaluations_of_its_wo
 
 /// `start` rewrites to `g(a)` (`to-g`) and to `dead(a)` (`to-dead`). At a branch stop the
 /// `dead` simplification refutes `to-dead`'s candidate, so `to-g`'s is the unique successor; its
-/// normalization applies the `grow` simplification and exhausts a budget of 3.
+/// normalization applies the `grow` simplification and exhausts a budget of 3. `dead` is declared
+/// `functional` and its own equation's result is `\bottom` on `a`, so the refutation observes a
+/// contradicted claim ([`is_dead_contradiction`]), which the path that rests on the removed
+/// candidate carries.
 fn pruned_to_growing_survivor_definition() -> BackendDefinition {
     let syntax = parse_definition(
         r#"[]
@@ -8703,6 +8841,19 @@ fn pruned_to_growing_survivor_definition() -> BackendDefinition {
     )
     .expect("definition should parse");
     BackendDefinition::internalize(&syntax, "MAIN").expect("definition should internalize")
+}
+
+/// The contradicted `functional` claim of `dead` at `dead(a)`, observed by `to-dead`'s candidate.
+fn is_dead_contradiction(diagnostic: &BackendDiagnostic) -> bool {
+    let BackendDiagnostic::ContradictedClaim(claim) = diagnostic else {
+        return false;
+    };
+    claim.total().is_some_and(|total| total.symbol() == "dead")
+        && claim
+            .rule
+            .as_ref()
+            .is_some_and(|rule| rule.label.as_deref() == Some("to-dead"))
+        && claim.ground
 }
 
 fn execute_pruned_to_growing_survivor(
@@ -8755,7 +8906,13 @@ fn a_sole_branch_survivor_on_a_cut_point_rule_is_a_proposed_successor() {
     let [next] = next_states.as_slice() else {
         panic!("expected one proposed successor");
     };
-    assert!(leaf.diagnostics.is_empty(), "{:?}", leaf.diagnostics);
+    let [contradiction] = leaf.diagnostics.as_slice() else {
+        panic!(
+            "expected the removed candidate's record: {:?}",
+            leaf.diagnostics
+        );
+    };
+    assert!(is_dead_contradiction(contradiction), "{contradiction:?}");
     assert!(leaf.branch.is_empty());
     assert!(leaf.observations.is_empty(), "{:?}", leaf.observations);
     assert_eq!(next.diagnostics, [term_budget_exhausted(3)]);
@@ -8802,7 +8959,11 @@ fn a_sole_branch_survivor_on_a_terminal_rule_ends_the_path_after_it() {
         }
     );
     assert_eq!(leaf.depth, 1);
-    assert_eq!(leaf.diagnostics, [term_budget_exhausted(3)]);
+    let [budget, contradiction] = leaf.diagnostics.as_slice() else {
+        panic!("expected the budget and the record: {:?}", leaf.diagnostics);
+    };
+    assert_eq!(*budget, term_budget_exhausted(3));
+    assert!(is_dead_contradiction(contradiction), "{contradiction:?}");
     assert_observations_anchor_into_branch(leaf);
     let stream = observed(leaf);
     assert_eq!(
@@ -11010,6 +11171,36 @@ fn console_getc_consumes_sequential_reads_in_term_order() {
         })
         .collect::<Vec<_>>();
     assert_eq!(values, ["65", "66"]);
+    assert_eq!(result.leaves[0].io.cursor(), 2);
+}
+
+/// An execution with the default options runs in `EvaluationMode::Proof`, and still reads the
+/// console: a `#read` that returns two or more characters (class `read-count`) is not withheld
+/// there, because a proof route has no console and so never meets one; only the order of a run
+/// of a program with a console decides how many characters a read returns.
+#[test]
+fn a_default_options_execution_reads_two_or_more_console_characters() {
+    assert_eq!(
+        ExecutionOptions::default().evaluation,
+        k_rust_backend::evaluation::EvaluationMode::Proof
+    );
+    let definition = console_io_definition("");
+    let result = execute_with_io_state(
+        &definition,
+        console_pattern(
+            &definition,
+            r#"read{}(\dv{SortInt{}}("0"), \dv{SortInt{}}("2"))"#,
+        ),
+        ExecutionOptions::default(),
+        ExecutionIoState::new(b"ABC".to_vec()),
+    );
+    let TermKind::Injection { term, .. } = result.leaves[0].pattern.term.kind() else {
+        panic!("read result was not injected: {result:#?}");
+    };
+    assert!(
+        matches!(term.kind(), TermKind::DomainValue { value, .. } if value.as_utf8() == Ok("AB")),
+        "{result:#?}"
+    );
     assert_eq!(result.leaves[0].io.cursor(), 2);
 }
 
@@ -14570,16 +14761,13 @@ fn a_discarded_operand_keeps_its_definedness_obligation_at_every_leaf() {
 
         let explored = execute(&definition, initial.clone(), ExecutionOptions::default());
         assert!(!explored.leaves.is_empty());
-        // Where the obligation fails, each rule's step is undefined: a leaf on the initial state.
+        // Where the obligation fails, the step is undefined: one leaf on the initial state for
+        // the step, whether one rule or both are undefined there.
         let (undefined, explored_leaves): (Vec<_>, Vec<_>) = explored
             .leaves
             .iter()
             .partition(|leaf| matches!(leaf.halt_reason, HaltReason::Trivial { .. }));
-        assert_eq!(
-            undefined.len(),
-            if second_rule { 2 } else { 1 },
-            "{explored:#?}"
-        );
+        assert_eq!(undefined.len(), 1, "{explored:#?}");
         for leaf in undefined {
             assert_eq!(leaf.pattern.term, initial.term);
             assert_eq!(
@@ -14620,8 +14808,8 @@ fn a_discarded_operand_keeps_its_definedness_obligation_at_every_leaf() {
         };
         assert_eq!(
             stopped.leaves.len(),
-            3,
-            "two undefined steps precede the branch"
+            2,
+            "the step's one undefined step precedes the branch"
         );
         let HaltReason::Branch {
             branches,
@@ -14640,4 +14828,182 @@ fn a_discarded_operand_keeps_its_definedness_obligation_at_every_leaf() {
             assert_eq!(applied.pattern.constraints, Vec::new(), "{applied:#?}");
         }
     }
+}
+
+/// Rules that consume a Boolean subterm of the subject by a literal pattern position: `foo(false)`,
+/// `goo(true)`, and the control `hoo(V)` that binds it. `pb` and `pi` are partial functions with
+/// no equation, so neither is shown defined anywhere.
+fn consumed_boolean_definition() -> BackendDefinition {
+    definition(
+        r#"
+            hooked-sort SortBool{} [hook{}("BOOL.Bool"), hasDomainValues{}()]
+            hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+            sort SortC{} []
+            hooked-symbol andBool{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.and")]
+            hooked-symbol orBool{}(SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.or")]
+            hooked-symbol notBool{}(SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("BOOL.not")]
+            hooked-symbol eqInt{}(SortInt{}, SortInt{}) : SortBool{}
+                [function{}(), total{}(), hook{}("INT.eq"), smt-hook{}("=")]
+            hooked-symbol ite{}(SortBool{}, SortBool{}, SortBool{}) : SortBool{}
+                [function{}(), total{}(), hook{}("KEQUAL.ite")]
+            symbol pb{}(SortS{}) : SortBool{} [function{}()]
+            symbol pi{}(SortS{}) : SortInt{} [function{}()]
+            symbol foo{}(SortBool{}) : SortC{} [constructor{}()]
+            symbol goo{}(SortBool{}) : SortC{} [constructor{}()]
+            symbol hoo{}(SortBool{}) : SortC{} [constructor{}()]
+            symbol bar{}() : SortC{} [constructor{}()]
+            axiom{} \rewrites{SortC{}}(
+                \and{SortC{}}(foo{}(\dv{SortBool{}}("false")), \top{SortC{}}()),
+                bar{}()
+            ) [label{}("foo")]
+            axiom{} \rewrites{SortC{}}(
+                \and{SortC{}}(goo{}(\dv{SortBool{}}("true")), \top{SortC{}}()),
+                bar{}()
+            ) [label{}("goo")]
+            axiom{} \rewrites{SortC{}}(
+                \and{SortC{}}(hoo{}(V:SortBool{}), \top{SortC{}}()),
+                bar{}()
+            ) [label{}("hoo")]
+        "#,
+    )
+}
+
+/// The subjects of [`consumed_boolean_definition`] whose step consumes a partial subterm
+/// through a condition over its operands, each with the partial subterms the step consumes.
+fn consumed_boolean_cases() -> Vec<(&'static str, &'static str, Vec<&'static str>)> {
+    vec![
+        (
+            "equality decided false",
+            r#"foo{}(eqInt{}(pi{}(X:SortS{}), \dv{SortInt{}}("3")))"#,
+            vec!["pi{}(X:SortS{})"],
+        ),
+        (
+            "equality decided true",
+            r#"goo{}(eqInt{}(pi{}(X:SortS{}), pi{}(Y:SortS{})))"#,
+            vec!["pi{}(X:SortS{})", "pi{}(Y:SortS{})"],
+        ),
+        (
+            "conditional with a partial untaken operand",
+            r#"foo{}(ite{}(B:SortBool{}, \dv{SortBool{}}("false"), pb{}(X:SortS{})))"#,
+            vec!["pb{}(X:SortS{})"],
+        ),
+        (
+            "negation decided true",
+            r#"goo{}(notBool{}(pb{}(X:SortS{})))"#,
+            vec!["pb{}(X:SortS{})"],
+        ),
+        (
+            "disjunction decided false",
+            r#"foo{}(orBool{}(pb{}(X:SortS{}), B:SortBool{}))"#,
+            vec!["pb{}(X:SortS{})"],
+        ),
+        (
+            "conjunction decided false",
+            r#"foo{}(andBool{}(pb{}(X:SortS{}), B:SortBool{}))"#,
+            vec!["pb{}(X:SortS{})"],
+        ),
+        (
+            "disjunction decided true",
+            r#"goo{}(orBool{}(pb{}(X:SortS{}), B:SortBool{}))"#,
+            vec!["pb{}(X:SortS{})"],
+        ),
+        (
+            "control: a variable binds the subterm",
+            r#"hoo{}(pb{}(X:SortS{}))"#,
+            vec!["pb{}(X:SortS{})"],
+        ),
+    ]
+}
+
+/// Whether `constraints` state the definedness of `term`: a top-level `\ceil` or deferred
+/// definedness atom of it, a conjunct of a top-level conjunction included.
+fn states_definedness(constraints: &[Predicate], term: &Term) -> bool {
+    let mut pending = constraints.iter().collect::<Vec<_>>();
+    while let Some(predicate) = pending.pop() {
+        match predicate {
+            Predicate::And(members) => pending.extend(members.iter()),
+            Predicate::Ceil(atom) | Predicate::Defined(atom) if atom == term => return true,
+            _ => {}
+        }
+    }
+    false
+}
+
+/// A step is a transition: its successor denotes only states reached from defined instances of
+/// its subject. Where a step consumes a subject subterm `u` by a condition over its operands (an
+/// equality's operands, a conditional's condition and taken operand, a Boolean connective's
+/// operands), the successor `bar()` no longer holds `u`, so its constraints are the only place
+/// that can keep the instances where `u` is undefined out, and they must state `\ceil(u)`:
+/// `\not(u = 3)`, `u1 = u2`, `B` (for the conditional's untaken operand) and `\not(u)` each also
+/// hold where `u` is undefined. That holds of the step on its own (the public step, which decides
+/// nothing of the subject's definedness) and of an execution that does not assume its initial
+/// configuration defined. The control binds `u` to a variable, whose definedness the step states.
+#[test]
+fn a_successor_states_the_definedness_of_a_partial_subterm_its_step_consumed() {
+    let definition = consumed_boolean_definition();
+    let solver = FixedSolver {
+        satisfiability: Ok(Satisfiability::Sat),
+        validity: Ok(Validity::Contingent),
+    };
+    let bar = internal_term(&definition, "bar{}()");
+    let mut failures = Vec::new();
+    for (label, subject, consumed) in consumed_boolean_cases() {
+        let consumed = consumed
+            .into_iter()
+            .map(|term| internal_term(&definition, term))
+            .collect::<Vec<_>>();
+        let initial = Pattern {
+            term: internal_term(&definition, subject),
+            constraints: Vec::new(),
+        };
+        let successors = match rewrite_step_with_solver(
+            &definition,
+            &initial,
+            &mut FreshCounter::default(),
+            &solver,
+        ) {
+            RewriteResult::Finished(applied) => vec![applied.pattern],
+            RewriteResult::Branch { branches, .. } => branches
+                .into_iter()
+                .map(|applied| applied.pattern)
+                .collect(),
+            other => {
+                failures.push(format!("{label}: the step has no successor: {other:#?}"));
+                continue;
+            }
+        };
+        let execution = execute_with_solver(
+            &definition,
+            initial.clone(),
+            ExecutionOptions::default(),
+            &solver,
+        );
+        let leaves = execution
+            .leaves
+            .iter()
+            .filter(|leaf| leaf.pattern.term == bar)
+            .map(|leaf| leaf.pattern.clone())
+            .collect::<Vec<_>>();
+        for (route, patterns) in [("step", successors), ("execution", leaves)] {
+            if !patterns.iter().any(|pattern| pattern.term == bar) {
+                failures.push(format!(
+                    "{label}: the {route} reaches no bar(): {patterns:#?}"
+                ));
+            }
+            for pattern in patterns.iter().filter(|pattern| pattern.term == bar) {
+                for term in &consumed {
+                    if !states_definedness(&pattern.constraints, term) {
+                        failures.push(format!(
+                            "{label}: a {route} successor does not state the definedness of {term:?}: {:#?}",
+                            pattern.constraints
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }

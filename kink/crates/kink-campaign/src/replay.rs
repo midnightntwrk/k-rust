@@ -1,0 +1,586 @@
+//! Strict replay checks artifact identity, rebuilds each patch, and regenerates the report.
+//!
+//! Reproduction assumes the same kink build and operator code, no fired wall-clock
+//! or SMT time bound, and k-rust provenance round-trip and compilation determinism.
+//! Route A checks structure and compiled KORE, not metadata-sensitive mutant
+//! provenance bytes. Route B is the authority: only byte-identical regeneration
+//! gives `Reproduced`. Refusals and divergences never return or alter a verdict.
+
+use crate::{
+    BudgetMutants, CAMPAIGN_REPORT_VERSION, Campaign, CampaignOptions, ManifestOperator,
+    MultiManifestInput, MutantId, OperatorId, RunOptions, ScheduleMode, SelectionPolicy, TestCase,
+    campaign_manifest_multi_with_budget, campaign_report_multi, run_campaign_multi,
+};
+use k_rust::{definition::json, kompile::CompileOptions, kore::ast::Pattern};
+use kink_native::{
+    K_RUST_REVISION, MutantRejection, NativeValidator,
+    execution::{ExecutionBudget, SolverProfile},
+    step_events::StepEventSpec,
+};
+use kink_patch::{
+    Baseline, CAMPAIGN_MANIFEST_DOMAIN, CandidateFailure, CandidateGeneration, OperatorSpec, Patch,
+    PatchFailureKind, SemanticInput, Universe, apply, canonical_json, generate, payload_digest,
+    resolve_universe, sha256, structure_sha256,
+};
+use kink_pattern::ExecutionTerminalKind;
+use serde_json::{Value, json};
+use std::collections::BTreeSet;
+
+pub struct ReplayDeclaration<'a> {
+    pub module: &'a str,
+    pub observation: &'a [StepEventSpec],
+    pub classify: &'a dyn Fn(&Pattern) -> ExecutionTerminalKind,
+    pub classifier: &'a str,
+    pub tests: &'a [TestCase],
+    pub budget: ExecutionBudget,
+    pub schedule: ScheduleMode,
+    pub selection: SelectionPolicy,
+    pub operators: &'a [ReplayOperator<'a>],
+}
+
+/// Data operators rebuild from the recorded spec; code operators retain the closure route.
+pub enum ReplayOperator<'a> {
+    Spec {
+        spec: &'a OperatorSpec,
+        cap: usize,
+    },
+    Code {
+        id: &'a str,
+        version: u32,
+        policy: kink_patch::SelectionPolicy,
+        select:
+            &'a dyn for<'b> Fn(&'b Baseline) -> Result<CandidateGeneration<'b>, CandidateFailure>,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ReplayOutcome {
+    Reproduced,
+    Refused(ReplayRefusal),
+    Diverged {
+        pointer: String,
+        mutants: Vec<MutantId>,
+    },
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ReplayRefusal {
+    Schema,
+    ManifestDigest,
+    Environment(String),
+    BaselineDigest,
+    Artifact(String),
+    PatchDecode(MutantId),
+    PatchDigest(MutantId),
+    Stale(MutantId),
+    Rebuild(MutantId),
+    MutantDigest(MutantId),
+    Declaration,
+    Selection(String),
+    Campaign(String),
+    Report(String),
+}
+
+pub fn replay(
+    report: &str,
+    baseline_artifact: &str,
+    declaration: &ReplayDeclaration<'_>,
+) -> ReplayOutcome {
+    replay_with_budget(report, baseline_artifact, declaration, None)
+}
+
+/// Replays against the caller's declared sampling budget, never a budget read from the report,
+/// with the default [`RunOptions`].
+pub fn replay_with_budget(
+    report: &str,
+    baseline_artifact: &str,
+    declaration: &ReplayDeclaration<'_>,
+    budget: Option<&BudgetMutants>,
+) -> ReplayOutcome {
+    replay_with_options(
+        report,
+        baseline_artifact,
+        declaration,
+        budget,
+        RunOptions::default(),
+    )
+}
+
+/// [`replay_with_budget`] under the caller's run options: a caller whose campaigns run with its
+/// own options (kink-corpus `corpus_run_options`) replays with the same ones, so the replayed
+/// campaign is run as the stored one was (re-pin L1-2-land; CACHE-ID review 2 minor 1). Every
+/// verdict is re-derived under `run`, so `Reproduced` says that this build, with these options,
+/// regenerates the stored report byte for byte; the campaign manifest does not record run
+/// options, so a report made with others is not refused as such: it diverges wherever its
+/// verdicts differ.
+pub fn replay_with_options(
+    report: &str,
+    baseline_artifact: &str,
+    declaration: &ReplayDeclaration<'_>,
+    budget: Option<&BudgetMutants>,
+    run: RunOptions,
+) -> ReplayOutcome {
+    replay_checked(report, baseline_artifact, declaration, budget, run)
+        .unwrap_or_else(ReplayOutcome::Refused)
+}
+
+fn replay_checked(
+    report: &str,
+    baseline_artifact: &str,
+    declaration: &ReplayDeclaration<'_>,
+    budget: Option<&BudgetMutants>,
+    run: RunOptions,
+) -> Result<ReplayOutcome, ReplayRefusal> {
+    let value: Value = kink_patch::parse_json(report).map_err(|_| ReplayRefusal::Schema)?;
+    if value["schema"] != "kink-campaign-report" || value["version"] != CAMPAIGN_REPORT_VERSION {
+        return Err(ReplayRefusal::Schema);
+    }
+    let manifest = &value["manifest"];
+    let manifest_text = canonical_json(manifest);
+    if value["manifest_sha256"]
+        != payload_digest(CAMPAIGN_MANIFEST_DOMAIN, manifest_text.as_bytes()).to_string()
+    {
+        return Err(ReplayRefusal::ManifestDigest);
+    }
+    check_environment(manifest)?;
+    if manifest["schema"] != "kink-campaign-manifest" || manifest["version"] != 5 {
+        return Err(ReplayRefusal::Schema);
+    }
+    if manifest.get("budget_mutants") != Some(&budget.map_or(Value::Null, BudgetMutants::value)) {
+        return Err(ReplayRefusal::Declaration);
+    }
+    if let Some(budget) = budget {
+        let entries = manifest["operators"]
+            .as_array()
+            .ok_or(ReplayRefusal::Declaration)?;
+        for entry in entries {
+            if entry["sampling"]
+                != json!({"seed":budget.seed_hex(),
+                "size":entry["generation"]["origins"],"population":entry["population"]})
+            {
+                return Err(ReplayRefusal::Declaration);
+            }
+        }
+    }
+    if manifest["baseline"]["semantic_input_sha256"]
+        != sha256(baseline_artifact.as_bytes()).to_string()
+    {
+        return Err(ReplayRefusal::BaselineDigest);
+    }
+    let (_, baseline) = SemanticInput::read(baseline_artifact)
+        .map_err(|e| ReplayRefusal::Artifact(e.to_string()))?;
+    let validator = NativeValidator::bind(baseline, CompileOptions::default());
+    rebuild(&value, &validator)?;
+    let campaign = Campaign {
+        validator: &validator,
+        module: declaration.module,
+        observation: declaration.observation,
+        classify: declaration.classify,
+        tests: declaration.tests,
+        budget: declaration.budget,
+    };
+    let entries = manifest["operators"]
+        .as_array()
+        .ok_or(ReplayRefusal::Declaration)?;
+    if entries.len() != declaration.operators.len() {
+        return Err(ReplayRefusal::Declaration);
+    }
+    let has_specs = declaration
+        .operators
+        .iter()
+        .any(|op| matches!(op, ReplayOperator::Spec { .. }));
+    let universe = has_specs.then(|| resolve_universe(validator.baseline(), &Universe::v1()));
+    // Decode the manifest data, but require its identity to match the caller's declaration.
+    // This prevents a self-consistent forged spec from becoming a new replay declaration.
+    let specs = entries
+        .iter()
+        .zip(declaration.operators)
+        .map(|(entry, operator)| match operator {
+            ReplayOperator::Spec { spec, .. } => {
+                if entry["kind"] != "spec" || entry["spec"] != spec.canonical_value() {
+                    return Err(ReplayRefusal::Declaration);
+                }
+                OperatorSpec::from_canonical_json(&canonical_json(&entry["spec"]))
+                    .map(Some)
+                    .map_err(|_| ReplayRefusal::Declaration)
+            }
+            ReplayOperator::Code { .. } => {
+                if entry["kind"] != "code" {
+                    return Err(ReplayRefusal::Declaration);
+                }
+                Ok(None)
+            }
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let mut generations = Vec::new();
+    let mut operators = Vec::new();
+    if let Some(budget) = budget {
+        let inputs = declaration
+            .operators
+            .iter()
+            .zip(&specs)
+            .map(|(operator, spec)| match operator {
+                ReplayOperator::Spec { cap, .. } => {
+                    Ok((spec.as_ref().ok_or(ReplayRefusal::Declaration)?, *cap))
+                }
+                ReplayOperator::Code { .. } => Err(ReplayRefusal::Declaration),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        generations = OperatorSpec::generate_all(
+            validator.baseline(),
+            universe.as_ref().ok_or(ReplayRefusal::Declaration)?,
+            &inputs,
+            Some(budget.limits()),
+        )
+        .map_err(|e| ReplayRefusal::Selection(e.to_string()))?;
+    }
+    for (operator, spec) in declaration.operators.iter().zip(&specs) {
+        let generation = match operator {
+            ReplayOperator::Spec { cap, .. } => {
+                let spec = spec.as_ref().ok_or(ReplayRefusal::Declaration)?;
+                operators.push(ManifestOperator::Spec(spec));
+                if budget.is_some() {
+                    continue;
+                }
+                generate(
+                    validator.baseline(),
+                    universe.as_ref().ok_or(ReplayRefusal::Declaration)?,
+                    spec,
+                    *cap,
+                )
+            }
+            ReplayOperator::Code {
+                id,
+                version,
+                policy,
+                select,
+            } => {
+                operators.push(ManifestOperator::Code(OperatorId {
+                    id,
+                    version: *version,
+                    policy: *policy,
+                }));
+                select(validator.baseline())
+            }
+        }
+        .map_err(|e| ReplayRefusal::Selection(e.to_string()))?;
+        generations.push(generation);
+    }
+    let regenerated_manifest = campaign_manifest_multi_with_budget(
+        &MultiManifestInput {
+            campaign: &campaign,
+            generations: &generations,
+            operators: &operators,
+            universe: universe.as_ref(),
+            schedule: declaration.schedule,
+            selection: declaration.selection,
+            classifier: declaration.classifier,
+        },
+        budget,
+    )
+    .map_err(|_| ReplayRefusal::Declaration)?;
+    if regenerated_manifest.text() != manifest_text {
+        return Err(ReplayRefusal::Declaration);
+    }
+    let run = run_campaign_multi(
+        &campaign,
+        &generations,
+        &CampaignOptions {
+            schedule: declaration.schedule,
+            selection: declaration.selection,
+            share_evidence: true,
+            run,
+            compile_workers: 1,
+        },
+    )
+    .map_err(|e| ReplayRefusal::Campaign(e.to_string()))?;
+    let regenerated = campaign_report_multi(&regenerated_manifest, &campaign, &generations, &run)
+        .map_err(|e| ReplayRefusal::Report(e.to_string()))?;
+    if regenerated.text() == report {
+        return Ok(ReplayOutcome::Reproduced);
+    }
+    Ok(ReplayOutcome::Diverged {
+        // A byte-only noncanonical difference points to the document root.
+        pointer: first_difference(&value, regenerated.value(), "").unwrap_or_default(),
+        mutants: differing_mutants(&value, regenerated.value()),
+    })
+}
+
+/// The environment a report needs: the k-rust revision and provenance encoding, kink's whole
+/// semantics identity (the manifest's `kink` member, [`crate::identity`]; a stale component is
+/// refused as `kink.<key>` before anything is regenerated, packet CACHE-ID) and the solver
+/// profile. The regenerated manifest would also differ (`Declaration`).
+fn check_environment(manifest: &Value) -> Result<(), ReplayRefusal> {
+    for (pointer, expected) in [
+        ("/k_rust/revision", json!(K_RUST_REVISION)),
+        ("/k_rust/provenance_format", json!(json::PROVENANCE_FORMAT)),
+        (
+            "/k_rust/provenance_version",
+            json!(json::PROVENANCE_VERSION),
+        ),
+    ] {
+        if manifest.pointer(pointer) != Some(&expected) {
+            return Err(ReplayRefusal::Environment(pointer[1..].replace('/', ".")));
+        }
+    }
+    if let Some(key) = crate::identity::identity_difference(&manifest["kink"]) {
+        return Err(ReplayRefusal::Environment(if key.is_empty() {
+            "kink".to_owned()
+        } else {
+            format!("kink.{key}")
+        }));
+    }
+    if manifest.pointer("/profile") != Some(&json!(SolverProfile::BUILD.name())) {
+        return Err(ReplayRefusal::Environment("profile".to_owned()));
+    }
+    Ok(())
+}
+
+fn mutant_id(value: &Value) -> Option<MutantId> {
+    value["mutant_id"]
+        .as_u64()
+        .and_then(|n| usize::try_from(n).ok())
+        .map(MutantId)
+}
+
+fn rebuild(report: &Value, validator: &NativeValidator) -> Result<(), ReplayRefusal> {
+    let mutants = report["mutants"].as_array().ok_or(ReplayRefusal::Schema)?;
+    let entries = report["manifest"]["mutants"]
+        .as_array()
+        .ok_or(ReplayRefusal::Schema)?;
+    if mutants.len() != entries.len() {
+        return Err(ReplayRefusal::Schema);
+    }
+    for (index, (mutant, entry)) in mutants.iter().zip(entries).enumerate() {
+        let id = mutant_id(mutant).ok_or(ReplayRefusal::Schema)?;
+        if id != MutantId(index) || mutant_id(entry) != Some(id) {
+            return Err(ReplayRefusal::Schema);
+        }
+        let patch = Patch::from_canonical_json(&canonical_json(&mutant["canonical_patch"]))
+            .map_err(|_| ReplayRefusal::PatchDecode(id))?;
+        let digest = patch
+            .digest()
+            .map_err(|_| ReplayRefusal::PatchDigest(id))?
+            .to_string();
+        if mutant["patch_sha256"] != digest || entry["patch_sha256"] != digest {
+            return Err(ReplayRefusal::PatchDigest(id));
+        }
+        let rebuilt = apply(validator.baseline(), &patch).map_err(|e| {
+            if e.kind() == PatchFailureKind::StalePrecondition {
+                ReplayRefusal::Stale(id)
+            } else {
+                ReplayRefusal::Rebuild(id)
+            }
+        })?;
+        if structure_sha256(rebuilt.definition())
+            .map_err(|_| ReplayRefusal::MutantDigest(id))?
+            .to_string()
+            != entry["structure_sha256"]
+        {
+            return Err(ReplayRefusal::MutantDigest(id));
+        }
+        let (kore, validation) = match validator.validate(&patch) {
+            Ok(compiled) => (
+                Some(compiled.kore_sha256().to_string()),
+                json!({"outcome":"compiled","stage":null,"detail":null}),
+            ),
+            Err(MutantRejection::Patch(f)) => (
+                None,
+                json!({"outcome":"rejected","stage":"patch","detail":f.kind().as_str()}),
+            ),
+            Err(MutantRejection::Relink(_)) => (
+                None,
+                json!({"outcome":"rejected","stage":"relink","detail":null}),
+            ),
+            Err(MutantRejection::Compilation(e)) => (
+                None,
+                json!({"outcome":"rejected","stage":"compilation","detail":e.stage}),
+            ),
+        };
+        if entry["kore_sha256"] != json!(kore) || entry["validation"] != validation {
+            return Err(ReplayRefusal::MutantDigest(id));
+        }
+    }
+    Ok(())
+}
+
+/// The RFC 6901 pointer, below `pointer`, of the first place where `left` and `right` differ, in
+/// sorted-key and index order; `None` when they are equal.
+///
+/// Walked with an explicit work list and each pointer built only for the difference found, so a
+/// report as deep as the terms it holds (kink-patch `MAX_JSON_DEPTH`) is compared in time and
+/// memory linear in its size on any thread (re-pin L1-3-fix-2; the recursion it replaces compared
+/// every subtree again at each level, quadratic in the depth).
+fn first_difference(left: &Value, right: &Value, pointer: &str) -> Option<String> {
+    /// One pending step: compare two values, or report a member or item only one side has.
+    enum Step<'a> {
+        Compare(&'a Value, &'a Value, usize),
+        Missing(usize),
+    }
+    // Each place visited is a segment and its parent's index, so a pointer costs its length.
+    let mut places: Vec<(Option<usize>, String)> = vec![(None, pointer.to_owned())];
+    let pointer_of = |places: &[(Option<usize>, String)], mut at: usize| {
+        let mut segments = Vec::new();
+        loop {
+            let (parent, segment) = &places[at];
+            segments.push(segment.as_str());
+            match parent {
+                Some(parent) => at = *parent,
+                None => break,
+            }
+        }
+        segments.into_iter().rev().collect::<String>()
+    };
+    let mut pending = vec![Step::Compare(left, right, 0)];
+    while let Some(step) = pending.pop() {
+        let (left, right, at) = match step {
+            Step::Missing(at) => return Some(pointer_of(&places, at)),
+            Step::Compare(left, right, at) => (left, right, at),
+        };
+        let mut children = Vec::new();
+        match (left, right) {
+            (Value::Object(a), Value::Object(b)) => {
+                for key in a.keys().chain(b.keys()).collect::<BTreeSet<_>>() {
+                    places.push((
+                        Some(at),
+                        format!("/{}", key.replace('~', "~0").replace('/', "~1")),
+                    ));
+                    let place = places.len() - 1;
+                    children.push(match (a.get(key), b.get(key)) {
+                        (Some(x), Some(y)) => Step::Compare(x, y, place),
+                        _ => Step::Missing(place),
+                    });
+                }
+            }
+            (Value::Array(a), Value::Array(b)) => {
+                for index in 0..a.len().max(b.len()) {
+                    places.push((Some(at), format!("/{index}")));
+                    let place = places.len() - 1;
+                    children.push(match (a.get(index), b.get(index)) {
+                        (Some(x), Some(y)) => Step::Compare(x, y, place),
+                        _ => Step::Missing(place),
+                    });
+                }
+            }
+            // Two scalars, or values of two kinds: the comparison does not recurse.
+            _ if left != right => return Some(pointer_of(&places, at)),
+            _ => {}
+        }
+        pending.extend(children.into_iter().rev());
+    }
+    None
+}
+
+fn differing_mutants(left: &Value, right: &Value) -> Vec<MutantId> {
+    let a = left["mutants"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let b = right["mutants"]
+        .as_array()
+        .map(Vec::as_slice)
+        .unwrap_or_default();
+    let ids = a
+        .iter()
+        .chain(b)
+        .filter_map(mutant_id)
+        .collect::<BTreeSet<_>>();
+    ids.into_iter()
+        .filter(|id| {
+            let x = a.iter().find(|m| mutant_id(m) == Some(*id));
+            let y = b.iter().find(|m| mutant_id(m) == Some(*id));
+            match (x, y) {
+                (Some(x), Some(y)) => ["status", "killing_test_ids", "tests"]
+                    .iter()
+                    .any(|key| x.get(key) != y.get(key)),
+                _ => true,
+            }
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn differences_use_sorted_keys_array_indices_and_rfc6901_escaping() {
+        let cases = [
+            (
+                json!({"z":0,"a~/":[1,2]}),
+                json!({"z":1,"a~/":[1,3]}),
+                "/a~0~1/1",
+            ),
+            (json!({"a":null}), json!({}), "/a"),
+            (json!([0]), json!([0, 1]), "/1"),
+            (json!(true), json!([]), ""),
+        ];
+        for (a, b, expected) in cases {
+            assert_eq!(first_difference(&a, &b, "").as_deref(), Some(expected));
+        }
+        assert_eq!(first_difference(&json!({}), &json!({}), ""), None);
+    }
+
+    /// Packet CACHE-ID: a report whose manifest names another value of any one component of
+    /// kink's semantics identity, lacks one, adds one or names none is refused in the
+    /// environment check, naming the component.
+    #[test]
+    fn a_manifest_with_another_identity_component_is_refused() {
+        let manifest = json!({
+            "k_rust": {
+                "revision": K_RUST_REVISION,
+                "provenance_format": json::PROVENANCE_FORMAT,
+                "provenance_version": json::PROVENANCE_VERSION,
+            },
+            "kink": crate::identity::kink_identity(),
+            "profile": SolverProfile::BUILD.name(),
+        });
+        assert_eq!(check_environment(&manifest), Ok(()));
+        for component in crate::identity::KINK_IDENTITY {
+            let expected = Err(ReplayRefusal::Environment(format!(
+                "kink.{}",
+                component.key
+            )));
+            let mut changed = manifest.clone();
+            changed["kink"][component.key] = json!(format!("{}-other", component.value));
+            assert_eq!(check_environment(&changed), expected);
+            let mut missing = manifest.clone();
+            missing["kink"]
+                .as_object_mut()
+                .unwrap()
+                .remove(component.key);
+            assert_eq!(check_environment(&missing), expected);
+        }
+        let mut extra = manifest.clone();
+        extra["kink"]["later_algorithm"] = json!("v1");
+        assert_eq!(
+            check_environment(&extra),
+            Err(ReplayRefusal::Environment("kink.later_algorithm".into()))
+        );
+        let mut none = manifest;
+        none.as_object_mut().unwrap().remove("kink");
+        assert_eq!(
+            check_environment(&none),
+            Err(ReplayRefusal::Environment("kink".into()))
+        );
+    }
+
+    #[test]
+    fn divergence_names_every_changed_verdict_or_test() {
+        let left = json!({"mutants":[
+            {"mutant_id":0,"status":"killed","killing_test_ids":["a"],"tests":[]},
+            {"mutant_id":1,"status":"survived","killing_test_ids":[],"tests":[1]},
+            {"mutant_id":2,"status":"equivalent","killing_test_ids":[],"tests":[]},
+            {"mutant_id":3,"status":"killed","killing_test_ids":["a"],"tests":[]},
+        ]});
+        let mut right = left.clone();
+        right["mutants"][0]["status"] = json!("survived");
+        right["mutants"][1]["tests"] = json!([2]);
+        right["mutants"][2]["operator"] = json!("other");
+        right["mutants"][3]["killing_test_ids"] = json!(["b"]);
+        assert_eq!(
+            differing_mutants(&left, &right),
+            vec![MutantId(0), MutantId(1), MutantId(3)]
+        );
+    }
+}

@@ -103,11 +103,6 @@ pub(crate) fn sort(
             &cfg,
         )?);
     }
-    let framework_request = semantic_parents
-        .iter()
-        .any(is_framework_sort_path)
-        .then(|| quote!(#facade::__request_framework_sorts!();));
-
     let wire = serde_json::to_string(&WirePayload::Sort(WireSortDescriptor { parents }))
         .expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
@@ -136,8 +131,6 @@ pub(crate) fn sort(
 
     Ok(quote! {
         #item
-
-        #framework_request
 
         #(#cfg)*
         #[doc(hidden)]
@@ -176,15 +169,12 @@ pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
     let mut rust_memberships = Vec::new();
     let mut emitted_rust_memberships = BTreeSet::new();
     let mut readable_memberships = BTreeMap::new();
-    let mut requests_framework_sorts = false;
     for entry in declaration.entries() {
         match entry {
             krs_syntax::SortsEntry::Sort(sort) => {
-                requests_framework_sorts |= sort.parents().iter().any(is_framework_sort_path);
                 output.push(expand_readable_sort(env, &facade, sort, Registration::Inventory)?.0);
             }
             krs_syntax::SortsEntry::Membership(membership) => {
-                requests_framework_sorts |= is_framework_sort_path(membership.supersort());
                 for member in membership.members() {
                     let identity = ReadableMembershipIdentity::new(membership.supersort(), member);
                     if let Some(first_span) =
@@ -228,21 +218,14 @@ pub(crate) fn sorts(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
             }
         }
     }
-    let request = requests_framework_sorts.then(|| {
-        quote! {
-            #facade::__request_framework_sorts!();
-        }
-    });
-    Ok(quote!(#request #(#output)* #(#rust_memberships)*))
+    Ok(quote!(#(#output)* #(#rust_memberships)*))
 }
 
 /// Expands the facade's own framework sort block and lists its factories.
 ///
 /// Each sort expands as in [`sorts`], except that its descriptor factory is not
 /// registered: the crate-private `FRAMEWORK_FACTORIES` table is the only list
-/// of the framework factories, and both facade entry points run them only when
-/// a definition requests the framework sorts. The block declares only sorts,
-/// so it emits no framework-sort request of its own.
+/// of the framework factories, which both facade entry points always run.
 pub(crate) fn framework_sorts(
     env: &dyn MacroEnvironment,
     input: TokenStream,
@@ -609,9 +592,9 @@ fn take_bracket_helpers(
 
 pub(crate) fn bracket(attributes: TokenStream, _item: TokenStream) -> crate::Result<TokenStream> {
     krs_syntax::BracketAttribute::parse_tokens(attributes)?;
-    Err(ExpandError::new(
+    // The misplaced helper is the invocation itself.
+    Err(ExpandError::at_invocation(
         expand::ORPHAN_HELPER,
-        Span::call_site(),
         "`#[k::bracket]` is a sort helper; place `#[k::sort]` before it",
     ))
 }
@@ -667,8 +650,6 @@ pub(crate) fn subsort(
     }));
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
-    let framework_request = is_framework_sort_path(semantic_super)
-        .then(|| quote!(#facade::__request_framework_sorts!();));
 
     let factory_tokens = DescriptorFactory {
         facade: &facade,
@@ -688,8 +669,6 @@ pub(crate) fn subsort(
 
     Ok(quote! {
         #item
-
-        #framework_request
 
         #(#cfg)*
         #[doc(hidden)]

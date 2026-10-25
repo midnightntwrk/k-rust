@@ -15,12 +15,12 @@ the outcomes must agree:
   writes acc to the computation cell, so both routes end with `6` there.
   `krs check` accepts the package: `done` and `burn` share no cell, so the
   overlap check does not report them (F2 amendment, clause 5);
-- `groups`: `push: { .., frame: f } => { stack: list::concat(list::item(f), s), frame: f }`
+- `groups`: `push: { .., frame: f } => { stack: list::concat(list::item(f), s) }`
   binds the whole nested cell `<frame>` to one variable of K's generated
   sort `FrameCell`, and `pop` restores it with `frame: f` on the result
   side. The emitted rules name `F:FrameCell` and write the group clause
   bare; `krs expand` writes the entry without a `Cell(..)` wrapper and types
-  the binder by the nested `#[k::cell]` struct. `save`/`restore` restate the
+  the binder by the nested `#[k::cell]` struct. `save`/`restore` name the
   leaves and rebuild the frame with `k::fragment!`, and `call`/`ret` are the
   reference spelling of `push`/`pop`, and `wrap`/`unwrap` save the frame
   inside `held(..)`, a user production with a `KItem` field, which the
@@ -77,7 +77,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 import shutil
 import sys
@@ -90,7 +89,7 @@ from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.reference import add_refresh_argument  # noqa: E402
-from support.tools import checkout_scratch, z3_environment  # noqa: E402
+from support.tools import target_environment, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -436,11 +435,10 @@ def main() -> int:
     if pins.get("schema") != 1:
         raise GateError("pins.json is not the schema-1 configuration-cells ledger")
 
-    target = checkout_scratch() / "configuration-cells-target"
-    environment = {**z3_environment(), "CARGO_TARGET_DIR": os.fspath(target), "CARGO_TERM_COLOR": "never"}
+    environment = {**z3_environment(), **target_environment(), "CARGO_TERM_COLOR": "never"}
     krs = build(environment)
     gate = krs_gate.configured_or_build()
-    check_packages("configuration-cells", krs=krs, env=environment, target_dir=target)
+    check_packages("configuration-cells", krs=krs, env=environment)
 
     with tempfile.TemporaryDirectory(prefix="krs-configuration-cells-") as temporary:
         workspace = Path(temporary)

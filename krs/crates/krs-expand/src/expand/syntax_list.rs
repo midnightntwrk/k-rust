@@ -54,11 +54,20 @@ impl Role {
     }
 }
 
+pub(crate) fn syntax_list(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> crate::Result<TokenStream> {
+    let stand_in = super::enum_family::enum_stand_in(env, &item, true);
+    syntax_list_inner(env, attributes, item).map_err(|error| error.with_stand_in(stand_in))
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "The list sort and both variants share one descriptor expansion."
 )]
-pub(crate) fn syntax_list(
+fn syntax_list_inner(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
@@ -337,6 +346,7 @@ impl ListContext<'_> {
                             slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
                             authored_path: spelling.clone(),
                         },
+                        arguments: Vec::new(),
                     });
                     let ordinal = u32::try_from(ordinal).expect("a list has two fields");
                     let field_key = wire_key(ProvenanceRole::ConstructorFieldDeclaration, ordinal);
@@ -447,6 +457,7 @@ impl ListContext<'_> {
                 },
             },
             fields,
+            arguments: Vec::new(),
         });
         let constructor_wire = serde_json::to_string(&constructor_wire)
             .expect("list-constructor wire is serializable");

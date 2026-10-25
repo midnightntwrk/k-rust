@@ -107,7 +107,8 @@ fn tour_minimal_runs_one_step_with_an_authored_trace_and_stays_put_at_depth_zero
     );
     // The status line names the head of `<k>` in the notation of the printed result: KAST for JSON.
     assert!(
-        stderr(&run).ends_with("krs run: stuck after 1 step; <k> starts with `bar(.KList)`\n"),
+        stderr(&run)
+            .ends_with("krs run: stuck after 1 step; <k> starts with `objectBar(.KList)`\n"),
         "{}",
         stderr(&run)
     );
@@ -143,7 +144,7 @@ fn tour_minimal_runs_one_step_with_an_authored_trace_and_stays_put_at_depth_zero
     assert_eq!(report["run"]["halt"], "depth-bound");
     assert_eq!(report["run"]["steps"], 0);
     assert!(
-        stderr(&depth_zero).ends_with("<k> starts with `foo(.KList)`\n"),
+        stderr(&depth_zero).ends_with("<k> starts with `objectFoo(.KList)`\n"),
         "{}",
         stderr(&depth_zero)
     );
@@ -238,13 +239,14 @@ fn the_status_line_prints_the_head_of_k_in_the_notation_of_the_result() {
     let kast = krs(target.path(), &manifest, "run", &["--output", "kast"]);
     assert_eq!(kast.status.code(), Some(0), "{}", stderr(&kast));
     assert!(
-        String::from_utf8_lossy(&kast.stdout).contains("wrap(bar(.KList),#token(\"3\",\"Int\"))"),
+        String::from_utf8_lossy(&kast.stdout)
+            .contains("objectWrap(objectBar(.KList),#token(\"3\",\"Int\"))"),
         "{}",
         String::from_utf8_lossy(&kast.stdout)
     );
     assert_eq!(
         stderr(&kast),
-        "krs run: stuck after 1 step; <k> starts with `wrap(bar(.KList),#token(\"3\",\"Int\"))`\n"
+        "krs run: stuck after 1 step; <k> starts with `objectWrap(objectBar(.KList),#token(\"3\",\"Int\"))`\n"
     );
 }
 
@@ -354,7 +356,7 @@ fn programs_parse_bind_and_report_their_errors() {
         &[program, "--output", "json"],
     );
     assert_eq!(parsed.status.code(), Some(0), "{}", stderr(&parsed));
-    assert_eq!(json(&parsed)["term"]["label"]["name"], "foo");
+    assert_eq!(json(&parsed)["term"]["label"]["name"], "objectFoo");
     let program_text = krs(
         target.path(),
         &manifest,
@@ -669,4 +671,257 @@ fn a_disjunctive_claim_is_proven_disjunct_by_disjunct() {
         ]
         .map(|(claim, verdict)| (format!("ORG-KRS-CLI-EXEC-SPEC.{claim}"), verdict.to_owned()))
     );
+}
+
+/// A simplification whose `requires` is a predicate disjunction (`ml::or`, K's `#Or`, which a
+/// simplification's condition admits): `h`, which has no equation, is 7 on 1 and on 2. The lemma
+/// applies on both disjuncts (`go-one`, `go-two` proven) and nowhere else (`go-three`, whose
+/// `h(3)` is the uninterpreted `probeH(3)`, is not).
+const DISJUNCTIVE_LEMMA: &str = r#"
+use krs::builtin::{Int, KSequence};
+use krs::ml;
+use krs::{KItem, Term};
+
+krs::sorts! {
+    Exp: KItem;
+    impl Exp for Int;
+}
+
+#[krs::constructors(sort = Exp, result = krs::KResult)]
+#[krs::precedence((Go))]
+#[rustfmt::skip]
+pub enum ExpSyntax {
+    #[krs::syntax("go({value})")] Go { value: Int },
+}
+
+/// A function with no equation: only the lemma says what `h` is.
+#[krs::function(total, sort = Int, syntax = "h({value})", smtlib = "probeH")]
+pub struct H {
+    pub value: Term<Int>,
+}
+
+/// `h(x) = 7` where `x` is 1 or 2.
+#[krs::simplification]
+#[krs::requires(ml::or(ml::equals(x, 1), ml::equals(x, 2)))]
+fn h_one_or_two(krs::term![H(x)]: Term<Int>) -> Term<Int> {
+    7
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: krs::k![pgm] }
+    }
+}
+
+#[krs::rule(label = "go")]
+fn go(krs::term![ExpSyntax::Go { value }]: Term<Exp>) -> Term<Exp> {
+    H(value)
+}
+
+mod claims {
+    use crate::{ExpSyntax, Machine};
+
+    #[krs::claim(all_paths, label = "go-one")]
+    fn go_one(
+        krs::cells! { k: krs::configuration::KCell(ExpSyntax::Go(1), tail @ ..), state @ .. }: Machine,
+    ) -> Machine {
+        krs::cells! { k: krs::configuration::KCell(7, ..tail), ..state }
+    }
+
+    #[krs::claim(all_paths, label = "go-two")]
+    fn go_two(
+        krs::cells! { k: krs::configuration::KCell(ExpSyntax::Go(2), tail @ ..), state @ .. }: Machine,
+    ) -> Machine {
+        krs::cells! { k: krs::configuration::KCell(7, ..tail), ..state }
+    }
+
+    #[krs::claim(all_paths, label = "go-three")]
+    fn go_three(
+        krs::cells! { k: krs::configuration::KCell(ExpSyntax::Go(3), tail @ ..), state @ .. }: Machine,
+    ) -> Machine {
+        krs::cells! { k: krs::configuration::KCell(7, ..tail), ..state }
+    }
+}
+"#;
+
+#[test]
+fn a_simplification_with_a_disjunctive_requires_applies_on_each_disjunct() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = materialize(temporary.path(), DISJUNCTIVE_LEMMA);
+
+    let prove = krs(target.path(), &manifest, "prove", &["--output", "json"]);
+    let verdicts = json(&prove)["prove"]
+        .as_array()
+        .unwrap_or_else(|| panic!("no claim reports: {}", stderr(&prove)))
+        .iter()
+        .map(|report| {
+            (
+                report["claim"].as_str().unwrap().to_owned(),
+                report["verdict"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect::<Vec<_>>();
+    let verdict = |claim: &str| {
+        verdicts
+            .iter()
+            .find(|(label, _)| label == &format!("ORG-KRS-CLI-EXEC-SPEC.{claim}"))
+            .map(|(_, verdict)| verdict.as_str())
+    };
+    assert_eq!(verdict("go-one"), Some("proven"), "{verdicts:?}");
+    assert_eq!(verdict("go-two"), Some("proven"), "{verdicts:?}");
+    assert_ne!(verdict("go-three"), Some("proven"), "{verdicts:?}");
+    assert!(verdict("go-three").is_some(), "{verdicts:?}");
+    assert_eq!(prove.status.code(), Some(1), "{}", stderr(&prove));
+}
+
+/// Equations whose or-patterns stand below an alias, below a constructor, in a `krs::matches!`
+/// pattern below its root, and in a function context cell. Each is one equation per
+/// alternative, so it applies on every alternative and nowhere else.
+const OR_PATTERN_EQUATIONS: &str = r#"
+use krs::builtin::{Bool, Int, KSequence};
+use krs::{KResult, Term};
+
+krs::sorts! {
+    Exp;
+    Value: Exp + KResult;
+    impl Value for Bool, Int;
+}
+
+#[krs::constructors(sort = Exp, result = KResult)]
+#[krs::precedence((Pair, Red, Green, Blue, ReadBar))]
+#[rustfmt::skip]
+pub enum ExpSyntax {
+    #[krs::syntax("pair({fst}, {snd})")] Pair { fst: Exp, snd: Exp },
+    #[krs::syntax("red()")] Red(),
+    #[krs::syntax("green()")] Green(),
+    #[krs::syntax("blue()")] Blue(),
+    #[krs::syntax("readBar()")] ReadBar(),
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+    #[krs::cell]
+    pub bar: Int,
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: krs::k![pgm], bar: 42 }
+    }
+}
+
+/// `warm(op @ (red() | green()))` is `op`: the alias over the alternatives; anything else is 0.
+#[krs::function(partial, sort = Exp, syntax = "warm({c})")]
+pub struct Warm {
+    pub c: Term<Exp>,
+}
+
+#[krs::equation]
+fn warm_red_green(
+    krs::term![Warm(op @ (ExpSyntax::Red() | ExpSyntax::Green()))]: Term<Exp>,
+) -> Term<Exp> {
+    op
+}
+
+#[krs::equation(owise)]
+fn warm_other(krs::term![Warm(_)]: Term<Exp>) -> Term<Exp> {
+    0
+}
+
+/// `second(pair(x, red() | green()))` is `x`: the alternatives below a constructor; anything else
+/// is 0.
+#[krs::function(partial, sort = Exp, syntax = "second({p})")]
+pub struct Second {
+    pub p: Term<Exp>,
+}
+
+#[krs::equation]
+fn second_warm(
+    krs::term![Second(ExpSyntax::Pair(x, ExpSyntax::Red() | ExpSyntax::Green()))]: Term<Exp>,
+) -> Term<Exp> {
+    x
+}
+
+#[krs::equation(owise)]
+fn second_other(krs::term![Second(_)]: Term<Exp>) -> Term<Exp> {
+    0
+}
+
+/// Whether `e` is a pair whose second item is `red()` or `green()`.
+#[krs::function(partial, sort = Bool, syntax = "warmPair({e})")]
+pub struct WarmPair {
+    pub e: Term<Exp>,
+}
+
+#[krs::equation]
+fn warm_pair(krs::term![WarmPair(e)]: Term<Bool>) -> Term<Bool> {
+    krs::matches!(e, ExpSyntax::Pair(_, ExpSyntax::Red() | ExpSyntax::Green()))
+}
+
+/// 1 where the `<bar>` cell holds 41 or 42, else 0.
+#[krs::function(total, sort = Int, syntax = "barIn({n})")]
+pub struct BarIn {
+    pub n: Term<Int>,
+}
+
+#[krs::equation]
+fn bar_in(
+    n: Term<Int>,
+    krs::term![BarIn(n)]: Term<Int>,
+    krs::cells! { bar: krs::configuration::Cell(41 | 42), .. }: Machine,
+) -> Term<Int> {
+    n
+}
+
+#[krs::equation(owise)]
+fn bar_out(krs::term![BarIn(_)]: Term<Int>) -> Term<Int> {
+    0
+}
+
+krs::rules! {
+    for Exp;
+    use ExpSyntax::*;
+
+    read: ReadBar() => crate::BarIn(1);
+}
+"#;
+
+#[test]
+fn an_equation_s_or_pattern_below_its_argument_root_applies_on_each_alternative() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = materialize(temporary.path(), OR_PATTERN_EQUATIONS);
+    for (name, program, result) in [
+        ("warm-red", "warm(red())", "red()"),
+        ("warm-green", "warm(green())", "green()"),
+        ("warm-blue", "warm(blue())", "0"),
+        ("second-green", "second(pair(5, green()))", "5"),
+        ("second-blue", "second(pair(5, blue()))", "0"),
+        ("warm-pair-green", "warmPair(pair(1, green()))", "true"),
+        ("warm-pair-blue", "warmPair(pair(1, blue()))", "false"),
+        ("read-bar", "readBar()", "1"),
+    ] {
+        let path = temporary.path().join(format!("{name}.prog"));
+        fs::write(&path, format!("{program}\n")).unwrap();
+        let run = krs(target.path(), &manifest, "run", &[path.to_str().unwrap()]);
+        assert_eq!(run.status.code(), Some(0), "{program}: {}", stderr(&run));
+        let state = String::from_utf8_lossy(&run.stdout);
+        assert!(
+            state
+                .lines()
+                .any(|line| line.trim() == format!("{result} ~> .K")),
+            "{program}: expected {result}, got\n{state}"
+        );
+    }
 }

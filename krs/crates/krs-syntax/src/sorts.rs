@@ -232,8 +232,9 @@ impl Parse for SortsMembership {
                 break;
             }
             input.parse::<Token![,]>()?;
+            // A trailing comma before the `;` ends the list.
             if input.peek(Token![;]) {
-                return Err(input.error("expected a member type after `,`"));
+                break;
             }
         }
         input.parse::<Token![;]>()?;

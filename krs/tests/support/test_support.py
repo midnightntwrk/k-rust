@@ -34,6 +34,23 @@ class RouteComparisonTests(unittest.TestCase):
             semantics.compare_routes("KMIR", [{"id": "one"}], [], {})
 
 
+class CheckWarningTests(unittest.TestCase):
+    def test_keeps_sorted_warning_headlines_without_color(self) -> None:
+        stderr = (
+            "\x1b[33mwarning[krs::analysis::untyped-collection]\x1b[0m: b\n"
+            "   --> src/lib.rs:1:2\n"
+            "warning[krs::analysis::untyped-collection]: a\n"
+            "error[krs::analysis::other]: c\n"
+        )
+        self.assertEqual(
+            semantics.check_warnings(stderr),
+            [
+                "warning[krs::analysis::untyped-collection]: a",
+                "warning[krs::analysis::untyped-collection]: b",
+            ],
+        )
+
+
 def write_executable(path: Path, body: str) -> Path:
     path.write_text(f"#!/bin/sh\n{body}\n", encoding="utf-8")
     path.chmod(0o755)
@@ -393,6 +410,24 @@ class LedgerTests(unittest.TestCase):
                 ledger.expect(("artifact_sha256", "definition.k"), "new-k")
             with self.assertRaisesRegex(GateError, "has no pin missing; --artifacts-only.*full gate"):
                 ledger.expect("missing", "value")
+
+    def test_emit_only_mode_never_records_and_directs_a_difference_to_the_port_gate(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "pins.toml"
+            path.write_text(self.TOML, encoding="utf-8")
+            with self.assertRaisesRegex(GateError, "cannot be combined with an emission-only run"):
+                pins.Ledger(path, record=True, emit_only=True)
+            ledger = pins.Ledger(path, emit_only=True)
+            ledger.expect(("artifact_sha256", "definition.k"), "old-k")
+            with self.assertRaisesRegex(GateError, "expansion_sha256 differs from its pin.*port's full gate"):
+                ledger.expect("expansion_sha256", "new")
+
+    def test_a_table_difference_names_the_entries_that_differ(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            ledger = self.ledger(temporary, record=False)
+            observed = {"definition.k": "old-k", "sources.json": "new-s", "spec.k": "new"}
+            with self.assertRaisesRegex(GateError, "artifact_sha256 differs from its pin at sources.json, spec.k:"):
+                ledger.expect("artifact_sha256", observed)
 
     def test_record_mode_rewrites_only_observed_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

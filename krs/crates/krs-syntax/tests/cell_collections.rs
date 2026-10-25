@@ -117,15 +117,16 @@ fn readable_records_lower_optional_and_collection_entries_to_state_rewrites() {
     assert_eq!(subject.front()[0].label().unwrap(), "me");
     assert_eq!(result.front().len(), 2);
 
-    let state = block.clauses()[2]
-        .extras()
-        .iter()
-        .find_map(|extra| match extra {
-            RuleExtra::RewriteState { before, .. } => Some(before),
-            _ => None,
-        })
-        .unwrap();
-    let StateTerm::Instances(list) = state.as_ref() else {
+    // A back record also reads as a `List` cell's last element: the clause
+    // takes that reading and carries the List collection's beside it.
+    let pop = &block.clauses()[2];
+    assert!(matches!(
+        pop.extras(),
+        [RuleExtra::RewriteList { cell, .. }] if cell == "job"
+    ));
+    let alternative = pop.bracket_alternative().unwrap();
+    assert_eq!(alternative.cell(), "job");
+    let StateTerm::Instances(list) = alternative.before() else {
         panic!("expected a List collection pattern");
     };
     assert_eq!(list.delimiter(), InstanceListDelimiter::Bracket);
@@ -190,29 +191,42 @@ fn a_bracket_that_reads_both_ways_carries_its_list_reading() {
         );
     }
 
-    // `k` is the computation cell, so `job` is the collection.
+    // `k` is the computation cell, so `job` is a collection or a list: it
+    // reads as list elements with the List reading beside it.
     let pick = &clauses[1];
     assert_eq!(pick.computation_cell().unwrap(), "k");
-    assert!(pick.bracket_alternative().is_none());
     assert!(matches!(
         pick.extras(),
-        [RuleExtra::RewriteState { cell, .. }] if cell == "job"
+        [RuleExtra::RewriteList { cell, .. }] if cell == "job"
     ));
+    assert_eq!(pick.bracket_alternative().unwrap().cell(), "job");
+    pick.provenance().unwrap();
 
-    // A back instance reads only as a List collection.
+    // A back record reads as a List collection's back instance and as a
+    // list's last element, never as a head.
     let tail = &clauses[2];
     assert!(tail.head_result().is_none());
-    assert!(tail.bracket_alternative().is_none());
+    assert!(matches!(
+        tail.extras(),
+        [RuleExtra::RewriteList { cell, .. }] if cell == "job"
+    ));
+    let alternative = tail.bracket_alternative().unwrap();
+    let StateTerm::Instances(back) = alternative.before() else {
+        panic!("expected a List reading");
+    };
+    assert_eq!(back.back().len(), 1);
+    tail.provenance().unwrap();
 
     // A head record reads both ways too; the collector keeps the head.
     let head = &clauses[3];
     assert_eq!(head.computation_cell().unwrap(), "k");
     assert!(head.bracket_alternative().is_some());
 
-    // A labelled front record cannot be a whole head: it reads as a List
-    // collection only.
+    // A labelled front record reads both ways as well: as the computation
+    // cell's head, `first` aliases the item; as a List collection's front,
+    // it labels the instance. The collector keeps the cell's own reading.
     let labelled = &clauses[4];
-    assert!(labelled.head_result().is_none());
-    assert!(labelled.bracket_alternative().is_none());
-    assert!(labelled.bindings().is_empty());
+    assert!(labelled.head_result().is_some());
+    assert!(labelled.bracket_alternative().is_some());
+    assert_eq!(labelled.bindings(), ["first"]);
 }

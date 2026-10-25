@@ -13,6 +13,31 @@ use super::grammar::{
     SortTestKind, Term,
 };
 
+/// The provenance role of a builtin `Id` or `Bytes` literal, one constant of
+/// its builtin sort wherever it stands, or `None` when `value` is not a valid
+/// literal of `sort`.
+pub(crate) fn builtin_token_literal_role(
+    sort: BuiltinSort,
+    value: &str,
+) -> Option<crate::ProvenanceRole> {
+    match sort {
+        BuiltinSort::Id
+            if value.strip_prefix('$').is_some_and(|tail| {
+                !tail.is_empty()
+                    && tail
+                        .chars()
+                        .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
+            }) =>
+        {
+            Some(crate::ProvenanceRole::ClaimIdToken)
+        }
+        BuiltinSort::Bytes if crate::bytes_token::decode(value).is_ok() => {
+            Some(crate::ProvenanceRole::ClaimBytesToken)
+        }
+        _ => None,
+    }
+}
+
 /// Host references carry Rust type keys without stable item kinds or field text.
 /// Collector output must pass `Descriptor::new` after resolution, which runs the descriptor-stage contracts.
 pub(crate) trait ValidationStage: Stage {
@@ -73,7 +98,7 @@ impl ValidationStage for DescriptorStage {
     }
 
     fn validate_application(application: &Self::Application) -> Result<(), GrammarTransportError> {
-        application.application.validate()
+        application.application.validate_term_head()
     }
 
     fn validate_fragment(
@@ -145,11 +170,14 @@ pub(crate) trait TermValidation<S: ValidationStage> {
         text: &str,
     ) -> Result<(), Self::Error>;
 
+    /// A complete cell term; `partial` when it names only some children (a
+    /// pattern ending in `..` or a group update).
     fn cell(
         &mut self,
         key: &ProvenanceKey,
         declaration: &S::Nominal,
         fields: &[CellTermField<S>],
+        partial: bool,
     ) -> Result<(), Self::Error>;
 
     fn sort_test(
@@ -237,13 +265,51 @@ pub(crate) trait TermValidation<S: ValidationStage> {
         field: &CellTermField<S>,
         names: &mut BTreeSet<ProductionFieldId>,
     ) -> Result<(), Self::Error>;
+
+    /// The base of a record update `Ctor { f: e, ..t }` (F5), validated
+    /// after the record's fields: a variable, outside a pattern.
+    fn record_update(&mut self, base: &Term<S>) -> Result<(), Self::Error>;
+}
+
+/// Validates `term` and its subterms; a failure lists the nodes that enclose it
+/// ([`crate::failure_site`]).
+pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
+    term: &Term<S>,
+    context: &mut C,
+) -> Result<(), C::Error> {
+    let mark = crate::failure_site::enter();
+    let result = validate_term_node(term, context);
+    crate::failure_site::leave(mark, result.is_err(), term_key(term));
+    result
+}
+
+/// The provenance key of a term's own node.
+fn term_key<S: ValidationStage>(term: &Term<S>) -> &ProvenanceKey {
+    match term {
+        Term::Application { reference, .. } => S::application_key(reference),
+        Term::Variable { key, .. }
+        | Term::Literal { key, .. }
+        | Term::Wildcard { key }
+        | Term::BuiltinToken { key, .. }
+        | Term::Anonymous { key, .. }
+        | Term::OrBool { key, .. }
+        | Term::Lexeme { key, .. }
+        | Term::Cell { key, .. }
+        | Term::SortTest { key, .. }
+        | Term::As { key, .. }
+        | Term::Or { key, .. }
+        | Term::Matches { key, .. }
+        | Term::Let { key, .. }
+        | Term::Closure { key, .. }
+        | Term::Rewrite { key, .. } => key,
+    }
 }
 
 #[expect(
     clippy::too_many_lines,
     reason = "One exhaustive match validates every transport term variant."
 )]
-pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
+fn validate_term_node<S: ValidationStage, C: TermValidation<S>>(
     term: &Term<S>,
     context: &mut C,
 ) -> Result<(), C::Error> {
@@ -259,12 +325,17 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
             path_key,
             arguments,
             instance,
+            update,
+            open: _,
         } => {
             context.application(*head_class, reference, path_key, arguments)?;
             for sort in instance {
                 context.application_instance(sort)?;
             }
-            validate_arguments(arguments, context)
+            validate_arguments(arguments, context)?;
+            update
+                .as_deref()
+                .map_or(Ok(()), |base| context.record_update(base))
         }
         Term::Literal { key, literal } => context.literal(key, literal),
         Term::Wildcard { key } => context.wildcard(key),
@@ -286,14 +357,19 @@ pub(crate) fn validate_term<S: ValidationStage, C: TermValidation<S>>(
             key,
             declaration,
             fields,
+            open,
+            update,
         } => {
-            context.cell(key, declaration, fields)?;
+            // A pattern ending in `..` or an update names some children only.
+            context.cell(key, declaration, fields, *open || update.is_some())?;
             let mut names = BTreeSet::new();
             for field in fields {
                 context.cell_field(field, &mut names)?;
                 validate_term(&field.value, context)?;
             }
-            Ok(())
+            update
+                .as_deref()
+                .map_or(Ok(()), |base| context.record_update(base))
         }
         Term::SortTest {
             key,
@@ -445,16 +521,23 @@ pub(crate) fn let_pattern_names<S: ValidationStage>(term: &Term<S>, names: &mut 
 /// The direct subterms of `term`, in source order.
 pub(crate) fn term_children<S: Stage>(term: &Term<S>) -> Vec<&Term<S>> {
     match term {
-        Term::Application { arguments, .. } => arguments
+        Term::Application {
+            arguments, update, ..
+        } => arguments
             .into_iter()
             .map(|argument| match argument {
                 crate::TermArgumentRef::Positional { value }
                 | crate::TermArgumentRef::Named { value, .. } => value,
             })
+            .chain(update.as_deref())
             .collect(),
         Term::OrBool { arguments, .. } => arguments.iter().collect(),
         Term::Or { alternatives, .. } => alternatives.iter().collect(),
-        Term::Cell { fields, .. } => fields.iter().map(|field| &*field.value).collect(),
+        Term::Cell { fields, update, .. } => fields
+            .iter()
+            .map(|field| &*field.value)
+            .chain(update.as_deref())
+            .collect(),
         Term::SortTest { operand, .. } => vec![&**operand],
         Term::As { pattern, .. } => vec![&**pattern],
         Term::Matches {

@@ -73,7 +73,7 @@ use crate::{
     fresh::{RequestNames, fresh_name_apart},
     ite::{IteSplit, split_ite_pair},
     matching::{
-        FailReason, MatchMode, MatchResult, SortError, is_collection_term,
+        MatchMode, MatchResult, SortError, UndecidedReason, is_collection_term,
         match_terms_in_definition, merge_free_parts, solve_collection_pairs_in_definition,
     },
     rewrite::{Pattern, Truth, predicates_truth, substitute_predicates},
@@ -901,13 +901,31 @@ struct Checked {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum ImplicationError {
     Subsorting(SortError),
+    /// Matching the consequent's term against the antecedent's met a question it does not
+    /// answer, other than a subsort question ([`ImplicationError::Subsorting`]): the check has
+    /// no verdict, since the match is neither refuted nor established.
+    UndecidedMatch(UndecidedReason),
     Simplification(SimplificationError),
+}
+
+impl ImplicationError {
+    /// The failure of a check whose match of the consequent's term is undecided: the same for
+    /// every check, so that no two of them read an undecided match differently.
+    fn undecided_match(reason: UndecidedReason) -> Self {
+        match reason {
+            UndecidedReason::Subsorting(error) => Self::Subsorting(error),
+            reason @ (UndecidedReason::SharedVariables(_) | UndecidedReason::OpenSorts(..)) => {
+                Self::UndecidedMatch(reason)
+            }
+        }
+    }
 }
 
 impl fmt::Display for ImplicationError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Subsorting(error) => write!(formatter, "{error}"),
+            Self::UndecidedMatch(reason) => write!(formatter, "{reason}"),
             Self::Simplification(error) => write!(formatter, "{error}"),
         }
     }
@@ -1112,8 +1130,8 @@ fn establish_disjunction(
                 &destination.pattern().term,
                 &antecedent.term,
             ) {
-                MatchResult::Failed(FailReason::Subsorting(error)) => {
-                    return Err(ImplicationError::Subsorting(error).into());
+                MatchResult::Undecided(reason) => {
+                    return Err(ImplicationError::undecided_match(reason).into());
                 }
                 MatchResult::Failed(_) => continue,
                 MatchResult::Indeterminate {
@@ -1406,8 +1424,8 @@ fn check_established(
                 &destination.pattern().term,
                 &antecedent.term,
             ) {
-                MatchResult::Failed(FailReason::Subsorting(error)) => {
-                    return Err(ImplicationError::Subsorting(error).into());
+                MatchResult::Undecided(reason) => {
+                    return Err(ImplicationError::undecided_match(reason).into());
                 }
                 MatchResult::Failed(_) => break Established::TermMismatch,
                 MatchResult::Indeterminate {
@@ -2503,7 +2521,7 @@ fn subject_collection_form(
         CollectionMetadata::Map(map) => {
             hooked(subject, "MAP.update")?;
             let map_sort = Sort::simple(map.map_sort.clone());
-            let remove = declared("MAP.remove", &[map_sort.clone(), map.key_sort.clone()])?;
+            let remove = declared("MAP.remove", &[map_sort, map.key_sort])?;
             let mut keys = Vec::new();
             let mut entries = Vec::new();
             let mut base = subject.clone();
@@ -2540,7 +2558,7 @@ fn subject_collection_form(
         CollectionMetadata::Set(set) => {
             hooked(subject, "SET.union")?;
             let set_sort = Sort::simple(set.list_sort.clone());
-            let difference = declared("SET.difference", &[set_sort.clone(), set_sort.clone()])?;
+            let difference = declared("SET.difference", &[set_sort, set_sort])?;
             // The items of a set of this definition, which are of its element sort.
             let items = |term: &Term| {
                 let TermKind::Set {

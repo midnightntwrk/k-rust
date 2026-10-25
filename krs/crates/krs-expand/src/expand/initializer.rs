@@ -2,28 +2,31 @@
 
 use crate::ExpandError;
 use krs_diagnostic::codes::expand;
+use krs_ir::bytes_token;
 use krs_ir::wire::{
     WireApplicationReference, WireCellDeclarationReference, WireCellIdentity, WireCellReference,
     WireConfigurationInitializer, WireConfigurationVariable, WireInitializerCell,
     WireSortReference, WireTerm, WireTypeReference,
 };
 use krs_ir::{
-    CellWrapper, DescriptorApplicationHeadClass, DescriptorKSequenceNotation,
-    ProtocolInitializerCellContent, ProtocolInitializerStateTerm, ProtocolInitializerTerm,
-    ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem,
-    ProvenanceKey,
+    BuiltinSort, CellWrapper, DescriptorApplicationHeadClass, DescriptorKSequenceNotation,
+    ProductionFieldId, ProtocolInitializerCellContent, ProtocolInitializerStateTerm,
+    ProtocolInitializerTerm, ProtocolKSequence, ProtocolKSequenceItem, ProtocolMap,
+    ProtocolMapBody, ProtocolMapItem, ProvenanceKey,
 };
 use krs_syntax::KrsSyntax;
 use krs_syntax::{
     FixedCellInitializer, InitializerCellContent, KSequence, KSequenceNotation, MapBody,
-    MapExpression, ProvenanceRole, StateTerm, TermArguments, TermExpression, TermTree,
+    MapExpression, ProvenanceRole, StateTerm, TermArguments, TermExpression, TermNode, TermTree,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{Attribute, FnArg, Ident, Path, parse_quote};
 
-use super::configuration::cell_marker_function;
+use super::configuration::{
+    SortArgumentContext, cell_marker_function, configuration_sort_arguments,
+};
 use super::island_checks::initializer_state_island_import_checks;
 use super::nonce::expansion_nonce;
 use super::terms::{TermBuilder, WireSlots, wire_key};
@@ -34,11 +37,48 @@ use super::tokens::{
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
+pub(crate) fn init(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> crate::Result<TokenStream> {
+    let stand_in = initializer_stand_in(env, &item);
+    init_inner(env, attributes, item).map_err(|error| error.with_stand_in(stand_in))
+}
+
+/// The payload function a failed `#[k::init]` leaves in place of its expansion.
+/// The configuration's descriptor factory names `__krs_initializer_payload`, so
+/// without it rustc would add an error about a generated name to the KRS
+/// diagnostics. It has the success path's signature and the method's `#[cfg]`
+/// attributes, and it never runs: the diagnostics' `compile_error!` stops the build.
+/// The author's method is not re-emitted, since rustc would then check the body
+/// KRS just rejected.
+fn initializer_stand_in(env: &dyn MacroEnvironment, item: &TokenStream) -> TokenStream {
+    let Ok(facade) = env.facade_path() else {
+        return TokenStream::new();
+    };
+    let cfg = syn::parse2::<syn::ImplItemFn>(item.clone())
+        .ok()
+        .and_then(|method| call_site_cfg_attributes(&method.attrs).ok())
+        .unwrap_or_default();
+    quote! {
+        #(#cfg)*
+        #[doc(hidden)]
+        pub(crate) fn __krs_initializer_payload() -> ::core::result::Result<(
+            &'static str,
+            #facade::__KrsSlots<'static>,
+            #facade::HostProvenance,
+        ), #facade::HostProvenanceError> {
+            ::core::unreachable!("a failed `#[k::init]` expansion has no payload")
+        }
+    }
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "Initializer metadata and the replacement method are emitted together."
 )]
-pub(crate) fn init(
+fn init_inner(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
@@ -66,6 +106,9 @@ pub(crate) fn init(
     let nonce = expansion_nonce(env, "initializer", &initializer.item().sig.ident, fallback);
     let mut builder = InitializerBuilder::new(&facade, nonce, &cfg, &bindings);
     let mut variables = Vec::new();
+    let self_type = Ident::new("Self", Span::call_site());
+    let arguments_key = format_ident!("initializer_variable_{nonce:016x}");
+    let mut argument_ordinal = 0;
     for (index, variable) in initializer.variables().iter().enumerate() {
         let ordinal = u32::try_from(index).map_err(|_| {
             ExpandError::new(
@@ -94,6 +137,19 @@ pub(crate) fn init(
             .is_main()
             .then_some(wire_key(configuration_variable_main_role, ordinal));
         let authored = spelling(variable.sort());
+        let arguments = configuration_sort_arguments(
+            variable.arguments(),
+            &mut SortArgumentContext {
+                facade: &facade,
+                owner: &self_type,
+                owner_key: &arguments_key,
+                cfg: &cfg,
+                role: ProvenanceRole::ConfigurationVariableTypeArgument,
+                helpers: &mut builder.key_functions,
+                slots: &mut builder.slots,
+                ordinal: &mut argument_ordinal,
+            },
+        )?;
         variables.push(WireConfigurationVariable {
             binding_key: wire_key(configuration_variable_role, ordinal),
             binding,
@@ -108,6 +164,7 @@ pub(crate) fn init(
                     authored_path: authored,
                 },
             },
+            arguments,
             main_key,
         });
     }
@@ -141,7 +198,7 @@ pub(crate) fn init(
             parameter.attrs.clear();
         }
     }
-    inject_inferred_initializer_wrappers(&mut method, &initializer, &facade)?;
+    inject_inferred_initializer_wrappers(&mut method, &initializer, &facade, &bindings)?;
     method.attrs.push(parse_quote!(
         #[allow(clippy::must_use_candidate, clippy::needless_pass_by_value)]
     ));
@@ -151,6 +208,7 @@ pub(crate) fn init(
 
         #(#key_functions)*
 
+        #(#cfg)*
         #[doc(hidden)]
         pub(crate) fn __krs_initializer_payload() -> ::core::result::Result<(
             &'static str,
@@ -172,6 +230,7 @@ fn inject_inferred_initializer_wrappers(
     method: &mut syn::ImplItemFn,
     initializer: &krs_syntax::InitializerFunction,
     facade: &Path,
+    bindings: &[Ident],
 ) -> crate::Result<()> {
     let [syn::Stmt::Expr(syn::Expr::Struct(body), None)] = method.block.stmts.as_mut_slice() else {
         return Err(ExpandError::new(
@@ -180,13 +239,14 @@ fn inject_inferred_initializer_wrappers(
             "a fixed initializer must contain exactly one struct expression",
         ));
     };
-    inject_initializer_cell_list(body, initializer.cells(), facade)
+    inject_initializer_cell_list(body, initializer.cells(), facade, bindings)
 }
 
 fn inject_initializer_cell_list(
     body: &mut syn::ExprStruct,
     cells: &[FixedCellInitializer],
     facade: &Path,
+    bindings: &[Ident],
 ) -> crate::Result<()> {
     for cell in cells {
         let Some(field) = body
@@ -219,7 +279,7 @@ fn inject_initializer_cell_list(
             &mut field.expr
         };
         let has_colon = field.colon_token.is_some();
-        inject_initializer_value(expression, cell, facade)?;
+        inject_initializer_value(expression, cell, facade, bindings)?;
         if !has_colon {
             field.colon_token = Some(syn::token::Colon::default());
         }
@@ -231,82 +291,86 @@ fn inject_initializer_value(
     expression: &mut syn::Expr,
     cell: &FixedCellInitializer,
     facade: &Path,
+    bindings: &[Ident],
 ) -> crate::Result<()> {
-    {
-        qualify_initializer_state_macro(expression, facade)?;
-        match cell.content() {
-            InitializerCellContent::Leaf {
-                computation,
-                inferred_constructor: true,
-                ..
-            } => {
-                let value = if is_ground_initializer_term(expression) {
-                    parse_quote!(#facade::configuration::__term())
-                } else {
-                    expression.clone()
-                };
-                *expression = if *computation {
-                    parse_quote!(#facade::configuration::KCell::new(#value))
-                } else {
-                    parse_quote!(#facade::configuration::Cell::new(#value))
-                };
+    match cell.content() {
+        InitializerCellContent::Leaf {
+            value,
+            computation,
+            inferred_constructor: true,
+            ..
+        } => {
+            let value = initializer_value_stand_in(expression, value, facade, bindings);
+            *expression = if *computation {
+                parse_quote!(#facade::configuration::KCell::new(#value))
+            } else {
+                parse_quote!(#facade::configuration::Cell::new(#value))
+            };
+        }
+        InitializerCellContent::Leaf {
+            value,
+            inferred_constructor: false,
+            ..
+        } => {
+            if let syn::Expr::Call(call) = expression
+                && let Some(argument) = call.args.first_mut()
+            {
+                *argument = initializer_value_stand_in(argument, value, facade, bindings);
             }
-            InitializerCellContent::Leaf {
-                inferred_constructor: false,
-                ..
-            } => {
-                if let syn::Expr::Call(call) = expression
-                    && let Some(argument) = call.args.first_mut()
-                    && is_ground_initializer_term(argument)
-                {
-                    *argument = parse_quote!(#facade::configuration::__term());
-                }
-            }
-            InitializerCellContent::Nested { children, .. } => {
-                let syn::Expr::Struct(nested) = expression else {
-                    return Err(ExpandError::new(
-                        expand::INITIALIZER_CELL_SHAPE,
-                        expression.span(),
-                        "a nested fixed-cell initializer must be a struct expression",
-                    ));
-                };
-                inject_initializer_cell_list(nested, children, facade)?;
-            }
+        }
+        InitializerCellContent::Nested { children, .. } => {
+            let syn::Expr::Struct(nested) = expression else {
+                return Err(ExpandError::new(
+                    expand::INITIALIZER_CELL_SHAPE,
+                    expression.span(),
+                    "a nested fixed-cell initializer must be a struct expression",
+                ));
+            };
+            inject_initializer_cell_list(nested, children, facade, bindings)?;
         }
     }
     Ok(())
 }
 
-/// A literal or call term (`1`, `-1`, `list::empty()`), which is not a Rust value of the cell's
-/// marker type; a binding path and a state macro are.
-fn is_ground_initializer_term(expression: &syn::Expr) -> bool {
-    matches!(
-        expression,
-        syn::Expr::Lit(_) | syn::Expr::Unary(_) | syn::Expr::Call(_)
-    )
-}
-
-fn qualify_initializer_state_macro(expression: &mut syn::Expr, facade: &Path) -> crate::Result<()> {
-    let macro_expression = match expression {
-        syn::Expr::Macro(expression) => Some(expression),
-        syn::Expr::Call(call) => call.args.first_mut().and_then(|argument| match argument {
-            syn::Expr::Macro(expression) => Some(expression),
+/// What rustc sees of a leaf cell's value in the re-emitted method.
+///
+/// A configuration variable that is the cell's whole content stays, so rustc
+/// checks that its Rust type is the cell's. Any other value is a KRS term
+/// (a literal, constructor, function application, `k!`, `map!`), whose names
+/// the payload's slots resolve and whose sorts KRS checks; as a Rust
+/// expression it is not checkable (a struct variant cannot be called, a KRS
+/// function is a Rust struct), so it becomes `__term()`, preceded by a use of
+/// each configuration variable it names, at the authored token: the term the
+/// payload carries uses them.
+fn initializer_value_stand_in(
+    expression: &syn::Expr,
+    value: &StateTerm,
+    facade: &Path,
+    bindings: &[Ident],
+) -> syn::Expr {
+    if let StateTerm::Term(term) = value
+        && let TermTree::Reference(path) = term.tree()
+        && is_bound_ident_path(path, bindings)
+    {
+        return expression.clone();
+    }
+    let uses = value
+        .terms()
+        .into_iter()
+        .flat_map(TermExpression::nodes)
+        .filter_map(|node| match node {
+            TermNode::Reference(path) if is_bound_ident_path(path, bindings) => Some(path),
             _ => None,
-        }),
-        _ => None,
-    };
-    let Some(expression) = macro_expression else {
-        return Ok(());
-    };
-    if expression.mac.path.leading_colon.is_some() || expression.mac.path.segments.len() != 1 {
-        return Ok(());
+        })
+        .collect::<Vec<_>>();
+    if uses.is_empty() {
+        parse_quote!(#facade::configuration::__term())
+    } else {
+        parse_quote!({
+            #(let _ = &#uses;)*
+            #facade::configuration::__term()
+        })
     }
-    let name = expression.mac.path.segments[0].ident.clone();
-    if !matches!(name.to_string().as_str(), "k" | "map") {
-        return Ok(());
-    }
-    expression.mac.path = syn::parse2(quote!(#facade::#name))?;
-    Ok(())
 }
 
 #[derive(Default)]
@@ -322,6 +386,9 @@ struct InitializerCounters {
     map_key: u32,
     map_value: u32,
     map_update_base: u32,
+    id_token: u32,
+    bytes_token: u32,
+    record_field: u32,
 }
 
 struct InitializerBuilder<'a> {
@@ -569,27 +636,54 @@ impl<'a> InitializerBuilder<'a> {
             TermTree::Application(application) => {
                 let ordinal = take_counter(&mut self.counters.term_path)?;
                 let key = wire_key(ProvenanceRole::InitializerTermPath, ordinal);
-                let target = self
-                    .terms
-                    .application_wire_slot(application.head(), &mut self.slots)?;
-                let authored_path = self.terms.application_authored_path(application.head());
+                let target = self.terms.application_wire_slot(
+                    application.head(),
+                    application.is_notation(),
+                    &mut self.slots,
+                )?;
+                let authored_path = spelling(application.head());
                 // An initializer admits no turbofish (KF-027); this rejects one.
                 self.terms
                     .application_instance_wire(application, &mut self.slots)?;
-                let TermArguments::Positional(values) = application.arguments() else {
+                if application.update().is_some() || application.is_open() {
                     return Err(ExpandError::new(
-                        expand::INITIALIZER_RECORD_ARGUMENTS,
+                        expand::INITIALIZER_RECORD_UPDATE,
                         application.head().span(),
-                        "initializer terms cannot use named record arguments",
+                        "an initializer term names every field of a record: `..base` takes fields from a matched record and `..` leaves them open, and an initializer matches nothing",
                     ));
+                }
+                let arguments = match application.arguments() {
+                    TermArguments::Positional(values) => krs_ir::Arguments::Positional(
+                        values
+                            .iter()
+                            .map(|value| {
+                                self.expand_term_tree(value, structural_key.clone())
+                                    .map(Box::new)
+                            })
+                            .collect::<crate::Result<Vec<_>>>()?,
+                    ),
+                    // A record constructor denotes the same application as
+                    // its positional form, with each field named.
+                    TermArguments::Named(values) => {
+                        let mut arguments = Vec::with_capacity(values.len());
+                        for argument in values {
+                            let ordinal = take_counter(&mut self.counters.record_field)?;
+                            let field = ProductionFieldId::new(argument.name().to_string())
+                                .expect("Rust field identifiers are valid production fields");
+                            arguments.push(krs_ir::NamedTermArgument {
+                                key: wire_key(ProvenanceRole::InitializerRecordFieldName, ordinal),
+                                field,
+                                value: Box::new(
+                                    self.expand_term_tree(
+                                        argument.value(),
+                                        structural_key.clone(),
+                                    )?,
+                                ),
+                            });
+                        }
+                        krs_ir::Arguments::named(arguments)
+                    }
                 };
-                let arguments = values
-                    .iter()
-                    .map(|value| {
-                        self.expand_term_tree(value, structural_key.clone())
-                            .map(Box::new)
-                    })
-                    .collect::<crate::Result<Vec<_>>>()?;
                 Ok(WireTerm::Application {
                     instance: Vec::new(),
                     head_class: DescriptorApplicationHeadClass::Applied,
@@ -599,7 +693,9 @@ impl<'a> InitializerBuilder<'a> {
                         authored_path,
                     },
                     path_key: key,
-                    arguments: krs_ir::Arguments::Positional(arguments),
+                    arguments,
+                    update: None,
+                    open: false,
                 })
             }
             TermTree::Reference(path) => {
@@ -612,9 +708,22 @@ impl<'a> InitializerBuilder<'a> {
                         path_key: key,
                         name,
                     })
+                } else if let Some(name) = super::terms::snake_case_bare_name(path) {
+                    // An initializer's bare snake-case names are its
+                    // parameters, by KRS's spelling rule never Rust items.
+                    Err(ExpandError::new(
+                        expand::UNBOUND_NAME,
+                        syn::spanned::Spanned::span(path),
+                        format!(
+                            "`{name}` is not a parameter of this initializer: a bare snake-case name in an initializer term is one of its parameters{}",
+                            super::terms::did_you_mean(&name, self.bindings.iter())
+                        ),
+                    ))
                 } else {
-                    let target = self.terms.application_wire_slot(path, &mut self.slots)?;
-                    let authored_path = self.terms.application_authored_path(path);
+                    let target = self
+                        .terms
+                        .application_wire_slot(path, false, &mut self.slots)?;
+                    let authored_path = spelling(path);
                     Ok(WireTerm::Application {
                         instance: Vec::new(),
                         head_class: DescriptorApplicationHeadClass::BareReference,
@@ -625,6 +734,8 @@ impl<'a> InitializerBuilder<'a> {
                         },
                         path_key: key,
                         arguments: krs_ir::Arguments::default(),
+                        update: None,
+                        open: false,
                     })
                 }
             }
@@ -635,29 +746,44 @@ impl<'a> InitializerBuilder<'a> {
                     literal,
                 })
             }
-            TermTree::Wildcard(_) => Err(ExpandError::new(
+            TermTree::Wildcard(range) => Err(ExpandError::at_range(
                 expand::INITIALIZER_WILDCARD,
-                Span::call_site(),
+                *range,
                 "initializer terms cannot contain wildcards",
             )),
-            TermTree::IdToken { .. }
-            | TermTree::BytesToken { .. }
-            | TermTree::Anonymous { .. }
-            | TermTree::OrBool { .. } => Err(ExpandError::new(
+            // A builtin literal is one constant of its sort, in an initializer as anywhere.
+            TermTree::IdToken { literal } => {
+                let ordinal = take_counter(&mut self.counters.id_token)?;
+                Ok(WireTerm::BuiltinToken {
+                    key: wire_key(ProvenanceRole::ClaimIdToken, ordinal),
+                    sort: BuiltinSort::Id,
+                    value: literal.value(),
+                })
+            }
+            TermTree::BytesToken { literal } => {
+                let ordinal = take_counter(&mut self.counters.bytes_token)?;
+                Ok(WireTerm::BuiltinToken {
+                    key: wire_key(ProvenanceRole::ClaimBytesToken, ordinal),
+                    sort: BuiltinSort::Bytes,
+                    value: bytes_token::encode(&literal.value()),
+                })
+            }
+            TermTree::Anonymous { spelling, .. } => Err(ExpandError::new(
                 expand::CLAIM_ONLY_TERM,
-                Span::call_site(),
-                "claim-only terms cannot occur in initializers",
+                spelling.span(),
+                "`k::anonymous!` is a claim's symbolic value; an initializer builds the initial configuration from constants and configuration variables",
+            )),
+            TermTree::OrBool { range, .. } => Err(ExpandError::new(
+                expand::CLAIM_ONLY_TERM,
+                range.first(),
+                "`k::or_bool!` joins a claim's symbolic conditions; an initializer holds no condition",
             )),
             TermTree::Cell(cell) => Err(ExpandError::new(
                 expand::INITIALIZER_FRAGMENT,
                 cell.owner().span(),
                 "fragment! is not an initializer term; construct nested initializer cells directly",
             )),
-            TermTree::Lexeme { text, .. } => Err(ExpandError::new(
-                expand::CLAIM_ONLY_TERM,
-                text.span(),
-                "lexeme! is a rule and claim term; initializers cannot contain it",
-            )),
+            TermTree::Lexeme { sort, text } => self.terms.lexeme_wire(sort, text, &mut self.slots),
             TermTree::SortTest { range, .. } => Err(ExpandError::new(
                 expand::CLAIM_ONLY_TERM,
                 range.first(),

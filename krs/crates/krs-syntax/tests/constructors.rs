@@ -126,3 +126,70 @@ fn fields_without_unambiguous_object_sort_types_are_rejected() {
         assert!(matches!(error.kind(), SyntaxErrorKind::InvalidTermType));
     }
 }
+
+#[test]
+fn typed_collection_fields_keep_their_element_types_and_anchor_each_one() {
+    let constructor = krs_syntax::ConstructorDeclaration::parse_source(
+        "struct Snapshot { storage: Term<Map<Int, Set<Int>>>, size: Term<Int>, log: Term<List<k::Term<dyn Entry>>> }",
+    )
+    .unwrap();
+    let storage = constructor.fields()[0].term_sort();
+    assert_eq!(storage.sort_token_text(), "Map");
+    let spellings = |arguments: &[krs_syntax::SortArgument]| {
+        krs_syntax::SortArgument::preorder(arguments)
+            .into_iter()
+            .map(|argument| {
+                let last = argument.path.segments.last().unwrap();
+                (last.ident.to_string(), argument.dynamic)
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        spellings(storage.arguments()),
+        [
+            ("Int".to_owned(), false),
+            ("Set".to_owned(), false),
+            ("Int".to_owned(), false),
+        ]
+    );
+    assert!(constructor.fields()[1].term_sort().arguments().is_empty());
+    assert_eq!(
+        spellings(constructor.fields()[2].term_sort().arguments()),
+        [("Entry".to_owned(), true)]
+    );
+
+    // The element types are numbered in preorder across the fields; the
+    // compact and full anchor catalogs, which the grammar uses, omit them.
+    let anchors = constructor.argument_provenance().unwrap();
+    assert_eq!(
+        anchors
+            .iter()
+            .map(|anchor| (anchor.role(), anchor.ordinal()))
+            .collect::<Vec<_>>(),
+        (0..4)
+            .map(|ordinal| (ProvenanceRole::ConstructorFieldSortArgument, ordinal))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        constructor
+            .full_provenance()
+            .unwrap()
+            .iter()
+            .all(|anchor| anchor.role() != ProvenanceRole::ConstructorFieldSortArgument)
+    );
+}
+
+#[test]
+fn a_collection_element_type_is_a_sort_or_a_collection_type() {
+    for source in [
+        "struct Bad { value: Term<Map<Int, &Int>> }",
+        "struct Bad { value: Term<List<[Int; 2]>> }",
+        "struct Bad { value: Term<Set<<T as Tr>::Sort>> }",
+    ] {
+        let error = krs_syntax::ConstructorDeclaration::parse_source(source).unwrap_err();
+        assert!(
+            matches!(error.kind(), SyntaxErrorKind::InvalidCollectionArgument),
+            "{source}: {error}"
+        );
+    }
+}

@@ -1,4 +1,5 @@
 use super::CommandError;
+use super::failed_items;
 use crate::{
     CargoMetadata, CollectorPlan, CollectorRuntime, DiagnosticEnvelope, DiagnosticStage,
     GeneratedCollector, diagnostic_envelope, metadata::cargo_metadata,
@@ -141,11 +142,12 @@ fn scratch_file(prefix: &str) -> Result<tempfile::NamedTempFile, CommandError> {
 pub(super) fn build_collector_measured(
     collector_directory: &Path,
     plan: &CollectorPlan,
+    target: Option<&Path>,
     measurement: &mut Measurement,
 ) -> Result<PathBuf, CommandError> {
     // Cargo discovers hierarchical config from its working directory, not from
     // an arbitrary `--manifest-path`; this activates the generated cfg rustflags.
-    let mut build = crate::cargo::command();
+    let mut build = crate::cargo::command_in(target);
     build
         .current_dir(collector_directory)
         .args(["build", "--manifest-path"])
@@ -281,6 +283,8 @@ struct RustDiagnostic {
     message: String,
     code: Option<RustDiagnosticCode>,
     spans: Vec<RustDiagnosticSpan>,
+    #[serde(default)]
+    children: Vec<RustDiagnosticChild>,
     rendered: Option<String>,
 }
 
@@ -289,19 +293,40 @@ struct RustDiagnosticCode {
     code: String,
 }
 
+/// A note, help, or suggestion that rustc attaches to a diagnostic.
+#[derive(serde::Deserialize)]
+struct RustDiagnosticChild {
+    level: String,
+    message: String,
+    #[serde(default)]
+    spans: Vec<RustDiagnosticSpan>,
+}
+
 #[derive(serde::Deserialize)]
 struct RustDiagnosticSpan {
     file_name: String,
     byte_start: u32,
     byte_end: u32,
     is_primary: bool,
+    #[serde(default)]
+    line_start: u32,
+    #[serde(default)]
+    column_start: u32,
+    #[serde(default)]
+    suggested_replacement: Option<String>,
+    /// Present when the span lies in macro-generated code rather than in tokens the author wrote.
+    #[serde(default)]
+    expansion: Option<serde::de::IgnoredAny>,
 }
+
+/// The rustc lint whose verdict a failed KRS item can falsify.
+const UNUSED_IMPORTS: &str = "unused_imports";
 
 fn rust_diagnostics(
     stdout: &[u8],
     plan: &CollectorPlan,
 ) -> Result<Vec<DiagnosticEnvelope>, CommandError> {
-    let mut diagnostics = Vec::new();
+    let mut errors = Vec::new();
     for line in stdout.split(|byte| *byte == b'\n') {
         let Ok(message) = serde_json::from_slice::<CargoCompilerMessage>(line) else {
             continue;
@@ -312,29 +337,51 @@ fn rust_diagnostics(
         let Some(diagnostic) = message.message.filter(|value| value.level == "error") else {
             continue;
         };
-        let Some(manifest) = message.manifest_path.as_deref() else {
+        let Some(manifest) = message.manifest_path else {
             continue;
         };
-        // A KRS proc macro's `compile_error!` carries its code in the message.
-        let (code, text) = match (&diagnostic.code, untag_rustc_message(&diagnostic.message)) {
-            (Some(code), _) => (
+        errors.push((manifest, diagnostic));
+    }
+    let mut failed = FailedItems::new(plan, &errors);
+    let mut diagnostics = Vec::new();
+    for (manifest, diagnostic) in &errors {
+        let manifest = manifest.as_str();
+        if diagnostic
+            .code
+            .as_ref()
+            .is_some_and(|code| code.code == UNUSED_IMPORTS)
+        {
+            relay_unused_imports(plan, manifest, diagnostic, &mut failed, &mut diagnostics)?;
+            continue;
+        }
+        // A KRS proc macro's `compile_error!`, or a facade trait's
+        // `on_unimplemented` message, carries its registered code in the
+        // message; only KRS writes the tag, so it wins over rustc's code.
+        let untagged = untag_rustc_message(&diagnostic.message);
+        let tagged = untagged.is_some();
+        let (code, text) = match (&diagnostic.code, untagged) {
+            (_, Some((code, text))) => (code, text),
+            (Some(code), None) => (
                 Code::foreign(code.code.clone()),
                 diagnostic.message.as_str(),
             ),
-            (None, Some((code, text))) => (code, text),
             (None, None) => (
                 codes::rust_expansion::UNCODED_ERROR,
                 diagnostic.message.as_str(),
             ),
         };
+        let (notes, help) = rust_children(plan, manifest, &diagnostic.children, tagged, |_| true)?;
         for span in diagnostic.spans.iter().filter(|span| span.is_primary) {
             if let Some(range) = rust_source_range(plan, manifest, span)? {
-                let view = diagnostic_envelope(
-                    Diagnostic::error(code.clone(), text.to_owned(), Location::Source(range)),
+                let mut relayed =
+                    Diagnostic::error(code.clone(), text.to_owned(), Location::Source(range));
+                relayed.notes.clone_from(&notes);
+                relayed.help.clone_from(&help);
+                diagnostics.push(diagnostic_envelope(
+                    relayed,
                     DiagnosticStage::RustExpansion,
                     None,
-                );
-                diagnostics.extend(view);
+                ));
             }
         }
     }
@@ -345,11 +392,261 @@ fn rust_diagnostics(
     Ok(diagnostics)
 }
 
-fn rust_source_range(
+/// Relays an `unused_imports` error one import at a time, leaving out each
+/// import that a failed KRS item in the import's module names.
+///
+/// The lint judges the expanded crate, which lacks a failed item's code, so
+/// its verdict about an import that item names is a consequence of the KRS
+/// error, not a second fact: once the item compiles the use exists, and if the
+/// fix removes it rustc reports the import then. An import that no failed item
+/// names, a glob, and an underscore import are reported as rustc reports them.
+/// Each kept import is relayed with its own text (rustc's message lists every
+/// name of the `use` item, once per name), and with only the suggested edits
+/// that remove it and no import a failed item names.
+fn relay_unused_imports(
     plan: &CollectorPlan,
     manifest: &str,
-    span: &RustDiagnosticSpan,
-) -> Result<Option<SourceRange>, CommandError> {
+    diagnostic: &RustDiagnostic,
+    failed: &mut FailedItems,
+    diagnostics: &mut Vec<DiagnosticEnvelope>,
+) -> Result<(), CommandError> {
+    let code = Code::foreign(UNUSED_IMPORTS.to_owned());
+    let primary = diagnostic
+        .spans
+        .iter()
+        .filter(|span| span.is_primary)
+        .collect::<Vec<_>>();
+    let mut texts = Vec::with_capacity(primary.len());
+    let mut credited = Vec::with_capacity(primary.len());
+    for span in &primary {
+        let text = match facet_source(plan, manifest, &span.file_name)? {
+            Some(source) => Some(source.text(span)?),
+            None => None,
+        };
+        let names = text.as_deref().and_then(failed_items::imported_name);
+        credited.push(names.is_some_and(|name| failed.credit(manifest, span, name)));
+        texts.push(text);
+    }
+    for ((span, text), dropped) in primary.iter().zip(&texts).zip(&credited) {
+        if *dropped {
+            continue;
+        }
+        let Some(range) = rust_source_range(plan, manifest, span)? else {
+            continue;
+        };
+        let covers = |edit: &RustDiagnosticSpan, import: &RustDiagnosticSpan| {
+            edit.file_name == import.file_name
+                && edit.byte_start <= import.byte_start
+                && import.byte_end <= edit.byte_end
+        };
+        let (notes, help) = rust_children(plan, manifest, &diagnostic.children, false, |edit| {
+            covers(edit, span)
+                && !primary
+                    .iter()
+                    .zip(&credited)
+                    .any(|(other, credited)| *credited && covers(edit, other))
+        })?;
+        let message = text.as_deref().map_or_else(
+            || diagnostic.message.clone(),
+            |text| format!("unused import: `{text}`"),
+        );
+        let mut relayed = Diagnostic::error(code.clone(), message, Location::Source(range));
+        relayed.notes = notes;
+        relayed.help = help;
+        diagnostics.push(diagnostic_envelope(
+            relayed,
+            DiagnosticStage::RustExpansion,
+            None,
+        ));
+    }
+    Ok(())
+}
+
+/// The KRS items that failed in one collector build: for each relayed error a
+/// KRS proc macro tagged, the innermost item containing its primary span.
+/// Computed on first use, since only an unused-import error needs it.
+struct FailedItems<'a> {
+    plan: &'a CollectorPlan,
+    errors: &'a [(String, RustDiagnostic)],
+    /// The failed items by manifest and rustc file name, once computed.
+    items: Option<Vec<(String, String, failed_items::FailedItem)>>,
+    /// Parsed sources by manifest and rustc file name; `None` when unreadable.
+    sources: std::collections::BTreeMap<(String, String), Option<failed_items::ParsedSource>>,
+}
+
+impl<'a> FailedItems<'a> {
+    const fn new(plan: &'a CollectorPlan, errors: &'a [(String, RustDiagnostic)]) -> Self {
+        Self {
+            plan,
+            errors,
+            items: None,
+            sources: std::collections::BTreeMap::new(),
+        }
+    }
+
+    /// The parsed source rustc names `file_name` in `manifest`'s package; a
+    /// file outside the selected packages, unreadable, or not parsable by `syn`
+    /// has none, so nothing in it is credited.
+    fn source(&mut self, manifest: &str, file_name: &str) -> Option<&failed_items::ParsedSource> {
+        let plan = self.plan;
+        self.sources
+            .entry((manifest.to_owned(), file_name.to_owned()))
+            .or_insert_with(|| {
+                let source = facet_source(plan, manifest, file_name).ok()??;
+                failed_items::ParsedSource::parse(&source.bytes)
+            })
+            .as_ref()
+    }
+
+    /// Whether a failed item in the file and the innermost inline module of
+    /// the module-level `use` at `span` names `name`.
+    fn credit(&mut self, manifest: &str, span: &RustDiagnosticSpan, name: &str) -> bool {
+        if self.items.is_none() {
+            let mut items = Vec::new();
+            for (manifest, diagnostic) in self.errors {
+                let krs =
+                    diagnostic.code.is_none() && untag_rustc_message(&diagnostic.message).is_some();
+                if !krs {
+                    continue;
+                }
+                for span in diagnostic.spans.iter().filter(|span| span.is_primary) {
+                    let item = self
+                        .source(manifest, &span.file_name)
+                        .and_then(|source| source.failed_item(span.byte_start as usize));
+                    if let Some(item) = item {
+                        items.push((manifest.clone(), span.file_name.clone(), item));
+                    }
+                }
+            }
+            self.items = Some(items);
+        }
+        let Some(modules) = self
+            .source(manifest, &span.file_name)
+            .and_then(|source| source.use_module(span.byte_start as usize))
+        else {
+            return false;
+        };
+        self.items
+            .iter()
+            .flatten()
+            .any(|(item_manifest, file, item)| {
+                item_manifest == manifest
+                    && *file == span.file_name
+                    && item.modules == modules
+                    && item.identifiers.contains(name)
+            })
+    }
+}
+
+/// Translates rustc's children of one diagnostic into KRS notes and help, in rustc's order.
+///
+/// A suggested edit is relayed only when `keep_edit` accepts its span; a
+/// suggestion whose every edit is left out is omitted.
+///
+/// For a `tagged` diagnostic, whose message KRS wrote, a child that names a
+/// hidden generated item (`__krs…`, `__Krs…`) describes the mechanism that
+/// raised it, not the author's code, so it is omitted. An untagged rustc error
+/// keeps such a child, which may be the only hint of what rustc tried.
+///
+/// A child whose every span lies in macro-generated code describes tokens the author did not
+/// write, such as a KRS expansion's hidden helper items, so it is omitted. A suggested
+/// replacement is relayed as the edit it makes to the authored source; one that would edit
+/// generated code or a file outside the selected packages is not an edit the author can make.
+fn rust_children(
+    plan: &CollectorPlan,
+    manifest: &str,
+    children: &[RustDiagnosticChild],
+    tagged: bool,
+    keep_edit: impl Fn(&RustDiagnosticSpan) -> bool,
+) -> Result<(Vec<String>, Vec<String>), CommandError> {
+    let mut notes = Vec::new();
+    let mut help = Vec::new();
+    for child in children {
+        if !child.spans.is_empty() && child.spans.iter().all(|span| span.expansion.is_some()) {
+            continue;
+        }
+        if tagged && names_hidden_item(&child.message) {
+            continue;
+        }
+        let mut edits = Vec::new();
+        let mut location = None;
+        let mut left_out = false;
+        for span in child.spans.iter().filter(|span| span.expansion.is_none()) {
+            if span.suggested_replacement.is_some() && !keep_edit(span) {
+                left_out = true;
+                continue;
+            }
+            let Some(source) = facet_source(plan, manifest, &span.file_name)? else {
+                continue;
+            };
+            let original = source.text(span)?;
+            let at = format!(
+                "{}:{}:{}",
+                source.relative, span.line_start, span.column_start
+            );
+            match span.suggested_replacement.as_deref() {
+                Some("") => edits.push(format!("remove `{original}` at {at}")),
+                Some(replacement) if original.is_empty() => {
+                    edits.push(format!("insert `{replacement}` at {at}"));
+                }
+                Some(replacement) => {
+                    edits.push(format!("replace `{original}` with `{replacement}` at {at}"));
+                }
+                None => {
+                    location.get_or_insert(at);
+                }
+            }
+        }
+        if left_out && edits.is_empty() && location.is_none() {
+            // Every edit this suggestion made was left out.
+            continue;
+        }
+        let text = match (edits.is_empty(), location) {
+            (false, _) => format!("{}: {}", child.message, edits.join("; ")),
+            (true, Some(at)) => format!("{} ({at})", child.message),
+            (true, None) => child.message.clone(),
+        };
+        match child.level.as_str() {
+            "help" => help.push(text),
+            "note" => notes.push(text),
+            level => notes.push(format!("{level}: {text}")),
+        }
+    }
+    Ok((notes, help))
+}
+
+/// Whether a rustc message names an item KRS generates and hides from authors.
+fn names_hidden_item(message: &str) -> bool {
+    message.contains("__krs") || message.contains("__Krs")
+}
+
+/// A source file of a selected package, read at the revision rustc diagnosed.
+struct FacetSource<'a> {
+    facet: &'a crate::plan::ResolvedFacet,
+    relative: String,
+    bytes: Vec<u8>,
+}
+
+impl FacetSource<'_> {
+    /// The authored text a span covers.
+    fn text(&self, span: &RustDiagnosticSpan) -> Result<String, CommandError> {
+        self.bytes
+            .get(span.byte_start as usize..span.byte_end as usize)
+            .map(|bytes| String::from_utf8_lossy(bytes).into_owned())
+            .ok_or_else(|| {
+                CommandError::InvalidMetadata(
+                    "Rust diagnostic range exceeds its source revision".to_owned(),
+                )
+            })
+    }
+}
+
+/// The selected package source a rustc span names, or `None` outside the selected packages.
+fn facet_source<'a>(
+    plan: &'a CollectorPlan,
+    manifest: &str,
+    file_name: &str,
+) -> Result<Option<FacetSource<'a>>, CommandError> {
     let Some(facet) = plan
         .facets()
         .iter()
@@ -360,7 +657,7 @@ fn rust_source_range(
     let manifest_directory = facet.manifest_path.parent().ok_or_else(|| {
         CommandError::InvalidMetadata("selected package manifest has no parent".to_owned())
     })?;
-    let path = Path::new(&span.file_name);
+    let path = Path::new(file_name);
     let path = if path.is_absolute() {
         path.to_path_buf()
     } else {
@@ -375,15 +672,31 @@ fn rust_source_range(
             CommandError::InvalidMetadata("Rust diagnostic source path is not UTF-8".to_owned())
         })?
         .replace('\\', "/");
-    let source = fs::read(&path).map_err(|source| CommandError::Io {
+    let bytes = fs::read(&path).map_err(|source| CommandError::Io {
         path: path.clone(),
         source,
     })?;
-    if span.byte_end as usize > source.len() {
+    Ok(Some(FacetSource {
+        facet,
+        relative,
+        bytes,
+    }))
+}
+
+fn rust_source_range(
+    plan: &CollectorPlan,
+    manifest: &str,
+    span: &RustDiagnosticSpan,
+) -> Result<Option<SourceRange>, CommandError> {
+    let Some(source) = facet_source(plan, manifest, &span.file_name)? else {
+        return Ok(None);
+    };
+    if span.byte_end as usize > source.bytes.len() {
         return Err(CommandError::InvalidMetadata(
             "Rust diagnostic range exceeds its source revision".to_owned(),
         ));
     }
+    let facet = source.facet;
     let package = PackageId::new(
         &facet.k_namespace,
         &facet.package_name,
@@ -393,8 +706,8 @@ fn rust_source_range(
     .map_err(|error| CommandError::InvalidMetadata(error.to_string()))?;
     let file = SourceFileId::new(
         package,
-        relative,
-        Sha256Digest::from_bytes(Sha256::digest(&source).into()),
+        source.relative,
+        Sha256Digest::from_bytes(Sha256::digest(&source.bytes).into()),
     )
     .map_err(|error| CommandError::InvalidMetadata(error.to_string()))?;
     SourceRange::new(file, span.byte_start, span.byte_end)
@@ -452,6 +765,10 @@ mod tests {
             byte_start: 10,
             byte_end: 14,
             is_primary: true,
+            line_start: 1,
+            column_start: 11,
+            suggested_replacement: None,
+            expansion: None,
         };
         let range = rust_source_range(&plan, manifest.to_str().unwrap(), &span)
             .unwrap()
@@ -528,6 +845,245 @@ mod tests {
     }
 
     #[test]
+    fn rustc_children_are_relayed_as_notes_and_help_with_authored_edits() {
+        let source = "pub fn plain() {\n    let _ = Register::A();\n}\n";
+        let (_directory, manifest, plan) = language_plan(source);
+        let call = source.find("Register::A()").unwrap();
+        let parentheses = call + "Register::A".len();
+        let line = source.find('\n').unwrap() + 1;
+        let span = |start: usize, end: usize, primary: bool| {
+            serde_json::json!({
+                "file_name": "src/lib.rs",
+                "byte_start": start, "byte_end": end,
+                "line_start": 2, "column_start": start.saturating_sub(line) + 1,
+                "is_primary": primary, "expansion": null,
+            })
+        };
+        let mut removal = span(parentheses, parentheses + 2, true);
+        removal["suggested_replacement"] = serde_json::json!("");
+        let mut generated = span(0, 3, true);
+        generated["expansion"] = serde_json::json!({ "macro_decl_name": "#[k::constructors]" });
+        let stdout = serde_json::json!({
+            "reason": "compiler-message",
+            "manifest_path": manifest,
+            "message": {
+                "level": "error",
+                "message": "expected function, found enum variant `Register::A`",
+                "code": { "code": "E0618" },
+                "spans": [span(call, parentheses, true)],
+                "children": [
+                    {
+                        "level": "note",
+                        "message": "enum variant `Register::A` defined here",
+                        "spans": [span(call, call + 8, true)],
+                    },
+                    {
+                        "level": "help",
+                        "message": "`Register::A` is a unit enum variant, and does not take parentheses to be constructed",
+                        "spans": [removal],
+                    },
+                    {
+                        "level": "help",
+                        "message": "there is an associated function `__krs_hidden` with a similar name",
+                        "spans": [generated],
+                    },
+                    { "level": "note", "message": "spanless detail", "spans": [] },
+                ],
+                "rendered": null,
+            },
+        })
+        .to_string();
+        let [envelope] = rust_diagnostics(stdout.as_bytes(), &plan)
+            .unwrap()
+            .try_into()
+            .unwrap();
+        assert_eq!(envelope.code, "E0618");
+        assert_eq!(
+            envelope.message,
+            "expected function, found enum variant `Register::A`"
+        );
+        assert_eq!(
+            envelope.notes,
+            [
+                "enum variant `Register::A` defined here (src/lib.rs:2:13)",
+                "spanless detail",
+            ]
+        );
+        assert_eq!(
+            envelope.help,
+            [
+                "`Register::A` is a unit enum variant, and does not take parentheses to be constructed: remove `()` at src/lib.rs:2:24"
+            ]
+        );
+    }
+
+    #[test]
+    fn unused_imports_a_failed_krs_item_names_are_left_out_and_the_rest_relayed_per_name() {
+        let source = "use k::builtin::{list, map, set};\nuse Cmd::*;\n\nk::rules! {\n    go: Go() => list::item(set);\n}\n";
+        let (_directory, manifest, plan) = language_plan(source);
+        let at = |text: &str| source.find(text).unwrap();
+        let span = |start: usize, end: usize, primary: bool| {
+            serde_json::json!({
+                "file_name": "src/lib.rs",
+                "byte_start": start, "byte_end": end,
+                "line_start": 1, "column_start": start + 1,
+                "is_primary": primary, "expansion": null,
+            })
+        };
+        let removal = |start: usize, end: usize| {
+            let mut removal = span(start, end, true);
+            removal["suggested_replacement"] = serde_json::json!("");
+            removal
+        };
+        let message = |text: &str, code: Option<&str>, spans: serde_json::Value, children| {
+            serde_json::json!({
+                "reason": "compiler-message",
+                "manifest_path": manifest,
+                "message": {
+                    "level": "error",
+                    "message": text,
+                    "code": code.map(|code| serde_json::json!({ "code": code })),
+                    "spans": spans,
+                    "children": children,
+                    "rendered": null,
+                },
+            })
+            .to_string()
+        };
+        let (list, map, set) = (at("list,"), at("map,"), at("set}"));
+        let stdout = [
+            message(
+                "[krs::syntax::rust-syntax] expected an equation",
+                None,
+                serde_json::json!([span(at("go:"), at("go:") + 2, true)]),
+                serde_json::json!([]),
+            ),
+            // `list` is named by the failed rule; `set` only as its binder.
+            message(
+                "unused imports: `list`, `map`, and `set`",
+                Some("unused_imports"),
+                serde_json::json!([
+                    span(list, list + 4, true),
+                    span(map, map + 3, true),
+                    span(set, set + 3, true),
+                ]),
+                serde_json::json!([
+                    { "level": "note", "message": "`-D unused-imports` implied by `-D warnings`", "spans": [] },
+                    {
+                        "level": "help",
+                        "message": "remove the unused imports",
+                        "spans": [removal(list, map), removal(map - 2, map + 3), removal(set - 2, set + 3)],
+                    },
+                ]),
+            ),
+            message(
+                "unused import: `Cmd::*`",
+                Some("unused_imports"),
+                serde_json::json!([span(at("Cmd::*"), at("Cmd::*") + 6, true)]),
+                serde_json::json!([]),
+            ),
+        ]
+        .join("\n");
+        let reported: Vec<_> = rust_diagnostics(stdout.as_bytes(), &plan)
+            .unwrap()
+            .into_iter()
+            .map(|envelope| (envelope.code, envelope.message, envelope.help))
+            .collect();
+        assert_eq!(
+            reported,
+            [
+                (
+                    "krs::syntax::rust-syntax".to_owned(),
+                    "expected an equation".to_owned(),
+                    vec![],
+                ),
+                (
+                    "unused_imports".to_owned(),
+                    "unused import: `map`".to_owned(),
+                    vec!["remove the unused imports: remove `, map` at src/lib.rs:1:22".to_owned()],
+                ),
+                (
+                    "unused_imports".to_owned(),
+                    "unused import: `set`".to_owned(),
+                    vec!["remove the unused imports: remove `, set` at src/lib.rs:1:27".to_owned()],
+                ),
+                // A glob's names are not known, so it is never left out.
+                (
+                    "unused_imports".to_owned(),
+                    "unused import: `Cmd::*`".to_owned(),
+                    vec![],
+                ),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_tagged_rustc_error_takes_the_krs_code_and_drops_hidden_item_children() {
+        let source = "pub struct Machine {}\n";
+        let (_directory, manifest, plan) = language_plan(source);
+        let name = source.find("Machine").unwrap();
+        let message = |text: &str| {
+            serde_json::json!({
+                "reason": "compiler-message",
+                "manifest_path": manifest,
+                "message": {
+                    "level": "error",
+                    "message": text,
+                    "code": { "code": "E0277" },
+                    "spans": [{
+                        "file_name": "src/lib.rs", "byte_start": name, "byte_end": name + 7,
+                        "line_start": 1, "column_start": name + 1, "is_primary": true,
+                    }],
+                    "children": [
+                        { "level": "help", "message": "the trait `krs::configuration::__KrsInitializer` is not implemented for `Machine`", "spans": [] },
+                        { "level": "note", "message": "an initializer gives each cell its initial value", "spans": [] },
+                        { "level": "note", "message": "required by a bound in `__KrsInitializerFallback::__krs_initializer_payload`", "spans": [] },
+                    ],
+                    "rendered": null,
+                },
+            })
+            .to_string()
+        };
+        let stdout = [
+            message("[krs::expand::missing-initializer] configuration `Machine` has no `#[k::init]` initializer"),
+            message("the trait bound `Machine: Rule` is not satisfied"),
+        ]
+        .join("\n");
+        let reported: Vec<_> = rust_diagnostics(stdout.as_bytes(), &plan)
+            .unwrap()
+            .into_iter()
+            .map(|envelope| {
+                (
+                    envelope.code,
+                    envelope.message,
+                    envelope.notes,
+                    envelope.help,
+                )
+            })
+            .collect();
+        assert_eq!(
+            reported,
+            [
+                (
+                    "E0277".to_owned(),
+                    "the trait bound `Machine: Rule` is not satisfied".to_owned(),
+                    vec![
+                        "an initializer gives each cell its initial value".to_owned(),
+                        "required by a bound in `__KrsInitializerFallback::__krs_initializer_payload`".to_owned(),
+                    ],
+                    vec!["the trait `krs::configuration::__KrsInitializer` is not implemented for `Machine`".to_owned()],
+                ),
+                (
+                    "krs::expand::missing-initializer".to_owned(),
+                    "configuration `Machine` has no `#[k::init]` initializer".to_owned(),
+                    vec!["an initializer gives each cell its initial value".to_owned()],
+                    vec![],
+                ),
+            ]
+        );
+    }
+
+    #[test]
     fn collector_failure_sidecar_is_validated_before_forwarding() {
         let sidecar = tempfile::NamedTempFile::new().unwrap();
         let failure = || {
@@ -562,10 +1118,10 @@ mod tests {
         );
         for invalid in [
             "not json".to_owned(),
-            json.replace("\"schema_version\":1", "\"schema_version\":2"),
+            json.replace("\"schema_version\":2", "\"schema_version\":1"),
             json.replace(
-                "\"schema_version\":1",
-                "\"unknown\":true,\"schema_version\":1",
+                "\"schema_version\":2",
+                "\"unknown\":true,\"schema_version\":2",
             ),
             format!("{json}not json\n"),
         ] {

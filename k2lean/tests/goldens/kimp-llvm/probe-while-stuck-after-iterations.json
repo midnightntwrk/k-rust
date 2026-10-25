@@ -1,0 +1,278 @@
+{
+ "env": "x |-> 0",
+ "krun": {
+  "argv": [
+   "krun",
+   "--definition",
+   "<kimp llvm>",
+   "--output",
+   "json",
+   "-cENV=x |-> 0",
+   "<pgm>"
+  ],
+  "returncode": 0,
+  "stderr": "",
+  "term": {
+   "args": [
+    {
+     "args": [
+      {
+       "arity": 1,
+       "items": [
+        {
+         "args": [
+          {
+           "node": "KToken",
+           "sort": {
+            "name": "Int",
+            "node": "KSort",
+            "params": []
+           },
+           "token": "3"
+          },
+          {
+           "args": [
+            {
+             "args": [
+              {
+               "args": [
+                {
+                 "node": "KToken",
+                 "sort": {
+                  "name": "Id",
+                  "node": "KSort",
+                  "params": []
+                 },
+                 "token": "x"
+                },
+                {
+                 "args": [
+                  {
+                   "node": "KToken",
+                   "sort": {
+                    "name": "Id",
+                    "node": "KSort",
+                    "params": []
+                   },
+                   "token": "x"
+                  },
+                  {
+                   "node": "KToken",
+                   "sort": {
+                    "name": "Int",
+                    "node": "KSort",
+                    "params": []
+                   },
+                   "token": "1"
+                  }
+                 ],
+                 "arity": 2,
+                 "label": {
+                  "name": "_-__EXPR-SYNTAX_Expr_Expr_Expr",
+                  "node": "KLabel",
+                  "params": []
+                 },
+                 "node": "KApply"
+                }
+               ],
+               "arity": 2,
+               "label": {
+                "name": "_=_;_CALC-SYNTAX_Stmt_Id_Expr",
+                "node": "KLabel",
+                "params": []
+               },
+               "node": "KApply"
+              },
+              {
+               "args": [
+                {
+                 "node": "KToken",
+                 "sort": {
+                  "name": "Id",
+                  "node": "KSort",
+                  "params": []
+                 },
+                 "token": "x"
+                },
+                {
+                 "args": [
+                  {
+                   "node": "KToken",
+                   "sort": {
+                    "name": "Id",
+                    "node": "KSort",
+                    "params": []
+                   },
+                   "token": "x"
+                  },
+                  {
+                   "args": [
+                    {
+                     "node": "KToken",
+                     "sort": {
+                      "name": "Id",
+                      "node": "KSort",
+                      "params": []
+                     },
+                     "token": "x"
+                    },
+                    {
+                     "node": "KToken",
+                     "sort": {
+                      "name": "Int",
+                      "node": "KSort",
+                      "params": []
+                     },
+                     "token": "1"
+                    }
+                   ],
+                   "arity": 2,
+                   "label": {
+                    "name": "_-__EXPR-SYNTAX_Expr_Expr_Expr",
+                    "node": "KLabel",
+                    "params": []
+                   },
+                   "node": "KApply"
+                  }
+                 ],
+                 "arity": 2,
+                 "label": {
+                  "name": "_=_;_CALC-SYNTAX_Stmt_Id_Expr",
+                  "node": "KLabel",
+                  "params": []
+                 },
+                 "node": "KApply"
+                }
+               ],
+               "arity": 2,
+               "label": {
+                "name": "while(_)__IMP-SYNTAX_Stmt_Expr_Stmt",
+                "node": "KLabel",
+                "params": []
+               },
+               "node": "KApply"
+              }
+             ],
+             "arity": 2,
+             "label": {
+              "name": "___CALC-SYNTAX_Stmt_Stmt_Stmt",
+              "node": "KLabel",
+              "params": []
+             },
+             "node": "KApply"
+            }
+           ],
+           "arity": 1,
+           "label": {
+            "name": "{_}_IMP-SYNTAX_Stmt_Stmt",
+            "node": "KLabel",
+            "params": []
+           },
+           "node": "KApply"
+          },
+          {
+           "args": [],
+           "arity": 0,
+           "label": {
+            "name": "{}_IMP-SYNTAX_Stmt",
+            "node": "KLabel",
+            "params": []
+           },
+           "node": "KApply"
+          }
+         ],
+         "arity": 3,
+         "label": {
+          "name": "if(_)_else__IMP-SYNTAX_Stmt_Expr_Stmt_Stmt",
+          "node": "KLabel",
+          "params": []
+         },
+         "node": "KApply"
+        }
+       ],
+       "node": "KSequence"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<k>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    },
+    {
+     "args": [
+      {
+       "args": [
+        {
+         "node": "KToken",
+         "sort": {
+          "name": "Id",
+          "node": "KSort",
+          "params": []
+         },
+         "token": "x"
+        },
+        {
+         "node": "KToken",
+         "sort": {
+          "name": "Int",
+          "node": "KSort",
+          "params": []
+         },
+         "token": "3"
+        }
+       ],
+       "arity": 2,
+       "label": {
+        "name": "_|->_",
+        "node": "KLabel",
+        "params": []
+       },
+       "node": "KApply"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<env>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    },
+    {
+     "args": [
+      {
+       "node": "KToken",
+       "sort": {
+        "name": "Int",
+        "node": "KSort",
+        "params": []
+       },
+       "token": "0"
+      }
+     ],
+     "arity": 1,
+     "label": {
+      "name": "<generatedCounter>",
+      "node": "KLabel",
+      "params": []
+     },
+     "node": "KApply"
+    }
+   ],
+   "arity": 3,
+   "label": {
+    "name": "<generatedTop>",
+    "node": "KLabel",
+    "params": []
+   },
+   "node": "KApply"
+  }
+ },
+ "name": "probe-while-stuck-after-iterations",
+ "origin": "semantic probe written for lean-imp",
+ "provenance": "krun (K 7.1.337 frontend) on the kdist kimp LLVM definition (kompiled by K v7.1.318, imp-semantics 683a773)",
+ "source": "x = 3; while (x) x = x - 1;\n"
+}

@@ -12,7 +12,6 @@ simplify.invocations = 13
 simplify.nodes_skipped_evaluated = 15
 simplify.predicate_nodes_visited = 26
 simplify.conjunct_nodes = 7
-simplify.known_predicates = 1
 smt.queries = 7
 smt.solver_runs = 5
 smt.rlimit_count = 321

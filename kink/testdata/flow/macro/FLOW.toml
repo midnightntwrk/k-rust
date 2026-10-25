@@ -1,0 +1,13 @@
+# kink-flow corpus manifest for the macro fixture (flow F-16).
+[spec]
+entry = "macro.k"
+main_module = "MACRO"
+syntax_module = "MACRO-SYNTAX"
+
+[[program]]
+id = "sum"
+text = "1 + 2"
+
+[[program]]
+id = "seven"
+text = "seven + 1"

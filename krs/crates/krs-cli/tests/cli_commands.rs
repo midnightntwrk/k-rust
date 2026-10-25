@@ -208,6 +208,7 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     assert!(native.join("definition.kore").is_file());
     assert!(native.join("syntaxDefinition.kore").is_file());
     assert!(native.join("macros.kore").is_file());
+    assert!(native.join("k2lean-sidecar.json").is_file());
     assert!(native.join(".krs-artifacts").is_file());
 }
 
@@ -249,7 +250,7 @@ fn located_collector_failure_preserves_tokens_and_removes_scratch_files() {
     let diagnostic = &diagnostics[0];
     assert_eq!(diagnostic.code, "krs::collect::unresolved-type-reference");
     assert_eq!(diagnostic.stage, krs_cli::DiagnosticStage::Analysis);
-    let range = &diagnostic.authored_range;
+    let range = diagnostic.authored_range.as_ref().unwrap();
     assert_eq!(range.file.package().k_namespace(), "ORG-KRS-CLI-FOO-BAR");
     assert_eq!(range.file.package_relative_path(), "src/lib.rs");
     assert_eq!(
@@ -321,10 +322,14 @@ fn generated_source_outside_package_reports_collection_failure_and_removes_scrat
     assert_eq!(output.status.code(), Some(1), "{stderr}");
     assert!(!stderr.contains("panicked"), "{stderr}");
     assert!(output.stdout.is_empty());
-    let prefix =
-        "krs: collector execution failed with status 1: KRS collector failed: display file `";
-    let generated_file = stderr
-        .strip_prefix(prefix)
+    // The collector's error crosses the process boundary as an envelope, with its code.
+    let diagnostics = krs_cli::DiagnosticEnvelope::from_json_lines(&stderr).unwrap();
+    assert_eq!(diagnostics.len(), 1, "{stderr}");
+    assert_eq!(diagnostics[0].code, "krs::collect::source-outside-package");
+    assert_eq!(diagnostics[0].authored_range, None);
+    let message = diagnostics[0].message.as_str();
+    let generated_file = message
+        .strip_prefix("display file `")
         .and_then(|detail| detail.split('`').next())
         .unwrap_or_else(|| panic!("unexpected collector failure: {stderr}"));
     let generated_path = Path::new(generated_file);
@@ -336,9 +341,9 @@ fn generated_source_outside_package_reports_collection_failure_and_removes_scrat
         generated_source
     );
     assert_eq!(
-        stderr,
+        message,
         format!(
-            "{prefix}{generated_file}` is outside Cargo package `{}` (invocation at {generated_file}:1:1)\n",
+            "display file `{generated_file}` is outside Cargo package `{}` (invocation at {generated_file}:1:1)",
             package.display()
         )
     );
@@ -382,8 +387,13 @@ fn assert_check_measurement(temporary: &Path, target: &Path, manifest: &Path, st
     assert_eq!(timings["command"], "check");
     assert_eq!(timings["status"], "ok");
     assert!(timings["failed_span"].is_null());
+    let ids = span_ids(&timings);
+    let lowered = ids
+        .iter()
+        .position(|(id, _)| id == "definition.lower")
+        .unwrap();
     assert_eq!(
-        span_ids(&timings),
+        ids[..=lowered],
         [
             ("cargo.metadata.input", 0),
             ("host.discover", 0),
@@ -408,11 +418,10 @@ fn assert_check_measurement(temporary: &Path, target: &Path, manifest: &Path, st
             ("protocol.decode", 0),
             ("semantic.lower", 0),
             ("definition.lower", 0),
-            ("check.adapt", 0),
-            ("release", 0),
         ]
         .map(|(id, depth)| (id.to_owned(), depth))
     );
+    assert_check_routes(&ids[lowered + 1..]);
     assert_timing_invariants(&timings);
     let counters = read_json(&counters_path);
     assert_eq!(counters["schema"], "krs-counters/1");
@@ -440,6 +449,46 @@ fn assert_check_measurement(temporary: &Path, target: &Path, manifest: &Path, st
     assert_eq!(
         fs::read(&counters_path).unwrap(),
         fs::read(&again_path).unwrap()
+    );
+}
+
+/// `check` renders what `emit-k` writes, then judges every native route:
+/// `build`'s native judgement on each, minus `native.write`, and on
+/// `native-rust` the run commands' definition load.
+fn assert_check_routes(ids: &[(String, u64)]) {
+    assert_eq!(
+        ids.iter()
+            .filter(|(_, depth)| *depth <= 1)
+            .map(|(id, depth)| (id.as_str(), *depth))
+            .collect::<Vec<_>>(),
+        [
+            ("emit_k.render", 0),
+            ("check.routes", 0),
+            ("check.native-llvm", 1),
+            ("check.native-rust", 1),
+            ("check.load", 1),
+            ("release", 0),
+        ]
+    );
+    let route = ids
+        .iter()
+        .position(|(id, _)| id == "check.native-llvm")
+        .unwrap();
+    assert_eq!(
+        ids[route + 1..]
+            .iter()
+            .take_while(|(_, depth)| *depth > 1)
+            .filter(|(_, depth)| *depth == 2)
+            .map(|(id, _)| id.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "native.adapt",
+            "native.prepare",
+            "native.compile",
+            "native.reparse.definition",
+            "native.reparse.syntax",
+            "native.provenance",
+        ]
     );
 }
 
@@ -503,7 +552,7 @@ fn assert_build_measurement(temporary: &Path, target: &Path, manifest: &Path, na
     );
     assert_eq!(
         build.stdout,
-        b"built definition.kore, syntaxDefinition.kore, macros.kore\n"
+        b"built definition.kore, syntaxDefinition.kore, macros.kore, k2lean-sidecar.json\n"
     );
 }
 
@@ -574,6 +623,524 @@ endmodule
         definition
             .contains("    <env> OldEnv:Map => OldEnv:Map [ Name:Id <- Value:Value ] </env>\n")
     );
+}
+
+/// A language whose `sum` rule reads two entries of the `mem` map; `{rule}`
+/// is the rule, in the readable or the `cells!` spelling.
+const TWO_ENTRY_READ: &str = r#"
+use krs::builtin::{Int, KSequence, Map, int};
+use krs::{KResult, Term};
+
+krs::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+    #[krs::cell]
+    pub acc: Int,
+    #[krs::cell]
+    pub mem: Map<Int, Int>,
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init(
+        #[krs::config_var(name = "PGM", main)] program: Stmt,
+        acc: Int,
+        mem: Map<Int, Int>,
+    ) -> Self {
+        Self {
+            k: krs::k![program],
+            acc,
+            mem,
+        }
+    }
+}
+
+{rule}
+"#;
+
+#[test]
+fn a_two_entry_map_read_emits_the_cells_rule_it_abbreviates() {
+    let target = shared_fixture_target();
+    let readable = r"
+krs::rules! {
+    for Machine;
+
+    sum: {
+        mem: { 0 -> x, 1 -> y, .. },
+        acc: s,
+    } => {
+        acc: int::add(s, int::add(x, y)),
+    };
+}
+";
+    // `krs::map!` is the `map!` of a `cells!` entry under its qualified name.
+    let cells = r#"
+#[krs::rule(label = "sum")]
+pub fn sum(
+    x: Term<Int>,
+    y: Term<Int>,
+    s: Term<Int>,
+    krs::cells! {
+        mem: krs::configuration::Cell(krs::map![0 -> x, 1 -> y, ..]),
+        acc: krs::configuration::Cell(s),
+        state @ ..
+    }: Machine,
+) -> Machine {
+    krs::cells! {
+        acc: krs::configuration::Cell(int::add(s, int::add(x, y))),
+        ..state
+    }
+}
+"#;
+    let emitted = [readable, cells]
+        .map(|rule| emit_sum_rule(target.path(), &TWO_ENTRY_READ.replace("{rule}", rule)));
+    assert_eq!(
+        emitted[0],
+        "  rule [sum]:\n    <mem> 0 |-> X:Int 1 |-> Y:Int ... </mem>\n    <acc> S:Int => S:Int +Int (X:Int +Int Y:Int) </acc>\n",
+        "{emitted:#?}"
+    );
+    assert_eq!(emitted[0], emitted[1]);
+}
+
+/// `build` writes the k2lean sidecar: the declared element sorts of the
+/// `mem: Map<Int, Int>` cell, by the KORE names of its label and its sorts.
+#[test]
+fn build_writes_the_declared_cell_types_for_k2lean() {
+    let target = shared_fixture_target();
+    let source = TWO_ENTRY_READ.replace(
+        "{rule}",
+        "krs::rules! { for Machine; sum: { acc: s, mem: { 0 -> x, .. } } => { acc: int::add(s, x) }; }",
+    );
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), &source);
+    let native = temporary.path().join("native");
+    assert_success(&command(
+        target.path(),
+        &manifest,
+        "build",
+        Some(&native),
+        &[],
+    ));
+    let sidecar = read_json(&native.join("k2lean-sidecar.json"));
+    assert_eq!(sidecar["format"], "k2lean-krs-sidecar");
+    assert_eq!(sidecar["version"], 1);
+    assert_eq!(
+        sidecar["cells"],
+        serde_json::json!([{
+            "cell": "Lbl'-LT-'mem'-GT-'",
+            "krs": "mem: Map<Int, Int>",
+            "collection": "Map",
+            "key": "SortInt",
+            "value": "SortInt",
+        }])
+    );
+}
+
+/// Emits a `TWO_ENTRY_READ` package and returns its `sum` rule sentence.
+fn emit_sum_rule(target: &Path, source: &str) -> String {
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), source);
+    let output = temporary.path().join("emitted");
+    assert_success(&command(target, &manifest, "emit-k", Some(&output), &[]));
+    let definition = fs::read_to_string(output.join("definition.k")).unwrap();
+    let start = definition
+        .find("  rule [sum]:")
+        .expect("the sum rule is emitted");
+    let sentence = &definition[start..];
+    sentence[..sentence.find("endmodule").unwrap_or(sentence.len())].to_owned()
+}
+
+#[test]
+fn expanded_map_reads_compile_back_to_the_same_rule() {
+    let target = shared_fixture_target();
+    // `acc` comes first in the record, while the reference `cells!` subject
+    // lists the map read first; its typed binders follow the subject.
+    for rule in [
+        "sum: { acc: s, mem: { 0 -> x, .. } } => { acc: int::add(s, x) };",
+        "sum: { acc: s, mem: { 0 -> x, 1 -> y, .. } } => { acc: int::add(s, int::add(x, y)) };",
+    ] {
+        let source =
+            TWO_ENTRY_READ.replace("{rule}", &format!("krs::rules! {{ for Machine; {rule} }}"));
+        let temporary = temp_dir();
+        let manifest = materialize_fixture(temporary.path(), &source);
+        let expanded = command(target.path(), &manifest, "expand", None, &[]);
+        assert_success(&expanded);
+        // The reference spelling names the facade `k`.
+        let expanded = format!(
+            "extern crate krs as k;\n{}",
+            String::from_utf8(expanded.stdout).unwrap()
+        );
+        // The reference spelling names the map's frame `rest0 @ ..`, which
+        // K writes as an unused variable where the readable read writes `...`.
+        assert_eq!(
+            emit_sum_rule(target.path(), &expanded).replace("Rest0:Map", "..."),
+            emit_sum_rule(target.path(), &source),
+            "{expanded}"
+        );
+    }
+}
+
+/// A language whose `sum` rule reads `step` and `scale` and writes `acc`;
+/// `{rule}` is the rule.
+const READ_ONLY_CELLS: &str = r#"
+use krs::builtin::{Int, KSequence, int};
+use krs::{KResult, Term};
+
+krs::sorts! {
+    Stmt;
+    Value: Stmt + KResult;
+    impl Value for Int;
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+    #[krs::cell]
+    pub acc: Int,
+    #[krs::cell]
+    pub step: Int,
+    #[krs::cell]
+    pub scale: Int,
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init(
+        #[krs::config_var(name = "PGM", main)] program: Stmt,
+        acc: Int,
+        step: Int,
+        scale: Int,
+    ) -> Self {
+        Self {
+            k: krs::k![program],
+            acc,
+            step,
+            scale,
+        }
+    }
+}
+
+{rule}
+"#;
+
+#[test]
+fn a_cell_left_out_of_the_result_or_restated_unchanged_is_read_only() {
+    let target = shared_fixture_target();
+    let emit = |rule: &str| {
+        emit_sum_rule(
+            target.path(),
+            &READ_ONLY_CELLS.replace("{rule}", &format!("krs::rules! {{ for Machine; {rule} }}")),
+        )
+    };
+    // `step` is left out of the result and `scale` restated unchanged: both
+    // are matched and read, and neither is rewritten.
+    let readable = emit(
+        "sum: { k: [n, ..], acc: a, step: d, scale: 2 } => { k: [..], acc: int::add(a, int::mul(n, d)), scale: 2 } where n: Int;",
+    );
+    assert_eq!(
+        readable,
+        "  rule [sum]:\n    <k> N:Int => .K ... </k>\n    <acc> A:Int => A:Int +Int (N:Int *Int D:Int) </acc>\n    <step> D:Int </step>\n    <scale> 2 </scale>\n",
+    );
+    assert_eq!(
+        emit(
+            "sum: { k: [n, ..], acc: a, step: d, scale: 2 } => { k: [..], acc: int::add(a, int::mul(n, d)), step: d } where n: Int;",
+        ),
+        readable,
+    );
+
+    // `krs expand` writes the reference rule with a subject entry and no
+    // result entry for each read-only cell, and it compiles back to the
+    // same rule.
+    let source = READ_ONLY_CELLS.replace(
+        "{rule}",
+        "krs::rules! { for Machine; sum: { k: [n, ..], acc: a, step: d, scale: 2 } => { k: [..], acc: int::add(a, int::mul(n, d)) } where n: Int; }",
+    );
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), &source);
+    let expanded = command(target.path(), &manifest, "expand", None, &[]);
+    assert_success(&expanded);
+    let expanded = String::from_utf8(expanded.stdout).unwrap();
+    let words = expanded.split_whitespace().collect::<Vec<_>>().join(" ");
+    let (subject, result) = words
+        .split_once("-> crate::Machine")
+        .unwrap_or_else(|| panic!("the reference rule has a result:\n{expanded}"));
+    assert!(
+        subject.contains("step : k::configuration::Cell(d)"),
+        "{expanded}"
+    );
+    assert!(
+        subject.contains("scale : k::configuration::Cell(2)"),
+        "{expanded}"
+    );
+    assert!(!result.contains("step :"), "{expanded}");
+    assert!(!result.contains("scale :"), "{expanded}");
+    // The reference spelling names the computation cell's tail, which K
+    // writes as a variable where the readable rule writes `...`.
+    let without_k = |sentence: &str| {
+        sentence
+            .lines()
+            .filter(|line| !line.contains("<k>"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    assert_eq!(
+        without_k(&emit_sum_rule(
+            target.path(),
+            &format!("extern crate krs as k;\n{expanded}")
+        )),
+        without_k(&readable),
+        "{expanded}"
+    );
+}
+
+#[test]
+fn a_rule_without_the_computation_cell_that_only_reads_changes_no_cell() {
+    let target = shared_fixture_target();
+    for rule in [
+        "idle: { acc: a, step: 1 } => { acc: a };",
+        "idle: { acc: a, step: 1 } => {};",
+    ] {
+        let source =
+            READ_ONLY_CELLS.replace("{rule}", &format!("krs::rules! {{ for Machine; {rule} }}"));
+        let temporary = temp_dir();
+        let manifest = materialize_fixture(temporary.path(), &source);
+        let check = command(target.path(), &manifest, "check", None, &[]);
+        let stderr = String::from_utf8(check.stderr).unwrap();
+        assert!(!check.status.success(), "{rule} accepted:\n{stderr}");
+        assert!(
+            stderr.contains("krs::analysis::rule-changes-no-cell"),
+            "{rule}:\n{stderr}"
+        );
+    }
+}
+
+/// A machine whose rules read several computation items; `{rules}` are the
+/// clauses of one readable table.
+const K_PATTERNS: &str = r#"
+use krs::KResult;
+use krs::builtin::{Int, KSequence, int};
+
+krs::sorts! { Step: krs::KItem; }
+
+#[krs::constructors(sort = Step, result = KResult)]
+#[krs::precedence((Load, Store, Run, Boundary, Abort))]
+pub enum Op {
+    #[krs::syntax("load ( {addr} )")]
+    Load { addr: Int },
+    #[krs::syntax("store ( {addr} )")]
+    Store { addr: Int },
+    #[krs::syntax("run ( {n} )")]
+    Run { n: Int },
+    #[krs::syntax("boundary")]
+    Boundary,
+    #[krs::syntax("abort ( {code} )")]
+    Abort { code: Int },
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+    #[krs::cell]
+    pub acc: Int,
+    #[krs::cell]
+    pub left: Int,
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init(#[krs::config_var(name = "PGM", main)] program: KSequence, acc: Int, left: Int) -> Self {
+        Self { k: krs::k![program], acc, left }
+    }
+}
+
+#[rustfmt::skip]
+krs::rules! {
+    for Machine;
+    use Op::*;
+    {rules}
+}
+"#;
+
+/// The emitted K sentence labelled `label`.
+fn emitted_rule(definition: &str, label: &str) -> String {
+    let start = definition
+        .find(&format!("  rule [{label}]:"))
+        .unwrap_or_else(|| panic!("rule {label} is emitted:\n{definition}"));
+    let sentence = &definition[start..];
+    let end = sentence[1..]
+        .find("\n  rule ")
+        .map(|end| end + 1)
+        .or_else(|| sentence.find("endmodule"))
+        .unwrap_or(sentence.len());
+    sentence[..end].trim_end().to_owned()
+}
+
+fn emit_definition(target: &Path, source: &str) -> String {
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), source);
+    let output = temporary.path().join("emitted");
+    assert_success(&command(target, &manifest, "emit-k", Some(&output), &[]));
+    fs::read_to_string(output.join("definition.k")).unwrap()
+}
+
+fn check_failure(target: &Path, source: &str) -> String {
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), source);
+    let check = command(target, &manifest, "check", None, &[]);
+    let stderr = String::from_utf8(check.stderr).unwrap();
+    assert!(!check.status.success(), "accepted:\n{source}");
+    stderr
+}
+
+const K_PATTERN_RULES: &str = "
+    store: { k: [v, Store { addr: a }, ..], acc: s } => { k: [..], acc: int::add(s, int::add(v, a)) } where v: Int;
+    start: { k: [Run { n }], left: _ } => { k: [Op::Boundary], left: n };
+    abort: { k: [Abort { code: c }, _ignored], acc: _ } => { k: [], acc: c };
+    idle: { k: [], left: n } => { k: [Op::Boundary], left: int::add(n, 1) };
+    tick: { k: [Op::Boundary, ..], left: n } => { left: int::sub(n, 1) };
+    wake: { k: [Load { addr: a }, Op::Boundary, ..], acc: _ } => { k: [Load { addr: a }, Op::Boundary, ..], acc: a };
+";
+
+#[test]
+fn readable_k_patterns_match_several_items_a_whole_cell_or_only_read() {
+    // `wake` restates its items unchanged, which only reads them, as `tick`
+    // does by leaving `k` out of its result.
+    let target = shared_fixture_target();
+    let source = K_PATTERNS.replace("{rules}", K_PATTERN_RULES);
+    let definition = emit_definition(target.path(), &source);
+    let rules = ["store", "start", "abort", "idle", "tick", "wake"]
+        .map(|label| emitted_rule(&definition, label))
+        .join("\n");
+    assert_eq!(
+        rules,
+        "  rule [store]:\n    <k> V:Int ~> store ( A:Int ) => .K ... </k>\n    <acc> S:Int => S:Int +Int (V:Int +Int A:Int) </acc>\n\
+         \x20 rule [start]:\n    <k> run ( N:Int ) => boundary </k>\n    <left> _ => N:Int </left>\n\
+         \x20 rule [abort]:\n    <k> abort ( C:Int ) ~> _Ignored:KItem => .K </k>\n    <acc> _ => C:Int </acc>\n\
+         \x20 rule [idle]:\n    <k> .K => boundary </k>\n    <left> N:Int => N:Int +Int 1 </left>\n\
+         \x20 rule [tick]:\n    <k> boundary ... </k>\n    <left> N:Int => N:Int -Int 1 </left>\n\
+         \x20 rule [wake]:\n    <k> load ( A:Int ) ~> boundary ... </k>\n    <acc> _ => A:Int </acc>",
+    );
+
+    // `krs expand` writes each as a `cells!` rule that compiles back to the
+    // same rules; the reference spelling names the tail of a rule that
+    // rewrites an open pattern, which K writes as a variable where the
+    // readable rule writes `...`.
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), &source);
+    let expanded = command(target.path(), &manifest, "expand", None, &[]);
+    assert_success(&expanded);
+    let expanded = String::from_utf8(expanded.stdout).unwrap();
+    let words = expanded.split_whitespace().collect::<Vec<_>>().join(" ");
+    for reference in [
+        "k : k::configuration::KCell(v, crate ::Op::Store(a), tail @ ..)",
+        "k : k::configuration::KCell(..tail)",
+        "k : k::configuration::KCell(crate ::Op::Run(n))",
+        "k : k::configuration::KCell(crate ::Op::Abort(c), _ignored)",
+        "k : k::configuration::KCell(), left : k::configuration::Cell(n), state @ ..",
+        "k : k::configuration::KCell(crate ::Op::Boundary, ..)",
+    ] {
+        assert!(words.contains(reference), "{reference}:\n{expanded}");
+    }
+    let reference = emit_definition(
+        target.path(),
+        &format!("extern crate krs as k;\n{expanded}"),
+    );
+    let without_k = |sentence: String| {
+        sentence
+            .lines()
+            .filter(|line| !line.contains("<k>"))
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    for label in ["store", "wake"] {
+        assert_eq!(
+            without_k(emitted_rule(&reference, label)),
+            without_k(emitted_rule(&definition, label)),
+            "{expanded}"
+        );
+    }
+    assert!(
+        emitted_rule(&reference, "store")
+            .contains("<k> V:Int ~> store ( A:Int ) ~> Tail:K => .K ~> Tail:K </k>"),
+        "{expanded}"
+    );
+    for label in ["start", "abort", "idle", "tick"] {
+        assert_eq!(
+            emitted_rule(&reference, label),
+            emitted_rule(&definition, label),
+            "{expanded}"
+        );
+    }
+}
+
+#[test]
+fn readable_k_patterns_overlap_only_where_one_computation_matches_both() {
+    let target = shared_fixture_target();
+    // An unnarrowed item binder is any item, so `load(1) ~> store(2)` matches both.
+    let stderr = check_failure(
+        target.path(),
+        &K_PATTERNS.replace(
+            "{rules}",
+            "store: { k: [v, Store { addr: a }, ..], acc: s } => { k: [..], acc: int::add(s, a) };
+             load: { k: [Load { addr: a }, ..], acc: _ } => { k: [..], acc: a };",
+        ),
+    );
+    assert!(
+        stderr.contains("krs::analysis::overlapping-rule-heads"),
+        "{stderr}"
+    );
+    // A whole one-item cell and a pattern of at least two items never meet.
+    let source = K_PATTERNS.replace(
+        "{rules}",
+        "store: { k: [v, Store { addr: a }, ..], acc: s } => { k: [..], acc: int::add(s, int::add(v, a)) } where v: Int;
+         load: { k: [Load { addr: a }, ..], acc: _ } => { k: [..], acc: a };
+         start: { k: [Run { n }], left: _ } => { k: [Op::Boundary], left: n };
+         run_more: { k: [Run { n }, Op::Boundary, ..], left: _ } => { k: [..], left: n };",
+    );
+    emit_definition(target.path(), &source);
+    let stderr = check_failure(
+        target.path(),
+        &K_PATTERNS.replace(
+            "{rules}",
+            "start: { k: [Run { n }], left: _ } => { k: [Op::Boundary], left: n };
+             run_any: { k: [Run { n }, ..], left: _ } => { k: [..], left: n };",
+        ),
+    );
+    assert!(
+        stderr.contains("krs::analysis::overlapping-rule-heads"),
+        "{stderr}"
+    );
+}
+
+#[test]
+fn readable_k_patterns_that_change_nothing_or_heat_a_whole_cell_are_rejected() {
+    let target = shared_fixture_target();
+    for (rules, code) in [
+        (
+            "same: { k: [Run { n }, ..] } => { k: [Run { n }, ..] };",
+            "krs::analysis::rule-changes-no-cell",
+        ),
+        (
+            "read: { k: [Run { n }, Op::Boundary, ..] } => {};",
+            "krs::analysis::rule-changes-no-cell",
+        ),
+        (
+            "#[krs::rule(cool, hole = h)] cool: { k: [h, Store { addr: a }] } => { k: [Load { addr: a }] } where h: Int;",
+            "krs::analysis::invalid-heat-cool",
+        ),
+    ] {
+        let stderr = check_failure(target.path(), &K_PATTERNS.replace("{rules}", rules));
+        assert!(stderr.contains(code), "{rules}:\n{stderr}");
+    }
 }
 
 fn command(
@@ -660,7 +1227,7 @@ pub struct Sha256Digest {{
     assert_success(&first);
     assert_eq!(
         first.stdout,
-        b"built definition.kore, syntaxDefinition.kore, macros.kore\n"
+        b"built definition.kore, syntaxDefinition.kore, macros.kore, k2lean-sidecar.json\n"
     );
     let stderr = String::from_utf8(first.stderr.clone()).unwrap();
     let diagnostics = krs_cli::DiagnosticEnvelope::from_json_lines(&stderr).unwrap();
@@ -675,7 +1242,12 @@ pub struct Sha256Digest {{
         "hook namespace `KRYPTO` of `hook(KRYPTO.sha256raw)` is neither builtin nor selected with --hook-namespaces; the production compiles as an unhooked function"
     );
     assert_eq!(
-        diagnostics[0].authored_range.file.package_relative_path(),
+        diagnostics[0]
+            .authored_range
+            .as_ref()
+            .unwrap()
+            .file
+            .package_relative_path(),
         "src/lib.rs"
     );
     let cached = run();
@@ -687,6 +1259,16 @@ pub struct Sha256Digest {{
             .iter()
             .any(|(id, _)| id == "result.reuse")
     );
+    // `check` runs the same native judgement, so it reports the same warnings.
+    let check = command(
+        target.path(),
+        &manifest,
+        "check",
+        None,
+        &["--backend", "llvm"],
+    );
+    assert_success(&check);
+    assert_eq!(check.stderr, first.stderr);
 }
 
 #[test]
@@ -736,7 +1318,8 @@ fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
         let lines = stderr.lines().collect::<Vec<_>>();
         assert_eq!(lines.len(), 1, "{backend}:\n{stderr}");
         let diagnostic: serde_json::Value = serde_json::from_str(lines[0]).unwrap();
-        assert_eq!(diagnostic["schema_version"], 1, "{stderr}");
+        assert_eq!(diagnostic["schema_version"], 2, "{stderr}");
+        assert_eq!(diagnostic["kind"], "author", "{stderr}");
         assert_eq!(diagnostic["stage"], "native", "{stderr}");
         assert_eq!(diagnostic["code"], "IllegalFunctionOnLhs", "{stderr}");
         assert_eq!(diagnostic["severity"], "error", "{stderr}");
@@ -748,5 +1331,221 @@ fn native_rejection_reports_the_authored_rust_item_on_every_backend() {
         assert_eq!(range["file"]["package_relative_path"], "src/lib.rs");
         assert_eq!(range["start_byte"], start, "{stderr}");
         assert_eq!(range["end_byte"], start + item.len(), "{stderr}");
+
+        // `check --backend B` predicts `build --backend B`: it refuses the
+        // definition with the same diagnostic, from the same native stage.
+        let check_timings_path = temporary
+            .path()
+            .join(format!("{backend}-check-timings.json"));
+        let check = command(
+            target.path(),
+            &manifest,
+            "check",
+            None,
+            &[
+                "--backend",
+                backend,
+                "--timings",
+                check_timings_path.to_str().unwrap(),
+            ],
+        );
+        let check_stderr = String::from_utf8(check.stderr).unwrap();
+        assert!(!check.status.success(), "check {backend} accepted");
+        assert!(check.stdout.is_empty(), "check {backend}");
+        assert_eq!(check_stderr, stderr, "check {backend}");
+        assert_eq!(
+            read_json(&check_timings_path)["failed_span"],
+            "native.compile",
+            "check {backend}"
+        );
     }
+
+    // Without --backend, `check` reports the refusal of the first route with a
+    // note that every native route refuses the definition.
+    let check = command(target.path(), &manifest, "check", None, &[]);
+    let stderr = String::from_utf8(check.stderr).unwrap();
+    assert!(!check.status.success(), "{stderr}");
+    let diagnostics = krs_cli::DiagnosticEnvelope::from_json_lines(&stderr).unwrap();
+    assert_eq!(diagnostics.len(), 1, "{stderr}");
+    assert_eq!(diagnostics[0].code, "IllegalFunctionOnLhs");
+    assert!(
+        diagnostics[0]
+            .notes
+            .last()
+            .is_some_and(|note| note.starts_with("every native route refuses this definition")),
+        "{stderr}"
+    );
+}
+
+/// An existential rule result, which concrete (LLVM) execution cannot run.
+const RULE_EXISTENTIAL: &str = r#"
+use krs::KItem;
+use krs::builtin::{Int, KSequence};
+
+krs::sorts! {
+    Exp: KItem;
+    impl Exp for Int;
+}
+
+#[krs::configuration]
+pub struct Machine {
+    #[krs::cell]
+    pub k: KSequence,
+}
+
+impl Machine {
+    #[krs::init]
+    pub fn init(pgm: Exp) -> Self {
+        Self { k: krs::k![pgm] }
+    }
+}
+
+#[krs::rule(label = "zero-to-unknown")]
+#[krs::exists(x: Int)]
+pub fn zero_to_unknown(
+    krs::cells! { k: krs::configuration::KCell(0, tail @ ..), state @ .. }: Machine,
+) -> Machine {
+    krs::cells! { k: krs::configuration::KCell(x, ..tail), ..state }
+}
+"#;
+
+#[test]
+fn check_fails_where_a_route_refuses_and_backend_narrows_it_to_one_route() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), RULE_EXISTENTIAL);
+    let refusal = "route `native-llvm` refuses this definition";
+
+    let build = command(
+        target.path(),
+        &manifest,
+        "build",
+        Some(&temporary.path().join("llvm")),
+        &["--backend", "llvm"],
+    );
+    let build_stderr = String::from_utf8(build.stderr).unwrap();
+    assert!(!build.status.success(), "{build_stderr}");
+    assert!(build_stderr.contains(refusal), "{build_stderr}");
+
+    // Without --backend, `check` predicts `build` on every backend, so the
+    // route's refusal fails it before anything is compiled, with a note naming
+    // the commands of the refusing route and the --backend that leaves it out.
+    let all_timings = temporary.path().join("check-timings.json");
+    let all = command(
+        target.path(),
+        &manifest,
+        "check",
+        None,
+        &["--no-reuse", "--timings", all_timings.to_str().unwrap()],
+    );
+    let all_stderr = String::from_utf8(all.stderr).unwrap();
+    assert!(!all.status.success(), "{all_stderr}");
+    assert!(all.stdout.is_empty());
+    assert!(all_stderr.contains(refusal), "{all_stderr}");
+    // Human output also renders the note.
+    let mut process = krs_command!();
+    fixture_build_env(&mut process, target.path());
+    let human = process
+        .args(["check", "--manifest-path"])
+        .arg(&manifest)
+        .args([
+            "--package",
+            "krs-cli-foo-bar-fixture",
+            "--definition",
+            "main",
+        ])
+        .env("NO_COLOR", "1")
+        .output()
+        .unwrap();
+    let human_stderr = String::from_utf8(human.stderr).unwrap();
+    assert!(!human.status.success(), "{human_stderr}");
+    assert!(
+        human_stderr.contains(
+            "`native-llvm` is the route of `krs build --backend llvm`; `krs check --backend haskell` judges only the route of"
+        ),
+        "{human_stderr}"
+    );
+    assert!(
+        !span_ids(&read_json(&all_timings))
+            .iter()
+            .any(|(id, _)| id.starts_with("native.") || id == "check.routes"),
+        "check compiled although a route refuses the definition"
+    );
+
+    // `--backend llvm` predicts exactly `build --backend llvm`.
+    let llvm = command(
+        target.path(),
+        &manifest,
+        "check",
+        None,
+        &["--backend", "llvm", "--no-reuse"],
+    );
+    assert!(!llvm.status.success());
+    assert_eq!(String::from_utf8(llvm.stderr).unwrap(), build_stderr);
+
+    // The haskell route runs existential results: `check --backend haskell`
+    // compiles natively, loads the definition as `krs run` does, and passes.
+    let haskell_timings = temporary.path().join("haskell-check-timings.json");
+    let haskell = command(
+        target.path(),
+        &manifest,
+        "check",
+        None,
+        &[
+            "--backend",
+            "haskell",
+            "--no-reuse",
+            "--timings",
+            haskell_timings.to_str().unwrap(),
+        ],
+    );
+    let haskell_stderr = String::from_utf8(haskell.stderr).unwrap();
+    assert_success_with(haskell.status, &haskell_stderr);
+    assert!(
+        !haskell_stderr.contains("krs::capability::unavailable"),
+        "{haskell_stderr}"
+    );
+    let ids = span_ids(&read_json(&haskell_timings));
+    assert!(
+        ids.iter()
+            .any(|(id, depth)| id == "native.compile" && *depth == 2)
+    );
+    assert!(
+        ids.iter()
+            .any(|(id, depth)| id == "check.load" && *depth == 1)
+    );
+}
+
+/// `KRS_CHECK_AGREEMENT=1` runs the commands a check judges and fails on any
+/// disagreement; it holds for a refused default check and a passing narrowed one.
+#[test]
+fn check_agrees_with_the_commands_it_judges() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let manifest = materialize_fixture(temporary.path(), RULE_EXISTENTIAL);
+
+    for arguments in [&["--no-reuse"][..], &["--no-reuse", "--backend", "haskell"]] {
+        let mut process = krs_command!();
+        fixture_build_env(&mut process, target.path());
+        let agreed = process
+            .args(["check", "--manifest-path"])
+            .arg(&manifest)
+            .args([
+                "--package",
+                "krs-cli-foo-bar-fixture",
+                "--definition",
+                "main",
+            ])
+            .args(arguments)
+            .env("KRS_CHECK_AGREEMENT", "1")
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8(agreed.stderr).unwrap();
+        assert_eq!(agreed.status.success(), arguments.len() > 1, "{stderr}");
+        assert!(!stderr.contains("KRS_CHECK_AGREEMENT"), "{stderr}");
+    }
+}
+
+fn assert_success_with(status: std::process::ExitStatus, stderr: &str) {
+    assert!(status.success(), "command failed:\n{stderr}");
 }

@@ -17,8 +17,10 @@
 //! The counter names are a schema for the dump written by `krust` under `KRUST_COUNTERS`; a
 //! rename or removal is a contract change and bumps the dump's `version`.
 
-/// Schema version of the `KRUST_COUNTERS` document.
-pub const COUNTER_SCHEMA_VERSION: u64 = 20;
+/// Schema version of the `KRUST_COUNTERS` document: it versions the counter set (the names and
+/// meaning of the counters the dump holds) and moves when that set changes; a change of the
+/// counts a run reports leaves it as it is ("Format versions" in `docs/compatibility.md`).
+pub const COUNTER_SCHEMA_VERSION: u64 = 21;
 
 macro_rules! algorithms {
     ($(#[$doc:meta] $variant:ident => $id:literal),+ $(,)?) => {
@@ -440,7 +442,8 @@ pub enum Counter {
     ParserChartPredictionAttempts,
     /// Predictions skipped by the FIRST-set filter, terminal-first productions.
     ParserTerminalPredictionsSkipped,
-    /// Predictions skipped by the FIRST-set filter, nonterminal-first productions.
+    /// Predictions of nonterminal-first productions skipped: by the FIRST-set filter, or because
+    /// no later token is the lexeme their second item reads.
     ParserNonterminalPredictionsSkipped,
     /// Packed-term candidates built for completed states.
     ParserChartCompletionCandidates,
@@ -582,11 +585,14 @@ pub enum Counter {
     ConfluenceSimplifierCalls,
     /// Terms constructed.
     TermConstructed,
+    /// Left-hand sides matched against a subject only to find the axioms a run offered and never
+    /// tried, when the run collects the offered level of its coverage (`k_rust_backend::coverage`).
+    CoverageOfferMatches,
 }
 
 impl Counter {
     /// Number of counters.
-    pub const COUNT: usize = 98;
+    pub const COUNT: usize = 99;
 
     /// Every counter in declaration order, which is also the dump's key order.
     pub const ALL: [Counter; Self::COUNT] = [
@@ -688,6 +694,7 @@ impl Counter {
         Counter::ConfluenceJoinSteps,
         Counter::ConfluenceSimplifierCalls,
         Counter::TermConstructed,
+        Counter::CoverageOfferMatches,
     ];
 
     /// The dump key of the counter, `family.quantity`.
@@ -793,6 +800,7 @@ impl Counter {
             Counter::ConfluenceJoinSteps => "confluence.join_steps",
             Counter::ConfluenceSimplifierCalls => "confluence.simplifier_calls",
             Counter::TermConstructed => "term.constructed",
+            Counter::CoverageOfferMatches => "coverage.offer_matches",
         }
     }
 }
@@ -1102,7 +1110,7 @@ mod tests {
             assert!(!family.is_empty() && !quantity.is_empty());
         }
         assert_eq!(Counter::ALL.first(), Some(&Counter::KompileResolveCalls));
-        assert_eq!(Counter::ALL.last(), Some(&Counter::TermConstructed));
+        assert_eq!(Counter::ALL.last(), Some(&Counter::CoverageOfferMatches));
     }
 
     #[test]
@@ -1113,7 +1121,7 @@ mod tests {
         }
         let snapshot = Snapshot(values);
         assert_eq!(
-            snapshot.get(Counter::TermConstructed),
+            snapshot.get(Counter::CoverageOfferMatches),
             (Counter::COUNT as u64 - 1) * 3
         );
         let names = snapshot.iter().map(|(name, _)| name).collect::<Vec<_>>();

@@ -12,7 +12,7 @@
 
 #![deny(clippy::wildcard_enum_match_arm)]
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, VecDeque};
 
 use super::{
     IncompleteSearch, PathSearchState, PathWitness, SearchEnd, SearchMatch, SearchOptions,
@@ -21,6 +21,7 @@ use super::{
 use crate::{
     builtin::BuiltinEffect,
     definition::BackendDefinition,
+    diagnostic::BackendDiagnostic,
     fresh::{RequestNames, SolutionKey},
     rewrite::Pattern,
     smt::SmtSolver,
@@ -157,25 +158,50 @@ pub(super) enum StateRetention {
 /// the request does not name (their `RequestNames::state_key`s are equal, `retained` holds the
 /// keys of `states`): such a result denotes the same configurations, so listing it again would
 /// list one state twice and take a result slot from a different one.
+///
+/// A result dropped as a duplicate gives its path facts (`crate::path_facts`) to the result kept
+/// for its key ([`union_path_facts`]): it is dropped anyway, so this changes no result but the
+/// kept one's marks. Returns, with the retention, the index in `states` of the result that
+/// holds `state`'s path: its own, or the one kept for its key.
 pub(super) fn retain_state_result(
     states: &mut Vec<SearchState>,
-    retained: &mut HashSet<Pattern>,
+    retained: &mut HashMap<Pattern, usize>,
     request: &RequestNames,
     state: SearchState,
     max_results: Option<usize>,
     pattern_bound_reached: &mut impl FnMut(&SearchState) -> bool,
-) -> StateRetention {
-    if !retained.insert(request.state_key(&state.pattern)) {
-        return StateRetention::Continue;
+) -> (StateRetention, usize) {
+    let key = request.state_key(&state.pattern);
+    if let Some(&index) = retained.get(&key) {
+        union_path_facts(&mut states[index].diagnostics, &state.diagnostics);
+        return (StateRetention::Continue, index);
     }
+    let index = states.len();
+    retained.insert(key, index);
     let pattern_bound_reached = pattern_bound_reached(&state);
     states.push(state);
-    if pattern_bound_reached {
+    let retention = if pattern_bound_reached {
         StateRetention::PatternBound
     } else if max_results.is_some_and(|limit| states.len() >= limit) {
         StateRetention::ResultBound
     } else {
         StateRetention::Continue
+    };
+    (retention, index)
+}
+
+/// Add the path facts among `diagnostics` (`BackendDiagnostic::is_path_fact`), those
+/// of a result or a match dropped as a duplicate, to `kept`, the diagnostics of the one retained
+/// for its key, so that the kept one names every value the definition leaves open that a path
+/// reaching it read. The dropped one's other diagnostics stay with its path.
+pub(super) fn union_path_facts(
+    kept: &mut Vec<BackendDiagnostic>,
+    diagnostics: &[BackendDiagnostic],
+) {
+    for diagnostic in diagnostics {
+        if diagnostic.is_path_fact() && !kept.contains(diagnostic) {
+            kept.push(diagnostic.clone());
+        }
     }
 }
 
@@ -225,7 +251,7 @@ pub(super) fn retain_witness(
     }
     let externalised = match externalise_result(
         definition,
-        path.state.clone(),
+        super::with_trace(path.state.clone(), path.trace.clone()),
         path.observation,
         path.diagnostics.clone(),
         options.max_simplification_iterations,
@@ -243,7 +269,7 @@ pub(super) fn retain_witness(
     };
     if let Some(state) = externalised {
         let witness = PathWitness {
-            id: path.id.clone(),
+            id: path.id.to_vec(),
             pattern: state.pattern,
             depth: state.depth,
             trace: state.trace,
@@ -266,16 +292,30 @@ pub(super) fn retain_witness(
 /// request does not name (their `RequestNames::solution_key`s are equal, `retained` holds the
 /// keys of `matches`): they denote the same instances of the target, so the second would take
 /// a result slot from a different solution.
+///
+/// A match dropped as the same solution gives its path facts (`crate::path_facts`), those of
+/// its state's path and of its own matching, to the match kept for its key
+/// ([`union_path_facts`]). Returns whether `max_results` matches are retained, with the index in
+/// `matches` of the match that holds `found`: its own, or the one kept for its key.
 pub(super) fn retain_pattern_match(
     matches: &mut Vec<SearchMatch>,
-    retained: &mut HashSet<SolutionKey>,
+    retained: &mut HashMap<SolutionKey, usize>,
     request: &RequestNames,
     found: SearchMatch,
     max_results: Option<usize>,
-) -> bool {
-    if !retained.insert(request.solution_key(&found.substitution, &found.constraints)) {
-        return false;
+) -> (bool, usize) {
+    let key = request.solution_key(&found.substitution, &found.constraints);
+    if let Some(&index) = retained.get(&key) {
+        let kept = &mut matches[index];
+        union_path_facts(&mut kept.state.diagnostics, &found.state.diagnostics);
+        union_path_facts(&mut kept.diagnostics, &found.diagnostics);
+        return (false, index);
     }
+    let index = matches.len();
+    retained.insert(key, index);
     matches.push(found);
-    max_results.is_some_and(|bound| matches.len() >= bound)
+    (
+        max_results.is_some_and(|bound| matches.len() >= bound),
+        index,
+    )
 }

@@ -1,4 +1,7 @@
 use syn::Path;
+use syn::spanned::Spanned;
+
+use crate::{SyntaxError, SyntaxErrorKind};
 
 pub(crate) fn is_plain_path(path: &Path) -> bool {
     !path.segments.is_empty()
@@ -6,6 +9,25 @@ pub(crate) fn is_plain_path(path: &Path) -> bool {
             .segments
             .iter()
             .all(|segment| matches!(segment.arguments, syn::PathArguments::None))
+}
+
+/// Whether `ident` is spelled as Rust spells a constant: with an uppercase
+/// letter and no lowercase one (`IF`, `WORD_SIZE`, `P2`). In a pattern such a
+/// bare name refers to a `#[k::constant]` and binds nothing, as a Rust `const`
+/// in a pattern is compared, not bound; every other bare name is a binder.
+/// KRS binders are snake case, so the two spellings never meet.
+#[must_use]
+pub fn is_constant_name(ident: &syn::Ident) -> bool {
+    use syn::ext::IdentExt;
+    let text = ident.unraw().to_string();
+    text.chars().any(char::is_uppercase) && !text.chars().any(char::is_lowercase)
+}
+
+/// The binder a bare name in a pattern introduces: an unqualified
+/// one-segment path, unless it is spelled as a constant
+/// ([`is_constant_name`]).
+pub(crate) fn pattern_binder(path: &Path) -> Option<&syn::Ident> {
+    unqualified_path_ident(path).filter(|ident| !is_constant_name(ident))
 }
 
 pub(crate) fn plain_path_last(path: &Path) -> Option<&syn::PathSegment> {
@@ -22,6 +44,47 @@ pub(crate) fn unqualified_path_ident(path: &Path) -> Option<&syn::Ident> {
         return None;
     }
     Some(&segment.ident)
+}
+
+/// K's builtin collection sorts that the facade spells with type parameters
+/// (`List<T>`, `Map<K, V>`, `Set<T>`) to carry Rust authoring information.
+/// In K each is one unparameterized sort.
+const PARAMETRIC_COLLECTION_MARKERS: &[&str] = &["List", "Map", "Set"];
+
+/// The collection sort that `path` names with generic arguments: its last
+/// segment is a builtin collection marker with angle-bracketed arguments and
+/// every other segment is plain, as in `k::builtin::List<Instruction>`.
+pub(crate) fn parametric_collection(path: &Path) -> Option<&'static str> {
+    let last = path.segments.last()?;
+    if !matches!(last.arguments, syn::PathArguments::AngleBracketed(_))
+        || path
+            .segments
+            .iter()
+            .rev()
+            .skip(1)
+            .any(|segment| !matches!(segment.arguments, syn::PathArguments::None))
+    {
+        return None;
+    }
+    PARAMETRIC_COLLECTION_MARKERS
+        .iter()
+        .find(|marker| last.ident == marker)
+        .copied()
+}
+
+/// The error for a path that gives a builtin collection sort generic
+/// arguments where only a sort makes sense: a rule narrowing when
+/// `narrowing`, otherwise a binder's or term's sort.
+pub(crate) fn parametric_collection_error(path: &Path, narrowing: bool) -> Option<SyntaxError> {
+    let collection = parametric_collection(path)?;
+    Some(SyntaxError::new(
+        SyntaxErrorKind::ParametricCollectionSort {
+            collection,
+            bare: path_text(path),
+            narrowing,
+        },
+        path.span(),
+    ))
 }
 
 pub(crate) fn without_last_arguments(path: &Path) -> Path {
@@ -67,5 +130,33 @@ mod tests {
         assert_eq!(path_text(&path(":: k :: symbol")), "::k::symbol");
         assert_eq!(path_text(&path("r#k::r#type")), "r#k::r#type");
         assert_eq!(path_text(&path("Vec::<u8>::new")), "Vec::new");
+    }
+
+    #[test]
+    fn parametric_collection_names_a_collection_marker_with_arguments_last() {
+        assert_eq!(parametric_collection(&path("List<BusCycle>")), Some("List"));
+        assert_eq!(
+            parametric_collection(&path("k::builtin::Map<Reg8, Int>")),
+            Some("Map")
+        );
+        assert_eq!(
+            parametric_collection(&path("::k::builtin::Set::<Int>")),
+            Some("Set")
+        );
+        for other in [
+            "List",
+            "k::builtin::Map",
+            "Vec<Int>",
+            "List<Int>::Item",
+            "k<X>::List<Int>",
+        ] {
+            assert_eq!(parametric_collection(&path(other)), None, "{other}");
+        }
+        let error = parametric_collection_error(&path("k::builtin::List<Int>"), true).unwrap();
+        assert_eq!(
+            error.to_string(),
+            "a `where` narrowing tests only the sort `List` and cannot constrain its elements; \
+             write `k::builtin::List` without generic arguments"
+        );
     }
 }

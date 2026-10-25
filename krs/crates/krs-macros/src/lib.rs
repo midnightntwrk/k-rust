@@ -14,11 +14,7 @@ use krs_syntax::surface::{AttributeMacro, FunctionMacro};
 
 fn finish(result: krs_expand::Result<proc_macro2::TokenStream>) -> TokenStream {
     result
-        .unwrap_or_else(|error| {
-            error
-                .into_syn_error(proc_macro2::Span::call_site())
-                .into_compile_error()
-        })
+        .unwrap_or_else(|error| error.into_compile_error(proc_macro2::Span::call_site()))
         .into()
 }
 
@@ -61,8 +57,8 @@ pub fn sorts(input: TokenStream) -> TokenStream {
 /// Expands like [`sorts!`] and also emits the invocation's factory table.
 ///
 /// This is the `krs` facade's framework `KItem`/`KResult` block. Authors use
-/// [`sorts!`]; the extra `FRAMEWORK_FACTORIES` table serves collectors that
-/// enumerate explicit registration tables instead of linker sections.
+/// [`sorts!`]; the extra `FRAMEWORK_FACTORIES` table is how both facade
+/// entry points include the framework sorts in every definition.
 #[doc(hidden)]
 #[proc_macro]
 pub fn __framework_sorts(input: TokenStream) -> TokenStream {
@@ -87,11 +83,29 @@ pub fn constructor(attributes: TokenStream, item: TokenStream) -> TokenStream {
 
 /// Declares one K function production.
 ///
-/// The attribute requires exactly one of `total` or `partial`, a `sort`, and a
-/// `syntax` template, and accepts an optional `hook` from the typed function
-/// hook catalog. `total` adds K's `total` attribute to the emitted `function`
-/// production; `partial` omits it, so an application that no equation covers
-/// has no denotation.
+/// On a struct, the attribute requires exactly one of `total` or `partial` and
+/// a `sort`, and accepts an optional `hook` from the typed function hook
+/// catalog. `syntax` is required when the function is program syntax (`pub`
+/// and not `internal`); otherwise it defaults to the K symbol applied to the
+/// fields, `byte({value})`.
+///
+/// On a `fn`, the signature declares the function: the name, in
+/// upper camel case as applications write it, the parameters as its fields,
+/// and the return type as its sort. A body is its one equation, named in
+/// snake case (`fn Byte` defines `byte`), and a `fn` that ends with `;`
+/// declares the function only, for `k::equations!` or `#[k::equation]` fns.
+///
+/// ```ignore
+/// #[k::function(total, internal)]
+/// pub fn Byte(value: k::Term<Int>) -> k::Term<Int> {
+///     int::rem_euclid(value, 256)
+/// }
+/// ``` `total` adds K's `total` attribute to the emitted `function`
+/// production, which promises that every application has a value: one that no
+/// equation covers still has some value, which the definition does not name.
+/// `partial` omits it, so an application that no equation covers is
+/// unconstrained: the definition neither names a value for it nor says that it
+/// has none.
 ///
 /// `smtlib = "sym"` names the function in the SMT solver as the
 /// uninterpreted SMT-LIB symbol `sym`; `smt_hook = "(ite (< {value} 0) ..)"`
@@ -107,8 +121,13 @@ pub fn function(attributes: TokenStream, item: TokenStream) -> TokenStream {
 /// Declares a Rust enum as a family of K constructors, each of which
 /// constructs `sort`; the enum itself is not a sort.
 ///
-/// Readable families (`sort = ..., result = ...`) require a following
-/// exhaustive enum-level precedence chain. `>` means “binds tighter than”;
+/// A readable family (`sort = ..., result = ...`) may carry an enum-level
+/// precedence chain, which lists every variant exactly once. The chain is
+/// required (`krs::analysis::missing-precedence-chain`) exactly when some
+/// variant's template begins or ends with a field whose sort admits the
+/// family's sort, so that one variant can sit at the edge of another; without
+/// a chain the variants belong to no production group. `>` means “binds
+/// tighter than”;
 /// `left`, `right`, and `non_assoc` prefix tiers with explicit associativity.
 /// A bare tier carries no associativity constraint; `non_assoc` lowers to K's
 /// explicit `syntax non-assoc` sentence. These three keywords are reserved in
@@ -202,6 +221,62 @@ pub fn rule(attributes: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro]
 pub fn rules(input: TokenStream) -> TokenStream {
     function_macro(FunctionMacro::Rules, input)
+}
+
+/// Declares readable reachability claims over a fixed configuration, the
+/// claim counterpart of `k::rules!`.
+///
+/// ```ignore
+/// k::claims! {
+///     for Machine;
+///     use Instruction::*;
+///
+///     #[k::claim(all_paths)]
+///     simple_addition: {
+///         instrs: [Const(I32, 3), Const(I32, 4), Binary(I32, Add)],
+///         valstack: Empty(),
+///     } => {
+///         instrs: [],
+///         valstack: Cons(Integer(I32, 7), Empty()),
+///     };
+/// }
+/// ```
+///
+/// Each clause `label: subject => result;` is the `#[k::claim]` fn whose
+/// `cells!` records the readable records stand for, labelled with the
+/// clause name (`_` written `-`). `#[k::claim(..)]` gives its modality and
+/// flags; `#[k::requires]`, `#[k::exists]`, and `#[k::ensures]` apply as on
+/// the fn.
+#[proc_macro]
+pub fn claims(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Claims, input)
+}
+
+/// Declares a table of labelled equations of one function.
+///
+/// ```ignore
+/// k::equations! {
+///     for R8;
+///     use Operand::*;
+///     use Register::*;
+///     r8_b: 0 => Reg(B);
+///     r8_hl_indirect: 6 => HlIndirect;
+///     #[k::equation(owise)]
+///     r8_other: _ => Immediate;
+/// }
+/// ```
+///
+/// `for F;` names a non-parametric `#[k::function]`. Each row `label: args =>
+/// result;` is the equation `F(args) = result` named `label`, with the same
+/// meaning as `#[k::equation] fn label(k::term![F(args)]: ..) -> .. { result }`.
+/// `args` is one pattern, or a parenthesized list for several arguments.
+/// Rows are unordered: a row never wins by its position, and a catch-all row
+/// needs `#[k::equation(owise)]`. A row may carry `#[k::equation(..)]` keys
+/// and `#[k::requires(..)]`. The table's `use` items are in scope for its
+/// rows only, and rustc resolves unqualified names through them.
+#[proc_macro]
+pub fn equations(input: TokenStream) -> TokenStream {
+    function_macro(FunctionMacro::Equations, input)
 }
 
 /// Declares one unconditional or `requires`-guarded function equation.
@@ -475,4 +550,12 @@ pub fn rewrite(input: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn context(attributes: TokenStream, item: TokenStream) -> TokenStream {
     attribute_macro(AttributeMacro::Context, attributes, item)
+}
+
+/// Declares a named constant: `#[k::constant] pub const IF: Int = 0xFF0F;`
+/// names a ground constructor term of the declared sort, which every use,
+/// in a pattern as in a result, stands for.
+#[proc_macro_attribute]
+pub fn constant(attributes: TokenStream, item: TokenStream) -> TokenStream {
+    attribute_macro(AttributeMacro::Constant, attributes, item)
 }

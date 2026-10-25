@@ -6,7 +6,6 @@ use krs_cli::{
     RegistrationMode, RunRequest, SearchMode, SearchRequest, TermOutput, execute_command_reported,
     valid_identifier_segment,
 };
-use krs_diagnostic::ToDiagnostic;
 use krs_fmt::{Edition, FormatOptions, TrailingCommentStyle};
 use krs_ir::measure::Measurement;
 use lexopt::Arg::{Long, Short, Value};
@@ -32,7 +31,8 @@ Usage:
   krs fmt --stdin [--edition YEAR]
 
 Commands:
-  check                     Build and run the collector; report Rust and theory errors
+  check                     Judge the definition as emit-k, build, and the run commands do;
+                            write nothing
   expand                    Render the selected Rust reference surface
   emit-k                    Emit canonical K and shared artifacts
   build                     Compile native backend artifacts
@@ -49,7 +49,8 @@ Options:
   --definition NAME          Root package definition facet
   --dependency PACKAGE:NAME  Composed dependency facet; repeatable
   --cfg KEY[=VALUE]          KRS rustc cfg; repeatable
-  --backend llvm|haskell     Native target dialect (default: llvm)
+  --backend llvm|haskell     Native target dialect (default: llvm); with check, judge only
+                             that backend's route (default: every route)
   --output DIRECTORY         Required for emit-k and build
   --output FORMAT            Result format: pretty (default of run, search, prove), program (parse), kast (default of parse), json, kore, none (run)
   -c NAME=TEXT               Bind configuration variable NAME ($ENV, ENV, or init parameter env); repeatable
@@ -158,12 +159,7 @@ fn report_outcome(
 ) -> i32 {
     match result {
         Ok(outcome) => {
-            report_diagnostics(
-                &outcome.warnings().envelopes,
-                &outcome.warnings().unlocated,
-                format,
-                sources,
-            );
+            report_diagnostics(&outcome.warnings().envelopes, format, sources);
             if let Err(error) = io::stdout().lock().write_all(outcome.stdout()) {
                 eprintln!("krs: could not write stdout: {error}");
                 return 1;
@@ -176,13 +172,13 @@ fn report_outcome(
             outcome.exit_code()
         }
         Err(error) => {
+            // The warnings of the stages that completed come first, as on
+            // success; the error is the verdict and comes last.
+            if let Some(warnings) = error.warnings() {
+                report_diagnostics(&warnings.envelopes, format, sources);
+            }
             if let Some(diagnostics) = error.diagnostics() {
-                report_diagnostics(
-                    &diagnostics,
-                    &error.unlocated_diagnostics(),
-                    format,
-                    sources,
-                );
+                report_diagnostics(&diagnostics, format, sources);
             } else {
                 eprintln!("krs: {error}");
             }
@@ -193,47 +189,34 @@ fn report_outcome(
 
 fn report_diagnostics(
     envelopes: &[krs_cli::DiagnosticEnvelope],
-    unlocated: &[krs_cli::UnlocatedDiagnostic],
     format: MessageFormat,
     sources: &DiagnosticSources,
 ) {
     let color = io::stderr().is_terminal() && std::env::var_os("NO_COLOR").is_none();
-    if let Err(error) = write_diagnostics(
-        &mut io::stderr().lock(),
-        envelopes,
-        unlocated,
-        format,
-        sources,
-        color,
-    ) {
+    if let Err(error) =
+        write_diagnostics(&mut io::stderr().lock(), envelopes, format, sources, color)
+    {
         eprintln!("krs: could not render diagnostic: {error}");
     }
 }
 
+/// Writes `envelopes`, the located ones first, each group in producer order.
 fn write_diagnostics(
     writer: &mut impl Write,
     envelopes: &[krs_cli::DiagnosticEnvelope],
-    unlocated: &[krs_cli::UnlocatedDiagnostic],
     format: MessageFormat,
     sources: &DiagnosticSources,
     color: bool,
 ) -> io::Result<()> {
-    for diagnostic in envelopes {
+    let (located, unlocated): (Vec<_>, Vec<_>) = envelopes
+        .iter()
+        .partition(|envelope| envelope.authored_range.is_some());
+    for diagnostic in located.into_iter().chain(unlocated) {
         match format {
             MessageFormat::Json => writer.write_all(diagnostic.to_json_line()?.as_bytes())?,
             MessageFormat::Human => {
                 writeln!(writer, "{}", sources.render_envelope(diagnostic, color))?;
             }
-        }
-    }
-    for diagnostic in unlocated {
-        match format {
-            MessageFormat::Json => writeln!(writer, "krs: {diagnostic}")?,
-            MessageFormat::Human => writeln!(
-                writer,
-                "{}",
-                sources.render_diagnostic(&diagnostic.to_diagnostic(), color)
-            )?,
         }
     }
     Ok(())
@@ -710,10 +693,7 @@ fn finish_run(kind: CommandKind, options: RunOptions) -> Result<ParseResult, Usa
                 kind.as_str()
             )));
         }
-        CommandKind::Check => Command::Check {
-            backend: backend.unwrap_or(Backend::Llvm),
-            partition,
-        },
+        CommandKind::Check => Command::Check { backend, partition },
         CommandKind::Expand => Command::Expand,
         CommandKind::EmitK => Command::EmitK {
             output: output.ok_or_else(|| usage("missing --output"))?,
@@ -912,7 +892,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reports_envelopes_and_unlocated_errors_and_warnings_together() {
+    fn reports_located_then_unlocated_errors_and_warnings_as_envelopes() {
         let package = krs_ir::PackageId::new("diag", "diag", "0.1.0", "workspace").unwrap();
         let file = krs_ir::SourceFileId::new(
             package,
@@ -927,34 +907,49 @@ mod tests {
             krs_ir::SourceRange::new(file, 7, 16).unwrap(),
         );
         envelope.severity = krs_cli::DiagnosticSeverity::Warning;
-        let error = krs_cli::UnlocatedDiagnostic {
-            code: "UndefinedKLabel".to_owned(),
-            severity: krs_cli::DiagnosticSeverity::Error,
-            message: "undefined label".to_owned(),
-            source: None,
-            generated_range: None,
-            notes: Vec::new(),
-        };
-        let mut warning = error.clone();
-        warning.code = "UnusedVariable".to_owned();
+        let error = krs_cli::DiagnosticEnvelope::unlocated(
+            krs_cli::DiagnosticStage::Native,
+            "UndefinedKLabel",
+            "undefined label",
+        );
+        let mut warning = krs_cli::DiagnosticEnvelope::unlocated(
+            krs_cli::DiagnosticStage::Native,
+            "UnusedVariable",
+            "unused variable",
+        );
         warning.severity = krs_cli::DiagnosticSeverity::Warning;
-        warning.message = "unused variable".to_owned();
         let mut output = Vec::new();
         write_diagnostics(
             &mut output,
-            &[envelope.clone()],
-            &[error, warning],
+            &[error.clone(), envelope.clone(), warning.clone()],
             MessageFormat::Json,
             &DiagnosticSources::default(),
             false,
         )
         .unwrap();
+        let output = String::from_utf8(output).unwrap();
         assert_eq!(
-            String::from_utf8(output).unwrap(),
+            output,
             format!(
-                "{}krs: UndefinedKLabel: undefined label\nkrs: warning: UnusedVariable: unused variable\n",
+                "{}{}{}",
                 envelope.to_json_line().unwrap(),
+                error.to_json_line().unwrap(),
+                warning.to_json_line().unwrap(),
             )
+        );
+        assert!(output.contains("\"authored_range\":null"));
+        let mut human = Vec::new();
+        write_diagnostics(
+            &mut human,
+            &[error],
+            MessageFormat::Human,
+            &DiagnosticSources::default(),
+            false,
+        )
+        .unwrap();
+        assert_eq!(
+            String::from_utf8(human).unwrap(),
+            "error[UndefinedKLabel]: undefined label\n"
         );
     }
 
@@ -1080,7 +1075,7 @@ mod tests {
         assert_eq!(
             request.command,
             Command::Check {
-                backend: Backend::Haskell,
+                backend: Some(Backend::Haskell),
                 partition: false,
             }
         );

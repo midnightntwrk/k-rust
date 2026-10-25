@@ -10,7 +10,7 @@ use krs_ir::{
 };
 use krs_ir_levels::{SemanticSortRef, SemanticTerm};
 
-use super::{ClauseView, SortGraph, clauses_overlap};
+use super::{ClauseView, Frame, SortGraph, clauses_overlap};
 
 fn graph() -> SortGraph {
     let mut graph = SortGraph {
@@ -71,7 +71,7 @@ fn overlap(left: &SemanticTerm, right: &SemanticTerm) -> bool {
         cell: &k,
         before,
         completed_head: false,
-        framed: false,
+        frame: Frame::Exact,
         unconstrained: false,
     };
     clauses_overlap(&[view(left)], None, &[view(right)], None, &graph())

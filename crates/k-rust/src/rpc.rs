@@ -66,7 +66,7 @@ use k_rust_backend::{
         AppliedRule, ExecutionBranchMode, ExecutionMode, ExecutionOptions, HaltReason, Pattern,
         TraceKind, substitute_predicates,
     },
-    rule::Predicate,
+    rule::{Predicate, RulePatternError, SentenceKey},
     session::{SessionError, module_id},
     simplify::{DEFAULT_MAX_SIMPLIFICATION_ITERATIONS, SimplificationError, SimplificationOptions},
     smt::{ModelResult, SmtError, SmtSolver},
@@ -86,6 +86,10 @@ use serde_json::{Map, Value, json, value::RawValue};
 
 #[cfg(test)]
 use k_rust_backend::session::BackendSession;
+
+mod framing;
+
+use framing::{Frame, Outcome, RequestMembers, Scanner};
 
 const JSON_RPC_VERSION: &str = "2.0";
 const CONNECTION_STACK_SIZE: usize = 64 * 1024 * 1024;
@@ -626,7 +630,7 @@ impl RpcService {
     /// Handle one complete JSON-RPC message. Notifications intentionally produce no response.
     #[cfg(test)]
     pub(super) fn handle_line(&mut self, line: &str) -> Option<String> {
-        self.handle_parsed(serde_json::from_str::<Box<RawValue>>(line).ok().as_deref())
+        self.handle_parsed(Frame::parse(line).as_ref())
     }
 
     /// Answers one framed message, `None` when it was not valid JSON.
@@ -635,7 +639,7 @@ impl RpcService {
     /// taken as raw text, `params` is decoded into the method's typed parameters, and a request
     /// echoed in an error is copied as text. So a message of any depth is answered or rejected
     /// without native recursion over the client's input.
-    fn handle_parsed(&mut self, message: Option<&RawValue>) -> Option<String> {
+    fn handle_parsed(&mut self, message: Option<&Frame>) -> Option<String> {
         let Some(message) = message else {
             let error = RpcFault {
                 code: -32700,
@@ -644,7 +648,7 @@ impl RpcService {
             };
             return Some(error.into_response(Value::Null.into()).to_json_string());
         };
-        let response = match json_elements(message) {
+        let response = match json_elements(message.value()) {
             Some(requests) if requests.is_empty() => Some(
                 RpcFault::invalid_request(Some(RpcValue::Raw("[]".into())))
                     .into_response(Value::Null.into()),
@@ -652,11 +656,15 @@ impl RpcService {
             Some(requests) => {
                 let responses = requests
                     .iter()
-                    .filter_map(|request| self.handle_request(request))
+                    .filter_map(|request| {
+                        with_request_members(request.get(), |members| {
+                            self.handle_request(request.get(), members)
+                        })
+                    })
                     .collect::<Vec<_>>();
                 (!responses.is_empty()).then_some(RpcValue::Array(responses))
             }
-            None => self.handle_request(message),
+            None => self.handle_request(message.value(), message.members()),
         };
         response.map(|response| {
             #[cfg(feature = "measure")]
@@ -667,28 +675,39 @@ impl RpcService {
         })
     }
 
-    fn handle_request(&mut self, request: &RawValue) -> Option<RpcValue> {
+    /// Answers one request, given as its JSON text and its members (`None` when it is not an
+    /// object or one of its member names does not decode).
+    fn handle_request(
+        &mut self,
+        request: &str,
+        members: Option<RequestMembers<'_>>,
+    ) -> Option<RpcValue> {
         let invalid = || {
             Some(RpcFault::invalid_request(Some(echo(request))).into_response(Value::Null.into()))
         };
-        let Some([jsonrpc, method, id, params]) =
-            object_members(request, ["jsonrpc", "method", "id", "params"])
+        let Some(RequestMembers {
+            jsonrpc,
+            method,
+            id,
+            params,
+            haskell_logging,
+        }) = members
         else {
             return invalid();
         };
         let id_present = id.is_some();
-        let id = match id.as_deref() {
+        let id = match id {
             None => Some(Value::Null),
             Some(id) => request_id(id),
         };
-        let method = method.as_deref().and_then(json_string);
+        let method = method.and_then(json_string);
         let (Some(id), Some(method)) = (id, method) else {
             return invalid();
         };
-        if jsonrpc.as_deref().and_then(json_string).as_deref() != Some(JSON_RPC_VERSION) {
+        if jsonrpc.and_then(json_string).as_deref() != Some(JSON_RPC_VERSION) {
             return invalid();
         }
-        let result = self.dispatch(&method, params.as_deref());
+        let result = self.dispatch(&method, params, haskell_logging);
         if !id_present {
             match result {
                 Ok(result) => result.release(),
@@ -709,17 +728,22 @@ impl RpcService {
         })
     }
 
-    fn dispatch(&mut self, method: &str, params: Option<&RawValue>) -> Result<RpcValue, RpcFault> {
+    /// Runs one method on its parameters' JSON text; `haskell_logging` is the `haskell-logging`
+    /// member of the parameters.
+    fn dispatch(
+        &mut self,
+        method: &str,
+        params: Option<&str>,
+        haskell_logging: Option<&str>,
+    ) -> Result<RpcValue, RpcFault> {
         // A request stopped before it starts does not run. Once it runs, each method reports a
         // stop of its work as the stop's own fault, never by reinterpreting its result.
         stop::check().map_err(stopped_request)?;
-        let requested_logs = params
-            .and_then(|params| object_members(params, ["haskell-logging"]))
-            .and_then(|[logs]| logs)
-            .and_then(|logs| json_elements(&logs))
+        let requested_logs = haskell_logging
+            .and_then(json_elements)
             .into_iter()
             .flatten()
-            .filter_map(|entry| json_string(&entry))
+            .filter_map(|entry| json_string(entry.get()))
             .collect::<Vec<_>>();
         let result = match method {
             "execute" => self.execute(decode_params(params)?),
@@ -965,7 +989,8 @@ impl RpcService {
                         encode_kore_source_raw(externalize::External::Predicate {
                             predicate: printable.source(),
                             sort: externalize::ResultSort::Given(&result_sort),
-                            preserve_terms: true,
+                            // A Boolean term is printed as the predicate it stands for, `true = t`.
+                            preserve_terms: false,
                         })?,
                     )]))
                 }
@@ -1272,6 +1297,7 @@ fn simplify_fault(error: SimplificationError, result_sort: &BackendSort) -> RpcF
         error @ SmtError::Translation(_)
         | error @ SmtError::Unavailable
         | error @ SmtError::InconsistentGroundTruth
+        | error @ SmtError::MalformedScript { .. }
         | error @ SmtError::MissingModel
         | error @ SmtError::MissingModelValue(_)
         | error @ SmtError::InvalidModelValue { .. } => error.to_string(),
@@ -1400,7 +1426,8 @@ fn module_verification_detail(
             | k_rust::kore::ast::Sentence::SymbolDeclaration { .. } => None,
         }
     }
-    let pattern = if let DefinitionError::UnlicensedInjection { sentence, .. } = error {
+    let located = located_sentence(error);
+    let pattern = if let Some(sentence) = located {
         (sentence.0.as_ref() == module.name)
             .then(|| module.sentences.get(sentence.1).and_then(sentence_pattern))
             .flatten()
@@ -1408,6 +1435,15 @@ fn module_verification_detail(
         module.sentences.iter().find_map(sentence_pattern)
     };
     match (error, pattern) {
+        // A refusal of what an axiom's predicates state points at that axiom.
+        (
+            DefinitionError::AxiomReadsTermAsPredicate { .. } | DefinitionError::RulePattern(_),
+            Some(pattern),
+        ) if located.is_some() => ErrorDetail {
+            error: error.to_string(),
+            context: None,
+            term: encode_kore(pattern).ok(),
+        },
         (DefinitionError::Verification(verification), Some(pattern))
             if verification
                 .message
@@ -1429,6 +1465,27 @@ fn module_verification_detail(
         }
         (_, Some(pattern)) => verification_detail(error, pattern),
         (_, None) => ErrorDetail::message(error.to_string()),
+    }
+}
+
+/// The sentence of the added module that an error about one of its axioms names: an unlicensed
+/// injection, and the refusals of the predicate reading.
+fn located_sentence(error: &DefinitionError) -> Option<&SentenceKey> {
+    match error {
+        DefinitionError::UnlicensedInjection { sentence, .. }
+        | DefinitionError::AxiomReadsTermAsPredicate { sentence, .. }
+        | DefinitionError::RulePattern(
+            RulePatternError::NegatedConfiguration { sentence, .. }
+            | RulePatternError::TermConnectiveInConjunction {
+                sentence: Some(sentence),
+                ..
+            }
+            | RulePatternError::NonBoolTermAsPredicate {
+                sentence: Some(sentence),
+                ..
+            },
+        ) => Some(sentence),
+        _ => None,
     }
 }
 
@@ -1855,10 +1912,10 @@ fn legacy_log_selected(requested: &[String], contexts: &[&str]) -> bool {
 /// Decodes a method's typed parameters from their JSON text, with serde's recursion limit on:
 /// KORE fields are decoded iteratively by [`KoreJson`], and no other parameter nests.
 /// An absent `params` decodes as `null`.
-fn decode_params<T: for<'de> Deserialize<'de>>(params: Option<&RawValue>) -> Result<T, RpcFault> {
+fn decode_params<T: for<'de> Deserialize<'de>>(params: Option<&str>) -> Result<T, RpcFault> {
     #[cfg(feature = "measure")]
     let _span = measure::algorithm_span(Algorithm::RpcJsonDecode);
-    let text = params.map_or("null", RawValue::get);
+    let text = params.unwrap_or("null");
     serde_json::from_str(text).map_err(|_| {
         RpcFault::invalid_params((text != "null").then(|| RpcValue::Raw(compact_json(text))))
     })
@@ -1866,30 +1923,30 @@ fn decode_params<T: for<'de> Deserialize<'de>>(params: Option<&RawValue>) -> Res
 
 /// The first byte of a JSON text, which names its kind: `{`, `[`, `"`, a digit or `-`, or the
 /// first letter of `true`, `false`, or `null`.
-fn json_kind(json: &RawValue) -> Option<u8> {
-    json.get().trim_start().bytes().next()
+fn json_kind(json: &str) -> Option<u8> {
+    json.trim_start().bytes().next()
 }
 
 /// The elements of a JSON array as raw text, or `None` when `json` is not an array. The
 /// elements are scanned with an explicit stack and never built into JSON values.
-fn json_elements(json: &RawValue) -> Option<Vec<Box<RawValue>>> {
+fn json_elements(json: &str) -> Option<Vec<Box<RawValue>>> {
     (json_kind(json) == Some(b'['))
-        .then(|| serde_json::from_str(json.get()).ok())
+        .then(|| serde_json::from_str(json).ok())
         .flatten()
 }
 
 /// The value of a JSON string, or `None` when `json` is not a string.
-fn json_string(json: &RawValue) -> Option<String> {
+fn json_string(json: &str) -> Option<String> {
     (json_kind(json) == Some(b'"'))
-        .then(|| serde_json::from_str(json.get()).ok())
+        .then(|| serde_json::from_str(json).ok())
         .flatten()
 }
 
 /// A request id that JSON-RPC permits (null, a number, or a string), or `None` for any other
 /// JSON value.
-fn request_id(id: &RawValue) -> Option<Value> {
+fn request_id(id: &str) -> Option<Value> {
     matches!(json_kind(id), Some(b'n' | b'"' | b'-' | b'0'..=b'9'))
-        .then(|| serde_json::from_str(id.get()).ok())
+        .then(|| serde_json::from_str(id).ok())
         .flatten()
 }
 
@@ -1897,7 +1954,7 @@ fn request_id(id: &RawValue) -> Option<Value> {
 /// Other members are skipped by serde_json's explicit-stack scanner, and a repeated member keeps
 /// its last occurrence, as it does in a JSON object value.
 fn object_members<const N: usize>(
-    json: &RawValue,
+    json: &str,
     names: [&str; N],
 ) -> Option<[Option<Box<RawValue>>; N]> {
     use serde::de::{DeserializeSeed, IgnoredAny, MapAccess, Visitor};
@@ -1939,15 +1996,40 @@ fn object_members<const N: usize>(
     if json_kind(json) != Some(b'{') {
         return None;
     }
-    let mut deserializer = serde_json::Deserializer::from_str(json.get());
+    let mut deserializer = serde_json::Deserializer::from_str(json);
     let members = Members(&names).deserialize(&mut deserializer).ok()?;
     deserializer.end().ok()?;
     Some(members)
 }
 
 /// A client's JSON echoed in a response, as its text without the whitespace between tokens.
-fn echo(json: &RawValue) -> RpcValue {
-    RpcValue::Raw(compact_json(json.get()))
+fn echo(json: &str) -> RpcValue {
+    RpcValue::Raw(compact_json(json))
+}
+
+/// The members of the request object `request` (an element of a batch), read by
+/// [`object_members`], given to `answer`.
+fn with_request_members<T>(
+    request: &str,
+    answer: impl FnOnce(Option<RequestMembers<'_>>) -> T,
+) -> T {
+    let members = object_members(request, ["jsonrpc", "method", "id", "params"]);
+    let haskell_logging = members
+        .as_ref()
+        .and_then(|[_, _, _, params]| params.as_deref())
+        .and_then(|params| object_members(params.get(), ["haskell-logging"]))
+        .and_then(|[logs]| logs);
+    answer(
+        members
+            .as_ref()
+            .map(|[jsonrpc, method, id, params]| RequestMembers {
+                jsonrpc: jsonrpc.as_deref().map(RawValue::get),
+                method: method.as_deref().map(RawValue::get),
+                id: id.as_deref().map(RawValue::get),
+                params: params.as_deref().map(RawValue::get),
+                haskell_logging: haskell_logging.as_deref().map(RawValue::get),
+            }),
+    )
 }
 
 /// Valid JSON text without the whitespace between its tokens, so an echoed message cannot break
@@ -2375,7 +2457,7 @@ fn serve_connection(
                 break;
             }
         };
-        if message.value.as_deref().is_some_and(is_standalone_cancel) {
+        if message.value.as_ref().is_some_and(is_standalone_cancel) {
             if let Some(active) = session.active()?
                 && active.cancel()
                 && let Some(response) = active.cancellation_response()
@@ -2417,9 +2499,8 @@ mod session {
     };
 
     use k_rust_backend::stop::CancellationToken;
-    use serde_json::value::RawValue;
 
-    use super::{CONNECTION_STACK_SIZE, RpcService, cancellation_response, write_response};
+    use super::{CONNECTION_STACK_SIZE, Frame, RpcService, cancellation_response, write_response};
 
     const REQUEST_PENDING: u8 = 0;
     const REQUEST_CANCELLED: u8 = 1;
@@ -2434,7 +2515,7 @@ mod session {
     }
 
     impl RequestControl {
-        fn new(message: Option<&RawValue>) -> Self {
+        fn new(message: Option<&Frame>) -> Self {
             Self {
                 token: CancellationToken::new(),
                 state: AtomicU8::new(REQUEST_PENDING),
@@ -2483,7 +2564,7 @@ mod session {
     }
 
     type Controls = Arc<Mutex<VecDeque<Arc<RequestControl>>>>;
-    type Admitted = (Option<Box<RawValue>>, Arc<RequestControl>);
+    type Admitted = (Option<Frame>, Arc<RequestControl>);
     type Worker = thread::JoinHandle<io::Result<()>>;
 
     fn queue_poisoned() -> io::Error {
@@ -2538,7 +2619,7 @@ mod session {
                                         if control.is_cancelled() {
                                             None
                                         } else {
-                                            service.handle_parsed(message.as_deref())
+                                            service.handle_parsed(message.as_ref())
                                         }
                                     })
                             })?
@@ -2565,8 +2646,8 @@ mod session {
 
         /// Admits one request and queues it for the worker; `Ok(false)` when the worker has
         /// stopped and nothing more can be served.
-        pub(super) fn admit(&self, message: Option<Box<RawValue>>) -> io::Result<bool> {
-            let control = Arc::new(RequestControl::new(message.as_deref()));
+        pub(super) fn admit(&self, message: Option<Frame>) -> io::Result<bool> {
+            let control = Arc::new(RequestControl::new(message.as_ref()));
             self.controls
                 .lock()
                 .map_err(|_| queue_poisoned())?
@@ -2660,7 +2741,7 @@ mod session {
             assert!(
                 session
                     .admit(Some(
-                        RawValue::from_string(divergent_execute().to_string()).unwrap()
+                        Frame::parse(&divergent_execute().to_string()).unwrap()
                     ))
                     .unwrap()
             );
@@ -2761,110 +2842,113 @@ fn enable_keepalive(stream: &TcpStream) -> io::Result<()> {
     Ok(())
 }
 
+/// The size of every read from a connection.
+const READ_CHUNK: usize = 4096;
+
 struct FramedMessage {
-    /// The message's JSON text, or `None` when the frame was not valid JSON.
-    value: Option<Box<RawValue>>,
+    /// The message, or `None` when the frame was not valid JSON.
+    value: Option<Frame>,
     #[cfg(test)]
     raw: String,
 }
 
+/// Reads the next message of a connection, `None` at the end of the stream; `buffer` holds the
+/// bytes read but not yet framed, between calls.
+///
+/// A message is one JSON value ([`framing::Scanner`]). The connection is read in chunks of
+/// [`READ_CHUNK`] bytes, only when the scanner needs a byte past those buffered, so which bytes
+/// form a frame depends on the bytes and on where reads end:
+///
+/// - A value that starts with `t`, `f`, `n`, `-` or a digit (a scalar) never waits for another
+///   read while it is scanned: the end of the bytes read so far ends it. A number is complete
+///   there (`12` then `34` are two messages); a number that cannot end there (`1.`, `1e`, `-`) is
+///   malformed; an unfinished literal (`tr`) reads once more and is scanned again, and is
+///   malformed if the stream has ended. A read error there ends the connection.
+/// - Any other value waits for more bytes until it is complete or malformed. A read error while
+///   it waits (other than an interrupted read, which is retried) makes the frame malformed.
+/// - A malformed frame is the buffered bytes up to and including the first line feed, or every
+///   buffered byte when none is buffered; it is answered as a parse error. Bytes that are not
+///   UTF-8 in it end the connection instead.
+/// - At the end of the stream, buffered bytes that are not all whitespace are one malformed frame.
 fn read_json_message(
     reader: &mut impl Read,
     buffer: &mut Vec<u8>,
 ) -> io::Result<Option<FramedMessage>> {
-    struct Input<'a, R> {
-        reader: &'a mut R,
-        buffer: &'a mut Vec<u8>,
-        offset: usize,
-        scalar_root: Option<bool>,
-        chunk_end: &'a mut bool,
-    }
-
-    impl<R: Read> Read for Input<'_, R> {
-        fn read(&mut self, destination: &mut [u8]) -> io::Result<usize> {
-            if self.offset == self.buffer.len() {
-                // A primitive at a read boundary is already a complete message in the old
-                // slice parser. A temporary EOF lets serde finish it without waiting for the
-                // peer's next write. Incomplete primitives are retried after another read.
-                if self.scalar_root == Some(true) {
-                    *self.chunk_end = true;
-                    return Ok(0);
-                }
-                let mut chunk = [0; 4096];
-                let read = self.reader.read(&mut chunk)?;
-                self.buffer.extend_from_slice(&chunk[..read]);
-            }
-            if self.scalar_root.is_none() {
-                self.scalar_root = self
-                    .buffer
-                    .iter()
-                    .find(|byte| !byte.is_ascii_whitespace())
-                    .map(|byte| matches!(byte, b't' | b'f' | b'n' | b'-' | b'0'..=b'9'));
-            }
-            let available = &self.buffer[self.offset..];
-            let count = destination.len().min(available.len());
-            destination[..count].copy_from_slice(&available[..count]);
-            self.offset += count;
-            Ok(count)
-        }
-    }
-
+    let mut scanner = Scanner::default();
+    // The stream has ended: a read returned no bytes.
+    let mut ended = false;
     loop {
-        let mut chunk_end = false;
-        let (parsed, parsed_bytes) = {
-            let input = Input {
-                reader,
-                scalar_root: buffer
-                    .iter()
-                    .find(|byte| !byte.is_ascii_whitespace())
-                    .map(|byte| matches!(byte, b't' | b'f' | b'n' | b'-' | b'0'..=b'9')),
-                buffer,
-                offset: 0,
-                chunk_end: &mut chunk_end,
-            };
-            // A raw value is scanned with an explicit stack and no recursion limit, so a frame
-            // of any depth is either a message or malformed.
-            let mut values =
-                serde_json::Deserializer::from_reader(input).into_iter::<Box<RawValue>>();
-            let parsed = values.next();
-            (parsed, values.byte_offset())
-        };
-        let (consumed, value) = match parsed {
-            Some(Ok(value)) => (parsed_bytes, Some(value)),
-            Some(Err(error)) if !error.is_eof() => buffer
-                .iter()
-                .position(|byte| *byte == b'\n')
-                .map_or((buffer.len(), None), |newline| (newline + 1, None)),
-            Some(Err(_)) | None if chunk_end => {
-                let mut chunk = [0; 4096];
-                let read = reader.read(&mut chunk)?;
-                if read != 0 {
-                    buffer.extend_from_slice(&chunk[..read]);
-                    continue;
-                }
-                (buffer.len(), None)
+        // A scalar ends at the end of the bytes read so far.
+        let at_end = ended || scanner.is_scalar();
+        match scanner.scan(buffer, at_end) {
+            Outcome::Complete(end) => {
+                return match Frame::take(buffer, &scanner, end) {
+                    Some(frame) => Ok(Some(FramedMessage {
+                        #[cfg(test)]
+                        raw: frame.raw().to_owned(),
+                        value: Some(frame),
+                    })),
+                    // A value that is not UTF-8 is malformed.
+                    None => malformed_line(buffer),
+                };
             }
-            Some(Err(_)) | None => {
+            Outcome::Syntax => return malformed_line(buffer),
+            Outcome::NeedByte if scanner.is_scalar() => {}
+            Outcome::NeedByte => match read_chunk(reader, buffer) {
+                Ok(0) => ended = true,
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+                Err(_) => return malformed_line(buffer),
+            },
+            Outcome::Eof if scanner.is_scalar() => {
+                if read_chunk(reader, buffer)? == 0 {
+                    return malformed(buffer, buffer.len());
+                }
+                scanner = Scanner::default();
+            }
+            Outcome::Eof => {
                 if buffer.iter().all(u8::is_ascii_whitespace) {
                     buffer.clear();
                     return Ok(None);
                 }
-                (buffer.len(), None)
+                return malformed(buffer, buffer.len());
             }
-        };
-        let raw = std::str::from_utf8(&buffer[..consumed])
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
-        #[cfg(test)]
-        let raw = raw.to_owned();
-        #[cfg(not(test))]
-        let _ = raw;
-        buffer.drain(..consumed);
-        return Ok(Some(FramedMessage {
-            value,
-            #[cfg(test)]
-            raw,
-        }));
+        }
     }
+}
+
+/// Reads one chunk into the end of `buffer`; the number of bytes read.
+fn read_chunk(reader: &mut impl Read, buffer: &mut Vec<u8>) -> io::Result<usize> {
+    let length = buffer.len();
+    buffer.resize(length + READ_CHUNK, 0);
+    let read = reader.read(&mut buffer[length..]);
+    buffer.truncate(length + *read.as_ref().unwrap_or(&0));
+    read
+}
+
+/// The malformed frame of the buffered bytes up to the first line feed.
+fn malformed_line(buffer: &mut Vec<u8>) -> io::Result<Option<FramedMessage>> {
+    let consumed = buffer
+        .iter()
+        .position(|byte| *byte == b'\n')
+        .map_or(buffer.len(), |newline| newline + 1);
+    malformed(buffer, consumed)
+}
+
+/// The malformed frame of the first `consumed` buffered bytes, an error when they are not UTF-8.
+fn malformed(buffer: &mut Vec<u8>, consumed: usize) -> io::Result<Option<FramedMessage>> {
+    let raw = std::str::from_utf8(&buffer[..consumed])
+        .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))?;
+    #[cfg(test)]
+    let raw = raw.to_owned();
+    #[cfg(not(test))]
+    let _ = raw;
+    buffer.drain(..consumed);
+    Ok(Some(FramedMessage {
+        value: None,
+        #[cfg(test)]
+        raw,
+    }))
 }
 
 fn write_response(writer: &Mutex<BufWriter<TcpStream>>, response: &str) -> io::Result<()> {
@@ -2880,34 +2964,43 @@ fn write_response(writer: &Mutex<BufWriter<TcpStream>>, response: &str) -> io::R
     writer.flush()
 }
 
-fn is_standalone_cancel(message: &RawValue) -> bool {
-    let Some([jsonrpc, method, id]) = object_members(message, ["jsonrpc", "method", "id"]) else {
+fn is_standalone_cancel(message: &Frame) -> bool {
+    let Some(RequestMembers {
+        jsonrpc,
+        method,
+        id,
+        ..
+    }) = message.members()
+    else {
         return false;
     };
-    jsonrpc.as_deref().and_then(json_string).as_deref() == Some(JSON_RPC_VERSION)
-        && method.as_deref().and_then(json_string).as_deref() == Some("cancel")
-        && id.as_deref().is_none_or(|id| request_id(id).is_some())
+    jsonrpc.and_then(json_string).as_deref() == Some(JSON_RPC_VERSION)
+        && method.and_then(json_string).as_deref() == Some("cancel")
+        && id.is_none_or(|id| request_id(id).is_some())
 }
 
-fn cancellation_response(message: &RawValue) -> Option<String> {
-    let response = match json_elements(message) {
+fn cancellation_response(message: &Frame) -> Option<String> {
+    let response = match json_elements(message.value()) {
         Some(requests) => {
             let responses = requests
                 .iter()
-                .filter_map(|request| cancellation_error_for_request(request))
+                .filter_map(|request| {
+                    let [id] = object_members(request.get(), ["id"])?;
+                    cancellation_error(id.as_deref().map(RawValue::get))
+                })
                 .collect::<Vec<_>>();
             (!responses.is_empty()).then_some(RpcValue::Array(responses))
         }
-        None => cancellation_error_for_request(message),
+        None => cancellation_error(message.members()?.id),
     }?;
     Some(response.to_json_string())
 }
 
-/// The cancelled fault for an object request with an `id` member, echoing that member as sent.
-fn cancellation_error_for_request(request: &RawValue) -> Option<RpcValue> {
-    let [id] = object_members(request, ["id"])?;
+/// The cancelled fault for an object request whose `id` member is `id`, echoing that member as
+/// sent; `None` for a request without one.
+fn cancellation_error(id: Option<&str>) -> Option<RpcValue> {
     let id = id?;
-    let id = request_id(&id).map_or_else(|| echo(&id), RpcValue::Plain);
+    let id = request_id(id).map_or_else(|| echo(id), RpcValue::Plain);
     Some(RpcFault::cancelled().into_response(id))
 }
 
@@ -3295,8 +3388,10 @@ endmodule
         )
     }
 
-    /// The candidate's successor is empty, so `execute` answers `vacuous` one step on; the
-    /// pre-step state is not `stuck`, since a rule applies to every instance of it.
+    /// The candidate's successor normalizes to `\bottom`, so it is no successor: every instance
+    /// of `hz(X)` is the step's undefined step, which `execute` answers `vacuous` at the
+    /// pre-step depth. The pre-step state is not `stuck`, since a rule applies to every instance
+    /// of it.
     #[test]
     fn execute_answers_vacuous_for_a_carried_step_with_an_empty_successor() {
         let mut service = carried_empty_candidate_service();
@@ -3309,7 +3404,7 @@ endmodule
         .unwrap();
         let response = request(&mut service, 1, "execute", json!({ "state": state }));
         assert_eq!(response["result"]["reason"], "vacuous", "{response}");
-        assert_eq!(response["result"]["depth"], 1, "{response}");
+        assert_eq!(response["result"]["depth"], 0, "{response}");
     }
 
     #[test]
@@ -4373,9 +4468,9 @@ endmodule
     #[test]
     fn implication_normalization_drops_constraints_that_simplified_away() {
         let sort = BackendSort::simple("SortK");
-        let configuration = Term::variable(Variable::new("CONFIG", sort.clone()));
-        let x = Term::variable(Variable::new("X", sort.clone()));
-        let stale = Predicate::Equals(Term::raw_domain_value(sort.clone(), "3"), x);
+        let configuration = Term::variable(Variable::new("CONFIG", sort));
+        let x = Term::variable(Variable::new("X", sort));
+        let stale = Predicate::Equals(Term::raw_domain_value(sort, "3"), x);
         let original = KorePattern::And {
             sort: externalize::sort(&sort),
             arguments: vec![
@@ -4398,8 +4493,8 @@ endmodule
     #[test]
     fn implication_keeps_nested_consequent_existentials_on_the_left() {
         let sort = BackendSort::simple("SortK");
-        let variable = Variable::new("X!exists0", sort.clone());
-        let value = Term::raw_domain_value(sort.clone(), "value");
+        let variable = Variable::new("X!exists0", sort);
+        let value = Term::raw_domain_value(sort, "value");
         let substitution = Substitution::from([(variable, value)]);
 
         let sides = backend_implication::ImplicationSides::new(
@@ -4419,11 +4514,11 @@ endmodule
     #[test]
     fn implication_normalization_preserves_conjunction_shape() {
         let sort = BackendSort::simple("SortK");
-        let configuration = Term::variable(Variable::new("CONFIG", sort.clone()));
-        let x = Term::variable(Variable::new("X", sort.clone()));
+        let configuration = Term::variable(Variable::new("CONFIG", sort));
+        let x = Term::variable(Variable::new("X", sort));
         let constraints = vec![
-            Predicate::Equals(Term::raw_domain_value(sort.clone(), "3"), x.clone()),
-            Predicate::Equals(Term::raw_domain_value(sort.clone(), "0"), x),
+            Predicate::Equals(Term::raw_domain_value(sort, "3"), x.clone()),
+            Predicate::Equals(Term::raw_domain_value(sort, "0"), x),
         ];
         let mut canonical = constraints
             .iter()
@@ -4472,9 +4567,9 @@ endmodule
         }
 
         let sort = BackendSort::simple("SortK");
-        let configuration = Term::variable(Variable::new("CONFIG", sort.clone()));
-        let x = Term::variable(Variable::new("X", sort.clone()));
-        let value = |value| Term::raw_domain_value(sort.clone(), value);
+        let configuration = Term::variable(Variable::new("CONFIG", sort));
+        let x = Term::variable(Variable::new("X", sort));
+        let value = |value| Term::raw_domain_value(sort, value);
         let constraints = vec![
             Predicate::Equals(x.clone(), value("5")),
             Predicate::Equals(value("2"), x.clone()),
@@ -5014,10 +5109,7 @@ endmodule
     fn rewrite_existential_names_use_the_shared_identifier_decoder() {
         let sort = BackendSort::simple("SortS");
         for name in ["Ex#?X!0", "Ex#Var?X!1", "Ex#Var'Ques'X!2"] {
-            assert!(
-                is_rewrite_existential(&Variable::new(name, sort.clone())),
-                "{name}"
-            );
+            assert!(is_rewrite_existential(&Variable::new(name, sort)), "{name}");
         }
         for name in [
             "Var'Ques'X",
@@ -5027,7 +5119,7 @@ endmodule
             "VarX",
         ] {
             assert!(
-                !is_rewrite_existential(&Variable::new(name, sort.clone())),
+                !is_rewrite_existential(&Variable::new(name, sort)),
                 "{name}"
             );
         }
@@ -5084,11 +5176,11 @@ endmodule
         let message = read_json_message(&mut reader, &mut buffer)
             .unwrap()
             .unwrap();
-        assert_eq!(message.value.unwrap().get(), valid);
+        assert_eq!(message.value.unwrap().value(), valid);
         let message = read_json_message(&mut reader, &mut buffer)
             .unwrap()
             .unwrap();
-        assert_eq!(message.value.unwrap().get(), r#"{"id":2}"#);
+        assert_eq!(message.value.unwrap().value(), r#"{"id":2}"#);
         let message = read_json_message(&mut reader, &mut buffer)
             .unwrap()
             .unwrap();
@@ -5168,7 +5260,7 @@ endmodule
     fn deep_cancellations_are_recognized_and_answered_on_the_test_thread() {
         let deep = deep_array(DEEP_LEVELS);
         let cancel = |id: &str| {
-            RawValue::from_string(format!(
+            Frame::parse(&format!(
                 r#"{{"jsonrpc":"2.0","method":"cancel","id":{id},"extra":{deep}}}"#
             ))
             .unwrap()
@@ -5176,7 +5268,7 @@ endmodule
         assert!(is_standalone_cancel(&cancel("7")));
         assert!(!is_standalone_cancel(&cancel(&deep)));
 
-        let execute = RawValue::from_string(format!(
+        let execute = Frame::parse(&format!(
             r#"[{{"jsonrpc":"2.0","method":"execute","id":{deep}}},{{"id":"x"}},{deep}]"#
         ))
         .unwrap();
@@ -5607,6 +5699,104 @@ endmodule
         );
     }
 
+    /// An added module whose axiom conjoins a connective over terms to a term is refused with
+    /// that axiom named, and the error detail's term is that axiom, not the module's first
+    /// sentence.
+    #[test]
+    fn add_module_locates_a_refused_predicate_reading() {
+        let mut service = RpcService::new(BackendSession::new(
+            parse_definition(
+                r#"[] module TEST
+            sort SortB{} []
+            symbol b{}() : SortB{} [constructor{}(), total{}()]
+            symbol c{}() : SortB{} [constructor{}(), total{}()]
+        endmodule []"#,
+            )
+            .unwrap(),
+            "TEST",
+        ));
+        let response = request(
+            &mut service,
+            1,
+            "add-module",
+            json!({
+            "module": r#"module BAD-AXIOM
+                import TEST []
+                axiom{} \rewrites{SortB{}}(
+                    \and{SortB{}}(b{}(), \top{SortB{}}()), c{}()
+                ) [label{}("benign")]
+                axiom{} \rewrites{SortB{}}(
+                    \and{SortB{}}(c{}(), \top{SortB{}}()),
+                    \and{SortB{}}(\and{SortB{}}(b{}(), \not{SortB{}}(c{}())), \top{SortB{}}())
+                ) [label{}("conjoined-negation")]
+            endmodule []"#,
+            }),
+        );
+        let error = &response["error"];
+        assert_eq!(error["code"], 8, "{response:#}");
+        let message = error["data"]["error"].as_str().unwrap_or_default();
+        assert!(
+            message.contains("axiom conjoined-negation") && message.contains("\\not"),
+            "{response:#}"
+        );
+        let term = &error["data"]["term"]["term"];
+        assert_eq!(term["tag"], "Rewrites", "{response:#}");
+        assert_eq!(term["dest"]["tag"], "And", "{response:#}");
+    }
+
+    /// A `simplify` state that states no term but has a term in a predicate position is a
+    /// connective over terms, a set of values, not a predicate: `\not(true)` and
+    /// `\implies(true, false)` over Bool are `{false}`, and `\not(X ∧ X = true)` is `{false}` where
+    /// `X` is `true`. Each is refused, not answered with its terms read as `t = true` (`\bottom`,
+    /// `\bottom` and `\not(X)`).
+    #[test]
+    fn simplify_refuses_a_term_below_a_connective_with_no_term() {
+        let mut service = simplify_validation_service();
+        for (id, pattern) in [
+            r#"\not{SortBool{}}(\dv{SortBool{}}("true"))"#,
+            r#"\implies{SortBool{}}(\dv{SortBool{}}("true"), \dv{SortBool{}}("false"))"#,
+            r#"\not{SortBool{}}(\and{SortBool{}}(X:SortBool{}, \equals{SortBool{}, SortBool{}}(X:SortBool{}, \dv{SortBool{}}("true"))))"#,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let state = encode_kore(&parse_pattern(pattern).unwrap()).unwrap();
+            let response = request(
+                &mut service,
+                id as u64 + 1,
+                "simplify",
+                json!({ "state": state }),
+            );
+            let error = &response["error"];
+            assert_eq!(error["code"], 2, "{pattern}: {response:#}");
+            assert!(
+                error["data"][0]["error"]
+                    .as_str()
+                    .is_some_and(|message| message.contains("states no term")),
+                "{pattern}: {response:#}"
+            );
+        }
+    }
+
+    /// A `simplify` response to a predicate prints a Boolean term `t` it keeps as a predicate as
+    /// `true = t`, so the response, sent back, is read as the same predicate and simplifies to
+    /// itself; a bare `\not(X)` would be the set `Bool ∖ {X}`, which is refused.
+    #[test]
+    fn a_simplified_predicate_reads_back_as_the_same_predicate() {
+        let mut service = simplify_validation_service();
+        let pattern = r#"\not{SortBool{}}(\equals{SortBool{}, SortBool{}}(X:SortBool{}, \dv{SortBool{}}("true")))"#;
+        let first = request(
+            &mut service,
+            1,
+            "simplify",
+            json!({ "state": encode_kore(&parse_pattern(pattern).unwrap()).unwrap() }),
+        );
+        let state = first["result"]["state"].clone();
+        assert!(state.is_object(), "{first:#}");
+        let second = request(&mut service, 2, "simplify", json!({ "state": state }));
+        assert_eq!(second["result"]["state"], state, "{second:#}");
+    }
+
     #[test]
     fn add_module_does_not_locate_imported_unlicensed_injection() {
         let mut service = RpcService::new(BackendSession::new(
@@ -5788,7 +5978,7 @@ endmodule
         let fault = simplify_fault(
             SimplificationError::IterationLimit {
                 limit: 0,
-                term: Term::raw_domain_value(sort.clone(), "value"),
+                term: Term::raw_domain_value(sort, "value"),
             },
             &sort,
         )
@@ -6301,8 +6491,8 @@ endmodule
         let definition =
             BackendDefinition::internalize(&parse_definition(DEFINITION).unwrap(), "TEST").unwrap();
         let sort = BackendSort::simple("SortState");
-        let variable = Variable::new("X", sort.clone());
-        let value = Term::raw_domain_value(sort.clone(), "resolved");
+        let variable = Variable::new("X", sort);
+        let value = Term::raw_domain_value(sort, "resolved");
         let pattern = Pattern {
             term: Term::variable(variable.clone()),
             constraints: vec![Predicate::Equals(
@@ -6327,9 +6517,9 @@ endmodule
         let definition =
             BackendDefinition::internalize(&parse_definition(DEFINITION).unwrap(), "TEST").unwrap();
         let sort = BackendSort::simple("SortState");
-        let x = Variable::new("X", sort.clone());
-        let y = Variable::new("Y", sort.clone());
-        let value = Term::raw_domain_value(sort.clone(), "resolved");
+        let x = Variable::new("X", sort);
+        let y = Variable::new("Y", sort);
+        let value = Term::raw_domain_value(sort, "resolved");
         let pattern = Pattern {
             term: Term::variable(y.clone()),
             constraints: vec![
@@ -6475,7 +6665,7 @@ endmodule
     #[test]
     fn retains_a_cycle_breaking_equation_outside_the_rpc_substitution() {
         let sort = BackendSort::simple("SortState");
-        let x = Variable::new("X", sort.clone());
+        let x = Variable::new("X", sort);
         let y = Variable::new("Y", sort);
         let constraints = vec![
             Predicate::Equals(Term::variable(y.clone()), Term::variable(x.clone())),
@@ -6498,14 +6688,12 @@ endmodule
     #[test]
     fn externalizes_rule_provenance_and_applies_state_substitutions() {
         let sort = BackendSort::simple("SortState");
-        let rule_variable = Variable::new("Rule#X", sort.clone());
-        let state_variable = Variable::new("X", sort.clone());
+        let rule_variable = Variable::new("Rule#X", sort);
+        let state_variable = Variable::new("X", sort);
         let rule_substitution =
             Substitution::from([(rule_variable, Term::variable(state_variable.clone()))]);
-        let state_substitution = Substitution::from([(
-            state_variable,
-            Term::raw_domain_value(sort.clone(), "resolved"),
-        )]);
+        let state_substitution =
+            Substitution::from([(state_variable, Term::raw_domain_value(sort, "resolved"))]);
 
         let substitution =
             project_rule_substitution(&rule_substitution, &state_substitution, &BTreeSet::new());
@@ -6576,16 +6764,16 @@ endmodule
         let sort = BackendSort::simple("SortState");
         let substitution = Substitution::from([
             (
-                Variable::new("Rule#A", sort.clone()),
-                Term::raw_domain_value(sort.clone(), "a"),
+                Variable::new("Rule#A", sort),
+                Term::raw_domain_value(sort, "a"),
             ),
             (
-                Variable::new("Rule#B", sort.clone()),
-                Term::raw_domain_value(sort.clone(), "b"),
+                Variable::new("Rule#B", sort),
+                Term::raw_domain_value(sort, "b"),
             ),
             (
-                Variable::new("Rule#C", sort.clone()),
-                Term::raw_domain_value(sort.clone(), "c"),
+                Variable::new("Rule#C", sort),
+                Term::raw_domain_value(sort, "c"),
             ),
         ]);
 

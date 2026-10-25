@@ -22,7 +22,7 @@ sort = "List"
 message = "emitted KMIR definition omits move invalidation"
 [[check.applications]]
 operation = "list.update"
-arguments = [{  }, {  }, { symbol = "typedValue", arguments = [{ symbol = "moved" }, {  }, {  }] }]
+arguments = [{  }, {  }, { symbol = "localValueTypedValue", arguments = [{ symbol = "valueMoved" }, {  }, {  }] }]
 
 [[check]]
 message = "emitted KMIR definition omits aggregate field projection"
@@ -94,7 +94,7 @@ required.rule_labels = ["finish-pointer-eq-same", "finish-pointer-ne-different"]
 [[check]]
 message = "emitted KMIR definition omits pointer metadata extraction"
 required.terminals = ["unOpPtrMetadata"]
-required.rule_labels = ["finish-pointer-metadata"]
+required.rule_labels = ["finish-ptr-metadata"]
 
 [[check]]
 message = "emitted KMIR definition omits bounded pointer arithmetic"
@@ -121,7 +121,7 @@ sort = "Map"
 [[check]]
 message = "emitted KMIR definition omits allocation-reference memory traversal"
 required.terminals = ["AllocRef", "allocId", "toAlloc"]
-required.rule_labels = ["finish-allocation-reference-unsize", "finish-allocation-reference-metadata"]
+required.rule_labels = ["finish-allocation-reference-unsize", "traverse-projection-allocation-reference-read"]
 [[check.cells]]
 name = "memory"
 configuration_variable = "MEMORY"
@@ -151,8 +151,8 @@ required.terminals = ["decodeFieldsWithOffsets", "neededBytesForOffsets", "field
 message = "emitted KMIR definition omits empty or layout-aware tuple decoding"
 required.terminals = ["typeInfoTupleType"]
 [[check.applications]]
-symbol = "tupleType"
-arguments = [{ symbol = "tysEmpty" }, {  }]
+symbol = "mirTypeInfoTupleType"
+arguments = [{ symbol = "mirTysTysEmpty" }, {  }]
 
 [[check]]
 message = "emitted KMIR definition omits fieldless enum discriminant decoding"
@@ -166,7 +166,7 @@ required.terminals = ["variantsShapeMultiple", "tagEncodingDirect", "integerLeng
 message = "emitted KMIR definition omits niche-pointer None decoding"
 required.terminals = ["primitivePointer", "addressSpace", "tagEncodingNiche"]
 [[check.applications]]
-symbol = "wrappingRange"
+symbol = "mirWrappingRangeWrappingRange"
 arguments = [{ token = "1", sort = "Int" }, { token = "0", sort = "Int" }]
 
 [[check]]
@@ -182,7 +182,7 @@ required.rule_labels = ["eval-aggregate-empty", "continue-aggregate-next"]
 [[check]]
 message = "emitted KMIR definition omits same-pointee pointer casts"
 required.terminals = ["castKindPtrToPtr"]
-required.rule_labels = ["finish-same-pointee-ptr-cast", "finish-same-pointee-ref-to-ptr-ptr-cast"]
+required.rule_labels = ["finish-same-pointee-ptr-cast"]
 
 [[check]]
 message = "emitted KMIR definition omits array or primitive type metadata"
@@ -198,7 +198,8 @@ required.terminals = ["readTyConstInt", "staticSize"]
 
 [[check]]
 message = "emitted KMIR definition omits zero-sized pointee classification"
-required.terminals = ["typeInfoVoidType", "zeroSizedType"]
+required.terminals = ["typeInfoVoidType"]
+required.rule_labels = ["resolve-ptr-cast-to-zst", "resolve-ptr-cast-from-zst"]
 
 [[check]]
 message = "emitted KMIR definition omits transparent struct metadata"
@@ -228,7 +229,7 @@ required.terminals = ["convertPointerMetadata"]
 [[check]]
 message = "emitted KMIR definition omits same-representation pointer transmutation"
 required.terminals = ["castKindTransmute"]
-required.rule_labels = ["finish-reference-transmute-identity", "finish-pointer-transmute-identity", "finish-allocation-reference-transmute-identity"]
+required.rule_labels = ["finish-transmute-identity"]
 
 [[check]]
 message = "emitted KMIR definition omits source-shaped downcast projection"

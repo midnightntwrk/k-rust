@@ -17,7 +17,7 @@
     ]
   },
   "result": {
-    "application": "builtin:int_add",
+    "application": "operator:add",
     "arguments": [
       "lhs",
       "rhs"

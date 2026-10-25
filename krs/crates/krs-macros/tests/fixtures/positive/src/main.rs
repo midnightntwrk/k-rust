@@ -18,9 +18,9 @@ mod readable_sorts {
     use language_host::builtin::{Bool, Id, Int};
 
     language_host::sorts! {
-        #[k::bracket("(", ")")]
+        #[k::bracket("(", ")",)]
         ReadableExpr;
-        impl ReadableExpr for Id;
+        impl ReadableExpr for Id,;
 
         ReadableValue: ReadableExpr + language_host::KResult;
         impl ReadableValue for Int, Bool;
@@ -143,7 +143,7 @@ mod readable_imp_grammar {
         eval_lt:      Lt { lhs, rhs }         => int::lt(lhs, rhs);
 
         eval_bool_eq: Eq { lhs, rhs }         => bool::eq(lhs, rhs) where lhs: Bool, rhs: Bool;
-        eval_int_eq:  Eq { lhs, rhs }         => int::eq(lhs, rhs)  where lhs: Int,  rhs: Int;
+        eval_int_eq:  Eq { lhs, rhs }         => int::eq(lhs, rhs)  where lhs: Int,  rhs: Int,;
         eval_bool_ne: Ne { lhs, rhs }         => bool::ne(lhs, rhs) where lhs: Bool, rhs: Bool;
         eval_int_ne:  Ne { lhs, rhs }         => int::ne(lhs, rhs)  where lhs: Int,  rhs: Int;
 
@@ -275,13 +275,13 @@ mod readable_imp_grammar {
         s1: language_host::Term<Stmt>,
         s2: language_host::Term<Stmt>,
         language_host::cells! {
-            computation: KCell(StmtSyntax::Sequence(s1, s2), tail @ ..),
-            state @ ..
+            computation: KCell(StmtSyntax::Sequence(s1, s2), tail @ ..,),
+            state @ ..,
         }: ReadableRuleMachine,
     ) -> ReadableRuleMachine {
         language_host::cells! {
-            computation: KCell(s1, s2, ..tail),
-            ..state
+            computation: KCell(s1, s2, ..tail,),
+            ..state,
         }
     }
 
@@ -379,7 +379,7 @@ mod readable_imp_grammar {
         value: language_host::Term<Value>,
         language_host::cells! {
             computation: KCell(name, tail @ ..),
-            env: Cell(map![name -> value, rest @ ..]),
+            env: Cell(map![name -> value, rest @ ..,],),
             state @ ..
         }: ReadableRuleMachine,
     ) -> ReadableRuleMachine {
@@ -621,7 +621,20 @@ pub struct Secondary {
 }
 
 impl Secondary {
+    /// Documentation, lint levels, and `cfg` stay on the generated method.
     #[language_host::init]
+    #[cfg(not(test))]
+    #[deny(unused_variables)]
+    pub fn init(#[language_host::config_var(name = "PGM", main)] program: Term<dyn KItemSort>) -> Self {
+        Self {
+            k: language_host::configuration::KCell::new(k![program]),
+        }
+    }
+
+    /// `cfg` selects this initializer in test builds instead.
+    #[language_host::init]
+    #[cfg(test)]
+    #[allow(clippy::needless_pass_by_value)]
     pub fn init(#[language_host::config_var(name = "PGM", main)] program: Term<dyn KItemSort>) -> Self {
         Self {
             k: language_host::configuration::KCell::new(k![program]),
@@ -993,15 +1006,16 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             missing_configuration.kind(),
-            krs_collector::CollectionErrorKind::InvalidConfiguration
+            krs_collector::CollectionErrorKind::ConfigurationCount
         );
         assert!(
             missing_configuration
                 .detail()
-                .contains("none was collected")
+                .contains("the definition has no `#[k::configuration]`")
         );
 
-        let mut ambiguous_descriptors = implicit_head_rules.clone();
+        let mut ambiguous_descriptors = vocabulary(&descriptors);
+        ambiguous_descriptors.extend(implicit_head_rules.iter().cloned());
         ambiguous_descriptors.extend(
             descriptors
                 .iter()
@@ -1027,7 +1041,7 @@ mod tests {
         assert!(
             ambiguous_configuration
                 .detail()
-                .contains("2 candidates were collected"),
+                .contains("the definition declares 2 configurations"),
             "{}",
             ambiguous_configuration.detail()
         );
@@ -1062,9 +1076,9 @@ mod tests {
             .unwrap();
         let local_is_not_ownership = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
-            implicit_head_rules
-                .iter()
-                .cloned()
+            vocabulary(&descriptors)
+                .into_iter()
+                .chain(implicit_head_rules.iter().cloned())
                 .chain([local_configuration.clone(), unrelated_configuration])
                 .map(Ok),
             &language_host::builtin_registry(),
@@ -1073,7 +1087,7 @@ mod tests {
         assert!(
             local_is_not_ownership
                 .detail()
-                .contains("2 candidates were collected")
+                .contains("the definition declares 2 configurations")
         );
     }
 
@@ -1142,11 +1156,7 @@ mod tests {
             unreachable!()
         };
         *value = language_host::ProtocolInitializerStateTerm::Term(sequence.items[0].value.clone());
-        let sort_descriptors = descriptors
-            .iter()
-            .filter(|descriptor| descriptor.id.item_kind() == ItemKind::Sort)
-            .cloned()
-            .collect::<Vec<_>>();
+        let sort_descriptors = vocabulary(&descriptors);
         let no_computation = krs_collector::collect_host_descriptors_with_builtins(
             [context.clone()],
             sort_descriptors
@@ -1161,7 +1171,7 @@ mod tests {
         assert!(
             no_computation
                 .detail()
-                .contains("no matching top-level KCell<KSequence>"),
+                .contains("has no `KSequence` cell to hold the computation"),
             "{}",
             no_computation.detail()
         );
@@ -1185,7 +1195,7 @@ mod tests {
         assert!(
             two_computations
                 .detail()
-                .contains("2 matching top-level KCell<KSequence>"),
+                .contains("has 2 top-level `KSequence` cells, `first`, `second`"),
             "{}",
             two_computations.detail()
         );
@@ -2214,7 +2224,7 @@ mod tests {
                 .resolve(),
             std::any::TypeId::of::<readable_sorts::ReadableExpr>()
         );
-        let HostTerm::Application { reference, .. } = &eval_add.head.as_ref().unwrap().subject else {
+        let HostTerm::Application { reference, .. } = &eval_add.head.as_ref().unwrap().items[0] else {
             panic!("readable eval_add subject must be an enum application")
         };
         assert_eq!(
@@ -2244,7 +2254,7 @@ mod tests {
         let HostDescriptorPayload::HeadRule(and_false) = &and_false.payload else {
             panic!("readable and_false must be a head-anchored rule")
         };
-        let HostTerm::Application { arguments, .. } = &and_false.head.as_ref().unwrap().subject else {
+        let HostTerm::Application { arguments, .. } = &and_false.head.as_ref().unwrap().items[0] else {
             panic!("readable and_false subject must be an enum application")
         };
         assert_eq!(arguments.len(), 1, "record `..` stays a partial subject");
@@ -2293,7 +2303,7 @@ mod tests {
             let HostDescriptorPayload::HeadRule(rule) = &descriptor.payload else {
                 panic!("{name} must be a readable head rule")
             };
-            let HostTerm::Application { reference, .. } = &rule.head.as_ref().unwrap().subject else {
+            let HostTerm::Application { reference, .. } = &rule.head.as_ref().unwrap().items[0] else {
                 panic!("{name} must have an application head")
             };
             reference.target.resolve()
@@ -2513,6 +2523,21 @@ mod tests {
         descriptors: &[language_host::HostDescriptor],
     ) -> Vec<language_host::HostDescriptor> {
         head_rules(descriptors).into_iter().filter(|descriptor| matches!(&descriptor.payload, HostDescriptorPayload::HeadRule(rule) if rule.head_sort.is_some())).collect()
+    }
+
+    /// The sorts and constructors a head rule's terms resolve against: a rule is checked against
+    /// the configuration as its payload is resolved, so its terms must resolve first.
+    fn vocabulary(descriptors: &[language_host::HostDescriptor]) -> Vec<language_host::HostDescriptor> {
+        descriptors
+            .iter()
+            .filter(|descriptor| {
+                matches!(
+                    descriptor.payload,
+                    HostDescriptorPayload::Sort(_) | HostDescriptorPayload::Constructor(_)
+                )
+            })
+            .cloned()
+            .collect()
     }
 
     fn broad_bundle(descriptors: &[language_host::HostDescriptor]) -> krs_ir::DescriptorBundle {
@@ -2772,9 +2797,18 @@ mod tests {
             assert_eq!(explicit.attributes().len(), readable.attributes().len());
             match (explicit.content(), readable.content()) {
                 (
-                    krs_ir::FixedCellContent::Term { sort: explicit },
-                    krs_ir::FixedCellContent::Term { sort: readable },
-                ) => assert_eq!(explicit, readable),
+                    krs_ir::FixedCellContent::Term {
+                        sort: explicit,
+                        arguments: explicit_arguments,
+                    },
+                    krs_ir::FixedCellContent::Term {
+                        sort: readable,
+                        arguments: readable_arguments,
+                    },
+                ) => {
+                    assert_eq!(explicit, readable);
+                    assert_eq!(explicit_arguments, readable_arguments);
+                }
                 _ => panic!("equivalent semantic configurations must use leaf cells"),
             }
         }

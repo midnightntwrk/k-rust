@@ -9,6 +9,8 @@ mod collection_item_sorts;
 mod collection_roles;
 #[path = "backend/confluence_budget.rs"]
 mod confluence_budget;
+#[path = "backend/data_terms.rs"]
+mod data_terms;
 #[path = "backend/deferred_definedness.rs"]
 mod deferred_definedness;
 #[path = "backend/definedness_classes.rs"]
@@ -19,10 +21,16 @@ mod evaluation_mode;
 mod execution_stack_stops;
 #[path = "backend/exploration_merge.rs"]
 mod exploration_merge;
+#[path = "backend/framed_collection_owise.rs"]
+mod framed_collection_owise;
 #[path = "backend/hook_result_sorts.rs"]
 mod hook_result_sorts;
 #[path = "backend/issue_4114_overload.rs"]
 mod issue_4114_overload;
+#[path = "backend/list_shared_subject_variables.rs"]
+mod list_shared_subject_variables;
+#[path = "backend/literal_rows.rs"]
+mod literal_rows;
 #[path = "backend/matching.rs"]
 mod matching;
 #[path = "backend/mixed_float_formats.rs"]
@@ -49,6 +57,8 @@ mod search;
 mod set_aside_equations;
 #[path = "backend/simplify.rs"]
 mod simplify;
+#[path = "backend/smt_unknowns.rs"]
+mod smt_unknowns;
 #[path = "backend/structural_distinctness.rs"]
 mod structural_distinctness;
 #[path = "backend/stuck_instances.rs"]

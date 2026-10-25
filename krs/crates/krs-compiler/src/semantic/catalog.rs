@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::{
-    Descriptor, DescriptorDeclaration, DescriptorIndex, DescriptorPayload, DescriptorProduction,
-    DescriptorProductionItem, DescriptorSortRef, GrammarDescriptor, ProductionFieldId,
-    StableItemId,
+    BuiltinSort, Descriptor, DescriptorDeclaration, DescriptorIndex, DescriptorPayload,
+    DescriptorProduction, DescriptorProductionItem, DescriptorSortRef, GrammarDescriptor,
+    ProductionFieldId, StableItemId,
 };
 use krs_ir_levels::{SemanticSortRef, SemanticTerm};
 
@@ -21,6 +21,11 @@ pub(super) struct ProductionSignature {
     /// Whether the production is a function, whose applications denote
     /// equation results rather than values of their own.
     pub(super) function: bool,
+    /// The empty constructor of the cons list whose cons constructor this
+    /// production is (F6): the cons of a `#[k::syntax_list]` sort or of a
+    /// `#[k::cons_list]` enum. Bracket list notation at the production's
+    /// result sort denotes the two.
+    pub(super) cons_list_empty: Option<StableItemId>,
 }
 
 pub(super) fn semantic_sort_ref(sort: &DescriptorSortRef) -> SemanticSortRef {
@@ -63,11 +68,16 @@ pub(super) fn build_semantic_sort_parents(
             | DescriptorPayload::Cell(_)
             | DescriptorPayload::ConfigurationRule(_)
             | DescriptorPayload::HeadRule(_)
-            | DescriptorPayload::ContextAlias(_) => {}
+            | DescriptorPayload::ContextAlias(_)
+            | DescriptorPayload::Constant(_) => {}
         }
     }
-    // K makes every generated cell sort a subsort of KItem, so a whole-group
-    // binder (`FrameCell`, KF-016) may stand wherever a KItem is expected.
+    // K makes every sort but `K` a `KItem`, whether or not a declaration
+    // says so: each declared sort, each builtin sort, and each generated cell
+    // sort, so a whole-group binder (`FrameCell`, KF-016) and a term of any
+    // sort may stand wherever a `KItem` is expected. Without these edges a
+    // binder's meet with a `KItem` occurrence is narrower than in the emitted
+    // K, and the rule applies to fewer terms than the author wrote.
     let k_item = descriptors
         .iter()
         .map(|descriptor| descriptor.id())
@@ -79,13 +89,31 @@ pub(super) fn build_semantic_sort_parents(
                 && id.package().cargo_source() == "framework"
         });
     if let Some(k_item) = k_item {
-        for descriptor in descriptors {
-            if matches!(descriptor.payload(), DescriptorPayload::Cell(_)) {
-                parents
-                    .entry(SemanticSortRef::Cell(descriptor.id().clone()))
-                    .or_default()
-                    .insert(SemanticSortRef::Declared(k_item.clone()));
+        let k_item = SemanticSortRef::Declared(k_item.clone());
+        let sorts = descriptors
+            .iter()
+            .filter_map(|descriptor| match descriptor.payload() {
+                DescriptorPayload::Sort(_) => {
+                    Some(SemanticSortRef::Declared(descriptor.id().clone()))
+                }
+                DescriptorPayload::Cell(_) => Some(SemanticSortRef::Cell(descriptor.id().clone())),
+                _ => None,
+            })
+            .chain(BuiltinSort::ALL.into_iter().map(SemanticSortRef::Builtin))
+            .chain(parents.keys().cloned())
+            .chain(parents.values().flatten().cloned())
+            .collect::<BTreeSet<_>>();
+        for sort in sorts {
+            if sort == k_item
+                || matches!(
+                    sort,
+                    SemanticSortRef::Builtin(BuiltinSort::KSequence)
+                        | SemanticSortRef::Parameter(_)
+                )
+            {
+                continue;
             }
+            parents.entry(sort).or_default().insert(k_item.clone());
         }
     }
     parents
@@ -167,6 +195,23 @@ pub(super) fn build_production_catalog(
                                 krs_ir::DescriptorProductionAttribute::Function { .. }
                             )
                         }),
+                        cons_list_empty: production.attributes.iter().find_map(|attribute| {
+                            match attribute {
+                                krs_ir::DescriptorProductionAttribute::ListCons {
+                                    terminator: empty,
+                                    ..
+                                }
+                                | krs_ir::DescriptorProductionAttribute::ConsList {
+                                    empty, ..
+                                } => match &empty.application {
+                                    krs_ir::DescriptorApplicationRef::Declared(id) => {
+                                        Some(id.clone())
+                                    }
+                                    _ => None,
+                                },
+                                _ => None,
+                            }
+                        }),
                     },
                 )
                 .is_some()
@@ -174,6 +219,7 @@ pub(super) fn build_production_catalog(
                 return Err(DescriptorLoweringError::UnsupportedShape {
                     node: "production catalog",
                     detail: format!("more than one grammar descriptor owns {id}"),
+                    range: None,
                 });
             }
         }
@@ -185,6 +231,7 @@ pub(super) fn build_production_catalog(
         return Err(DescriptorLoweringError::UnsupportedShape {
             node: "constructor",
             detail: format!("no grammar descriptor owns constructor {}", descriptor.id()),
+            range: None,
         });
     }
     Ok(catalog)
@@ -200,6 +247,10 @@ pub(super) struct DeclarationCatalog<'a> {
 /// In a rule result (`splice`), an item of sort `K` (`io::write`, `io::putc`, `io::log`)
 /// splices into the sequence as K's `~>` does: the sequence's items then have sort `K`, and
 /// every other item injects into `KItem`. A pattern keeps the single common sort.
+/// Every sort but `K` is a `KItem`, so items of unrelated sorts, such as an
+/// `Int` value followed by a frame, have the common sort `KItem`; only when
+/// they have no one most-specific common sort at all (a definition without
+/// `KItem`) do the sequence's items have sort `K` there too.
 pub(super) fn common_sequence_item_sort(
     descriptor: &Descriptor,
     items: &[SemanticTerm],
@@ -230,16 +281,14 @@ pub(super) fn common_sequence_item_sort(
         .cloned()
         .collect::<Vec<_>>();
     let [item_sort] = most_specific.as_slice() else {
-        return Err(DescriptorLoweringError::InvalidTerm {
-            id: Box::new(descriptor.id().clone()),
-            detail: if k_item {
-                "K sequence items do not have one most-specific common sort; a `K` item splices \
-                 into a sequence only in a rule result"
-                    .into()
-            } else {
-                "K sequence items do not have one most-specific common sort".into()
-            },
-        });
+        if !k_item {
+            return Ok(SemanticSortRef::k_sequence());
+        }
+        return Err(DescriptorLoweringError::invalid_term(
+            descriptor.id(),
+            "K sequence items do not have one most-specific common sort; a `K` item splices \
+                 into a sequence only in a rule result",
+        ));
     };
     Ok(item_sort.clone())
 }

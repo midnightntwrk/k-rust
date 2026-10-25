@@ -1,0 +1,3 @@
+# The termination file of the measure fixture (`k2lean gen --termination`).
+[functions."norm"]
+partial_fixpoint = true

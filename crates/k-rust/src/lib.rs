@@ -3,12 +3,14 @@
 pub mod backend;
 #[cfg(feature = "cli")]
 pub mod bison;
+mod build_identity;
 pub mod builtin;
 pub mod definition;
 pub mod diagnostic;
 pub mod inner;
 pub mod kast;
 pub mod kompile;
+pub mod krun;
 mod lines;
 /// The backend crate the facade [`backend`] is built on, with the features this build of
 /// `k_rust` enables.
@@ -35,6 +37,8 @@ pub mod outer;
 pub mod provenance;
 mod stack;
 pub mod timings;
+
+pub use build_identity::{UNVERIFIED_BUILD, build_identity, is_verified_build};
 
 /// Whether this build infers ambiguity resolutions with Z3 (the `z3-inference` feature).
 pub const Z3_INFERENCE: bool = cfg!(feature = "z3-inference");

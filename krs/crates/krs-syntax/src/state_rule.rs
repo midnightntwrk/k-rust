@@ -17,7 +17,7 @@ use crate::rule::{BINDER_LIST_CONTRACT, RuleCondition, RuleExistentials, take_re
 use crate::term::{
     local_rewrite_error, push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors,
 };
-use crate::term_sort::{TermSort, parse_readable_sort, parse_term_sort};
+use crate::term_sort::{TermSort, parse_term_or_readable_sort};
 use crate::{
     CellsExpression, MapBody, MapExpression, ProvenanceAnchor, ProvenanceRole, RuleRole,
     StateMacroRemainder, StateTerm, SyntaxError, SyntaxErrorKind, TermExpression, TermLiteral,
@@ -203,7 +203,20 @@ impl StateClaimItem {
     /// cannot be represented.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
         let mut output = self.rule.provenance()?;
-        output.retain(|anchor| anchor.role() != ProvenanceRole::RuleDeclaration);
+        // A claim numbers its literal islands below, with its ensures
+        // condition.
+        output.retain(|anchor| {
+            !matches!(
+                anchor.role(),
+                ProvenanceRole::RuleDeclaration
+                    | ProvenanceRole::ClaimIdToken
+                    | ProvenanceRole::ClaimBytesToken
+                    | ProvenanceRole::ClaimAnonymous
+                    | ProvenanceRole::ClaimAnonymousSort
+                    | ProvenanceRole::ClaimAnonymousSpelling
+                    | ProvenanceRole::ClaimOrBool
+            )
+        });
         output.push(ProvenanceAnchor::new(
             ProvenanceRole::ClaimDeclaration,
             0,
@@ -686,6 +699,14 @@ impl StateRuleItem {
                 helper.path().span(),
             ));
         }
+        for condition in requires
+            .as_ref()
+            .map(RuleCondition::term)
+            .into_iter()
+            .chain(existentials.ensures())
+        {
+            validate_condition_reuses(condition, &bindings)?;
+        }
         let subject_names = bindings
             .iter()
             .map(|binding| binding.name.clone())
@@ -910,6 +931,16 @@ impl StateRuleItem {
         if let Some(ensures) = self.existentials.ensures() {
             crate::term::push_ml_binder_anchors(&mut output, ensures.nodes(), &mut closures)?;
         }
+        // Builtin `Id` and `Bytes` literals, each kind numbered across the
+        // cells, the condition, then the ensures condition (a claim numbers
+        // its own, with its claim-only islands).
+        append_claim_node_anchors(
+            claim_terms(self, None)
+                .into_iter()
+                .map(TermExpression::nodes)
+                .chain(self.existentials.ensures().map(TermExpression::nodes)),
+            &mut output,
+        )?;
         Ok(output)
     }
 
@@ -1426,8 +1457,7 @@ fn parse_typed_bindings(item: &ItemFn) -> Result<Vec<(Ident, TermSort)>, SyntaxE
         }
         let authored_type = (*argument.ty).clone();
         crate::parse::validate_authored_binder(&pattern.ident.to_string(), pattern.ident.span())?;
-        let sort = parse_term_sort(authored_type.clone())
-            .or_else(|_| parse_readable_sort(authored_type))?;
+        let sort = parse_term_or_readable_sort(authored_type)?;
         output.push((pattern.ident.clone(), sort));
     }
     Ok(output)
@@ -1481,6 +1511,22 @@ fn validate_cells_path(path: &Path, span: proc_macro2::Span) -> Result<(), Synta
         ));
     }
     Ok(())
+}
+
+/// The term binders a `cells!` pattern introduces, in the first-occurrence
+/// preorder that a rule's typed term parameters follow.
+///
+/// # Errors
+///
+/// Returns the binding error a `cells!` rule subject would report.
+pub fn cells_pattern_term_binders(cells: &CellsExpression) -> Result<Vec<Ident>, SyntaxError> {
+    let mut bindings = Vec::new();
+    collect_cells_bindings(cells, &mut bindings)?;
+    Ok(bindings
+        .into_iter()
+        .filter(|binding| binding.kind == StateRuleBindingKind::Term)
+        .map(|binding| binding.name)
+        .collect())
 }
 
 fn collect_cells_bindings(
@@ -1599,7 +1645,7 @@ fn collect_term_bindings(
     let (left, _) = crate::term::split_rewrite_images(term.nodes());
     for node in left {
         let binding = match node {
-            TermNode::Reference(path) => bare_ident(path),
+            TermNode::Reference(path) => crate::path::pattern_binder(path),
             TermNode::As { binding, .. } => Some(binding),
             _ => None,
         };
@@ -1776,16 +1822,68 @@ fn validate_term_reuses(
     term: &TermExpression,
     bindings: &[StateRuleBinding],
 ) -> Result<(), SyntaxError> {
+    // A result may write the computation and map remainders as terms (the
+    // variables `Tail:K` and `Rest:Map`); the configuration and instance
+    // remainders bind no variable.
     for node in term.nodes() {
         if let TermNode::Reference(path) = node
             && let Some(name) = bare_ident(path)
             && let Some(binding) = bindings.iter().find(|binding| binding.name == *name)
-            && binding.kind != StateRuleBindingKind::Term
         {
-            return Err(body_error(
-                "a structural frame cannot be reused as an object-language term",
-                name.span(),
-            ));
+            match binding.kind {
+                StateRuleBindingKind::ConfigurationFrame => {
+                    return Err(body_error(CONFIGURATION_REMAINDER_IN_RESULT, name.span()));
+                }
+                StateRuleBindingKind::InstancesFrame => {
+                    return Err(body_error(INSTANCES_REMAINDER_IN_RESULT, name.span()));
+                }
+                StateRuleBindingKind::Term
+                | StateRuleBindingKind::KSequenceFrame
+                | StateRuleBindingKind::MapFrame => {}
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The configuration remainder written as a result term.
+const CONFIGURATION_REMAINDER_IN_RESULT: &str = "this name is the remainder of the configuration: it stands for the cells this rule leaves out, which K completes from the declaration, so it is not a term a result can write";
+
+/// A collection's instance remainder written as a result term.
+const INSTANCES_REMAINDER_IN_RESULT: &str = "this name is the remainder of a collection's instances: it stands for the instances this rule leaves out, so it is not a term a result can write";
+
+/// The configuration remainder named in a condition.
+const CONFIGURATION_REMAINDER_IN_CONDITION: &str = "this name is the remainder of the configuration: it stands for the cells this rule leaves out, which K completes from the declaration, so it is not a term a condition can test";
+
+/// A collection's instance remainder named in a condition.
+const INSTANCES_REMAINDER_IN_CONDITION: &str = "this name is the remainder of a collection's instances: it stands for the instances this rule leaves out, which stay as they are, so it is not a term a condition can test";
+
+/// A condition sees the variables the rule's left side binds: its term
+/// binders and its computation and map remainders. The configuration and
+/// instance remainders bind no variable, so a condition cannot name them.
+fn validate_condition_reuses(
+    term: &TermExpression,
+    bindings: &[StateRuleBinding],
+) -> Result<(), SyntaxError> {
+    for node in term.nodes() {
+        if let TermNode::Reference(path) = node
+            && let Some(name) = bare_ident(path)
+            && let Some(binding) = bindings.iter().find(|binding| binding.name == *name)
+        {
+            match binding.kind {
+                StateRuleBindingKind::ConfigurationFrame => {
+                    return Err(body_error(
+                        CONFIGURATION_REMAINDER_IN_CONDITION,
+                        name.span(),
+                    ));
+                }
+                StateRuleBindingKind::InstancesFrame => {
+                    return Err(body_error(INSTANCES_REMAINDER_IN_CONDITION, name.span()));
+                }
+                StateRuleBindingKind::Term
+                | StateRuleBindingKind::KSequenceFrame
+                | StateRuleBindingKind::MapFrame => {}
+            }
         }
     }
     Ok(())
@@ -2171,7 +2269,8 @@ fn take_ensures_helper(
                     attribute.span(),
                 ));
             }
-            let payload = helper_payload(&attribute, "ensures")?;
+            let payload =
+                crate::parse::strip_trailing_comma(helper_payload(&attribute, "ensures")?);
             crate::term::reject_pattern_alias(&payload)?;
             let expression: Expr = syn::parse2(payload)?;
             found = Some(ClaimEnsures {
@@ -2281,12 +2380,27 @@ fn append_claim_special_anchors(
     ensures: Option<&ClaimEnsures>,
     output: &mut Vec<ProvenanceAnchor>,
 ) -> Result<(), SyntaxError> {
+    append_claim_node_anchors(
+        claim_terms(rule, ensures)
+            .into_iter()
+            .map(TermExpression::nodes),
+        output,
+    )
+}
+
+/// Anchors the claim-only nodes (`k::id!`, `k::bytes!`, `k::anonymous!`,
+/// `k::or_bool!`) of a claim's terms, each kind numbered in one sequence in
+/// the order of `terms`, which is the order expansion visits them.
+pub(crate) fn append_claim_node_anchors<'a>(
+    terms: impl IntoIterator<Item = &'a [TermNode]>,
+    output: &mut Vec<ProvenanceAnchor>,
+) -> Result<(), SyntaxError> {
     let mut id_ordinal = 0_u32;
     let mut bytes_ordinal = 0_u32;
     let mut anonymous_ordinal = 0_u32;
     let mut or_ordinal = 0_u32;
-    for term in claim_terms(rule, ensures) {
-        for node in term.nodes() {
+    for nodes in terms {
+        for node in nodes {
             match node {
                 TermNode::IdToken(literal) => {
                     output.push(ProvenanceAnchor::new(

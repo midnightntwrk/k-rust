@@ -842,6 +842,18 @@ expect.gas = "0"
 expect.statusCode = "EVMC_SUCCESS"
 
 [[behavior]]
+id = "push-immediate-past-code-end"
+program = 'b"\x61\x01"'
+stack = ".WordStack"
+pc = "0"
+gas = "3"
+expect.program = 'b"\x61\x01"'
+expect.wordStack = "256 : .WordStack"
+expect.pc = "3"
+expect.gas = "0"
+expect.statusCode = "EVMC_SUCCESS"
+
+[[behavior]]
 id = "add"
 program = 'b"\x01\x00"'
 stack = "2 : 3 : .WordStack"

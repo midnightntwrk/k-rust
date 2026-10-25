@@ -9,7 +9,7 @@ use k_rust_backend::{
     substitution::Substitution,
     term::{
         CollectionSymbols, FunctionType, HeadRole, ListDefinition, MapDefinition, Name, Sort,
-        Symbol, SymbolAttributes, SymbolType, Term, Variable,
+        SortNode, Symbol, SymbolAttributes, SymbolType, Term, Variable,
     },
 };
 use k_rust_kore::kore::parser::parse_definition;
@@ -21,6 +21,7 @@ enum Outcome {
     Success,
     Failed,
     Indeterminate,
+    Undecided,
 }
 
 fn outcome(result: MatchResult) -> Outcome {
@@ -28,6 +29,7 @@ fn outcome(result: MatchResult) -> Outcome {
         MatchResult::Success(_) => Outcome::Success,
         MatchResult::Failed(_) => Outcome::Failed,
         MatchResult::Indeterminate { .. } => Outcome::Indeterminate,
+        MatchResult::Undecided(_) => Outcome::Undecided,
     }
 }
 
@@ -294,9 +296,9 @@ fn differing_symbolic_injections_preserve_a_common_subsort_match() {
     graph.insert("SortCommon", []);
     graph.insert("SortDisjoint", []);
 
-    let pattern = Term::injection(left.clone(), item.clone(), var("PATTERN", left.clone()));
-    let overlapping = Term::injection(right.clone(), item.clone(), var("SUBJECT", right.clone()));
-    let separate = Term::injection(disjoint.clone(), item.clone(), var("SEPARATE", disjoint));
+    let pattern = Term::injection(left, item, var("PATTERN", left));
+    let overlapping = Term::injection(right, item, var("SUBJECT", right));
+    let separate = Term::injection(disjoint, item, var("SEPARATE", disjoint));
 
     for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
         assert_eq!(
@@ -310,16 +312,8 @@ fn differing_symbolic_injections_preserve_a_common_subsort_match() {
             "{mode:?}",
         );
 
-        let concrete_left = Term::injection(
-            left.clone(),
-            item.clone(),
-            domain_value(left.clone(), "left"),
-        );
-        let concrete_right = Term::injection(
-            right.clone(),
-            item.clone(),
-            domain_value(right.clone(), "right"),
-        );
+        let concrete_left = Term::injection(left, item, domain_value(left, "left"));
+        let concrete_right = Term::injection(right, item, domain_value(right, "right"));
         assert_eq!(
             outcome(match_terms(mode, &graph, &concrete_left, &overlapping)),
             Outcome::Failed,
@@ -333,10 +327,7 @@ fn differing_symbolic_injections_preserve_a_common_subsort_match() {
     }
 
     let parameter = Sort::simple("SortParameter");
-    let parametric = |name| Sort::Application {
-        name: Name::from(name),
-        arguments: vec![parameter.clone()],
-    };
+    let parametric = |name| Sort::application(Name::from(name), vec![parameter]);
     let parametric_left = parametric("SortLeft");
     let parametric_right = parametric("SortRight");
     assert_eq!(
@@ -344,12 +335,12 @@ fn differing_symbolic_injections_preserve_a_common_subsort_match() {
             MatchMode::Evaluate,
             &graph,
             &Term::injection(
-                parametric_left.clone(),
+                parametric_left,
                 Sort::simple("SortItem"),
                 var("PARAMETRIC_PATTERN", parametric_left),
             ),
             &Term::injection(
-                parametric_right.clone(),
+                parametric_right,
                 Sort::simple("SortItem"),
                 var("PARAMETRIC_SUBJECT", parametric_right),
             ),
@@ -381,19 +372,19 @@ fn collection_heads_fix_the_source_sort_of_differing_injections() {
             symbols: collection_symbols(prefix),
             key_sort: Sort::simple("SomeSort"),
             value_sort: Sort::simple("SomeSort"),
-            map_sort: match source {
-                Sort::Application { name, .. } => name.clone(),
-                Sort::Variable(_) => unreachable!(),
+            map_sort: match source.node() {
+                SortNode::Application { name, .. } => name.clone(),
+                SortNode::Variable(_) => unreachable!(),
             },
         });
         Term::map(
             definition,
             vec![(domain_value(sort(), "key"), domain_value(sort(), "value"))],
-            Some(var(&format!("{prefix}_REST"), source.clone())),
+            Some(var(&format!("{prefix}_REST"), *source)),
         )
     };
-    let pattern = Term::injection(left.clone(), item.clone(), open_map("left", &left));
-    let subject = Term::injection(right.clone(), item, open_map("right", &right));
+    let pattern = Term::injection(left, item, open_map("left", &left));
+    let subject = Term::injection(right, item, open_map("right", &right));
 
     for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
         assert_eq!(
@@ -534,7 +525,7 @@ fn signed_and_unsigned_int_literals_match_as_the_same_domain_value() {
     .unwrap();
     let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
     let int_sort = Sort::simple("SortInt");
-    let pattern = definition.domain_value(int_sort.clone(), "3").unwrap();
+    let pattern = definition.domain_value(int_sort, "3").unwrap();
     let subject = definition.domain_value(int_sort, "+3").unwrap();
 
     assert_eq!(
@@ -1036,10 +1027,10 @@ fn defers_sort_aligned_injection_pairs_for_a_supersort_subject_variable() {
     let sub = Sort::simple("SortSub");
     let sup = Sort::simple("SortSup");
     let top = Sort::simple("SortTop");
-    let pattern_child = var("X", sub.clone());
-    let subject_child = var("Y", sup.clone());
-    let pattern = Term::injection(sub.clone(), top.clone(), pattern_child.clone());
-    let subject = Term::injection(sup.clone(), top, subject_child.clone());
+    let pattern_child = var("X", sub);
+    let subject_child = var("Y", sup);
+    let pattern = Term::injection(sub, top, pattern_child.clone());
+    let subject = Term::injection(sup, top, subject_child.clone());
     let mut sorts = SortGraph::default();
     sorts.insert("SortSub", []);
     sorts.insert("SortSup", [Name::from("SortSub")]);
@@ -1059,14 +1050,13 @@ fn defers_sort_aligned_injection_pairs_for_a_supersort_pattern_function() {
     let sub = Sort::simple("SortSub");
     let sup = Sort::simple("SortSup");
     let top = Sort::simple("SortTop");
-    let mut function = Symbol::constructor("f", vec![sub.clone()], sup.clone());
+    let mut function = Symbol::constructor("f", vec![sub], sup);
     function.attributes.symbol_type = SymbolType::Function(FunctionType::Total);
     function.attributes.has_evaluators = true;
-    let pattern_child =
-        Term::application(Arc::new(function), Vec::new(), vec![var("X", sub.clone())]);
-    let subject_child = domain_value(sub.clone(), "a");
-    let pattern = Term::injection(sup.clone(), top.clone(), pattern_child.clone());
-    let subject = Term::injection(sub.clone(), top, subject_child.clone());
+    let pattern_child = Term::application(Arc::new(function), Vec::new(), vec![var("X", sub)]);
+    let subject_child = domain_value(sub, "a");
+    let pattern = Term::injection(sup, top, pattern_child.clone());
+    let subject = Term::injection(sub, top, subject_child.clone());
     let mut sorts = SortGraph::default();
     sorts.insert("SortSub", []);
     sorts.insert("SortSup", [Name::from("SortSub")]);
@@ -1161,8 +1151,19 @@ fn extracts_a_list_remainder() {
     );
 }
 
+fn list_function() -> Arc<Symbol> {
+    let mut symbol = (*function()).clone();
+    symbol.name = "listFunction".into();
+    symbol.result_sort = Sort::simple("ListSort");
+    Arc::new(symbol)
+}
+
+/// A closed list pattern against a subject with a middle: the middle denotes any list, the
+/// empty one among them, so where the items the subject fixes agree with the pattern's the
+/// match is open in every mode, the mode deciding only what the caller does with the open pair.
+/// It is refuted where the subject fixes more items than the closed pattern holds.
 #[test]
-fn defers_a_closed_list_pattern_against_a_variable_frame_in_rewrite_mode() {
+fn defers_a_closed_list_pattern_against_a_variable_frame_in_every_mode() {
     let definition = list_definition();
     let first = domain_value(sort(), "first");
     let frame = variable("FRAME", Sort::simple("ListSort"));
@@ -1173,23 +1174,25 @@ fn defers_a_closed_list_pattern_against_a_variable_frame_in_rewrite_mode() {
         Some((Term::variable(frame.clone()), Vec::new())),
     );
 
-    assert!(matches!(
-        match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
-        MatchResult::Indeterminate { substitution, remainder }
-            if substitution.is_empty()
-                && remainder == vec![(
-                    Term::list(definition.clone(), Vec::new(), None),
-                    Term::list(
-                        definition.clone(),
-                        Vec::new(),
-                        Some((Term::variable(frame.clone()), Vec::new())),
-                    ),
-                )]
-    ));
-    assert!(matches!(
-        match_terms(MatchMode::Evaluate, &sort_graph(), &pattern, &subject),
-        MatchResult::Failed(FailReason::DifferentValues(_, _))
-    ));
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        let result = match_terms(mode, &sort_graph(), &pattern, &subject);
+        assert!(
+            matches!(
+                &result,
+                MatchResult::Indeterminate { substitution, remainder }
+                    if substitution.is_empty()
+                        && *remainder == vec![(
+                            Term::list(definition.clone(), Vec::new(), None),
+                            Term::list(
+                                definition.clone(),
+                                Vec::new(),
+                                Some((Term::variable(frame.clone()), Vec::new())),
+                            ),
+                        )]
+            ),
+            "{mode:?}: {result:?}"
+        );
+    }
 
     let empty = Term::list(definition.clone(), Vec::new(), None);
     let longer_subject = Term::list(
@@ -1197,11 +1200,117 @@ fn defers_a_closed_list_pattern_against_a_variable_frame_in_rewrite_mode() {
         vec![first],
         Some((Term::variable(frame), Vec::new())),
     );
-    for mode in [MatchMode::Rewrite, MatchMode::Evaluate] {
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
         assert!(matches!(
             match_terms(mode, &sort_graph(), &empty, &longer_subject),
-            MatchResult::Failed(FailReason::DifferentValues(_, _))
+            MatchResult::Failed(FailReason::DifferentContents(_))
         ));
+    }
+}
+
+/// `[first, second]` against `[first] M`: `M = [second]` makes them equal. With the subject's
+/// tail `[first] M [second]`, the tail is paired with the pattern's last item and `M` may be
+/// empty; against `[first] M [third]` the paired tail refutes the match, and against
+/// `[first] M [second]` the one-item pattern `[first]` holds fewer items than the subject fixes.
+/// A middle that is a function application is as open as a variable.
+#[test]
+fn a_closed_list_pattern_leaves_its_items_to_the_subject_middle_in_every_mode() {
+    let definition = list_definition();
+    let first = domain_value(sort(), "first");
+    let second = domain_value(sort(), "second");
+    let third = domain_value(sort(), "third");
+    let frame = var("FRAME", Sort::simple("ListSort"));
+    let list = |heads: Vec<Term>, rest: Option<(Term, Vec<Term>)>| {
+        Term::list(definition.clone(), heads, rest)
+    };
+    let pattern = list(vec![first.clone(), second.clone()], None);
+    let applied = application(list_function(), var("X", sort()));
+
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        for middle in [frame.clone(), applied.clone()] {
+            let result = match_terms(
+                mode,
+                &sort_graph(),
+                &pattern,
+                &list(vec![first.clone()], Some((middle.clone(), Vec::new()))),
+            );
+            assert!(
+                matches!(
+                    &result,
+                    MatchResult::Indeterminate { substitution, remainder }
+                        if substitution.is_empty()
+                            && *remainder == vec![(
+                                list(vec![second.clone()], None),
+                                list(Vec::new(), Some((middle.clone(), Vec::new()))),
+                            )]
+                ),
+                "{mode:?}: {middle:?}: {result:?}"
+            );
+
+            let result = match_terms(
+                mode,
+                &sort_graph(),
+                &pattern,
+                &list(
+                    vec![first.clone()],
+                    Some((middle.clone(), vec![second.clone()])),
+                ),
+            );
+            assert!(
+                matches!(
+                    &result,
+                    MatchResult::Indeterminate { substitution, remainder }
+                        if substitution.is_empty()
+                            && *remainder == vec![(
+                                list(Vec::new(), None),
+                                list(Vec::new(), Some((middle.clone(), Vec::new()))),
+                            )]
+                ),
+                "{mode:?}: {middle:?}: {result:?}"
+            );
+
+            let result = match_terms(
+                mode,
+                &sort_graph(),
+                &pattern,
+                &list(
+                    vec![first.clone()],
+                    Some((middle.clone(), vec![third.clone()])),
+                ),
+            );
+            assert!(
+                matches!(result, MatchResult::Failed(FailReason::DifferentValues(..))),
+                "{mode:?}: {middle:?}: {result:?}"
+            );
+
+            let result = match_terms(
+                mode,
+                &sort_graph(),
+                &list(vec![first.clone()], None),
+                &list(
+                    vec![first.clone()],
+                    Some((middle.clone(), vec![second.clone()])),
+                ),
+            );
+            assert!(
+                matches!(
+                    result,
+                    MatchResult::Failed(FailReason::DifferentContents(_))
+                ),
+                "{mode:?}: {middle:?}: {result:?}"
+            );
+
+            let result = match_terms(
+                mode,
+                &sort_graph(),
+                &list(vec![first.clone()], None),
+                &list(vec![first.clone()], Some((middle.clone(), Vec::new()))),
+            );
+            assert!(
+                matches!(result, MatchResult::Indeterminate { .. }),
+                "{mode:?}: {middle:?}: {result:?}"
+            );
+        }
     }
 }
 
@@ -1224,37 +1333,106 @@ fn matches_map_values_at_concrete_keys() {
     );
 }
 
+/// A closed map pattern whose keys the subject binds, against a subject with a frame: the frame
+/// may be the empty map, so the match is open in every mode. A subject entry beside the frame
+/// that the exhausted pattern does not bind refutes it in every mode.
 #[test]
-fn defers_a_closed_map_pattern_against_a_variable_frame_in_rewrite_mode() {
+fn defers_a_closed_map_pattern_against_a_variable_frame_in_every_mode() {
     let definition = map_definition();
     let key = domain_value(Sort::simple("MapKey"), "key");
+    let other = domain_value(Sort::simple("MapKey"), "other");
     let value = domain_value(Sort::simple("MapValue"), "value");
     let frame = variable("FRAME", Sort::simple("MapSort"));
     let pattern = Term::map(definition.clone(), vec![(key.clone(), value.clone())], None);
     let subject = Term::map(
         definition.clone(),
-        vec![(key, value)],
+        vec![(key.clone(), value.clone())],
         Some(Term::variable(frame.clone())),
     );
 
-    assert!(matches!(
-        match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
-        MatchResult::Indeterminate { substitution, remainder }
-            if substitution.is_empty()
-                && remainder == vec![(
-                    Term::map(definition.clone(), Vec::new(), None),
-                    Term::map(
-                        definition.clone(),
-                        Vec::new(),
-                        Some(Term::variable(frame.clone())),
-                    ),
-                )]
-    ));
-    for mode in [MatchMode::Evaluate, MatchMode::Implies] {
-        assert!(matches!(
-            match_terms(mode, &sort_graph(), &pattern, &subject),
-            MatchResult::Failed(FailReason::DifferentContents(_, _))
-        ));
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        let result = match_terms(mode, &sort_graph(), &pattern, &subject);
+        assert!(
+            matches!(
+                &result,
+                MatchResult::Indeterminate { substitution, remainder }
+                    if substitution.is_empty()
+                        && *remainder == vec![(
+                            Term::map(definition.clone(), Vec::new(), None),
+                            Term::map(
+                                definition.clone(),
+                                Vec::new(),
+                                Some(Term::variable(frame.clone())),
+                            ),
+                        )]
+            ),
+            "{mode:?}: {result:?}"
+        );
+    }
+
+    let wider_subject = Term::map(
+        definition,
+        vec![(key, value.clone()), (other, value)],
+        Some(Term::variable(frame)),
+    );
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        let result = match_terms(mode, &sort_graph(), &pattern, &wider_subject);
+        assert!(
+            matches!(
+                result,
+                MatchResult::Failed(FailReason::DifferentContents(_))
+            ),
+            "{mode:?}: {result:?}"
+        );
+    }
+}
+
+/// `key |-> V  K |-> W` against `key |-> value FRAME`: after the found key, `K |-> W` is left
+/// against the frame alone, and `FRAME = other |-> w` makes the two equal. The match is open in
+/// every mode, whether the frame is a variable or a function application; it is refuted only
+/// against a subject without anything left for the symbolic entry.
+#[test]
+fn a_symbolic_map_entry_left_against_a_subject_frame_is_open_in_every_mode() {
+    let definition = map_definition();
+    let key = domain_value(Sort::simple("MapKey"), "key");
+    let value = domain_value(Sort::simple("MapValue"), "value");
+    let mut symbol = (*function()).clone();
+    symbol.name = "mapFunction".into();
+    symbol.result_sort = Sort::simple("MapSort");
+    let applied = application(Arc::new(symbol), var("X", sort()));
+    let pattern = Term::map(
+        definition.clone(),
+        vec![
+            (key.clone(), var("V", Sort::simple("MapValue"))),
+            (
+                var("K", Sort::simple("MapKey")),
+                var("W", Sort::simple("MapValue")),
+            ),
+        ],
+        None,
+    );
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        for rest in [var("FRAME", Sort::simple("MapSort")), applied.clone()] {
+            let subject = Term::map(
+                definition.clone(),
+                vec![(key.clone(), value.clone())],
+                Some(rest.clone()),
+            );
+            let result = match_terms(mode, &sort_graph(), &pattern, &subject);
+            assert!(
+                matches!(result, MatchResult::Indeterminate { .. }),
+                "{mode:?}: {rest:?}: {result:?}"
+            );
+        }
+        let closed = Term::map(definition.clone(), vec![(key.clone(), value.clone())], None);
+        let result = match_terms(mode, &sort_graph(), &pattern, &closed);
+        assert!(
+            matches!(
+                result,
+                MatchResult::Failed(FailReason::DifferentContents(_))
+            ),
+            "{mode:?}: {result:?}"
+        );
     }
 }
 
@@ -1323,8 +1501,8 @@ fn reads_ground_keys_of_a_large_map_and_leaves_the_rest_as_the_frame() {
     let key_sort = Sort::simple("MapKey");
     let value_sort = Sort::simple("MapValue");
     let map_sort = Sort::simple("MapSort");
-    let key = |index: u32| domain_value(key_sort.clone(), &index.to_string());
-    let value = |index: u32| domain_value(value_sort.clone(), &index.to_string());
+    let key = |index: u32| domain_value(key_sort, &index.to_string());
+    let value = |index: u32| domain_value(value_sort, &index.to_string());
     let subject_map = Term::map(
         definition.clone(),
         (0..40)
@@ -1334,34 +1512,28 @@ fn reads_ground_keys_of_a_large_map_and_leaves_the_rest_as_the_frame() {
     );
     let pair = Arc::new(Symbol::constructor(
         "pair",
-        vec![key_sort.clone(), map_sort.clone()],
+        vec![key_sort, map_sort],
         sort(),
     ));
-    let read =
-        |first: Term, read_keys: &[Term]| {
-            let mut entries = vec![(
-                var("K", key_sort.clone()),
-                var("BY_VARIABLE", value_sort.clone()),
-            )];
-            entries.extend(read_keys.iter().enumerate().map(|(index, read)| {
-                (read.clone(), var(&format!("V{index}"), value_sort.clone()))
-            }));
-            let pattern = Term::application(
-                pair.clone(),
-                Vec::new(),
-                vec![
-                    var("K", key_sort.clone()),
-                    Term::map(
-                        definition.clone(),
-                        entries,
-                        Some(var("REST", map_sort.clone())),
-                    ),
-                ],
-            );
-            let subject =
-                Term::application(pair.clone(), Vec::new(), vec![first, subject_map.clone()]);
-            (pattern, subject)
-        };
+    let read = |first: Term, read_keys: &[Term]| {
+        let mut entries = vec![(var("K", key_sort), var("BY_VARIABLE", value_sort))];
+        entries.extend(
+            read_keys
+                .iter()
+                .enumerate()
+                .map(|(index, read)| (read.clone(), var(&format!("V{index}"), value_sort))),
+        );
+        let pattern = Term::application(
+            pair.clone(),
+            Vec::new(),
+            vec![
+                var("K", key_sort),
+                Term::map(definition.clone(), entries, Some(var("REST", map_sort))),
+            ],
+        );
+        let subject = Term::application(pair.clone(), Vec::new(), vec![first, subject_map.clone()]);
+        (pattern, subject)
+    };
     let (pattern, subject) = read(key(46), &[key(0), key(18), key(78)]);
     let frame = Term::map(
         definition.clone(),
@@ -1372,12 +1544,12 @@ fn reads_ground_keys_of_a_large_map_and_leaves_the_rest_as_the_frame() {
         None,
     );
     let expected = Substitution::from([
-        (variable("K", key_sort.clone()), key(46)),
-        (variable("BY_VARIABLE", value_sort.clone()), value(23)),
-        (variable("V0", value_sort.clone()), value(0)),
-        (variable("V1", value_sort.clone()), value(9)),
-        (variable("V2", value_sort.clone()), value(39)),
-        (variable("REST", map_sort.clone()), frame),
+        (variable("K", key_sort), key(46)),
+        (variable("BY_VARIABLE", value_sort), value(23)),
+        (variable("V0", value_sort), value(0)),
+        (variable("V1", value_sort), value(9)),
+        (variable("V2", value_sort), value(39)),
+        (variable("REST", map_sort), frame),
     ]);
     for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
         assert_eq!(
@@ -1442,7 +1614,7 @@ fn refutes_ground_collections_that_lack_or_add_an_entry() {
         assert!(
             matches!(
                 result,
-                MatchResult::Failed(FailReason::DifferentContents(_, _))
+                MatchResult::Failed(FailReason::DifferentContents(_))
             ),
             "{mode:?}: {result:?}"
         );
@@ -1502,16 +1674,16 @@ fn refutes_more_pattern_entries_than_a_closed_subject_has() {
     let definition = map_definition();
     let key_sort = Sort::simple("MapKey");
     let value_sort = Sort::simple("MapValue");
-    let key = |name| domain_value(key_sort.clone(), name);
-    let value = |name| domain_value(value_sort.clone(), name);
+    let key = |name| domain_value(key_sort, name);
+    let value = |name| domain_value(value_sort, name);
     let symbolic_entries = |count: usize, rest: Option<Term>| {
         Term::map(
             definition.clone(),
             (1..=count)
                 .map(|index| {
                     (
-                        var(&format!("K{index}"), key_sort.clone()),
-                        var(&format!("V{index}"), value_sort.clone()),
+                        var(&format!("K{index}"), key_sort),
+                        var(&format!("V{index}"), value_sort),
                     )
                 })
                 .collect(),
@@ -1525,8 +1697,8 @@ fn refutes_more_pattern_entries_than_a_closed_subject_has() {
         Term::map(
             definition.clone(),
             vec![
-                (key("a"), var("V1", value_sort.clone())),
-                (var("K2", key_sort.clone()), var("V2", value_sort.clone())),
+                (key("a"), var("V1", value_sort)),
+                (var("K2", key_sort), var("V2", value_sort)),
             ],
             None,
         ),
@@ -1536,7 +1708,7 @@ fn refutes_more_pattern_entries_than_a_closed_subject_has() {
             assert!(
                 matches!(
                     result,
-                    MatchResult::Failed(FailReason::DifferentContents(_, _))
+                    MatchResult::Failed(FailReason::DifferentContents(_))
                 ),
                 "{mode:?}: {pattern:?}: {result:?}"
             );
@@ -1546,8 +1718,8 @@ fn refutes_more_pattern_entries_than_a_closed_subject_has() {
     let variable_keys = Term::map(
         definition.clone(),
         vec![
-            (var("S1", key_sort.clone()), value("1")),
-            (var("S2", key_sort.clone()), value("2")),
+            (var("S1", key_sort), value("1")),
+            (var("S2", key_sort), value("2")),
         ],
         None,
     );
@@ -1706,23 +1878,49 @@ fn defers_a_symbolic_set_element_against_a_subject_frame() {
     ));
 }
 
+/// A closed set pattern whose elements the subject holds, against a subject with a frame or a
+/// function application beside them: the rest may be the empty set, so the match is open in
+/// every mode. A subject element beside the rest that the exhausted pattern does not hold
+/// refutes it in every mode.
 #[test]
-fn defers_a_closed_set_pattern_against_a_variable_frame_in_rewrite_mode() {
+fn defers_a_closed_set_pattern_against_a_variable_frame_in_every_mode() {
     let definition = set_definition();
     let first = domain_value(Sort::simple("SetElement"), "first");
-    let frame = variable("FRAME", Sort::simple("SetSort"));
+    let second = domain_value(Sort::simple("SetElement"), "second");
+    let mut symbol = (*function()).clone();
+    symbol.name = "setFunction".into();
+    symbol.result_sort = Sort::simple("SetSort");
+    let applied = application(Arc::new(symbol), var("X", sort()));
     let pattern = Term::set(definition.clone(), vec![first.clone()], None);
-    let subject = Term::set(definition, vec![first], Some(Term::variable(frame)));
 
-    assert!(matches!(
-        match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
-        MatchResult::Indeterminate { substitution, remainder }
-            if substitution.is_empty() && remainder.len() == 1
-    ));
-    assert!(matches!(
-        match_terms(MatchMode::Evaluate, &sort_graph(), &pattern, &subject),
-        MatchResult::Failed(FailReason::DifferentContents(_, _))
-    ));
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        for rest in [var("FRAME", Sort::simple("SetSort")), applied.clone()] {
+            let subject = Term::set(definition.clone(), vec![first.clone()], Some(rest.clone()));
+            let result = match_terms(mode, &sort_graph(), &pattern, &subject);
+            assert!(
+                matches!(
+                    &result,
+                    MatchResult::Indeterminate { substitution, remainder }
+                        if substitution.is_empty() && remainder.len() == 1
+                ),
+                "{mode:?}: {rest:?}: {result:?}"
+            );
+
+            let wider_subject = Term::set(
+                definition.clone(),
+                vec![first.clone(), second.clone()],
+                Some(rest.clone()),
+            );
+            let result = match_terms(mode, &sort_graph(), &pattern, &wider_subject);
+            assert!(
+                matches!(
+                    result,
+                    MatchResult::Failed(FailReason::DifferentContents(_))
+                ),
+                "{mode:?}: {rest:?}: {result:?}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -1760,7 +1958,7 @@ fn rejects_a_nonempty_pattern_against_the_empty_set() {
 
     assert!(matches!(
         match_terms(MatchMode::Rewrite, &sort_graph(), &pattern, &subject),
-        MatchResult::Failed(FailReason::DifferentContents(_, _))
+        MatchResult::Failed(FailReason::DifferentContents(_))
     ));
 }
 
@@ -1871,30 +2069,23 @@ fn a_variable_cycle_refutes_a_match_only_through_free_constructors() {
     let key_sort = Sort::simple("MapKey");
     let pair = Arc::new(Symbol::constructor(
         "pair",
-        vec![key_sort.clone(), Sort::simple("MapSort")],
+        vec![key_sort, Sort::simple("MapSort")],
         sort(),
     ));
-    let successor = Arc::new(Symbol::constructor(
-        "succ",
-        vec![key_sort.clone()],
-        key_sort.clone(),
-    ));
-    let mut g = Symbol::constructor("g", vec![key_sort.clone()], key_sort.clone());
+    let successor = Arc::new(Symbol::constructor("succ", vec![key_sort], key_sort));
+    let mut g = Symbol::constructor("g", vec![key_sort], key_sort);
     g.attributes.symbol_type = SymbolType::Function(FunctionType::Total);
     let g = Arc::new(g);
-    let x = variable("X", key_sort.clone());
+    let x = variable("X", key_sort);
     let one = domain_value(Sort::simple("MapValue"), "1");
     let pattern = Term::application(
         pair.clone(),
         Vec::new(),
         vec![
-            var("K", key_sort.clone()),
+            var("K", key_sort),
             Term::map(
                 map_definition(),
-                vec![(
-                    var("K", key_sort.clone()),
-                    var("V", Sort::simple("MapValue")),
-                )],
+                vec![(var("K", key_sort), var("V", Sort::simple("MapValue")))],
                 None,
             ),
         ],
@@ -2130,4 +2321,162 @@ fn algebraic_function_candidate_bindings_cannot_feed_a_later_refutation() {
             );
         }
     }
+}
+
+/// A sort-parametric pattern stands for each of its closed instances, as the left-hand side of an
+/// axiom `axiom{S} φ(S)` does. The matcher binds no sort variable, so where a question about the
+/// pattern's sorts depends on one, some instance may match and the match is undecided, in every
+/// mode: never a refutation, which would let a lower-priority equation apply, certify a normal
+/// form or drop a rewrite step that an instance of the pattern justifies.
+#[test]
+fn sort_variable_questions_leave_the_match_undecided() {
+    let item = Sort::simple("SortKItem");
+    let int = Sort::simple("SortInt");
+    let boolean = Sort::simple("SortBool");
+    let open = Sort::variable("S");
+    let mut graph = SortGraph::default();
+    graph.insert("SortKItem", [Name::from("SortInt"), Name::from("SortBool")]);
+    graph.insert("SortInt", []);
+    graph.insert("SortBool", []);
+    graph.insert("SortWrap", []);
+    let five = domain_value(int, "5");
+    let mut wrap = Symbol::constructor("wrap", vec![open], Sort::simple("SortWrap"));
+    wrap.sort_variables = vec!["S".into()];
+    let wrap = Arc::new(wrap);
+    let pair = Arc::new(Symbol::constructor(
+        "pair",
+        vec![item, int],
+        Sort::simple("SortWrap"),
+    ));
+    let subsorting = MatchResult::Undecided(UndecidedReason::Subsorting(
+        SortError::FoundSortVariable("S".into()),
+    ));
+
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        // `inj{S, KItem}(X:S)` matches `inj{Int, KItem}(5)` at `S = Int`.
+        let injected = Term::injection(open, item, var("X", open));
+        let subject = Term::injection(int, item, five.clone());
+        let matched = match_terms(mode, &graph, &injected, &subject);
+        assert_eq!(matched, subsorting, "{mode:?}");
+        assert!(matched.refutation().is_none(), "{mode:?}");
+
+        // `X:S` matches `5` at `S = Int`.
+        assert_eq!(
+            match_terms(mode, &graph, &var("X", open), &five),
+            subsorting,
+            "{mode:?}",
+        );
+
+        // `wrap{S}(X:S)` matches `wrap{Int}(5)` at `S = Int`: one symbol on that instance.
+        let pattern = Term::application(wrap.clone(), vec![open], vec![var("X", open)]);
+        let subject = Term::application(wrap.clone(), vec![int], vec![five.clone()]);
+        assert_eq!(
+            match_terms(mode, &graph, &pattern, &subject),
+            MatchResult::Undecided(UndecidedReason::OpenSorts(pattern.clone(), subject)),
+            "{mode:?}",
+        );
+
+        // Two closed sort arguments that differ are still refuted.
+        let closed = Term::application(wrap.clone(), vec![int], vec![var("Y", int)]);
+        let other = Term::application(
+            wrap.clone(),
+            vec![boolean],
+            vec![domain_value(boolean, "true")],
+        );
+        assert!(
+            matches!(
+                match_terms(mode, &graph, &closed, &other),
+                MatchResult::Failed(FailReason::DifferentSorts(..))
+            ),
+            "{mode:?}",
+        );
+
+        // A refuted pair refutes the problem although another pair is undecided: `1` is not
+        // `2` on any instance of `S`.
+        let pattern = Term::application(
+            pair.clone(),
+            Vec::new(),
+            vec![
+                Term::injection(open, item, var("X", open)),
+                domain_value(int, "1"),
+            ],
+        );
+        let subject = Term::application(
+            pair.clone(),
+            Vec::new(),
+            vec![
+                Term::injection(int, item, five.clone()),
+                domain_value(int, "2"),
+            ],
+        );
+        assert!(
+            matches!(
+                match_terms(mode, &graph, &pattern, &subject),
+                MatchResult::Failed(FailReason::DifferentValues(..))
+            ),
+            "{mode:?}",
+        );
+    }
+}
+
+/// Two injections from sorts neither of which is below the other, on any instance of the sort
+/// variable (the order relates neither head to the other): a constructor-like operand is no
+/// injection from a common subsort, so the pair is refuted; otherwise whether the sources have a
+/// common subsort depends on the variable, and the match is undecided.
+#[test]
+fn injections_from_open_incomparable_sources_are_refuted_only_by_a_constructor() {
+    let item = Sort::simple("SortKItem");
+    let foo = Sort::simple("SortFoo");
+    let open_list = Sort::application(Name::from("SortList"), vec![Sort::variable("S")]);
+    let mut graph = SortGraph::default();
+    graph.insert("SortKItem", [Name::from("SortFoo"), Name::from("SortList")]);
+    graph.insert("SortFoo", []);
+    graph.insert("SortList", []);
+    let pattern = Term::injection(open_list, item, var("L", open_list));
+    let symbolic = Term::injection(foo, item, var("F", foo));
+    let concrete = Term::injection(foo, item, domain_value(foo, "foo"));
+    for mode in [MatchMode::Rewrite, MatchMode::Evaluate, MatchMode::Implies] {
+        assert_eq!(
+            outcome(match_terms(mode, &graph, &pattern, &symbolic)),
+            Outcome::Undecided,
+            "{mode:?}",
+        );
+        assert_eq!(
+            outcome(match_terms(mode, &graph, &pattern, &concrete)),
+            Outcome::Failed,
+            "{mode:?}",
+        );
+    }
+}
+
+/// One-way matching binds the pattern's variables only, so a variable on both sides of an
+/// `Evaluate` problem leaves it undecided: the pattern renamed apart has the same instances, and
+/// here matches (`X' = con1(X)`). It is never a refutation, whose answer would then depend on
+/// the names the two sides happen to share.
+#[test]
+fn shared_variables_leave_an_evaluate_match_undecided() {
+    let pattern = var("X", sort());
+    let subject = application(constructor(), var("X", sort()));
+    let matched = match_terms(
+        MatchMode::Evaluate,
+        &SortGraph::default(),
+        &pattern,
+        &subject,
+    );
+    assert_eq!(
+        matched,
+        MatchResult::Undecided(UndecidedReason::SharedVariables(
+            [variable("X", sort())].into_iter().collect()
+        ))
+    );
+    assert!(matched.refutation().is_none());
+    assert_eq!(
+        outcome(match_terms(
+            MatchMode::Rewrite,
+            &SortGraph::default(),
+            &pattern,
+            &subject
+        )),
+        Outcome::Indeterminate,
+    );
 }

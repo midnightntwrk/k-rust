@@ -1181,6 +1181,7 @@ fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) 
             reference,
             path_key,
             arguments,
+            update,
             ..
         } => {
             keys.extend([reference.key.clone(), path_key.clone()]);
@@ -1192,6 +1193,9 @@ fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) 
                         collect_term_keys(value, keys);
                     }
                 }
+            }
+            if let Some(base) = update {
+                collect_term_keys(base, keys);
             }
         }
         DescriptorTerm::Literal { key, .. }
@@ -1208,11 +1212,19 @@ fn collect_term_keys(term: &DescriptorTerm, keys: &mut BTreeSet<ProvenanceKey>) 
                 collect_term_keys(argument, keys);
             }
         }
-        DescriptorTerm::Cell { key, fields, .. } => {
+        DescriptorTerm::Cell {
+            key,
+            fields,
+            update,
+            ..
+        } => {
             keys.insert(key.clone());
             for field in fields {
                 keys.insert(field.key.clone());
                 collect_term_keys(&field.value, keys);
+            }
+            if let Some(base) = update {
+                collect_term_keys(base, keys);
             }
         }
         DescriptorTerm::SortTest {
@@ -1547,21 +1559,12 @@ fn builtin_token_role<'a>(
     value: &str,
     counters: &'a mut RuleCounters,
 ) -> Result<(ProvenanceRole, &'a mut u32), StateTransportError> {
-    match sort {
-        crate::BuiltinSort::Id
-            if value.strip_prefix('$').is_some_and(|tail| {
-                !tail.is_empty()
-                    && tail
-                        .chars()
-                        .all(|ch| ch == '_' || ch.is_ascii_alphanumeric())
-            }) =>
-        {
+    match super::validation::builtin_token_literal_role(sort, value) {
+        Some(ProvenanceRole::ClaimIdToken) => {
             Ok((ProvenanceRole::ClaimIdToken, &mut counters.id_token))
         }
-        crate::BuiltinSort::Bytes if crate::bytes_token::decode(value).is_ok() => {
-            Ok((ProvenanceRole::ClaimBytesToken, &mut counters.bytes_token))
-        }
-        _ => Err(StateTransportError::InvalidTerm(
+        Some(role) => Ok((role, &mut counters.bytes_token)),
+        None => Err(StateTransportError::InvalidTerm(
             StateTermReason::InvalidCompilerOwnedBuiltinToken,
         )),
     }
@@ -2789,7 +2792,15 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         let local = self.counters.in_matches_pattern
             || self.counters.in_let_pattern
             || self.let_scopes.iter().any(|scope| scope.contains(name));
-        if !local && !binding_has_kind(self.bindings, name, RuleBindingUse::Term) {
+        // A result or a condition sees every variable the left side binds,
+        // the computation and map remainders included.
+        let uses = !matches!(self.side, ValidationSide::Left);
+        if !local
+            && !binding_has_kind(self.bindings, name, RuleBindingUse::Term)
+            && !(uses
+                && (binding_has_kind(self.bindings, name, RuleBindingUse::KSequenceFrame)
+                    || binding_has_kind(self.bindings, name, RuleBindingUse::MapFrame)))
+        {
             return Err(StateTransportError::InvalidTerm(
                 StateTermReason::RuleVariableBindingIsNotATerm,
             ));
@@ -3215,8 +3226,9 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         key: &ProvenanceKey,
         declaration: &S::Nominal,
         fields: &[CellTermField<S>],
+        partial: bool,
     ) -> Result<(), Self::Error> {
-        S::validate_fragment(declaration, fields.is_empty())?;
+        S::validate_fragment(declaration, fields.is_empty() && !partial)?;
         insert_term_exact(
             self.keys,
             key,
@@ -3273,6 +3285,19 @@ impl<S: ValidationStage> TermValidation<S> for RuleTermValidation<'_, S> {
         )?;
         self.counters.record_field = rule_increment(self.counters.record_field)?;
         Ok(())
+    }
+
+    fn record_update(&mut self, base: &Term<S>) -> Result<(), Self::Error> {
+        match base {
+            Term::Variable {
+                key,
+                path_key,
+                name,
+            } if !matches!(self.side, ValidationSide::Left) => self.variable(key, path_key, name),
+            _ => Err(StateTransportError::InvalidTerm(
+                StateTermReason::RecordUpdateBase,
+            )),
+        }
     }
 }
 

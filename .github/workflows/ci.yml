@@ -74,7 +74,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Check all targets at the declared minimum
-        run: cargo check --workspace --all-targets --locked
+        run: cargo check --workspace --all-targets --features k-rust-fuzz/cli --locked
 
   scripts:
     name: Script unit tests
@@ -121,8 +121,11 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+      # `k-rust-fuzz/cli` builds the `krust-fuzz` executable and its `cli` test binary, which no
+      # default feature enables; `krust` and `krust-fuzz` land in one directory, as the forwarding
+      # test needs. The workspace steps below pass the same features, so they share one build.
       - name: Build native targets
-        run: cargo build --workspace --all-targets --locked
+        run: cargo build --workspace --all-targets --features k-rust-fuzz/cli --locked
 
       # The registry must parse, and every cached reference measurement must still match its
       # workload's reference command (a changed paired command needs `kbench reference` on a host).
@@ -132,13 +135,15 @@ jobs:
           cargo run --locked --quiet -p k-rust-bench -- run --tier heavy --dry-run --no-history > /dev/null
 
       - name: Run Clippy with native Z3 inference
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --features k-rust-fuzz/cli --locked -- -D warnings
 
       # nextest runs each test in its own process; it does not run doc-tests. Checked inference
       # runs both engines on every parse and fails on a disagreement; `measure_ratchet`, which
       # pins one engine's work, is left out by the profile and runs in the next step instead.
       - name: Run tests with native Z3 inference under checked sort inference
-        run: cargo nextest run --workspace --locked --no-fail-fast --profile ci-checked
+        run: >-
+          cargo nextest run --workspace --features k-rust-fuzz/cli --locked --no-fail-fast
+          --profile ci-checked
         env:
           KRUST_TYPE_INFERENCE_MODE: checked
 
@@ -147,7 +152,7 @@ jobs:
       # parse of every rule shape; its self-rerun under checked inference already ran above.
       - name: Run the rule parser snapshots under the default sort inference
         run: >-
-          cargo nextest run --workspace --locked --no-fail-fast --profile ci
+          cargo nextest run --workspace --features k-rust-fuzz/cli --locked --no-fail-fast --profile ci
           -E 'binary_id(k-rust::inner_rules) & not test(=every_rule_test_passes_under_checked_inference)'
 
       - name: Run doc-tests with native Z3 inference
@@ -207,6 +212,11 @@ jobs:
 
       - name: Check WebAssembly compatibility
         run: cargo build -p k-rust-wasm --target wasm32-unknown-unknown --locked
+
+      # The fuzz library on its own features: its portable build is its primary build, and
+      # proptest must stay without its `std` feature, whose OS random source has no wasm32 port.
+      - name: Check the fuzz library's WebAssembly compatibility
+        run: cargo build -p k-rust-fuzz --target wasm32-unknown-unknown --locked
 
       - name: Check the standalone regex crate stays dependency-free
         run: |

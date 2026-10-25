@@ -152,7 +152,6 @@ import argparse
 from dataclasses import dataclass
 import itertools
 import json
-import os
 from pathlib import Path
 import re
 import shutil
@@ -168,7 +167,7 @@ from support import krs_gate  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.reference import Key, Pin, Snapshot, add_refresh_argument  # noqa: E402
-from support.tools import checkout_scratch, z3_environment  # noqa: E402
+from support.tools import target_environment, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -757,7 +756,8 @@ def materialize(name: str, workspace: Path) -> Path:
 
 
 def verify_package(harness: FixtureGate, fixture: Fixture, *, claim: bool) -> None:
-    harness.check(fixture)
+    # Only the native-rust route runs rule existentials, so only a check of that route passes.
+    harness.check(fixture, "--backend", "haskell")
     expansion = harness.expand(fixture)
     if fixture == L21_READABLE and READABLE_HELPERS not in expansion:
         raise GateError(f"{fixture.package}: krs expand does not keep the clause helpers before #[k::rule]")
@@ -779,6 +779,10 @@ def verify_package(harness: FixtureGate, fixture: Fixture, *, claim: bool) -> No
     if refused.returncode == 0 or not refusal:
         raise GateError(f"{fixture.package}: krs build --backend llvm accepted rule existentials")
     harness.pins.expect(("capability_refusals", fixture.package), refusal[0])
+    # `krs check` predicts `build` on every backend, so it refuses with the same refusal.
+    checked = harness._krs(fixture, "check", check=False)
+    if checked.returncode == 0 or diagnostic_lines(checked.stderr)[:1] != refusal[:1]:
+        raise GateError(f"{fixture.package}: krs check did not refuse as krs build --backend llvm does:\n{checked.stderr}")
 
     directory = harness.workspace / "programs" / fixture.package
     directory.mkdir(parents=True, exist_ok=True)
@@ -1237,11 +1241,10 @@ def main() -> int:
     if pins.get("schema") != 1:
         raise GateError("pins.json is not the schema-1 verification-surface ledger")
 
-    target = checkout_scratch() / "verification-surface-target"
-    environment = {**z3_environment(), "CARGO_TARGET_DIR": os.fspath(target), "CARGO_TERM_COLOR": "never"}
+    environment = {**z3_environment(), **target_environment(), "CARGO_TERM_COLOR": "never"}
     krs = build(environment)
     gate = krs_gate.configured_or_build()
-    check_packages("verification-surface", krs=krs, env=environment, target_dir=target)
+    check_packages("verification-surface", krs=krs, env=environment)
 
     with tempfile.TemporaryDirectory(prefix="krs-verification-surface-") as temporary:
         workspace = Path(temporary)

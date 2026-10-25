@@ -130,7 +130,9 @@ impl Backend {
                     )
                     .map_err(stopped_operation)?
                     .map_err(error("could not simplify KORE predicate"))?;
-                    externalize::ml_pattern(&simplified, &result_sort)
+                    // Each Boolean term is printed as the predicate it stands for, `true = t`,
+                    // so the response states its meaning and reads back as the same predicate.
+                    externalize::predicate_pattern(&simplified, &result_sort)
                 }
             };
             // A cancellation a refinement observed and set aside is still the operation's
@@ -239,6 +241,40 @@ mod tests {
                 .model_for(None, &syntax, Admission::Unverified)
                 .is_ok()
         );
+    }
+
+    /// get-model drops a term conjunct below `\exists`, a positive position: `∃Y.(X ∧ Y = 1)` is
+    /// nonempty, and `∃Y.(X ∧ Y = 1 ∧ Y = 2)` is empty, so their predicate parts answer `Sat`
+    /// and `Unsat`.
+    #[test]
+    fn a_term_conjunct_below_an_existential_is_dropped_for_a_model() {
+        let mut backend = Backend::new(MODEL_DEFINITION, "MAIN", BackendOptions::default())
+            .expect("model definition should internalize");
+        let equals = |value: i64| {
+            format!(
+                r#"\equals{{SortInt{{}}, SortBool{{}}}}(VarY:SortInt{{}}, \dv{{SortInt{{}}}}("{value}"))"#
+            )
+        };
+        for (conjuncts, satisfiable) in [
+            (equals(1), true),
+            (format!("{}, {}", equals(1), equals(2)), false),
+        ] {
+            let source = format!(
+                r#"\exists{{SortBool{{}}}}(VarY:SortInt{{}}, \and{{SortBool{{}}}}(VarX:SortBool{{}}, {conjuncts}))"#
+            );
+            let syntax = parse_pattern(&source).expect("predicate should parse");
+            let (model, _) = backend
+                .model_for(None, &syntax, Admission::Verified)
+                .expect("the model query succeeds");
+            assert!(
+                if satisfiable {
+                    matches!(model, ModelResult::Sat(_))
+                } else {
+                    matches!(model, ModelResult::Unsat)
+                },
+                "{source}: {model:?}"
+            );
+        }
     }
 
     #[test]

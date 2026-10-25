@@ -1179,6 +1179,7 @@ impl TestPackage {
                 .map(|field| HostConstructorFieldDescriptor {
                     name: field.ident.as_ref().unwrap().to_string(),
                     sort: type_ref(sort, "Expr"),
+                    arguments: Vec::new(),
                 })
                 .collect(),
             syn::Fields::Unnamed(_) | syn::Fields::Unit => Vec::new(),
@@ -1196,6 +1197,7 @@ impl TestPackage {
                     target: type_ref(sort, "Expr"),
                 },
                 fields,
+                arguments: Vec::new(),
             }),
             cfg: BTreeMap::new(),
             provenance: host_provenance("src/lib.rs", provenance),

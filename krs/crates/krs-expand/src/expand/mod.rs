@@ -2,8 +2,10 @@
 
 mod claims;
 mod configuration;
+mod constant;
 mod constructors;
 mod enum_family;
+mod equation_table;
 mod existentials;
 mod factory;
 mod grammar;
@@ -23,11 +25,13 @@ mod tokens;
 
 pub(crate) use claims::claim;
 pub(crate) use configuration::{cell, configuration};
+pub(crate) use constant::constant;
 pub(crate) use constructors::{constructor, function, orphan_strictness, symbol, token};
 pub(crate) use enum_family::constructors;
+pub(crate) use equation_table::equations;
 pub(crate) use grammar::{associativity, layout, lexical, precedence, raw_k};
 pub(crate) use initializer::init;
-pub(crate) use rule_block::rules;
+pub(crate) use rule_block::{claims, rules};
 pub(crate) use rules::{
     alias, context, desugar, equation, orphan_rule_helper, priority, rule, simplification,
 };

@@ -1,0 +1,35 @@
+# k2lean regression gate baseline of the confluence area (k2lean/tests/gate.sh, k2lean/tests/gate-check.py).
+# Accept a new one after a deliberate change: run the tier, read its FAIL lines, then
+#   k2lean/tests/gate.sh accept --area confluence
+# (with the same GATE_WORK/GATE_ROOT as the run); a light run replaces only the light entries.
+# The recorded outputs that `outputs` names are in expected/confluence/ beside this directory.
+
+
+[demo.RaceConf]
+tier = "light"
+guarded = 12
+preserve = []
+
+[outputs]
+"simple-confluence.toml" = { tier = "heavy", compare = "exact" }
+
+[sources]
+
+[sources.sha256]
+"demos/RaceConf/RaceConf/Confluence.lean" = { tier = "light", sha256 = "6babb033eefe8fed5b5a84e7b11510d957a8eb287bfcebcf7bf2a1cf24d66554" }
+"demos/RaceConf/confluence.toml" = { tier = "light", sha256 = "c55fc58f8df1362826bcf25086e7e667cf25d10c8657a3ce7eb5e4f0f9a58f38" }
+"generated/race/Race.lean" = { tier = "light", sha256 = "b8730ce086f1156a15a41234a7b1614c2b14a61721db04e569ccf3562a8cd403" }
+"generated/race/Race/Adequacy.lean" = { tier = "light", sha256 = "827719d9a7befb183f1788652aac51a72570967c59db42fe658dae525e7b9577" }
+"generated/race/Race/Determinism.lean" = { tier = "light", sha256 = "52be43ddc62f4bcba653d03c572e05763d36f0f9df02c55d18eb5d0177359276" }
+"generated/race/Race/Equations.lean" = { tier = "light", sha256 = "4c1c76c66a33b6d8be03fa607df39177f9ab6f8c553cdab08215e9f84de8be4a" }
+"generated/race/Race/Functions.lean" = { tier = "light", sha256 = "b42bc29ebe94e1afe8d5ba64e0d4ffe6c388366802ccd8bdfdda4206dd00c69b" }
+"generated/race/Race/Init.lean" = { tier = "light", sha256 = "ec0d05b43394bb747197dc217b7f3e0584119cc1e6a9e9d96358a9e7e087754d" }
+"generated/race/Race/Preserves.lean" = { tier = "light", sha256 = "bf2b2f049b791549cf92f875ba01effe841fd806e3e200e80dd4dee58b9da240" }
+"generated/race/Race/Rules.lean" = { tier = "light", sha256 = "935c12aab6ea28346b38e7c682959f9595ca393b6efc83dfe864843a1cfb677c" }
+"generated/race/Race/Terms.lean" = { tier = "light", sha256 = "9da1e2be6e9a74f430d42ea3e118873076334bc3b6f72d527d573942506b0218" }
+"generated/race/RaceBench/Main.lean" = { tier = "light", sha256 = "99e8eef3d7416b857a814ca04416dce352d066f52ffd2bad3400cab69be476b9" }
+"generated/race/RaceBench/Programs.lean" = { tier = "light", sha256 = "86b8f6f7d8f4fc7f4db54f213a4542316ccd8039d099b722a4758a6e984682d5" }
+"generated/race/RaceTest/Axioms.lean" = { tier = "light", sha256 = "251ccf75bbbb531f81dbe52629d44f7a463469d5709970385e296e5665d25fea" }
+"generated/race/RaceTest/Main.lean" = { tier = "light", sha256 = "e5a5f0557d49ef5640fb233b640132cf94e6255ed53638d26378864641abbad4" }
+"generated/race/lakefile.lean" = { tier = "light", sha256 = "abe2ea359f00e8b01b02f53f2065845def5924bcdb5495434447a769e15a7bc5" }
+"generated/race/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }

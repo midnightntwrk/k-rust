@@ -384,14 +384,15 @@ fn a_negated_configuration_in_a_rewrite_left_hand_side_is_refused() {
             r"\not{SortS{}}(priorityLE40{}()), rule3LHS",
             &format!("{negated}, rule3LHS"),
         )]));
-        assert_eq!(
-            refused.err(),
-            Some(DefinitionError::RulePattern(
-                RulePatternError::NegatedConfiguration {
-                    sentence: sentence(R3)
-                }
-            )),
-            "{negated}"
+        let refused = refused.err();
+        assert!(
+            matches!(
+                &refused,
+                Some(DefinitionError::RulePattern(
+                    RulePatternError::NegatedConfiguration { sentence: refused_sentence, .. }
+                )) if *refused_sentence == sentence(R3)
+            ),
+            "{negated}: {refused:?}"
         );
     }
 }

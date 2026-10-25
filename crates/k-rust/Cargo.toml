@@ -1,12 +1,12 @@
 [package]
 name = "k-rust"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2024"
 rust-version = "1.99"
 description = "A Rust implementation of the K Framework frontend"
 readme = "../../README.md"
 repository = "https://github.com/midnightntwrk/k-rust"
-license = "BSD-3-Clause"
+license = "(MIT OR Apache-2.0) AND BSD-3-Clause"
 keywords = ["compiler", "k-framework", "kore", "parser", "semantics"]
 categories = ["compilers", "development-tools", "parser-implementations"]
 
@@ -55,10 +55,11 @@ stacker.workspace = true
 [dev-dependencies]
 indoc.workspace = true
 insta.workspace = true
-# Test builds count work through `k_rust_kore::measure` and build backend domain values without a
-# definition (`raw-domain-values`); `cargo build` stays feature-off.
+# Test builds count work through `k_rust_kore::measure`, build backend domain values without a
+# definition (`raw-domain-values`) and may turn the backend's claim checks off (`test-switches`);
+# `cargo build` stays feature-off.
 k-rust = { path = ".", default-features = false, features = ["measure"] }
-k-rust-backend = { workspace = true, features = ["measure", "raw-domain-values"] }
+k-rust-backend = { workspace = true, features = ["measure", "raw-domain-values", "test-switches"] }
 k-rust-kore = { workspace = true, features = ["measure"] }
 lean-conformance.workspace = true
 proptest.workspace = true

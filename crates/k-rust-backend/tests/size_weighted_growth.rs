@@ -32,6 +32,7 @@
 
 const _: () = assert!(cfg!(feature = "measure"));
 
+#[cfg(feature = "z3")]
 use std::sync::Arc;
 use std::sync::Mutex;
 
@@ -1018,7 +1019,7 @@ fn a_negation_chain_visits_its_predicates_linearly_in_its_depth() {
 fn int_variables(definition: &BackendDefinition, n: u64) -> Vec<Variable> {
     let sort = term(definition, "X:SortInt{}").sort();
     (0..=n)
-        .map(|index| Variable::new(format!("X{index}"), sort.clone()))
+        .map(|index| Variable::new(format!("X{index}"), sort))
         .collect()
 }
 
@@ -1053,7 +1054,7 @@ fn checking_an_existential_chain_allocates_linearly_in_its_depth() {
     let definition = definition(TEMPLATES);
     assert_linear("SMT check of an exists chain", "bytes", 200, |depth| {
         let variables = int_variables(&definition, depth);
-        let sort = variables[0].sort.clone();
+        let sort = variables[0].sort;
         let mut chain = Predicate::Equals(
             Term::variable(variables[0].clone()),
             Term::raw_domain_value(sort, "1"),
@@ -1084,7 +1085,7 @@ fn selecting_linked_known_conjuncts_allocates_linearly_in_their_number() {
         200,
         |links| {
             let variables = int_variables(&definition, links);
-            let sort = variables[0].sort.clone();
+            let sort = variables[0].sort;
             let known = variables
                 .windows(2)
                 .map(|pair| {

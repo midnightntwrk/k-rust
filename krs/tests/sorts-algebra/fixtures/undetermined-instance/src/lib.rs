@@ -10,11 +10,13 @@ k::sorts! {
 }
 
 #[k::constructors(sort = Exp, result = KResult)]
-#[k::precedence((Go))]
+#[k::precedence((Go, Wrap))]
 #[rustfmt::skip]
 pub enum ExpSyntax {
     #[k::syntax("go({n})")]
     Go { n: Int },
+    #[k::syntax("wrap({body})")]
+    Wrap { body: KSequence },
 }
 
 #[k::configuration]
@@ -40,6 +42,6 @@ k::rules! {
     for Exp;
     use ExpSyntax::*;
 
-    #[k::requires(crate::Same { left: n, right: true })]
-    go: Go(n) => n;
+    #[k::requires(crate::Same { left: b, right: true })]
+    go: Wrap(b) => Go(0);
 }

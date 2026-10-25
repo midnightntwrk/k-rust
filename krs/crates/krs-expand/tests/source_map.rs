@@ -507,8 +507,8 @@ fn tour_minimal_source_map_is_exact_where_tokens_are_authored() {
             .iter()
             .all(|surface| surface.none_groups == 0)
     );
-    // Lines 42-44 are comments inside `k::rules!`, whose expansion drops them.
-    for (first, last) in [(1, 6), (46, 46), (7, 8), (29, 29)] {
+    // Lines 41-43 are comments inside `k::rules!`, whose expansion drops them.
+    for (first, last) in [(1, 6), (45, 45), (7, 8), (28, 28)] {
         check_identity(&printed, line_range(first, last));
     }
     let mut anchors = BTreeSet::new();
@@ -528,9 +528,9 @@ fn tour_minimal_source_map_is_exact_where_tokens_are_authored() {
     for (text, authored) in [
         ("ObjectTerm", 303..313),
         ("KResult", 315..322),
-        ("Foo", 458..461),
-        ("k", 567..568),
-        ("Object::Foo", 678..689),
+        ("Foo", 429..432),
+        ("k", 538..539),
+        ("Object", 649..655),
     ] {
         assert_eq!(TOUR_MINIMAL[authored.clone()], *text);
         assert!(
@@ -539,21 +539,24 @@ fn tour_minimal_source_map_is_exact_where_tokens_are_authored() {
         );
     }
     // The rule's pattern and result are not emitted as tokens; the rule reaches
-    // rustc only through variant witnesses spanned at the authored heads.
-    for (text, authored, head, witness) in [
-        ("Foo()", 815..820, 815..818, "__krs_variant_type_id_Foo"),
-        ("Bar()", 824..829, 824..827, "__krs_variant_type_id_Bar"),
-    ] {
+    // rustc only through the name-resolution witnesses of its heads, which
+    // repeat each authored head, exactly, in the block's import scope.
+    for (text, authored, head) in [("Foo()", 786..791, 786..789), ("Bar()", 795..800, 795..798)] {
         assert_eq!(TOUR_MINIMAL[authored.clone()], *text);
         assert!(exact_generated_ranges(&printed, &authored).is_empty());
-        assert!(printed.source.map.segments.iter().any(|segment| {
-            segment.respanned == Some(br(head.clone()))
-                && printed.source.text[Range::<usize>::from(segment.generated)] == *witness
-        }));
+        let witnesses = exact_generated_ranges(&printed, &head);
+        assert!(!witnesses.is_empty(), "{text}");
+        for witness in witnesses {
+            assert_eq!(printed.source.text[witness], TOUR_MINIMAL[head.clone()]);
+        }
     }
-    // The initializer body contains the nested `k::k!`; rustc spans it as
-    // authored code, and so does the map.
-    assert!(!exact_generated_ranges(&printed, &(650..703)).is_empty());
+    // The initializer's `k::k![Object::Foo()]` reaches rustc only through
+    // the payload's type key of the head's owner, which repeats the
+    // authored `Object` exactly; the variant is resolved through a generated
+    // marker, as a qualified head in a rule term is, so it has no exact
+    // authored token.
+    assert!(exact_generated_ranges(&printed, &(657..660)).is_empty());
+    assert!(!exact_generated_ranges(&printed, &(621..674)).is_empty());
 }
 
 fn sha256(bytes: &[u8]) -> String {

@@ -125,21 +125,39 @@ def git(*args):
                           capture_output=True).stdout
 
 
+def registry_changes(before_revision, after_text):
+    """The names of the entries of the registry text `after_text` whose table differs from the
+    registry at `before_revision` (every entry when that revision has no valid registry)."""
+    try:
+        before = {gate.name: gate.table for gate in parse(git("show", f"{before_revision}:{REGISTRY_PATH}"))}
+    except (subprocess.CalledProcessError, RegistryError):
+        before = {}
+    return {gate.name for gate in parse(after_text) if before.get(gate.name) != gate.table}
+
+
 def changed_paths(base, head):
     """Every path a commit after the merge base of BASE and HEAD added, edited or deleted (a
     rename counts as both its paths), and the names of the registry entries whose own table
     differs between the merge base and HEAD."""
     merge_base = git("merge-base", base, head).strip()
     paths = git("diff", "--name-only", "--no-renames", merge_base, head).splitlines()
-    changed_entries = set()
+    entries = set()
     if REGISTRY_PATH in paths:
-        try:
-            before = {gate.name: gate.table for gate in parse(git("show", f"{merge_base}:{REGISTRY_PATH}"))}
-        except (subprocess.CalledProcessError, RegistryError):
-            before = {}
-        after = parse(git("show", f"{head}:{REGISTRY_PATH}"))
-        changed_entries = {gate.name for gate in after if before.get(gate.name) != gate.table}
-    return paths, changed_entries
+        entries = registry_changes(merge_base, git("show", f"{head}:{REGISTRY_PATH}"))
+    return paths, entries
+
+
+def worktree_paths():
+    """Every path the uncommitted work touches: a tracked path whose staged or unstaged content
+    differs from HEAD (deletions included, a rename as both its paths), and an untracked path Git
+    does not ignore; and the names of the registry entries whose table the working registry
+    changes."""
+    paths = set(git("diff", "--name-only", "--no-renames", "HEAD").splitlines())
+    paths.update(git("ls-files", "--others", "--exclude-standard").splitlines())
+    entries = set()
+    if REGISTRY_PATH in paths and (WORKSPACE / REGISTRY_PATH).is_file():
+        entries = registry_changes("HEAD", (WORKSPACE / REGISTRY_PATH).read_text())
+    return sorted(paths), entries
 
 
 def select(gates, names=(), kinds=(), touched=None, changed_entries=()):
@@ -263,15 +281,17 @@ def run(selected, log_dir, extra_args, sandbox):
 
 
 USAGE = """\
-usage: scripts/run-gates.sh [--run KIND]... [--changed BASE..HEAD] [--touched PATH]...
+usage: scripts/run-gates.sh [--run KIND]... [--changed BASE..HEAD] [--worktree] [--touched PATH]...
                             [--list] [--log-dir DIR] [NAME...] [-- ARG...]
        scripts/run-gates.sh --check
 
 Run the entries of scripts/gates.toml that are named, of a --run KIND (certification, heavy, ci,
 weekly, on-demand), or owed by a change: --changed selects every entry with a pattern that
 matches a path the commits after the merge base of BASE and HEAD touched, or whose own registry
-table they changed; --touched PATH does the same for one path. With --changed or --touched,
---run restricts that selection to the given kinds. Named entries are always selected.
+table they changed; --worktree does the same for the uncommitted work (every path that differs
+from HEAD, staged or not, and every untracked path Git does not ignore); --touched PATH does the
+same for one path. With --changed, --worktree or --touched, --run restricts that selection to the
+given kinds. Named entries are always selected.
 ARGs after `--` are appended to the command of the one selected entry.
 
 Each entry runs from the workspace root under scripts/conformance/measure.py; its stdout, stderr
@@ -296,6 +316,7 @@ def main(argv):
     parser = argparse.ArgumentParser(add_help=False, usage=argparse.SUPPRESS)
     parser.add_argument("--run", action="append", default=[])
     parser.add_argument("--changed")
+    parser.add_argument("--worktree", action="store_true")
     parser.add_argument("--touched", action="append", default=[])
     parser.add_argument("--list", action="store_true")
     parser.add_argument("--check", action="store_true")
@@ -339,6 +360,14 @@ def main(argv):
         except subprocess.CalledProcessError as error:
             print(f"error: git: {error.stderr.strip()}", file=sys.stderr)
             return 2
+    if args.worktree:
+        try:
+            paths, entries = worktree_paths()
+        except subprocess.CalledProcessError as error:
+            print(f"error: git: {error.stderr.strip()}", file=sys.stderr)
+            return 2
+        touched = (touched or []) + paths
+        changed_entries |= entries
     if args.touched:
         touched = (touched or []) + args.touched
     try:
@@ -353,7 +382,7 @@ def main(argv):
             print(describe(gate) + (f"\n    selected: {reason}" if reason else ""))
         return 0
     if nothing_asked:
-        print("error: nothing selected: name an entry, or give --run, --changed or --touched\n",
+        print("error: nothing selected: name an entry, or give --run, --changed, --worktree or --touched\n",
               file=sys.stderr)
         print(USAGE, file=sys.stderr)
         return 2

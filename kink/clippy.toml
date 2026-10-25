@@ -1,0 +1,6 @@
+# kink's Clippy configuration: none, as before the merge into k-rust. Clippy reads the nearest
+# clippy.toml above a crate's manifest, so this file keeps k-rust's root clippy.toml (its
+# disallowed serde_json pretty printers and its interior-mutability exemption) from applying to
+# kink's crates, whose lints are written in each crate's Cargo.toml. Adopting k-rust's
+# configuration, like its pedantic lints, is a separate cleanup: kink-flow's report is written
+# with serde_json::to_string_pretty, and a change of its layout would change the report's bytes.

@@ -41,12 +41,13 @@
 
 use std::collections::BTreeSet;
 
-use super::Sentence;
 use super::labels::internal_labels;
 use super::term_position::{TermPosition, positioned_children};
+use super::{Sentence, is_anonymous};
 use crate::definition::AttributeKey;
 use crate::definition::{LabelHead, ProductionCatalog, SortCatalog};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
+use crate::kast::binding::{self, Role};
 use crate::kast::{GeneratedLabel, InternalLabel, Term};
 
 /// The hooks of the collection constructors: the unit, element and concatenation of each
@@ -108,6 +109,10 @@ struct Walk<'a> {
     sentence: &'a Sentence,
     pass: Pass,
     diagnostics: &'a mut Vec<Diagnostic>,
+    /// The names the quantifiers around the visited term bind there (`kast::binding`), innermost
+    /// last: such an occurrence is the quantifier's variable, which the left-hand side does not
+    /// bind and a by-value read does not need bound.
+    quantified: Vec<String>,
 }
 
 /// [`check_functions`] against the internal labels of the module whose catalogs are supplied,
@@ -156,6 +161,7 @@ pub(crate) fn check_functions_with_internal_labels(
             sentence,
             pass: Pass::Collect(BTreeSet::new()),
             diagnostics: &mut collected,
+            quantified: Vec::new(),
         };
         let mut at_top = true;
         collect.visit_term(body, TermPosition::BODY, &mut at_top, false);
@@ -169,6 +175,7 @@ pub(crate) fn check_functions_with_internal_labels(
             sentence,
             pass: Pass::Check(bound),
             diagnostics: &mut diagnostics,
+            quantified: Vec::new(),
         };
         let mut at_top = true;
         check.visit_term(body, TermPosition::BODY, &mut at_top, false);
@@ -189,13 +196,26 @@ impl Walk<'_> {
         at_top: &mut bool,
         by_value: bool,
     ) {
+        // A quantifier binds the variables of its binder in its body and nowhere else: its binder
+        // reads nothing, and in its body its names are its own.
+        if let Some(quantifier) = binding::quantifier(term) {
+            let depth = self.quantified.len();
+            self.quantified
+                .extend(quantifier.bound().into_iter().map(str::to_owned));
+            for (child, child_position) in positioned_children(term, position).into_iter().skip(1) {
+                self.visit_term(child, child_position, at_top, by_value);
+            }
+            self.quantified.truncate(depth);
+            return;
+        }
         let Term::Apply { label, .. } = term.unannotated() else {
-            // Each occurrence of the anonymous variable is a variable of its own, which binds
-            // nothing another position could read.
+            // Each occurrence of an anonymous variable (`_`, `?_`, `!_` or `@_`) is a variable of
+            // its own, which binds nothing another position could read.
             if let (Pass::Collect(bound), Term::Variable { name, .. }) =
                 (&mut self.pass, term.unannotated())
                 && position.lhs
-                && name != "_"
+                && !is_anonymous(name)
+                && !self.quantified.contains(name)
             {
                 bound.insert(name.clone());
             }
@@ -323,13 +343,11 @@ impl Walk<'_> {
         let Pass::Check(bound) = &self.pass else {
             return;
         };
-        let mut unbound = BTreeSet::new();
-        term.visit_preorder(&mut |subterm| {
-            if let Term::Variable { name, .. } = subterm
-                && (name == "_" || !bound.contains(name))
-            {
-                unbound.insert(name.clone());
-            }
+        // The variables `term` reads from the rule: its free ones (`kast::binding`), less those a
+        // quantifier around it binds.
+        let mut unbound = binding::free_variables(term);
+        unbound.retain(|name| {
+            !self.quantified.contains(name) && (is_anonymous(name) || !bound.contains(name))
         });
         if unbound.is_empty() {
             return;
@@ -343,7 +361,8 @@ impl Walk<'_> {
     }
 
     /// Whether the list argument of the update `term` is a variable that occurs nowhere else in
-    /// the sentence (its body, `requires` and `ensures`).
+    /// the sentence (its body, `requires` and `ensures`). An occurrence of its spelling that a
+    /// quantifier binds is that quantifier's variable (`kast::binding`), not the list.
     fn updates_an_unread_list(&self, term: &Term) -> bool {
         let Term::Apply { arguments, .. } = term.unannotated() else {
             return false;
@@ -357,11 +376,11 @@ impl Walk<'_> {
         {
             list = Some(arguments[0].unannotated());
         }
-        let Some(Term::Variable { name, .. }) = list else {
+        let Some(variable @ Term::Variable { name, .. }) = list else {
             return false;
         };
-        // Each occurrence of the anonymous variable is a variable of its own.
-        if name == "_" {
+        // Each occurrence of an anonymous variable is a variable of its own.
+        if is_anonymous(name) {
             return true;
         }
         let terms: &[&Term] = match self.sentence {
@@ -383,15 +402,28 @@ impl Walk<'_> {
             | Sentence::Configuration { .. }
             | Sentence::Bubble { .. } => return false,
         };
-        let mut occurrences = 0_usize;
-        for term in terms {
-            term.visit_preorder(&mut |subterm| {
-                if matches!(subterm, Term::Variable { name: other, .. } if other == name) {
-                    occurrences += 1;
+        // The variable is free in the sentence, or bound by one quantifier of one of its terms:
+        // the occurrences of the same variable are those of its spelling with the same role.
+        let mut identity = None;
+        let mut reads = Vec::new();
+        for (index, term) in terms.iter().enumerate() {
+            for occurrence in binding::occurrences(term) {
+                if occurrence.name != name {
+                    continue;
                 }
-            });
+                let read = match occurrence.role {
+                    Role::Free => None,
+                    Role::Bound { binder } => Some((index, binder)),
+                    Role::Binding { .. } => continue,
+                };
+                if std::ptr::eq(occurrence.node.unannotated(), variable) {
+                    identity = Some(read);
+                }
+                reads.push(read);
+            }
         }
-        occurrences == 1
+        let identity = identity.unwrap_or(None);
+        reads.iter().filter(|read| **read == identity).count() == 1
     }
 
     fn visit_arguments(

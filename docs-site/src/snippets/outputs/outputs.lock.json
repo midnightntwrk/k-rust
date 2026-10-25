@@ -1,86 +1,86 @@
 {
   "definitions-compile-into-tools-check": {
-    "inputs": "f7eab7f0701a64ea48fdc4b131178125c8af53c80a93db3a194985007713866a",
+    "inputs": "9d2d247f23c04c2151187b7f7a4b1b4cd873c335aa3b86d07fa393cba9fc98c8",
     "output": "0a881525d8df172c490ffb0d434a8f0dd39878f230d410bccc72e51aac355894"
   },
   "definitions-compile-into-tools-emit-k": {
-    "inputs": "03bb6022b329e8b711a0580a42f1d232a8c0d8654e8dd82173f4dc1c2508cc8c",
-    "output": "c6ec0e26e85fa306e208f7e36bf565e86e450f40bafadd72730330435c6f0d4b"
+    "inputs": "44797d61aab2b21642af807c219dafef3e737f27dc182a11ffc2750526f068cc",
+    "output": "8d9f9703f603a620c2c32467301ffdaad7624537a039c1404a90ed06aebefb3c"
   },
   "definitions-compile-into-tools-parse-blue": {
-    "inputs": "094e5cf2f4c71d90f2a6e21b49f609f3238df49765cf7d059000264f9f01b1a1",
+    "inputs": "bf358c462c2530af5d11cf7211d1eedb0fdc056dd7a59b9837e59562e60d88a8",
     "output": "9246f165382aa34c0a1ff369d61152b2befc4be76f3a2905b7df566e835d3506"
   },
   "definitions-compile-into-tools-parse-red": {
-    "inputs": "c89ec0c3016408d525f44001032e8bd5549b0ff08402976ee78c5a2e85afd4d3",
-    "output": "6796739311eed47b5809794aeaca1f337b055172be93f1a98e7ae1cab2ff6415"
+    "inputs": "202ce8ac45d710e967768df6de1e5170a1effc4268542aacd54db3b8b41c6e02",
+    "output": "3455f383520d22b08b2e849e102448a280f8e930dcb3f089e8ee4c9cfd0652c6"
   },
   "definitions-compile-into-tools-run": {
-    "inputs": "05a873cb27da203fc9571095ff760a1db2563a6f1d1e3b8e892e22877fa3f7b6",
+    "inputs": "705581100a2fcfa9100a9f8104276cb44f7355bf61429bd2d616ea8b51f93da9",
     "output": "0152480e9e57ea1b16112bdc40ea9852f9ede3d91b90aa4b7845b25017e84a0d"
   },
   "definitions-compile-into-tools-run-green": {
-    "inputs": "a45e7ab070c0e4691cd7f13a249ecff3a74ad3f0319cd415bd5462b732996df2",
+    "inputs": "d8286f82e91dd4eb8afb1c62e68dba72226aa59c3f755952429ab44af837cbc1",
     "output": "ca4389feaa0be84c8501252e46f5dfa64297bf71edcf8afd13144f426a2306c1"
   },
   "definitions-compile-into-tools-search": {
-    "inputs": "8ee8f7f07d3dc4315fa63bd112f7757e57b7793549a735d955aaf9c876f93b1a",
+    "inputs": "c02024f9babc4e44c5503b25a4a227252ca219c3a4c3b701f71a813df59af133",
     "output": "33a464935f5241efa2f4f7e8ac4d237216b4a1a2899870eb22a62eb9da0ae6dd"
   },
   "definitions-compile-into-tools-trace": {
-    "inputs": "7b9bfe4ba402cf0f5d6209dbe2e5480c9000cfa18ff6615c1917864da7496bf6",
-    "output": "8e9b67c08351f3a01619d568568bcec3445c7e0a1dfbd175bdbdb29f368b0c7c"
+    "inputs": "00087cf9c88cc9ab58f7df2ccf6768667a06576c262b010e5dd8a84a5194ef1d",
+    "output": "b1344e1b2266346a87f94ce2eced4c2c4f79f19cc4c0a5ca5004d1002dbb8cf3"
   },
   "functions-defined-by-rules-emit-k": {
-    "inputs": "dea10d31d017c4fb43f15004f7d3f7a05f5a962b5c258ac716150599c0f6493d",
-    "output": "56a1393e92624b515a059812494ca99c46d8ca22e85cad3da60accaedae49c41"
+    "inputs": "4128ae601a8a7e120ce611672a6fc1526fc17cdfece51d7f9fdc5957094ec5ab",
+    "output": "1f1fa36ae0b2b2e1932436325c4a5c66e00c2e19229519ebedf700acdfd4cf72"
   },
   "functions-defined-by-rules-parse": {
-    "inputs": "ed59351ac208ca1602fa16ea7021cc83d6e622e91f7e22747cd7c3d313f947b0",
-    "output": "28ca2335ac2f2ae4cad969afdb5ce08b549753226d16db1845120671ca5d8bdc"
+    "inputs": "3761958842df66525c7090ffb824f76c7dd89e90e719de167bd38eaa8b6ca5fa",
+    "output": "bb4a0f260e312b49b20966865b13f0e20401b4ce7492f0a499c355f7b53612e2"
   },
   "functions-defined-by-rules-run": {
-    "inputs": "e7b7bdd1ffc13bf6d8776a1c1107107f479946aa4cda970490270248c6a24432",
+    "inputs": "3c4e8d5d1be36f513d0fc372bab8e653a2041a96e5682be687cd7fa022f20c81",
     "output": "7dddd50a7b33c7c93656d3a3531329bd0051a5705ded40410752eba2b53aaa03"
   },
   "functions-defined-by-rules-run-pred-zero": {
-    "inputs": "275c754acd4c4ed84ab46b67db89de9727f70c7554fa03fa7e61a1ee40e4270d",
+    "inputs": "113a0a91a9a556185d9d2b8fa25b29fac8fa64ed41a73b1d72b7148ed332f9d6",
     "output": "968f7ebeb8919abfdc61ecc26aadf8bdc35003f3e08ccb0cc962dd641c9c8741"
   },
   "functions-defined-by-rules-run-times-pred-zero": {
-    "inputs": "7f9e93dc51f74a0ac6fefed6a5bef2dcda789b62598ad0ea79b54e93c60875e4",
+    "inputs": "dbcb58dfb12d88357b7a3d38650d8c67db2f4b16f05f78afe49c9fc2b2e4a23d",
     "output": "2b8ce98bd6147417c83077e61efa202532a12202fd9601f99448b4b92716dec0"
   },
   "patterns-and-substitution-emit-k": {
-    "inputs": "ad45de33660bd5786c8fb31018492489f1716f91beb807f74069975b6c15e1ce",
-    "output": "b34696c7c1291c9c108a1f68a0cf4c90212a7a831843d9169e5afbaa1404aa3c"
+    "inputs": "98efae637bf87783685f9615c6a23800ba18d45cdac53104900ab169dda1f26b",
+    "output": "a804b09e5551fb166f9be5f325d503694073a4d9546fa222bbcfb9848b80affc"
   },
   "patterns-and-substitution-run-differ": {
-    "inputs": "25e710e3bed235e335ebb71ad56b38009f89a797f09c4d98941a560550b3a306",
+    "inputs": "74eb791baa48f116acf1a38aa89f7124101b6ad280dc30a2d08c27ba235b849a",
     "output": "586b6849b1eed2e76e4dbe545660e5167bfedd9903033401ad9be590e4a20e08"
   },
   "patterns-and-substitution-run-is-zero": {
-    "inputs": "d5cbb988f8b9e40a408e1aaf1f0ec482c60b6a39a39d43d02c5686654e254a03",
+    "inputs": "eb5e28631b56d83576d00a6dd3da0e8d11fbd6e093dcdac8d1534d9a83945170",
     "output": "9d0944c596e362411a4d6ad25c331c8175e0ba2f0e1721a8f2cbb32754d9b09d"
   },
   "patterns-and-substitution-run-same": {
-    "inputs": "5397ce1c218ff57180856d0b5a7a2de1d6028edc740b1a736c94f7752dffe96e",
+    "inputs": "9a834821bd497d1aa0a62e8cfa78c7ce95356eeab93baeb09c59f3bce183d0dd",
     "output": "42145ac8535d3017b8e9d06aff0c30f74d2219deaa4ba8c69428b6fd8d2bd5ee"
   },
   "sorts-and-constructors-emit-k": {
-    "inputs": "e8f3f61916ea790098b597cb9b9bac37dfb57eeccd136fa1d90a1da2280f0c11",
-    "output": "a26cd9685dd32f131ddd2cd3e13dad221d2264ca7245fc07bd4c15b8834d0217"
+    "inputs": "7fabbc6bf84d74c4f66f3a2ae3167db069ade6edd5fcb5e675283fe5ddaa9f27",
+    "output": "ba86f0384368239f6f49ad8284989cb1571524d3b30f4e9f61579f44e37e7527"
   },
   "sorts-and-constructors-parse": {
-    "inputs": "9f38ffbb113407fa7633b26822df7c8a6d00eefe4f155e5bcde556be603185ee",
-    "output": "e442a00a1fdb05ccbbc961482265a1ea9bbfbf3745ad3384214db10d5eeb0b94"
+    "inputs": "a4bfd572dad3c9410ca2c87de1e01b65771361eb1bf71ba64946cf475189217d",
+    "output": "c61f1b0161074e35ba62290a7c14d0fa3888fde8707109ea1c0afb2194e29bff"
   },
   "sorts-and-constructors-parse-error": {
-    "inputs": "8d5a190d873e470870f14f36294c408589bbd8080657afa765fbfe999a6d36b0",
+    "inputs": "adfe4efad3ec6800d6c355a42c2c2318e4b4e649b5f72f84a89c1654256cd9ec",
     "output": "bd5065e1c1b5c2c99d0c05a125dfcdeac20df227287639d147822bea8f5d181c"
   },
   "sorts-and-constructors-run": {
-    "inputs": "6e755f3b6fb7493d786db246adee49a646eb008bdf29e863102e2fc0507a6d9a",
+    "inputs": "d1fb6f3bfba470bb7a9e668708fd86c9d539a6531532fcf7dc3332cdef22b697",
     "output": "740704ff1ebbac60582248ab95f758075dca1c8961adeef03c1c5e62e9360840"
   },
   "story-a-t1": {
@@ -153,26 +153,26 @@
   },
   "story-emit-k": {
     "inputs": "6f0d421a06f048ac1f065866d28e7fb417570eaf47a3440724c453c3eaec082c",
-    "output": "71da37c3dd5d5e0446640f6d97f3945ed825c700dfd23f9529fac04c4072cc8c"
+    "output": "82d031c741c6123256e6c645a1df33d0c1ca9ffcc4e2b4e0a88ce95113d59f86"
   },
   "story-parse": {
     "inputs": "07b198a0cc36f6eacb741aaa99b2d0c2019daf9c3a852f04f31f907786ff4194",
-    "output": "6b7604b9e12b3d6ffc910dd2e29f184266cb79a20ceae678d4839bf9e98e9d0f"
+    "output": "66f534a24edf4676e278e1c260ac55331519cb558ff1c2f4fc3ab978f3de7cdd"
   },
   "story-search": {
     "inputs": "2b5bd947b73efde9f9d8fe36301354059c54d97cb1ba3bc5ccb0d34316578604",
     "output": "bf78c947c8de9d24bfc6e73fe7ed214b1542e64230f66b416ff85293ca46179f"
   },
   "tour-minimal-depth-0": {
-    "inputs": "cd1c26d46c0fe38afde6537fbf67525b08423a44c6e95af01e5c7710ab8b1b8e",
+    "inputs": "cbdf23145b007416b19c42e4169e689649f524a503d30fe35fe4089a5e53ff6b",
     "output": "c8b4fdb588880c24c568efce9f52ae211c92bacb20ce704ac5ef87746e1b109f"
   },
   "tour-minimal-run": {
-    "inputs": "31da92c62b38c33a016256d3089b65205a6972449d81d9fd7a8265db24db18e1",
+    "inputs": "9547f8041ccebadc5b9101658a0e4045c7a1164c892974d1c0bc5e86bba733a5",
     "output": "bb548b8301e527e87d5a9305f1e564e57e5d3b07d7517d55e8afb4312449b0c8"
   },
   "tour-minimal-trace": {
-    "inputs": "499ee84ce4b2a7d66bad9d70243cbe99d4331130777bb6e9c06a0091d4e95ff7",
-    "output": "4fc219be2888d12451968d3ed43bb7f3c89b13f5d3d682a3b6dc4d9abb482d42"
+    "inputs": "1c6a9ca7abe2834ac38630463db5a835509b9bc6f23ccbbc5ff6d1a58e51b25b",
+    "output": "e231b99cabb6341261079fc9630278b3c29dd0047d371e1a3b9f6d0b9d04a028"
   }
 }

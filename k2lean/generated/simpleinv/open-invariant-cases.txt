@@ -1,0 +1,4 @@
+# Cases of the invariant `KSimpleInv.Invariant` that `k2l_preserve` does not close (`k2lean gen --invariant`, `--sidecar`).
+# `k2lean open-from-log KSimpleInv/Invariants.lean BUILD.log open-invariant-cases.txt` adds the cases whose proof failed.
+# Each line: the case, its statement, the rule's source position. Prove each in KSimpleInv/InvariantsHand.lean as
+# `theorem Invariant.hand.r : Step.Case.r Invariant` (namespace `KSimpleInv`; `Step.Case.r` is stated in KSimpleInv/Preserves.lean).

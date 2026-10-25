@@ -84,10 +84,11 @@ operation, and a corpus of programs that apply them to concrete values:
   is outside K's default hook namespaces (its LLVM backend would need the
   blockchain plugin).
   Each `krs check` pins its `krs::semantic::raw-k` or `krs::expand::raw-hook`
-  warning. `raw-denied` (no opt-in) and `raw-strict` (`profile = "strict"`)
+  warning, which `krs expand` reports too (without `check`'s route warnings). `raw-denied` (no opt-in) and `raw-strict` (`profile = "strict"`)
   each fail with both errors, `krs check --profile strict` fails on `raw-k`,
   and `raw-parse-error`, a `raw_k!` rule K cannot parse, fails `krs build`
-  closed with `krs::native::raw-k-parse` at the `raw_k!` text.
+  closed with `krs::native::raw-k-parse` at the `raw_k!` text, after the
+  `krs::semantic::raw-k` warning that names it.
 
 `known_divergences` in `pins.json` pins the two failing projections of
 `sort-tests` (upstream k-rust/undefined-projection-stuck-leaf, reviewed, not a
@@ -133,7 +134,7 @@ from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.reference import Key, Pin, Snapshot, add_refresh_argument, repository_inputs  # noqa: E402
-from support.tools import checkout_scratch, z3_environment  # noqa: E402
+from support.tools import target_environment, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -226,6 +227,7 @@ SET_OPS = (
 )
 
 MAP_OPS = (
+    case("empty", "freshCount(5)", "1"),
     case("remove", "removeKey(2)", "2"),
     case("remove-absent", "removeKey(9)", "3"),
     case("remove-all", "removeKeys(1)", "1"),
@@ -454,7 +456,12 @@ def ite_instances(harness: FixtureGate, emitted) -> None:
 def java_only_floats(harness: FixtureGate) -> None:
     """Require the Float capability rows and pin each route's refusal (V8, KF-033)."""
 
-    harness.check(FLOAT_JAVA_ONLY)
+    # No native route compiles it, so `krs check` refuses it on every backend.
+    harness.diagnostic("float-java-only", FLOAT_JAVA_ONLY)
+    for backend in ("llvm", "haskell"):
+        checked = harness._krs(FLOAT_JAVA_ONLY, "check", "--backend", backend, check=False)  # noqa: SLF001
+        if checked.returncode == 0:
+            raise GateError(f"{FLOAT_JAVA_ONLY.package}: krs check --backend {backend} accepted it")
     harness.expand(FLOAT_JAVA_ONLY)
     emitted = harness.emit(FLOAT_JAVA_ONLY)
     symbols = json.loads((emitted.directory / "symbols.json").read_text(encoding="utf-8"))
@@ -675,7 +682,8 @@ def console_io(harness: FixtureGate) -> None:
 def console_hooks(harness: FixtureGate) -> None:
     """Run the direct console writes on Java K and pin the native refusal."""
 
-    harness.check(HOOKS)
+    # The in-process route refuses the console hooks, so only a check of the LLVM route passes.
+    harness.check(HOOKS, "--backend", "llvm")
     harness.expand(HOOKS)
     emitted = harness.emit(HOOKS)
     symbols = json.loads((emitted.directory / "symbols.json").read_text(encoding="utf-8"))
@@ -738,6 +746,10 @@ def console_hooks(harness: FixtureGate) -> None:
     if refused.stdout:
         raise GateError(f"{HOOKS.package}: krs run printed {refused.stdout!r} before refusing")
     harness.pins.expect(("diagnostics", "io-hooks-run"), lines)
+    # `krs check` predicts `krs run`, so it refuses with the same refusal.
+    checked = harness._krs(HOOKS, "check", check=False)  # noqa: SLF001
+    if checked.returncode == 0 or diagnostic_lines(checked.stderr)[:1] != lines[:1]:
+        raise GateError(f"{HOOKS.package}: krs check did not refuse as krs run does:\n{checked.stderr}")
     native_llvm = harness.workspace / "native-llvm" / HOOKS.package
     harness._krs(HOOKS, "build", "--backend", "llvm", "--output", native_llvm)  # noqa: SLF001
     krs_gate.require_route(harness.gate, emitted.directory, "java-llvm-reference", environment=harness.environment)
@@ -831,13 +843,21 @@ def console_log(harness: FixtureGate) -> None:
 
 
 def raw_warnings(harness: FixtureGate, fixture: Fixture, code: str) -> None:
-    """Require `krs check` to pass with the raw K warning `code` and pin its warnings."""
+    """Require `krs check` to pass with the raw K warning `code` and pin its warnings.
+
+    `krs expand` must report the same `code` warnings, a fact about the
+    definition, and none of the warnings of the backend routes `check` judges.
+    """
 
     process = harness._krs(fixture, "check", check=False)
     lines = diagnostic_lines(process.stderr)
     if process.returncode != 0 or not any(line.startswith(f"warning[{code}]: ") for line in lines):
         raise GateError(f"{fixture.package}: krs check exited {process.returncode} without warning[{code}]:\n{process.stderr}")
     harness.pins.expect(("raw_warnings", fixture.package), lines)
+    expanded = diagnostic_lines(harness._krs(fixture, "expand").stderr)
+    definition = [line for line in lines if line.startswith(f"warning[{code}]: ")]
+    if expanded != definition:
+        raise GateError(f"{fixture.package}: krs expand reports {expanded}, expected {definition}")
 
 
 def sort_test_diagnostics(harness: FixtureGate) -> None:
@@ -953,11 +973,10 @@ def main() -> int:
     if pins.get("schema") != 1:
         raise GateError("pins.json is not the schema-1 builtin-domains ledger")
 
-    target = checkout_scratch() / "builtin-domains-target"
-    environment = {**z3_environment(), "CARGO_TARGET_DIR": os.fspath(target), "CARGO_TERM_COLOR": "never"}
+    environment = {**z3_environment(), **target_environment(), "CARGO_TERM_COLOR": "never"}
     krs = build(environment)
     gate = krs_gate.configured_or_build()
-    check_packages("builtin-domains", krs=krs, env=environment, target_dir=target)
+    check_packages("builtin-domains", krs=krs, env=environment)
 
     with tempfile.TemporaryDirectory(prefix="krs-builtin-domains-") as temporary:
         workspace = Path(temporary)

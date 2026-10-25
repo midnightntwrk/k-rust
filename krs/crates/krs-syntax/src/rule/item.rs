@@ -6,9 +6,9 @@ use syn::{Expr, FnArg, Ident, ItemFn, Pat, PatType, ReturnType, Stmt, Type};
 use super::condition::{RuleCondition, take_requires_helper};
 use super::existentials::RuleExistentials;
 use super::pattern::{
-    NegativeLiteralSpans, RulePattern, canonical_key, is_bound_path, is_bound_reference,
-    parse_rule_pattern, push_candidate, push_term_node_anchors, push_term_reference_candidates,
-    push_wildcard_anchors,
+    NegativeLiteralSpans, PatternRoot, RulePattern, canonical_key, is_bound_path,
+    is_bound_reference, parse_rule_pattern, push_candidate, push_term_node_anchors,
+    push_term_reference_candidates, push_wildcard_anchors,
 };
 use crate::parse::{
     KrsSyntax, checked_ordinal, unsupported_rule_signature as unsupported_signature,
@@ -18,7 +18,10 @@ use crate::term::{
     is_term_macro, push_lexeme_anchors, push_record_field_anchors, push_sort_test_anchors,
     unexpected_macro,
 };
-use crate::term_sort::{TermSort, parse_readable_sort, parse_rule_term_sort, parse_term_sort};
+use crate::term_sort::{
+    TermSort, parse_readable_sort, parse_rule_term_sort, parse_term_or_readable_sort,
+    parse_term_sort,
+};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, ReferenceCandidate, SyntaxError, SyntaxErrorKind,
     TermExpression, TermNode, TermSymbolKind, TermTree, TokenRange,
@@ -125,6 +128,24 @@ impl RuleItem {
         Self::from_item_with_signs(item, NegativeLiteralSpans::default(), ClauseForm::Equation)
     }
 
+    /// Validates an equation that a function shorthand's body defines, with
+    /// the negative-literal spans of the patterns its subject takes from the
+    /// body's match arms; an arm may leave a record's other fields out with
+    /// `..`, as a match arm does.
+    pub(crate) fn from_shorthand_item(
+        mut item: ItemFn,
+        signs: NegativeLiteralSpans,
+    ) -> Result<Self, SyntaxError> {
+        Self::from_item_with_sort_parser(
+            &mut item,
+            parse_rule_term_sort,
+            PatternRoot::Subject,
+            signs,
+            false,
+            ClauseForm::Equation,
+        )
+    }
+
     /// Parses an equation's tokens, which may end with a function context.
     ///
     /// # Errors
@@ -176,8 +197,7 @@ impl RuleItem {
         Self::from_item_with_sort_parser(
             &mut item,
             parse_rule_term_sort,
-            false,
-            false,
+            PatternRoot::Subject,
             signs,
             false,
             form,
@@ -224,8 +244,7 @@ impl RuleItem {
         Self::from_item_with_sort_parser(
             &mut item,
             parse_term_sort,
-            false,
-            false,
+            PatternRoot::Subject,
             signs,
             wildcards,
             ClauseForm::Plain,
@@ -233,15 +252,51 @@ impl RuleItem {
         .apply_unbound_variables(attribute)
     }
 
-    pub(super) fn from_readable_item(
+    /// Validates one `k::equations!` row, lowered to `fn label(F(args): F)
+    /// -> F { result }`: its sort is the result sort of the header's function
+    /// `F`. A row is readable notation, so its records may end in `..`, as a
+    /// readable rule's do; `krs expand` writes the omitted fields as `_`.
+    pub(super) fn from_table_item(
         mut item: ItemFn,
         signs: NegativeLiteralSpans,
     ) -> Result<Self, SyntaxError> {
         Self::from_item_with_sort_parser(
             &mut item,
+            crate::term_sort::parse_function_result_sort,
+            PatternRoot::Subject,
+            signs,
+            false,
+            ClauseForm::Equation,
+        )
+    }
+
+    /// Validates a readable `for Sort` clause, whose subject's root is the
+    /// matched constructor.
+    pub(super) fn from_readable_item(
+        item: ItemFn,
+        signs: NegativeLiteralSpans,
+    ) -> Result<Self, SyntaxError> {
+        Self::from_readable_item_with_root(item, PatternRoot::Clause, signs)
+    }
+
+    /// Validates a readable machine record's head, whose subject is its
+    /// first computation item: a readable value, not a rule subject.
+    pub(super) fn from_readable_value_item(
+        item: ItemFn,
+        signs: NegativeLiteralSpans,
+    ) -> Result<Self, SyntaxError> {
+        Self::from_readable_item_with_root(item, PatternRoot::Value, signs)
+    }
+
+    fn from_readable_item_with_root(
+        mut item: ItemFn,
+        root: PatternRoot,
+        signs: NegativeLiteralSpans,
+    ) -> Result<Self, SyntaxError> {
+        Self::from_item_with_sort_parser(
+            &mut item,
             parse_readable_sort,
-            true,
-            true,
+            root,
             signs,
             false,
             ClauseForm::Plain,
@@ -255,13 +310,15 @@ impl RuleItem {
     fn from_item_with_sort_parser(
         item: &mut ItemFn,
         sort_parser: fn(Type) -> Result<TermSort, SyntaxError>,
-        allow_record_rest: bool,
-        root_identifier_is_binding: bool,
+        root: PatternRoot,
         signs: NegativeLiteralSpans,
         result_wildcards: bool,
         form: ClauseForm,
     ) -> Result<Self, SyntaxError> {
         validate_signature_features(item)?;
+        // `k::bits!` templates are sugar: the item is parsed as its long form.
+        let hidden = super::bits::desugar(item, form != ClauseForm::Context)?;
+        let _hidden = super::bits::GeneratedBinders::allow(hidden.unwrap_or_default());
         let function_context = parse_function_context(item, form == ClauseForm::Equation)?;
         let binders = parse_rule_binders(item, usize::from(function_context.is_some()))?;
         let subject_index = item
@@ -287,12 +344,7 @@ impl RuleItem {
                 argument.attrs[0].span(),
             ));
         }
-        let (pattern, subject_tree) = parse_rule_pattern(
-            (*argument.pat).clone(),
-            allow_record_rest,
-            root_identifier_is_binding,
-            signs,
-        )?;
+        let (pattern, subject_tree) = parse_rule_pattern((*argument.pat).clone(), root, signs)?;
         // A unit-returning `#[k::rule]` fn is a single-body rule (KF-011):
         // its subject's `k::rewrite!` islands say what changes.
         let rewrite = pattern
@@ -391,7 +443,7 @@ impl RuleItem {
         }
         // A readable clause checks its existentials against every cell it
         // writes (`RuleClause::check_existentials`); its item has only the head.
-        if !root_identifier_is_binding {
+        if root == PatternRoot::Subject {
             existentials.check_shadowing(pattern.bindings())?;
             existentials.check_scope(
                 requires.as_ref().map(RuleCondition::term),
@@ -723,6 +775,10 @@ impl RuleItem {
         if let Some(ensures) = self.existentials.ensures() {
             sides.push(ensures.nodes());
         }
+        // Builtin `Id` and `Bytes` literals, each kind numbered in one
+        // sequence in expansion order (the claim-only islands never reach a
+        // rule's descriptor: expansion rejects them).
+        crate::state_rule::append_claim_node_anchors(sides.iter().copied(), &mut anchors)?;
         let mut aliases = 0_usize;
         for nodes in &sides {
             crate::term::push_pattern_as_anchors(&mut anchors, nodes, &mut aliases)?;
@@ -1062,8 +1118,7 @@ fn parse_rule_binders(item: &ItemFn, trailing: usize) -> Result<Vec<RuleBinder>,
             ));
         }
         let authored = (*argument.ty).clone();
-        let term_sort =
-            parse_term_sort(authored.clone()).or_else(|_| parse_readable_sort(authored))?;
+        let term_sort = parse_term_or_readable_sort(authored)?;
         binders.push(RuleBinder {
             name: pattern.ident.clone(),
             term_sort,
@@ -1223,19 +1278,25 @@ fn parse_rule_body_context(item: &ItemFn, wildcards: bool) -> Result<TermExpress
         ));
     };
     match expression {
+        // A compiler-owned island is a whole result term, as it is anywhere
+        // below the root.
         Expr::Macro(expression_macro)
-            if crate::term::is_sort_test_macro(&expression_macro.mac.path)
-                || crate::term::is_matches_macro(&expression_macro.mac.path)
-                || crate::term::is_std_matches(&expression_macro.mac.path) =>
+            if crate::term::is_island_macro(&expression_macro.mac.path) =>
         {
             TermExpression::from_expression(expression.clone())
+        }
+        // A `k::bits!(value, "..")` test is a `Bool` term.
+        Expr::Macro(expression_macro) if crate::rule::is_bits_macro(&expression_macro.mac.path) => {
+            term(expression.clone())
         }
         Expr::Macro(expression_macro) => {
             if !is_term_macro(&expression_macro.mac.path) {
                 return Err(unexpected_macro(&expression_macro.mac.path));
             }
             crate::term::reject_pattern_alias(&expression_macro.mac.tokens)?;
-            term(syn::parse2::<Expr>(expression_macro.mac.tokens.clone())?)
+            term(syn::parse2::<Expr>(crate::parse::strip_trailing_comma(
+                expression_macro.mac.tokens.clone(),
+            ))?)
         }
         expression => term(expression.clone()),
     }

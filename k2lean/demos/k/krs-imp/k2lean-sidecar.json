@@ -1,0 +1,14 @@
+{
+  "cells": [
+    {
+      "cell": "Lbl'-LT-'env'-GT-'",
+      "collection": "Map",
+      "key": "SortId",
+      "krs": "env: Map<Id, Value>",
+      "value": "SortValue"
+    }
+  ],
+  "format": "k2lean-krs-sidecar",
+  "producer": "krs build",
+  "version": 1
+}

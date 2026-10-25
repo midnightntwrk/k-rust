@@ -14,6 +14,7 @@ use krs_syntax::surface::path_text;
 use krs_syntax::{ProvenanceRole, TermArguments, TermTree};
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 use syn::{Attribute, Ident, Path};
 
 use super::nonce::rule_application_selector;
@@ -230,6 +231,8 @@ pub(super) struct TermBuilder<'a> {
     claim: bool,
     pub(super) id_token_ordinal: u32,
     pub(super) bytes_token_ordinal: u32,
+    /// `k::anonymous!` ordinals of a readable claim's subject.
+    anonymous_ordinal: u32,
     pub(super) or_bool_ordinal: u32,
     /// Side-neutral: lexemes are numbered once across a whole sentence, so
     /// [`Self::reset_side`] keeps it and chained builders copy it forward.
@@ -270,13 +273,16 @@ pub(super) struct TermBuilder<'a> {
     let_scopes: Vec<Vec<Ident>>,
     /// `ml::exists` closure ordinals, side-neutral (KF-039).
     pub(super) ml_binder_ordinal: u32,
-    enum_glob: Option<&'a Path>,
-    enum_variant: Option<&'a Ident>,
-    /// The block's authored `use Enum::*;` (or `use Enum::Variant;`), which
-    /// a witness for a readable record root repeats so that rustc resolves
-    /// the record's path as the author's Rust would (KF-016, KF-023).
-    enum_import_item: Option<&'a syn::ItemUse>,
     lexical_rule_head: bool,
+    /// The `use` items of a `k::equations!` table or a readable block: rustc
+    /// resolves every one-segment path through them, as the author's Rust
+    /// would with those items in scope. An import supplies only the names it
+    /// imports, so `Frame { .. }` names a variant when an imported enum has
+    /// one and the `#[k::cell]` struct otherwise (KF-016, KF-023), a crate
+    /// function no import supplies resolves in the enclosing module, an
+    /// explicit import shadows a glob, and a name two globs supply is
+    /// rustc's ambiguity error where it is used.
+    lexical_imports: Option<&'a [syn::ItemUse]>,
     pub(super) tooling_binding_references: Vec<Path>,
     /// Whether `k::rewrite!` is admitted: the subject of a single-body rule
     /// (KF-011).
@@ -306,6 +312,7 @@ impl<'a> TermBuilder<'a> {
             claim: false,
             id_token_ordinal: 0,
             bytes_token_ordinal: 0,
+            anonymous_ordinal: 0,
             or_bool_ordinal: 0,
             lexeme_ordinal: 0,
             sort_test_ordinal: 0,
@@ -322,10 +329,8 @@ impl<'a> TermBuilder<'a> {
             let_pattern_binders: None,
             let_scopes: Vec::new(),
             ml_binder_ordinal: 0,
-            enum_glob: None,
-            enum_variant: None,
-            enum_import_item: None,
             lexical_rule_head: false,
+            lexical_imports: None,
             tooling_binding_references: Vec::new(),
             allow_rewrite: false,
             in_rewrite: false,
@@ -405,21 +410,6 @@ impl<'a> TermBuilder<'a> {
         self
     }
 
-    pub(super) fn with_enum_glob(mut self, owner: Option<&'a Path>) -> Self {
-        self.enum_glob = owner;
-        self
-    }
-
-    pub(super) fn with_enum_import(
-        mut self,
-        owner: Option<&'a Path>,
-        variant: Option<&'a Ident>,
-    ) -> Self {
-        self.enum_glob = owner;
-        self.enum_variant = variant;
-        self
-    }
-
     /// Rejects turbofish instances on application heads (KF-027): an
     /// initializer builds a concrete value, whose syntax numbers no instance.
     pub(super) const fn without_application_instances(mut self) -> Self {
@@ -435,49 +425,19 @@ impl<'a> TermBuilder<'a> {
         self
     }
 
+    /// Resolves every one-segment path through rustc with `imports` in
+    /// scope (a `k::equations!` table or a readable block's `use` items).
+    pub(super) const fn with_lexical_imports(
+        mut self,
+        imports: Option<&'a [syn::ItemUse]>,
+    ) -> Self {
+        self.lexical_imports = imports;
+        self
+    }
+
     pub(super) fn with_lexical_rule_head(mut self, enabled: bool) -> Self {
         self.lexical_rule_head = enabled;
         self
-    }
-
-    /// Records the block's authored enum import for record-root witnesses.
-    pub(super) const fn with_enum_import_item(mut self, item: Option<&'a syn::ItemUse>) -> Self {
-        self.enum_import_item = item;
-        self
-    }
-
-    /// Lets rustc resolve the head of a readable record root, such as the
-    /// value of a cell entry, instead of qualifying it by the block's enum
-    /// import: `Frame { .. }` may name a `#[k::cell]` struct rather than a
-    /// variant, which the collector learns from the resolved type (KF-016,
-    /// KF-023). Only a one-segment record head the import would qualify is
-    /// affected; every other root keeps its ordinary slot.
-    pub(super) fn arm_record_root(&mut self, tree: &TermTree) {
-        let mut root = tree;
-        while let TermTree::As { pattern, .. } = root {
-            root = pattern;
-        }
-        let TermTree::Application(application) = root else {
-            return;
-        };
-        let head = application.head();
-        if !matches!(application.arguments(), TermArguments::Named(_))
-            || !application.instance().is_empty()
-            || head.leading_colon.is_some()
-            || head.segments.len() != 1
-        {
-            return;
-        }
-        let Some(segment) = head.segments.first() else {
-            return;
-        };
-        if self.enum_glob.is_some()
-            && self
-                .enum_variant
-                .is_none_or(|variant| variant == &segment.ident)
-        {
-            self.lexical_rule_head = true;
-        }
     }
 
     /// The per-side ordinals of this side so far, as `[application,
@@ -521,6 +481,18 @@ impl<'a> TermBuilder<'a> {
             .chain(&self.let_pattern_binders)
             .chain(&self.let_scopes)
             .any(|binders| is_bound_ident_path(path, binders))
+    }
+
+    /// The names in scope at the current term: the sentence's bindings and
+    /// the enclosing local binders.
+    fn names_in_scope(&self) -> impl Iterator<Item = &Ident> {
+        self.bindings.iter().chain(
+            self.local_binders
+                .iter()
+                .chain(&self.let_pattern_binders)
+                .chain(&self.let_scopes)
+                .flatten(),
+        )
     }
 
     /// Whether a `let` pattern is being expanded.
@@ -659,7 +631,7 @@ impl<'a> TermBuilder<'a> {
         Ok(WireTerm::Closure {
             key: wire_key(ProvenanceRole::MlConnective, ordinal),
             binder_key: wire_key(ProvenanceRole::MlBinder, ordinal),
-            name: binder.to_string(),
+            name: binder.unraw().to_string(),
             sort,
             body: Box::new(body?),
         })
@@ -734,20 +706,24 @@ impl<'a> TermBuilder<'a> {
                 let application_ordinal = take_counter(&mut self.counters.application)?;
                 let path_key = wire_key(side.role(TermRole::Path), path_ordinal);
                 let key = wire_key(side.role(TermRole::ApplicationHead), application_ordinal);
-                let lexical = self.take_lexical_rule_head(application.head());
-                let authored_path = if lexical {
-                    spelling(application.head())
+                let lexical = if self.lexical_imports.is_some() {
+                    !application.is_notation()
+                        && application.head().leading_colon.is_none()
+                        && application.head().segments.len() == 1
                 } else {
-                    self.application_authored_path(application.head())
+                    self.take_lexical_rule_head(application.head())
                 };
+                let authored_path = spelling(application.head());
                 let target = if lexical {
-                    let expression = self.lexical_rule_application_target(
-                        &turbofish_path(application),
-                        Some(application.arguments()),
-                    );
+                    let expression =
+                        self.lexical_rule_application_target(&turbofish_path(application));
                     slots.target_slot_unique(&expression)
                 } else {
-                    self.application_wire_slot(application.head(), slots)?
+                    self.application_wire_slot(
+                        application.head(),
+                        application.is_notation(),
+                        slots,
+                    )?
                 };
                 let instance = self.application_instance_wire(application, slots)?;
                 let arguments = match application.arguments() {
@@ -773,6 +749,7 @@ impl<'a> TermBuilder<'a> {
                         krs_ir::Arguments::named(arguments)
                     }
                 };
+                let update = self.expand_record_update(application.update(), side, slots)?;
                 Ok(WireTerm::Application {
                     instance,
                     head_class: DescriptorApplicationHeadClass::Applied,
@@ -783,6 +760,8 @@ impl<'a> TermBuilder<'a> {
                     },
                     path_key,
                     arguments,
+                    update,
+                    open: application.is_open(),
                 })
             }
             TermTree::Reference(path) => {
@@ -796,26 +775,34 @@ impl<'a> TermBuilder<'a> {
                     Ok(WireTerm::Variable {
                         key,
                         path_key,
-                        name: spelling(path),
+                        name: binder_spelling(path),
                     })
                 } else if is_bound_ident_path(path, self.bindings) {
                     self.tooling_binding_references.push(path.clone());
                     Ok(WireTerm::Variable {
                         key,
                         path_key,
-                        name: spelling(path),
+                        name: binder_spelling(path),
                     })
+                } else if let Some(name) = snake_case_bare_name(path) {
+                    // A bare snake-case name is a binder by KRS's spelling
+                    // rule, never a Rust item, so an unbound one is a free
+                    // variable of the sentence, not a path for rustc.
+                    Err(ExpandError::new(
+                        expand::UNBOUND_NAME,
+                        syn::spanned::Spanned::span(path),
+                        format!(
+                            "`{name}` is not bound in this sentence: a bare snake-case name is a binder, and only the pattern (or a `let`, `#[k::exists]`, or `#[k::fresh]`) introduces one{}",
+                            did_you_mean(&name, self.names_in_scope())
+                        ),
+                    ))
                 } else {
-                    let authored_path = if lexical {
-                        spelling(path)
-                    } else {
-                        self.application_authored_path(path)
-                    };
+                    let authored_path = spelling(path);
                     let target = if lexical {
-                        let expression = self.lexical_rule_application_target(path, None);
+                        let expression = self.lexical_rule_application_target(path);
                         slots.target_slot_unique(&expression)
                     } else {
-                        self.application_wire_slot(path, slots)?
+                        self.application_wire_slot(path, false, slots)?
                     };
                     Ok(WireTerm::Application {
                         instance: Vec::new(),
@@ -827,6 +814,8 @@ impl<'a> TermBuilder<'a> {
                         },
                         path_key,
                         arguments: krs_ir::Arguments::default(),
+                        update: None,
+                        open: false,
                     })
                 }
             }
@@ -864,13 +853,13 @@ impl<'a> TermBuilder<'a> {
                     key: wire_key(ProvenanceRole::MatchesWildcard, ordinal),
                 })
             }
-            TermTree::Wildcard(_) => {
+            TermTree::Wildcard(range) => {
                 // A result wildcard parses only for a desugar clause that
                 // lists `_` in `unbound_variables` (KF-046).
                 if !matches!(side, TermSide::Left | TermSide::Right) {
-                    return Err(ExpandError::new(
+                    return Err(ExpandError::at_range(
                         expand::RULE_RESULT_WILDCARD,
-                        Span::call_site(),
+                        *range,
                         "KRS rule results cannot contain wildcards",
                     ));
                 }
@@ -880,13 +869,6 @@ impl<'a> TermBuilder<'a> {
                 })
             }
             TermTree::IdToken { literal } => {
-                if !self.claim {
-                    return Err(ExpandError::new(
-                        expand::CLAIM_ONLY_TERM,
-                        literal.span(),
-                        "id! is currently claim-only",
-                    ));
-                }
                 let ordinal = self.id_token_ordinal;
                 self.id_token_ordinal += 1;
                 Ok(WireTerm::BuiltinToken {
@@ -896,19 +878,48 @@ impl<'a> TermBuilder<'a> {
                 })
             }
             TermTree::BytesToken { literal } => {
-                if !self.claim {
-                    return Err(ExpandError::new(
-                        expand::CLAIM_ONLY_TERM,
-                        literal.span(),
-                        "bytes! is currently claim-only",
-                    ));
-                }
                 let ordinal = self.bytes_token_ordinal;
                 self.bytes_token_ordinal += 1;
                 Ok(WireTerm::BuiltinToken {
                     key: wire_key(ProvenanceRole::ClaimBytesToken, ordinal),
                     sort: BuiltinSort::Bytes,
                     value: bytes_token::encode(&literal.value()),
+                })
+            }
+            // A readable claim's subject may hold `k::anonymous!`, as a
+            // `cells!` claim's does.
+            TermTree::Anonymous {
+                sort,
+                spelling: display_literal,
+            } if self.claim && matches!(side, TermSide::Left) => {
+                let ordinal = self.anonymous_ordinal;
+                self.anonymous_ordinal += 1;
+                let path = call_site_path(sort)?;
+                let key_fn = format_ident!(
+                    "__krs_claim_anonymous_sort_{:016x}_{}",
+                    self.nonce,
+                    self.next_key,
+                );
+                self.next_key += 1;
+                let cfg = self.cfg;
+                self.key_functions.push(quote! {
+                    #(#cfg)*
+                    #[doc(hidden)]
+                    fn #key_fn() -> ::core::any::TypeId {
+                        ::core::any::TypeId::of::<#path>()
+                    }
+                });
+                let facade = self.facade;
+                Ok(WireTerm::Anonymous {
+                    key: wire_key(ProvenanceRole::ClaimAnonymous, ordinal),
+                    sort: WireSortReference {
+                        key: wire_key(ProvenanceRole::ClaimAnonymousSort, ordinal),
+                        target: WireTypeReference {
+                            slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_fn))),
+                            authored_path: spelling(sort),
+                        },
+                    },
+                    spelling: display_literal.value(),
                 })
             }
             TermTree::Anonymous { spelling, .. } => Err(ExpandError::new(
@@ -956,7 +967,7 @@ impl<'a> TermBuilder<'a> {
                 Ok(WireTerm::As {
                     key,
                     binding_key,
-                    name: binding.to_string(),
+                    name: binding.unraw().to_string(),
                     pattern: Box::new(self.expand_wire(pattern, side, slots)?),
                 })
             }
@@ -968,7 +979,7 @@ impl<'a> TermBuilder<'a> {
                     return Err(ExpandError::new(
                         expand::PATTERN_OR_OUTSIDE_LHS,
                         range.first(),
-                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use bool::or or k::or_bool!",
+                        "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use `||`, bool::or, or k::or_bool!",
                     ));
                 }
                 let key = self.take_pattern_or(range.first())?;
@@ -1010,11 +1021,11 @@ impl<'a> TermBuilder<'a> {
                 sort,
                 body,
             } => self.expand_closure(*range, binder, sort, body, side, slots),
-            TermTree::OrBool { arguments, .. } => {
+            TermTree::OrBool { range, arguments } => {
                 if !self.claim {
-                    return Err(ExpandError::new(
+                    return Err(ExpandError::at_range(
                         expand::CLAIM_ONLY_TERM,
-                        Span::call_site(),
+                        *range,
                         "or_bool! is currently claim-only",
                     ));
                 }
@@ -1043,13 +1054,47 @@ impl<'a> TermBuilder<'a> {
                         value: Box::new(self.expand_wire(field.value(), side, slots)?),
                     });
                 }
+                let update = self.expand_record_update(cell.update(), side, slots)?;
                 Ok(WireTerm::Cell {
                     key,
                     declaration,
                     fields,
+                    open: cell.is_open(),
+                    update,
                 })
             }
         }
+    }
+
+    /// Expands the base `t` of a record update `Ctor { f: e, ..t }` (F5),
+    /// after the record's fields, as a reference to the binder `t`. A name
+    /// that binds nothing would resolve as a constructor, which has no
+    /// fields to take, so it is rejected here.
+    fn expand_record_update(
+        &mut self,
+        base: Option<&TermTree>,
+        side: TermSide,
+        slots: &mut WireSlots,
+    ) -> crate::Result<Option<Box<WireTerm>>> {
+        let Some(base) = base else {
+            return Ok(None);
+        };
+        if let TermTree::Reference(path) = base
+            && !self.is_local_binder(path)
+            && !is_bound_ident_path(path, self.bindings)
+        {
+            return Err(ExpandError::new(
+                expand::INVALID_RECORD_UPDATE,
+                syn::spanned::Spanned::span(path),
+                format!(
+                    "`..{}` takes the other fields from a record the left-hand side matched, but `{}` is not a binder of this rule; bind the record with `{} @ Ctor {{ .. }}`",
+                    spelling(path),
+                    spelling(path),
+                    spelling(path)
+                ),
+            ));
+        }
+        Ok(Some(Box::new(self.expand_wire(base, side, slots)?)))
     }
 
     /// Numbers one `name @ pattern` (K's `#as`) in left-hand-side preorder
@@ -1209,24 +1254,20 @@ impl<'a> TermBuilder<'a> {
         })
     }
 
+    /// The target slot of an application head; `notation` marks the head of
+    /// a call that notation denotes, the path of a builtin operation.
     pub(super) fn application_wire_slot(
         &mut self,
         authored: &Path,
+        notation: bool,
         slots: &mut WireSlots,
     ) -> crate::Result<TargetSlot> {
         check_ml_item(authored)?;
-        let (owner, variant) = if authored.leading_colon.is_none()
-            && authored.segments.len() == 1
-            && let Some(imported_owner) = self.enum_glob
-            && let Some(imported_variant) = authored.segments.first()
-            && self
-                .enum_variant
-                .is_none_or(|variant| variant == &imported_variant.ident)
-        {
-            (
-                call_site_path(imported_owner)?,
-                Some(imported_variant.ident.clone()),
-            )
+        let (owner, variant) = if notation {
+            // Notation names the facade's builtin operation, which resolves
+            // whether or not the author imported its module.
+            let facade = self.facade;
+            (syn::parse_quote!(#facade::builtin::#authored), None)
         } else if let Some((owner, variant)) = enum_variant_parts(authored) {
             (owner, Some(variant))
         } else {
@@ -1242,10 +1283,16 @@ impl<'a> TermBuilder<'a> {
         );
         self.next_key += 1;
         let cfg = self.cfg;
+        // A table's `use` items are in scope for its rows, so a qualified
+        // path whose first segment one of them introduces, such as
+        // `Info::StructType` under `use MirTypeInfo as Info;`, resolves
+        // through them as in the author's Rust.
+        let imports = self.lexical_import_items();
         self.key_functions.push(quote! {
             #(#cfg)*
             #[doc(hidden)]
             fn #key_fn() -> ::core::any::TypeId {
+                #imports
                 ::core::any::TypeId::of::<#owner>()
             }
         });
@@ -1258,7 +1305,11 @@ impl<'a> TermBuilder<'a> {
         let owner_key = quote!(#facade::HostTypeKey(#key_reference));
         Ok(if let Some(variant) = variant {
             let marker = variant_marker_function(&variant);
-            let marker_key = quote!(#facade::HostTypeKey(#owner::#marker));
+            let marker_key = if imports.is_empty() {
+                quote!(#facade::HostTypeKey(#owner::#marker))
+            } else {
+                quote!(#facade::HostTypeKey({ #imports #owner::#marker }))
+            };
             slots.variant_slot(&owner_key, &marker_key)
         } else {
             slots.nominal_target_slot(&owner_key)
@@ -1398,30 +1449,26 @@ impl<'a> TermBuilder<'a> {
         });
     }
 
-    pub(super) fn application_authored_path(&self, path: &Path) -> String {
-        if path.leading_colon.is_none()
-            && path.segments.len() == 1
-            && let Some(owner) = self.enum_glob
-            && let Some(variant) = path.segments.first()
-            && self
-                .enum_variant
-                .is_none_or(|imported| imported == &variant.ident)
-        {
-            return format!("{}::{}", spelling(owner), variant.ident);
-        }
-        spelling(path)
+    /// The `use` items of a `k::equations!` table, to open a block or fn
+    /// body that resolves a row's paths; empty outside a table.
+    fn lexical_import_items(&self) -> TokenStream {
+        let items = self
+            .lexical_imports
+            .unwrap_or_default()
+            .iter()
+            .map(|item| quote!(#[allow(unused_imports, clippy::enum_glob_use)] #item));
+        quote!(#(#items)*)
     }
 
     fn take_lexical_rule_head(&mut self, path: &Path) -> bool {
+        if self.lexical_imports.is_some() {
+            return path.leading_colon.is_none() && path.segments.len() == 1;
+        }
         let enabled = ::core::mem::take(&mut self.lexical_rule_head);
         enabled && path.leading_colon.is_none() && path.segments.len() == 1
     }
 
-    fn lexical_rule_application_target(
-        &self,
-        authored: &Path,
-        arguments: Option<&TermArguments>,
-    ) -> TokenStream {
+    fn lexical_rule_application_target(&self, authored: &Path) -> TokenStream {
         let path = authored.clone();
         let ident = authored
             .segments
@@ -1429,21 +1476,19 @@ impl<'a> TermBuilder<'a> {
             .expect("one-segment lexical paths have one identifier");
         let selector = rule_application_selector(&ident.ident);
         let authored_spelling = spelling(authored);
-        let pattern = match arguments {
-            Some(TermArguments::Positional(values)) if values.is_empty() => quote!(#path(..)),
-            Some(TermArguments::Positional(_) | TermArguments::Named(_)) => quote!(#path { .. }),
-            None => quote!(#path),
-        };
+        // `A { .. }` matches a unit, tuple, or record constructor alike, so
+        // `A()` names a unit variant as `Register::A()` does. A bare `A`,
+        // such as a named constant, is written the same way: in a Rust
+        // pattern a bare name that resolves to nothing would bind, while
+        // `A { .. }` makes rustc report the unresolved name.
+        let pattern = quote!(#path { .. });
         let facade = self.facade;
-        // A record root under the block's enum import repeats the import, so
-        // `Frame { .. }` names the variant when the enum has one and the
-        // struct in scope otherwise, as in the author's Rust.
-        let import = self
-            .enum_import_item
-            .filter(|_| self.enum_glob.is_some())
-            .map(|item| quote!(#[allow(unused_imports, clippy::enum_glob_use)] #item));
+        // The path is resolved with the block's or table's `use` items in
+        // scope, so `Frame` names the variant when an imported enum has one
+        // and the item in scope otherwise, as in the author's Rust.
+        let imports = self.lexical_import_items();
         quote! {{
-            #import
+            #imports
             let __krs_rule_application_witness: ::core::option::Option<_> =
                 ::core::option::Option::None;
             if let ::core::option::Option::Some(#pattern) =
@@ -1562,6 +1607,60 @@ fn check_ml_item(path: &Path) -> crate::Result<()> {
     ))
 }
 
+/// The name of a bare snake-case path: one unqualified segment without
+/// arguments whose first character after any leading underscores is
+/// lowercase (`zz`, `_tmp`, `r#type`). KRS binders are spelled this way and
+/// Rust items are not, so outside a pattern such a name uses a binder.
+pub(super) fn snake_case_bare_name(path: &Path) -> Option<String> {
+    let name = path.get_ident()?.unraw().to_string();
+    name.trim_start_matches('_')
+        .starts_with(|first: char| first.is_lowercase())
+        .then_some(name)
+}
+
+/// "; did you mean `x`?" for the in-scope name closest to `name`, within an
+/// edit distance (a swap of two adjacent letters counting as one edit) of a
+/// third of its length, at least one, or nothing.
+pub(super) fn did_you_mean<'a>(name: &str, candidates: impl Iterator<Item = &'a Ident>) -> String {
+    let bound = (name.len() / 3).max(1);
+    candidates
+        .map(|candidate| candidate.unraw().to_string())
+        .filter(|candidate| candidate != name)
+        .map(|candidate| (transposition_distance(name, &candidate), candidate))
+        .filter(|(distance, _)| *distance <= bound)
+        .min()
+        .map(|(_, candidate)| format!("; did you mean `{candidate}`?"))
+        .unwrap_or_default()
+}
+
+/// The edit distance between two ASCII identifiers that counts insertions,
+/// deletions, substitutions, and swaps of two adjacent letters (the
+/// restricted Damerau-Levenshtein distance), so `valeu` is one edit from
+/// `value`.
+fn transposition_distance(left: &str, right: &str) -> usize {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    let mut rows = vec![(0..=right.len()).collect::<Vec<_>>()];
+    for (row, left_byte) in left.iter().enumerate() {
+        let mut current = vec![row + 1];
+        for (column, right_byte) in right.iter().enumerate() {
+            let previous = &rows[row];
+            let mut distance = (previous[column] + usize::from(left_byte != right_byte))
+                .min(previous[column + 1] + 1)
+                .min(current[column] + 1);
+            if row > 0
+                && column > 0
+                && *left_byte == right[column - 1]
+                && left[row - 1] == *right_byte
+            {
+                distance = distance.min(rows[row - 1][column - 1] + 1);
+            }
+            current.push(distance);
+        }
+        rows.push(current);
+    }
+    rows[left.len()][right.len()]
+}
+
 /// The Levenshtein distance between two ASCII identifiers.
 fn edit_distance(left: &str, right: &str) -> usize {
     let right = right.as_bytes();
@@ -1579,4 +1678,70 @@ fn edit_distance(left: &str, right: &str) -> usize {
         previous = current;
     }
     previous[right.len()]
+}
+
+/// A binder's name as a rule binding: its identifier without `r#`, as Rust
+/// names it, so `r#type` and `type` are one binding.
+pub(super) fn binder_spelling(path: &Path) -> String {
+    match path.get_ident() {
+        Some(ident) => ident.unraw().to_string(),
+        None => spelling(path),
+    }
+}
+
+/// Where [`production_sort_arguments`] emits each element type's `TypeId`
+/// helper and wire reference.
+pub(super) struct SortArgumentSink<'a> {
+    pub(super) facade: &'a syn::Path,
+    /// The helper names' prefix; each helper is `{prefix}_{ordinal}`.
+    pub(super) prefix: String,
+    pub(super) cfg: &'a [syn::Attribute],
+    pub(super) helpers: &'a mut Vec<TokenStream>,
+    pub(super) slots: &'a mut WireSlots,
+    /// The next ordinal of `role`.
+    pub(super) ordinal: u32,
+}
+
+/// The wire tree of a production's typed collection element types (a
+/// field's or a function result's): one `TypeId` helper and one `role`
+/// reference per element type, numbered in preorder.
+pub(super) fn production_sort_arguments(
+    arguments: &[krs_syntax::SortArgument],
+    role: krs_syntax::ProvenanceRole,
+    sink: &mut SortArgumentSink<'_>,
+) -> crate::Result<Vec<krs_ir::wire::WireConstructorSortArgument>> {
+    let mut output = Vec::with_capacity(arguments.len());
+    for argument in arguments {
+        let facade = sink.facade;
+        let cfg = sink.cfg;
+        let generated = super::tokens::call_site_path(&argument.path)?;
+        let ty = super::tokens::sort_type_tokens(facade, &generated, argument.dynamic);
+        let key = quote::format_ident!("{}_{}", sink.prefix, sink.ordinal);
+        sink.helpers.push(quote! {
+            #(#cfg)*
+            #[doc(hidden)]
+            fn #key() -> ::core::any::TypeId {
+                ::core::any::TypeId::of::<#ty>()
+            }
+        });
+        let sort = krs_ir::wire::WireSortReference {
+            key: wire_key(role, sink.ordinal),
+            target: krs_ir::wire::WireTypeReference {
+                slot: sink.slots.type_slot(quote!(#facade::HostTypeKey(#key))),
+                authored_path: super::tokens::spelling(&argument.path),
+            },
+        };
+        sink.ordinal = sink.ordinal.checked_add(1).ok_or_else(|| {
+            crate::ExpandError::new(
+                krs_diagnostic::codes::expand::DESCRIPTOR_CAPACITY,
+                syn::spanned::Spanned::span(&argument.path),
+                "too many collection element types",
+            )
+        })?;
+        output.push(krs_ir::wire::WireConstructorSortArgument {
+            sort,
+            arguments: production_sort_arguments(&argument.arguments, role, sink)?,
+        });
+    }
+    Ok(output)
 }

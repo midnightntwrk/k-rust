@@ -1,0 +1,56 @@
+# kink-flow corpus for IMP (K tutorial, pl-tutorial/1_k/2_imp/lesson_4); see README.md.
+
+[spec]
+entry = "imp.k"
+main_module = "IMP"
+syntax_module = "IMP-SYNTAX"
+
+[budget]
+# The default bounds, written out. A mutant that loops where the baseline ends
+# also multiplies its paths and its memory (see README.md), so the time bound
+# is kept small.
+time_ms = 10000
+max_depth = 100000
+# A mutant's run of a program may visit at most 4 times the states the program's
+# baseline run visited, plus 10000 (re-pin L1-1): a mutant that loops where the
+# baseline ends is unknown on that program in well under a second instead of
+# running out the time bound. Factor 1 already keeps every status and killer of
+# this list (README.md).
+work_factor = 4
+
+# The lesson's three programs, with the loop bounds reduced so that a run ends.
+
+[[program]]
+id = "sum"
+file = "programs/sum.imp"
+
+[[program]]
+id = "primes"
+file = "programs/primes.imp"
+
+# collatz took about 36 s on the baseline as a path set even with m = 3, so before re-pin
+# L1-1 it was `timeout` under this budget; as a state set it ends in about 10 ms and is
+# comparable, so every mutation's search runs it (it kills none; README.md).
+[[program]]
+id = "collatz"
+file = "programs/collatz.imp"
+
+# Programs written for the survivors of the first run (README.md):
+# `arith` kills div-becomes-mul, add-becomes-sub and neg-drops-sign; `and` kills the two && mutations;
+# `divzero` kills div-guard-dropped; `redeclare` kills decl-allows-redeclaration.
+
+[[program]]
+id = "arith"
+file = "programs/arith.imp"
+
+[[program]]
+id = "and"
+file = "programs/and.imp"
+
+[[program]]
+id = "divzero"
+file = "programs/divzero.imp"
+
+[[program]]
+id = "redeclare"
+file = "programs/redeclare.imp"

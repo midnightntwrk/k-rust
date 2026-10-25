@@ -24,6 +24,7 @@ use serde_json::Value;
 
 use crate::definition::AttributeKey;
 use crate::definition::production_kind::ProductionKind;
+use crate::kast::binding::quantifier;
 use crate::names::BuiltinSort;
 use crate::{
     definition::{Attributes, Definition, LabelHead, ProductionCatalog, ProductionItem, Sentence},
@@ -185,7 +186,9 @@ fn resolve_context(
         in_main_cell: false,
         heated: None,
         hole: None,
-        variables: BTreeMap::new(),
+        variables: Vec::new(),
+        seen: BTreeSet::new(),
+        bound: Vec::new(),
         current_hole_position: 0,
         final_hole_position: 0,
     };
@@ -279,7 +282,7 @@ fn resolve_context(
     };
     let frozen = Term::Apply {
         label: freezer_label,
-        arguments: variables.into_values().collect(),
+        arguments: variables,
     };
 
     let heat_attributes = rule_attributes(attributes, AttributeKey::Heat, "-heat");
@@ -336,13 +339,25 @@ struct HeatScan<'a, 'definition> {
     in_main_cell: bool,
     heated: Option<Term>,
     hole: Option<Term>,
-    variables: BTreeMap<String, Term>,
+    /// The context's variables other than `HOLE`, each once, in the order of their first
+    /// occurrence: the freezer's arguments. A freezer's argument positions are internal to the
+    /// heating and cooling pair, so any order consistent between the two denotes the same rules;
+    /// first occurrence is the one that reads no name, so an alpha-variant of the context lowers
+    /// to an alpha-variant of the pair. For a context strictness generates this is the order of
+    /// the production's arguments (`K2` before `K10`).
+    variables: Vec<Term>,
+    /// The names in `variables`.
+    seen: BTreeSet<String>,
+    /// The names the quantifiers around the visited term bind. A bound variable belongs to its
+    /// quantifier, which the freezer holds whole when it holds the term around it, so it is no
+    /// variable of the context: freezing it would put its name free beside its binder.
+    bound: Vec<String>,
     current_hole_position: usize,
     final_hole_position: usize,
 }
 
 impl HeatScan<'_, '_> {
-    // Invariant: `self.variables` and `self.current_hole_position` record the non-`HOLE` variables visited so far in preorder where `self.in_main_cell || !self.has_main_cell` holds, and `self.hole` the last `HOLE` found there; each call recurses into the immediate subterms of `term`.
+    // Invariant: `self.variables` holds the distinct non-`HOLE` variables visited so far in preorder that no enclosing quantifier binds (`self.bound`), by first occurrence (`self.seen` their names), and `self.current_hole_position` counts their occurrences, where `self.in_main_cell || !self.has_main_cell` holds, and `self.hole` the last `HOLE` found there; each call recurses into the immediate subterms of `term`.
     fn visit(&mut self, term: &Term) {
         match term.unannotated() {
             Term::Rewrite { left, right } => {
@@ -364,9 +379,15 @@ impl HeatScan<'_, '_> {
                 if main_cell {
                     self.in_main_cell = true;
                 }
+                let scope = self.bound.len();
+                if let Some(quantifier) = quantifier(term) {
+                    self.bound
+                        .extend(quantifier.bound().into_iter().map(str::to_owned));
+                }
                 for argument in arguments {
                     self.visit(argument);
                 }
+                self.bound.truncate(scope);
                 if main_cell {
                     self.in_main_cell = false;
                 }
@@ -377,7 +398,9 @@ impl HeatScan<'_, '_> {
                         self.hole = Some(term.clone());
                         self.final_hole_position = self.current_hole_position;
                     } else {
-                        self.variables.insert(name.clone(), term.clone());
+                        if !self.bound.contains(name) && self.seen.insert(name.clone()) {
+                            self.variables.push(term.clone());
+                        }
                         self.current_hole_position += 1;
                     }
                 }
@@ -849,7 +872,9 @@ endmodule
             let (_, frozen, _) = heating
                 .iter()
                 .find_map(|(body, requires, ensures)| {
-                    let frozen = body.strip_prefix(&format!("{context}=>HOLE~>"))?;
+                    let frozen = body
+                        .strip_prefix(&format!("{context}=>``HOLE~>"))?
+                        .strip_suffix("``")?;
                     (requires == condition && ensures == truth).then_some((
                         body,
                         frozen,
@@ -861,7 +886,7 @@ endmodule
                 });
             assert!(
                 cooling.contains(&(
-                    format!("HOLE~>{frozen}=>{context}"),
+                    format!("``HOLE~>{frozen}``=>{context}"),
                     truth.to_owned(),
                     truth.to_owned()
                 )),
@@ -876,6 +901,74 @@ endmodule
                 "{label} should take {held} arguments: {freezers:?}"
             );
         }
+    }
+
+    /// The freezer's arguments are the context's variables other than `HOLE` in the order of
+    /// their first occurrence, never in the order of their names: a renaming of the context then
+    /// renames the heating and cooling rules and permutes nothing. `f(HOLE, Y, X)` freezes
+    /// `(Y, X)`, and a context strictness generates freezes the production's other arguments in
+    /// their order, so `K2` comes before `K10`.
+    #[test]
+    fn freezer_arguments_follow_first_occurrence_not_spelling() {
+        let run = run_to_stage(
+            r#"
+module BOOL
+  syntax Bool ::= Bool "andBool" Bool [function, total, symbol(_andBool_), hook(BOOL.and)]
+                | "notBool" Bool [function, total, symbol(notBool_), hook(BOOL.not)]
+endmodule
+module MAIN
+  syntax K
+  syntax KResult
+  syntax Val ::= "v" [symbol(v)]
+  syntax KResult ::= Val
+  syntax Exp ::= Val
+               | f(Exp, Exp, Exp) [symbol(f)]
+               | big(Exp, Exp, Exp, Exp, Exp, Exp, Exp, Exp, Exp, Exp, Exp, Exp) [strict(1), symbol(big)]
+  context f(HOLE, Y, X)
+  configuration <k> v </k>
+endmodule
+"#,
+            "resolve contexts",
+        );
+        let (added, _) = sentence_changes(&run.input, run.output());
+        let frozen = added
+            .iter()
+            .filter_map(|(_, sentence)| {
+                let Sentence::Rule {
+                    body, attributes, ..
+                } = sentence
+                else {
+                    return None;
+                };
+                attributes.get("heat").is_some().then(|| {
+                    let body = body.to_string();
+                    let frozen = body
+                        .split_once("=>``HOLE~>")
+                        .and_then(|(_, frozen)| frozen.strip_suffix("``"))
+                        .map(str::to_owned);
+                    frozen.unwrap_or_else(|| panic!("a heating rule without a freezer: {body}"))
+                })
+            })
+            .collect::<Vec<_>>();
+        let arguments = |frozen: &str| {
+            let (_, arguments) = frozen.split_once('(').expect("the freezer is applied");
+            arguments
+                .trim_end_matches(')')
+                .split(',')
+                .map(|argument| argument.split(':').next().unwrap().to_owned())
+                .collect::<Vec<_>>()
+        };
+        let mut found = frozen
+            .iter()
+            .map(|frozen| arguments(frozen))
+            .collect::<Vec<_>>();
+        found.sort();
+        let mut expected = vec![
+            vec!["Y".to_owned(), "X".to_owned()],
+            (1..12).map(|index| format!("K{index}")).collect(),
+        ];
+        expected.sort();
+        assert_eq!(found, expected, "{frozen:#?}");
     }
 
     /// Cooling matches the term the context rewrites HOLE to and plugs HOLE back in; a term

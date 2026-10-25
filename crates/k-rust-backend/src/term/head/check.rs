@@ -46,7 +46,7 @@ use rustc_hash::FxHashMap;
 use crate::{
     definition::BackendDefinition,
     rule::{Predicate, PredicateRewriteRule, RewriteRule, RuleAttributes, Theory},
-    term::{HeadRole, Name, Sort, Term, TermKind, Variable, VariableKind},
+    term::{HeadRole, Name, Sort, SortNode, Term, TermKind, Variable, VariableKind},
 };
 
 /// Which claim about `term` is being checked.
@@ -348,9 +348,9 @@ struct ShownSort<'s>(&'s Sort);
 
 impl fmt::Display for ShownSort<'_> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self.0 {
-            Sort::Variable(name) => formatter.write_str(name),
-            Sort::Application { name, arguments } => {
+        match self.0.node() {
+            SortNode::Variable(name) => formatter.write_str(name),
+            SortNode::Application { name, arguments } => {
                 write!(formatter, "{name}{{")?;
                 for (index, argument) in arguments.iter().enumerate() {
                     if index > 0 {

@@ -19,7 +19,7 @@
 //!
 //! [[cost]]
 //! mode = "one definition load"
-//! bound = "O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge, plus, after the critical-pair check, one walk of the executable left-hand sides and of the predicate simplification lemmas' left-hand sides and at most r + 1 rounds of one instance-normality scan per ground term an equation-head application of them denotes, not yet recorded, for r recorded terms (record_pattern_tokens), plus, per reachability claim and side (its left-hand side and each right-hand disjunct) whose constraints are not ceil_free, one definedness statement of those constraints (claim::with_explicit_definedness, definedness::request_definedness)"
+//! bound = "O(d) for the module, sort and symbol passes, plus O(a) axiom pushes each with one alias expansion and one classification, plus one walk of each predicate simplification lemma's left-hand side bringing it to its written form (simplify::written_lemma_left_side, one ceil_term call per atom of each conjunction that holds a \\ceil, deferred, membership, absence or negation conjunct), plus collapse_equal_axioms (one traversal per comparison, comparing only axioms with one UNIQUE_ID), plus a fixed-root symbol index pass and one result-head bucket and schema scan per finite-domain candidate with recursive sort matching, plus verify_definition, backend.definition.closure and backend.definedness.discharge, plus, after the critical-pair check, one walk of the executable left-hand sides and of the predicate simplification lemmas' left-hand sides and at most r + 1 rounds of one instance-normality scan per ground term an equation-head application of them denotes, not yet recorded, for r recorded terms (record_pattern_tokens), plus, per reachability claim and side (its left-hand side and each right-hand disjunct) whose constraints are not ceil_free, one definedness statement of those constraints (claim::with_explicit_definedness, definedness::request_definedness)"
 //!
 //! [[cost]]
 //! mode = "one term or pattern request (internalize_term, internalize_pattern)"
@@ -84,9 +84,9 @@ use crate::{
     rewrite::Pattern,
     rule::{
         AxiomError, ClassifiedAxiom, InternalizedRule, MALFORMED_OVERLOAD, Predicate,
-        PredicateTheory, RewriteTheory, RuleKind, RulePatternError, SentenceKey, TermIndex, Theory,
-        algebraic_axiom_roots, classify_axiom, collapse_equal_axioms, insert_rewrite_theory,
-        insert_theory, internalize_axiom,
+        PredicateReading, PredicateTheory, RewriteTheory, RuleKind, RulePatternError, SentenceKey,
+        TermIndex, Theory, algebraic_axiom_roots, classify_axiom, collapse_equal_axioms,
+        insert_rewrite_theory, insert_theory, internalize_axiom,
         internalize_model_predicate as internalize_rule_model_predicate,
         internalize_predicate as internalize_rule_predicate, internalize_rule_pattern,
         overload_pair, rule_index,
@@ -94,10 +94,11 @@ use crate::{
     smt::{SExpr, SmtType},
     term::{
         AlgebraicAxioms, CollectionMetadata, CollectionSymbols, DomainKind, FunctionType, HeadRole,
-        ListDefinition, MapDefinition, Name, Sort, Symbol, SymbolAttributes, SymbolDeclaration,
-        SymbolType, Term, TermKind, Variable,
+        ListDefinition, MapDefinition, Name, Sort, SortNode, Sorts, Symbol, SymbolAttributes,
+        SymbolDeclaration, SymbolType, Term, TermKind, Variable,
         domain::{TextRejection, validate_text},
         names::{HookName, variable_name_problems},
+        sort_name,
     },
 };
 
@@ -232,7 +233,10 @@ pub const fn execution_role(attribute: KoreAttribute) -> ExecutionRole {
 /// the canonical form changes, including a change of the compact KORE printer or the parser
 /// that moves the pinned digest (which then gets a new row in the pin test); a digest is never
 /// compared across versions. A change of what the backend does with a definition does not
-/// change it: the build identity, another component of a cache key, covers that.
+/// change it: the build identity, another component of a cache key, covers that. Neither does
+/// a change of the KORE that compiling one source gives, which gives that source another
+/// digest under the same version, so a digest over k-rust output is comparable only under one
+/// k-rust revision ("Format versions" in `docs/compatibility.md`).
 pub const EXECUTION_DIGEST_VERSION: u32 = 1;
 
 /// The execution digest of a KORE definition ([`execution_digest`], whose rustdoc states what
@@ -651,7 +655,6 @@ impl<'a> Admitted<'a> {
     ///
     /// The constraints are definedness-explicit (`Admitted::explicit_constraints`).
     pub fn internalize_pattern(self) -> Result<Pattern, DefinitionError> {
-        self.refuse_terms_read_as_predicates()?;
         let pattern = self
             .definition
             .internalize_pattern(self.pattern, self.sort_variables)?;
@@ -663,7 +666,6 @@ impl<'a> Admitted<'a> {
     /// The constraints, or the predicate, are definedness-explicit
     /// (`Admitted::explicit_constraints`).
     pub fn internalize_pattern_or_predicate(self) -> Result<PatternOrPredicate, DefinitionError> {
-        self.refuse_terms_read_as_predicates()?;
         Ok(
             match self
                 .definition
@@ -683,7 +685,6 @@ impl<'a> Admitted<'a> {
     ///
     /// The predicate is definedness-explicit (`Admitted::explicit_constraints`).
     pub fn internalize_predicate(self) -> Result<(crate::rule::Predicate, Sort), DefinitionError> {
-        self.refuse_terms_read_as_predicates()?;
         let (predicate, sort) = self
             .definition
             .internalize_predicate(self.pattern, self.sort_variables)?;
@@ -696,7 +697,6 @@ impl<'a> Admitted<'a> {
     pub fn internalize_model_predicate(
         self,
     ) -> Result<Option<(crate::rule::Predicate, Sort)>, DefinitionError> {
-        self.refuse_terms_read_as_predicates()?;
         self.definition
             .internalize_model_predicate(self.pattern, self.sort_variables)?
             .map(|(predicate, sort)| Ok((self.explicit_predicate(predicate)?, sort)))
@@ -709,7 +709,6 @@ impl<'a> Admitted<'a> {
     pub fn internalize_implication_pattern(
         self,
     ) -> Result<(Pattern, BTreeSet<Variable>), DefinitionError> {
-        self.refuse_terms_read_as_predicates()?;
         let (pattern, existentials) = self
             .definition
             .internalize_implication_pattern(self.pattern, self.sort_variables)?;
@@ -721,7 +720,6 @@ impl<'a> Admitted<'a> {
     /// The constraints of each alternative are definedness-explicit
     /// (`Admitted::explicit_constraints`).
     pub fn internalize_disjunction(self) -> Result<Vec<Pattern>, DefinitionError> {
-        self.refuse_terms_read_as_predicates()?;
         self.definition
             .internalize_disjunction(self.pattern, self.sort_variables)?
             .into_iter()
@@ -750,36 +748,16 @@ impl<'a> Admitted<'a> {
     ///
     /// A predicate whose definedness depends on an impure application in an operand a
     /// conditional does not evaluate, or an atom over a term-level `\and`, has no such form and
-    /// is refused ([`DefinitionError::UnstatedDefinedness`]).
+    /// is refused ([`DefinitionError::UnstatedDefinedness`]). A request with an `\equals` that
+    /// would read a term as a predicate is refused before, by the reading of its predicates
+    /// itself ([`crate::rule::PredicateReading`]), with
+    /// [`UnstatedDefinedness::TermReadAsPredicate`].
     fn explicit_constraints(
         self,
         predicates: Vec<crate::rule::Predicate>,
     ) -> Result<Vec<crate::rule::Predicate>, DefinitionError> {
         crate::definedness::request_definedness(self.definition, predicates)
             .map_err(|failure| DefinitionError::UnstatedDefinedness(failure.into()))
-    }
-
-    /// Refuse a request that equates a pattern holding a term in predicate position, such as
-    /// `\equals{Bool, R}(\and{Bool}(B1, B2), false)` or `\equals{Bool, R}(B, \top{Bool}())`.
-    ///
-    /// An `\equals` whose operands are not both terms is internalized as the `\iff` of its
-    /// operands read as predicates, and a term read as a predicate means `t = true`. That is the
-    /// meaning of neither example: `B1 /\ B2` of two Boolean values is their intersection,
-    /// `\bottom` where they differ, and `B = \top` is false, since a sort with two elements is not
-    /// a singleton. Such a request has no reading k-rust decides faithfully, so it is refused
-    /// before internalization, its aliases unfolded as the internalizer unfolds them. The
-    /// operands are searched through the connectives that read their arguments as predicates,
-    /// not below `\equals`, `\ceil`, `\floor` or `\in`, whose arguments are terms.
-    fn refuse_terms_read_as_predicates(self) -> Result<(), DefinitionError> {
-        // An alias applied in the request is read as its body, so the walk reads the unfolded
-        // pattern, as the internalizer does next.
-        let expanded = expand_aliases(self.pattern, &self.definition.aliases)?;
-        if equates_a_term_read_as_predicate(&expanded, HoldsEncoding::Refused) {
-            return Err(DefinitionError::UnstatedDefinedness(
-                UnstatedDefinedness::TermReadAsPredicate,
-            ));
-        }
-        Ok(())
     }
 
     fn explicit_pattern(self, mut pattern: Pattern) -> Result<Pattern, DefinitionError> {
@@ -1143,7 +1121,15 @@ pub struct BackendDefinition {
     /// The symbols declared with the KORE `impure` attribute, K's mark of an operation with an
     /// effect; read by [`Self::is_impure`].
     impure_symbols: BTreeSet<Name>,
+    /// The symbols whose applications may perform a console effect, closed over the equations;
+    /// computed by `internalize` once the theories are complete; read by
+    /// [`Self::console_reach`].
+    console_reach: crate::deferred::ConsoleReach,
     finite_sort_constructors: BTreeMap<Sort, FiniteConstructorDomain>,
+    /// [`domain_kind_in`] of the sorts table at each builtin sort, in the order of
+    /// `BuiltinSort::ALL`, computed once at load: [`Self::domain_kind`] answers from it for a
+    /// builtin sort (`Sort::shared_builtin_index`), without looking its name up in the table.
+    builtin_domain_kinds: [Option<DomainKind>; BuiltinSort::ALL.len()],
     /// Which sorts may contain a `KVar` token; computed on first use by `SUBSTITUTION.substOne`.
     kvar_sorts: OnceLock<KVarSorts>,
     /// The sorts known to have a value; computed on first use by `sort_is_inhabited`.
@@ -1155,11 +1141,19 @@ pub struct BackendDefinition {
     /// The stops the load's discharge of rewrite-rule definedness met
     /// (`discharge_rewrite_definedness`).
     discharge_counts: DischargeCounts,
+    /// What the load's analyses met that undone work never rolls back (`crate::path_facts`):
+    /// the contradicted claims, allowance refusals and unsupported hooks of the critical-pair
+    /// check, the discharge and the claims' definedness, in first-observed order.
+    load_record: Vec<crate::path_facts::PathFact>,
     /// Whether some simplification axiom states an equation between terms but was filed in
     /// `predicate_simplification_theory`, because its left-hand side is not a term pattern (an
     /// `\and` of term patterns). The term simplifier never tries it. Set by `internalize`; see
     /// [`Self::equation_selection_complete`].
     term_equation_in_predicate_theory: bool,
+    /// Whether the definition makes a claim that evaluation can find contradicted: a rewrite rule
+    /// declared `preserves-definedness`, or an equation of a symbol declared `total` (or
+    /// `functional`). Set by `internalize`; see [`Self::declares_claims`].
+    declares_claims: bool,
     /// Every term equation's left-hand side by root symbol, for the normal-form checker; built
     /// on first use by `normal_form_catalog`.
     #[cfg(feature = "check-normal-forms")]
@@ -1176,14 +1170,8 @@ pub(crate) struct SelectionComplete(());
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
 pub(crate) enum ConstructorHead {
-    Symbol {
-        name: Name,
-        sort_arguments: Vec<Sort>,
-    },
-    Injection {
-        source: Sort,
-        target: Sort,
-    },
+    Symbol { name: Name, sort_arguments: Sorts },
+    Injection { source: Sort, target: Sort },
 }
 
 /// I5: every value of the sort is an alternative of its no-junk axiom.
@@ -1201,9 +1189,9 @@ impl FiniteConstructorDomain {
         sort: &Sort,
         listed: BTreeSet<ConstructorHead>,
     ) -> Option<Self> {
-        let bucket = match sort {
-            Sort::Application { name, .. } => index.by_result_head.get(name),
-            Sort::Variable(_) => None,
+        let bucket = match sort.node() {
+            SortNode::Application { name, .. } => index.by_result_head.get(name),
+            SortNode::Variable(_) => None,
         };
         for symbol in bucket.into_iter().flatten().chain(&index.schemas) {
             let mut bindings = BTreeMap::new();
@@ -1225,7 +1213,7 @@ impl FiniteConstructorDomain {
                 .collect::<Option<Vec<_>>>()?;
             if !listed.contains(&ConstructorHead::Symbol {
                 name: symbol.name.clone(),
-                sort_arguments,
+                sort_arguments: sort_arguments.into(),
             }) {
                 return None;
             }
@@ -1262,16 +1250,16 @@ impl<'a> FixedRootSymbols<'a> {
             {
                 continue;
             }
-            match &symbol.result_sort {
-                Sort::Application { name, .. } => index
+            match symbol.result_sort.node() {
+                SortNode::Application { name, .. } => index
                     .by_result_head
                     .entry(name.clone())
                     .or_default()
                     .push(symbol),
-                Sort::Variable(name) if symbol.sort_variables.contains(name) => {
+                SortNode::Variable(name) if symbol.sort_variables.contains(name) => {
                     index.schemas.push(symbol);
                 }
-                Sort::Variable(_) => {}
+                SortNode::Variable(_) => {}
             }
         }
         index
@@ -1285,18 +1273,18 @@ fn match_declaration_sort(
     variables: &[Name],
     bindings: &mut BTreeMap<Name, Sort>,
 ) -> bool {
-    match (declaration, instance) {
-        (Sort::Variable(name), _) if variables.contains(name) => {
+    match (declaration.node(), instance.node()) {
+        (SortNode::Variable(name), _) if variables.contains(name) => {
             if let Some(bound) = bindings.get(name) {
                 bound == instance
             } else {
-                bindings.insert(name.clone(), instance.clone());
+                bindings.insert(name.clone(), *instance);
                 true
             }
         }
         (
-            Sort::Application { name, arguments },
-            Sort::Application {
+            SortNode::Application { name, arguments },
+            SortNode::Application {
                 name: instance_name,
                 arguments: instance_arguments,
             },
@@ -1308,9 +1296,9 @@ fn match_declaration_sort(
                     .zip(instance_arguments)
                     .all(|(left, right)| match_declaration_sort(left, right, variables, bindings))
         }
-        (Sort::Variable(_), Sort::Variable(_)) => declaration == instance,
-        (Sort::Variable(_), Sort::Application { .. })
-        | (Sort::Application { .. }, Sort::Variable(_)) => false,
+        (SortNode::Variable(_), SortNode::Variable(_)) => declaration == instance,
+        (SortNode::Variable(_), SortNode::Application { .. })
+        | (SortNode::Application { .. }, SortNode::Variable(_)) => false,
     }
 }
 
@@ -1478,6 +1466,19 @@ pub enum DefinitionError {
         failure: PriorityConjunctFailure,
     },
     RulePattern(RulePatternError),
+    /// An axiom with an `\equals` whose operands are not both terms and not both predicates
+    /// (`PredicateReading`), such as `\equals{Bool, R}(\and{Bool}(B1, B2), false)` or
+    /// `\equals{Int, R}(X, \or{Int}(1, 2))`, outside the encoding `\equals{Bool, R}(P, true)`
+    /// of a condition at a frontend's condition slot (`crate::rule::ConditionSlot`): an operand
+    /// that is a matching-logic connective over terms denotes a set of values, and a term beside a
+    /// predicate is no predicate, so no predicate the backend reads states what the equality
+    /// states. Carries the axiom's name and position
+    /// ([`RuleAttributes::diagnostic_name`](crate::rule::RuleAttributes::diagnostic_name)) and
+    /// its sentence.
+    AxiomReadsTermAsPredicate {
+        axiom: String,
+        sentence: Box<SentenceKey>,
+    },
     Claim(ClaimError),
     Verification(crate::verify::VerificationError),
     /// A request's predicate whose definedness the backend cannot state as an equivalent
@@ -1499,84 +1500,14 @@ pub enum UnstatedDefinedness {
     /// An `\equals` whose operands are not both terms holds a term where a predicate is read
     /// (`\equals{Bool, R}(\and{Bool}(B1, B2), false)`, `\equals{Bool, R}(B, \top{Bool}())`):
     /// that equality would be read as the `\iff` of its operands taken as predicates, which is
-    /// not its meaning.
+    /// not its meaning (`PredicateReading`). Outside an axiom, this is also the error the
+    /// reading itself returns for such an equality.
     TermReadAsPredicate,
-}
-
-/// Whether an `\equals` of a predicate `P` and the Boolean `true`, the form in which k-rust's
-/// compiler emits a K `requires P` or `ensures P` whose `P` is an ML predicate
-/// (`{ A #Equals B }`, `#Not(..)`), counts as an equality that reads a term as a predicate.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum HoldsEncoding {
-    /// A request's predicates: such an equality is refused like any other.
-    Refused,
-    /// A claim's constraints, which the compiler writes: such an equality is the encoding of
-    /// "`P` holds", and its internalized reading, the `\iff` of `P` and `true = true`, is `P`, so
-    /// it is read faithfully; only `P` itself is searched.
-    Holds,
-}
-
-/// Whether `pattern` holds an `\equals` whose operands are not both terms and that holds a
-/// term where a predicate is read, such as `\equals{Bool, R}(\and{Bool}(B1, B2), false)` or
-/// `\equals{Bool, R}(B, \top{Bool}())`. Such an equality is internalized as the `\iff` of its
-/// operands read as predicates, with a term read as `t = true`, which is not its meaning:
-/// `B1 /\ B2` of two Boolean values is their intersection, `\bottom` where they differ, and
-/// `B = \top` is false, since a sort with two elements is not a singleton. The operands are
-/// searched through the connectives that read their arguments as predicates, not below
-/// `\equals`, `\ceil`, `\floor` or `\in`, whose arguments are terms. `pattern` has its aliases
-/// unfolded.
-pub(crate) fn equates_a_term_read_as_predicate(
-    pattern: &kore::Pattern,
-    holds: HoldsEncoding,
-) -> bool {
-    fn reads_a_term(pattern: &kore::Pattern) -> bool {
-        use kore::Pattern as P;
-        match pattern {
-            pattern if crate::rule::is_term_pattern(pattern) => true,
-            P::And { arguments, .. } | P::Or { arguments, .. } => {
-                arguments.iter().any(reads_a_term)
-            }
-            P::Not { argument, .. } => reads_a_term(argument),
-            P::Implies { left, right, .. } | P::Iff { left, right, .. } => {
-                reads_a_term(left) || reads_a_term(right)
-            }
-            P::Exists { body, .. } | P::Forall { body, .. } => reads_a_term(body),
-            _ => false,
-        }
-    }
-    fn is_true(pattern: &kore::Pattern) -> bool {
-        matches!(
-            pattern,
-            kore::Pattern::DomainValue {
-                sort: kore::Sort::Application { name, arguments },
-                value,
-            } if name == "SortBool" && arguments.is_empty() && value.as_utf8().ok() == Some("true")
-        )
-    }
-    let walk = |pattern: &kore::Pattern| equates_a_term_read_as_predicate(pattern, holds);
-    use kore::Pattern as P;
-    match pattern {
-        P::Equals { left, right, .. }
-            if holds == HoldsEncoding::Holds
-                && ((is_true(right) && !crate::rule::is_term_pattern(left))
-                    || (is_true(left) && !crate::rule::is_term_pattern(right))) =>
-        {
-            if is_true(right) {
-                walk(left)
-            } else {
-                walk(right)
-            }
-        }
-        P::Equals { left, right, .. } => {
-            let terms = crate::rule::is_term_pattern(left) && crate::rule::is_term_pattern(right);
-            (!terms && (reads_a_term(left) || reads_a_term(right))) || walk(left) || walk(right)
-        }
-        P::And { arguments, .. } | P::Or { arguments, .. } => arguments.iter().any(walk),
-        P::Not { argument, .. } => walk(argument),
-        P::Implies { left, right, .. } | P::Iff { left, right, .. } => walk(left) || walk(right),
-        P::Exists { body, .. } | P::Forall { body, .. } => walk(body),
-        _ => false,
-    }
+    /// A claim's side has a predicate the backend's reading refuses
+    /// (`PredicateReading`): a connective over terms conjoined to a term
+    /// ([`RulePatternError::TermConnectiveInConjunction`]) or a term of another sort than Bool
+    /// read as a predicate ([`RulePatternError::NonBoolTermAsPredicate`]).
+    RefusedReading(Box<RulePatternError>),
 }
 
 impl From<crate::definedness::RequestDefinednessFailure> for UnstatedDefinedness {
@@ -1607,6 +1538,7 @@ impl fmt::Display for UnstatedDefinedness {
                 "an \\equals whose operands are not both terms holds a term where a predicate is \
                  read",
             ),
+            Self::RefusedReading(error) => write!(formatter, "{error}"),
         }
     }
 }
@@ -1870,6 +1802,17 @@ impl fmt::Display for DefinitionError {
                 )
             }
             Self::RulePattern(error) => write!(formatter, "Invalid pattern: {error}"),
+            Self::AxiomReadsTermAsPredicate { axiom, sentence } => {
+                let (module, index) = sentence.as_ref();
+                write!(
+                    formatter,
+                    "Axiom {axiom} (sentence {index} of module {module}) has an equality whose \
+                     operand is a matching-logic connective over terms, or a predicate beside a \
+                     term; such an operand denotes a set of values, which the backend does not \
+                     read; write the connective at the root of the condition, or use a Bool \
+                     operation"
+                )
+            }
             Self::Claim(error) => write!(formatter, "Invalid claim: {error}"),
             Self::Verification(error) => write!(formatter, "{error}"),
             Self::UnstatedDefinedness(UnstatedDefinedness::Impure { hook, detail }) => write!(
@@ -1881,6 +1824,10 @@ impl fmt::Display for DefinitionError {
                     "The predicates of the request cannot be read faithfully: an \\equals whose \
                      operands are not both terms holds a term where a predicate is read",
                 ),
+            Self::UnstatedDefinedness(UnstatedDefinedness::RefusedReading(error)) => write!(
+                formatter,
+                "The predicates of the pattern cannot be read faithfully: {error}"
+            ),
             Self::UnstatedDefinedness(UnstatedDefinedness::TermConjunction) => formatter.write_str(
                 "The definedness of a predicate of the request cannot be stated: an atom holds a \
                  term-level \\and",
@@ -1990,6 +1937,7 @@ impl Drop for BackendDefinition {
 
 impl BackendDefinition {
     /// The aliases of the definition, by name.
+    #[cfg(test)]
     pub(crate) fn aliases(&self) -> &BTreeMap<String, AliasDefinition> {
         &self.aliases
     }
@@ -2170,11 +2118,15 @@ impl BackendDefinition {
                                 });
                             counts.budget_stops += usize::from(stops.budget_exhausted);
                             counts.stack_stops += usize::from(stops.stack_exhausted);
+                            // A rule declared `preserves-definedness` had its obligation cleared
+                            // when it was built, so its discharge succeeds without showing
+                            // anything: the load records no discharge for it.
+                            let declared = rule.rule.attributes.preserves_definedness;
                             discharged.push((
                                 index.clone(),
                                 *priority,
                                 position,
-                                is_defined && !stops.any(),
+                                is_defined && !stops.any() && !declared,
                                 coverage,
                             ));
                         }
@@ -2200,9 +2152,10 @@ impl BackendDefinition {
             // A rule without partial symbols needed no discharge, and one discharged before
             // keeps the coverage of that discharge.
             if !rule.computed_attributes.undefined_symbols.is_empty() {
-                rule.computed_attributes.discharged_by = coverage;
+                rule.computed_attributes.discharged_by = Arc::new(coverage);
             }
-            rule.attributes.preserves_definedness = true;
+            // The declared attribute stays the author's claim; the discharge is recorded apart.
+            rule.computed_attributes.definedness_discharged = true;
             rule.computed_attributes.undefined_symbols.clear();
         }
     }
@@ -2291,6 +2244,19 @@ impl BackendDefinition {
     /// must be performed in order, not values that may be computed whenever they are needed.
     pub(crate) fn is_impure(&self, symbol: &Name) -> bool {
         self.impure_symbols.contains(symbol)
+    }
+
+    /// The symbols whose applications may perform a console effect, closed over the
+    /// definition's equations ([`crate::deferred::ConsoleReach`]).
+    pub(crate) fn console_reach(&self) -> &crate::deferred::ConsoleReach {
+        &self.console_reach
+    }
+
+    /// The names of the symbols whose applications may perform a console effect, as the load
+    /// computes them (the crate's private `ConsoleReach`), sorted; `None` when an equation whose
+    /// left-hand side has no symbol at its root mentions one, so that every term may.
+    pub fn console_effect_symbols(&self) -> Option<std::collections::BTreeSet<String>> {
+        self.console_reach.symbol_names()
     }
 
     /// Whether `term` is an application of a `value-production` symbol that no equation of the
@@ -2508,7 +2474,7 @@ impl BackendDefinition {
                     has_domain_values: attributes.has(KoreAttribute::HasDomainValues),
                     collection,
                 };
-                if sorts.insert(Name::from(name.as_str()), info).is_some() {
+                if sorts.insert(sort_name(name.as_str()), info).is_some() {
                     return Err(DefinitionError::DuplicateSort(name.clone()));
                 }
             }
@@ -2766,6 +2732,8 @@ impl BackendDefinition {
         };
         let value_productions = declared_with(KoreAttribute::ValueProduction);
         let impure_symbols = declared_with(KoreAttribute::Impure);
+        let builtin_domain_kinds =
+            BuiltinSort::ALL.map(|builtin| domain_kind_in(&sorts, &Sort::builtin(builtin)));
         let mut result = Self {
             main_module: main_module.into(),
             modules: ordered
@@ -2789,12 +2757,16 @@ impl BackendDefinition {
             ceil_theory: Theory::new(),
             value_productions,
             impure_symbols,
+            console_reach: crate::deferred::ConsoleReach::default(),
             finite_sort_constructors: BTreeMap::new(),
+            builtin_domain_kinds,
             kvar_sorts: OnceLock::new(),
             inhabited_sorts: OnceLock::new(),
             value_claims: crate::confluence::ValueClaims::withheld(),
+            load_record: Vec::new(),
             discharge_counts: DischargeCounts::default(),
             term_equation_in_predicate_theory: false,
+            declares_claims: false,
             deepest,
             #[cfg(feature = "check-normal-forms")]
             normal_form_catalog: OnceLock::new(),
@@ -2813,13 +2785,23 @@ impl BackendDefinition {
             .collect::<Result<Vec<_>, _>>()?
             .into_iter()
             .flatten();
+        let mut predicate_rules = Vec::new();
         for rule in rules {
             match rule {
                 InternalizedRule::Term(RuleKind::Rewrite, rule) => {
+                    result.declares_claims |= rule.attributes.preserves_definedness;
                     let index = rule_index(&result, &rule.lhs);
                     insert_rewrite_theory(&mut result.rewrite_theory, rule, index);
                 }
                 InternalizedRule::Term(kind, rule) => {
+                    result.declares_claims |=
+                        matches!(kind, RuleKind::Function | RuleKind::Simplification)
+                            && matches!(
+                                rule.lhs.kind(),
+                                TermKind::Application { symbol, .. }
+                                    if symbol.attributes.symbol_type
+                                        == SymbolType::Function(FunctionType::Total)
+                            );
                     let theory = match kind {
                         RuleKind::Function => &mut result.function_theory,
                         RuleKind::Simplification => &mut result.simplification_theory,
@@ -2828,14 +2810,29 @@ impl BackendDefinition {
                     };
                     insert_theory(theory, rule);
                 }
-                InternalizedRule::Predicate(rule) => {
-                    result
-                        .predicate_simplification_theory
-                        .entry(rule.attributes.priority)
-                        .or_default()
-                        .push(Arc::new(rule));
-                }
+                InternalizedRule::Predicate(rule) => predicate_rules.push(rule),
             }
+        }
+        // A predicate equation's left-hand side is brought to the written form subjects are
+        // matched in (`simplify::written_lemma_left_side`), once the ceil equations it reads are
+        // all loaded.
+        for rule in predicate_rules {
+            let lhs = crate::simplify::written_lemma_left_side(&result, rule.lhs.clone());
+            let rule = if lhs == rule.lhs {
+                rule
+            } else {
+                crate::rule::PredicateRewriteRule::new(
+                    lhs,
+                    rule.rhs,
+                    rule.requires,
+                    rule.attributes,
+                )
+            };
+            result
+                .predicate_simplification_theory
+                .entry(rule.attributes.priority)
+                .or_default()
+                .push(Arc::new(rule));
         }
         result.reachability_claims = result
             .claims
@@ -2863,33 +2860,57 @@ impl BackendDefinition {
             }
         }
         result.finite_sort_constructors = collect_finite_sort_constructors(&result)?;
-        // The check runs while the definition still withholds every claim, and before the
-        // rewrite rules' definedness is discharged, which reads the claims.
-        #[cfg(test)]
-        {
-            let switches = crate::confluence::switches::active();
-            if switches.claims_during_check || switches.discharge_before_check {
-                result.value_claims = crate::confluence::ValueClaims::admitting_everything();
-            }
-            if switches.discharge_before_check {
+        result.console_reach = crate::deferred::ConsoleReach::of(&result);
+        // The load's analyses evaluate the definition's own terms; what they met that steers
+        // every later use of their verdicts (a contradicted claim, an allowance refusal, an
+        // unsupported hook) is the load's record, which every run reports with its own
+        // (`crate::path_facts`).
+        let (((), _facts), record) = crate::path_facts::run(|| {
+            crate::path_facts::collect(|| {
+                // The check runs while the definition still withholds every claim, and before
+                // the rewrite rules' definedness is discharged, which reads the claims.
+                #[cfg(test)]
+                {
+                    let switches = crate::confluence::switches::active();
+                    if switches.claims_during_check || switches.discharge_before_check {
+                        result.value_claims =
+                            crate::confluence::ValueClaims::admitting_everything();
+                    }
+                    if switches.discharge_before_check {
+                        result.discharge_rewrite_definedness();
+                    }
+                }
+                result.value_claims = crate::confluence::check(
+                    &result,
+                    crate::confluence::CheckScope::Gate,
+                    crate::confluence::ConditionMemo::On,
+                );
+                result.record_pattern_tokens();
                 result.discharge_rewrite_definedness();
-            }
-        }
-        result.value_claims = crate::confluence::check(
-            &result,
-            crate::confluence::CheckScope::Gate,
-            crate::confluence::ConditionMemo::On,
-        );
-        result.record_pattern_tokens();
-        result.discharge_rewrite_definedness();
-        // A claim's constraints are stated with their definedness once the definition is
-        // complete: the statement reads its ceil equations and value claims.
-        let claims = std::mem::take(&mut result.reachability_claims);
-        result.reachability_claims = claims
+                // A claim's constraints are stated with their definedness once the definition is
+                // complete: the statement reads its ceil equations and value claims.
+                let claims = std::mem::take(&mut result.reachability_claims);
+                result.reachability_claims = claims
+                    .into_iter()
+                    .map(|claim| crate::claim::with_explicit_definedness(&result, claim))
+                    .collect();
+            })
+        });
+        // Chosen values are withheld at load (the analyses run in `Proof`); none is kept. What
+        // is kept is a fact about the definition, tagged so (`path_facts::ObservedIn::Load`).
+        result.load_record = record
             .into_iter()
-            .map(|claim| crate::claim::with_explicit_definedness(&result, claim))
+            .filter(|fact| fact.chosen_value().is_none())
+            .map(crate::path_facts::PathFact::observed_at_load)
             .collect();
         Ok(result)
+    }
+
+    /// What the load's analyses met that undone work never rolls back (`crate::path_facts`), which
+    /// every run on this definition, execution or search, lists before its own
+    /// (`rewrite::ExecutionResult`, `search::SearchResult`), and no leaf carries.
+    pub(crate) fn load_record(&self) -> &[crate::path_facts::PathFact] {
+        &self.load_record
     }
 
     /// The verdict of the load-time critical-pair check: which term indexes may carry value
@@ -2912,6 +2933,18 @@ impl BackendDefinition {
     /// classifies the pairs that can change no claim, for a report of every pair that does not
     /// join and for the test that both scopes admit the same claims
     /// ([`crate::confluence::ValueClaims::claim_differences`]).
+    ///
+    /// Under [`crate::confluence::CheckScope::All`] every candidate pair of the definition is
+    /// classified, whatever it declares (`counts().skipped == 0`); `[symbolic]` function
+    /// equations, simplification equations and rewrite rules are paired by no check. Root pairs
+    /// are formed within one index and priority group; inner pairs pair an equation with the
+    /// equations of every priority group offered at a subterm's index, its overload family and
+    /// the bare-variable index. The precondition rows ([`crate::confluence::ValueClaims::violations`])
+    /// name the equations outside the check's reasoning. `refuted` and `joined` are sound (no
+    /// overlap is set aside because it ranges over a sort with no normal form), a non-joined pair
+    /// is not shown to join and may be spurious, and the verdicts rest
+    /// on the definition's declarations and axioms: the contract is stated at
+    /// [`crate::confluence::CheckScope::All`].
     #[must_use]
     pub fn value_claims_in_scope(
         &self,
@@ -2986,6 +3019,15 @@ impl BackendDefinition {
     ) -> Option<&PredicateTheory> {
         self.predicate_theory_by_connective
             .get(&std::mem::discriminant(predicate))
+    }
+
+    /// Whether the definition makes a claim that evaluation can find contradicted
+    /// (`crate::path_facts::ContradictedClaim`): a rewrite rule declared `preserves-definedness`,
+    /// or an equation of a symbol declared `total`, whose result is the only place a `total`
+    /// claim can be refuted. The work done only to find a contradicted claim is done only for
+    /// such a definition.
+    pub(crate) fn declares_claims(&self) -> bool {
+        self.declares_claims
     }
 
     /// Whether the term simplifier's equation selection (`rule::applicable_groups` on
@@ -3094,12 +3136,15 @@ impl BackendDefinition {
         injection_role: UnlicensedInjectionSite,
     ) -> Result<Term, DefinitionError> {
         let mut floated = Vec::new();
+        // A condition conjoined to a term here is refused whatever it states, so it is read
+        // without the refusals of the predicate reading, which would only replace this error.
         let term = self.internalize_term_collecting(
             pattern,
             sort_variables,
             injection_role,
             &mut floated,
             None,
+            PredicateReading::Unchecked,
         )?;
         if !floated.is_empty() {
             return Err(DefinitionError::PredicateInTermPosition {
@@ -3116,6 +3161,7 @@ impl BackendDefinition {
         injection_role: UnlicensedInjectionSite,
         floated: &mut Vec<crate::rule::Predicate>,
         deferred_predicates: Option<&mut Vec<kore::Pattern>>,
+        reading: PredicateReading,
     ) -> Result<Term, DefinitionError> {
         let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
         let pattern = expand_aliases(pattern, &self.aliases)?;
@@ -3125,6 +3171,7 @@ impl BackendDefinition {
             injection_role,
             floated,
             deferred_predicates,
+            reading,
         )
     }
 
@@ -3145,7 +3192,10 @@ impl BackendDefinition {
         Ok(Pattern { term, constraints })
     }
 
-    /// Internalize KORE as a constrained term, or as a predicate when it has no term leaf.
+    /// Internalize KORE as a constrained term, or as a predicate when it states no term and no
+    /// term stands in a predicate position of it ([`Self::internalize_predicate`]); a pattern
+    /// with no term conjunct but with a term below a connective, such as
+    /// `\not{SortBool{}}(\dv{SortBool{}}("true"))` (the set `{false}`), is refused.
     pub(crate) fn internalize_pattern_or_predicate(
         &self,
         pattern: &kore::Pattern,
@@ -3208,13 +3258,26 @@ impl BackendDefinition {
         }
     }
 
-    /// Internalize an arbitrary KORE pattern as an ML predicate and retain its result sort.
+    /// Internalize a predicate-shaped KORE pattern as an ML predicate and retain its result sort.
+    ///
+    /// A pattern with a term in a predicate position (after alias unfolding,
+    /// [`crate::rule::has_term_in_predicate_position`]) is a term or a connective over terms, a
+    /// set of values rather than a predicate, and is refused
+    /// ([`RulePatternError::TermInPredicatePosition`]); a request has no condition slot in
+    /// which a Boolean term would stand for the condition that it is `true`.
     pub(crate) fn internalize_predicate(
         &self,
         pattern: &kore::Pattern,
         sort_variables: &[Name],
     ) -> Result<(crate::rule::Predicate, Sort), DefinitionError> {
         let pattern = expand_aliases(pattern, &self.aliases)?;
+        if crate::rule::has_term_in_predicate_position(&pattern) {
+            return Err(DefinitionError::RulePattern(
+                RulePatternError::TermInPredicatePosition {
+                    connective: crate::rule::term_connective(&pattern),
+                },
+            ));
+        }
         let known = sort_variables.iter().cloned().collect::<BTreeSet<_>>();
         let result_sort = self.internalize_pattern_result_sort(
             &pattern,
@@ -3398,6 +3461,7 @@ impl BackendDefinition {
         injection_role: UnlicensedInjectionSite,
         floated: &mut Vec<crate::rule::Predicate>,
         mut deferred_predicates: Option<&mut Vec<kore::Pattern>>,
+        reading: PredicateReading,
     ) -> Result<Term, DefinitionError> {
         match pattern {
             kore::Pattern::String(value) => {
@@ -3426,6 +3490,7 @@ impl BackendDefinition {
                             injection_role,
                             floated,
                             deferred_predicates.as_deref_mut(),
+                            reading,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -3445,11 +3510,15 @@ impl BackendDefinition {
                     if let Some(deferred) = deferred_predicates.as_deref_mut() {
                         deferred.push(predicate.clone());
                     } else {
-                        floated.push(internalize_rule_predicate(
+                        // A condition conjoined to a term is read as written; a connective over
+                        // terms there is a set of values, not a condition.
+                        crate::rule::refuse_term_connective(predicate, reading)?;
+                        floated.push(crate::rule::internalize_predicate_reading(
                             self,
                             predicate,
                             &sort_variables,
                             injection_role,
+                            reading,
                         )?);
                     }
                 }
@@ -3463,6 +3532,7 @@ impl BackendDefinition {
                             injection_role,
                             floated,
                             deferred_predicates.as_deref_mut(),
+                            reading,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -3489,6 +3559,7 @@ impl BackendDefinition {
                             injection_role,
                             floated,
                             deferred_predicates.as_deref_mut(),
+                            reading,
                         )
                     })
                     .collect::<Result<Vec<_>, _>>()?;
@@ -3549,6 +3620,9 @@ impl BackendDefinition {
     /// them otherwise here would let the backend hold two values (`07` and `7`) that the solver
     /// reads as one.
     pub fn domain_kind(&self, sort: &Sort) -> Option<DomainKind> {
+        if let Some(index) = sort.shared_builtin_index() {
+            return self.builtin_domain_kinds[index];
+        }
         domain_kind_in(&self.sorts, sort)
     }
 
@@ -3577,7 +3651,7 @@ impl BackendDefinition {
         sort: &Sort,
         value: &kore::KoreString,
     ) -> Result<DomainKind, DefinitionError> {
-        let Sort::Application { name, .. } = sort else {
+        let SortNode::Application { name, .. } = sort.node() else {
             return Err(DefinitionError::SortWithoutDomainValues {
                 sort: Box::new(externalize::sort(sort)),
             });
@@ -3721,10 +3795,10 @@ impl BackendDefinition {
             .zip(sort_arguments.iter().cloned())
             .collect::<BTreeMap<_, _>>();
         if symbol.attributes.declares_constructor()
-            && matches!(symbol.result_sort, Sort::Variable(_))
+            && matches!(symbol.result_sort.node(), SortNode::Variable(_))
         {
             let result = substitute_sort(&symbol.result_sort, &substitution);
-            if let Sort::Application { name, .. } = &result
+            if let SortNode::Application { name, .. } = result.node()
                 && self
                     .sorts
                     .get(name)
@@ -3771,7 +3845,7 @@ impl BackendDefinition {
 
 /// [`BackendDefinition::domain_kind`] in the table of sorts `sorts`.
 pub(crate) fn domain_kind_in(sorts: &BTreeMap<Name, SortInfo>, sort: &Sort) -> Option<DomainKind> {
-    let Sort::Application { name, .. } = sort else {
+    let SortNode::Application { name, .. } = sort.node() else {
         return None;
     };
     let info = sorts.get(name)?;
@@ -3801,11 +3875,11 @@ fn inhabited_sorts(definition: &BackendDefinition) -> BTreeSet<ClosedSort> {
                 )
         })
         .filter_map(|symbol| {
-            let result = ClosedSort::new(symbol.result_sort.clone()).ok()?;
+            let result = ClosedSort::new(symbol.result_sort).ok()?;
             let arguments = symbol
                 .argument_sorts
                 .iter()
-                .map(|sort| ClosedSort::new(sort.clone()).ok())
+                .map(|sort| ClosedSort::new(*sort).ok())
                 .collect::<Option<Vec<_>>>()?;
             Some((result, arguments))
         })
@@ -3860,7 +3934,7 @@ fn collect_finite_sort_constructors(
                         break;
                     };
                     has_bottom = true;
-                    if domain_sort.get_or_insert_with(|| sort.clone()) != &sort {
+                    if domain_sort.get_or_insert(sort) != &sort {
                         valid = false;
                         break;
                     }
@@ -3898,7 +3972,7 @@ fn collect_finite_sort_constructors(
                         break;
                     }
                     let sort = term.sort();
-                    if domain_sort.get_or_insert_with(|| sort.clone()) != &sort {
+                    if domain_sort.get_or_insert(sort) != &sort {
                         valid = false;
                         break;
                     }
@@ -3925,12 +3999,12 @@ pub(crate) fn constructor_head(term: &Term) -> Option<ConstructorHead> {
         } if symbol.attributes.head_role() == HeadRole::FreeConstructor => {
             Some(ConstructorHead::Symbol {
                 name: symbol.name.clone(),
-                sort_arguments: sort_arguments.clone(),
+                sort_arguments: *sort_arguments,
             })
         }
         TermKind::Injection { source, target, .. } => Some(ConstructorHead::Injection {
-            source: source.clone(),
-            target: target.clone(),
+            source: *source,
+            target: *target,
         }),
         _ => None,
     }
@@ -4041,13 +4115,15 @@ pub(crate) fn internalize_sort(
     variables: &BTreeSet<Name>,
 ) -> Result<Sort, DefinitionError> {
     match sort {
-        kore::Sort::Variable(name) if variables.contains(name.as_str()) => {
-            Ok(Sort::Variable(name.as_str().into()))
-        }
-        kore::Sort::Variable(name) => Err(DefinitionError::UnknownSort(name.clone())),
+        kore::Sort::Variable(name) => match variables.get(name.as_str()) {
+            Some(name) => Ok(Sort::variable(name.clone())),
+            None => Err(DefinitionError::UnknownSort(name.clone())),
+        },
         kore::Sort::Application { name, arguments } => {
-            let info = sorts
-                .get(name.as_str())
+            // The table's own name: every sort of one name shares one allocation, so comparing
+            // two of them takes the pointer shortcut of `Ord for Sort` and `Arc`'s equality.
+            let (table_name, info) = sorts
+                .get_key_value(name.as_str())
                 .ok_or_else(|| DefinitionError::UnknownSort(name.clone()))?;
             if arguments.len() != info.parameters.len() {
                 return Err(DefinitionError::WrongSortArity {
@@ -4057,7 +4133,7 @@ pub(crate) fn internalize_sort(
                 });
             }
             Ok(Sort::application(
-                name.as_str(),
+                table_name.clone(),
                 arguments
                     .iter()
                     .map(|sort| internalize_sort(sort, sorts, variables))
@@ -4068,12 +4144,9 @@ pub(crate) fn internalize_sort(
 }
 
 pub(crate) fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) -> Sort {
-    match sort {
-        Sort::Variable(name) => substitution
-            .get(name)
-            .cloned()
-            .unwrap_or_else(|| sort.clone()),
-        Sort::Application { name, arguments } => Sort::application(
+    match sort.node() {
+        SortNode::Variable(name) => substitution.get(name).cloned().unwrap_or(*sort),
+        SortNode::Application { name, arguments } => Sort::application(
             name.clone(),
             arguments
                 .iter()
@@ -4192,7 +4265,7 @@ fn validate_binder_attribute(
             "Binder productions must have at least two nonterminals.".into(),
         ));
     }
-    let Sort::Application { name, .. } = &argument_sorts[0] else {
+    let SortNode::Application { name, .. } = argument_sorts[0].node() else {
         return Err(DefinitionError::MalformedAttribute(
             "First child of binder must have a sort with the 'KVAR.KVar' hook attribute.".into(),
         ));
@@ -4286,8 +4359,8 @@ fn attach_collection_metadata(
                 closed_element_sort(&names.element, value_sort)?;
                 let definition = Arc::new(MapDefinition {
                     symbols: names.clone(),
-                    key_sort: key_sort.clone(),
-                    value_sort: value_sort.clone(),
+                    key_sort: *key_sort,
+                    value_sort: *value_sort,
                     map_sort: sort_name.clone(),
                 });
                 (names, CollectionMetadata::Map(definition))
@@ -4308,7 +4381,7 @@ fn attach_collection_metadata(
                 closed_element_sort(&names.element, element_sort)?;
                 let definition = Arc::new(ListDefinition {
                     symbols: names.clone(),
-                    element_sort: element_sort.clone(),
+                    element_sort: *element_sort,
                     list_sort: sort_name.clone(),
                 });
                 let collection = match collection {
@@ -4335,7 +4408,7 @@ fn attach_collection_metadata(
         Arc::make_mut(symbol).attributes.collection = Some(collection);
     }
     for symbol in symbols.values_mut() {
-        let Sort::Application { name, .. } = &symbol.result_sort else {
+        let SortNode::Application { name, .. } = symbol.result_sort.node() else {
             continue;
         };
         if symbol.attributes.hook.is_some()
@@ -4380,10 +4453,7 @@ fn reject_collection_role_misfits(
             Some(CollectionSort::Map(names)) => (CollectionKind::Map, names),
             None => continue,
         };
-        let collection = Sort::Application {
-            name: sort_name.clone(),
-            arguments: Vec::new(),
-        };
+        let collection = Sort::simple(sort_name.clone());
         for role in CollectionRole::ALL {
             let name = match role {
                 CollectionRole::Unit => &names.unit,
@@ -4460,11 +4530,11 @@ fn reject_collection_hook_misfits(
             (sort.clone(), collection)
         })
         .collect::<BTreeMap<_, _>>();
-    let collection = |sort: &Sort| match sort {
-        Sort::Application { name, arguments } if arguments.is_empty() => {
+    let collection = |sort: &Sort| match sort.node() {
+        SortNode::Application { name, arguments } if arguments.is_empty() => {
             collections.get(name).copied()
         }
-        Sort::Application { .. } | Sort::Variable(_) => None,
+        SortNode::Application { .. } | SortNode::Variable(_) => None,
     };
     let facts = crate::builtin::LoadedSorts {
         collection,
@@ -5847,7 +5917,7 @@ mod tests {
         let (_, sort) = admitted
             .internalize_predicate()
             .expect("the verified context internalizes");
-        assert_eq!(sort, Sort::Variable(Name::from("S")));
+        assert_eq!(sort, Sort::variable(Name::from("S")));
     }
 
     /// An associative application denotes the fold of its binary head over its operands, so the
@@ -6181,6 +6251,12 @@ mod tests {
             parse_pattern(r"\and{SortBool{}}(\not{SortBool{}}(X:SortBool{}), X:SortBool{})")
                 .unwrap();
         let predicate = parse_pattern(
+            r"\equals{SortBool{}, SortBool{}}(\not{SortBool{}}(\top{SortBool{}}()), \bottom{SortBool{}}())",
+        )
+        .unwrap();
+        // `Bool ∖ {X} = {X}` equates two sets of Boolean values, which no backend predicate
+        // states.
+        let set_equality = parse_pattern(
             r"\equals{SortBool{}, SortBool{}}(\not{SortBool{}}(X:SortBool{}), X:SortBool{})",
         )
         .unwrap();
@@ -6193,6 +6269,12 @@ mod tests {
             definition.internalize_model_predicate(&predicate, &[]),
             Ok(Some((crate::rule::Predicate::Iff(..), _)))
         ));
+        assert_eq!(
+            definition.internalize_model_predicate(&set_equality, &[]),
+            Err(DefinitionError::UnstatedDefinedness(
+                UnstatedDefinedness::TermReadAsPredicate
+            ))
+        );
     }
 
     #[test]
@@ -6688,11 +6770,14 @@ mod tests {
             .expect("the chain should load");
         let pattern = parse_pattern("drop{}(al0{}(a{}()))").unwrap();
         assert!(definition.internalize_pattern(&pattern, &[]).is_ok());
-        // `\exists{S{}}(X:S{}, X:S{})` is no term, which internalization refuses once unfolded.
+        // `\exists{S{}}(X:S{}, X:S{})` is no term, and its body, a term of sort `S`, is no
+        // predicate, which internalization refuses once unfolded.
         let pattern = parse_pattern("shadow{}(al0{}(a{}()))").unwrap();
         assert!(matches!(
             definition.internalize_pattern(&pattern, &[]),
-            Err(DefinitionError::RulePattern(RulePatternError::MissingTerm))
+            Err(DefinitionError::RulePattern(
+                RulePatternError::NonBoolTermAsPredicate { .. }
+            ))
         ));
     }
 
@@ -7043,6 +7128,112 @@ mod tests {
             matches!(result, Err(DefinitionError::VariableName { .. })),
             "{:?}",
             result.err()
+        );
+    }
+
+    /// Every internalized sort is the interned handle of its content, a builtin sort the one
+    /// `Sort::builtin` reads, and the sorts table names a builtin sort with the builtin's own name
+    /// allocation: comparing two sorts is a pointer comparison, not a reading of their text.
+    #[test]
+    fn internalized_sorts_are_the_interned_handles() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortFoo{} []
+                sort SortBox{S} []
+                symbol f{}(SortFoo{}, SortInt{}) : SortFoo{} [constructor{}()]
+                symbol g{}(SortFoo{}) : SortInt{} [function{}()]
+                symbol box{S}(S) : SortBox{S} [constructor{}()]
+            endmodule []
+        "#})
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        let table = |name: &str| {
+            definition
+                .sorts()
+                .get_key_value(name)
+                .map(|(name, _)| name.clone())
+                .unwrap()
+        };
+        let int = Sort::builtin(BuiltinSort::Int);
+        assert!(Arc::ptr_eq(&table("SortInt"), int.name()));
+        let foo = Sort::simple("SortFoo");
+
+        let symbol = |name: &str| definition.symbols()[name].clone();
+        let (f, g, boxed) = (symbol("f"), symbol("g"), symbol("box"));
+        assert_eq!(f.argument_sorts[0], foo);
+        assert_eq!(f.argument_sorts[1], int);
+        assert_eq!(
+            f.argument_sorts[1].shared_builtin_index(),
+            int.shared_builtin_index()
+        );
+        assert!(int.shared_builtin_index().is_some());
+        assert_eq!(f.result_sort, foo);
+        assert_eq!(g.argument_sorts[0], foo);
+        assert_eq!(g.result_sort, int);
+        let parameter = Sort::variable(boxed.sort_variables[0].clone());
+        assert_eq!(boxed.argument_sorts[0], parameter);
+        assert_eq!(
+            boxed.result_sort,
+            Sort::application("SortBox", vec![parameter])
+        );
+
+        let pattern = parse_pattern(r#"f{}(X:SortFoo{}, \dv{SortInt{}}("1"))"#).unwrap();
+        let term = definition.internalize_term(&pattern, &[]).unwrap();
+        let TermKind::Application { arguments, .. } = term.kind() else {
+            panic!("{term:?}")
+        };
+        let TermKind::Variable(variable) = arguments[0].kind() else {
+            panic!("{term:?}")
+        };
+        assert_eq!(variable.sort, foo);
+        let TermKind::DomainValue { sort, .. } = arguments[1].kind() else {
+            panic!("{term:?}")
+        };
+        assert_eq!(*sort, int);
+    }
+
+    /// The kinds held for the builtin sorts are the sorts table's: `domain_kind` of a builtin
+    /// sort, however it is built, equals the table lookup the shortcut skips
+    /// (`domain_kind_in`), for builtin sorts the definition declares with and without a hook and
+    /// for ones it does not declare.
+    #[test]
+    fn builtin_domain_kinds_are_the_sort_tables() {
+        let syntax = parse_definition(indoc! {r#"
+            []
+            module MAIN
+                hooked-sort SortInt{} [hook{}("INT.Int"), hasDomainValues{}()]
+                sort SortBool{} [hasDomainValues{}()]
+                hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+                sort SortBytes{} []
+                sort SortK{} [hasDomainValues{}()]
+            endmodule []
+        "#})
+        .unwrap();
+        let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
+        for builtin in BuiltinSort::ALL {
+            let shared = Sort::builtin(builtin);
+            let built = Sort::simple(builtin.kore_name());
+            assert_eq!(shared, built);
+            assert!(built.shared_builtin_index().is_some());
+            assert_eq!(
+                definition.domain_kind(&built),
+                domain_kind_in(&definition.sorts, &built),
+                "{builtin:?}"
+            );
+        }
+        assert_eq!(
+            definition.domain_kind(&Sort::builtin(BuiltinSort::Int)),
+            Some(DomainKind::Int)
+        );
+        assert_eq!(
+            definition.domain_kind(&Sort::builtin(BuiltinSort::String)),
+            Some(DomainKind::String)
+        );
+        assert_eq!(
+            definition.domain_kind(&Sort::builtin(BuiltinSort::Bytes)),
+            None
         );
     }
 }

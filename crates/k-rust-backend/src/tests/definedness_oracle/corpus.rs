@@ -20,7 +20,7 @@ use crate::{
     simplify::{SimplificationOptions, simplify, simplify_predicate_with_solver},
     smt::NoSolver,
     substitution::{Substitution, substitute},
-    term::{Sort, Term, TermKind, head::certified_ground_normal_form},
+    term::{Sort, SortNode, Term, TermKind, head::certified_ground_normal_form},
 };
 
 const FUN_LISTS: &str = include_str!("../../../tests/fixtures/overloaded-list-owise.kore");
@@ -86,7 +86,7 @@ fn the_fun_list_family_is_accepted_and_its_values_keep_their_claims() {
 
 /// The sampled domain values of a builtin sort, as KORE.
 fn samples(sort: &Sort) -> Option<Vec<String>> {
-    let Sort::Application { name, arguments } = sort else {
+    let SortNode::Application { name, arguments } = sort.node() else {
         return None;
     };
     if !arguments.is_empty() {
@@ -131,18 +131,14 @@ fn collapse(term: &Term) -> Option<Term> {
             arguments,
         } => Some(Term::application(
             symbol.clone(),
-            sort_arguments.clone(),
+            *sort_arguments,
             arguments.iter().map(collapse).collect::<Option<Vec<_>>>()?,
         )),
         TermKind::Injection {
             source,
             target,
             term,
-        } => Some(Term::injection(
-            source.clone(),
-            target.clone(),
-            collapse(term)?,
-        )),
+        } => Some(Term::injection(*source, *target, collapse(term)?)),
         _ => Some(term.clone()),
     }
 }
@@ -394,7 +390,10 @@ fn the_checks_work_counters_stay_within_ten_percent_of_their_pins() {
     // (fixture, pairs, unifier branches, join steps, simplifier calls)
     const PINS: [(&str, usize, usize, usize, usize); 2] = [
         ("fun lists", 18, 236, 38, 0),
-        ("oracle templates", 57, 124, 24, 6),
+        // FZ-CONFLUENCE: 6 -> 10 simplifier calls, one more simplification of each open
+        // condition whose conjuncts give a term a literal's value (the equality classes,
+        // `confluence/conditions.rs`).
+        ("oracle templates", 57, 124, 24, 10),
     ];
     let mut measured = Vec::new();
     let counts = load(FUN_LISTS, "OVERLOADED-LIST-OWISE")

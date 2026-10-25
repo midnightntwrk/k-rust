@@ -60,6 +60,14 @@ pub(super) fn check_evaluation_steps(
                 range,
             ));
         }
+        if matches_whole_computation(rule) {
+            return Err(fail(
+                format!(
+                    "a {attribute} rule holds for any continuation, but this one matches the whole computation cell; end its k pattern with `..`",
+                ),
+                range,
+            ));
+        }
     }
     Ok(())
 }
@@ -164,6 +172,22 @@ pub(super) fn context_error(reason: String, range: Option<SourceRange>) -> Descr
         reason,
         range: range.map(Box::new),
     }
+}
+
+/// Whether `rule` matches an exact K sequence, with no preserved tail: a
+/// heating or cooling step is an evaluation-context rule, which holds
+/// whatever follows it.
+fn matches_whole_computation(rule: &SemanticRule) -> bool {
+    let RuleBodyRef::Configuration { body, .. } = rule.relational_body() else {
+        return false;
+    };
+    body.clauses()
+        .iter()
+        .filter_map(krs_ir::ConfigurationClause::as_fixed)
+        .any(|clause| {
+            matches!(clause.before().kind(), IrTermKind::KSequence { .. })
+                && matches!(clause.frame(), krs_ir::CellContentFrame::Exact)
+        })
 }
 
 /// How often the left side of `rule` binds `hole`.

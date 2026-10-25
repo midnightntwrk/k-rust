@@ -1,4 +1,5 @@
 use proc_macro2::TokenStream;
+use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
 use syn::spanned::Spanned;
 use syn::{Expr, Ident, LitBool, LitStr, Path, Token};
@@ -6,8 +7,8 @@ use syn::{Expr, Ident, LitBool, LitStr, Path, Token};
 use crate::grammar::{StructuredFormat, SyntaxTemplate};
 use crate::parse::{KrsSyntax, ParseError, structured};
 use crate::{
-    ConstructorDeclaration, ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind,
-    TokenRange,
+    ConstructorDeclaration, ProvenanceAnchor, ProvenanceRole, SortArgument, SyntaxError,
+    SyntaxErrorKind, TokenRange,
 };
 
 use super::value::{
@@ -20,6 +21,10 @@ use super::value::{
 pub struct ConstructorAttribute {
     /// Required Rust-resolved sort trait path.
     pub sort: Path,
+    /// The element types of a function's typed collection result
+    /// (`sort = Set<Int>`, or `-> k::Term<Set<Int>>` on a `fn`); empty for
+    /// every other production.
+    pub sort_arguments: Vec<SortArgument>,
     /// Optional checked concrete-syntax template literal.
     pub syntax: Option<LitStr>,
     /// Optional stable production-group name.
@@ -345,11 +350,16 @@ fn invalid_color(reason: &'static str, span: proc_macro2::Span) -> SyntaxError {
 #[derive(Clone, Debug)]
 pub struct FunctionAttribute {
     constructor: ConstructorAttribute,
+    /// Whether `syntax` is the completed default rather than authored.
+    default_syntax: bool,
     totality: FunctionTotality,
     memo: Option<Ident>,
     fresh_generator: Option<Ident>,
     hook: Option<FunctionHook>,
     smt: Option<FunctionSmt>,
+    /// `underspecified = "reason"`: the equations leave some arguments of
+    /// this total function without a value on purpose.
+    underspecified: Option<LitStr>,
 }
 
 /// A function's SMT-LIB translation (KF-044): `smtlib` and `smt_hook` are
@@ -405,6 +415,74 @@ pub enum FunctionTotality {
 }
 
 impl FunctionAttribute {
+    /// Parses the keys of `#[k::function]` on a `fn`, whose return type gives
+    /// the sort `sort`; a `sort` key is rejected.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`KrsSyntax::parse_tokens`] except a missing `sort`, and
+    /// an authored `sort` key.
+    pub fn parse_shorthand_tokens(
+        tokens: TokenStream,
+        sort: &Path,
+        sort_arguments: &[SortArgument],
+    ) -> Result<Self, SyntaxError> {
+        let mut attribute = structured(tokens, |input| {
+            parse_function_keys(input, Some(sort.clone()))
+        })?;
+        attribute.constructor.sort_arguments = sort_arguments.to_vec();
+        Ok(attribute)
+    }
+
+    /// Whether the function's `syntax` key was written.
+    #[must_use]
+    pub const fn has_authored_syntax(&self) -> bool {
+        self.constructor.syntax.is_some() && !self.default_syntax
+    }
+
+    /// Completes an omitted `syntax` with the default template
+    /// `symbol({field}, ..)`, where `symbol` is the production's K symbol
+    /// (the name with a lowercase first letter). A default is allowed only on
+    /// a production that is not program syntax, one marked `internal` or not
+    /// `pub`: in a program a default terminal would shadow an object-language
+    /// token. The default is anchored at the declaration's name.
+    ///
+    /// # Errors
+    ///
+    /// Rejects an omitted `syntax` on a `pub` production that is not
+    /// `internal`.
+    pub fn complete_default_syntax(
+        &mut self,
+        declaration: &ConstructorDeclaration,
+    ) -> Result<(), SyntaxError> {
+        if self.constructor.syntax.is_some() {
+            return Ok(());
+        }
+        let name = declaration.name();
+        let program = matches!(declaration.item().vis, syn::Visibility::Public(_))
+            && self.constructor.placement() != Some(PlacementFlag::Internal);
+        if program {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::MissingFunctionSyntax,
+                name.span(),
+            ));
+        }
+        let literal = LitStr::new(
+            &default_function_syntax(
+                &name.unraw().to_string(),
+                declaration
+                    .fields()
+                    .iter()
+                    .map(crate::ConstructorField::name),
+            ),
+            name.span(),
+        );
+        self.constructor.syntax_template = Some(SyntaxTemplate::parse(literal.clone())?);
+        self.constructor.syntax = Some(literal);
+        self.default_syntax = true;
+        Ok(())
+    }
+
     /// Returns the shared checked production arguments.
     #[must_use]
     pub const fn production(&self) -> &ConstructorAttribute {
@@ -448,6 +526,12 @@ impl FunctionAttribute {
             Some(FunctionSmt::Hook(template)) => template.validate_fields(fields),
             Some(FunctionSmt::Smtlib(_)) | None => Ok(()),
         }
+    }
+
+    /// The `underspecified = "reason"` statement of an intended coverage gap.
+    #[must_use]
+    pub const fn underspecified(&self) -> Option<&LitStr> {
+        self.underspecified.as_ref()
     }
 
     /// The bare `fresh_generator` flag: K's `freshGenerator`, the function a
@@ -503,6 +587,13 @@ impl FunctionAttribute {
             )),
             Some(FunctionSmt::Hook(template)) => anchors.extend(template.provenance()?),
             None => {}
+        }
+        if let Some(reason) = &self.underspecified {
+            anchors.push(ProvenanceAnchor::new(
+                ProvenanceRole::FunctionUnderspecified,
+                0,
+                TokenRange::for_tokens(reason)?,
+            ));
         }
         Ok(anchors)
     }
@@ -877,6 +968,19 @@ impl ConstructorAttribute {
         Ok(anchors)
     }
 
+    /// Returns one anchor per element type of a function's typed collection
+    /// result, which only the constructor descriptor references.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only if a parsed Rust node emits no tokens.
+    pub fn sort_argument_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        SortArgument::anchors(
+            [self.sort_arguments.as_slice()],
+            ProvenanceRole::ConstructorSortArgument,
+        )
+    }
+
     /// Returns the complete anchor catalog, including syntax-template, group,
     /// and avoid anchors; [`Self::provenance`] keeps the compact protocol-v5 catalog.
     ///
@@ -1191,6 +1295,7 @@ fn parse_constructor_stream(input: ParseStream<'_>) -> Result<ConstructorAttribu
         .map_err(ParseError::Structured)?;
     Ok(ConstructorAttribute {
         sort,
+        sort_arguments: Vec::new(),
         syntax,
         group,
         avoid: avoid.as_ref().is_some_and(LitBool::value),
@@ -1225,19 +1330,31 @@ fn placement_flag(key: &Ident) -> Option<PlacementFlag> {
     }
 }
 
+fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, ParseError> {
+    parse_function_keys(input, None)
+}
+
+/// Parses the keys of `#[k::function]`. A function declared by a `fn`
+/// (`shorthand_sort` is its return type's sort) takes its sort from the
+/// signature, so a `sort` key is rejected there.
 #[expect(
     clippy::too_many_lines,
     reason = "One keyed loop parses every function production argument."
 )]
-fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, ParseError> {
+fn parse_function_keys(
+    input: ParseStream<'_>,
+    shorthand_sort: Option<Path>,
+) -> Result<FunctionAttribute, ParseError> {
     let missing_span = input.span();
     let mut totality = None;
     let mut memo = None;
     let mut fresh_generator = None;
     let mut sort = None;
+    let mut sort_arguments = Vec::new();
     let mut syntax = None;
     let mut hook = None;
     let mut smt = None;
+    let mut underspecified: Option<LitStr> = None;
     let mut placement = PlacementFlags::default();
 
     while !input.is_empty() {
@@ -1299,6 +1416,15 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
             }
             "fresh_generator" => fresh_generator = Some(key),
             "partial" => totality = Some(FunctionTotality::Partial(key)),
+            "sort" if shorthand_sort.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidFunctionShorthand {
+                        reason: "a function declared by a `fn` takes its sort from the return type; remove `sort`".to_owned(),
+                    },
+                    key.span(),
+                )
+                .into());
+            }
             "sort" if sort.is_some() => {
                 return Err(SyntaxError::new(
                     SyntaxErrorKind::DuplicateArgument { name: "sort" },
@@ -1323,12 +1449,26 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
             "smtlib" | "smt_hook" => {
                 smt = Some(parse_function_smt(&key, input, smt.as_ref())?);
             }
-            "sort" | "syntax" | "hook" => {
+            "underspecified" if underspecified.is_some() => {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::DuplicateArgument {
+                        name: "underspecified",
+                    },
+                    key.span(),
+                )
+                .into());
+            }
+            "underspecified" => underspecified = Some(parse_underspecified(&key, input)?),
+            "sort" => {
+                input.parse::<Token![=]>()?;
+                let (path, arguments) = parse_function_sort_value(input.parse()?)?;
+                sort = Some(path);
+                sort_arguments = arguments;
+            }
+            "syntax" | "hook" => {
                 input.parse::<Token![=]>()?;
                 let value: Expr = input.parse()?;
-                if key_name == "sort" {
-                    sort = Some(parse_sort_value(value)?);
-                } else if key_name == "syntax" {
+                if key_name == "syntax" {
                     syntax = Some(parse_syntax_value(value)?);
                 } else if let Expr::Lit(syn::ExprLit {
                     lit: syn::Lit::Str(literal),
@@ -1364,27 +1504,37 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
             missing_span,
         )
     })?;
-    let sort = sort.ok_or_else(|| {
-        SyntaxError::new(
-            SyntaxErrorKind::MissingArgument { name: "sort" },
-            missing_span,
+    if let (Some(reason), FunctionTotality::Partial(_)) = (&underspecified, &totality) {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidUnderspecified {
+                reason: "`underspecified` states a gap in a `total` function's equations; a `partial` function has no value where no equation applies, so remove `underspecified`".to_owned(),
+            },
+            reason.span(),
         )
-    })?;
-    let syntax = syntax.ok_or_else(|| {
-        SyntaxError::new(
-            SyntaxErrorKind::MissingArgument { name: "syntax" },
-            missing_span,
-        )
-    })?;
-    let syntax_template = SyntaxTemplate::parse(syntax.clone())?;
+        .into());
+    }
+    let sort = match shorthand_sort {
+        Some(sort) => sort,
+        None => sort.ok_or_else(|| {
+            SyntaxError::new(
+                SyntaxErrorKind::MissingArgument { name: "sort" },
+                missing_span,
+            )
+        })?,
+    };
+    // An omitted `syntax` is completed from the declaration by
+    // [`FunctionAttribute::complete_default_syntax`], which knows whether the
+    // production is program syntax.
+    let syntax_template = syntax.clone().map(SyntaxTemplate::parse).transpose()?;
     Ok(FunctionAttribute {
         constructor: ConstructorAttribute {
             sort,
-            syntax: Some(syntax),
+            sort_arguments,
+            syntax,
             group: None,
             avoid: false,
             format: None,
-            syntax_template: Some(syntax_template),
+            syntax_template,
             structured_format: None,
             avoid_literal: None,
             prefer_literal: None,
@@ -1392,12 +1542,87 @@ fn parse_function_stream(input: ParseStream<'_>) -> Result<FunctionAttribute, Pa
             placement,
             colors: ProductionColors::default(),
         },
+        default_syntax: false,
         totality,
         memo,
         fresh_generator,
         hook,
         smt,
+        underspecified,
     })
+}
+
+/// Parses the `sort` of `#[k::function]`: a plain path, or a typed
+/// collection `Set<Int>` whose element types are the function's result
+/// types.
+fn parse_function_sort_value(ty: syn::Type) -> Result<(Path, Vec<SortArgument>), ParseError> {
+    if let syn::Type::Path(path) = &ty
+        && path.qself.is_none()
+        && crate::path::parametric_collection(&path.path).is_some()
+    {
+        let arguments = crate::configuration::collection_arguments(&ty, |span| {
+            SyntaxError::new(SyntaxErrorKind::InvalidCollectionArgument, span)
+        })?;
+        return Ok((crate::path::without_last_arguments(&path.path), arguments));
+    }
+    let value = match ty {
+        syn::Type::Path(path) if path.qself.is_none() => Expr::Path(syn::ExprPath {
+            attrs: Vec::new(),
+            qself: None,
+            path: path.path,
+        }),
+        other => {
+            return Err(SyntaxError::new(
+                SyntaxErrorKind::InvalidArgumentValue {
+                    name: "sort",
+                    expected: "a Rust trait path",
+                },
+                other.span(),
+            )
+            .into());
+        }
+    };
+    Ok((parse_sort_value(value)?, Vec::new()))
+}
+
+/// Parses `underspecified = "reason"`: a nonempty string literal.
+fn parse_underspecified(key: &Ident, input: ParseStream<'_>) -> Result<LitStr, ParseError> {
+    if !input.peek(Token![=]) {
+        return Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidUnderspecified {
+                reason: "`underspecified` takes a reason: write `underspecified = \"why some arguments have no equation\"`".to_owned(),
+            },
+            key.span(),
+        )
+        .into());
+    }
+    input.parse::<Token![=]>()?;
+    let value: Expr = input.parse()?;
+    match &value {
+        Expr::Lit(syn::ExprLit {
+            lit: syn::Lit::Str(literal),
+            attrs,
+        }) if attrs.is_empty() => {
+            if literal.value().trim().is_empty() {
+                return Err(SyntaxError::new(
+                    SyntaxErrorKind::InvalidUnderspecified {
+                        reason: "an `underspecified` reason must not be empty; say why some arguments have no equation".to_owned(),
+                    },
+                    literal.span(),
+                )
+                .into());
+            }
+            Ok(literal.clone())
+        }
+        _ => Err(SyntaxError::new(
+            SyntaxErrorKind::InvalidArgumentValue {
+                name: "underspecified",
+                expected: "a string literal",
+            },
+            value.span(),
+        )
+        .into()),
+    }
 }
 
 /// Parses `smtlib = "sym"` or `smt_hook = "tmpl"` (KF-044).
@@ -1771,4 +1996,25 @@ fn parse_variant_syntax_stream(
         placement,
         colors,
     })
+}
+
+/// The default syntax template of a function production that is not program
+/// syntax: its K symbol, the name with a lowercase first letter, applied to
+/// its fields, `byte({value})`.
+#[must_use]
+pub fn default_function_syntax<'a>(
+    name: &str,
+    fields: impl IntoIterator<Item = &'a Ident>,
+) -> String {
+    let mut characters = name.chars();
+    let symbol = characters
+        .next()
+        .map(|first| first.to_lowercase().chain(characters).collect::<String>())
+        .unwrap_or_default();
+    let fields = fields
+        .into_iter()
+        .map(|field| format!("{{{}}}", field.unraw()))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{symbol}({fields})")
 }

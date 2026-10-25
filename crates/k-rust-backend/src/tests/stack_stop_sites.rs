@@ -90,13 +90,13 @@ fn a_fold_that_runs_out_of_stack_keeps_the_term_and_is_counted() {
             );
             let deep = term(&definition, &source);
             let (kept, stops) = on_a_bounded_stack(|| {
-                matches!(fold_hooks_or_keep(&definition, &deep), Folded::Term(kept) if kept == deep)
+                matches!(fold_hooks_or_keep(&definition, &deep, false), Folded::Term(kept) if kept == deep)
             });
             assert!(stops >= 1, "no stack stop was counted");
             assert!(kept, "the term was not kept as it is");
             let shallow = term(&definition, r#"addInt{}(X:SortInt{}, \dv{SortInt{}}("1"))"#);
             let ((), none) = counting_stack_stops(|| {
-                let _ = fold_hooks_or_keep(&definition, &shallow);
+                let _ = fold_hooks_or_keep(&definition, &shallow, false);
             });
             assert_eq!(none, 0);
         })

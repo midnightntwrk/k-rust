@@ -1,0 +1,21 @@
+[package]
+name = "krs-grammar-symbols"
+description = "Symbols fixture: a production's symbol depends only on its own declaration"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "krs_grammar_symbols"
+
+[dependencies]
+k = { package = "krs", path = "../../../../crates/krs" }
+
+[package.metadata.krs]
+k-namespace = "KRS-SYMBOLS"
+
+[package.metadata.krs.definitions.main]
+
+[lints]
+workspace = true

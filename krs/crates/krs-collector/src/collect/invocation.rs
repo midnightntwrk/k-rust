@@ -15,6 +15,7 @@ use krs_syntax::{
     TokenRange, parse_seqstrict_attribute, parse_strict_attribute,
 };
 use proc_macro2::TokenStream;
+use syn::ext::IdentExt;
 use syn::spanned::Spanned;
 use syn::{Attribute, ImplItem, Item, Meta, TraitItem};
 
@@ -101,7 +102,8 @@ fn collect_module_items(
         | Item::Enum(syn::ItemEnum { attrs, .. })
         | Item::Fn(syn::ItemFn { attrs, .. })
         | Item::Impl(syn::ItemImpl { attrs, .. })
-        | Item::Type(syn::ItemType { attrs, .. }) = item
+        | Item::Type(syn::ItemType { attrs, .. })
+        | Item::Const(syn::ItemConst { attrs, .. }) = item
         {
             resolver.check(attrs)?;
         }
@@ -112,9 +114,24 @@ fn collect_module_items(
             Item::Enum(item) if invocation.is_some() => {
                 collect_enum_invocations(item, resolver, output)?;
             }
-            Item::Fn(item) => collect_fn_invocations(item, resolver, output)?,
+            Item::Fn(item_fn) => {
+                let shorthand = krs_syntax::ShorthandItem::from_item(item)
+                    .map(|shorthand| collect_function_shorthand(&shorthand, resolver, output))
+                    .transpose()?
+                    .unwrap_or(false);
+                if !shorthand {
+                    collect_fn_invocations(item_fn, resolver, output)?;
+                }
+            }
+            Item::Verbatim(_) => {
+                if let Some(shorthand) = krs_syntax::ShorthandItem::from_item(item) {
+                    resolver.check(&shorthand.attrs)?;
+                    collect_function_shorthand(&shorthand, resolver, output)?;
+                }
+            }
             Item::Impl(item) => collect_impl_invocations(item, resolver, output)?,
             Item::Type(item) => collect_type_invocations(item, resolver, output)?,
+            Item::Const(item) => collect_const_invocations(item, resolver, output)?,
             Item::Macro(item) => {
                 if let Some(invocation) = invocation
                     && let InvocationKind::Function { entry, .. } = &invocation.kind
@@ -279,43 +296,20 @@ fn collect_struct_invocations(
         .iter()
         .filter(|attr| resolver.invokes(attr, AttributeMacro::Function))
     {
-        let parsed = krs_syntax::FunctionAttribute::parse_tokens(attribute_tokens(attribute)?)
+        let mut parsed = krs_syntax::FunctionAttribute::parse_tokens(attribute_tokens(attribute)?)
             .map_err(source_syntax)?;
         let declaration =
             ConstructorDeclaration::from_item(item_struct.clone()).map_err(source_syntax)?;
         parsed
-            .production()
-            .validate_declaration(&declaration)
+            .complete_default_syntax(&declaration)
             .map_err(source_syntax)?;
-        let mut anchors = parsed.production().provenance().map_err(source_syntax)?;
-        anchors.extend(declaration.provenance().map_err(source_syntax)?);
-        let mut grammar_anchors = parsed.provenance().map_err(source_syntax)?;
-        grammar_anchors.extend(declaration.full_provenance().map_err(source_syntax)?);
-        if parsed.is_total() {
-            grammar_anchors.push(ProvenanceAnchor::new(
-                ProvenanceRole::FunctionDeclaration,
-                0,
-                TokenRange::for_tokens(&item_struct.ident).map_err(source_syntax)?,
-            ));
-        }
-        output.push(with_visibility(
-            parsed_invocation(
-                ProvenanceRole::ConstructorSort,
-                item_struct.ident.to_string(),
-                anchors,
-                ParsedInvocationPayload::Declaration,
-            )?,
-            constructor_visibility.clone(),
-        ));
-        output.push(with_visibility(
-            parsed_invocation(
-                ProvenanceRole::ConstructorDeclaration,
-                item_struct.ident.to_string(),
-                grammar_anchors,
-                ParsedInvocationPayload::Declaration,
-            )?,
-            constructor_visibility.clone(),
-        ));
+        push_function_invocations(
+            &parsed,
+            item_struct,
+            &declaration,
+            &constructor_visibility,
+            output,
+        )?;
     }
     collect_struct_constructors(
         item_struct,
@@ -325,6 +319,102 @@ fn collect_struct_invocations(
         constructor_symbol.as_ref(),
     )?;
     collect_struct_remaining(item_struct, resolver, output)?;
+    Ok(())
+}
+
+/// Reparses `#[k::function(..)]` on a `fn` (or a bodiless `fn` that syn
+/// keeps verbatim): the struct and the equation the shared parser lowers it
+/// to, with the macro's authored spans.
+fn collect_function_shorthand(
+    item: &krs_syntax::ShorthandItem,
+    resolver: &AttributeResolver<'_>,
+    output: &mut Vec<ParsedInvocation>,
+) -> Result<bool, CollectionError> {
+    let Some(index) = item
+        .attrs
+        .iter()
+        .position(|attribute| resolver.invokes(attribute, AttributeMacro::Function))
+    else {
+        return Ok(false);
+    };
+    let tokens = attribute_tokens(&item.attrs[index])?;
+    let mut remaining = item.clone();
+    remaining.attrs.remove(index);
+    let shorthand =
+        krs_syntax::FunctionShorthand::lower(tokens, remaining).map_err(source_syntax)?;
+    let structure = shorthand.structure();
+    let (visibility, _) = declaration_metadata(
+        resolver,
+        &structure.vis,
+        &structure.attrs,
+        AttributeMacro::Constructor,
+    )?;
+    let declaration =
+        ConstructorDeclaration::from_item(structure.clone()).map_err(source_syntax)?;
+    push_function_invocations(
+        shorthand.attribute(),
+        structure,
+        &declaration,
+        &visibility,
+        output,
+    )?;
+    for equation in shorthand.equations() {
+        let attribute = krs_syntax::EquationAttribute::parse_tokens(equation.equation_keys())
+            .map_err(source_syntax)?;
+        let rule = equation.rule().map_err(source_syntax)?;
+        push_rule_equation_invocation(&rule, equation.item(), &attribute, output)?;
+    }
+    Ok(true)
+}
+
+/// The production and grammar invocations of one function struct.
+fn push_function_invocations(
+    parsed: &krs_syntax::FunctionAttribute,
+    item_struct: &syn::ItemStruct,
+    declaration: &ConstructorDeclaration,
+    constructor_visibility: &RustVisibility,
+    output: &mut Vec<ParsedInvocation>,
+) -> Result<(), CollectionError> {
+    parsed
+        .production()
+        .validate_declaration(declaration)
+        .map_err(source_syntax)?;
+    let mut anchors = parsed.production().provenance().map_err(source_syntax)?;
+    anchors.extend(declaration.provenance().map_err(source_syntax)?);
+    anchors.extend(
+        parsed
+            .production()
+            .sort_argument_provenance()
+            .map_err(source_syntax)?,
+    );
+    anchors.extend(declaration.argument_provenance().map_err(source_syntax)?);
+    let mut grammar_anchors = parsed.provenance().map_err(source_syntax)?;
+    grammar_anchors.extend(declaration.full_provenance().map_err(source_syntax)?);
+    if parsed.is_total() {
+        grammar_anchors.push(ProvenanceAnchor::new(
+            ProvenanceRole::FunctionDeclaration,
+            0,
+            TokenRange::for_tokens(&item_struct.ident).map_err(source_syntax)?,
+        ));
+    }
+    output.push(with_visibility(
+        parsed_invocation(
+            ProvenanceRole::ConstructorSort,
+            item_struct.ident.to_string(),
+            anchors,
+            ParsedInvocationPayload::Declaration,
+        )?,
+        constructor_visibility.clone(),
+    ));
+    output.push(with_visibility(
+        parsed_invocation(
+            ProvenanceRole::ConstructorDeclaration,
+            item_struct.ident.to_string(),
+            grammar_anchors,
+            ParsedInvocationPayload::Declaration,
+        )?,
+        constructor_visibility.clone(),
+    ));
     Ok(())
 }
 
@@ -346,6 +436,8 @@ fn collect_struct_constructors(
             ConstructorDeclaration::from_item(item_struct.clone()).map_err(source_syntax)?;
         let mut anchors = parsed.provenance().map_err(source_syntax)?;
         anchors.extend(declaration.provenance().map_err(source_syntax)?);
+        anchors.extend(parsed.sort_argument_provenance().map_err(source_syntax)?);
+        anchors.extend(declaration.argument_provenance().map_err(source_syntax)?);
         let mut grammar_anchors = parsed.full_provenance().map_err(source_syntax)?;
         grammar_anchors.extend(declaration.full_provenance().map_err(source_syntax)?);
         if let Some(symbol) = &constructor_symbol {
@@ -481,6 +573,33 @@ fn collect_type_invocations(
     Ok(())
 }
 
+/// Reparses a `#[k::constant]` on a `const` item.
+fn collect_const_invocations(
+    item_const: &syn::ItemConst,
+    resolver: &AttributeResolver<'_>,
+    output: &mut Vec<ParsedInvocation>,
+) -> Result<(), CollectionError> {
+    if item_const
+        .attrs
+        .iter()
+        .any(|attribute| resolver.invokes(attribute, AttributeMacro::Constant))
+    {
+        let constant =
+            krs_syntax::ConstantItem::from_item(item_const.clone()).map_err(source_syntax)?;
+        let invocation = parsed_invocation(
+            ProvenanceRole::ConstantDeclaration,
+            item_const.ident.to_string(),
+            constant.provenance().map_err(source_syntax)?,
+            ParsedInvocationPayload::Declaration,
+        )?;
+        output.push(with_visibility(
+            invocation,
+            rust_visibility(&item_const.vis)?,
+        ));
+    }
+    Ok(())
+}
+
 fn collect_struct_remaining(
     item_struct: &syn::ItemStruct,
     resolver: &AttributeResolver<'_>,
@@ -567,16 +686,19 @@ fn collect_enum_invocations(
         let anchors = declaration
             .variant_provenance(variant)
             .map_err(source_syntax)?;
-        output.push(with_visibility(
+        let mut constructor_anchors = anchors.clone();
+        constructor_anchors.extend(variant.argument_provenance().map_err(source_syntax)?);
+        output.push(with_declaration_metadata(
             parsed_invocation(
                 ProvenanceRole::ConstructorSort,
                 variant.name().to_string(),
-                anchors.clone(),
+                constructor_anchors,
                 ParsedInvocationPayload::Declaration,
             )?,
             variant_visibility.clone(),
+            variant.explicit_symbol(),
         ));
-        output.push(with_visibility(
+        output.push(with_declaration_metadata(
             parsed_invocation(
                 ProvenanceRole::ConstructorDeclaration,
                 variant.name().to_string(),
@@ -584,6 +706,7 @@ fn collect_enum_invocations(
                 ParsedInvocationPayload::Declaration,
             )?,
             variant_visibility.clone(),
+            variant.explicit_symbol(),
         ));
     }
     if let Some(anchors) = declaration.precedence_provenance().map_err(source_syntax)? {
@@ -722,7 +845,7 @@ fn collect_fn_invocations(
             .pattern
             .bindings()
             .iter()
-            .map(ToString::to_string)
+            .map(|binding| binding.unraw().to_string())
             .collect();
         let mut anchors = rule.full_provenance().map_err(source_syntax)?;
         anchors.push(ProvenanceAnchor::new(
@@ -794,22 +917,7 @@ fn collect_fn_rules(
             krs_syntax::PriorityAttribute::parse_tokens(attribute_tokens(priority)?)
                 .map_err(source_syntax)?;
         }
-        let rule = RuleItem::from_equation_item(item_fn.clone()).map_err(source_syntax)?;
-        let bindings = rule
-            .parameter()
-            .pattern
-            .bindings()
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        let mut anchors = rule.full_provenance().map_err(source_syntax)?;
-        anchors.extend(equation.provenance().map_err(source_syntax)?);
-        output.push(parsed_invocation(
-            ProvenanceRole::RuleDeclaration,
-            item_fn.sig.ident.to_string(),
-            anchors,
-            ParsedInvocationPayload::Rule { bindings },
-        )?);
+        push_equation_invocation(item_fn, &equation, output)?;
     }
     for (attribute, mode) in item_fn
         .attrs
@@ -823,7 +931,7 @@ fn collect_fn_rules(
             .pattern
             .bindings()
             .iter()
-            .map(ToString::to_string)
+            .map(|binding| binding.unraw().to_string())
             .collect();
         let mut anchors = rule.full_provenance().map_err(source_syntax)?;
         anchors.extend(desugar.provenance().map_err(source_syntax)?);
@@ -863,7 +971,7 @@ fn collect_fn_rules(
             .pattern
             .bindings()
             .iter()
-            .map(ToString::to_string)
+            .map(|binding| binding.unraw().to_string())
             .collect();
         let mut anchors = rule.full_provenance().map_err(source_syntax)?;
         anchors.extend(rule_attribute.provenance().map_err(source_syntax)?);
@@ -909,7 +1017,7 @@ fn collect_fn_contexts(
             .pattern
             .bindings()
             .iter()
-            .map(ToString::to_string)
+            .map(|binding| binding.unraw().to_string())
             .collect();
         let mut anchors = rule.full_provenance().map_err(source_syntax)?;
         anchors.extend(rule_attribute.provenance().map_err(source_syntax)?);
@@ -987,7 +1095,34 @@ fn collect_macro_invocations(
 ) -> Result<(), CollectionError> {
     match entry {
         FunctionMacro::Rules => {
-            collect_rules_macro(item_macro, output)?;
+            let block = krs_syntax::RuleBlock::parse_tokens(item_macro.mac.tokens.clone())
+                .map_err(source_syntax)?;
+            collect_rule_block(&block, ProvenanceRole::RuleDeclaration, output)?;
+        }
+        FunctionMacro::Claims => {
+            let block = krs_syntax::ClaimBlock::parse_tokens(item_macro.mac.tokens.clone())
+                .map_err(source_syntax)?;
+            collect_rule_block(block.block(), ProvenanceRole::ClaimDeclaration, output)?;
+        }
+        FunctionMacro::Equations => {
+            let table = krs_syntax::EquationTable::parse_tokens(item_macro.mac.tokens.clone())
+                .map_err(source_syntax)?;
+            for row in table.rows() {
+                let bindings = row
+                    .rule()
+                    .parameter()
+                    .pattern
+                    .bindings()
+                    .iter()
+                    .map(|binding| binding.unraw().to_string())
+                    .collect();
+                output.push(parsed_invocation(
+                    ProvenanceRole::RuleDeclaration,
+                    row.label().to_string(),
+                    row.provenance().map_err(source_syntax)?,
+                    ParsedInvocationPayload::Rule { bindings },
+                )?);
+            }
         }
         FunctionMacro::Sorts | FunctionMacro::FrameworkSorts => {
             collect_sorts_macro(item_macro, output)?;
@@ -1051,15 +1186,22 @@ fn collect_macro_invocations(
     Ok(())
 }
 
-fn collect_rules_macro(
-    item_macro: &syn::ItemMacro,
+/// Records the clauses of a readable rule or claim block, whose descriptors'
+/// primary anchor has the role `declaration`.
+fn collect_rule_block(
+    block: &krs_syntax::RuleBlock,
+    declaration: ProvenanceRole,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
-    let block = krs_syntax::RuleBlock::parse_tokens(item_macro.mac.tokens.clone())
-        .map_err(source_syntax)?;
     for clause in block.clauses() {
         let rule = clause.rule();
-        let bindings = clause.bindings().iter().map(ToString::to_string).collect();
+        // The macro names a binding or cell by its identifier without `r#`,
+        // as Rust does, so `r#type` and `type` are one name.
+        let bindings = clause
+            .bindings()
+            .iter()
+            .map(|binding| binding.unraw().to_string())
+            .collect();
         // The descriptor lists the map reads first, then the writes and
         // rewrites in clause order.
         let (mut extras, writes): (Vec<_>, Vec<_>) = clause
@@ -1067,24 +1209,27 @@ fn collect_rules_macro(
             .iter()
             .map(|extra| match extra {
                 krs_syntax::RuleExtra::HaveMap { cell, .. } => {
-                    ("have".to_owned(), cell.to_string())
+                    ("have".to_owned(), cell.unraw().to_string())
                 }
                 krs_syntax::RuleExtra::UpdateMap { cell, .. } => {
-                    ("update".to_owned(), cell.to_string())
+                    ("update".to_owned(), cell.unraw().to_string())
                 }
                 krs_syntax::RuleExtra::RewriteCell { cell, .. } => {
-                    ("rewrite".to_owned(), cell.to_string())
+                    ("rewrite".to_owned(), cell.unraw().to_string())
                 }
                 krs_syntax::RuleExtra::RewriteState { cell, .. } => {
-                    ("state".to_owned(), cell.to_string())
+                    ("state".to_owned(), cell.unraw().to_string())
+                }
+                krs_syntax::RuleExtra::RewriteList { cell, .. } => {
+                    ("list".to_owned(), cell.unraw().to_string())
                 }
             })
             .partition(|(kind, _)| kind == "have");
         extras.extend(writes);
         let mut anchors = clause.provenance().map_err(source_syntax)?;
-        anchors.extend(clause.attribute().provenance().map_err(source_syntax)?);
+        anchors.extend(clause.attribute_provenance().map_err(source_syntax)?);
         output.push(parsed_invocation(
-            ProvenanceRole::RuleDeclaration,
+            declaration,
             rule.item()
                 .sig
                 .ident
@@ -1219,7 +1364,8 @@ pub(super) fn validate_reparsed_payload(
             | HostDescriptorPayload::Grammar(_)
             | HostDescriptorPayload::Cell(_)
             | HostDescriptorPayload::ConfigurationRule(_)
-            | HostDescriptorPayload::ContextAlias(_),
+            | HostDescriptorPayload::ContextAlias(_)
+            | HostDescriptorPayload::Constant(_),
             ParsedInvocationPayload::Declaration,
         ) => Ok(()),
         (HostDescriptorPayload::FixedConfiguration(_), ParsedInvocationPayload::Configuration) => {
@@ -1255,9 +1401,12 @@ pub(super) fn validate_reparsed_payload(
                     krs_ir::ProtocolHeadRuleExtra::RewriteState { cell, .. } => {
                         ("state".to_owned(), cell.name.clone())
                     }
+                    krs_ir::ProtocolHeadRuleExtra::RewriteList { cell, .. } => {
+                        ("list".to_owned(), cell.name.clone())
+                    }
                 })
                 .collect::<Vec<_>>();
-            let host_rhs = match rule.head.as_ref().map(|head| &head.result) {
+            let host_rhs = match rule.head.as_ref().and_then(|head| head.result.as_ref()) {
                 None => "none",
                 Some(krs_ir::ProtocolHeadRuleResult::Replace(_)) => "replace",
                 Some(krs_ir::ProtocolHeadRuleResult::Splice(_)) => "splice",
@@ -1449,6 +1598,41 @@ pub(super) fn source_syntax_at(
         Some(range) => error.with_input_range(range),
         None => error,
     }
+}
+
+/// The invocation of one equation fn, authored or synthesized from authored
+/// tokens.
+fn push_equation_invocation(
+    item_fn: &syn::ItemFn,
+    equation: &krs_syntax::EquationAttribute,
+    output: &mut Vec<ParsedInvocation>,
+) -> Result<(), CollectionError> {
+    let rule = RuleItem::from_equation_item(item_fn.clone()).map_err(source_syntax)?;
+    push_rule_equation_invocation(&rule, item_fn, equation, output)
+}
+
+fn push_rule_equation_invocation(
+    rule: &RuleItem,
+    item_fn: &syn::ItemFn,
+    equation: &krs_syntax::EquationAttribute,
+    output: &mut Vec<ParsedInvocation>,
+) -> Result<(), CollectionError> {
+    let bindings = rule
+        .parameter()
+        .pattern
+        .bindings()
+        .iter()
+        .map(|binding| binding.unraw().to_string())
+        .collect();
+    let mut anchors = rule.full_provenance().map_err(source_syntax)?;
+    anchors.extend(equation.provenance().map_err(source_syntax)?);
+    output.push(parsed_invocation(
+        ProvenanceRole::RuleDeclaration,
+        item_fn.sig.ident.to_string(),
+        anchors,
+        ParsedInvocationPayload::Rule { bindings },
+    )?);
+    Ok(())
 }
 
 #[cfg(test)]

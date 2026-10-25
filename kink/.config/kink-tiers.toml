@@ -1,0 +1,51 @@
+# The test tiers of the kink crates (draft/tasks/test-gate README section 5), read by
+# kink/scripts/kink-tier.py.
+#
+# A kink test belongs to exactly one tier:
+#   light  an ordinary test; every `cargo test` and `cargo nextest run` of k-rust's workspace
+#          runs it, so every k-rust push does.
+#   kink   `#[ignore = "kink"]` inside a module named `kink_tier`; owed by a change to a kink
+#          crate, kink's test data or this configuration.
+#   heavy  `#[ignore = "heavy"]` inside a module named `heavy`; run nightly, before an
+#          integration merge and when a work package closes.
+# A test that needs an outside checkout is `#[ignore = "external: ..."]` inside a module named
+# `external`; it belongs to no tier and only records a skip without `KINK_WORKSPACE`.
+# `kink/scripts/kink-tier.py lint` fails on an ignored test outside these modules (it would run
+# in no tier) and on a test inside one of them that is not ignored (it would run in the light
+# tier).
+#
+# Budgets are wall seconds of one `kink/scripts/kink-tier.py run` at the default number of test
+# threads (one per CPU) on a 32-CPU host with a 1-minute load average under half the CPUs; the
+# check reports but does not judge a run on a busier host. `per_test_s` bounds every light test
+# as the tier's own JUnit report times it, that is with every test slot busy: CPU contention
+# about doubles a test's time against a run of it alone (the SI-04 replay rows take 9-12 s alone
+# and 15-22 s in the tier run). A light test over it belongs to the kink tier or must be made
+# cheaper; a protected holding is made cheaper, never moved.
+
+[tier.light]
+wall_s = 120
+per_test_s = 30
+
+[tier.kink]
+wall_s = 600
+
+# light and kink in one run: the per-commit gate of a change to a kink crate.
+[tier.gate]
+wall_s = 600
+
+[tier.heavy]
+wall_s = 3600
+
+[z3]
+# The Z3 profile is the default run of every kink package (their default features, as in k-rust's
+# own workspace build); `--portable` runs them all with `--no-default-features` instead. Before
+# the merge into k-rust (packet M-1 of draft/tasks/k-rust-merge) the portable profile was the
+# default and the Z3 run took only kink-native, kink-campaign and kink-corpus.
+# Test binaries the Z3 run of the light and kink tiers skips. Empty by decision (test-gate TG-Z,
+# 2026-10-21): instrumented counts at 611706e found 18 binaries that never reach Z3, but they
+# hold about 10% of the Z3 run's test time and none of its longest tests; tests in 26 of the 53
+# binaries do reach the solver, several that a reading of the code had called ground-only; and
+# now that kink is in k-rust's workspace the Z3 profile is the default run, so the list would
+# have to be re-derived for it. A list here must come from re-running that measurement
+# (draft/tasks/test-gate/data/tg-z-instrumentation.patch) on the tree it applies to.
+skip_binaries = []

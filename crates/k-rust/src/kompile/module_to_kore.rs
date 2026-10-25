@@ -28,6 +28,8 @@
 
 mod axioms;
 pub(super) use axioms::emitted_subsort_pair;
+pub(super) use equations::predicate_at;
+mod binders;
 mod equations;
 mod roles;
 
@@ -36,7 +38,7 @@ use super::invariants::emitted::{EmittedTheory, emitted_from};
 
 use axioms::generated_axioms;
 use equations::{
-    OwiseCompetitors, RuleEmissionContext, check_variable_sorts, emit_rule_or_claim,
+    ConditionForm, OwiseCompetitors, RuleEmissionContext, check_variable_sorts, emit_rule_or_claim,
     resolve_equation_production,
 };
 use roles::{Declaration, SymbolClaims, SymbolRoles};
@@ -49,8 +51,8 @@ use serde_json::Value;
 use crate::definition::{
     AssociativityRelations, AttributeKey, Attributes as KAttributes, Definition as KDefinition,
     LabelHead, ModuleId, OverloadOrder, PartialOrder, ProductionCatalog, ProductionId,
-    ProductionItem, RelationError, ResolveError, ResolvedDefinition, RuleCatalog, Sentence,
-    SortCatalog, SortHead,
+    ProductionItem, RelationError, ResolveError, ResolvedDefinition, RuleCatalog, RuleHead,
+    Sentence, SortCatalog, SortHead,
     production_kind::{
         BracketName, DeclaredTotality, ProductionKind, UnitInstance, UnitInstanceError,
         is_builtin_label, mentions_parameter,
@@ -71,7 +73,7 @@ use crate::provenance::{
 
 use super::compile::CompilationBackend;
 use super::fresh_names::FreshNames;
-use super::label_graph::LabelDependencyGraph;
+use super::label_graph::impure_labels;
 use super::passes::number_sentence;
 use super::sort_injections::{SortInjectionError, SortInjector};
 use super::term_to_kore::{TermConversionError, TermConverter};
@@ -160,6 +162,14 @@ impl DeclarationModules {
     /// Wrap the backend-facing module in K's standard KORE prelude.
     pub fn semantics_definition(&self) -> KoreDefinition {
         self.definition_with(self.semantics.clone())
+    }
+
+    /// [`Self::semantics_definition`], moving the semantics module into it instead of cloning it.
+    pub fn into_semantics_definition(self) -> KoreDefinition {
+        let mut definition = standard_kore_prelude();
+        definition.attributes = self.definition_attributes;
+        definition.modules.push(self.semantics);
+        definition
     }
 
     /// Print [`Self::semantics_definition`] without cloning the semantics module into it.
@@ -340,6 +350,12 @@ pub enum ModuleToKoreError {
         production: usize,
         message: String,
     },
+    /// A condition of the Rust target whose spine holds an `#Equals` whose operands are not both
+    /// terms and not both predicates: it states no condition.
+    MixedConditionEquality {
+        /// The sentence, by kind, label and source position.
+        sentence: String,
+    },
 }
 
 impl fmt::Display for ModuleToKoreError {
@@ -418,6 +434,11 @@ impl fmt::Display for ModuleToKoreError {
             } => write!(
                 formatter,
                 "cannot generate MAP definedness axiom for production #{production}: {message}"
+            ),
+            Self::MixedConditionEquality { sentence } => write!(
+                formatter,
+                "the condition of {sentence} has an #Equals, outside any term, {}",
+                super::ml_constructs::MIXED_EQUALITY_OPERANDS
             ),
         }
     }
@@ -887,6 +908,10 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
     {
         check_variable_sorts(sentence, &|| sentence.to_string())?;
     }
+    // An owise equation competes with every equation of its head in the emitted theory, so the
+    // generated equations join the rules as its competitors.
+    let mut owise_competitors =
+        OwiseCompetitors::with_generated_axioms(&generated_axioms.semantics);
     modules
         .semantics
         .sentences
@@ -902,7 +927,6 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
     // Keep ordinary rule injection separate: it resets sentence-local injector state and fixes
     // the error order. Only successful results from the first owise scan are reusable by later
     // owise scans over this immutable, already-rebased rule list.
-    let mut owise_competitors = OwiseCompetitors::default();
     let emission_context = RuleEmissionContext {
         valued: &valued,
         productions: &productions,
@@ -911,6 +935,7 @@ pub(crate) fn module_to_kore_from_resolved_with_options_and_sources(
         module_rules: &module_rules,
         default_reachability,
         roles: &roles,
+        condition_form: ConditionForm::for_backend(options.backend),
     };
     let mut emitted_sources = Vec::new();
     // Invariant: `modules.macros` and `modules.semantics.sentences` hold the emitted sentences of the rules of `module_rules` before `rule`, and `owise_competitors` holds the module's owise competitors once an owise equation has scanned for them; each rule is emitted once.
@@ -1296,16 +1321,10 @@ fn propagate_macro_attribute(sentence: &Sentence, productions: &ProductionCatalo
     else {
         return sentence.clone();
     };
-    #[expect(
-        clippy::wildcard_enum_match_arm,
-        reason = "Term is not a sentence kind; only the listed variants are special here"
-    )]
-    let left = match body.unannotated() {
-        Term::Rewrite { left, .. } => left.as_ref(),
-        _ => body,
-    };
-    let application = peel_alias(left);
-    let Term::Apply { label, .. } = application.unannotated() else {
+    // The head as every stage reads it ([`RuleHead::of`]). Unlike the pipeline's propagation,
+    // which needs a top rewrite to expand, this reading also marks a body without one, so the
+    // emitter treats a macro production's rule as a macro axiom whatever its shape.
+    let Some((application, label, _)) = RuleHead::of(body).application() else {
         return sentence.clone();
     };
     let Ok(production) = resolve_equation_production(application, label, productions) else {
@@ -1334,45 +1353,14 @@ fn propagate_macro_attribute(sentence: &Sentence, productions: &ProductionCatalo
     }
 }
 
-fn peel_alias(mut term: &Term) -> &Term {
-    while let Term::As { pattern, .. } = term.unannotated() {
-        term = pattern;
-    }
-    term
-}
-
-#[allow(clippy::too_many_arguments)]
+/// The labels the emitted definition declares `impure` ([`impure_labels`]).
 fn transitive_impure_labels(
     definition: &ResolvedDefinition,
     module: ModuleId,
     productions: &ProductionCatalog<'_>,
 ) -> BTreeSet<String> {
     let rules = definition.rule_catalog(module);
-    let graph = LabelDependencyGraph::build(productions, &rules, is_macro_rule);
-    let impure = productions
-        .productions()
-        .filter_map(|(_, production)| match production {
-            Sentence::Production {
-                label: Some(label),
-                attributes,
-                ..
-            } if attributes.has(AttributeKey::Impure) => Some(LabelHead::from(label)),
-            Sentence::SyntaxSort { .. }
-            | Sentence::SortSynonym { .. }
-            | Sentence::SyntaxLexical { .. }
-            | Sentence::Production { .. }
-            | Sentence::SyntaxAssociativity { .. }
-            | Sentence::SyntaxPriority { .. }
-            | Sentence::ContextAlias { .. }
-            | Sentence::Context { .. }
-            | Sentence::Rule { .. }
-            | Sentence::Claim { .. }
-            | Sentence::Configuration { .. }
-            | Sentence::Bubble { .. } => None,
-        })
-        .collect::<BTreeSet<_>>();
-    graph
-        .backward_closure(impure)
+    impure_labels(productions, &rules, is_macro_rule)
         .into_iter()
         .map(|label| label.as_str().to_owned())
         .collect()

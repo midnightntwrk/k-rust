@@ -9,6 +9,7 @@ import initBindings, {
   parseProgramWasm,
   printKastWasm,
   printKoreWasm,
+  runFuzzCampaignWasm,
   WasmBackend as WasmBackendBinding,
 } from '../generated/bindings.js'
 
@@ -215,8 +216,24 @@ export interface BackendCapabilities {
   observation: boolean
   /** `execute` and `executeObserved` accept `collectCoverage`. */
   coverage: boolean
+  /** `execute` and `executeObserved` accept `collectOffered` beside `collectCoverage`. */
+  coverageOffered: boolean
+  /** `execute` and `executeObserved` accept `collectCounts` beside `collectCoverage`. */
+  coverageCounts: boolean
+  /** `execute` and `executeObserved` accept `collectConditions` beside `collectCoverage`. */
+  coverageConditions: boolean
   /** `execute` and `executeObserved` report `stackStops`. */
   stackStops: boolean
+  /** `execute` and `executeObserved` report `smtUnknowns`. */
+  smtUnknowns: boolean
+  /** `execute`, `executeObserved` and every search mark leaves, states, witnesses and matches with 'implementation-chosen-value' and report `implementationChosenValues`. */
+  implementationChosenValues: boolean
+  /** `execute`, `executeObserved` and every search mark leaves, states, witnesses and matches with 'contradicted-claim' and report `contradictedClaims`. */
+  contradictedClaims: boolean
+  /** `execute`, `executeObserved` and every search report `allowanceRefusals`. */
+  allowanceRefusals: boolean
+  /** `execute`, `executeObserved` and every search report `unsupportedHooks`. */
+  unsupportedHooks: boolean
 }
 
 export interface CreateBackendOptions {
@@ -251,11 +268,36 @@ export interface ExecuteOptions {
    */
   collectCoverage?: boolean
   /**
+   * With `collectCoverage`, also report `RunCoverage.offered`: the rules and equations whose
+   * left-hand side matched a subject the run selected them as candidates for, tried there or
+   * not. A request that sets it without `collectCoverage` is refused. A candidate never tried
+   * costs one match at every visit of its site while it has not matched (docs/compatibility.md,
+   * "Run coverage").
+   */
+  collectOffered?: boolean
+  /**
+   * With `collectCoverage`, also report `RunCoverage.appliedCounts`: how many times the run
+   * applied each rule and equation of `applied`. A request that sets it without
+   * `collectCoverage` is refused; asking changes no other field (docs/compatibility.md, "Run
+   * coverage").
+   */
+  collectCounts?: boolean
+  /**
+   * With `collectCoverage`, also report `RunCoverage.conditions`: for each rewrite rule named
+   * (by id or label) whose `requires` the run began to decide, the bindings of the variables the
+   * condition reads, the condition with every node's truth and its atoms' operands evaluated
+   * under the instance, and the attempt's verdict.
+   * A request that sets it without `collectCoverage` is refused; asking changes no other field
+   * (docs/compatibility.md, "Run coverage").
+   */
+  collectConditions?: ConditionCollection
+  /**
    * The most states the run may visit across all its paths; absent: no bound. A run that
    * reaches it ends with one 'work-bound' leaf for the state it did not visit, the last leaf,
    * and does not explore the other pending states (docs/compatibility.md, "Work budget").
    */
   maxWork?: number
+  /**
    * Whether each leaf carries its path's `trace` (default `true`). With `false` every leaf's
    * `trace` is empty and every other field is unchanged, so the traces no longer grow with the
    * total path length. An observed run's `branch` and `observations` stay proportional to each
@@ -373,7 +415,119 @@ export interface ExecutionResult {
    * determinism contract (docs/compatibility.md, "Determinism and concurrency").
    */
   stackStops?: number
+  /**
+   * The undecided answers (`unknown`: a timeout, the solver's resource limit or its
+   * incompleteness) the solver delivered to the run's decisions, each counted once after
+   * retries; absent when none, and always absent without a solver. A run that reports none took
+   * every decision from a decided answer, so within the determinism contract it gives one result
+   * on a fresh backend and on a reused one (docs/compatibility.md, "Determinism and
+   * concurrency").
+   */
+  smtUnknowns?: number
+  /**
+   * Every distinct value the definition leaves open that the run read, in first-read order;
+   * absent when none (docs/compatibility.md, "Implementation-chosen hook values"). It includes
+   * the values read by work that ended on no reported leaf (a vanished candidate, a state a
+   * `state-set` merge absorbed). When absent, every model of the definition that agrees with the
+   * request's inputs and k-rust's stated readings gives the run the same leaves. In a run with
+   * `maxWork` or `maxBreadth` every leaf carries every value listed here, and so does, under
+   * `state-set`, every leaf a leaf of another halt class may stand for in the final merge (a
+   * `depth-bound` or other unexplored or undecided leaf, and with `terminalRules` a `stuck` or
+   * `terminal` one).
+   */
+  implementationChosenValues?: ChosenValue[]
+  /**
+   * Every distinct contradicted claim the run observed, and those the load of its definition
+   * observed, in first-observed order; absent when none (docs/compatibility.md, "A contradicted
+   * total attribute is named, not repaired"). It includes the records of work that ended on no
+   * reported leaf (a candidate a defined sibling covered, a state a `state-set` merge absorbed).
+   * It is complete for contradictions found by evaluation on ground arguments; a symbolic state
+   * trusts the claim, so its absence says nothing about a non-ground run. Each record says who
+   * observed it (`observedIn`): the load's records are facts about the definition, on this list
+   * and on no leaf, and a contradiction the load and the run both observed is listed once for each.
+   */
+  contradictedClaims?: ContradictedClaim[]
+  /**
+   * Every distinct `Bytes` result the memory allowance refused in the run or in the load of its
+   * definition, in first-met order, including a refusal inside work that was undone or passed
+   * over, which leaves no diagnostic; absent when none. A result without it is the result under
+   * every allowance of at least as many bytes (docs/compatibility.md, "Resource bounds").
+   */
+  allowanceRefusals?: UnevaluatedHook[]
+  /**
+   * Every distinct application left unevaluated as an unsupported hook, other than an allowance
+   * refusal, in the run or in the load of its definition, in first-met order, whatever became of
+   * the work that met it; absent when none.
+   */
+  unsupportedHooks?: UnevaluatedHook[]
 }
+
+/** A hook application a run left unevaluated, with the reason the 'unsupported-hook-unevaluated' diagnostic gives, and who met it. */
+export interface UnevaluatedHook {
+  hook: string
+  reason: string
+  observedIn: ObservedIn
+}
+
+/** Who observed a run-level record: the load of the definition (a fact about the definition, on the result's lists only) or the run that reports it. */
+export type ObservedIn = 'load' | 'run'
+
+/**
+ * A claim of the definition an evaluation found contradicted by the definition's own equations,
+ * one of two kinds told apart by `claim`:
+ * - `claim: 'total'`: a symbol declared total (or functional) whose equation reduced an
+ *   application to defined arguments to bottom, with the fields of `ContradictedTotal`;
+ * - `claim: 'preserves-definedness'`: a rule declared so (`ruleId`, `ruleLabel`, `origin`) whose
+ *   result term as the step built it (`application`; for a disjunctive right-hand side, every
+ *   alternative's, of which the first is named) its normalization found bottom (`undefined`:
+ *   where, a subterm of it or of a callee's equation result), with no `symbol` or `kLabel`.
+ * The other fields are `ContradictedClaimFields`.
+ */
+export type ContradictedClaim =
+  | ({ claim: 'total'; symbol: string; kLabel?: string } & ContradictedClaimFields)
+  | ({ claim: 'preserves-definedness' } & ContradictedClaimFields)
+
+/**
+ * The fields of a `ContradictedClaim` of either kind. `rewriteRule*` name the rewrite rule whose
+ * attempt or successor's normalization observed it, absent when no rule's work did. `ground`: the
+ * application is variable-free and the work that refuted the claim depended on nothing that may
+ * differ between models (it read no value the definition leaves open, among the other path facts,
+ * and assumed nothing but true: for `total`, no constraint of the state; for
+ * `preserves-definedness`, every constraint of the step simplified to true, so its `requires` was
+ * decided), so the claim is false at that input in every model that agrees with the request's
+ * inputs (on the I/O route, the console state too) and with k-rust's stated readings; a
+ * non-ground record shows nothing. `observedIn`: whether the definition's
+ * load or this run observed it; a leaf's records are always 'run'.
+ */
+export interface ContradictedClaimFields {
+  ruleId: string
+  ruleLabel?: string
+  origin?: RuleOrigin
+  application: Kore
+  undefined: Kore
+  rewriteRuleId?: string
+  rewriteRuleLabel?: string
+  rewriteRuleOrigin?: RuleOrigin
+  ground: boolean
+  observedIn: ObservedIn
+}
+
+/** A value the definition leaves open that a run read: the hook that computed it and what is open about it. */
+export interface ChosenValue {
+  hook: string
+  class: ChosenClass
+}
+
+export type ChosenClass =
+  | 'order'
+  | 'item'
+  | 'float-destination'
+  | 'nan-sign'
+  | 'letter-case'
+  | 'signed-zero'
+  | 'fresh-name'
+  | 'read-count'
+  | 'effect-order'
 
 /**
  * The `UNIQUE_ID`s of the rules and equations a run used, each list sorted: `applied` those it
@@ -383,6 +537,129 @@ export interface ExecutionResult {
 export interface RunCoverage {
   applied: string[]
   matched: string[]
+  /**
+   * Present exactly when the request set `collectOffered`: `matched` plus every rule and equation
+   * whose left-hand side matched a subject the run selected it as a candidate for, whether or not
+   * the run went on to decide its condition there.
+   */
+  offered?: string[]
+  /**
+   * Present exactly when the request set `collectConditions`: the records of each named rule
+   * whose `requires` the run began to decide, by rule id.
+   */
+  conditions?: RuleConditions[]
+  /**
+   * Present exactly when the request set `collectCounts`: each id of `applied` with the number
+   * of times the run applied it (at least 1): for a rewrite rule, the successors and
+   * undefined-step entries its steps built; for an equation, the instances that gave a result.
+   */
+  appliedCounts?: Record<string, number>
+}
+
+/** Which rules' condition entries an execute request records (`collectConditions`). */
+export interface ConditionCollection {
+  /** Rewrite rules by `UNIQUE_ID` or label. */
+  rules: string[]
+  /** The most records kept per rule: the first distinct entries in the run's order, with no preference among them (default 32). */
+  limit?: number
+  /** The largest value a record holds, in term nodes (default 256); larger ones are 'omitted'. */
+  maxValueSize?: number
+  /**
+   * The most polls one record's evaluation may make (default 1000000); what it stops is 'stopped' or
+   * 'undecided'. Records run off the step clock: with a step timeout, a run may exceed it in wall
+   * time by up to (rules recorded x `limit`) records of this many polls each.
+   */
+  recordPolls?: number
+}
+
+export interface RuleConditions {
+  /** The rule's `UNIQUE_ID`. */
+  rule: string
+  /** The distinct entries into the rule's `requires`, in the order the run first made them. */
+  records: ConditionRecord[]
+  /** Present (true) when a further distinct entry was left out by the limit. */
+  truncated?: boolean
+}
+
+/** One entry into a rule's `requires`: its bindings, the condition with every node's truth, and the attempt's verdict. */
+export interface ConditionRecord {
+  /** The bindings of the condition's variables, named as the rule is written, sorted. */
+  bindings: RecordedBinding[]
+  /** The `requires` as written, one predicate node per conjunct; it holds exactly when every conjunct is 'true'. */
+  condition: ConditionNode[]
+  /** What the attempt decided about the condition, with the run's solver. */
+  verdict?: ConditionVerdict
+  /** Present (true) when the run had read an implementation-chosen value: terms may be one model's. */
+  chosen?: boolean
+}
+
+/**
+ * 'held' (the condition holds; the attempt goes on to build the successor, which can still fail),
+ * 'refuted' (false, undefined or contradicted by the path), 'undecided', 'stopped', or 'reentered'
+ * (the condition bound variables the match left unbound; the rule's next record is the complete
+ * entry).
+ */
+export type ConditionVerdict = 'held' | 'refuted' | 'undecided' | 'stopped' | 'reentered'
+
+/**
+ * A node's truth without a solver: 'true' and 'false' are decisions; 'undefined' (Boolean nodes
+ * only) says the node's term denotes no value (a partial operation outside its domain, or path
+ * conditions without a model); 'undecided' decides nothing.
+ */
+export type ConditionTruth = 'true' | 'false' | 'undefined' | 'undecided'
+
+export interface RecordedBinding {
+  variable: Kore
+  value: RecordedValue
+}
+
+/**
+ * A term of a record: 'value' (constructors and domain values only), 'unevaluated' (variable-free
+ * with an application left as it is), 'symbolic' (with variables), 'undefined', 'stopped' (its
+ * evaluation was interrupted), or 'omitted' (larger than `maxValueSize`).
+ */
+export type RecordedValue =
+  | { kind: 'value' | 'unevaluated' | 'symbolic'; term: Kore }
+  | { kind: 'undefined' | 'stopped' | 'omitted' }
+
+/**
+ * The K Boolean connectives (strict functions on Bool) and the matching-logic ones (on two-valued
+ * predicates).
+ */
+export type ConditionConnective =
+  | 'notBool'
+  | 'andBool'
+  | 'andThenBool'
+  | 'orBool'
+  | 'orElseBool'
+  | 'impliesBool'
+  | 'xorBool'
+  | '\\not'
+  | '\\and'
+  | '\\or'
+  | '\\implies'
+  | '\\iff'
+
+/**
+ * A node of a condition as written, with its truth: a connective, `\equals(b, literal)` of a Boolean
+ * term ('equals': 'true' exactly where `b` is defined and equal to `literal`), or an atom.
+ */
+export type ConditionNode =
+  | { node: 'connective'; connective: ConditionConnective; children: ConditionNode[]; value: ConditionTruth }
+  | { node: 'equals'; literal: boolean; child: ConditionNode; value: ConditionTruth }
+  | ({ node: 'atom' } & ConditionAtom)
+
+export interface ConditionAtom {
+  /** The KORE symbol, a matching-logic connective such as `\equals`, 'absent', or absent for a variable or literal. */
+  head?: string
+  /** The symbol's hook, such as 'INT.lt'. */
+  hook?: string
+  /** The operands, simplified under the instance. */
+  operands: RecordedValue[]
+  /** The positions in the record's `bindings` of the variables the atom mentions; absent when none. */
+  reads?: number[]
+  /** The atom's truth. */
+  value: ConditionTruth
 }
 
 export interface TransitionId {
@@ -564,12 +841,30 @@ export type BackendDiagnostic =
     }
   | { kind: 'unsupported-hook-unevaluated'; hook: string; reason: string }
   | { kind: 'undefined-initial-instances'; definedness: Kore[] }
+  /**
+   * The path read a value of `hook` the definition leaves open: in another model of the
+   * definition this leaf may differ or be absent. A leaf without one is a leaf in every such
+   * model; under `state-set` that covers its configuration and halt, not its depth and trace. A
+   * path fact: it stays on the paths that depend on the work that found it, whatever became of
+   * that work, and never causes or prevents a `state-set` merge.
+   */
+  | { kind: 'implementation-chosen-value'; hook: string; class: ChosenClass }
+  /**
+   * The path's decisions rest on an evaluation that found a claim of the definition contradicted
+   * by its own equations (a condition it refuted, a candidate it removed, the halt); the fields
+   * are those of `ContradictedClaim`. k-rust reads the undefined value as undefined, the answer
+   * without the claim; in a model of the claim the decision may differ. A path fact: it stays on
+   * the paths that depend on the work that found it, whatever became of that work, and never
+   * causes or prevents a `state-set` merge.
+   */
+  | ({ kind: 'contradicted-claim' } & ContradictedClaim)
 
 export type SmtFailure =
   | { kind: 'translation'; error: TranslationFailure }
   | { kind: 'unavailable' }
   | { kind: 'unknown'; reason: string }
   | { kind: 'inconsistent-ground-truth' }
+  | { kind: 'malformed-script'; message: string }
   | { kind: 'missing-model' }
   | { kind: 'missing-model-value'; variable: Kore }
   | { kind: 'invalid-model-value'; variable: Kore; value: string }
@@ -633,6 +928,18 @@ export interface SearchResult {
   incomplete: SearchIncomplete[]
   /** Every initial state had no instance before any step; absent when false. */
   initialBottom?: true
+  /**
+   * Every distinct value the definition leaves open that the search read, in first-read order;
+   * absent when none. When absent, every model of the definition that agrees with the request's
+   * inputs and k-rust's stated readings gives the same results, entries and end.
+   */
+  implementationChosenValues?: ChosenValue[]
+  /** Every distinct contradicted claim the search and its definition's load observed, as for `ExecutionResult.contradictedClaims`; absent when none. */
+  contradictedClaims?: ContradictedClaim[]
+  /** Every distinct `Bytes` result the memory allowance refused, as for `ExecutionResult.allowanceRefusals`; absent when none. */
+  allowanceRefusals?: UnevaluatedHook[]
+  /** Every other distinct application left unevaluated as an unsupported hook, as for `ExecutionResult.unsupportedHooks`; absent when none. */
+  unsupportedHooks?: UnevaluatedHook[]
 }
 
 export interface PathSearchResult {
@@ -643,6 +950,18 @@ export interface PathSearchResult {
   incomplete: SearchIncomplete[]
   /** Every initial state had no instance before any step; absent when false. */
   initialBottom?: true
+  /**
+   * Every distinct value the definition leaves open that the search read, in first-read order;
+   * absent when none. When absent, every model of the definition that agrees with the request's
+   * inputs and k-rust's stated readings gives the same results, entries and end.
+   */
+  implementationChosenValues?: ChosenValue[]
+  /** Every distinct contradicted claim the search and its definition's load observed, as for `ExecutionResult.contradictedClaims`; absent when none. */
+  contradictedClaims?: ContradictedClaim[]
+  /** Every distinct `Bytes` result the memory allowance refused, as for `ExecutionResult.allowanceRefusals`; absent when none. */
+  allowanceRefusals?: UnevaluatedHook[]
+  /** Every other distinct application left unevaluated as an unsupported hook, as for `ExecutionResult.unsupportedHooks`; absent when none. */
+  unsupportedHooks?: UnevaluatedHook[]
 }
 
 export interface SearchMatch {
@@ -661,6 +980,18 @@ export interface PatternSearchResult {
   incomplete: SearchIncomplete[]
   /** Every initial state had no instance before any step; absent when false. */
   initialBottom?: true
+  /**
+   * Every distinct value the definition leaves open that the search read, in first-read order;
+   * absent when none. When absent, every model of the definition that agrees with the request's
+   * inputs and k-rust's stated readings gives the same results, entries and end.
+   */
+  implementationChosenValues?: ChosenValue[]
+  /** Every distinct contradicted claim the search and its definition's load observed, as for `ExecutionResult.contradictedClaims`; absent when none. */
+  contradictedClaims?: ContradictedClaim[]
+  /** Every distinct `Bytes` result the memory allowance refused, as for `ExecutionResult.allowanceRefusals`; absent when none. */
+  allowanceRefusals?: UnevaluatedHook[]
+  /** Every other distinct application left unevaluated as an unsupported hook, as for `ExecutionResult.unsupportedHooks`; absent when none. */
+  unsupportedHooks?: UnevaluatedHook[]
 }
 
 export interface PathSearchMatch {
@@ -679,6 +1010,18 @@ export interface PathPatternSearchResult {
   incomplete: SearchIncomplete[]
   /** Every initial state had no instance before any step; absent when false. */
   initialBottom?: true
+  /**
+   * Every distinct value the definition leaves open that the search read, in first-read order;
+   * absent when none. When absent, every model of the definition that agrees with the request's
+   * inputs and k-rust's stated readings gives the same results, entries and end.
+   */
+  implementationChosenValues?: ChosenValue[]
+  /** Every distinct contradicted claim the search and its definition's load observed, as for `ExecutionResult.contradictedClaims`; absent when none. */
+  contradictedClaims?: ContradictedClaim[]
+  /** Every distinct `Bytes` result the memory allowance refused, as for `ExecutionResult.allowanceRefusals`; absent when none. */
+  allowanceRefusals?: UnevaluatedHook[]
+  /** Every other distinct application left unevaluated as an unsupported hook, as for `ExecutionResult.unsupportedHooks`; absent when none. */
+  unsupportedHooks?: UnevaluatedHook[]
 }
 
 export interface PatternOptions {
@@ -777,6 +1120,599 @@ export interface ProofResult {
   exploredStates: number
   unexploredStates: number
   leaves: ProofLeaf[]
+}
+
+/**
+ * A definition a fuzz campaign runs on: its sources, loaded and compiled for the Rust backend
+ * as `krust kcompile` does, on krun's route.
+ */
+export interface FuzzDefinitionOptions {
+  definition: string
+  moduleName: string
+  /** The module whose grammar parses the program; selected as `krust kcompile` does when absent. */
+  syntaxModule?: string
+  sourceName?: string
+  /** Additional virtual files keyed by the names used in `requires`. */
+  sources?: Readonly<Record<string, string>> | readonly Source[]
+  markdownSelector?: string
+  /**
+   * Load the embedded standard prelude before the definition, as the native build does; its builtin
+   * files also resolve for `requires`. Defaults to false.
+   */
+  includePrelude?: boolean
+}
+
+export interface FuzzCampaignOptions extends FuzzDefinitionOptions {
+  /** The mutant of a differential target: given exactly when the target is differential. */
+  mutant?: FuzzDefinitionOptions
+  campaign: FuzzCampaign
+}
+
+/**
+ * A campaign specification, in the fuzz library's JSON (kebab-case fields).
+ *
+ * Exactly one of `program` and `kore-template` is given. `options`, `proposers` and `bounds`
+ * are partial: each field given replaces the library default, and an unknown field throws.
+ * The seed, the rejection cap and the budget's limit are canonical decimal strings, which
+ * JavaScript reads and writes exactly at any size, as the report writes them.
+ */
+export interface FuzzCampaign {
+  program?: FuzzProgramSource
+  /** A KORE initial configuration whose free element variables are the holes, as KORE text. */
+  'kore-template'?: string
+  holes?: FuzzHole[]
+  target: FuzzTarget
+  options?: Partial<FuzzCaseOptions>
+  proposers?: Partial<FuzzProposers>
+  bounds?: Partial<FuzzGenerationBounds>
+  /** Rejected cases after which the campaign ends with `rejected-out`; defaults to `"10000"`. */
+  'rejection-cap'?: string
+  seed: string
+  /**
+   * Recorded in the report as given. Without it, the report's `k-rust-revision` is the build
+   * identity of the k-rust this package links (`<version>+src.<digest>`), with no stack size.
+   */
+  identity?: { 'k-rust-revision': string; 'thread-stack-size'?: number | null }
+  budget: FuzzBudget
+}
+
+/** The unmodified program and its configuration-variable bindings (name without `$`, K text). */
+export interface FuzzProgramSource {
+  program?: { name: string; text: string; 'start-sort': string } | null
+  'config-vars': [string, string][]
+}
+
+/** A hole value; integers are decimal strings and bytes lowercase hex. */
+export type FuzzValue =
+  | { int: string }
+  | { bool: boolean }
+  | { string: string }
+  | { bytes: string }
+  | { 'm-int': { width: number; value: string } }
+  | { token: { sort: string; text: string } }
+  | { list: FuzzValue[] }
+  | { set: FuzzValue[] }
+  | { map: [FuzzValue, FuzzValue][] }
+  | { apply: { symbol: string; arguments: FuzzValue[] } }
+
+export type FuzzHoleLocation =
+  | { kind: 'span'; program: string; line?: number | null; column?: number; find: string; literal: string }
+  | { kind: 'config-var'; name: string }
+  | { kind: 'kore-variable'; name: string }
+
+export interface FuzzConstraints {
+  range?: { min?: string | null; max?: string | null } | null
+  length?: { min?: number | null; max?: number | null } | null
+  elements?:
+    | { collection: 'elements'; element: string }
+    | { collection: 'entries'; key: string; value: string }
+    | null
+  choices?: FuzzValue[] | null
+}
+
+export interface FuzzHole {
+  name: string
+  sort: string
+  location: FuzzHoleLocation
+  constraints?: FuzzConstraints
+  'allow-refused-sort'?: boolean
+}
+
+export type FuzzRuleRef =
+  | { by: 'label'; value: string }
+  | { by: 'unique-id'; value: string }
+  /** Any line of the rule, from its first to its last, in `source` (a catalog path or a suffix of it). */
+  | { by: 'source'; value: { source: string; line: number } }
+
+/** Observer targets are library-only: one read from JSON carries no observer and throws. */
+export type FuzzTargetKind =
+  | { kind: 'rule'; rule: FuzzRuleRef; mode: 'fired' | 'covered' | 'condition-reached' }
+  | { kind: 'pattern'; pattern: string; at: 'final' | 'any-state' }
+  | { kind: 'differential' }
+  | { kind: 'observer'; name: string }
+
+export interface FuzzTarget {
+  kind: FuzzTargetKind
+  'run-to-completion': boolean
+  'negated-property': boolean
+  /**
+   * With `run-to-completion`, a rule or pattern hit's end must also be data (constructors,
+   * injections, domain values, well-formed collections and irreducible overload applications);
+   * `true` when absent. A negated property is exempt: its counterexample is decided by its
+   * match.
+   */
+  'data-end'?: boolean
+}
+
+export type FuzzPathMode = 'one-path' | 'all-paths'
+
+export interface FuzzCaseOptions {
+  paths: FuzzPathMode
+  'max-depth': number | null
+  'max-work': number | null
+  'max-simplification-iterations': number
+  'normal-end-pattern': string | null
+  /**
+   * Must stay `null`: WebAssembly has no clock to read a deadline from and no thread to stop a case
+   * at it, so a limit throws. Bound cases with `max-work` or `max-depth`.
+   */
+  'safety-limit-ms': number | null
+  backend: { 'smt-timeout-ms': number; 'smt-retry-limit': number }
+  shrink: boolean
+  /**
+   * Findings of the definitions' critical-pair checks the data judgement reads as resolved (a
+   * pair as joined, an equation as agreeing with its hook), each named as the report's
+   * `definition-findings` name it (`FIRST,SECOND@POSITION`, `hook:EQUATION`,
+   * `equation:EQUATION`, `precondition:...`); a `decided` finding is refused. Every verdict then
+   * holds only under them. Absent: none.
+   */
+  'assume-joined'?: string[]
+}
+
+export type FuzzProposerKind = 'blind' | 'dictionary' | 'climb' | 'corpus' | 'solve'
+
+export interface FuzzProposers {
+  'anchors-first': boolean
+  explicit: Record<string, FuzzValue>[]
+  /**
+   * A weight of 0 disables a proposer; a positive weight for a proposer this build does not provide
+   * throws, and `solve` always does here: this build links no solver.
+   */
+  weights: Partial<Record<FuzzProposerKind, number>>
+}
+
+export interface FuzzGenerationBounds {
+  'int-bits': number
+  length: number
+  depth: number
+}
+
+export type FuzzBudget = { cases: string } | { work: string }
+
+export type FuzzOutcomeClass =
+  | 'hit'
+  | 'miss'
+  | 'stuck'
+  | 'reached-unfinished'
+  | 'depth-bound'
+  | 'work-bound'
+  | 'timeout'
+  | 'undefined'
+  | 'unsupported'
+  | 'rejected'
+  | 'baseline-incomplete'
+
+export type FuzzDefinitionRole = 'baseline' | 'mutant'
+
+export interface FuzzDefinitionIdentity {
+  role: FuzzDefinitionRole
+  'main-module': string
+  'syntax-module': string
+  'execution-digest': string
+  route: 'source-execution' | 'from-definition'
+  'frontend-digest': string
+  'execution-definition-digest': string
+  'syntax-definition-digest': string
+  'initial-configuration-digest': string | null
+  'execution-rewrite-order-digest': string | null
+}
+
+export interface FuzzReportIdentity {
+  'engine-version': number
+  'k-rust-revision': string
+  definitions: FuzzDefinitionIdentity[]
+  'program-digest': string
+  'overlay-digest': string
+  'target-digest': string
+  /** For a rule target: the rule its reference resolved to. */
+  'target-rule'?: { id: string; name: FuzzRuleName }
+  options: FuzzCaseOptions
+  proposers: FuzzProposers
+  bounds: FuzzGenerationBounds
+  caps: {
+    'int-bits': number
+    length: number
+    depth: number
+    enumeration: number
+    'value-size': number
+  }
+  'rejection-cap': string
+  seed: string
+  budget: FuzzBudget
+  'thread-stack-size': string | null
+  solver: 'z3' | 'none'
+  /** The dictionary proposer's fixed parameters; present exactly when its weight is positive. */
+  dictionary?: FuzzDictionaryParameters
+  /** The climb's fixed parameters; present exactly when its weight is positive. */
+  climb?: FuzzClimbParameters
+  /** The corpus proposer's fixed parameters; present exactly when its weight is positive. */
+  corpus?: FuzzCorpusParameters
+  /**
+   * The solve proposer's fixed parameters; present exactly when its weight is positive (never in
+   * the WebAssembly package, which refuses that weight).
+   */
+  solve?: FuzzSolveParameters
+  /**
+   * The holes generated under narrower constraints than they declare, because the program's
+   * syntax cannot hold the values left out at the hole (an `Int` literal position that reads no
+   * negative integer back); absent when no hole was narrowed.
+   */
+  'effective-constraints'?: FuzzEffectiveConstraints[]
+}
+
+/** A hole whose generation constraints are narrower than its declared ones. */
+export interface FuzzEffectiveConstraints {
+  hole: string
+  declared: FuzzConstraints
+  effective: FuzzConstraints
+  /** No probed negative integer, written at the hole, read back as itself. */
+  reason: 'negative-not-read-back'
+  /** The definition whose grammar refused every probe. */
+  side: FuzzDefinitionRole
+  /** Every probe, in the order tried; each was refused. */
+  probes: FuzzNarrowingProbe[]
+}
+
+/** One refused probe of a narrowed hole. */
+export interface FuzzNarrowingProbe {
+  /** The value written at the hole, as K text (`-1`). */
+  value: string
+  outcome: 'reads-as' | 'does-not-parse'
+  /** For `reads-as`: the term the position held instead, as K text (or KORE without one). */
+  'reads-as'?: string
+  /** For `reads-as`: the K label of that term's head symbol, when it is an application. */
+  head?: string
+}
+
+/** Probabilities are `[numerator, denominator]`. */
+export interface FuzzDictionaryParameters {
+  radius: number
+  'draw-probability': [number, number]
+  expansion: number
+  'distance-weight-base': number
+  'exact-probability': [number, number]
+}
+
+/** Probabilities and shares are `[numerator, denominator]`. */
+export interface FuzzClimbParameters {
+  'budget-share': [number, number]
+  'initial-exponent': number
+  'jump-probability': [number, number]
+  'keep-direction-probability': [number, number]
+  'second-hole-probability': [number, number]
+  'read-probability': [number, number]
+  'accept-equal': boolean
+  'max-attempts': number
+  /** `target-and-keyed-predecessors` for a rule target, `none` for an observer target. */
+  'condition-rules': string
+  'condition-limit': number
+  'condition-value-size': number
+  /** A proposal from a best case with a pool of run-time literals is a change from it. */
+  'runtime-probability': [number, number]
+  'max-comparisons': number
+  /** `dictionary-guard-rules` for a rule target, `none` for an observer target. */
+  'runtime-condition-rules': string
+  /** The rule-graph radius of `dictionary-guard-rules`. */
+  'runtime-guard-radius': number
+}
+
+/** Probabilities and shares are `[numerator, denominator]`. */
+export interface FuzzCorpusParameters {
+  'budget-share': [number, number]
+  'newest-probability': [number, number]
+  'second-mutation-probability': [number, number]
+  /** Harvested literal, fresh draw, nudge, splice. */
+  'source-weights': [number, number, number, number]
+  /** Replace, insert, delete, keep a prefix, append, cross over. */
+  'collection-weights': [number, number, number, number, number, number]
+  'nudge-exponents': number
+  'max-entries': number
+  'max-attempts': number
+  /** A rule's applied counts are exact below it; from it on, one bucket per power of two. */
+  'count-exact-below': number
+  /** The harvest its literals come from (its draw probability does not apply). */
+  harvest: FuzzDictionaryParameters
+  /** A proposal from a kept case with a pool of run-time literals is a change from it. */
+  'runtime-probability': [number, number]
+  /** The proposal after its own missed case with a pool is a change of that case. */
+  'follow-probability': [number, number]
+  'follow-depth': number
+  'max-comparisons': number
+  /** `dictionary-guard-rules` for a rule target, `none` for another target. */
+  'runtime-condition-rules': string
+}
+
+/** The solve proposer's fixed parameters; its share is `[numerator, denominator]`. */
+export interface FuzzSolveParameters {
+  'budget-share': [number, number]
+  'stall-cases': number
+  'work-factor': number
+  'work-slack': number
+  'max-model-queries': number
+  'run-resource-units': number
+  'run-retries': number
+  'model-resource-units': number
+  'model-retries': number
+  /** The Z3 library whose search counts the resource units. */
+  'z3-version': string
+  'pending-limit': number
+  'futile-limit': number
+  'symbolic-sorts': string[]
+  'condition-rules': string
+  'chain-radius': number
+}
+
+/** What the solve proposer's symbolic runs gave. */
+export interface FuzzSolveTotals {
+  attempts: number
+  candidates: number
+  'no-path': number
+  unsatisfiable: number
+  unknown: number
+  inadmissible: number
+  failed: number
+  /** The work of its runs and model queries, included in `totals.work`. */
+  work: number
+  'outside-determinism': number
+  'first-failure'?: string
+}
+
+export interface FuzzHoleValue {
+  name: string
+  location: FuzzHoleLocation
+  'k-text'?: string
+  kore: string
+  value: FuzzValue
+}
+
+export interface FuzzWitnessCase {
+  holes: FuzzHoleValue[]
+  /** The instantiated program text; absent for a KORE template or without a program. */
+  program?: string
+  class: FuzzOutcomeClass
+  sides: {
+    role: FuzzDefinitionRole
+    'initial-configuration': string
+    'final-configurations': string[]
+    /** The halt of each final configuration, in order (`trivial`: an undefined step, no end). */
+    halts?: Array<ExecutionLeaf['reason']>
+  }[]
+  /** `step`: for an observer target, the step of the leaf's path at which the observer hit. */
+  reaching: { role: FuzzDefinitionRole; leaf?: number; step?: number }
+  kill?: 'added-end' | 'removed-end'
+  steps?: number
+}
+
+export interface FuzzWitness {
+  label: 'hit' | 'property-failure'
+  first: FuzzWitnessCase
+  shrunk: FuzzWitnessCase | null
+  'clean-leaf-facts': string[]
+  'krun-command': string | null
+  /** Differential witnesses: the krun line on the mutant (`<mutant-dir>`). */
+  'mutant-krun-command'?: string
+}
+
+/** The bounded statement of a campaign without a witness; never a claim that none exists. */
+export interface FuzzNoWitness {
+  statement: string
+  'path-mode': FuzzPathMode
+}
+
+export type FuzzCampaignOutcome =
+  | { status: 'witness-found'; witness: FuzzWitness }
+  | { status: 'no-witness-found'; 'no-witness': FuzzNoWitness }
+  | { status: 'equivalent' }
+  | { status: 'not-comparable'; sides: ('baseline' | 'mutant')[]; statement: string }
+  | { status: 'rejected-out'; 'no-witness': FuzzNoWitness }
+  | { status: 'cancelled'; 'no-witness': FuzzNoWitness }
+  | { status: 'aborted'; reason: string; 'no-witness': FuzzNoWitness }
+
+export type FuzzRejectionReason =
+  | 'generation'
+  | 'constraint'
+  | 'print'
+  | 'assembly'
+  | 'round-trip'
+  | 'backend-refused'
+
+/**
+ * Why a case could not be judged (`unsupported` or `baseline-incomplete`); a case is counted
+ * once, under the first of its reasons in this order.
+ */
+export type FuzzUnjudgedReason =
+  | 'backend-error'
+  | 'stack-exhausted'
+  | 'clock'
+  | 'cancelled'
+  | 'work-bound'
+  | 'depth-bound'
+  | 'halt-indeterminate'
+  | 'halt-unsupported-hook'
+  | 'halt-simplification-error'
+  | 'halt-vacuous'
+  | 'halt-unexpected'
+  | 'not-ceil-free'
+  | 'undecided-state'
+  | 'internalization-failed'
+  | 'implementation-chosen-value'
+  | 'contradicted-claim'
+  | 'iteration-exhaustion'
+  | 'simplification-failure'
+  | 'undecided-match'
+  | 'stack-stops'
+  | 'smt-unknowns'
+  | 'allowance-refusal'
+  | 'unsupported-hook'
+  | 'run-fact-off-leaves'
+  | 'reached-undefined-step'
+  | 'reached-cut-path'
+  | 'reached-end-not-data'
+  | 'natural-end-undecided'
+  | 'unobservable'
+  | 'kill-without-evidence'
+  | 'definition-not-confluent'
+  | 'mutant-end-not-data'
+  | 'baseline-end-not-data'
+  | 'unconfirmed'
+  | 'engine-defect'
+
+/** Which normal end a definition's classes rest on. */
+export type FuzzNormalEndKind = 'single-k' | 'every-k' | 'pattern'
+
+/** Where a catalog entry is written: its source file and the lines it spans. */
+export interface FuzzRuleLocation {
+  source: string
+  /** The shortest path suffix that names this file alone: `reference:line` names the rule. */
+  reference: string
+  line: number
+  'end-line': number
+}
+
+/** A rule's names besides its unique id (`totals.coverage.names`). */
+export interface FuzzRuleName {
+  kind: 'rewrite' | 'function-equation' | 'simplification' | 'definedness'
+  label: string | null
+  locations: FuzzRuleLocation[]
+}
+
+/** `totals.best-score`: lexicographic, the level first, smaller nearer the target. */
+export interface FuzzBestScore {
+  'scored-cases': number
+  /** Absent when no case was scored. */
+  best?: {
+    case: number
+    /** Rule-graph distance to the target; absent when no rule-graph path reaches it. */
+    level?: number
+    /** Exact fraction `N/D`; absent when no guard instance gave a distance. */
+    'guard-distance'?: string
+  }
+}
+
+export interface FuzzTotals {
+  cases: number
+  work: number
+  classes: Partial<Record<FuzzOutcomeClass, number>>
+  'rejection-rate-permille': number
+  rejections: Partial<Record<FuzzRejectionReason, number>>
+  /** `unsupported` cases per reason; the counts sum to `classes.unsupported`. */
+  'unsupported-reasons': Partial<Record<FuzzUnjudgedReason, number>>
+  /** `baseline-incomplete` cases per reason; the counts sum to `classes['baseline-incomplete']`. */
+  'baseline-incomplete-reasons': Partial<Record<FuzzUnjudgedReason, number>>
+  /** Rule ids reached, and the names of each: kind, label and source locations. */
+  coverage: {
+    applied: string[]
+    matched: string[]
+    names: Record<string, FuzzRuleName>
+  }
+  'target-blocked': number
+  /** Pattern targets only: clean end leaves that matched the pattern's configuration without its `requires`; 0 warns of a vacuous pattern. */
+  'pattern-body-matches'?: number
+  /** The best score of the scored `miss` cases; null when no proposer scores (climb, solve). */
+  'best-score': FuzzBestScore | null
+  'outside-determinism': number
+  unconfirmed: number
+  'case-sequence-digest': string
+  /** The solve proposer's runs; present exactly when its weight is positive. */
+  solve?: FuzzSolveTotals
+}
+
+/**
+ * The first case of the class `stuck` or `undefined` of the semantics under test (a differential
+ * campaign's baseline), kept as information, not as a failure (k-rust-fuzz README, "Incidental
+ * findings").
+ */
+export interface FuzzIncidentalCase {
+  /** The case's number, counted from 0. */
+  case: number
+  holes: FuzzHoleValue[]
+  /** How many leaves the run has; the finding's leaf is one path's outcome among them. */
+  leaves: number
+  leaf: number
+  /** The leaf's depth; an undefined step is the step after it. */
+  steps: number
+  /** The first item of each `<k>` cell that holds one, in order, as K text. */
+  'k-heads'?: string[]
+  /** The leaf's configuration, as KORE text. */
+  configuration: string
+  /** Re-runs the semantics under test (a differential campaign's baseline, on all paths). */
+  'krun-command': string | null
+  /**
+   * `true` when the run is a differential campaign's baseline run, on all paths and classed
+   * alone, so its class need not be the case's; absent otherwise.
+   */
+  'baseline-run'?: boolean
+}
+
+/** A campaign's report: schema `krust-fuzz-report`, version 6 (docs/compatibility.md). */
+export interface FuzzReport {
+  schema: 'krust-fuzz-report'
+  version: number
+  identity: FuzzReportIdentity
+  outcome: FuzzCampaignOutcome
+  totals: FuzzTotals
+  /** Which normal end each definition's classes rest on; absent when no case ran. */
+  'normal-end'?: { baseline: FuzzNormalEndKind; mutant?: FuzzNormalEndKind }
+  /** The first `stuck` and the first `undefined` case; absent when no case had either class. */
+  incidental?: { stuck?: FuzzIncidentalCase; undefined?: FuzzIncidentalCase }
+  'load-records': { kind: string; detail: string }[]
+  'sort-overrides': { hole: string; sort: string; refusal: string }[]
+  warnings: string[]
+  /**
+   * The findings of each definition's full critical-pair check, when the judgement reads data
+   * ends and the check reports something; absent when there is none.
+   */
+  'definition-findings'?: FuzzDefinitionFinding[]
+  'engine-defects': { case: number | null; description: string }[]
+}
+
+/**
+ * One finding of a definition's full critical-pair check. `genuine`: at a ground instance both
+ * equations apply and the input has two normal forms, so k-rust's result for it depends on the
+ * order it tries the equations; `decided`: an equation headed by a constructor or an injection,
+ * or indexed at a collection or a bare variable, so the terms it describes are not distinct
+ * normal forms, or one that leaves a right-hand-side variable unbound (a fact about the definition, which `assume-joined` refuses); `undecided`: not shown to join, which may be a limit of the check.
+ */
+export interface FuzzDefinitionFinding {
+  side: 'baseline' | 'mutant'
+  verdict: 'genuine' | 'undecided' | 'decided'
+  kind: 'pair' | 'equation' | 'precondition'
+  /** The name `assume-joined` takes for this finding. */
+  name?: string
+  equations: string[]
+  position?: string
+  reason: string
+  overlap?: string
+  reducts?: string[]
+  conditions?: string
+  instance?: { assignment: string[]; overlap: string; values: string[] }
+  assumed?: boolean
+}
+
+export interface FuzzCampaignResult {
+  /** The report's canonical JSON: equal reports are equal strings. */
+  json: string
+  report: FuzzReport
 }
 
 /** A persistent portable backend. Check `capabilities.smt` before SMT-only operations. */
@@ -966,7 +1902,14 @@ export function parseKast(source: string): SerializedKast {
   return JSON.parse(parseKastWasm(source)) as SerializedKast
 }
 
-/** Print typed KAST JSON v4 using k-rust's canonical textual printer. */
+/**
+ * Print typed KAST JSON v4 using k-rust's canonical textual printer.
+ *
+ * The text reads back through `parseKast` as the same term, up to sequence flattening and the
+ * identification of a one-item sequence with its item.
+ * Throws for a term textual KAST cannot spell: a variable with a sort, a variable name outside
+ * `[_A-Z][A-Za-z0-9'_]*` (such as a set variable's `@X`), or an application of the empty label.
+ */
 export function printKast(kast: Kast): string {
   assertInitialized()
   return printKastWasm(JSON.stringify(kast))
@@ -990,6 +1933,32 @@ export function formatKoreDefinition(source: string, width?: number): string {
   return formatKoreDefinitionWasm(source, width)
 }
 
+/**
+ * Run one `krust fuzz` campaign to its end: compile the definition (and a differential target's
+ * mutant), craft hole values until the budget is spent or a witness is confirmed, and return the
+ * report. The call is synchronous and holds the calling thread for the whole campaign; bound it
+ * with `campaign.budget` and the case options, and run it in a worker when the main thread must
+ * stay responsive. Every proposer runs except `solve`, on one thread and without a per-case
+ * safety limit: a positive `solve` weight or a `safety-limit-ms` throws before anything is
+ * compiled. A campaign that runs returns its report whatever its outcome; a malformed
+ * specification, a definition that does not compile, and a campaign the library refuses throw.
+ */
+export function runFuzzCampaign(options: FuzzCampaignOptions): FuzzCampaignResult {
+  assertInitialized()
+  const { mutant, ...baseline } = options
+  const json = runFuzzCampaignWasm(
+    JSON.stringify({
+      ...baseline,
+      sources: normalizeSources(baseline.sources),
+      mutant:
+        mutant === undefined
+          ? undefined
+          : { ...mutant, sources: normalizeSources(mutant.sources) },
+    }),
+  )
+  return { json, report: JSON.parse(json) as FuzzReport }
+}
+
 function assertInitialized(): void {
   if (!initialized) {
     throw new Error('k-rust WASM is not initialized; call init() or initSync() first')
@@ -997,7 +1966,10 @@ function assertInitialized(): void {
 }
 
 function normalizeSources(
-  sources: ParseProgramOptions['sources'] | CompileDefinitionOptions['sources'],
+  sources:
+    | ParseProgramOptions['sources']
+    | CompileDefinitionOptions['sources']
+    | FuzzDefinitionOptions['sources'],
 ): readonly Source[] | undefined {
   if (sources === undefined || Array.isArray(sources)) return sources
   return Object.entries(sources).map(([name, text]) => ({ name, text }))

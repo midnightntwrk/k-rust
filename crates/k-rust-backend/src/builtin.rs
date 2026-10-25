@@ -3,7 +3,7 @@
 //! caller as `Counter::SimplifyBuiltinEvaluations`; a responsibility, not an algorithm; no
 //! worklist.
 
-use std::{fmt, sync::Arc};
+use std::{cmp::Ordering, fmt, sync::Arc};
 
 use num_bigint::{BigInt, Sign};
 use num_traits::{One, Signed, ToPrimitive, Zero};
@@ -11,6 +11,7 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 mod bytes;
 mod collection_item;
 mod declaration_facts;
+mod evaluated;
 mod float;
 #[cfg(test)]
 mod hook_models;
@@ -28,6 +29,7 @@ pub use crate::collection_role::{
     CollectionKind, CollectionRole, RoleDeclaration, misfit as collection_role_misfit,
 };
 pub use declaration_facts::DeclarationFacts;
+pub(crate) use evaluated::evaluates;
 pub use hook_signature::{CollectionShape, SortFacts, misfit as collection_hook_misfit};
 pub(crate) use hook_signature::{LoadedSorts, render as render_sort};
 pub(crate) use result_collection::{ResultCollection, stored_at};
@@ -42,7 +44,7 @@ use crate::{
     matching::{InjectionEquality, SortGraph, match_injection_equality},
     stop::{Layered, Stoppable, Unwind},
     term::{
-        FunctionType, Sort, SymbolType, Term, TermKind,
+        DomainKind, FunctionType, Sort, SymbolType, Term, TermKind, Variable,
         domain::BuiltDomainValues,
         head::{Fixed, FixedRoot, Head, NoEvidence, RootComparison, classify_value, compare_roots},
         names::{HookName, HookNamespace},
@@ -104,7 +106,7 @@ pub enum BuiltinResult {
     Unsupported(UnsupportedHookReason),
 }
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum UnsupportedHookReason {
     NotImplemented,
     ArgumentOutOfRange {
@@ -242,16 +244,21 @@ pub(crate) fn evaluate_in_definition(
 ///
 /// It is the entry's composition, not a second one: the entry calls the same function, with the
 /// loaded definition as its facts. In order, it
-/// - refuses `FLOAT` operands of `SortFloat` where the facts give that sort another kind than
-///   `Float` (an unhooked `SortFloat` is a token sort whose texts are its values);
+/// - refuses an application of a hook that reads builtin values (`reads_builtin_values`) to an
+///   argument whose sort's name makes the readers take it for a Float or a machine integer while
+///   the facts give the sort another kind (`misread_by_name`): an unhooked `SortFloat` or
+///   `SortMInt{Sort8{}}` is a token sort whose texts are its values, which those readings would
+///   identify;
 /// - runs the hook's evaluator with the declared result sort and the facts;
 /// - keeps a value only if every domain value the hook built has the kind the facts give its
 ///   sort (a builtin hook declared at a sort whose hook gives its values another kind gives no
 ///   value of the application's sort), and gives it at the declared sort: itself when it is of
 ///   exactly that sort, its injection when its sort is a strict subsort of it, and no value
 ///   otherwise;
-/// - in [`EvaluationMode::Proof`], leaves unevaluated a value the definition leaves to the
-///   implementation (`implementation_chosen`), which only an execution computes.
+/// - in [`EvaluationMode::Proof`], leaves unevaluated a value of a class withheld in proofs
+///   ([`ChosenValue::withheld_in_proof`]), which only an execution computes. A caller that writes
+///   the value into a definition, such as the frontend's constant fold, also checks
+///   [`chosen_value`], which names every class the definition leaves open, withheld or not.
 ///
 /// So a caller that computes an application here, such as the frontend's constant fold, gets
 /// the outcome an evaluation of the same application in the loaded definition gets. That holds
@@ -342,39 +349,204 @@ pub(crate) fn bounded_floor(floor: u64) -> u64 {
     result_bound().map_or(floor, |bound| bound.min(floor))
 }
 
-/// Why the definition admits several values of `term`, a hooked application whose evaluator
-/// computes one, so that the value is k-rust's choice rather than a consequence of the
-/// definition; `None` when every value the definition admits is the same.
+/// A class of hook values the definition leaves open: the hook's written contract, or the
+/// `smt-hook` that constrains its value where it is defined, admits two models that give one
+/// application two values (`docs/compatibility.md`, "Implementation-chosen hook values").
 ///
-/// `keys_list(M)` and `values(M)` of a closed map with two or more bindings whose keys are all
-/// constructor-like, and `Set2List(S)` of a closed set of two or more constructor-like elements,
-/// are some listing of the items: domains.md fixes no order, so every order of the items is a
-/// value some model gives. With zero or one item every listing is the same. `choice(M)` and
-/// `choice(S)` of the same collections are some key (element) of them, which domains.md does not
-/// name either: every item is the value some model gives, and k-rust's is the item its listing
-/// puts first. The condition is the one under which the evaluators list the items
-/// (`map::ordered_entries`, `set::concrete_set`), read on the argument, not on the result: a
-/// `choice` value is one item and carries no count. An application this names is defined exactly
-/// when its argument is: a closed map with distinct constructor-like keys is defined when its
-/// values are, a set of such elements is defined, and each has a listing and, being non-empty,
-/// an item to choose.
+/// An under-specified contract that k-rust reads one way is not a class: the reading is part of
+/// the definition as k-rust reads it, on every route. So are the lowercase hex of the digest
+/// hooks, the byte-per-code-point `String2Bytes` and `Bytes2String`, IEEE 754 roundTiesToEven
+/// rounding, the ECDSA failure values, the undefinedness of a partial hook outside its described
+/// domain, and the one NaN of each format (every spelling of `NaN` in one format names it). Also
+/// no class: `minFloat` and `maxFloat` with one NaN operand (`fp.min` gives the other operand),
+/// the raw digests and the BN128 hooks (their contract fixes every value), `encodeBytes` and
+/// `decodeBytes` (they name their encoding), `IO.getc`, `IO.putc` and `IO.write` (a function of
+/// the request's console), and a hook without an evaluator, which leaves its application
+/// unevaluated and so chooses no value.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, PartialOrd, Ord)]
+#[non_exhaustive]
+pub enum ChosenClass {
+    /// The order in which `keys_list`, `values` and `Set2List` list two or more items.
+    Order,
+    /// The item `choice` gives of a map or set of two or more items.
+    Item,
+    /// The result format of a Float operation over a binary32 and a binary64 operand.
+    FloatDestination,
+    /// The sign bit of a format's one NaN (`signFloat`).
+    NanSign,
+    /// The case of `Base2String`'s letter digits (one case per model, "consistently").
+    LetterCase,
+    /// `minFloat` and `maxFloat` of `+0.0` and `-0.0`, which `fp.min` and `fp.max` leave open.
+    SignedZero,
+    /// The names of the binders `substOne` traverses, which `substitution.md` does not fix.
+    FreshName,
+    /// How many characters a `#read` that returned two or more characters returns.
+    ReadCount,
+    /// Whether a decided `andBool`, `orBool`, `impliesBool` or `#if` performs the effects of the
+    /// operand it makes irrelevant. Not a value, so [`chosen_value`] never returns it.
+    EffectOrder,
+}
+
+impl ChosenClass {
+    /// The class's name in `docs/compatibility.md`.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Order => "order",
+            Self::Item => "item",
+            Self::FloatDestination => "float-destination",
+            Self::NanSign => "nan-sign",
+            Self::LetterCase => "letter-case",
+            Self::SignedZero => "signed-zero",
+            Self::FreshName => "fresh-name",
+            Self::ReadCount => "read-count",
+            Self::EffectOrder => "effect-order",
+        }
+    }
+}
+
+/// An evaluated hook application whose value is one of several the definition admits.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub struct ChosenValue {
+    /// The hook applied.
+    pub hook: Arc<str>,
+    /// What the definition leaves open.
+    pub class: ChosenClass,
+    /// Whether an evaluation outside an execution leaves the application unevaluated, as the
+    /// defined value it is, rather than take k-rust's value.
+    pub withheld_in_proof: bool,
+}
+
+impl ChosenValue {
+    /// The value of class `class` of an application of `hook`.
+    pub(crate) fn new(hook: Arc<str>, class: ChosenClass) -> Self {
+        Self {
+            hook,
+            class,
+            // Every class that is a value but `ReadCount`: a proof route has no console, and an
+            // execution of the backend that runs in `Proof` by default reads the console it is
+            // given.
+            withheld_in_proof: class != ChosenClass::ReadCount,
+        }
+    }
+}
+
+/// Whether the application of `hook` to `arguments`, whose evaluator's value is `value` when it
+/// is known, may have one of several values the definition admits, and of which class: `Some`
+/// when it may (an over-approximation for `values(M)` of bindings with equal values, whose
+/// listing is the same in every order), `None` when every model gives it the same value. The fold and the evaluation entry read it; a class that needs the
+/// value (`LetterCase`, `ReadCount`) does not fire without it.
 ///
-/// `+Float`, `-Float`, `*Float`, `/Float`, `minFloat` and `maxFloat` over a binary32 and a
-/// binary64 operand are the exact result rounded to some destination format, which domains.md
-/// does not name ([`float::mixed_destination`], the same reading of the arguments the evaluator
-/// widens): every model rounds it to some format, so the application is defined, and only its
-/// value is open.
+/// - `Order`: `keys_list(M)` and `values(M)` of a closed map with two or more bindings whose
+///   keys are all constructor-like, and `Set2List(S)` of a closed set of two or more
+///   constructor-like elements, are some listing of the items: no order is fixed, so every order
+///   of the items is a value some model gives. With zero or one item every listing is the same.
+///   The condition is the one under which the evaluators list the items
+///   (`map::ordered_entries`, `set::concrete_set`), read on the argument.
+/// - `Item`: `choice(M)` and `choice(S)` of the same collections are some key (element) of them,
+///   which the contract does not name: every item is the value some model gives, and k-rust's is
+///   the item its listing puts first. It is read on the argument: a `choice` value is one item and
+///   carries no count.
+/// - `FloatDestination`: `+Float`, `-Float`, `*Float`, `/Float`, `minFloat` and `maxFloat` over a
+///   binary32 and a binary64 operand are the exact result rounded to some destination format,
+///   which no text names (`float::mixed_destination`, the reading the evaluator widens).
+/// - `NanSign`: `signFloat` of a NaN, of any format, reads a sign bit no text gives
+///   (`float::nan_sign`).
+/// - `LetterCase`: `Base2String` with a radix above 10 whose result holds a letter digit; the
+///   case "is determined by the backend", one case for every application in a model.
+/// - `SignedZero`: `minFloat` and `maxFloat` of `+0.0` and `-0.0` in either order, one format,
+///   which their `smt-hook`s `fp.min` and `fp.max` leave unspecified (`float::signed_zeros`).
+/// - `FreshName`: `substOne` whenever the term it substitutes into holds an application of a
+///   `binder` production, renamed or not: KORE terms are not quotiented by renaming and the
+///   contract fixes no names (`substitution::substitutes_under_a_binder`).
+/// - `ReadCount`: `#read` that returned two or more characters, which could have returned
+///   fewer; one character could be fewer only by being none, which states end of file.
 ///
-/// `signFloat` of a NaN, of any format, reads a sign bit the `NaN` literal does not state
-/// ([`float::nan_sign`]): every value of an IEEE-like format has one, so the application is
-/// defined, and only its value is open.
-///
-/// In each case the value exists by the hook's own description, read on the arguments, and the
-/// description leaves open only which value it is. So the application is defined whether or not
-/// its symbol is declared `total`, and this function does not read the declaration. An
-/// application to which the description gives no value is not named here: it is defined only
-/// where its symbol is declared `total`, which its evaluator reads (`mint::no_width`,
-/// `STRING.string2token`).
+/// The application is defined in every class whatever its symbol's declaration says: a defined
+/// collection has a listing and, when non-empty, an item; a Float operation has a result in some
+/// format; a NaN has a sign bit; `Base2String` and `minFloat`/`maxFloat` have a value on these
+/// arguments; a substitution the evaluator computes has a result under some naming of the
+/// binders; a read that returned characters returned some count of them. `withheld_in_proof` is
+/// set for every class but `ReadCount`: an evaluation outside an execution leaves those
+/// applications unevaluated. A proof route (`kprove`, implication, the RPC `implies`, the
+/// analyses at load) has no console, so `ReadCount` never arises there, and the backend's own
+/// executions, which run in `Proof` unless their options ask for an execution, keep reading the
+/// console they are given.
+pub fn chosen_value(hook: &str, arguments: &[Term], value: Option<&Term>) -> Option<ChosenValue> {
+    let fires = |class: ChosenClass, fires: bool| fires.then_some(class);
+    let class = match hook {
+        "MAP.keys_list" | "MAP.values" => {
+            fires(ChosenClass::Order, map::lists_several_items(arguments))
+        }
+        "SET.set2list" => fires(ChosenClass::Order, set::lists_several_items(arguments)),
+        "MAP.choice" => fires(ChosenClass::Item, map::lists_several_items(arguments)),
+        "SET.choice" => fires(ChosenClass::Item, set::lists_several_items(arguments)),
+        "STRING.base2string" => fires(
+            ChosenClass::LetterCase,
+            string::writes_a_letter_digit(arguments, peel_injection(value?)),
+        ),
+        "SUBSTITUTION.substOne" => fires(
+            ChosenClass::FreshName,
+            substitution::substitutes_under_a_binder(arguments),
+        ),
+        "IO.read" => fires(
+            ChosenClass::ReadCount,
+            string::read_string(peel_injection(value?))
+                .is_some_and(|read| read.chars().nth(1).is_some()),
+        ),
+        _ if float::mixed_destination(hook, arguments).is_some() => {
+            Some(ChosenClass::FloatDestination)
+        }
+        _ if float::nan_sign(hook, arguments).is_some() => Some(ChosenClass::NanSign),
+        _ => fires(
+            ChosenClass::SignedZero,
+            float::signed_zeros(hook, arguments),
+        ),
+    }?;
+    Some(ChosenValue::new(hook.into(), class))
+}
+
+/// `value` without the injection into its declared sort a hook value of a strict subsort of
+/// that sort carries.
+fn peel_injection(value: &Term) -> &Term {
+    match value.kind() {
+        TermKind::Injection { term, .. } => term,
+        _ => value,
+    }
+}
+
+/// The detail of the `Unspecified` outcome of an application whose value the evaluation does not
+/// take, of class `chosen`.
+fn chosen_detail(chosen: &ChosenValue, arguments: &[Term]) -> String {
+    let hook = &*chosen.hook;
+    let several = |what: &str| {
+        format!(
+            "{hook} of two or more items {what} domains.md does not fix, which only an execution \
+             chooses"
+        )
+    };
+    match chosen.class {
+        ChosenClass::Order => several("lists them in an order"),
+        ChosenClass::Item => several("gives one of them, which"),
+        ChosenClass::FloatDestination => float::mixed_destination(hook, arguments)
+            .map(|pair| pair.detail(hook))
+            .unwrap_or_default(),
+        ChosenClass::NanSign => float::nan_sign(hook, arguments).unwrap_or_default(),
+        class => format!(
+            "{hook} has a value the definition leaves open ({}), which only an execution \
+             chooses",
+            class.name()
+        ),
+    }
+}
+
+/// [`chosen_value`] of `term`, a hooked application whose evaluator computes a value, as the
+/// detail of its `Unspecified` outcome, when an evaluation outside an execution withholds it
+/// (`withheld_in_proof`); `None` otherwise. In each such class the value exists by the hook's
+/// own description, read on the arguments, so the application is defined whether or not its
+/// symbol is declared `total`. An application to which the description gives no value is not
+/// named here: it is defined only where its symbol is declared `total`, which its evaluator reads
+/// (`mint::no_width`, `STRING.string2token`).
 pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
     let TermKind::Application {
         symbol, arguments, ..
@@ -382,40 +554,10 @@ pub(crate) fn implementation_chosen(term: &Term) -> Option<String> {
     else {
         return None;
     };
-    implementation_chosen_in(symbol.attributes.hook.as_deref()?, arguments)
-}
-
-/// [`implementation_chosen`] of an application of `hook` to `arguments`.
-fn implementation_chosen_in(hook: &str, arguments: &[Term]) -> Option<String> {
-    let (several, what) = match hook {
-        "MAP.keys_list" | "MAP.values" => (
-            map::lists_several_items(arguments),
-            "lists them in an order",
-        ),
-        "SET.set2list" => (
-            set::lists_several_items(arguments),
-            "lists them in an order",
-        ),
-        "MAP.choice" => (
-            map::lists_several_items(arguments),
-            "gives one of them, which",
-        ),
-        "SET.choice" => (
-            set::lists_several_items(arguments),
-            "gives one of them, which",
-        ),
-        _ => {
-            return float::mixed_destination(hook, arguments)
-                .map(|pair| pair.detail(hook))
-                .or_else(|| float::nan_sign(hook, arguments));
-        }
-    };
-    several.then(|| {
-        format!(
-            "{hook} of two or more items {what} domains.md does not fix, which only an \
-             execution chooses"
-        )
-    })
+    let hook = symbol.attributes.hook.as_deref()?;
+    chosen_value(hook, arguments, None)
+        .filter(|chosen| chosen.withheld_in_proof)
+        .map(|chosen| chosen_detail(&chosen, arguments))
 }
 
 /// Evaluate a hook candidate with buffered execution state available.
@@ -495,22 +637,29 @@ fn evaluate_composed(
     loaded: Loaded<'_>,
     mode: Option<EvaluationMode>,
 ) -> HookResult<BuiltinResult> {
-    // The `FLOAT` hooks read a domain value of `SortFloat` as a Float. It is one only where the
-    // definition gives that sort the `Float` kind: an unhooked `SortFloat` is a token sort, whose
-    // texts `1.0` and `1.00` are two values, so no Float hook reads them, whatever its result.
+    // The hooks' readers take an argument for a builtin value by its sort's name: a domain value
+    // of `SortFloat` for a Float, one of `SortMInt{Sort8{}}` for an 8-bit pattern, and
+    // `bitwidthMInt` takes 8 for any term of that sort. That is the element the argument denotes
+    // only where the definition gives its sort the builtin's kind. An unhooked `SortFloat` or
+    // `SortMInt{Sort8{}}` is a token sort: its texts `1.0` and `1.00`, or `01p8` and `1p8`, are
+    // two elements, which `==K` and apartness keep apart, while a reader would take them for one
+    // value, so that `01p8 ==MInt 1p8` would hold of two terms the definition says differ. Such
+    // a token is no Float and no machine integer, so the description of a hook that reads one
+    // gives the application no value, whatever its result sort, and it is not evaluated. This
+    // one check stands for every reader and every namespace (`misread_by_name` says which sorts
+    // it covers, and why `String` and `Bytes` tokens are not among them).
     if let Some(facts) = facts
-        && hook.starts_with("FLOAT.")
-        && arguments.iter().any(|argument| {
-            matches!(argument.kind(), TermKind::DomainValue { sort, .. }
-                if sort.is_builtin(BuiltinSort::Float)
-                    && facts.domain_kind(sort) != Some(crate::term::DomainKind::Float))
-        })
+        && reads_builtin_values(hook)
+        && arguments
+            .iter()
+            .any(|argument| misread_by_name(argument, facts))
     {
         return Ok(BuiltinResult::NotApplicable);
     }
     // With a definition's declarations, every domain value the hook builds is recorded with the
     // kind it is built with, for the checks below.
     let built = facts.map(|_| BuiltDomainValues::record());
+    let has_console = loaded.execution.is_some();
     let result = evaluate_hook_with_context(
         hook,
         arguments,
@@ -551,22 +700,31 @@ fn evaluate_composed(
     if let BuiltinResult::Value(value) = &result {
         debug_assert_value_of_sort(hook, value, result_sort);
     }
-    if let BuiltinResult::Value(_) = &result {
-        // A value the definition leaves to the implementation (the order of `keys_list`,
-        // `values` and `Set2List` of two or more items, the result format of a Float operation
-        // over a binary32 and a binary64 operand, the sign of a NaN) is computed only inside an
+    if let BuiltinResult::Value(value) = &result
+        && let Some(chosen) = chosen_value(hook, arguments, Some(value))
+    {
+        // A `#read` count exists only where a run's console answered the read.
+        debug_assert!(
+            chosen.class != ChosenClass::ReadCount || has_console,
+            "{hook} read characters without a console"
+        );
+        // A value the definition leaves to the implementation (every class of `chosen_value`
+        // but `ReadCount`: the order of `keys_list`, `values` and `Set2List` of two or more
+        // items, the item `choice` gives, the result format of a Float operation over a binary32
+        // and a binary64 operand, the sign of a NaN, `Base2String`'s letter case, `minFloat` and
+        // `maxFloat` of the two zeros, the names `substOne` gives) is computed only inside an
         // execution, which runs a program and may take any value the definition admits.
         // Elsewhere a verdict that read it would hold only in k-rust's choice, not in every model
         // of the definition, so the application stays unevaluated as the defined value it is
-        // (`crate::evaluation`). The outcome is `Unsupported`, not `NotApplicable`, so that a
-        // simplifier records no normal-form certificate for it: its value claim would let
-        // apartness tell it from a written list.
-        if mode == Some(EvaluationMode::Proof)
-            && let Some(detail) = implementation_chosen_in(hook, arguments)
-        {
+        // (`crate::evaluation`). A `#read`'s count is not withheld: a proof route has no console,
+        // so it never meets one, and an execution that runs in `Proof` by default (the backend's
+        // own `execute*` with default options) must keep reading its console. The outcome is
+        // `Unsupported`, not `NotApplicable`, so that a simplifier records no normal-form
+        // certificate for it: its value claim would let apartness tell it from a written list.
+        if mode == Some(EvaluationMode::Proof) && chosen.withheld_in_proof {
             return Ok(BuiltinResult::Unsupported(
                 UnsupportedHookReason::Unspecified {
-                    detail,
+                    detail: chosen_detail(&chosen, arguments),
                     // The hook's description gives the application a value, whichever it is, so
                     // it is defined whatever its symbol's declaration says
                     // (`implementation_chosen`).
@@ -574,8 +732,71 @@ fn evaluate_composed(
                 },
             ));
         }
+        // The value is taken: the paths that read it are one model's (`crate::path_facts`). In
+        // `Execution` that is every class; in `Proof` only a `#read`'s count gets here, read
+        // from the console of a backend execution that runs in `Proof` by default, whose leaves
+        // depend on it as an execution's do. The context-free evaluation (no mode) is no run's.
+        if mode.is_some() {
+            crate::path_facts::note(crate::path_facts::PathFact::ChosenValue(chosen));
+        }
     }
     Ok(result)
+}
+
+/// Whether `hook` reads its arguments as builtin values, which its evaluator recognises by their
+/// sorts' names. The `KEQUAL`, collection and `SUBSTITUTION` hooks compare, store and rebuild
+/// their arguments as terms, whatever they denote, and `STRING.token2string` reads any domain
+/// value's text as a token's; every other hook, one of a namespace added later included, is
+/// taken to read builtin values, so that a new reader cannot skip the check in
+/// [`evaluate_composed`].
+fn reads_builtin_values(hook: &str) -> bool {
+    hook != "STRING.token2string"
+        && !matches!(
+            HookName::parse(hook).map(HookName::kind),
+            Some(
+                HookNamespace::KEqual
+                    | HookNamespace::List
+                    | HookNamespace::Map
+                    | HookNamespace::Set
+                    | HookNamespace::Substitution
+            )
+        )
+}
+
+/// Whether the hooks' readers would take `argument` for a builtin value its sort does not hold,
+/// one that identifies elements the sort keeps apart: its sort's name gives it a builtin kind
+/// ([`DomainKind::named`]) under which two texts can name one element
+/// ([`DomainKind::identifies_texts`]), and `facts` give the sort another kind, or none.
+///
+/// The `String` and `Bytes` kinds are not checked. A value of either holds its payload as its one
+/// text, and the payload's encoding follows the sort's KORE name, not its kind
+/// (`LiteralEncoding::of_domain_value`), so at a token sort named `SortString` or `SortBytes`
+/// two tokens are equal exactly when the strings or byte sequences a reader takes them for are:
+/// the reading is a function of the token and identifies none. `SortInt` and `SortBool` are not
+/// looked up: their names fix their kinds wherever they have domain values
+/// ([`DomainKind::of_declared_sort`]), and where they have none no domain value of theirs exists
+/// for a reader to read.
+fn misread_by_name(argument: &Term, facts: &dyn DeclarationFacts<Sort = Sort>) -> bool {
+    let sort = argument_sort(argument);
+    match DomainKind::named(&sort) {
+        None | Some(DomainKind::Int | DomainKind::Bool) => false,
+        Some(named) => named.identifies_texts() && facts.domain_kind(&sort) != Some(named),
+    }
+}
+
+/// The sort of `term`, borrowed where the term holds it.
+fn argument_sort(term: &Term) -> std::borrow::Cow<'_, Sort> {
+    use std::borrow::Cow;
+    match term.kind() {
+        TermKind::DomainValue { sort, .. } | TermKind::Variable(Variable { sort, .. }) => {
+            Cow::Borrowed(sort)
+        }
+        TermKind::Injection { target, .. } => Cow::Borrowed(target),
+        TermKind::Application { symbol, .. } if symbol.sort_variables.is_empty() => {
+            Cow::Borrowed(&symbol.result_sort)
+        }
+        _ => Cow::Owned(term.sort()),
+    }
 }
 
 /// Evaluation does not change the sort of the term it evaluates: the value of an application
@@ -739,21 +960,52 @@ fn evaluate_hook_with_context(
         "BOOL.ne" => bool_binary(hook, arguments, |left, right| left != right),
         "BOOL.not" => bool_not(arguments),
         "BOOL.implies" => bool_implies(arguments),
-        "INT.gt" => int_compare(hook, arguments, |left, right| left > right),
-        "INT.ge" => int_compare(hook, arguments, |left, right| left >= right),
-        "INT.eq" => int_compare(hook, arguments, |left, right| left == right),
-        "INT.le" => int_compare(hook, arguments, |left, right| left <= right),
-        "INT.lt" => int_compare(hook, arguments, |left, right| left < right),
-        "INT.ne" => int_compare(hook, arguments, |left, right| left != right),
-        "INT.add" => int_binary(hook, arguments, |left, right| left + right),
-        "INT.sub" => int_binary(hook, arguments, |left, right| left - right),
-        "INT.mul" => int_binary(hook, arguments, |left, right| left * right),
+        "INT.gt" => int_compare(hook, arguments, Ordering::is_gt),
+        "INT.ge" => int_compare(hook, arguments, Ordering::is_ge),
+        "INT.eq" => int_compare(hook, arguments, Ordering::is_eq),
+        "INT.le" => int_compare(hook, arguments, Ordering::is_le),
+        "INT.lt" => int_compare(hook, arguments, Ordering::is_lt),
+        "INT.ne" => int_compare(hook, arguments, Ordering::is_ne),
+        "INT.add" => int_binary(hook, arguments, i64::checked_add, |left, right| {
+            left + right
+        }),
+        "INT.sub" => int_binary(hook, arguments, i64::checked_sub, |left, right| {
+            left - right
+        }),
+        "INT.mul" => int_binary(hook, arguments, i64::checked_mul, |left, right| {
+            left * right
+        }),
         "INT.abs" => int_abs(arguments),
-        "INT.min" => int_binary(hook, arguments, std::cmp::min),
-        "INT.max" => int_binary(hook, arguments, std::cmp::max),
-        "INT.and" => int_binary(hook, arguments, |left, right| left & right),
-        "INT.or" => int_binary(hook, arguments, |left, right| left | right),
-        "INT.xor" => int_binary(hook, arguments, |left, right| left ^ right),
+        "INT.min" => int_binary(
+            hook,
+            arguments,
+            |left, right| Some(left.min(right)),
+            std::cmp::min,
+        ),
+        "INT.max" => int_binary(
+            hook,
+            arguments,
+            |left, right| Some(left.max(right)),
+            std::cmp::max,
+        ),
+        "INT.and" => int_binary(
+            hook,
+            arguments,
+            |left, right| Some(left & right),
+            |left, right| left & right,
+        ),
+        "INT.or" => int_binary(
+            hook,
+            arguments,
+            |left, right| Some(left | right),
+            |left, right| left | right,
+        ),
+        "INT.xor" => int_binary(
+            hook,
+            arguments,
+            |left, right| Some(left ^ right),
+            |left, right| left ^ right,
+        ),
         "INT.not" => int_unary(hook, arguments, |value| !value),
         "KEQUAL.ite" => kequal_ite(arguments),
         "KEQUAL.eq" => kequal(arguments, false, sort_graph),
@@ -1013,7 +1265,7 @@ fn io_k_unit(
         });
     }
     let mut dotk = dotk.as_ref().clone();
-    dotk.result_sort = result_sort.clone();
+    dotk.result_sort = *result_sort;
     BuiltinResult::Value(Term::application(Arc::new(dotk), Vec::new(), Vec::new()))
 }
 
@@ -1042,7 +1294,7 @@ fn inject_result(value: Term, result_sort: &Sort) -> Term {
     if &source == result_sort {
         value
     } else {
-        Term::injection(source, result_sort.clone(), value)
+        Term::injection(source, *result_sort, value)
     }
 }
 
@@ -1121,14 +1373,19 @@ fn bool_implies(arguments: &[Term]) -> HookResult<Option<Term>> {
     })
 }
 
+/// Whether the order of the two integer arguments satisfies `holds`. Two operands that fit an
+/// `i64` are compared as machine integers, which order as the integers they are.
 fn int_compare(
     hook: &str,
     arguments: &[Term],
-    comparison: impl FnOnce(&BigInt, &BigInt) -> bool,
+    holds: impl FnOnce(Ordering) -> bool,
 ) -> HookResult<Option<Term>> {
     expect_arity(hook, arguments, 2)?;
+    if let Some((left, right)) = read_small_int(&arguments[0]).zip(read_small_int(&arguments[1])) {
+        return Ok(Some(bool_term(holds(left.cmp(&right)))));
+    }
     if let Some((left, right)) = read_int(&arguments[0]).zip(read_int(&arguments[1])) {
-        return Ok(Some(bool_term(comparison(&left, &right))));
+        return Ok(Some(bool_term(holds(left.cmp(&right)))));
     }
     if arguments[0] == arguments[1] {
         return Ok(match hook {
@@ -1140,12 +1397,22 @@ fn int_compare(
     Ok(None)
 }
 
+/// `operation` of the two integer arguments. When both fit an `i64` and `small`, the same
+/// operation on machine integers, gives a result (it gives `None` exactly when the integer result
+/// does not fit), that result is the value, built without a `BigInt`.
 fn int_binary(
     hook: &str,
     arguments: &[Term],
+    small: impl FnOnce(i64, i64) -> Option<i64>,
     operation: impl FnOnce(BigInt, BigInt) -> BigInt,
 ) -> HookResult<Option<Term>> {
     expect_arity(hook, arguments, 2)?;
+    if let Some(result) = read_small_int(&arguments[0])
+        .zip(read_small_int(&arguments[1]))
+        .and_then(|(left, right)| small(left, right))
+    {
+        return Ok(Some(Term::small_int(result)));
+    }
     Ok(read_int(&arguments[0])
         .zip(read_int(&arguments[1]))
         .map(|(left, right)| int_term(operation(left, right))))
@@ -1909,6 +2176,8 @@ fn evaluate_equality_by_roots(
                     same.pairs()
                         .map(|(left, right)| (left.clone(), right.clone())),
                 ),
+                // One symbol whose sort arguments are one only on some instances.
+                RootComparison::OpenSortArguments => undecided = true,
                 RootComparison::DomainValues
                 | RootComparison::Injections
                 | RootComparison::Collections(_) => {
@@ -1998,6 +2267,20 @@ pub(super) fn read_int(term: &Term) -> Option<BigInt> {
         .flatten()
 }
 
+/// The value of an `Int` domain value that fits an `i64`, read without a `BigInt`. A text that
+/// `i64` reads (an optional sign and decimal digits) is read by [`read_int`] as the same integer;
+/// any other text, one too large included, gives `None`, and the caller falls back on
+/// [`read_int`].
+fn read_small_int(term: &Term) -> Option<i64> {
+    let TermKind::DomainValue { sort, value } = term.kind() else {
+        return None;
+    };
+    if !sort.is_builtin(BuiltinSort::Int) {
+        return None;
+    }
+    value.as_utf8().ok()?.parse().ok()
+}
+
 pub(super) fn bool_term(value: bool) -> Term {
     Term::bool(value)
 }
@@ -2040,7 +2323,7 @@ pub(super) fn expect_sort(hook: &str, term: &Term, expected: &Sort) -> HookResul
     } else {
         Err(BuiltinError::UnexpectedSort {
             hook: hook.into(),
-            expected: expected.clone(),
+            expected: *expected,
             actual,
         }
         .into())
@@ -2056,7 +2339,7 @@ mod tests {
         stop::{Stop, StopCause},
         term::{
             AlgebraicAxioms, CollectionSymbols, FunctionType, HeadRole, ListDefinition,
-            MapDefinition, Symbol, SymbolAttributes, SymbolType, Variable,
+            MapDefinition, SortNode, Symbol, SymbolAttributes, SymbolType, Variable,
         },
         timeout::{StepTimeoutController, StepTimeoutOptions},
     };
@@ -2089,8 +2372,8 @@ mod tests {
         Term::application(
             Arc::new(Symbol::constructor(
                 "kseq",
-                vec![k_item_sort.clone(), k_sort.clone()],
-                k_sort.clone(),
+                vec![k_item_sort, k_sort],
+                k_sort,
             )),
             Vec::new(),
             vec![
@@ -2109,7 +2392,7 @@ mod tests {
         let int = Sort::simple("SortInt");
         let p = Arc::new(Symbol::constructor(
             "p",
-            vec![int.clone(), int.clone()],
+            vec![int, int],
             Sort::simple("SortPair"),
         ));
         let pair = |name, value| {
@@ -2117,7 +2400,7 @@ mod tests {
                 p.clone(),
                 Vec::new(),
                 vec![
-                    Term::variable(Variable::new(name, int.clone())),
+                    Term::variable(Variable::new(name, int)),
                     int_term(BigInt::from(value)),
                 ],
             )
@@ -2142,12 +2425,11 @@ mod tests {
             .stack_size(64 << 20)
             .spawn(|| {
                 let sort = Sort::simple("SortS");
-                let wrap = Arc::new(Symbol::constructor("w", vec![sort.clone()], sort.clone()));
+                let wrap = Arc::new(Symbol::constructor("w", vec![sort], sort));
                 let chain = |name: &str| {
-                    (0..LEVELS).fold(
-                        Term::variable(Variable::new(name, sort.clone())),
-                        |term, _| Term::application(wrap.clone(), Vec::new(), vec![term]),
-                    )
+                    (0..LEVELS).fold(Term::variable(Variable::new(name, sort)), |term, _| {
+                        Term::application(wrap.clone(), Vec::new(), vec![term])
+                    })
                 };
                 let (x, x_copy, y) = (chain("X"), chain("X"), chain("Y"));
                 let decided = std::thread::scope(|scope| {
@@ -2176,7 +2458,7 @@ mod tests {
         let sort = Sort::simple("SortElem");
         let constant = |name| {
             Term::application(
-                Arc::new(Symbol::constructor(name, Vec::new(), sort.clone())),
+                Arc::new(Symbol::constructor(name, Vec::new(), sort)),
                 Vec::new(),
                 Vec::new(),
             )
@@ -2189,7 +2471,7 @@ mod tests {
             AlgebraicAxioms::idem(),
             AlgebraicAxioms::unit(),
         ] {
-            let mut g = Symbol::constructor("g", vec![sort.clone(); 2], sort.clone());
+            let mut g = Symbol::constructor("g", vec![sort; 2], sort);
             g.attributes.symbol_type = SymbolType::Function(FunctionType::Total);
             g.attributes = g.attributes.with_algebraic_axioms(axioms);
             let g = Arc::new(g);
@@ -2217,7 +2499,7 @@ mod tests {
         let c = Arc::new(Symbol::constructor(
             "c",
             vec![Sort::simple("SortInt")],
-            sort.clone(),
+            sort,
         ));
         let constant =
             |value| Term::application(c.clone(), Vec::new(), vec![int_term(BigInt::from(value))]);
@@ -2225,13 +2507,13 @@ mod tests {
             (AlgebraicAxioms::assoc(), true),
             (AlgebraicAxioms::idem(), false),
         ] {
-            let mut g = Symbol::constructor("g", vec![sort.clone(), sort.clone()], sort.clone());
+            let mut g = Symbol::constructor("g", vec![sort, sort], sort);
             g.attributes.symbol_type = SymbolType::Function(FunctionType::Total);
             g.attributes = g.attributes.with_algebraic_axioms(axioms);
             let g = Arc::new(g);
             let apply = |left, right| Term::application(g.clone(), Vec::new(), vec![left, right]);
-            let x = Term::variable(Variable::new("X", sort.clone()));
-            let y = Term::variable(Variable::new("Y", sort.clone()));
+            let x = Term::variable(Variable::new("X", sort));
+            let y = Term::variable(Variable::new("Y", sort));
             let left = apply(constant(1), x);
             let right = apply(
                 apply(constant(1), constant(if associative { 2 } else { 1 })),
@@ -2264,21 +2546,44 @@ mod tests {
         );
     }
 
+    /// `inj{Int, KItem}(I)` and `inj{Bool, KItem}(true)` are distinct where the subsort order
+    /// shows `Int` and `Bool` incomparable: a common value would be the injection of a value of
+    /// a common subsort, which `true`, built by a constructor of `Bool`, is not. Without the
+    /// order nothing relates the two sources, and `Bool` may be below `Int` in a definition, so
+    /// the context-free entry leaves the comparison undecided.
     #[test]
     fn kequal_decides_distinct_sort_injections() {
         let arguments = [
             k_sequence(Term::variable(Variable::new("I", Sort::simple("SortInt")))),
             k_sequence(bool_term(true)),
         ];
+        let mut sorts = SortGraph::default();
+        sorts.insert(
+            "SortKItem",
+            [
+                crate::term::Name::from("SortInt"),
+                crate::term::Name::from("SortBool"),
+            ],
+        );
+        sorts.insert("SortInt", []);
+        sorts.insert("SortBool", []);
 
-        assert_eq!(
-            evaluate_hook("KEQUAL.eq", &arguments),
-            Ok(Ok(BuiltinResult::Value(bool_term(false))))
-        );
-        assert_eq!(
-            evaluate_hook("KEQUAL.ne", &arguments),
-            Ok(Ok(BuiltinResult::Value(bool_term(true))))
-        );
+        for (negate, value) in [(false, false), (true, true)] {
+            assert!(
+                matches!(
+                    kequal(&arguments, negate, Some(&sorts)),
+                    Ok(Some(found)) if found == bool_term(value)
+                ),
+                "negate: {negate}"
+            );
+        }
+        for hook in ["KEQUAL.eq", "KEQUAL.ne"] {
+            assert_eq!(
+                evaluate_hook(hook, &arguments),
+                Ok(Ok(BuiltinResult::NotApplicable)),
+                "{hook}"
+            );
+        }
     }
 
     /// `K` values built from `dotk`, `kseq` and items of sort `KItem` (with or without an
@@ -2288,13 +2593,9 @@ mod tests {
     fn kequal_compares_whole_k_sequences() {
         let k_item = Sort::simple("SortKItem");
         let k = Sort::simple("SortK");
-        let kseq = Arc::new(Symbol::constructor(
-            "kseq",
-            vec![k_item.clone(), k.clone()],
-            k.clone(),
-        ));
+        let kseq = Arc::new(Symbol::constructor("kseq", vec![k_item, k], k));
         let dotk = Term::application(
-            Arc::new(Symbol::constructor("dotk", Vec::new(), k.clone())),
+            Arc::new(Symbol::constructor("dotk", Vec::new(), k)),
             Vec::new(),
             Vec::new(),
         );
@@ -2302,7 +2603,7 @@ mod tests {
             |item: Term, tail: Term| Term::application(kseq.clone(), Vec::new(), vec![item, tail]);
         let item = |name: &str| {
             Term::application(
-                Arc::new(Symbol::constructor(name, Vec::new(), k_item.clone())),
+                Arc::new(Symbol::constructor(name, Vec::new(), k_item)),
                 Vec::new(),
                 Vec::new(),
             )
@@ -2310,11 +2611,11 @@ mod tests {
         let injected = |value: i64| {
             Term::injection(
                 Sort::simple("SortInt"),
-                k_item.clone(),
+                k_item,
                 int_term(BigInt::from(value)),
             )
         };
-        let tail = Term::variable(Variable::new("K", k.clone()));
+        let tail = Term::variable(Variable::new("K", k));
         let a = item("a");
         let b = item("b");
         let a_b = seq(a.clone(), seq(b.clone(), dotk.clone()));
@@ -2324,7 +2625,7 @@ mod tests {
         let user = |name: &str, sort: &Sort, arguments: Vec<Term>| {
             let argument_sorts = arguments.iter().map(Term::sort).collect();
             Term::application(
-                Arc::new(Symbol::constructor(name, argument_sorts, sort.clone())),
+                Arc::new(Symbol::constructor(name, argument_sorts, *sort)),
                 Vec::new(),
                 arguments,
             )
@@ -2333,7 +2634,7 @@ mod tests {
         let y_1 = user("y", &foo, vec![int_term(BigInt::from(1))]);
         let z = Term::injection(
             Sort::simple("SortBar"),
-            foo.clone(),
+            foo,
             user("z", &Sort::simple("SortBar"), Vec::new()),
         );
         let cases = [
@@ -4040,12 +4341,28 @@ mod tests {
             {
                 Some(false)
             }
-            (TermKind::Injection { .. }, TermKind::Injection { .. }) => {
-                match match_injection_equality(None, left, right)? {
-                    InjectionEquality::Direct(left, right)
-                    | InjectionEquality::Split(left, right) => role_equality(&left, &right),
-                    InjectionEquality::Distinct => Some(false),
-                    InjectionEquality::Unknown => None,
+            // Without a sort order, two injections into one sort from one source are equal
+            // exactly when their operands are (an injection is injective); from different
+            // sources, a constructor-like operand of one may be the injection of the other's
+            // operand where one source is below the other, so nothing is decided.
+            (
+                TermKind::Injection {
+                    source: left_source,
+                    target: left_target,
+                    term: left_operand,
+                },
+                TermKind::Injection {
+                    source: right_source,
+                    target: right_target,
+                    term: right_operand,
+                },
+            ) => {
+                if left_target != right_target {
+                    Some(false)
+                } else if left_source == right_source {
+                    role_equality(left_operand, right_operand)
+                } else {
+                    None
                 }
             }
             (TermKind::DomainValue { .. }, TermKind::DomainValue { .. }) => Some(left == right),
@@ -4065,7 +4382,7 @@ mod tests {
     fn equality_decides_the_pairs_it_decided_by_symbol_role() {
         let sort = Sort::simple("SortS");
         let symbol = |name: &str, arity: usize, build: &dyn Fn(&mut SymbolAttributes)| {
-            let mut symbol = Symbol::constructor(name, vec![sort.clone(); arity], sort.clone());
+            let mut symbol = Symbol::constructor(name, vec![sort; arity], sort);
             build(&mut symbol.attributes);
             Arc::new(symbol)
         };
@@ -4088,8 +4405,8 @@ mod tests {
             attributes.symbol_type = SymbolType::Function(FunctionType::Total);
         });
         let residual = symbol("m", 1, &|attributes| attributes.macro_or_alias = true);
-        let one = Term::raw_domain_value(sort.clone(), "1");
-        let two = Term::raw_domain_value(sort.clone(), "2");
+        let one = Term::raw_domain_value(sort, "1");
+        let two = Term::raw_domain_value(sort, "2");
         let f_one = apply(&function, vec![one.clone()]);
         let f_two = apply(&function, vec![two.clone()]);
         let sub = Sort::simple("SortSub");
@@ -4135,9 +4452,9 @@ mod tests {
             apply(&assoc, vec![f_one.clone(), two.clone()]),
             wrap_one,
             certified_wrap_one,
-            Term::injection(sub.clone(), sort.clone(), f_one.clone()),
-            Term::injection(sub.clone(), sort.clone(), two.clone()),
-            Term::injection(Sort::simple("SortOther"), sort.clone(), f_two.clone()),
+            Term::injection(sub, sort, f_one.clone()),
+            Term::injection(sub, sort, two.clone()),
+            Term::injection(Sort::simple("SortOther"), sort, f_two.clone()),
             list,
             f_one.clone(),
             apply(&residual, vec![f_one.clone()]),
@@ -4164,5 +4481,384 @@ mod tests {
             }
         }
         assert!(answers.iter().all(|&count| count > 0), "{answers:?}");
+    }
+
+    /// The value `hook` gives `arguments` in the context-free evaluation, which computes the
+    /// evaluator's own value in every class.
+    fn evaluator_value(hook: &str, arguments: &[Term]) -> Term {
+        match evaluate_hook(hook, arguments) {
+            Ok(Ok(BuiltinResult::Value(value))) => value,
+            other => panic!("{hook} is evaluated: {other:?}"),
+        }
+    }
+
+    /// The class [`chosen_value`] names for the evaluator's value of `hook` on `arguments`.
+    fn chosen_class(hook: &str, arguments: &[Term]) -> Option<ChosenClass> {
+        let value = evaluator_value(hook, arguments);
+        chosen_value(hook, arguments, Some(&value)).map(|chosen| chosen.class)
+    }
+
+    /// `Base2String` writes its letter digits in a case the definition leaves to the backend
+    /// (`domains.md`: "determined by the backend"), so a result that holds a letter digit is
+    /// `letter-case`; a radix of 10 or below has no letter digits, and a result of decimal digits
+    /// only is the same in either case.
+    #[test]
+    fn base_to_string_with_a_letter_digit_is_letter_case() {
+        assert_eq!(
+            chosen_class("STRING.base2string", &[Term::int(255), Term::int(16)]),
+            Some(ChosenClass::LetterCase)
+        );
+        assert_eq!(
+            chosen_class("STRING.base2string", &[Term::int(-10), Term::int(36)]),
+            Some(ChosenClass::LetterCase)
+        );
+        for (value, radix) in [(9, 16), (255, 10), (-9, 36), (5, 2)] {
+            assert_eq!(
+                chosen_class("STRING.base2string", &[Term::int(value), Term::int(radix)]),
+                None,
+                "Base2String({value}, {radix})"
+            );
+        }
+    }
+
+    /// `minFloat` and `maxFloat` of `+0.0` and `-0.0`, in either order and one format, are left
+    /// unspecified by their `smt-hook`s `fp.min` and `fp.max`: `signed-zero`. Two zeros of one
+    /// sign, a zero beside another value, and a NaN beside a zero (the other operand) are
+    /// determined; two formats are `float-destination`.
+    #[test]
+    fn min_and_max_of_the_two_zeros_are_signed_zero() {
+        for (hook, left, right) in [
+            ("FLOAT.min", "0.0", "-0.0"),
+            ("FLOAT.min", "-0.0", "0.0"),
+            ("FLOAT.max", "-0.0", "0.0"),
+            ("FLOAT.max", "0.0", "-0.0"),
+            ("FLOAT.min", "0.0f", "-0.0f"),
+            ("FLOAT.max", "-0.0f", "0.0f"),
+        ] {
+            assert_eq!(
+                chosen_class(hook, &[float_term(left), float_term(right)]),
+                Some(ChosenClass::SignedZero),
+                "{hook}({left}, {right})"
+            );
+        }
+        for (hook, left, right) in [
+            ("FLOAT.min", "1.0", "-0.0"),
+            ("FLOAT.min", "NaN", "0.0"),
+            ("FLOAT.max", "0.0", "0.0"),
+            ("FLOAT.max", "-0.0", "-0.0"),
+            ("FLOAT.add", "0.0", "-0.0"),
+        ] {
+            assert_eq!(
+                chosen_class(hook, &[float_term(left), float_term(right)]),
+                None,
+                "{hook}({left}, {right})"
+            );
+        }
+        assert_eq!(
+            chosen_class("FLOAT.min", &[float_term("0.0f"), float_term("-0.0")]),
+            Some(ChosenClass::FloatDestination)
+        );
+    }
+
+    /// A `#read` that returned two or more characters could have returned fewer
+    /// (`domains.md`: "may be fewer characters than requested"): `read-count`. One character
+    /// could only be fewer by being none, which states end of file, and none is end of file, so
+    /// both are determined. The value is read through the injection into the declared sort.
+    #[test]
+    fn a_read_of_two_or_more_characters_is_read_count() {
+        let arguments = [Term::int(0), Term::int(4)];
+        let class = |value: Term| {
+            chosen_value("IO.read", &arguments, Some(&value)).map(|chosen| chosen.class)
+        };
+        assert_eq!(class(Term::string("AB")), Some(ChosenClass::ReadCount));
+        assert_eq!(
+            class(Term::injection(
+                Sort::builtin(BuiltinSort::String),
+                Sort::simple("SortIOString"),
+                Term::string("ABC"),
+            )),
+            Some(ChosenClass::ReadCount)
+        );
+        assert_eq!(class(Term::string("A")), None);
+        assert_eq!(class(Term::string("")), None);
+        assert_eq!(chosen_value("IO.read", &arguments, None), None);
+    }
+
+    /// Every class that is a value is withheld outside an execution except `read-count`, which
+    /// no proof route meets (it has no console) and which a default-options execution must keep
+    /// reading.
+    #[test]
+    fn every_class_but_read_count_is_withheld_in_proofs() {
+        let mixed = [float_term("0.1f"), float_term("2.0")];
+        let mixed_value = evaluator_value("FLOAT.div", &mixed);
+        let destination = chosen_value("FLOAT.div", &mixed, Some(&mixed_value)).unwrap();
+        assert_eq!(destination.class, ChosenClass::FloatDestination);
+        assert!(destination.withheld_in_proof);
+        let nan = [float_term("NaN")];
+        let sign = chosen_value("FLOAT.sign", &nan, None).unwrap();
+        assert_eq!(sign.class, ChosenClass::NanSign);
+        assert!(sign.withheld_in_proof);
+        let letter = [Term::int(255), Term::int(16)];
+        let letter_value = evaluator_value("STRING.base2string", &letter);
+        assert!(
+            chosen_value("STRING.base2string", &letter, Some(&letter_value))
+                .unwrap()
+                .withheld_in_proof
+        );
+        let zeros = [float_term("0.0"), float_term("-0.0")];
+        let zero_value = evaluator_value("FLOAT.min", &zeros);
+        assert!(
+            chosen_value("FLOAT.min", &zeros, Some(&zero_value))
+                .unwrap()
+                .withheld_in_proof
+        );
+        let read = chosen_value(
+            "IO.read",
+            &[Term::int(0), Term::int(2)],
+            Some(&Term::string("AB")),
+        )
+        .unwrap();
+        assert!(!read.withheld_in_proof);
+        assert_eq!(
+            chosen_value("FLOAT.sign", &[float_term("-0.0")], None),
+            None
+        );
+        assert_eq!(
+            chosen_value("FLOAT.div", &[float_term("1.0"), float_term("2.0")], None),
+            None
+        );
+        assert_eq!(
+            [
+                ChosenClass::Order,
+                ChosenClass::Item,
+                ChosenClass::FloatDestination,
+                ChosenClass::NanSign,
+                ChosenClass::LetterCase,
+                ChosenClass::SignedZero,
+                ChosenClass::FreshName,
+                ChosenClass::ReadCount,
+                ChosenClass::EffectOrder,
+            ]
+            .map(ChosenClass::name),
+            [
+                "order",
+                "item",
+                "float-destination",
+                "nan-sign",
+                "letter-case",
+                "signed-zero",
+                "fresh-name",
+                "read-count",
+                "effect-order",
+            ]
+        );
+    }
+
+    /// Every hook is taken to read builtin values but the ones that read their arguments as
+    /// terms (`KEQUAL`, the collections, `SUBSTITUTION`) or as tokens (`STRING.token2string`),
+    /// so a hook of a namespace the dispatcher does not know yet is checked too.
+    #[test]
+    fn every_hook_but_the_term_readers_reads_builtin_values() {
+        for hook in [
+            "INT.add",
+            "BOOL.and",
+            "STRING.length",
+            "STRING.string2token",
+            "BYTES.length",
+            "FLOAT.eq",
+            "MINT.eq",
+            "MINT.bitwidth",
+            "KRYPTO.keccak256",
+            "HASH.sha256",
+            "IO.write",
+            "IO.logString",
+            "NEWNAMESPACE.operation",
+        ] {
+            assert!(reads_builtin_values(hook), "{hook}");
+        }
+        for hook in [
+            "KEQUAL.eq",
+            "KEQUAL.ite",
+            "LIST.get",
+            "MAP.lookup",
+            "SET.in",
+            "SUBSTITUTION.substOne",
+            "STRING.token2string",
+        ] {
+            assert!(!reads_builtin_values(hook), "{hook}");
+        }
+    }
+
+    /// The facts of a definition that declares `SortMInt{S}`, `SortFloat`, `SortString` and
+    /// `SortBytes` with their builtins' hooks when `hooked`, and as token sorts otherwise.
+    struct BuiltinNamedSorts {
+        hooked: bool,
+    }
+
+    impl DeclarationFacts for BuiltinNamedSorts {
+        type Sort = Sort;
+
+        fn domain_kind(&self, sort: &Sort) -> Option<DomainKind> {
+            let hook = match sort.node() {
+                SortNode::Application { name, .. } => match name.as_ref() {
+                    "SortMInt" => "MINT.MInt",
+                    "SortFloat" => "FLOAT.Float",
+                    "SortString" => "STRING.String",
+                    "SortBytes" => "BYTES.Bytes",
+                    _ => return DomainKind::of_declared_sort(sort, true, None),
+                },
+                SortNode::Variable(_) => return None,
+            };
+            DomainKind::of_declared_sort(sort, true, self.hooked.then_some(hook))
+        }
+
+        fn has_domain_values(&self, _: &Sort) -> bool {
+            true
+        }
+
+        fn check_subsort(&self, sub: &Sort, sup: &Sort) -> bool {
+            sub == sup
+        }
+    }
+
+    /// An argument is misread exactly where its sort's name gives it a kind that identifies
+    /// texts (a Float, a machine integer) and the definition gives the sort another: a domain
+    /// value, a variable and an application of an unhooked `SortMInt{Sort8{}}` or `SortFloat`,
+    /// not a token of an unhooked `SortString` or `SortBytes`, whose payload is its one text, and
+    /// no argument of a hooked sort, of `SortInt` or of a sort whose name is no builtin's.
+    #[test]
+    fn an_argument_is_misread_where_its_name_and_its_kind_disagree_on_its_elements() {
+        let word = Sort::application(k_rust_kore::names::MINT_SORT, vec![Sort::simple("Sort8")]);
+        let float = Sort::builtin(BuiltinSort::Float);
+        let arguments = |sort: &Sort, text: &str| {
+            vec![
+                Term::raw_domain_value(*sort, text),
+                Term::variable(Variable::new("X", *sort)),
+                hooked("TEST.any", *sort, Vec::new()),
+            ]
+        };
+        for (with_hooks, misread) in [(false, true), (true, false)] {
+            let facts = BuiltinNamedSorts { hooked: with_hooks };
+            for argument in arguments(&word, "1p8")
+                .into_iter()
+                .chain(arguments(&float, "1.0"))
+            {
+                assert_eq!(
+                    misread_by_name(&argument, &facts),
+                    misread,
+                    "{argument:?}, hooked: {with_hooks}"
+                );
+            }
+            for argument in arguments(&Sort::builtin(BuiltinSort::String), "a")
+                .into_iter()
+                .chain(arguments(&Sort::builtin(BuiltinSort::Bytes), "a"))
+                .chain(arguments(&Sort::builtin(BuiltinSort::Int), "1"))
+                .chain(arguments(&Sort::simple("SortWord"), "1p8"))
+            {
+                assert!(
+                    !misread_by_name(&argument, &facts),
+                    "{argument:?}, hooked: {with_hooks}"
+                );
+            }
+        }
+    }
+
+    /// The machine-integer path of the `INT` comparisons and of the binary hooks that have one
+    /// gives the term the `BigInt` arithmetic gives, on operands near zero, near the `i64`
+    /// bounds (so that the results overflow `i64` and take the `BigInt` path), and anywhere.
+    mod small_int_path {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        type Big = fn(&BigInt, &BigInt) -> Term;
+
+        const HOOKS: [(&str, Big); 14] = [
+            ("INT.gt", |left, right| Term::bool(left > right)),
+            ("INT.ge", |left, right| Term::bool(left >= right)),
+            ("INT.eq", |left, right| Term::bool(left == right)),
+            ("INT.le", |left, right| Term::bool(left <= right)),
+            ("INT.lt", |left, right| Term::bool(left < right)),
+            ("INT.ne", |left, right| Term::bool(left != right)),
+            ("INT.add", |left, right| Term::int(left + right)),
+            ("INT.sub", |left, right| Term::int(left - right)),
+            ("INT.mul", |left, right| Term::int(left * right)),
+            ("INT.min", |left, right| Term::int(left.min(right).clone())),
+            ("INT.max", |left, right| Term::int(left.max(right).clone())),
+            ("INT.and", |left, right| Term::int(left & right)),
+            ("INT.or", |left, right| Term::int(left | right)),
+            ("INT.xor", |left, right| Term::int(left ^ right)),
+        ];
+
+        fn operand() -> impl Strategy<Value = i64> {
+            prop_oneof![
+                -3_i64..=3,
+                (0_i64..=3).prop_map(|offset| i64::MIN + offset),
+                (0_i64..=3).prop_map(|offset| i64::MAX - offset),
+                any::<i64>(),
+                any::<i32>().prop_map(i64::from),
+            ]
+        }
+
+        fn check(left: i64, right: i64) -> Result<(), TestCaseError> {
+            let (big_left, big_right) = (BigInt::from(left), BigInt::from(right));
+            for (hook, big) in HOOKS {
+                let arguments = [Term::int(big_left.clone()), Term::int(big_right.clone())];
+                prop_assert_eq!(
+                    evaluate_hook(hook, &arguments),
+                    Ok(Ok(BuiltinResult::Value(big(&big_left, &big_right)))),
+                    "{} {} {}",
+                    hook,
+                    left,
+                    right
+                );
+            }
+            Ok(())
+        }
+
+        #[test]
+        fn at_the_bounds() {
+            let edges = [i64::MIN, i64::MIN + 1, -1, 0, 1, i64::MAX - 1, i64::MAX];
+            for left in edges {
+                for right in edges {
+                    check(left, right).unwrap();
+                }
+            }
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(512))]
+
+            #[test]
+            fn agrees_with_the_bigint_path(left in operand(), right in operand()) {
+                check(left, right)?;
+            }
+        }
+
+        /// `Term::small_int` writes the text `Term::int` writes.
+        #[test]
+        fn small_int_is_int() {
+            for value in [
+                i64::MIN,
+                i64::MIN + 1,
+                -10,
+                -9,
+                -1,
+                0,
+                1,
+                9,
+                10,
+                100,
+                i64::MAX,
+            ] {
+                assert_eq!(Term::small_int(value), Term::int(value));
+                let TermKind::DomainValue { value: text, .. } =
+                    Term::small_int(value).kind().clone()
+                else {
+                    unreachable!()
+                };
+                assert_eq!(text.as_utf8().unwrap(), value.to_string());
+            }
+        }
     }
 }

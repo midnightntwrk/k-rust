@@ -138,7 +138,7 @@ impl ColorChoice {
     }
 }
 
-const WORKER_STACK: usize = 64 * 1024 * 1024;
+pub(super) const WORKER_STACK: usize = 64 * 1024 * 1024;
 
 /// How the compiled stage is looked up and kept.
 #[derive(Clone, Copy)]
@@ -214,15 +214,47 @@ pub(super) fn execute(
             .counters
             .set("spec_stage.reused", u64::from(reused));
     }
-    result.map_err(|failure| match failure {
-        Failure::Exec(ExecError::Compile(error)) => {
-            native_command_error(prepared.lowered.source_map(), error)
-        }
-        Failure::Exec(error) => CommandError::Exec(error),
-        Failure::Usage(message) => CommandError::Usage(message),
-        Failure::Serialization(error) => CommandError::Serialization(error),
-        Failure::Read(message) => CommandError::InvalidRequest(message),
-    })
+    result.map_err(|failure| failure.into_command_error(prepared))
+}
+
+/// The definition-level judgement of `krs parse`, `run`, `search`, and `prove`, for `krs check`:
+/// the stage loaded into the backend, as every run command loads it before it reads a program,
+/// and the proof definition of each author spec module compiled and loaded, as
+/// `krs prove --spec-module NAME` does.
+///
+/// `artifacts` and `context` are the definition's symbolic (Haskell-dialect) compile, the one
+/// [`CompiledStage::compile`] makes; this function runs on the same worker stack as the run commands.
+pub(super) fn judge(
+    prepared: &PreparedDefinition,
+    artifacts: krs_k_rust::CompiledArtifacts,
+    context: krs_k_rust::ConfigurationContext,
+    timings: &mut krs_ir::measure::Timings,
+) -> Result<(), CommandError> {
+    let definition = prepared.lowered.definition();
+    let result = std::thread::scope(|scope| {
+        std::thread::Builder::new()
+            .name("krs-check".into())
+            .stack_size(WORKER_STACK)
+            .spawn_scoped(scope, move || {
+                let stage = CompiledStage::from_compiled(artifacts, context);
+                let mut semantics = Semantics::from_stage(definition, stage, None, timings)
+                    .map_err(Failure::Exec)?;
+                let fresh = StageReuse {
+                    cache: None,
+                    restore: false,
+                };
+                for module in semantics.spec_modules().to_vec() {
+                    load_spec_stage(&mut semantics, definition, &module, fresh, timings)?;
+                }
+                Ok::<(), Failure>(())
+            })
+            .map_err(|error| {
+                CommandError::InvalidRequest(format!("could not start the check worker: {error}"))
+            })?
+            .join()
+            .map_err(|_| CommandError::InvalidRequest("the check worker panicked".into()))
+    })?;
+    result.map_err(|failure| failure.into_command_error(prepared))
 }
 
 /// Restore the proof definition of the author spec module `module` from the stage cache, or compile and store it, and load it into `semantics`; returns whether it was restored.
@@ -262,6 +294,20 @@ enum Failure {
     Usage(String),
     Serialization(serde_json::Error),
     Read(String),
+}
+
+impl Failure {
+    fn into_command_error(self, prepared: &PreparedDefinition) -> CommandError {
+        match self {
+            Self::Exec(ExecError::Compile(error)) => {
+                native_command_error(prepared.lowered.source_map(), error)
+            }
+            Self::Exec(error) => CommandError::Exec(error),
+            Self::Usage(message) => CommandError::Usage(message),
+            Self::Serialization(error) => CommandError::Serialization(error),
+            Self::Read(message) => CommandError::InvalidRequest(message),
+        }
+    }
 }
 
 impl From<ExecError> for Failure {
@@ -366,7 +412,10 @@ fn configure(
     };
     Ok(semantics.configure(&ConfigInputs {
         program,
-        variables: variables.to_vec(),
+        variables: variables
+            .iter()
+            .map(|(name, text)| (name.clone(), text.as_str().into()))
+            .collect(),
         stdin,
     })?)
 }
@@ -639,7 +688,6 @@ const fn outcome(stdout: String, stderr: String, exit_code: i32) -> CommandOutco
         exit_code,
         warnings: crate::DiagnosticReports {
             envelopes: Vec::new(),
-            unlocated: Vec::new(),
         },
     }
 }
@@ -681,7 +729,9 @@ pub(super) const fn diagnostic_code(error: &ExecError) -> Code {
         ExecError::StrayProgram | ExecError::MissingProgram => codes::exec::PROGRAM,
         ExecError::UnknownVariable { .. }
         | ExecError::DuplicateVariable(_)
-        | ExecError::MissingVariables(_) => codes::exec::VARIABLE,
+        | ExecError::MissingVariables(_)
+        | ExecError::Value { .. } => codes::exec::VARIABLE,
+        ExecError::CollectionElementSort(_) => codes::exec::COLLECTION_ELEMENT_SORT,
         ExecError::Parse { .. } => codes::exec::PARSE,
         ExecError::UnknownSort { .. } | ExecError::NoProgramSort => codes::exec::SORT,
         ExecError::UnknownClaim { .. }

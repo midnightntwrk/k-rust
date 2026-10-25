@@ -22,14 +22,16 @@ use std::fmt;
 use crate::definition::{Attributes, LabelHead, ResolvedDefinition, Sentence};
 use crate::diagnostic::{Diagnostic, DiagnosticCode};
 use crate::inner::{RuleError, parse_rule_content};
+use crate::kast::binding::{Reservation, bound_names, rename_apart_in_sentence_beside};
 use crate::kast::{Sort, Term, TermParts, identifier};
 use crate::kore::ast::{Pattern, VariableKind};
 use crate::names::BuiltinSort;
 
 use super::fresh_names::GeneratedVariableIdentity;
 use super::passes::{
-    ResolveSemanticCastsError, expand_macros_in_terms_from_resolved, resolve_anon_vars_in_sentence,
-    resolve_semantic_casts_with_predicates_in_sentence,
+    ResolveSemanticCastsError, expand_macros_in_terms_from_resolved,
+    rename_bound_apart_in_sentence, resolve_anon_vars_in_sentence,
+    resolve_semantic_casts_with_pending_predicates_in_sentence,
 };
 use super::sort_injections::{GroundInput, SortInjectionError, SortInjector, rewrite_projection};
 use super::term_to_kore::{TermConversionError, TermConverter};
@@ -75,9 +77,14 @@ pub enum CompileSearchPatternError {
     ExpectedGeneratedTopCell {
         actual: Sort,
     },
-    /// The pattern writes text that takes no part in what it denotes: a named variable that
-    /// occurs only on a rewrite's right side, or an `ensures` other than `true`
-    /// ([`DiagnosticCode::InvalidSearchPattern`](crate::diagnostic::DiagnosticCode)).
+    /// The pattern writes text that takes no part in what it denotes (a named variable that
+    /// occurs only on a rewrite's right side, or an `ensures` other than `true`), or a construct
+    /// at a position where it states no meaning the route reads (the matching-logic position
+    /// walk of the definition checks, applied to the pattern: its body is matched as a rule's
+    /// left side is, its `requires` is a condition)
+    /// ([`DiagnosticCode::InvalidSearchPattern`](crate::diagnostic::DiagnosticCode)), or a
+    /// quantifier whose binder is no element variable (the binder check of the definitions'
+    /// rules, `InvalidBinder`). The first refusal is reported, a binder's before a position's.
     Denotation(Box<Diagnostic>),
 }
 
@@ -182,8 +189,13 @@ pub fn compile_search_pattern(
         })
     })?;
 
+    // The pattern's bound variables are renamed apart before any pass maps names across it, as
+    // every sentence of the definition is, so the sort test a cast of a bound variable adds
+    // never reads a free variable of the same spelling.
+    let mut sentence = sentence;
+    rename_bound_apart_in_sentence(&mut sentence);
     let (sentence, mut generated) = resolve_anon_vars_in_sentence(sentence);
-    let sentence = resolve_semantic_casts_with_predicates_in_sentence(subsorts, sentence)?;
+    let sentence = resolve_semantic_casts_with_pending_predicates_in_sentence(subsorts, sentence)?;
     let (sentence, cell_generated) =
         concretize_cells_in_sentence(execution_definition, module, sentence)?;
     generated.extend(cell_generated);
@@ -191,8 +203,8 @@ pub fn compile_search_pattern(
     let Sentence::Rule {
         body,
         requires,
-        ensures: _,
-        attributes: _,
+        ensures,
+        attributes,
     } = sentence
     else {
         unreachable!("parse_rule_content always returns a Rule sentence")
@@ -207,10 +219,64 @@ pub fn compile_search_pattern(
     )
     .map_err(CompileSearchPatternError::MacroExpansion)?;
     generated.extend(expanded.generated_variables);
-    let [body, requires]: [Term; 2] = expanded
+    let [mut body, mut requires]: [Term; 2] = expanded
         .terms
         .try_into()
         .expect("two input roots produce two expanded roots");
+    // A macro parameter that occurs more than once copies its argument, and a copy of a
+    // quantifier binds its name again: the copies are renamed apart by the shared rule. Only
+    // names bound more than once are renamed; a bound name the pattern's sort tests also read
+    // free is FU-54's, and renaming it would change no meaning.
+    let mut seen = BTreeSet::new();
+    let copied: BTreeSet<String> = [&body, &requires]
+        .into_iter()
+        .flat_map(bound_names)
+        .filter(|name| !seen.insert(name.clone()))
+        .collect();
+    if !copied.is_empty() {
+        rename_apart_in_sentence_beside(
+            [&mut body, &mut requires],
+            &BTreeSet::new(),
+            |name| !copied.contains(name),
+            &mut Reservation::new(),
+        );
+    }
+    // The sort tests were conjoined with the condition before its macros were expanded; the
+    // conjunction is chosen now, on the condition as the backend reads it.
+    let requires = crate::kompile::ml_constructs::resolve_condition_conjunctions(requires);
+    // The pattern as the backend reads it, macros expanded and its rewrites projected to their
+    // left sides: a matched body and a condition, judged position by position as a rule's left
+    // side and condition are.
+    let judged = Sentence::Rule {
+        body,
+        requires,
+        ensures,
+        attributes,
+    };
+    let value_effects = std::cell::OnceCell::new();
+    let affects_value = |label: &crate::kast::Label| {
+        value_effects
+            .get_or_init(|| {
+                crate::kompile::ml_constructs::value_effect_labels(|| {
+                    execution_definition.modules().flat_map(|(_, module)| {
+                        module.local_sentences.iter().map(std::sync::Arc::as_ref)
+                    })
+                })
+            })
+            .contains(&label.name)
+    };
+    if let Some(refusal) = crate::definition::checks::search_pattern_binder_diagnostics(&judged)
+        .into_iter()
+        .chain(
+            crate::definition::checks::search_pattern_position_diagnostics(&judged, &affects_value),
+        )
+        .next()
+    {
+        return Err(CompileSearchPatternError::Denotation(Box::new(refusal)));
+    }
+    let Sentence::Rule { body, requires, .. } = judged else {
+        unreachable!("the judged pattern is a Rule sentence")
+    };
 
     let injector = SortInjector::new(execution_definition, module)?;
     let actual = injector.term_sort(&body, None)?;
@@ -223,11 +289,14 @@ pub fn compile_search_pattern(
     let (body, minted) = injector.inject_pattern(&body, &top, [&requires])?;
     generated.extend(minted.into_iter().map(GeneratedVariableIdentity::element));
     injector.require_ground(&body, GroundInput::SearchPattern)?;
-    // The condition holds when it equals `true`. Cast and cell-fragment resolution conjoin the
-    // sort tests they add with `_andBool_`, which the module declares only when it sees `BOOL`.
-    // Without it, every `_andBool_` on the condition's spine was generated (the user's condition
-    // could not have parsed with one), and `#Equals(A andBool B, true)` holds exactly when both
-    // `#Equals(A, true)` and `#Equals(B, true)` do, so each conjunct becomes its own equation.
+    // The condition is a predicate over the match, emitted as a rule's condition is
+    // (`predicate_at`): the matching-logic connectives on its spine are predicate connectives at
+    // the pattern's sort, and each Bool term below them holds when it equals `true`. Cast and
+    // cell-fragment resolution conjoin the Bool sort tests they add with `_andBool_`, which the
+    // module declares only when it sees `BOOL`. Without it, every `_andBool_` on the condition's
+    // spine was generated (the user's condition could not have parsed with one), and
+    // `#Equals(A andBool B, true)` holds exactly when both `#Equals(A, true)` and
+    // `#Equals(B, true)` do, so each conjunct becomes its own condition.
     let and_bool = LabelHead::new(AND_BOOL);
     let conjuncts = if views
         .production_catalog(module_id)
@@ -250,24 +319,21 @@ pub fn compile_search_pattern(
         })
         .collect::<Result<Vec<_>, CompileSearchPatternError>>()?;
 
-    let converter =
-        TermConverter::new_with_generated_anonymous(execution_definition, module, &generated)?;
+    // A quantifier binds exactly its own variable, so the converter needs no record of which
+    // variables were minted; `generated` serves only to hide those variables from the results.
+    let converter = TermConverter::new(execution_definition, module)?;
     let body = converter.convert(&body)?;
     let top_kore = converter.convert_sort(&top)?;
     let bool_kore = converter.convert_sort(&bool_sort)?;
     let mut arguments = vec![body];
-    // Invariant: `arguments` holds the body and the equation of every conjunct of `requires`
+    // Invariant: `arguments` holds the body and the predicate of every conjunct of `requires`
     // before `conjunct`; each iteration converts one conjunct.
     for conjunct in &requires {
-        arguments.push(Pattern::Equals {
-            operand_sort: Box::new(bool_kore.clone()),
-            result_sort: top_kore.clone(),
-            left: Box::new(converter.convert(conjunct)?),
-            right: Box::new(Pattern::DomainValue {
-                sort: bool_kore.clone(),
-                value: "true".into(),
-            }),
-        });
+        arguments.push(super::module_to_kore::predicate_at(
+            &converter.convert(conjunct)?,
+            &top_kore,
+            &bool_kore,
+        ));
     }
     if requires.is_empty() {
         arguments.push(Pattern::Top {

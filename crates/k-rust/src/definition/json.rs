@@ -51,12 +51,17 @@ pub(crate) fn label_json(label: &Label) -> Value {
 
 /// Wire-format discriminator for definitions that retain compiler provenance.
 pub const PROVENANCE_FORMAT: &str = "KRUST-PROVENANCE";
-/// Current [`PROVENANCE_FORMAT`] schema version.
+/// Current [`PROVENANCE_FORMAT`] schema version: the version of the shape of the document
+/// that carries a compiled definition with its compiler provenance. It moves only when that
+/// schema changes; a change of a document's content (an embedded builtin file, the frontend's
+/// reading of a definition, the compiled definition itself) leaves it as it is, and the k-rust
+/// revision covers that ("Format versions" in `docs/compatibility.md`).
 ///
 /// Version 3 writes each distinct origin set once, in the envelope's `originSets` table, and a
 /// receipt's `origins` is an index into that table. Version 4 adds `KContextAlias` sentences.
-/// Version 5 lets the source table hold one logical source once per distinct offset map (one
-/// entry per Markdown extraction), and a source reference names its entry by `extraction`.
+/// Version 5 lets the source table hold one logical source once per distinct offset map (since
+/// every Markdown extraction's map became the identity, extractions of one file share an
+/// entry), and a source reference names its entry by `extraction`.
 /// Version 6 writes each sentence's input-address carrier under
 /// `org.krust.provenance.InputAddresses`; a version 5 reader would take that key for an ordinary
 /// attribute. Version 7 holds rule-like sentences whose labels carry no sort parameters, which
@@ -71,6 +76,10 @@ pub const PROVENANCE_FORMAT: &str = "KRUST-PROVENANCE";
 /// `sources`. The bytes are a function of each receipt's normal form, not of how the writer's
 /// memory shares sets or paths. A version 7 document is refused: every writer of one can write
 /// it again, and a reader of version 7 would keep the quadratic decoding version 8 replaces.
+/// Version 8 has since gained one generating pass name, `lower-term-conjunctions` (k-rust
+/// 0.8.0), without moving: an earlier version 8 reader refuses a document that names it as an
+/// unknown pass instead of misreading it, and this reader still reads every document an earlier
+/// version 8 writer wrote.
 pub const PROVENANCE_VERSION: u32 = 8;
 
 #[derive(Clone, Copy, Eq, PartialEq)]

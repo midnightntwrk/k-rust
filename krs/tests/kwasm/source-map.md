@@ -82,7 +82,7 @@ The second slice ports KWasm's unsigned integer division partition and its `unde
 5. the operational `<instrs> undefined => trap ... </instrs>` rule.
 
 This slice deliberately does not port KWasm's global `owise` fallback for all unsupported integer binary operators.
-The selected `add`, `sub`, `mul`, and `div_u` operators are exhaustive through unconditional equations or explicit zero/nonzero guards, so adding an `owise` surface would have no evidence-backed use here.
+The selected `add`, `sub`, `mul`, and `div_u` operators are exhaustive through unconditional equations or explicit zero/nonzero guards, which `krs check` confirms (no `uncovered-total-function` warning for `IntBinOp` or `Chop`), so adding an `owise` surface would have no evidence-backed use here.
 Remainder (`rem_u`, `rem_s`) remains deferred: unsigned division does not require it.
 Full trap bubbling through label, frame, instruction, and definition continuations remains outside this slice together with those omitted constructs.
 
@@ -102,14 +102,14 @@ The readable machine table now permits a non-computation leaf to carry an ordina
 The implementation preserves the existing explicit `cells!` layer, sort inference, stable identities, provenance, deterministic expansion, and overlap rejection.
 The KWasm fixture uses the real recursive value stack; it does not encode the value stack as a map or move it into `<instrs>`.
 
-The first use also demonstrates that repeated symbolic equality is not part of the readable pattern surface.
-The width-preserving operand rule is therefore split into explicit `i32` and `i64` cases instead of weakening the KWasm same-type invariant.
+The width-preserving operand rule repeats its type binder across `<instrs>` and both stacked values, so it applies only when the instruction and its operands share one type; a readable record treats a binder repeated across cells as nonlinear matching, as K does.
 
 ### W2 — wraparound uses K's Euclidean modulus
 
 KWasm defines `#chop(< ITYPE > N) => < ITYPE > (N modInt #pow(ITYPE))`.
 The port's total wrap function `#kwasmChop` applies `int::rem_euclid`, which
-emits `_modInt_`, with the literal modulus `2^32` or `2^64` for each width.
+emits `_modInt_`, with the modulus `POW32` (2^32) or `POW64` (2^64) for each width,
+named by `#[k::constant]`s and emitted as the decimal literal.
 
 The slice originally had no modulo builtin and spelled the reduction as
 `X -Int ((X /Int M) *Int M)`, which equals `X modInt M` only for nonnegative
@@ -122,7 +122,7 @@ The constant rules accept KWasm's i32/i64 literal ranges, including `-1`.
 
 ### W3 — guarded division and traps require no authoring extension
 
-KRS already exposes typed `int::div`, `int::eq`, and `int::ne` builtins and retains `#[k::requires(...)]` conditions on equations.
+KRS already exposes typed `int::div`, `int::eq`, and `int::ne` builtins, which the port writes as the operators `lhs / rhs`, `rhs == 0`, and `rhs != 0`, and retains `#[k::requires(...)]` conditions on equations.
 The two explicit guards partition the selected `div_u` domain without source ordering or `owise`.
 The existing constructor and readable machine-rule surfaces express `undefined`, `trap`, and the operational transition directly.
 No descriptor protocol change is justified by the second slice.

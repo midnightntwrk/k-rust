@@ -31,8 +31,9 @@ pub enum ConfigurationCellContent {
         ty: Type,
         /// Outer content-sort path, retaining authored qualification.
         sort: Path,
-        /// Generic object-sort arguments carried by the leaf content type.
-        arguments: Vec<Path>,
+        /// The collection arguments of the leaf content type, such as `Id`
+        /// and `Value` of `Map<Id, Value>`; empty for a bare collection.
+        arguments: Vec<SortArgument>,
         /// Whether this is the distinguished computation-cell wrapper.
         computation: bool,
         /// Whether the wrapper is inferred from a readable plain field.
@@ -43,6 +44,59 @@ pub enum ConfigurationCellContent {
         /// Rust-resolved nested cell declaration path.
         declaration: Path,
     },
+}
+
+/// One argument of a cell's collection type: a sort, `k::Term<S>` or
+/// `k::Term<dyn S>` read as `S`, or a collection type with its own
+/// arguments, such as `Set<Int>` in `Map<Int, Set<Int>>`.
+#[derive(Clone, Debug)]
+pub struct SortArgument {
+    /// The sort path, without generic arguments.
+    pub path: Path,
+    /// Whether the sort was written `k::Term<dyn S>`, whose path names a
+    /// sort trait.
+    pub dynamic: bool,
+    /// The arguments of a collection argument, in order.
+    pub arguments: Vec<SortArgument>,
+}
+
+impl SortArgument {
+    /// This argument and every nested one, in preorder: the order of their
+    /// `configuration_cell_content_argument` provenance ordinals.
+    #[must_use]
+    pub fn preorder(arguments: &[Self]) -> Vec<&Self> {
+        let mut output = Vec::new();
+        for argument in arguments {
+            output.push(argument);
+            output.extend(Self::preorder(&argument.arguments));
+        }
+        output
+    }
+
+    /// One `role` anchor per argument of every list in `lists`, in preorder
+    /// within a list and in list order across them, numbered from 0: the
+    /// anchors of a constructor's typed field or result sorts.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only if an argument path emits no tokens.
+    pub fn anchors<'a>(
+        lists: impl IntoIterator<Item = &'a [Self]>,
+        role: ProvenanceRole,
+    ) -> Result<Vec<crate::ProvenanceAnchor>, SyntaxError> {
+        let mut anchors = Vec::new();
+        for arguments in lists {
+            for argument in Self::preorder(arguments) {
+                let range = TokenRange::for_tokens(&argument.path)?;
+                anchors.push(crate::ProvenanceAnchor::new(
+                    role,
+                    crate::parse::checked_ordinal(anchors.len(), role, range.first())?,
+                    range,
+                ));
+            }
+        }
+        Ok(anchors)
+    }
 }
 
 /// One ordered fixed-cell field in a configuration or nested cell struct.
@@ -308,15 +362,15 @@ impl ConfigurationDeclaration {
                         ordinal,
                         TokenRange::for_tokens(ty)?,
                     ));
-                    for argument in arguments {
+                    for argument in SortArgument::preorder(arguments) {
                         anchors.push(ProvenanceAnchor::new(
                             ProvenanceRole::ConfigurationCellContentArgument,
                             checked_ordinal(
                                 argument_ordinal,
                                 ProvenanceRole::ConfigurationField,
-                                argument.span(),
+                                argument.path.span(),
                             )?,
-                            TokenRange::for_tokens(argument)?,
+                            TokenRange::for_tokens(&argument.path)?,
                         ));
                         argument_ordinal += 1;
                     }
@@ -362,13 +416,13 @@ impl ConfigurationDeclaration {
                         path: sort.clone(),
                         kind: (),
                     });
-                    for argument in arguments {
+                    for argument in SortArgument::preorder(arguments) {
                         output.push(ReferenceCandidate {
                             key: key(
                                 ProvenanceRole::ConfigurationCellContentArgument,
                                 argument_ordinal,
                             ),
-                            path: argument.clone(),
+                            path: argument.path.clone(),
                             kind: (),
                         });
                         let Some(next) = argument_ordinal.checked_add(1) else {
@@ -569,7 +623,7 @@ fn parse_cell_type(
             wrapper,
             ty: content_ty.clone(),
             sort,
-            arguments: content_sort_arguments(content_ty),
+            arguments: content_sort_arguments(content_ty)?,
             computation,
             inferred_wrapper: false,
         });
@@ -623,48 +677,115 @@ fn parse_inferred_leaf(
         wrapper,
         ty: ty.clone(),
         sort,
-        arguments: content_sort_arguments(ty),
+        arguments: content_sort_arguments(ty)?,
         computation,
         inferred_wrapper: true,
     })
 }
 
-fn content_sort_arguments(ty: &Type) -> Vec<Path> {
+/// The collection arguments of a leaf content type. Each argument is a sort
+/// path, `k::Term<S>` or `k::Term<dyn S>` (read as `S`), or a collection
+/// type with arguments of the same kinds; any other argument is an error, so
+/// no argument is dropped.
+fn content_sort_arguments(ty: &Type) -> Result<Vec<SortArgument>, SyntaxError> {
+    collection_arguments(ty, invalid_sort_argument)
+}
+
+/// The collection arguments of `ty`'s last path segment, as
+/// [`content_sort_arguments`] reads them; `invalid` builds the error at an
+/// argument that is neither a sort nor a collection type.
+pub(crate) fn collection_arguments(
+    ty: &Type,
+    invalid: fn(proc_macro2::Span) -> SyntaxError,
+) -> Result<Vec<SortArgument>, SyntaxError> {
     let Type::Path(type_path) = ty else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let Some(last) = type_path.path.segments.last() else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let PathArguments::AngleBracketed(arguments) = &last.arguments else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
-    let mut output = Vec::new();
-    for argument in &arguments.args {
-        let GenericArgument::Type(Type::Path(path)) = argument else {
-            return Vec::new();
-        };
-        if path.qself.is_some() {
-            return Vec::new();
-        }
-        let candidate = path.path.clone();
-        if candidate
+    arguments
+        .args
+        .iter()
+        .map(|argument| match argument {
+            GenericArgument::Type(argument) => sort_argument(argument, invalid),
+            other => Err(invalid(other.span())),
+        })
+        .collect()
+}
+
+fn sort_argument(
+    ty: &Type,
+    invalid: fn(proc_macro2::Span) -> SyntaxError,
+) -> Result<SortArgument, SyntaxError> {
+    let Type::Path(path) = ty else {
+        return Err(invalid(ty.span()));
+    };
+    if path.qself.is_some() {
+        return Err(invalid(ty.span()));
+    }
+    let Some(last) = path.path.segments.last() else {
+        return Err(invalid(ty.span()));
+    };
+    if last.ident == "Term" {
+        return term_sort_argument(ty, invalid);
+    }
+    let sort = without_last_arguments(&path.path);
+    if !is_plain_path(&sort) {
+        return Err(invalid(ty.span()));
+    }
+    Ok(SortArgument {
+        path: sort,
+        dynamic: false,
+        arguments: collection_arguments(ty, invalid)?,
+    })
+}
+
+/// `k::Term<S>` or `k::Term<dyn S>` as a collection argument: the sort `S`,
+/// itself possibly a collection type.
+fn term_sort_argument(
+    ty: &Type,
+    invalid: fn(proc_macro2::Span) -> SyntaxError,
+) -> Result<SortArgument, SyntaxError> {
+    let inner = match ty {
+        Type::Path(path) => path
+            .path
             .segments
             .last()
-            .is_some_and(|segment| segment.ident == "Term")
-        {
-            // Reference-surface `Term<dyn Sort>` arguments are already
-            // represented by the explicit rule binders they feed. Layer-1
-            // aliases are the inference-bearing form retained here.
-            return Vec::new();
+            .and_then(|last| match &last.arguments {
+                PathArguments::AngleBracketed(arguments) if arguments.args.len() == 1 => {
+                    match arguments.args.first() {
+                        Some(GenericArgument::Type(inner)) => Some(inner),
+                        _ => None,
+                    }
+                }
+                _ => None,
+            }),
+        _ => None,
+    };
+    match inner {
+        Some(Type::TraitObject(_)) => {
+            let term =
+                crate::term_sort::parse_term_sort(ty.clone()).map_err(|_| invalid(ty.span()))?;
+            Ok(SortArgument {
+                path: term.sort().clone(),
+                dynamic: true,
+                arguments: Vec::new(),
+            })
         }
-        if is_plain_path(&candidate) {
-            output.push(candidate);
-        } else {
-            return Vec::new();
-        }
+        Some(inner) => sort_argument(inner, invalid),
+        None => Err(invalid(ty.span())),
     }
-    output
+}
+
+fn invalid_sort_argument(span: proc_macro2::Span) -> SyntaxError {
+    unsupported_field(
+        "a collection argument is a sort (`Int`, `k::Term<dyn Value>`) or a collection type (`Set<Int>`)",
+        span,
+    )
 }
 
 fn is_cell_attribute(attribute: &Attribute) -> bool {

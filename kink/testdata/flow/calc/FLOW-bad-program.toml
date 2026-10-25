@@ -1,0 +1,18 @@
+# The calc corpus with one deliberately unparsable program (flow F-02):
+# `kink-flow check` reports it and still checks the others.
+[spec]
+entry = "calc.k"
+main_module = "CALC"
+syntax_module = "CALC-SYNTAX"
+
+[[program]]
+id = "add"
+file = "programs/add.calc"
+
+[[program]]
+id = "bad"
+file = "programs/bad.calc"
+
+[[program]]
+id = "sub"
+file = "programs/sub.calc"

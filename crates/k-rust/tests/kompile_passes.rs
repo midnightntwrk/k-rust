@@ -2930,13 +2930,12 @@ fn function_dependencies_ignore_anywhere_macro_classification() {
 }
 
 #[test]
-fn anywhere_macro_like_rules_are_not_anywhere_rules_for_with_config() {
-    // `compute_with_config_functions` collects the head labels of the module's non-macro
-    // `anywhere` rules as dependency targets, mirroring K's
-    // `ComputeTransitiveFunctionDependencies`. A rule carrying `anywhere` together with any
-    // macro-like key is a macro, not an `anywhere` rule. `helper` is a constructor here, so
-    // its rule reaches the pass only through that set: the configuration `reader` needs must
-    // not be threaded to `caller` through a macro-like `anywhere` rule.
+fn a_macro_like_anywhere_rule_passes_the_configuration_need_on_and_takes_none() {
+    // A rule carrying `anywhere` together with any macro-like key is a macro, not an `anywhere`
+    // rule: expansion puts its right side, `reader()`, where `helper()` is used, so `caller`'s
+    // rule reads the configuration once expanded, and `caller` receives it. `helper` is a
+    // constructor and a route only: its applications are expanded away, so it takes no
+    // configuration argument.
     for macro_kind in ["macro", "macro-rec", "alias", "alias-rec"] {
         let function = attributes(&[("function", json!(""))]);
         let helper_attributes = attributes(&[("anywhere", json!("")), (macro_kind, json!(""))]);
@@ -2994,7 +2993,7 @@ fn anywhere_macro_like_rules_are_not_anywhere_rules_for_with_config() {
             .collect::<BTreeMap<_, _>>();
         assert_eq!(arities["reader"], 1, "{macro_kind}");
         assert_eq!(arities["helper"], 0, "{macro_kind}");
-        assert_eq!(arities["caller"], 0, "{macro_kind}");
+        assert_eq!(arities["caller"], 1, "{macro_kind}");
     }
 }
 
@@ -3106,7 +3105,7 @@ fn aliases_a_rewritten_top_cell_when_configuration_is_used() {
         attributes: Attributes::default(),
     };
 
-    let transformed = resolve_config_var(&definition);
+    let transformed = resolve_config_var(&definition).unwrap();
     let body = transformed
         .main_module()
         .unwrap()
@@ -3131,6 +3130,127 @@ fn aliases_a_rewritten_top_cell_when_configuration_is_used() {
     assert_eq!(origin.destination.as_ref().unwrap().path, [0, 0]);
 }
 
+/// Reading the configuration needs a configuration in scope. After binding, a rule or claim whose
+/// left-hand side neither is the aliased top cell nor passes the configuration to a function still
+/// holds an unbound reference: the binding stage rejects it at its location, and binds the other
+/// rules. An anywhere rule whose head is not a function applies outside any configuration; an
+/// equational claim states the value of a term.
+#[test]
+fn rejects_a_rule_or_claim_that_reads_the_configuration_with_none_in_scope() {
+    let top = application(
+        "<generatedTop>",
+        vec![application("<k>", vec![Term::variable("K")])],
+    );
+    let located = |extra: &[(&str, Value)]| {
+        let mut entries = vec![
+            ("org.kframework.attributes.Source", json!("reads.k")),
+            ("org.kframework.attributes.Location", json!([12, 3, 12, 55])),
+        ];
+        entries.extend(extra.iter().cloned());
+        attributes(&entries)
+    };
+    let reads = || application("isZero", vec![Term::variable("#Configuration")]);
+    let foo = || application("foo2", vec![Term::variable("N")]);
+    let bar = || application("bar2", vec![Term::variable("N")]);
+    let definition = |sentence: Sentence| Definition {
+        main_module: "MAIN".into(),
+        modules: vec![module(
+            "MAIN",
+            vec![
+                Sentence::Rule {
+                    body: rewrite(top.clone(), top.clone()),
+                    requires: reads(),
+                    ensures: truth(),
+                    attributes: Attributes::default(),
+                },
+                sentence,
+            ],
+        )],
+        attributes: Attributes::default(),
+    };
+    let anywhere = |requires: Term, right: Term| Sentence::Rule {
+        body: rewrite(foo(), right),
+        requires,
+        ensures: truth(),
+        attributes: located(&[("anywhere", json!(""))]),
+    };
+
+    for (sentence, message) in [
+        (
+            anywhere(reads(), bar()),
+            "An anywhere rule cannot read the configuration: its requires clause calls isZero, \
+             which reads it, and the rule has no configuration in scope: it applies to its \
+             left-hand side wherever that term occurs, also outside any configuration, and its \
+             head is not a function, which would receive the configuration as an argument.",
+        ),
+        (
+            anywhere(reads(), application("bar3", vec![reads()])),
+            "An anywhere rule cannot read the configuration: its requires clause and right-hand \
+             side call isZero, which reads it, and the rule has no configuration in scope: it \
+             applies to its left-hand side wherever that term occurs, also outside any \
+             configuration, and its head is not a function, which would receive the \
+             configuration as an argument.",
+        ),
+        (
+            Sentence::Claim {
+                body: rewrite(
+                    application("g", vec![Term::variable("N")]),
+                    Term::variable("N"),
+                ),
+                requires: reads(),
+                ensures: truth(),
+                attributes: located(&[]),
+            },
+            "A claim cannot read the configuration: its requires clause calls isZero, which \
+             reads it, and the claim has no configuration in scope: its left-hand side is \
+             neither the configuration nor an application of a function that receives it.",
+        ),
+    ] {
+        let error = resolve_config_var(&definition(sentence)).unwrap_err();
+        assert_eq!(error.diagnostics.len(), 1);
+        let diagnostic = &error.diagnostics[0];
+        assert_eq!(diagnostic.severity, k_rust::diagnostic::Severity::Error);
+        assert_eq!(
+            diagnostic.code,
+            k_rust::diagnostic::DiagnosticCode::InvalidFunctionConfiguration
+        );
+        assert_eq!(diagnostic.message, message);
+        assert_eq!(diagnostic.source.as_deref(), Some("reads.k"));
+        assert_eq!(
+            diagnostic
+                .location
+                .as_ref()
+                .map(|location| location.start_line),
+            Some(12)
+        );
+    }
+
+    // A claim about an application that receives the configuration has it in scope, and without
+    // the read the anywhere rule is left as it is; the rewrite of the top cell is bound.
+    let claim = Sentence::Claim {
+        body: rewrite(
+            application(
+                "h",
+                vec![Term::variable("N"), Term::variable("#Configuration")],
+            ),
+            Term::variable("N"),
+        ),
+        requires: reads(),
+        ensures: truth(),
+        attributes: located(&[]),
+    };
+    resolve_config_var(&definition(claim)).unwrap();
+    let transformed = resolve_config_var(&definition(anywhere(truth(), bar()))).unwrap();
+    let sentences = &transformed.main_module().unwrap().local_sentences;
+    let Sentence::Rule { body, .. } = &*sentences[0] else {
+        panic!("the first sentence is a rule")
+    };
+    let Term::Rewrite { left, .. } = body.unannotated() else {
+        panic!("the configuration rule remains a rewrite")
+    };
+    assert!(matches!(left.unannotated(), Term::As { .. }), "{body:?}");
+}
+
 #[test]
 fn does_not_alias_a_top_cell_for_unresolved_fresh_variables_alone() {
     let top = application(
@@ -3152,7 +3272,7 @@ fn does_not_alias_a_top_cell_for_unresolved_fresh_variables_alone() {
         attributes: Attributes::default(),
     };
 
-    let transformed = resolve_config_var(&definition);
+    let transformed = resolve_config_var(&definition).unwrap();
     let body = transformed
         .main_module()
         .unwrap()
@@ -3262,6 +3382,51 @@ fn lowers_heat_and_cool_attributes_to_result_predicates() {
         insta::assert_debug_snapshot!(requires);
     });
     assert_generated_by(&transformed, GeneratingPass::ResolveHeatCool);
+}
+
+/// The public pass returns no conjunction internal to the pipeline: each side condition is
+/// conjoined by `#And` with a condition that reads as a predicate and by `_andBool_` otherwise.
+#[test]
+fn heat_cool_conjoins_a_predicate_condition_as_a_predicate() {
+    let source = indoc! {r#"
+        module BOOL
+        endmodule
+        module MAIN
+          syntax KResult
+          syntax Exp ::= heat(Exp) [symbol(heat)]
+                       | cool(Exp) [symbol(cool)]
+          rule heat(HOLE) => cool(HOLE) [heat, result(KResult)]
+        endmodule
+    "#};
+    let mut definition = parsed(source);
+    let main = definition
+        .modules
+        .iter_mut()
+        .find(|module| module.name == "MAIN")
+        .unwrap();
+    for sentence in &mut main.local_sentences {
+        if let Sentence::Rule { requires, .. } = std::sync::Arc::make_mut(sentence) {
+            *requires = Term::apply(
+                "#Equals",
+                vec![Term::variable("HOLE"), Term::variable("HOLE")],
+            );
+        }
+    }
+    let transformed = resolve_heat_cool_attributes(&definition).unwrap();
+    let requires = transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule { requires, .. } => Some(Printer::new().print_term(requires)),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        requires,
+        ["#And(#Equals(HOLE,HOLE),`notBool_`(isKResult(HOLE)))"]
+    );
 }
 
 /// A heat or cool condition is a `Bool` formula built from `BOOL`'s connectives, so the module
@@ -3838,6 +4003,59 @@ fn folds_pure_constants_only_on_rule_right_hand_sides_and_conditions() {
     assert_generated_by(&transformed, GeneratingPass::ConstantFolding);
 }
 
+/// An application that may perform an effect is more than its value, so it is never folded:
+/// `add` reaches the impure `eff` through an anywhere rule and `sub` through a simplification, so
+/// neither is folded on literals. `mul` is folded: its simplification applies `eff` only on its
+/// left side, which is matched, not evaluated. `tdiv` is not: its simplification's right side
+/// applies `eff`, here a copy of what the left side matched, which the backend's load-time effect
+/// set counts too.
+#[test]
+fn folds_no_application_of_a_label_that_reaches_an_effect() {
+    let source = indoc! {r#"
+        module MAIN
+          syntax Int [hook(INT.Int)]
+          syntax Int ::= r"[\\+\\-]?[0-9]+" [token, prec(2)]
+          syntax Int ::= "eff(" Int ")" [function, impure, symbol(eff)]
+          syntax Int ::= "add(" Int "," Int ")" [function, hook(INT.add), symbol(add)]
+          syntax Int ::= "sub(" Int "," Int ")" [function, hook(INT.sub), symbol(sub)]
+          syntax Int ::= "mul(" Int "," Int ")" [function, hook(INT.mul), symbol(mul)]
+          syntax Int ::= "tdiv(" Int "," Int ")" [function, hook(INT.tdiv), symbol(tdiv)]
+          syntax Int ::= "f(" Int ")" [function, symbol(f)]
+          rule add(X, 0) => eff(X) [anywhere]
+          rule sub(X, 0) => eff(X) [simplification]
+          rule mul(eff(X), 1) => X [simplification]
+          rule tdiv(eff(X), 1) => eff(X) [simplification]
+          rule f(X) => add(add(1, 0), add(sub(2, 0), add(mul(2, 3), tdiv(8, 2))))
+        endmodule
+    "#};
+    let right = constant_folded_right_hand_sides(source);
+    assert!(
+        right.contains(
+            &r#"add(add(#token("1","Int"),#token("0","Int")),add(sub(#token("2","Int"),#token("0","Int")),add(#token("6","Int"),tdiv(#token("8","Int"),#token("2","Int")))))"#
+                .to_owned()
+        ),
+        "{right:?}"
+    );
+}
+
+/// The printed right-hand sides of the rules of `source` after constant folding.
+fn constant_folded_right_hand_sides(source: &str) -> Vec<String> {
+    let transformed = constant_fold(&resolve_semantic_casts(&parsed(source)).unwrap()).unwrap();
+    transformed
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => match body.unannotated() {
+                Term::Rewrite { right, .. } => Some(Printer::new().print_term(right)),
+                _ => None,
+            },
+            _ => None,
+        })
+        .collect()
+}
+
 /// A loaded parametric label carries no instance. `peq`'s result sort `Bool` does not mention its
 /// parameter, so its application folds; `padd`'s result sort is its parameter, which only sort
 /// injection instantiates, so its application is left for injection.
@@ -4267,6 +4485,146 @@ module MAIN
         .map(|(application, result)| format!("{application} folded to {result}"))
         .collect::<Vec<_>>();
     assert!(folded.is_empty(), "{folded:#?}");
+}
+
+/// The right-hand sides of the `res(...)` rules of `source`, printed, before the fold (`false`)
+/// or after it (`true`).
+fn right_hand_sides(source: &str, fold: bool) -> Vec<String> {
+    let loaded = load_fixture("open-values.k", source, "MAIN");
+    let resolved = resolve_semantic_casts(loaded.definition()).unwrap();
+    let definition = if fold {
+        constant_fold(&resolved).unwrap()
+    } else {
+        resolved
+    };
+    definition
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule { body, .. } => match body.unannotated() {
+                Term::Rewrite { right, .. } => Some(Printer::new().print_term(right)),
+                _ => None,
+            },
+            _ => None,
+        })
+        .filter(|right| right.starts_with("res("))
+        .collect()
+}
+
+/// A definition whose rules apply hooks to literals where the definition leaves the value open
+/// (`c0` to `c3`: `Base2String` with a letter digit, `minFloat` and `maxFloat` of the two zeros)
+/// and where it determines it (`d0` to `d4`); `n0` and `n1` reach an open application only after
+/// their arguments fold, and `n2` and `n3` apply a determined hook to an open argument.
+const OPEN_VALUES: &str = r#"
+module MAIN-SYNTAX
+  syntax Op ::= "c0" [symbol(c0)] | "c1" [symbol(c1)] | "c2" [symbol(c2)] | "c3" [symbol(c3)]
+              | "d0" [symbol(d0)] | "d1" [symbol(d1)] | "d2" [symbol(d2)] | "d3" [symbol(d3)]
+              | "d4" [symbol(d4)] | "n0" [symbol(n0)] | "n1" [symbol(n1)] | "n2" [symbol(n2)]
+              | "n3" [symbol(n3)]
+endmodule
+module MAIN
+  imports MAIN-SYNTAX
+  imports DOMAINS
+  imports FLOAT
+  configuration <k> $PGM:Op </k>
+  syntax KItem ::= res(K) [symbol(res)]
+  rule c0 => res(Base2String(255, 16))
+  rule c1 => res(minFloat(0.0, -0.0))
+  rule c2 => res(maxFloat(-0.0, 0.0))
+  rule c3 => res(Base2String(-35, 36))
+  rule d0 => res(Base2String(9, 10))
+  rule d1 => res(Base2String(9, 16))
+  rule d2 => res(minFloat(1.0, -0.0))
+  rule d3 => res(maxFloat(0.0, 0.0))
+  rule d4 => res(Base2String(255, 10))
+  rule n0 => res(Base2String(255 +Int 0, 16))
+  rule n1 => res(minFloat(0.0, --Float 0.0))
+  rule n2 => res(lengthString(Base2String(255, 16)))
+  rule n3 => res(maxFloat(0.0, -0.0) ==Float 0.0)
+endmodule
+"#;
+
+/// The fold writes a token only where the token denotes the application's value in every model
+/// of the source definition. A value the definition leaves open (the letter case of
+/// `Base2String`, `minFloat` and `maxFloat` of `+0.0` and `-0.0`) is one of several, and a token
+/// for k-rust's would give the emitted definition fewer models than the source, so the fold
+/// leaves those applications as written, while the determined neighbours fold.
+#[test]
+fn leaves_values_the_definition_leaves_open_unfolded() {
+    let folded = right_hand_sides(OPEN_VALUES, true);
+    let written = right_hand_sides(OPEN_VALUES, false);
+    assert_eq!(folded.len(), 13, "{folded:?}");
+    // The applications of `c0` to `c3` are emitted exactly as written.
+    assert_eq!(folded[..4], written[..4]);
+    for open in &folded[..4] {
+        assert!(!open.starts_with("res(#token("), "{open}");
+    }
+    assert_eq!(
+        folded[4..9],
+        [
+            r#"res(#token("\"9\"","String"))"#,
+            r#"res(#token("\"9\"","String"))"#,
+            r#"res(#token("-0e+00p53x11","Float"))"#,
+            r#"res(#token("0e+00p53x11","Float"))"#,
+            r#"res(#token("\"255\"","String"))"#,
+        ]
+    );
+    // After their arguments fold, `n0` and `n1` are the open applications over the folded
+    // tokens, and are not folded themselves.
+    assert_eq!(folded[9], folded[0], "{folded:?}");
+    for nested in &folded[10..] {
+        assert!(!nested.starts_with("res(#token("), "{nested}");
+    }
+    assert!(
+        folded[10].contains(r#"#token("0.0","Float")"#)
+            && folded[10].contains(r#"#token("-0e+00p53x11","Float")"#),
+        "{}",
+        folded[10]
+    );
+    // A determined hook over an open argument reads only literal arguments, so it is not folded
+    // either, although its value is the same in every model.
+    assert_eq!(folded[11..], written[11..]);
+}
+
+/// The emitted KORE of the open applications is the application over the folded tokens:
+/// `Base2String(255 +Int 0, 16)` is emitted as `Base2String` of the domain values 255 and 16.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn emits_open_values_as_applications_over_their_folded_arguments() {
+    let artifacts = compile_fixture("open-values.k", OPEN_VALUES, "MAIN");
+    let axiom = |rule: &str| {
+        artifacts
+            .definition_kore
+            .split("  axiom")
+            .find(|axiom| {
+                axiom.contains("\\rewrites")
+                    && axiom.contains(&format!("Lbl{rule}{{}}()"))
+                    && axiom.contains("Lblres{}(")
+            })
+            .unwrap_or_else(|| panic!("the rule for {rule} is emitted"))
+            .split_whitespace()
+            .collect::<String>()
+    };
+    for rule in ["c0", "n0"] {
+        let axiom = axiom(rule);
+        assert!(
+            axiom.contains("LblBase2String")
+                && axiom.contains(r#"{}(\dv{SortInt{}}("255"),\dv{SortInt{}}("16"))"#),
+            "{axiom}"
+        );
+    }
+    let n1 = axiom("n1");
+    assert!(
+        n1.contains(r#"\dv{SortFloat{}}("-0e+00p53x11")"#) && n1.contains("LblminFloat"),
+        "{n1}"
+    );
+    let n2 = axiom("n2");
+    assert!(
+        n2.contains("LbllengthString") && n2.contains("LblBase2String"),
+        "{n2}"
+    );
 }
 
 /// `A ^%Int B C` with a 131,072-bit exponent and modulus is a square-and-multiply of 131,072
@@ -10013,7 +10371,7 @@ fn concretizes_cells_inside_generated_simplification_rules() {
     }
 
     let transformed = add_semantics_module(&transformed).unwrap();
-    let transformed = resolve_config_var(&transformed);
+    let transformed = resolve_config_var(&transformed).unwrap();
     let transformed = add_cool_like_attributes(&transformed);
     let transformed = generate_sort_predicate_rules(&transformed).unwrap();
     let transformed = number_sentences(&transformed);
@@ -11778,7 +12136,17 @@ fn expands_context_alias_groups_context_rewrites_and_hybrid_rules() {
             .all(|(body, _)| body.contains("#SemanticCastToExp(HOLE)=>resume")),
         "{contexts:#?}"
     );
-    assert!(contexts[1].1.contains("isFoo(K0)"), "{contexts:#?}");
+    // The alias's `K0` is a variable of the alias, so the production's arguments are named apart
+    // from it (`K1`, `K2`), and the sequential condition tests the first argument, `K1`.
+    assert!(
+        contexts[0].0.contains("#SemanticCastToExp(K2)")
+            && contexts[1].0.contains("#SemanticCastToExp(K1)")
+            && contexts
+                .iter()
+                .all(|(_, requires)| requires.contains("allowed(K0)")),
+        "{contexts:#?}"
+    );
+    assert!(contexts[1].1.contains("isFoo(K1)"), "{contexts:#?}");
     assert!(main.local_sentences.iter().any(|sentence| {
         matches!(&**sentence, Sentence::Rule { body, requires, .. }
             if Printer::new().print_term(body).starts_with("isFoo(step(")

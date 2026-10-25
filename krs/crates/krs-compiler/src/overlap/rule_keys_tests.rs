@@ -6,7 +6,7 @@ use std::collections::BTreeSet;
 use krs_ir::{ApplicationRef, BuiltinOperation, BuiltinSort, ItemKind, PackageId, StableItemId};
 use krs_ir_levels::SemanticSortRef;
 
-use super::{Pattern, SortGraph, Unifier, VariableKey};
+use super::{Frame, Pattern, SortGraph, Unifier, VariableKey};
 
 fn graph() -> SortGraph {
     let mut graph = SortGraph {
@@ -198,24 +198,27 @@ fn ordering_guards_are_complementary_with_swapped_operands() {
 
 #[test]
 fn a_complementary_conjunct_inside_a_conjunction_separates() {
-    let left = builtin(
-        BuiltinOperation::BoolAnd,
-        vec![
-            builtin(
-                BuiltinOperation::IntGreater,
-                vec![variable(0, 0, BuiltinSort::Int), int("5")],
-            ),
-            builtin(
-                BuiltinOperation::IntNotEqual,
-                vec![variable(0, 1, BuiltinSort::Int), int("0")],
-            ),
-        ],
-    );
-    let right = builtin(
-        BuiltinOperation::IntEqual,
-        vec![variable(1, 1, BuiltinSort::Int), int("0")],
-    );
-    assert!(separated(&left, &right));
+    // `bool::and_then` (`&&`) holds only when both operands do, as `bool::and`.
+    for conjunction in [BuiltinOperation::BoolAnd, BuiltinOperation::BoolAndThen] {
+        let left = builtin(
+            conjunction,
+            vec![
+                builtin(
+                    BuiltinOperation::IntGreater,
+                    vec![variable(0, 0, BuiltinSort::Int), int("5")],
+                ),
+                builtin(
+                    BuiltinOperation::IntNotEqual,
+                    vec![variable(0, 1, BuiltinSort::Int), int("0")],
+                ),
+            ],
+        );
+        let right = builtin(
+            BuiltinOperation::IntEqual,
+            vec![variable(1, 1, BuiltinSort::Int), int("0")],
+        );
+        assert!(separated(&left, &right), "{conjunction:?}");
+    }
 }
 
 #[test]
@@ -297,17 +300,19 @@ fn a_ground_false_comparison_after_unification_separates() {
     let not_below_ten = builtin(BuiltinOperation::BoolNot, vec![below_ten.clone()]);
     assert!(literal_separated("0", &not_below_ten));
     assert!(!literal_separated("0", &below_ten));
-    let conjunction = builtin(
-        BuiltinOperation::BoolAnd,
-        vec![
-            builtin(
-                BuiltinOperation::IntNotEqual,
-                vec![variable(1, 1, BuiltinSort::Int), int("0")],
-            ),
-            at_least_ten,
-        ],
-    );
-    assert!(literal_separated("0", &conjunction));
+    for operation in [BuiltinOperation::BoolAnd, BuiltinOperation::BoolAndThen] {
+        let conjunction = builtin(
+            operation,
+            vec![
+                builtin(
+                    BuiltinOperation::IntNotEqual,
+                    vec![variable(1, 1, BuiltinSort::Int), int("0")],
+                ),
+                at_least_ten.clone(),
+            ],
+        );
+        assert!(literal_separated("0", &conjunction), "{operation:?}");
+    }
 }
 
 #[test]
@@ -350,11 +355,26 @@ fn completed_heads_unify_with_longer_framed_sequences() {
         constructor("Toss", vec![]),
         constructor("Next", vec![]),
     ]);
-    assert!(Unifier::new(&graph).unify_clause(completed.clone(), true, longer.clone(), true));
+    assert!(Unifier::new(&graph).unify_clause(
+        completed.clone(),
+        Frame::Sequence,
+        longer.clone(),
+        Frame::Sequence
+    ));
     // A framed prefix also matches an exact sequence that extends it ...
-    assert!(Unifier::new(&graph).unify_clause(longer.clone(), false, completed.clone(), true));
+    assert!(Unifier::new(&graph).unify_clause(
+        longer.clone(),
+        Frame::Exact,
+        completed.clone(),
+        Frame::Sequence
+    ));
     // ... but not an exact sequence shorter than the prefix.
-    assert!(!Unifier::new(&graph).unify_clause(completed.clone(), false, longer, true));
+    assert!(!Unifier::new(&graph).unify_clause(
+        completed.clone(),
+        Frame::Exact,
+        longer,
+        Frame::Sequence
+    ));
     let other = sequence(vec![constructor("Flip", vec![])]);
-    assert!(!Unifier::new(&graph).unify_clause(completed, true, other, true));
+    assert!(!Unifier::new(&graph).unify_clause(completed, Frame::Sequence, other, Frame::Sequence));
 }

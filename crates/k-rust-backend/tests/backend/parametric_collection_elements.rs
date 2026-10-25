@@ -156,10 +156,7 @@ fn collections_over_a_closed_parametric_instance_hold_it_as_their_element_sort()
     let CollectionMetadata::Map(map) = collection("wordMapItem") else {
         panic!("wordMapItem should be a map element symbol");
     };
-    assert_eq!(
-        (map.key_sort.clone(), map.value_sort.clone()),
-        (word(), word())
-    );
+    assert_eq!((map.key_sort, map.value_sort), (word(), word()));
 }
 
 /// The list hooks read and count the elements of a list over `MInt{64}`.

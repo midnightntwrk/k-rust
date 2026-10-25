@@ -31,6 +31,7 @@ mod minimize_term_construction;
 mod number_sentences;
 mod propagate_macro;
 mod remove_unit;
+mod rename_bound_apart;
 mod resolve_anon_vars;
 mod resolve_contexts;
 mod resolve_fresh_config_constants;
@@ -44,9 +45,11 @@ mod resolve_strict;
 mod subsort_kitem;
 
 pub(crate) use super::retarget::retarget_production_identities;
-pub(crate) use add_implicit_computation_cell::add_implicit_computation_cell_pass;
 pub use add_implicit_computation_cell::{
     AddImplicitComputationCellError, add_implicit_computation_cell,
+};
+pub(crate) use add_implicit_computation_cell::{
+    ComputationCells, add_implicit_computation_cell_pass, is_function as is_function_rule_body,
 };
 pub(crate) use check_simplification::check_simplification_rules_pass;
 pub use check_simplification::{CheckSimplificationError, check_simplification_rules};
@@ -85,6 +88,9 @@ pub use propagate_macro::propagate_macro_attributes;
 pub(crate) use propagate_macro::{propagate_macro_attribute, propagate_macro_attributes_pass};
 pub(crate) use remove_unit::remove_unit_pass;
 pub use remove_unit::{RemoveUnitError, remove_unit};
+pub(crate) use rename_bound_apart::{
+    rename_bound_apart_in_sentence, rename_bound_apart_pass, rename_copies_apart,
+};
 pub(crate) use resolve_anon_vars::resolve_anon_vars_pass;
 pub use resolve_anon_vars::{resolve_anon_vars, resolve_anon_vars_in_sentence};
 pub(crate) use resolve_contexts::resolve_contexts_pass;
@@ -100,6 +106,10 @@ pub(crate) use resolve_fun::{
     lambda_sorts, resolve_fun_pass,
 };
 pub use resolve_fun::{ResolveFunError, resolve_fun};
+#[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+pub(crate) use resolve_function_with_config::{
+    ConfigurationBinder, configuration_binder, is_exact_configuration_variable,
+};
 pub(crate) use resolve_function_with_config::{
     FunctionRuleWithContext, resolve_config_var_pass, resolve_function_with_config_pass,
 };
@@ -115,7 +125,8 @@ pub use resolve_semantic_casts::{
     resolve_semantic_casts_with_predicates_in_sentence,
 };
 pub(crate) use resolve_semantic_casts::{
-    resolve_semantic_casts_pass, semantic_cast_variable_sorts,
+    resolve_compiled_casts_in_sentence, resolve_semantic_casts_pass,
+    resolve_semantic_casts_with_pending_predicates_in_sentence, semantic_cast_variable_sorts,
 };
 pub(crate) use resolve_strict::resolve_strict_pass;
 pub use resolve_strict::{ResolveStrictError, resolve_strict};

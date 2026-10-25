@@ -311,7 +311,7 @@ pub fn pattern_matches_output(
             .map(|found| MatchCondition {
                 substitution: found.substitution.clone(),
                 constraints: found.constraints.clone(),
-                predicate_sort: predicate_sort.clone(),
+                predicate_sort: *predicate_sort,
             })
             .collect(),
         result_sort,
@@ -438,8 +438,8 @@ impl MatchOutput {
     }
 
     /// The variable identities of the left side of `conjunct` when it is an equality whose left
-    /// side is a variable or a function application and whose left-side variables are all
-    /// generated anonymous variables; `None` otherwise.
+    /// side is a variable or a function application that holds a variable, and whose left-side
+    /// variables are all generated anonymous variables; `None` otherwise.
     fn generated_equality_variables(
         &self,
         conjunct: External<'_>,
@@ -455,11 +455,14 @@ impl MatchOutput {
         if !eligible {
             return None;
         }
+        // A left side without a variable names no generated variable: a ground equality such as
+        // `uf(3) = 30` is a condition of the match and is kept.
         let identities = variable_identities(left);
-        identities
-            .iter()
-            .all(|identity| self.generated_anonymous_variables.contains(identity))
-            .then_some(identities)
+        (!identities.is_empty()
+            && identities
+                .iter()
+                .all(|identity| self.generated_anonymous_variables.contains(identity)))
+        .then_some(identities)
     }
 }
 
@@ -614,10 +617,12 @@ mod tests {
             .iter()
             .map(kore_variable_identity)
             .collect::<BTreeSet<_>>();
-        left_variables.iter().all(|identity| {
-            generated_anonymous_variables.contains(identity)
-                && occurrences.get(identity) == Some(&1)
-        })
+        // A left side without a variable names no generated variable.
+        !left_variables.is_empty()
+            && left_variables.iter().all(|identity| {
+                generated_anonymous_variables.contains(identity)
+                    && occurrences.get(identity) == Some(&1)
+            })
     }
 
     fn filter_match_condition(
@@ -842,7 +847,7 @@ mod tests {
                 let copy = MatchCondition {
                     substitution: first.substitution.clone(),
                     constraints: first.constraints.clone(),
-                    predicate_sort: first.predicate_sort.clone(),
+                    predicate_sort: first.predicate_sort,
                 };
                 conditions.push(copy);
             }

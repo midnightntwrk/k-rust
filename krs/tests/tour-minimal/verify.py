@@ -17,7 +17,7 @@ from support.hashing import sha256_file  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.process import compact, run  # noqa: E402
-from support.tools import checkout_scratch, rustfmt_environment, z3_environment  # noqa: E402
+from support.tools import rustfmt_environment, target_environment, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -61,8 +61,8 @@ def verify_expansion(source: str) -> None:
     required = (
         "#[k::sort(alias = ObjectTerm, parents = [k::KResult])]",
         "#[k::constructors(sort = ObjectTerm, reference)]",
-        '#[k::syntax("foo", group = "object_tier0", format = "foo")]',
-        '#[k::syntax("bar", group = "object_tier0", format = "bar")]',
+        '#[k::syntax("foo", format = "foo")]',
+        '#[k::syntax("bar", format = "bar")]',
         "k::configuration::KCell::new(k::k![Object::Foo()])",
         '#[k::rule(label = "foo-to-bar")]',
         "crate ::Object::Foo(), tail @ ..",
@@ -161,8 +161,7 @@ def main() -> int:
     verify_reference_theory()
     print("PASS source: stable Vocs definition region")
 
-    target = checkout_scratch() / "tour-minimal-root-target"
-    environment = {**cli_environment(), "CARGO_TARGET_DIR": os.fspath(target)}
+    environment = {**cli_environment(), **target_environment()}
     binary = production_binary(arguments.krs, environment)
     gate = krs_gate.configured_or_build()
 
@@ -174,7 +173,7 @@ def main() -> int:
     if SOURCE.read_bytes() != before:
         raise GateError("krs fmt --check unexpectedly changed the tour source")
     print("PASS format: krs fmt --check preserved source and region markers")
-    check_packages("tour-minimal", krs=binary, env=environment, target_dir=target)
+    check_packages("tour-minimal", krs=binary, env=environment)
 
     checked = run(cli_command(binary, "check"), environment=environment)
     if checked.stdout != "KRS check passed: 9 descriptors, 2 semantic modules\n":

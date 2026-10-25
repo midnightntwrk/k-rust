@@ -18,8 +18,8 @@ use crate::transport::rule::{
     ProtocolRuleKSequence, ProtocolRuleMap, ProtocolRuleStateTerm,
 };
 use crate::{
-    ProtocolHeadRuleBinding, ProtocolHeadRuleExtra, ProtocolHeadRuleHead, ProtocolHeadRuleResult,
-    ProvenanceKey,
+    ProtocolHeadRuleBinding, ProtocolHeadRuleExtra, ProtocolHeadRuleHead, ProtocolHeadRuleMapEntry,
+    ProtocolHeadRuleResult, ProvenanceKey,
 };
 
 /// Index into the static host type-key table.
@@ -140,6 +140,8 @@ pub type WireClaimBinder = ClaimBinder<WireStage>;
 pub type WireEvaluationStep = crate::EvaluationStep<WireStage>;
 /// Static wire-stage context alias.
 pub type WireContextAlias = ContextAlias<WireStage>;
+/// Static-slot named constant.
+pub type WireConstant = crate::transport::constant::ConstantPayload<WireStage>;
 /// Equation function context before host type-slot resolution (KF-025).
 pub type WireFunctionContext = FunctionContext<WireStage>;
 
@@ -182,12 +184,37 @@ stage_shape! {
         pub name: String => [keep],
         /// Declared sort reference.
         pub sort: S::Nominal => [nominal],
+        /// Element types of a typed collection field sort.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub arguments: Vec<StaticConstructorSortArgument<S>> => [vec nested],
     }
     host_shape: crate::HostConstructorFieldDescriptor;
 }
 
 /// Static wire-stage constructor transport.
 pub type WireConstructorFieldDescriptor = StaticConstructorField<WireStage>;
+
+stage_shape! {
+    /// Static element type of a constructor field's or result's typed
+    /// collection sort.
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "WireConstructorSortArgument",
+        deny_unknown_fields,
+        bound(serialize = "S::Sort: Serialize", deserialize = "S::Sort: Deserialize<'de>")
+    )]
+    pub struct StaticConstructorSortArgument<S: Stage> {
+        /// The element type's sort reference.
+        pub sort: S::Sort => [sort],
+        /// The element types of a collection element type.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub arguments: Vec<StaticConstructorSortArgument<S>> => [vec nested],
+    }
+    host_shape: crate::HostConstructorSortArgument;
+}
+
+/// Static wire-stage element type transport.
+pub type WireConstructorSortArgument = StaticConstructorSortArgument<WireStage>;
 
 stage_shape! {
     /// Static indexed constructor transport.
@@ -208,6 +235,9 @@ stage_shape! {
         /// Sort parameters of a parametric production struct (KF-027).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub parameters: Vec<S::Sort> => [vec sort],
+        /// Element types of a function's typed collection result sort.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub arguments: Vec<StaticConstructorSortArgument<S>> => [vec nested],
     }
     host_shape: crate::HostConstructorDescriptor;
 }
@@ -245,6 +275,12 @@ pub type WireTypedBinding = crate::ProtocolTypedBinding<WireSortReference>;
 pub type WireHeadRuleResult = ProtocolHeadRuleResult<WireTerm>;
 /// Static wire-stage computation-cell head and rewrite in a readable head rule.
 pub type WireHeadRuleHead = ProtocolHeadRuleHead<WireTerm>;
+/// Wire side of a cons-list cell (F6).
+pub type WireHeadRuleList = crate::ProtocolHeadRuleList<WireTerm>;
+/// Wire rest of a cons-list cell side (F6).
+pub type WireHeadRuleListRest = crate::ProtocolHeadRuleListRest<WireTerm>;
+/// Static wire-stage map entry of a map read in a readable head rule.
+pub type WireHeadRuleMapEntry = ProtocolHeadRuleMapEntry<WireTerm>;
 /// Static wire-stage extra-cell clause in a readable head rule.
 pub type WireHeadRuleExtra = ProtocolHeadRuleExtra<WireHeadRuleCellReference, WireTerm>;
 /// Macro-emitted List-collection reading of an ambiguous bracketed cell value.
@@ -286,6 +322,8 @@ pub enum WirePayload {
     HeadRule(Box<WireHeadRule>),
     /// Reusable fixed-configuration context template.
     ContextAlias(Box<WireContextAlias>),
+    /// Named constant.
+    Constant(Box<WireConstant>),
 }
 
 #[cfg(test)]
@@ -305,6 +343,8 @@ mod tests {
             },
             path_key: ProvenanceKey::new(ProvenanceRole::RuleLeftPath, 4),
             arguments: vec![].try_into().unwrap(),
+            update: None,
+            open: false,
         };
         let json = serde_json::to_string(&term).unwrap();
         assert_eq!(
@@ -345,6 +385,7 @@ mod tests {
                 slot: super::TypeSlot(1),
                 authored_path: "Int".to_owned(),
             },
+            arguments: Vec::new(),
         };
         let mut map = crate::stage::tests::CountingMap::default();
         let mapped = field.clone().try_map_refs(&mut map).unwrap();
@@ -357,6 +398,7 @@ mod tests {
             parameters: Vec::new(),
             sort: sort(),
             fields: vec![field],
+            arguments: Vec::new(),
         };
         let mut map = crate::stage::tests::CountingMap::default();
         let mapped = constructor.clone().try_map_refs(&mut map).unwrap();
@@ -403,6 +445,7 @@ mod tests {
                 parameters: Vec::new(),
                 sort: sort(),
                 fields: vec![],
+                arguments: Vec::new(),
             },
             "sort",
             1,
@@ -461,8 +504,9 @@ mod tests {
                 computation_cell_name: None,
                 bindings: vec![],
                 head: Some(super::WireHeadRuleHead {
-                    subject: term(),
-                    result: super::WireHeadRuleResult::Replace(term()),
+                    items: vec![term()],
+                    exact: false,
+                    result: Some(super::WireHeadRuleResult::Replace(term())),
                 }),
                 requires: None,
                 extras: vec![],
@@ -471,6 +515,7 @@ mod tests {
                 fresh: Vec::new(),
                 evaluation: None,
                 bracket_alternative: None,
+                claim: None,
             },
             "sort",
             3,

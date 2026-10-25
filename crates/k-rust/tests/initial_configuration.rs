@@ -469,6 +469,79 @@ endmodule
     assert_eq!(build(&mut fresh), first);
 }
 
+/// The program's parser and sort injector are kept across configurations, apart from the
+/// configuration values' injector: programs assembled one after another with one assembler,
+/// failed ones and abandoned configurations in between, give what a fresh assembler gives each.
+#[test]
+fn programs_assembled_with_one_assembler_equal_fresh_assemblies() {
+    let compiled = compiled(
+        r#"
+module MAIN
+  syntax {S} S ::= "undef" [symbol(undef), function, total]
+  syntax Foo ::= "foo" [symbol(foo)] | box(Foo) [symbol(box)]
+  syntax {S} Foo ::= phantom() [function, total, symbol(phantom)]
+  configuration <k> $PGM:Foo </k> <x> $X:Foo </x> <y> $Y:K </y>
+endmodule
+"#,
+        "MAIN",
+    );
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let new = || ConfigurationAssembler::new(&grammar, "MAIN", "MAIN", &compiled.variables);
+    let build = |assembler: &mut ConfigurationAssembler<'_>, program: &str| {
+        assembler.program(&Sort::new("Foo"), program)?;
+        assembler.bind("X", "undef")?;
+        assembler.bind("Y", "box(undef)")?;
+        assembler.finish().map(|pattern| render(&pattern))
+    };
+    let programs = ["undef", "box(box(undef))", "foo", "box(foo)"];
+    let fresh: Vec<String> = programs
+        .iter()
+        .map(|program| build(&mut new(), program).unwrap())
+        .collect();
+    assert_eq!(
+        fresh
+            .iter()
+            .collect::<std::collections::BTreeSet<_>>()
+            .len(),
+        programs.len(),
+        "{fresh:#?}"
+    );
+    // A program whose sort parameter nothing determines is refused with the parameter the
+    // injector drew for it, which a fresh injector draws first.
+    let phantom = |assembler: &mut ConfigurationAssembler<'_>| {
+        format!("{:?}", build(assembler, "box(phantom())").unwrap_err())
+    };
+    let fresh_phantom = phantom(&mut new());
+    assert!(
+        fresh_phantom.contains("UndeterminedInstance"),
+        "{fresh_phantom}"
+    );
+    let mut reused = new();
+    for (program, expected) in programs.iter().zip(&fresh) {
+        assert_eq!(&build(&mut reused, program).unwrap(), expected, "{program}");
+        assert_eq!(phantom(&mut reused), fresh_phantom, "after {program}");
+        // Again at once, with nothing cleared in between: each program starts the program
+        // injector's sort parameters afresh by itself.
+        assert_eq!(
+            phantom(&mut reused),
+            fresh_phantom,
+            "after a refused program"
+        );
+        // A program that does not parse is refused and leaves nothing behind.
+        assert!(matches!(
+            build(&mut reused, "box("),
+            Err(ConfigurationError::Program(_))
+        ));
+        // Neither does a configuration abandoned after its program, cleared.
+        reused.program(&Sort::new("Foo"), "box(undef)").unwrap();
+        assert!(reused.bind("UNDECLARED", "foo").is_err());
+        reused.clear();
+    }
+    for (program, expected) in programs.iter().zip(&fresh).rev() {
+        assert_eq!(&build(&mut reused, program).unwrap(), expected, "{program}");
+    }
+}
+
 #[test]
 fn a_program_result_parameter_is_fixed_by_its_read_sort() {
     let compiled = compiled(
@@ -1126,4 +1199,96 @@ endmodule
         .join()
         .expect("the configuration should be assembled");
     assert_eq!(count_applications(&pattern, "Lbls"), 100_000);
+}
+
+fn apply(label: &str) -> k_rust::kast::Term {
+    k_rust::kast::Term::Apply {
+        label: k_rust::kast::Label::new(label),
+        arguments: Vec::new(),
+    }
+}
+
+fn token(token: &str, sort: &str) -> k_rust::kast::Term {
+    k_rust::kast::Term::Token {
+        token: token.to_owned(),
+        sort: Sort::new(sort),
+    }
+}
+
+#[test]
+fn a_term_bound_without_the_parser_is_expanded_and_typed_as_its_text_is() {
+    let compiled = definition();
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut from_text = assembler(&grammar, &compiled);
+    from_text.program(&Sort::new("Input"), "go").unwrap();
+    from_text.bind("STATE", "configMacro").unwrap();
+    from_text.bind("ENV", "selected").unwrap();
+    from_text.bind("NAME", "\"abc\"").unwrap();
+    from_text.bind("ANY", "done").unwrap();
+    from_text.bind("STDIN", "\"text\"").unwrap();
+    let mut from_terms = assembler(&grammar, &compiled);
+    from_terms.program(&Sort::new("Input"), "go").unwrap();
+    // The macro is expanded, and no term carries an injection: typing inserts them.
+    from_terms
+        .bind_term("$STATE", apply("configMacro"))
+        .unwrap();
+    // The label names the production; the token takes the parser module's lexical hook.
+    from_terms.bind_term("ENV", apply("selectedEnv")).unwrap();
+    from_terms
+        .bind_term("NAME", token("\"abc\"", "Name"))
+        .unwrap();
+    from_terms.bind_term("ANY", apply("done")).unwrap();
+    from_terms
+        .bind_term("STDIN", token("\"text\"", "String"))
+        .unwrap();
+    assert_eq!(
+        render(&from_terms.finish().unwrap()),
+        render(&from_text.finish().unwrap())
+    );
+}
+
+#[test]
+fn a_term_must_have_at_most_the_declared_sort() {
+    let compiled = definition();
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = assembler(&grammar, &compiled);
+    let error = assembler
+        .bind_term("STATE", apply("selectedEnv"))
+        .unwrap_err();
+    assert!(
+        matches!(&error, ConfigurationError::ValueSort(mismatch)
+            if mismatch.variable == "$STATE"
+                && mismatch.declared == Sort::new("Input")
+                && mismatch.actual == Sort::new("Env")),
+        "{error:?}"
+    );
+    // The failed bind left the variable unbound.
+    assembler.bind_term("STATE", apply("done")).unwrap();
+    // A K-sorted variable holds a sequence as well as one item.
+    assembler
+        .bind_term(
+            "ANY",
+            k_rust::kast::Term::Sequence(vec![apply("done"), apply("done")]),
+        )
+        .unwrap();
+}
+
+#[test]
+fn a_term_binding_checks_its_name_as_a_text_binding_does() {
+    let compiled = definition();
+    let grammar = ProgramGrammar::new(&compiled.frontend).unwrap();
+    let mut assembler = assembler(&grammar, &compiled);
+    assembler.bind("STATE", "done").unwrap();
+    assert!(matches!(
+        assembler.bind_term("STATE", apply("done")),
+        Err(ConfigurationError::Duplicate { name }) if name == "STATE"
+    ));
+    assert!(matches!(
+        assembler.bind_term("PGM", apply("go")),
+        Err(ConfigurationError::ProgramVariable)
+    ));
+    assert!(matches!(
+        assembler.bind_term("MISSING", apply("done")),
+        Err(ConfigurationError::UnknownVariable { name, .. }) if name == "MISSING"
+    ));
 }

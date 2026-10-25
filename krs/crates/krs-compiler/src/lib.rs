@@ -8,8 +8,11 @@ pub mod artifacts;
 pub mod capability;
 mod cell_warnings;
 mod console;
+mod coverage;
 mod emit;
+mod equation_domain;
 mod error;
+mod int_facts;
 mod lowering;
 mod overlap;
 pub mod partition;
@@ -23,9 +26,11 @@ pub mod testing;
 
 pub use artifacts::*;
 pub use cell_warnings::cell_collection_warnings;
+pub use coverage::coverage_warnings;
 pub use emit::{
-    EmitError, EmittedK, EmittedSpec, definition_module_imports, definition_sentence_source,
-    emit_k, smt_only_function_warnings, trusted_claim_warnings,
+    DeclaredCellType, EmitError, EmittedK, EmittedSpec, declared_cell_types,
+    definition_module_imports, definition_sentence_source, emit_k, smt_only_function_warnings,
+    trusted_claim_warnings,
 };
 pub use error::{AnalysisError, AnalysisErrorKind};
 pub use lowering::{CollisionNamespace, LoweredDefinition, LoweringError, lower_semantic_theory};
@@ -35,7 +40,7 @@ pub use reference::{
 };
 pub use semantic::{
     DescriptorLoweringError, FreshProblem, LexicalProblem, NondetGroupProblem, OpenSortAnalysis,
-    RawKPolicy, analyze_open_sorts, lower_descriptor_bundle, raw_k_policy,
+    OperatorProblem, RawKPolicy, analyze_open_sorts, lower_descriptor_bundle, raw_k_policy,
 };
 pub use sidecar::{
     GeneratedRange, MappedIdentity, SourceMap, SourceMapEntry, SourceMapNodeKind, SymbolMap,

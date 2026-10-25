@@ -3,9 +3,11 @@
 //! Rustfmt owns ordinary Rust layout.
 //! KRS `rules!` bodies reached through Rust syntax are selected by [`krs_syntax::surface::invocations`] under the configured facade aliases and the file's module bindings.
 //! These bodies are elided before Rustfmt runs, formatted through the shared `krs-syntax` parser, and spliced back at the invocation's Rustfmt-selected indentation.
+//! Their clauses and terms wrap within Rustfmt's configured `max_width` (`layout`), breaking groups from the outside in without reordering a token; a broken comma list ends with a trailing comma and a list on one line has none, as Rustfmt writes Rust's lists, and a call hugs its one delimited argument.
 //! Other macros and calls inside raw macro tokens remain under Rustfmt's formatting policy.
 //! The default facade alias is `k`; callers with package metadata must supply that package's aliases in [`FormatOptions::facade_aliases`].
 
+mod layout;
 mod rules;
 mod rustfmt;
 
@@ -68,6 +70,9 @@ pub struct FormatOptions {
     pub facade_aliases: BTreeSet<String>,
     /// Layout policy for trailing comments on aligned single-cell clauses.
     pub trailing_comments: TrailingCommentStyle,
+    /// Maximum line width of KRS macro bodies; `None` takes Rustfmt's
+    /// configured `max_width` when Rustfmt runs, else Rustfmt's default of 100.
+    pub max_width: Option<usize>,
     /// Run and compose with the installed Rustfmt executable.
     pub rustfmt: bool,
     /// Format twice and require byte-identical output.
@@ -82,6 +87,7 @@ impl Default for FormatOptions {
             edition: Edition::default(),
             facade_aliases: BTreeSet::from(["k".to_owned()]),
             trailing_comments: TrailingCommentStyle::AlignedColumn,
+            max_width: None,
             rustfmt: true,
             check_idempotence: true,
             check_rustfmt_fixpoint: true,
@@ -182,7 +188,15 @@ pub fn format_source_in(
     directory: &Path,
 ) -> Result<String, FormatError> {
     let facade = FacadeScope::new(options.facade_aliases.clone());
-    let output = format_source_once(source, options, directory, &facade)?;
+    let layout = rules::BodyLayout {
+        trailing_comments: options.trailing_comments,
+        max_width: match options.max_width {
+            Some(width) => width,
+            None if options.rustfmt => rustfmt::max_width(directory)?,
+            None => rustfmt::DEFAULT_MAX_WIDTH,
+        },
+    };
+    let output = format_source_once(source, options, directory, &facade, layout)?;
     rustfmt::validate_token_payload(source, &output, &facade)?;
     rustfmt::validate_comment_payload(source, &output)?;
     syn::parse_file(&output).map_err(|error| {
@@ -192,7 +206,7 @@ pub fn format_source_in(
         )
     })?;
     if options.check_idempotence {
-        let repeated = format_source_once(&output, options, directory, &facade)?;
+        let repeated = format_source_once(&output, options, directory, &facade, layout)?;
         if repeated != output {
             return Err(FormatError::new(
                 FormatErrorKind::NonIdempotent,
@@ -217,6 +231,7 @@ fn format_source_once(
     options: &FormatOptions,
     directory: &Path,
     facade: &FacadeScope,
+    layout: rules::BodyLayout,
 ) -> Result<String, FormatError> {
     let elided = rustfmt::elide_rule_bodies(source, facade)?;
     let rust = if options.rustfmt {
@@ -224,7 +239,7 @@ fn format_source_once(
     } else {
         elided.source
     };
-    rustfmt::splice_rule_bodies(&rust, &elided.bodies, options.trailing_comments, facade)
+    rustfmt::splice_rule_bodies(&rust, &elided.bodies, layout, facade)
 }
 
 /// Formats one file without writing it.
@@ -290,6 +305,50 @@ k::rules! { for Exp; use ExpSyntax::*; pick:Pick(c,x,y)=>Choose::<Exp>{cond:c,th
             "{output}"
         );
         assert!(output.contains("Choose::<Exp> {"), "{output}");
+    }
+
+    /// Operators in a rule table keep Rust's spelling, shifts included, and
+    /// formatting the output again changes nothing.
+    #[test]
+    fn operators_format_idempotently() {
+        let source = "k::equations! { for Mix; #[k::requires(a & 15 == 0 && !(a == b))]
+mix: (a, b) => -a * b + (a / b) % 3 - (a << 2 >> 1) ^ !b | 1; low: (a, b) => a - -1 <= b; }
+";
+        let output = format_source(source, &FormatOptions::default()).unwrap();
+        assert_eq!(
+            format_source(&output, &FormatOptions::default()).unwrap(),
+            output
+        );
+        assert!(
+            output.contains("mix: (a, b) => -a * b + (a / b) % 3 - (a << 2 >> 1) ^ !b | 1;"),
+            "{output}"
+        );
+        assert!(output.contains("low: (a, b) => a - -1 <= b;"), "{output}");
+    }
+
+    /// Computation-cell patterns of several items, a whole cell, `[]`, and a
+    /// read-only `k` format like `[head, ..]`, and formatting is idempotent.
+    #[test]
+    fn computation_cell_patterns_format_idempotently() {
+        let source = "k::rules! { for Machine; use Op::*;
+store: { k: [v, Store { addr: a }, ..], acc: s } => { k: [..], acc: int::add(s, v) } where v: Int;
+start:  { k: [Run { n }],   left: _ } => { k: [Op::Boundary], left: n };
+idle: { k: [] } => { k: [Op::Boundary] };
+  tick: { k: [Op::Boundary, ..], left: n } => { left: int::sub(n, 1) }; }
+";
+        let output = format_source(source, &FormatOptions::default()).unwrap();
+        assert_eq!(
+            format_source(&output, &FormatOptions::default()).unwrap(),
+            output
+        );
+        for expected in [
+            "k: [v, Store { addr: a }, ..]",
+            "k: [Run { n }]",
+            "k: []",
+            "left: int::sub(n, 1)",
+        ] {
+            assert!(output.contains(expected), "{expected}:\n{output}");
+        }
     }
 
     #[test]
@@ -519,8 +578,12 @@ k::rules!(a, b);
         .assert_eq(&gutter);
     }
 
+    /// A comment inside a term's group keeps its place there and breaks the
+    /// group; a comment between a clause's components moves before it, and
+    /// takes every comment of its clause along when it would otherwise move
+    /// before one kept in place.
     #[test]
-    fn interior_comments_normalize_to_leading_without_reordering() {
+    fn interior_comments_stay_in_their_group_without_reordering() {
         let source = r"fn definition() {
     k::rules! {
         for Expr;
@@ -530,6 +593,16 @@ k::rules!(a, b);
             // interior
             value
         ) => value; // trailing
+        two: // between
+        A(
+            // kept
+            value
+        ) => value;
+        three: A(
+            // interior
+            value
+        ) => // after
+        value;
     }
 }
 ";
@@ -539,11 +612,30 @@ k::rules!(a, b);
             ..FormatOptions::default()
         };
         let output = format_source(source, &options).expect("comments survive formatting");
-        let before = output.find("// before").expect("leading comment");
-        let interior = output.find("// interior").expect("interior comment");
-        let clause = output.find("one: A(value)").expect("formatted clause");
-        let trailing = output.find("// trailing").expect("trailing comment");
-        assert!(before < interior && interior < clause && clause < trailing);
+        expect_test::expect![[r"
+            fn definition() {
+                k::rules! {
+                    for Expr;
+
+                    // before
+                    one:
+                        A(
+                            // interior
+                            value,
+                        ) => value;  // trailing
+                    // between
+                    two:
+                        A(
+                            // kept
+                            value,
+                        ) => value;
+                    // interior
+                    // after
+                    three: A(value) => value;
+                }
+            }
+        "]]
+        .assert_eq(&output);
     }
 
     #[test]

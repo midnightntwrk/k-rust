@@ -980,7 +980,8 @@ impl HostDescriptor {
             HostDescriptorPayload::Sort(_)
             | HostDescriptorPayload::Constructor(_)
             | HostDescriptorPayload::Grammar(_)
-            | HostDescriptorPayload::StructuredRule(_) => Ok(()),
+            | HostDescriptorPayload::StructuredRule(_)
+            | HostDescriptorPayload::Constant(_) => Ok(()),
         }
     }
 }
@@ -991,11 +992,17 @@ pub type HostDescriptorPayload = crate::bundle::Payload<crate::HostStage, HostHe
 /// Build-local host-stage form of [`crate::bundle::SortPayload`].
 pub type HostSortDescriptor = crate::bundle::SortPayload<crate::HostStage>;
 
+/// Build-local host-stage form of [`crate::ConstantPayload`].
+pub type HostConstantDescriptor = crate::ConstantPayload<crate::HostStage>;
+
 /// Build-local host-stage form of [`crate::bundle::Constructor`].
 pub type HostConstructorDescriptor = crate::bundle::Constructor<crate::HostStage>;
 
 /// Build-local host-stage form of [`crate::bundle::ConstructorField`].
 pub type HostConstructorFieldDescriptor = crate::bundle::ConstructorField<crate::HostStage>;
+
+/// Build-local host-stage form of [`crate::bundle::ConstructorSortArgument`].
+pub type HostConstructorSortArgument = crate::bundle::ConstructorSortArgument<crate::HostStage>;
 
 #[cfg(test)]
 mod tests {
@@ -1107,7 +1114,9 @@ mod tests {
             fields: vec![HostConstructorFieldDescriptor {
                 name: "value".into(),
                 sort: type_reference("model::Value"),
+                arguments: Vec::new(),
             }],
+            arguments: Vec::new(),
         };
         assert_eq!(constructor.fields[0].name, "value");
         assert_eq!(constructor.fields[0].sort.key.resolve(), TypeId::of::<u8>());

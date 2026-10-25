@@ -26,23 +26,28 @@ use apply::{
     BooleanSplit, EqualitySplit, MapNotInKeysSplit, PartialRuleMatch, RuleAttempt, apply_rule,
 };
 use execute::execute_using;
-pub(crate) use execute::{simplify_leaf_pattern, simplify_result_pattern};
+pub(crate) use execute::{
+    Sibling, UndefinedDecision, UndefinedGroup, UndefinedPart, decide_undefined_step,
+    entry_undefined_part, note_undefined_result, sibling_undefined_parts, simplify_leaf_pattern,
+    simplify_result_pattern, successor_undefinedness,
+};
 pub use predicates::substitute_predicates;
 use predicates::{StateNames, extend_unique, pattern_variable_names};
 pub(crate) use predicates::{
-    check_concreteness, conjunctively_contains_alpha_equivalent, predicate_root_truth,
-    predicate_truth, predicates_truth, quantify_introduced_variables,
-    violates_finite_constructor_domain,
+    alpha_normal, check_concreteness, conjunctively_contains_alpha_equivalent,
+    free_variables_by_first_occurrence, predicate_root_truth, predicate_truth, predicates_truth,
+    quantify_introduced_variables, violates_finite_constructor_domain,
 };
 use recover::{
-    GeneralUnificationRecovery, freshen_unbound_rule_variables, is_functional_pattern,
-    recover_boolean_matches, recover_equality_matches, recover_function_equality_match,
-    recover_functional_symbolic_match, recover_general_unification, recover_ite_matches,
-    recover_map_not_in_keys_matches, recover_overload_symbolic_match,
-    recover_symbolic_map_key_matches, solve_collection_remainders_with_narrowing,
+    GeneralUnificationRecovery, freshen_unbound_rule_variables, recover_boolean_matches,
+    recover_equality_matches, recover_function_equality_match, recover_functional_symbolic_match,
+    recover_general_unification, recover_ite_matches, recover_map_not_in_keys_matches,
+    recover_overload_symbolic_match, recover_symbolic_map_key_matches,
+    solve_collection_remainders_with_narrowing,
 };
 pub(crate) use recover::{
-    RecoveredMatch, collection_unification_definedness, recover_indeterminate_match,
+    RecoveredMatch, collection_unification_definedness, is_functional_pattern,
+    recover_indeterminate_match,
 };
 use roles::{Applicability, Remainder};
 #[cfg(test)]
@@ -155,6 +160,16 @@ pub struct AppliedRule {
     pub pattern: Pattern,
     pub label: Option<String>,
     pub unique_id: String,
+    /// The rule's shared identity: its id, label and origin, what a contradicted claim its
+    /// successor's normalization observes names (`crate::path_facts::ObservingRule`), and whether
+    /// it claims `pattern`'s term defined, which that normalization can refute
+    /// (`crate::path_facts::claims_defined_result`).
+    pub(crate) identity: Arc<crate::path_facts::RuleIdentity>,
+    /// Whether the attempt that built this candidate depended on something that may differ
+    /// between models before the candidate was built (it decided the step's premises), which a
+    /// record of the rule's claim the successor's normalization observes rests on too
+    /// (`crate::path_facts::Dependence`; equality ignores it).
+    pub(crate) premises_depend: crate::path_facts::Dependence,
     pub substitution: Substitution,
     /// Rule-variable bindings suitable for execution diagnostics. Variables introduced solely as
     /// term aliases (`P #as X`) are implementation details and are omitted from this view.
@@ -181,7 +196,16 @@ pub struct AppliedRule {
     pub observations: Vec<ObservationEvent>,
 }
 
-/// Every field but the `normalized` cache, which is work derived from `pattern`.
+impl AppliedRule {
+    /// The rule, as a contradicted claim its successor's normalization observes names it.
+    pub(crate) fn observing_rule(&self) -> crate::path_facts::ObservingRule {
+        crate::path_facts::ObservingRule::with(Arc::clone(&self.identity), self.premises_depend)
+    }
+}
+
+/// Every field but the `normalized` cache, which is work derived from `pattern`, and the rule's
+/// `identity`, which `unique_id` names within a definition, and
+/// `premises_depend`, a fact of the work that built it.
 impl std::fmt::Debug for AppliedRule {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter
@@ -563,7 +587,9 @@ pub struct ExecutionOptions {
     /// trace, branch identity, and observations. A `StateSet` run that explores every branch also
     /// expands each distinct state of a depth once: a state equal at its depth to one whose
     /// expansion completed, with the same effects, console and console availability and no
-    /// diagnostic the other's path lacks, is merged into it, so converging paths cost the distinct
+    /// diagnostic the other's path lacks (path facts aside, whose marks and records go to
+    /// [`ExecutionResult::implementation_chosen_values`] and
+    /// [`ExecutionResult::contradicted_claims`]), is merged into it, so converging paths cost the distinct
     /// states; exploration stays depth-first, and the leaves are those of the unmerged run but for
     /// the duplicates of `Trivial` and `Vacuous` leaves in a merged subtree. Such a run's
     /// `max_breadth` bounds the pending states of the merged exploration, so where the unmerged run
@@ -599,6 +625,31 @@ pub struct ExecutionOptions {
     /// modality, so the sets include what was applied on paths whose leaves a state-set merge
     /// drops.
     pub collect_coverage: bool,
+    /// With [`Self::collect_coverage`], also collect the offered level
+    /// ([`crate::coverage::RunCoverage::offered`]): the axioms whose left-hand side matched a
+    /// subject the run selected them as candidates for, tried there or not. Off by default;
+    /// ignored without `collect_coverage`. A candidate a site never tried costs one isolated
+    /// match of its left-hand side (`Counter::CoverageOfferMatches`) at every visit of the site
+    /// while it has not matched, so the cost grows with the visits times the skipped
+    /// candidates; asking changes nothing else in the result.
+    pub collect_offered: bool,
+    /// With [`Self::collect_coverage`], also report how many times the run applied each axiom
+    /// of `applied` ([`crate::coverage::RunCoverage::applied_counts`]). Off by default; ignored
+    /// without `collect_coverage`. The collection counts at no cost beyond the set's, so asking
+    /// costs only the result's map and changes nothing else in the result.
+    pub collect_counts: bool,
+    /// With [`Self::collect_coverage`], also record the condition entries of the rewrite rules it
+    /// names ([`crate::coverage::RunCoverage::conditions`]): for each entry into a named rule's
+    /// `requires` for a matched instance, the bindings of the variables the condition reads, the
+    /// condition with every node's truth and its atoms' operands evaluated under the instance, and
+    /// the attempt's verdict, up to the collection's caps
+    /// ([`crate::coverage::ConditionCollection`]). Off by default (`None`); ignored without
+    /// `collect_coverage`. Each new entry of a named rule costs about one more evaluation of the
+    /// condition, isolated, without a solver, off the run's clock (the step deadline is not
+    /// charged with it) and bounded by its own budget of polls; an entry equal to one recorded
+    /// costs a lookup, and a run that names no rule entered pays nothing. Recording changes
+    /// nothing else in the result, also under a step timeout.
+    pub collect_conditions: Option<crate::coverage::ConditionCollection>,
     /// The most states the run may visit across all its paths (`None`, the default: no bound).
     ///
     /// A state is visited when the run takes it from its worklist, whatever becomes of it, so an
@@ -607,17 +658,32 @@ pub struct ExecutionOptions {
     /// [`ExecutionResult::work`]. The run takes states in a fixed order, so it stops at the same
     /// state, with the same leaves finished before it, wherever its result is the same: within
     /// the execution determinism contract and its exclusions (docs/compatibility.md,
-    /// "Determinism and concurrency", "Execute"), which leave out, among others, a run in which
-    /// an SMT query timed out. When a state remains after `max_work` states, that state becomes
-    /// the one [`HaltReason::WorkBound`] leaf, the last of the result, and the other pending
-    /// states are dropped unexplored; a budget at least the unbounded run's count changes
-    /// nothing, and a budget of 0 makes the first initial state, as given, that leaf.
+    /// "Determinism and concurrency", "Execute"), which leave out, among others, in a build with
+    /// Z3, a run whose result reports a nonzero [`ExecutionResult::smt_unknowns`]. When a state
+    /// remains after `max_work` states, that state becomes the one [`HaltReason::WorkBound`]
+    /// leaf, the last of the result, and the other pending states are dropped unexplored; a
+    /// budget at least the unbounded run's count leaves every leaf's configuration, halt and
+    /// order, the counts and the result's lists unchanged, and its only change is that every
+    /// leaf's diagnostics gain the run's path facts (below); a budget of 0 makes the first
+    /// initial state, as given, that leaf.
     ///
     /// The budget bounds the states, the leaves and the worklist; it does not bound the work of
     /// one state's step (a ground function evaluation runs to its value), the size of values, or
     /// the length of traces. Under `StateSet` a leaf finished before the stop carries the
     /// diagnostics of the paths merged into it before the stop only, so they may differ from the
-    /// same leaf's in a run with a larger budget.
+    /// same leaf's in a run with a larger budget. In a run with `max_work` or `max_breadth` set,
+    /// every leaf carries every path fact the run noted so far (each mark of
+    /// [`ExecutionResult::implementation_chosen_values`] and each record of
+    /// [`ExecutionResult::contradicted_claims`] the run observed), since whether a bound fires
+    /// rests on the exploration of every path, in every model.
+    ///
+    /// Every leaf finished before the [`HaltReason::WorkBound`] leaf is a leaf of every run of the
+    /// same request with a larger budget or none, at the same position: the result without its
+    /// `WorkBound` leaf is a prefix of theirs. Under `PathSet` the leaf is the same in every
+    /// field but its path facts, which are among the larger run's; under `StateSet` it is the
+    /// same in every field but its diagnostics, which are among the larger run's (a later path
+    /// merged into it adds its own). This holds within the determinism contract above
+    /// (docs/compatibility.md, "Work budget").
     pub max_work: Option<u64>,
     /// Build no result after a stop that ends the run (a cancellation, a failed solver prelude),
     /// for a caller that will not read a stopped run's leaves (`false`, the default: the leaves
@@ -661,6 +727,9 @@ impl Default for ExecutionOptions {
             request_names: RequestNames::default(),
             evaluation: EvaluationMode::Proof,
             collect_coverage: false,
+            collect_offered: false,
+            collect_counts: false,
+            collect_conditions: None,
             max_work: None,
             discard_stopped: false,
         }
@@ -710,6 +779,13 @@ pub enum HaltReason {
         /// the definition only: the leaf is the same with or without it.
         contradicted_total: Option<Box<ContradictedTotal>>,
     },
+    /// A state with no instance: its constraints were shown `\bottom`. A step's successor that
+    /// normalizes to `\bottom`, however that is found, denotes no state and is no successor: it
+    /// is the step's `Trivial` leaf, or no leaf where another candidate of the step takes its
+    /// instances. So a `Vacuous` leaf is an initial configuration with no instance, a state no
+    /// step's candidate built (a remainder), or the successor of a step whose pre-step
+    /// configuration itself has no instance, which only the step exposed: one leaf for the
+    /// step, which names no rule, since nothing applied to an instance.
     Vacuous {
         /// Semantic depth at which the path constraint became false.
         depth: u64,
@@ -765,7 +841,13 @@ pub(crate) fn stuck(definition: &BackendDefinition, pattern: &Pattern) -> Stoppa
 }
 
 fn false_constraint(pattern: &Pattern) -> Predicate {
-    match pattern.constraints.as_slice() {
+    refuted_constraint(&pattern.constraints)
+}
+
+/// Constraints shown to have no instance, as the one predicate an undefined step names (`False`
+/// for none).
+fn refuted_constraint(constraints: &[Predicate]) -> Predicate {
+    match constraints {
         [] => Predicate::False,
         [constraint] => constraint.clone(),
         constraints => Predicate::And(constraints.to_vec().into()),
@@ -897,12 +979,60 @@ pub struct ExecutionResult {
     /// `nesting::with_simplification_stack_budget`, and on the stack other threads of the process
     /// hold, so a run's result is a function of its inputs only when this is zero.
     pub stack_stops: usize,
+    /// The undecided answers the solver delivered to the run's decisions: an `Unknown` from
+    /// [`SmtSolver::is_sat`] or [`SmtSolver::check_predicates`] (a timeout, the
+    /// solver's resource limit, or its incompleteness), and an `Unknown` model other than the one
+    /// that reports an approximate translation, each counted once as the run received it, after
+    /// the solver's retries. A run reads such an answer as an over-approximation, so another run
+    /// of the same request in which the query was decided may give another result. A decided
+    /// answer is a function of the query and the build, and the solver's cache holds only decided
+    /// answers, so a run whose count is zero took every decision from a fact about its queries:
+    /// within the execution determinism contract it gives one result on a fresh solver and on a
+    /// reused one (docs/compatibility.md, "Determinism and concurrency"). A failure (`Err`: no
+    /// solver in the build, a query that does not translate) and a stop are not counted, so a run
+    /// without a solver counts zero. A state-set run does not ask the queries of a subtree it does
+    /// not explore.
+    pub smt_unknowns: usize,
     /// The cause of the stop that ended the run (a cancellation or a failed solver prelude), if
     /// one did; `None` when the run ended by itself, by a bound or by its work budget, unless,
     /// under [`ExecutionOptions::discard_stopped`], a pass after the exploration (the breadth
     /// drain or the state-set final merge) observed such a stop. Under `discard_stopped` a run
     /// with a cause here has no leaves.
     pub stopped: Option<StopCause>,
+    /// Every distinct value the definition leaves open that the run read, in the order the run
+    /// first noted it (`builtin::chosen_value`, `crate::path_facts`): those on the paths of its
+    /// leaves (`BackendDiagnostic::ImplementationChosenValue`), and those of work that ended on
+    /// no reported leaf, such as a candidate that vanished, a state a state-set merge absorbed,
+    /// or a state whose successors were all absorbed. Empty exactly when no evaluation of the
+    /// run took a value the definition leaves open: then every model of the definition that
+    /// agrees with the request's inputs and k-rust's stated readings gives the run the same
+    /// leaves. An evaluation that only decided a definedness every model gives alike does not
+    /// count.
+    pub implementation_chosen_values: Vec<crate::builtin::ChosenValue>,
+    /// Every distinct contradicted claim the run observed, in the order the run first noted it
+    /// (`crate::path_facts::ContradictedClaim`), and those the load of its definition observed
+    /// (`BackendDefinition::load_record`), first: those on the paths of its leaves
+    /// (`BackendDiagnostic::ContradictedClaim`), and those of work that ended on no reported
+    /// leaf (a candidate a defined sibling covered, a state a state-set merge absorbed). Empty
+    /// when no evaluation of the run, and none of the load, reduced an application of a symbol
+    /// declared `total` to defined arguments to bottom through one of its own equations. The
+    /// list is complete for contradictions found by evaluation; a symbolic state trusts the
+    /// claim, so it gives no evidence that a non-ground run rests on no false claim. Each record
+    /// says who observed it (`ContradictedClaim::observed_in`); the load's are on no leaf, and a
+    /// contradiction the load and the run both observed is listed once for each.
+    pub contradicted_claims: Vec<crate::path_facts::ContradictedClaim>,
+    /// Every distinct `Bytes` result the memory allowance refused (`crate::allowance`) in the
+    /// run or in the load of its definition, in the order first met, whatever became of the work
+    /// that met it: a refusal inside an attempt that was undone or passed over, which leaves no
+    /// diagnostic, is listed too. When it is empty, every application of a hook the allowance
+    /// bounds was computed, so the run gives the same result under every allowance of at least
+    /// as many bytes (docs/compatibility.md, "Resource bounds").
+    pub allowance_refusals: Vec<crate::path_facts::UnevaluatedHook>,
+    /// Every distinct application the run, or the load of its definition, left unevaluated as an
+    /// unsupported hook other than an allowance refusal, in the order first met, whatever became
+    /// of the work that met it (the `UnsupportedHookUnevaluated` reports and the unsupported-hook
+    /// failures, kept or dropped).
+    pub unsupported_hooks: Vec<crate::path_facts::UnevaluatedHook>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -926,10 +1056,14 @@ pub(crate) enum SubjectDefinedness<'a> {
     /// Not assumed. The subject denotes its defined instances only, those where these decided
     /// obligations hold ([`initial_definedness`]); none are given when nothing beyond its
     /// constraints is decided. The rules of the first priority that applies see the subject as
-    /// it is, so a successor carries the obligations its own step states; what the step leaves
-    /// over (its remainder, the part offered to lower priorities or to the later rules of an
-    /// `Any` step, a subject no rule applies to) is restricted to the instances where they hold,
-    /// since the others are no configuration to rewrite or to report.
+    /// it is, and decide their conditions without these obligations. Every part of the step is
+    /// restricted to the instances where they hold, since the others are no configuration to
+    /// rewrite or to report: each applied successor carries them beside the obligations its own
+    /// step states, and so does what the step leaves over (its remainder, the part offered to
+    /// lower priorities or to the later rules of an `Any` step, a subject no rule applies to). A
+    /// successor needs them because a subterm the step consumed by a recovery, rather than by a
+    /// binding or a collection pattern whose definedness the step states, leaves no other trace
+    /// of its definedness in the successor.
     Where(&'a [Predicate]),
 }
 
@@ -948,8 +1082,8 @@ impl<'a> SubjectDefinedness<'a> {
         matches!(self, Self::Assumed)
     }
 
-    /// The obligations that restrict what the step leaves over; none when assumed, since the
-    /// rules then decide their conditions under the subject's whole definedness.
+    /// The obligations that restrict what the step produces and leaves over; none when assumed,
+    /// since the rules then decide their conditions under the subject's whole definedness.
     pub(crate) const fn restriction(self) -> &'a [Predicate] {
         match self {
             Self::Assumed => &[],
@@ -986,9 +1120,9 @@ pub(crate) enum InitialDefinedness {
 /// application holding it is undefined too, and the instance is no configuration. Such an
 /// instance has no successor, so no rule is stuck on it, and it is no result. The obligations
 /// `⌈t⌉` are therefore decided under `φ` before the first step: refuted, the configuration has no
-/// instance; otherwise the obligations left open restrict what its step leaves over
-/// ([`SubjectDefinedness::Where`]), so that no remainder, lower priority or stuck leaf is given
-/// the instances where they fail. A rule's own conditions are not obligations of `t`: an
+/// instance; otherwise the obligations left open restrict what its step produces and leaves
+/// over ([`SubjectDefinedness::Where`]), so that no successor, remainder, lower priority or stuck
+/// leaf is given the instances where they fail. A rule's own conditions are not obligations of `t`: an
 /// instance on which a `requires` is undefined is a configuration all the same, and stays stuck
 /// where no rule applies to it. A failed simplification states the obligations as `⌈t⌉` gives
 /// them, which denote the same instances.
@@ -1290,6 +1424,9 @@ pub(crate) fn rewrite_step_restricted(
     )
 }
 
+/// The one-path proof's sequential step: [`rewrite_step_sequential_with_solver`]'s, under
+/// `simplification_options`, where a successor whose normalized constraints have no instance is
+/// no successor, as the proof reads its states (`step::SuccessorSatisfiability::Asked`).
 pub(crate) fn rewrite_step_sequential_with_options(
     definition: &BackendDefinition,
     pattern: &Pattern,
@@ -1297,14 +1434,27 @@ pub(crate) fn rewrite_step_sequential_with_options(
     simplification_options: SimplificationOptions,
     solver: &dyn SmtSolver,
 ) -> Stoppable<RewriteResult> {
-    rewrite_step_with_mode(
+    if let Some(symbol) = pattern.macro_or_alias_symbol() {
+        return Ok(RewriteResult::Indeterminate {
+            pattern: pattern.clone(),
+            reason: IndeterminateReason::SurvivingMacroOrAlias { symbol },
+        });
+    }
+    if predicates_truth(&pattern.constraints) == Truth::False {
+        return Ok(RewriteResult::Vacuous(pattern.clone()));
+    }
+    rewrite_step_any(
         definition,
         pattern,
         fresh_counter,
         simplification_options,
         solver,
-        ExecutionMode::Any,
+        &[],
+        None,
         false,
+        None,
+        None,
+        step::SuccessorSatisfiability::Asked,
     )
 }
 
@@ -1341,6 +1491,7 @@ pub(crate) fn rewrite_step_sequential_tracking_dropped(
         false,
         Some(&mut determinism),
         None,
+        step::SuccessorSatisfiability::Asked,
     )?;
     Ok((result, determinism.dropped))
 }
@@ -1417,6 +1568,7 @@ fn rewrite_step_with_optional_execution(
             ground_halt,
             None,
             refutations,
+            step::SuccessorSatisfiability::NotAsked,
         ),
     }
 }

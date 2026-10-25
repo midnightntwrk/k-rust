@@ -20,7 +20,7 @@ different absolute paths. Each run checks all four commands against the same
 - `check` validates exactly nine descriptors and one semantic module;
 - `expand` produces canonical, deterministic layer-2 Rust source with three sorts, two constructors, one combined configuration, and one rule;
 - `emit-k` creates the schema marker, the three IR/bundle documents, `definition.k`, `symbols.json`, and `sources.json`, and retains `ObjectTerm < KResult < KItem`, `<k> foo </k>`, and the `foo => bar` rule;
-- `build` compiles the Definition IR through the structured k-rust frontend and creates exactly `.krs-artifacts`, `definition.kore`, `syntaxDefinition.kore`, and `macros.kore`.
+- `build` compiles the Definition IR through the structured k-rust frontend and creates exactly `.krs-artifacts`, `definition.kore`, `syntaxDefinition.kore`, `macros.kore`, and `k2lean-sidecar.json`.
 
 Each run then exercises the run commands natively on the same theory, through `krs-exec` and the `k-rust` symbolic backend:
 

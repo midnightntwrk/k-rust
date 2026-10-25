@@ -54,7 +54,7 @@ the outcomes must agree:
   routes; `int x, y, z;` (recursive) declares all three names, while
   `decl x, y, z;` (plain) expands one step to `var x; decl y, z;`, a pinned
   divergence (Java LLVM stops at `decl y, z;`, k-rust refuses to execute a
-  state that holds the macro symbol `declareOnce`, by contract: k-rust
+  state that holds the macro symbol `sugarDeclareOnce`, by contract: k-rust
   `docs/compatibility.md`, "Macro applications that survive expansion"); and
   `x = nest(1, 2);` stores `pair(1, pair(2, nil))`, which both printers show
   backwards as `nest(1 , 2 , .Ints)`; the desugars `twin` and `anyPair` are
@@ -77,7 +77,9 @@ the outcomes must agree:
   marked(4))` to `pair(3, marked(4))` on both routes;
 - `heat-cool`: K tutorial lesson 14-A, `+` and `&&` evaluated by
   hand-written `#[k::rule(heat, hole = h)]` and `#[k::rule(cool, hole =
-  h)]` rules with KItem freezers (the `&&` rules with `result = Value`), and
+  h)]` rules with KItem freezers (the `&&` rules with `result = Value`;
+  two cool rules are readable records matching the value and its freezer,
+  two are `cells!` rules naming the tail), and
   `heat-cool-strict`, lesson 14-D, the same operators with `#[k::seqstrict]`.
   Both run `1 + 2 + 3`, `1 + (2 + 3)`, `true && false`, both `&&`
   bracketings, and the stuck `1 + true` to the same final configuration
@@ -121,7 +123,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 from pathlib import Path
 import shutil
 import sys
@@ -134,7 +135,7 @@ from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.reference import add_refresh_argument  # noqa: E402
-from support.tools import checkout_scratch, z3_environment  # noqa: E402
+from support.tools import target_environment, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -344,6 +345,7 @@ NEGATIVE = (
     "owise-simplification",
     "priority-alias",
     "unannotated-overlap",
+    "list-unit-overlap",
     "single-member-group",
     "stale-member",
     "mixed-priorities",
@@ -454,10 +456,10 @@ def verify_macros(harness: FixtureGate) -> None:
     harness.expand(MACROS)
     emitted = harness.emit(MACROS)
     emitted_attributes(emitted, (
-        '"unless" "(" Expr ")" Stmt [symbol(unless), macro,',
-        '"int" Ids ";" [symbol(declareMany), macro-rec,',
-        '"decl" Ids ";" [symbol(declareOnce), macro,',
-        '"nest" "(" Ints ")" [symbol(nest), alias-rec,',
+        '"unless" "(" Expr ")" Stmt [symbol(sugarUnless), macro,',
+        '"int" Ids ";" [symbol(sugarDeclareMany), macro-rec,',
+        '"decl" Ids ";" [symbol(sugarDeclareOnce), macro,',
+        '"nest" "(" Ints ")" [symbol(dataNest), alias-rec,',
         "rule unless ( C:Expr ) S:Stmt => if ( C:Expr ) { } else S:Stmt [label(",
         "rule int X:Id , Y:Id , Rest:Ids ; => var X:Id ; int Y:Id , Rest:Ids ; [label(",
         "rule nest ( I:Int , Is:Ints ) => pair ( I:Int , nest ( Is:Ints ) ) [label(",
@@ -564,7 +566,10 @@ def verify_heat_cool(harness: FixtureGate, pins: Ledger) -> None:
         "    requires isKResult(E:Exp)\n"
         "    [heat]\n",
         "  rule [cool-add-rhs]:\n"
-        "    <k> HOLE:Exp ~> freezer1 ( E:Exp ) ~> Tail:K => E:Exp + HOLE:Exp ~> Tail:K </k>\n"
+        "    <k> HOLE:Exp ~> freezer1 ( E:Exp ) => E:Exp + HOLE:Exp ... </k>\n"
+        "    [cool]\n",
+        "  rule [cool-add-lhs]:\n"
+        "    <k> HOLE:Exp ~> freezer2 ( E:Exp ) ~> Tail:K => HOLE:Exp + E:Exp ~> Tail:K </k>\n"
         "    [cool]\n",
         "    <k> HOLE:Exp && E:Exp => HOLE:Exp ~> freezer4 ( E:Exp ) ... </k>\n"
         "    [heat, result(Value)]\n",
@@ -648,11 +653,10 @@ def main() -> int:
     if pins.get("schema") != 1:
         raise GateError("pins.json is not the schema-1 rule-forms ledger")
 
-    target = checkout_scratch() / "rule-forms-target"
-    environment = {**z3_environment(), "CARGO_TARGET_DIR": os.fspath(target), "CARGO_TERM_COLOR": "never"}
+    environment = {**z3_environment(), **target_environment(), "CARGO_TERM_COLOR": "never"}
     krs = build(environment)
     gate = krs_gate.configured_or_build()
-    check_packages("rule-forms", krs=krs, env=environment, target_dir=target)
+    check_packages("rule-forms", krs=krs, env=environment)
 
     with tempfile.TemporaryDirectory(prefix="krs-rule-forms-") as temporary:
         workspace = Path(temporary)

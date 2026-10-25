@@ -9,7 +9,7 @@ use crate::{
     definition::{BackendDefinition, ConstructorHead, DefinitionError},
     rewrite::violates_finite_constructor_domain,
     rule::Predicate,
-    term::{Sort, Term, Variable},
+    term::{Sort, Sorts, Term, Variable},
     verify::SentenceContext,
 };
 
@@ -48,11 +48,11 @@ fn complete_schema_domain_keeps_the_non_g_branch_feasible() {
     let expected = BTreeSet::from([
         ConstructorHead::Symbol {
             name: "g".into(),
-            sort_arguments: vec![],
+            sort_arguments: Sorts::EMPTY,
         },
         ConstructorHead::Symbol {
             name: "wrap".into(),
-            sort_arguments: vec![foo.clone()],
+            sort_arguments: Sorts::new(&[foo]),
         },
     ]);
     let domain = definition
@@ -213,7 +213,7 @@ fn alias_instantiation_must_not_admit_a_fixed_sort_constructor() {
         panic!("free-sort alias should expand to the constructor");
     };
     assert_eq!(symbol.name.as_ref(), "wrap");
-    assert_eq!(sort_arguments, &[Sort::simple("SortFoo")]);
+    assert_eq!(sort_arguments.as_slice(), &[Sort::simple("SortFoo")]);
 }
 
 #[test]

@@ -337,6 +337,8 @@ fn expression_descriptors() -> Vec<DescriptorInputs> {
                 ]
                 .try_into()
                 .unwrap(),
+                update: None,
+                open: false,
             },
             result: Some(DescriptorTerm::Variable {
                 key: key(ProvenanceRole::RuleRightReference, 0),
@@ -475,6 +477,8 @@ fn structured_requires_has_closed_exact_provenance_and_pre_bindings() {
             ]
             .try_into()
             .unwrap(),
+            update: None,
+            open: false,
         },
     });
 
@@ -646,6 +650,8 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
         },
         path_key: key(ProvenanceRole::RuleRightPath, 0),
         arguments: vec![].try_into().unwrap(),
+        update: None,
+        open: false,
     });
     descriptors[1].build().unwrap();
     let bundle = krs_ir::testing::descriptor_bundle(descriptors).unwrap();
@@ -673,6 +679,8 @@ fn bare_unit_constructor_is_an_application_with_reference_provenance() {
         }]
         .try_into()
         .unwrap(),
+        update: None,
+        open: false,
     });
     assert!(matches!(
         descriptors[1].build(),
@@ -701,6 +709,10 @@ fn builtin_references_are_typed_and_raw_labels_are_unrepresentable() {
 }
 
 #[test]
+#[expect(
+    clippy::too_many_lines,
+    reason = "Each map operation's closed wire shape is spelled out in full."
+)]
 fn ordinary_map_references_have_closed_wire_shapes() {
     let variable = |name: &str| DescriptorTerm::Variable {
         key: key(ProvenanceRole::RuleRightReference, 0),
@@ -726,6 +738,8 @@ fn ordinary_map_references_have_closed_wire_shapes() {
                 .map(|name| Box::new(variable(name)))
                 .collect(),
         ),
+        update: None,
+        open: false,
     };
     let bindings = ["map", "key", "value"]
         .into_iter()
@@ -751,6 +765,8 @@ fn ordinary_map_references_have_closed_wire_shapes() {
                     .map(|name| Box::new(variable(name)))
                     .collect(),
             ),
+            update: None,
+            open: false,
         };
         term.validate(|_| true, &bindings, &mut BTreeSet::new(), false)
             .unwrap();
@@ -771,7 +787,8 @@ fn ordinary_map_references_have_closed_wire_shapes() {
         ))
     ));
 
-    for operation in [MapOperation::Empty, MapOperation::Item] {
+    {
+        let operation = MapOperation::Item;
         assert_eq!(
             TermMapOperation::try_from(operation),
             Err(GrammarTransportError::InvalidApplication(
@@ -846,6 +863,8 @@ fn ordinary_set_references_have_closed_wire_shapes_and_exact_arities() {
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap(),
+            update: None,
+            open: false,
         };
         term.validate(|_| true, &bindings, &mut BTreeSet::new(), false)
             .unwrap();
@@ -894,6 +913,8 @@ fn ordinary_list_references_have_closed_wire_shapes_and_exact_arities() {
                 .collect::<Vec<_>>()
                 .try_into()
                 .unwrap(),
+            update: None,
+            open: false,
         };
         term.validate(|_| true, &bindings, &mut BTreeSet::new(), false)
             .unwrap();
@@ -912,6 +933,8 @@ fn ordinary_list_references_have_closed_wire_shapes_and_exact_arities() {
         }]
         .try_into()
         .unwrap(),
+        update: None,
+        open: false,
     };
     assert!(matches!(
         wrong_arity.validate(|_| true, &bindings, &mut BTreeSet::new(), false),
@@ -1390,6 +1413,19 @@ fn registry() -> HostBuiltinRegistry {
         set_operations: filler(list_offset + ListOperation::ALL.len()),
         ml_connectives: filler(
             list_offset + ListOperation::ALL.len() + krs_ir::SetOperation::ALL.len(),
+        ),
+        operators: filler(
+            list_offset
+                + ListOperation::ALL.len()
+                + krs_ir::SetOperation::ALL.len()
+                + krs_ir::MlConnective::ALL.len(),
+        ),
+        list_notation: filler(
+            list_offset
+                + ListOperation::ALL.len()
+                + krs_ir::SetOperation::ALL.len()
+                + krs_ir::MlConnective::ALL.len()
+                + krs_ir::BuiltinOperator::ALL.len(),
         ),
     }
 }

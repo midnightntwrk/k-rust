@@ -117,18 +117,65 @@ fn append_consumed_state_island(path: &Path, tokens: &TokenStream, output: &mut 
 
 fn append_nested_state_islands(tokens: &TokenStream, output: &mut Vec<Path>) {
     let trees = tokens.clone().into_iter().collect::<Vec<_>>();
+    let is_colon =
+        |tree: &TokenTree| matches!(tree, TokenTree::Punct(colon) if colon.as_char() == ':');
     for (index, tree) in trees.iter().enumerate() {
         if let TokenTree::Ident(ident) = tree
             && matches!(ident.to_string().as_str(), "k" | "map")
             && matches!(trees.get(index + 1), Some(TokenTree::Punct(bang)) if bang.as_char() == '!')
             && matches!(trees.get(index + 2), Some(TokenTree::Group(_)))
         {
-            output.push(
-                syn::parse2(quote!(#ident)).expect("an authored macro identifier is a Rust path"),
-            );
+            // A qualified island such as `k::map![..]` is checked through its
+            // whole path; a bare one through the binding that imports it.
+            let mut start = index;
+            while start >= 3
+                && is_colon(&trees[start - 1])
+                && is_colon(&trees[start - 2])
+                && matches!(trees[start - 3], TokenTree::Ident(_))
+            {
+                start -= 3;
+            }
+            let path = trees[start..=index]
+                .iter()
+                .cloned()
+                .collect::<TokenStream>();
+            output.push(syn::parse2(path).expect("an authored macro path is a Rust path"));
         }
         if let TokenTree::Group(group) = tree {
             append_nested_state_islands(&group.stream(), output);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use quote::quote;
+
+    use super::nested_state_island_import_checks;
+
+    #[test]
+    fn qualified_state_islands_are_checked_through_their_whole_path() {
+        let checks = nested_state_island_import_checks(&quote! {
+            k: k::configuration::KCell(x, ..),
+            env: k::configuration::Cell(k::map![a -> v, ..]),
+            regs: k::configuration::Cell(map![b -> w, ..]),
+            ..state
+        });
+        let checks = checks.iter().map(ToString::to_string).collect::<Vec<_>>();
+        assert_eq!(
+            checks,
+            [
+                quote!(
+                    #[allow(unused_imports)]
+                    use k::map as _;
+                )
+                .to_string(),
+                quote!(
+                    #[allow(unused_imports)]
+                    use map as _;
+                )
+                .to_string(),
+            ]
+        );
     }
 }

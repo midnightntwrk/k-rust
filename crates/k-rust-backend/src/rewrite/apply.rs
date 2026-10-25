@@ -49,6 +49,7 @@ use crate::{
         Condition, InstantiatedCondition, MatchSolution, Obligation, ResultConditions,
         RhsDefinedness,
     },
+    coverage::Verdict,
     definedness::ceil_term,
     definition::BackendDefinition,
     diagnostic::{self, Occurrences, Sequenced},
@@ -66,7 +67,7 @@ use crate::{
     stop::{Stop, Stoppable},
     substitution::{Substitution, compose, extract_substitution, substitute},
     term::{
-        Sort, Symbol, Term, TermKind, Variable,
+        Sorts, Symbol, Term, TermKind, Variable,
         names::{VariableProvenance, split_marker},
     },
     transition::ExecutionIoState,
@@ -384,7 +385,7 @@ pub(super) struct BooleanSplit {
 pub(super) struct MapNotInKeysSplit {
     pub(super) side: SplitSide,
     pub(super) symbol: Arc<Symbol>,
-    pub(super) sort_arguments: Vec<Sort>,
+    pub(super) sort_arguments: Sorts,
     pub(super) key: Term,
     pub(super) map: Term,
 }
@@ -622,6 +623,44 @@ pub(super) fn apply_rule_with_match(
     }
     let _span = measure::algorithm_span(Algorithm::BackendRewriteApply);
     measure::bump(Counter::RewriteRuleAttempts);
+    // Every contradicted claim the attempt observes, in its match, its conditions or its
+    // right-hand side, names this rule (`crate::path_facts`).
+    crate::path_facts::observed_by(
+        || Some(crate::path_facts::ObservingRule::of(rule)),
+        || {
+            attempt_rule(
+                definition,
+                rule,
+                pattern,
+                fresh_counter,
+                simplification_options,
+                solver,
+                assume_initial_defined,
+                matched,
+                io,
+                ground_halt,
+                site,
+            )
+        },
+    )
+}
+
+/// The attempt of [`apply_rule_with_match`], of a rule renamed apart from the subject where it
+/// has to be.
+#[allow(clippy::too_many_arguments)]
+fn attempt_rule(
+    definition: &BackendDefinition,
+    rule: &RewriteRule,
+    pattern: &Pattern,
+    fresh_counter: &mut FreshCounter,
+    simplification_options: SimplificationOptions,
+    solver: &dyn SmtSolver,
+    assume_initial_defined: bool,
+    matched: Option<PartialRuleMatch>,
+    io: Option<&ExecutionIoState>,
+    ground_halt: bool,
+    site: Option<&Cell<RefutationSite>>,
+) -> Stoppable<RuleAttempt> {
     let nested_units = RefCell::new(Vec::new());
     let context = RuleContext {
         definition,
@@ -690,6 +729,12 @@ fn apply_rule_phases(
     matched: Option<PartialRuleMatch>,
 ) -> Phase<RuleAttempt> {
     let (matching, mut inherited_conditions) = initial_match(context, matched);
+    if !matches!(matching, MatchResult::Failed(_)) {
+        // The left-hand side matched the subject, or its match is undecided: whatever the later
+        // phases decide, before or after the `requires`, the rule competed at this subject
+        // (`crate::coverage`).
+        crate::coverage::note_offered(&context.rule.attributes.unique_id);
+    }
     let (path_knowledge, mut inherited_knowledge) = knowledge(context, &inherited_conditions);
     let (substitution, match_conditions) = dispatch_match(
         context,
@@ -821,7 +866,9 @@ fn knowledge(
 
 /// P3: `Failed` ends the attempt (`Counter::RewriteMatchFailures`), `Success` yields the
 /// substitution with no match conditions, `Indeterminate` goes through the recovery ladder
-/// (P4 to P6).
+/// (P4 to P6), and `Undecided` (a question the matcher does not answer, such as a sort question
+/// that depends on a sort-parametric rule's sort variable) ends the attempt undecided: some
+/// instance of the rule may apply, so it is neither dropped nor recorded as refuted.
 fn dispatch_match(
     context: RuleContext<'_>,
     fresh_counter: &mut FreshCounter,
@@ -829,12 +876,22 @@ fn dispatch_match(
     inherited_conditions: &mut Vec<Predicate>,
     inherited_knowledge: &mut Vec<Predicate>,
 ) -> Phase<(Substitution, Vec<Predicate>)> {
+    let undecided = || -> Phase<(Substitution, Vec<Predicate>)> {
+        Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
+            IndeterminateReason::Match {
+                rule_id: context.rule.attributes.unique_id.clone(),
+                substitution: Substitution::new(),
+                remainder: vec![(context.rule.lhs.clone(), context.pattern.term.clone())],
+            },
+        )))
+    };
     match matching {
         MatchResult::Failed(_) => {
             measure::bump(Counter::RewriteMatchFailures);
             context.reached(RefutationSite::Match);
             Err(PhaseExit::Attempt(RuleAttempt::NotApplicable))
         }
+        MatchResult::Undecided(_) => undecided(),
         MatchResult::Indeterminate {
             substitution,
             remainder,
@@ -851,6 +908,7 @@ fn dispatch_match(
                     measure::bump(Counter::RewriteMatchFailures);
                     Err(PhaseExit::Attempt(RuleAttempt::NotApplicable))
                 }
+                MatchResult::Undecided(_) => undecided(),
                 MatchResult::Success(substitution) => Ok((substitution, Vec::new())),
                 MatchResult::Indeterminate {
                     substitution,
@@ -908,6 +966,7 @@ fn recover_by_simplification(
     };
     match recovered {
         RecoveredMatch::Failed(reason) => Ok(MatchResult::Failed(reason)),
+        RecoveredMatch::Undecided(reason) => Ok(MatchResult::Undecided(reason)),
         RecoveredMatch::Matched {
             solution,
             remainder,
@@ -1458,6 +1517,15 @@ fn narrowing_sat(context: RuleContext<'_>, match_conditions: &[Predicate]) -> Ph
     }
 }
 
+/// Report what the attempt decided about its `requires` to the condition record of its entry,
+/// when the run records one (`coverage::condition_verdict`); nothing otherwise.
+#[inline]
+fn condition_verdict(verdict: Verdict) {
+    if crate::coverage::records_conditions() {
+        crate::coverage::condition_verdict(verdict);
+    }
+}
+
 /// P11: `requires` under the substitution, simplified under the path plus the match
 /// conditions (the `match_knowledge` returned with it); `False` ends the attempt; for a
 /// one-state subject ([`RuleContext::one_state`]), bindings of still-unbound `lhs` variables
@@ -1476,21 +1544,38 @@ fn requires(
     crate::coverage::replay(&rule.computed_attributes.discharged_by);
     let mut match_knowledge = path_knowledge;
     extend_unique(&mut match_knowledge, match_conditions.iter().cloned());
+    if crate::coverage::records_conditions() {
+        // What this entry saw, for a caller that named the rule (`coverage::record_condition`);
+        // the record's evaluation is isolated from the attempt.
+        crate::coverage::record_condition(
+            context.definition,
+            rule,
+            substitution,
+            &match_knowledge,
+            context.simplification_options,
+        );
+    }
     // The instance satisfies `requires` only where its terms are defined; state that before the
     // simplifier or a solver can answer for instances where they are not.
-    let requires = match simplify_rule_condition(
+    let simplified = simplify_rule_condition(
         context.definition,
         rule.requires.instantiate(substitution),
         &match_knowledge,
         context.simplification_options,
         context.solver,
-    )? {
+    );
+    if simplified.is_err() {
+        condition_verdict(Verdict::Stopped);
+    }
+    let requires = match simplified? {
         Ok(requires) => requires,
         Err(error) => {
+            condition_verdict(Verdict::Undecided);
             return Err(PhaseExit::Attempt(RuleAttempt::Simplification(error)));
         }
     };
     if predicates_truth(&requires) == Truth::False {
+        condition_verdict(Verdict::Refuted);
         if match_conditions.is_empty() && context.last_reached(RefutationSite::Matched) {
             context.reached(RefutationSite::Requires);
         }
@@ -1511,6 +1596,7 @@ fn requires(
             })
             .collect::<Substitution>();
         if !bindings.is_empty() {
+            condition_verdict(Verdict::Reentered);
             #[expect(
                 clippy::disallowed_methods,
                 reason = "bindings extracted from these conditions; the re-entered attempt states their definedness in phase P9"
@@ -1578,9 +1664,14 @@ fn validity_and_applicability(
         })
         .collect::<Vec<_>>();
     if !unclear_requires.is_empty() {
-        match decide_condition(&unclear_requires, match_knowledge, context.solver)? {
+        let decided = decide_condition(&unclear_requires, match_knowledge, context.solver);
+        if decided.is_err() {
+            condition_verdict(Verdict::Stopped);
+        }
+        match decided? {
             Ok(RuleCondition::Satisfied) => unclear_requires.clear(),
             Ok(RuleCondition::Refuted) => {
+                condition_verdict(Verdict::Refuted);
                 return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable));
             }
             Ok(RuleCondition::Indeterminate(
@@ -1589,6 +1680,7 @@ fn validity_and_applicability(
                 | ConditionIndeterminacy::UnboundResultVariables(_),
             )) => {}
             Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::NoSolver)) => {
+                condition_verdict(Verdict::Undecided);
                 return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
                     IndeterminateReason::Requires {
                         rule_id: rule.attributes.unique_id.clone(),
@@ -1597,6 +1689,7 @@ fn validity_and_applicability(
                 )));
             }
             Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::InconsistentPathCondition)) => {
+                condition_verdict(Verdict::Undecided);
                 return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
                     IndeterminateReason::Smt {
                         rule_id: rule.attributes.unique_id.clone(),
@@ -1605,6 +1698,7 @@ fn validity_and_applicability(
                 )));
             }
             Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::SmtUnknown(reason))) => {
+                condition_verdict(Verdict::Undecided);
                 return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
                     IndeterminateReason::Smt {
                         rule_id: rule.attributes.unique_id.clone(),
@@ -1613,6 +1707,7 @@ fn validity_and_applicability(
                 )));
             }
             Ok(RuleCondition::Indeterminate(ConditionIndeterminacy::Untranslatable(error))) => {
+                condition_verdict(Verdict::Undecided);
                 return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
                     IndeterminateReason::Smt {
                         rule_id: rule.attributes.unique_id.clone(),
@@ -1621,6 +1716,7 @@ fn validity_and_applicability(
                 )));
             }
             Err(error) => {
+                condition_verdict(Verdict::Undecided);
                 return Err(PhaseExit::Attempt(RuleAttempt::Indeterminate(
                     IndeterminateReason::Smt {
                         rule_id: rule.attributes.unique_id.clone(),
@@ -1640,8 +1736,15 @@ fn validity_and_applicability(
             &Predicate::Not(Arc::new(applicability.as_predicate().clone())),
         )
     {
+        condition_verdict(Verdict::Refuted);
         return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable));
     }
+    // What is left open, the attempt applies the rule under.
+    condition_verdict(if unclear_requires.is_empty() {
+        Verdict::Held
+    } else {
+        Verdict::Undecided
+    });
     Ok((unclear_requires, applicability))
 }
 
@@ -1717,6 +1820,20 @@ fn instantiate(
             .collect(),
         RuleRhs::Top => return Err(PhaseExit::Attempt(RuleAttempt::NotApplicable)),
         RuleRhs::Bottom => {
+            // A declared `preserves-definedness` claims the result defined where the match and
+            // the `requires` hold, and a `#Bottom` right-hand side is defined nowhere: the step
+            // applies, so the claim is refuted at this instance. The right-hand side builds no
+            // term, so the record names the configuration the step applied to as both the
+            // instance and where `\bottom` was found; it is ground when that is variable-free and
+            // the premises were decided on it alone, as on the console route.
+            if rule.attributes.preserves_definedness && crate::path_facts::checking_claims() {
+                crate::path_facts::note_preservation(
+                    crate::path_facts::ObservingRule::of(rule),
+                    &pattern.term,
+                    pattern.term.clone(),
+                    unassumed(&pattern.constraints, &match_conditions, &unclear_requires),
+                );
+            }
             return Err(PhaseExit::Attempt(RuleAttempt::Unified {
                 groups: vec![RuleApplicationGroup {
                     applied: Vec::new(),
@@ -1738,29 +1855,58 @@ fn instantiate(
     let mut applications = Vec::new();
     let mut trivial = Vec::new();
     let mut trivial_work = Vec::new();
+    // A declared `preserves-definedness` over a disjunctive right-hand side claims the
+    // disjunction defined, which is refuted only when every alternative's result is `\bottom`:
+    // what each alternative showed, `None` while its successor is still to be normalized, as
+    // long as every one may be `\bottom` (`DisjunctionBottom`).
+    let mut disjunction = (rule.attributes.preserves_definedness
+        && matches!(rule.rhs, RuleRhs::Disjunction(_))
+        && crate::path_facts::checking_claims())
+    .then(Vec::new);
     for (rhs, alternative_ensures) in alternatives {
         let ensures = rule.ensures.merged(alternative_ensures);
+        // The alternative's own work (its right-hand side's construction and simplification)
+        // is its candidate's: the path facts it noted (`crate::path_facts`) are emitted into its
+        // unit, so they follow its diagnostics to the paths derived from it, and to the
+        // undefined-step entry it becomes when its result is undefined.
         let (attempt, own_diagnostics) = context.nested(|| {
             diagnostic::collect_unit(|| {
-                apply_rhs_alternative(
-                    context.definition,
-                    rule,
-                    pattern,
-                    rhs,
-                    &ensures,
-                    &substitution,
-                    &existential_substitution,
-                    &condition_knowledge,
-                    &match_conditions,
-                    &unclear_requires,
-                    &applicability,
-                    context.simplification_options,
-                    context.solver,
-                    context.io,
-                )
+                let (attempt, facts) = crate::path_facts::owned(|| {
+                    apply_rhs_alternative(
+                        context.definition,
+                        rule,
+                        pattern,
+                        rhs,
+                        &ensures,
+                        &substitution,
+                        &existential_substitution,
+                        &condition_knowledge,
+                        &match_conditions,
+                        &unclear_requires,
+                        &applicability,
+                        context.simplification_options,
+                        context.solver,
+                        context.io,
+                    )
+                });
+                crate::path_facts::emit(&facts);
+                attempt
             })
         });
-        match attempt? {
+        let attempt = attempt?;
+        if let Some(shown) = &mut disjunction {
+            match &attempt {
+                RhsAlternativeAttempt::Applied(_) => shown.push(None),
+                RhsAlternativeAttempt::Trivial {
+                    result_bottom: Some(found),
+                    ..
+                } => shown.push(Some((**found).clone())),
+                RhsAlternativeAttempt::Trivial { .. }
+                | RhsAlternativeAttempt::Indeterminate(_)
+                | RhsAlternativeAttempt::Simplification(_) => disjunction = None,
+            }
+        }
+        match attempt {
             RhsAlternativeAttempt::Applied(mut application) => {
                 if let Some(carried) = application.carried.take() {
                     trivial.push(carried_trivial_application(
@@ -1778,6 +1924,7 @@ fn instantiate(
                 obligation,
                 effects,
                 contradicted_total,
+                result_bottom: _,
             } => {
                 trivial.push(trivial_application(
                     rule,
@@ -1797,6 +1944,9 @@ fn instantiate(
             }
         }
     }
+    if let Some(shown) = disjunction {
+        note_disjunction_bottom(&context, &applications, shown)?;
+    }
     Ok(RuleAttempt::Unified {
         groups: vec![RuleApplicationGroup {
             applied: applications,
@@ -1805,6 +1955,73 @@ fn instantiate(
             trivial_work,
         }],
     })
+}
+
+/// Whether a step assumed nothing but `\top` of its instance: the pattern's `constraints` are
+/// `\top`, and the match and `requires` were decided on it rather than carried
+/// (`match_conditions`, `unclear_requires`), so the step's premises hold on the instance alone
+/// (`crate::path_facts::ContradictedClaim::ground`).
+fn unassumed(
+    constraints: &[Predicate],
+    match_conditions: &[Predicate],
+    unclear_requires: &[Predicate],
+) -> bool {
+    predicates_truth(constraints) == Truth::True
+        && match_conditions.is_empty()
+        && unclear_requires.is_empty()
+}
+
+/// Note the contradicted `preserves-definedness` of `context`'s rule, whose right-hand side is a
+/// disjunction, when every alternative's result term is `\bottom`: `shown` holds, per
+/// alternative in order, what the step found of its result (`Some`), or `None` for an
+/// alternative whose successor (in `applications`, in the same order) is normalized here to
+/// decide it (`execute::alternatives_bottom`). The record names the first alternative, and is
+/// ground when every alternative's is.
+fn note_disjunction_bottom(
+    context: &RuleContext<'_>,
+    applications: &[RuleApplication],
+    shown: Vec<Option<(Term, Term, bool)>>,
+) -> Stoppable<()> {
+    let built = applications
+        .iter()
+        .map(|application| &application.applied.pattern)
+        .collect::<Vec<_>>();
+    let mut normalized = if built.is_empty() {
+        Vec::new()
+    } else {
+        match super::execute::alternatives_bottom(
+            context.definition,
+            &built,
+            &context.pattern.constraints,
+            context.simplification_options,
+            context.solver,
+        )? {
+            Some(found) => found,
+            None => return Ok(()),
+        }
+    }
+    .into_iter()
+    .zip(built)
+    .map(|((undefined, unassumed), successor)| (successor.term.clone(), undefined, unassumed));
+    let mut alternatives = Vec::with_capacity(shown.len());
+    for found in shown {
+        match found.or_else(|| normalized.next()) {
+            Some(found) => alternatives.push(found),
+            None => return Ok(()),
+        }
+    }
+    let unassumed = alternatives
+        .iter()
+        .all(|(instance, _, unassumed)| *unassumed && instance.attributes().variables.is_empty());
+    if let Some((instance, undefined, _)) = alternatives.into_iter().next() {
+        crate::path_facts::note_preservation(
+            crate::path_facts::ObservingRule::of(context.rule),
+            &instance,
+            undefined,
+            unassumed,
+        );
+    }
+    Ok(())
 }
 
 // Returned once per right-hand-side alternative and unpacked at once; `Applied` is the common
@@ -1816,6 +2033,9 @@ enum RhsAlternativeAttempt {
         obligation: Predicate,
         effects: Vec<BuiltinEffect>,
         contradicted_total: Option<Box<ContradictedTotal>>,
+        /// For a declared `preserves-definedness`, when the result term itself is `\bottom`:
+        /// the instance, where `\bottom` was found, and whether the premises hold.
+        result_bottom: Option<Box<(Term, Term, bool)>>,
     },
     Indeterminate(IndeterminateReason),
     Simplification(SimplificationError),
@@ -1897,9 +2117,20 @@ fn apply_rhs_alternative(
     });
     let mut condition_knowledge = condition_knowledge.to_vec();
     let mut io_evaluation = io.map(ExecutionIoState::begin_evaluation);
-    let (rhs, rhs_conditions, effects, undefined_term, contradicted_total) =
+    // The result term as the step built it, which a declared `preserves-definedness` claims
+    // defined (`crate::path_facts::note_contradicted_preservation`).
+    let instance = (rule.attributes.preserves_definedness && crate::path_facts::checking_claims())
+        .then(|| rhs.clone());
+    let (rhs, rhs_conditions, effects, undefined_term, contradicted_total, bottom) =
         if rule.computed_attributes.undefined_symbols.is_empty() && io_evaluation.is_none() {
-            (rhs, ResultConditions::default(), Vec::new(), None, None)
+            (
+                rhs,
+                ResultConditions::default(),
+                Vec::new(),
+                None,
+                None,
+                None,
+            )
         } else {
             let simplified = match io_evaluation.as_mut() {
                 Some(execution) => simplify_in_execution_with_solver(
@@ -1920,6 +2151,7 @@ fn apply_rhs_alternative(
             }?;
             match simplified {
                 Ok(simplified) => {
+                    let bottom = simplified.bottom.as_ref().map(|found| found.term.clone());
                     let simplified = simplified.into_parts();
                     (
                         simplified.term,
@@ -1927,6 +2159,7 @@ fn apply_rhs_alternative(
                         simplified.effects,
                         simplified.undefined_term,
                         simplified.contradicted_total,
+                        bottom,
                     )
                 }
                 Err(error) => {
@@ -1934,8 +2167,24 @@ fn apply_rhs_alternative(
                 }
             }
         };
+    // The step applied (its match and `requires` held), and the result term's own
+    // simplification is `\bottom`, by any route: a declared `preserves-definedness` is refuted at
+    // this instance, ground when the premises were decided on the instance alone. Only the
+    // console route simplifies a declared rule's result here; the others leave it to the
+    // successor's normalization (`normalize_successor`).
+    let result_bottom = |undefined: Term| {
+        instance.as_ref().map(|instance| {
+            let found = (
+                undefined,
+                unassumed(&pattern.constraints, match_conditions, unclear_requires),
+            );
+            crate::path_facts::note_contradicted_preservation(instance, || Some(found.clone()));
+            Box::new((instance.clone(), found.0, found.1))
+        })
+    };
     if let Some(term) = undefined_term.clone() {
         return Ok(RhsAlternativeAttempt::Trivial {
+            result_bottom: result_bottom(term.clone()),
             obligation: Predicate::Ceil(term),
             effects,
             contradicted_total,
@@ -1943,6 +2192,7 @@ fn apply_rhs_alternative(
     }
     if predicates_truth(rhs_conditions.as_slice()) == Truth::False {
         return Ok(RhsAlternativeAttempt::Trivial {
+            result_bottom: result_bottom(bottom.unwrap_or_else(|| rhs.clone())),
             obligation: conjunction(rhs_conditions.as_slice()),
             effects,
             contradicted_total: None,
@@ -1986,6 +2236,7 @@ fn apply_rhs_alternative(
             ObligationVerdict::Discharged => {}
             ObligationVerdict::Trivial => {
                 return Ok(RhsAlternativeAttempt::Trivial {
+                    result_bottom: None,
                     obligation: reported_obligation,
                     effects,
                     contradicted_total: None,
@@ -2016,6 +2267,7 @@ fn apply_rhs_alternative(
         EnsuresStepVerdict::Cleared => ensures.clear(),
         EnsuresStepVerdict::Trivial => {
             return Ok(RhsAlternativeAttempt::Trivial {
+                result_bottom: None,
                 obligation: reported_ensures,
                 effects,
                 contradicted_total: None,
@@ -2089,6 +2341,16 @@ fn apply_rhs_alternative(
             },
             label: rule.attributes.label.clone(),
             unique_id: rule.attributes.unique_id.clone(),
+            identity: crate::path_facts::RuleIdentity::of(rule),
+            // What the successor's normalization inherits of this attempt's work, which decided
+            // the step's premises: asked only where the rule's claim can be refuted there.
+            premises_depend: if crate::path_facts::claims_defined_result(rule)
+                && crate::path_facts::checking_claims()
+            {
+                crate::path_facts::rule_work_depends()
+            } else {
+                crate::path_facts::Dependence::default()
+            },
             substitution: substitution.clone(),
             rule_substitution,
             rule_predicates,
@@ -2253,22 +2515,19 @@ fn freshen_existentials(
 mod tests {
 
     use super::*;
+    use crate::term::Sort;
 
     #[test]
     fn rule_diagnostics_omit_term_alias_binders() {
         let sort = Sort::simple("SortS");
-        let alias = Variable::new("Rule#Alias", sort.clone());
-        let ordinary = Variable::new("Rule#Ordinary", sort.clone());
+        let alias = Variable::new("Rule#Alias", sort);
+        let ordinary = Variable::new("Rule#Ordinary", sort);
         let lhs = Term::application(
-            std::sync::Arc::new(Symbol::constructor(
-                "pair",
-                vec![sort.clone(), sort.clone()],
-                sort.clone(),
-            )),
+            std::sync::Arc::new(Symbol::constructor("pair", vec![sort, sort], sort)),
             Vec::new(),
             vec![
                 Term::and(
-                    Term::raw_domain_value(sort.clone(), "value"),
+                    Term::raw_domain_value(sort, "value"),
                     Term::variable(alias.clone()),
                 ),
                 Term::variable(ordinary.clone()),

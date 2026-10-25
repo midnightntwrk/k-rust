@@ -14,21 +14,21 @@ from kwasm import native  # noqa: E402
 PROBES = (
     (
         "ordinary cell constructor",
-        "valstack: Stack::Cons(Value::Integer(IntegerType::I32, rhs)",
-        "Cons",
-        "    Cons { head: Val, tail: ValStack },",
+        "valstack: [Integer(ty, rhs)",
+        "Integer",
+        "    Integer { ty: IValType, value: Int },",
     ),
     (
         "ordinary cell result constructor",
-        "valstack: Stack::Cons(Value::Integer(ty, value), stack)",
-        "Cons",
-        "    Cons { head: Val, tail: ValStack },",
+        "valstack: [Integer(ty, value), ..stack]",
+        "Integer",
+        "    Integer { ty: IValType, value: Int },",
     ),
     (
         "function application",
-        "instrs: [crate::IntBinOp(IntegerType::I32, op, lhs, rhs), ..]",
+        "instrs: [IntBinOp(ty, op, lhs, rhs), ..]",
         "IntBinOp",
-        "pub struct IntBinOp {",
+        "pub fn IntBinOp(",
     ),
     (
         "configuration target",
@@ -38,9 +38,9 @@ PROBES = (
     ),
     (
         "binding reference",
-        "instrs: [crate::IntBinOp(IntegerType::I32, op, lhs, rhs), ..]",
+        "instrs: [IntBinOp(ty, op, lhs, rhs), ..]",
         "rhs",
-        "valstack: Stack::Cons(Value::Integer(IntegerType::I32, rhs)",
+        "valstack: [Integer(ty, rhs)",
     ),
     (
         "trap constructor",
@@ -55,7 +55,7 @@ PORT = semantics.Port(
     label="KWasm",
     key="kwasm",
     checkout=INSPIRATIONS / "runtimeverification/wasm-semantics",
-    descriptors=60,
+    descriptors=61,
     lsp_probes=PROBES,
     lsp_diagnostic_timeout=90,
 )

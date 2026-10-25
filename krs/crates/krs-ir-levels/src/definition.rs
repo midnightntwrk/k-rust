@@ -13,10 +13,9 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::ir_level::DefinitionLevel;
 use crate::ir_validation::{
-    collect_configuration_nodes, insert_group_cell_parents, insert_node, require_kind,
-    require_sort, validate_context_alias, validate_context_alias_frames,
-    validate_fixed_configuration, validate_precedence_order, validate_production_shape,
-    validate_rule, validate_subsort_order,
+    collect_configuration_nodes, insert_k_item_parents, insert_node, require_kind, require_sort,
+    validate_context_alias, validate_context_alias_frames, validate_fixed_configuration,
+    validate_precedence_order, validate_production_shape, validate_rule, validate_subsort_order,
 };
 use krs_ir::ir::validated_id;
 use krs_ir::sorted::{SortKey, SortedByKey};
@@ -134,6 +133,79 @@ pub enum SymbolKind {
     Cell,
 }
 
+/// The KRS declaration a symbol was lowered from: the Rust path of the item
+/// that declares it, from its crate root.
+///
+/// An enum variant's path ends with its enum and variant
+/// (`sm83::machine::Register::A`); a struct's or a sort's ends with its name.
+/// The path names the declaration, not a `use` path that re-exports it, and
+/// is independent of the emitted K name, so tools that address a definition
+/// by KRS names stay correct when the naming of emitted symbols changes.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeclarationPath {
+    crate_name: String,
+    segments: Vec<String>,
+}
+
+impl DeclarationPath {
+    /// Creates a declaration path from a Rust crate name and the segments below its root.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DefinitionValidationError::InvalidDeclarationPath`] for an empty crate name,
+    /// no segments, or a component that is blank or contains `::`, `/`, or `\\`.
+    pub fn new(
+        crate_name: impl Into<String>,
+        segments: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Result<Self, DefinitionValidationError> {
+        let path = Self {
+            crate_name: crate_name.into(),
+            segments: segments.into_iter().map(Into::into).collect(),
+        };
+        path.validate()?;
+        Ok(path)
+    }
+
+    /// Checks the invariants [`Self::new`] establishes, for a path read from JSON.
+    fn validate(&self) -> Result<(), DefinitionValidationError> {
+        let valid = |component: &str| {
+            !component.trim().is_empty()
+                && !component.contains("::")
+                && !component.contains(['/', '\\'])
+        };
+        if self.segments.is_empty()
+            || !valid(&self.crate_name)
+            || !self.segments.iter().all(|segment| valid(segment))
+        {
+            return Err(DefinitionValidationError::InvalidDeclarationPath(
+                self.to_string(),
+            ));
+        }
+        Ok(())
+    }
+    /// Returns the Rust crate name (`-` already written `_`).
+    #[must_use]
+    pub fn crate_name(&self) -> &str {
+        &self.crate_name
+    }
+    /// Returns the path segments below the crate root.
+    #[must_use]
+    pub fn segments(&self) -> &[String] {
+        &self.segments
+    }
+}
+
+impl fmt::Display for DeclarationPath {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.crate_name)?;
+        for segment in &self.segments {
+            write!(formatter, "::{segment}")?;
+        }
+        Ok(())
+    }
+}
+
 /// The sole declaration of a generated symbol's ID and emitted K name.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -141,6 +213,11 @@ pub struct SymbolIdentity {
     id: SymbolId,
     emitted_name: String,
     kind: SymbolKind,
+    /// The KRS declaration of an authored sort or production; absent for
+    /// cells, for productions that a grammar registration generates, and for
+    /// hand-built IR.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    declaration: Option<DeclarationPath>,
 }
 
 const GENERATED_PRODUCTION_SYMBOL_PREFIX: &str = "krsGenerated_";
@@ -177,7 +254,19 @@ impl SymbolIdentity {
             id,
             emitted_name,
             kind,
+            declaration: None,
         })
+    }
+    /// Records the KRS declaration the symbol was lowered from.
+    #[must_use]
+    pub fn with_declaration(mut self, declaration: DeclarationPath) -> Self {
+        self.declaration = Some(declaration);
+        self
+    }
+    /// Returns the KRS declaration the symbol was lowered from, when it has one.
+    #[must_use]
+    pub const fn declaration(&self) -> Option<&DeclarationPath> {
+        self.declaration.as_ref()
     }
     /// Returns the stable identity.
     #[must_use]
@@ -326,6 +415,63 @@ impl DefinitionIr {
         })
     }
 
+    /// The validator's subsort judge: whether a term of `candidate` may stand where
+    /// `expected` is required, by the graph its validation checks the definition against.
+    #[cfg(feature = "test-support")]
+    pub fn subsort_judge(&self) -> impl Fn(&DefinitionSortRef, &DefinitionSortRef) -> bool + use<> {
+        let parents = self.judging_sort_parents();
+        move |candidate, expected| {
+            crate::ir_validation::is_subsort::<DefinitionLevel>(candidate, expected, &parents)
+        }
+    }
+
+    /// The graph the validator judges subsorts by: the definition's subsort sentences,
+    /// completed with K's `S <: KItem` when a sort is emitted as `KItem`.
+    fn judging_sort_parents(&self) -> BTreeMap<DefinitionSortRef, Vec<DefinitionSortRef>> {
+        let mut subsort_parents = BTreeMap::<DefinitionSortRef, Vec<DefinitionSortRef>>::new();
+        for sentence in self.modules.iter().flat_map(|module| &module.sentences) {
+            if let DefinitionSentence::Subsort(sentence) = sentence {
+                subsort_parents
+                    .entry(sentence.subsort.clone())
+                    .or_default()
+                    .push(sentence.supersort.clone());
+            }
+        }
+        let fixed_configuration = self.modules.iter().find_map(|module| {
+            module.sentences.iter().find_map(|sentence| match sentence {
+                DefinitionSentence::Configuration(configuration) => Some(configuration),
+                _ => None,
+            })
+        });
+        // The sort emitted as `KItem` is K's own, whichever module declares it.
+        let k_item = self.modules.iter().find_map(|module| {
+            module.sentences.iter().find_map(|sentence| match sentence {
+                DefinitionSentence::SyntaxSort(sentence)
+                    if sentence.symbol.emitted_name == "KItem" =>
+                {
+                    Some(DefinitionSortRef::Declared(sentence.symbol.id.clone()))
+                }
+                _ => None,
+            })
+        });
+        let declared_sorts = self
+            .modules
+            .iter()
+            .flat_map(|module| &module.sentences)
+            .filter_map(|sentence| match sentence {
+                DefinitionSentence::SyntaxSort(sentence) => Some(sentence.symbol.id.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        insert_k_item_parents::<_, DefinitionLevel>(
+            fixed_configuration,
+            k_item,
+            declared_sorts,
+            &mut subsort_parents,
+        );
+        subsort_parents
+    }
+
     /// Returns the independent IR schema version.
     #[must_use]
     pub const fn schema_version(&self) -> SchemaVersion {
@@ -373,6 +519,7 @@ impl DefinitionIr {
         let mut nodes = BTreeSet::new();
         let mut symbols = BTreeMap::new();
         let mut symbol_names = BTreeSet::new();
+        let mut symbol_declarations = BTreeSet::new();
         let mut labels = BTreeSet::new();
         let mut label_names = BTreeSet::new();
         let mut production_signatures = BTreeMap::new();
@@ -380,8 +527,6 @@ impl DefinitionIr {
         let mut alias_productions = BTreeSet::new();
         let mut desugar_productions = BTreeSet::new();
         let mut context_aliases = BTreeSet::new();
-        let mut subsort_parents: BTreeMap<DefinitionSortRef, Vec<DefinitionSortRef>> =
-            BTreeMap::new();
         let mut groups = BTreeSet::new();
         let mut group_names = BTreeSet::new();
         let mut configurations = 0_usize;
@@ -411,17 +556,21 @@ impl DefinitionIr {
                 match sentence {
                     DefinitionSentence::SyntaxSort(sentence) => {
                         validate_symbol_text(&sentence.symbol)?;
-                        declare_symbol(&sentence.symbol, &mut symbols, &mut symbol_names)?;
-                    }
-                    DefinitionSentence::Subsort(sentence) => {
-                        subsort_parents
-                            .entry(sentence.subsort.clone())
-                            .or_default()
-                            .push(sentence.supersort.clone());
+                        declare_symbol(
+                            &sentence.symbol,
+                            &mut symbols,
+                            &mut symbol_names,
+                            &mut symbol_declarations,
+                        )?;
                     }
                     DefinitionSentence::Production(sentence) => {
                         validate_symbol_text(&sentence.symbol)?;
-                        declare_symbol(&sentence.symbol, &mut symbols, &mut symbol_names)?;
+                        declare_symbol(
+                            &sentence.symbol,
+                            &mut symbols,
+                            &mut symbol_names,
+                            &mut symbol_declarations,
+                        )?;
                         crate::ir_validation::insert_production_signature::<DefinitionLevel>(
                             &mut production_signatures,
                             sentence.symbol.id.clone(),
@@ -489,7 +638,8 @@ impl DefinitionIr {
                             }
                         }
                     }
-                    DefinitionSentence::Precedence(_)
+                    DefinitionSentence::Subsort(_)
+                    | DefinitionSentence::Precedence(_)
                     | DefinitionSentence::Associativity(_)
                     | DefinitionSentence::Lexical(_)
                     | DefinitionSentence::Layout(_)
@@ -549,22 +699,7 @@ impl DefinitionIr {
                 _ => None,
             })
         });
-        // The sort emitted as `KItem` is K's own, whichever module declares it.
-        let k_item = self.modules.iter().find_map(|module| {
-            module.sentences.iter().find_map(|sentence| match sentence {
-                DefinitionSentence::SyntaxSort(sentence)
-                    if sentence.symbol.emitted_name == "KItem" =>
-                {
-                    Some(DefinitionSortRef::Declared(sentence.symbol.id.clone()))
-                }
-                _ => None,
-            })
-        });
-        insert_group_cell_parents::<DefinitionLevel>(
-            fixed_configuration,
-            k_item,
-            &mut subsort_parents,
-        );
+        let subsort_parents = self.judging_sort_parents();
 
         for module in &self.modules {
             for import in &module.imports {
@@ -1605,6 +1740,10 @@ pub enum DefinitionValidationError {
     DuplicateLabel(LabelId),
     /// Two declarations chose the same emitted name.
     DuplicateEmittedName(String),
+    /// Two symbols of one kind claim the same KRS declaration.
+    DuplicateDeclaration(String),
+    /// A declaration path is empty or has a blank or path-shaped component.
+    InvalidDeclarationPath(String),
     /// A production group identity was declared twice.
     DuplicateProductionGroup(ProductionGroupId),
     /// A grammar sentence or production references an undeclared group.
@@ -1700,12 +1839,14 @@ pub enum DefinitionValidationError {
     ParameterSortInTerm,
     /// Rewrite endpoint sorts differ.
     RewriteSortMismatch,
-    /// `alias @ pattern` (#as) outside a pre-pattern, or at a sort its alias
-    /// variable does not have or its pattern does not inject into.
+    /// `alias @ pattern` (#as) outside a pre-pattern.
     InvalidPatternAs,
-    /// `A | B` (#Or) outside a pre-pattern, at a sort an alternative does
-    /// not inject into, or with alternatives binding different variables.
+    /// `A | B` (#Or) outside a pre-pattern, or with alternatives binding different variables.
     InvalidPatternOr,
+    /// `alias @ pattern` at a sort its alias or pattern does not have.
+    PatternAsSortMismatch,
+    /// `A | B` at a sort an alternative does not inject into.
+    PatternOrSortMismatch,
     /// `k::matches!` (:=K) outside a post-term or condition, at a sort
     /// other than Bool, or with local binders that are not exactly its
     /// pattern's named variables or that occur outside it.
@@ -1777,6 +1918,9 @@ pub enum DefinitionValidationError {
     InitializerTreeMismatch,
     /// A structured initializer leaf term has the wrong sort.
     InitializerLeafSortMismatch,
+    /// A leaf cell's element types do not fit its content sort: a `Map`
+    /// takes two, a `List` or `Set` one, and any other sort none.
+    CellArgumentArity,
     /// A Map term did not carry builtin Map sort.
     MapSortMismatch,
     /// A Map operation had a wrong result or operand sort.
@@ -1791,6 +1935,9 @@ pub enum DefinitionValidationError {
     ConfigurationRuleTargetMismatch(LabelId),
     /// A cell rule references a missing/non-leaf cell or incomplete frame.
     InvalidCellFraming,
+    /// A leaf cell clause's term sort is not a subsort of the cell's
+    /// content sort.
+    CellContentSortMismatch,
     /// A cell-content frame is incompatible with its leaf sort.
     CellFrameSortMismatch,
     /// A context-alias frame is incompatible with its leaf-cell sort.
@@ -1823,6 +1970,12 @@ impl fmt::Display for DefinitionValidationError {
             Self::DuplicateLabel(id) => write!(formatter, "duplicate label {id}"),
             Self::DuplicateEmittedName(name) => {
                 write!(formatter, "duplicate emitted name {name:?}")
+            }
+            Self::DuplicateDeclaration(path) => {
+                write!(formatter, "two symbols claim the declaration {path}")
+            }
+            Self::InvalidDeclarationPath(path) => {
+                write!(formatter, "invalid declaration path {path:?}")
             }
             Self::DuplicateProductionGroup(group) => {
                 write!(formatter, "duplicate production group {group}")
@@ -1928,10 +2081,16 @@ impl fmt::Display for DefinitionValidationError {
                 formatter.write_str("rewrite endpoint sorts must equal the rewrite sort")
             }
             Self::InvalidPatternAs => formatter.write_str(
-                "`alias @ pattern` (#as) occurs only in pre-patterns, at its alias variable's sort, which its pattern's sort must inject into",
+                "`alias @ pattern` (#as) occurs only in pre-patterns",
+            ),
+            Self::PatternAsSortMismatch => formatter.write_str(
+                "an `alias @ pattern` (#as) node's sort is not its alias variable's, or its pattern's sort does not inject into it",
+            ),
+            Self::PatternOrSortMismatch => formatter.write_str(
+                "an alternative of an `A | B` (#Or) node does not inject into the node's sort",
             ),
             Self::InvalidPatternOr => formatter.write_str(
-                "`A | B` (#Or) occurs only in pre-patterns, at a sort every alternative injects into, and every alternative binds the same variables",
+                "`A | B` (#Or) occurs only in pre-patterns, and every alternative binds the same variables",
             ),
             Self::InvalidMatches => formatter.write_str(
                 "`k::matches!` (:=K) occurs only in post-terms and conditions, at sort Bool, and its local binders are exactly its pattern's named variables, each bound by one pattern and used nowhere else",
@@ -2054,6 +2213,9 @@ impl fmt::Display for DefinitionValidationError {
             Self::InitializerLeafSortMismatch => {
                 formatter.write_str("initializer leaf term must match its cell content sort")
             }
+            Self::CellArgumentArity => formatter.write_str(
+                "a cell's element types must be two for a Map, one for a List or Set, and none for any other sort",
+            ),
             Self::MapSortMismatch => formatter.write_str("Map term must have builtin Map sort"),
             Self::MapOperationSignature(operation) => {
                 write!(formatter, "{operation} has an invalid signature")
@@ -2085,6 +2247,9 @@ impl fmt::Display for DefinitionValidationError {
             Self::ContextAliasVariableClosure => {
                 formatter.write_str("context-alias declarations differ from term and frame uses")
             }
+            Self::CellContentSortMismatch => {
+                formatter.write_str("cell content sort is not a subsort of the cell's sort")
+            }
             Self::CellFrameSortMismatch => {
                 formatter.write_str("cell-content frame is incompatible with cell sort")
             }
@@ -2108,6 +2273,7 @@ fn declare_symbol(
     symbol: &SymbolIdentity,
     symbols: &mut BTreeMap<SymbolId, SymbolKind>,
     names: &mut BTreeSet<String>,
+    declarations: &mut BTreeSet<(SymbolKind, DeclarationPath)>,
 ) -> Result<(), DefinitionValidationError> {
     if symbols.insert(symbol.id.clone(), symbol.kind).is_some() {
         return Err(DefinitionValidationError::DuplicateSymbol(
@@ -2117,6 +2283,16 @@ fn declare_symbol(
     if !names.insert(symbol.emitted_name.clone()) {
         return Err(DefinitionValidationError::DuplicateEmittedName(
             symbol.emitted_name.clone(),
+        ));
+    }
+    if let Some(declaration) = &symbol.declaration {
+        declaration.validate()?;
+    }
+    if let Some(declaration) = &symbol.declaration
+        && !declarations.insert((symbol.kind, declaration.clone()))
+    {
+        return Err(DefinitionValidationError::DuplicateDeclaration(
+            declaration.to_string(),
         ));
     }
     Ok(())
@@ -2212,7 +2388,9 @@ fn validate_production(
             | ProductionAttribute::ListTerminator { cons: target, .. } => {
                 require_kind::<DefinitionLevel>(symbols, target, SymbolKind::Production)?;
             }
-            ProductionAttribute::Internal { .. } | ProductionAttribute::Program { .. } => {
+            ProductionAttribute::Internal { .. }
+            | ProductionAttribute::Program { .. }
+            | ProductionAttribute::Underspecified { .. } => {
                 return Err(DefinitionValidationError::SemanticOnlyProductionAttribute(
                     sentence.symbol.id.clone(),
                 ));

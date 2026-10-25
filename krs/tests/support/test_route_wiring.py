@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import ExitStack, redirect_stdout
 from dataclasses import replace
 import importlib
+import importlib.util
 import io
 from pathlib import Path
 import sys
@@ -138,6 +139,9 @@ class RouteWiringTests(unittest.TestCase):
                             side_effect=lambda *_: phases.append("rust") or (root / "krs", root / "krs-gate"),
                         ))
                         patches.enter_context(mock.patch.object(
+                            semantics, "format_gate", side_effect=lambda *_: phases.append("format"),
+                        ))
+                        patches.enter_context(mock.patch.object(
                             semantics, "artifact_gate", side_effect=lambda *_: phases.append("artifact") or artifacts,
                         ))
                         patches.enter_context(mock.patch.object(
@@ -184,7 +188,7 @@ class RouteWiringTests(unittest.TestCase):
                         self.assertEqual(
                             phases,
                             [
-                                "preflight", "rust", "artifact",
+                                "preflight", "rust", "format", "artifact",
                                 *(["checks"] if has_checks else []),
                                 "definition", "behavior",
                                 *(["reference"] if java_reference else []),
@@ -205,6 +209,7 @@ class RouteWiringTests(unittest.TestCase):
             patches.enter_context(mock.patch.object(
                 semantics, "rust_gate", return_value=(root / "krs", root / "krs-gate"),
             ))
+            patches.enter_context(mock.patch.object(semantics, "format_gate"))
             patches.enter_context(mock.patch.object(
                 semantics, "artifact_gate", return_value=root / "artifacts",
             ))
@@ -220,3 +225,36 @@ class RouteWiringTests(unittest.TestCase):
             native_gate.assert_not_called()
             reference_gate.assert_not_called()
             ledger.finish.assert_not_called()
+
+    def test_ports_emit_runs_each_gate_emission_against_that_gate_pins(self) -> None:
+        imp = importlib.import_module("imp.verify")
+        verifiers = {key: importlib.import_module(f"{key}.verify") for key in ("kevm", "kmir", "kwasm")}
+        location = Path(__file__).resolve().parents[1] / "ports-emit/verify.py"
+        spec = importlib.util.spec_from_file_location("ports_emit_verify", location)
+        assert spec is not None and spec.loader is not None
+        ports_emit = importlib.util.module_from_spec(spec)
+        # A dataclass reads its module from `sys.modules` while the module executes.
+        with mock.patch.dict(sys.modules, {spec.name: ports_emit}):
+            spec.loader.exec_module(ports_emit)
+        calls: list[tuple[str, Path, bool]] = []
+        with ExitStack() as patches:
+            patches.enter_context(mock.patch.object(
+                semantics, "emission",
+                side_effect=lambda port, hooks, workspace, krs, pins, gate, environment:
+                    calls.append((port.key, pins.path, pins.emit_only)),
+            ))
+            patches.enter_context(mock.patch.object(
+                imp, "emission",
+                side_effect=lambda pins, workspace, krs, gate: calls.append(("imp", pins.path, pins.emit_only)),
+            ))
+            patches.enter_context(mock.patch.object(semantics, "build_environment", return_value={}))
+            for port in ports_emit.PORTS:
+                port.emission(Path("workspace"), Path("krs"), Path("gate"))
+        self.assertEqual(calls, [
+            ("imp", imp.PINS_PATH, True),
+            *((key, verifier.PORT.pins_path, True) for key, verifier in verifiers.items()),
+        ])
+        self.assertEqual(ports_emit.module_path("krate", Path("lib.rs")), ["krate"])
+        self.assertEqual(ports_emit.module_path("krate", Path("imp.rs")), ["krate", "imp"])
+        self.assertEqual(ports_emit.module_path("krate", Path("a/mod.rs")), ["krate", "a"])
+        self.assertEqual(ports_emit.module_path("krate", Path("a/b.rs")), ["krate", "a", "b"])

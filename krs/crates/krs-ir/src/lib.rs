@@ -23,6 +23,7 @@ pub mod descriptor_index;
 mod detail_macros;
 mod display;
 mod error_detail;
+mod failure_site;
 pub mod float_token;
 pub mod generated;
 pub mod grammar;
@@ -31,7 +32,9 @@ pub mod host;
 pub mod identity;
 pub mod ir;
 pub mod json;
+mod list_notation;
 pub mod measure;
+mod operator;
 pub mod provenance;
 pub mod provenance_role;
 pub mod refined;
@@ -51,17 +54,18 @@ pub mod wire;
 
 pub use bundle::{
     ConfigurationSentenceKind, Constructor, ConstructorDescriptor, ConstructorField,
-    ConstructorFieldDescriptor, Descriptor, DescriptorBundle, DescriptorDeclaration,
-    DescriptorDeclarationError, DescriptorError, DescriptorNodeOrigin, DescriptorPayload,
+    ConstructorFieldDescriptor, ConstructorSortArgument, ConstructorSortArgumentDescriptor,
+    Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorDeclarationError,
+    DescriptorError, DescriptorFailure, DescriptorNodeOrigin, DescriptorPayload,
     DescriptorProvenance, DescriptorProvenanceError, PackageSettings, Payload, SentenceKind,
     SortDescriptor, SortPayload,
 };
 pub use catalog::{
     BuiltinOperationNotation, BuiltinOperationSpec, BuiltinSort, BuiltinSortSpec,
     CollectionApplication, CollectionConcatenation, CollectionNotation, CollectionOperandSort,
-    CollectionOperationSpec, CollectionResultSort, FacadeMarker, HookOperationSpec,
+    CollectionOperationSpec, CollectionResultSort, FacadeMarker, GuardMeaning, HookOperationSpec,
     HookPointConstructor, HookPointSortSource, HookSignature, HookSortConstraint, IntLiterals,
-    MlConnective, MlOperand, OperationSort, RawKProfile,
+    MlConnective, MlOperand, OperationSort, RawKProfile, RelationLiteral,
 };
 pub use coordinates::{
     ByteRange, CoordinateError, DisplayPath, DisplayPathError, LineIndex, LineIndexError, Position,
@@ -85,16 +89,18 @@ pub use grammar::{
 };
 pub use host::{
     AnchorPrecision, HostAuthoredAnchor, HostConstructorDescriptor, HostConstructorFieldDescriptor,
-    HostDescriptor, HostDescriptorPayload, HostIdentityError, HostItemId, HostPackageKey,
-    HostProvenance, HostProvenanceError, HostProvenanceShapeError, HostRawAnchor,
-    HostRawProvenance, HostSortDescriptor, HostSourceAnchor, HostSourcePosition, HostTypeKey,
-    HostTypeReference, ProvenanceKey,
+    HostConstructorSortArgument, HostDescriptor, HostDescriptorPayload, HostIdentityError,
+    HostItemId, HostPackageKey, HostProvenance, HostProvenanceError, HostProvenanceShapeError,
+    HostRawAnchor, HostRawProvenance, HostSortDescriptor, HostSourceAnchor, HostSourcePosition,
+    HostTypeKey, HostTypeReference, ProvenanceKey,
 };
 pub use identity::{
     ExplicitSymbol, IdentityError, ItemKind, PackageId, RustVisibility, Sha256Digest, SourceFileId,
     StableItemId, lower_hex,
 };
 pub use ir::{IrIdentityError, ModuleId, NodeOrigin, SemanticId, SemanticIdKind, SourceMapKey};
+pub use list_notation::ListNotation;
+pub use operator::{BuiltinOperator, OperatorDomain, OperatorReading};
 pub use provenance::{
     OriginFrame, OriginStack, OriginStackError, RangedOriginKind, SourceRange, SourceRangeError,
     SourceRangeOverflow, TransformationOriginKind,
@@ -104,12 +110,12 @@ pub use stable_text::StableText;
 pub use stage::{DescriptorStage, HostStage, RefMap, Stage, WireStage};
 pub use state::{
     CellAttribute, CellClauseKind, CellCollectionType, CellColor, CellContentFrame,
-    CellMultiplicity, CellPost, CellStream, ClausePart, ConfigurationClause, ConfigurationRoot,
-    FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern, FixedConfiguration,
-    FixedConfigurationPattern, FixedConfigurationRewrite, FixedConfigurationVariable,
-    FixedInitializerCell, FixedInitializerContent, InstanceChild, InstanceClause, InstanceOrdering,
-    InstancesClause, ListOperation, MapOperation, OptionalCellClause, PartPost, Presence,
-    SetOperation, StateShapeError, TermMapOperation,
+    CellMultiplicity, CellPost, CellSortArgument, CellStream, ClausePart, ConfigurationClause,
+    ConfigurationRoot, FixedCell, FixedCellClause, FixedCellContent, FixedCellPattern,
+    FixedConfiguration, FixedConfigurationPattern, FixedConfigurationRewrite,
+    FixedConfigurationVariable, FixedInitializerCell, FixedInitializerContent, InstanceChild,
+    InstanceClause, InstanceOrdering, InstancesClause, ListOperation, MapOperation,
+    OptionalCellClause, PartPost, Presence, SetOperation, StateShapeError, TermMapOperation,
 };
 pub use transport::configuration::{
     CellWrapper, DescriptorCellCollectionType, DescriptorCellColor, DescriptorCellDeclaration,
@@ -119,16 +125,17 @@ pub use transport::configuration::{
     DescriptorConfigurationDeclaration, DescriptorConfigurationInitializer,
     DescriptorConfigurationRoot, DescriptorConfigurationVariable, DescriptorFixedConfiguration,
     DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorKSequenceNotation,
-    FixedConfiguration as TransportFixedConfiguration, HostCellDeclaration,
+    DescriptorSortArgument, FixedConfiguration as TransportFixedConfiguration, HostCellDeclaration,
     HostCellDeclarationReference, HostCellField, HostCellIdentity, HostCellReference,
     HostConfigurationDeclaration, HostConfigurationInitializer, HostConfigurationVariable,
     HostFixedConfiguration, HostInitializerCell, HostInitializerStateTerm, ProtocolCellContent,
     ProtocolCellDeclaration, ProtocolCellField, ProtocolConfigurationInitializer,
     ProtocolConfigurationVariable, ProtocolInitializerCell, ProtocolInitializerCellContent,
     ProtocolInitializerStateTerm, ProtocolInitializerTerm, ProtocolKSequence,
-    ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem, StageCellDeclaration,
-    StageConfigurationInitializer, StateTransportError,
+    ProtocolKSequenceItem, ProtocolMap, ProtocolMapBody, ProtocolMapItem, ProtocolSortArgument,
+    StageCellDeclaration, StageConfigurationInitializer, StateTransportError,
 };
+pub use transport::constant::{ConstantDescriptor, ConstantPayload};
 pub use transport::grammar::{
     Arguments, ArgumentsError, CellTermField, DescriptorApplicationHeadClass,
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorAssociativitySentence,
@@ -157,10 +164,12 @@ pub use transport::grammar::{
 pub use transport::grammar::{DescriptorTypedBinding, ProtocolTypedBinding};
 pub use transport::head_rule::{
     DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleExtra,
-    DescriptorHeadRuleResult, HeadRule, HostHeadRule, HostHeadRuleBinding,
-    HostHeadRuleBracketAlternative, HostHeadRuleCellReference, HostHeadRuleExtra,
-    HostHeadRuleResult, ProtocolHeadRuleBinding, ProtocolHeadRuleBracketAlternative,
-    ProtocolHeadRuleExtra, ProtocolHeadRuleHead, ProtocolHeadRuleResult, ResolvedHeadRule,
+    DescriptorHeadRuleMapEntry, DescriptorHeadRuleResult, HeadRule, HeadRuleClaim, HostHeadRule,
+    HostHeadRuleBinding, HostHeadRuleBracketAlternative, HostHeadRuleCellReference,
+    HostHeadRuleExtra, HostHeadRuleMapEntry, HostHeadRuleResult, ProtocolHeadRuleBinding,
+    ProtocolHeadRuleBracketAlternative, ProtocolHeadRuleExtra, ProtocolHeadRuleHead,
+    ProtocolHeadRuleList, ProtocolHeadRuleListRest, ProtocolHeadRuleMapEntry,
+    ProtocolHeadRuleResult, ResolvedHeadRule,
 };
 pub use transport::rule::{
     Claim, ClaimBinder, ClaimModality, ConfigurationRule, ContextAlias, DescriptorClaim,
@@ -199,7 +208,7 @@ pub struct SchemaVersion(pub u32);
 
 impl SchemaVersion {
     /// The only version this release reads and writes.
-    pub const CURRENT: Self = Self(56);
+    pub const CURRENT: Self = Self(68);
 }
 
 impl Default for SchemaVersion {

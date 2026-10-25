@@ -2,7 +2,7 @@
 //! id = "backend.confluence.critical_pairs"
 //! name = "load-time critical-pair check by order-sorted unification and an innermost join"
 //! sites = ["check", "Context::classify", "Context::conditions"]
-//! variable = "e = executable equations; p = candidate pairs: the pairs of one index and priority group, and the inner positions of each left-hand side times the equations offered at its index and family (outside stage 1, under the load's scope, only those with a relevant equation or at an argument whose second equation is rooted at an equation head or overloaded symbol); b = unifier branch states of one pair (at most UNIFIER_BRANCHES, 4,096); c = cases of one join (at most JOIN_CASES, 64); s = steps of one side (at most JOIN_STEPS, 32); t = term size"
+//! variable = "e = executable equations; p = candidate pairs: the pairs of one index and priority group, and the inner positions of each left-hand side times the equations offered at its index and family (outside stage 1, under the load's scope, only those with a relevant equation or at an argument whose second equation is rooted at an equation head or overloaded symbol), and each equation at a hook the evaluator applies times the equations of the hook's written meaning (at most four per hook); b = unifier branch states of one pair (at most UNIFIER_BRANCHES, 4,096); c = cases of one join (at most JOIN_CASES, 64); s = steps of one side (at most JOIN_STEPS, 32); t = term size"
 //! counters = ["ConfluencePairs", "ConfluenceUnifierBranches", "ConfluenceJoinSteps", "ConfluenceSimplifierCalls"]
 //! span = "per call"
 //!
@@ -51,11 +51,22 @@
 //!    at an equation head or an overloaded symbol is classified under every scope: not joined,
 //!    it states that `e1` is not shown consistent with `e2`, a finding the load reports whatever
 //!    claims it withdraws ([`UnjoinedPair::in_argument`]);
-//! 5. each overlap is separated by priority (a root pair of different priority groups), refuted
-//!    (the conjunction of both `requires` simplifies to `\bottom` with every claim withheld),
-//!    joined (both sides reach one term by steps valid on every instance, `join.rs`), or not
-//!    joined;
-//! 6. the taint closure of the non-joined pairs (`closure.rs`) names the symbols whose
+//! 5. hook pairs: each executable equation rooted at a symbol whose hook the evaluator applies
+//!    before any equation (`builtin::evaluates`) is a root pair, whatever its priority group, with
+//!    each equation of the hook's written meaning, a fixed table of identities of the builtin
+//!    (`hooks.rs`), counted apart ([`CheckCounts::hook`]) and seeding only the equation into the
+//!    closure; an equation at such a hook without a written meaning is reported on its own
+//!    ([`UnjoinedReason::UnmodelledHook`]), and one at a hook no builtin implements is an
+//!    ordinary equation. Under the load's scope only a relevant equation is paired;
+//! 6. each overlap is refuted (the conjunction of both `requires` simplifies to `\bottom` with
+//!    every claim withheld), joined (both sides reach one term by steps valid on every instance,
+//!    `join.rs`), or not joined. An overlap over a sort with no normal form is not set aside:
+//!    it has no instance whose arguments are normal forms, but every model has an element of
+//!    that sort, where both equations hold (`Context::uninhabited_sort`). It is classified like
+//!    any other; a pair all of whose non-joined overlaps are over such sorts names the sort
+//!    ([`UnjoinedReason::UninhabitedSort`]), withdraws no claim and is not reported, since the
+//!    claims are read in `M_NF`, where it has no instance;
+//! 7. the taint closure of the non-joined pairs (`closure.rs`) names the symbols whose
 //!    applications get no claim.
 //!
 //! Root pairs give uniqueness of normal forms: two innermost steps at one position both apply to
@@ -79,6 +90,7 @@
 
 mod closure;
 mod conditions;
+pub(crate) mod hooks;
 mod join;
 mod memo;
 pub(crate) mod switches;
@@ -100,6 +112,7 @@ pub(crate) use join::SettledRoot;
 pub use unify::UnresolvedShape;
 
 use crate::{
+    condition::Condition,
     definition::BackendDefinition,
     instance_normal::InstanceNormal,
     rule::{
@@ -111,7 +124,7 @@ use crate::{
     stop::PollBudgetRecord,
     substitution::{Substitution, substitute},
     term::{
-        HeadRole, Name, Sort, Symbol, Term, TermKind, Variable,
+        HeadRole, Name, SortNode, Symbol, Term, TermKind, Variable,
         names::{FreshMarker, with_fresh_marker},
     },
 };
@@ -136,6 +149,8 @@ struct Checked {
     unjoined: Vec<UnjoinedPair>,
     violations: Vec<Violation>,
     counts: CheckCounts,
+    /// The counts of each index and priority group ([`ValueClaims::group_counts`]).
+    group_counts: BTreeMap<GroupKey, GroupCounts>,
     /// The instance-normal tokens of the equation-head applications of executable left-hand
     /// sides that denote one ground term, recorded after the check
     /// (`BackendDefinition::record_pattern_tokens`).
@@ -211,11 +226,67 @@ pub enum CheckScope {
     /// classifies alike, every value claim, the taint of every such symbol and every warned pair
     /// are those of [`Self::All`]; classification reads counters that earlier pairs advance (the
     /// spelling of renamed variables) and a per-condition budget of polls, so that equality is tested
-    /// (V9), not derived. What differs is the work counted and the non-joined pairs that withdraw
-    /// no claim, which are not computed. The scope of every load.
+    /// (V9), not derived. What differs is the work counted and the non-joined pairs of equations
+    /// that are not relevant, which are not computed. The scope of every load.
+    ///
+    /// Among the pairs it classifies, this scope reads an overlap over a sort with no normal form
+    /// as [`Self::All`] does: a pair all of whose non-joined overlaps are over such sorts is
+    /// listed ([`UnjoinedReason::UninhabitedSort`]), withdraws no claim and is not reported, in
+    /// both scopes, so the two admit the same claims and warn alike (`Context::uninhabited_sort`
+    /// gives the reading and its limit).
     Gate,
     /// Every candidate pair: also the non-joined pairs of equations whose closure reaches no
     /// symbol the gate is asked about (a finding about the definition, independent of claims).
+    ///
+    /// The contract a client relies on:
+    ///
+    /// - every candidate pair of every definition is classified (`counts().skipped == 0`),
+    ///   whatever the definition declares. Executable function and anywhere equations are
+    ///   paired; `[symbolic]` function equations, simplification equations and rewrite rules are
+    ///   paired by no check;
+    /// - each executable equation rooted at a symbol whose hook the evaluator applies before any
+    ///   equation is paired at the root with each equation of the hook's written meaning
+    ///   ([`UnjoinedPair::hook`]), and one at such a hook without a written meaning is reported
+    ///   ([`UnjoinedReason::UnmodelledHook`]), so the equations at a hooked symbol are shown to
+    ///   agree with its builtin wherever the builtin gives a value;
+    /// - root pairs are formed within one index and priority group: two groups of one index are
+    ///   never paired at the root, since every equation is read with the priority antecedent (it
+    ///   holds only where no equation of a higher group applies; the evaluator and the join read
+    ///   it so too, `docs/compatibility.md`, the priority reading of `M_NF`). Inner pairs pair an
+    ///   equation with the equations of every priority group offered at a subterm's index, at
+    ///   the other members of its overload family and at the bare-variable index;
+    /// - a client must read [`ValueClaims::violations`] too: an equation a precondition row
+    ///   reports (rooted at a free constructor or an injection, indexed at a collection or a bare
+    ///   variable, or a misshapen overload equation) is outside the check's reasoning, and its
+    ///   overlaps with equations at other indexes are not formed. [`ValueClaims::unjoined`] also
+    ///   lists per-equation reports ([`UnjoinedReason::describes_one_equation`]), which are not
+    ///   pairs;
+    /// - `refuted` and `joined` are sound: a refuted overlap has both `requires` holding on no
+    ///   instance in any model; a joined one has both reducts reaching one term by innermost
+    ///   steps valid on every instance. No overlap is set aside because a variable of it ranges
+    ///   over a sort with no normal form: carriers are nonempty, so every model has an element
+    ///   of that sort, where both equations hold. Such an overlap is counted in
+    ///   [`CheckCounts::uninhabited`] and classified like any other, and when it does not join
+    ///   it is listed with a reason that names the sort ([`UnjoinedReason::UninhabitedSort`]);
+    ///   it withdraws no value claim ([`UnjoinedPair::over_uninhabited_sort`]). A model of the
+    ///   definition's equations, read with the priority antecedent, follows from the pairs only
+    ///   if evaluation terminates;
+    /// - a non-joined pair is not shown to join, and may be spurious, for example: its
+    ///   conditions are undecided by the solver-free condition reader
+    ///   ([`UnjoinedReason::ConditionOpen`]), a simplification stopped on its budget of polls,
+    ///   the join ran out of its steps ([`UnjoinedReason::JoinBudget`]), the join refused a step whose definedness it could not
+    ///   show ([`UnjoinedReason::JoinRefused`]), the unifier met a shape it does not solve
+    ///   ([`UnjoinedReason::Unresolved`]), the two `ensures` differ syntactically
+    ///   ([`UnjoinedReason::EnsuresDiffer`]), a right-hand side is not read
+    ///   ([`UnjoinedReason::UnsupportedRightHandSide`]), or the reducts are equal in every model
+    ///   without the join showing it;
+    /// - the verdicts rest on the definition's declarations and axioms, read as true: the
+    ///   `total` and `functional` declarations and the simplification and ceil lemmas (they
+    ///   decide which terms are `ceil_free` and what `condition_definedness` states), the
+    ///   constructor and `injective` declarations (the unifier separates distinct constructor
+    ///   roots), the hooks' semantics (a refutation of `X >Int 0` beside `X <=Int 0` reads the
+    ///   `INT` hooks), and the subsort and overload axioms. Only the backend's value claims are withheld while the check runs
+    ///   (`ValueClaims::withheld`).
     All,
 }
 
@@ -354,6 +425,40 @@ impl ValueClaims {
         match &*self.0 {
             Verdict::Withheld => CheckCounts::default(),
             Verdict::Checked(checked) => checked.counts,
+        }
+    }
+
+    /// The work the check did in each index and priority group of executable equations
+    /// ([`GroupKey`]), within which root pairs are formed; a group that holds only `[symbolic]`
+    /// function equations is listed too. Empty for a withheld verdict: nothing was classified.
+    ///
+    /// Summed over the groups, `equations` is [`CheckCounts::equations`], `root_pairs +
+    /// inner_pairs` is [`CheckCounts::pairs`], `self_pairs` is [`CheckCounts::several_matches`],
+    /// `skipped`, `overlaps`, `uninhabited`, `refuted` and `joined` are their totals (overlaps and
+    /// joins of self pairs included), and `not_joined` is the number of pairs in
+    /// [`Self::unjoined`] that are not per-equation reports
+    /// ([`UnjoinedReason::describes_one_equation`]); debug builds assert it on every check.
+    /// Under [`CheckScope::All`] each group of `n` executable equations has `n(n-1)/2`
+    /// `root_pairs` and no `skipped` pair by construction: that scope forms and classifies every
+    /// root pair of every group. The identity is therefore no evidence that an overlap was
+    /// classified; checking it guards only against reading a [`CheckScope::Gate`] verdict. The
+    /// overlaps no group counts are those the [`CheckScope::All`] contract leaves unformed or
+    /// unpaired: an equation a precondition row of [`Self::violations`] reports (a bare-variable
+    /// equation is offered beside every index, and its root overlaps with other indexes are not
+    /// formed); `[symbolic]` function equations, simplification equations and rewrite rules,
+    /// which no check pairs; and root overlaps across the priority groups of one index, which
+    /// are not overlaps under the priority reading. A pair is counted only in its first
+    /// equation's group ([`GroupCounts`]), so the non-joined pairs touching one equation are
+    /// [`Self::unjoined`] filtered by [`UnjoinedPair::first`] and [`UnjoinedPair::second`].
+    /// The load's shortcut ([`CheckScope::Gate`] on a definition where no pair can change a
+    /// claim or be named) classifies and skips no pair, so its groups count only their
+    /// equations.
+    #[must_use]
+    pub fn group_counts(&self) -> &BTreeMap<GroupKey, GroupCounts> {
+        static NONE: BTreeMap<GroupKey, GroupCounts> = BTreeMap::new();
+        match &*self.0 {
+            Verdict::Withheld => &NONE,
+            Verdict::Checked(checked) => &checked.group_counts,
         }
     }
 
@@ -540,8 +645,12 @@ pub struct CheckCounts {
     pub pairs: usize,
     /// Overlaps found (unifiers of candidate pairs).
     pub overlaps: usize,
-    /// Overlaps separated by priority.
-    pub separated: usize,
+    /// Of the overlaps, those over a sort with no normal form (a variable of the overlap ranges
+    /// over one): they have no instance whose arguments are normal forms, but they are not set
+    /// aside, since every model has an element of that sort; each is also counted as refuted,
+    /// joined or not joined, and a pair whose only non-joined overlaps are over such sorts names
+    /// the sort ([`UnjoinedReason::UninhabitedSort`]) and withdraws no claim.
+    pub uninhabited: usize,
     /// Overlaps refuted by their conditions.
     pub refuted: usize,
     /// Overlaps joined.
@@ -598,6 +707,41 @@ pub struct CheckCounts {
     /// stack other threads of the process hold at the time (`nesting`), and on the build profile,
     /// so the verdict is a function of the definition only when this is zero.
     pub condition_stack_stops: usize,
+    /// The executable equations at hooked symbols and their pairs with the written meanings of
+    /// the hooks ([`HookCounts`]), counted apart from `pairs`, `overlaps`, `uninhabited`,
+    /// `refuted`, `joined` and the group counts; `unjoined` counts the hook pairs not joined.
+    pub hook: HookCounts,
+}
+
+/// What the check counted of the executable equations rooted at a hooked symbol
+/// ([`CheckCounts::hook`]). An equation at a hook the evaluator applies before any equation
+/// (`builtin::evaluates`) is paired at the root with each equation of the hook's written meaning
+/// ([`UnjoinedPair::hook`]), or reported when the hook has none in this definition
+/// ([`UnjoinedReason::UnmodelledHook`]); an equation at a hook the evaluator never applies is an
+/// ordinary equation, read as the hook's meaning, and gets no hook pair.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct HookCounts {
+    /// Executable equations rooted at a symbol that carries a hook.
+    pub equations: usize,
+    /// Of those, the equations at a hook the evaluator never applies.
+    pub unevaluated: usize,
+    /// Of those, the equations at an evaluated hook without a written meaning here, each
+    /// reported ([`UnjoinedReason::UnmodelledHook`]).
+    pub unmodelled: usize,
+    /// Hook pairs classified: an equation and one equation of its hook's written meaning.
+    pub pairs: usize,
+    /// Hook pairs not classified because the equation is not relevant ([`CheckScope::Gate`];
+    /// zero under [`CheckScope::All`]).
+    pub skipped: usize,
+    /// Overlaps of hook pairs found, and of them those over a sort with no normal form, those
+    /// refuted and those joined. No overlap is separated by an uninhabited sort: it is refuted,
+    /// joined or not joined like any other ([`CheckCounts::uninhabited`]).
+    pub overlaps: usize,
+    pub uninhabited: usize,
+    pub refuted: usize,
+    pub joined: usize,
+    /// Hook pairs not shown to join, each in [`ValueClaims::unjoined`].
+    pub not_joined: usize,
 }
 
 impl CheckCounts {
@@ -614,6 +758,101 @@ impl CheckCounts {
             ..self
         }
     }
+}
+
+/// An index and priority group of the function theory: the executable equations indexed at
+/// `index` with priority `priority`. Equation selection offers them, at a term with that index,
+/// together with the equations of the [`TermIndex::Variable`] group of the same priority, which
+/// the check does not root-pair with them (a precondition row reports each Variable-indexed
+/// equation, [`ValueClaims::violations`]). It is the lookup key of
+/// [`ValueClaims::group_counts`], so a client builds one to read a group.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct GroupKey {
+    /// The index of the group's left-hand sides.
+    pub index: TermIndex,
+    /// The group's priority (a lower number is tried first).
+    pub priority: u8,
+}
+
+/// What the check counted in one index and priority group ([`ValueClaims::group_counts`]).
+/// A pair is counted in the group of its first equation: a root pair in the group of its two
+/// equations (an overload family's stage-1 pairs in their member's group), an inner pair in the
+/// group of the equation whose left-hand side holds the position (whatever group the second
+/// equation is in), a self pair in its equation's group. The precondition rows and the
+/// per-equation reports are not pairs and are not counted here. Fields may be added, so a client
+/// outside this crate reads one and cannot build or exhaustively destructure it.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[non_exhaustive]
+pub struct GroupCounts {
+    /// The group's executable equations.
+    pub equations: usize,
+    /// The group's `[symbolic]` function equations, which are not executable equations: no check
+    /// pairs them, so an edit to one is outside every verdict.
+    pub symbolic_equations: usize,
+    /// Root pairs of two of the group's equations classified.
+    pub root_pairs: usize,
+    /// Self pairs: the group's equations whose left-hand side may match one subject in several
+    /// ways ([`CheckCounts::several_matches`]).
+    pub self_pairs: usize,
+    /// Inner pairs classified whose first equation is in the group.
+    pub inner_pairs: usize,
+    /// Root and inner pairs not classified because neither equation is relevant
+    /// ([`CheckCounts::skipped`]; zero under [`CheckScope::All`]).
+    pub skipped: usize,
+    /// Overlaps found (unifiers of the group's pairs), self pairs included.
+    pub overlaps: usize,
+    /// Of those, the overlaps over a sort with no normal form ([`CheckCounts::uninhabited`]).
+    pub uninhabited: usize,
+    /// Of those, the overlaps refuted by their conditions.
+    pub refuted: usize,
+    /// Of those, the overlaps joined, self pairs included.
+    pub joined: usize,
+    /// Pairs (root, inner and self) not shown to join, one per pair: the check stops a pair at
+    /// its first overlap that does not join, and counts a pair whose unification it does not
+    /// decide here too.
+    pub not_joined: usize,
+}
+
+/// Where the per-group counts, summed over the groups, differ from the totals `counts` and the
+/// non-joined pairs `unjoined` (the relations [`ValueClaims::group_counts`] states); empty when
+/// they agree.
+fn group_sums_differ(
+    counts: &CheckCounts,
+    groups: &BTreeMap<GroupKey, GroupCounts>,
+    unjoined: &[UnjoinedPair],
+) -> Vec<String> {
+    let sum = |field: fn(&GroupCounts) -> usize| groups.values().map(field).sum::<usize>();
+    let pairs = unjoined
+        .iter()
+        .filter(|pair| !pair.reason.describes_one_equation() && pair.hook.is_none())
+        .count();
+    [
+        ("equations", sum(|group| group.equations), counts.equations),
+        (
+            "root and inner pairs",
+            sum(|group| group.root_pairs + group.inner_pairs),
+            counts.pairs,
+        ),
+        (
+            "self pairs",
+            sum(|group| group.self_pairs),
+            counts.several_matches,
+        ),
+        ("skipped", sum(|group| group.skipped), counts.skipped),
+        ("overlaps", sum(|group| group.overlaps), counts.overlaps),
+        (
+            "uninhabited",
+            sum(|group| group.uninhabited),
+            counts.uninhabited,
+        ),
+        ("refuted", sum(|group| group.refuted), counts.refuted),
+        ("joined", sum(|group| group.joined), counts.joined),
+        ("not joined", sum(|group| group.not_joined), pairs),
+    ]
+    .into_iter()
+    .filter(|(_, summed, total)| summed != total)
+    .map(|(name, summed, total)| format!("{name}: {summed} over the groups, {total} in all"))
+    .collect()
 }
 
 /// A critical pair that does not provably join, or an executable equation that the evaluator
@@ -635,6 +874,14 @@ pub struct UnjoinedPair {
     pub reached: Option<(Option<Term>, Option<Term>)>,
     /// The subterm at which the join refused a step, if it refused one.
     pub refused: Option<Term>,
+    /// The conjunction of both equations' `requires` at the overlap (each term's definedness
+    /// stated), simplified as the check simplified it: with no assumption, no solver and every
+    /// claim withheld, so that it holds exactly where the conjunction holds, in every model.
+    /// [`Predicate::True`] when the pair has no `requires` or the conjunction simplified to
+    /// `\top` (then [`UnjoinedReason::DifferentResults`] is kept: the reducts differ wherever
+    /// the overlap is defined). `None` when the check reached no condition (no overlap, or a
+    /// per-equation report) or could not simplify it (a failure or a stop).
+    pub conditions: Option<Predicate>,
     pub reason: UnjoinedReason,
     /// The symbols some gate site is asked about (equation heads and overloaded symbols) that the
     /// taint closure of this pair alone withdraws, sorted: empty when the pair changes no claim.
@@ -642,6 +889,11 @@ pub struct UnjoinedPair {
     /// Whether `position` is in an argument of `first`'s left-hand side and `second` is rooted at
     /// an equation head or an overloaded symbol ([`Self::in_argument`]).
     pub rewrites_argument: bool,
+    /// For a hook pair, the hook of `first`'s root symbol: `second` is then an equation of that
+    /// hook's written meaning (labelled `{hook} meaning {i}`), not an equation of the definition,
+    /// and the pair states that `first` is not shown to agree with the hook's builtin where the
+    /// builtin gives a value.
+    pub hook: Option<Name>,
 }
 
 impl UnjoinedPair {
@@ -654,10 +906,39 @@ impl UnjoinedPair {
     /// Whether the backend reports the pair: it withdraws a value claim, it is a report on one
     /// equation the evaluator never applies as written ([`UnjoinedReason::describes_one_equation`]),
     /// or it is an inner pair at an argument of `first` ([`Self::in_argument`]); the last two
-    /// hold whether or not the definition makes claims.
+    /// hold whether or not the definition makes claims. A hook pair ([`Self::hook`]) is reported
+    /// at load only when it withdraws a claim: the load classifies the hook pairs of relevant
+    /// equations only, by the owner's gate decision on FZ-CONFLUENCE (2026-10-24: "hook
+    /// disagreements are not named at load; `UnmodelledHook` always is"); the full check lists
+    /// every one in [`ValueClaims::unjoined`].
     #[must_use]
     pub fn reported(&self) -> bool {
-        self.relevant() || self.reason.describes_one_equation() || self.in_argument()
+        self.relevant()
+            || self.reason.describes_one_equation()
+            || (self.in_argument() && !self.over_uninhabited_sort())
+    }
+
+    /// Whether the pair's overlap ranges over a sort with no normal form
+    /// ([`UnjoinedReason::UninhabitedSort`]): a finding about every model of the definition that
+    /// withdraws no value claim (`Context::uninhabited_sort`).
+    #[must_use]
+    pub fn over_uninhabited_sort(&self) -> bool {
+        matches!(self.reason, UnjoinedReason::UninhabitedSort { .. })
+    }
+
+    /// The pair with its reason wrapped in [`UnjoinedReason::UninhabitedSort`] when `sort` is
+    /// the sort with no normal form its overlap ranges over.
+    fn over_uninhabited(self, sort: Option<Name>) -> Self {
+        match sort {
+            Some(sort) => Self {
+                reason: UnjoinedReason::UninhabitedSort {
+                    sort,
+                    reason: Box::new(self.reason),
+                },
+                ..self
+            },
+            None => self,
+        }
     }
 
     /// Whether the pair is an inner pair at an argument of `first`'s left-hand side whose
@@ -705,6 +986,10 @@ impl UnjoinedPair {
         for term in self.terms() {
             memo::first_occurrences(term, &mut seen, &mut order);
         }
+        if let Some(conditions) = &self.conditions {
+            conditions
+                .visit_terms(&mut |term| memo::first_occurrences(term, &mut seen, &mut order));
+        }
         let renaming = order
             .into_iter()
             .filter(|variable| variable.name.contains('!'))
@@ -737,6 +1022,18 @@ impl UnjoinedPair {
             rename(&mut terms.1);
         }
         rename(&mut self.refused);
+        if let Some(conditions) = &mut self.conditions {
+            let renamed =
+                Condition::new(vec![conditions.clone()]).rename(|variable| {
+                    match renaming.get(variable).map(Term::kind) {
+                        Some(TermKind::Variable(renamed)) => renamed.clone(),
+                        _ => variable.clone(),
+                    }
+                });
+            if let Some(predicate) = renamed.iter().next() {
+                *conditions = predicate.clone();
+            }
+        }
     }
 }
 
@@ -765,6 +1062,24 @@ pub enum UnjoinedReason {
     ComputedBelowRoot(Name),
     /// A right-hand side the join does not read (a disjunction, `\top` or predicates).
     UnsupportedRightHandSide,
+    /// The overlap ranges over `sort`, a sort with no normal form, and does not join there for
+    /// `reason`; every other overlap of the pair joins, is refuted, or is over such a sort too.
+    /// Such an overlap has no instance whose arguments are normal forms, yet every model of the
+    /// definition has an element of `sort` (matching-logic carriers are nonempty), at which both
+    /// equations hold: a pair whose reducts differ there identifies them in every model. Such a
+    /// pair withdraws no value claim and is not reported at load
+    /// ([`UnjoinedPair::over_uninhabited_sort`]).
+    UninhabitedSort {
+        /// The sort, by its KORE name: the least by name when several apply.
+        sort: Name,
+        /// Why the overlap does not join; never itself `UninhabitedSort`.
+        reason: Box<UnjoinedReason>,
+    },
+    /// The equation is rooted at a symbol whose hook the evaluator applies before any equation,
+    /// and the check has no written meaning for that hook in this definition (none is written, or
+    /// a hook, sort or literal it names is not declared at the needed signature), so the equation
+    /// is not shown to agree with the hook where the hook gives a value; yet it is an axiom.
+    UnmodelledHook(Name),
 }
 
 impl UnjoinedReason {
@@ -774,7 +1089,7 @@ impl UnjoinedReason {
     pub fn describes_one_equation(&self) -> bool {
         matches!(
             self,
-            Self::UnboundResultVariables | Self::ComputedBelowRoot(_)
+            Self::UnboundResultVariables | Self::ComputedBelowRoot(_) | Self::UnmodelledHook(_)
         )
     }
 }
@@ -801,6 +1116,14 @@ impl std::fmt::Display for UnjoinedReason {
             Self::UnsupportedRightHandSide => {
                 formatter.write_str("the right-hand side is not a term")
             }
+            Self::UninhabitedSort { sort, reason } => write!(
+                formatter,
+                "{reason}, at an overlap over `{sort}`, a sort with no normal form: it has no instance whose arguments are normal forms (evaluation reaches it only at an argument that is not one, under that argument's definedness), but every model has an element of `{sort}`, where both equations hold"
+            ),
+            Self::UnmodelledHook(hook) => write!(
+                formatter,
+                "the equation is at a symbol hooked to `{hook}`, which the evaluator applies before any equation, and the check has no written meaning for `{hook}` to pair it with"
+            ),
         }
     }
 }
@@ -880,7 +1203,8 @@ impl ViolationKind {
 /// An executable equation of the check.
 struct Equation {
     rule: Arc<RewriteRule>,
-    index: TermIndex,
+    /// Its index and priority group.
+    group: GroupKey,
 }
 
 /// Whether `rule` is restricted to symbolic instances: such an equation is never a step on a
@@ -960,9 +1284,9 @@ fn with_children(term: &Term, mut new: Vec<Term>) -> Term {
             symbol,
             sort_arguments,
             ..
-        } => Term::application(symbol.clone(), sort_arguments.clone(), new),
+        } => Term::application(symbol.clone(), *sort_arguments, new),
         TermKind::Injection { source, target, .. } => {
-            Term::injection(source.clone(), target.clone(), new.remove(0))
+            Term::injection(*source, *target, new.remove(0))
         }
         TermKind::And(..) => {
             let right = new.remove(1);
@@ -1193,9 +1517,18 @@ pub(crate) struct Context<'d> {
     memo: Option<memo::Memo>,
     fresh: u64,
     counts: CheckCounts,
+    /// The counts of each group, one entry for every group of `executable_equations`.
+    group_counts: BTreeMap<GroupKey, GroupCounts>,
 }
 
 impl<'d> Context<'d> {
+    /// The counts of `group`, a group of an executable equation.
+    fn group(&mut self, group: &GroupKey) -> &mut GroupCounts {
+        self.group_counts
+            .get_mut(group)
+            .expect("every group of an executable equation has its counts")
+    }
+
     fn unifier<'a>(
         &'a mut self,
         lifting: bool,
@@ -1208,6 +1541,7 @@ impl<'d> Context<'d> {
             known_normal,
             fresh: &mut self.fresh,
             branches: 0,
+            defer: false,
         }
     }
 
@@ -1221,6 +1555,24 @@ impl<'d> Context<'d> {
     ) -> Result<Vec<Substitution>, UnresolvedShape> {
         let mut unifier = self.unifier(lifting, known_normal);
         let result = unifier.unify(left, right);
+        let branches = unifier.branches;
+        self.counts.unifier_branches += branches;
+        measure::add(Counter::ConfluenceUnifierBranches, branches as u64);
+        result
+    }
+
+    /// Unify with deferral ([`Unifier::unify_all_relaxed`]), counting the branches: each
+    /// solution with the shape of an equation it dropped, if any.
+    fn unify_relaxed(
+        &mut self,
+        lifting: bool,
+        known_normal: &dyn Fn(&Term) -> bool,
+        left: &Term,
+        right: &Term,
+    ) -> Result<Vec<(Substitution, Option<UnresolvedShape>)>, UnresolvedShape> {
+        let mut unifier = self.unifier(lifting, known_normal);
+        unifier.defer = true;
+        let result = unifier.unify_all_relaxed(vec![(left.clone(), right.clone())]);
         let branches = unifier.branches;
         self.counts.unifier_branches += branches;
         measure::add(Counter::ConfluenceUnifierBranches, branches as u64);
@@ -1287,29 +1639,51 @@ impl<'d> Context<'d> {
             let (instance, stops) = budgeted(|| instance.with_definedness(self.definition, &[]));
             self.count_stops(stops);
             let Ok(instance) = instance else {
-                return Conditions::Open(Substitution::new());
+                return Conditions::Open(Substitution::new(), None);
             };
             if stops.any() {
-                return Conditions::Open(Substitution::new());
+                return Conditions::Open(Substitution::new(), None);
             }
             predicates.extend(instance);
         }
         if predicates.is_empty() {
-            return Conditions::Open(Substitution::new());
+            return Conditions::Holds;
         }
         if switches::active().refute_every_condition {
             return Conditions::Refuted;
         }
         let Some(simplified) = self.simplify(Predicate::And(predicates.into())) else {
-            return Conditions::Open(Substitution::new());
+            return Conditions::Open(Substitution::new(), None);
         };
         let mut conjuncts = BTreeSet::new();
         flatten(simplified, &mut conjuncts);
         let conjuncts = conjuncts.into_iter().collect::<Vec<_>>();
-        if conjuncts.contains(&Predicate::False) || conditions::contradictory(&conjuncts) {
+        if conjuncts.contains(&Predicate::False)
+            || conditions::contradictory(self.definition, &conjuncts)
+        {
             return Conditions::Refuted;
         }
-        Conditions::Open(conditions::equalities(&conjuncts))
+        if conjuncts.is_empty() {
+            // Every conjunct simplified to `\top` (`flatten` drops it): each simplification step
+            // is an axiom instance, so the conjunction holds on every instance in every model.
+            return Conditions::Holds;
+        }
+        // A term the conjuncts require equal to a literal has that value on every instance where
+        // they hold, so each conjunct with the term replaced by the literal holds there too
+        // (congruence); simplified again, the conjunction may be refuted (`conditions.rs`,
+        // "equality classes").
+        let definition = self.definition;
+        if conditions::refuted_by_literals(definition, &conjuncts, &mut |predicate| {
+            self.simplify(predicate)
+        }) {
+            return Conditions::Refuted;
+        }
+        let equalities = conditions::equalities_with_bounds(self.definition, &conjuncts);
+        let conjunction = match <[Predicate; 1]>::try_from(conjuncts) {
+            Ok([conjunct]) => conjunct,
+            Err(conjuncts) => Predicate::And(conjuncts.into()),
+        };
+        Conditions::Open(equalities, Some(conjunction))
     }
 
     /// The predicate simplified with no assumption and no solver, `None` on a failure or stop:
@@ -1423,6 +1797,7 @@ pub(crate) fn unify_for_tests(
         known_normal: &nothing_normal,
         fresh: &mut fresh,
         branches: 0,
+        defer: false,
     }
     .unify(left, right)
 }
@@ -1435,7 +1810,7 @@ pub(crate) fn unify_for_tests(
 pub(crate) fn relevance_disagreements(
     definition: &BackendDefinition,
 ) -> (usize, usize, Vec<String>) {
-    let (_, equations) = executable_equations(definition);
+    let (_, equations, _) = executable_equations(definition);
     let sorts = symbols::Sorts::of(definition);
     let mut closure = closure::Closure::new(definition, &sorts, &equations);
     let gate = |symbol: &Name| gate_symbol(definition, symbol);
@@ -1527,8 +1902,12 @@ const CONDITION_ITERATIONS: usize = 64;
 enum Conditions {
     /// They hold on no instance.
     Refuted,
-    /// They may hold; every instance where they do satisfies these equalities.
-    Open(Substitution),
+    /// They hold on every instance: the pair has no `requires`, or their conjunction simplified
+    /// to `\top`.
+    Holds,
+    /// They may hold; every instance where they do satisfies these equalities. The simplified
+    /// conjunction, when it was simplified ([`UnjoinedPair::conditions`]).
+    Open(Substitution, Option<Predicate>),
 }
 
 /// One candidate pair: `first`'s left-hand side at `position` against `second`'s.
@@ -1537,18 +1916,61 @@ struct Candidate<'r> {
     second: &'r Arc<RewriteRule>,
     position: Vec<usize>,
     lifting: bool,
+    /// The group of `first`, which counts the pair unless it is a hook pair.
+    group: &'r GroupKey,
+    /// Where the pair and its overlaps are counted.
+    counted: Counted,
+}
+
+/// Where a candidate pair is counted: in the totals and its first equation's group, or, for a
+/// hook pair (an equation against its hook's written meaning), in [`CheckCounts::hook`] only.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum Counted {
+    Group,
+    Hook,
+}
+
+/// One overlap outcome to count.
+#[derive(Clone, Copy)]
+enum Tally {
+    /// An overlap over a sort with no normal form (counted besides [`Tally::Overlap`]).
+    Uninhabited,
+    Overlap,
+    Refuted,
+    Joined,
 }
 
 /// What classifying one candidate pair found.
 enum Classified {
-    /// No overlap, or every overlap separated, refuted or joined.
+    /// No overlap, or every overlap refuted or joined.
     Fine,
     NotJoined(Box<UnjoinedPair>),
 }
 
 impl Context<'_> {
+    /// Classify `candidate` ([`Self::classify`]), counting it in its group as a root or an inner
+    /// pair, and as not joined when it is.
+    fn classify_in_group(&mut self, candidate: &Candidate<'_>) -> Classified {
+        let group = self.group(candidate.group);
+        if candidate.position.is_empty() {
+            group.root_pairs += 1;
+        } else {
+            group.inner_pairs += 1;
+        }
+        let classified = self.classify(candidate);
+        if matches!(classified, Classified::NotJoined(_)) {
+            self.group(candidate.group).not_joined += 1;
+        }
+        classified
+    }
+
+    /// Classify every overlap of `candidate`, counting the pair in the totals and each overlap in
+    /// the totals and in its group; [`Self::classify_in_group`] counts the pair in its group.
     fn classify(&mut self, candidate: &Candidate<'_>) -> Classified {
-        self.counts.pairs += 1;
+        match candidate.counted {
+            Counted::Group => self.counts.pairs += 1,
+            Counted::Hook => self.counts.hook.pairs += 1,
+        }
         measure::bump(Counter::ConfluencePairs);
         let first = candidate.first;
         let second = if switches::active().no_rename_apart {
@@ -1564,15 +1986,23 @@ impl Context<'_> {
         // under an injection, and at a position of any other sort never.
         let (inner_sort, second_sort) = (inner.sort(), second.lhs.sort());
         let injected = inner_sort != second_sort;
-        if injected
-            && (switches::active().drop_injected_inner
-                || self
-                    .definition
-                    .sort_graph()
-                    .check_subsort(&second_sort, &inner_sort)
-                    != Ok(true))
-        {
-            return Classified::Fine;
+        if injected {
+            if switches::active().drop_injected_inner {
+                return Classified::Fine;
+            }
+            match self
+                .definition
+                .sort_graph()
+                .check_subsort(&second_sort, &inner_sort)
+            {
+                Ok(true) => {}
+                Ok(false) => return Classified::Fine,
+                // Whether `second` applies under an injection at this position depends on a
+                // sort variable: some instance may overlap, so the pair is not shown fine.
+                Err(_) => {
+                    return not_joined(UnjoinedReason::Unresolved(UnresolvedShape::SortVariable));
+                }
+            }
         }
         let nothing_normal = |_: &Term| false;
         // The overlap must also be an instance of the rest of `first`'s left-hand side: each
@@ -1582,18 +2012,26 @@ impl Context<'_> {
         aliases(&first.lhs, &mut equations);
         let unifiers = {
             let mut unifier = self.unifier(candidate.lifting, &nothing_normal);
-            let result = unifier.unify_all(equations);
+            unifier.defer = true;
+            let result = unifier.unify_all_relaxed(equations);
             let branches = unifier.branches;
             self.counts.unifier_branches += branches;
             measure::add(Counter::ConfluenceUnifierBranches, branches as u64);
             #[cfg(test)]
             RECORDED.with_borrow_mut(|recorded| {
                 if let Some(recorded) = recorded {
+                    // A relaxed solution is no unifier: the overlap is recorded undecided.
+                    let unifiers = result.clone().and_then(|solutions| {
+                        match solutions.iter().find_map(|(_, deferred)| deferred.clone()) {
+                            Some(shape) => Err(shape),
+                            None => Ok(solutions.into_iter().map(|(unifier, _)| unifier).collect()),
+                        }
+                    });
                     recorded.push(RecordedOverlap {
                         first: Arc::clone(first),
                         second: Arc::clone(&second),
                         position: candidate.position.clone(),
-                        unifiers: result.clone(),
+                        unifiers,
                     });
                 }
             });
@@ -1602,123 +2040,199 @@ impl Context<'_> {
                 Err(shape) => return not_joined(UnjoinedReason::Unresolved(shape)),
             }
         };
-        for unifier in unifiers {
-            if self.vacuous(first, &second, &unifier) {
-                self.counts.separated += 1;
+        // A relaxed solution (the unifier dropped an equation it does not decide) covers every
+        // instance of the overlap it stands for: when the conditions hold on none of its
+        // instances they hold on none of the overlap's; otherwise the pair is undecided.
+        let mut decided = Vec::new();
+        for (unifier, deferred) in unifiers {
+            let Some(shape) = deferred else {
+                decided.push(unifier);
+                continue;
+            };
+            if switches::active().defer_without_refutation {
                 continue;
             }
-            self.counts.overlaps += 1;
-            let equalities = match self.conditions(&[first.as_ref(), second.as_ref()], &unifier) {
-                Conditions::Refuted => {
-                    self.counts.refuted += 1;
-                    continue;
-                }
-                Conditions::Open(equalities) => equalities,
-            };
-            let instantiate = |term: &Term| substitute(&collapse_conjunctions(term), &unifier);
-            let ensures = |rule: &RewriteRule| -> BTreeSet<Predicate> {
-                let mut conjuncts = BTreeSet::new();
-                flatten(rule.ensures.instantiate(&unifier).report(), &mut conjuncts);
-                conjuncts
-            };
-            let overlap = instantiate(&first.lhs);
-            if ensures(first) != ensures(&second) && !switches::active().ignore_ensures {
-                return Classified::NotJoined(Box::new(UnjoinedPair {
-                    overlap: Some(overlap),
-                    ..unjoined_report(candidate, UnjoinedReason::EnsuresDiffer)
-                }));
+            if self.refuted(&[first.as_ref(), second.as_ref()], &unifier) {
+                self.tally(candidate, Tally::Overlap);
+                self.tally(candidate, Tally::Refuted);
+                continue;
             }
-            let (Ok(first_rhs), Ok(second_rhs)) =
-                (right_hand_side(first), right_hand_side(&second))
-            else {
-                return Classified::NotJoined(Box::new(UnjoinedPair {
-                    overlap: Some(overlap),
-                    ..unjoined_report(candidate, UnjoinedReason::UnsupportedRightHandSide)
-                }));
-            };
-            let first_side = first_rhs.map(|rhs| instantiate(&rhs));
-            let second_side = if candidate.position.is_empty() {
-                second_rhs.map(|rhs| instantiate(&rhs))
-            } else {
-                // The step of `second` at the position, inside `first`'s left-hand side.
-                second_rhs.map(|rhs| {
-                    let marker = Variable::new(
-                        with_fresh_marker("VarOverlapStep", FreshMarker::Unify, self.fresh),
-                        inner_sort.clone(),
-                    );
-                    self.fresh += 1;
-                    let stepped = replace_at(
-                        &first.lhs,
-                        &candidate.position,
-                        Term::variable(marker.clone()),
-                    );
-                    let mut reduct = substitute(&rhs, &unifier);
-                    if injected {
-                        reduct = Term::injection(second_sort.clone(), inner_sort.clone(), reduct);
+            return not_joined(UnjoinedReason::Unresolved(shape));
+        }
+        // The first non-joined overlap over a sort with no normal form, kept while the later
+        // overlaps are classified: the pair is reported over that sort only when no overlap over
+        // inhabited sorts fails to join, whatever the order of the unifiers.
+        let mut over_uninhabited = None;
+        'unifiers: for unifier in decided {
+            self.tally(candidate, Tally::Overlap);
+            // An overlap over a sort with no normal form has no instance whose arguments are
+            // normal forms, but it is not separated: every model has an element of that sort, at
+            // which both equations hold (`Self::uninhabited_sort`). It is refuted, joined or not
+            // joined like any other overlap.
+            let uninhabited = self.uninhabited_sort(first, &second, &unifier);
+            if uninhabited.is_some() {
+                self.tally(candidate, Tally::Uninhabited);
+            }
+            let unjoined: UnjoinedPair = 'classified: {
+                let (equalities, conjunction, open) = match self
+                    .conditions(&[first.as_ref(), second.as_ref()], &unifier)
+                {
+                    Conditions::Refuted => {
+                        self.tally(candidate, Tally::Refuted);
+                        continue 'unifiers;
                     }
-                    let mut with_step = unifier.clone();
-                    with_step.insert(marker, reduct);
-                    substitute(&collapse_conjunctions(&stepped), &with_step)
-                })
-            };
-            // The values the unifier gives the variables of either left-hand side are normal
-            // forms on every instance the pair speaks about: they are subterms of an innermost
-            // redex's normal-form arguments, or of an outer equation's valuation by elements.
-            let values = first
-                .lhs
-                .attributes()
-                .variables
-                .iter()
-                .chain(second.lhs.attributes().variables.iter())
-                .map(|variable| {
-                    unifier
-                        .get(variable)
-                        .cloned()
-                        .unwrap_or_else(|| Term::variable(variable.clone()))
-                })
-                .collect::<Vec<_>>();
-            let conditional = !first.requires.is_empty() || !second.requires.is_empty();
-            // Only the instances where both conditions hold are peaks, and each of them
-            // satisfies the conditions' equalities.
-            // The values stay as the unifier built them: they are instances of patterns, which
-            // the join reads as normal forms, while an equality may give a variable the value of
-            // any term.
-            let under =
-                |term: &Option<Term>| term.as_ref().map(|term| substitute(term, &equalities));
-            let (first_side, second_side) = (under(&first_side), under(&second_side));
-            match join::join(
-                self,
-                candidate.lifting,
-                (first_side.clone(), second_side.clone()),
-                &values,
-            ) {
-                join::Outcome::Joined => self.counts.joined += 1,
-                join::Outcome::NotJoined {
-                    reached,
-                    refused,
-                    reason,
-                } => {
-                    let reason = match reason {
-                        UnjoinedReason::DifferentResults if conditional => {
-                            UnjoinedReason::ConditionOpen
-                        }
-                        reason => reason,
-                    };
-                    return Classified::NotJoined(Box::new(UnjoinedPair {
+                    Conditions::Holds => (Substitution::new(), Some(Predicate::True), false),
+                    Conditions::Open(equalities, conjunction) => (equalities, conjunction, true),
+                };
+                let instantiate = |term: &Term| substitute(&collapse_conjunctions(term), &unifier);
+                let ensures = |rule: &RewriteRule| -> BTreeSet<Predicate> {
+                    let mut conjuncts = BTreeSet::new();
+                    flatten(rule.ensures.instantiate(&unifier).report(), &mut conjuncts);
+                    conjuncts
+                };
+                let overlap = instantiate(&first.lhs);
+                if ensures(first) != ensures(&second) && !switches::active().ignore_ensures {
+                    break 'classified UnjoinedPair {
                         overlap: Some(overlap),
-                        sides: Some((first_side, second_side)),
-                        reached: Some(reached),
+                        conditions: conjunction,
+                        ..unjoined_report(candidate, UnjoinedReason::EnsuresDiffer)
+                    };
+                }
+                let (Ok(first_rhs), Ok(second_rhs)) =
+                    (right_hand_side(first), right_hand_side(&second))
+                else {
+                    break 'classified UnjoinedPair {
+                        overlap: Some(overlap),
+                        conditions: conjunction,
+                        ..unjoined_report(candidate, UnjoinedReason::UnsupportedRightHandSide)
+                    };
+                };
+                let first_side = first_rhs.map(|rhs| instantiate(&rhs));
+                let second_side = if candidate.position.is_empty() {
+                    second_rhs.map(|rhs| instantiate(&rhs))
+                } else {
+                    // The step of `second` at the position, inside `first`'s left-hand side.
+                    second_rhs.map(|rhs| {
+                        let marker = Variable::new(
+                            with_fresh_marker("VarOverlapStep", FreshMarker::Unify, self.fresh),
+                            inner_sort,
+                        );
+                        self.fresh += 1;
+                        let stepped = replace_at(
+                            &first.lhs,
+                            &candidate.position,
+                            Term::variable(marker.clone()),
+                        );
+                        let mut reduct = substitute(&rhs, &unifier);
+                        if injected {
+                            reduct = Term::injection(second_sort, inner_sort, reduct);
+                        }
+                        let mut with_step = unifier.clone();
+                        with_step.insert(marker, reduct);
+                        substitute(&collapse_conjunctions(&stepped), &with_step)
+                    })
+                };
+                // The values the unifier gives the variables of either left-hand side are normal
+                // forms on every instance the pair speaks about: they are subterms of an innermost
+                // redex's normal-form arguments, or of an outer equation's valuation by elements.
+                let values = first
+                    .lhs
+                    .attributes()
+                    .variables
+                    .iter()
+                    .chain(second.lhs.attributes().variables.iter())
+                    .map(|variable| {
+                        unifier
+                            .get(variable)
+                            .cloned()
+                            .unwrap_or_else(|| Term::variable(variable.clone()))
+                    })
+                    .collect::<Vec<_>>();
+                // Only the instances where both conditions hold are peaks, and each of them
+                // satisfies the conditions' equalities.
+                // The values stay as the unifier built them: they are instances of patterns, which
+                // the join reads as normal forms, while an equality may give a variable the value of
+                // any term.
+                let under =
+                    |term: &Option<Term>| term.as_ref().map(|term| substitute(term, &equalities));
+                let (first_side, second_side) = (under(&first_side), under(&second_side));
+                match join::join(
+                    self,
+                    candidate.lifting,
+                    (first_side.clone(), second_side.clone()),
+                    &values,
+                ) {
+                    join::Outcome::Joined => {
+                        self.tally(candidate, Tally::Joined);
+                        continue 'unifiers;
+                    }
+                    join::Outcome::NotJoined {
+                        reached,
                         refused,
-                        ..unjoined_report(candidate, reason)
-                    }));
+                        reason,
+                    } => {
+                        // Different results under conditions the check neither refuted nor showed
+                        // to hold may be an artifact of the condition reader; under conditions
+                        // that hold on every instance they are what the join found.
+                        let reason = match reason {
+                            UnjoinedReason::DifferentResults if open => {
+                                UnjoinedReason::ConditionOpen
+                            }
+                            reason => reason,
+                        };
+                        break 'classified UnjoinedPair {
+                            overlap: Some(overlap),
+                            sides: Some((first_side, second_side)),
+                            reached: Some(reached),
+                            refused,
+                            conditions: conjunction,
+                            ..unjoined_report(candidate, reason)
+                        };
+                    }
+                }
+            };
+            match uninhabited {
+                None => return Classified::NotJoined(Box::new(unjoined)),
+                Some(sort) => {
+                    over_uninhabited.get_or_insert_with(|| unjoined.over_uninhabited(Some(sort)));
                 }
             }
         }
-        Classified::Fine
+        match over_uninhabited {
+            Some(pair) => Classified::NotJoined(Box::new(pair)),
+            None => Classified::Fine,
+        }
     }
 }
 
 impl Context<'_> {
+    /// Count one overlap outcome of `candidate` where its pair is counted ([`Counted`]).
+    fn tally(&mut self, candidate: &Candidate<'_>, tally: Tally) {
+        match candidate.counted {
+            Counted::Group => {
+                let (total, group) = (&mut self.counts, self.group_counts.get_mut(candidate.group));
+                let group = group.expect("every group of an executable equation has its counts");
+                let (total, group) = match tally {
+                    Tally::Uninhabited => (&mut total.uninhabited, &mut group.uninhabited),
+                    Tally::Overlap => (&mut total.overlaps, &mut group.overlaps),
+                    Tally::Refuted => (&mut total.refuted, &mut group.refuted),
+                    Tally::Joined => (&mut total.joined, &mut group.joined),
+                };
+                *total += 1;
+                *group += 1;
+            }
+            Counted::Hook => {
+                let hook = &mut self.counts.hook;
+                *match tally {
+                    Tally::Uninhabited => &mut hook.uninhabited,
+                    Tally::Overlap => &mut hook.overlaps,
+                    Tally::Refuted => &mut hook.refuted,
+                    Tally::Joined => &mut hook.joined,
+                } += 1;
+            }
+        }
+    }
+
     /// `second` with variables disjoint from `first`'s: its shared copy with every variable
     /// renamed to a fresh `!apart` name ([`rename_apart`] against its own variables), made once
     /// per equation. A renaming of an equation's variables is the same equation, and the first
@@ -1762,21 +2276,75 @@ fn aliases(pattern: &Term, into: &mut Vec<(Term, Term)>) {
 }
 
 impl Context<'_> {
-    /// Whether the overlap has no instance: some variable it ranges over has a sort with no
-    /// normal form.
-    fn vacuous(&self, first: &RewriteRule, second: &RewriteRule, unifier: &Substitution) -> bool {
+    /// The least (by name) sort with no normal form that a variable of the overlap ranges over,
+    /// if there is one. Such an overlap has no instance whose arguments are normal forms; it is
+    /// still not separated, under either scope. Evaluation can meet an instance of it only at an
+    /// argument that is not a normal form, a stuck application of a partial function (`h(g(1))`
+    /// with `g` partial and no equation of `g`): the step then applies under that argument's
+    /// definedness, and its result holds in every model where the argument is defined.
+    ///
+    /// Matching-logic carriers are nonempty, so every model of the definition has an element of
+    /// the sort, and both equations hold at that element: `f(_:S) = a` beside `f(_:S) = bb`
+    /// equates `a` with `bb` in every model although `S` has no normal form. A pair that does not
+    /// join there is listed (its reason names the sort), so a client that reads the equations in
+    /// every model ([`CheckScope::All`]: `data_term`, kink's mutant consistency) sees it.
+    ///
+    /// Such a pair withdraws no value claim, in either scope. The claims are statements about
+    /// `M_NF`, where the sort is empty and the pair has no instance, and the closure's model `M'`
+    /// is built from a model in which that sort may be empty (`docs/compatibility.md`, "Anywhere
+    /// rules"). Every use of a claim on evaluation is sound under that reading, by what the two
+    /// certificates a claim rests on check. The instance-normal scan (`instance_normal.rs`)
+    /// claims an application whose arguments are instance-normal; a ground instance-normal term
+    /// is a normal form, and no ground term of the sort is one. The simplifier's
+    /// [`crate::term::head::NormalFormCertificate`] (`simplify::cacheable_equation_head`) marks
+    /// a ground application of an equation head or an overloaded symbol `evaluated` when equation
+    /// selection is complete, every function and simplification equation it offers fails to
+    /// match it, and every argument carries the mark; free-constructor applications, domain
+    /// values, injections and collections of marked terms carry it by construction. The mark
+    /// alone is the simplifier's cache (no equation matches, on every path). It is read as a
+    /// value only by `certified_ground_normal_form`, which needs a term concrete after
+    /// normalization (`term.rs`, `synthesize_attributes`: at every position a constructor root
+    /// or an `anywhere` root that is no declared function), and by `NormalEvidence::certified`,
+    /// which needs such an `anywhere` root and reads the root alone. Each symbol at any position
+    /// of the first, and the root of the second, has a stuck application that is not `\bottom`
+    /// (`symbols.rs`, `Class::stuck_is_bottom`): the symbols a sort's normal forms are read from,
+    /// so no ground term of the sort is such a term. The second's arguments are marked terms, and
+    /// the one marked term whose symbol's stuck application is `\bottom` is an application of an
+    /// overloaded declared partial function, which the certificate also marks (`g(a)`, `g`
+    /// overloaded and partial with no equation, in a sort only `g` produces). It is never read
+    /// as a value itself, and it keeps its parent from being ceil-free: a step that decides from
+    /// the parent states the argument's definedness (`ceil_term`), so `h(g(a)) ==K d`, `h` an
+    /// `anywhere` head, gives `false` only under `\ceil(g(a))`, which `M_NF`, where the stuck
+    /// partial application is `\bottom`, makes vacuous. The prover also uses claims (it
+    /// decomposes and refutes equation-head applications by their instance-normal tokens when it
+    /// unifies a claim or a rule with a symbolic state, `unification.rs`, `proof.rs`,
+    /// `rewrite/recover.rs`), and its results rest on that reading too: from a model with an
+    /// element of the sort, a pair whose reducts differ there may leave no model of the claims.
+    /// Withdrawing the pair's closure instead costs evaluation where the pair is consistent in
+    /// every model but the join does not show it: on WASM, `#t2aStmt`'s `Defn` and `Instr`
+    /// equations overlap over the empty `EmptyStmt`, the join reads the stuck partial
+    /// `#t2aInstr` application as `\bottom`, and withdrawing the pair's 6 symbols (91 by the
+    /// closure) halts `krun` at depth 3 (FZ-EMPTYSORT).
+    fn uninhabited_sort(
+        &self,
+        first: &RewriteRule,
+        second: &RewriteRule,
+        unifier: &Substitution,
+    ) -> Option<Name> {
         // Only a declared sort without parameters is judged; any other is counted inhabited.
-        let uninhabited = |variable: &Variable| match &variable.sort {
-            Sort::Application { name, arguments } => {
-                arguments.is_empty()
+        let uninhabited = |variable: &Variable| match variable.sort.node() {
+            SortNode::Application { name, arguments }
+                if arguments.is_empty()
                     && self
                         .definition
                         .sorts()
                         .get(name)
                         .is_some_and(|info| info.parameters.is_empty())
-                    && !self.sorts.has_normal_form(&variable.sort)
+                    && !self.sorts.has_normal_form(&variable.sort) =>
+            {
+                Some(name.clone())
             }
-            Sort::Variable(_) => false,
+            SortNode::Application { .. } | SortNode::Variable(_) => None,
         };
         first
             .lhs
@@ -1784,10 +2352,16 @@ impl Context<'_> {
             .variables
             .iter()
             .chain(second.lhs.attributes().variables.iter())
-            .any(|variable| match unifier.get(variable) {
-                Some(value) => value.attributes().variables.iter().any(uninhabited),
-                None => uninhabited(variable),
+            .flat_map(|variable| match unifier.get(variable) {
+                Some(value) => value
+                    .attributes()
+                    .variables
+                    .iter()
+                    .filter_map(uninhabited)
+                    .collect::<Vec<_>>(),
+                None => uninhabited(variable).into_iter().collect(),
             })
+            .min()
     }
 }
 
@@ -1800,9 +2374,11 @@ fn unjoined_report(candidate: &Candidate<'_>, reason: UnjoinedReason) -> Unjoine
         sides: None,
         reached: None,
         refused: None,
+        conditions: None,
         reason,
         withdrawn: Vec::new(),
         rewrites_argument: false,
+        hook: None,
     }
 }
 
@@ -1834,16 +2410,28 @@ pub(crate) fn check(
 }
 
 /// The executable equations the check reads (every equation of the function theory but the
-/// `symbolic` ones), by index and priority as equation selection offers them, and in one list.
-fn executable_equations(definition: &BackendDefinition) -> (Groups, Vec<Equation>) {
+/// `symbolic` ones), by index and priority as equation selection offers them, and in one list;
+/// and the counts of every group of the function theory, with its executable and its `symbolic`
+/// equations counted.
+fn executable_equations(
+    definition: &BackendDefinition,
+) -> (Groups, Vec<Equation>, BTreeMap<GroupKey, GroupCounts>) {
     let mut groups = Groups::new();
     let mut equations = Vec::new();
+    let mut group_counts = BTreeMap::new();
     for (index, priorities) in definition.function_theory() {
         for (priority, rules) in priorities {
+            let group = GroupKey {
+                index: index.clone(),
+                priority: *priority,
+            };
+            let counts: &mut GroupCounts = group_counts.entry(group.clone()).or_default();
             for rule in rules {
                 if symbolic(rule) && !switches::active().join_with_symbolic {
+                    counts.symbolic_equations += 1;
                     continue;
                 }
+                counts.equations += 1;
                 groups
                     .entry(index.clone())
                     .or_default()
@@ -1852,12 +2440,12 @@ fn executable_equations(definition: &BackendDefinition) -> (Groups, Vec<Equation
                     .push(Arc::clone(rule));
                 equations.push(Equation {
                     rule: Arc::clone(rule),
-                    index: index.clone(),
+                    group: group.clone(),
                 });
             }
         }
     }
-    (groups, equations)
+    (groups, equations, group_counts)
 }
 
 #[allow(
@@ -1873,13 +2461,13 @@ fn check_detached(
     let _apart = ApartScope::enter();
     let _domain = crate::term::domain::DomainScope::enter(definition);
     let mut checked = Checked::default();
-    let (groups, equations) = executable_equations(definition);
+    let (groups, equations, group_counts) = executable_equations(definition);
     checked.counts.equations = equations.len();
 
     // P5: one lookup per equation.
     let mut row_seeds = Vec::new();
     for equation in &equations {
-        let violation = match &equation.index {
+        let violation = match &equation.group.index {
             TermIndex::Symbol(name) => definition.symbols().get(name).and_then(|symbol| {
                 (symbol.attributes.head_role() == HeadRole::FreeConstructor)
                     .then(|| ViolationKind::ConstructorHeaded(name.clone()))
@@ -1928,49 +2516,70 @@ fn check_detached(
                 sides: None,
                 reached: None,
                 refused: None,
+                conditions: None,
                 reason,
                 withdrawn: Vec::new(),
                 rewrites_argument: false,
+                hook: None,
             })
         })
         .collect::<Vec<_>>();
 
-    let withdrawable = definition
-        .symbols()
-        .values()
-        .any(|symbol| closure::taintable(symbol) && certified_root(definition, symbol));
-    if !withdrawable {
-        // No symbol the gate is asked about (`certified_root`, the union of the sites' symbol
-        // classes) can be tainted by any closure (`closure::taintable`): there is no
-        // equation head, hooked or not, and every overloaded symbol is a free constructor or
-        // hooked. So no pair changes a claim, and the collection claims read only equations
-        // indexed at a collection or a bare variable, which the rows above taint.
-        checked.counts.unjoined = unjoined.len();
-        checked.unjoined = unjoined;
-        return ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))));
-    }
-
-    let mut context = Context {
-        definition,
-        families: Families::of(definition),
-        sorts: symbols::Sorts::of(definition),
-        groups,
-        renamed: FxHashMap::default(),
-        memo: (memo == ConditionMemo::On && !switches::active().no_condition_memo)
-            .then(memo::Memo::default),
-        fresh: 0,
-        counts: CheckCounts::default(),
-    };
-    context.counts.equations = checked.counts.equations;
-    context.counts.families = context.families.len();
-
-    // P5 rows of the overload families.
-    let mut family_violations = vec![false; context.families.len()];
-    for equation in &equations {
-        let TermIndex::Symbol(name) = &equation.index else {
+    // The equations at hooked symbols: each at a hook the evaluator applies is paired with the
+    // hook's written meaning below, or reported here, whatever the scope, when the hook has none
+    // in this definition (`hooks.rs`). The written meanings live for the whole check, which keys
+    // its renamed copies of second equations by address.
+    let hook_symbols = hooks::HookSymbols::of(definition);
+    let mut hook_census = HookCounts::default();
+    let mut meanings = Vec::<(usize, Name, Vec<Arc<RewriteRule>>)>::new();
+    for (position, equation) in equations.iter().enumerate() {
+        let Some(hook) = hooks::root_hook(&equation.rule.lhs) else {
             continue;
         };
-        let Some(family) = context.families.family(name) else {
+        if !matches!(equation.group.index, TermIndex::Symbol(_)) {
+            continue;
+        }
+        hook_census.equations += 1;
+        if !crate::builtin::evaluates(&hook) {
+            hook_census.unevaluated += 1;
+            continue;
+        }
+        let rhs = match &equation.rule.rhs {
+            RuleRhs::Term(term) => Some(term),
+            _ => None,
+        };
+        match hooks::meaning(&hook_symbols, &hook, &equation.rule.lhs, rhs) {
+            hooks::Meaning::Built(rules) => meanings.push((position, hook, rules)),
+            hooks::Meaning::Unwritten | hooks::Meaning::Unbuildable => {
+                hook_census.unmodelled += 1;
+                unjoined.push(UnjoinedPair {
+                    first: Arc::clone(&equation.rule),
+                    second: Arc::clone(&equation.rule),
+                    position: Vec::new(),
+                    overlap: None,
+                    sides: None,
+                    reached: None,
+                    refused: None,
+                    conditions: None,
+                    reason: UnjoinedReason::UnmodelledHook(hook),
+                    withdrawn: Vec::new(),
+                    rewrites_argument: false,
+                    hook: None,
+                });
+            }
+        }
+    }
+    checked.counts.hook = hook_census;
+
+    let families = Families::of(definition);
+    // P5 rows of the overload families. They read no pair, so every scope computes them, the
+    // load's shortcut below included.
+    let mut family_violations = vec![false; families.len()];
+    for equation in &equations {
+        let TermIndex::Symbol(name) = &equation.group.index else {
+            continue;
+        };
+        let Some(family) = families.family(name) else {
             continue;
         };
         if definition.overloads().overloaded_by(name).is_empty() {
@@ -1987,7 +2596,7 @@ fn check_detached(
         }
     }
     for (family, violated) in family_violations.iter_mut().enumerate() {
-        let members = context.families.members(family).to_vec();
+        let members = families.members(family).to_vec();
         for (index, left) in members.iter().enumerate() {
             for right in &members[index + 1..] {
                 let common = definition.overloads().common_overloads(left, right);
@@ -2017,6 +2626,53 @@ fn check_detached(
         }
     }
 
+    let withdrawable = definition
+        .symbols()
+        .values()
+        .any(|symbol| closure::taintable(symbol) && certified_root(definition, symbol));
+    let rooted_at_gate_symbol = equations.iter().any(|equation| {
+        matches!(&equation.group.index, TermIndex::Symbol(name) if gate_symbol(definition, name))
+    });
+    if scope == CheckScope::Gate && !withdrawable && !rooted_at_gate_symbol {
+        // The load's shortcut, valid only where no pair it would classify can change a claim or
+        // be named. No symbol the gate is asked about (`certified_root`, the union of the sites'
+        // symbol classes) can be tainted by any closure (`closure::taintable`): there is no
+        // equation head, hooked or not, and every overloaded symbol is a free constructor or
+        // hooked. So no pair changes a claim, and the collection claims read only equations
+        // indexed at a collection or a bare variable, which the rows above taint. No executable
+        // equation is rooted at a gate symbol either, so no inner pair rewrites an argument
+        // (`UnjoinedPair::in_argument`), the one kind of pair the load names whatever it
+        // withdraws; `rooted_at_gate_symbol` over-approximates "some inner pair can rewrite an
+        // argument at a gate symbol". The precondition rows are computed above, whatever the
+        // scope. Classifying a pair reads neither the gate nor relevance, so `CheckScope::All`
+        // classifies every pair of such a definition all the same.
+        checked.counts.unjoined = unjoined.len();
+        checked.group_counts = group_counts;
+        debug_assert_eq!(
+            group_sums_differ(&checked.counts, &checked.group_counts, &unjoined),
+            Vec::<String>::new(),
+            "the per-group counts sum to the totals"
+        );
+        checked.unjoined = unjoined;
+        return ValueClaims(Arc::new(Verdict::Checked(Box::new(checked))));
+    }
+
+    let mut context = Context {
+        definition,
+        families,
+        sorts: symbols::Sorts::of(definition),
+        groups,
+        renamed: FxHashMap::default(),
+        memo: (memo == ConditionMemo::On && !switches::active().no_condition_memo)
+            .then(memo::Memo::default),
+        fresh: 0,
+        counts: CheckCounts::default(),
+        group_counts,
+    };
+    context.counts.equations = checked.counts.equations;
+    context.counts.hook = hook_census;
+    context.counts.families = context.families.len();
+
     // Self pairs: an equation whose left-hand side matches one subject in several ways is a
     // root peak with itself (R2.2). It joins when its right-hand side and `ensures` read only
     // variables every matching gives the same value; otherwise it is not shown to join.
@@ -2030,6 +2686,9 @@ fn check_detached(
         }
         context.counts.several_matches += 1;
         context.counts.overlaps += 1;
+        let group = context.group(&equation.group);
+        group.self_pairs += 1;
+        group.overlaps += 1;
         let read = match &equation.rule.rhs {
             RuleRhs::Term(term) => Some(term.attributes().variables.to_btree_set()),
             RuleRhs::Bottom => Some(BTreeSet::new()),
@@ -2051,8 +2710,10 @@ fn check_detached(
         });
         if read.is_some_and(|read| read.is_disjoint(&undetermined)) {
             context.counts.joined += 1;
+            context.group(&equation.group).joined += 1;
             continue;
         }
+        context.group(&equation.group).not_joined += 1;
         unjoined.push(UnjoinedPair {
             first: Arc::clone(&equation.rule),
             second: Arc::clone(&equation.rule),
@@ -2061,9 +2722,11 @@ fn check_detached(
             sides: None,
             reached: None,
             refused: None,
+            conditions: None,
             reason: UnjoinedReason::Unresolved(UnresolvedShape::SeveralMatches),
             withdrawn: Vec::new(),
             rewrites_argument: false,
+            hook: None,
         });
     }
 
@@ -2077,12 +2740,16 @@ fn check_detached(
                 TermIndex::Symbol(name) => context.families.family(name),
                 _ => None,
             };
-            priorities
-                .values()
-                .map(move |rules| (family, rules.clone()))
+            priorities.iter().map(move |(priority, rules)| {
+                let group = GroupKey {
+                    index: index.clone(),
+                    priority: *priority,
+                };
+                (family, group, rules.clone())
+            })
         })
         .collect::<Vec<_>>();
-    for (family, rules) in &root_groups {
+    for (family, group, rules) in &root_groups {
         let Some(family) = *family else {
             continue;
         };
@@ -2093,8 +2760,10 @@ fn check_detached(
                     second,
                     position: Vec::new(),
                     lifting: false,
+                    group,
+                    counted: Counted::Group,
                 };
-                if let Classified::NotJoined(pair) = context.classify(&candidate) {
+                if let Classified::NotJoined(pair) = context.classify_in_group(&candidate) {
                     stage_one[family] = false;
                     unjoined.push(*pair);
                 }
@@ -2123,7 +2792,7 @@ fn check_detached(
                 relevant(first) || relevant(second)
             }
     };
-    for (family, rules) in &root_groups {
+    for (family, group, rules) in &root_groups {
         if family.is_some() {
             continue;
         }
@@ -2131,6 +2800,7 @@ fn check_detached(
             for second in &rules[position + 1..] {
                 if !classified(first, second) {
                     context.counts.skipped += 1;
+                    context.group(group).skipped += 1;
                     continue;
                 }
                 let candidate = Candidate {
@@ -2138,8 +2808,10 @@ fn check_detached(
                     second,
                     position: Vec::new(),
                     lifting: true,
+                    group,
+                    counted: Counted::Group,
                 };
-                if let Classified::NotJoined(pair) = context.classify(&candidate) {
+                if let Classified::NotJoined(pair) = context.classify_in_group(&candidate) {
                     unjoined.push(*pair);
                 }
             }
@@ -2161,8 +2833,9 @@ fn check_detached(
                 // A pair at an argument whose second equation is rooted at a symbol a gate site
                 // is asked about (an equation head or an overloaded symbol) is reported whatever
                 // its relevance (`UnjoinedPair::in_argument`), so it is classified under every
-                // scope. Such an equation's closure reaches its own root, so the pair is relevant
-                // too; the disjunct states the class instead of relying on that.
+                // scope. When that root is taintable, its closure reaches it and the pair is
+                // relevant too; a hooked or free-constructor root is not taintable, which is why
+                // the disjunct is needed.
                 let rewrites_argument = argument_position(&equation.rule.lhs, &position)
                     && matches!(
                         term_index(&second.lhs),
@@ -2170,6 +2843,7 @@ fn check_detached(
                     );
                 if !classified(&equation.rule, &second) && !rewrites_argument {
                     context.counts.skipped += 1;
+                    context.group(&equation.group).skipped += 1;
                     continue;
                 }
                 let candidate = Candidate {
@@ -2177,8 +2851,10 @@ fn check_detached(
                     second: &second,
                     position: position.clone(),
                     lifting: true,
+                    group: &equation.group,
+                    counted: Counted::Group,
                 };
-                if let Classified::NotJoined(mut pair) = context.classify(&candidate) {
+                if let Classified::NotJoined(mut pair) = context.classify_in_group(&candidate) {
                     pair.rewrites_argument = rewrites_argument;
                     unjoined.push(*pair);
                 }
@@ -2186,8 +2862,44 @@ fn check_detached(
         }
     }
 
+    // Hook pairs: each equation at a hook the evaluator applies before any equation, at the
+    // root, against each equation of the hook's written meaning, whatever its priority group (its
+    // axiom carries no antecedent about the builtin). Under `Gate`, only for a relevant equation:
+    // a hook pair seeds only its definition equation into the closure.
+    for (position, hook, rules) in &meanings {
+        let equation = &equations[*position];
+        if switches.skip_hook_pairs {
+            break;
+        }
+        if scope == CheckScope::Gate && !relevant[closure.id(&equation.rule)] {
+            context.counts.hook.skipped += rules.len();
+            continue;
+        }
+        for meaning in rules {
+            let candidate = Candidate {
+                first: &equation.rule,
+                second: meaning,
+                position: Vec::new(),
+                lifting: true,
+                group: &equation.group,
+                counted: Counted::Hook,
+            };
+            if let Classified::NotJoined(mut pair) = context.classify(&candidate) {
+                context.counts.hook.not_joined += 1;
+                pair.hook = Some(hook.clone());
+                unjoined.push(*pair);
+            }
+        }
+    }
+
     checked.counts = context.counts;
     checked.counts.unjoined = unjoined.len();
+    checked.group_counts = std::mem::take(&mut context.group_counts);
+    debug_assert_eq!(
+        group_sums_differ(&checked.counts, &checked.group_counts, &unjoined),
+        Vec::<String>::new(),
+        "the per-group counts sum to the totals"
+    );
     debug_assert_eq!(
         checked.counts.simplifier_calls,
         checked.counts.condition_memo_hits
@@ -2207,18 +2919,33 @@ fn check_detached(
         });
         pinned_heads.extend(heads);
     }
+    // A hook pair's second equation is a written meaning, which is no equation of the closure:
+    // the pair says that the axiom `first` may be violated, and seeds it alone (the builtin's
+    // interpretation is fixed in every model, which is why hooked symbols are not taintable).
+    fn seeds(pair: &UnjoinedPair) -> Vec<&Arc<RewriteRule>> {
+        if pair.hook.is_some() {
+            vec![&pair.first]
+        } else {
+            vec![&pair.first, &pair.second]
+        }
+    }
+    // A pair over a sort with no normal form withdraws no claim: the claims are read in the
+    // normal-form model, where such a pair has no instance (`Context::uninhabited_sort`).
     for pair in &mut unjoined {
         pair.spell_canonically();
-        pair.withdrawn = closure
-            .taint([&pair.first, &pair.second], [])
-            .into_iter()
-            .filter(|symbol| gate_symbol(definition, symbol))
-            .collect();
+        if !pair.over_uninhabited_sort() {
+            pair.withdrawn = closure
+                .taint(seeds(pair), [])
+                .into_iter()
+                .filter(|symbol| gate_symbol(definition, symbol))
+                .collect();
+        }
     }
     let tainted = closure.taint(
         unjoined
             .iter()
-            .flat_map(|pair| [&pair.first, &pair.second])
+            .filter(|pair| !pair.over_uninhabited_sort())
+            .flat_map(seeds)
             .chain(&row_seeds),
         pinned_heads,
     );

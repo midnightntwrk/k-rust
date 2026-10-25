@@ -14,7 +14,7 @@ use krs_ir::{
 use krs_syntax::KrsSyntax;
 use krs_syntax::{ConfigurationCellContent, ProvenanceRole, TokenRange};
 use proc_macro2::{Span, TokenStream};
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, quote_spanned};
 use syn::spanned::Spanned;
 use syn::{Ident, ItemStruct, Path, parse_quote};
 
@@ -90,7 +90,19 @@ pub(crate) fn configuration(
             .merge(initializer_provenance)
             .expect("configuration and initializer provenance keys are disjoint")
         },
-        prelude: quote!(let (initializer, initializer_slots, initializer_provenance) = #declared::__krs_initializer_payload()?;),
+        prelude: {
+            // Spanned at the configuration's name, where rustc reports a
+            // missing initializer through the fallback trait's bound.
+            let span = declaration.name().span();
+            let mut configuration = declared.clone();
+            configuration.set_span(span);
+            let payload = quote_spanned!(span=> #configuration::__krs_initializer_payload());
+            quote! {
+                #[allow(unused_imports)]
+                use #facade::configuration::__KrsInitializerFallback as _;
+                let (initializer, initializer_slots, initializer_provenance) = #payload?;
+            }
+        },
     }
     .render();
 
@@ -437,37 +449,19 @@ fn configuration_content(
                     ::core::any::TypeId::of::<#sort>()
                 }
             });
-            let mut argument_references = Vec::new();
-            for argument in arguments {
-                let generated = call_site_path(argument)?;
-                let authored_path = spelling(argument);
-                let key = format_ident!(
-                    "__krs_configuration_sort_argument_{}_{}",
+            let argument_references = configuration_sort_arguments(
+                arguments,
+                &mut SortArgumentContext {
+                    facade,
+                    owner,
                     owner_key,
-                    argument_ordinal
-                );
-                helpers.push(quote! {
-                    #[doc(hidden)]
-                    pub fn #key() -> ::core::any::TypeId {
-                        ::core::any::TypeId::of::<#generated>()
-                    }
-                });
-                let ordinal = *argument_ordinal;
-                *argument_ordinal = argument_ordinal.checked_add(1).ok_or_else(|| {
-                    ExpandError::new(
-                        expand::DESCRIPTOR_CAPACITY,
-                        argument.span(),
-                        "too many configuration sort arguments",
-                    )
-                })?;
-                argument_references.push(WireSortReference {
-                    key: wire_key(ProvenanceRole::ConfigurationCellContentArgument, ordinal),
-                    target: WireTypeReference {
-                        slot: slots.type_slot(quote!(#facade::HostTypeKey(#owner::#key))),
-                        authored_path,
-                    },
-                });
-            }
+                    cfg: &[],
+                    role: ProvenanceRole::ConfigurationCellContentArgument,
+                    helpers,
+                    slots,
+                    ordinal: argument_ordinal,
+                },
+            )?;
             ProtocolCellContent::Leaf {
                 wrapper_key: wire_key(ProvenanceRole::ConfigurationCellWrapper, ordinal),
                 wrapper: if *computation {
@@ -507,4 +501,74 @@ fn configuration_content(
         }
     };
     Ok(content)
+}
+
+/// What [`configuration_sort_arguments`] needs to emit one argument's
+/// `TypeId` helper and wire reference.
+pub(super) struct SortArgumentContext<'a, 'b> {
+    pub(super) facade: &'a Path,
+    /// The type whose associated helpers the keys are.
+    pub(super) owner: &'a Ident,
+    /// Distinguishes the helpers' names.
+    pub(super) owner_key: &'a Ident,
+    /// The `cfg` attributes the helpers carry.
+    pub(super) cfg: &'a [syn::Attribute],
+    /// The arguments' provenance role: a cell's content or a configuration
+    /// variable's type.
+    pub(super) role: ProvenanceRole,
+    pub(super) helpers: &'a mut Vec<TokenStream>,
+    pub(super) slots: &'a mut WireSlots,
+    /// The next ordinal of `role`.
+    pub(super) ordinal: &'b mut u32,
+}
+
+/// The wire tree of a cell's or a configuration variable's collection
+/// arguments, numbered in preorder as the syntax numbers their provenance.
+pub(super) fn configuration_sort_arguments(
+    arguments: &[krs_syntax::SortArgument],
+    context: &mut SortArgumentContext<'_, '_>,
+) -> crate::Result<Vec<krs_ir::ProtocolSortArgument<WireSortReference>>> {
+    let mut output = Vec::with_capacity(arguments.len());
+    for argument in arguments {
+        let facade = context.facade;
+        let owner = context.owner;
+        let generated = call_site_path(&argument.path)?;
+        let ty = super::tokens::sort_type_tokens(facade, &generated, argument.dynamic);
+        let authored_path = spelling(&argument.path);
+        let key = format_ident!(
+            "__krs_configuration_sort_argument_{}_{}",
+            context.owner_key,
+            *context.ordinal
+        );
+        let cfg = context.cfg;
+        context.helpers.push(quote! {
+            #(#cfg)*
+            #[doc(hidden)]
+            pub fn #key() -> ::core::any::TypeId {
+                ::core::any::TypeId::of::<#ty>()
+            }
+        });
+        let ordinal = *context.ordinal;
+        *context.ordinal = context.ordinal.checked_add(1).ok_or_else(|| {
+            ExpandError::new(
+                expand::DESCRIPTOR_CAPACITY,
+                argument.path.span(),
+                "too many configuration sort arguments",
+            )
+        })?;
+        let sort = WireSortReference {
+            key: wire_key(context.role, ordinal),
+            target: WireTypeReference {
+                slot: context
+                    .slots
+                    .type_slot(quote!(#facade::HostTypeKey(#owner::#key))),
+                authored_path,
+            },
+        };
+        output.push(krs_ir::ProtocolSortArgument {
+            sort,
+            arguments: configuration_sort_arguments(&argument.arguments, context)?,
+        });
+    }
+    Ok(output)
 }

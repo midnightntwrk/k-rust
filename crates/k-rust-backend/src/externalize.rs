@@ -17,7 +17,7 @@ use crate::{
     rule::Predicate,
     substitution::Substitution,
     term::{
-        CollectionSymbols, Sort, Term, TermKind, Variable, Variables,
+        CollectionSymbols, Sort, SortNode, Term, TermKind, Variable, Variables,
         names::{FreshMarker, HookName, HookNamespace, encode_variable_name, with_fresh_marker},
     },
 };
@@ -473,13 +473,8 @@ fn predicate_as_boolean_term(
     let boolean_sort = declared_boolean_sort(definition)?;
     // The literals of the sort hooked `BOOL.Bool`, at that sort and with its kind.
     let kind = definition.domain_kind(&boolean_sort)?;
-    let boolean = |value| {
-        Term::domain_value_of(
-            kind,
-            boolean_sort.clone(),
-            if value { "true" } else { "false" },
-        )
-    };
+    let boolean =
+        |value| Term::domain_value_of(kind, boolean_sort, if value { "true" } else { "false" });
     let hooked = |hook: &str, arguments: Vec<Term>| {
         definition
             .symbols()
@@ -766,12 +761,12 @@ fn boolean_domain_value(term: &Term) -> Option<bool> {
 }
 
 pub fn sort(value: &Sort) -> kore::Sort {
-    match value {
-        Sort::Application { name, arguments } => kore::Sort::Application {
+    match value.node() {
+        SortNode::Application { name, arguments } => kore::Sort::Application {
             name: name.to_string(),
             arguments: arguments.iter().map(sort).collect(),
         },
-        Sort::Variable(name) => kore::Sort::Variable(name.to_string()),
+        SortNode::Variable(name) => kore::Sort::Variable(name.to_string()),
     }
 }
 
@@ -1429,11 +1424,7 @@ impl<'t> PatternSource<'t> for External<'t> {
                 let (operand_sort, left, right) = if is_boolean_domain_value(value) {
                     (value.sort(), Self::Term(value), Self::Variable(variable))
                 } else {
-                    (
-                        variable.sort.clone(),
-                        Self::Variable(variable),
-                        Self::Term(value),
-                    )
+                    (variable.sort, Self::Variable(variable), Self::Term(value))
                 };
                 PatternNode::Equals {
                     operand_sort: Cow::Owned(sort(&operand_sort)),
@@ -1620,14 +1611,11 @@ mod tests {
         let map = Sort::simple("SortMap");
         let item = Sort::simple("SortKItem");
         let cases = [
-            (Variable::new("Ex#Frame!0", map.clone()), "Ex-hFrame-b0"),
-            (
-                Variable::new("Ex#Var'Unds'K!1", item.clone()),
-                "Ex-hVar'Unds'K-b1",
-            ),
-            (Variable::new("Eq#VarROOT", item.clone()), "Eq-hVarROOT"),
-            (Variable::new("Rule#X", item.clone()), "Rule-hX"),
-            (Variable::new("ExFrame0", map.clone()), "ExFrame0"),
+            (Variable::new("Ex#Frame!0", map), "Ex-hFrame-b0"),
+            (Variable::new("Ex#Var'Unds'K!1", item), "Ex-hVar'Unds'K-b1"),
+            (Variable::new("Eq#VarROOT", item), "Eq-hVarROOT"),
+            (Variable::new("Rule#X", item), "Rule-hX"),
+            (Variable::new("ExFrame0", map), "ExFrame0"),
             (Variable::new("VarM", map), "VarM"),
             (Variable::new("Var'Unds'Gen0", item), "Var'Unds'Gen0"),
         ];
@@ -1752,9 +1740,9 @@ mod tests {
     #[test]
     fn constrained_patterns_group_predicates_and_collapse_bottom() {
         let sort = Sort::simple("SortInt");
-        let value = Term::raw_domain_value(sort.clone(), "1");
-        let x = Term::variable(Variable::new("X", sort.clone()));
-        let y = Term::variable(Variable::new("Y", sort.clone()));
+        let value = Term::raw_domain_value(sort, "1");
+        let x = Term::variable(Variable::new("X", sort));
+        let y = Term::variable(Variable::new("Y", sort));
         let grouped = constrained_pattern(&Pattern {
             term: value.clone(),
             constraints: vec![
@@ -1779,7 +1767,7 @@ mod tests {
     #[test]
     fn bare_predicates_compare_true_before_the_predicate_term() {
         let boolean_sort = Sort::simple("SortBool");
-        let value = Term::raw_domain_value(boolean_sort.clone(), "condition");
+        let value = Term::raw_domain_value(boolean_sort, "condition");
 
         assert_eq!(
             predicate_pattern(&Predicate::Term(value.clone()), &boolean_sort),
@@ -1798,8 +1786,8 @@ mod tests {
     #[test]
     fn boolean_equalities_place_domain_values_first() {
         let boolean_sort = Sort::simple("SortBool");
-        let value = Term::variable(Variable::new("P", boolean_sort.clone()));
-        let false_value = Term::raw_domain_value(boolean_sort.clone(), "false");
+        let value = Term::variable(Variable::new("P", boolean_sort));
+        let false_value = Term::raw_domain_value(boolean_sort, "false");
 
         assert!(matches!(
             &predicate_pattern(
@@ -1832,7 +1820,7 @@ mod tests {
         let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
         let int_sort = Sort::simple("SortInt");
         let result_sort = Sort::simple("SortGeneratedTopCell");
-        let x = Term::variable(Variable::new("X", int_sort.clone()));
+        let x = Term::variable(Variable::new("X", int_sort));
         let one = Term::raw_domain_value(int_sort, "1");
 
         let pattern =
@@ -1988,7 +1976,7 @@ mod tests {
         let definition = BackendDefinition::internalize(&syntax, "MAIN").unwrap();
         let result_sort = Sort::simple("SortFloat");
         let float_sort = Sort::simple("SortFloat");
-        let x = Term::variable(Variable::new("X", float_sort.clone()));
+        let x = Term::variable(Variable::new("X", float_sort));
         let float_equality = definition
             .internalize_term(
                 &parse_pattern("floatEq{}(X:SortFloat{}, X:SortFloat{})").unwrap(),

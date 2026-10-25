@@ -32,6 +32,11 @@ impl fmt::Display for ResolveHeatCoolError {
 impl std::error::Error for ResolveHeatCoolError {}
 
 /// Lower `heat` and `cool` attributes into explicit side conditions.
+///
+/// Each side condition is conjoined with the rule's condition by `#And` when either reads as a
+/// predicate as the definition stands and by `_andBool_` otherwise. The compile pipeline makes
+/// that choice after macro expansion instead, so a condition spelled through a macro that expands
+/// to a predicate is conjoined as a predicate there and as a Bool term here.
 pub fn resolve_heat_cool_attributes(
     definition: &Definition,
 ) -> Result<Definition, ResolveHeatCoolError> {
@@ -40,6 +45,7 @@ pub fn resolve_heat_cool_attributes(
         resolve_heat_cool_attributes_pass,
         Some(GeneratingPass::ResolveHeatCool),
     )
+    .map(crate::kompile::ml_constructs::resolve_condition_conjunctions_in_definition)
 }
 
 pub(crate) fn resolve_heat_cool_attributes_pass(
@@ -171,7 +177,7 @@ pub(crate) fn resolve_heat_cool_attributes_pass(
                 predicate
             };
             let original = mem::replace(requires, Term::Sequence(Vec::new()));
-            *requires = Term::apply("_andBool_", vec![original, condition]);
+            *requires = crate::kompile::ml_constructs::conjoin_condition(original, condition);
             if first_lowered.is_none() {
                 first_lowered = Some(Diagnostic::error(
                     DiagnosticCode::InvalidHeatCool,
@@ -282,7 +288,13 @@ endmodule
                 "heat" => "`notBool_`(isKResult(HOLE))",
                 _ => "isKResult(HOLE)",
             };
-            assert_eq!(new, &format!("`_andBool_`({old},{test})"), "{body}");
+            // `isKResult(HOLE)` may be a macro until macros are expanded, so the conjunction is
+            // left pending; the stage after macro expansion decides it.
+            assert_eq!(
+                new,
+                &format!("#krustPendingConditionAnd({old},{test})"),
+                "{body}"
+            );
         }
     }
 

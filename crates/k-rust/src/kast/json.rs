@@ -8,6 +8,15 @@ use super::ast::{Label, Sort, Term};
 use super::sort_role::{NumeralSpelling, numeral_spelling};
 
 pub const FORMAT: &str = "KAST";
+/// The version of KAST JSON, the interchange format of K terms and definitions that k-rust
+/// shares with other K tools: it names the format this module and the definition JSON reader
+/// and writer use, the readers refuse any other number, and it never moves on k-rust's
+/// initiative.
+/// k-rust reads the subset of the format `docs/compatibility.md` documents, and a fix or
+/// narrowing of that reading or of what k-rust writes, like a change of a document's content,
+/// leaves the number as it is and is a result change of the k-rust revision ("Format versions"
+/// in `docs/compatibility.md`), so one number does not make two revisions read one document
+/// alike.
 pub const VERSION: u32 = 4;
 
 #[derive(Debug)]

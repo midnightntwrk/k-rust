@@ -91,14 +91,13 @@ impl RuleCondition {
 /// One explicit gradual extra-cell clause in a readable rule.
 #[derive(Clone, Debug)]
 pub enum RuleExtra {
-    /// Failable preserved map binding read.
+    /// Failable preserved read of one or more entries of a map cell.
     HaveMap {
         /// Named fixed cell.
         cell: Ident,
-        /// Required key term.
-        key: Box<TermExpression>,
-        /// Value binder introduced only when the map item is present.
-        value: Ident,
+        /// The read entries, at least one, in authored order; their keys are
+        /// pairwise distinct terms.
+        entries: Vec<RuleMapEntry>,
     },
     /// Simultaneous map update.
     UpdateMap {
@@ -109,7 +108,9 @@ pub enum RuleExtra {
         /// Complete ordinary three-argument update term.
         update: Box<RuleMapUpdate>,
     },
-    /// Simultaneous exact rewrite of one ordinary fixed leaf cell.
+    /// Exact match of one ordinary fixed cell, simultaneously rewritten when
+    /// the result record restates it and read only when the result leaves it
+    /// out.
     RewriteCell {
         /// Named fixed cell.
         cell: Ident,
@@ -117,8 +118,9 @@ pub enum RuleExtra {
         before: Box<RulePattern>,
         /// Parser-owned subject tree for descriptor expansion and provenance.
         before_tree: Box<TermTree>,
-        /// Complete replacement term after the rewrite.
-        after: Box<TermExpression>,
+        /// Complete replacement term after the rewrite, absent when the
+        /// result leaves the cell out (the cell is then read only).
+        after: Option<Box<TermExpression>>,
     },
     /// An optional (`?`) or collection (`*`) cell (KF-023): `Some(p)` or
     /// `None`, or an instance list, and its result when the record restates
@@ -134,6 +136,21 @@ pub enum RuleExtra {
         /// The result state.
         after: Option<Box<crate::StateTerm>>,
     },
+    /// A cell of a list sort in list notation (F6), `stack: [a, b, ..]`,
+    /// and its rewritten list when the result record restates the cell.
+    /// Whether the cell's sort is the builtin `List` or a cons list is
+    /// checked once sorts resolve.
+    RewriteList {
+        /// Named cell, in the subject record.
+        cell: Ident,
+        /// The matched list.
+        before: Box<super::RuleListPattern>,
+        /// The same cell in the result record, absent when the result
+        /// leaves it out (the cell is then read only).
+        result_cell: Option<Ident>,
+        /// The rewritten list.
+        after: Option<Box<super::RuleListResult>>,
+    },
 }
 
 impl RuleExtra {
@@ -144,7 +161,8 @@ impl RuleExtra {
             Self::HaveMap { cell, .. }
             | Self::UpdateMap { cell, .. }
             | Self::RewriteCell { cell, .. }
-            | Self::RewriteState { cell, .. } => cell,
+            | Self::RewriteState { cell, .. }
+            | Self::RewriteList { cell, .. } => cell,
         }
     }
 }
@@ -159,6 +177,16 @@ pub(super) fn condition_token_range(input: ParseStream<'_>) -> syn::Result<Token
         return Err(input.error("expected a rule condition after `where`"));
     }
     Ok(TokenRange::for_tokens(&tokens)?)
+}
+
+/// One entry of a map read: the rule applies only where the map holds an
+/// entry for `key`, and `value` binds what that entry maps to.
+#[derive(Clone, Debug)]
+pub struct RuleMapEntry {
+    /// Required key term.
+    pub key: Box<TermExpression>,
+    /// Value binder introduced only when the map item is present.
+    pub value: Ident,
 }
 
 /// One validated ordinary three-argument map update.
@@ -184,7 +212,7 @@ impl RuleMapUpdate {
 
 pub(super) struct HaveMapExtra {
     pub(super) cell: Ident,
-    key: Box<TermExpression>,
+    pub(super) key: Box<TermExpression>,
     pub(super) value: Ident,
 }
 
@@ -192,8 +220,10 @@ impl From<HaveMapExtra> for RuleExtra {
     fn from(extra: HaveMapExtra) -> Self {
         Self::HaveMap {
             cell: extra.cell,
-            key: extra.key,
-            value: extra.value,
+            entries: vec![RuleMapEntry {
+                key: extra.key,
+                value: extra.value,
+            }],
         }
     }
 }
@@ -343,7 +373,7 @@ pub(crate) fn take_requires_helper(
                 attribute.span(),
             ));
         };
-        let term = TermExpression::parse_tokens(list.tokens)?;
+        let term = TermExpression::parse_tokens(crate::parse::strip_trailing_comma(list.tokens))?;
         if term.root_kind() == crate::TermRootKind::Literal {
             return Err(unsupported_signature(
                 "a rule condition must be an object-Bool term constructor, not a host literal",

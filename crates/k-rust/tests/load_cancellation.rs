@@ -41,7 +41,7 @@ fn discharged(definition: &BackendDefinition) -> Vec<bool> {
         .values()
         .flat_map(|groups| groups.values())
         .flatten()
-        .map(|rule| rule.rule.attributes.preserves_definedness)
+        .map(|rule| rule.rule.computed_attributes.definedness_discharged)
         .collect()
 }
 

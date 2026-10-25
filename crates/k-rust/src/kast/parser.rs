@@ -92,13 +92,13 @@ impl Parser<'_> {
             self.expect("``")?;
             return Ok(term);
         }
-        if self.consume(".K") || self.consume(".::K") {
+        if self.consume_keyword(".K") || self.consume_keyword(".::K") {
             return Ok(Term::Sequence(Vec::new()));
         }
-        if self.consume(InternalLabel::Token.as_str()) {
+        if self.consume_keyword(InternalLabel::Token.as_str()) {
             return self.token();
         }
-        if self.consume(InternalLabel::KLabel.as_str()) {
+        if self.consume_keyword(InternalLabel::KLabel.as_str()) {
             self.expect("(")?;
             let label = self.label()?;
             self.expect(")")?;
@@ -109,7 +109,7 @@ impl Parser<'_> {
         }
         let label = self.label()?;
         self.expect("(")?;
-        let arguments = if self.consume(".KList") || self.consume(".::KList") {
+        let arguments = if self.consume_keyword(".KList") || self.consume_keyword(".::KList") {
             Vec::new()
         } else {
             let mut arguments = vec![self.term()?];
@@ -250,6 +250,25 @@ impl Parser<'_> {
         self.consume_raw(expected)
     }
 
+    /// Consume `keyword` only where it ends a word, so that a bare label it begins
+    /// (`#tokenize`, `#klabelOf`) is read as that label.
+    /// A bare label continues with ASCII alphanumerics only (`label`), so those are the
+    /// characters that may not follow the keyword.
+    fn consume_keyword(&mut self, keyword: &str) -> bool {
+        self.whitespace();
+        let rest = &self.input[self.cursor..];
+        let ends_word = rest.strip_prefix(keyword).is_some_and(|after| {
+            !after
+                .chars()
+                .next()
+                .is_some_and(|character| character.is_ascii_alphanumeric())
+        });
+        if ends_word {
+            self.cursor += keyword.len();
+        }
+        ends_word
+    }
+
     fn consume_raw(&mut self, expected: &str) -> bool {
         if self.input[self.cursor..].starts_with(expected) {
             self.cursor += expected.len();
@@ -321,6 +340,23 @@ mod tests {
             )
         "#
         );
+    }
+
+    #[test]
+    fn labels_that_begin_with_a_keyword_read_as_applications() {
+        for label in ["#tokenize", "#klabelOf"] {
+            assert_eq!(
+                crate::kast::parser::parse_term(&format!("{label}(.KList)")),
+                Ok(crate::kast::ast::Term::apply(label, Vec::new())),
+            );
+        }
+        for empty in [".K", ".::K", "``.K``"] {
+            assert_eq!(
+                crate::kast::parser::parse_term(empty),
+                Ok(crate::kast::ast::Term::Sequence(Vec::new())),
+            );
+        }
+        assert!(crate::kast::parser::parse_term(".KItem").is_err());
     }
 
     #[test]

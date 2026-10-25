@@ -39,9 +39,17 @@ impl CargoMetadata {
 }
 
 pub(crate) fn cargo_metadata(manifest: &Path) -> Result<CargoMetadata, CommandError> {
+    cargo_metadata_in(manifest, None)
+}
+
+/// [`cargo_metadata`] with Cargo's target directory set to `target` when one is given.
+pub(crate) fn cargo_metadata_in(
+    manifest: &Path,
+    target: Option<&Path>,
+) -> Result<CargoMetadata, CommandError> {
     let output = crate::process::run(
         "Cargo metadata",
-        crate::cargo::command()
+        crate::cargo::command_in(target)
             .args(["metadata", "--format-version", "1", "--manifest-path"])
             .arg(manifest),
     )?;

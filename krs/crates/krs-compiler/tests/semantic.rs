@@ -151,6 +151,7 @@ fn constructor(id: StableItemId, sort: StableItemId) -> Descriptor {
             parameters: Vec::new(),
             sort: krs_ir::DescriptorSortRef::Declared(sort),
             fields: Vec::new(),
+            arguments: Vec::new(),
         }),
     )
 }

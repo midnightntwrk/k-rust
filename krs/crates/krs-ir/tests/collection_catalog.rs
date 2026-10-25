@@ -14,8 +14,8 @@ fn term_map_operations_are_the_map_operations_with_facade_markers() {
     assert_eq!(
         MapOperation::ALL,
         [
-            MapOperation::Empty,
             MapOperation::Item,
+            MapOperation::Empty,
             MapOperation::Update,
             MapOperation::Get,
             MapOperation::InKeys,
@@ -32,6 +32,7 @@ fn term_map_operations_are_the_map_operations_with_facade_markers() {
     assert_eq!(
         TermMapOperation::ALL,
         [
+            TermMapOperation::Empty,
             TermMapOperation::Update,
             TermMapOperation::Get,
             TermMapOperation::InKeys,
@@ -47,11 +48,7 @@ fn term_map_operations_are_the_map_operations_with_facade_markers() {
     );
     for operation in MapOperation::ALL {
         let term = TermMapOperation::try_from(operation);
-        assert_eq!(
-            term.is_ok(),
-            !matches!(operation, MapOperation::Empty | MapOperation::Item),
-            "{operation}"
-        );
+        assert_eq!(term.is_ok(), operation != MapOperation::Item, "{operation}");
         if let Ok(term) = term {
             assert_eq!(MapOperation::from(term), operation);
             assert_eq!(term.spec(), operation.spec());
@@ -99,6 +96,7 @@ fn facade_markers_name_the_builtin_marker_types() {
     assert_eq!(
         TermMapOperation::ALL.map(TermMapOperation::facade_marker),
         [
+            marker("map", "empty"),
             marker("map", "update"),
             marker("map", "get"),
             marker("map", "in_keys"),

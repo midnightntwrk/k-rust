@@ -6,8 +6,8 @@ use krs_k_rust::FrontendDiagnostic;
 use serde::{Deserialize, Serialize};
 
 pub use krs_diagnostic::envelope::{
-    DIAGNOSTIC_SCHEMA_VERSION, DiagnosticEnvelope, DiagnosticGeneratedRange, DiagnosticSeverity,
-    DiagnosticStage,
+    DIAGNOSTIC_SCHEMA_VERSION, DiagnosticEnvelope, DiagnosticGeneratedRange, DiagnosticLabel,
+    DiagnosticSeverity, DiagnosticStage,
 };
 
 /// Builds the envelope view using the producing boundary's exact source map.
@@ -16,7 +16,7 @@ pub fn diagnostic_envelope(
     diagnostic: Diagnostic,
     stage: DiagnosticStage,
     source_map: Option<&SourceMap>,
-) -> Option<DiagnosticEnvelope> {
+) -> DiagnosticEnvelope {
     krs_diagnostic::envelope::diagnostic_envelope(diagnostic, stage, |key| {
         source_map?.exact_authored_range(key)
     })
@@ -28,7 +28,7 @@ pub fn diagnostic_envelope(
 pub fn translate_native_diagnostic(
     source_map: &SourceMap,
     diagnostic: &FrontendDiagnostic,
-) -> Option<DiagnosticEnvelope> {
+) -> DiagnosticEnvelope {
     diagnostic_envelope(
         diagnostic.to_diagnostic(),
         DiagnosticStage::Native,
@@ -36,94 +36,34 @@ pub fn translate_native_diagnostic(
     )
 }
 
-/// A native diagnostic without an exact authored range.
-/// Generated coordinates and supplemental detail remain available even though the CLI renders prose.
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct UnlocatedDiagnostic {
-    /// Stable producer code.
-    pub code: String,
-    /// Whether compilation may continue.
-    pub severity: DiagnosticSeverity,
-    /// Principal explanation.
-    pub message: String,
-    /// Source identifier reported by the frontend.
-    pub source: Option<String>,
-    /// Exact downstream coordinates, when reported.
-    pub generated_range: Option<DiagnosticGeneratedRange>,
-    /// Supplemental detail in producer order.
-    pub notes: Vec<String>,
-}
-
-impl ToDiagnostic for UnlocatedDiagnostic {
-    fn to_diagnostic(&self) -> Diagnostic {
-        let mut diagnostic = Diagnostic::error(
-            krs_diagnostic::Code::foreign(self.code.clone()),
-            self.message.clone(),
-            krs_diagnostic::Location::None,
-        );
-        diagnostic.severity = self.severity.into();
-        diagnostic.notes.clone_from(&self.notes);
-        if let Some(range) = &self.generated_range {
-            diagnostic.secondary.push(krs_diagnostic::Label::new(
-                krs_diagnostic::Location::Generated(range.clone()),
-            ));
-        }
-        diagnostic
-    }
-}
-
-impl std::fmt::Display for UnlocatedDiagnostic {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if self.severity == DiagnosticSeverity::Warning {
-            formatter.write_str("warning: ")?;
-        }
-        write!(formatter, "{}: {}", self.code, self.message)
-    }
-}
-
-/// Independently translated native diagnostics.
-/// Located envelopes must sort by code and authored range and deduplicate by full envelope equality.
-/// Unlocated diagnostics must retain producer order.
-/// JSON presentation must render them alongside envelopes as `krs: <code>: <message>` lines, with `warning:` for warnings.
+/// Independently translated diagnostics, located or not.
+/// Located envelopes sort by code and authored range and deduplicate by full envelope equality;
+/// unlocated ones keep producer order after them.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct DiagnosticReports {
-    /// Diagnostics with exact authored coordinates.
+    /// Every diagnostic, as an envelope.
     pub envelopes: Vec<DiagnosticEnvelope>,
-    /// Diagnostics that must remain available to prose renderers.
-    pub unlocated: Vec<UnlocatedDiagnostic>,
 }
 
 impl DiagnosticReports {
     pub(crate) fn native(source_map: &SourceMap, diagnostics: &[FrontendDiagnostic]) -> Self {
-        let mut reports = Self::default();
-        for diagnostic in diagnostics {
-            if let Some(envelope) = translate_native_diagnostic(source_map, diagnostic) {
-                reports.envelopes.push(envelope);
-            } else {
-                let model = diagnostic.to_diagnostic();
-                let generated_range =
-                    model
-                        .secondary
-                        .iter()
-                        .find_map(|label| match &label.location {
-                            krs_diagnostic::Location::Generated(range) => Some(range.clone()),
-                            _ => None,
-                        });
-                reports.unlocated.push(UnlocatedDiagnostic {
-                    code: model.code.to_string(),
-                    severity: model.severity.into(),
-                    message: model.message,
-                    source: diagnostic.source.clone(),
-                    generated_range,
-                    notes: model.notes,
-                });
-            }
-        }
-        reports.envelopes.sort_by(|left, right| {
+        let (mut located, unlocated): (Vec<_>, Vec<_>) = diagnostics
+            .iter()
+            .map(|diagnostic| translate_native_diagnostic(source_map, diagnostic))
+            .partition(|envelope| envelope.authored_range.is_some());
+        located.sort_by(|left, right| {
             (&left.code, &left.authored_range).cmp(&(&right.code, &right.authored_range))
         });
-        reports.envelopes.dedup();
-        reports
+        located.dedup();
+        located.extend(unlocated);
+        Self { envelopes: located }
+    }
+
+    /// Adds a diagnostic of `stage`, located or not.
+    pub(crate) fn push(&mut self, diagnostic: Diagnostic, stage: DiagnosticStage) {
+        self.envelopes
+            .push(diagnostic_envelope(diagnostic, stage, None));
     }
 }
 
@@ -155,16 +95,10 @@ pub fn translate_k_frontend_diagnostic(
         return None;
     }
     let authored_range = source_map.exact_authored_range(entry.key())?;
-    Some(DiagnosticEnvelope {
-        schema_version: DIAGNOSTIC_SCHEMA_VERSION,
-        stage: DiagnosticStage::KFrontend,
-        code: code.into(),
-        severity: DiagnosticSeverity::Error,
-        message: message.into(),
-        authored_range,
-        generated_range: Some(generated_range),
-        notes: Vec::new(),
-    })
+    let mut envelope =
+        DiagnosticEnvelope::error(DiagnosticStage::KFrontend, code, message, authored_range);
+    envelope.generated_range = Some(generated_range);
+    Some(envelope)
 }
 
 #[cfg(test)]
@@ -199,22 +133,24 @@ mod tests {
     }
 
     #[test]
-    fn envelope_preserves_the_producers_message_severity_and_notes() {
+    fn envelope_preserves_the_producers_message_severity_notes_and_help() {
         let mut diagnostic = Diagnostic::error(
             krs_diagnostic::codes::analysis::OVERLAPPING_RULE_HEADS,
             "overlap",
             Location::Source(range()),
         )
         .with_note("first rule: first")
-        .with_note("second rule: second");
+        .with_note("second rule: second")
+        .with_help("reorder the rules");
         diagnostic.severity = Severity::Warning;
-        let envelope = diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None).unwrap();
+        let envelope = diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, None);
         assert_eq!(envelope.code, "krs::analysis::overlapping-rule-heads");
         assert_eq!(envelope.stage, DiagnosticStage::Analysis);
         assert_eq!(envelope.severity, DiagnosticSeverity::Warning);
         assert_eq!(envelope.message, "overlap");
         assert_eq!(envelope.notes, ["first rule: first", "second rule: second"]);
-        assert_eq!(envelope.authored_range, range());
+        assert_eq!(envelope.help, ["reorder the rules"]);
+        assert_eq!(envelope.authored_range, Some(range()));
         assert_eq!(envelope.generated_range, None);
     }
 
@@ -227,21 +163,23 @@ mod tests {
             "collision",
             Location::Definition(key),
         );
-        assert!(diagnostic_envelope(diagnostic.clone(), DiagnosticStage::Analysis, None).is_none());
+        assert_eq!(
+            diagnostic_envelope(diagnostic.clone(), DiagnosticStage::Analysis, None).authored_range,
+            None
+        );
         assert_eq!(
             diagnostic_envelope(diagnostic, DiagnosticStage::Analysis, Some(&source_map))
-                .unwrap()
                 .authored_range,
-            range(),
+            Some(range()),
         );
         let unlocated = Diagnostic::error(
             krs_diagnostic::codes::analysis::NAME_COLLISION,
             "collision",
             Location::None,
         );
-        assert!(
-            diagnostic_envelope(unlocated, DiagnosticStage::Analysis, Some(&source_map)).is_none()
-        );
+        let envelope = diagnostic_envelope(unlocated, DiagnosticStage::Analysis, Some(&source_map));
+        assert_eq!(envelope.authored_range, None);
+        assert_eq!(envelope.code, "krs::analysis::name-collision");
     }
 
     #[test]
@@ -276,14 +214,13 @@ mod tests {
             location: None,
             input_addresses: Vec::new(),
         };
-        let translated =
-            translate_native_diagnostic(&source_map, &diagnostic).expect("exact authored mapping");
-        assert_eq!(translated.authored_range, range());
+        let translated = translate_native_diagnostic(&source_map, &diagnostic);
+        assert_eq!(translated.authored_range, Some(range()));
         assert_eq!(translated.generated_range, None);
     }
 
     #[test]
-    fn native_reports_keep_located_and_unlocated_diagnostics_independently() {
+    fn native_reports_keep_located_diagnostics_before_unlocated_ones() {
         let key = SourceMapKey::new("diag.module").unwrap();
         let source_map = source_map(&key);
         let generated = krs_k_rust::SourceLocation {
@@ -306,9 +243,9 @@ mod tests {
         unlocated.code = krs_diagnostic::Code::foreign("InvalidAttribute");
         unlocated.message = "unlocated attribute".to_owned();
         let reports =
-            DiagnosticReports::native(&source_map, &[located.clone(), unlocated, located]);
-        assert_eq!(reports.envelopes.len(), 1);
-        assert_eq!(reports.envelopes[0].authored_range, range());
+            DiagnosticReports::native(&source_map, &[unlocated, located.clone(), located]);
+        assert_eq!(reports.envelopes.len(), 2);
+        assert_eq!(reports.envelopes[0].authored_range, Some(range()));
         assert_eq!(
             reports.envelopes[0]
                 .generated_range
@@ -317,13 +254,11 @@ mod tests {
                 .end_column,
             4
         );
-        assert_eq!(reports.unlocated.len(), 1);
+        assert_eq!(reports.envelopes[1].authored_range, None);
+        assert_eq!(reports.envelopes[1].code, "InvalidAttribute");
+        assert_eq!(reports.envelopes[1].message, "unlocated attribute");
         assert_eq!(
-            reports.unlocated[0].to_string(),
-            "InvalidAttribute: unlocated attribute"
-        );
-        assert_eq!(
-            reports.unlocated[0].generated_range,
+            reports.envelopes[1].generated_range,
             reports.envelopes[0].generated_range
         );
     }
@@ -345,10 +280,8 @@ mod tests {
         unlocated.source_map_key = None;
         let reports = DiagnosticReports::native(&source_map, &[located, unlocated]);
         assert_eq!(reports.envelopes[0].severity, DiagnosticSeverity::Warning);
-        assert_eq!(
-            reports.unlocated[0].to_string(),
-            "warning: UnusedVariable: unused variable"
-        );
+        assert_eq!(reports.envelopes[1].authored_range, None);
+        assert_eq!(reports.envelopes[1].severity, DiagnosticSeverity::Warning);
         let cached = serde_json::to_vec(&reports).unwrap();
         assert_eq!(
             serde_json::from_slice::<DiagnosticReports>(&cached).unwrap(),

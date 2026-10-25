@@ -6,7 +6,6 @@
 
 use std::{
     collections::{BTreeMap, BTreeSet},
-    convert::Infallible,
     fmt,
     sync::Arc,
 };
@@ -23,7 +22,7 @@ use crate::{
     provenance::GeneratingPass,
 };
 
-use super::super::label_graph::LabelDependencyGraph;
+use super::super::label_graph::{Edges, LabelDependencyGraph};
 use super::retarget_production_identities;
 
 const CONFIGURATION_VARIABLE: &str = "#Configuration";
@@ -46,8 +45,16 @@ impl fmt::Display for ResolveFunctionWithConfigError {
 impl std::error::Error for ResolveFunctionWithConfigError {}
 
 /// Functions whose rules inspect configuration receive one final `GeneratedTopCell` argument.
-/// The requirement propagates backwards through calls to functions and non-macro `anywhere`
-/// symbols, so callers receive and forward the same configuration value transitively.
+/// A function reads the configuration when its own rules do, or when a function or macro that its
+/// rules reach does: the requirement propagates backwards along every application in the body,
+/// `requires` and `ensures` of a function rule, and through a macro to what its right side
+/// applies, since expansion puts that right side where the macro is used. A rule counts for the
+/// label its head has once macros are expanded, so a simplification rule written with a macro or
+/// alias head is a rule of the function that head expands to. The set is the least
+/// fixed point of that relation, so a function that calls a configuration-reading function
+/// receives and forwards the same configuration value transitively. Only function labels receive
+/// it: a macro is a route only, and an `anywhere` symbol that is not a function is a call target
+/// only, whose own rules give the closure no edges.
 pub fn resolve_function_with_config(
     definition: &Definition,
 ) -> Result<Definition, ResolveFunctionWithConfigError> {
@@ -228,20 +235,39 @@ pub(crate) fn resolve_function_with_config_pass(
 ///
 /// This is a separate operation from [`resolve_function_with_config`] because the left-hand side
 /// is the generated top cell only after cell concretization; the KORE pipeline runs it after
-/// cell concretization and semantics-module generation.
-pub fn resolve_config_var(definition: &Definition) -> Definition {
+/// cell concretization and semantics-module generation, and so after macro expansion.
+///
+/// After binding, a rule or claim that still holds the variable where the root of its left-hand
+/// side does not bind it (`left_hand_side_binds_configuration`, the predicate of invariant CF1)
+/// has no configuration in scope, and is rejected at the sentence
+/// ([`DiagnosticCode::InvalidFunctionConfiguration`]). Reading the configuration needs one in
+/// scope: a rewrite of the configuration has it (its left-hand side is the generated top cell, which
+/// this stage aliases), and so has a rule of a function that receives it as its last argument. An
+/// anywhere rule whose head is not a function holds wherever its left-hand side occurs, also outside
+/// any configuration, and such a head never receives the configuration, since only the rules of
+/// functions propagate the need for it ([`resolve_function_with_config`]); an equational claim states
+/// the value of its left-hand side, a term. A macro-like rule is exempt: its expansion substitutes
+/// the reference into a use site, which binds it.
+///
+/// A rule whose head is a function is not rejected here: its function has the configuration in
+/// scope by meaning, since [`resolve_function_with_config`] gives the configuration to every
+/// function whose rules reach a read, through `requires`, `ensures`, right-hand sides and macros.
+/// An unbound reference in such a rule would be a read that propagation missed, a compiler defect
+/// that CF1 reports in invariant builds.
+pub fn resolve_config_var(
+    definition: &Definition,
+) -> Result<Definition, ResolveFunctionWithConfigError> {
     super::super::pipeline::run_standalone(
         definition,
         resolve_config_var_pass,
         Some(GeneratingPass::ResolveFunctionWithConfig),
     )
-    .unwrap_or_else(|error| match error {})
 }
 
 pub(crate) fn resolve_config_var_pass(
     input: &super::super::pipeline::PassInput<'_>,
     _: &mut super::super::pipeline::PipelineState,
-) -> Result<Definition, Infallible> {
+) -> Result<Definition, ResolveFunctionWithConfigError> {
     let mut output = input.definition.clone();
     for module in &mut output.modules {
         for sentence in &mut module.local_sentences {
@@ -309,7 +335,217 @@ pub(crate) fn resolve_config_var_pass(
             }
         }
     }
+    let mut diagnostics = Vec::new();
+    for module in &output.modules {
+        // Invariant: `diagnostics` holds the rejection of every sentence of `module` before
+        // `sentence` that reads the configuration with none in scope.
+        for sentence in &module.local_sentences {
+            let Some(read) = unscoped_configuration_read(sentence) else {
+                continue;
+            };
+            // The function heads are looked up only for such a sentence, which is rare.
+            let resolved =
+                input
+                    .resolved_raw()
+                    .map_err(|error| ResolveFunctionWithConfigError {
+                        diagnostics: vec![plain_error(error.to_string())],
+                    })?;
+            let function_rule = matches!(&**sentence, Sentence::Rule { .. })
+                && resolved.module_id(&module.name).is_some_and(|module| {
+                    resolved
+                        .production_catalog(module)
+                        .function_labels()
+                        .contains(&LabelHead::from(&crate::definition::match_rule_label(
+                            sentence,
+                        )))
+                });
+            if function_rule {
+                continue;
+            }
+            diagnostics.push(read);
+        }
+    }
+    if !diagnostics.is_empty() {
+        diagnostics.sort();
+        diagnostics.dedup();
+        return Err(ResolveFunctionWithConfigError { diagnostics });
+    }
     Ok(output)
+}
+
+/// Whether the root of the left-hand side of `body` (the left side of its top rewrite, or `body`
+/// without one) binds the configuration variable: it is the generated top cell aliased to it
+/// (`<generatedTop>(..) #as #Configuration`), or an application whose last argument is the
+/// variable or that alias, the left-hand side of a rule of a function that receives the
+/// configuration. This is the one predicate of the binding stage's rejection and of invariant CF1;
+/// CF1 also checks, through [`configuration_binder`], that the root of the second form is a function
+/// that receives the configuration.
+pub(crate) fn left_hand_side_binds_configuration(body: &Term) -> bool {
+    configuration_binder(body).is_some()
+}
+
+/// How the root of the left-hand side of `body` binds the configuration variable
+/// ([`left_hand_side_binds_configuration`]).
+pub(crate) enum ConfigurationBinder<'a> {
+    /// The generated top cell aliased to it.
+    TopCellAlias,
+    /// The last argument of the root application, whose label this is.
+    LastArgument(
+        #[cfg_attr(
+            not(any(debug_assertions, feature = "kompile-invariant-checks")),
+            expect(
+                dead_code,
+                reason = "only invariant CF1, absent from this build, reads the label"
+            )
+        )]
+        &'a Label,
+    ),
+}
+
+/// The binder of the configuration variable at the root of the left-hand side of `body`, if any.
+pub(crate) fn configuration_binder(body: &Term) -> Option<ConfigurationBinder<'_>> {
+    #[expect(
+        clippy::wildcard_enum_match_arm,
+        reason = "Term is syntax; only a top rewrite has a left side other than the body"
+    )]
+    let left = match body.unannotated() {
+        Term::Rewrite { left, .. } => left.as_ref(),
+        _ => body,
+    };
+    if is_configuration_alias(left) {
+        return Some(ConfigurationBinder::TopCellAlias);
+    }
+    if let Term::Apply { label, arguments } = left.unannotated()
+        && arguments.last().is_some_and(|last| {
+            is_exact_configuration_variable(last) || is_configuration_alias(last)
+        })
+    {
+        return Some(ConfigurationBinder::LastArgument(label));
+    }
+    None
+}
+
+/// Whether `term` is the configuration variable. Reading the spelling is sound: a name that
+/// starts with `#` is reserved for the compiler, so no authored variable has it.
+pub(crate) fn is_exact_configuration_variable(term: &Term) -> bool {
+    matches!(term.unannotated(), Term::Variable { name, .. } if name == CONFIGURATION_VARIABLE)
+}
+
+/// Whether `term` is the generated top cell aliased to the configuration variable.
+fn is_configuration_alias(term: &Term) -> bool {
+    matches!(
+        term.unannotated(),
+        Term::As { pattern, alias }
+            if is_exact_configuration_variable(alias)
+                && matches!(
+                    pattern.unannotated(),
+                    Term::Apply { label, .. } if label.name == GeneratedCell::Top.label()
+                )
+    )
+}
+
+/// The rejection of `sentence`, a bound rule or claim, when it is not macro-like and holds the
+/// configuration variable where the root of its left-hand side does not bind it
+/// ([`resolve_config_var`]); the caller exempts the rules of functions.
+///
+/// The variable reaches such a sentence as the last argument of a call to a function that
+/// receives the configuration, directly or through a macro it uses, so the message names those
+/// functions and the parts of the sentence that call them.
+fn unscoped_configuration_read(sentence: &Sentence) -> Option<Diagnostic> {
+    let (kind, body, requires, ensures, attributes) = match sentence {
+        Sentence::Rule {
+            body,
+            requires,
+            ensures,
+            attributes,
+        } => ("rule", body, requires, ensures, attributes),
+        Sentence::Claim {
+            body,
+            requires,
+            ensures,
+            attributes,
+        } => ("claim", body, requires, ensures, attributes),
+        Sentence::SyntaxSort { .. }
+        | Sentence::SortSynonym { .. }
+        | Sentence::SyntaxLexical { .. }
+        | Sentence::Production { .. }
+        | Sentence::SyntaxAssociativity { .. }
+        | Sentence::SyntaxPriority { .. }
+        | Sentence::ContextAlias { .. }
+        | Sentence::Context { .. }
+        | Sentence::Configuration { .. }
+        | Sentence::Bubble { .. } => return None,
+    };
+    if attributes.has_any(&AttributeKey::MACRO_LIKE) || left_hand_side_binds_configuration(body) {
+        return None;
+    }
+    let (left, right) = (rewrite_left(body), rewrite_right(body));
+    let parts = [
+        ("left-hand side", &left),
+        ("requires clause", requires),
+        ("ensures clause", ensures),
+        ("right-hand side", &right),
+    ]
+    .into_iter()
+    .filter(|(_, term)| contains_exact_configuration_variable(term))
+    .collect::<Vec<_>>();
+    if parts.is_empty() {
+        return None;
+    }
+    let mut readers = BTreeSet::new();
+    for (_, term) in &parts {
+        term.visit_preorder(&mut |node| {
+            if let Term::Apply { label, arguments } = node.unannotated()
+                && arguments.last().is_some_and(is_configuration_argument)
+            {
+                readers.insert(label.name.clone());
+            }
+        });
+    }
+    let places = parts
+        .iter()
+        .map(|(place, _)| *place)
+        .collect::<Vec<_>>()
+        .join(" and ");
+    let calls = if readers.is_empty() {
+        "reads it".to_owned()
+    } else {
+        let readers = readers.into_iter().collect::<Vec<_>>();
+        let (verb, relative) = match (parts.len(), readers.len()) {
+            (1, 1) => ("calls", "reads"),
+            (1, _) => ("calls", "read"),
+            (_, 1) => ("call", "reads"),
+            _ => ("call", "read"),
+        };
+        format!("{verb} {}, which {relative} it", readers.join(", "))
+    };
+    let (subject, scope) = if attributes.has(AttributeKey::Anywhere) {
+        (
+            "An anywhere rule",
+            "it applies to its left-hand side wherever that term occurs, also outside any \
+             configuration, and its head is not a function, which would receive the \
+             configuration as an argument",
+        )
+    } else if kind == "claim" {
+        (
+            "A claim",
+            "its left-hand side is neither the configuration nor an application of a function \
+             that receives it",
+        )
+    } else {
+        (
+            "A rule",
+            "its left-hand side is neither the configuration nor an application of a function \
+             that receives it",
+        )
+    };
+    Some(error_at(
+        format!(
+            "{subject} cannot read the configuration: its {places} {calls}, and the {kind} has no \
+             configuration in scope: {scope}."
+        ),
+        attributes,
+    ))
 }
 
 fn compute_with_config_functions(
@@ -318,18 +554,28 @@ fn compute_with_config_functions(
 ) -> BTreeSet<LabelHead> {
     let productions = definition.production_catalog(module);
     let rules = definition.rule_catalog(module);
-    let graph = LabelDependencyGraph::build(&productions, &rules, |rule| {
-        rule.attributes().has_any(&AttributeKey::MACRO_LIKE)
-    });
+    let graph = LabelDependencyGraph::build(
+        &productions,
+        &rules,
+        |rule| rule.attributes().has_any(&AttributeKey::MACRO_LIKE),
+        Edges::READS,
+    );
     let functions = productions.function_labels();
+    // A rule is a seed for the labels it is a rule of once macros are expanded, so a
+    // simplification rule written with a macro head seeds the function that head expands to.
     let seeds = rules
         .rules()
-        .filter_map(|(_, rule)| {
-            let label = LabelHead::from(&crate::definition::match_rule_label(rule));
-            (functions.contains(&label) && rule_needs_config(rule)).then_some(label)
-        })
+        .filter(|(_, rule)| rule_needs_config(rule))
+        .flat_map(|(_, rule)| graph.rule_heads(rule))
+        .filter(|label| functions.contains(label))
         .collect();
-    graph.backward_closure(seeds)
+    // A macro label reaches the closure when a reader is reachable through its right side; it is
+    // a route, not a receiver: its applications are expanded where they are used.
+    graph
+        .backward_closure(seeds)
+        .into_iter()
+        .filter(|label| functions.contains(label))
+        .collect()
 }
 
 fn rule_needs_config(rule: &Sentence) -> bool {
@@ -437,6 +683,18 @@ fn resolve_with_config_body(
         Term::Rewrite { left, right } => ((**left).clone(), Some((**right).clone())),
         _ => (function.clone(), None),
     };
+    // The head is read through root aliases ([`crate::definition::RuleHead::of`]): `f(X) #as V`
+    // is headed by `f`. Each alias is put back around the rebuilt application, where it names
+    // the application with its configuration argument, the term the rule now matches.
+    let mut aliases = Vec::new();
+    let mut function = function;
+    // Invariant: `aliases` holds the alias variables, outermost first, of the root `#as` nodes
+    // peeled from the left side so far.
+    while let Term::As { pattern, alias } = function.unannotated() {
+        aliases.push((**alias).clone());
+        let pattern = (**pattern).clone();
+        function = pattern;
+    }
     let Term::Apply {
         label: function_label,
         arguments: function_arguments,
@@ -492,6 +750,12 @@ fn resolve_with_config_body(
     };
     if let Some(metadata) = function.metadata() {
         result = result.with_metadata(metadata.clone());
+    }
+    for alias in aliases.into_iter().rev() {
+        result = Term::As {
+            pattern: Box::new(result),
+            alias: Box::new(alias),
+        };
     }
     if let Some(right) = right {
         Term::Rewrite {
@@ -700,6 +964,70 @@ endmodule
         ] {
             assert_eq!(arguments(&run.input, label), before, "{label} before");
             assert_eq!(arguments(run.output(), label), after, "{label} after");
+        }
+    }
+
+    /// The need for the configuration also propagates through a function rule's `ensures` and
+    /// through macros: a function whose rule calls a macro whose right side calls a reader reads
+    /// the configuration, as the rule does once the macro is expanded. Only functions receive it:
+    /// the macro and the constructor in its right side keep their arity.
+    #[test]
+    fn the_configuration_reaches_a_function_through_its_ensures_and_through_macros() {
+        let run = run_to_stage(
+            r#"
+module MAIN
+  syntax K
+  syntax Int ::= r"[0-9]+" [token]
+  syntax Bool ::= "tt" [token]
+  syntax Int ::= reader() [function, symbol(reader)]
+               | viaEnsures() [function, symbol(viaEnsures)]
+  syntax Box ::= readerM() [macro, symbol(readerM)]
+               | viaMacro() [function, symbol(viaMacro)]
+               | wrap(Int) [symbol(wrap)]
+  syntax Bool ::= flag() [function, symbol(flag)]
+  syntax KItem ::= "go" [symbol(go)] | done(Box) [symbol(done)]
+  configuration <t> <k> go </k> <s> 0 </s> <b> tt </b> </t>
+  rule [[ reader() => V ]] <s> V </s>
+  rule [[ flag() => B ]] <b> B </b>
+  rule readerM() => wrap(reader())
+  rule viaMacro() => readerM()
+  rule viaEnsures() => 1 ensures flag()
+  rule <k> go => done(viaMacro()) </k> [label(go)]
+endmodule
+"#,
+            "resolve function configuration",
+        );
+        let arity = |label: &str| {
+            module(run.output(), "MAIN")
+                .local_sentences
+                .iter()
+                .find_map(|sentence| {
+                    let Sentence::Production {
+                        label: Some(production),
+                        items,
+                        ..
+                    } = &**sentence
+                    else {
+                        return None;
+                    };
+                    (production.name == label).then(|| {
+                        items
+                            .iter()
+                            .filter(|item| matches!(item, ProductionItem::NonTerminal { .. }))
+                            .count()
+                    })
+                })
+                .unwrap_or_else(|| panic!("no production {label}"))
+        };
+        for (label, expected) in [
+            ("reader", 1),
+            ("flag", 1),
+            ("viaMacro", 1),
+            ("viaEnsures", 1),
+            ("readerM", 0),
+            ("wrap", 1),
+        ] {
+            assert_eq!(arity(label), expected, "{label}");
         }
     }
 }

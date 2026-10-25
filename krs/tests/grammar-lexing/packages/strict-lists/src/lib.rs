@@ -101,10 +101,10 @@ k::rules! {
 
     tick: {
         k: [Tick(), ..],
-        counter: c
+        counter: c,
     } => {
         k: [c, ..],
-        counter: int::add(c, 1)
+        counter: int::add(c, 1),
     };
 }
 

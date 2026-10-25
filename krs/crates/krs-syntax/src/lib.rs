@@ -7,15 +7,20 @@
 
 mod attribute;
 mod configuration;
+mod constant;
 mod enum_constructor;
 mod error;
+mod function_shorthand;
 mod grammar;
 mod initializer;
 mod item;
 pub mod keyword;
 mod lexical;
+mod list_notation;
+mod notation;
 pub mod parse;
 mod path;
+pub use path::is_constant_name;
 mod provenance;
 mod range;
 mod rule;
@@ -37,17 +42,19 @@ pub use attribute::{
     REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey, RuleAttribute, SimplificationAttribute,
     SortAttribute, SpecModuleAttribute, SpecModuleItem, StaticMode, StaticProductionAttribute,
     SubsortAttribute, SymbolAttribute, UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable,
-    UnboundVariables, VariantSyntaxAttribute, validate_spec_module_name,
+    UnboundVariables, VariantSyntaxAttribute, default_function_syntax, validate_spec_module_name,
 };
 pub use configuration::{
     ComputationCellField, ConfigurationCellContent, ConfigurationDeclaration, FixedCellField,
-    option_content,
+    SortArgument, option_content,
 };
+pub use constant::ConstantItem;
 pub use enum_constructor::{
     EnumConstructorDeclaration, EnumConstructorVariant, EnumPrecedenceDescriptor,
     EnumPrecedenceGroup,
 };
 pub use error::{SyntaxError, SyntaxErrorKind};
+pub use function_shorthand::{FunctionShorthand, ShorthandEquation, ShorthandItem, equation_name};
 pub use grammar::{
     AssociativityDeclaration, AssociativitySentence, BracketAttribute, GroupAssociativity,
     PrecedenceChain, PrecedenceDeclaration, PrecedenceEdge, SmtTemplate, SmtTemplateFragment,
@@ -63,14 +70,17 @@ pub use item::{
     ConstructorDeclaration, ConstructorField, ProductionDocumentation, RawKItem, SortDeclaration,
 };
 pub use lexical::{LayoutDeclaration, LexicalDeclaration, LexicalEntry, regex_references};
+pub use notation::{denote_notation, is_expression_notation};
 pub use parse::{KrsSyntax, ReferenceCandidate};
 pub use provenance::{ProvenanceAnchor, ProvenanceRole, RuleRole, RuleSide, role_tokens};
 pub use range::TokenRange;
 pub use rule::{
-    BINDER_LIST_CONTRACT, BracketAlternative, ReadableStateCounters, RuleBinder, RuleBlock,
-    RuleClause, RuleClauseLayout, RuleCondition, RuleExistentials, RuleExtra, RuleHeadResult,
-    RuleImport, RuleItem, RuleMapUpdate, RuleNarrowing, RuleParameter, RulePattern,
-    parse_rule_block_source_with_trivia,
+    BINDER_LIST_CONTRACT, BracketAlternative, ClaimBlock, EquationRow, EquationTable,
+    ReadableStateCounters, RuleBinder, RuleBlock, RuleClause, RuleClauseLayout, RuleCondition,
+    RuleExistentials, RuleExtra, RuleHead, RuleHeadItem, RuleHeadResult, RuleItem, RuleListPattern,
+    RuleListRest, RuleListResult, RuleMapEntry, RuleMapUpdate, RuleNarrowing, RuleParameter,
+    RulePattern, desugar_bit_templates, is_hidden_binder, parse_claim_block_source_with_trivia,
+    parse_equation_table_source_with_trivia, parse_rule_block_source_with_trivia,
 };
 pub use sorts::{SortsDeclaration, SortsEntry, SortsMembership, SortsSort};
 pub use state_macro::{
@@ -86,7 +96,8 @@ pub use state_rule::{
     ClaimEnsures, ClaimSortCandidate, FUNCTION_CONTEXT_ONLY_ON_EQUATIONS,
     FUNCTION_CONTEXT_REMAINDER, FUNCTION_CONTEXT_SHAPE, FunctionContext, StateClaimItem,
     StateContextAliasItem, StateRuleBinding, StateRuleBindingKind, StateRuleItem,
-    StateRuleReferenceKind, is_cells_parameter, parse_state_context_alias_item,
+    StateRuleReferenceKind, cells_pattern_term_binders, is_cells_parameter,
+    parse_state_context_alias_item,
 };
 pub use syntax_list::{
     SyntaxListAttribute, SyntaxListCons, SyntaxListDeclaration, SyntaxListTerminator,
@@ -94,7 +105,8 @@ pub use syntax_list::{
 pub use term::{
     CellTerm, IntegerLiteral, TermApplication, TermArguments, TermExpression, TermLiteral,
     TermNamedArgument, TermNode, TermRootKind, TermSymbol, TermSymbolKind, TermTree,
-    parse_lexeme_arguments, parse_matches_arguments, parse_sort_test_arguments,
+    is_constant_island_macro, is_island_macro, parse_lexeme_arguments, parse_matches_arguments,
+    parse_sort_test_arguments,
 };
 pub use term_sort::TermSort;
 pub use trivia::{

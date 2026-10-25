@@ -28,7 +28,8 @@ the minimum supported Rust has one source.
 Every tracked `Cargo.toml` under `tests/` that declares its own `[workspace]`
 must be a row of the standalone package table in `tests/support/packages.py`
 unless it is under a `fixtures/` directory,
-so no standalone package escapes its owning gate's format, lint, and MSRV checks.
+so no standalone package escapes its owning gate's format check or the package lint
+(`tests/package-lint/verify.py`, Clippy and the MSRV check).
 Every row must name a tracked manifest that declares `[workspace]`.
 
 Reference-K (Java K) results are a per-user cache (`tests/support/reference.py`),

@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 use std::sync::{Arc, Mutex, OnceLock, Weak};
 
+pub mod class_matrix;
 mod compile_fixtures;
 pub use compile_fixtures::{Expectation, check_compile_fixtures};
 

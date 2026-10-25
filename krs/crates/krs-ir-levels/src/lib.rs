@@ -14,6 +14,7 @@
 pub mod collection_operands;
 pub mod definition;
 mod display;
+pub mod failure_site;
 pub mod ir_level;
 mod ir_validation;
 pub mod k_surface;
@@ -25,14 +26,15 @@ pub use collection_operands::{
 };
 
 pub use definition::{
-    ConfigurationSentence, ContextAliasSentence, DefinitionApplicationRef, DefinitionClaim,
-    DefinitionCondition, DefinitionEvaluationStep, DefinitionFunctionContext, DefinitionIr,
-    DefinitionMlPredicate, DefinitionModule, DefinitionProductionAttribute, DefinitionRuleBody,
-    DefinitionRuleCondition, DefinitionRulePriority, DefinitionScopedBinder, DefinitionSentence,
-    DefinitionSimplification, DefinitionSimplificationPriority, DefinitionSortRef, DefinitionTerm,
-    DefinitionTermKind, DefinitionValidationError, DefinitionVariable, LabelId, LabelIdentity,
-    ModuleRole, ProductionGroupIdentity, ProductionItem, ProductionSentence, RuleSentence,
-    SubsortSentence, SymbolId, SymbolIdentity, SymbolKind, SyntaxSortSentence,
+    ConfigurationSentence, ContextAliasSentence, DeclarationPath, DefinitionApplicationRef,
+    DefinitionClaim, DefinitionCondition, DefinitionEvaluationStep, DefinitionFunctionContext,
+    DefinitionIr, DefinitionMlPredicate, DefinitionModule, DefinitionProductionAttribute,
+    DefinitionRuleBody, DefinitionRuleCondition, DefinitionRulePriority, DefinitionScopedBinder,
+    DefinitionSentence, DefinitionSimplification, DefinitionSimplificationPriority,
+    DefinitionSortRef, DefinitionTerm, DefinitionTermKind, DefinitionValidationError,
+    DefinitionVariable, LabelId, LabelIdentity, ModuleRole, ProductionGroupIdentity,
+    ProductionItem, ProductionSentence, RuleSentence, SubsortSentence, SymbolId, SymbolIdentity,
+    SymbolKind, SyntaxSortSentence,
 };
 pub use ir_level::{
     DefinitionLevel, IrClaim, IrCondition, IrContextAlias, IrEvaluationResult, IrEvaluationStep,

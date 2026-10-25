@@ -6,8 +6,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, value::RawValue};
 
 use super::{
-    BackendError, ExecutionCandidateOutput, ExecutionLeaf, ExecutionRemainderOutput,
-    ExecutionResult, TraceEntry, halt_reason, trace_entry,
+    BackendError, ConditionAtomOutput, ConditionNodeOutput, ConditionRecordOutput,
+    ExecutionCandidateOutput, ExecutionLeaf, ExecutionRemainderOutput, ExecutionResult,
+    RecordedBindingOutput, RecordedValueOutput, RuleConditionsOutput, RunCoverageOutput,
+    TraceEntry, halt_reason, trace_entry,
 };
 use crate::kore::{ast::Pattern as KorePattern, json as kore_json};
 use k_rust_backend::{
@@ -38,6 +40,12 @@ use k_rust_backend::{
 #[cfg(feature = "measure")]
 use k_rust_kore::measure::{self, Counter};
 
+/// The version of the backend wire schema: the shape of the requests and responses of
+/// [`Backend`](super::Backend)'s JSON operations, which carry it as `schemaVersion`; a request
+/// with another number is refused. It moves only for a schema change, and stays 1 for additive
+/// fields and variants (`docs/compatibility.md` records the schema changes made at version 1);
+/// a change of what an operation computes leaves it as it is, and the k-rust revision covers
+/// that ("Format versions" in `docs/compatibility.md`).
 pub const BACKEND_SCHEMA_VERSION: u32 = 1;
 
 /// The backend classification of a compiled axiom.
@@ -132,6 +140,148 @@ fn contradicted_total_output<K: WireKore>(
         origin: contradicted.origin.as_ref().map(Into::into),
         application: encode_term(&contradicted.application)?,
         undefined: encode_term(&contradicted.undefined_term)?,
+    })
+}
+
+/// The kind of claim a [`ContradictedClaimOutput`] names.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ContradictedClaimKind {
+    /// A symbol declared `total` (or `functional`) whose own equation reduced an application to
+    /// defined arguments to bottom; the record carries the fields of [`ContradictedTotalOutput`].
+    Total,
+    /// A rewrite rule declared `preserves-definedness` whose result term, as a step that applied
+    /// it built it, the normalization found `\bottom`; the record names the rule (`ruleId`,
+    /// `ruleLabel`, `origin`), its result term (`application`) and where it was found `\bottom`
+    /// (`undefined`), and has no `symbol`.
+    PreservesDefinedness,
+}
+
+/// Who observed a run-level record (`k_rust_backend::path_facts::ObservedIn`): the load of the
+/// definition, whose records are facts about the definition on the result's lists only, or the
+/// run that reports it.
+#[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ObservedInOutput {
+    Load,
+    Run,
+}
+
+impl From<k_rust_backend::path_facts::ObservedIn> for ObservedInOutput {
+    fn from(observed_in: k_rust_backend::path_facts::ObservedIn) -> Self {
+        match observed_in {
+            k_rust_backend::path_facts::ObservedIn::Load => Self::Load,
+            k_rust_backend::path_facts::ObservedIn::Run => Self::Run,
+        }
+    }
+}
+
+/// A claim of the definition that an evaluation of the run found contradicted by the
+/// definition's own equations (`k_rust_backend::path_facts::ContradictedClaim`): a leaf's
+/// `contradicted-claim` path fact and an entry of the result's `contradictedClaims`.
+///
+/// For `claim: total`, `symbol` to `undefined` are those of [`ContradictedTotalOutput`]: the
+/// contradicted symbol, the equation that reduced the application to bottom, the application and
+/// the undefined term. For `claim: preserves-definedness`, `ruleId`, `ruleLabel` and `origin`
+/// name the rule whose attribute is contradicted, `application` is its result term as the step
+/// built it (for a disjunctive right-hand side, the first alternative's; every alternative's is
+/// `\bottom`) and `undefined` the undefined term its normalization reached: a subterm of it or
+/// of a callee's equation result, or where it found `\bottom` otherwise; `symbol` and `kLabel`
+/// are absent.
+/// `rewriteRule*` name the rewrite rule whose attempt (match, conditions, right-hand side) or
+/// whose successor's normalization observed it, absent when no rule's work did (an initial
+/// state's normalization, the load). `ground` says whether the application is variable-free and
+/// the work that refuted the claim depended on nothing that may differ between models: it noted
+/// no path fact but ground records (no value the definition leaves open, for one) and assumed
+/// nothing but `\top` (for `total`, no constraint of the state and no path condition; for
+/// `preserves-definedness`, every constraint of the step simplified to `\top`, so its `requires`
+/// was decided rather than carried): a ground record shows that the claim is false at that input
+/// in every model that agrees with the request's inputs (on the I/O route, the console state too)
+/// and with k-rust's stated readings; a non-ground one rests on something that may not hold in
+/// every model, and shows nothing. `observedIn` says
+/// whether the definition's load or this run observed it; a leaf's records are always `run`.
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(deny_unknown_fields, rename_all = "camelCase")]
+#[serde(bound(deserialize = "K: Deserialize<'de>"))]
+pub struct ContradictedClaimOutput<K = Value> {
+    pub claim: ContradictedClaimKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub symbol: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub k_label: Option<String>,
+    pub rule_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rule_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub origin: Option<CompiledRuleOriginOutput>,
+    pub application: K,
+    pub undefined: K,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewrite_rule_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewrite_rule_label: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rewrite_rule_origin: Option<CompiledRuleOriginOutput>,
+    pub ground: bool,
+    pub observed_in: ObservedInOutput,
+}
+
+pub(super) fn contradicted_claim_output<K: WireKore>(
+    claim: &k_rust_backend::path_facts::ContradictedClaim,
+) -> Result<ContradictedClaimOutput<K>, BackendError> {
+    let (kind, symbol, k_label, rule_id, rule_label, origin, application, undefined) =
+        match &claim.claim {
+            k_rust_backend::path_facts::Claim::Total(total) => {
+                let ContradictedTotalOutput {
+                    symbol,
+                    k_label,
+                    rule_id,
+                    rule_label,
+                    origin,
+                    application,
+                    undefined,
+                } = contradicted_total_output(total)?;
+                (
+                    ContradictedClaimKind::Total,
+                    Some(symbol),
+                    k_label,
+                    rule_id,
+                    rule_label,
+                    origin,
+                    application,
+                    undefined,
+                )
+            }
+            k_rust_backend::path_facts::Claim::PreservesDefinedness(preservation) => (
+                ContradictedClaimKind::PreservesDefinedness,
+                None,
+                None,
+                preservation.rule_id.clone(),
+                preservation.label.clone(),
+                preservation.origin.as_ref().map(Into::into),
+                encode_term(&preservation.instance)?,
+                encode_term(&preservation.undefined_term)?,
+            ),
+            _ => unreachable!("every claim kind of this backend is written"),
+        };
+    Ok(ContradictedClaimOutput {
+        claim: kind,
+        symbol,
+        k_label,
+        rule_id,
+        rule_label,
+        origin,
+        application,
+        undefined,
+        rewrite_rule_id: claim.rule.as_ref().map(|rule| rule.unique_id.clone()),
+        rewrite_rule_label: claim.rule.as_ref().and_then(|rule| rule.label.clone()),
+        rewrite_rule_origin: claim
+            .rule
+            .as_ref()
+            .and_then(|rule| rule.origin.as_ref())
+            .map(Into::into),
+        ground: claim.ground,
+        observed_in: claim.observed_in.into(),
     })
 }
 
@@ -565,6 +715,34 @@ pub enum BackendDiagnosticOutput<K = Value> {
     UndefinedInitialInstances {
         definedness: Vec<K>,
     },
+    /// The path read a value of `hook` the definition leaves open, of class `class` (the names
+    /// of [`ChosenValueOutput`](super::ChosenValueOutput)): in another model of the definition
+    /// that agrees with the request's inputs and k-rust's stated readings this leaf may differ
+    /// or be absent (`BackendDiagnostic::ImplementationChosenValue`). A leaf without one is, on
+    /// its own recorded path, a leaf in every such model (under `state-set`, its configuration
+    /// and halt, not its depth and trace); a search result or witness without one is reached in
+    /// every such model. It is a path fact: it stays on the paths that depend on the work that
+    /// found it whatever became of that work (an attempt that did not apply, a refuted
+    /// alternative, an undone attempt, a duplicate dropped for the kept state), and it never
+    /// causes or prevents a `state-set` merge. Where a halt rests on how many candidates survive
+    /// (`stopAtBranch`; with `cutPointRules` or `terminalRules`, a state one of whose candidates is
+    /// such a rule) every candidate's marks are on the state's path. A leaf carries all the run's
+    /// marks in a run with `maxWork` or `maxBreadth`, and under `state-set` when a leaf of
+    /// another halt class may stand for it (a `depth-bound` or other unexplored or undecided
+    /// leaf, and with `terminalRules` a `stuck` or `terminal` one) (docs/compatibility.md, "Marks
+    /// in executions").
+    ImplementationChosenValue {
+        hook: String,
+        class: String,
+    },
+    /// The path's decisions rest on an evaluation that found a claim of the definition
+    /// contradicted by its own equations (`BackendDiagnostic::ContradictedClaim`): a condition
+    /// it refuted, a candidate it removed, or the halt. k-rust reads the undefined value as
+    /// undefined, the answer without the claim; in a model of the claim the decision at that
+    /// input may differ. A path fact, as `implementation-chosen-value` is: it stays on the paths
+    /// that depend on the work that found it whatever became of that work, and it never causes
+    /// or prevents a `state-set` merge.
+    ContradictedClaim(ContradictedClaimOutput<K>),
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -580,6 +758,10 @@ pub enum SmtFailureOutput<K = Value> {
         reason: String,
     },
     InconsistentGroundTruth,
+    /// The solver rejected the query's script; `message` is the solver's.
+    MalformedScript {
+        message: String,
+    },
     MissingModel,
     MissingModelValue {
         variable: K,
@@ -835,6 +1017,27 @@ pub struct SearchResponse<K = Value> {
     /// configuration; omitted when false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub initial_bottom: bool,
+    /// Every distinct value the definition leaves open that the search read, in first-read order
+    /// (as for [`ExecutionResult::implementation_chosen_values`](super::ExecutionResult)); absent
+    /// when empty. When absent, every model of the definition that agrees with the request's
+    /// inputs and k-rust's stated readings gives the same results, entries and end
+    /// (docs/compatibility.md, "Marks in executions").
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub implementation_chosen_values: Vec<super::ChosenValueOutput>,
+    /// Every distinct contradicted claim the search, and the load of its definition, observed,
+    /// in first-observed order, as for
+    /// [`ExecutionResult::contradicted_claims`](super::ExecutionResult); absent when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contradicted_claims: Vec<ContradictedClaimOutput<K>>,
+    /// Every distinct `Bytes` result the memory allowance refused in the search or in the load of
+    /// its definition, as for [`ExecutionResult::allowance_refusals`](super::ExecutionResult);
+    /// absent when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowance_refusals: Vec<super::UnevaluatedHookOutput>,
+    /// Every other distinct application left unevaluated as an unsupported hook, as for
+    /// [`ExecutionResult::unsupported_hooks`](super::ExecutionResult); absent when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_hooks: Vec<super::UnevaluatedHookOutput>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -849,6 +1052,18 @@ pub struct PathSearchResponse<K = Value> {
     /// As [`SearchResponse::initial_bottom`]; omitted when false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub initial_bottom: bool,
+    /// As [`SearchResponse::implementation_chosen_values`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub implementation_chosen_values: Vec<super::ChosenValueOutput>,
+    /// As [`SearchResponse::contradicted_claims`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contradicted_claims: Vec<ContradictedClaimOutput<K>>,
+    /// As [`SearchResponse::allowance_refusals`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowance_refusals: Vec<super::UnevaluatedHookOutput>,
+    /// As [`SearchResponse::unsupported_hooks`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_hooks: Vec<super::UnevaluatedHookOutput>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -876,6 +1091,18 @@ pub struct PatternSearchResponse<K = Value> {
     /// As [`SearchResponse::initial_bottom`]; omitted when false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub initial_bottom: bool,
+    /// As [`SearchResponse::implementation_chosen_values`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub implementation_chosen_values: Vec<super::ChosenValueOutput>,
+    /// As [`SearchResponse::contradicted_claims`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contradicted_claims: Vec<ContradictedClaimOutput<K>>,
+    /// As [`SearchResponse::allowance_refusals`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowance_refusals: Vec<super::UnevaluatedHookOutput>,
+    /// As [`SearchResponse::unsupported_hooks`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_hooks: Vec<super::UnevaluatedHookOutput>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
@@ -903,6 +1130,18 @@ pub struct PathPatternSearchResponse<K = Value> {
     /// As [`SearchResponse::initial_bottom`]; omitted when false.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub initial_bottom: bool,
+    /// As [`SearchResponse::implementation_chosen_values`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub implementation_chosen_values: Vec<super::ChosenValueOutput>,
+    /// As [`SearchResponse::contradicted_claims`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub contradicted_claims: Vec<ContradictedClaimOutput<K>>,
+    /// As [`SearchResponse::allowance_refusals`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowance_refusals: Vec<super::UnevaluatedHookOutput>,
+    /// As [`SearchResponse::unsupported_hooks`]; omitted when empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub unsupported_hooks: Vec<super::UnevaluatedHookOutput>,
 }
 
 pub(super) trait WireKore: Sized {
@@ -1346,6 +1585,15 @@ fn diagnostic_output<K: WireKore>(
                     .collect::<Result<_, _>>()?,
             }
         }
+        BackendDiagnostic::ImplementationChosenValue { hook, class } => {
+            BackendDiagnosticOutput::ImplementationChosenValue {
+                hook,
+                class: class.name().to_owned(),
+            }
+        }
+        BackendDiagnostic::ContradictedClaim(claim) => {
+            BackendDiagnosticOutput::ContradictedClaim(contradicted_claim_output(&claim)?)
+        }
     })
 }
 
@@ -1438,6 +1686,7 @@ fn smt_failure_output<K: WireKore>(
         SmtError::Unavailable => SmtFailureOutput::Unavailable,
         SmtError::Unknown(reason) => SmtFailureOutput::Unknown { reason },
         SmtError::InconsistentGroundTruth => SmtFailureOutput::InconsistentGroundTruth,
+        SmtError::MalformedScript { message } => SmtFailureOutput::MalformedScript { message },
         SmtError::MissingModel => SmtFailureOutput::MissingModel,
         SmtError::MissingModelValue(variable) => SmtFailureOutput::MissingModelValue {
             variable: encode_variable(&variable)?,
@@ -1777,10 +2026,138 @@ pub(super) fn execution_response<K: WireKore>(
             .into_iter()
             .map(uncommitted_observation_output)
             .collect(),
-        coverage: result.coverage.map(Into::into),
+        coverage: result.coverage.map(run_coverage_output).transpose()?,
         work: result.work,
         expanded: result.expanded,
         stack_stops: result.stack_stops,
+        smt_unknowns: result.smt_unknowns,
+        implementation_chosen_values: result
+            .implementation_chosen_values
+            .iter()
+            .map(Into::into)
+            .collect(),
+        contradicted_claims: result
+            .contradicted_claims
+            .iter()
+            .map(contradicted_claim_output)
+            .collect::<Result<_, _>>()?,
+        allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
+        unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
+    })
+}
+
+fn run_coverage_output<K: WireKore>(
+    coverage: k_rust_backend::coverage::RunCoverage,
+) -> Result<RunCoverageOutput<K>, BackendError> {
+    Ok(RunCoverageOutput {
+        applied: coverage.applied.into_iter().collect(),
+        matched: coverage.matched.into_iter().collect(),
+        offered: coverage
+            .offered
+            .map(|offered| offered.into_iter().collect()),
+        conditions: coverage
+            .conditions
+            .map(|rules| rules.into_iter().map(rule_conditions_output).collect())
+            .transpose()?,
+        applied_counts: coverage.applied_counts,
+    })
+}
+
+fn rule_conditions_output<K: WireKore>(
+    rule: k_rust_backend::coverage::RuleConditions,
+) -> Result<RuleConditionsOutput<K>, BackendError> {
+    Ok(RuleConditionsOutput {
+        rule: rule.rule,
+        records: rule
+            .records
+            .into_iter()
+            .map(|record| {
+                Ok(ConditionRecordOutput {
+                    bindings: record
+                        .bindings
+                        .into_iter()
+                        .map(|(variable, value)| {
+                            Ok(RecordedBindingOutput {
+                                variable: encode_variable(&variable)?,
+                                value: recorded_value_output(value)?,
+                            })
+                        })
+                        .collect::<Result<_, BackendError>>()?,
+                    condition: record
+                        .condition
+                        .into_iter()
+                        .map(condition_node_output)
+                        .collect::<Result<_, _>>()?,
+                    verdict: record.verdict.map(Into::into),
+                    chosen: record.chosen,
+                })
+            })
+            .collect::<Result<_, BackendError>>()?,
+        truncated: rule.truncated,
+    })
+}
+
+/// The node in its wire form; the recursion follows the condition as the rule writes it.
+fn condition_node_output<K: WireKore>(
+    node: k_rust_backend::coverage::ConditionNode,
+) -> Result<ConditionNodeOutput<K>, BackendError> {
+    use k_rust_backend::coverage::ConditionNode;
+    let nodes = |nodes: Vec<ConditionNode>| {
+        nodes
+            .into_iter()
+            .map(condition_node_output)
+            .collect::<Result<Vec<_>, _>>()
+    };
+    Ok(match node {
+        ConditionNode::Connective {
+            connective,
+            children,
+            value,
+        } => ConditionNodeOutput::Connective {
+            connective: connective.into(),
+            children: nodes(children)?,
+            value: value.into(),
+        },
+        ConditionNode::Equals {
+            literal,
+            child,
+            value,
+        } => ConditionNodeOutput::Equals {
+            literal,
+            child: Box::new(condition_node_output(*child)?),
+            value: value.into(),
+        },
+        ConditionNode::Atom(atom) => ConditionNodeOutput::Atom(ConditionAtomOutput {
+            head: atom.head,
+            hook: atom.hook,
+            operands: atom
+                .operands
+                .into_iter()
+                .map(recorded_value_output)
+                .collect::<Result<_, _>>()?,
+            reads: atom.reads,
+            value: atom.value.into(),
+        }),
+    })
+}
+
+fn recorded_value_output<K: WireKore>(
+    value: k_rust_backend::coverage::RecordedValue,
+) -> Result<RecordedValueOutput<K>, BackendError> {
+    use k_rust_backend::coverage::RecordedValue;
+    Ok(match value {
+        RecordedValue::Value(term) => RecordedValueOutput::Value {
+            term: encode_term(&term)?,
+        },
+        RecordedValue::Unevaluated(term) => RecordedValueOutput::Unevaluated {
+            term: encode_term(&term)?,
+        },
+        RecordedValue::Symbolic(term) => RecordedValueOutput::Symbolic {
+            term: encode_term(&term)?,
+        },
+        RecordedValue::Undefined => RecordedValueOutput::Undefined,
+        RecordedValue::Stopped => RecordedValueOutput::Stopped,
+        RecordedValue::Omitted => RecordedValueOutput::Omitted,
     })
 }
 
@@ -1799,6 +2176,18 @@ pub(super) fn search_response<K: WireKore>(
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
         initial_bottom: result.initial_bottom,
+        implementation_chosen_values: result
+            .implementation_chosen_values
+            .iter()
+            .map(Into::into)
+            .collect(),
+        contradicted_claims: result
+            .contradicted_claims
+            .iter()
+            .map(contradicted_claim_output)
+            .collect::<Result<_, _>>()?,
+        allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
+        unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
     })
 }
 
@@ -1817,6 +2206,18 @@ pub(super) fn path_search_response<K: WireKore>(
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
         initial_bottom: result.initial_bottom,
+        implementation_chosen_values: result
+            .implementation_chosen_values
+            .iter()
+            .map(Into::into)
+            .collect(),
+        contradicted_claims: result
+            .contradicted_claims
+            .iter()
+            .map(contradicted_claim_output)
+            .collect::<Result<_, _>>()?,
+        allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
+        unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
     })
 }
 
@@ -1843,6 +2244,18 @@ pub(super) fn pattern_search_response<K: WireKore>(
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
         initial_bottom: result.initial_bottom,
+        implementation_chosen_values: result
+            .implementation_chosen_values
+            .iter()
+            .map(Into::into)
+            .collect(),
+        contradicted_claims: result
+            .contradicted_claims
+            .iter()
+            .map(contradicted_claim_output)
+            .collect::<Result<_, _>>()?,
+        allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
+        unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
     })
 }
 
@@ -1869,6 +2282,18 @@ pub(super) fn path_pattern_search_response<K: WireKore>(
         effects: effects_output(result.effects),
         incomplete: incomplete_searches_output(result.incomplete, &result.end)?,
         initial_bottom: result.initial_bottom,
+        implementation_chosen_values: result
+            .implementation_chosen_values
+            .iter()
+            .map(Into::into)
+            .collect(),
+        contradicted_claims: result
+            .contradicted_claims
+            .iter()
+            .map(contradicted_claim_output)
+            .collect::<Result<_, _>>()?,
+        allowance_refusals: result.allowance_refusals.iter().map(Into::into).collect(),
+        unsupported_hooks: result.unsupported_hooks.iter().map(Into::into).collect(),
     })
 }
 
@@ -2427,7 +2852,7 @@ mod tests {
         use k_rust_backend::{rule::Predicate, term::Variable};
 
         let sort = Sort::simple("SortS");
-        let variable = |name: &str| Term::variable(Variable::new(name, sort.clone()));
+        let variable = |name: &str| Term::variable(Variable::new(name, sort));
         let output = diagnostic_output::<Value>(
             BackendDiagnostic::UndecidedCondition {
                 rule_id: "r".into(),
@@ -2438,8 +2863,8 @@ mod tests {
                     Predicate::Equals(variable("Eq#VarZ"), variable("Eq#VarW")),
                 ],
                 rule_variables: vec![
-                    Variable::new("Eq#VarY", sort.clone()),
-                    Variable::new("Eq#VarZ", sort.clone()),
+                    Variable::new("Eq#VarY", sort),
+                    Variable::new("Eq#VarZ", sort),
                 ],
             },
             &sort,
@@ -2625,10 +3050,184 @@ mod tests {
         );
     }
 
+    /// A mark of an open value is written with its hook and class name and read back.
+    #[test]
+    fn an_implementation_chosen_value_round_trips_on_the_wire() {
+        let sort = Sort::simple("SortS");
+        let output = diagnostic_output::<Value>(
+            BackendDiagnostic::ImplementationChosenValue {
+                hook: "MAP.keys_list".into(),
+                class: k_rust_backend::builtin::ChosenClass::Order,
+            },
+            &sort,
+        )
+        .unwrap();
+        let value = serde_json::to_value(&output).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "kind": "implementation-chosen-value",
+                "hook": "MAP.keys_list",
+                "class": "order"
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<BackendDiagnosticOutput>(value).unwrap(),
+            output
+        );
+        assert_typescript_variant_fields(
+            "BackendDiagnostic",
+            "implementation-chosen-value",
+            &["hook", "class"],
+        );
+    }
+
+    /// A contradicted claim is written with its kind, the contradicted total's fields (or a
+    /// contradicted preserves-definedness, without `symbol` or `kLabel`), the observing rule and
+    /// `ground`, read back, and declared alike in both TypeScript files, as a diagnostic and as
+    /// the result's record: a union on `claim`, so that `symbol` stays required for `total`.
+    #[test]
+    fn a_contradicted_claim_round_trips_on_the_wire() {
+        let output = BackendDiagnosticOutput::<Value>::ContradictedClaim(ContradictedClaimOutput {
+            claim: ContradictedClaimKind::Total,
+            symbol: Some("Lbltd".into()),
+            k_label: Some("td".into()),
+            rule_id: "eq".into(),
+            rule_label: Some("MAIN.tdeq".into()),
+            origin: None,
+            application: serde_json::json!({"tag": "App"}),
+            undefined: serde_json::json!({"tag": "DV"}),
+            rewrite_rule_id: Some("r".into()),
+            rewrite_rule_label: Some("MAIN.r".into()),
+            rewrite_rule_origin: None,
+            ground: true,
+            observed_in: ObservedInOutput::Run,
+        });
+        let value = serde_json::to_value(&output).unwrap();
+        assert_eq!(
+            value,
+            serde_json::json!({
+                "kind": "contradicted-claim",
+                "claim": "total",
+                "symbol": "Lbltd",
+                "kLabel": "td",
+                "ruleId": "eq",
+                "ruleLabel": "MAIN.tdeq",
+                "application": {"tag": "App"},
+                "undefined": {"tag": "DV"},
+                "rewriteRuleId": "r",
+                "rewriteRuleLabel": "MAIN.r",
+                "ground": true,
+                "observedIn": "run"
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<BackendDiagnosticOutput>(value.clone()).unwrap(),
+            output
+        );
+        // An unknown field is refused, as for every diagnostic.
+        let mut unknown = value;
+        unknown["extra"] = serde_json::json!(1);
+        assert!(serde_json::from_value::<BackendDiagnosticOutput>(unknown).is_err());
+        // A preserves-definedness record has no `symbol` and no `kLabel`, and reads back.
+        let preservation =
+            BackendDiagnosticOutput::<Value>::ContradictedClaim(ContradictedClaimOutput {
+                claim: ContradictedClaimKind::PreservesDefinedness,
+                symbol: None,
+                k_label: None,
+                rule_id: "pd".into(),
+                rule_label: Some("MAIN.pd".into()),
+                origin: None,
+                application: serde_json::json!({"tag": "App"}),
+                undefined: serde_json::json!({"tag": "App"}),
+                rewrite_rule_id: Some("pd".into()),
+                rewrite_rule_label: Some("MAIN.pd".into()),
+                rewrite_rule_origin: None,
+                ground: false,
+                observed_in: ObservedInOutput::Run,
+            });
+        let preservation_value = serde_json::to_value(&preservation).unwrap();
+        assert_eq!(
+            preservation_value,
+            serde_json::json!({
+                "kind": "contradicted-claim",
+                "claim": "preserves-definedness",
+                "ruleId": "pd",
+                "ruleLabel": "MAIN.pd",
+                "application": {"tag": "App"},
+                "undefined": {"tag": "App"},
+                "rewriteRuleId": "pd",
+                "rewriteRuleLabel": "MAIN.pd",
+                "ground": false,
+                "observedIn": "run"
+            })
+        );
+        assert!(preservation_value.get("symbol").is_none());
+        assert_eq!(
+            serde_json::from_value::<BackendDiagnosticOutput>(preservation_value).unwrap(),
+            preservation
+        );
+        // Both TypeScript files declare the variant as the record's union, each kind with its
+        // own fields and the shared ones.
+        for source in [
+            include_str!("../../../k-rust-napi/typescript/index.ts"),
+            include_str!("../../../k-rust-wasm/typescript/index.ts"),
+        ] {
+            let compact: String = source.split_whitespace().collect();
+            assert!(compact.contains("|({kind:'contradicted-claim'}&ContradictedClaim)"));
+            assert!(compact.contains(
+                "exporttypeContradictedClaim=\
+                 |({claim:'total';symbol:string;kLabel?:string}&ContradictedClaimFields)\
+                 |({claim:'preserves-definedness'}&ContradictedClaimFields)"
+            ));
+            let shared = compact
+                .split_once("exportinterfaceContradictedClaimFields{")
+                .unwrap()
+                .1
+                .split_once('}')
+                .unwrap()
+                .0;
+            for field in [
+                "ruleId:",
+                "ruleLabel?:",
+                "origin?:",
+                "application:",
+                "undefined:",
+                "rewriteRuleId?:",
+                "rewriteRuleLabel?:",
+                "rewriteRuleOrigin?:",
+                "ground:",
+                "observedIn:",
+            ] {
+                assert!(
+                    shared.contains(field),
+                    "ContradictedClaimFields lacks {field}"
+                );
+            }
+        }
+        // The claim kinds' words.
+        for (kind, word) in [
+            (ContradictedClaimKind::Total, "total"),
+            (
+                ContradictedClaimKind::PreservesDefinedness,
+                "preserves-definedness",
+            ),
+        ] {
+            assert_eq!(serde_json::to_value(kind).unwrap(), word);
+        }
+        // Where a record was observed is one of two words.
+        for (observed_in, word) in [
+            (ObservedInOutput::Load, "load"),
+            (ObservedInOutput::Run, "run"),
+        ] {
+            assert_eq!(serde_json::to_value(observed_in).unwrap(), word);
+        }
+    }
+
     #[test]
     fn instantiation_failure_preserves_rule_and_missing_variables_on_the_wire() {
         let sort = Sort::simple("SortS");
-        let variable = k_rust_backend::term::Variable::new("Rule#E", sort.clone());
+        let variable = k_rust_backend::term::Variable::new("Rule#E", sort);
         let failure = indeterminate_failure_output(
             IndeterminateReason::Instantiation {
                 rule_id: "heat".into(),

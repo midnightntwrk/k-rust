@@ -1,0 +1,1 @@
+error[krs::syntax::invalid-expression-notation] 2:17-2:19: a method call names its builtin domain in a turbofish: write `lt::<Int>`, `lt::<String>`, or `lt::<Float>`

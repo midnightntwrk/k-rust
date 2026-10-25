@@ -1,6 +1,6 @@
 #[k::claim(all_paths, label = "branching")]
 #[k::exists(n: Int)]
-#[k::ensures(k::or_bool![int::eq(n, 5), int::eq(n, 6)])]
+#[k::ensures(k::or_bool![n == 5, n == 6])]
 fn branching(
     k::cells! {
         k: k::configuration::KCell(

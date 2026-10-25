@@ -248,7 +248,7 @@ export async function stageExpand(build: Build): Promise<void> {
   const { lesson, request } = build;
   const source = request.files[lesson.display_file]!;
   const response = await runExpander(build.ctx.modules.expander, {
-    schema: 1,
+    schema: 2,
     mode: "whole-file",
     file: { virtual_path: `${lesson.package.manifest_dir}/${lesson.display_file}`, display_file: lesson.display_file, source },
     package: {
@@ -347,7 +347,7 @@ export async function mapLessonDiagnostics(build: Build, diagnostics: ReturnType
   let mappings = null;
   if (ranges.length > 0 && build.expansion) {
     const response = await runLookup(build.ctx.modules.expander, {
-      schema: 1,
+      schema: 2,
       authored_source: build.request.files[lesson.display_file]!,
       text: build.expansion.text,
       source_map: build.expansion.sourceMap,

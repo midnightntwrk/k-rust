@@ -25,6 +25,9 @@ use error::resolve_diagnostic_keys;
 use provenance::join_sentence_provenance;
 
 pub use k_rust::definition::Definition as NativeDefinition;
+/// The KORE names k-rust's compilation gives a K label (`<env>` is
+/// `Lbl'-LT-'env'-GT-'`) and a K sort (`Id` is `SortId`).
+pub use k_rust::kast::identifier::{encode_label as kore_label, encode_sort_name as kore_sort};
 pub use k_rust::kompile::EmittedSentenceProvenance;
 pub use k_rust::outer::LoadedDefinition;
 pub use k_rust::provenance::{GeneratingPass, InputAddress, InputSentenceKind, InputSpace};

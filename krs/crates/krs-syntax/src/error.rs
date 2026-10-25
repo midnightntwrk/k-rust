@@ -29,6 +29,54 @@ pub enum SyntaxErrorKind {
         /// Repeated argument name.
         name: &'static str,
     },
+    /// A `#[k::function]` that is program syntax omitted its `syntax`.
+    MissingFunctionSyntax,
+    /// A `#[k::function]` on a `fn` was outside the shorthand's shape.
+    InvalidFunctionShorthand {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// A `#[k::constant]` item was outside the constant's shape.
+    InvalidConstant {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// A `k::equations!` table was malformed.
+    InvalidEquationTable {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// Two rows of one `k::equations!` table state the same equation.
+    DuplicateEquationRow {
+        /// Complete stable explanation, naming both rows.
+        reason: String,
+    },
+    /// A catch-all row of a `k::equations!` table shares a priority with
+    /// another row.
+    CatchAllEquationRow {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// A `k::bits!` template was malformed.
+    InvalidBitTemplate {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// A `k::bits!` template was outside a pattern that takes one.
+    BitTemplatePosition {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// A `k::bits!` field letter collided with another name of its sentence.
+    BitFieldCollision {
+        /// Complete stable explanation, naming the fix.
+        reason: String,
+    },
+    /// Templates of different widths matched one argument of a table.
+    BitTemplateWidthMismatch {
+        /// Complete stable explanation, naming both rows.
+        reason: String,
+    },
     /// A required keyed attribute argument was absent.
     MissingArgument {
         /// Missing argument name.
@@ -193,6 +241,21 @@ pub enum SyntaxErrorKind {
     },
     /// A symbolic constructor field or rule type was not a supported `Term` sort.
     InvalidTermType,
+    /// A rule narrowing, or a rule binder's, equation's, or constant's sort,
+    /// gave one of K's collection sorts (`List`, `Map`, `Set`) element types,
+    /// which only a cell, a constructor field, or a function signature
+    /// declares.
+    ParametricCollectionSort {
+        /// The collection sort: `List`, `Map`, or `Set`.
+        collection: &'static str,
+        /// The authored path without its generic arguments.
+        bare: String,
+        /// Whether the path is a `where` narrowing rather than a term sort.
+        narrowing: bool,
+    },
+    /// An element type of a typed collection in a constructor field or a
+    /// function signature was neither a sort nor a collection type.
+    InvalidCollectionArgument,
     /// A rule body was not exactly one unterminated term expression.
     UnsupportedRuleBody {
         /// Specific body restriction.
@@ -212,6 +275,12 @@ pub enum SyntaxErrorKind {
     /// side (KF-029).
     InvalidPatternAs {
         /// Specific restriction, naming the alias where known.
+        reason: String,
+    },
+    /// A record update `Ctor { f: e, ..t }` is malformed or outside a term
+    /// (F5).
+    InvalidRecordUpdate {
+        /// Specific restriction.
         reason: String,
     },
     /// An `A | B` or-pattern (K's `#Or`) is malformed or outside a
@@ -252,6 +321,13 @@ pub enum SyntaxErrorKind {
     },
     /// A term head's turbofish is not a list of sort markers (KF-027).
     InvalidTurbofish {
+        /// Specific restriction, naming the fix.
+        reason: String,
+    },
+    /// A domain method call (`recv.op::<D>(..)`) names no domain, an unknown
+    /// domain, or an operation its domain does not define, or a notation
+    /// form (`&&`, `||`, a method call) occurs in a pattern.
+    InvalidExpressionNotation {
         /// Specific restriction, naming the fix.
         reason: String,
     },
@@ -306,6 +382,16 @@ pub enum SyntaxErrorKind {
         /// Complete stable explanation, naming the fix.
         reason: &'static str,
     },
+    /// Bracket list notation (`[a, ..rest]`, F6) was malformed.
+    InvalidListNotation {
+        /// Specific restriction, naming the fix.
+        reason: String,
+    },
+    /// A `#[k::cons_list]` constructors enum was malformed (F6).
+    InvalidConsList {
+        /// Specific restriction, naming the constructor that breaks it.
+        reason: String,
+    },
     /// A `k::raw_k!` text is not exactly one rule, claim, or context sentence.
     RawKShape {
         /// Complete explanation.
@@ -319,6 +405,11 @@ pub enum SyntaxErrorKind {
     },
     /// A function's `smtlib` or `smt_hook` metadata was malformed (KF-044).
     InvalidSmtMetadata {
+        /// Complete explanation, naming the fix.
+        reason: String,
+    },
+    /// A function's `underspecified` key was malformed or misplaced.
+    InvalidUnderspecified {
         /// Complete explanation, naming the fix.
         reason: String,
     },
@@ -343,6 +434,10 @@ pub enum SyntaxErrorKind {
 impl SyntaxErrorKind {
     /// Returns the registered code for this syntax category.
     #[must_use]
+    #[expect(
+        clippy::too_many_lines,
+        reason = "One arm per syntax category, each naming its registered code."
+    )]
     pub const fn code(&self) -> Code {
         match self {
             Self::ReservedBinder => codes::syntax::RESERVED_BINDER,
@@ -351,6 +446,16 @@ impl SyntaxErrorKind {
             Self::UnknownArgument { .. } => codes::syntax::UNKNOWN_ARGUMENT,
             Self::DuplicateArgument { .. } => codes::syntax::DUPLICATE_ARGUMENT,
             Self::MissingArgument { .. } => codes::syntax::MISSING_ARGUMENT,
+            Self::MissingFunctionSyntax => codes::syntax::MISSING_FUNCTION_SYNTAX,
+            Self::InvalidFunctionShorthand { .. } => codes::syntax::INVALID_FUNCTION_SHORTHAND,
+            Self::InvalidConstant { .. } => codes::syntax::INVALID_CONSTANT,
+            Self::InvalidEquationTable { .. } => codes::syntax::INVALID_EQUATION_TABLE,
+            Self::DuplicateEquationRow { .. } => codes::syntax::DUPLICATE_EQUATION_ROW,
+            Self::CatchAllEquationRow { .. } => codes::syntax::CATCH_ALL_EQUATION_ROW,
+            Self::InvalidBitTemplate { .. } => codes::syntax::INVALID_BIT_TEMPLATE,
+            Self::BitTemplatePosition { .. } => codes::syntax::BIT_TEMPLATE_POSITION,
+            Self::BitFieldCollision { .. } => codes::syntax::BIT_FIELD_COLLISION,
+            Self::BitTemplateWidthMismatch { .. } => codes::syntax::BIT_TEMPLATE_WIDTH_MISMATCH,
             Self::InvalidArgumentValue { .. } => codes::syntax::INVALID_ARGUMENT_VALUE,
             Self::UnsupportedPath => codes::syntax::UNSUPPORTED_PATH,
             Self::UnsupportedSortDeclaration { .. } | Self::UnaliasedSort { .. } => {
@@ -408,10 +513,13 @@ impl SyntaxErrorKind {
             }
             Self::UnsupportedRulePattern { .. } => codes::syntax::UNSUPPORTED_RULE_PATTERN,
             Self::InvalidTermType => codes::syntax::INVALID_TERM_TYPE,
+            Self::ParametricCollectionSort { .. } => codes::syntax::PARAMETRIC_COLLECTION_SORT,
+            Self::InvalidCollectionArgument => codes::syntax::INVALID_COLLECTION_ARGUMENT,
             Self::UnsupportedRuleBody { .. } => codes::syntax::UNSUPPORTED_RULE_BODY,
             Self::UnexpectedMacro { .. } => codes::syntax::UNEXPECTED_MACRO,
             Self::UnsupportedTermExpression { .. } => codes::syntax::UNSUPPORTED_TERM_EXPRESSION,
             Self::InvalidPatternAs { .. } => codes::syntax::INVALID_PATTERN_AS,
+            Self::InvalidRecordUpdate { .. } => codes::syntax::INVALID_RECORD_UPDATE,
             Self::InvalidPatternOr { .. } => codes::syntax::INVALID_PATTERN_OR,
             Self::InvalidMatches { .. } => codes::syntax::INVALID_MATCHES,
             Self::InvalidLet { .. } => codes::syntax::INVALID_LET,
@@ -419,6 +527,7 @@ impl SyntaxErrorKind {
             Self::InvalidFunctionContext { .. } => codes::syntax::INVALID_FUNCTION_CONTEXT,
             Self::InvalidSortParameter { .. } => codes::syntax::INVALID_SORT_PARAMETER,
             Self::InvalidTurbofish { .. } => codes::syntax::INVALID_TURBOFISH,
+            Self::InvalidExpressionNotation { .. } => codes::syntax::INVALID_EXPRESSION_NOTATION,
             Self::InvalidLocalRewrite { .. } => codes::syntax::INVALID_LOCAL_REWRITE,
             Self::MissingTokenEndpoint => codes::syntax::MISSING_TOKEN_ENDPOINT,
             Self::TooManyProvenanceOccurrences { .. } => {
@@ -429,9 +538,12 @@ impl SyntaxErrorKind {
             Self::InvalidTokenAttribute { .. } => codes::syntax::INVALID_TOKEN_ATTRIBUTE,
             Self::InvalidLexicalMacro { .. } => codes::syntax::INVALID_LEXICAL_MACRO,
             Self::InvalidSyntaxList { .. } => codes::syntax::INVALID_SYNTAX_LIST_ATTRIBUTE,
+            Self::InvalidListNotation { .. } => codes::syntax::INVALID_LIST_NOTATION,
+            Self::InvalidConsList { .. } => codes::syntax::INVALID_CONS_LIST_ATTRIBUTE,
             Self::RawKShape { .. } => codes::syntax::RAW_K_SHAPE,
             Self::FreshBinderPosition { .. } => codes::analysis::FRESH_BINDER_POSITION,
             Self::InvalidSmtMetadata { .. } => codes::syntax::INVALID_SMT_METADATA,
+            Self::InvalidUnderspecified { .. } => codes::syntax::INVALID_UNDERSPECIFIED,
             Self::InvalidMatchRestriction { .. } => codes::syntax::INVALID_MATCH_RESTRICTION_KEY,
             Self::InvalidUnboundVariables { .. } => codes::syntax::INVALID_UNBOUND_VARIABLES,
             Self::InvalidSpecModule { .. } => codes::syntax::INVALID_SPEC_MODULE,
@@ -523,6 +635,9 @@ impl fmt::Display for SyntaxError {
             SyntaxErrorKind::DuplicateArgument { name } => {
                 write!(formatter, "duplicate argument `{name}`")
             }
+            SyntaxErrorKind::MissingFunctionSyntax => formatter.write_str(
+                "this function is program syntax (`pub` and not `internal`), so it needs an explicit `syntax = \"..\"`: a default terminal could shadow a token of the object language; mark it `internal` (or make it non-`pub`) to use the default `symbol({field}, ..)`",
+            ),
             SyntaxErrorKind::MissingArgument { name } => {
                 write!(formatter, "missing required argument `{name} = ...`")
             }
@@ -643,6 +758,36 @@ impl fmt::Display for SyntaxError {
             SyntaxErrorKind::InvalidTermType => {
                 formatter.write_str("expected `Term<SortPath>` or `Term<dyn SortPath>`")
             }
+            SyntaxErrorKind::ParametricCollectionSort {
+                collection,
+                bare,
+                narrowing,
+            } => {
+                let contents = if *collection == "Map" {
+                    "its keys or values"
+                } else {
+                    "its elements"
+                };
+                if *narrowing {
+                    write!(
+                        formatter,
+                        "a `where` narrowing tests only the sort `{collection}` and cannot \
+                         constrain {contents}; write `{bare}` without generic arguments"
+                    )
+                } else {
+                    write!(
+                        formatter,
+                        "a binder's or term's sort names only the sort `{collection}`: a binder \
+                         takes the types of {contents} from the position that matches it, and a \
+                         cell, a constructor field, or a function signature declares them; write \
+                         `{bare}` without generic arguments"
+                    )
+                }
+            }
+            SyntaxErrorKind::InvalidCollectionArgument => formatter.write_str(
+                "an element type of a collection is a sort (`Int`, `k::Term<dyn Value>`) or a \
+                 collection type (`Set<Int>`)",
+            ),
             SyntaxErrorKind::UnsupportedRuleBody { reason } => {
                 write!(formatter, "unsupported rule body: {reason}")
             }
@@ -650,7 +795,13 @@ impl fmt::Display for SyntaxError {
                 write!(
                     formatter,
                     "expected the reserved `term!` macro, found `{path}!`"
-                )
+                )?;
+                if path.rsplit("::").next() == Some("map") {
+                    formatter.write_str(
+                        "; `map![..]` is the spelling of a `cells!` entry or an initializer: in a term the empty map is `map::empty()`, and a readable record reads entries with `cell: { key -> value, .. }`",
+                    )?;
+                }
+                Ok(())
             }
             SyntaxErrorKind::UnsupportedTermExpression { reason } => {
                 write!(formatter, "unsupported term expression: {reason}")
@@ -673,12 +824,23 @@ impl fmt::Display for SyntaxError {
                 attribute,
                 replacement,
             } => write!(formatter, "`{attribute}` is retired; write `{replacement}`"),
-            SyntaxErrorKind::RawKShape { reason }
+            SyntaxErrorKind::InvalidFunctionShorthand { reason }
+            | SyntaxErrorKind::InvalidConstant { reason }
+            | SyntaxErrorKind::InvalidEquationTable { reason }
+            | SyntaxErrorKind::DuplicateEquationRow { reason }
+            | SyntaxErrorKind::CatchAllEquationRow { reason }
+            | SyntaxErrorKind::InvalidBitTemplate { reason }
+            | SyntaxErrorKind::BitTemplatePosition { reason }
+            | SyntaxErrorKind::BitFieldCollision { reason }
+            | SyntaxErrorKind::BitTemplateWidthMismatch { reason }
+            | SyntaxErrorKind::RawKShape { reason }
             | SyntaxErrorKind::InvalidSmtMetadata { reason }
+            | SyntaxErrorKind::InvalidUnderspecified { reason }
             | SyntaxErrorKind::InvalidMatchRestriction { reason }
             | SyntaxErrorKind::InvalidUnboundVariables { reason }
             | SyntaxErrorKind::InvalidSpecModule { reason }
             | SyntaxErrorKind::InvalidPatternAs { reason }
+            | SyntaxErrorKind::InvalidRecordUpdate { reason }
             | SyntaxErrorKind::InvalidPatternOr { reason }
             | SyntaxErrorKind::InvalidMatches { reason }
             | SyntaxErrorKind::InvalidLet { reason }
@@ -686,6 +848,9 @@ impl fmt::Display for SyntaxError {
             | SyntaxErrorKind::InvalidFunctionContext { reason }
             | SyntaxErrorKind::InvalidSortParameter { reason }
             | SyntaxErrorKind::InvalidTurbofish { reason }
+            | SyntaxErrorKind::InvalidExpressionNotation { reason }
+            | SyntaxErrorKind::InvalidListNotation { reason }
+            | SyntaxErrorKind::InvalidConsList { reason }
             | SyntaxErrorKind::InvalidLocalRewrite { reason } => formatter.write_str(reason),
         }
     }

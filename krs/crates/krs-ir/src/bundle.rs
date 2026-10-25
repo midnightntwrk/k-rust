@@ -519,6 +519,20 @@ impl TryFrom<DescriptorWire> for Descriptor {
     }
 }
 
+/// A descriptor contract failure with what locates it.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct DescriptorFailure {
+    /// The failure.
+    pub error: DescriptorError,
+    /// The innermost node with an exact authored range that encloses the failure, when a term
+    /// walk failed.
+    pub at: Option<ProvenanceKey>,
+    /// The descriptor's provenance, which resolves `at`.
+    pub provenance: DescriptorProvenance,
+    /// The descriptor's identity.
+    pub id: StableItemId,
+}
+
 /// A context-free descriptor contract failure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum DescriptorError {
@@ -568,26 +582,63 @@ impl Descriptor {
         provenance: DescriptorProvenance,
         payload: DescriptorPayload,
     ) -> Result<Self, DescriptorError> {
+        Self::new_located(id, cfg, provenance, payload).map_err(|failure| failure.error)
+    }
+
+    /// As [`Self::new`], and a failure keeps the innermost node a term walk failed in and the
+    /// provenance that locates it.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::new`].
+    pub fn new_located(
+        id: StableItemId,
+        cfg: BTreeMap<String, Option<String>>,
+        provenance: DescriptorProvenance,
+        payload: DescriptorPayload,
+    ) -> Result<Self, Box<DescriptorFailure>> {
         let descriptor = Self {
             id,
             cfg,
             provenance,
             payload,
         };
-        descriptor
-            .validate_grammar_contract()
-            .map_err(DescriptorError::Grammar)?;
-        descriptor
-            .validate_state_contract()
-            .map_err(DescriptorError::State)?;
+        let (validated, enclosing) = crate::failure_site::record(|| {
+            descriptor
+                .validate_grammar_contract()
+                .map_err(DescriptorError::Grammar)?;
+            descriptor
+                .validate_state_contract()
+                .map_err(DescriptorError::State)
+        });
+        if let Err(error) = validated {
+            // The innermost enclosing node the author's text locates.
+            let at = enclosing.into_iter().find(|key| {
+                descriptor
+                    .provenance
+                    .origin_for(key)
+                    .is_some_and(|origin| origin.exact_authored_range().is_some())
+            });
+            return Err(Box::new(DescriptorFailure {
+                error,
+                at,
+                provenance: descriptor.provenance,
+                id: descriptor.id,
+            }));
+        }
         let expected = descriptor.payload.item_kind();
         let actual = descriptor.id.item_kind();
         if actual != expected {
-            return Err(DescriptorError::WrongKind {
-                id: Box::new(descriptor.id),
-                expected,
-                actual,
-            });
+            return Err(Box::new(DescriptorFailure {
+                error: DescriptorError::WrongKind {
+                    id: Box::new(descriptor.id.clone()),
+                    expected,
+                    actual,
+                },
+                at: None,
+                provenance: descriptor.provenance,
+                id: descriptor.id,
+            }));
         }
         Ok(descriptor)
     }
@@ -637,6 +688,33 @@ impl Descriptor {
         .unwrap_or_else(|error| panic!("Descriptor seed {seed}: permuted rebuild failed: {error}"))
     }
 
+    /// Returns this descriptor with `payload` in place of its own, where
+    /// `payload` is its own payload with the value of a named constant
+    /// substituted for each use of one. Each substituted node is keyed
+    /// [`ProvenanceRole::InlinedConstant`], and `origins` gives one origin
+    /// per such key. Those keys are outside the parser's canonical
+    /// numbering, so the grammar and state contracts, which check that
+    /// numbering, are not checked again; the substitution does not change
+    /// the shape those contracts check.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DescriptorProvenanceError`] when an origin repeats a key.
+    pub fn with_inlined_constants(
+        &self,
+        payload: DescriptorPayload,
+        origins: Vec<DescriptorNodeOrigin>,
+    ) -> Result<Self, DescriptorProvenanceError> {
+        let mut all = self.provenance.origins().to_vec();
+        all.extend(origins);
+        Ok(Self {
+            id: self.id.clone(),
+            cfg: self.cfg.clone(),
+            provenance: DescriptorProvenance::new(self.provenance.primary_key().clone(), all)?,
+            payload,
+        })
+    }
+
     /// Returns the primary declaration's authored-to-descriptor provenance.
     #[must_use]
     pub fn origin(&self) -> &OriginStack {
@@ -666,6 +744,10 @@ impl Descriptor {
                     Some(StructuredRuleDescriptor::expected_primary_key()),
                 )
             }
+            DescriptorPayload::Constant(constant) => (
+                Some(constant.expected_provenance_keys()?),
+                Some(crate::transport::constant::ConstantDescriptor::expected_primary_key()),
+            ),
             DescriptorPayload::Sort(_)
             | DescriptorPayload::Constructor(_)
             | DescriptorPayload::FixedConfiguration(_)
@@ -740,7 +822,8 @@ impl Descriptor {
             DescriptorPayload::Sort(_)
             | DescriptorPayload::Constructor(_)
             | DescriptorPayload::Grammar(_)
-            | DescriptorPayload::StructuredRule(_) => Ok(()),
+            | DescriptorPayload::StructuredRule(_)
+            | DescriptorPayload::Constant(_) => Ok(()),
         }
     }
 }
@@ -988,6 +1071,8 @@ stage_shape! {
         HeadRule(value: Box<H> => [box via head]),
         /// One-sided reusable fixed-configuration context template.
         ContextAlias(value: Box<ContextAlias<S>> => [box nested]),
+        /// Named constant: a declared sort and a ground value.
+        Constant(value: Box<crate::transport::constant::ConstantPayload<S>> => [box nested]),
     }
 }
 
@@ -1027,6 +1112,7 @@ impl<S: crate::Stage, H: HeadRuleSentenceKind> Payload<S, H> {
             Self::ConfigurationRule(rule) => rule.sentence_kind.item_kind(),
             Self::HeadRule(rule) => rule.sentence_kind().item_kind(),
             Self::ContextAlias(_) => ItemKind::ContextAlias,
+            Self::Constant(_) => ItemKind::Constant,
         }
     }
 }
@@ -1082,6 +1168,11 @@ stage_shape! {
         /// order (KF-027); empty for every other constructor.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pub parameters: Vec<S::Sort> => [vec sort],
+        /// The element types of a function's typed collection result
+        /// (`Int` of `-> k::Term<Set<Int>>`), which semantic analysis checks
+        /// the function's equations and uses against; empty otherwise.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub arguments: Vec<ConstructorSortArgument<S>> => [vec nested],
     }
 }
 
@@ -1094,8 +1185,8 @@ stage_shape! {
     #[serde(
         rename = "ConstructorFieldDescriptor",
         bound(
-            serialize = "S::ConstructorFieldSort: Serialize",
-            deserialize = "S::ConstructorFieldSort: Deserialize<'de>"
+            serialize = "S::ConstructorFieldSort: Serialize, S::Sort: Serialize",
+            deserialize = "S::ConstructorFieldSort: Deserialize<'de>, S::Sort: Deserialize<'de>"
         )
     )]
     pub struct ConstructorField<S: Stage> {
@@ -1104,8 +1195,34 @@ stage_shape! {
         /// Declared or builtin field sort when known at descriptor collection time.
         #[serde(skip_serializing_if = "S::skip_constructor_field_sort")]
         pub sort: S::ConstructorFieldSort => [constructor_field_sort],
+        /// The element types of a typed collection field (`Int` of
+        /// `Set<Int>`), which semantic analysis checks every argument at the
+        /// field against; empty for every other field.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub arguments: Vec<ConstructorSortArgument<S>> => [vec nested],
     }
 }
+
+stage_shape! {
+    /// One element type of a constructor field's or a function result's
+    /// typed collection sort: a sort, or a collection type with its own
+    /// element types (`Set<Int>` of `Map<Int, Set<Int>>`).
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    #[serde(
+        rename = "ConstructorSortArgument",
+        bound(serialize = "S::Sort: Serialize", deserialize = "S::Sort: Deserialize<'de>")
+    )]
+    pub struct ConstructorSortArgument<S: Stage> {
+        /// The element type's sort.
+        pub sort: S::Sort => [sort],
+        /// The element types of a collection element type, in order.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub arguments: Vec<ConstructorSortArgument<S>> => [vec nested],
+    }
+}
+
+/// Stable descriptor-stage form of [`ConstructorSortArgument`].
+pub type ConstructorSortArgumentDescriptor = ConstructorSortArgument<DescriptorStage>;
 
 /// Stable descriptor-stage form of [`ConstructorField`].
 pub type ConstructorFieldDescriptor = ConstructorField<DescriptorStage>;

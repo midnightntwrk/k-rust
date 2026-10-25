@@ -48,8 +48,8 @@ struct BoundaryGenerator {
 #[test]
 fn pipeline_description_accessors_cover_both_tables_and_the_checkpoint() {
     let stages = stage_descriptions();
-    assert_eq!(stages.len(), 35);
-    assert_eq!(stages.first().unwrap().call, "resolve_comm");
+    assert_eq!(stages.len(), 39);
+    assert_eq!(stages.first().unwrap().call, "rename_bound_apart");
     assert_eq!(stages.first().unwrap().table, "TRANSFORM_STAGES");
     assert_eq!(stages.last().unwrap().call, "minimize_term_construction");
     assert_eq!(stages.last().unwrap().table, "EMISSION_STAGES");

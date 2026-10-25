@@ -1,0 +1,809 @@
+//! The backend reads a predicate only from predicate-shaped patterns.
+//!
+//! The operands of `#Equals` (and of `#Ceil`, `#Floor`, `#In`) are term positions, where a
+//! connective denotes a set of values (`(X ==Int 1) #And (X ==Int 2)` is the intersection of two
+//! singletons), which no predicate the backend reads states. A definition with such an operand,
+//! or with a connective over terms of another sort than Bool at a matched position
+//! (`3 #Implies 4` of sort Int), is refused when it loads, naming the axiom, instead of being read
+//! with a meaning it does not have. For the Rust target the compiler already refuses each such
+//! shape in K source, located at the sentence (`MlConstructPosition`): on a condition's spine,
+//! written as a predicate, `{P #Equals true}` would have the bytes of the encoding
+//! `\equals{Bool, R}(P, true)` in which other frontends state that a whole condition `P` holds,
+//! which the backend reads as `P`. These tests drive the library route a client of the compiler
+//! uses: load the K source with the prelude, compile it, and load the KORE. The KORE the backend
+//! must refuse is the LLVM target's, which the compile refusal does not judge, as another tool may
+//! write it, or is written by hand.
+
+use k_rust::{
+    backend::{
+        Backend, BackendOptions, ExecuteRequest, HaltReasonOutput, ImplicationRequest,
+        ProveRequest, ResultModalityOutput,
+    },
+    builtin::embedded,
+    definition::CheckMode,
+    kompile::{CompilationBackend, CompileOptions, compile_loaded_definition},
+    kore::{
+        ast::Pattern as KorePattern, codec, parser::parse_definition, parser::parse_pattern,
+        printer::Printer,
+    },
+    outer::{LoadOptions, ResolvedSource, load_for_compilation},
+};
+use k_rust_backend::definition::{Admission, BackendDefinition, DefinitionError};
+
+const MAIN: &str = "MLP";
+const FILE: &str = "mlp.k";
+/// The line of `mlp.k` on which [`source`] writes the rule under test.
+const RULE_LINE: usize = 22;
+
+/// A definition whose rule under test, `rule`, is written on line [`RULE_LINE`] of `mlp.k`, and
+/// whose `extra` sentences follow it.
+fn source(rule: &str, extra: &str) -> String {
+    format!(
+        "module MLP-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Pgm ::= go(Int) [symbol(go)]
+               | run(Int) [symbol(run)]
+               | pair(Int, Step) [symbol(pair)]
+               | test(Bool) [symbol(test)]
+  syntax Step ::= \"sa\" [symbol(sa)] | \"sb\" [symbol(sb)]
+endmodule
+
+module MLP
+  imports MLP-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  syntax KItem ::= done(Int) [symbol(done)]
+  syntax Int ::= f(Int) [function, symbol(f)]
+  syntax Bool ::= oneOrTwo(Int) [macro]
+  rule oneOrTwo(X) => (X ==Int 1) #Or (X ==Int 2)
+  rule <k> run(X) => done(f(X)) ... </k>
+  // the rule under test is on the next line
+  {rule}
+  {extra}
+endmodule
+"
+    )
+}
+
+/// The compiled KORE of `source`, which must compile.
+fn compile(source: &str) -> String {
+    compile_with(source, MAIN, CompileOptions::default())
+}
+
+/// The compiled KORE of `source` with main module `main`, which must compile under `options`.
+fn compile_with(source: &str, main: &str, options: CompileOptions) -> String {
+    try_compile_with(source, main, options)
+        .unwrap_or_else(|error| panic!("the definition compiles: {error}\n{source}"))
+}
+
+/// The compiled KORE of `source` with main module `main` under `options`, or the compile error's
+/// message. The source must load.
+fn try_compile_with(source: &str, main: &str, options: CompileOptions) -> Result<String, String> {
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let (loaded, _) = load_for_compilation(
+        ResolvedSource::new(FILE, source),
+        main,
+        Some("MLP-SYNTAX"),
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").expect("the embedded prelude exists")],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("the definition loads: {error:?}\n{source}"));
+    compile_loaded_definition(&loaded, options)
+        .map(|artifacts| artifacts.definition_kore)
+        .map_err(|error| {
+            let mut text = error.to_string();
+            for diagnostic in &error.diagnostics {
+                text.push_str(&format!(
+                    "\n{FILE}:{}: {}: {}",
+                    diagnostic
+                        .location
+                        .map_or(0, |location| location.start_line),
+                    diagnostic.code.as_str(),
+                    diagnostic.message
+                ));
+            }
+            text
+        })
+}
+
+/// The compiled KORE of `source` for the LLVM target, which the matching-logic position check
+/// does not judge.
+fn compile_llvm(source: &str) -> String {
+    compile_with(
+        source,
+        MAIN,
+        CompileOptions {
+            backend: CompilationBackend::Llvm,
+            ..CompileOptions::default()
+        },
+    )
+}
+
+/// The compiler refuses `source` for the Rust target with the matching-logic position error at
+/// the rule under test's line.
+#[track_caller]
+fn assert_position_refused(source: &str) {
+    let message = try_compile_with(source, MAIN, CompileOptions::default())
+        .expect_err("the compiler refuses the rule");
+    let at = format!("{FILE}:{RULE_LINE}: MlConstructPosition: ");
+    assert!(message.contains(&at), "no {at:?} in {message}");
+}
+
+/// The error with which the backend refuses `kore`, or the leaves of `go(1)` when it loads it.
+fn refusal(kore: &str) -> DefinitionError {
+    let syntax = parse_definition(kore).expect("compiled KORE parses");
+    match BackendDefinition::internalize(&syntax, MAIN) {
+        Err(error) => error,
+        Ok(_) => {
+            let mut backend =
+                Backend::new(kore, MAIN, BackendOptions::default()).expect("the definition loads");
+            panic!(
+                "the definition loads; go(1) gives {:?}, run(1) gives {:?}, pair(3, sa) gives {:?}, \
+                 test(true) gives {:?}, test(false) gives {:?}",
+                leaves(&mut backend, "go", 1),
+                leaves(&mut backend, "run", 1),
+                leaves(&mut backend, "pair", 3),
+                leaves(&mut backend, "test", 1),
+                leaves(&mut backend, "test", 0),
+            )
+        }
+    }
+}
+
+/// The program `head(argument)` (`pair(argument, sa)` for `pair`, `test(argument != 0)` for
+/// `test`), as a configuration.
+fn configuration(head: &str, argument: i64) -> String {
+    let int = format!("\\dv{{SortInt{{}}}}(\"{argument}\")");
+    let program = match head {
+        "pair" => format!("Lblpair{{}}({int}, Lblsa{{}}())"),
+        "test" => format!("Lbltest{{}}(\\dv{{SortBool{{}}}}(\"{}\"))", argument != 0),
+        head => format!("Lbl{head}{{}}({int})"),
+    };
+    format!(
+        "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortPgm{{}}, \
+         SortKItem{{}}}}({program}), dotk{{}}())), Lbl'-LT-'generatedCounter'-GT-'{{}}(\\dv{{SortInt{{}}}}(\"0\")))"
+    )
+}
+
+/// The halt reason and compact state of each leaf of running `head(argument)`.
+fn leaves(backend: &mut Backend, head: &str, argument: i64) -> Vec<(HaltReasonOutput, String)> {
+    let state = parse_pattern(&configuration(head, argument)).unwrap();
+    backend
+        .execute(ExecuteRequest {
+            result_modality: ResultModalityOutput::PathSet,
+            max_depth: Some(4),
+            ..ExecuteRequest::new(state)
+        })
+        .unwrap()
+        .leaves
+        .into_iter()
+        .map(|leaf| {
+            (
+                leaf.reason,
+                Printer::compact().print_pattern(&codec::from_value(&leaf.state).unwrap()),
+            )
+        })
+        .collect()
+}
+
+/// Whether the leaves of a run are one `Stuck` leaf whose `<k>` cell starts with `expected` (the
+/// KORE of its first item, such as `Lbldone{}(\dv{SortInt{}}("1"))`).
+fn runs_to(leaves: &[(HaltReasonOutput, String)], expected: &str) -> bool {
+    matches!(
+        leaves,
+        [(HaltReasonOutput::Stuck, state)] if state.contains(&format!("kseq{{}}({expected}"))
+            || state.contains(&format!("kseq{{}}(inj{{SortPgm{{}}, SortKItem{{}}}}({expected}"))
+    )
+}
+
+fn done(value: i64) -> String {
+    format!("Lbldone{{}}(\\dv{{SortInt{{}}}}(\"{value}\"))")
+}
+
+fn go(value: i64) -> String {
+    format!("Lblgo{{}}(\\dv{{SortInt{{}}}}(\"{value}\"))")
+}
+
+/// Whether `error` is the variant whose debug form starts with `variant`. The variants are
+/// matched by name so that this file also builds against a backend that lacks them, where each
+/// refusal it expects fails as a definition that loads.
+fn is(error: &DefinitionError, variant: &str) -> bool {
+    format!("{error:?}").starts_with(variant)
+}
+
+/// The error names the rule by its label and the line it is written on.
+fn assert_names_the_rule(error: &DefinitionError) {
+    let text = error.to_string();
+    assert!(text.contains("MLP.p"), "{text}");
+    assert!(text.contains(&format!("{FILE}:{RULE_LINE}:")), "{text}");
+}
+
+/// The conditions whose `#Equals` has an operand that is a matching-logic connective over terms.
+const CONNECTIVE_OPERANDS: &[&str] = &[
+    "{((X ==Int 1) #And (X ==Int 2)) #Equals false}",
+    "{true #Equals ((X ==Int 1) #Or (X ==Int 2))}",
+    "{((X ==Int 1) #Or (X ==Int 2)) #Equals true}",
+    "{X #Equals (1 #Or 2)}",
+    // {X ==Int 1} = {X ==Int 1, false} holds where X =/= 1: an equality of two sets of values.
+    "{((X ==Int 1) #Or (X ==Int 1)) #Equals ((X ==Int 1) #Or false)}",
+];
+
+/// The compiler refuses `sentence` (such as `rule [MLP.p]`), written on `line` of `mlp.k`, for
+/// the `#Equals` in its condition whose operands are not both terms or both predicates.
+#[track_caller]
+fn assert_refused_at_compile(result: Result<String, String>, sentence: &str, line: usize) {
+    let message = result.expect_err("the compiler refuses the condition");
+    let at = format!("{FILE}:{line}: MlConstructPosition: an #Equals");
+    assert!(message.contains(&at), "{sentence}: no {at:?} in {message}");
+    assert!(
+        message.contains(
+            "whose operands are not both terms (an equality of values) or both predicates"
+        ),
+        "{message}"
+    );
+}
+
+/// The backend refuses `kore`, the compiled definition whose rule [`RULE_LINE`] reads a term as a
+/// predicate, naming the rule.
+fn assert_reads_term_as_predicate_in(rule: &str, kore: &str) {
+    let error = refusal(kore);
+    assert!(is(&error, "AxiomReadsTermAsPredicate"), "{rule}: {error:?}");
+    assert_names_the_rule(&error);
+    assert!(
+        error
+            .to_string()
+            .contains("whose operand is a matching-logic connective over terms"),
+        "{error}"
+    );
+    let facade = Backend::new(kore, MAIN, BackendOptions::default())
+        .err()
+        .expect("the facade refuses the definition");
+    assert!(facade.message().contains("MLP.p"), "{facade}");
+}
+
+fn assert_reads_term_as_predicate(rule: &str) {
+    assert_position_refused(&source(rule, ""));
+    assert_reads_term_as_predicate_in(rule, &compile_llvm(&source(rule, "")));
+}
+
+/// In a `requires` these equalities are on the condition's spine: the compiler refuses them for
+/// the Rust backend, naming the rule. Written in the encoding the LLVM target keeps,
+/// `\equals{Bool, R}(C, true)` around the whole condition `C`, as other frontends write it, the
+/// same definition is refused when it loads, naming the rule.
+fn assert_refused_at_compile_and_in_the_encoding(rule: &str) {
+    assert_refused_at_compile(
+        try_compile_with(&source(rule, ""), MAIN, CompileOptions::default()),
+        "rule [MLP.p]",
+        RULE_LINE,
+    );
+    let encoded = compile_with(
+        &source(rule, ""),
+        MAIN,
+        CompileOptions {
+            backend: CompilationBackend::Llvm,
+            ..CompileOptions::default()
+        },
+    );
+    assert_reads_term_as_predicate_in(rule, &encoded);
+}
+
+#[test]
+fn a_rewrite_rule_whose_equality_has_a_connective_operand_is_refused() {
+    for condition in CONNECTIVE_OPERANDS {
+        assert_refused_at_compile_and_in_the_encoding(&format!(
+            "rule [p]: <k> go(X) => done(X) ... </k> requires {condition}"
+        ));
+    }
+}
+
+#[test]
+fn a_function_equation_whose_equality_has_a_connective_operand_is_refused() {
+    for condition in CONNECTIVE_OPERANDS {
+        assert_refused_at_compile_and_in_the_encoding(&format!(
+            "rule [p]: f(X) => X requires {condition}"
+        ));
+    }
+}
+
+/// A condition conjoined to a matched term (`t #And {P}`) is no condition root: its `#Equals`
+/// is read as written wherever it sits, so a connective in its operand is refused as in a
+/// `requires`, at compile for K source and at load for KORE. `{true #Equals (B #Or false)}` states `{true} = {B, false}`, and
+/// `{(B #And true) #Equals false}` states `{B} ∩ {true} = {false}`: neither holds for any `B`.
+#[test]
+fn a_matched_condition_whose_equality_has_a_connective_operand_is_refused_at_load() {
+    for condition in [
+        "{true #Equals (B #Or false)}",
+        "{(B #And true) #Equals false}",
+    ] {
+        assert_reads_term_as_predicate(&format!(
+            "rule [p]: <k> test(B #And {condition}) => done(0) ... </k>"
+        ));
+    }
+}
+
+/// A connective over Int terms under a term-level `\and` at a matched or shared position is no
+/// predicate: `3 #Implies 4` of sort Int is the set `(Int ∖ {3}) ∪ {4}`.
+#[test]
+fn a_connective_over_terms_at_a_matched_position_is_refused_at_load() {
+    for rule in [
+        "rule [p]: <k> pair(3 #Implies 4, (sa => sb)) ... </k>",
+        "rule [p]: <k> go(X #And (3 #Implies 4)) => done(X) ... </k>",
+    ] {
+        assert_position_refused(&source(rule, ""));
+        let error = refusal(&compile_llvm(&source(rule, "")));
+        assert!(
+            is(&error, "RulePattern(TermConnectiveInConjunction"),
+            "{rule}: {error:?}"
+        );
+        assert_names_the_rule(&error);
+        let text = error.to_string();
+        assert!(text.contains("\\implies"), "{text}");
+        assert!(text.contains("module MLP"), "{text}");
+    }
+}
+
+/// A connective over terms conjoined to a term of a right-hand side is the same set of values:
+/// `B #And #Not(true)` is `B` where `B` is `false`, and `B #And (B #Implies false)` is `B` where
+/// `B` is `false`, not the conditions `not(true = true)` and `B = true -> false = true`. K source
+/// with such a conjunction where a value is built is refused at compile for the Rust target,
+/// naming the sentence's line, in a rewrite's and in a function equation's right-hand side; the
+/// backend refuses the same KORE when another tool writes it (`k_rust_backend`'s
+/// `predicate_reading` tests).
+#[test]
+fn a_connective_over_terms_conjoined_to_a_right_hand_side_is_refused_at_compile() {
+    for (rule, extra) in [
+        (
+            "rule [p]: <k> test(B) => test(B #And #Not(true)) ... </k>",
+            "",
+        ),
+        (
+            "rule [p]: g(B) => B #And (B #Implies false)",
+            "syntax Bool ::= g(Bool) [function, symbol(g)]
+  rule <k> test(B) => test(g(B)) ... </k>",
+        ),
+    ] {
+        assert_eq!(
+            compile_error_codes(&source(rule, extra)),
+            [("MlConstructPosition".to_owned(), Some(RULE_LINE as u32))],
+            "{rule}"
+        );
+    }
+}
+
+/// The codes and lines of the errors with which compiling `source` for the Rust target fails.
+fn compile_error_codes(source: &str) -> Vec<(String, Option<u32>)> {
+    let mut resolver = |_: &str, required: &str| {
+        embedded(required).ok_or_else(|| format!("unexpected require {required}"))
+    };
+    let (loaded, _) = load_for_compilation(
+        ResolvedSource::new(FILE, source),
+        MAIN,
+        Some("MLP-SYNTAX"),
+        &mut resolver,
+        &LoadOptions {
+            implicit_sources: vec![embedded("prelude.md").expect("the embedded prelude exists")],
+            excluded_module_attributes: vec![
+                CompilationBackend::Rust.excluded_module_attribute().into(),
+            ],
+            ..LoadOptions::default()
+        },
+    )
+    .unwrap_or_else(|error| panic!("the definition loads: {error:?}\n{source}"));
+    let Err(error) = compile_loaded_definition(&loaded, CompileOptions::default()) else {
+        panic!("the definition compiles:\n{source}");
+    };
+    error
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic.severity == k_rust::diagnostic::Severity::Error)
+        .map(|diagnostic| {
+            (
+                diagnostic.code.as_str().to_owned(),
+                diagnostic.location.map(|location| location.start_line),
+            )
+        })
+        .collect()
+}
+
+/// A simplification's sides are the author's: an `#Equals` whose operand is a connective over
+/// terms there is read as written and refused, as in a condition, also where it has the shape of
+/// a condition's encoding (`{P #Equals true}`). `{X >=Int 7, X <=Int 7} = {true}` holds exactly
+/// where `X = 7`, `h(X) = X #And {..}` is `\bottom` where `X =/= 7`, and
+/// `{A, B} = {true}` is `A = B = true`; reading any of them as `P` holds misreads it.
+#[test]
+fn a_simplification_whose_side_has_a_connective_operand_is_refused_at_load() {
+    for (rule, extra) in [
+        (
+            "rule [p]: {X:Int #Equals 7} => {((X >=Int 7) #Or (X <=Int 7)) #Equals true} [simplification]",
+            "rule <k> go(X) => done(X) ... </k> requires {X #Equals 7}",
+        ),
+        (
+            "rule [p]: f(X) => X #And {((X >=Int 7) #Or (X <=Int 7)) #Equals true} [simplification]",
+            "",
+        ),
+        (
+            "rule [p]: {(A:Bool #Or B:Bool) #Equals true} => {A #Equals true} #And {B #Equals true} [simplification]",
+            "rule <k> go(X) => done(X) ... </k> requires (X ==Int 1) #Or (X ==Int 2)",
+        ),
+    ] {
+        assert_position_refused(&source(rule, extra));
+        let error = refusal(&compile_llvm(&source(rule, extra)));
+        assert!(is(&error, "AxiomReadsTermAsPredicate"), "{rule}: {error:?}");
+        assert_names_the_rule(&error);
+    }
+}
+
+/// `#Not` under the same `\and` keeps its own refusal.
+#[test]
+fn a_negated_configuration_at_a_shared_position_keeps_its_refusal() {
+    let rule = source("rule [p]: <k> pair(#Not(3), (sa => sb)) ... </k>", "");
+    assert_position_refused(&rule);
+    let error = refusal(&compile_llvm(&rule));
+    assert!(is(&error, "RulePattern(NegatedConfiguration"), "{error:?}");
+    assert!(
+        error.to_string().contains("negates (\\not) a pattern"),
+        "{error}"
+    );
+}
+
+/// A rule under test, the sentences beside it, and the programs `go(n)` with what each runs to.
+type Case = (String, &'static str, Vec<(i64, String)>);
+
+/// Conditions whose atoms are predicates over terms, and connectives at a condition's root, are
+/// read as written: each loads and runs each program to the configuration its meaning gives.
+#[test]
+fn predicate_conditions_load_and_answer_as_written() {
+    let go_rule =
+        |condition: &str| format!("rule [p]: <k> go(X) => done(X) ... </k> requires {condition}");
+    let one_or_two = [(1, done(1)), (2, done(2)), (3, go(3))];
+    let cases: Vec<Case> = vec![
+        (go_rule("{X #Equals 1}"), "", vec![(1, done(1)), (3, go(3))]),
+        (
+            go_rule("#Ceil(1 /Int X)"),
+            "",
+            vec![(1, done(1)), (0, go(0))],
+        ),
+        (
+            go_rule("#Exists Y . {X #Equals Y +Int 1}"),
+            "",
+            vec![(1, done(1))],
+        ),
+        (
+            go_rule("(X ==Int 1) #Or (X ==Int 2)"),
+            "",
+            one_or_two.to_vec(),
+        ),
+        (go_rule("oneOrTwo(X)"), "", one_or_two.to_vec()),
+        (
+            "rule [p]: <k> go(X #And (1 #Or 2)) => done(X) ... </k>".to_owned(),
+            "",
+            one_or_two.to_vec(),
+        ),
+        (
+            "rule [p]: <k> go(X #And {X #Equals 1}) => done(X) ... </k>".to_owned(),
+            "",
+            vec![(1, done(1)), (3, go(3))],
+        ),
+        // The `owise` rule's competitor has a predicate condition, which the priority reads.
+        (
+            go_rule("{X #Equals 1}"),
+            "rule <k> go(_) => done(0) ... </k> [owise]",
+            vec![(1, done(1)), (3, done(0))],
+        ),
+    ];
+    // Without a solver, the existential and the disjunction the compiler aliases (`#Or` with a
+    // fresh variable `?_Gen0` conjoined to it) are not decided for the subjects that satisfy
+    // them; that incompleteness is not this file's.
+    let undecided_without_a_solver = |rule: &str| {
+        !cfg!(feature = "z3-inference") && (rule.contains("#Exists") || rule.contains(") #Or ("))
+    };
+    let mut wrong = Vec::new();
+    for (rule, extra, runs) in &cases {
+        let kore = compile(&source(rule, extra));
+        let mut backend = Backend::new(&kore, MAIN, BackendOptions::default())
+            .unwrap_or_else(|error| panic!("{rule} loads: {error}"));
+        for (argument, expected) in runs {
+            let leaves = leaves(&mut backend, "go", *argument);
+            let undecided = matches!(&leaves[..], [(HaltReasonOutput::Indeterminate, _)]);
+            let satisfied = !expected.starts_with("Lblgo");
+            if !(runs_to(&leaves, expected)
+                || (undecided && satisfied && undecided_without_a_solver(rule)))
+            {
+                wrong.push(format!("{rule} {extra}: go({argument}) gives {leaves:?}"));
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// The KORE of `claims`, a module `MLP-SPEC` over [`source`] with the rules `go(X) => done(X)`
+/// and `test(_) => done(0)`, compiled for proving as `kprove` compiles it.
+fn spec(claims: &str) -> String {
+    try_spec(claims).unwrap_or_else(|error| panic!("the spec compiles: {error}"))
+}
+
+/// The line of the first claim of [`spec`]'s module: [`source`]'s lines, then a blank line,
+/// `module MLP-SPEC` and `imports MLP`.
+fn first_claim_line() -> usize {
+    source(
+        "rule [p]: <k> go(X) => done(X) ... </k>",
+        "rule <k> test(_B) => done(0) ... </k>",
+    )
+    .lines()
+    .count()
+        + 4
+}
+
+/// [`spec`], or the compile error's message.
+fn try_spec(claims: &str) -> Result<String, String> {
+    try_spec_for(claims, CompilationBackend::Rust)
+}
+
+/// [`try_spec`] for `backend`.
+fn try_spec_for(claims: &str, backend: CompilationBackend) -> Result<String, String> {
+    let spec = format!(
+        "{}
+module MLP-SPEC
+  imports MLP
+{claims}
+endmodule
+",
+        source(
+            "rule [p]: <k> go(X) => done(X) ... </k>",
+            "rule <k> test(_B) => done(0) ... </k>"
+        )
+    );
+    try_compile_with(
+        &spec,
+        "MLP-SPEC",
+        CompileOptions {
+            backend,
+            default_claims_to_all_path: true,
+            check_mode: CheckMode::Proof {
+                definition_module: MAIN.to_owned(),
+            },
+            ..CompileOptions::default()
+        },
+    )
+}
+
+/// A claim's condition is compiled as the definition's are: an `#Equals` on its spine with a
+/// connective operand is refused at compile, naming the claim, and, as any compile error in a
+/// claim does, fails its spec module; a connective at the condition's root is a predicate, and is
+/// read.
+#[test]
+fn a_claim_whose_equality_has_a_connective_operand_is_refused() {
+    assert_refused_at_compile(
+        try_spec(
+            "  claim [q]: <k> go(X) => done(X) ... </k> requires {true #Equals ((X ==Int 1) #Or (X ==Int 2))}",
+        ),
+        "claim [MLP-SPEC.q]",
+        first_claim_line(),
+    );
+    let kore =
+        spec("  claim [s]: <k> go(X) => done(X) ... </k> requires (X ==Int 1) #Or (X ==Int 2)");
+    let mut backend = Backend::new(&kore, "MLP-SPEC", BackendOptions::default())
+        .unwrap_or_else(|error| panic!("the spec loads: {error}"));
+    let read = backend.prove(ProveRequest {
+        claim: Some("MLP-SPEC.s".into()),
+        max_depth: Some(4),
+        ..ProveRequest::default()
+    });
+    assert!(
+        read.as_ref()
+            .map_or_else(|error| error.claim_refusal().is_none(), |_| true),
+        "{:?}",
+        read.map(|result| result.status)
+    );
+}
+
+/// The status of proving the claim `MLP-SPEC.<claim>` of `backend`, or the refusal's reason
+/// (its debug form, so that this file builds against a backend without the reason's variant).
+fn prove(backend: &mut Backend, claim: &str) -> Result<String, String> {
+    backend
+        .prove(ProveRequest {
+            claim: Some(format!("MLP-SPEC.{claim}")),
+            max_depth: Some(4),
+            ..ProveRequest::default()
+        })
+        .map(|result| result.status)
+        .map_err(|error| match error.claim_refusal() {
+            Some(reason) => format!("{reason:?}"),
+            None => format!("not a claim refusal: {error}"),
+        })
+}
+
+/// A claim whose predicate the backend's reading refuses is refused alone, with the reason, and
+/// the spec module and its other claims load and prove: an `#Equals` with a connective operand,
+/// in a `requires` (`{X #Equals (1 #Or 2)}`, `{X} = {1, 2}`) or conjoined to the target's term
+/// (`{X} ∖ {1, 2}` and `{X} = {1}` here, both false at some instance of `go(X)`), and a
+/// connective over terms conjoined to a term (`B #And #Not(true)` is `B` where `B` is `false`).
+/// The control claim [ok] proves. The compiler refuses each refused claim in K source for the
+/// Rust target, at its line (`MlConstructPosition`), so the spec's KORE is the LLVM target's,
+/// which that refusal does not judge, as another tool may write it; [r] is compiled with
+/// `{X #Equals 12345}` and its literal replaced by `1 #Or 2`.
+#[test]
+fn a_claim_with_a_refused_predicate_is_refused_alone() {
+    let claims = "  claim [r]: <k> go(X) => done(X) ... </k> requires {X #Equals 12345}
+  claim [a]: <k> go(X) => done(X #And {((X ==Int 1) #And (X ==Int 2)) #Equals false}) ... </k>
+  claim [b]: <k> go(X) => done(X #And {((X ==Int 1) #And true) #Equals (X ==Int 1)}) ... </k>
+  claim [c]: <k> test(B #And #Not(true)) => done(1) ... </k>
+  claim [d]: <k> test(B #And (B #Implies false)) => done(1) ... </k>
+  claim [ok]: <k> go(X) => done(X) ... </k>";
+    let refused = try_spec(claims).expect_err("the Rust target refuses the claims");
+    for offset in 1..=4 {
+        let at = format!(
+            "{FILE}:{}: MlConstructPosition: ",
+            first_claim_line() + offset
+        );
+        assert!(refused.contains(&at), "no {at:?} in {refused}");
+    }
+    let compiled = try_spec_for(claims, CompilationBackend::Llvm)
+        .unwrap_or_else(|error| panic!("the LLVM target compiles the spec: {error}"));
+    let literal = r#"\dv{SortInt{}}("12345")"#;
+    assert_eq!(compiled.matches(literal).count(), 1, "{compiled}");
+    let kore = compiled.replace(
+        literal,
+        r#"\or{SortInt{}}(\dv{SortInt{}}("1"), \dv{SortInt{}}("2"))"#,
+    );
+    let mut backend = Backend::new(&kore, "MLP-SPEC", BackendOptions::default())
+        .unwrap_or_else(|error| panic!("the spec loads: {error}"));
+    let mut wrong = Vec::new();
+    for (claim, reason) in [
+        ("r", "TermReadAsPredicate"),
+        ("a", "TermReadAsPredicate"),
+        ("b", "TermReadAsPredicate"),
+        (
+            "c",
+            "RefusedReading(TermConnectiveInConjunction { connective: \"not\"",
+        ),
+        (
+            "d",
+            "RefusedReading(TermConnectiveInConjunction { connective: \"implies\"",
+        ),
+    ] {
+        match prove(&mut backend, claim) {
+            Err(refusal) if refusal.starts_with(reason) => {}
+            outcome => wrong.push(format!("[{claim}]: {outcome:?}")),
+        }
+    }
+    let ok = prove(&mut backend, "ok");
+    if !matches!(&ok, Ok(status) if status == "proven") {
+        wrong.push(format!("[ok]: {ok:?}"));
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// The configuration `<k> program </k>` with a symbolic counter, for implication requests.
+fn configuration_of(program: &str) -> String {
+    format!(
+        "Lbl'-LT-'generatedTop'-GT-'{{}}(Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortPgm{{}}, \
+         SortKItem{{}}}}({program}), Var'Unds'DotVar1:SortK{{}})), \
+         Lbl'-LT-'generatedCounter'-GT-'{{}}(VarC:SortInt{{}}))"
+    )
+}
+
+/// A `simplify` request (the library route of `krust kore-simplify`) that states no term is read
+/// as a predicate only when no term stands in a predicate position of it. `#Not(true)` and
+/// `true #Implies false` over Bool are the set `{false}`, and `#Not(B #And {B #Equals true})` is
+/// `{false}` where `B` is `true`: each is refused, not answered with its terms read as `t = true`
+/// (`\bottom`, `\bottom` and `\not(B)`). The predicate `#Not({B #Equals true})` is simplified.
+#[test]
+fn a_simplify_request_with_no_term_reads_no_term_as_a_predicate() {
+    let kore = compile(&source("rule [p]: <k> go(X) => done(X) ... </k>", ""));
+    let mut backend = Backend::new(&kore, MAIN, BackendOptions::default()).expect("it loads");
+    let simplify = |backend: &mut Backend, pattern: &str| {
+        backend.simplify_kore(
+            None,
+            &parse_pattern(pattern).expect("the pattern parses"),
+            Admission::Verified,
+        )
+    };
+    let b_true = r#"\equals{SortBool{}, SortBool{}}(VarB:SortBool{}, \dv{SortBool{}}("true"))"#;
+    let mut wrong = Vec::new();
+    for pattern in [
+        r#"\not{SortBool{}}(\dv{SortBool{}}("true"))"#.to_owned(),
+        r#"\implies{SortBool{}}(\dv{SortBool{}}("true"), \dv{SortBool{}}("false"))"#.to_owned(),
+        format!(r#"\not{{SortBool{{}}}}(\and{{SortBool{{}}}}(VarB:SortBool{{}}, {b_true}))"#),
+    ] {
+        match simplify(&mut backend, &pattern) {
+            Err(error) if error.message().contains("states no term") => {}
+            answer => wrong.push(format!("{pattern}: {answer:?}")),
+        }
+    }
+    let predicate = format!(r#"\not{{SortBool{{}}}}({b_true})"#);
+    if let Err(error) = simplify(&mut backend, &predicate) {
+        wrong.push(format!("{predicate}: {error}"));
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// A `simplify` response to a predicate states its meaning: a Boolean term `t` the simplifier
+/// keeps as a predicate is printed as `true = t`, not as the bare term (which, as a pattern, is
+/// the value `t`, and at a result sort other than Bool is ill-sorted). Sent back, the response is
+/// read as the same predicate and simplifies to itself.
+#[test]
+fn a_simplified_predicate_reads_back_as_the_same_predicate() {
+    let kore = compile(&source("rule [p]: <k> go(X) => done(X) ... </k>", ""));
+    let mut backend = Backend::new(&kore, MAIN, BackendOptions::default()).expect("it loads");
+    let simplify = |backend: &mut Backend, pattern: &KorePattern| {
+        backend.simplify_kore(None, pattern, Admission::Verified)
+    };
+    let mut wrong = Vec::new();
+    for sort in ["SortBool{}", "SortInt{}"] {
+        let b_true = format!(
+            r#"\equals{{SortBool{{}}, {sort}}}(VarB:SortBool{{}}, \dv{{SortBool{{}}}}("true"))"#
+        );
+        for pattern in [
+            format!(r#"\not{{{sort}}}({b_true})"#),
+            b_true.clone(),
+            format!(
+                r#"\equals{{SortBool{{}}, {sort}}}(VarB:SortBool{{}}, \dv{{SortBool{{}}}}("false"))"#
+            ),
+        ] {
+            let input = parse_pattern(&pattern).expect("the pattern parses");
+            let first = match simplify(&mut backend, &input) {
+                Ok(first) => first,
+                Err(error) => {
+                    wrong.push(format!("{pattern}: {error}"));
+                    continue;
+                }
+            };
+            match simplify(&mut backend, &first) {
+                Ok(second) if second == first => {}
+                again => wrong.push(format!("{pattern} gives {first:?}, then {again:?}")),
+            }
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}
+
+/// An implication request has no condition slot: an `#Equals` with a connective operand
+/// conjoined inside its term, and a connective over terms conjoined to a term, are refused, not
+/// misread. `go(X) /\ X = 1` does not imply `go(X #And {(X ==Int 1 #And X ==Int 2) #Equals
+/// false})` (which needs `X ∉ {1, 2}`), and `test(B #And #Not(true))`, which is `test(false)`,
+/// does not imply `test(true)`.
+#[test]
+fn an_implication_request_reads_its_predicates_as_written() {
+    let kore = compile(&source("rule [p]: <k> go(X) => done(X) ... </k>", ""));
+    let mut backend = Backend::new(&kore, MAIN, BackendOptions::default()).expect("it loads");
+    let eq = |value: i64| {
+        format!(
+            "Lbl'UndsEqlsEqls'Int'Unds'{{}}(VarX:SortInt{{}}, \\dv{{SortInt{{}}}}(\"{value}\"))"
+        )
+    };
+    let go_one = format!(
+        "\\and{{SortGeneratedTopCell{{}}}}({}, \\equals{{SortInt{{}}, SortGeneratedTopCell{{}}}}(VarX:SortInt{{}}, \\dv{{SortInt{{}}}}(\"1\")))",
+        configuration_of("Lblgo{}(VarX:SortInt{})")
+    );
+    let go_conjoined = configuration_of(&format!(
+        "Lblgo{{}}(\\and{{SortInt{{}}}}(VarX:SortInt{{}}, \\equals{{SortBool{{}}, SortInt{{}}}}(\\and{{SortBool{{}}}}({}, {}), \\dv{{SortBool{{}}}}(\"false\"))))",
+        eq(1),
+        eq(2)
+    ));
+    let test_negated = configuration_of(
+        "Lbltest{}(\\and{SortBool{}}(VarB:SortBool{}, \\not{SortBool{}}(\\dv{SortBool{}}(\"true\"))))",
+    );
+    let test_true = configuration_of("Lbltest{}(\\dv{SortBool{}}(\"true\"))");
+    let mut wrong = Vec::new();
+    for (antecedent, consequent) in [(&go_one, &go_conjoined), (&test_negated, &test_true)] {
+        let request = ImplicationRequest::new(
+            parse_pattern(antecedent).unwrap(),
+            parse_pattern(consequent).unwrap(),
+        );
+        if let Ok(result) = backend.implies(request) {
+            wrong.push(format!("{antecedent} => {consequent}: {}", result.status));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
+}

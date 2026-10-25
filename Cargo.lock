@@ -1115,7 +1115,7 @@ dependencies = [
 
 [[package]]
 name = "k-rust"
-version = "0.7.0"
+version = "0.8.0"
 dependencies = [
  "clap",
  "indexmap",
@@ -1150,7 +1150,7 @@ dependencies = [
 
 [[package]]
 name = "k-rust-backend"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "indoc",
  "insta",
@@ -1172,6 +1172,7 @@ dependencies = [
  "stacker",
  "substrate-bn",
  "z3",
+ "z3-sys",
 ]
 
 [[package]]
@@ -1186,8 +1187,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "k-rust-fuzz"
+version = "0.8.0"
+dependencies = [
+ "clap",
+ "indoc",
+ "k-rust",
+ "krs-unparse",
+ "num-bigint",
+ "num-traits",
+ "proptest",
+ "rand 0.9.5",
+ "rand_chacha",
+ "serde",
+ "serde_json",
+ "serde_stacker",
+ "sha2 0.11.0",
+ "toml",
+]
+
+[[package]]
 name = "k-rust-kore"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "indoc",
  "insta",
@@ -1201,9 +1222,10 @@ dependencies = [
 
 [[package]]
 name = "k-rust-napi"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "k-rust",
+ "k-rust-fuzz",
  "napi",
  "napi-build",
  "napi-derive",
@@ -1220,9 +1242,10 @@ dependencies = [
 
 [[package]]
 name = "k-rust-wasm"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "k-rust",
+ "k-rust-fuzz",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -1244,6 +1267,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "k2lean"
+version = "0.1.0"
+dependencies = [
+ "k-rust-kore",
+ "num-bigint",
+ "num-traits",
+ "serde",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
 name = "keccak"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1251,6 +1286,74 @@ checksum = "ffd9697dc4a9a62e2da93389f34400b77a28f0287711263cabb203b3ccb9c0e4"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
+]
+
+[[package]]
+name = "kink-campaign"
+version = "0.1.0"
+dependencies = [
+ "k-rust",
+ "kink-native",
+ "kink-patch",
+ "kink-pattern",
+ "serde_json",
+ "syn 2.0.119",
+ "toml",
+]
+
+[[package]]
+name = "kink-corpus"
+version = "0.1.0"
+dependencies = [
+ "k-rust",
+ "kink-campaign",
+ "kink-native",
+ "kink-patch",
+ "kink-pattern",
+ "serde_json",
+]
+
+[[package]]
+name = "kink-flow"
+version = "0.1.0"
+dependencies = [
+ "k-rust",
+ "kink-campaign",
+ "kink-corpus",
+ "kink-native",
+ "kink-patch",
+ "kink-pattern",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "kink-native"
+version = "0.1.0"
+dependencies = [
+ "k-rust",
+ "k-rust-backend",
+ "kink-patch",
+ "kink-pattern",
+ "serde_json",
+ "toml",
+]
+
+[[package]]
+name = "kink-patch"
+version = "0.1.0"
+dependencies = [
+ "k-rust",
+ "serde",
+ "serde_json",
+ "stacker",
+]
+
+[[package]]
+name = "kink-pattern"
+version = "0.1.0"
+dependencies = [
+ "k-rust",
 ]
 
 [[package]]
@@ -1270,6 +1373,7 @@ version = "0.1.0"
 dependencies = [
  "annotate-snippets",
  "expect-test",
+ "k-rust",
  "krs",
  "krs-collector",
  "krs-compiler",
@@ -1282,7 +1386,10 @@ dependencies = [
  "krs-syntax",
  "krs-test-support",
  "lexopt",
+ "num-bigint",
  "proc-macro2",
+ "proptest",
+ "quote",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -1320,6 +1427,7 @@ dependencies = [
  "krs-ir-levels",
  "krs-syntax",
  "krs-test-support",
+ "num-bigint",
  "prettyplease",
  "proc-macro2",
  "quote",
@@ -1349,6 +1457,7 @@ dependencies = [
  "krs-ir-levels",
  "krs-k-rust",
  "krs-unparse",
+ "num-bigint",
  "serde",
  "serde_json",
 ]
@@ -1361,6 +1470,7 @@ dependencies = [
  "krs-diagnostic",
  "krs-ir",
  "krs-syntax",
+ "krs-test-support",
  "prettyplease",
  "proc-macro2",
  "quote",
@@ -1507,7 +1617,10 @@ dependencies = [
 name = "krs-test-support"
 version = "0.1.0"
 dependencies = [
+ "krs-diagnostic",
+ "krs-expand",
  "serde_json",
+ "syn 2.0.119",
  "tempfile",
  "toml_edit 0.25.15+spec-1.1.0",
 ]
@@ -1750,6 +1863,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "071dfc062690e90b734c0b2273ce72ad0ffa95f0c74596bc250dcfd960262841"
 dependencies = [
  "autocfg",
+ "libm",
 ]
 
 [[package]]
@@ -2363,6 +2477,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bf41e0cfaf7226dca15e8197172c295a782857fcb97fad1808a166870dee75a3"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "serde_stacker"
+version = "0.1.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d4936375d50c4be7eff22293a9344f8e46f323ed2b3c243e52f89138d9bb0f4a"
+dependencies = [
+ "serde",
+ "serde_core",
+ "stacker",
 ]
 
 [[package]]

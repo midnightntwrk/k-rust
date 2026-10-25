@@ -98,3 +98,59 @@ impl<Parent> CellFragment<Parent> {
         }
     }
 }
+
+/// Implemented by no type: a configuration reaches the bound below only when
+/// it has no inherent `#[k::init]` initializer, and rustc then reports this
+/// trait's message at the configuration's name.
+///
+/// An initializer is required: it gives each cell its initial content, which
+/// a cell's sort does not determine (no cell has a default value).
+#[doc(hidden)]
+#[diagnostic::on_unimplemented(
+    message = "[krs::expand::missing-initializer] configuration `{Self}` has no `#[k::init]` initializer",
+    label = "`{Self}` has no initializer",
+    note = "an initializer gives each cell its initial value: `impl {Self} {{ #[k::init] pub fn init() -> Self {{ Self {{ .. }} }} }}`"
+)]
+pub trait __KrsInitializer {}
+
+/// The initializer payload a configuration's descriptor factory reads when its
+/// configuration has no inherent `#[k::init]`.
+///
+/// An inherent associated function is found before a trait's, so a
+/// configuration with an initializer calls the payload `#[k::init]` emits and
+/// never this one; one without an initializer resolves to this method, whose
+/// unsatisfiable bound reports [`__KrsInitializer`]'s message.
+#[doc(hidden)]
+pub trait __KrsInitializerFallback {
+    /// Never callable: no type implements [`__KrsInitializer`].
+    ///
+    /// # Errors
+    ///
+    /// Never returns.
+    fn __krs_initializer_payload() -> Result<
+        (
+            &'static str,
+            crate::__KrsSlots<'static>,
+            crate::HostProvenance,
+        ),
+        crate::HostProvenanceError,
+    >
+    where
+        Self: __KrsInitializer;
+}
+
+impl<T: ?Sized> __KrsInitializerFallback for T {
+    fn __krs_initializer_payload() -> Result<
+        (
+            &'static str,
+            crate::__KrsSlots<'static>,
+            crate::HostProvenance,
+        ),
+        crate::HostProvenanceError,
+    >
+    where
+        Self: __KrsInitializer,
+    {
+        unreachable!("no type implements `__KrsInitializer`")
+    }
+}

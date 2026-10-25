@@ -97,14 +97,21 @@ fn tour_minimal_expands_through_the_protocol() {
     );
     assert_eq!(
         value["evidence"]["authored_sha256"],
-        "c75ac1cab9a016ca34e606492341e5753b7a46b2af8195277fd3c0a3add71915"
+        "5126dfe56fc89bb6c49c6b6613403ef8c04099f2d6846b03a2100985884a7a11"
     );
-    assert_eq!(value["requests_framework"], true);
+    assert!(value.get("requests_framework").is_none());
     assert_eq!(value["registrations"].as_array().unwrap().len(), 7);
     let map = &value["source_map"];
     assert_eq!(map["authored_file"], "src/lib.rs");
-    assert_eq!(map["invocations"].as_array().unwrap().len(), 6);
-    assert_eq!(map["invocations"][4]["parent"], 3);
+    // The initializer re-emits no island, so no invocation is nested.
+    assert_eq!(map["invocations"].as_array().unwrap().len(), 5);
+    assert!(
+        map["invocations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|invocation| invocation["parent"].is_null())
+    );
     let segments = map["segments"].as_array().unwrap();
     assert_eq!(segments.last().unwrap()["class"], "generated-only");
     assert_eq!(
@@ -272,7 +279,8 @@ fn inconsistent_requests_are_protocol_errors() {
     wrong_alias["facade"]["alias"] = json!("krs");
     cases.push(wrong_alias);
     let mut wrong_schema = request(TOUR_MINIMAL, &json!("whole-file"));
-    wrong_schema["schema"] = json!(2);
+    // The previous schema, whose response carried `requests_framework`.
+    wrong_schema["schema"] = json!(SCHEMA - 1);
     cases.push(wrong_schema);
     let mut unknown_field = request(TOUR_MINIMAL, &json!("whole-file"));
     unknown_field["extra"] = json!(true);

@@ -105,6 +105,16 @@ impl Sample for BuiltinOperation {
         vec![Self::IntAdd]
     }
 }
+impl Sample for BuiltinOperator {
+    fn samples() -> Vec<Self> {
+        vec![Self::Add]
+    }
+}
+impl Sample for krs_ir::ListNotation {
+    fn samples() -> Vec<Self> {
+        vec![Self::Cons]
+    }
+}
 impl Sample for BuiltinSort {
     fn samples() -> Vec<Self> {
         vec![Self::KSequence]
@@ -237,6 +247,16 @@ impl Sample for CellWrapper {
 impl Sample for ClaimModality {
     fn samples() -> Vec<Self> {
         vec![Self::AllPaths]
+    }
+}
+impl Sample for HeadRuleClaim {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            modality_key: sample::<ProvenanceKey>(),
+            modality: sample::<ClaimModality>(),
+            circularity_key: Some(sample::<ProvenanceKey>()),
+            trusted_key: Some(sample::<ProvenanceKey>()),
+        }]
     }
 }
 impl Sample for CollectorMeasureDocument {
@@ -777,6 +797,7 @@ impl Sample for WireConstructorDescriptor {
             parameters: Vec::new(),
             sort: sample::<WireSortReference>(),
             fields: sample::<Vec<WireConstructorFieldDescriptor>>(),
+            arguments: sample::<Vec<WireConstructorSortArgument>>(),
         }]
     }
 }
@@ -785,6 +806,7 @@ impl Sample for WireConstructorFieldDescriptor {
         vec![Self {
             name: sample::<String>(),
             sort: sample::<WireTypeReference>(),
+            arguments: sample::<Vec<WireConstructorSortArgument>>(),
         }]
     }
 }
@@ -836,6 +858,7 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolConfig
             external_name_key: sample::<ProvenanceKey>(),
             external_name: sample::<String>(),
             sort: sample::<S>(),
+            arguments: sample::<Vec<ProtocolSortArgument<S>>>(),
             main_key: sample::<Option<ProvenanceKey>>(),
         }]
     }
@@ -907,6 +930,14 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRu
         vec![Self {
             name: sample::<String>(),
             refinement: sample::<Option<S>>(),
+        }]
+    }
+}
+impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleMapEntry<T> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            key: sample::<T>(),
+            value_binding: sample::<String>(),
         }]
     }
 }
@@ -1206,8 +1237,10 @@ impl Sample for DescriptorApplicationRef {
                 Self::List(sample::<ListOperation>()),
                 Self::Set(sample::<SetOperation>()),
                 Self::Ml(sample::<MlConnective>()),
+                Self::Operator(sample::<BuiltinOperator>()),
+                Self::ListNotation(sample::<krs_ir::ListNotation>()),
             ],
-            6,
+            8,
             "DescriptorApplicationRef",
             |value| match value {
                 Self::Declared(..) => 0,
@@ -1216,6 +1249,8 @@ impl Sample for DescriptorApplicationRef {
                 Self::List(..) => 3,
                 Self::Set(..) => 4,
                 Self::Ml(..) => 5,
+                Self::Operator(..) => 6,
+                Self::ListNotation(..) => 7,
             },
         )
     }
@@ -1272,8 +1307,9 @@ impl Sample for DescriptorPayload {
                 Self::ConfigurationRule(sample::<Box<DescriptorConfigurationRule>>()),
                 Self::HeadRule(sample::<Box<crate::DescriptorHeadRule>>()),
                 Self::ContextAlias(sample::<Box<DescriptorContextAlias>>()),
+                Self::Constant(sample::<Box<ConstantDescriptor>>()),
             ],
-            9,
+            10,
             "DescriptorPayload",
             |value| match value {
                 Self::Sort(..) => 0,
@@ -1285,8 +1321,25 @@ impl Sample for DescriptorPayload {
                 Self::ConfigurationRule(..) => 6,
                 Self::HeadRule(..) => 7,
                 Self::ContextAlias(..) => 8,
+                Self::Constant(..) => 9,
             },
         )
+    }
+}
+impl Sample for ConstantDescriptor {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            sort: sample::<DescriptorSortReference>(),
+            value: sample::<DescriptorTerm>(),
+        }]
+    }
+}
+impl Sample for WireConstant {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            sort: sample::<WireSortReference>(),
+            value: sample::<WireTerm>(),
+        }]
     }
 }
 impl Sample for DescriptorProductionAttribute {
@@ -1372,6 +1425,10 @@ impl Sample for DescriptorProductionAttribute {
                 Self::ListTerminator {
                     cons: sample::<DescriptorApplicationReference>(),
                 },
+                Self::ConsList {
+                    key: sample::<ProvenanceKey>(),
+                    empty: sample::<DescriptorApplicationReference>(),
+                },
                 Self::RawHook {
                     key: sample::<ProvenanceKey>(),
                     namespace: sample::<String>(),
@@ -1392,8 +1449,12 @@ impl Sample for DescriptorProductionAttribute {
                     key: sample::<ProvenanceKey>(),
                     recursive: sample::<Option<ProvenanceKey>>(),
                 },
+                Self::Underspecified {
+                    key: sample::<ProvenanceKey>(),
+                    reason: sample::<String>(),
+                },
             ],
-            25,
+            27,
             "DescriptorProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -1421,6 +1482,8 @@ impl Sample for DescriptorProductionAttribute {
                 Self::Smtlib { .. } => 22,
                 Self::SmtHook { .. } => 23,
                 Self::Desugar { .. } => 24,
+                Self::Underspecified { .. } => 25,
+                Self::ConsList { .. } => 26,
             },
         )
     }
@@ -1520,6 +1583,8 @@ impl Sample for DescriptorTerm {
                     reference: sample::<DescriptorApplicationReference>(),
                     path_key: sample::<ProvenanceKey>(),
                     arguments: sample::<Vec<DescriptorTermArgument>>().try_into().unwrap(),
+                    update: Some(Box::new(sample::<DescriptorTerm>())),
+                    open: true,
                 },
                 Self::Literal {
                     key: sample::<ProvenanceKey>(),
@@ -1550,6 +1615,8 @@ impl Sample for DescriptorTerm {
                     key: sample::<ProvenanceKey>(),
                     declaration: sample::<StableItemId>(),
                     fields: sample::<Vec<DescriptorCellTermField>>(),
+                    open: true,
+                    update: Some(Box::new(sample::<DescriptorTerm>())),
                 },
                 Self::Lexeme {
                     key: sample::<ProvenanceKey>(),
@@ -1686,6 +1753,7 @@ impl<
             vec![
                 Self::Term {
                     sort: sample::<S>(),
+                    arguments: sample::<Vec<CellSortArgument<S>>>(),
                 },
                 Self::Children {
                     children: sample::<Vec<FixedCell<S, C>>>(),
@@ -1703,7 +1771,20 @@ impl<
     fn first() -> Self {
         Self::Term {
             sort: sample::<S>(),
+            arguments: Vec::new(),
         }
+    }
+}
+/// A cell's element type with a nested one, as in `Map<Int, Set<Int>>`.
+impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for CellSortArgument<S> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            sort: sample::<S>(),
+            arguments: vec![Self {
+                sort: sample::<S>(),
+                arguments: Vec::new(),
+            }],
+        }]
     }
 }
 impl<
@@ -1982,8 +2063,12 @@ impl<
                     origin: sample::<NodeOrigin>(),
                     recursive: true,
                 },
+                Self::Underspecified {
+                    origin: sample::<NodeOrigin>(),
+                    reason: sample::<String>(),
+                },
             ],
-            26,
+            27,
             "ProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -2012,8 +2097,46 @@ impl<
                 Self::Smtlib { .. } => 23,
                 Self::SmtHook { .. } => 24,
                 Self::Desugar { .. } => 25,
+                Self::Underspecified { .. } => 26,
             },
         )
+    }
+}
+/// A constructor field's element type with a nested one, as in
+/// `Map<Int, Set<Int>>`.
+impl Sample for WireConstructorSortArgument {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            sort: sample::<WireSortReference>(),
+            arguments: vec![Self {
+                sort: sample::<WireSortReference>(),
+                arguments: Vec::new(),
+            }],
+        }]
+    }
+}
+/// A descriptor element type with a nested one, as in `Map<Int, Set<Int>>`.
+impl Sample for ConstructorSortArgumentDescriptor {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            sort: sample::<DescriptorSortReference>(),
+            arguments: vec![Self {
+                sort: sample::<DescriptorSortReference>(),
+                arguments: Vec::new(),
+            }],
+        }]
+    }
+}
+/// A collection argument with a nested argument, as in `Map<Int, Set<Int>>`.
+impl<S: Sample> Sample for ProtocolSortArgument<S> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            sort: sample::<S>(),
+            arguments: vec![Self {
+                sort: sample::<S>(),
+                arguments: Vec::new(),
+            }],
+        }]
     }
 }
 impl<
@@ -2028,7 +2151,7 @@ impl<
                     wrapper_key: sample::<ProvenanceKey>(),
                     wrapper: sample::<CellWrapper>(),
                     sort: sample::<S>(),
-                    arguments: sample::<Vec<S>>(),
+                    arguments: sample::<Vec<ProtocolSortArgument<S>>>(),
                 },
                 Self::Nested {
                     declaration: sample::<N>(),
@@ -2079,8 +2202,7 @@ impl<
             vec![
                 Self::HaveMap {
                     cell: sample::<I>(),
-                    key: sample::<T>(),
-                    value_binding: sample::<String>(),
+                    entries: sample::<Vec<ProtocolHeadRuleMapEntry<T>>>(),
                 },
                 Self::UpdateMap {
                     cell: sample::<I>(),
@@ -2089,9 +2211,15 @@ impl<
                 },
                 Self::RewriteCell {
                     cell: sample::<I>(),
-                    result_key: sample::<ProvenanceKey>(),
+                    result_key: Some(sample::<ProvenanceKey>()),
                     before: sample::<T>(),
-                    after: sample::<T>(),
+                    after: Some(sample::<T>()),
+                },
+                Self::RewriteCell {
+                    cell: sample::<I>(),
+                    result_key: None,
+                    before: sample::<T>(),
+                    after: None,
                 },
                 Self::RewriteState {
                     cell: sample::<I>(),
@@ -2101,14 +2229,43 @@ impl<
                         value: Box::new(ProtocolRuleStateTerm::Term(sample::<T>())),
                     }),
                 },
+                Self::RewriteList {
+                    cell: sample::<I>(),
+                    result_key: Some(sample::<ProvenanceKey>()),
+                    before: ProtocolHeadRuleList {
+                        items: vec![sample::<T>()],
+                        rest: ProtocolHeadRuleListRest::Shared,
+                        back: Vec::new(),
+                    },
+                    after: Some(ProtocolHeadRuleList {
+                        items: Vec::new(),
+                        rest: ProtocolHeadRuleListRest::Shared,
+                        back: vec![sample::<T>()],
+                    }),
+                },
+                Self::RewriteList {
+                    cell: sample::<I>(),
+                    result_key: Some(sample::<ProvenanceKey>()),
+                    before: ProtocolHeadRuleList {
+                        items: vec![sample::<T>()],
+                        rest: ProtocolHeadRuleListRest::Term(sample::<T>()),
+                        back: vec![sample::<T>()],
+                    },
+                    after: Some(ProtocolHeadRuleList {
+                        items: vec![sample::<T>()],
+                        rest: ProtocolHeadRuleListRest::Exact,
+                        back: Vec::new(),
+                    }),
+                },
             ],
-            4,
+            5,
             "ProtocolHeadRuleExtra",
             |value| match value {
                 Self::HaveMap { .. } => 0,
                 Self::UpdateMap { .. } => 1,
                 Self::RewriteCell { .. } => 2,
                 Self::RewriteState { .. } => 3,
+                Self::RewriteList { .. } => 4,
             },
         )
     }
@@ -2133,10 +2290,18 @@ impl<
 }
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleHead<T> {
     fn samples() -> Vec<Self> {
-        vec![Self {
-            subject: sample::<T>(),
-            result: sample::<ProtocolHeadRuleResult<T>>(),
-        }]
+        vec![
+            Self {
+                items: vec![sample::<T>()],
+                exact: false,
+                result: Some(sample::<ProtocolHeadRuleResult<T>>()),
+            },
+            Self {
+                items: Vec::new(),
+                exact: true,
+                result: None,
+            },
+        ]
     }
 }
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleResult<T> {
@@ -2155,6 +2320,29 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRu
                 Self::Erase => 2,
             },
         )
+    }
+}
+impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleListRest<T> {
+    fn samples() -> Vec<Self> {
+        checked_samples(
+            vec![Self::Exact, Self::Shared, Self::Term(sample::<T>())],
+            3,
+            "ProtocolHeadRuleListRest",
+            |value| match value {
+                Self::Exact => 0,
+                Self::Shared => 1,
+                Self::Term(..) => 2,
+            },
+        )
+    }
+}
+impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolHeadRuleList<T> {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            items: vec![sample::<T>()],
+            rest: sample::<ProtocolHeadRuleListRest<T>>(),
+            back: Vec::new(),
+        }]
     }
 }
 impl<
@@ -2614,6 +2802,10 @@ impl Sample for WireProductionAttribute {
                 Self::ListTerminator {
                     cons: sample::<WireApplicationReference>(),
                 },
+                Self::ConsList {
+                    key: sample::<ProvenanceKey>(),
+                    empty: sample::<WireApplicationReference>(),
+                },
                 Self::RawHook {
                     key: sample::<ProvenanceKey>(),
                     namespace: sample::<String>(),
@@ -2634,8 +2826,12 @@ impl Sample for WireProductionAttribute {
                     key: sample::<ProvenanceKey>(),
                     recursive: sample::<Option<ProvenanceKey>>(),
                 },
+                Self::Underspecified {
+                    key: sample::<ProvenanceKey>(),
+                    reason: sample::<String>(),
+                },
             ],
-            25,
+            27,
             "WireProductionAttribute",
             |value| match value {
                 Self::Documentation { .. } => 0,
@@ -2663,6 +2859,8 @@ impl Sample for WireProductionAttribute {
                 Self::Smtlib { .. } => 22,
                 Self::SmtHook { .. } => 23,
                 Self::Desugar { .. } => 24,
+                Self::Underspecified { .. } => 25,
+                Self::ConsList { .. } => 26,
             },
         )
     }
@@ -2742,6 +2940,8 @@ impl Sample for WireTerm {
                     reference: sample::<WireApplicationReference>(),
                     path_key: sample::<ProvenanceKey>(),
                     arguments: sample::<Vec<WireTermArgument>>().try_into().unwrap(),
+                    update: Some(Box::new(sample::<WireTerm>())),
+                    open: true,
                 },
                 Self::Literal {
                     key: sample::<ProvenanceKey>(),
@@ -2772,6 +2972,8 @@ impl Sample for WireTerm {
                     key: sample::<ProvenanceKey>(),
                     declaration: sample::<WireTypeReference>(),
                     fields: sample::<Vec<WireCellTermField>>(),
+                    open: true,
+                    update: Some(Box::new(sample::<WireTerm>())),
                 },
                 Self::Lexeme {
                     key: sample::<ProvenanceKey>(),
@@ -2950,6 +3152,7 @@ impl Sample for ConstructorDescriptor {
             parameters: Vec::new(),
             sort: sample::<DescriptorSortRef>(),
             fields: sample::<Vec<ConstructorFieldDescriptor>>(),
+            arguments: sample::<Vec<ConstructorSortArgumentDescriptor>>(),
         }]
     }
 }
@@ -2958,6 +3161,7 @@ impl Sample for ConstructorFieldDescriptor {
         vec![Self {
             name: sample::<String>(),
             sort: sample::<Option<crate::DescriptorSortRef>>(),
+            arguments: sample::<Vec<ConstructorSortArgumentDescriptor>>(),
         }]
     }
 }
@@ -3054,7 +3258,8 @@ impl Sample for DefinitionModule {
                     vec![],
                     sort.clone(),
                 )
-                .unwrap(),
+                .unwrap()
+                .with_field("cell"),
             ],
             sample_origin("definition.initializer"),
             SemanticId::new("definition.initializer").unwrap(),
@@ -3302,6 +3507,7 @@ impl Sample for DescriptorHeadRule {
             ensures: sample(),
             fresh: sample(),
             evaluation: sample(),
+            claim: Some(sample::<HeadRuleClaim>()),
         }]
     }
 }
@@ -3524,7 +3730,7 @@ impl<
 }
 impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for FixedConfigurationVariable<S> {
     fn samples() -> Vec<Self> {
-        vec![
+        let variable = || {
             Self::new(
                 sample::<NodeOrigin>(),
                 sample::<SemanticId>(),
@@ -3532,7 +3738,12 @@ impl<S: Sample + Clone + Serialize + DeserializeOwned> Sample for FixedConfigura
                 sample::<S>(),
                 sample::<bool>(),
             )
-            .unwrap(),
+            .unwrap()
+        };
+        vec![
+            variable(),
+            // A collection-typed variable, `xs: Map<Int, Set<Int>>`.
+            variable().with_arguments(sample::<Vec<CellSortArgument<S>>>()),
         ]
     }
 }
@@ -3869,6 +4080,7 @@ impl Sample for WireHeadRule {
             fresh: sample(),
             evaluation: sample(),
             bracket_alternative: sample(),
+            claim: Some(sample::<HeadRuleClaim>()),
         }]
     }
 }
@@ -3885,8 +4097,9 @@ impl Sample for WirePayload {
                 Self::Cell(sample::<Box<WireCellDeclaration>>()),
                 Self::ConfigurationRule(sample::<Box<WireConfigurationRule>>()),
                 Self::ContextAlias(sample::<Box<WireContextAlias>>()),
+                Self::Constant(sample::<Box<WireConstant>>()),
             ],
-            9,
+            10,
             "WirePayload",
             |value| match value {
                 Self::Constructor(..) => 0,
@@ -3898,6 +4111,7 @@ impl Sample for WirePayload {
                 Self::Cell(..) => 6,
                 Self::ConfigurationRule(..) => 7,
                 Self::ContextAlias(..) => 8,
+                Self::Constant(..) => 9,
             },
         )
     }
@@ -4091,6 +4305,8 @@ fn insert_tagged(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {
     insert::<ProtocolHeadRuleResult<DescriptorTerm>>(corpus, "ProtocolHeadRuleResult");
     insert::<WireHeadRuleBracketAlternative>(corpus, "ProtocolHeadRuleBracketAlternative");
     insert::<ProtocolHeadRuleHead<DescriptorTerm>>(corpus, "ProtocolHeadRuleHead");
+    insert::<ProtocolHeadRuleList<DescriptorTerm>>(corpus, "ProtocolHeadRuleList");
+    insert::<ProtocolHeadRuleListRest<DescriptorTerm>>(corpus, "ProtocolHeadRuleListRest");
     insert::<
         ProtocolInitializerCellContent<
             DescriptorCellReference,
@@ -4151,6 +4367,7 @@ fn insert_structural(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>
 fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Value>>) {
     insert::<ConstructorDescriptor>(corpus, "ConstructorDescriptor");
     insert::<ConstructorFieldDescriptor>(corpus, "ConstructorFieldDescriptor");
+    insert::<ConstructorSortArgumentDescriptor>(corpus, "ConstructorSortArgumentDescriptor");
     insert::<ContextAliasSentence>(corpus, "ContextAliasSentence");
     insert::<DefinitionClaim>(corpus, "DefinitionClaim");
     insert::<DefinitionScopedBinder>(corpus, "DefinitionScopedBinder");
@@ -4168,6 +4385,7 @@ fn insert_transitive_first(corpus: &mut BTreeMap<&'static str, Vec<serde_json::V
     insert::<DescriptorEvaluationStep>(corpus, "DescriptorEvaluationStep");
     insert::<DescriptorConfigurationRule>(corpus, "DescriptorConfigurationRule");
     insert::<DescriptorContextAlias>(corpus, "DescriptorContextAlias");
+    insert::<ConstantDescriptor>(corpus, "ConstantDescriptor");
     insert::<DescriptorFunctionContext>(corpus, "DescriptorFunctionContext");
     insert::<DescriptorDeclaration>(corpus, "DescriptorDeclaration");
     insert::<DescriptorFixedConfiguration>(corpus, "DescriptorFixedConfiguration");
@@ -4274,6 +4492,7 @@ fn insert_transitive_rest(corpus: &mut BTreeMap<&'static str, Vec<serde_json::Va
     insert::<WireClaim>(corpus, "WireClaim");
     insert::<WireConfigurationRule>(corpus, "WireConfigurationRule");
     insert::<WireContextAlias>(corpus, "WireContextAlias");
+    insert::<WireConstant>(corpus, "WireConstant");
     insert::<WireFunctionContext>(corpus, "WireFunctionContext");
     insert::<WireHeadRule>(corpus, "WireHeadRule");
     insert::<WirePayload>(corpus, "WirePayload");

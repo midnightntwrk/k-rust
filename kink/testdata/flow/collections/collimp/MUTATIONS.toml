@@ -1,0 +1,18 @@
+[[mutation]]
+id = "plus-as-minus"
+  [[mutation.edit]]
+  rule = "plus"
+  find = "I1 +Int I2"
+  replace = "I1 -Int I2"
+[[mutation]]
+id = "decl-guard-dropped"
+  [[mutation.edit]]
+  rule = "decl"
+  find = "requires notBool (X in keys(Rho))"
+  replace = "requires true"
+[[mutation]]
+id = "decl-initial-value"
+  [[mutation.edit]]
+  rule = "decl"
+  find = "X |-> 0"
+  replace = "X |-> 1"

@@ -9,6 +9,7 @@ use krs_ir::wire::{WireClaimBinder, WireEvaluationStep, WireRuleCondition};
 use krs_syntax::{ClaimBinder, ProvenanceRole, RuleExistentials};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
+use syn::ext::IdentExt;
 use syn::{Attribute, Path};
 
 use super::terms::{TermBuilder, TermSide, WireSlots, wire_key, wire_sort_reference};
@@ -49,7 +50,7 @@ pub(super) fn evaluation_step(
         return Ok((None, None));
     };
     if let Some(binder) = existentials.fresh().first() {
-        return Err(super::rules::misplaced_fresh(binder.name().span()));
+        return Err(super::rules::misplaced_fresh(Some(binder.name().span())));
     }
     let hole = attribute
         .hole()
@@ -139,7 +140,7 @@ fn scoped_binders(
         binders.push(WireClaimBinder {
             declaration_key: wire_key(declaration_role, ordinal),
             name_key: wire_key(name_role, ordinal),
-            name: binder.name().to_string(),
+            name: binder.name().unraw().to_string(),
             sort: wire_sort_reference(
                 slots,
                 facade,

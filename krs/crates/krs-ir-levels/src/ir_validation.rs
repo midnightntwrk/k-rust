@@ -2,18 +2,18 @@
 
 use crate::ir_level::{
     IrClaim, IrCondition, IrLevel, IrMlKind, IrMlPredicate, IrPredicateRewrite, IrRulePriority,
-    IrSimplification, IrTerm, IrTermKind, IrVariable, RuleBodyRef,
+    IrSimplification, IrSortRef, IrTerm, IrTermKind, IrVariable, RuleBodyRef,
 };
 use krs_ir::{
     ApplicationRef, BuiltinOperation, BuiltinSort, CellClauseKind, CellCollectionType,
-    CellContentFrame, CellMultiplicity, CellPost, ClausePart, CollectionOperandSort,
-    CollectionOperationSpec, CollectionResultSort, ConfigurationClause, FixedCell, FixedCellClause,
-    FixedCellContent, FixedConfiguration, FixedConfigurationRewrite, FixedInitializerCell,
-    FixedInitializerContent, FormatFragment, GeneratedOperation, GrammarProductionItem,
-    GrammarProductionItemKind, HookOperation, HookPointSortSource, HookSignature,
-    HookSortConstraint, InstanceClause, InstanceOrdering, InstancesClause, ListOperation,
-    MapOperation, OperationSort, OptionalCellClause, PartPost, PrecedenceRelation, Presence,
-    ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId, SentenceKind,
+    CellContentFrame, CellMultiplicity, CellPost, CellSortArgument, ClausePart,
+    CollectionOperandSort, CollectionOperationSpec, CollectionResultSort, ConfigurationClause,
+    FixedCell, FixedCellClause, FixedCellContent, FixedConfiguration, FixedConfigurationRewrite,
+    FixedInitializerCell, FixedInitializerContent, FormatFragment, GeneratedOperation,
+    GrammarProductionItem, GrammarProductionItemKind, HookOperation, HookPointSortSource,
+    HookSignature, HookSortConstraint, InstanceClause, InstanceOrdering, InstancesClause,
+    ListOperation, MapOperation, OperationSort, OptionalCellClause, PartPost, PrecedenceRelation,
+    Presence, ProductionAttribute, ProductionFieldId, ProductionGroupId, SemanticId, SentenceKind,
     SetOperation, SourceMapKey,
 };
 use std::collections::{BTreeMap, BTreeSet};
@@ -134,6 +134,7 @@ pub(crate) enum ValidationError<L: Validation> {
     GeneratedApplicationSignature,
     ParameterSortInTerm,
     CellFrameBindingMismatch(SemanticId),
+    CellContentSortMismatch,
     CellFrameSortMismatch,
     ContextAliasFrameSortMismatch,
     ContextAliasFrameBindingMismatch(SemanticId),
@@ -149,6 +150,7 @@ pub(crate) enum ValidationError<L: Validation> {
     EmptyText(krs_ir::IrField),
     ExistentialScopeViolation(SemanticId),
     InitializerLeafSortMismatch,
+    CellArgumentArity,
     InitializerTreeMismatch,
     InvalidAliasProduction,
     InvalidAliasRoot(L::RuleId),
@@ -184,12 +186,14 @@ pub(crate) enum ValidationError<L: Validation> {
     PrecedenceCycle(ProductionGroupId),
     RegexWithoutToken,
     RewriteSortMismatch,
-    /// `alias @ pattern` outside a pre-pattern, or at a sort its alias or
-    /// pattern does not have.
+    /// `alias @ pattern` outside a pre-pattern.
     InvalidPatternAs,
-    /// `A | B` outside a pre-pattern, at a sort an alternative does not
-    /// inject into, or with alternatives binding different variables.
+    /// `alias @ pattern` at a sort its alias or pattern does not have.
+    PatternAsSortMismatch,
+    /// `A | B` outside a pre-pattern, or with alternatives binding different variables.
     InvalidPatternOr,
+    /// `A | B` at a sort an alternative does not inject into.
+    PatternOrSortMismatch,
     /// `k::matches!` outside a post-term or condition, at a sort other than
     /// Bool, or with local binders that are not exactly its pattern's named
     /// variables or that occur outside it.
@@ -229,6 +233,32 @@ pub(crate) fn require_sort<L: Validation>(
     }
     if let Some(id) = L::cell_sort(sort) {
         L::require_cell_sort(declarations, id)?;
+    }
+    Ok(())
+}
+
+/// Every element type of a leaf cell or a configuration variable names a
+/// declared sort, and each
+/// collection sort carries the number of element types it takes: two for a
+/// `Map`, one for a `List` or `Set`, none for a bare collection or any other
+/// sort.
+fn require_cell_arguments<L: Validation>(
+    declarations: &Declarations<L>,
+    sort: &L::Sort,
+    arguments: &[CellSortArgument<L::Sort>],
+) -> Result<(), L::Error> {
+    let collection = |builtin| *sort == L::builtin_sort(builtin);
+    let expected = match () {
+        () if collection(BuiltinSort::Map) => 2,
+        () if collection(BuiltinSort::List) || collection(BuiltinSort::Set) => 1,
+        () => 0,
+    };
+    if !arguments.is_empty() && arguments.len() != expected {
+        return Err(L::error(ValidationError::CellArgumentArity));
+    }
+    for argument in arguments {
+        require_sort::<L>(declarations, &argument.sort)?;
+        require_cell_arguments::<L>(declarations, &argument.sort, &argument.arguments)?;
     }
     Ok(())
 }
@@ -278,6 +308,7 @@ pub(crate) fn validate_fixed_configuration<L: Validation>(
     let mut main_count = 0_usize;
     for variable in configuration.variables() {
         require_sort::<L>(declarations, variable.sort())?;
+        require_cell_arguments::<L>(declarations, variable.sort(), variable.arguments())?;
         if scope
             .insert(variable.id().clone(), variable.sort().clone())
             .is_some()
@@ -352,8 +383,12 @@ pub(crate) fn validate_initializer_forest<L: Validation>(
             return Err(L::error(ValidationError::InitializerTreeMismatch));
         }
         match (cell.content(), initialized.content()) {
-            (FixedCellContent::Term { sort }, FixedInitializerContent::Term { term }) => {
+            (
+                FixedCellContent::Term { sort, arguments },
+                FixedInitializerContent::Term { term },
+            ) => {
                 require_sort::<L>(declarations, sort)?;
+                require_cell_arguments::<L>(declarations, sort, arguments)?;
                 validate_term::<L>(
                     term,
                     scope,
@@ -363,7 +398,12 @@ pub(crate) fn validate_initializer_forest<L: Validation>(
                     cell_ids,
                     nodes,
                 )?;
+                // Unlike a rule clause's content, an initializer leaf
+                // declares its cell: the emitted configuration gives the
+                // cell the sort of this term, so a term of a strict
+                // subsort would declare a narrower cell than the IR's.
                 if term.sort() != sort {
+                    crate::failure_site::report(term.origin());
                     return Err(L::error(ValidationError::InitializerLeafSortMismatch));
                 }
             }
@@ -397,7 +437,7 @@ fn configuration_leaf_sorts<L: Validation>(
     ) -> Result<(), L::Error> {
         for cell in cells {
             match cell.content() {
-                FixedCellContent::Term { sort } => {
+                FixedCellContent::Term { sort, .. } => {
                     if output.insert(cell.id().clone(), sort.clone()).is_some() {
                         return Err(L::error(ValidationError::InvalidCellFraming));
                     }
@@ -412,23 +452,52 @@ fn configuration_leaf_sorts<L: Validation>(
     Ok(leaf_sorts)
 }
 
-/// Adds K's `Cell(d) <: KItem` edge for every nested (group) cell of the
-/// configuration, so a whole-group binder may stand wherever a `KItem` is
-/// expected, as the compiler's inference catalog already allows.
-pub(crate) fn insert_group_cell_parents<L: Validation>(
+/// Completes the judging graph with K's `S <: KItem` for every sort `S` but
+/// `K`: each declared sort in `declared`, each builtin sort other than `K`,
+/// each sort the graph already names, and the generated sort of every nested
+/// (group) cell of the configuration. In the emitted K every sort but `K` is
+/// a `KItem`, whether or not a subsort sentence states it, so a term of any
+/// of them may stand wherever a `KItem` is expected, as the compiler's
+/// inference catalog also allows. Sort parameters are not sorts and get no
+/// edge.
+pub(crate) fn insert_k_item_parents<D, L>(
     configuration: Option<&Configuration<L>>,
-    k_item: Option<L::Sort>,
+    k_item: Option<IrSortRef<D>>,
+    declared: impl IntoIterator<Item = D>,
     parents: &mut SortParents<L>,
-) {
-    let (Some(configuration), Some(k_item)) = (configuration, k_item) else {
+) where
+    D: Clone + Ord,
+    L: Validation<Sort = IrSortRef<D>>,
+{
+    let Some(k_item) = k_item else {
         return;
     };
-    for (sort, _) in configuration_groups::<L>(configuration).into_values() {
-        if let Some(sort) = sort {
-            let entry = parents.entry(sort).or_default();
-            if !entry.contains(&k_item) {
-                entry.push(k_item.clone());
-            }
+    let mut sorts = declared
+        .into_iter()
+        .map(IrSortRef::Declared)
+        .chain(BuiltinSort::ALL.into_iter().map(IrSortRef::Builtin))
+        .chain(parents.keys().cloned())
+        .chain(parents.values().flatten().cloned())
+        .collect::<BTreeSet<_>>();
+    if let Some(configuration) = configuration {
+        sorts.extend(
+            configuration_groups::<L>(configuration)
+                .into_values()
+                .filter_map(|(sort, _)| sort),
+        );
+    }
+    for sort in sorts {
+        if sort == k_item
+            || matches!(
+                sort,
+                IrSortRef::Builtin(BuiltinSort::KSequence) | IrSortRef::Parameter(_)
+            )
+        {
+            continue;
+        }
+        let entry = parents.entry(sort).or_default();
+        if !entry.contains(&k_item) {
+            entry.push(k_item.clone());
         }
     }
 }
@@ -538,8 +607,10 @@ impl<L: Validation> RewriteContext<'_, L> {
             self.cell_ids,
             nodes,
         )?;
-        if term.sort() != sort {
-            return Err(L::error(ValidationError::CellFrameSortMismatch));
+        // A leaf cell holds any term of its sort or a subsort, as an
+        // argument position does; the configuration fixes the cell's sort.
+        if !is_subsort::<L>(term.sort(), sort, self.sort_parents) {
+            return Err(L::error(ValidationError::CellContentSortMismatch));
         }
         Ok(())
     }
@@ -1762,11 +1833,36 @@ fn collection_signature_holds<'a, L: Validation + 'a>(
             })
 }
 
+/// Validates `term` and its subterms; a failure lists the terms that enclose it
+/// ([`crate::failure_site`]).
+pub(crate) fn validate_term<L: Validation>(
+    term: &IrTerm<L>,
+    scope: &BTreeMap<SemanticId, L::Sort>,
+    declarations: &Declarations<L>,
+    signatures: &Signatures<L>,
+    sort_parents: &SortParents<L>,
+    cell_ids: &BTreeSet<L::Cell>,
+    nodes: &mut BTreeSet<SourceMapKey>,
+) -> Result<(), L::Error> {
+    let mark = crate::failure_site::enter();
+    let result = validate_term_node(
+        term,
+        scope,
+        declarations,
+        signatures,
+        sort_parents,
+        cell_ids,
+        nodes,
+    );
+    crate::failure_site::leave(mark, result.is_err(), term.origin());
+    result
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "The closed shape checks must preserve the first reported failure."
 )]
-pub(crate) fn validate_term<L: Validation>(
+fn validate_term_node<L: Validation>(
     term: &IrTerm<L>,
     scope: &BTreeMap<SemanticId, L::Sort>,
     declarations: &Declarations<L>,
@@ -2030,7 +2126,7 @@ pub(crate) fn validate_term<L: Validation>(
             if scope.get(alias) != Some(term.sort())
                 || !is_subsort::<L>(pattern.sort(), term.sort(), sort_parents)
             {
-                return Err(L::error(ValidationError::InvalidPatternAs));
+                return Err(L::error(ValidationError::PatternAsSortMismatch));
             }
             validate_term::<L>(
                 pattern,
@@ -2046,7 +2142,7 @@ pub(crate) fn validate_term<L: Validation>(
             let mut expected = None;
             for alternative in alternatives {
                 if !is_subsort::<L>(alternative.sort(), term.sort(), sort_parents) {
-                    return Err(L::error(ValidationError::InvalidPatternOr));
+                    return Err(L::error(ValidationError::PatternOrSortMismatch));
                 }
                 // Wildcards are distinct generated variables per occurrence;
                 // only named binders must agree across alternatives.
@@ -2505,64 +2601,74 @@ fn collect_local_binders<L: IrLevel>(
     }
 }
 
-/// Whether `term` contains `alias @ pattern`, which is admitted only in
-/// pre-patterns (KF-029).
-pub(crate) fn contains_pattern_as<L: IrLevel>(term: &IrTerm<L>) -> bool {
+/// The first of `terms` in which `find` finds a node.
+fn first_of<'t, L: IrLevel>(
+    terms: impl IntoIterator<Item = &'t IrTerm<L>>,
+    find: fn(&'t IrTerm<L>) -> Option<&'t IrTerm<L>>,
+) -> Option<&'t IrTerm<L>> {
+    terms.into_iter().find_map(find)
+}
+
+/// The first `alias @ pattern` of `term` in preorder, outside `k::matches!` patterns, where it is
+/// admitted (KF-031); `alias @ pattern` is admitted only in pre-patterns (KF-029).
+pub(crate) fn find_pattern_as<L: IrLevel>(term: &IrTerm<L>) -> Option<&IrTerm<L>> {
     match term.kind() {
-        IrTermKind::As { .. } => true,
+        IrTermKind::As { .. } => Some(term),
         // A `k::matches!` pattern may alias (KF-031).
-        IrTermKind::Matches { subject, .. } => contains_pattern_as(subject),
-        IrTermKind::Or { alternatives } => alternatives.iter().any(contains_pattern_as),
-        IrTermKind::Variable { .. } | IrTermKind::Token { .. } => false,
-        IrTermKind::Application { arguments, .. } => arguments.iter().any(contains_pattern_as),
-        IrTermKind::KSequence { items, .. } => items.iter().any(contains_pattern_as),
-        IrTermKind::Cell { children, .. } => children.iter().any(contains_pattern_as),
-        IrTermKind::Map(operands) => operands.operands().any(contains_pattern_as),
-        IrTermKind::List(operands) => operands.operands().any(contains_pattern_as),
-        IrTermKind::Set(operands) => operands.operands().any(contains_pattern_as),
-        IrTermKind::Rewrite { from, to } => contains_pattern_as(from) || contains_pattern_as(to),
+        IrTermKind::Matches { subject, .. } => find_pattern_as(subject),
+        IrTermKind::Or { alternatives } => first_of(alternatives.iter(), find_pattern_as),
+        IrTermKind::Variable { .. } | IrTermKind::Token { .. } => None,
+        IrTermKind::Application { arguments, .. } => first_of(arguments.iter(), find_pattern_as),
+        IrTermKind::KSequence { items, .. } => first_of(items.iter(), find_pattern_as),
+        IrTermKind::Cell { children, .. } => first_of(children.iter(), find_pattern_as),
+        IrTermKind::Map(operands) => first_of(operands.operands(), find_pattern_as),
+        IrTermKind::List(operands) => first_of(operands.operands(), find_pattern_as),
+        IrTermKind::Set(operands) => first_of(operands.operands(), find_pattern_as),
+        IrTermKind::Rewrite { from, to } => find_pattern_as(from).or_else(|| find_pattern_as(to)),
         IrTermKind::Let {
             pattern,
             value,
             body,
             ..
-        } => {
-            contains_pattern_as(pattern) || contains_pattern_as(value) || contains_pattern_as(body)
-        }
+        } => first_of([&**pattern, &**value, &**body], find_pattern_as),
     }
 }
 
-/// Whether `term` contains `A | B`, which is admitted only in pre-patterns
-/// (KF-030).
-pub(crate) fn contains_pattern_or<L: IrLevel>(term: &IrTerm<L>) -> bool {
+/// Whether `term` contains `alias @ pattern` outside `k::matches!` patterns.
+pub(crate) fn contains_pattern_as<L: IrLevel>(term: &IrTerm<L>) -> bool {
+    find_pattern_as(term).is_some()
+}
+
+/// The first `A | B` of `term` in preorder, outside `k::matches!` patterns, where it is admitted
+/// (KF-031); `A | B` is admitted only in pre-patterns (KF-030).
+pub(crate) fn find_pattern_or<L: IrLevel>(term: &IrTerm<L>) -> Option<&IrTerm<L>> {
     match term.kind() {
-        IrTermKind::Or { .. } => true,
+        IrTermKind::Or { .. } => Some(term),
         // A `k::matches!` pattern may have alternatives (KF-031).
-        IrTermKind::Matches { subject, .. } => contains_pattern_or(subject),
-        IrTermKind::As { pattern, .. } => contains_pattern_or(pattern),
-        IrTermKind::Variable { .. } | IrTermKind::Token { .. } => false,
-        IrTermKind::Application { arguments, .. } => arguments.iter().any(contains_pattern_or),
-        IrTermKind::KSequence { items, .. } => items.iter().any(contains_pattern_or),
-        IrTermKind::Cell { children, .. } => children.iter().any(contains_pattern_or),
-        IrTermKind::Map(operands) => operands.operands().any(contains_pattern_or),
-        IrTermKind::List(operands) => operands.operands().any(contains_pattern_or),
-        IrTermKind::Set(operands) => operands.operands().any(contains_pattern_or),
-        IrTermKind::Rewrite { from, to } => contains_pattern_or(from) || contains_pattern_or(to),
+        IrTermKind::Matches { subject, .. } => find_pattern_or(subject),
+        IrTermKind::As { pattern, .. } => find_pattern_or(pattern),
+        IrTermKind::Variable { .. } | IrTermKind::Token { .. } => None,
+        IrTermKind::Application { arguments, .. } => first_of(arguments.iter(), find_pattern_or),
+        IrTermKind::KSequence { items, .. } => first_of(items.iter(), find_pattern_or),
+        IrTermKind::Cell { children, .. } => first_of(children.iter(), find_pattern_or),
+        IrTermKind::Map(operands) => first_of(operands.operands(), find_pattern_or),
+        IrTermKind::List(operands) => first_of(operands.operands(), find_pattern_or),
+        IrTermKind::Set(operands) => first_of(operands.operands(), find_pattern_or),
+        IrTermKind::Rewrite { from, to } => find_pattern_or(from).or_else(|| find_pattern_or(to)),
         IrTermKind::Let {
             pattern,
             value,
             body,
             ..
-        } => {
-            contains_pattern_or(pattern) || contains_pattern_or(value) || contains_pattern_or(body)
-        }
+        } => first_of([&**pattern, &**value, &**body], find_pattern_or),
     }
 }
 
-/// Rejects `alias @ pattern` and `A | B` in a rule's post-terms and
-/// conditions (outside `k::matches!` patterns), `k::matches!` in its
-/// pre-patterns, and a `k::matches!` local binder that is listed twice or
-/// occurs outside its pattern (BIND-1).
+/// Whether `term` contains `A | B` outside `k::matches!` patterns.
+pub(crate) fn contains_pattern_or<L: IrLevel>(term: &IrTerm<L>) -> bool {
+    find_pattern_or(term).is_some()
+}
+
 /// Whether the local rewrites of a single-body term are well placed
 /// (KF-011): none inside another rewrite, and a right side `.K` (an empty K
 /// sequence) only on a whole K-sequence item.
@@ -2599,6 +2705,10 @@ fn body_contains_rewrite<L: Validation>(body: RuleBodyRef<'_, L>) -> bool {
     }
 }
 
+/// Rejects `alias @ pattern` and `A | B` in a rule's post-terms and
+/// conditions (outside `k::matches!` patterns), `k::matches!` in its
+/// pre-patterns, and a `k::matches!` local binder that is listed twice or
+/// occurs outside its pattern (BIND-1).
 #[expect(
     clippy::too_many_lines,
     reason = "One walk visits every term position of every rule body shape, optional and collection clauses included."
@@ -2661,10 +2771,12 @@ fn reject_pattern_as_outside_patterns<L: Validation>(
         return Err(L::error(ValidationError::InvalidLocalRewrite));
     }
     post.extend(conditions);
-    if post.iter().copied().any(contains_pattern_as) {
+    if let Some(alias) = post.iter().copied().find_map(find_pattern_as) {
+        crate::failure_site::report(alias.origin());
         return Err(L::error(ValidationError::InvalidPatternAs));
     }
-    if post.iter().copied().any(contains_pattern_or) {
+    if let Some(alternatives) = post.iter().copied().find_map(find_pattern_or) {
+        crate::failure_site::report(alternatives.origin());
         return Err(L::error(ValidationError::InvalidPatternOr));
     }
     if pre.iter().copied().any(contains_matches) {
@@ -2831,6 +2943,7 @@ pub(crate) fn validate_production_shape<L: Validation>(
     let mut smt = false;
     let mut list = false;
     let mut raw_hook = false;
+    let mut underspecified = false;
     for attribute in attributes {
         let already = match attribute {
             ProductionAttribute::Documentation { .. } => continue,
@@ -2870,6 +2983,9 @@ pub(crate) fn validate_production_shape<L: Validation>(
             }
             ProductionAttribute::ListCons { .. } | ProductionAttribute::ListTerminator { .. } => {
                 std::mem::replace(&mut list, true)
+            }
+            ProductionAttribute::Underspecified { .. } => {
+                std::mem::replace(&mut underspecified, true)
             }
         };
         if already {
@@ -2920,6 +3036,11 @@ pub(crate) fn validate_production_shape<L: Validation>(
             | ProductionAttribute::FreshGenerator { .. }
             | ProductionAttribute::RawHook { .. }
             | ProductionAttribute::Desugar { .. } => {}
+            ProductionAttribute::Underspecified { reason, .. } => {
+                if reason.trim().is_empty() {
+                    return Err(L::error(ValidationError::InvalidFunctionProduction));
+                }
+            }
             ProductionAttribute::Smtlib { symbol, .. } => {
                 if !krs_ir::is_smtlib_simple_symbol(symbol) {
                     return Err(L::error(ValidationError::InvalidSmtMetadata));
@@ -2988,6 +3109,10 @@ pub(crate) fn validate_production_shape<L: Validation>(
     // K's freshGenerator is a function; analysis requires it to be total (KF-022).
     // K's smtlib and smt-hook give a function's SMT translation (KF-044).
     if (total || memo || fresh_generator || smt) && !function {
+        return Err(L::error(ValidationError::InvalidFunctionProduction));
+    }
+    // The coverage lint's opt-out states a gap in a total function's equations.
+    if underspecified && !(function && total) {
         return Err(L::error(ValidationError::InvalidFunctionProduction));
     }
     if (hook.is_some() || raw_hook) && !(function && total) {

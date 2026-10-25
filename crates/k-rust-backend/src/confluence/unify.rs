@@ -47,7 +47,7 @@ use crate::{
     matching::lift_to_overload,
     substitution::{Substitution, substitute},
     term::{
-        HeadRole, Items, ListDefinition, Name, Sort, Symbol, Term, TermKind, Variable,
+        HeadRole, Items, ListDefinition, Name, Sort, SortNode, Symbol, Term, TermKind, Variable,
         VariableKind,
         names::{FreshMarker, with_fresh_marker},
     },
@@ -201,12 +201,18 @@ pub(crate) struct Unifier<'a> {
     pub(crate) fresh: &'a mut u64,
     /// Branch states explored, for the check's counters.
     pub(crate) branches: usize,
+    /// Whether an equation of a shape the unifier does not decide (a collection or a function
+    /// application, [`UnresolvedShape::Collection`] and [`UnresolvedShape::Function`]) is dropped
+    /// instead of answering that shape ([`Self::unify_all_relaxed`]).
+    pub(crate) defer: bool,
 }
 
 #[derive(Clone, Debug, Default)]
 struct Problem {
     bindings: Substitution,
     equations: Vec<(Term, Term)>,
+    /// The shape of the first equation dropped (deferred) from this problem, if any.
+    deferred: Option<UnresolvedShape>,
 }
 
 impl Problem {
@@ -267,9 +273,30 @@ impl Unifier<'_> {
         &mut self,
         equations: Vec<(Term, Term)>,
     ) -> Result<Vec<Substitution>, UnresolvedShape> {
+        let solutions = self.unify_all_relaxed(equations)?;
+        match solutions.iter().find_map(|(_, deferred)| deferred.clone()) {
+            Some(shape) => Err(shape),
+            None => Ok(solutions
+                .into_iter()
+                .map(|(bindings, _)| bindings)
+                .collect()),
+        }
+    }
+
+    /// [`Self::unify_all`], except that with [`Self::defer`] an equation of a collection or
+    /// function shape is dropped from its problem and the problem goes on: each solution comes
+    /// with the shape of the first equation dropped from it, if any. Dropping an equation only
+    /// enlarges a problem's solutions, so every common instance is still an instance of one
+    /// solution (completeness); a solution with a dropped equation (*relaxed*) need not be a
+    /// unifier.
+    pub(crate) fn unify_all_relaxed(
+        &mut self,
+        equations: Vec<(Term, Term)>,
+    ) -> Result<Vec<(Substitution, Option<UnresolvedShape>)>, UnresolvedShape> {
         let mut stack = vec![Problem {
             bindings: Substitution::new(),
             equations,
+            deferred: None,
         }];
         let mut solutions = Vec::new();
         let mut explored = 0;
@@ -280,16 +307,22 @@ impl Unifier<'_> {
                 return Err(UnresolvedShape::Budget);
             }
             while let Some((left, right)) = problem.equations.pop() {
-                match self.step(&mut problem, left, right)? {
-                    Outcome::Continue => {}
-                    Outcome::Clash => continue 'problems,
-                    Outcome::Branch(branches) => {
+                match self.step(&mut problem, left, right) {
+                    Ok(Outcome::Continue) => {}
+                    Ok(Outcome::Clash) => continue 'problems,
+                    Ok(Outcome::Branch(branches)) => {
                         stack.extend(branches);
                         continue 'problems;
                     }
+                    Err(shape @ (UnresolvedShape::Collection | UnresolvedShape::Function(_)))
+                        if self.defer =>
+                    {
+                        problem.deferred.get_or_insert(shape);
+                    }
+                    Err(shape) => return Err(shape),
                 }
             }
-            solutions.push(problem.bindings);
+            solutions.push((problem.bindings, problem.deferred));
         }
         Ok(solutions)
     }
@@ -493,15 +526,12 @@ impl Unifier<'_> {
             return Ok(solved(problem, variable, other.clone()));
         }
         if self.below(&other_sort, variable_sort)? {
-            let value = Term::injection(other_sort, variable_sort.clone(), other.clone());
+            let value = Term::injection(other_sort, *variable_sort, other.clone());
             return Ok(solved(problem, variable, value));
         }
         if self.below(variable_sort, &other_sort)? {
-            let injected = Term::injection(
-                variable_sort.clone(),
-                other_sort,
-                Term::variable(variable.clone()),
-            );
+            let injected =
+                Term::injection(*variable_sort, other_sort, Term::variable(variable.clone()));
             if let TermKind::Variable(other_variable) = other.kind() {
                 return Ok(solved(problem, other_variable, injected));
             }
@@ -516,15 +546,13 @@ impl Unifier<'_> {
         let commons = self.maximal_common_subsorts(variable_sort, &other_sort)?;
         let mut branches = Vec::new();
         for common in commons {
-            let shared = Term::variable(self.fresh_variable(common.clone()));
+            let shared = Term::variable(self.fresh_variable(common));
             let mut branch = problem.clone();
             if branch.bind(
                 variable,
-                Term::injection(common.clone(), variable_sort.clone(), shared.clone()),
-            ) && branch.bind(
-                other_variable,
-                Term::injection(common, other_sort.clone(), shared),
-            ) {
+                Term::injection(common, *variable_sort, shared.clone()),
+            ) && branch.bind(other_variable, Term::injection(common, other_sort, shared))
+            {
                 branches.push(branch);
             }
         }
@@ -547,13 +575,13 @@ impl Unifier<'_> {
         if self.below(right_source, left_source)? {
             problem.equations.push((
                 left.clone(),
-                Term::injection(right_source.clone(), left_source.clone(), right.clone()),
+                Term::injection(*right_source, *left_source, right.clone()),
             ));
             return Ok(Outcome::Continue);
         }
         if self.below(left_source, right_source)? {
             problem.equations.push((
-                Term::injection(left_source.clone(), right_source.clone(), left.clone()),
+                Term::injection(*left_source, *right_source, left.clone()),
                 right.clone(),
             ));
             return Ok(Outcome::Continue);
@@ -561,15 +589,15 @@ impl Unifier<'_> {
         let commons = self.maximal_common_subsorts(left_source, right_source)?;
         let mut branches = Vec::new();
         for common in commons {
-            let shared = Term::variable(self.fresh_variable(common.clone()));
+            let shared = Term::variable(self.fresh_variable(common));
             let mut branch = problem.clone();
             branch.equations.push((
                 left.clone(),
-                Term::injection(common.clone(), left_source.clone(), shared.clone()),
+                Term::injection(common, *left_source, shared.clone()),
             ));
             branch.equations.push((
                 right.clone(),
-                Term::injection(common, right_source.clone(), shared),
+                Term::injection(common, *right_source, shared),
             ));
             branches.push(branch);
         }
@@ -742,18 +770,14 @@ impl Unifier<'_> {
                     let arguments = symbol
                         .argument_sorts
                         .iter()
-                        .map(|sort| Term::variable(self.fresh_variable(sort.clone())))
+                        .map(|sort| Term::variable(self.fresh_variable(*sort)))
                         .collect();
                     let lesser_application =
                         Term::application(Arc::clone(symbol), Vec::new(), arguments);
                     let value = if &symbol.result_sort == source {
                         lesser_application
                     } else {
-                        Term::injection(
-                            symbol.result_sort.clone(),
-                            source.clone(),
-                            lesser_application,
-                        )
+                        Term::injection(symbol.result_sort, *source, lesser_application)
                     };
                     let mut branch = problem.clone();
                     if !branch.bind(variable, value.clone()) {
@@ -762,7 +786,7 @@ impl Unifier<'_> {
                     let single = Substitution::from([(variable.clone(), value.clone())]);
                     let application = substitute(application, &single);
                     let lifted = lift_to_overload(
-                        &Term::injection(source.clone(), target.clone(), value),
+                        &Term::injection(*source, *target, value),
                         Arc::clone(greater),
                         greater_sorts,
                         self.definition.sort_graph(),
@@ -776,11 +800,11 @@ impl Unifier<'_> {
             TermKind::And(first, second) => {
                 problem.equations.push((
                     application.clone(),
-                    Term::injection(source.clone(), target.clone(), first.clone()),
+                    Term::injection(*source, *target, first.clone()),
                 ));
                 problem.equations.push((
                     application.clone(),
-                    Term::injection(source.clone(), target.clone(), second.clone()),
+                    Term::injection(*source, *target, second.clone()),
                 ));
                 Ok(Outcome::Continue)
             }
@@ -945,8 +969,8 @@ pub(crate) fn computed(symbol: &Symbol) -> bool {
 }
 
 fn has_sort_variable(sort: &Sort) -> bool {
-    match sort {
-        Sort::Variable(_) => true,
-        Sort::Application { arguments, .. } => arguments.iter().any(has_sort_variable),
+    match sort.node() {
+        SortNode::Variable(_) => true,
+        SortNode::Application { arguments, .. } => arguments.iter().any(has_sort_variable),
     }
 }

@@ -256,15 +256,16 @@ mod tests {
     /// kind. A new route fails `every_domain_value_is_built_by_a_listed_route` until it is listed
     /// here with its kind source.
     const ROUTES: &[(&str, usize, usize)] = &[
-        // `Term::int`, `Term::bool`, `Term::string`, `Term::bytes`: the constant kind of their
-        // builtin-named sort (`SortInt` and `SortBool` by name, `SortString` and `SortBytes` the
+        // `Term::int`, `Term::small_int` (through `domain_value_of_canonical`: it writes the
+        // canonical text itself), `Term::bool`, `Term::string`, `Term::bytes`: the constant kind
+        // of their builtin-named sort (`SortInt` and `SortBool` by name, `SortString` and `SortBytes` the
         // builtin hook's own sort), and `Term::domain_value_in`: the kind the declarations it is
         // given state for the sort (`DomainKind::of_declared_sort`). `domain_value_of` and
         // `domain_value_of_canonical` (for a text already canonical, with the same kind) and
         // `mint_of_residue` (an `MInt` value written from its residue) allocate the node; the
         // raw test constructor, the test-only `unshared_copy` (a copy of a node already built)
         // and the drop sentinel (no value of any sort) allocate one without a kind.
-        ("term.rs", 5, 6),
+        ("term.rs", 6, 6),
         // Internalization of `\dv` and of a KORE string literal, and
         // `BackendDefinition::domain_value`: `domain_kind` of the sort.
         ("definition.rs", 3, 0),
@@ -485,14 +486,8 @@ mod tests {
     #[test]
     fn texts_are_validated_by_kind() {
         let int = Sort::builtin(BuiltinSort::Int);
-        let word = Sort::Application {
-            name: "SortMInt".into(),
-            arguments: vec![Sort::simple("Sort8")],
-        };
-        let wide = Sort::Application {
-            name: "SortMInt".into(),
-            arguments: vec![Sort::simple("Sort33554432")],
-        };
+        let word = Sort::application("SortMInt", vec![Sort::simple("Sort8")]);
+        let wide = Sort::application("SortMInt", vec![Sort::simple("Sort33554432")]);
         let renamed_bytes = Sort::simple("SortMyBytes");
         let bytes = Sort::builtin(BuiltinSort::Bytes);
         let float = Sort::builtin(BuiltinSort::Float);

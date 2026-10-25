@@ -61,16 +61,14 @@ fn bytes_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     Ok(BuiltinResult::Value(string_term(decode_8_bit(&bytes))))
 }
 
-/// `String2Bytes` is the inverse of `Bytes2String`. `domains.md` names no encoding for the pair
-/// (it names one only for `encodeBytes`/`decodeBytes`, which take one); this backend reads it as
-/// mapping each byte to the code point of the same number, its chosen reading. Totality does
-/// not decide between readings: under this one `String2Bytes` has no value above 255, under
-/// UTF-8 decoding `Bytes2String` has none on an invalid sequence. What decides is the module's
-/// statement that only the first 256 code points are supported: on exactly those strings this
-/// reading makes both `total` conversions total and mutually inverse, while UTF-8 decoding
-/// leaves `Bytes2String` without a value on invalid sequences whatever strings are supported.
-/// The hook is `total`, so on a string holding a code point above 255 its value is not given by
-/// the definition and the application is left unevaluated.
+/// `String2Bytes` is the inverse of `Bytes2String`: each code point `b` in `0..=255` maps to the
+/// byte `b`. That is k-rust's stated reading of `domains.md`'s "the resulting value is a copy of
+/// the original" over the strings the module supports, those of the initial 256 code points: a
+/// copy keeps each item, and on those strings every item on either side is a number in
+/// `0..=255`, so both `total` conversions are total and mutually inverse there (`encodeBytes` and
+/// `decodeBytes`, which name their encoding, are the conversions that encode). The hook is
+/// `total`, so on a string holding a code point above 255, which is the copy of no byte
+/// sequence, its value is not given by the definition and the application is left unevaluated.
 fn string_to_bytes(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("BYTES.string2bytes", arguments, 1)?;
     let Some(value) = super::string::read_string(&arguments[0]) else {
@@ -237,7 +235,15 @@ fn pad(arguments: &[Term], left: bool, allowance: &Allowance) -> HookResult<Buil
     {
         return Ok(BuiltinResult::Value(arguments[0].clone()));
     }
-    let length = match bounded_length(&length, &bytes_result_cap(allowance)) {
+    let length = match bounded_length(
+        if left {
+            "BYTES.padLeft"
+        } else {
+            "BYTES.padRight"
+        },
+        &length,
+        &bytes_result_cap(allowance),
+    ) {
         Ok(length) => length,
         Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
@@ -305,7 +311,7 @@ fn int_to_bytes(arguments: &[Term], allowance: &Allowance) -> HookResult<Builtin
     let Some(endianness) = read_endianness(&arguments[2]) else {
         return Ok(BuiltinResult::NotApplicable);
     };
-    let length = match bounded_length(&length, &bytes_result_cap(allowance)) {
+    let length = match bounded_length("BYTES.int2bytes", &length, &bytes_result_cap(allowance)) {
         Ok(length) => length,
         Err(reason) => return Ok(BuiltinResult::Unsupported(reason)),
     };
@@ -377,7 +383,15 @@ fn read_index(term: &Term) -> Option<Option<usize>> {
 /// A nonnegative `length` as the length of a `Bytes` result, or `ResultTooLarge` above `cap`, or
 /// above the caller's result bound (`super::result_bound`): the value exists, and the backend
 /// does not build it.
-fn bounded_length(length: &BigInt, cap: &ResultCap<'_>) -> Result<usize, UnsupportedHookReason> {
+///
+/// A refusal at the cap is noted in the run-level record as `hook`'s allowance refusal
+/// (`crate::path_facts`): it holds under this allowance only, and a run that met it may differ
+/// under one of more bytes, whatever became of the work that met it.
+fn bounded_length(
+    hook: &str,
+    length: &BigInt,
+    cap: &ResultCap<'_>,
+) -> Result<usize, UnsupportedHookReason> {
     debug_assert!(
         length.sign() != Sign::Minus,
         "callers reject a negative length"
@@ -399,13 +413,17 @@ fn bounded_length(length: &BigInt, cap: &ResultCap<'_>) -> Result<usize, Unsuppo
         .to_u64()
         .filter(|length| *length <= limit)
         .and_then(|length| usize::try_from(length).ok())
-        .ok_or_else(|| UnsupportedHookReason::ResultTooLarge {
-            detail: format!(
-                "a Bytes result of length {} is longer than its cap of {limit} bytes ({}): {}",
-                describe_int(length),
-                super::describe_bytes(limit),
-                cap.reason(),
-            ),
+        .ok_or_else(|| {
+            let reason = UnsupportedHookReason::ResultTooLarge {
+                detail: format!(
+                    "a Bytes result of length {} is longer than its cap of {limit} bytes ({}): {}",
+                    describe_int(length),
+                    super::describe_bytes(limit),
+                    cap.reason(),
+                ),
+            };
+            crate::path_facts::note_unevaluated_hook(hook, &reason, true);
+            reason
         })
 }
 
@@ -537,6 +555,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
+    use crate::allowance::AllowanceSource;
     use crate::term::{Sort, Symbol, Variable};
 
     fn constructor(name: &str, sort: &str) -> Term {
@@ -804,10 +823,69 @@ mod tests {
         let cap = bytes_result_cap(&ALLOWANCE);
         assert_eq!(cap.bytes(), 8 << 30);
         assert_eq!(
-            bounded_length(&BigInt::from(8_u64 << 30), &cap),
+            bounded_length("BYTES.padRight", &BigInt::from(8_u64 << 30), &cap),
             Ok(8 << 30)
         );
-        assert!(bounded_length(&(BigInt::from(8_u64 << 30) + 1), &cap).is_err());
+        assert!(bounded_length("BYTES.padRight", &(BigInt::from(8_u64 << 30) + 1), &cap).is_err());
+    }
+
+    /// Of the allowance, only its bytes decide whether one application refuses: a `padRightBytes`
+    /// and an `Int2Bytes` application whose result fits an allowance of `L` bytes give the same
+    /// term under `L` and `2 * L` and are refused under `L / 4`; and two allowances with equal
+    /// bytes and different sources compute the same result and refuse with details that differ
+    /// only in the named limit. This is a property of one application, the premise of the
+    /// equal-bytes rule for runs (docs/compatibility.md, "Determinism and concurrency",
+    /// "Execute"); it says nothing about a run under more bytes, where a refusal dropped with an
+    /// undone attempt can have decided the result.
+    #[test]
+    fn only_the_allowances_bytes_decide_a_refusal() {
+        const L: u64 = 64 << 10;
+        // A result of half of `L`, the cap at the peak factor of 2.
+        let length = L / BYTES_RESULT_PEAK_FACTOR;
+        let little = constructor("LbllittleEndianBytes", "SortEndianness");
+        let pad_right = |allowance: &Allowance| {
+            super::pad(
+                &[bytes_term(b"abc"), int_term(length.into()), integer(7)],
+                false,
+                allowance,
+            )
+        };
+        let int2bytes = |allowance: &Allowance| {
+            super::int_to_bytes(
+                &[int_term(length.into()), integer(-2), little.clone()],
+                allowance,
+            )
+        };
+        for hook in [&pad_right as &dyn Fn(&Allowance) -> _, &int2bytes] {
+            let at_l = hook(&Allowance::given(L));
+            assert!(matches!(at_l, Ok(BuiltinResult::Value(_))), "{at_l:?}");
+            assert!(hook(&Allowance::given(2 * L)) == at_l);
+            assert!(refused(hook(&Allowance::given(L / 4))));
+
+            let cgroup = AllowanceSource::CgroupMemoryMax {
+                cgroup: "/user.slice/run-1.scope".to_owned(),
+            };
+            let physical = AllowanceSource::PhysicalMemory;
+            assert!(
+                hook(&Allowance::with_source(L, cgroup.clone())) == at_l
+                    && hook(&Allowance::with_source(L, physical.clone())) == at_l
+            );
+            let detail = |source: &AllowanceSource| {
+                let Ok(BuiltinResult::Unsupported(UnsupportedHookReason::ResultTooLarge {
+                    detail,
+                })) = hook(&Allowance::with_source(L / 4, source.clone()))
+                else {
+                    panic!("refused under a quarter of the allowance");
+                };
+                detail.replace(&source.to_string(), "<limit>")
+            };
+            assert_eq!(detail(&cgroup), detail(&physical));
+            assert_ne!(
+                Allowance::with_source(L, cgroup.clone()),
+                Allowance::with_source(L, physical),
+                "equality compares the source too, so a host compares bytes()"
+            );
+        }
     }
 
     /// Padding to a length the input already reaches yields the input, which the run already
@@ -1009,7 +1087,7 @@ mod tests {
         );
     }
 
-    /// Under the byte-per-code-point reading of the pair (this backend's chosen reading; see
+    /// Under the byte-per-code-point reading of the pair (k-rust's stated reading; see
     /// `string_to_bytes`), every code point up to 255 is the byte of the same number, and a
     /// string with a code point above 255 has no byte sequence `Bytes2String` maps to it.
     #[test]

@@ -1,0 +1,923 @@
+//! Mutant consistency: a mutant is only meaningful as a theory that has models (re-pin
+//! R0c-fix-3, `draft/tasks/repin-501f18b9`; decisions log 2026-10-17, "inconsistent mutants").
+//!
+//! Claim removal (kink-patch `ClaimSupport::withdraw`) makes a mutant's claims backed. It cannot
+//! make a mutant's equations agree: `function` is part of the symbol, and a function has at most
+//! one value for each input. When an edit makes two equations of one function apply to the same
+//! input with different values (a changed guard literal, a dropped `owise` or `priority`), the
+//! mutant has no model, and k-rust's verdict on it is the order in which it lists the equations,
+//! not the definition's. Such a mutant is invalid, like one that does not compile: kink-campaign
+//! refuses it as `inconsistent-mutant`, outside the score, never killed or survived.
+//!
+//! [`admit_mutant`] decides it with k-rust's own load-time critical-pair check
+//! (`k_rust_backend::confluence`, k-rust 501f18b9 `docs/compatibility.md`, "Anywhere rules"),
+//! run on the claim-free mutant through
+//! `BackendDefinition::value_claims_in_scope(CheckScope::All)`, the scope k-rust documents as "a
+//! report of every pair that does not join". The check classifies each root pair (two executable
+//! equations of one index and priority group, an `owise` group being its own priority, and an
+//! equation with itself when a map or set pattern matches one subject in several ways) and each
+//! inner pair (root pairs are formed within one priority group, k-rust 58720d2e5; an overlap over
+//! a sort with no normal form is no longer separated, k-rust FZ-EMPTYSORT), as refuted by the two
+//! `requires` (simplified
+//! with every claim withheld; since KINK-20/3 also by the integer bounds of one-term comparisons
+//! with literals), joined by innermost steps valid on every instance, or not joined. Not joined
+//! covers every answer short of a proof: the reducts differ, a condition is neither refuted nor
+//! decided, the `ensures` differ, the unifier meets a shape it does not decide, a join step is
+//! refused, or the join runs out of its budget. Each of these, for a pair with an equation of a
+//! checked head, refuses the mutant, naming the pair; so do k-rust's reports of a checked
+//! equation the evaluator never applies as written, and a precondition row that puts an
+//! equation outside the check (an equation indexed at a collection or a bare variable, whatever
+//! its head; an overload equation of another shape, a family with no least common overload and a
+//! pinned injective symbol, of a checked symbol; an equation headed by a constructor or an
+//! injection, when that equation is checked or the row names none). A constructor-headed or
+//! injection-headed equation that is not checked refuses nothing, and k-rust classifies none of
+//! its overlaps, so one below the root of a checked left-hand side is a residual k-rust reading
+//! that no K source is known to give (re-pin R0-tail, R0c-fix-4 review minor 3). k-rust's premise, which this check
+//! adds to kink's trust list: "M_NF is a model of the definition when evaluation terminates, which
+//! every evaluation assumes, and the critical pairs of the executable equations join, which the
+//! backend checks"; that is, k-rust's critical-pair checker decides joinability correctly.
+//!
+//! What an edit changes is a fact about the compiled definitions, which k-rust executes, so it is
+//! read there ([`admit_mutant`], re-pin R0c-fix-4): some equations have no source sentence of
+//! their own (the `#lambda` equations kompile generates for a `#let` or `#fun`), and some source
+//! forms compile to equations of a symbol their written head does not name (a function rule with
+//! configuration context, `rule [[ F ]] C`, loaded as `#withConfig(F, C)`). The changed indexes
+//! are those of the claim-free mutant's function theory whose equations differ from the
+//! baseline's ([`CompiledEquations`]: compared without their unique ids, origins and the claims
+//! claim removal handles; an index on one side only counts; the simplification and ceil lemmas
+//! are compared alike, and a changed predicate lemma checks every head). The checked heads are every index
+//! whose equations reach a changed one over either compiled theory (an equation reaches the
+//! symbols it applies in its sides and conditions; an overload family is linked both ways),
+//! together with kink-patch's source reading ([`kink_patch::ClaimSupport::affected`]): an
+//! unchanged pair of a symbol that reaches a changed one can stop joining, since its reducts and
+//! conditions are normalized with the changed equations. A changed or reached index that is not
+//! a symbol checks every head. Every other pair is the baseline's and is normalized with the
+//! baseline's equations alone, so it joins in the mutant exactly when it does in the baseline:
+//! the baseline's equations stay a trusted premise, and the baseline is not checked.
+//!
+//! The source reading is kept as a fail-closed cross-check, since claim removal reads it: every
+//! compiled equation that a rule the patch touches or inserts gives, on either side, must be
+//! headed by a symbol kink-patch reads as redefined, or by a generated lambda (its only trusted
+//! claim, `total`, is k-rust's judgement of its body on the claim-free mutant, `resolve_fun`'s
+//! `equation_right_is_defined`, which reads only the claims that mutant keeps); and no other
+//! generated `total` symbol may have changed equations. Otherwise the claims the edit leaves
+//! unbacked are not known ([`MutantFailure::UnreadEquations`]), and kink-campaign refuses the
+//! mutant as `unsupported-claims`.
+//!
+//! Two properties of k-rust's check need care, and each is closed here:
+//!
+//! - A definition that declares no equation head (an `anywhere` production that is not a
+//!   declared function) and no overloaded symbol that can be withdrawn "has no pair checked: no
+//!   pair can change a claim" (`compatibility.md`, the paragraph after "the load classifies only
+//!   the pairs that can change a claim"), in either scope. That is most definitions kink mutates.
+//!   kink therefore checks a copy of the mutant's KORE with one more declaration: a sort
+//!   [`PROBE_SORT`] and a nullary equation head [`PROBE_SYMBOL`] (`anywhere`, no equation, so it
+//!   appears in no equation, no pair and no step). The copy's executable equations, sorts and
+//!   overload families are the mutant's, so every pair of the mutant is classified, and
+//!   classified as k-rust classifies it in any definition with an equation head. kink also checks
+//!   that the check ran on the whole definition: it must have read every executable equation,
+//!   skipped no candidate pair, and classified at least as many pairs as the copy has root pairs
+//!   (two equations of one index and priority group); otherwise the mutant is refused. k-rust
+//!   reports these counts for the whole definition only, so the guard does not show, group by
+//!   group, that every root, self and inner pair was classified; it shows that the early return
+//!   did not fire, since every definition has root pairs of its own or the prelude's.
+//! - A simplification of the check that runs out of native stack decides nothing, and then "the
+//!   verdict is a function of the definition only when [`condition_stack_stops`] is zero"; a
+//!   nonzero count refuses the mutant. Budget stops are a function of the definition, and a
+//!   condition they cut short is not refuted, so they only leave a pair not joined.
+//!
+//! [`condition_stack_stops`]: k_rust_backend::confluence::CheckCounts::condition_stack_stops
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt;
+
+use k_rust::definition::Sentence;
+use k_rust::kast::identifier::{decode_label, encode, encode_label};
+use k_rust::kast::{GeneratedLabel, Label};
+use k_rust::kore::parser::parse_definition;
+use k_rust::provenance::InputSpace;
+use k_rust_backend::{
+    confluence::{CheckScope, UnjoinedPair, ViolationKind},
+    definition::BackendDefinition,
+    rule::{Concreteness, ConstraintKind, PredicateRewriteRule, RewriteRule, RuleRhs, TermIndex},
+    term::{FunctionType, SymbolType, Term},
+};
+use kink_patch::{SentenceOrigin, SentenceRef, SourceEffect};
+
+use crate::ValidatedDefinition;
+
+/// The version of the consistency check: a mutant's admission depends on it, so kink's semantics
+/// identity names it (kink-campaign `identity`), on which every store keys. v2 (re-pin
+/// R0c-fix-4): the guard also reads the equation and skipped-pair counts. v3 (k-rust
+/// FZ-CONFLUENCE): k-rust pairs the equations at evaluated hooks with the hooks' written meanings
+/// (a hook pair is read for its first equation only) and refutes more overlaps (equality classes,
+/// linear integer arithmetic, deferred unifier equations, disjunctions), so a mutant whose guards
+/// those refute is admitted and one whose equation disagrees with its hook is refused.
+pub const MUTANT_CONSISTENCY_VERSION: &str = "kink-native/mutant-consistency/v3";
+
+/// The version of the reading of a mutant's effect from the compiled definitions
+/// ([`admit_mutant`]: the compiled changed-index diff, its reverse reach and the cross-check of
+/// the source reading, re-pin R0c-fix-4). A mutant's admission depends on it, so kink's
+/// semantics identity names it (kink-campaign `identity`).
+pub const MUTANT_EFFECT_VERSION: &str = "kink-native/mutant-effect/v1";
+
+/// The sort of the equation head kink adds to the checked copy (see the module documentation).
+pub const PROBE_SORT: &str = "SortKinkMutantConsistencyProbe";
+
+/// The equation head kink adds to the checked copy: `anywhere`, nullary, with no equation.
+pub const PROBE_SYMBOL: &str = "LblkinkMutantConsistencyProbe";
+
+/// One pair of equations that k-rust's critical-pair check does not show to join (or one
+/// equation it reports on its own), with its reason.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub struct UnjoinedEquations {
+    /// The equation whose left-hand side holds the overlap: its rule label, else its written
+    /// position, else its unique id.
+    pub first: String,
+    /// The equation applied at the overlap, named alike (`first` again for a report on one
+    /// equation or a self pair).
+    pub second: String,
+    /// The overlap position in `first`'s left-hand side, as argument indexes; empty for the root.
+    pub position: Vec<usize>,
+    /// k-rust's reason, as it prints it.
+    pub reason: String,
+}
+
+impl UnjoinedEquations {
+    /// The record of the pair in a report: `{first, second, position, reason}`.
+    #[must_use]
+    pub fn value(&self) -> serde_json::Value {
+        serde_json::json!({
+            "first": self.first,
+            "second": self.second,
+            "position": self.position,
+            "reason": self.reason,
+        })
+    }
+}
+
+impl fmt::Display for UnjoinedEquations {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{} / {}", self.first, self.second)?;
+        if !self.position.is_empty() {
+            write!(formatter, " at {:?}", self.position)?;
+        }
+        write!(formatter, ": {}", self.reason)
+    }
+}
+
+/// Why a mutant is not shown to be a theory with models.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Inconsistency {
+    /// Pairs of a checked head's equations that k-rust's check does not show to join.
+    Unjoined(Vec<UnjoinedEquations>),
+    /// The check could not be run, or its verdict is not a function of the definition.
+    Unchecked(String),
+}
+
+impl Inconsistency {
+    /// The pairs to record, an unchecked mutant as one entry naming why.
+    #[must_use]
+    pub fn pairs(&self) -> Vec<UnjoinedEquations> {
+        match self {
+            Self::Unjoined(pairs) => pairs.clone(),
+            Self::Unchecked(why) => vec![UnjoinedEquations {
+                first: String::new(),
+                second: String::new(),
+                position: Vec::new(),
+                reason: format!("the consistency check did not run: {why}"),
+            }],
+        }
+    }
+}
+
+impl fmt::Display for Inconsistency {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Unjoined(pairs) => {
+                let pairs = pairs.iter().map(ToString::to_string).collect::<Vec<_>>();
+                write!(formatter, "not shown to join: {}", pairs.join("; "))
+            }
+            Self::Unchecked(why) => write!(formatter, "the consistency check did not run: {why}"),
+        }
+    }
+}
+
+/// The executable equations of one compiled side, read as the check compares and reaches them
+/// (re-pin R0c-fix-4): for each index and priority group of k-rust's function theory, the
+/// equations without the attributes that do not change what they state; for each symbol, the
+/// indexes whose equations mention it; and for each equation, the sentences that wrote it.
+#[derive(Clone, Debug)]
+pub struct CompiledEquations {
+    theory: BTreeMap<TermIndex, BTreeMap<u8, Vec<RewriteRule>>>,
+    /// The simplification and ceil lemmas by index (k-rust's `simplification_theory` and
+    /// `ceil_theory`), read alike: a changed lemma about a symbol changes how its terms are
+    /// simplified, which a join of a pair that reaches it may read.
+    lemmas: [BTreeMap<TermIndex, BTreeMap<u8, Vec<RewriteRule>>>; 2],
+    /// The lemmas whose left-hand side is a predicate, by priority, read alike.
+    predicate_lemmas: BTreeMap<u8, Vec<PredicateRewriteRule>>,
+    /// For each symbol, the indexes whose equations apply it in their left-hand side, right-hand
+    /// side, `requires` or `ensures`, and the members of its overload family.
+    dependents: BTreeMap<String, BTreeSet<TermIndex>>,
+    equations: Vec<AuthoredEquation>,
+    /// The K labels of the side's source productions, KORE-encoded.
+    source_labels: BTreeSet<String>,
+    /// The compiled symbols declared `total`.
+    total: BTreeSet<String>,
+}
+
+/// One compiled equation, its index, its name and the sentences behind it.
+#[derive(Clone, Debug)]
+struct AuthoredEquation {
+    index: TermIndex,
+    name: String,
+    authors: Vec<Author>,
+}
+
+/// A sentence behind a compiled equation, as the mutant's origins map it back.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum Author {
+    Baseline(SentenceRef),
+    Inserted(usize),
+    /// A Compile address that names no sentence of the side, or a mutant sentence without an
+    /// origin (never expected; read as touched).
+    Unresolved,
+}
+
+impl CompiledEquations {
+    /// The equations of the compiled side `side` (internalized again from its KORE).
+    ///
+    /// # Errors
+    ///
+    /// Returns why the side's KORE did not internalize.
+    pub fn of(side: &ValidatedDefinition) -> Result<Self, String> {
+        let parsed =
+            parse_definition(&side.artifacts().definition_kore).map_err(|e| e.to_string())?;
+        let definition = BackendDefinition::internalize_for_source_execution(
+            &parsed,
+            &encode(&side.definition().main_module),
+            &side.artifacts().execution_rewrite_order,
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(Self::read(&definition, side))
+    }
+
+    fn read(definition: &BackendDefinition, side: &ValidatedDefinition) -> Self {
+        let authors = authors(side);
+        let mut theory = BTreeMap::<TermIndex, BTreeMap<u8, Vec<RewriteRule>>>::new();
+        let mut dependents = BTreeMap::<String, BTreeSet<TermIndex>>::new();
+        let mut equations = Vec::new();
+        for (index, priorities) in definition.function_theory() {
+            for (priority, rules) in priorities {
+                for rule in rules {
+                    theory
+                        .entry(index.clone())
+                        .or_default()
+                        .entry(*priority)
+                        .or_default()
+                        .push(meaning(rule));
+                    for symbol in mentioned(rule) {
+                        dependents.entry(symbol).or_default().insert(index.clone());
+                    }
+                    if let Some((greater, lesser)) = &rule.attributes.overload {
+                        for (from, to) in [(greater, lesser), (lesser, greater)] {
+                            dependents
+                                .entry(from.to_string())
+                                .or_default()
+                                .insert(TermIndex::Symbol(to.clone()));
+                        }
+                    }
+                    equations.push(AuthoredEquation {
+                        index: index.clone(),
+                        name: name(rule),
+                        authors: authors
+                            .get(&rule.attributes.unique_id)
+                            .cloned()
+                            .unwrap_or_default(),
+                    });
+                }
+            }
+        }
+        let lemmas = [definition.simplification_theory(), definition.ceil_theory()].map(|theory| {
+            theory
+                .iter()
+                .map(|(index, priorities)| {
+                    let priorities = priorities
+                        .iter()
+                        .map(|(priority, rules)| {
+                            (*priority, rules.iter().map(|r| meaning(r)).collect())
+                        })
+                        .collect();
+                    (index.clone(), priorities)
+                })
+                .collect()
+        });
+        let predicate_lemmas = definition
+            .predicate_simplification_theory()
+            .iter()
+            .map(|(priority, rules)| {
+                let rules = rules
+                    .iter()
+                    .map(|rule| {
+                        let mut rule = PredicateRewriteRule::clone(rule);
+                        rule.attributes.unique_id = String::new();
+                        rule.attributes.origins = Vec::new();
+                        rule.attributes.preserves_definedness = false;
+                        rule.attributes.smt_lemma = false;
+                        rule
+                    })
+                    .collect();
+                (*priority, rules)
+            })
+            .collect();
+        let source_labels = side
+            .definition()
+            .modules
+            .iter()
+            .flat_map(|module| &module.local_sentences)
+            .filter_map(|sentence| match &**sentence {
+                Sentence::Production {
+                    label: Some(label), ..
+                } => Some(encode_label(&label.name)),
+                _ => None,
+            })
+            .collect();
+        let total = definition
+            .symbols()
+            .iter()
+            .filter(|(_, symbol)| {
+                symbol.attributes.symbol_type == SymbolType::Function(FunctionType::Total)
+            })
+            .map(|(name, _)| name.to_string())
+            .collect();
+        Self {
+            theory,
+            lemmas,
+            predicate_lemmas,
+            dependents,
+            equations,
+            source_labels,
+            total,
+        }
+    }
+
+    /// Whether `symbol` (a KORE name) is a lambda kompile generated for a `#let` or `#fun`, and
+    /// no source production of this side declares it.
+    fn generated_lambda(&self, symbol: &str) -> bool {
+        !self.source_labels.contains(symbol)
+            && decode_label(symbol).is_ok_and(|label| {
+                matches!(
+                    Label::new(label).generated(),
+                    Some(GeneratedLabel::Lambda { .. })
+                )
+            })
+    }
+}
+
+/// The equation without the attributes that do not change what it states: its unique id and
+/// origins (source positions and sentence places), the claims claim removal handles
+/// (`preserves-definedness`, `smt-lemma`), and the load's record of a rewrite rule's definedness
+/// discharge (empty on an equation).
+fn meaning(rule: &RewriteRule) -> RewriteRule {
+    let mut rule = rule.clone();
+    rule.attributes.unique_id = String::new();
+    rule.attributes.origins = Vec::new();
+    rule.attributes.preserves_definedness = false;
+    rule.attributes.smt_lemma = false;
+    rule.computed_attributes.discharged_by = Default::default();
+    rule
+}
+
+/// Every symbol an equation applies, in its left-hand side, right-hand side, `requires` and
+/// `ensures` (collections' entries included).
+fn mentioned(rule: &RewriteRule) -> BTreeSet<String> {
+    let mut symbols = BTreeSet::new();
+    let mut term = |term: &Term| {
+        term.visit_symbols(&mut |symbol| {
+            symbols.insert(symbol.name.to_string());
+        })
+    };
+    term(&rule.lhs);
+    match &rule.rhs {
+        RuleRhs::Term(rhs) => term(rhs),
+        RuleRhs::Disjunction(alternatives) => {
+            for alternative in alternatives {
+                term(&alternative.term);
+                for predicate in alternative.ensures.iter() {
+                    predicate.visit_terms(&mut term);
+                }
+            }
+        }
+        RuleRhs::Predicates(predicates) => {
+            for predicate in predicates {
+                predicate.visit_terms(&mut term);
+            }
+        }
+        RuleRhs::Top | RuleRhs::Bottom => {}
+    }
+    for predicate in rule.requires.iter().chain(rule.ensures.iter()) {
+        predicate.visit_terms(&mut term);
+    }
+    symbols
+}
+
+/// For each emitted rule id of `side`, the rule sentences behind it: its Compile addresses that
+/// name a rule, mapped back to the baseline through a mutant's origins. A rule is the only
+/// sentence whose role the source reading decides (a production's edit is a claim edit or an
+/// unknown effect, and a configuration's or a sort's is an unknown effect), so the addresses of
+/// other sentences are not read.
+fn authors(side: &ValidatedDefinition) -> BTreeMap<String, Vec<Author>> {
+    let definition = side.definition();
+    let sentence = |module: &str, index: u32| {
+        definition
+            .modules
+            .iter()
+            .find(|candidate| candidate.name == module)
+            .and_then(|module| module.local_sentences.get(usize::try_from(index).ok()?))
+    };
+    side.artifacts()
+        .sentence_provenance
+        .iter()
+        .map(|(id, provenance)| {
+            let authors = provenance
+                .input_addresses
+                .iter()
+                .filter(|address| address.input == InputSpace::Compile)
+                .filter_map(|address| {
+                    let at = SentenceRef::new(address.module.clone(), address.index);
+                    match sentence(&address.module, address.index).map(|s| &**s) {
+                        None => return Some(Author::Unresolved),
+                        Some(Sentence::Rule { .. }) => {}
+                        Some(_) => return None,
+                    }
+                    Some(match side.origins() {
+                        None => Author::Baseline(at),
+                        Some(origins) => match origins.get(&at) {
+                            Some(SentenceOrigin::Baseline(original)) => {
+                                Author::Baseline(original.clone())
+                            }
+                            Some(SentenceOrigin::Inserted { edit }) => Author::Inserted(*edit),
+                            None => Author::Unresolved,
+                        },
+                    })
+                })
+                .collect();
+            (id.clone(), authors)
+        })
+        .collect()
+}
+
+/// A compiled equation that a sentence the patch touches gives, headed by a symbol the source
+/// reading does not redefine (or a generated `total` symbol whose equations the patch changes):
+/// the patch's effect on the claims is not known.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct UnreadEquation {
+    /// The touched sentence: a baseline sentence, or the patch's inserting edit; `None` for an
+    /// equation whose author could not be resolved, or a generated symbol's.
+    pub origin: Option<SentenceOrigin>,
+    /// The compiled head (KORE), or the index's kind when it is not a symbol.
+    pub head: String,
+    /// The equation, named as in [`UnjoinedEquations`].
+    pub equation: String,
+}
+
+impl fmt::Display for UnreadEquation {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            formatter,
+            "{} is an equation of {}",
+            self.equation, self.head
+        )
+    }
+}
+
+/// Why a mutant is refused before it runs ([`admit_mutant`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum MutantFailure {
+    /// The compiled definitions show an effect the source reading does not name, so the claims
+    /// the edit leaves unbacked are not known: kink-campaign refuses it as `unsupported-claims`.
+    UnreadEquations(Vec<UnreadEquation>),
+    /// The mutant is not shown to be a theory with models: `inconsistent-mutant`.
+    Inconsistent(Inconsistency),
+    /// The mutant's own KORE does not internalize (without the probe head either), so no test
+    /// could run on it: kink-campaign's infrastructure failure, as when its runtime cannot be
+    /// prepared.
+    Uninternalizable(String),
+}
+
+/// What the compiled definitions say a mutant's edit changes ([`admit_mutant`]).
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct CompiledEffect {
+    /// The indexes whose equations differ between the baseline and the claim-free mutant (KORE
+    /// symbol names, or the index kind).
+    pub changed: BTreeSet<String>,
+    /// The symbols whose pairs were read (KORE names), `None` for every symbol.
+    pub checked: Option<BTreeSet<String>>,
+}
+
+/// Whether the claim-free mutant `side` may run (re-pin R0c-fix-3, R0c-fix-4): the compiled
+/// definitions agree with the source reading `source` of the patch's effect, and the mutant is
+/// shown to be a theory with models where its edit can change one.
+///
+/// What the edit changes is read from the compiled definitions, which k-rust executes, and the
+/// source reading is a fail-closed cross-check (see the module documentation):
+///
+/// - changed indexes: every index of the claim-free mutant's function theory whose equations
+///   differ from `baseline`'s (compared without unique ids, origins and the claims claim removal
+///   handles), an index present on one side only included, and every index of its simplification
+///   and ceil lemmas that differs alike (a changed predicate lemma checks every head);
+/// - checked heads: the reverse reach of the changed indexes over both compiled theories (an
+///   equation reaches the symbols it applies, and an overload family is linked both ways),
+///   together with the source reading's affected symbols; `None` (every head) when the source
+///   reading is unknown or a changed or reached index is not a symbol;
+/// - every compiled equation that a sentence the patch touches (or inserts) gives, on either
+///   side, is headed by a symbol the source reading redefines, or by a lambda kompile generated
+///   for a `#let` or `#fun` (its `total` is derived from the claim-free mutant's own body); and
+///   no other generated `total` symbol has changed equations. Otherwise
+///   [`MutantFailure::UnreadEquations`].
+///
+/// The compiled diff is always computed: an empty source reading never admits a mutant without it.
+///
+/// # Errors
+///
+/// Returns why the mutant is refused.
+pub fn admit_mutant(
+    baseline: &CompiledEquations,
+    side: &ValidatedDefinition,
+    source: &SourceEffect,
+) -> Result<CompiledEffect, MutantFailure> {
+    let unchecked = |why: String| MutantFailure::Inconsistent(Inconsistency::Unchecked(why));
+    let definition = match checked_copy(side) {
+        Ok(definition) => definition,
+        Err(why) => {
+            // A mutant whose own KORE does not internalize runs nothing (its runtime cannot be
+            // prepared); one that internalizes only without the probe is unchecked.
+            return Err(match CompiledEquations::of(side) {
+                Err(own) => MutantFailure::Uninternalizable(own),
+                Ok(_) => unchecked(why),
+            });
+        }
+    };
+    let mutant = CompiledEquations::read(&definition, side);
+
+    let unread = unread_equations(baseline, &mutant, source);
+    if !unread.is_empty() {
+        return Err(MutantFailure::UnreadEquations(unread));
+    }
+
+    let mut changed = changed_indexes(&baseline.theory, &mutant.theory);
+    for (base, edited) in baseline.lemmas.iter().zip(&mutant.lemmas) {
+        changed.extend(changed_indexes(base, edited));
+    }
+    // A changed predicate lemma is about no one symbol: every head is checked.
+    let predicate_lemmas_changed = baseline.predicate_lemmas != mutant.predicate_lemmas;
+    let generated = changed
+        .iter()
+        .filter_map(|index| match index {
+            TermIndex::Symbol(symbol)
+                if mutant.total.contains(&**symbol)
+                    && !mutant.source_labels.contains(&**symbol)
+                    && !mutant.generated_lambda(symbol) =>
+            {
+                Some(UnreadEquation {
+                    origin: None,
+                    head: symbol.to_string(),
+                    equation: "a generated total symbol's equations".to_owned(),
+                })
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    if !generated.is_empty() {
+        return Err(MutantFailure::UnreadEquations(generated));
+    }
+
+    let reached = reach(&changed, [baseline, &mutant]);
+    let source_heads = source.affected.as_ref().map(|affected| {
+        affected
+            .iter()
+            .map(|label| encode_label(label))
+            .collect::<BTreeSet<_>>()
+    });
+    if let Some(heads) = &source_heads {
+        // A head kink-patch names must be a symbol of the compiled definition, or its pairs
+        // would be read under no name.
+        let missing = heads
+            .iter()
+            .filter(|head| !definition.symbols().contains_key(head.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err(unchecked(format!(
+                "the heads {missing:?} are not symbols of the compiled definition"
+            )));
+        }
+    }
+    let checked = match source_heads {
+        Some(mut heads)
+            if !predicate_lemmas_changed
+                && reached
+                    .iter()
+                    .all(|index| matches!(index, TermIndex::Symbol(_))) =>
+        {
+            heads.extend(reached.iter().filter_map(|index| match index {
+                TermIndex::Symbol(symbol) => Some(symbol.to_string()),
+                _ => None,
+            }));
+            Some(heads)
+        }
+        _ => None,
+    };
+    let effect = CompiledEffect {
+        changed: changed.iter().map(index_name).collect(),
+        checked,
+    };
+    if effect.checked.as_ref().is_some_and(BTreeSet::is_empty) {
+        // No symbol's equations differ, none reaches one, and the source reading redefines
+        // none: every pair is the baseline's.
+        return Ok(effect);
+    }
+    check(&definition, effect.checked.as_ref()).map_err(MutantFailure::Inconsistent)?;
+    Ok(effect)
+}
+
+/// The indexes whose equations differ between two theories, an index of one only included.
+fn changed_indexes(
+    baseline: &BTreeMap<TermIndex, BTreeMap<u8, Vec<RewriteRule>>>,
+    mutant: &BTreeMap<TermIndex, BTreeMap<u8, Vec<RewriteRule>>>,
+) -> BTreeSet<TermIndex> {
+    baseline
+        .keys()
+        .chain(mutant.keys())
+        .filter(|index| baseline.get(*index) != mutant.get(*index))
+        .cloned()
+        .collect()
+}
+
+/// The compiled equations of a touched (or inserted) sentence that the source reading does not
+/// explain, on either side.
+fn unread_equations(
+    baseline: &CompiledEquations,
+    mutant: &CompiledEquations,
+    source: &SourceEffect,
+) -> Vec<UnreadEquation> {
+    let Some(redefined) = &source.redefined else {
+        // Every symbol already counts as redefined.
+        return Vec::new();
+    };
+    let redefined = redefined
+        .iter()
+        .map(|label| encode_label(label))
+        .collect::<BTreeSet<_>>();
+    let mut unread = Vec::<UnreadEquation>::new();
+    for side in [baseline, mutant] {
+        for equation in &side.equations {
+            let explained = match &equation.index {
+                TermIndex::Symbol(symbol) => {
+                    redefined.contains(&**symbol) || side.generated_lambda(symbol)
+                }
+                _ => false,
+            };
+            if explained {
+                continue;
+            }
+            for author in &equation.authors {
+                let origin = match author {
+                    Author::Baseline(at) if source.touched.contains(at) => {
+                        Some(SentenceOrigin::Baseline(at.clone()))
+                    }
+                    Author::Baseline(_) => continue,
+                    Author::Inserted(edit) => Some(SentenceOrigin::Inserted { edit: *edit }),
+                    Author::Unresolved => None,
+                };
+                let found = UnreadEquation {
+                    origin,
+                    head: index_name(&equation.index),
+                    equation: equation.name.clone(),
+                };
+                if !unread.contains(&found) {
+                    unread.push(found);
+                }
+            }
+        }
+    }
+    unread
+}
+
+/// The indexes whose equations reach one of `changed` (`changed` included), over both sides'
+/// compiled theories.
+fn reach(changed: &BTreeSet<TermIndex>, sides: [&CompiledEquations; 2]) -> BTreeSet<TermIndex> {
+    let mut reached = BTreeSet::new();
+    let mut pending = changed.iter().cloned().collect::<Vec<_>>();
+    while let Some(index) = pending.pop() {
+        if !reached.insert(index.clone()) {
+            continue;
+        }
+        if let TermIndex::Symbol(symbol) = &index {
+            for side in sides {
+                if let Some(dependents) = side.dependents.get(&**symbol) {
+                    pending.extend(dependents.difference(&reached).cloned());
+                }
+            }
+        }
+    }
+    reached
+}
+
+fn index_name(index: &TermIndex) -> String {
+    match index {
+        TermIndex::Symbol(symbol) => symbol.to_string(),
+        other => format!("{other:?}"),
+    }
+}
+
+/// Whether the claim-free mutant `side` is shown to be a theory with models for the symbols
+/// `heads` (K labels; `None` for every symbol): every pair with an equation of one of them, or
+/// one not indexed at a symbol, joins by k-rust's critical-pair check. This reads the check for
+/// given heads only; [`admit_mutant`] decides which heads an edit can change.
+///
+/// # Errors
+///
+/// Returns the pairs not shown to join, or why the check could not decide.
+pub fn check_heads(
+    side: &ValidatedDefinition,
+    heads: Option<&BTreeSet<String>>,
+) -> Result<(), Inconsistency> {
+    let definition = checked_copy(side).map_err(Inconsistency::Unchecked)?;
+    let heads = heads.map(|heads| {
+        heads
+            .iter()
+            .map(|label| encode_label(label))
+            .collect::<BTreeSet<_>>()
+    });
+    if let Some(heads) = &heads {
+        let missing = heads
+            .iter()
+            .filter(|head| !definition.symbols().contains_key(head.as_str()))
+            .cloned()
+            .collect::<Vec<_>>();
+        if !missing.is_empty() {
+            return Err(Inconsistency::Unchecked(format!(
+                "the heads {missing:?} are not symbols of the compiled definition"
+            )));
+        }
+    }
+    check(&definition, heads.as_ref())
+}
+
+/// The mutant's definition with the probe sort and equation head added to its main module.
+fn checked_copy(side: &ValidatedDefinition) -> Result<BackendDefinition, String> {
+    let kore = &side.artifacts().definition_kore;
+    if kore.contains(PROBE_SORT) || kore.contains(PROBE_SYMBOL) {
+        return Err(format!(
+            "the definition already names {PROBE_SORT} or {PROBE_SYMBOL}"
+        ));
+    }
+    let mut parsed = parse_definition(kore).map_err(|e| e.to_string())?;
+    let main = encode(&side.definition().main_module);
+    let probe = parse_definition(&format!(
+        "[] module KINKPROBE sort {PROBE_SORT}{{}} [] \
+         symbol {PROBE_SYMBOL}{{}}() : {PROBE_SORT}{{}} [anywhere{{}}()] endmodule []"
+    ))
+    .map_err(|e| e.to_string())?;
+    let sentences = probe
+        .modules
+        .into_iter()
+        .next()
+        .ok_or("the probe module did not parse")?
+        .sentences;
+    parsed
+        .modules
+        .iter_mut()
+        .find(|module| module.name == main)
+        .ok_or_else(|| format!("no main module {main} in the compiled KORE"))?
+        .sentences
+        .extend(sentences);
+    BackendDefinition::internalize_for_source_execution(
+        &parsed,
+        &main,
+        &side.artifacts().execution_rewrite_order,
+    )
+    .map_err(|e| e.to_string())
+}
+
+/// k-rust's check of every pair of `definition`, read for the KORE symbols `heads`.
+fn check(
+    definition: &BackendDefinition,
+    heads: Option<&BTreeSet<String>>,
+) -> Result<(), Inconsistency> {
+    let claims = definition.value_claims_in_scope(CheckScope::All);
+    let counts = claims.counts();
+    if counts.condition_stack_stops > 0 {
+        return Err(Inconsistency::Unchecked(format!(
+            "{} simplifications of the check ran out of native stack",
+            counts.condition_stack_stops
+        )));
+    }
+    let mut index_of = BTreeMap::new();
+    let mut root_pairs = 0;
+    let mut executable_equations = 0;
+    for (index, priorities) in definition.function_theory() {
+        for rules in priorities.values() {
+            for rule in rules {
+                index_of.insert(rule.attributes.unique_id.clone(), index.clone());
+            }
+            let executable = rules.iter().filter(|rule| !symbolic(rule)).count();
+            executable_equations += executable;
+            root_pairs += executable * executable.saturating_sub(1) / 2;
+        }
+    }
+    // k-rust reports its counts for the whole definition only (`CheckCounts`), so these guards
+    // are global: the check read every executable equation, skipped no candidate pair, and
+    // unified at least as many candidate pairs as there are root pairs (two executable equations
+    // of one index and priority group; `pairs` also counts the inner pairs, and a self pair is
+    // counted in `several_matches` instead). They show the check ran on the whole definition
+    // (its early return for a definition with nothing withdrawable reads no pair); they do not
+    // show, group by group, that every root, self and inner pair was classified.
+    if counts.equations != executable_equations || counts.skipped > 0 || counts.pairs < root_pairs {
+        return Err(Inconsistency::Unchecked(format!(
+            "k-rust read {} of the {executable_equations} executable equations, skipped {} \
+             candidate pairs and classified {} pairs of the {root_pairs} root pairs",
+            counts.equations, counts.skipped, counts.pairs
+        )));
+    }
+    let checked_symbol = |name: &str| heads.is_none_or(|heads| heads.contains(name));
+    let checked = |rule: &RewriteRule| match index_of.get(&rule.attributes.unique_id) {
+        Some(TermIndex::Symbol(name)) => checked_symbol(name),
+        // An equation not indexed at a symbol (at a conjunction, a domain value, a collection or
+        // a bare variable) could be offered at a head's application: read it as every head's.
+        _ => true,
+    };
+    let mut pairs = claims
+        .unjoined()
+        .iter()
+        // A hook pair's second equation is the hook's written meaning, no equation of the
+        // definition: the pair is about its first equation alone.
+        .filter(|pair| checked(&pair.first) || (pair.hook.is_none() && checked(&pair.second)))
+        .map(unjoined)
+        .collect::<BTreeSet<_>>();
+    for violation in claims.violations() {
+        let outside = match &violation.kind {
+            // An equation the check cannot pair with a head's equations (offered everywhere, or
+            // at a collection): every head is unchecked.
+            ViolationKind::IndexedAt(_) => true,
+            ViolationKind::OverloadShape(symbol)
+            | ViolationKind::PinnedByInjectiveTotal(symbol) => checked_symbol(symbol),
+            ViolationKind::NoLeastCommonOverload(left, right) => {
+                checked_symbol(left) || checked_symbol(right)
+            }
+            ViolationKind::ConstructorHeaded(_) | ViolationKind::InjectionHeaded => {
+                violation.rule.as_deref().is_none_or(checked)
+            }
+        };
+        if outside {
+            let name = violation.rule.as_deref().map_or_else(String::new, name);
+            pairs.insert(UnjoinedEquations {
+                first: name.clone(),
+                second: name,
+                position: Vec::new(),
+                reason: format!("outside the check: {}", violation.kind),
+            });
+        }
+    }
+    if pairs.is_empty() {
+        Ok(())
+    } else {
+        Err(Inconsistency::Unjoined(pairs.into_iter().collect()))
+    }
+}
+
+/// Whether k-rust's check skips `rule`: restricted to symbolic instances, it is never a step on
+/// a ground term (`confluence.rs` `symbolic`).
+fn symbolic(rule: &RewriteRule) -> bool {
+    match &rule.attributes.concreteness {
+        Concreteness::Unconstrained => false,
+        Concreteness::All(kind) => *kind == ConstraintKind::Symbolic,
+        Concreteness::Some(constraints) => constraints
+            .values()
+            .any(|kind| *kind == ConstraintKind::Symbolic),
+    }
+}
+
+fn unjoined(pair: &UnjoinedPair) -> UnjoinedEquations {
+    UnjoinedEquations {
+        first: name(&pair.first),
+        second: name(&pair.second),
+        position: pair.position.clone(),
+        reason: pair.reason.to_string(),
+    }
+}
+
+/// An equation's name: its rule label, else its written position, else its unique id.
+fn name(rule: &RewriteRule) -> String {
+    rule.attributes
+        .label
+        .clone()
+        .or_else(|| {
+            rule.attributes
+                .origins
+                .first()
+                .and_then(k_rust_backend::rule::RuleOrigin::written_position)
+        })
+        .unwrap_or_else(|| rule.attributes.unique_id.clone())
+}

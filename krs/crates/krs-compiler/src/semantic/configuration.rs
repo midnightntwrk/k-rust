@@ -16,9 +16,10 @@ use krs_ir_levels::{
 };
 
 use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_sort_ref};
+use super::collection_types::{CollectionTyping, Root, SortType, Walker};
 use super::error::DescriptorLoweringError;
-use super::infer::{StructuredTermBuilder, initial_binding_constraints};
-use super::origin::{generated_semantic_id, semantic_cell_id, semantic_origin};
+use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
+use super::origin::{generated_semantic_id, key_range, semantic_cell_id, semantic_origin};
 use super::references::require_cell_field;
 
 pub(super) fn lower_fixed_configuration_descriptor(
@@ -55,19 +56,30 @@ pub(super) fn lower_fixed_configuration_descriptor(
     for variable in &configuration.initializer.variables {
         let id = SemanticId::new(variable.binding.clone())?;
         let sort = semantic_sort_ref(&variable.sort.sort);
+        let arguments = SortType::of_variable(variable, descriptor)?.ir_arguments();
         binding_sorts.insert(variable.binding.clone(), sort.clone());
-        variables.push(FixedConfigurationVariable::new(
-            semantic_origin(
-                descriptor,
-                variable.binding_key.clone(),
-                "configuration-variable",
-            )?,
-            id,
-            variable.external_name.clone(),
-            sort,
-            variable.main_key.is_some(),
-        )?);
+        variables.push(
+            FixedConfigurationVariable::new(
+                semantic_origin(
+                    descriptor,
+                    variable.binding_key.clone(),
+                    "configuration-variable",
+                )?,
+                id,
+                variable.external_name.clone(),
+                sort,
+                variable.main_key.is_some(),
+            )?
+            .with_arguments(arguments),
+        );
     }
+    let typing = initializer_typing(
+        descriptor,
+        configuration,
+        declarations,
+        catalog,
+        sort_parents,
+    )?;
     let initializer = configuration
         .initializer
         .cells
@@ -77,13 +89,17 @@ pub(super) fn lower_fixed_configuration_descriptor(
                 descriptor,
                 cell,
                 declarations,
-                sort_parents,
-                catalog,
-                &binding_sorts,
+                &InitializerTables {
+                    sort_parents,
+                    catalog,
+                    binding_sorts: &binding_sorts,
+                    collections: &typing,
+                },
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
     console.check_initializers(&initializer)?;
+    check_configuration_variables_read(descriptor, configuration, &initializer)?;
     let initializer_id = SemanticId::new(format!("{}.init", configuration_id.as_str()))?;
     Ok(FixedConfiguration::new(
         semantic_origin(
@@ -319,6 +335,7 @@ fn cell_attributes(
             DescriptorLoweringError::UnsupportedShape {
                 node: "cell multiplicity",
                 detail: format!("unsupported multiplicity {:?}", multiplicity.value),
+                range: None,
             }
         })?;
         if value == CellMultiplicity::Star && declaration.fields.len() != 1 {
@@ -401,7 +418,11 @@ fn lower_cell_declaration(
         )?;
         let cell = match &field.content {
             ProtocolCellContent::Leaf { sort, .. } => {
+                // A collection type has the right number of arguments.
+                let arguments = SortType::of_cell(field, descriptor)?
+                    .map_or_else(Vec::new, |ty| ty.ir_arguments());
                 FixedCell::leaf(origin, id, name, attributes, semantic_sort_ref(&sort.sort))?
+                    .with_arguments(arguments)
             }
             ProtocolCellContent::Nested { declaration } => {
                 if !visiting.insert(declaration.declaration.clone()) {
@@ -411,6 +432,7 @@ fn lower_cell_declaration(
                             "cyclic nominal cell declaration at {}",
                             declaration.declaration
                         ),
+                        range: None,
                     });
                 }
                 let (nested, nested_declaration) =
@@ -430,18 +452,144 @@ fn lower_cell_declaration(
                     .with_declaration(declaration.declaration.clone())
             }
         };
-        cells.push(cell);
+        cells.push(cell.with_field(field.rust_field.clone()));
     }
     Ok(cells)
 }
 
+/// What the terms of a configuration's initializer are lowered against.
+struct InitializerTables<'a> {
+    sort_parents: &'a BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+    catalog: &'a BTreeMap<StableItemId, ProductionSignature>,
+    /// The configuration variables' sorts.
+    binding_sorts: &'a BTreeMap<String, SemanticSortRef>,
+    /// The element types of the initializer's typed cells.
+    collections: &'a CollectionTyping,
+}
+
+/// The element types of an initializer: each leaf cell's value at the
+/// cell's type, with each configuration variable a binder of its declared
+/// type ([`Walker::variables`]).
+fn initializer_typing(
+    descriptor: &Descriptor,
+    configuration: &DescriptorFixedConfiguration,
+    declarations: &DescriptorIndex<'_>,
+    catalog: &BTreeMap<StableItemId, ProductionSignature>,
+    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
+) -> Result<CollectionTyping, DescriptorLoweringError> {
+    fn roots<'t>(
+        walker: &Walker<'_>,
+        cells: &'t [DescriptorInitializerCell],
+        declarations: &DescriptorIndex<'_>,
+        output: &mut Vec<Root<'t>>,
+    ) -> Result<(), DescriptorLoweringError> {
+        for cell in cells {
+            match &cell.content {
+                ProtocolInitializerCellContent::Leaf { value, .. } => {
+                    let ty =
+                        walker.cell_type(require_cell_field(&cell.field.cell, declarations)?)?;
+                    match value {
+                        ProtocolInitializerStateTerm::Term(term) => output.push(Root::Term {
+                            term: &term.term,
+                            ty,
+                            subject: false,
+                        }),
+                        ProtocolInitializerStateTerm::Map(map) => {
+                            output.push(Root::InitializerMap { map, ty });
+                        }
+                        ProtocolInitializerStateTerm::KSequence(sequence) => {
+                            output.extend(sequence.items.iter().map(|item| Root::Term {
+                                term: &item.value.term,
+                                ty: None,
+                                subject: false,
+                            }));
+                        }
+                    }
+                }
+                ProtocolInitializerCellContent::Nested { children, .. } => {
+                    roots(walker, children, declarations, output)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    let mut walker = Walker::new(descriptor, Some(declarations), catalog, sort_parents);
+    walker.variables(&configuration.initializer.variables)?;
+    let mut output = Vec::new();
+    roots(
+        &walker,
+        &configuration.initializer.cells,
+        declarations,
+        &mut output,
+    )?;
+    walker.run(&output)
+}
+
+/// Checks that some cell's initial content reads each configuration variable: one that none
+/// reads gives its input nowhere to go, and the parameter is what the author removes or places.
+fn check_configuration_variables_read(
+    descriptor: &Descriptor,
+    configuration: &krs_ir::DescriptorFixedConfiguration,
+    initializer: &[FixedInitializerCell<SemanticId, SemanticTerm>],
+) -> Result<(), DescriptorLoweringError> {
+    fn read_variables<'t>(term: &'t SemanticTerm, read: &mut BTreeSet<&'t str>) {
+        if let IrTermKind::Variable { variable } = term.kind() {
+            read.insert(variable.as_str());
+        }
+        for child in term.children() {
+            read_variables(child, read);
+        }
+    }
+    fn read_cell<'t>(
+        cell: &'t FixedInitializerCell<SemanticId, SemanticTerm>,
+        read: &mut BTreeSet<&'t str>,
+    ) {
+        match cell.content() {
+            FixedInitializerContent::Term { term } => read_variables(term, read),
+            FixedInitializerContent::Children { children } => {
+                for child in children {
+                    read_cell(child, read);
+                }
+            }
+        }
+    }
+    let mut read = BTreeSet::new();
+    for cell in initializer {
+        read_cell(cell, &mut read);
+    }
+    let Some(unused) = configuration
+        .initializer
+        .variables
+        .iter()
+        .find(|variable| !read.contains(variable.binding.as_str()))
+    else {
+        return Ok(());
+    };
+    Err(DescriptorLoweringError::UnusedConfigurationVariable {
+        reason: format!(
+            "the configuration variable `{}` (`${}`) is read by no cell's initial content, so its input would have nowhere to go: place it in a cell, or remove the parameter",
+            unused.binding, unused.external_name
+        ),
+        range: key_range(descriptor, &unused.binding_key).map(Box::new),
+    })
+}
+
+/// Lowers one initializer cell; an error that names no narrower node is located at the cell.
 fn lower_initializer_cell(
     descriptor: &Descriptor,
     cell: &DescriptorInitializerCell,
     declarations: &DescriptorIndex<'_>,
-    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
-    catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    binding_sorts: &BTreeMap<String, SemanticSortRef>,
+    tables: &InitializerTables<'_>,
+) -> Result<FixedInitializerCell<SemanticId, SemanticTerm>, DescriptorLoweringError> {
+    lower_initializer_cell_content(descriptor, cell, declarations, tables)
+        .map_err(|error| error.within(key_range(descriptor, &cell.key).as_ref()))
+}
+
+fn lower_initializer_cell_content(
+    descriptor: &Descriptor,
+    cell: &DescriptorInitializerCell,
+    declarations: &DescriptorIndex<'_>,
+    tables: &InitializerTables<'_>,
 ) -> Result<FixedInitializerCell<SemanticId, SemanticTerm>, DescriptorLoweringError> {
     let declared = require_cell_field(&cell.field.cell, declarations)?;
     let id = semantic_cell_id(&cell.field.cell)?;
@@ -458,9 +606,7 @@ fn lower_initializer_cell(
                 value,
                 &semantic_sort_ref(&sort.sort),
                 &cell.key,
-                sort_parents,
-                catalog,
-                binding_sorts,
+                tables,
             )?,
         )),
         (
@@ -469,22 +615,14 @@ fn lower_initializer_cell(
         ) => {
             let children = children
                 .iter()
-                .map(|child| {
-                    lower_initializer_cell(
-                        descriptor,
-                        child,
-                        declarations,
-                        sort_parents,
-                        catalog,
-                        binding_sorts,
-                    )
-                })
+                .map(|child| lower_initializer_cell(descriptor, child, declarations, tables))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(FixedInitializerCell::children(origin, id, children)?)
         }
         _ => Err(DescriptorLoweringError::ParserReferenceDisagreement {
             id: Box::new(cell.field.cell.owner.clone()),
             detail: "initializer content disagrees with the declared cell family".into(),
+            range: None,
         }),
     }
 }
@@ -494,40 +632,41 @@ fn lower_initializer_state(
     state: &DescriptorInitializerStateTerm,
     declared_sort: &SemanticSortRef,
     fallback_key: &ProvenanceKey,
-    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
-    catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    binding_sorts: &BTreeMap<String, SemanticSortRef>,
+    tables: &InitializerTables<'_>,
 ) -> Result<SemanticTerm, DescriptorLoweringError> {
+    let sort_parents = tables.sort_parents;
     let lower_term = |term: &DescriptorTerm, expected_sort: Option<&SemanticSortRef>| {
-        lower_initializer_term(
-            descriptor,
-            term,
-            expected_sort,
-            sort_parents,
-            catalog,
-            binding_sorts,
-        )
+        lower_initializer_term(descriptor, term, expected_sort, tables)
+    };
+    // A key or value of a typed map is lowered at its element sort.
+    let element = |term: &DescriptorTerm| {
+        tables
+            .collections
+            .element(term)
+            .map(|site| site.sort.clone())
     };
     match state {
         ProtocolInitializerStateTerm::Term(term) => lower_term(&term.term, Some(declared_sort)),
         ProtocolInitializerStateTerm::KSequence(sequence) => {
+            let key = sequence
+                .payload_key
+                .as_ref()
+                .or(sequence.dot_k_key.as_ref())
+                .unwrap_or(fallback_key);
             if *declared_sort != SemanticSortRef::k_sequence() {
-                return Err(DescriptorLoweringError::InvalidTerm {
-                    id: Box::new(descriptor.id().clone()),
-                    detail: "K sequence initializes a non-KSequence cell".into(),
-                });
+                return Err(DescriptorLoweringError::invalid_term(
+                    descriptor.id(),
+                    "K sequence initializes a non-KSequence cell",
+                )
+                .within(key_range(descriptor, key).as_ref()));
             }
             let items = sequence
                 .items
                 .iter()
                 .map(|item| lower_term(&item.value.term, None))
                 .collect::<Result<Vec<_>, _>>()?;
-            let item_sort = common_sequence_item_sort(descriptor, &items, sort_parents, false)?;
-            let key = sequence
-                .payload_key
-                .as_ref()
-                .or(sequence.dot_k_key.as_ref())
-                .unwrap_or(fallback_key);
+            let item_sort = common_sequence_item_sort(descriptor, &items, sort_parents, false)
+                .map_err(|error| error.within(key_range(descriptor, key).as_ref()))?;
             Ok(SemanticTerm::k_sequence(
                 semantic_origin(descriptor, key.clone(), "initializer-k-sequence")?,
                 item_sort,
@@ -535,36 +674,37 @@ fn lower_initializer_state(
             ))
         }
         ProtocolInitializerStateTerm::Map(map) => {
-            if *declared_sort != SemanticSortRef::map() {
-                return Err(DescriptorLoweringError::InvalidTerm {
-                    id: Box::new(descriptor.id().clone()),
-                    detail: "map initializes a non-Map cell".into(),
-                });
-            }
             let key = map.payload_key.as_ref().unwrap_or(fallback_key);
+            if *declared_sort != SemanticSortRef::map() {
+                return Err(DescriptorLoweringError::invalid_term(
+                    descriptor.id(),
+                    "map initializes a non-Map cell",
+                )
+                .within(key_range(descriptor, key).as_ref()));
+            }
             let operands = match &map.body {
                 ProtocolMapBody::Empty { .. } => MapOperands::Empty,
                 ProtocolMapBody::Items { items } => {
                     let mut entries = Vec::with_capacity(items.len());
                     for item in items {
                         entries.push(MapEntry {
-                            key: lower_term(&item.key.term, None)?,
-                            value: lower_term(&item.value.term, None)?,
+                            key: lower_term(&item.key.term, element(&item.key.term).as_ref())?,
+                            value: lower_term(
+                                &item.value.term,
+                                element(&item.value.term).as_ref(),
+                            )?,
                         });
                     }
                     MapOperands::items(entries).map_err(|error| {
-                        DescriptorLoweringError::InvalidTerm {
-                            id: Box::new(descriptor.id().clone()),
-                            detail: error.to_string(),
-                        }
+                        DescriptorLoweringError::invalid_term(descriptor.id(), error.to_string())
                     })?
                 }
                 ProtocolMapBody::Update {
                     base, key, value, ..
                 } => MapOperands::Update {
                     map: lower_term(&base.term, Some(&SemanticSortRef::map()))?,
-                    key: lower_term(&key.term, None)?,
-                    value: lower_term(&value.term, None)?,
+                    key: lower_term(&key.term, element(&key.term).as_ref())?,
+                    value: lower_term(&value.term, element(&value.term).as_ref())?,
                 },
             };
             Ok(SemanticTerm::map(
@@ -579,10 +719,14 @@ fn lower_initializer_term(
     descriptor: &Descriptor,
     term: &DescriptorTerm,
     expected_sort: Option<&SemanticSortRef>,
-    sort_parents: &BTreeMap<SemanticSortRef, BTreeSet<SemanticSortRef>>,
-    catalog: &BTreeMap<StableItemId, ProductionSignature>,
-    binding_sorts: &BTreeMap<String, SemanticSortRef>,
+    tables: &InitializerTables<'_>,
 ) -> Result<SemanticTerm, DescriptorLoweringError> {
+    let InitializerTables {
+        sort_parents,
+        catalog,
+        binding_sorts,
+        collections,
+    } = *tables;
     let binding_names = binding_sorts.keys().cloned().collect::<BTreeSet<_>>();
     let mut builder = StructuredTermBuilder {
         descriptor,
@@ -594,14 +738,19 @@ fn lower_initializer_term(
         pattern_key: None,
         binding_sorts: BTreeMap::new(),
         binding_constraints: initial_binding_constraints(binding_sorts),
+        constraint_sites: BTreeMap::new(),
         wildcard_offset: 0,
         wildcards: Vec::new(),
         result_wildcards: false,
         locals: super::infer::LocalBinders::default(),
         head_pending: false,
+        operators: super::operators::OperatorInference::default(),
         declared_binders: BTreeMap::new(),
+        subject_keys: BTreeMap::new(),
+        record_updates: super::record_updates::RecordUpdateState::default(),
+        collections: CollectionUse::new(collections),
     };
-    builder.infer(term, expected_sort, false)?;
+    builder.infer_sentence(|builder| builder.infer(term, expected_sort, false))?;
     builder.resolve_binding_sorts()?;
     builder.lower(term, expected_sort, false)
 }

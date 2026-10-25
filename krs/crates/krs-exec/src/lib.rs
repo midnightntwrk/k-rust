@@ -9,19 +9,24 @@
 //! - [`Semantics::search`] returns the set of reachable states, as `krun --search` does;
 //! - [`Semantics::prove`] proves the selected claims, as kprove does;
 //! - [`Semantics::unparse`] prints a term through the definition's grammar, as `krun --output pretty` does, and [`Semantics::unparse_program`] prints a parsed program as `kast --output program` does (`krs-unparse`).
+//! - [`Semantics::values`] names constructors and sorts by their KRS declarations, so a configuration variable can be given as a [`Value`] ([`ConfigValue::Value`]), and [`Semantics::views`] reads a result's cells as values by their Rust field names.
 //!
 //! The crate is filesystem-free: the caller supplies Definition IR, program text, and (optionally) the authored source text that trace origins are positioned in.
 //! The serialized reports form the `krs-exec/1` JSON shape that `krs run --output json` prints.
 //! Every operation can recurse deeply through large terms: callers run it on a thread with a large stack, as the CLI and the gate session do (64 MiB).
 
+mod cell_types;
 mod claims;
 mod configuration;
 mod console;
 mod origin;
 mod report;
 mod stage;
+mod values;
+mod view;
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 use std::{collections::HashMap, fmt};
 
 use k_rust::{
@@ -55,6 +60,8 @@ pub use report::{
     Capabilities, ClaimInfo, ConfigVariable, Halt, Modality, ProofLeaf, ProofReport, REPORT_SCHEMA,
     RunReport, SearchReport, Solution, SourceSpan, Step, StepOrigin, Term, Verdict,
 };
+pub use values::{Ctor, Decl, Float, SortRef, Value, ValueError, ValueIndex};
+pub use view::{CellError, StateView, View};
 
 /// Authored source text by file identity, used to position trace and claim origins.
 ///
@@ -143,13 +150,42 @@ pub struct ProgramInput {
     pub text: String,
 }
 
+/// The value of one configuration variable.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum ConfigValue {
+    /// Surface text, parsed at the variable's declared sort as `krun -c` parses it.
+    Text(String),
+    /// A value, typed at the variable's declared sort without a parse
+    /// ([`ValueIndex::ctor`], [`Value::map`], ...).
+    Value(Value),
+}
+
+impl From<String> for ConfigValue {
+    fn from(text: String) -> Self {
+        Self::Text(text)
+    }
+}
+
+impl From<&str> for ConfigValue {
+    fn from(text: &str) -> Self {
+        Self::Text(text.to_owned())
+    }
+}
+
+impl From<Value> for ConfigValue {
+    fn from(value: Value) -> Self {
+        Self::Value(value)
+    }
+}
+
 /// The inputs of one initial configuration.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ConfigInputs {
     /// FILE, bound to `$PGM`.
     pub program: Option<ProgramInput>,
-    /// `-c NAME=TEXT` bindings in command-line order. NAME is `ENV`, `$ENV`, or the init parameter `env`.
-    pub variables: Vec<(String, String)>,
+    /// Variable bindings, as `-c NAME=TEXT` gives them in command-line order. NAME is `ENV`,
+    /// `$ENV`, or the init parameter `env`; text and values may be mixed.
+    pub variables: Vec<(String, ConfigValue)>,
     /// Console input for the `stream = "stdin"` cell, as krun reads standard input under `--io off`;
     /// `None` binds an empty stream. It is ignored when the definition has no stdin stream cell.
     pub stdin: Option<Vec<u8>>,
@@ -179,6 +215,44 @@ pub enum PrintStyle {
     Kore,
     /// Grammar-directed text without colour, as `krun --output pretty` prints it; warnings are dropped (see [`Semantics::unparse`]).
     Pretty,
+}
+
+/// A part of a configuration value that does not fit the element types its variable is declared
+/// with ([`ExecError::CollectionElementSort`]).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ElementSortMismatch {
+    /// The variable, without `$`.
+    pub variable: String,
+    /// The `#[k::init]` parameter that declares the variable.
+    pub parameter: String,
+    /// The variable's declared type (`Map<Id, Value>`).
+    pub declared: String,
+    /// Where the part is in the value (``the value at key `x` ``).
+    pub position: String,
+    /// The part, printed through the definition's grammar.
+    pub element: String,
+    /// The part's sort.
+    pub sort: String,
+    /// The declared element sort it is not at most.
+    pub expected: String,
+}
+
+impl fmt::Display for ElementSortMismatch {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self {
+            variable,
+            parameter: _,
+            declared,
+            position,
+            element,
+            sort,
+            expected,
+        } = self;
+        write!(
+            formatter,
+            "configuration variable `${variable}`, declared `{declared}`: {position} is `{element}` of sort {sort}, which is not a subsort of {expected}"
+        )
+    }
 }
 
 /// A failure of a `krs-exec` operation.
@@ -255,6 +329,16 @@ pub enum ExecError {
     Unavailable(String),
     /// The backend returned a result KRS cannot read.
     Result(String),
+    /// A configuration value that is no term of the definition, or not of its variable's sort.
+    Value {
+        /// The variable, without `$`.
+        variable: String,
+        /// Why the value does not fit.
+        error: ValueError,
+    },
+    /// A configuration value with a part that does not fit the element types of the typed
+    /// collection cell the variable fills (`skip` stored in a `Map<Id, Value>` cell).
+    CollectionElementSort(Box<ElementSortMismatch>),
 }
 
 impl fmt::Display for ExecError {
@@ -344,10 +428,44 @@ impl fmt::Display for ExecError {
                     ),
                 }
             }
+            Self::Value { variable, error } => {
+                write!(formatter, "configuration variable `${variable}`: {error}")
+            }
+            Self::CollectionElementSort(mismatch) => mismatch.fmt(formatter),
             Self::SearchWithStreams => formatter.write_str(
                 "krs search cannot run a definition with stream cells; K's search has no console I/O (k-rust rejects --io on in search)",
             ),
         }
+    }
+}
+
+/// The value of an `initGeneratedTopCell` map entry: the map holds each value boxed as one
+/// `KItem`, `#KConfigValue(V ~> .K)`, and `V` is the sequence's one item.
+fn unboxed_configuration_value(boxed: &Pattern) -> &Pattern {
+    let box_symbol = k_rust::kompile::encode_kore_label(&k_rust::kast::Label::new("#KConfigValue"));
+    let Pattern::Application { symbol, arguments } = boxed else {
+        return boxed;
+    };
+    let [sequence] = arguments.as_slice() else {
+        return boxed;
+    };
+    if symbol.name != box_symbol.name {
+        return boxed;
+    }
+    match sequence {
+        Pattern::Application { symbol, arguments }
+            if symbol.name == k_rust::names::WellKnownSymbol::KSeq.as_str() =>
+        {
+            match arguments.as_slice() {
+                [item, Pattern::Application { symbol: tail, .. }]
+                    if tail.name == k_rust::names::WellKnownSymbol::DotK.as_str() =>
+                {
+                    item
+                }
+                _ => sequence,
+            }
+        }
+        _ => sequence,
     }
 }
 
@@ -386,6 +504,9 @@ pub struct Semantics {
     sort_hooks: HashMap<String, String>,
     unparser: krs_unparse::Unparser,
     configuration: Configuration,
+    values: Arc<ValueIndex>,
+    /// The typed cells configuration variables fill, which [`Self::configure`] checks.
+    cell_types: cell_types::CellTypes,
     frontend_definition: NativeDefinition,
     main_module: String,
     definition_kore: String,
@@ -476,6 +597,14 @@ impl Semantics {
             .map_err(ExecError::from)
         })?;
         let sort_hooks = result_sort_hooks(&mut backend)?;
+        let (values, cell_types) = timings.try_span("exec.values", |_| {
+            let backend_definition = backend
+                .select_definition(None)
+                .map_err(|error| ExecError::Backend(error.to_string()))?;
+            let values = ValueIndex::new(definition, &backend_definition, &sort_hooks);
+            let cell_types = cell_types::CellTypes::new(definition, &backend_definition, &values);
+            Ok::<_, ExecError>((Arc::new(values), cell_types))
+        })?;
         let user_sorts = user_sorts(definition, &frontend_definition);
         let console = console::ConsoleCells::of(definition);
         let mut origins = origin::Origins::new(sources);
@@ -497,6 +626,8 @@ impl Semantics {
             sort_hooks,
             unparser,
             configuration,
+            values,
+            cell_types,
             frontend_definition,
             main_module,
             definition_kore,
@@ -726,9 +857,20 @@ impl Semantics {
         }
         let mut bound = BTreeMap::new();
         let mut names = BTreeMap::new();
-        for (written, text) in &inputs.variables {
+        for (written, value) in &inputs.variables {
             let variable = self.resolve_variable(written)?;
-            if bound.insert(variable.name.clone(), text.clone()).is_some() {
+            let binding = match value {
+                ConfigValue::Text(text) => configuration::Binding::Text(text.clone()),
+                ConfigValue::Value(value) => {
+                    configuration::Binding::Term(self.values.to_kast(value).map_err(|error| {
+                        ExecError::Value {
+                            variable: variable.name.clone(),
+                            error,
+                        }
+                    })?)
+                }
+            };
+            if bound.insert(variable.name.clone(), binding).is_some() {
                 return Err(ExecError::DuplicateVariable(variable.name.clone()));
             }
             names.insert(variable.name.clone(), written.clone());
@@ -752,14 +894,99 @@ impl Semantics {
             .as_deref()
             .filter(|_| self.console.stdin)
             .map(console::buffered_input);
-        self.configuration
+        let pattern = self
+            .configuration
             .assemble_pattern(
                 program.map(|program| program.text.as_str()),
                 &bound,
                 stdin.as_deref(),
             )
-            .map(State)
-            .map_err(|error| configuration_error(&error, program, &names, &self.variables))
+            .map_err(|error| match error {
+                configuration::AssemblyError::Value { variable, error } => ExecError::Value {
+                    variable,
+                    error: ValueError::Unencodable(match error.as_ref() {
+                        k_rust::kompile::ConfigurationError::ValueSort(mismatch) => format!(
+                            "its sort {} is not at most the declared sort {}",
+                            mismatch.actual, mismatch.declared
+                        ),
+                        error => error.to_string(),
+                    }),
+                },
+                configuration::AssemblyError::Configuration(error) => {
+                    configuration_error(&error, program, &names, &self.variables)
+                }
+            })?;
+        self.check_cell_types(&pattern)?;
+        Ok(State(pattern))
+    }
+
+    /// Check every configuration variable's value in `pattern`, an assembled
+    /// `initGeneratedTopCell`, against the type the variable is declared with ([`cell_types`]).
+    fn check_cell_types(&self, pattern: &Pattern) -> Result<(), ExecError> {
+        let Pattern::Application { arguments, .. } = pattern else {
+            return Ok(());
+        };
+        let Some(entries) = arguments
+            .first()
+            .and_then(|map| self.values.collection_items(map, krs_ir::BuiltinSort::Map))
+        else {
+            return Ok(());
+        };
+        let mut bindings = entries
+            .iter()
+            .filter_map(|entry| {
+                let [key, value] = entry.as_slice() else {
+                    return None;
+                };
+                let Pattern::DomainValue { value: name, .. } = values::strip_injections(key) else {
+                    return None;
+                };
+                let name = name.as_utf8().ok()?.strip_prefix('$')?.to_owned();
+                Some((name, unboxed_configuration_value(value)))
+            })
+            .collect::<Vec<_>>();
+        bindings.sort_by(|left, right| left.0.cmp(&right.0));
+        let print = |pattern: &Pattern| {
+            self.unparser
+                .print_kore(
+                    pattern,
+                    &krs_unparse::Options::new(krs_unparse::Mode::Pretty),
+                )
+                .text
+        };
+        for (variable, value) in bindings {
+            if let Some(mismatch) = self.cell_types.check(&self.values, &variable, value) {
+                return Err(ExecError::CollectionElementSort(Box::new(
+                    ElementSortMismatch {
+                        variable,
+                        parameter: mismatch.parameter,
+                        declared: mismatch.declared,
+                        position: cell_types::describe(&mismatch.path, print),
+                        element: print(mismatch.element),
+                        sort: mismatch.sort,
+                        expected: mismatch.expected,
+                    },
+                )));
+            }
+        }
+        Ok(())
+    }
+
+    /// Assemble the initial configuration from surface text as [`Configuration::configure`] does,
+    /// and check the typed cells its variables fill as [`Self::configure`] does: the JSON
+    /// holds the pattern and each variable rendered on its own as KORE, for routes that pass a
+    /// value to another tool.
+    ///
+    /// # Errors
+    ///
+    /// Returns the assembler's error, or [`ExecError::CollectionElementSort`].
+    pub fn configure_surface(
+        &mut self,
+        variables: &serde_json::Map<String, serde_json::Value>,
+    ) -> Result<serde_json::Value, Box<dyn std::error::Error>> {
+        let (pattern, configured) = self.configuration.configure_pattern(variables)?;
+        self.check_cell_types(&pattern)?;
+        Ok(configured)
     }
 
     fn resolve_variable(&self, written: &str) -> Result<&ConfigVariable, ExecError> {
@@ -908,6 +1135,41 @@ impl Semantics {
             return Err(ExecError::NoClaims);
         }
         prove_claims(&mut self.backend, &self.sort_hooks, &self.claims, options)
+    }
+
+    /// The value tables of this definition: names constructors and sorts
+    /// ([`ValueIndex::decl`], [`ValueIndex::ctor`]) and decodes patterns ([`ValueIndex::decode`]).
+    #[must_use]
+    pub const fn values(&self) -> &Arc<ValueIndex> {
+        &self.values
+    }
+
+    /// The states of a result term, one for each disjunct of a `\or` (a run's or search
+    /// solution's state is one), with their cells addressed by KRS names.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ValueError::Malformed`] when a disjunct is not `\bottom` and not one
+    /// configuration of this definition conjoined with predicates.
+    pub fn views<'t>(&self, term: &'t Term) -> Result<Vec<View<'t>>, ValueError> {
+        view::views(&self.values, term.kore())
+    }
+
+    /// The state of a result term that is not a disjunction, as [`Self::views`] reads it.
+    ///
+    /// # Errors
+    ///
+    /// Fails as [`Self::views`] does, and with [`ValueError::Malformed`] for a disjunction of
+    /// several states.
+    pub fn view<'t>(&self, term: &'t Term) -> Result<View<'t>, ValueError> {
+        let mut views = self.views(term)?;
+        if views.len() != 1 {
+            return Err(ValueError::Malformed(format!(
+                "the term is a disjunction of {} states; read them with `views`",
+                views.len()
+            )));
+        }
+        Ok(views.remove(0))
     }
 
     /// A term from a KORE pattern of this definition, with its KAST conversion, which renders

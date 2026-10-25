@@ -191,16 +191,103 @@ pub fn run(
 ///
 /// The attribute is an axiom k-rust trusts, and the equation is another axiom of the same
 /// definition; on this application they contradict each other, so the definition is
-/// inconsistent there. Nothing about the run changes: the message only explains the empty leaf.
+/// inconsistent there under k-rust's stated readings. Nothing about the run changes: the message
+/// explains a record of the contradiction, which may be a leaf's halt, a decision on a path, or
+/// work on no reported path.
 pub fn contradicted_total_message(contradicted: &ContradictedTotal) -> String {
+    format!(
+        "{} on this input: {}; the attribute is trusted, so the definition is inconsistent here under k-rust's stated readings",
+        contradicted_attribute(contradicted),
+        contradicting_equation(contradicted),
+    )
+}
+
+/// The opening of a contradicted-`total` message: which attribute is contradicted.
+fn contradicted_attribute(contradicted: &ContradictedTotal) -> String {
+    format!(
+        "the `total` attribute of {} is contradicted",
+        k_label(contradicted.symbol())
+    )
+}
+
+/// The equation that contradicts a `total` attribute, at the application it reduced to bottom.
+fn contradicting_equation(contradicted: &ContradictedTotal) -> String {
     let application =
         KorePrinter::compact().print_pattern(&externalize::term(&contradicted.application));
     let undefined =
         KorePrinter::compact().print_pattern(&externalize::term(&contradicted.undefined_term));
     format!(
-        "the `total` attribute of {symbol} is contradicted on this input: its equation {equation} reduces {application} to bottom (undefined at {undefined}); the attribute is trusted, so the definition is inconsistent here",
-        symbol = k_label(contradicted.symbol()),
+        "its equation {equation} reduces {application} to bottom (undefined at {undefined})",
         equation = contradicted.attributes.diagnostic_name(k_label),
+    )
+}
+
+/// What krun tells the author of a contradicted claim a run observed
+/// (`k_rust_backend::path_facts::ContradictedClaim`), and who observed it: the rewrite rule whose
+/// work did, or the load of the definition.
+///
+/// A ground `total` record is [`contradicted_total_message`]: the claim is false at that input in
+/// every model that agrees with the request's inputs (on the I/O route, the console state too)
+/// and with k-rust's stated readings, and a ground `preserves-definedness` record says the same
+/// of the rule's result. A non-ground record rests on something that may differ between models
+/// of the definition (the state's variables, an assumption that may hold nowhere, a value the
+/// definition leaves open), so it shows no inconsistency and is worded as a contradiction where
+/// that holds only.
+pub fn contradicted_claim_message(claim: &k_rust_backend::path_facts::ContradictedClaim) -> String {
+    let (attribute, finding) = if let Some(total) = claim.total() {
+        (contradicted_attribute(total), contradicting_equation(total))
+    } else if let Some(preservation) = claim.preservation() {
+        contradicted_preservation(preservation)
+    } else {
+        unreachable!("every claim kind of this backend is printed")
+    };
+    let message = if claim.ground {
+        format!(
+            "{attribute} on this input: {finding}; the attribute is trusted, so the definition is inconsistent here under k-rust's stated readings"
+        )
+    } else if claim.preservation().is_some() {
+        format!(
+            "{attribute}: {finding}; the step was not decided on a ground instance alone (it rests on the state's variables, an assumption or a value the definition leaves open), so the attribute is contradicted only where the step applies so, which may be nowhere"
+        )
+    } else {
+        format!(
+            "{attribute}: {finding}; the refutation is not ground (it rests on the state's variables, an assumption or a value the definition leaves open), so the attribute is contradicted only where those hold, which may be nowhere"
+        )
+    };
+    match (&claim.rule, claim.observed_in) {
+        (_, k_rust_backend::path_facts::ObservedIn::Load) => {
+            format!("{message} (observed when the definition was loaded)")
+        }
+        (Some(rule), k_rust_backend::path_facts::ObservedIn::Run) => format!(
+            "{message} (observed by rule {})",
+            rule.label.as_deref().unwrap_or(&rule.unique_id)
+        ),
+        (None, k_rust_backend::path_facts::ObservedIn::Run) => message,
+    }
+}
+
+/// The opening and the finding of a contradicted-`preserves-definedness` message: the rule, with
+/// its written position, its result term as the step built it, and where its normalization found
+/// it undefined.
+fn contradicted_preservation(
+    preservation: &k_rust_backend::path_facts::ContradictedPreservation,
+) -> (String, String) {
+    let rule = preservation
+        .label
+        .as_deref()
+        .unwrap_or(&preservation.rule_id);
+    let position = preservation
+        .origin
+        .as_ref()
+        .and_then(k_rust_backend::rule::RuleOrigin::written_position)
+        .map(|position| format!(" at {position}"))
+        .unwrap_or_default();
+    let instance = KorePrinter::compact().print_pattern(&externalize::term(&preservation.instance));
+    let undefined =
+        KorePrinter::compact().print_pattern(&externalize::term(&preservation.undefined_term));
+    (
+        format!("the `preserves-definedness` attribute of rule {rule}{position} is contradicted"),
+        format!("its result {instance} is undefined at {undefined}"),
     )
 }
 
@@ -277,6 +364,28 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
         |rule: &k_rust_backend::rule::RewriteRule| rule.attributes.diagnostic_name(k_label);
     let unique_id =
         |rule: &k_rust_backend::rule::RewriteRule| rule.attributes.identifier().map(str::to_owned);
+    // A written meaning of a hook (`UnjoinedPair::hook`), named with the equation it states.
+    let meaning = |rule: &k_rust_backend::rule::RewriteRule| {
+        let side = |term: &k_rust_backend::term::Term| {
+            KorePrinter::compact().print_pattern(&externalize::term(term))
+        };
+        let rhs = match &rule.rhs {
+            k_rust_backend::rule::RuleRhs::Term(term) => side(term),
+            k_rust_backend::rule::RuleRhs::Bottom => "\\bottom".to_owned(),
+            // A written meaning's right-hand side is a term (`confluence/hooks.rs`).
+            k_rust_backend::rule::RuleRhs::Disjunction(_)
+            | k_rust_backend::rule::RuleRhs::Top
+            | k_rust_backend::rule::RuleRhs::Predicates(_) => "?".to_owned(),
+        };
+        format!(
+            "`{}` ({} = {rhs})",
+            rule.attributes
+                .label
+                .as_deref()
+                .unwrap_or(&rule.attributes.unique_id),
+            side(&rule.lhs)
+        )
+    };
     let mut findings = claims
         .violations()
         .iter()
@@ -323,7 +432,16 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
                     withdrawn_symbols(&pair.withdrawn)
                 )
             };
-            if matches!(pair.reason, UnjoinedReason::ComputedBelowRoot(_)) {
+            if let UnjoinedReason::UnmodelledHook(hook) = &pair.reason {
+                // The builtin is applied before any equation, so the equation applies only where
+                // the builtin gives no value; where it gives one, the equation is an axiom about
+                // the builtin's value that the check has no written meaning to check it against.
+                format!(
+                    "the equation {} is at a symbol hooked to `{hook}`, which the evaluator applies before any equation, and is not shown to agree with that hook ({}){claims}",
+                    equation(&pair.first),
+                    pair.reason,
+                )
+            } else if matches!(pair.reason, UnjoinedReason::ComputedBelowRoot(_)) {
                 // The equation matches the application as written: it applies where the subject
                 // spells the same application (a stuck or symbolic one), never where the
                 // argument holds the value the application computes.
@@ -348,7 +466,27 @@ pub fn value_claim_findings(definition: &BackendDefinition) -> Vec<ValueClaimFin
                 }
                 text
             });
-            if pair.in_argument() {
+            if let Some(hook) = &pair.hook {
+                // A hook pair: the second side is an equation of the hook's written meaning, an
+                // identity of the builtin the evaluator applies before any equation.
+                let claims = if pair.withdrawn.is_empty() {
+                    String::new()
+                } else {
+                    format!(
+                        "; no value claims are made for {}",
+                        withdrawn_symbols(&pair.withdrawn)
+                    )
+                };
+                let overlap = overlap
+                    .map(|text| format!(" (at {text})"))
+                    .unwrap_or_default();
+                format!(
+                    "the equation {} is not shown to agree with its hook `{hook}`, which the evaluator applies before any equation, against the meaning of the hook {}{overlap} ({}){claims}",
+                    equation(&pair.first),
+                    meaning(&pair.second),
+                    pair.reason,
+                )
+            } else if pair.in_argument() {
                 // Both equations are axioms: at an instance whose argument the second rewrites,
                 // the first's application equals the first's right-hand side and the application
                 // with the rewritten argument, which the check does not show equal.
@@ -750,9 +888,82 @@ fn undefined_initial_instances_message(definedness: &[Predicate], result_sort: &
     )
 }
 
+/// What a path met for a mark of `hook` and `class`: a value the definition leaves open, or, for
+/// `effect-order`, which is not a value, an effect order it leaves open.
+fn chosen_value_met(hook: &str, class: k_rust_backend::builtin::ChosenClass) -> String {
+    if class == k_rust_backend::builtin::ChosenClass::EffectOrder {
+        format!(
+            "met an effect order of {hook} the definition leaves open ({})",
+            class.name()
+        )
+    } else {
+        format!(
+            "read a value of {hook} the definition leaves open ({})",
+            class.name()
+        )
+    }
+}
+
+/// The warning for an `ImplementationChosenValue` diagnostic, printed once per run: a path to a
+/// result read a value the definition leaves open, or met an effect order it leaves open, so
+/// that result is one model's.
+fn implementation_chosen_value_message(
+    hook: &str,
+    class: k_rust_backend::builtin::ChosenClass,
+) -> String {
+    format!(
+        "a path to a result {}; in another model of the definition such a result may differ or be absent",
+        chosen_value_met(hook, class)
+    )
+}
+
+/// Print, once each, the marks of `listed`, the run's list, that no result's warning printed
+/// (`run_wide`): work on no reported path read them, a vanished candidate or an absorbed
+/// arrival, and in another model of the definition that work may give other results.
+fn report_unprinted_marks(
+    listed: &[k_rust_backend::builtin::ChosenValue],
+    run_wide: &HashSet<&BackendDiagnostic>,
+) {
+    let printed = run_wide
+        .iter()
+        .filter_map(|diagnostic| {
+            if let BackendDiagnostic::ImplementationChosenValue { hook, class } = diagnostic {
+                Some((hook.as_str(), *class))
+            } else {
+                None
+            }
+        })
+        .collect::<HashSet<_>>();
+    for chosen in listed {
+        if !printed.contains(&(&*chosen.hook, chosen.class)) {
+            eprintln!(
+                "warning: the run {} on no path to a result; another model of the definition may give other results",
+                chosen_value_met(&chosen.hook, chosen.class)
+            );
+        }
+    }
+}
+
+/// Print, once each, the records of `listed`, the run's list of contradicted claims, that no
+/// result's warning printed (`run_wide`): work on no reported path observed them.
+fn report_unprinted_claims(
+    listed: &[k_rust_backend::path_facts::ContradictedClaim],
+    run_wide: &HashSet<&BackendDiagnostic>,
+) {
+    for claim in listed {
+        let printed = run_wide.iter().any(|diagnostic| {
+            matches!(diagnostic, BackendDiagnostic::ContradictedClaim(other) if **other == *claim)
+        });
+        if !printed {
+            eprintln!("warning: {}", contradicted_claim_message(claim));
+        }
+    }
+}
+
 /// Print the warnings of `diagnostics`, one result's path, each once. A diagnostic about the
-/// initial configuration is on every result's path; `run_wide` keeps those already printed for
-/// another result of the run, so each is printed once per run.
+/// initial configuration is on every result's path, and a mark of an open value names no result;
+/// `run_wide` keeps those already printed for another result of the run, so each is printed
+/// once per run.
 fn report_diagnostics<'a>(
     definition: &BackendDefinition,
     diagnostics: impl IntoIterator<Item = &'a BackendDiagnostic>,
@@ -766,6 +977,20 @@ fn report_diagnostics<'a>(
             continue;
         }
         match diagnostic {
+            BackendDiagnostic::ImplementationChosenValue { hook, class } => {
+                if run_wide.insert(diagnostic) {
+                    eprintln!(
+                        "warning: {}",
+                        implementation_chosen_value_message(hook, *class)
+                    );
+                }
+            }
+            // A record names no result: once per run.
+            BackendDiagnostic::ContradictedClaim(claim) => {
+                if run_wide.insert(diagnostic) {
+                    eprintln!("warning: {}", contradicted_claim_message(claim));
+                }
+            }
             BackendDiagnostic::UndefinedInitialInstances { definedness } => {
                 if run_wide.insert(diagnostic) {
                     eprintln!(
@@ -1256,6 +1481,8 @@ fn run_backend_in_execution(
                 &mut run_wide,
             );
         }
+        report_unprinted_marks(&result.implementation_chosen_values, &run_wide);
+        report_unprinted_claims(&result.contradicted_claims, &run_wide);
         return Ok(BackendRunOutput {
             pattern: RunPattern::Matches(search_output(
                 &result,
@@ -1355,6 +1582,8 @@ fn run_backend_in_execution(
             &mut run_wide,
         );
     }
+    report_unprinted_marks(&execution.implementation_chosen_values, &run_wide);
+    report_unprinted_claims(&execution.contradicted_claims, &run_wide);
     if let Some(path) = options.stop_leaves {
         let depth_bounded = execution
             .leaves
@@ -1490,17 +1719,8 @@ fn run_backend_in_execution(
                     unreachable!("all dropped leaves were checked above")
                 }
             }
-            if let HaltReason::Trivial {
-                contradicted_total: Some(contradicted),
-                ..
-            }
-            | HaltReason::Vacuous {
-                contradicted_total: Some(contradicted),
-                ..
-            } = &leaf.halt_reason
-            {
-                eprintln!("warning: {}", contradicted_total_message(contradicted));
-            }
+            // A halt's contradicted claim, its cause, is one of the run's records, whose
+            // warnings were printed above.
         }
     }
     if let Some(target) = match_target {
@@ -2465,7 +2685,7 @@ mod undecided_reason_tests {
         let sort = Sort::simple("SortS");
         let mut names = vec!["VarUser".to_owned()];
         for provenance in VariableProvenance::ALL {
-            let marked = Variable::new("VarX", sort.clone())
+            let marked = Variable::new("VarX", sort)
                 .with_provenance(provenance)
                 .name
                 .to_string();
@@ -2477,7 +2697,7 @@ mod undecided_reason_tests {
         }
         let predicates = names
             .iter()
-            .map(|name| Predicate::Ceil(Term::variable(Variable::new(name.as_str(), sort.clone()))))
+            .map(|name| Predicate::Ceil(Term::variable(Variable::new(name.as_str(), sort))))
             .collect::<Vec<_>>();
         for (index, predicate) in predicates.iter().enumerate() {
             let reason = ConditionIndeterminacy::SmtUnknown("timeout".into());

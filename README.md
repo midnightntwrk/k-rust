@@ -19,6 +19,19 @@ that lowers natively through these crates. Its crates are members of this worksp
 to `k-rust` builds, lints, and tests KRS with it, and updates KRS in the same commit when it
 affects KRS.
 
+[`kink/`](kink/README.md) holds kink, semantic mutation testing and execution pattern matching
+for K definitions, built on these crates (developed as the repository k-in-k2 and merged with its
+history). Its crates are members of this workspace, so `cargo nextest run --workspace` runs kink's
+light tier, whose drift pins fail when a k-rust passage or source kink rests on moves; its kink and
+heavy tiers run with `kink/scripts/kink-tier.py` (the `kink` and `kink-heavy` entries of
+`scripts/gates.toml`). [`kink/README.md`](kink/README.md) says what a kill trusts and how to run
+the tiers.
+
+[`k2lean/`](k2lean/README.md) holds k2lean, which generates a Lean 4 library from a definition krust
+compiles (its sorts, functions, rules and proved K equations) and proves preserved invariants over
+it. Its generator is a member of this workspace; its Lean libraries, demos and regression gate
+(the `k2lean-light` and `k2lean-heavy` entries of `scripts/gates.toml`) are under `k2lean/`.
+
 ## Running examples
 
 Exercise Z3-backed parametric sort inference with the installed CLI:
@@ -121,13 +134,17 @@ A Rust host embeds the in-process backend through `k_rust::backend`, which re-ex
 
 ## Install and build
 
+Each GitHub release ships two archives per target (Linux and macOS, x86-64 and AArch64), built from the tagged commit: `k-rust`, holding `krust`, and `k-rust-fuzz`, holding `krust-fuzz`, which `krust fuzz` runs.
+Each has a shell installer, `k-rust-installer.sh` and `k-rust-fuzz-installer.sh`, that installs its executable into `$XDG_BIN_HOME` or `~/.local/bin`; install both from the same release, so that `krust-fuzz` lands beside `krust` and was built from the same k-rust sources (`krust fuzz` refuses a `krust-fuzz` of another build).
+
 The native frontend enables statically linked Z3 support by default.
 Z3 is downloaded from its official GitHub release rather than compiled from source:
 
 ```console
 cargo install --path crates/k-rust
+cargo install --path crates/k-rust-fuzz --features cli,z3-gh-release   # krust-fuzz, for `krust fuzz`
 # or
-cargo build --workspace --release
+cargo build --workspace --release --features k-rust-fuzz/cli
 ```
 
 The Z3 binding does not call a `z3` executable or require a system Z3 installation in this default mode.
@@ -192,6 +209,7 @@ The artifact records its main and syntax modules, configuration variables, front
 Recompile the directory when validation fails.
 The files inside the directory are private implementation details; compatibility is provided through the `kcompile` and `krun` CLI and library interfaces.
 `--emit-json` remains the opt-in external KAST JSON output and is independent of the runtime payload.
+`krust fuzz --definition definition-kompiled --program program.exp --campaign holes.toml --reach-rule MAIN.rule` crafts input values that make the program reach a target; it runs the `krust-fuzz` executable, which releases ship beside `krust` ([Install and build](#install-and-build); [crates/k-rust-fuzz/README.md](crates/k-rust-fuzz/README.md#command-line)). The Node-API and WebAssembly packages run the same campaigns in-process with `runFuzzCampaign`.
 
 Generate an executable parser or a shared library for the `$PGM` sort through the system Bison, Flex, and C compiler:
 
@@ -599,7 +617,7 @@ stateful module addition. Native sessions cache Z3 preludes per selected module.
 `execute` and `executeObserved` accept `resultModality`: `state-set` (the default) merges structurally equal final configurations and expands each distinct state of a depth once, so converging paths (such as the evaluation orders of a `strict` production) cost the distinct states rather than the paths, `path-set` returns one leaf per explored path, so converging paths keep their own trace, branch identity, and observations; every `ExecutionResult` reports its `modality`.
 They also accept `trace` (default `true`): with `false` every leaf's `trace` is empty and the rest of the result is unchanged, so the traces no longer grow with the total path length; an observed run's `branch` and `observations` stay proportional to each leaf's depth, so only an unobserved branching run's output is then linear in its leaves (state sizes aside).
 For the same request, observation preserves every non-observation leaf field and leaf order; `executeObserved` with `rules: []` returns every branch identity and no events.
-`execute` and `executeObserved` accept `collectCoverage`: the result then lists, in `coverage`, the rules and equations the run applied and those whose condition it began to decide, over every explored path whatever the modality ([Run coverage](docs/compatibility.md#run-coverage)); leaf traces are diagnostics, not a coverage surface.
+`execute` and `executeObserved` accept `collectCoverage`: the result then lists, in `coverage`, the rules and equations the run applied and those whose condition it began to decide, over every explored path whatever the modality ([Run coverage](docs/compatibility.md#run-coverage)); with `collectOffered` beside it, also every rule and equation whose left-hand side matched a state, application or predicate the run selected it for, tried or not (`offered`); with `collectCounts` beside it, also how many times the run applied each rule and equation of `applied` (`appliedCounts`, [Applied counts](docs/compatibility.md#applied-counts)); leaf traces are diagnostics, not a coverage surface.
 Persistent reachability is available as separate state-set/path-set and graph/pattern methods, with opt-in observed twins that serialize branch-local transition evidence and effects.
 Observed `transition` events are the committed transitions of `branch` that the rule filter admits, in branch order; equation, simplification, and builtin applications are `evaluation` events whose `anchor` counts the branch entries that precede the state they normalized, and they are diagnostics whose presence and order depend on the simplifier's strategy.
 Search requests negotiate schema version 1, reject unknown fields, and return a closed structural `incomplete` union; bounded synchronous responses are fully materialized and do not yet expose streaming or cancellation.
@@ -828,9 +846,14 @@ cargo package --workspace --exclude k-rust-napi --exclude k-rust-wasm --locked
 
 ## License
 
-`k-rust` is distributed under the BSD 3-Clause License. The bundled K Framework builtin sources
-retain their original copyright notices; see [NOTICE](NOTICE).
+`k-rust` is licensed under either of the Apache License, Version 2.0
+([`LICENSE-APACHE`](LICENSE-APACHE)) or the MIT license ([`LICENSE-MIT`](LICENSE-MIT)), at your
+option. KRS, everything under [`krs/`](krs/), is licensed the same way, and so is kink, under
+[`kink/`](kink/), except the K tutorial's IMP that `kink/examples/imp` copies, which keeps its
+BSD 3-Clause license (`kink/examples/imp/LICENSE-K.md`), and so is k2lean, under
+[`k2lean/`](k2lean/), except the third-party material its README lists.
 
-KRS, everything under [`krs/`](krs/), is licensed under either of the Apache License, Version 2.0
-([`krs/LICENSE-APACHE`](krs/LICENSE-APACHE)) or the MIT license
-([`krs/LICENSE-MIT`](krs/LICENSE-MIT)), at your option.
+The third-party material keeps its BSD 3-Clause license and copyright notices: the K Framework
+builtin sources and parser runtime copied into `crates/k-rust`, the K test data among its fixtures,
+and, to the extent it derives from it, the Haskell backend that `k-rust-backend` ports. The
+licenses are in [`licenses/`](licenses/), and [NOTICE](NOTICE) says what each covers.

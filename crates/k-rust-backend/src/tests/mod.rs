@@ -10,6 +10,7 @@ pub(crate) mod lean_bridge;
 mod matching;
 mod matching_oracle;
 mod parametric_subsorts;
+mod predicate_reading;
 mod rewrite;
 mod several_matchings;
 mod unread_frames;
@@ -22,6 +23,7 @@ pub(crate) mod priority_conjunct;
 
 mod proof_boundary;
 mod recover_boundary;
+mod recursion_stack;
 mod search_boundary;
 #[cfg(feature = "z3")]
 mod smt_boundary;

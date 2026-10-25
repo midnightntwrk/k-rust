@@ -41,7 +41,7 @@ use crate::{
     ite::{IteSplit, SplitSide, split_ite_pair},
     matching::{
         Bindings, CollectionSolution, FailReason, MatchMode, MatchResult, Narrowing,
-        match_terms_in_definition, solve_collection_pairs_in_definition,
+        UndecidedReason, match_terms_in_definition, solve_collection_pairs_in_definition,
     },
     rule::{Predicate, RewriteRule},
     simplify::{SimplificationError, SimplificationOptions, simplify_with_solver},
@@ -49,7 +49,7 @@ use crate::{
     stop::{Layered, Stoppable, Unwind},
     substitution::{Substitution, compose, substitute},
     term::{
-        HeadRole, Sort, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
+        HeadRole, Sort, Sorts, Symbol, SymbolType, Term, TermKind, Variable, VariableKind,
         names::{VariableProvenance, split_marker},
     },
     unification::{
@@ -66,6 +66,9 @@ use super::{
 /// An empty remainder means the match is complete.
 pub(crate) enum RecoveredMatch {
     Failed(FailReason),
+    /// A pair of the remainder asks a question the matcher does not answer
+    /// ([`MatchResult::Undecided`]): the match is neither refuted nor reduced to pairs.
+    Undecided(UndecidedReason),
     Matched {
         solution: MatchSolution,
         remainder: Vec<(Term, Term)>,
@@ -180,6 +183,9 @@ fn recover_by_simplifying_pairs(
             MatchResult::Failed(reason) => {
                 return Ok(RecoveredMatch::Failed(reason));
             }
+            MatchResult::Undecided(reason) => {
+                return Ok(RecoveredMatch::Undecided(reason));
+            }
             MatchResult::Indeterminate {
                 substitution: found,
                 remainder,
@@ -238,7 +244,9 @@ fn recover_by_simplifying_pairs(
                 matched.bind(&found);
                 continue;
             }
-            MatchResult::Failed(_) | MatchResult::Indeterminate { .. } => {}
+            MatchResult::Failed(_)
+            | MatchResult::Indeterminate { .. }
+            | MatchResult::Undecided(_) => {}
         }
         unresolved.extend(pair_remainder);
     }
@@ -267,8 +275,7 @@ pub(super) fn solve_collection_remainders_with_narrowing(
 ) -> Option<Vec<CollectionSolution>> {
     let mut names_to_avoid = pattern_variable_names(pattern);
     let mut fresh_frame = |sort: &Sort| {
-        let seed =
-            Variable::new("Frame", sort.clone()).with_provenance(VariableProvenance::Existential);
+        let seed = Variable::new("Frame", *sort).with_provenance(VariableProvenance::Existential);
         let fresh = fresh_variable(&seed, &mut names_to_avoid, fresh_counter);
         let TermKind::Variable(variable) = fresh.kind() else {
             unreachable!("fresh terms are variables")
@@ -576,7 +583,12 @@ fn is_collection_term(term: &Term) -> bool {
     )
 }
 
-pub(super) fn is_functional_pattern(term: &Term) -> bool {
+/// Whether `term` denotes at most one element: every symbol is interpreted as a partial function
+/// (a constructor as a total one), a collection literal is an application of its partial
+/// concatenation and element symbols, and an element variable denotes one element. It answers
+/// no at an `\and`, which also denotes at most one element when an operand does, because a
+/// conjunction is no term a caller can state in place of a variable or bind a variable to.
+pub(crate) fn is_functional_pattern(term: &Term) -> bool {
     match term.kind() {
         TermKind::Application {
             symbol, arguments, ..
@@ -736,6 +748,12 @@ fn search_symbolic_map_key_matches(
         let (substitution, unresolved) =
             match match_terms_in_definition(MatchMode::Rewrite, definition, &rest, &subject_rest) {
                 MatchResult::Failed(_) => return,
+                // Not refuted: the branch keeps the pair, which the attempt leaves undecided.
+                MatchResult::Undecided(_) => {
+                    let mut unresolved = unresolved;
+                    unresolved.push((rest, subject_rest));
+                    (substitution, unresolved)
+                }
                 MatchResult::Success(found) => (compose(&found, &substitution), unresolved),
                 MatchResult::Indeterminate {
                     substitution: found,
@@ -777,6 +795,11 @@ fn search_symbolic_map_key_matches(
             subject_value,
         ) {
             MatchResult::Failed(_) => continue,
+            MatchResult::Undecided(_) => {
+                let mut next_unresolved = unresolved.clone();
+                next_unresolved.push((pattern_value, subject_value.clone()));
+                (substitution.clone(), next_unresolved)
+            }
             MatchResult::Success(found) => (compose(&found, &substitution), unresolved.clone()),
             MatchResult::Indeterminate {
                 substitution: found,
@@ -837,6 +860,7 @@ pub(super) fn recover_boolean_matches(
             let operand = substitute(&operand, &substitution);
             match match_terms_in_definition(MatchMode::Implies, definition, &operand, &expected) {
                 MatchResult::Failed(_) => return Some(Vec::new()),
+                MatchResult::Undecided(_) => branch_remainder.push((operand, expected.clone())),
                 MatchResult::Success(found) => {
                     substitution = compose(&found, &substitution);
                 }
@@ -1016,7 +1040,7 @@ fn split_map_not_in_keys_pair(left: &Term, right: &Term) -> Option<MapNotInKeysS
     })
 }
 
-fn map_in_keys_arguments(term: &Term) -> Option<(Arc<Symbol>, Vec<Sort>, Term, Term)> {
+fn map_in_keys_arguments(term: &Term) -> Option<(Arc<Symbol>, Sorts, Term, Term)> {
     let TermKind::Application {
         symbol,
         sort_arguments,
@@ -1031,12 +1055,7 @@ fn map_in_keys_arguments(term: &Term) -> Option<(Arc<Symbol>, Vec<Sort>, Term, T
     let [key, map] = arguments.as_slice() else {
         return None;
     };
-    Some((
-        symbol.clone(),
-        sort_arguments.clone(),
-        key.clone(),
-        map.clone(),
-    ))
+    Some((symbol.clone(), *sort_arguments, key.clone(), map.clone()))
 }
 
 /// Normalize unification of a hooked equality application with a Boolean domain value.
@@ -1044,6 +1063,14 @@ fn map_in_keys_arguments(term: &Term) -> Option<(Arc<Symbol>, Vec<Sort>, Term, T
 /// The true case delegates to ordinary unification of the operands so useful substitutions are
 /// retained. The false case is the complement of operand equality and therefore remains a path
 /// condition.
+///
+/// An equality of the subject consumed here is replaced by a condition over its operands, which
+/// is weaker than the equation it replaces where an operand is undefined: the equality is strict,
+/// so `(a ==Int b) = false` holds only where both operands are defined, while `\not(a = b)` also
+/// holds where `a` is undefined and `b` is not, and `a = b` holds where both are undefined, since
+/// `\equals(\bottom, \bottom)` is `\top`. So the condition states both operands' definedness
+/// (`ceil_term`, nothing for a `ceil_free` operand), as the step does for what it binds. Where
+/// `ceil_term` cannot state it (`crate::deferred`), the strategy declines.
 pub(super) fn recover_equality_matches(
     definition: &BackendDefinition,
     rule: &RewriteRule,
@@ -1077,6 +1104,14 @@ pub(super) fn recover_equality_matches(
                 &split.right,
             ) {
                 MatchResult::Failed(_) => Vec::new(),
+                MatchResult::Undecided(_) => {
+                    untouched.push((split.left, split.right));
+                    vec![PartialRuleMatch {
+                        substitution,
+                        conditions: Vec::new(),
+                        remainder: untouched,
+                    }]
+                }
                 MatchResult::Success(found) => vec![PartialRuleMatch {
                     substitution: compose(&found, &substitution),
                     conditions: Vec::new(),
@@ -1104,17 +1139,24 @@ pub(super) fn recover_equality_matches(
     };
     let left = substitute(&split.left, &substitution);
     let right = substitute(&split.right, &substitution);
+    let mut conditions = if matches!(split.side, SplitSide::Subject) {
+        let mut obligations = ceil_term(definition, &left).ok()?;
+        extend_unique(&mut obligations, ceil_term(definition, &right).ok()?);
+        obligations
+    } else {
+        Vec::new()
+    };
     let equality = Predicate::Equals(left, right);
     let condition = if split.value {
         equality
     } else {
         Predicate::Not(Arc::new(equality))
     };
-    let conditions = match predicates_truth(std::slice::from_ref(&condition)) {
+    match predicates_truth(std::slice::from_ref(&condition)) {
         Truth::False => return Some(Vec::new()),
-        Truth::True => Vec::new(),
-        Truth::Unknown => vec![condition],
-    };
+        Truth::True => {}
+        Truth::Unknown => conditions.push(condition),
+    }
     Some(vec![PartialRuleMatch {
         substitution,
         conditions,
@@ -1188,28 +1230,40 @@ fn bool_domain_value(term: &Term) -> Option<bool> {
 /// is dropped before its operand is matched: the operand of a branch the path excludes is an
 /// operand the conditional never evaluates (`crate::deferred`), and matching it re-enters the
 /// rule attempt, which simplifies it. A feasible branch's operand is that branch's taken operand.
+///
+/// A conditional of the subject split here is consumed: each branch replaces it by its
+/// condition's value and its taken operand, and says nothing of the other operand. The
+/// conditional is strict in every operand (`#if true #then T #else E #fi` is `T` only where `E`
+/// is defined), so each branch of a subject-side split also states the conditional's definedness
+/// (`ceil_term`, whose obligations for the operands it does not evaluate are deferred atoms,
+/// `crate::deferred`); where `ceil_term` cannot state it, the strategy declines.
 pub(super) fn recover_ite_matches(
     definition: &BackendDefinition,
     substitution: Substitution,
     remainder: &[(Term, Term)],
     refuted: &mut dyn FnMut(&Predicate) -> Stoppable<bool>,
 ) -> Option<Stoppable<Vec<PartialRuleMatch>>> {
-    let (index, side, condition, then_pair, else_pair) =
-        remainder
-            .iter()
-            .enumerate()
-            .find_map(|(index, (pattern, subject))| {
-                let pattern = substitute(pattern, &substitution);
-                let subject = substitute(subject, &substitution);
-                split_ite_pair(&pattern, &subject).map(
-                    |IteSplit {
-                         side,
-                         condition,
-                         then_pair,
-                         else_pair,
-                     }| { (index, side, condition, then_pair, else_pair) },
-                )
-            })?;
+    let (index, side, condition, then_pair, else_pair, subject) = remainder
+        .iter()
+        .enumerate()
+        .find_map(|(index, (pattern, subject))| {
+            let pattern = substitute(pattern, &substitution);
+            let subject = substitute(subject, &substitution);
+            split_ite_pair(&pattern, &subject).map(
+                |IteSplit {
+                     side,
+                     condition,
+                     then_pair,
+                     else_pair,
+                 }| { (index, side, condition, then_pair, else_pair, subject) },
+            )
+        })?;
+    // The definedness of the subject's conditional, which every branch consumes.
+    let consumed = if matches!(side, SplitSide::Subject) {
+        ceil_term(definition, &subject).ok()?
+    } else {
+        Vec::new()
+    };
     let untouched = remainder
         .iter()
         .enumerate()
@@ -1231,6 +1285,7 @@ pub(super) fn recover_ite_matches(
         let matched = match_terms_in_definition(MatchMode::Rewrite, definition, &pattern, &subject);
         let (found, mut branch_remainder) = match matched {
             MatchResult::Failed(_) => continue,
+            MatchResult::Undecided(_) => (Substitution::new(), vec![(pattern, subject)]),
             MatchResult::Success(found) => (found, Vec::new()),
             MatchResult::Indeterminate {
                 substitution,
@@ -1245,6 +1300,7 @@ pub(super) fn recover_ite_matches(
         if matches!(side, SplitSide::Pattern) {
             match match_terms_in_definition(MatchMode::Rewrite, definition, &condition, &value) {
                 MatchResult::Failed(_) => continue,
+                MatchResult::Undecided(_) => branch_remainder.push((condition.clone(), value)),
                 MatchResult::Success(found) => {
                     substitution = compose(&found, &substitution);
                 }
@@ -1259,6 +1315,7 @@ pub(super) fn recover_ite_matches(
                 }
             }
         } else {
+            conditions.extend(consumed.iter().cloned());
             conditions.push(Predicate::Equals(condition, value));
         }
         recovered.push(PartialRuleMatch {
@@ -1347,7 +1404,7 @@ pub(super) fn recover_overload_symbolic_match(
         .enumerate()
         .map(|(index, sort)| {
             fresh_variable(
-                &Variable::new(format!("Overload{index}"), sort.clone())
+                &Variable::new(format!("Overload{index}"), *sort)
                     .with_provenance(VariableProvenance::Existential),
                 &mut names_to_avoid,
                 fresh_counter,
@@ -1359,24 +1416,22 @@ pub(super) fn recover_overload_symbolic_match(
         candidate_term.clone()
     } else {
         Term::injection(
-            candidate.result_sort.clone(),
-            configuration_variable.sort.clone(),
+            candidate.result_sort,
+            configuration_variable.sort,
             candidate_term.clone(),
         )
     };
     let lifted = if candidate.result_sort == *target {
         candidate_term
     } else {
-        Term::injection(
-            candidate.result_sort.clone(),
-            target.clone(),
-            candidate_term,
-        )
+        Term::injection(candidate.result_sort, *target, candidate_term)
     };
     let found = match match_terms_in_definition(MatchMode::Rewrite, definition, &rule_term, &lifted)
     {
         MatchResult::Success(found) => found,
-        MatchResult::Failed(_) | MatchResult::Indeterminate { .. } => return None,
+        MatchResult::Failed(_) | MatchResult::Indeterminate { .. } | MatchResult::Undecided(_) => {
+            return None;
+        }
     };
     Some((
         compose(&found, &substitution),
@@ -1394,15 +1449,11 @@ mod tests {
     #[test]
     fn set_variables_are_not_functional_patterns() {
         let sort = Sort::simple("SortS");
-        let element = Term::variable(Variable::new("X", sort.clone()));
-        let set = Term::variable(Variable::set("Y", sort.clone()));
+        let element = Term::variable(Variable::new("X", sort));
+        let set = Term::variable(Variable::set("Y", sort));
         let pair = |left: Term, right: Term| {
             Term::application(
-                Arc::new(Symbol::constructor(
-                    "pair",
-                    vec![sort.clone(), sort.clone()],
-                    sort.clone(),
-                )),
+                Arc::new(Symbol::constructor("pair", vec![sort, sort], sort)),
                 Vec::new(),
                 vec![left, right],
             )

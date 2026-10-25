@@ -61,6 +61,7 @@ const UNSUPPORTED_TAGGED: &[&str] = &[
     "ProtocolCellContent",
     "ProtocolContextAliasBindingKind",
     "ProtocolHeadRuleExtra",
+    "ProtocolHeadRuleListRest",
     "ProtocolHeadRuleResult",
     "ProtocolInitializerCellContent",
     "ProtocolInitializerStateTerm",
@@ -135,6 +136,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "IrEvaluationResult",
     "ConstructorDescriptor",
     "ConstructorFieldDescriptor",
+    "ConstructorSortArgumentDescriptor",
     "ContextAliasSentence",
     "DefinitionClaim",
     "DefinitionFunctionContext",
@@ -153,6 +155,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "DescriptorEvaluationStep",
     "DescriptorConfigurationRule",
     "DescriptorContextAlias",
+    "ConstantDescriptor",
     "DescriptorDeclaration",
     "DescriptorFixedConfiguration",
     "DescriptorFunctionContext",
@@ -187,6 +190,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "ProtocolContextAliasBinding",
     "ProtocolHeadRuleBracketAlternative",
     "ProtocolHeadRuleHead",
+    "ProtocolHeadRuleList",
     "ProtocolInitializerCell",
     "ProtocolMap",
     "ProtocolRuleBinding",
@@ -219,6 +223,7 @@ const UNSUPPORTED_TRANSITIVE: &[&str] = &[
     "WireClaim",
     "WireConfigurationRule",
     "WireContextAlias",
+    "WireConstant",
     "WireFixedConfiguration",
     "WireFunctionContext",
     "WireHeadRule",
@@ -301,6 +306,12 @@ fn samples() -> Samples {
         .unwrap();
     tracer
         .trace_value(&mut samples, &SymbolId::new("symbol").unwrap())
+        .unwrap();
+    tracer
+        .trace_value(
+            &mut samples,
+            &DeclarationPath::new("krate", ["module", "Item"]).unwrap(),
+        )
         .unwrap();
     tracer
         .trace_value(&mut samples, &LabelId::new("label").unwrap())
@@ -665,9 +676,12 @@ fn registry() -> Registry {
         };
     }
     trace!(BuiltinOperation: BuiltinOperation);
+    trace!(BuiltinOperator: BuiltinOperator);
+    trace!(ListNotation: ListNotation);
     trace!(BuiltinSort: BuiltinSort);
     trace!(SortedByKey: krs_ir::sorted::SortedByKey<ModuleId>);
     trace!(CellCollectionType: CellCollectionType);
+    trace!(CellSortArgument: CellSortArgument<String>);
     trace!(CellColor: CellColor);
     trace!(CellMultiplicity: CellMultiplicity);
     trace!(CellClauseKind: CellClauseKind);
@@ -758,6 +772,7 @@ fn registry() -> Registry {
     trace!(StrictnessKind: StrictnessKind);
     trace!(SortParameterId: SortParameterId);
     trace!(SymbolId: SymbolId);
+    trace!(DeclarationPath: DeclarationPath);
     trace!(SymbolIdentity: SymbolIdentity);
     trace!(SymbolKind: SymbolKind);
     trace!(IntLiterals: IntLiterals);
@@ -778,6 +793,7 @@ fn registry() -> Registry {
     trace!(WireSortDescriptor: WireSortDescriptor);
     trace!(WireConstructorDescriptor: WireConstructorDescriptor);
     trace!(WireConstructorFieldDescriptor: WireConstructorFieldDescriptor);
+    trace!(WireConstructorSortArgument: WireConstructorSortArgument);
     trace!(WireContextAliasReference: WireContextAliasReference);
     trace!(WireHeadRuleCellReference: WireHeadRuleCellReference);
     trace!(WireSortReference: WireSortReference);
@@ -788,8 +804,11 @@ fn registry() -> Registry {
     trace!(ProtocolKSequenceItem: ProtocolKSequenceItem<String>);
     trace!(ProtocolKSequence: ProtocolKSequence<String>);
     trace!(ProtocolMapItem: ProtocolMapItem<String>);
+    trace!(ProtocolSortArgument: ProtocolSortArgument<String>);
     trace!(ProtocolConfigurationInitializer: ProtocolConfigurationInitializer<String,String,String>);
     trace!(ProtocolHeadRuleBinding: ProtocolHeadRuleBinding<String>);
+    trace!(HeadRuleClaim: HeadRuleClaim);
+    trace!(ProtocolHeadRuleMapEntry: ProtocolHeadRuleMapEntry<String>);
     trace!(ProtocolTypedBinding: ProtocolTypedBinding<String>);
     trace!(ProtocolRuleKSequenceItem: ProtocolRuleKSequenceItem<String>);
     trace!(ProtocolRuleMapItem: ProtocolRuleMapItem<String>);
@@ -854,6 +873,7 @@ fn registry() -> Registry {
     unsupported!(ConfigurationRoot: ConfigurationRoot);
     unsupported!(ConstructorDescriptor: ConstructorDescriptor);
     unsupported!(ConstructorFieldDescriptor: ConstructorFieldDescriptor);
+    unsupported!(ConstructorSortArgumentDescriptor: ConstructorSortArgumentDescriptor);
     unsupported!(ContextAliasSentence: ContextAliasSentence);
     unsupported!(DefinitionClaim: DefinitionClaim);
     unsupported!(DefinitionScopedBinder: DefinitionScopedBinder);
@@ -892,6 +912,7 @@ fn registry() -> Registry {
     unsupported!(DescriptorConfigurationRoot: DescriptorConfigurationRoot);
     unsupported!(DescriptorConfigurationRule: DescriptorConfigurationRule);
     unsupported!(DescriptorContextAlias: DescriptorContextAlias);
+    unsupported!(ConstantDescriptor: ConstantDescriptor);
     unsupported!(DescriptorFunctionContext: DescriptorFunctionContext);
     unsupported!(DefinitionFunctionContext: DefinitionFunctionContext);
     unsupported!(DescriptorDeclaration: DescriptorDeclaration);
@@ -962,6 +983,7 @@ fn registry() -> Registry {
     trace!(WireEvaluationStep: WireEvaluationStep);
     unsupported!(WireConfigurationRule: WireConfigurationRule);
     unsupported!(WireContextAlias: WireContextAlias);
+    unsupported!(WireConstant: WireConstant);
     unsupported!(WireFunctionContext: WireFunctionContext);
     unsupported!(WireFixedConfiguration: WireFixedConfiguration);
     unsupported!(WireHeadRule: WireHeadRule);
@@ -1011,6 +1033,8 @@ fn registry() -> Registry {
     unsupported!(ProtocolHeadRuleResult: ProtocolHeadRuleResult<String>);
     unsupported!(ProtocolHeadRuleBracketAlternative: ProtocolHeadRuleBracketAlternative<String,String,String>);
     unsupported!(ProtocolHeadRuleHead: ProtocolHeadRuleHead<String>);
+    unsupported!(ProtocolHeadRuleList: ProtocolHeadRuleList<String>);
+    unsupported!(ProtocolHeadRuleListRest: ProtocolHeadRuleListRest<String>);
     unsupported!(ProtocolHeadRuleExtra: ProtocolHeadRuleExtra<String,String>);
     unsupported!(ProtocolRuleBindingKind: ProtocolRuleBindingKind<String>);
     unsupported!(ProtocolRuleBinding: ProtocolRuleBinding<String>);

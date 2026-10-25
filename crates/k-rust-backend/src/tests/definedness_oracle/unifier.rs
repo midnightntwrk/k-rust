@@ -590,6 +590,13 @@ pub(super) fn run_matcher(cases: u64, seed: u64) -> UnifierTally {
                     }
                 }
             }
+            // The definitions and subjects here are closed and the subjects ground: no sort
+            // variable and no shared variable is there to leave a pair undecided.
+            MatchResult::Undecided(reason) => {
+                tally
+                    .failures
+                    .push(format!("{shown}: the match is undecided ({reason:?})"));
+            }
             MatchResult::Indeterminate { remainder, .. }
                 if remainder.iter().any(|(pattern, _)| {
                     matches!(pattern.kind(), crate::term::TermKind::Application { symbol, .. }

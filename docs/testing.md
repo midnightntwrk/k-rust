@@ -51,11 +51,90 @@ The `ci-checked` profile leaves out k-rust's `measure_ratchet`, whose snapshots 
 A change that breaks KRS fixes KRS in the same change: there is no k-rust pin to move.
 Beyond its Rust tests, KRS has gates (`krs/tests/<gate>/verify.py`) that compare its emitted K and its route through these crates with Java K results; `scripts/gates.toml` names them:
 
-- `krs-light` (certification, owed by a change to krust's sources or to KRS): every gate but the browser and heavy ones, about ten minutes after a change to these crates, since the gates build their tools (`krs`, `krs-gate`) once in the workspace's `target/`;
-- `krs-imp`, `krs-kevm`, `krs-kmir`, `krs-kwasm` (heavy, at a host UID): the complete IMP definition and the three language ports, one at a time.
+- `krs-light` (certification, owed by a change to krust's sources or to KRS): every gate but the browser and heavy ones, as many at a time as the available memory has room for at 3 GiB each (`KRS_LIGHT_JOBS` overrides).
+  The gates build their tools (`krs`, `krs-gate`), the packages they check, and the collectors `krs` generates for those packages in the workspace's `target/`, so a change to these crates rebuilds each once; the run then removes the collectors of the gates' temporary packages from that target.
+  On 2026-10-20, on a 32-core host under a load of about 30 from other work, it took about four minutes after a change to these crates or to KRS, three with nothing changed, and nine from an empty target;
+  most of that is the gates' several hundred `krs` invocations, each of which runs Cargo to build or check a collector;
+- `krs-ports-emit` (certification, runs in an agent sandbox): for the complete IMP definition and the three language ports, the steps of each port's heavy gate that read only the port's packages and the `krs` binary (`krs fmt --check`, the `krs check` count and warnings, the `krs expand` digest and its independent compile, two fresh emissions and a cached replay), against that gate's own pins, plus the digest of what the macros hand rustc for every port source file (`krs/tests/ports-emit/verify.py`).
+  It owns only that last pin, which `krs/tests/gates.sh ports-emit --record` rewrites; a moved artifact pin is recorded by the port's own gate.
+  A source file the whole-file expander refuses (two of IMP's test-only files, which define descriptors in inline modules) is pinned by its diagnostics, which do not show its macro output.
+  On 2026-10-24, with the tools and port targets warm, under a load of about 15, it took about two minutes with a peak RSS of 1.3 GiB.
+- `krs-class` (certification, runs in an agent sandbox): the class tests' full tier (`scripts/krs-class.sh`, the ignored shards of `krs/crates/krs-cli/tests/class_matrix.rs`).
+  Every case `krs_test_support::class_matrix` generates (one construct in one slot of an otherwise accepted base: readable records and claims, `cells!` rules, initializers, every term shape at the term positions of every sentence form, and bare variants under a module-level import) goes through Cargo, rustc, the collector, and `emit-k`'s lowering, and a refused case must be refused with one error, carrying a registered KRS author code (not an internal or environment one), located, by its primary range or one of its labels, inside the case's entry (or the site its mistake class names), without a panic or an internal error; and it must do what `krs/tests/class-matrix/expected.toml` says: be refused with the code of its mistake class, or be accepted and emit the K the table records.
+  The cases of one base share batch packages, one command constructor per case; an error is attributed to the case that holds it, and the batch is collected again without the refused cases, so each case is judged from the descriptors of the base and its own.
+  Each accepted case that is no initializer is then printed by `krs expand` with the others of its batch, and the printed source must emit the case's sentences again, up to alpha-renaming and the `...` spellings of rests and frames (K3); the shards print how many cases of each form are byte-identical, equal after that normalization, different, or refused when printed.
+  Its `k5` shard breaks the header of each of the 53 entry points in one package that uses them all, and requires exactly one diagnostic under `krs check` and under plain `cargo check`.
+  On 2026-10-25, under a load of about 50 from other work, the whole tier took 21 minutes on one worker (the script then sized workers by CPU load; it now sizes them by available memory, 3 GiB each), with a peak RSS of 2.7 GiB and 30 GB of scratch at its end (removed); under a load of about 10, before K3, K4, and K5 were added, five workers ran the five case shards in 200 s.
+  Its `k4` shard compares KRS's five sort judges with k-rust's subsort relations (`compute_subsorts`, `compute_disambiguation_subsorts`) of each generated base's emitted definition, as k-rust adapts and loads it.
+  `krs/tests/class-matrix/expected.toml` decides every case (a new case needs its entry), its accepted K written by `scripts/krs-class.sh --record` and reviewed as a diff, and `pending.toml` lists the cases known not to conform, each with its finding, its step and its exact deviation; `krs/tests/class-matrix/README.md` says how to run one shard and how to record a deviation.
+- `krs-ports-rust` (heavy, at a host UID): the four port gates with `--artifacts-only`, which add the ports' Clippy, tests, MSRV check, and rust-analyzer probes, as many at a time as the available memory has room for at 8 GiB each (`KRS_PORTS_JOBS` overrides).
+- `krs-imp`, `krs-kevm`, `krs-kmir`, `krs-kwasm` (heavy, at a host UID): the complete IMP definition and the three language ports, through their native compile, behavior corpus, and proofs; run several at once only when the available memory has room for them.
+- `krs-tour-pages` (certification, owed by a change to one of the three site pages whose proof claims `tour-proof-evidence` checks against KRS's pinned results): that gate alone (`krs/tests/gates.sh tour-pages`).
+  No other KRS gate reads `docs-site/`, so an edit to any other page owes no KRS gate; the site's own checks are in `docs-site/README.md`.
+
+`krs/tests/gates.sh lint`, which `krs.yml` runs, lints the standalone test packages (`krs/tests/support/packages.py`) with Clippy and checks them on the MSRV; the gates only format-check them, since the lint judges the packages' source rather than what KRS does with it.
 
 The gates read Z3 4.12.5 through `KRS_Z3_LIB` (or the Nix store) and replay Java K results from a per-user cache; a cold cache runs K 7.1.337 through `KRS_K_BIN` or `PATH` (`krs/README.md`, "Prerequisites").
 When a change alters an output a gate pins on purpose, rerun that gate with `--record` and review the pin diff with the change; `--record` never rewrites an input pin.
+
+#### What each KRS gate observes
+
+The registry's path patterns name the changes each KRS gate is a candidate for, because the gate observes what they change; `scripts/run-gates.sh --list --changed BASE..HEAD` lists the candidates of committed work and `--list --worktree` those of uncommitted work.
+A candidate is assessed against the change, not run by rote: run the checks the change justifies, and report one that contention keeps from running as pending.
+
+The heavy port gates observe, in order: the port's Rust checks (Clippy, tests, the MSRV check, rust-analyzer), which see the macro output, the facade crate, and the toolchain; its formatting, `krs check` warnings, expansion, and emitted artifacts; and its native compile, behavior corpus, and proofs, which read the emitted `definition-ir.json` through the native code (`krs-ir`, `krs-ir-levels`, `krs-k-rust`, `krs-exec`, `krs-unparse`, `krs-gate`) and krust; IMP's also run `krs build` and `krs run`, so they read `krs-cli` too.
+`krs-ports-emit` checks the middle layer against the heavy gates' own pins and pins the macro output, so while it passes, a heavy gate's later layers would read the same bytes through the same code unless that code changed.
+
+| A change to | Candidates | Not candidates, and why |
+|---|---|---|
+| `docs/`, Markdown, `krs/docs-plan/` | none; under `krs/`, `python3 krs/tests/repo-hygiene/verify.py` (seconds), which scans every tracked file | no gate reads them |
+| a `docs-site/` page | the site's own checks (`docs-site/README.md`); `krs-tour-pages` for the three pages it reads | every other KRS gate: none reads `docs-site/` |
+| `krs-fmt` | its crate tests, `krs-light`, `krs-ports-emit` (the ports' `krs fmt --check`) | heavy: formatting reaches no emitted K, and the ports' format check is in `krs-ports-emit` |
+| the browser crates (`krs-expand-wasm`, `krs-wasm-abi`, `krs-lesson-policy`) | their crate tests, the `krs.yml` wasm lints, the browser gates; `krs-light` by its path set | `krs-ports-emit`, heavy: neither the `krs` binary nor the ports link them |
+| the collector, compiler, or CLI (`krs-collector`, `krs-compiler`, `krs-cli`), diagnostics included | crate tests, `krs-light`, `krs-ports-emit`, `krs-class`; `krs-imp` for `krs-cli`, whose `build` and `run` IMP's later layers execute | the other heavy gates, while `krs-ports-emit` passes: the ports compile without errors, their warnings and artifacts are pinned, and identical artifacts give the later layers identical inputs |
+| the parser and expander (`krs-syntax`, `krs-expand`, `krs-diagnostic`) | as above (`krs-imp` aside); `krs-ports-rust` when the macro-output pin moved | full heavy, while no artifact pin moved |
+| the facade or the macros (`krs`, `krs-macros`), or `Cargo.lock` | as above, and `krs-ports-rust` | the macro-output digest does not see spans inside a segment, which can change what Clippy treats as macro code, nor the facade's API |
+| the native code, the port harness (`krs/tests/gates.sh`, `krs/tests/support/`, `krs/Krs.lock`), or krust | crate tests, `krs-light`, `krs-ports-emit`, all four heavy gates; `krs-class` for `krs-ir` and `krs-ir-levels`, which every case's lowering reads, and for `krs-k-rust` and krust's definition loader and relations, which its `k4` shard reads | none: the later layers run this code, and nothing cheaper pins it |
+| a port (`krs/semantics/<port>/`, `krs/tests/<port>/`, its pins included) | `cargo test --manifest-path krs/semantics/Cargo.toml`, `krs-ports-emit`, that port's heavy gate | the other ports' heavy gates |
+| the class tests' generator or table (`krs-test-support`, `krs/tests/class-matrix/`) | `cargo test -p krs-test-support`, `krs-class`; `krs-light` by its path set | heavy, `krs-ports-emit`: no port reads them |
+| one light gate's directory | that gate (`python3 krs/tests/<gate>/verify.py`); `krs-light` by its path set | heavy, except IMP's, for the corpora IMP reuses |
+
+When `krs-ports-emit` fails because a port's artifact moved on purpose, the port's own gate records the new pins with `--record`, and that pin edit makes the port's heavy gate a candidate; when only the macro output moved, `krs/tests/gates.sh ports-emit --record` records it, and the moved pin makes `krs-ports-rust` one.
+
+### k2lean
+
+[k2lean](../k2lean/README.md) generates Lean 4 libraries from krust's KORE; its generator (`k2lean/crates/k2lean`) is a workspace member, so the loop above builds, lints and tests it: unit tests, and snapshot tests that generate the Lean projects of small krust-compiled fixtures (`k2lean/tests/fixtures`) and compare them byte for byte.
+After an intended change of the generated Lean, `k2lean/tests/fixtures/regen.sh --bless` rewrites the snapshots; without `--bless` it first recompiles the fixtures with krust.
+Its gate (`k2lean/tests/gate.sh`) regenerates every library and demonstration from the K sources in a work tree of its own (`target/k2lean-gate/` by default), builds them with Lean, and compares the open-obligation sets, the axiom guards, the `k2l_preserve` counts, kimp's golden cases and step traces, the recorded outputs and the hash of every generated file (not of the open lists and hand modules a person writes, which the builds check) with its baseline (`k2lean/tests/baseline/AREA.toml`, and the recorded outputs in `k2lean/tests/expected/AREA/`); `scripts/gates.toml` names its tiers:
+
+- `k2lean-light` (certification, owed by a change to krust's sources or to `k2lean/`): every entry of tier light, in every area of the table below.
+  It needs krust, the pinned K release's `kompile` with its LLVM backend (kimp's interpreter for the step traces), the K and kimp sources at their pins, Lean through elan, and `z3` (the generator's rule-pair classification and overlap witnesses).
+  On 2026-10-24, on Lean v4.34.0 and a 32-core host, a run from an empty work tree took 1,103 s (1,552 s of CPU, 4.1 GB peak) under a load of 28 to 31 from other work (one-minute averages at its start and end), and one with nothing changed took 26 s (measured on Lean v4.30.0, before the libraries of the invariant closers and the widened invariants were added);
+- `k2lean-heavy` (heavy): light, then every entry of tier heavy: SIMPLE (its acceptance against krust and the K tests' `.out` files), SIMPLE's invariants, the classification of SIMPLE's pairs of rules for confluence modulo scheduling (`simple-confluence.toml`), and the claims.
+  A run from an empty work tree took 2,709 s (3,343 s of CPU, 8.5 GB peak) on the same host, under a load of 26 to 56, and one with nothing changed 50 s (on Lean v4.30.0, with fewer entries); in the run that moved k2lean to Lean v4.34.0, that peak was the lake build of SIMPLE's `Terms` (8.5 GB, where Lean v4.30.0 took 3.3 GB).
+- `k2lean-arity` (heavy): every entry of tier arity, the libraries in the arity-indexed term universe (`gen --arity-terms`, `k2lean/docs/design.md`, §2.1), whose kimp goldens and step traces and SIMPLE cases must equal the default encoding's recorded outputs.
+  A run from an empty work tree took 225 s (623 s of CPU, 4.5 GB peak) on the same host, under a load of 7 to 9, 457 s (679 s of CPU, 4.5 GB) under a load of 20 to 33, and, on Lean v4.34.0, 442 s (860 s of CPU, 4.2 GB) under a load of 31 to 48.
+
+`k2lean/tests/gate.sh list [TIER]` prints every registered entry with its area, kind and tier.
+Each entry belongs to one area, which registers it in `k2lean/tests/areas/AREA.sh` (its generator calls and the phase that builds it) and `k2lean/tests/areas/AREA.py` (what is measured, with the entry's tier), and owns its baseline file and recorded outputs:
+
+| area | owns |
+|---|---|
+| `core` | kimp with its golden cases and step traces, KRS IMP, determinism along the rule index (`kimp-d2`, `ovl`), the fixture `freekey`, SIMPLE and its acceptance, the libraries in the arity-indexed universe, the generator's test count and the allowed axioms |
+| `invariants` | the kind 1 invariant libraries and KRS IMP's sidecar invariant, the negative check, the kind 2 demonstrations and the kind 2 template |
+| `relational` | `relate` (ImpRel, ImpMut, the fixture self-relations) and `refine` (ImpUnroll) |
+| `soundness` | `soundness` (ImpTypes) |
+| `confluence` | `confluence` (RaceConf, and the classification of SIMPLE's pairs of rules) |
+| `noninterference` | `noninterference` (ImpNI) |
+| `claims` | `claims` over kimp's specifications, the claims under kimpinv's invariant, and the claim transferred along ImpRel's bisimulation |
+
+The areas run in that order, and an area's phase may use a library an earlier area built.
+
+A tier fails on any regression and passes when an open set shrinks, printing what to lower; after a deliberate change, read the `FAIL` and `NOTE` lines and record the new baseline with `k2lean/tests/gate.sh accept --area AREA`, which refuses a run with a failed step.
+It writes only that area's baseline file and recorded outputs, and refuses, naming the entries, when another area's measured entries differ from that area's baseline; `accept` without `--area` writes every area.
+A recorded output is rewritten only when its content differs after the normalization the comparison applies.
+The gate starts every library from its tracked open-obligation list (`k2lean/generated/*/open-obligations.txt`), so it finds a proof that stopped working but not one that started working; `GATE_RETRY_OPEN=1` attempts every open obligation again.
+`k2lean/tests/gate.sh` with no argument lists its environment variables, and `k2lean/docs/invariants.md` (section 10) shows how to put a new invariant under the gate.
 
 ### In CI
 
@@ -65,7 +144,8 @@ When a change alters an output a gate pins on purpose, rerun that gate with `--r
 | A push or pull request that changes a trigger path | `nightly.yml`, called from `ci.yml` | the full portable suite of `k-rust`, `k-rust-wasm` and `k-rust-backend`, and the system-linked Z3 acquisition check (`scripts/z3-acquisition-check.sh`), each when its own trigger paths change |
 | Every night on the default branch, or on demand | `nightly.yml` | both path-triggered checks (the portable suite with its doc-tests), `scripts/backend-smoke.sh` with the release `krust` and the pinned K release's LLVM backend, and the value-contract oracle (`crates/k-rust-backend/src/tests/definedness_oracle`) at 20,000 random definitions with a date-derived seed printed in hexadecimal |
 | Every week, or on demand | `differential.yml` | the reference differential gates and `scripts/lean-check.sh`, the `weekly` entries of `scripts/gates.toml` |
-| A push to `main`, or a pull request that changes the workspace manifests, `crates/`, or `krs/` | `krs.yml` | KRS's tour verifiers, gate support tests, repository hygiene, documentation, feature and `wasm32` lint variants, the `semantics/` workspace, and the browser worker |
+| Every week, or on demand | `k2lean.yml` | `k2lean/tests/gate.sh light`, the `k2lean-light` entry of `scripts/gates.toml`, with the pinned K release and Lean |
+| A push to `main`, or a pull request that changes the workspace manifests, `crates/`, or `krs/` | `krs.yml` | KRS's tour verifiers, gate support tests, repository hygiene, documentation, feature and `wasm32` lint variants, the standalone test packages' Clippy and MSRV checks, the `semantics/` workspace, and the browser worker |
 
 `scripts/ci-changed-paths.sh` defines the trigger paths and decides which path-triggered checks a push or pull request needs.
 The full portable suite follows the sources and tests of `k-rust` (including the embedded prelude), `k-rust-backend` and `k-rust-wasm`, the sources of `k-rust-kore` and `k-rust-regex`, the crate manifests, the lockfile and the nextest configuration; the acquisition check follows the manifests, the lockfile, the script, `z3_acquisition.rs`, `inner_rules.rs` and `examples/z3-inference.k`; a change to the workflows or to the script triggers both.
@@ -76,7 +156,7 @@ A failed scheduled run shows only on the repository's Actions page; `gh run list
 ### Reference gates, the conformance ratchet, and coverage
 
 The reference gates need the pinned reference toolchain and checkouts (README, "Compatibility evidence").
-Every gate, tool and scheduled check outside `cargo test` is an entry of `scripts/gates.toml`, and `scripts/run-gates.sh --changed BASE..HEAD` runs the entries a change owes: those with a path pattern that matches a path the change touched, or whose own entry it changed (`--list` shows the selection without running it, `--touched PATH` asks about one path).
+Every gate, tool and scheduled check outside `cargo test` is an entry of `scripts/gates.toml`, and `scripts/run-gates.sh --changed BASE..HEAD` runs the entries a change owes: those with a path pattern that matches a path the change touched, or whose own entry it changed (`--list` shows the selection without running it, `--worktree` asks about the uncommitted work, `--touched PATH` about one path).
 The reference-output cache (below) replays unchanged reference results, so a repeated run costs mostly the krust side.
 The gates build krust and the comparator with Cargo's default features, which download the Z3 release; `KRUST_GATE_Z3=system` builds them with `--no-default-features --features cli` instead, the same features linked to the Z3 the build environment provides (for example under `with-z3-static-4.16.0`); `scripts/backend-smoke.sh` follows the same selection when it builds krust itself (without `KRUST_BIN`).
 `KRUST_GATE_TARGET_DIR` and `KRUST_GATE_INVARIANT_CHECKS` (`scripts/reference-memory-guard.sh`) select the gate krust's target directory and its kompile invariant checks.
@@ -211,6 +291,8 @@ Three reference runs of the gates stay uncached: the MIR gate's kmir Python step
 [Compatibility decisions](compatibility.md) explain the governing semantics and reference evidence; each conformance exclusion category points to the applicable policy.
 The execution comparator first compares normalized structures and may use k-rust implication in both directions to establish equivalence of remaining constraints.
 That fallback is supplementary evidence: it depends on the same Rust implication implementation being tested elsewhere and cannot independently validate it.
+A pair that passes only through it is printed under the N15 label with both constraint sets, and a passing comparison that rests on it ends with an `N15 summary: <count>` line; the conformance driver then records a distinct comparison label and the count as `implication_pairs`, so a prover-vouched pass is never logged as a structural one.
+The fallback does not decide emptiness: a direction that `krust kore-implies` answers `valid` only because it finds the antecedent empty (condition predicate `\bottom`) holds only when the reference's own search finds no instance of that antecedent (N48), and a `valid` answer whose condition says neither fails.
 Implication correctness must therefore have direct Rust contract tests, including variable-renaming invariance and negative controls.
 The conformance driver's C8 comparison (`scripts/conformance/run.py` `compare_simplified_kore`) is supplementary evidence in the same sense: it simplifies the reference's `--output kore` result and the krust result with `krust kore-simplify` before the structural comparison, so it depends on the port's simplifier, which must have its own contract tests, and it cannot independently validate that simplifier.
 A step that matches only under C8 keeps its text difference and records the C8 comparison label.
@@ -268,6 +350,52 @@ A panic, crash, timeout, or backend failure after a successful compilation, an e
 Workers load the prelude once and compile each case against it, about 0.26 s of CPU per case, so the default run takes about 40 s with 8 jobs after a build of about a minute; `--fresh` reloads the prelude for every case (about 0.5 s per case), which is needed to see a case whose syntax changes how builtin rules parse.
 The corpus is not committed, since the seed and count reproduce it.
 A finding becomes a focused regression in its owning subsystem as described above; `expected.toml` holds only rejections of invalid input, each with its reason.
+
+## Alpha-invariance harness
+
+`crates/k-rust/tests/alpha_invariance.rs` checks one property of the compiler on whole definitions: a sentence and any renaming of its variables that keeps sigils (`?`, `!`, `@`), `_` prefixes and the fixed names `HOLE`, `HERE` and `#Configuration` compile to alpha-equivalent KORE and give the same `krun` answers.
+The binding rule it assumes is the KORE rule: after anonymous resolution, anonymity never affects binding, `#Exists V . P` and `#Forall V . P` bind exactly `V` with lexical scope, each `_` is its own variable, and every other variable is bound by its sentence (a rule, context, context alias, macro rule or claim).
+A difference is a defect of the compiler whichever spelling it gets wrong, so the harness needs no expected answer for a definition.
+
+Each case loads one definition, renames the sentences in its scope on the parsed definition, relinks the result (`LoadedDefinition::with_definition`), and compiles base and variant through the library route of `kcompile`, with the options of `kcompile --for-proving` for a case that holds claims.
+The strategies (`alpha_invariance/rename.rs`) are:
+
+- `fresh`: every named variable to a fresh name;
+- `k-index`: every named variable to `K<i>`, the spelling of the strictness variables the compiler mints;
+- `rotate`: within each class of sigil and `_` prefix, every name to the name of another variable of the sentence;
+- `binder-apart`: every quantifier's variable to a fresh name within its scope;
+- `binder-capture`: every quantifier's variable to the name of another variable of the sentence that does not occur in its body, at the same inferred sort, so that the binder shadows it;
+- `binder-capture-any-sort`: the same at any sort, since a binder binds exactly its own variable whatever the sort of the one it shadows;
+- `binder-capture-sibling`: every quantifier's variable to the name of a sibling binder, a quantifier of the same sentence in a disjoint scope over a variable at another inferred sort, so that one name is bound at two sorts in two scopes;
+- `anon-named`: every anonymous variable to its own `_`-prefixed name.
+
+Two routes write the variant as text instead:
+
+- a source twin (`Case::twin`) is an alpha-variant of an inline case's text with every line of the same length, loaded and parsed on its own, so the parser's sort inference sees each spelling (`text-shadow-lhs`, `text-shadow-sibling`); each twin also gives a parse-stage result (`text-shadow-*-parse`), the twin's loaded definition compared as terms with the base's loaded definition in which the twin's binder is renamed in its scope, so the parser's scoping is checked on its own, before any compiler pass reads the parse; a variable twin (`Case::twin_variable`) renames one free variable or local-function parameter instead, and its parse stage renames that variable throughout the base's parse (`text-mark-*`, a written name holding U+E000, which a definition's own `#KVariable` token admits, beside a binder the parser renames apart; `text-shadow-parameter`, a parameter spelled like a variable of the rule at another sort);
+- a search twin (`Case::search`) is a search pattern and an alpha-variant of it, and a search pattern (`Case::pattern`) is parsed, renamed by every strategy and written back as text (`<pattern>/<strategy>`); each is compiled against the case's compiled definition by `compile_search_pattern` with the program grammar of the compiled frontend definition, the route of `krun --pattern`, and compared in alpha-normal form; a panic never passes, and two refusals pass only with the same code and the same message up to the variable names.
+
+The comparison reads `definition.kore` and the macros' KORE; it renames each axiom's and claim's free variables by first occurrence and its binders by position, keeping the encoded sigil and `_` prefix (`alpha_invariance/kore_alpha.rs`); it renames the `#lambda` symbols the compiler mints by first occurrence, since their names carry a variable argument's spelling; and it compares each rule's `UNIQUE_ID`, a digest of the rule, on its own.
+A claim's `UNIQUE_ID` is not compared: it is kept spelling-based, since an identifier only has to tell a claim apart within its definition (FU-44).
+The runs follow `krun`'s route: the compiled definition is internalized with the compiler's rewrite order (`Backend::internalize_source_definition` with `execution_rewrite_order`, which joins the order to the axioms by `UNIQUE_ID`), and every program the case runs is executed from the initial configuration `krun` assembles with `--io off` and empty standard input, under both strategies, `all` and `any` (`krun`'s default); the leaves are compared in alpha-normal form.
+A refused base must be refused by every variant with the same error codes at the same lines and the same messages up to the variable names, and a panic, such as a kompile invariant of the test profile, never passes.
+
+The harness has two modes:
+
+- the corpus mode renames every sentence of a corpus definition: the manifest's compile and execution cases (`scripts/reference-differential.toml`), the prelude's own rules, and, in the whole corpus, every tracked K file under `crates/k-rust/tests` (with its last module as the main module, or else the first of its other modules, from the last, that loads; a file that loads with none is listed as left out) and the manifest cases in the `k` and `imp-semantics` checkouts when they are present;
+- the generated mode (`alpha_invariance/generate.rs`) builds small definitions with up to three binders per sentence, along the axes binder kind, the bound name's relation to the sentence's other names (fresh, the left side's variable, another binder, a macro parameter, a context alias's variable, a function or `owise` rule's variable, a minted name, anonymous, a name only a `concrete` or `symbolic` attribute mentions), sort (annotated or inferred), position (`requires`, `ensures`, a function argument in the condition, the right side), sentence kind (rewrite, `anywhere`, `simplification`, function with `owise`, `macro`, `macro-rec` and `alias` rules, a context with `HOLE`, a context alias, a claim), the frozen variables of a context (two or more, written in a context or a context alias's variable beside the minted strictness variables, with no cell or in the main cell), the connective around the binder (`#Not`, `#Or`), a binder in a part a stage copies into a second position of its sentence (a rewrite's shared context, a macro argument used twice, a context's body), the sigil of the bound variable (`?` binders in the right side, the `ensures` and a claim's `ensures`, nested, spelled alike or like a free `?` variable, and in function, `anywhere` and macro rules), a named variable that occurs only in a rule's condition (`condition-only`: one, two of one sort, or beside a binder, in a rewrite rule, a function with `owise` and a `simplification`), a `?` variable of a macro's right side (`macro-existential`: beside a binder, used twice, or bound by the macro's quantifier), two free `?` variables of one sentence whose names and first occurrences are in opposite orders (`two-existentials`), a match pattern's variable spelled like a rule variable (`match`, source twins), a `?` binder respelled without its sigil in a `requires` and below a constructor in a left side (`sigil-binder`, source twins), and route; it includes the `owise` cross product of `tests/owise_binders.rs` (`owise-cross`, through the shared `tests/owise_binders/shapes.rs`), and the defect probes (`alpha_invariance/probes.rs`) add one definition per known binding defect and per reviewer seed.
+
+`EXPECTED` (`alpha_invariance/expected.rs`) lists every result that fails today, with the set of tickets that must all land before it passes (or the out-of-scope class it belongs to, FU-53 for the `UNIQUE_ID`s that digest attribute names and local function labels as written), its kind of failure and a needle, the failure's whole signature: every differing sentence with the first differing text of each side, then the first differing run and the first `UNIQUE_ID` difference of a sentence whose text agrees; or the first diagnostic, the panic or the first differing run.
+An empty or generic needle is refused, and every entry must name a case some test gives and a strategy, twin or pattern variant of that case (`every_expected_entry_names_a_result_and_a_specific_needle`).
+A listed result must still fail with that kind and that signature and an unlisted one must pass, so a fix shows as entries leaving the list, or as signatures that lose exactly the fixed ticket's sentences, and a second defect in a listed result changes its signature; the assertion message prints every failing result in entry syntax, with its signature as the needle.
+An entry is expected to pass only when every ticket of its set has landed: for example, a compiled source twin and a base that binds one name at two sorts in two scopes waited for both the parser's scoping (BIND/A5) and the renaming of bound variables apart before cast resolution (BIND/A6), and pass since both landed, while the twins' parse-stage results waited for BIND/A5 alone.
+A binding finding is stated as a new axis value or family of the generator, or as a new probe, and its failing results become entries of the list; it is never fixed as a one-off shape without one.
+
+`cargo test --test alpha_invariance` runs the probes, the prelude, the manifest's runnable workspace cases and a sample of the generated grammar (in each family, the first case that holds an entry of each ticket set of `EXPECTED`, so each family's defects run on every push for every ticket they wait for, and every 24th case), on worker threads (`ALPHA_INVARIANCE_JOBS`, default the available parallelism, at most 4), in about 30 seconds per build (27 s portable and 28 s native on 2026-10-19, with a memory peak of 0.6 to 0.9 GB for the test binary alone).
+The whole corpus and the whole generated grammar are ignored tests, run in the portable and the native build by the `alpha-invariance` gate (`scripts/alpha-invariance.sh`, `scripts/gates.toml`), which a change to krust's sources owes; at the default of 4 jobs its tests take 7 to 8 minutes in each build, 14 to 15 minutes in all (2026-10-19, `--test-threads 1`, on a loaded host), with a maximum resident set of 0.9 to 1.3 GB and a memory peak of 1.4 to 3 GB for the whole script, the builds and the page cache included.
+`ALPHA_INVARIANCE_OUT=<directory>` writes one line per result to `<directory>/<test>.tsv` (the result, its kind, its signature and its report) and each case's wall time to `<directory>/<test>.times.tsv`.
+
+The binding module (`crates/k-rust/src/kast/binding.rs`), which states the binding rule for the compiler's passes, is checked by property tests against a locally nameless reference written in its tests and by a census of substitution cases that also states how often its generators reach each case (captures, simultaneous chains, captures in terms that bind a name twice, keys spelled like a fresh name).
+Both run from fixed seeds: `cargo test` runs 256 cases per property and 1,024 census draws, and the `alpha-invariance` gate runs 50,000 of each (`KAST_BINDING_CASES`, `KAST_BINDING_CENSUS`).
 
 ## Durable regression descriptions
 

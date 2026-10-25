@@ -351,6 +351,11 @@ def main() -> None:
     if "pub mod builtin;" not in facade:
         fail("could not locate the public builtin facade module")
     builtin_source = BUILTIN_FACADE.read_text(encoding="utf-8")
+    # The hidden `__operator` and `__list` modules hold the markers that
+    # operator and list notation denote; their aliases are not operations.
+    builtin_source = re.sub(
+        r"#\[doc\(hidden\)\]\npub mod __\w+ \{.*?\n\}\n", "", builtin_source, flags=re.DOTALL
+    )
     builtin_aliases = set(
         re.findall(r"pub use (?:self::)?[A-Za-z_][A-Za-z0-9_]* as ([a-z][a-z0-9_]*);", builtin_source)
     )

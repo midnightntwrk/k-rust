@@ -14,7 +14,8 @@
 //!   a new element of `S` that contains its arguments), as `\bottom`, as one fixed *old* element
 //!   of `S`, by its hook, or not at all (a *pin*).
 //!
-//! Everything else is derived from those two: which sorts have a normal form (vacuous overlaps),
+//! Everything else is derived from those two: which sorts have a normal form (the overlaps over a
+//! sort without one, which are still classified and name it when they do not join),
 //! which sorts have an element in every model (where `M'` may collapse), which applications are
 //! never normal forms (vacuous join cases), and which sorts' elements can hold which equation
 //! heads (the closure's T-obs).
@@ -24,7 +25,7 @@ use rustc_hash::FxHashSet;
 use crate::{
     definition::BackendDefinition,
     matching::ClosedSort,
-    term::{FunctionType, HeadRole, Sort, Symbol, SymbolType},
+    term::{FunctionType, HeadRole, Sort, SortNode, Symbol, SymbolType},
 };
 
 /// The class of a symbol other than the sort injection (R1.2).
@@ -235,7 +236,7 @@ fn least_sorts<'s>(
         }
     }
     let builders = builders.collect::<Vec<_>>();
-    let open = |sort: &Sort| ClosedSort::new(sort.clone()).is_err();
+    let open = |sort: &Sort| ClosedSort::new(*sort).is_err();
     loop {
         let before = set.len();
         for symbol in &builders {
@@ -247,7 +248,7 @@ fn least_sorts<'s>(
                 .iter()
                 .all(|argument| (parameters_count && open(argument)) || set.contains(argument))
             {
-                set.insert(symbol.result_sort.clone());
+                set.insert(symbol.result_sort);
             }
         }
         if supersorts {
@@ -255,7 +256,7 @@ fn least_sorts<'s>(
                 if !set.contains(supersort.sort())
                     && below.iter().any(|sort| set.contains(sort.sort()))
                 {
-                    set.insert(supersort.sort().clone());
+                    set.insert(*supersort.sort());
                 }
             }
         }
@@ -270,11 +271,11 @@ fn least_sorts<'s>(
 /// values but no hook is not one: its domain values are some of its elements, and applications
 /// of its constructors and equation heads are others.
 pub(crate) fn fixed_carrier(definition: &BackendDefinition, sort: &Sort) -> bool {
-    match sort {
-        Sort::Application { name, .. } => definition
+    match sort.node() {
+        SortNode::Application { name, .. } => definition
             .sorts()
             .get(name)
             .is_some_and(|info| info.hook.is_some()),
-        Sort::Variable(_) => false,
+        SortNode::Variable(_) => false,
     }
 }

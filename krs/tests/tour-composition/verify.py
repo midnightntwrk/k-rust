@@ -14,7 +14,7 @@ from support import GateError, entry, krs_gate  # noqa: E402
 from support.krs import Invocation, build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.process import run  # noqa: E402
-from support.tools import checkout_scratch, z3_environment  # noqa: E402
+from support.tools import target_environment, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -70,11 +70,10 @@ def verify_definition_queries(first: Path, configured: Path, gate: Path, env: di
 
 
 def main() -> None:
-    target = checkout_scratch() / "tour-composition-root-target"
-    env = {**environment(), "CARGO_TARGET_DIR": os.fspath(target)}
+    env = {**environment(), **target_environment()}
     binary = build(env)
     gate = krs_gate.configured_or_build()
-    check_packages("tour-composition", krs=binary, env=env, target_dir=target)
+    check_packages("tour-composition", krs=binary, env=env)
     run(command(binary, "check"), environment=env)
     first_expansion = run(command(binary, "expand"), environment=env).stdout
     second_expansion = run(command(binary, "expand"), environment=env).stdout

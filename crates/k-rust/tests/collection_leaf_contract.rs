@@ -632,14 +632,13 @@ fn collection_states_use_only_their_own_role_symbols() {
     let mut backend = backend();
     let definition = definition(&mut backend);
     let symbols = definition.symbols();
-    let collection_sort = |collection: &CollectionMetadata| Sort::Application {
-        name: match collection {
+    let collection_sort = |collection: &CollectionMetadata| {
+        Sort::simple(match collection {
             CollectionMetadata::Map(map) => map.map_sort.clone(),
             CollectionMetadata::List(list) | CollectionMetadata::Set(list) => {
                 list.list_sort.clone()
             }
-        },
-        arguments: Vec::new(),
+        })
     };
     let mut nodes = 0;
     for number in 1..=LAST {

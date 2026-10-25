@@ -23,7 +23,11 @@ pub(super) fn declared_type_table(
         let Some(key) = descriptor.host.declared_type else {
             if matches!(
                 kind,
-                ItemKind::Sort | ItemKind::Constructor | ItemKind::Configuration | ItemKind::Cell
+                ItemKind::Sort
+                    | ItemKind::Constructor
+                    | ItemKind::Configuration
+                    | ItemKind::Cell
+                    | ItemKind::Constant
             ) {
                 return Err(CollectionError::new(
                     CollectionErrorKind::MissingTypeDeclaration,
@@ -35,9 +39,15 @@ pub(super) fn declared_type_table(
             }
             continue;
         };
+        // A named constant's Rust item is a unit struct, which a use names
+        // as it names a constructor.
         if !matches!(
             kind,
-            ItemKind::Sort | ItemKind::Constructor | ItemKind::Configuration | ItemKind::Cell
+            ItemKind::Sort
+                | ItemKind::Constructor
+                | ItemKind::Configuration
+                | ItemKind::Cell
+                | ItemKind::Constant
         ) {
             return Err(CollectionError::new(
                 CollectionErrorKind::ItemKindMismatch,
@@ -65,7 +75,8 @@ pub(super) fn declared_type_table(
                 || registry.resolve_map_operation(type_id).is_some()
                 || registry.resolve_list_operation(type_id).is_some()
                 || registry.resolve_set_operation(type_id).is_some()
-                || registry.resolve_ml_connective(type_id).is_some())
+                || registry.resolve_ml_connective(type_id).is_some()
+                || registry.resolve_operator(type_id).is_some())
         {
             return Err(CollectionError::new(
                 CollectionErrorKind::DeclarationBuiltinCollision,
@@ -104,7 +115,8 @@ pub(super) fn declared_cell_field_table(
             | HostDescriptorPayload::StructuredRule(_)
             | HostDescriptorPayload::ConfigurationRule(_)
             | HostDescriptorPayload::HeadRule(_)
-            | HostDescriptorPayload::ContextAlias(_) => continue,
+            | HostDescriptorPayload::ContextAlias(_)
+            | HostDescriptorPayload::Constant(_) => continue,
         };
         for field in &declaration.fields {
             let key = field.reference.cell.resolve();
@@ -135,12 +147,17 @@ struct HeadRuleCellTarget {
     wrapper: Option<krs_ir::CellWrapper>,
     /// Whether the cell is a `multiplicity = "*"` collection (KF-023).
     collection: bool,
+    /// The `#[k::cell]` struct of a nested (group) cell, by its resolved
+    /// type: a record in the entry that names the cell stands for the
+    /// running configuration's cell of that group (U5).
+    group: Option<TypeId>,
 }
 
 fn head_rule_cell_target(
     field: &krs_ir::HostCellField,
     cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
     wrapper: Option<krs_ir::CellWrapper>,
+    group: Option<TypeId>,
 ) -> Result<HeadRuleCellTarget, CollectionError> {
     let identity = cell_fields
         .get(&field.reference.cell.resolve())
@@ -154,7 +171,13 @@ fn head_rule_cell_target(
                 ),
             )
         })?;
-    let mut names = vec![field.rust_field.clone()];
+    // A readable record names a cell by its field identifier without `r#`,
+    // as Rust names a field.
+    let rust_name = field
+        .rust_field
+        .strip_prefix("r#")
+        .unwrap_or(&field.rust_field);
+    let mut names = vec![rust_name.to_owned()];
     if let Some(emitted) = &field.emitted_name
         && !names.contains(&emitted.value)
     {
@@ -168,6 +191,7 @@ fn head_rule_cell_target(
             .multiplicity
             .as_ref()
             .is_some_and(|multiplicity| multiplicity.value == "*"),
+        group,
     })
 }
 
@@ -175,6 +199,19 @@ fn head_rule_cell_target(
 pub(super) struct HeadRuleTarget {
     configuration: StableItemId,
     cells: Vec<HeadRuleCellTarget>,
+    /// The children of each nested `#[k::cell]` struct, by its resolved
+    /// type: a group record that names fewer leaves some out.
+    group_children: HashMap<TypeId, GroupChildren>,
+}
+
+/// The children of a nested `#[k::cell]` struct.
+#[derive(Clone, Debug, Default)]
+pub(super) struct GroupChildren {
+    /// How many children the struct declares.
+    count: usize,
+    /// Its fixed (multiplicity one) group children, by field: the
+    /// configuration nests each one's cell inside the struct's (U5).
+    fixed: HashMap<String, TypeId>,
 }
 
 struct HeadRuleSelection<'a> {
@@ -190,18 +227,24 @@ fn collect_head_rule_cells(
     cell_fields: &HashMap<HostCellKey, krs_ir::DescriptorCellIdentity>,
     visiting: &mut HashSet<TypeId>,
     cells: &mut Vec<HeadRuleCellTarget>,
+    group_children: &mut HashMap<TypeId, GroupChildren>,
 ) -> Result<(), CollectionError> {
     for field in &declaration.fields {
         match &field.content {
             krs_ir::ProtocolCellContent::Leaf { wrapper, .. } => {
-                cells.push(head_rule_cell_target(field, cell_fields, Some(*wrapper))?);
+                cells.push(head_rule_cell_target(
+                    field,
+                    cell_fields,
+                    Some(*wrapper),
+                    None,
+                )?);
             }
             krs_ir::ProtocolCellContent::Nested { declaration } => {
                 // A group, an optional group, or a collection is named by a
                 // readable record entry; the leaves below a collection stay
                 // reachable as its implicit single instance (KF-023).
-                cells.push(head_rule_cell_target(field, cell_fields, None)?);
                 let key = declaration.declaration.key.resolve();
+                cells.push(head_rule_cell_target(field, cell_fields, None, Some(key))?);
                 if !visiting.insert(key) {
                     return Err(CollectionError::new(
                         CollectionErrorKind::InvalidConfiguration,
@@ -220,7 +263,32 @@ fn collect_head_rule_cells(
                         ),
                     )
                 })?;
-                collect_head_rule_cells(nested, declarations, cell_fields, visiting, cells)?;
+                group_children.insert(
+                    key,
+                    GroupChildren {
+                        count: nested.fields.len(),
+                        fixed: nested
+                            .fields
+                            .iter()
+                            .filter(|child| child.multiplicity.is_none())
+                            .filter_map(|child| match &child.content {
+                                krs_ir::ProtocolCellContent::Nested { declaration } => Some((
+                                    child.rust_field.clone(),
+                                    declaration.declaration.key.resolve(),
+                                )),
+                                krs_ir::ProtocolCellContent::Leaf { .. } => None,
+                            })
+                            .collect(),
+                    },
+                );
+                collect_head_rule_cells(
+                    nested,
+                    declarations,
+                    cell_fields,
+                    visiting,
+                    cells,
+                    group_children,
+                )?;
                 visiting.remove(&key);
             }
         }
@@ -260,63 +328,37 @@ pub(super) fn resolve_head_rule_targets(
             Some((key.resolve(), declaration.as_ref()))
         })
         .collect::<HashMap<_, _>>();
-    let has_implicit_target = pending.iter().any(|descriptor| {
-        matches!(
-            &descriptor.host.payload,
-            HostDescriptorPayload::HeadRule(rule) if rule.configuration.is_none()
-        )
-    });
-    if has_implicit_target && configurations.len() != 1 {
-        let detail = match configurations.len() {
-            0 => "a `for Sort` rule requires one fixed configuration, but none was collected"
-                .to_owned(),
-            count => format!(
-                "a `for Sort` rule requires one unambiguous fixed configuration, but {count} candidates were collected"
-            ),
-        };
-        return Err(CollectionError::new(
-            CollectionErrorKind::InvalidConfiguration,
-            detail,
-        ));
-    }
     let targets = configurations
         .into_iter()
         .map(|(descriptor, configuration)| {
             let mut cells = Vec::new();
+            let mut group_children = HashMap::new();
             collect_head_rule_cells(
                 &configuration.declaration,
                 &cell_declarations,
                 cell_fields,
                 &mut HashSet::new(),
                 &mut cells,
+                &mut group_children,
             )?;
             Ok(HeadRuleTarget {
                 configuration: descriptor.id.clone(),
                 cells,
+                group_children,
             })
         })
         .collect::<Result<Vec<_>, CollectionError>>()?;
-    if has_implicit_target {
-        let computations = targets[0]
-            .cells
-            .iter()
-            .filter(|cell| cell.wrapper == Some(krs_ir::CellWrapper::KCell))
-            .count();
-        if computations != 1 {
-            let detail = match computations {
-                0 => "selected fixed configuration has no matching top-level KCell<KSequence> computation cell"
-                    .to_owned(),
-                count => format!(
-                    "selected fixed configuration has {count} matching top-level KCell<KSequence> computation cells"
-                ),
-            };
-            return Err(CollectionError::new(
-                CollectionErrorKind::InvalidConfiguration,
-                detail,
-            ));
-        }
-    }
+    // Each rule that needs one configuration, or one computation cell, checks it as it is
+    // resolved, so the error is located at that rule.
     Ok(targets)
+}
+
+/// `a`, `b` and `c` for a message.
+fn names<'a>(names: impl Iterator<Item = &'a str>) -> String {
+    names
+        .map(|name| format!("`{name}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// The fixed configuration a head rule names, or the only one collected.
@@ -338,15 +380,16 @@ fn select_head_rule_target<'a>(
             })?
     } else {
         let [target] = targets else {
-            let detail = match targets.len() {
-                0 => "head-anchored rules require one fixed configuration, but none was collected"
-                    .to_owned(),
-                count => format!(
-                    "a `for Sort` rule requires one unambiguous fixed configuration, but {count} candidates were collected; use a configuration-owned cell-record rule where appropriate"
+            let detail = match targets {
+                [] => "this rule rewrites the head of the computation, but the definition has no `#[k::configuration]`: declare one with a `KSequence` cell, which holds the computation, and its `#[k::init]`".to_owned(),
+                several => format!(
+                    "this rule rewrites the head of the computation, but the definition declares {} configurations, {}; a definition has exactly one",
+                    several.len(),
+                    names(several.iter().map(|target| target.configuration.item_name())),
                 ),
             };
             return Err(CollectionError::new(
-                CollectionErrorKind::InvalidConfiguration,
+                CollectionErrorKind::ConfigurationCount,
                 detail,
             ));
         };
@@ -378,15 +421,23 @@ fn resolve_head_rule_target<'a>(
         })
         .collect::<Vec<_>>();
     let [computation] = computations.as_slice() else {
-        let detail = match computations.len() {
-            0 => "selected fixed configuration has no matching top-level KCell<KSequence> computation cell"
-                .to_owned(),
-            count => format!(
-                "selected fixed configuration has {count} matching top-level KCell<KSequence> computation cells"
+        let configuration = target.configuration.item_name();
+        let detail = match computations.as_slice() {
+            [] => format!(
+                "this rule rewrites the head of the computation, but configuration `{configuration}` has no `KSequence` cell to hold the computation"
+            ),
+            several => format!(
+                "this rule rewrites the head of the computation, but configuration `{configuration}` has {} top-level `KSequence` cells, {}, and does not say which holds the computation: write the rule as a `for {configuration}` record, which names its cell",
+                several.len(),
+                names(
+                    several
+                        .iter()
+                        .filter_map(|cell| cell.names.first().map(String::as_str))
+                ),
             ),
         };
         return Err(CollectionError::new(
-            CollectionErrorKind::InvalidConfiguration,
+            CollectionErrorKind::ComputationCell,
             detail,
         ));
     };
@@ -586,23 +637,121 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
             .map(Some)
             .map_err(|error| error.with_reference_key(key))
     }
+
+    fn term(&mut self, term: krs_ir::HostTerm) -> Result<krs_ir::HostTerm, Self::Error> {
+        Ok(group_record_term(term, self.declarations, |_, _, open| {
+            open
+        }))
+    }
 }
 
 /// Reads a readable record in a cell position as the group term it names
 /// when rustc resolved its head to a `#[k::cell]` struct (KF-016): `frame:
 /// Frame { pc: p, gas: g }` is `k::fragment![crate::Frame { .. }]`. The
 /// application's head and field keys become the cell term's, as the
-/// `fragment!` spelling numbers them.
+/// `fragment!` spelling numbers them. An alias `saved @ Frame { .. }` names
+/// the group it matches, and a result's `Frame { pc: e, ..saved }` updates
+/// it (F5).
+///
+/// `position` is the group whose cell of the running configuration the term
+/// stands for: the group the entry names, and below a record there, each
+/// fixed group child's own group, since the configuration nests that cell
+/// there (U5). A subject record at its own group's position leaves the
+/// children it does not name unconstrained, with or without `..`. Anywhere
+/// else (a leaf cell's content, a list element, a constructor argument)
+/// the record is a value of its cell sort, complete unless it ends in `..`,
+/// and the records below a value are read by [`group_record_term`].
 fn readable_group_term(
     term: krs_ir::HostTerm,
+    subject: bool,
+    position: Option<TypeId>,
+    groups: &GroupRecords<'_>,
+) -> krs_ir::HostTerm {
+    use krs_ir::Term;
+    if let Term::As {
+        key,
+        binding_key,
+        name,
+        pattern,
+    } = term
+    {
+        return Term::As {
+            key,
+            binding_key,
+            name,
+            pattern: Box::new(readable_group_term(*pattern, subject, position, groups)),
+        };
+    }
+    let term = group_record_term(
+        term,
+        groups.declarations,
+        |target, fields, authored_open| {
+            subject
+                && (authored_open
+                    || (position == Some(target)
+                        && groups
+                            .children
+                            .get(&target)
+                            .is_some_and(|children| fields < children.count)))
+        },
+    );
+    // A record at its group's own position, written bare or as
+    // `k::fragment!`, holds its fixed group children at theirs.
+    let Term::Cell {
+        key,
+        declaration,
+        fields,
+        open,
+        update,
+    } = term
+    else {
+        return term;
+    };
+    let fixed = position
+        .filter(|position| *position == declaration.key.resolve())
+        .and_then(|position| groups.children.get(&position))
+        .map(|children| &children.fixed);
+    let fields = fields
+        .into_iter()
+        .map(|mut field| {
+            if let Some(child) = fixed.and_then(|fixed| fixed.get(field.field.as_str())) {
+                let value = std::mem::replace(&mut *field.value, placeholder_term());
+                *field.value = readable_group_term(value, subject, Some(*child), groups);
+            }
+            field
+        })
+        .collect();
+    Term::Cell {
+        key,
+        declaration,
+        fields,
+        open,
+        update,
+    }
+}
+
+/// Reads a record whose head rustc resolved to a `#[k::cell]` struct as the
+/// group's cell term, at any depth of any term (a list element, a
+/// constructor argument, an alias target): the group's cell is a value of
+/// its generated cell sort like any constructor term, and `CallState { .. }`
+/// names it as `k::fragment![CallState { .. }]` does. Outside a
+/// configuration cell position the term is a complete value, so a pattern
+/// leaves children unconstrained only with `..`; `open` decides from the
+/// group's type identity, the number of named children, and the record's
+/// own `..`. Any other term is returned unchanged.
+fn group_record_term(
+    term: krs_ir::HostTerm,
     declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    open: impl FnOnce(TypeId, usize, bool) -> bool,
 ) -> krs_ir::HostTerm {
     use krs_ir::{Arguments, HostApplicationTarget, Term};
     let Term::Application {
         head_class: krs_ir::DescriptorApplicationHeadClass::Applied,
         reference,
-        arguments: Arguments::Named(arguments),
+        arguments,
         instance,
+        open: authored_open,
+        update,
         ..
     } = &term
     else {
@@ -611,7 +760,13 @@ fn readable_group_term(
     let HostApplicationTarget::Nominal(target) = &reference.target else {
         return term;
     };
+    // A record, `Frame { pc: p }`, a pattern naming no child, `Frame { .. }`,
+    // or an update listing none, `Frame { ..saved }`: the matched group
+    // unchanged (N7).
+    let record = matches!(arguments, Arguments::Named(_))
+        || ((*authored_open || update.is_some()) && arguments.is_empty());
     if !instance.is_empty()
+        || !record
         || !matches!(
             declarations.get(&HostApplicationIdentity::Nominal(target.key.resolve())),
             Some((_, ItemKind::Cell))
@@ -619,20 +774,58 @@ fn readable_group_term(
     {
         return term;
     }
-    let declaration = target.clone();
-    let key = reference.key.clone();
-    let fields = arguments
-        .iter()
-        .map(|argument| krs_ir::CellTermField {
-            key: argument.key.clone(),
-            field: argument.field.clone(),
-            value: argument.value.clone(),
+    let authored_open = *authored_open;
+    let Term::Application {
+        reference,
+        arguments,
+        update,
+        ..
+    } = term
+    else {
+        unreachable!("the record was matched above");
+    };
+    let HostApplicationTarget::Nominal(declaration) = reference.target else {
+        unreachable!("the record head was matched above");
+    };
+    let fields = Vec::from(arguments)
+        .into_iter()
+        .filter_map(|argument| match argument {
+            krs_ir::TermArgument::Named { key, field, value } => {
+                Some(krs_ir::CellTermField { key, field, value })
+            }
+            krs_ir::TermArgument::Positional { .. } => None,
         })
-        .collect();
+        .collect::<Vec<_>>();
     Term::Cell {
-        key,
+        key: reference.key,
+        open: open(declaration.key.resolve(), fields.len(), authored_open),
         declaration,
         fields,
+        update,
+    }
+}
+
+/// What [`readable_group_term`] reads a record's head and children against.
+struct GroupRecords<'a> {
+    declarations: &'a HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    children: &'a HashMap<TypeId, GroupChildren>,
+    /// The cells of the selected configuration, which give each entry's
+    /// group.
+    cells: &'a [HeadRuleCellTarget],
+}
+
+impl GroupRecords<'_> {
+    /// The group whose configuration cell the readable entry `name` names,
+    /// if it names exactly one group cell.
+    fn position(&self, name: &str) -> Option<TypeId> {
+        let mut named = self
+            .cells
+            .iter()
+            .filter(|cell| cell.names.iter().any(|candidate| candidate == name));
+        match (named.next(), named.next()) {
+            (Some(cell), None) => cell.group,
+            _ => None,
+        }
     }
 }
 
@@ -640,35 +833,52 @@ fn readable_group_term(
 /// fixed-cell entries and the inside of `Some(..)`.
 fn readable_group_terms(
     mut rule: krs_ir::HostHeadRule,
-    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+    groups: &GroupRecords<'_>,
 ) -> krs_ir::HostHeadRule {
     fn present(
         state: &mut krs_ir::ProtocolRuleStateTerm<krs_ir::HostTerm>,
-        declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+        subject: bool,
+        position: Option<TypeId>,
+        groups: &GroupRecords<'_>,
     ) {
         if let krs_ir::ProtocolRuleStateTerm::Present { value } = state
             && let krs_ir::ProtocolRuleStateTerm::Term(term) = value.as_mut()
         {
             let taken = std::mem::replace(term, placeholder_term());
-            *term = readable_group_term(taken, declarations);
+            *term = readable_group_term(taken, subject, position, groups);
         }
     }
     for extra in &mut rule.extras {
         match extra {
-            krs_ir::ProtocolHeadRuleExtra::RewriteCell { before, after, .. } => {
-                for term in [before, after] {
-                    let taken = std::mem::replace(term, placeholder_term());
-                    *term = readable_group_term(taken, declarations);
+            krs_ir::ProtocolHeadRuleExtra::RewriteCell {
+                cell,
+                before,
+                after,
+                ..
+            } => {
+                let position = groups.position(&cell.name);
+                let taken = std::mem::replace(before, placeholder_term());
+                *before = readable_group_term(taken, true, position, groups);
+                if let Some(after) = after {
+                    let taken = std::mem::replace(after, placeholder_term());
+                    *after = readable_group_term(taken, false, position, groups);
                 }
             }
-            krs_ir::ProtocolHeadRuleExtra::RewriteState { before, after, .. } => {
-                present(before, declarations);
+            krs_ir::ProtocolHeadRuleExtra::RewriteState {
+                cell,
+                before,
+                after,
+                ..
+            } => {
+                let position = groups.position(&cell.name);
+                present(before, true, position, groups);
                 if let Some(after) = after {
-                    present(after, declarations);
+                    present(after, false, position, groups);
                 }
             }
             krs_ir::ProtocolHeadRuleExtra::HaveMap { .. }
-            | krs_ir::ProtocolHeadRuleExtra::UpdateMap { .. } => {}
+            | krs_ir::ProtocolHeadRuleExtra::UpdateMap { .. }
+            | krs_ir::ProtocolHeadRuleExtra::RewriteList { .. } => {}
         }
     }
     rule
@@ -683,10 +893,12 @@ fn placeholder_term() -> krs_ir::HostTerm {
 /// Keeps the reading of a bracketed cell value that the cell's declared
 /// type gives (KF-023). `job: [Job { payload: p }, ..] => job: [..]` reads
 /// both as the computation cell's head and as a List collection's front
-/// instance; the macro carries it as a head with its List reading beside it,
-/// and a `*` collection cell takes the List reading, its instances in place
-/// of the head. Any other cell keeps the head, which names the computation
-/// cell or is reported as naming none.
+/// instance, and `job: [.., Job { payload: p }]` both as a list's elements
+/// and as a back instance; the macro carries the head or the elements with
+/// the List reading beside them, and a `*` collection cell takes the List
+/// reading, its instances in place of the head or the elements. Any other
+/// cell keeps the reading the macro took, which names the computation cell,
+/// a list cell, or is reported as naming neither.
 fn readable_bracket_reading(
     mut rule: krs_ir::HostHeadRule,
     targets: &[HeadRuleTarget],
@@ -707,12 +919,239 @@ fn readable_bracket_reading(
     if let [candidate] = named.as_slice()
         && candidate.collection
     {
-        rule.head = None;
-        rule.computation_cell_name = None;
+        if rule.computation_cell_name.as_ref() == Some(&cell.name) {
+            rule.head = None;
+            rule.computation_cell_name = None;
+        }
+        rule.extras.retain(|extra| {
+            !matches!(
+                extra,
+                krs_ir::ProtocolHeadRuleExtra::RewriteList { cell: list, .. }
+                    if list.name == cell.name
+            )
+        });
         rule.bindings = alternative.bindings;
         rule.extras.push(alternative.extra);
     }
     Ok(rule)
+}
+
+/// Gives a readable record's sequence values the readings their cells'
+/// declared types give (F6). `[a, b, ..] => [c, ..]` reads alike as the
+/// computation cell's items and as a list's elements, and only the
+/// configuration says which cell is which: the macro reads one such value
+/// as the head, a cell named `k` if there is one, and the others as list
+/// cells. The computation cell is the configuration's one `KCell` leaf, so a
+/// head on an ordinary leaf cell becomes that cell's list, and a list on the
+/// computation cell becomes the head. Both readings hold the same terms, so
+/// moving one to the other changes no binder. A cell of neither kind keeps
+/// its reading and is reported where it is checked.
+fn readable_list_reading(
+    mut rule: krs_ir::HostHeadRule,
+    targets: &[HeadRuleTarget],
+    declarations: &HashMap<HostApplicationIdentity, (StableItemId, ItemKind)>,
+) -> Result<krs_ir::HostHeadRule, CollectionError> {
+    let has_list = rule.extras.iter().any(|extra| {
+        matches!(extra, krs_ir::ProtocolHeadRuleExtra::RewriteList { .. })
+            || empty_brackets(extra).is_some()
+    });
+    if rule.configuration.is_none() || (rule.computation_cell_name.is_none() && !has_list) {
+        return Ok(rule);
+    }
+    let target = select_head_rule_target(&rule, targets, declarations)?;
+    let wrapper = |name: &str| {
+        let named = target
+            .cells
+            .iter()
+            .filter(|cell| cell.names.iter().any(|candidate| candidate == name))
+            .collect::<Vec<_>>();
+        match named.as_slice() {
+            [cell] if !cell.collection => cell.wrapper,
+            _ => None,
+        }
+    };
+    if let Some(name) = &rule.computation_cell_name
+        && rule.head.is_some()
+        && wrapper(name) == Some(krs_ir::CellWrapper::Cell)
+    {
+        let head = rule.head.take().expect("checked above");
+        let name = rule.computation_cell_name.take().expect("checked above");
+        rule.extras
+            .push(head_list(head, name, &rule.pattern_key, &rule.result_key));
+    }
+    if rule.head.is_none()
+        && let Some(index) = rule.extras.iter().position(|extra| {
+            matches!(
+                extra,
+                krs_ir::ProtocolHeadRuleExtra::RewriteList { cell, .. }
+                    if wrapper(&cell.name) == Some(krs_ir::CellWrapper::KCell)
+            )
+        })
+    {
+        let krs_ir::ProtocolHeadRuleExtra::RewriteList {
+            cell,
+            result_key,
+            before,
+            after,
+        } = rule.extras.remove(index)
+        else {
+            unreachable!("the position matched a list cell");
+        };
+        rule.head = Some(list_head(&cell, result_key.as_ref(), before, after)?);
+        rule.computation_cell_name = Some(cell.name);
+    }
+    // `[]` reads alike as no instances of a List collection and as the
+    // empty cons list, and the macro, which cannot see declared types,
+    // reads it as instances: on an ordinary leaf cell it is the empty list.
+    for extra in &mut rule.extras {
+        if let Some(cell) = empty_brackets(extra)
+            && wrapper(&cell.name) == Some(krs_ir::CellWrapper::Cell)
+        {
+            let krs_ir::ProtocolHeadRuleExtra::RewriteState {
+                cell, result_key, ..
+            } = extra.clone()
+            else {
+                unreachable!("empty brackets are a state extra");
+            };
+            let empty = || krs_ir::ProtocolHeadRuleList {
+                items: Vec::new(),
+                rest: krs_ir::ProtocolHeadRuleListRest::Exact,
+                back: Vec::new(),
+            };
+            *extra = krs_ir::ProtocolHeadRuleExtra::RewriteList {
+                cell,
+                after: result_key.as_ref().map(|_| empty()),
+                result_key,
+                before: empty(),
+            };
+        }
+    }
+    Ok(rule)
+}
+
+/// The cell of a state extra that matches the empty bracketed instance
+/// list `[]`, and rewrites it to `[]` again or leaves it out.
+fn empty_brackets(extra: &krs_ir::HostHeadRuleExtra) -> Option<&krs_ir::HostHeadRuleCellReference> {
+    let is_empty = |state: &krs_ir::ProtocolRuleStateTerm<krs_ir::HostTerm>| {
+        matches!(
+            state,
+            krs_ir::ProtocolRuleStateTerm::Instances(instances)
+                if instances.delimiter == krs_ir::InstanceDelimiter::Bracket
+                    && instances.front.is_empty()
+                    && instances.back.is_empty()
+                    && instances.rest == krs_ir::ProtocolRuleFrame::Exact
+        )
+    };
+    match extra {
+        krs_ir::ProtocolHeadRuleExtra::RewriteState {
+            cell,
+            before,
+            after,
+            ..
+        } if is_empty(before) && after.as_ref().is_none_or(is_empty) => Some(cell),
+        _ => None,
+    }
+}
+
+/// The list reading of the head `head` read on the ordinary cell `name`:
+/// the same items, with the anonymous `..` as the list's shared rest. The
+/// head carries no cell key, so the cell is keyed at the whole pattern and
+/// its result at the whole result.
+fn head_list(
+    head: krs_ir::ProtocolHeadRuleHead<krs_ir::HostTerm>,
+    name: String,
+    pattern_key: &krs_ir::ProvenanceKey,
+    result_key: &krs_ir::ProvenanceKey,
+) -> krs_ir::HostHeadRuleExtra {
+    let rest = || {
+        if head.exact {
+            krs_ir::ProtocolHeadRuleListRest::Exact
+        } else {
+            krs_ir::ProtocolHeadRuleListRest::Shared
+        }
+    };
+    let after = head.result.map(|result| krs_ir::ProtocolHeadRuleList {
+        items: match result {
+            krs_ir::ProtocolHeadRuleResult::Replace(term) => vec![term],
+            krs_ir::ProtocolHeadRuleResult::Splice(terms) => terms,
+            krs_ir::ProtocolHeadRuleResult::Erase => Vec::new(),
+        },
+        rest: rest(),
+        back: Vec::new(),
+    });
+    krs_ir::ProtocolHeadRuleExtra::RewriteList {
+        cell: krs_ir::HostHeadRuleCellReference {
+            key: pattern_key.clone(),
+            name,
+        },
+        result_key: after.as_ref().map(|_| result_key.clone()),
+        before: krs_ir::ProtocolHeadRuleList {
+            items: head.items,
+            rest: rest(),
+            back: Vec::new(),
+        },
+        after,
+    }
+}
+
+/// The head reading of a list read on the computation cell `cell`, whose
+/// rest is anonymous and last: K's sequence is matched from its front, the
+/// next step first, and its rest kept by `..`, never named.
+fn list_head(
+    cell: &krs_ir::HostHeadRuleCellReference,
+    result_key: Option<&krs_ir::ProvenanceKey>,
+    before: krs_ir::ProtocolHeadRuleList<krs_ir::HostTerm>,
+    after: Option<krs_ir::ProtocolHeadRuleList<krs_ir::HostTerm>>,
+) -> Result<krs_ir::ProtocolHeadRuleHead<krs_ir::HostTerm>, CollectionError> {
+    let named = || {
+        CollectionError::new(
+            CollectionErrorKind::InvalidConfiguration,
+            format!(
+                "`{}` is the computation cell, whose rest is the anonymous `..`; a named rest (`rest @ ..`, `..rest`) belongs to a list cell",
+                cell.name
+            ),
+        )
+        .with_reference_key(cell.key.clone())
+    };
+    // The entry that names an item after the rest is the mistake, the subject's or the result's.
+    let back = |key: &krs_ir::ProvenanceKey| {
+        CollectionError::new(
+            CollectionErrorKind::InvalidConfiguration,
+            format!(
+                "`..` may only end the computation cell `{}`'s items: it is matched from its front, the next step first, so name the items before the rest",
+                cell.name
+            ),
+        )
+        .with_reference_key(key.clone())
+    };
+    if !before.back.is_empty() {
+        return Err(back(&cell.key));
+    }
+    if after.as_ref().is_some_and(|after| !after.back.is_empty()) {
+        return Err(back(result_key.unwrap_or(&cell.key)));
+    }
+    let exact = match before.rest {
+        krs_ir::ProtocolHeadRuleListRest::Exact => true,
+        krs_ir::ProtocolHeadRuleListRest::Shared => false,
+        krs_ir::ProtocolHeadRuleListRest::Term(_) => return Err(named()),
+    };
+    let result = match after {
+        None => None,
+        Some(krs_ir::ProtocolHeadRuleList {
+            rest: krs_ir::ProtocolHeadRuleListRest::Term(_),
+            ..
+        }) => return Err(named()),
+        Some(after) => Some(match <[_; 1]>::try_from(after.items) {
+            Ok([term]) => krs_ir::ProtocolHeadRuleResult::Replace(term),
+            Err(items) if items.is_empty() => krs_ir::ProtocolHeadRuleResult::Erase,
+            Err(items) => krs_ir::ProtocolHeadRuleResult::Splice(items),
+        }),
+    };
+    Ok(krs_ir::ProtocolHeadRuleHead {
+        items: before.items,
+        exact,
+        result,
+    })
 }
 
 fn resolve_head_rule(
@@ -720,7 +1159,17 @@ fn resolve_head_rule(
     map: &mut Resolver<'_>,
 ) -> Result<krs_ir::DescriptorHeadRule, CollectionError> {
     let rule = readable_bracket_reading(rule, map.head_targets, map.declarations)?;
-    let rule = readable_group_terms(rule, map.declarations);
+    let rule = readable_list_reading(rule, map.head_targets, map.declarations)?;
+    let no_groups = HashMap::new();
+    let target = select_head_rule_target(&rule, map.head_targets, map.declarations).ok();
+    let rule = readable_group_terms(
+        rule,
+        &GroupRecords {
+            declarations: map.declarations,
+            children: target.map_or(&no_groups, |target| &target.group_children),
+            cells: target.map_or(&[], |target| &target.cells),
+        },
+    );
     map.head_selection = Some(resolve_head_rule_target(
         &rule,
         map.head_targets,
@@ -962,11 +1411,13 @@ fn resolve_application_reference(
 ) -> Result<DescriptorApplicationReference, CollectionError> {
     let identity = reference.target.resolve();
     let application = if let Some((id, kind)) = declarations.get(&identity) {
-        if *kind != ItemKind::Constructor {
+        // A use of a named constant stays a reference to it until the
+        // compiler substitutes the constant's value.
+        if !matches!(kind, ItemKind::Constructor | ItemKind::Constant) {
             return Err(CollectionError::new(
                 CollectionErrorKind::ReferenceKindMismatch,
                 format!(
-                    "Rust path `{}` resolves to `{}`, but a constructor is required",
+                    "Rust path `{}` resolves to `{}`, but a constructor or a constant is required",
                     reference.target.authored_path(),
                     id
                 ),
@@ -1001,6 +1452,14 @@ fn resolve_application_reference(
             builtins.and_then(|registry| registry.resolve_ml_connective(type_id))
         {
             DescriptorApplicationRef::Ml(connective)
+        } else if let Some(operator) =
+            builtins.and_then(|registry| registry.resolve_operator(type_id))
+        {
+            DescriptorApplicationRef::Operator(operator)
+        } else if let Some(notation) =
+            builtins.and_then(|registry| registry.resolve_list_notation(type_id))
+        {
+            DescriptorApplicationRef::ListNotation(notation)
         } else {
             return Err(CollectionError::new(
                 CollectionErrorKind::UnresolvedTypeReference,
@@ -1072,7 +1531,9 @@ mod tests {
     const LIST_OFFSET: usize = MAP_OFFSET + TermMapOperation::ALL.len();
     const SET_OFFSET: usize = LIST_OFFSET + ListOperation::ALL.len();
     const ML_OFFSET: usize = SET_OFFSET + krs_ir::SetOperation::ALL.len();
-    const _: () = assert!(ML_OFFSET + krs_ir::MlConnective::ALL.len() <= MARKER_COUNT);
+    const OPERATOR_OFFSET: usize = ML_OFFSET + krs_ir::MlConnective::ALL.len();
+    const LIST_NOTATION_OFFSET: usize = OPERATOR_OFFSET + krs_ir::BuiltinOperator::ALL.len();
+    const _: () = assert!(LIST_NOTATION_OFFSET + krs_ir::ListNotation::ALL.len() <= MARKER_COUNT);
 
     fn keys<const N: usize>(offset: usize) -> [HostTypeKey; N] {
         let table = marker_table();
@@ -1111,6 +1572,8 @@ mod tests {
             list_operations: keys(LIST_OFFSET),
             set_operations: keys(SET_OFFSET),
             ml_connectives: keys(ML_OFFSET),
+            operators: keys(OPERATOR_OFFSET),
+            list_notation: keys(LIST_NOTATION_OFFSET),
         }
     }
 
@@ -1363,8 +1826,11 @@ mod tests {
             computation_cell_name: None,
             bindings: Vec::new(),
             head: Some(krs_ir::ProtocolHeadRuleHead {
-                subject: unresolved_term("Subject"),
-                result: krs_ir::ProtocolHeadRuleResult::Replace(unresolved_term("Result")),
+                items: vec![unresolved_term("Subject")],
+                exact: false,
+                result: Some(krs_ir::ProtocolHeadRuleResult::Replace(unresolved_term(
+                    "Result",
+                ))),
             }),
             requires: None,
             extras: vec![krs_ir::ProtocolHeadRuleExtra::HaveMap {
@@ -1372,14 +1838,17 @@ mod tests {
                     key,
                     name: "missing".to_owned(),
                 },
-                key: unresolved_term("Extra"),
-                value_binding: "value".to_owned(),
+                entries: vec![krs_ir::ProtocolHeadRuleMapEntry {
+                    key: unresolved_term("Extra"),
+                    value_binding: "value".to_owned(),
+                }],
             }],
             existentials: Vec::new(),
             ensures: None,
             fresh: Vec::new(),
             evaluation: None,
             bracket_alternative: None,
+            claim: None,
         };
         let identity = krs_ir::DescriptorCellIdentity {
             owner: StableItemId::new(
@@ -1399,14 +1868,19 @@ mod tests {
                 names: vec!["k".to_owned()],
                 wrapper: Some(krs_ir::CellWrapper::KCell),
                 collection: false,
+                group: None,
             }],
+            group_children: HashMap::new(),
         };
         let payload = |rule| HostDescriptorPayload::HeadRule(Box::new(rule));
         let error = payload_error(&payload(rule.clone()), &[]);
-        assert_eq!(error.kind(), CollectionErrorKind::InvalidConfiguration);
-        assert_eq!(
-            error.detail(),
-            "head-anchored rules require one fixed configuration, but none was collected"
+        assert_eq!(error.kind(), CollectionErrorKind::ConfigurationCount);
+        assert!(
+            error
+                .detail()
+                .contains("but the definition has no `#[k::configuration]`"),
+            "{}",
+            error.detail()
         );
         let targets = [target];
         let error = payload_error(&payload(rule.clone()), &targets);
@@ -1418,11 +1892,11 @@ mod tests {
         rule.extras.clear();
         assert_sort_error(&payload_error(&payload(rule.clone()), &targets), "Result");
         let head = rule.head.as_mut().unwrap();
-        head.result = krs_ir::ProtocolHeadRuleResult::Erase;
+        head.result = Some(krs_ir::ProtocolHeadRuleResult::Erase);
         assert_sort_error(&payload_error(&payload(rule.clone()), &targets), "Subject");
-        rule.head.as_mut().unwrap().subject = krs_ir::HostTerm::Wildcard {
+        rule.head.as_mut().unwrap().items = vec![krs_ir::HostTerm::Wildcard {
             key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftWildcard, 0),
-        };
+        }];
         assert_sort_error(&payload_error(&payload(rule), &targets), "Header");
     }
 
@@ -1641,27 +2115,64 @@ mod tests {
         );
     }
 
-    #[test]
-    fn readable_record_naming_a_cell_struct_becomes_a_group_term() {
-        let cell_id = StableItemId::new(
+    fn cell_id(name: &str) -> StableItemId {
+        StableItemId::new(
             PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap(),
             ["model"],
-            "Frame",
+            name,
             ItemKind::Cell,
             "",
         )
-        .unwrap();
-        let declarations = HashMap::from([
+        .unwrap()
+    }
+
+    /// `Frame` and `Outer` as `#[k::cell]` structs and `Pair` as a
+    /// constructor.
+    fn group_declarations() -> HashMap<HostApplicationIdentity, (StableItemId, ItemKind)> {
+        HashMap::from([
             (
                 HostApplicationIdentity::Nominal(boolean_key()),
-                (cell_id, ItemKind::Cell),
+                (cell_id("Frame"), ItemKind::Cell),
+            ),
+            (
+                HostApplicationIdentity::Nominal(false_key()),
+                (cell_id("Outer"), ItemKind::Cell),
             ),
             (
                 HostApplicationIdentity::Nominal(other_boolean_key()),
                 (test_id("Pair"), ItemKind::Constructor),
             ),
-        ]);
-        let record = |key: fn() -> TypeId| krs_ir::HostTerm::Application {
+        ])
+    }
+
+    /// `Frame` has two children, and `Outer` two: the group `frame` and a
+    /// leaf, so a record naming one leaves the other out.
+    fn group_children() -> HashMap<TypeId, GroupChildren> {
+        HashMap::from([
+            (
+                boolean_key(),
+                GroupChildren {
+                    count: 2,
+                    fixed: HashMap::new(),
+                },
+            ),
+            (
+                false_key(),
+                GroupChildren {
+                    count: 2,
+                    fixed: HashMap::from([("frame".to_owned(), boolean_key())]),
+                },
+            ),
+        ])
+    }
+
+    /// A readable record of the struct `key` naming one field.
+    fn one_field_record(
+        key: fn() -> TypeId,
+        field: &str,
+        value: krs_ir::HostTerm,
+    ) -> krs_ir::HostTerm {
+        krs_ir::HostTerm::Application {
             head_class: krs_ir::DescriptorApplicationHeadClass::Applied,
             reference: HostApplicationReference {
                 key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftApplicationHead, 3),
@@ -1673,19 +2184,47 @@ mod tests {
             path_key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftPath, 3),
             arguments: krs_ir::Arguments::named(vec![krs_ir::NamedTermArgument {
                 key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftRecordFieldName, 1),
-                field: krs_ir::ProductionFieldId::new("pc").unwrap(),
-                value: Box::new(unresolved_term("p")),
+                field: krs_ir::ProductionFieldId::new(field).unwrap(),
+                value: Box::new(value),
             }]),
             instance: Vec::new(),
+            update: None,
+            open: false,
+        }
+    }
+
+    fn frame_record() -> krs_ir::HostTerm {
+        one_field_record(boolean_key, "pc", unresolved_term("p"))
+    }
+
+    #[test]
+    fn readable_record_naming_a_cell_struct_becomes_a_group_term() {
+        let declarations = group_declarations();
+        let children = group_children();
+        let record = one_field_record;
+        let frame = frame_record;
+        let groups = GroupRecords {
+            declarations: &declarations,
+            children: &children,
+            cells: &[],
         };
+        // At the group's own position, a subject record leaves the child it
+        // does not name unconstrained; a result names every child.
         let krs_ir::HostTerm::Cell {
             key,
             declaration,
             fields,
-        } = readable_group_term(record(boolean_key), &declarations)
+            open,
+            update,
+        } = readable_group_term(frame(), true, Some(boolean_key()), &groups)
         else {
             panic!("a record naming a cell struct is a group term");
         };
+        assert!(open && update.is_none());
+        assert!(matches!(
+            readable_group_term(frame(), false, Some(boolean_key()), &groups),
+            krs_ir::HostTerm::Cell { open: false, .. }
+        ));
         assert_eq!(
             key,
             ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftApplicationHead, 3)
@@ -1697,7 +2236,67 @@ mod tests {
             ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftRecordFieldName, 1)
         );
         assert!(matches!(
-            readable_group_term(record(other_boolean_key), &declarations),
+            readable_group_term(
+                record(other_boolean_key, "pc", unresolved_term("p")),
+                true,
+                Some(boolean_key()),
+                &groups
+            ),
+            krs_ir::HostTerm::Application { .. }
+        ));
+    }
+
+    #[test]
+    fn a_group_record_omits_children_only_at_its_configuration_position() {
+        let declarations = group_declarations();
+        let children = group_children();
+        let record = one_field_record;
+        let frame = frame_record;
+        let groups = GroupRecords {
+            declarations: &declarations,
+            children: &children,
+            cells: &[],
+        };
+        // Anywhere else, such as a leaf cell's content, the record is a
+        // complete value: closed unless it ends in `..`.
+        assert!(matches!(
+            readable_group_term(frame(), true, None, &groups),
+            krs_ir::HostTerm::Cell { open: false, .. }
+        ));
+        let mut rest = frame();
+        if let krs_ir::HostTerm::Application { open, .. } = &mut rest {
+            *open = true;
+        }
+        assert!(matches!(
+            readable_group_term(rest, true, None, &groups),
+            krs_ir::HostTerm::Cell { open: true, .. }
+        ));
+        // A fixed group child of a record at its position is at its own
+        // group's position; the child of a value record is left to the
+        // strict reading of values.
+        let nested = |position| {
+            let krs_ir::HostTerm::Cell { fields, .. } =
+                readable_group_term(record(false_key, "frame", frame()), true, position, &groups)
+            else {
+                panic!("the outer record is a group term");
+            };
+            fields.into_iter().next().unwrap().value
+        };
+        assert!(matches!(
+            *nested(Some(false_key())),
+            krs_ir::HostTerm::Cell { open: true, .. }
+        ));
+        assert!(matches!(
+            *nested(None),
+            krs_ir::HostTerm::Application { .. }
+        ));
+        assert!(matches!(
+            readable_group_term(
+                record(other_boolean_key, "pc", unresolved_term("p")),
+                true,
+                Some(boolean_key()),
+                &groups
+            ),
             krs_ir::HostTerm::Application { .. }
         ));
     }

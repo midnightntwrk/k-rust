@@ -192,12 +192,17 @@ impl ImportPolicy {
 #[must_use]
 pub fn builtin_imports(module: &DefinitionModule, policy: ImportPolicy) -> BTreeSet<&'static str> {
     let requirements = module_requirements(module, policy);
+    // `K` has no module of its own in the catalog: rule, configuration, and
+    // program grammars always contain it, but a production over it needs
+    // the sort declared where the production is (N16).
+    let sort_k = requirements.declares_k.then_some(SORT_K_MODULE);
     if policy == ImportPolicy::ProgramSyntax {
         let int_literals = module.int_literals();
         return requirements
             .sorts
             .into_iter()
             .filter_map(|sort| int_literals.program_syntax_module(sort))
+            .chain(sort_k)
             .collect();
     }
     // A module with matching-logic predicates imports K's ML-SYNTAX and,
@@ -216,6 +221,7 @@ pub fn builtin_imports(module: &DefinitionModule, policy: ImportPolicy) -> BTree
         })
         .collect::<BTreeSet<_>>();
     imports.extend(requirements.modules);
+    imports.extend(sort_k);
     if requirements.ml {
         imports.insert(ML_SYNTAX_MODULE);
     }
@@ -240,6 +246,10 @@ pub fn has_predicate(sentence: &crate::RuleSentence) -> bool {
 /// K's module of the matching-logic connectives (`kast.md`), imported by a
 /// module with predicates (KF-039).
 pub const ML_SYNTAX_MODULE: &str = "ML-SYNTAX";
+
+/// K's module that declares the sort `K` and nothing else (`kast.md`),
+/// imported by a module whose declarations name `KSequence`.
+pub const SORT_K_MODULE: &str = "SORT-K";
 
 /// K's symbolic map lemmas (`domains.md`), imported by a module with
 /// predicates that uses maps (KF-039).
@@ -287,14 +297,14 @@ fn module_requirements(module: &DefinitionModule, policy: ImportPolicy) -> Built
             | DefinitionSentence::Lexical(_)
             | DefinitionSentence::Layout(_) => {}
             DefinitionSentence::Subsort(sentence) => {
-                requirements.sort(sentence.subsort());
-                requirements.sort(sentence.supersort());
+                requirements.declared_sort(sentence.subsort());
+                requirements.declared_sort(sentence.supersort());
             }
             DefinitionSentence::Production(sentence) => {
-                requirements.sort(sentence.result_sort());
+                requirements.declared_sort(sentence.result_sort());
                 for item in sentence.items() {
                     if let GrammarProductionItemKind::NonTerminal { sort, .. } = item.kind() {
-                        requirements.sort(sort);
+                        requirements.declared_sort(sort);
                     }
                 }
                 for attribute in sentence.attributes() {
@@ -397,6 +407,8 @@ struct BuiltinRequirements {
     ml: bool,
     /// Every declared sort and production symbol a term names.
     declared: BTreeSet<SymbolId>,
+    /// Whether a production or subsort declaration names `K`.
+    declares_k: bool,
 }
 
 impl BuiltinRequirements {
@@ -418,6 +430,12 @@ impl BuiltinRequirements {
             crate::IrMlKind::Exists { binder, .. } => self.sort(binder.sort()),
             _ => {}
         });
+    }
+
+    /// A sort in a production or subsort declaration.
+    fn declared_sort(&mut self, sort: &DefinitionSortRef) {
+        self.declares_k |= matches!(sort, DefinitionSortRef::Builtin(BuiltinSort::KSequence));
+        self.sort(sort);
     }
 
     fn sort(&mut self, sort: &DefinitionSortRef) {
@@ -530,7 +548,8 @@ impl BuiltinRequirements {
     fn fixed_cells(&mut self, cells: &[FixedCell<DefinitionSortRef, SymbolId>]) {
         for cell in cells {
             match cell.content() {
-                FixedCellContent::Term { sort } => self.sort(sort),
+                // Element types are erased in K.
+                FixedCellContent::Term { sort, .. } => self.sort(sort),
                 FixedCellContent::Children { children } => self.fixed_cells(children),
             }
         }
@@ -953,6 +972,28 @@ mod tests {
         for policy in [ImportPolicy::SourceText, ImportPolicy::NativeFrontend] {
             assert!(builtin_imports(&module, policy).is_empty());
         }
+    }
+
+    #[test]
+    fn a_declaration_over_k_imports_sort_k_on_every_route() {
+        let module = import_module(vec![DefinitionSentence::Subsort(
+            crate::SubsortSentence::new(
+                origin("k-subsort"),
+                DefinitionSortRef::Builtin(BuiltinSort::KSequence),
+                DefinitionSortRef::Declared(symbol_id("sort")),
+            ),
+        )]);
+        for policy in [ImportPolicy::SourceText, ImportPolicy::NativeFrontend] {
+            assert_eq!(
+                builtin_imports(&module, policy),
+                BTreeSet::from([SORT_K_MODULE])
+            );
+        }
+        let syntax = module.into_program_syntax(krs_ir::IntLiterals::Signed);
+        assert_eq!(
+            builtin_imports(&syntax, ImportPolicy::ProgramSyntax),
+            BTreeSet::from([SORT_K_MODULE])
+        );
     }
 
     #[test]

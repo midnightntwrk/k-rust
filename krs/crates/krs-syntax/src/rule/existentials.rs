@@ -98,7 +98,9 @@ impl RuleExistentials {
                         attribute.span(),
                     ));
                 }
-                let term = TermExpression::parse_tokens(list.tokens.clone())?;
+                let term = TermExpression::parse_tokens(crate::parse::strip_trailing_comma(
+                    list.tokens.clone(),
+                ))?;
                 if term.root_kind() == crate::TermRootKind::Literal {
                     return Err(unsupported_rule_signature(
                         "an ensures condition must be an object-Bool term, not a host literal",

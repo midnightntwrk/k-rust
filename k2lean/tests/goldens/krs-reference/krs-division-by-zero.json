@@ -1,0 +1,27 @@
+{
+ "env": ".Map",
+ "krun": {
+  "argv": [
+   "timeout",
+   "--signal=KILL",
+   "8s",
+   "prlimit",
+   "--as=unlimited",
+   "--",
+   "krun",
+   "--definition",
+   "{{work}}/reference-execution-llvm-kompiled",
+   "--output",
+   "json",
+   "-cENV=.Map",
+   "{{root}}/tests/imp-state/corpus/rejected/semantic/division-by-zero.calc"
+  ],
+  "returncode": -9,
+  "stderr": "terminate called after throwing an instance of 'std::invalid_argument'\n  what():  [hook_INT_tdiv]: Division by zero: 1 / 0",
+  "term": null
+ },
+ "name": "krs-division-by-zero",
+ "origin": "krs/tests/imp-state/corpus/rejected/semantic/division-by-zero.calc",
+ "provenance": "krs IMP gate behavior snapshot a9a0a0977cbd403b51e7743f069fbef5178f9e4a0f77ca16f29049a5fa79e23c, label krun-failure/reference/division-by-zero, K 7.1.337, kimp 683a773418add3bcae8ded47c2b24e94494e1988",
+ "source": "x = 1 / 0;\n"
+}

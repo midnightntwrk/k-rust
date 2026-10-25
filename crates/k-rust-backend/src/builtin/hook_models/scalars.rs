@@ -316,8 +316,8 @@ fn bytes_model(hook: &str, arguments: &[Val]) -> Spec {
     use Val::{Bytes, Int, Str, Tag};
     match (hook, arguments) {
         ("BYTES.empty", []) => Spec::value(Bytes(Vec::new())),
-        // Each byte is the code point of the same number (the chosen reading; `domains.md` names
-        // no encoding for the pair).
+        // Each byte is the code point of the same number (k-rust's stated reading of "a copy of
+        // the original" over the initial 256 code points).
         ("BYTES.bytes2string", [Bytes(bytes)]) => Spec::value(Str(bytes
             .iter()
             .map(|byte| char::from(*byte))

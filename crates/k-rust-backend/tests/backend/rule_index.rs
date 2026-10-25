@@ -1,6 +1,7 @@
 use k_rust_backend::{
     definition::BackendDefinition,
     matching::{MatchMode, MatchResult, match_terms_in_definition},
+    rewrite::Pattern,
     rule::{
         CellIndex, IndexedRewriteRule, TermIndex, applicable_rewrite_groups, rule_index,
         subject_index, term_index,
@@ -744,4 +745,298 @@ fn every_rule_the_index_drops_fails_to_match_for_every_item_shape() {
     }
     // The index drops something for most subjects; a vacuous pass would drop nothing.
     assert!(dropped > 1000, "only {dropped} dropped candidates");
+}
+
+/// A `<T>` configuration whose `<k>` cells live in the values of a thread cell map, beside a
+/// second cell `KCell` slot that no rule reads, so that a subject can hold one more `<k>` cell
+/// without changing which rules match it. `on-b` rewrites a thread whose `<k>` head is `b`, at
+/// priority 40; `fallback` rewrites any state, at priority 50.
+fn thread_map_definition() -> BackendDefinition {
+    let syntax = parse_definition(
+        r#"[]
+        module MAIN
+          sort SortK{} []
+          sort SortKItem{} []
+          sort SortKCell{} []
+          sort SortS{} []
+          sort SortKey{} [hasDomainValues{}()]
+          sort SortThread{} []
+          sort SortState{} []
+          hooked-sort SortThreadMap{}
+            [hook{}("MAP.Map"), unit{}(mapUnit{}()), element{}(mapItem{}()), concat{}(mapConcat{}())]
+          symbol inj{From, To}(From) : To [sortInjection{}()]
+          symbol kseq{}(SortKItem{}, SortK{}) : SortK{} [constructor{}(), total{}()]
+          symbol dotk{}() : SortK{} [constructor{}(), total{}()]
+          symbol Lbl'-LT-'k'-GT-'{}(SortK{}) : SortKCell{} [constructor{}(), total{}()]
+          symbol noK{}() : SortKCell{} [constructor{}(), total{}()]
+          symbol a{}() : SortS{} [constructor{}(), total{}()]
+          symbol b{}() : SortS{} [constructor{}(), total{}()]
+          symbol thread{}(SortKey{}, SortKCell{}) : SortThread{} [constructor{}(), total{}()]
+          hooked-symbol mapUnit{}() : SortThreadMap{} [function{}(), total{}(), hook{}("MAP.unit")]
+          hooked-symbol mapItem{}(SortKey{}, SortThread{}) : SortThreadMap{}
+            [function{}(), total{}(), hook{}("MAP.element")]
+          hooked-symbol mapConcat{}(SortThreadMap{}, SortThreadMap{}) : SortThreadMap{}
+            [function{}(), hook{}("MAP.concat"), assoc{}(), comm{}()]
+          symbol cellState{}(SortThreadMap{}, SortKCell{}) : SortState{} [constructor{}(), total{}()]
+          symbol done{}() : SortState{} [constructor{}(), total{}()]
+          symbol fallback{}() : SortState{} [constructor{}(), total{}()]
+          axiom{R} \exists{R}(K:SortKItem{}, \equals{SortKItem{}, R}(
+            K:SortKItem{}, inj{SortS{}, SortKItem{}}(S:SortS{})
+          )) [subsort{SortS{}, SortKItem{}}()]
+          axiom{} \rewrites{SortState{}}(
+            \and{SortState{}}(
+              cellState{}(
+                mapConcat{}(
+                  mapItem{}(
+                    KEY:SortKey{},
+                    thread{}(
+                      KEY:SortKey{},
+                      Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortS{}, SortKItem{}}(b{}()), REST:SortK{}))
+                    )
+                  ),
+                  FRAME:SortThreadMap{}
+                ),
+                OTHER:SortKCell{}
+              ),
+              \top{SortState{}}()
+            ),
+            done{}()
+          ) [label{}("on-b"), priority{}("40")]
+          axiom{} \rewrites{SortState{}}(
+            \and{SortState{}}(cellState{}(M:SortThreadMap{}, O:SortKCell{}), \top{SortState{}}()),
+            fallback{}()
+          ) [label{}("fallback"), priority{}("50")]
+        endmodule []"#,
+    )
+    .expect("thread-map definition should parse");
+    BackendDefinition::internalize(&syntax, "MAIN")
+        .expect("thread-map definition should internalize")
+}
+
+/// The thread map `{"t0" |-> thread("t0", <k> a ~> .K </k>)} REST`, under `cellState` with the
+/// spare slot `spare`.
+fn thread_map_subject(definition: &BackendDefinition, spare: &str) -> Pattern {
+    Pattern {
+        term: internal_term(
+            definition,
+            &format!(
+                r#"cellState{{}}(
+                    mapConcat{{}}(
+                      mapItem{{}}(\dv{{SortKey{{}}}}("t0"), thread{{}}(\dv{{SortKey{{}}}}("t0"),
+                        Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortS{{}}, SortKItem{{}}}}(a{{}}()), dotk{{}}())))),
+                      REST:SortThreadMap{{}}
+                    ),
+                    {spare}
+                  )"#
+            ),
+        ),
+        constraints: Vec::new(),
+    }
+}
+
+/// The index keys a subject's one `<k>` cell, and drops a rule whose `<k>` head differs from
+/// it, only when every instance of the subject has that cell as its only `<k>` cell. A cell map
+/// with a rest variable does not: the rest may hold further threads, each with its own `<k>`
+/// cell, so the rule `on-b` may match an instance through the rest, and the matcher leaves the
+/// pair open. The index must therefore keep `on-b`.
+#[test]
+fn a_cell_map_rest_keeps_the_rules_another_thread_could_match() {
+    let definition = thread_map_definition();
+    let subject = thread_map_subject(&definition, "noK{}()");
+    let on_b = old_candidates(&definition, &term_index(&subject.term))
+        .into_iter()
+        .find(|stored| stored.attributes.label.as_deref() == Some("on-b"))
+        .expect("on-b is stored under cellState");
+    let matched =
+        match_terms_in_definition(MatchMode::Rewrite, &definition, &on_b.lhs, &subject.term);
+    assert!(
+        !matches!(matched, MatchResult::Failed(_)),
+        "the matcher leaves on-b open against a thread map with a rest: {matched:?}"
+    );
+    assert!(
+        on_b.index
+            .covers(&subject_index(&definition, &subject.term)),
+        "the index drops on-b, which the matcher leaves open"
+    );
+    // A rest-free map whose other threads are ground keeps the key: there the visible cell is
+    // the only one, and the matcher refutes `on-b` by its head.
+    let ground = Pattern {
+        term: internal_term(
+            &definition,
+            r#"cellState{}(
+                mapItem{}(\dv{SortKey{}}("t0"), thread{}(\dv{SortKey{}}("t0"),
+                  Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortS{}, SortKItem{}}(a{}()), K:SortK{})))),
+                noK{}()
+              )"#,
+        ),
+        constraints: Vec::new(),
+    };
+    assert!(!on_b.index.covers(&subject_index(&definition, &ground.term)));
+    assert!(matches!(
+        match_terms_in_definition(MatchMode::Rewrite, &definition, &on_b.lhs, &ground.term),
+        MatchResult::Failed(_)
+    ));
+}
+
+/// The rule the index kept above applies: the step on the thread map with a rest has the same
+/// successors as the step on the same subject with one more `<k>` cell in the slot no rule reads,
+/// which the index keys by no `<k>` cell, and `on-b` is among them (it narrows the rest to hold a
+/// thread whose head is `b`).
+#[cfg(feature = "z3")]
+#[test]
+fn a_cell_map_rest_steps_like_a_subject_the_index_does_not_key() {
+    use k_rust_backend::{fresh::FreshCounter, rewrite::RewriteResult, smt::Z3Solver};
+
+    use super::support::unstopped::rewrite_step_with_solver;
+
+    let definition = thread_map_definition();
+    let solver = Z3Solver::new(&definition).expect("Z3 should start");
+    let labels = |spare: &str| {
+        let subject = thread_map_subject(&definition, spare);
+        let result =
+            rewrite_step_with_solver(&definition, &subject, &mut FreshCounter::default(), &solver);
+        let mut labels = match result {
+            RewriteResult::Finished(applied) => vec![applied.unique_id.clone()],
+            RewriteResult::Branch { branches, .. } => branches
+                .iter()
+                .map(|applied| applied.unique_id.clone())
+                .collect(),
+            other => panic!("unexpected step result {other:?}"),
+        };
+        labels.sort();
+        labels
+    };
+    let one_cell = labels("noK{}()");
+    assert_eq!(one_cell, labels("Lbl'-LT-'k'-GT-'{}(dotk{}())"));
+    assert!(one_cell.iter().any(|label| label == "on-b"), "{one_cell:?}");
+}
+
+/// A ground, rest-free thread map with the given `<k>` heads, one thread per head, under
+/// `cellState` with no spare cell.
+fn ground_threads(definition: &BackendDefinition, heads: &[&str]) -> k_rust_backend::term::Term {
+    let items = heads
+        .iter()
+        .enumerate()
+        .map(|(index, head)| {
+            format!(
+                r#"mapItem{{}}(\dv{{SortKey{{}}}}("t{index}"), thread{{}}(\dv{{SortKey{{}}}}("t{index}"),
+                  Lbl'-LT-'k'-GT-'{{}}(kseq{{}}(inj{{SortS{{}}, SortKItem{{}}}}({head}{{}}()), dotk{{}}()))))"#
+            )
+        })
+        .reduce(|left, right| format!("mapConcat{{}}({left}, {right})"))
+        .expect("at least one thread");
+    internal_term(definition, &format!("cellState{{}}({items}, noK{{}}())"))
+}
+
+/// The thread-map shapes the multi-thread tests read: two or three threads with heads `a` or `b`.
+const THREAD_SHAPES: &[&[&str]] = &[
+    &["a", "a"],
+    &["a", "b"],
+    &["b", "a"],
+    &["b", "b"],
+    &["a", "a", "a"],
+    &["a", "a", "b"],
+    &["a", "b", "a"],
+];
+
+/// A variable-free subject with several threads is keyed by the `<k>` cell of every thread, and
+/// `on-b` is offered exactly when some thread's head is `b`. A rule the index drops fails against
+/// every thread alone: the subject is its only instance, so the rule's thread pattern, whose map
+/// rest takes the other threads, matches it only through one of its threads.
+#[test]
+fn every_thread_of_a_ground_thread_map_keys_the_subject() {
+    let definition = thread_map_definition();
+    let mut dropped = 0;
+    for heads in THREAD_SHAPES {
+        let subject = ground_threads(&definition, heads);
+        assert_eq!(subject.attributes().k_cells(), 2, "{heads:?}");
+        let key = subject_index(&definition, &subject);
+        let has_b = heads.contains(&"b");
+        assert_eq!(
+            key.cell_keys().len(),
+            if has_b && heads.contains(&"a") { 2 } else { 1 }
+        );
+        for stored in old_candidates(&definition, &term_index(&subject)) {
+            let label = stored.attributes.label.as_deref().unwrap_or("?");
+            if label == "on-b" {
+                assert_eq!(
+                    stored.index.covers(&key),
+                    has_b,
+                    "on-b for threads {heads:?}"
+                );
+            }
+            if stored.index.covers(&key) {
+                continue;
+            }
+            dropped += 1;
+            for head in *heads {
+                let alone = ground_threads(&definition, &[head]);
+                let matched =
+                    match_terms_in_definition(MatchMode::Rewrite, &definition, &stored.lhs, &alone);
+                assert!(
+                    matches!(matched, MatchResult::Failed(_)),
+                    "{label} dropped for threads {heads:?}, but matches the thread {head}: {matched:?}"
+                );
+            }
+        }
+    }
+    // `on-b` for each of the two shapes with no `b` thread; `fallback` covers every subject.
+    assert_eq!(dropped, 2);
+}
+
+/// The step on a ground thread map applies `on-b` exactly when some thread's head is `b`, and
+/// `fallback` otherwise (it has the lower priority): the index keeps the rules the step needs.
+#[cfg(feature = "z3")]
+#[test]
+fn a_ground_thread_map_steps_by_the_heads_of_its_threads() {
+    use k_rust_backend::{fresh::FreshCounter, rewrite::RewriteResult, smt::Z3Solver};
+
+    use super::support::unstopped::rewrite_step_with_solver;
+
+    let definition = thread_map_definition();
+    let solver = Z3Solver::new(&definition).expect("Z3 should start");
+    for heads in THREAD_SHAPES {
+        let subject = Pattern {
+            term: ground_threads(&definition, heads),
+            constraints: Vec::new(),
+        };
+        let result =
+            rewrite_step_with_solver(&definition, &subject, &mut FreshCounter::default(), &solver);
+        let mut labels = match result {
+            RewriteResult::Finished(applied) => vec![applied.unique_id.clone()],
+            RewriteResult::Branch { branches, .. } => branches
+                .iter()
+                .map(|applied| applied.unique_id.clone())
+                .collect(),
+            other => panic!("unexpected step result {other:?} for threads {heads:?}"),
+        };
+        labels.dedup();
+        let expected = if heads.contains(&"b") {
+            "on-b"
+        } else {
+            "fallback"
+        };
+        assert_eq!(labels, [expected], "threads {heads:?}");
+    }
+}
+
+/// A thread map with a variable anywhere in it keeps the single unkeyed entry: an instance may be
+/// another term, so the written cells need not be the ones a rule meets.
+#[test]
+fn a_thread_map_with_a_variable_is_not_keyed_by_its_threads() {
+    let definition = thread_map_definition();
+    let subject = internal_term(
+        &definition,
+        r#"cellState{}(
+            mapConcat{}(
+              mapItem{}(\dv{SortKey{}}("t0"), thread{}(\dv{SortKey{}}("t0"),
+                Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortS{}, SortKItem{}}(a{}()), dotk{}())))),
+              mapItem{}(\dv{SortKey{}}("t1"), thread{}(\dv{SortKey{}}("t1"),
+                Lbl'-LT-'k'-GT-'{}(kseq{}(inj{SortS{}, SortKItem{}}(a{}()), K:SortK{}))))
+            ),
+            noK{}()
+          )"#,
+    );
+    let key = subject_index(&definition, &subject);
+    assert_eq!(key.cells(), &[CellIndex::Anything, CellIndex::Anything]);
 }

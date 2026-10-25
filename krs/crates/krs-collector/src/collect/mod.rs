@@ -300,12 +300,6 @@ fn collect_pending_descriptors(
             ));
         }
         validate_payload_item_kind(&host)?;
-        host.validate_state_ownership().map_err(|error| {
-            CollectionError::new(
-                CollectionErrorKind::InvalidConfiguration,
-                format!("invalid host configuration descriptor: {error}"),
-            )
-        })?;
         let canonical_hint =
             canonicalize_path(host.id.package().manifest_dir(), "host manifest directory")?;
         let lookup_key = (
@@ -325,6 +319,21 @@ fn collect_pending_descriptors(
             ));
         };
         let id = stable_item_id(&host.id, &contexts[context_index])?;
+        // The ownership check follows the lookup of the descriptor's package context, which
+        // locating its error needs; a descriptor of a package outside the selection is no part
+        // of the definition, so that error comes first whatever the descriptor's shape.
+        if let Err(error) = host.validate_state_ownership() {
+            let at = error.at().cloned();
+            let error = CollectionError::new(
+                CollectionErrorKind::InvalidConfiguration,
+                format!("invalid host configuration descriptor: {error}"),
+            );
+            let error = match at {
+                Some(key) => error.with_reference_key(key),
+                None => error,
+            };
+            return Err(locate_at_host(error, &host, &id, context_index, contexts));
+        }
         if !ids.insert(id.clone()) {
             return Err(CollectionError::new(
                 CollectionErrorKind::DuplicateItemId,
@@ -338,6 +347,28 @@ fn collect_pending_descriptors(
         });
     }
     Ok(pending)
+}
+
+/// `error`, about the host descriptor `host`, located at its item: the descriptor's provenance is
+/// materialized for this one failure, so success costs nothing.
+fn locate_at_host(
+    error: CollectionError,
+    host: &HostDescriptor,
+    id: &StableItemId,
+    context_index: usize,
+    contexts: &[PreparedContext],
+) -> CollectionError {
+    match materialize_descriptor_provenance(
+        host,
+        &host.payload,
+        id,
+        context_index,
+        contexts,
+        &mut BTreeMap::new(),
+    ) {
+        Ok((provenance, ..)) => error.with_provenance(&provenance).with_item(id),
+        Err(_) => error,
+    }
 }
 
 fn resolve_pending_descriptors(
@@ -399,7 +430,7 @@ fn resolve_pending_descriptors(
         let payload = match payload {
             Ok(value) => value,
             Err(error) => {
-                let error = error.with_provenance(&provenance);
+                let error = error.with_provenance(&provenance).with_item(&pending.id);
                 loop_failure = Some(("collector.resolve.payload", error));
                 break;
             }
@@ -422,7 +453,8 @@ fn resolve_pending_descriptors(
         let resolved = resolved
             .into_iter()
             .map(|(id, cfg, provenance, payload)| {
-                Descriptor::new(id, cfg, provenance, payload).map_err(descriptor_contract_error)
+                Descriptor::new_located(id, cfg, provenance, payload)
+                    .map_err(|failure| descriptor_contract_error(*failure))
             })
             .collect::<Result<Vec<_>, _>>()?;
         let settings = contexts.iter().map(|context| PackageSettings {
@@ -443,7 +475,20 @@ fn resolve_pending_descriptors(
     })
 }
 
-fn descriptor_contract_error(error: krs_ir::DescriptorError) -> CollectionError {
+/// The collection error of a descriptor that fails its contract, located at the innermost node
+/// a term walk failed in, and at the descriptor's item otherwise.
+fn descriptor_contract_error(failure: krs_ir::DescriptorFailure) -> CollectionError {
+    let krs_ir::DescriptorFailure {
+        error,
+        at,
+        provenance,
+        id,
+    } = failure;
+    // A state contract that names its node locates the error there when no term walk did.
+    let at = at.or_else(|| match &error {
+        krs_ir::DescriptorError::State(error) => error.at().cloned(),
+        _ => None,
+    });
     let (kind, message) = match error {
         krs_ir::DescriptorError::Grammar(error) => (
             CollectionErrorKind::ProvenanceMismatch,
@@ -458,7 +503,13 @@ fn descriptor_contract_error(error: krs_ir::DescriptorError) -> CollectionError 
             error.to_string(),
         ),
     };
-    CollectionError::new(kind, message)
+    let error = CollectionError::new(kind, message);
+    match at {
+        Some(key) => error.with_reference_key(key),
+        None => error,
+    }
+    .with_provenance(&provenance)
+    .with_item(&id)
 }
 
 fn is_framework_sort_descriptor(descriptor: &HostDescriptor) -> bool {

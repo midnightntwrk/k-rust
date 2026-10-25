@@ -1,0 +1,1262 @@
+//! Digests, the result cache and `kink-flow results` (flow F-03 deliverables 1-6).
+
+use kink_campaign::{
+    Campaign, CampaignOptions, CampaignReport, ScheduleMode, TestCase, run_campaign_multi,
+};
+use kink_corpus::ProgramSource;
+use kink_corpus::{load_source, runner::all_normal};
+use kink_flow::{
+    FlowManifest, Program, SpecSection, admit,
+    admit::{admit_spec, corpus_source},
+    cli::{EXIT_CORPUS, EXIT_OK, EXIT_USAGE, results},
+    digest::{program_digest, spec_digest, spec_payload},
+    results::{
+        BaselineRunner, CACHE_DIRECTORY, RESULT_SCHEMA_VERSION, ResultClass, ResultsOptions,
+        execution_budget, fixed_oracles, run_digest,
+    },
+};
+use kink_native::{K_RUST_REVISION, execution::SolverProfile};
+use kink_patch::{Discovery, Patch, SelectionPolicy, select, sha256};
+use serde_json::{Value, json};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
+
+fn flow(name: &str) -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../testdata/flow")
+        .join(name)
+}
+
+/// A fresh directory for one test, under the target's temporary directory.
+fn scratch(name: &str) -> PathBuf {
+    let dir = Path::new(env!("CARGO_TARGET_TMPDIR"))
+        .join(format!("kink-flow-results-{}", std::process::id()))
+        .join(name);
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+fn copy_dir(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let name = entry.file_name();
+        if name == CACHE_DIRECTORY {
+            continue;
+        }
+        if entry.file_type().unwrap().is_dir() {
+            copy_dir(&entry.path(), &to.join(&name));
+        } else {
+            fs::copy(entry.path(), to.join(&name)).unwrap();
+        }
+    }
+}
+
+/// A private copy of a testdata/flow fixture.
+fn fixture(name: &str, test: &str) -> PathBuf {
+    let dir = scratch(test).join(name);
+    copy_dir(&flow(name), &dir);
+    dir
+}
+
+fn write(path: &Path, text: &str) {
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, text).unwrap();
+}
+
+fn append(path: &Path, text: &str) {
+    let mut contents = fs::read_to_string(path).unwrap();
+    contents.push_str(text);
+    fs::write(path, contents).unwrap();
+}
+
+#[track_caller]
+fn run(manifest: &Path, verify: bool) -> (Value, u8) {
+    results(
+        manifest,
+        &ResultsOptions {
+            verify,
+            cache: None,
+            mutations: None,
+        },
+    )
+}
+
+/// `(id, class, cached)` of every program row.
+fn rows(document: &Value) -> Vec<(String, String, bool)> {
+    document["programs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            (
+                p["id"].as_str().unwrap().to_owned(),
+                p["class"].as_str().unwrap().to_owned(),
+                p["cached"].as_bool().unwrap(),
+            )
+        })
+        .collect()
+}
+
+fn expect(rows: &[(&str, &str, bool)]) -> Vec<(String, String, bool)> {
+    rows.iter()
+        .map(|(id, class, cached)| ((*id).to_owned(), (*class).to_owned(), *cached))
+        .collect()
+}
+
+fn program_digests(document: &Value) -> Vec<(String, String)> {
+    document["programs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| {
+            (
+                p["id"].as_str().unwrap().to_owned(),
+                p["digest"].as_str().unwrap().to_owned(),
+            )
+        })
+        .collect()
+}
+
+fn spec_hex(document: &Value) -> String {
+    document["spec"]["digest"].as_str().unwrap().to_owned()
+}
+
+/// The record of program `id` in the document's cache.
+fn record_path(manifest: &Path, document: &Value, id: &str) -> PathBuf {
+    let digest = program_digests(document)
+        .into_iter()
+        .find(|(program, _)| program == id)
+        .unwrap()
+        .1;
+    manifest
+        .parent()
+        .unwrap()
+        .join(CACHE_DIRECTORY)
+        .join("results")
+        .join(spec_hex(document))
+        .join(format!("{digest}.json"))
+}
+
+fn read_json(path: &Path) -> Value {
+    serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+}
+
+fn manifest_spec_digest(manifest: &FlowManifest) -> String {
+    let loaded = load_source(&corpus_source(manifest)).unwrap();
+    spec_digest(manifest, &loaded.files).to_string()
+}
+
+const CALC_FLOW: &str = include_str!("../../../testdata/flow/calc/FLOW.toml");
+
+/// The calc manifest with every value unchanged: other key order, comments, inline tables,
+/// and the defaults written out.
+const CALC_FLOW_REFORMATTED: &str = r#"
+# the same corpus, written differently
+[[program]]
+file = "programs/add.calc"
+id = "add"
+
+[[program]]
+id   =   "nested"
+file =   "programs/nested.calc"
+variables = {}
+
+[spec]
+syntax_module = "CALC-SYNTAX"
+main_module = "CALC"
+md_selector = "k"
+include_dirs = [ "." ]
+entry = "calc.k"
+
+[budget]
+max_depth = 100000
+time_ms = 10000
+
+[[program]]
+id = "sub"
+file = "programs/sub.calc"
+
+[[program]]
+text = "2 * 3 + 1"
+id = "inline"
+"#;
+
+#[test]
+fn digests_ignore_formatting_and_program_ids() {
+    let dir = fixture("calc", "digests-format");
+    let original = FlowManifest::decode(CALC_FLOW, &dir).unwrap();
+    let reformatted = FlowManifest::decode(CALC_FLOW_REFORMATTED, &dir).unwrap();
+    assert_eq!(
+        manifest_spec_digest(&original),
+        manifest_spec_digest(&reformatted)
+    );
+    let digest = |manifest: &FlowManifest, id: &str| {
+        let program = manifest.programs.iter().find(|p| p.id == id).unwrap();
+        let text = match &program.source {
+            ProgramSource::Text(text) => text.clone(),
+            ProgramSource::File(name) => fs::read_to_string(dir.join(name)).unwrap(),
+        };
+        program_digest(program, &text)
+    };
+    for id in ["add", "nested", "sub", "inline"] {
+        assert_eq!(digest(&original, id), digest(&reformatted, id), "{id}");
+    }
+    // Renaming a program changes no digest.
+    let renamed = FlowManifest::decode(&CALC_FLOW.replace("\"add\"", "\"plus\""), &dir).unwrap();
+    assert_eq!(digest(&original, "add"), digest(&renamed, "plus"));
+    assert_eq!(
+        manifest_spec_digest(&original),
+        manifest_spec_digest(&renamed)
+    );
+}
+
+#[test]
+fn the_spec_digest_covers_every_required_file_and_nothing_else() {
+    let dir = scratch("digests-spec");
+    write(
+        &dir.join("main.k"),
+        "requires \"lib.k\"\nmodule MAIN\n  imports LIB\n  configuration <k> $PGM:Exp </k>\nendmodule\n",
+    );
+    write(
+        &dir.join("include/lib.k"),
+        "module LIB\n  imports INT\n  syntax Exp ::= Int\nendmodule\n",
+    );
+    write(&dir.join("unrelated.k"), "// not required\n");
+    let manifest = FlowManifest::decode(
+        "[spec]\nentry = \"main.k\"\nmain_module = \"MAIN\"\ninclude_dirs = [\"include\"]\n\n[[program]]\nid = \"one\"\ntext = \"1\"\n",
+        &dir,
+    )
+    .unwrap();
+    // The load reports the required file of the include directory (stop rule of F-03).
+    let loaded = load_source(&corpus_source(&manifest)).unwrap();
+    assert_eq!(
+        loaded
+            .files
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect::<Vec<_>>(),
+        ["include/lib.k", "main.k"]
+    );
+    let base = manifest_spec_digest(&manifest);
+    write(&dir.join("unrelated.k"), "// still not required\n");
+    assert_eq!(manifest_spec_digest(&manifest), base);
+    append(&dir.join("include/lib.k"), "// edited\n");
+    let after_lib = manifest_spec_digest(&manifest);
+    assert_ne!(after_lib, base);
+    append(&dir.join("main.k"), "// edited\n");
+    let after_main = manifest_spec_digest(&manifest);
+    assert_ne!(after_main, after_lib);
+    assert_ne!(after_main, base);
+    // How the spec is loaded is part of the digest too.
+    let mut other_selector = manifest.clone();
+    other_selector.spec.md_selector = "k | other".into();
+    assert_ne!(manifest_spec_digest(&other_selector), after_main);
+    // Re-pin L1-4-tail (review L1-4-2 N1): so is every other field of `[spec]`, over the same
+    // files. Two manifests that differ only in their main or syntax module load different
+    // definitions from the same files, and the result cache, tier 1 and the resolution and
+    // census memos are keyed by this digest: a field it dropped would let one definition's
+    // results, outcomes and memos serve the other.
+    let files = load_source(&corpus_source(&manifest)).unwrap().files;
+    assert_eq!(spec_digest(&manifest, &files).to_string(), after_main);
+    let with = |change: &dyn Fn(&mut SpecSection)| {
+        let mut other = manifest.clone();
+        change(&mut other.spec);
+        spec_digest(&other, &files).to_string()
+    };
+    for (field, digest) in [
+        ("entry", with(&|spec| spec.entry = "include/lib.k".into())),
+        ("main_module", with(&|spec| spec.main_module = "LIB".into())),
+        (
+            "syntax_module",
+            with(&|spec| spec.syntax_module = Some("LIB".into())),
+        ),
+        (
+            "include_dirs",
+            with(&|spec| spec.include_dirs.push("more".into())),
+        ),
+        (
+            "md_selector",
+            with(&|spec| spec.md_selector = "k | other".into()),
+        ),
+    ] {
+        assert_ne!(digest, after_main, "the spec digest does not name {field}");
+    }
+    // The whole payload, built here from the manifest's values and the files' own bytes, also
+    // pins the build constants (the k-rust revision, the solver profile), which no manifest
+    // varies.
+    let expected_files = ["include/lib.k", "main.k"].map(|name| {
+        json!({"name": name, "sha256": sha256(&fs::read(dir.join(name)).unwrap()).to_string()})
+    });
+    assert_eq!(
+        spec_payload(&manifest, &files),
+        json!({
+            "k_rust_revision": K_RUST_REVISION,
+            "profile": SolverProfile::BUILD.name(),
+            "entry": "main.k",
+            "main_module": "MAIN",
+            "syntax_module": null,
+            "md_selector": manifest.spec.md_selector,
+            "include_dirs": ["include"],
+            "files": expected_files,
+        })
+    );
+}
+
+#[test]
+fn a_program_digest_changes_with_its_text_start_sort_and_variables_only() {
+    let program = |id: &str| Program {
+        id: id.into(),
+        source: ProgramSource::Text(String::new()),
+        start_sort: None,
+        variables: vec![("A".into(), "1".into()), ("B".into(), "2".into())],
+    };
+    let base = program_digest(&program("p"), "1 + 2");
+    let other = program_digest(&program("q"), "3");
+    assert_eq!(program_digest(&program("renamed"), "1 + 2"), base);
+    assert_ne!(program_digest(&program("p"), "1 + 3"), base);
+    assert_eq!(program_digest(&program("q"), "3"), other);
+    let mut sorted = program("p");
+    sorted.start_sort = Some("Exp".into());
+    assert_ne!(program_digest(&sorted, "1 + 2"), base);
+    let mut variable = program("p");
+    variable.variables[1].1 = "3".into();
+    assert_ne!(program_digest(&variable, "1 + 2"), base);
+    let mut fewer = program("p");
+    fewer.variables.pop();
+    assert_ne!(program_digest(&fewer, "1 + 2"), base);
+    let mut reversed = program("p");
+    reversed.variables.reverse();
+    assert_eq!(program_digest(&reversed, "1 + 2"), base);
+}
+
+/// Re-pin R0c-fix-1 deliverable 1: the campaign runner now admits a baseline run that contradicts
+/// a trusted claim and makes only its test unknown (decision 2 per test), so `results` reads the
+/// run's missing sides itself: the program is `unknown`, never `comparable`, with the exclusion in
+/// its cause (before, the runner refused the run and the class was `unknown` too). Another
+/// program of the same definition is comparable.
+#[test]
+fn a_contradicted_baseline_program_is_unknown() {
+    let dir = scratch("contradicted-baseline");
+    write(
+        &dir.join("contra.k"),
+        r"module CONTRA-SYNTAX
+  imports INT-SYNTAX
+  syntax Prog ::= tdiv(Int) [symbol(tdiv)]
+                | val(Int) [symbol(val)]
+  syntax Int ::= td(Int) [function, total, symbol(td)]
+endmodule
+
+module CONTRA
+  imports CONTRA-SYNTAX
+  imports INT
+  configuration <k> $PGM:Prog </k>
+  rule [tdeq]: td(I) => 10 /Int (I +Int 1)
+  rule [tdiv]: <k> tdiv(I) => val(td(I)) </k>
+endmodule
+",
+    );
+    write(
+        &dir.join("FLOW.toml"),
+        "[spec]\nentry = \"contra.k\"\nmain_module = \"CONTRA\"\nsyntax_module = \"CONTRA-SYNTAX\"\n\n\
+         [[program]]\nid = \"base\"\ntext = \"tdiv(-1)\"\n\n[[program]]\nid = \"kill\"\ntext = \"tdiv(1)\"\n",
+    );
+    let (document, status) = run(&dir.join("FLOW.toml"), false);
+    assert_eq!(status, EXIT_OK, "{document:#}");
+    assert_eq!(
+        rows(&document),
+        expect(&[("base", "unknown", false), ("kill", "comparable", false)])
+    );
+    let cause = document["programs"][0]["cause"].as_str().unwrap();
+    assert!(
+        cause.starts_with(
+            "the campaign runner gave the baseline run no sides: contradicted-claim; "
+        ),
+        "{cause}"
+    );
+}
+
+/// The build identity of the executable at `path`, as its records name it.
+fn build_of(path: &Path) -> String {
+    kink_campaign::identity::build_identity_of(path)
+        .unwrap()
+        .to_string()
+}
+
+/// The empty generation a zero-mutant campaign runs (as kink-corpus `baseline_only`).
+fn run_together(
+    spec: &kink_flow::AdmittedSpec,
+    manifest: &FlowManifest,
+    tests: &[TestCase],
+) -> Vec<Value> {
+    let discovery = Discovery::empty(spec.validator.baseline(), false, false);
+    let generation = select(&discovery, SelectionPolicy::Each, 1)
+        .unwrap()
+        .fold("test", |_| -> Patch { unreachable!() })
+        .unwrap();
+    let module = k_rust::kast::identifier::encode(&manifest.spec.main_module);
+    let campaign = Campaign {
+        validator: &spec.validator,
+        module: &module,
+        observation: &[],
+        classify: &all_normal,
+        tests,
+        budget: execution_budget(manifest.budget),
+    };
+    let run = run_campaign_multi(
+        &campaign,
+        &[generation],
+        &CampaignOptions {
+            schedule: ScheduleMode::FirstKill,
+            selection: kink_campaign::SelectionPolicy::None,
+            share_evidence: true,
+            run: kink_campaign::RunOptions::default(),
+            compile_workers: 1,
+        },
+    )
+    .unwrap();
+    run.baseline
+        .iter()
+        .map(|evidence| CampaignReport::baseline_row(evidence).unwrap())
+        .collect()
+}
+
+mod kink_tier {
+    use super::*;
+
+    #[test]
+    #[ignore = "kink"]
+    fn a_bytes_key_remains_unknown_with_the_runners_cause() {
+        let manifest = fixture("bytes-map", "bytes-map").join("FLOW.toml");
+        let (document, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(rows(&document), expect(&[("store", "unknown", false)]));
+        // Re-pin R0c (deliverable 8): the `store` rule now builds its key with
+        // `encodeBytes("UTF-8", K)`, which the decision-1 census does not flag, so the cause is again
+        // the oracle gate's refusal of the Bytes-keyed Map (as at R0a; R0b's cause named
+        // implementation-chosen-hook for `String2Bytes`). The class is unknown either way.
+        assert_eq!(
+            document["programs"][0]["cause"],
+            "the campaign runner refused the baseline run (BaselineOracleFailed: a baseline \
+             declaration-scoped oracle gate rejected); every path ended, but a final configuration \
+             is not a value kink can compare (for example it holds a collection kink cannot compare, \
+             such as one with a Bytes key, an unevaluated function or a symbolic term); leaves: stuck at depth 1"
+        );
+        let record = read_json(&record_path(&manifest, &document, "store"));
+        assert_eq!(record["class"], "unknown");
+        assert!(record["baseline"].is_null() && record["run_sha256"].is_null());
+        assert_eq!(record["final_configuration"].as_array().unwrap().len(), 1);
+        assert_eq!(document["rules"][0]["status"], "uncovered");
+        assert_eq!(document["rules"][0]["reached_by"], json!([]));
+    }
+
+    /// Re-pin L2-1-tail (review L2-1-1, D1): a `non-executable` rule is one k-rust never runs, so no
+    /// program can reach it. It has no coverage signal, with its own reason, and is never listed
+    /// `uncovered`, the group of the next program to write.
+    #[test]
+    #[ignore = "kink"]
+    fn a_non_executable_rule_has_no_coverage_signal() {
+        let dir = fixture("loop", "rules-non-executable");
+        let source = dir.join("loop.k");
+        let text = fs::read_to_string(&source).unwrap();
+        let equation = "  rule double(I) => I *Int 2\n";
+        assert!(text.contains(equation));
+        fs::write(
+            &source,
+            text.replace(
+                equation,
+                &format!("{equation}  rule [neDouble]: double(I) => I +Int I [non-executable]\n"),
+            ),
+        )
+        .unwrap();
+        let (document, status) = run(&dir.join("FLOW.toml"), false);
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        let rules = document["rules"].as_array().unwrap();
+        let listed = rules
+            .iter()
+            .map(|r| (r["label"].clone(), r["status"].clone()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            listed,
+            [
+                (json!("LOOP.spin"), json!("uncovered")),
+                (json!("LOOP.unused"), json!("uncovered")),
+                (json!(null), json!("covered")),
+                (json!("LOOP.countdown"), json!("covered")),
+                (json!("LOOP.done"), json!("covered")),
+                (json!("LOOP.twice"), json!("covered")),
+                (json!("LOOP.neDouble"), json!("no-coverage-signal")),
+            ]
+        );
+        let row = rules.last().unwrap();
+        assert_eq!(row["start_line"], 20);
+        assert_eq!(
+            (&row["reached_by"], &row["fired_by"]),
+            (&json!([]), &json!([]))
+        );
+        assert_eq!(
+            row["reason"],
+            "a non-executable rule: k-rust never runs it, so no program can reach it"
+        );
+        assert_eq!(
+            document["summary"],
+            json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 7, "uncovered": 2,
+                   "covered": 4, "no_coverage_signal": 1, "mismatches": 0})
+        );
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn editing_one_program_recomputes_exactly_that_one() {
+        let manifest = fixture("calc", "edit-program").join("FLOW.toml");
+        let (first, _) = run(&manifest, false);
+        let old = record_path(&manifest, &first, "sub");
+        write(
+            &manifest.parent().unwrap().join("programs/sub.calc"),
+            "10 - 4\n",
+        );
+        let (second, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK);
+        assert_eq!(
+            rows(&second),
+            expect(&[
+                ("add", "comparable", true),
+                ("nested", "comparable", true),
+                ("sub", "comparable", false),
+                ("inline", "comparable", true),
+            ])
+        );
+        let (before, after) = (program_digests(&first), program_digests(&second));
+        assert_eq!(before[0], after[0]);
+        assert_ne!(before[2], after[2]);
+        assert_eq!(spec_hex(&first), spec_hex(&second));
+        // The new text has a new record; the old record stays and is not used.
+        let new = record_path(&manifest, &second, "sub");
+        assert_ne!(new, old);
+        assert!(old.is_file() && new.is_file());
+        assert_ne!(read_json(&new)["run_sha256"], read_json(&old)["run_sha256"]);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn a_fresh_cache_fills_every_program_and_a_second_run_computes_nothing() {
+        for (name, ids) in [
+            ("calc", &["add", "nested", "sub", "inline"][..]),
+            ("register", &["store", "increment", "double"][..]),
+        ] {
+            let manifest = fixture(name, &format!("fill-{name}")).join("FLOW.toml");
+            let (first, status) = run(&manifest, false);
+            assert_eq!(status, EXIT_OK, "{first:#}");
+            assert_eq!(first["schema"], "kink-flow-results");
+            assert_eq!(first["result_schema_version"], RESULT_SCHEMA_VERSION);
+            assert_eq!(
+                rows(&first),
+                ids.iter()
+                    .map(|id| ((*id).to_owned(), "comparable".to_owned(), false))
+                    .collect::<Vec<_>>()
+            );
+            for id in ids {
+                let record = read_json(&record_path(&manifest, &first, id));
+                assert_eq!(record["class"], "comparable");
+                assert_eq!(record["program_id"], *id);
+                assert_eq!(record["key"]["schema_version"], RESULT_SCHEMA_VERSION);
+                assert_eq!(record["key"]["spec"], first["spec"]["digest"]);
+                assert_eq!(
+                    record["run_sha256"],
+                    run_digest(&record["baseline"]).unwrap().to_string()
+                );
+                assert_eq!(record["baseline"]["test_id"], *id);
+                assert_eq!(record["final_configuration"].as_array().unwrap().len(), 1);
+                assert_eq!(record["coverage"]["complete"], true);
+            }
+            let (second, status) = run(&manifest, false);
+            assert_eq!(status, EXIT_OK);
+            assert_eq!(
+                rows(&second),
+                ids.iter()
+                    .map(|id| ((*id).to_owned(), "comparable".to_owned(), true))
+                    .collect::<Vec<_>>()
+            );
+            assert_eq!(second["summary"]["computed"], 0);
+            let mut uncached = second.clone();
+            for program in uncached["programs"].as_array_mut().unwrap() {
+                program["cached"] = json!(false);
+            }
+            uncached["summary"]["computed"] = first["summary"]["computed"].clone();
+            // F-12: the first command ran each program's baseline live once; the second ran none.
+            assert_eq!(
+                first["baseline_runs"],
+                json!({"live": ids.len(), "reused": 0, "diagnostic": 0})
+            );
+            assert_eq!(
+                second["baseline_runs"],
+                json!({"live": 0, "reused": 0, "diagnostic": 0})
+            );
+            uncached["baseline_runs"] = first["baseline_runs"].clone();
+            assert_eq!(uncached, first);
+        }
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn rules_no_comparable_program_reaches_are_listed_first() {
+        let manifest = fixture("loop", "rules").join("FLOW.toml");
+        let (document, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        let listed = document["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                (
+                    r["label"].as_str().unwrap_or("-").to_owned(),
+                    r["file"].as_str().unwrap().to_owned(),
+                    r["start_line"].as_u64().unwrap(),
+                    r["status"].as_str().unwrap().to_owned(),
+                    r["reached_by"]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .map(|p| p.as_str().unwrap().to_owned())
+                        .collect::<Vec<_>>(),
+                )
+            })
+            .collect::<Vec<_>>();
+        let rule = |label: &str, line: u64, status: &str, reached: &[&str]| {
+            (
+                label.to_owned(),
+                "loop.k".to_owned(),
+                line,
+                status.to_owned(),
+                reached.iter().map(|p| (*p).to_owned()).collect::<Vec<_>>(),
+            )
+        };
+        // Re-pin L2-1 (coverage v2): the `double` equation, which `twice` evaluates, is reached and
+        // fired like a rewrite rule; before, every equation was `not-observable`.
+        assert_eq!(
+            listed,
+            [
+                rule("LOOP.spin", 20, "uncovered", &[]),
+                rule("LOOP.unused", 24, "uncovered", &[]),
+                rule("-", 19, "covered", &["twice"]),
+                rule("LOOP.countdown", 21, "covered", &["countdown"]),
+                rule("LOOP.done", 22, "covered", &["countdown"]),
+                rule("LOOP.twice", 23, "covered", &["twice"]),
+            ]
+        );
+        assert_eq!(document["rules"][2]["fired_by"], json!(["twice"]));
+        assert!(document["rules"][2]["reason"].is_null());
+        assert_eq!(document["version"], 2);
+        assert_eq!(
+            document["summary"],
+            json!({"programs": 2, "comparable": 2, "computed": 2, "rules": 6, "uncovered": 2,
+                   "covered": 4, "no_coverage_signal": 0, "mismatches": 0})
+        );
+        // calc: every rule is covered, the unlabelled one by `sub` alone.
+        let (calc, _) = run(&fixture("calc", "rules-calc").join("FLOW.toml"), false);
+        assert_eq!(
+            calc["rules"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|r| (
+                    r["label"].clone(),
+                    r["status"].clone(),
+                    r["reached_by"].clone()
+                ))
+                .collect::<Vec<_>>(),
+            [
+                (
+                    json!("CALC.add"),
+                    json!("covered"),
+                    json!(["add", "nested", "inline"])
+                ),
+                (
+                    json!("CALC.mul"),
+                    json!("covered"),
+                    json!(["nested", "inline"])
+                ),
+                (json!(null), json!("covered"), json!(["sub"])),
+            ]
+        );
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn the_run_digest_depends_on_neither_the_program_id_nor_the_other_tests() {
+        for name in ["calc", "register"] {
+            let manifest = FlowManifest::read(&flow(name).join("FLOW.toml")).unwrap();
+            let admission = admit(&manifest);
+            let spec = admission.spec.as_ref().unwrap();
+            let mut tests = admission
+                .programs
+                .iter()
+                .map(|p| p.outcome.clone().unwrap())
+                .collect::<Vec<_>>();
+            let runner = BaselineRunner::new(spec, &manifest).unwrap();
+            let alone = tests
+                .iter()
+                .map(|test| {
+                    let result = runner.run(test.clone());
+                    assert_eq!(result.class, ResultClass::Comparable);
+                    result.run_sha256().unwrap()
+                })
+                .collect::<Vec<_>>();
+            // Under another id, the same program has the same run digest (and another row).
+            let mut renamed = tests[0].clone();
+            renamed.id = "renamed".into();
+            let result = runner.run(renamed);
+            assert_eq!(result.baseline.as_ref().unwrap()["test_id"], "renamed");
+            assert_eq!(result.run_sha256().unwrap(), alone[0]);
+            // Every program in one campaign, in both orders: the same run digests.
+            for test in &mut tests {
+                test.oracles = fixed_oracles();
+            }
+            let together = run_together(spec, &manifest, &tests);
+            assert_eq!(
+                together
+                    .iter()
+                    .map(|row| run_digest(row).unwrap())
+                    .collect::<Vec<_>>(),
+                alone
+            );
+            tests.reverse();
+            let reversed = run_together(spec, &manifest, &tests);
+            let mut expected = alone.clone();
+            expected.reverse();
+            assert_eq!(
+                reversed
+                    .iter()
+                    .map(|row| run_digest(row).unwrap())
+                    .collect::<Vec<_>>(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn admit_spec_admits_programs_one_at_a_time_like_admit() {
+        let manifest = FlowManifest::read(&flow("calc").join("FLOW-bad-program.toml")).unwrap();
+        let whole = admit(&manifest);
+        let (record, admitted) = admit_spec(&manifest);
+        assert_eq!(record.text(), whole.record.text());
+        let (spec, mut inputs) = admitted.unwrap();
+        // In reverse order, each program alone gives what `admit` gave.
+        for (program, expected) in manifest.programs.iter().zip(&whole.programs).rev() {
+            let outcome = inputs
+                .text(program)
+                .and_then(|text| inputs.test_case(&spec, program, text));
+            assert_eq!(outcome, expected.outcome, "{}", program.id);
+        }
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn editing_the_spec_recomputes_every_program_under_a_new_spec_directory() {
+        let manifest = fixture("calc", "edit-spec").join("FLOW.toml");
+        let (first, _) = run(&manifest, false);
+        append(&manifest.parent().unwrap().join("calc.k"), "// edited\n");
+        let (second, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK);
+        assert_ne!(spec_hex(&first), spec_hex(&second));
+        assert_eq!(program_digests(&first), program_digests(&second));
+        assert!(
+            rows(&second)
+                .iter()
+                .all(|(_, class, cached)| class == "comparable" && !cached)
+        );
+        let results = manifest
+            .parent()
+            .unwrap()
+            .join(CACHE_DIRECTORY)
+            .join("results");
+        let mut directories = fs::read_dir(&results)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect::<Vec<_>>();
+        directories.sort();
+        let mut expected = vec![spec_hex(&first), spec_hex(&second)];
+        expected.sort();
+        assert_eq!(directories, expected);
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn a_record_is_used_only_under_its_own_key() {
+        let manifest = fixture("calc", "keys").join("FLOW.toml");
+        let (first, _) = run(&manifest, false);
+        // Another schema version in a record: recomputed and rewritten, never used.
+        let add = record_path(&manifest, &first, "add");
+        let mut record = read_json(&add);
+        record["key"]["schema_version"] = json!("kink-flow/result/v0");
+        fs::write(&add, record.to_string()).unwrap();
+        // Another program's record at this program's path.
+        let nested = record_path(&manifest, &first, "nested");
+        fs::copy(record_path(&manifest, &first, "sub"), &nested).unwrap();
+        // A file that is not a record.
+        fs::write(record_path(&manifest, &first, "inline"), "not json").unwrap();
+        let (second, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK);
+        assert_eq!(
+            rows(&second),
+            expect(&[
+                ("add", "comparable", false),
+                ("nested", "comparable", false),
+                ("sub", "comparable", true),
+                ("inline", "comparable", false),
+            ])
+        );
+        assert_eq!(
+            read_json(&add)["key"]["schema_version"],
+            RESULT_SCHEMA_VERSION
+        );
+        assert_eq!(read_json(&nested)["program_id"], "nested");
+        // Another budget: every program is recomputed under the new key.
+        let text = fs::read_to_string(&manifest).unwrap();
+        fs::write(&manifest, format!("{text}\n[budget]\ntime_ms = 20000\n")).unwrap();
+        let (third, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK);
+        assert!(rows(&third).iter().all(|(_, _, cached)| !cached));
+        assert_eq!(spec_hex(&third), spec_hex(&first));
+        assert_eq!(program_digests(&third), program_digests(&first));
+        assert_eq!(read_json(&add)["key"]["budget"]["time_ms"], 20000);
+        let (fourth, _) = run(&manifest, false);
+        assert!(rows(&fourth).iter().all(|(_, _, cached)| *cached));
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn a_ground_map_is_comparable_and_covers_its_rule() {
+        let manifest = fixture("map-store", "map").join("FLOW.toml");
+        let (document, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(rows(&document), expect(&[("store", "comparable", false)]));
+        assert!(document["programs"][0]["cause"].is_null());
+        let path = record_path(&manifest, &document, "store");
+        let mut record = read_json(&path);
+        assert_eq!(record["class"], "comparable");
+        assert!(record["baseline"].is_object() && record["run_sha256"].is_string());
+        let finals = record["final_configuration"].as_array().unwrap();
+        assert_eq!(finals.len(), 1);
+        let text = finals[0].as_str().unwrap();
+        assert!(
+            text.contains("Lbl'UndsPipe'-'-GT-Unds'") && text.contains("\\dv{SortInt{}}(\"2\")"),
+            "{text}"
+        );
+        // Re-pin L2-1 (coverage v2): the run also reaches the prelude's map equations, so the rule
+        // is one of the reached sentences rather than the only one.
+        let reached = |key: &str| {
+            record["coverage"][key]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|sentence| sentence["label"] == "MAP-STORE.store")
+        };
+        assert!(
+            reached("sentences") && reached("applied_sentences"),
+            "{record:#}"
+        );
+        assert_eq!(document["rules"][0]["status"], "covered");
+        assert_eq!(document["rules"][0]["reached_by"], json!(["store"]));
+
+        // U1: a v1 record is recomputed, never trusted under the v2 value rule.
+        // Re-pin R0b: v4, because the exclusions change what counts as comparable. Re-pin adoption
+        // A-1: v5, because a record holds the baseline run's specification diagnostics and undecided
+        // solver answers, and k-rust's run-level lists exclude a baseline run.
+        assert_eq!(RESULT_SCHEMA_VERSION, "kink-flow/result/v5");
+        record["key"]["schema_version"] = json!("kink-flow/result/v1");
+        fs::write(&path, record.to_string()).unwrap();
+        let (recomputed, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK);
+        assert_eq!(rows(&recomputed), expect(&[("store", "comparable", false)]));
+        assert_eq!(
+            read_json(&path)["key"]["schema_version"],
+            RESULT_SCHEMA_VERSION
+        );
+
+        let (searched, status) = kink_flow::cli::run(
+            &manifest,
+            &manifest.parent().unwrap().join("MUTATIONS.toml"),
+            &kink_flow::search::RunOptions::default(),
+        );
+        assert_eq!(status, EXIT_OK, "{searched:#}");
+        assert_eq!(
+            searched["counts"],
+            json!({
+                "killed": 3, "survived": 1, "equivalent": 0, "invalid": 0,
+                "timeout": 0, "unknown": 0, "error": 0, "invalid-mutation": 0,
+            })
+        );
+        let survivor = searched["mutations"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["status"] == "survived")
+            .unwrap();
+        assert_eq!(survivor["id"], "update-as-concat");
+    }
+
+    /// Packet CACHE-ID (re-pin R0-tail review 1, minor): every record key holds kink's semantics
+    /// identity (kink-campaign `identity`), so a record written by a build before CACHE-ID (its key
+    /// has no `kink`, as at 1ee9955 through 64b56fa) or under any one other component (another
+    /// definition-exclusion version among them) is recomputed and rewritten, never used: each forged
+    /// record claims `unknown`, and the row is the live `comparable`. Re-pin L1-2-land: so is one
+    /// whose key lacks the one-sided rule's component (`one_sided`, as at 830c18e) or names another
+    /// version of it.
+    #[test]
+    #[ignore = "kink"]
+    fn a_record_written_under_another_identity_is_recomputed() {
+        let manifest = fixture("calc", "identity").join("FLOW.toml");
+        let (first, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK, "{first:#}");
+        let programs = ["add", "nested", "sub", "inline"];
+        for id in programs {
+            assert_eq!(
+                read_json(&record_path(&manifest, &first, id))["key"]["kink"],
+                kink_campaign::kink_identity(),
+                "{id}"
+            );
+        }
+        // (None, _): the key of a build before CACHE-ID; (Some(key), false): that component changed;
+        // (Some("one_sided"), true): the key of a build before the one-sided rule was a component
+        // (830c18e, re-pin L1-2-land), which lacks it.
+        let forgeries = std::iter::once((None, false))
+            .chain(
+                kink_campaign::KINK_IDENTITY
+                    .iter()
+                    .map(|c| (Some(c.key), false)),
+            )
+            .chain(std::iter::once((Some("one_sided"), true)))
+            .collect::<Vec<_>>();
+        for round in forgeries.chunks(programs.len()) {
+            let forged = programs.iter().zip(round).collect::<Vec<_>>();
+            for (id, component) in &forged {
+                let path = record_path(&manifest, &first, id);
+                let mut record = read_json(&path);
+                match component {
+                    (None, _) => {
+                        record["key"].as_object_mut().unwrap().remove("kink");
+                    }
+                    (Some(key), true) => {
+                        record["key"]["kink"]
+                            .as_object_mut()
+                            .unwrap()
+                            .remove(*key)
+                            .unwrap();
+                    }
+                    (Some(key), false) => {
+                        let value = record["key"]["kink"][key].as_str().unwrap().to_owned();
+                        record["key"]["kink"][key] = json!(format!("{value}-other"));
+                    }
+                }
+                record["class"] = json!("unknown");
+                record["cause"] = json!("forged under another kink identity");
+                fs::write(&path, record.to_string()).unwrap();
+            }
+            let (document, status) = run(&manifest, false);
+            assert_eq!(status, EXIT_OK, "{round:?}: {document:#}");
+            let recomputed = forged.iter().map(|(id, _)| **id).collect::<Vec<_>>();
+            assert_eq!(
+                rows(&document),
+                programs
+                    .iter()
+                    .map(|id| (
+                        (*id).to_owned(),
+                        "comparable".to_owned(),
+                        !recomputed.contains(id)
+                    ))
+                    .collect::<Vec<_>>(),
+                "{round:?}"
+            );
+            for (id, component) in &forged {
+                let record = read_json(&record_path(&manifest, &first, id));
+                assert_eq!(
+                    record["key"]["kink"],
+                    kink_campaign::kink_identity(),
+                    "{component:?}"
+                );
+                assert_eq!(record["class"], "comparable", "{component:?}");
+            }
+        }
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn the_binarys_results_command() {
+        let binary = env!("CARGO_BIN_EXE_kink-flow");
+        let dir = fixture("calc", "binary");
+        let manifest = dir.join("FLOW.toml");
+        let cache = scratch("binary-cache");
+        let output = Command::new(binary)
+            .args(["results", manifest.to_str().unwrap(), "--cache"])
+            .arg(&cache)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
+        let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(document["summary"]["comparable"], 4);
+        assert!(cache.join("results").join(spec_hex(&document)).is_dir());
+        assert!(!dir.join(CACHE_DIRECTORY).exists());
+        let output = Command::new(binary)
+            .args(["results", manifest.to_str().unwrap(), "--verify", "--cache"])
+            .arg(&cache)
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
+        let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert!(rows(&document).iter().all(|(_, _, cached)| *cached));
+
+        // A refused program is a corpus error; the others still get results.
+        let output = Command::new(binary)
+            .args([
+                "results",
+                dir.join("FLOW-bad-program.toml").to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+        let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            rows(&document),
+            expect(&[
+                ("add", "comparable", false),
+                ("bad", "refused", false),
+                ("sub", "comparable", false),
+            ])
+        );
+        assert!(
+            document["programs"][1]["cause"]
+                .as_str()
+                .unwrap()
+                .starts_with("inputs/parse: ")
+        );
+
+        // A manifest that does not decode, and a spec that does not compile.
+        let broken = dir.join("broken.toml");
+        write(&broken, "[spec]\nentry = \"calc.k\"\n");
+        let output = Command::new(binary)
+            .args(["results", broken.to_str().unwrap()])
+            .output()
+            .unwrap();
+        assert_eq!(output.status.code(), Some(i32::from(EXIT_CORPUS)));
+        let document: Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(document["schema"], "kink-flow-results");
+        assert_eq!(document["spec"]["stage"], "manifest");
+        let (document, status) = run(&flow("compile-error").join("FLOW.toml"), false);
+        assert_eq!(status, EXIT_CORPUS);
+        assert_eq!(document["spec"]["stage"], "compile");
+        assert_eq!(document["programs"], json!([]));
+
+        // Usage errors.
+        for args in [
+            vec!["results"],
+            vec![
+                "results",
+                manifest.to_str().unwrap(),
+                "--verify",
+                "--verify",
+            ],
+            vec!["results", manifest.to_str().unwrap(), "--cache"],
+            vec!["results", manifest.to_str().unwrap(), "--other"],
+            vec!["results", dir.join("missing.toml").to_str().unwrap()],
+        ] {
+            let output = Command::new(binary).args(&args).output().unwrap();
+            assert_eq!(
+                output.status.code(),
+                Some(i32::from(EXIT_USAGE)),
+                "{args:?}"
+            );
+            assert!(output.stdout.is_empty());
+        }
+    }
+
+    #[test]
+    #[ignore = "kink"]
+    fn verify_passes_on_an_untouched_cache_and_fails_after_a_hand_edited_record() {
+        let manifest = fixture("calc", "verify").join("FLOW.toml");
+        let (first, _) = run(&manifest, false);
+        let (verified, status) = run(&manifest, true);
+        assert_eq!(status, EXIT_OK, "{verified:#}");
+        assert!(
+            verified["programs"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|p| p["verify"] == "match" && p["cached"] == true)
+        );
+        assert_eq!(verified["mismatches"], json!([]));
+
+        // A record whose run digest was edited by hand.
+        let path = record_path(&manifest, &first, "nested");
+        let original = fs::read_to_string(&path).unwrap();
+        let mut record: Value = serde_json::from_str(&original).unwrap();
+        record["run_sha256"] = json!("0".repeat(64));
+        let edited = serde_json::to_string_pretty(&record).unwrap();
+        fs::write(&path, &edited).unwrap();
+        // Without --verify the record is current (its key is unchanged) and is used as it is.
+        let (plain, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK);
+        assert!(rows(&plain).iter().all(|(_, _, cached)| *cached));
+        let (verified, status) = run(&manifest, true);
+        assert_eq!(status, EXIT_CORPUS);
+        let verdicts = verified["programs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|p| (p["id"].as_str().unwrap(), p["verify"].as_str().unwrap()))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            verdicts,
+            [
+                ("add", "match"),
+                ("nested", "mismatch"),
+                ("sub", "match"),
+                ("inline", "match")
+            ]
+        );
+        let mismatches = verified["mismatches"].as_array().unwrap();
+        assert_eq!(mismatches.len(), 2, "{mismatches:#?}");
+        assert!(mismatches.iter().all(|m| m["program"] == "nested"
+            && m["record"]
+                == format!(
+                    "results/{}/{}",
+                    spec_hex(&first),
+                    path.file_name().unwrap().to_str().unwrap()
+                )));
+        assert!(
+            mismatches[0]["detail"]
+                .as_str()
+                .unwrap()
+                .contains("is not the digest of its baseline row")
+        );
+        assert!(
+            mismatches[1]["detail"]
+                .as_str()
+                .unwrap()
+                .starts_with("run_sha256: cached 0000")
+        );
+        // --verify reports; it never rewrites the record.
+        assert_eq!(fs::read_to_string(&path).unwrap(), edited);
+
+        // A record whose baseline row was edited by hand, its digest left alone.
+        let mut record: Value = serde_json::from_str(&original).unwrap();
+        let row = record["baseline"].to_string().replace("\"9\"", "\"10\"");
+        assert_ne!(row, record["baseline"].to_string());
+        record["baseline"] = serde_json::from_str(&row).unwrap();
+        fs::write(&path, record.to_string()).unwrap();
+        let (verified, status) = run(&manifest, true);
+        assert_eq!(status, EXIT_CORPUS);
+        let mismatches = verified["mismatches"].as_array().unwrap();
+        assert_eq!(mismatches.len(), 1, "{mismatches:#?}");
+        assert!(
+            mismatches[0]["detail"]
+                .as_str()
+                .unwrap()
+                .contains("is not the digest of its baseline row")
+        );
+
+        // Restored, it verifies again.
+        fs::write(&path, &original).unwrap();
+        assert_eq!(run(&manifest, true).1, EXIT_OK);
+    }
+
+    /// Packet CACHE-ID-fix-1 (CACHE-ID review 1 major): every record key holds the build that wrote
+    /// it (`kink_build`, the executable's digest), so a record another build wrote is recomputed even
+    /// when every semantics-identity component is equal; the code that decides a result class mostly
+    /// has no version constant. Forged first: each forged record claims `unknown` under another
+    /// build, or under none (the key of a build before CACHE-ID-fix-1), and the row is the live
+    /// `comparable`. Then two real builds: the `kink-flow` binary and this test binary write the
+    /// same cache in turn, and each recomputes every record the other wrote.
+    #[test]
+    #[ignore = "kink"]
+    fn a_record_written_by_another_build_is_recomputed() {
+        let manifest = fixture("calc", "build").join("FLOW.toml");
+        let programs = ["add", "nested", "sub", "inline"];
+        let this_build = build_of(&std::env::current_exe().unwrap());
+        let (first, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK, "{first:#}");
+        for id in programs {
+            assert_eq!(
+                read_json(&record_path(&manifest, &first, id))["key"]["kink_build"],
+                this_build,
+                "{id}"
+            );
+        }
+        let other = kink_patch::sha256(b"another kink build").to_string();
+        for (forged, build) in [
+            (&programs[..2], Some(other.as_str())),
+            (&programs[2..], None),
+        ] {
+            for id in forged {
+                let path = record_path(&manifest, &first, id);
+                let mut record = read_json(&path);
+                match build {
+                    Some(build) => record["key"]["kink_build"] = json!(build),
+                    None => {
+                        record["key"].as_object_mut().unwrap().remove("kink_build");
+                    }
+                }
+                record["class"] = json!("unknown");
+                record["cause"] = json!("forged under another kink build");
+                fs::write(&path, record.to_string()).unwrap();
+            }
+            let (document, status) = run(&manifest, false);
+            assert_eq!(status, EXIT_OK, "{document:#}");
+            assert_eq!(
+                rows(&document),
+                programs
+                    .iter()
+                    .map(|id| (
+                        (*id).to_owned(),
+                        "comparable".to_owned(),
+                        !forged.contains(id)
+                    ))
+                    .collect::<Vec<_>>(),
+                "{build:?}"
+            );
+            for id in forged {
+                let record = read_json(&record_path(&manifest, &first, id));
+                assert_eq!(record["key"]["kink_build"], this_build, "{build:?}");
+                assert_eq!(record["class"], "comparable", "{build:?}");
+            }
+        }
+        // Two real builds share the cache.
+        let binary = Path::new(env!("CARGO_BIN_EXE_kink-flow"));
+        let binary_build = build_of(binary);
+        assert_ne!(binary_build, this_build);
+        let results_by_binary = || {
+            let output = Command::new(binary)
+                .arg("results")
+                .arg(&manifest)
+                .output()
+                .unwrap();
+            assert_eq!(output.status.code(), Some(i32::from(EXIT_OK)));
+            serde_json::from_slice::<Value>(&output.stdout).unwrap()
+        };
+        let all = |cached: bool| {
+            programs
+                .iter()
+                .map(|id| ((*id).to_owned(), "comparable".to_owned(), cached))
+                .collect::<Vec<_>>()
+        };
+        let by_binary = results_by_binary();
+        assert_eq!(rows(&by_binary), all(false));
+        for id in programs {
+            assert_eq!(
+                read_json(&record_path(&manifest, &first, id))["key"]["kink_build"],
+                binary_build,
+                "{id}"
+            );
+        }
+        assert_eq!(rows(&results_by_binary()), all(true));
+        let (by_library, _) = run(&manifest, false);
+        assert_eq!(rows(&by_library), all(false));
+        assert_eq!(rows(&run(&manifest, false).0), all(true));
+        assert_eq!(rows(&results_by_binary()), all(false));
+    }
+}

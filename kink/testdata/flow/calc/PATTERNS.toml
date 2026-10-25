@@ -1,0 +1,27 @@
+# Pattern checks for the calc corpus (flow F-18; crates/kink-flow/README.md, "Checking a pattern").
+# `kink-flow query FLOW.toml PATTERNS.toml` asks, per (pattern, program), whether some run of the
+# program reaches a configuration that matches the pattern.
+
+# A per-input claim: the author says add and sub reach the result 3.
+[[pattern]]
+id = "result-three"
+note = "the <k> cell holds only the result 3"
+pattern = "<k> 3 </k>"
+programs = ["add", "sub"]
+
+# A claim the run refutes: add's run never holds 4.
+[[pattern]]
+id = "result-four"
+pattern = "<k> 4 </k>"
+programs = ["add"]
+
+# The corpus form (no `programs`): which programs reach a result above 5? `requires` is a
+# condition on the variables the pattern binds.
+[[pattern]]
+id = "result-above-five"
+pattern = "<k> I:Int </k> requires I >Int 5"
+
+# An intermediate state: the sum 1 + 2 is being evaluated, whatever follows it in <k>.
+[[pattern]]
+id = "adding-one-and-two"
+pattern = "<k> 1 + 2 ~> _ </k>"

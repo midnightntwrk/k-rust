@@ -79,7 +79,7 @@ use crate::{
     matching::{MatchMode, MatchResult, match_terms_in_definition},
     rule::RewriteRule,
     term::{
-        Sort, Term, TermKind, Variable,
+        Sort, SortNode, Term, TermKind, Variable,
         head::{
             Fixed, FixedRoot, Head, InheritedFromArguments, RootComparison, ScannedPatterns,
             classify_value, compare_roots,
@@ -144,6 +144,14 @@ impl BackendDefinition {
                 MatchResult::Failed(_)
             )
     }
+}
+
+/// Run `body` with one memo of instance normality open across all the
+/// [`BackendDefinition::instance_normal`] calls it makes, so that a walk asking about nested
+/// applications decides each subterm once (`data_term`).
+pub(crate) fn with_scan_memo<R>(body: impl FnOnce() -> R) -> R {
+    let _scope = ScanScope::enter();
+    body()
 }
 
 thread_local! {
@@ -452,6 +460,7 @@ fn separated(comparison: RootComparison<'_>) -> bool {
         // Equal names, two domain values and two injections have arms of their own in
         // `unify_one`; the root alone separates none of these pairs.
         RootComparison::SameApplication(_)
+        | RootComparison::OpenSortArguments
         | RootComparison::ArityMismatch
         | RootComparison::DomainValues
         | RootComparison::Injections
@@ -465,9 +474,9 @@ fn sorts_differ(left: &Sort, right: &Sort) -> bool {
 }
 
 fn has_sort_variable(sort: &Sort) -> bool {
-    match sort {
-        Sort::Variable(_) => true,
-        Sort::Application { arguments, .. } => arguments.iter().any(has_sort_variable),
+    match sort.node() {
+        SortNode::Variable(_) => true,
+        SortNode::Application { arguments, .. } => arguments.iter().any(has_sort_variable),
     }
 }
 

@@ -94,6 +94,10 @@ comparisons = [
   "parsed-definition",
 ]
 
+# The rule's fresh variables take their counter offsets in the order they first occur in k-rust
+# and in another order in the pinned reference; the offsets are only required to be distinct, so
+# the semantic KORE comparison compares them up to a one-to-one renumbering (N50 in
+# reference-normalisations.toml, docs/compatibility.md#comparison-contract).
 [[compile]]
 name = "fresh-variables"
 requires = ["reference-toolchain"]
@@ -408,6 +412,8 @@ comparisons = [
   "macro-kore",
   "parsed-definition",
 ]
+divergent-axioms = ["a03b6e5bfaee958064e4c0f7a65da88eb50ef12a680f47601ad791534df4cd1b"]
+divergent-axioms-reason = "k-rust emits the condition #Exists _ . (X ==Int _ +Int 1) as the predicate \\exists{R}(Y, \\exists{R}(B, \\equals{Bool,R}(t, true))): the binder _ (B) binds only itself, and the body's _ (Y) occurs in the condition alone, so it is quantified existentially inside the condition; the pinned frontend emits \\equals{Bool,R}(\\exists{Bool}(Y, t), true), which as a pattern states that t holds for every Y; docs/compatibility.md#solver-decisions-over-partial-operations (the bullet on an \\equals whose operands are not both terms)"
 
 [[compile]]
 name = "fun-int-list-config"

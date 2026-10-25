@@ -200,6 +200,10 @@ display_error!(
 #[derive(Default)]
 pub(crate) struct PipelineState {
     pub fresh_config_count: Option<usize>,
+    /// Whether the stage `check matching-logic positions` judges every position of the expanded
+    /// sentences: for the Rust target, whose backend reads the compiled definition
+    /// (`CompilationBackend::Rust`). For every target it judges claims' right-side aliases.
+    pub check_ml_positions: bool,
     pub(super) covering_lambdas: Vec<passes::CoveringLambda>,
     /// The stage-boundary invariant checks, which span the transform and emission runs.
     #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
@@ -309,6 +313,14 @@ impl Artifacts {
     /// Every `#Configuration` on the right-hand side of a rule that is not macro-like is bound by
     /// the rule's left-hand side.
     pub(crate) const CONFIGURATION_VARIABLES_BOUND: Self = Self(1 << 4);
+    /// No condition holds a pending conjunction (`ml_constructs`): every conjunction a pass added
+    /// to a condition is chosen. A stage that conjoins conditions must run before the one that
+    /// provides it; the stage checker panics on a pending conjunction once it is available (C2).
+    pub(crate) const CONDITION_CONJUNCTIONS_RESOLVED: Self = Self(1 << 5);
+    /// Every sentence is apart: no name is bound by two quantifiers, and no bound name is free in
+    /// its sentence. Every later stage keeps it; the stage checker panics on a sentence that is
+    /// not apart once it is available (BC).
+    pub(crate) const BOUND_NAMES_APART: Self = Self(1 << 6);
 
     pub(crate) const fn union(self, other: Self) -> Self {
         Self(self.0 | other.0)
@@ -381,6 +393,11 @@ macro_rules! stage_adapter {
     };
 }
 
+stage_adapter!(
+    rename_bound_apart_stage,
+    passes::rename_bound_apart_pass,
+    outcome
+);
 stage_adapter!(resolve_comm_stage, passes::resolve_comm_pass);
 stage_adapter!(resolve_io_stage, passes::resolve_io_pass);
 stage_adapter!(resolve_fun_stage, passes::resolve_fun_pass);
@@ -416,6 +433,49 @@ stage_adapter!(
     passes::generate_sort_projections_pass
 );
 stage_adapter!(expand_macros_stage, passes::expand_macros_pass);
+stage_adapter!(
+    resolve_condition_conjunctions_stage,
+    super::ml_constructs::resolve_condition_conjunctions_pass,
+    outcome
+);
+/// The matching-logic position check (`definition::checks`, module `ml_positions`) on the
+/// sentences as the backend will read them: macros and aliases expanded at their uses, and the
+/// conjunctions passes added to conditions chosen. The definition checks judged every sentence as
+/// written; a refusal here is a shape a macro or alias body takes in the context of a use, or one
+/// that needs the definition's equations (an effect inside a predicate operand), for the Rust
+/// target;
+/// and, for every target, a claim's right-side alias that `lower term conjunctions` will not
+/// lower, whose pattern no compiled form of the claim would keep.
+fn check_ml_positions_stage(
+    input: &PassInput<'_>,
+    state: &mut PipelineState,
+) -> Result<PassOutcome, PassError> {
+    let resolved = input
+        .resolved_raw()
+        .map_err(|error| PassError::from(error.clone()))?;
+    let diagnostics = crate::definition::checks::check_ml_construct_positions_in_definition(
+        resolved,
+        input.definition,
+        state.check_ml_positions,
+    );
+    if diagnostics.is_empty() {
+        Ok(PassOutcome::Unchanged)
+    } else {
+        Err(PassError {
+            message: format!(
+                "the matching-logic position check, on the sentences with their macros and aliases \
+                 expanded, gave {} errors",
+                diagnostics.len()
+            ),
+            diagnostics,
+        })
+    }
+}
+stage_adapter!(
+    lower_term_conjunctions_stage,
+    super::ml_constructs::lower_term_conjunctions_pass,
+    outcome
+);
 stage_adapter!(
     declare_deferred_totality_stage,
     passes::declare_deferred_totality_pass,
@@ -506,6 +566,17 @@ macro_rules! stage {
 }
 
 const TRANSFORM_STAGE_TABLE: &[Stage] = &[
+    // Every stage after this one reads sentences whose bound variables are apart, so a pass that
+    // maps names across a sentence reads each name as one variable (BC).
+    stage!(
+        "rename bound variables apart",
+        "rename_bound_apart",
+        rename_bound_apart_stage,
+        Provenance::None,
+        "metadata-only",
+        requires = Artifacts::NONE,
+        provides = Artifacts::BOUND_NAMES_APART
+    ),
     stage!(
         "resolve commutative rules",
         "resolve_comm",
@@ -652,6 +723,43 @@ const TRANSFORM_STAGE_TABLE: &[Stage] = &[
         "generating",
         requires = Artifacts::SEMANTIC_CASTS_RESOLVED.union(Artifacts::MACRO_KINDS_PROPAGATED),
         provides = Artifacts::NONE
+    ),
+    // The conjunctions that strictness, heating and cooling added to conditions are chosen on the
+    // conditions as the backend reads them, macros and aliases expanded and casts resolved; the
+    // stage relabels pending conjunctions in place, so each node keeps the origin its generating
+    // pass recorded.
+    stage!(
+        "resolve condition conjunctions",
+        "resolve_condition_conjunctions",
+        resolve_condition_conjunctions_stage,
+        Provenance::None,
+        "metadata-only",
+        requires = Artifacts::NONE,
+        provides = Artifacts::CONDITION_CONJUNCTIONS_RESOLVED
+    ),
+    // Matching-logic constructs are judged by the context of their position on the sentences as
+    // the backend reads them, macros and aliases expanded at their uses and condition
+    // conjunctions chosen; the definition checks judged the sentences as written. For the Rust
+    // target (claims' right-side aliases for every target), before any later stage renames a
+    // variable a refusal names.
+    stage!(
+        "check matching-logic positions",
+        "check_ml_positions",
+        check_ml_positions_stage,
+        Provenance::None,
+        "validation"
+    ),
+    // A conjunction of two connective-free terms where its value is built, and an alias in a
+    // claim's left side, is written as the first term guarded by their equality, which denotes the
+    // same set of values; after macro expansion, so macro and alias bodies are lowered where they
+    // are used. Each kept node keeps its metadata; the generated equality, and the copy of the
+    // first operand in it, record this pass as their origin.
+    stage!(
+        "lower term conjunctions",
+        "lower_term_conjunctions",
+        lower_term_conjunctions_stage,
+        Provenance::Driver(super::ml_constructs::LOWER_TERM_CONJUNCTIONS),
+        "generating"
     ),
     stage!(
         "add implicit computation cell",
@@ -923,6 +1031,12 @@ pub(crate) fn run_stages_seeded_with_resolved(
         .and_then(|current| current.into_definition_and_resolved("resolve pipeline output"))
 }
 
+/// The child phase of a stage that checks the stage's output against the kompile invariants
+/// (`kompile/invariants.rs`), in builds that run those checks. The stage's own seconds include
+/// it.
+#[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+const CHECK_INVARIANTS: &str = "check invariants";
+
 fn run_stages_seeded_current(
     stages: &[Stage],
     start: Definition,
@@ -941,9 +1055,28 @@ fn run_stages_seeded_current(
         measure::without_counting(|| state.checks.start(&current.definition, options));
     })?;
     for stage in stages {
-        let deepest = DeepestTerm::of(&current.definition);
-        let ran = timings.time(stage.name, || {
-            deepest.run(stage.name, || run_stage(stage, &current, state, options))?
+        // The stage's phase covers sizing the stack for its input, running it, and, in builds
+        // that check invariants, checking its output (as the child phase `CHECK_INVARIANTS`).
+        #[cfg_attr(
+            not(any(debug_assertions, feature = "kompile-invariant-checks")),
+            allow(unused_mut)
+        )]
+        let mut checked: Result<(), CompileError> = Ok(());
+        let ran = timings.time_nested(stage.name, |children| {
+            let deepest = DeepestTerm::of(&current.definition);
+            let ran = deepest.run(stage.name, || run_stage(stage, &current, state, options))??;
+            #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
+            {
+                let output = ran.0.as_ref().unwrap_or(&current.definition);
+                checked = children.time(CHECK_INVARIANTS, || {
+                    DeepestTerm::of(output).run(stage.name, || {
+                        measure::without_counting(|| state.checks.after(stage, output, options));
+                    })
+                });
+            }
+            #[cfg(not(any(debug_assertions, feature = "kompile-invariant-checks")))]
+            let _ = children;
+            Ok(ran)
         });
         let (output, next_resolved) = match ran {
             Ok(ran) => ran,
@@ -952,13 +1085,7 @@ fn run_stages_seeded_current(
                 return Err(error);
             }
         };
-        #[cfg(any(debug_assertions, feature = "kompile-invariant-checks"))]
-        {
-            let checked = output.as_ref().unwrap_or(&current.definition);
-            DeepestTerm::of(checked).run(stage.name, || {
-                measure::without_counting(|| state.checks.after(stage, checked, options));
-            })?;
-        }
+        checked?;
         observer(
             stage,
             &current.definition,

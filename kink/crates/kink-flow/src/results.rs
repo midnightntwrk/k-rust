@@ -1,0 +1,1303 @@
+//! The result cache (flow README 5.3): one record per program's baseline run, keyed by the
+//! result schema version, kink's build identity and semantics identity (kink-campaign
+//! `identity`), the specification digest, the program digest and the budget.
+//!
+//! Each program runs as its own zero-mutant campaign through `kink_campaign::run_campaign_multi`
+//! (the way kink-corpus admission's `baseline_only` does), with the fixed oracles of README 5.4
+//! (exit stop without an exit-code cell, then the whole final term; crash policy `reject`), the
+//! all-normal classifier and the manifest's budget, and every program of one command shares one
+//! `NativeValidator`, so the baseline compiles once. One program's failure never touches another.
+//!
+//! Every campaign call of one command goes through the command's one [`BaselineRunner`], whose
+//! in-memory `kink_campaign::BaselineSession` runs each program's baseline live at most once per
+//! command (flow F-12, README 6.3): `results` runs each program once, and `run` reuses those
+//! live runs in its kill search. The session is never written to disk, so a later command runs
+//! every baseline it needs live again. The documents report the count as `baseline_runs`.
+//!
+//! A program is `comparable` exactly when that campaign admits its baseline run and gives it
+//! sides: the run is complete, no exclusion holds (a run whose leaf contradicts a trusted claim is
+//! admitted but gives none, re-pin decision 2; one excluded by k-rust's run-level lists is refused,
+//! re-pin adoption A-1), and every oracle side is a value. Only a comparable program can later
+//! kill a mutant. Every record carries the baseline run's contradicted-claim records as
+//! specification diagnostics and its count of undecided solver answers (re-pin adoption A-1),
+//! outside the key and the run digest.
+//! When the campaign refuses the baseline run, the runner returns no evidence; a diagnostic run
+//! of the same initial state through the kink-native execution adapter then tells a timeout from
+//! an unknown or failed run and supplies the cause, the final states and the coverage for the
+//! reader. The diagnostic run never makes a program comparable.
+//!
+//! The cache is plain JSON under `<cache>/results/<spec digest>/<program digest>.json`. A record
+//! is used only when its key equals the current key; any other record, or one that does not
+//! parse, is recomputed and replaced. A record names its writer's build, so a record another
+//! build wrote is recomputed (packet CACHE-ID-fix-1); when the executable cannot be read, no
+//! record is read or written. Deleting the cache is always safe.
+
+use crate::{
+    admit::{AdmittedSpec, ProgramInputs, admit_spec},
+    digest::{program_digest, spec_digest},
+    manifest::{Budget, FlowManifest, Program},
+};
+use k_rust::{
+    definition::{AttributeKey, Sentence},
+    kore::codec::from_value,
+};
+use kink_campaign::{
+    BaselineSession, CallRecording, Campaign, CampaignFailure, CampaignFailureKind,
+    CampaignOptions, CampaignReport, CampaignRun, CrashPolicy, FinalResult, OracleDeclaration,
+    OracleSide, OracleValue, Projection, RunStop, ScheduleMode, SideRun, StateProjection, TestCase,
+    run_campaign_multi_with,
+};
+use kink_corpus::{
+    Store, admission::AdmissionRecord, admission::input_backend, runner::all_normal,
+};
+use kink_native::{
+    K_RUST_REVISION,
+    coverage::{RuleAuthors, TestCoverage, coverage_domain, non_executable_ids},
+    exclusion::Exclusion,
+    execution::{ExecutionAdapter, ExecutionBudget, HaltClass, SolverProfile},
+};
+use kink_patch::{
+    CandidateGeneration, Discovery, Patch, SelectionPolicy, SentenceRef, Sha256Digest,
+    canonical_json, payload_digest, select,
+};
+use serde_json::{Value, json};
+use std::{
+    cell::{Cell, OnceCell, RefCell},
+    collections::{BTreeMap, BTreeSet},
+    fs,
+    path::{Path, PathBuf},
+    time::Duration,
+};
+
+/// The result schema version, the first component of every result key (kink-campaign
+/// `identity::RESULT_SCHEMA_VERSION`, where its history is; it is a component of kink's
+/// semantics identity, so the identity names it). It changes whenever kink changes what counts
+/// as a comparable result or what a record holds, so that older records are recomputed rather
+/// than trusted.
+pub use kink_campaign::RESULT_SCHEMA_VERSION;
+/// The `schema` field of a result record.
+pub const RECORD_SCHEMA: &str = "kink-flow-result";
+/// Domain of a run digest: the digest of the `run` part of a baseline row.
+pub const RUN_DOMAIN: &str = "kink-flow/run/v1";
+/// The cache directory's name next to `FLOW.toml`.
+pub const CACHE_DIRECTORY: &str = ".kink-flow";
+/// Simplifier iterations per rewrite step of every program run (not a manifest key).
+pub const SIMPLIFICATION_ITERATIONS: usize = 10_000;
+/// The operator name of the empty generation each zero-mutant campaign runs.
+const BASELINE_ONLY_OPERATOR: &str = "kink-flow/baseline-only/v1";
+
+/// The class of a program's baseline run (README 5.3).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ResultClass {
+    /// The baseline run is complete and every oracle side is a value: the program can kill.
+    Comparable,
+    /// The run did not finish within the budget's time.
+    Timeout,
+    /// The run produced no comparable value (for example a collection with a Bytes key,
+    /// a depth limit, or an undecided step).
+    Unknown,
+    /// The program's input was refused (not read, parsed or assembled); never stored.
+    Refused,
+    /// The run or the runner failed.
+    Error,
+}
+
+impl ResultClass {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Comparable => "comparable",
+            Self::Timeout => "timeout",
+            Self::Unknown => "unknown",
+            Self::Refused => "refused",
+            Self::Error => "error",
+        }
+    }
+}
+
+/// The names of the oracle slots of [`fixed_oracles`], in slot order.
+pub const ORACLE_SLOTS: [&str; 2] = ["exit-stop", "whole-term"];
+
+/// The two oracles of every flow program (README 5.4): the exit stop with no exit-code cell,
+/// then the whole final term; a semantic crash is outside the operand domain (`reject`).
+pub fn fixed_oracles() -> Vec<OracleDeclaration> {
+    [
+        StateProjection::ExitStop {
+            exit_code_cell: None,
+        },
+        StateProjection::WholeTerm,
+    ]
+    .into_iter()
+    .map(|projection| {
+        OracleDeclaration::new(CrashPolicy::Reject, Projection::State(projection))
+            .expect("state projections without term paths are valid")
+    })
+    .collect()
+}
+
+/// The execution budget of every program run.
+pub fn execution_budget(budget: Budget) -> ExecutionBudget {
+    ExecutionBudget {
+        time: Duration::from_millis(budget.time_ms),
+        max_simplification_iterations: SIMPLIFICATION_ITERATIONS,
+        max_depth: Some(budget.max_depth),
+        max_breadth: None,
+    }
+}
+
+/// The result key: schema version, kink's build identity `kink_build` (kink-campaign
+/// `identity::kink_build`, the running executable's digest, which guards every piece of verdict
+/// code, versioned or not; packet CACHE-ID-fix-1), kink's semantics identity `kink` (the k-rust
+/// revision, the definition exclusions, the execution request, ...; packet CACHE-ID, re-pin
+/// R0-tail review 1 minor), specification digest, program digest and budget. A record written by
+/// another build, or by one before CACHE-ID-fix-1 (whose key has no `kink_build`), misses and is
+/// recomputed. `kink_build` is `None` when the executable cannot be read; such a key is never
+/// read or written ([`update_results`]).
+pub fn result_key(
+    spec: Sha256Digest,
+    program: Sha256Digest,
+    budget: Budget,
+    kink_build: Option<Sha256Digest>,
+) -> Value {
+    json!({
+        "schema_version": RESULT_SCHEMA_VERSION,
+        "kink_build": kink_build.map(|build| build.to_string()),
+        "kink": kink_campaign::kink_identity(),
+        "spec": spec.to_string(),
+        "program": program.to_string(),
+        "budget": {
+            "time_ms": budget.time_ms,
+            "max_depth": budget.max_depth,
+            "max_simplification_iterations": SIMPLIFICATION_ITERATIONS,
+            "max_breadth": null,
+        },
+    })
+}
+
+/// The digest of a baseline row's `run` part, which depends neither on the program id nor on
+/// any other test of the campaign. `None` when the row has no `run`.
+pub fn run_digest(row: &Value) -> Option<Sha256Digest> {
+    let run = row.get("run")?;
+    Some(payload_digest(RUN_DOMAIN, canonical_json(run).as_bytes()))
+}
+
+/// What one program's baseline run produced.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ProgramResult {
+    pub class: ResultClass,
+    pub cause: Option<String>,
+    /// The baseline row exactly as kink-campaign's report encodes it; comparable only.
+    pub baseline: Option<Value>,
+    /// The final configurations as KORE text, one per terminal (comparable), or the final
+    /// state of each leaf of the diagnostic run (unknown and error runs that have leaves).
+    pub final_configuration: Option<Vec<String>>,
+    /// The run's rule coverage; `None` when no run produced any.
+    pub coverage: Option<TestCoverage>,
+    /// The wall time of the program's live baseline run in milliseconds (the campaign's run,
+    /// recorded by the command's baseline session); outside the key and the run digest.
+    pub wall_ms: Option<u64>,
+    /// k-rust's contradicted-claim records of the baseline run (the campaign's, or the diagnostic
+    /// run's), its definition's load included, as specification diagnostics (re-pin adoption
+    /// A-1, `report::specification_diagnostics_value`); an empty array when there are none or no
+    /// run produced any. Outside the key and the run digest.
+    pub specification_diagnostics: Value,
+    /// k-rust's count of the baseline run's undecided solver answers (`smtUnknowns`; decision
+    /// D-7 (a1): reported, never an exclusion); 0 without a run or without Z3.
+    pub smt_unknowns: usize,
+}
+
+impl ProgramResult {
+    fn refused(cause: String) -> Self {
+        Self {
+            class: ResultClass::Refused,
+            cause: Some(cause),
+            baseline: None,
+            final_configuration: None,
+            coverage: None,
+            wall_ms: None,
+            specification_diagnostics: json!([]),
+            smt_unknowns: 0,
+        }
+    }
+
+    /// The run digest of the baseline row.
+    pub fn run_sha256(&self) -> Option<Sha256Digest> {
+        self.baseline.as_ref().and_then(run_digest)
+    }
+}
+
+/// Runs the campaign calls of one command over one admitted specification: each program's
+/// zero-mutant campaign (`results`) and the kill search's calls (`run`). It holds the command's
+/// one validator (the specification's), so the baseline compiles once, and the command's one
+/// in-memory baseline session, so each program's baseline runs live at most once per command.
+pub struct BaselineRunner<'a> {
+    spec: &'a AdmittedSpec,
+    main_module: &'a str,
+    module: String,
+    generations: Vec<CandidateGeneration<'a>>,
+    budget: ExecutionBudget,
+    authors: RuleAuthors,
+    /// The command's session (every call uses the all-normal classifier; the session re-applies
+    /// a call's classifier on every reused baseline run, flow F-16).
+    session: RefCell<BaselineSession<'a>>,
+    /// Diagnostic runs this command made (a refused baseline that did not stop on time).
+    diagnostic: Cell<usize>,
+    /// The compiled ids of each authored rule a run can observe, for causes; computed on
+    /// first use.
+    observable: OnceCell<Vec<BTreeSet<String>>>,
+}
+
+impl<'a> BaselineRunner<'a> {
+    pub fn new(spec: &'a AdmittedSpec, manifest: &'a FlowManifest) -> Result<Self, String> {
+        // The runner needs a generation. A checked empty discovery yields zero candidates,
+        // so no operator code and no mutant can be reached (kink-corpus `baseline_only`).
+        let discovery = Discovery::empty(spec.validator.baseline(), false, false);
+        let generation = select(&discovery, SelectionPolicy::Each, 1)
+            .and_then(|selection| {
+                selection.fold(BASELINE_ONLY_OPERATOR, |_| -> Patch {
+                    unreachable!("an empty discovery has no fold calls")
+                })
+            })
+            .map_err(|e| format!("cannot build the empty generation: {e}"))?;
+        assert!(generation.candidates().is_empty());
+        Ok(Self {
+            spec,
+            main_module: &manifest.spec.main_module,
+            module: k_rust::kast::identifier::encode(&manifest.spec.main_module),
+            generations: vec![generation],
+            budget: execution_budget(manifest.budget),
+            authors: RuleAuthors::of(&spec.compiled),
+            session: RefCell::new(BaselineSession::new(&spec.validator)),
+            diagnostic: Cell::new(0),
+            observable: OnceCell::new(),
+        })
+    }
+
+    /// What the last campaign call of this command ran: wall times, leaf censuses and baseline
+    /// coverage, as the session recorded them (outside every evidence row, digest and key).
+    pub fn last_call(&self) -> CallRecording {
+        self.session.borrow().last_call().clone()
+    }
+
+    /// The compiled ids of each authored rule of the specification a run can observe (a rule
+    /// that compiles to a rewrite rule).
+    pub fn observable_rules(&self) -> &[BTreeSet<String>] {
+        self.observable
+            .get_or_init(|| observable_rules(self.spec, &self.authors))
+    }
+
+    /// One campaign call of this command over `tests` (their oracles as given): the
+    /// specification's validator and module, the all-normal classifier, the manifest's budget,
+    /// no step observation, and every baseline run through the command's session.
+    pub fn call(
+        &self,
+        tests: &[TestCase],
+        generations: &[CandidateGeneration<'_>],
+        options: &CampaignOptions,
+    ) -> Result<CampaignRun, CampaignFailure> {
+        let campaign = Campaign {
+            validator: &self.spec.validator,
+            module: &self.module,
+            observation: &[],
+            classify: &all_normal,
+            tests,
+            budget: self.budget,
+        };
+        run_campaign_multi_with(
+            &campaign,
+            generations,
+            options,
+            &mut self.session.borrow_mut(),
+        )
+    }
+
+    /// `{live, reused, diagnostic}`: the baseline runs this command made live, the baseline
+    /// requests of its campaign calls answered by one of them, and the diagnostic runs it made
+    /// for refused baselines that did not stop on time (outside every digest and key).
+    pub fn baseline_runs(&self) -> Value {
+        let session = self.session.borrow();
+        json!({
+            "live": session.live_runs(),
+            "reused": session.reused_runs(),
+            "diagnostic": self.diagnostic.get(),
+        })
+    }
+
+    /// Run one admitted program (its oracles are replaced by [`fixed_oracles`]). Its baseline
+    /// runs live unless this command already ran the same program live.
+    pub fn run(&self, mut test: TestCase) -> ProgramResult {
+        test.oracles = fixed_oracles();
+        let options = CampaignOptions {
+            schedule: ScheduleMode::FirstKill,
+            selection: kink_campaign::SelectionPolicy::None,
+            share_evidence: true,
+            run: kink_campaign::RunOptions::default(),
+            compile_workers: 1,
+        };
+        let result = self.call(std::slice::from_ref(&test), &self.generations, &options);
+        let recording = self.last_call();
+        let live = recording.baseline_of(&test.id);
+        let wall_ms = live.map(|live| millis(live.run.wall));
+        let mut result = match result {
+            Ok(run) => {
+                assert!(run.mutants.is_empty() && run.baseline.len() == 1);
+                let evidence = &run.baseline[0];
+                // The campaign admits a baseline run that contradicts a trusted claim and makes
+                // only its own test unknown (re-pin decision 2, per test): such a program is
+                // never comparable.
+                if let SideRun::Failed(kind) = evidence.run {
+                    let mut result = self.diagnose(
+                        &test,
+                        CampaignFailureKind::BaselineOracleFailed,
+                        kind.exclusion(),
+                        &format!(
+                            "the campaign runner gave the baseline run no sides: {}",
+                            kind.exclusion().map_or("a failed run", |e| e.name())
+                        ),
+                    );
+                    result.wall_ms = wall_ms;
+                    return result;
+                }
+                let row = match CampaignReport::baseline_row(evidence) {
+                    Ok(row) => row,
+                    Err(e) => return self.error(format!("cannot encode the baseline row: {e}")),
+                };
+                ProgramResult {
+                    class: ResultClass::Comparable,
+                    cause: None,
+                    baseline: Some(row),
+                    final_configuration: final_terms(&evidence.run),
+                    coverage: run.baseline_coverage.first().cloned(),
+                    wall_ms: None,
+                    specification_diagnostics: crate::report::specification_diagnostics_value(
+                        &evidence.notes.contradicted_claims,
+                    ),
+                    smt_unknowns: evidence.notes.smt_unknowns,
+                }
+            }
+            // No second full-length run (flow F-13, README 6.4): when this command's live run
+            // of the baseline stopped on time, the class and the cause come from that run. A
+            // session record never makes a program comparable: only the campaign admitting
+            // the baseline does (the arm above).
+            Err(_) if live.is_some_and(|live| live.run.census.stop == RunStop::Time) => {
+                let live = live.expect("checked");
+                ProgramResult {
+                    class: ResultClass::Timeout,
+                    cause: Some(timeout_cause(
+                        self.budget.time.as_millis(),
+                        &live.run.census,
+                        self.observable_rules(),
+                    )),
+                    baseline: None,
+                    final_configuration: None,
+                    coverage: live.coverage.clone(),
+                    wall_ms: None,
+                    specification_diagnostics: json!([]),
+                    smt_unknowns: 0,
+                }
+            }
+            Err(failure) => self.diagnose(
+                &test,
+                failure.kind(),
+                failure.exclusion(),
+                &format!("the campaign runner refused the baseline run ({failure})"),
+            ),
+        };
+        result.wall_ms = wall_ms;
+        result
+    }
+
+    fn error(&self, cause: String) -> ProgramResult {
+        ProgramResult {
+            class: ResultClass::Error,
+            cause: Some(cause),
+            baseline: None,
+            final_configuration: None,
+            coverage: None,
+            wall_ms: None,
+            specification_diagnostics: json!([]),
+            smt_unknowns: 0,
+        }
+    }
+
+    /// The campaign refused the baseline run, or gave it no sides, and it did not stop on time:
+    /// run the initial state once more through the execution adapter, for the class, the cause,
+    /// the final states and the coverage. When the campaign named the exclusion of the baseline
+    /// run (`exclusion`), the cause's hint is that exclusion's ([`exclusion_hint`]), not one read
+    /// from the leaves' shape (re-pin adoption A-1b): an excluded run's leaves can all be clean.
+    fn diagnose(
+        &self,
+        test: &TestCase,
+        kind: CampaignFailureKind,
+        exclusion: Option<Exclusion>,
+        refused: &str,
+    ) -> ProgramResult {
+        self.diagnostic.set(self.diagnostic.get() + 1);
+        let mut backend = match input_backend(&self.spec.compiled, self.main_module) {
+            Ok(backend) => backend,
+            Err(e) => return self.error(format!("{refused}; no diagnostic run: {}", e.detail)),
+        };
+        let adapter = ExecutionAdapter::with_profile(SolverProfile::BUILD);
+        let execution = match adapter.execute(&mut backend, &test.initial_state, self.budget) {
+            Ok(execution) => execution,
+            Err(e) => return self.error(format!("{refused}; the diagnostic run failed: {e:?}")),
+        };
+        let coverage = Some(TestCoverage::of_execution(
+            &test.id,
+            &execution,
+            &self.authors,
+        ));
+        if execution.timed_out() {
+            // Only when the campaign's own run ended otherwise (or ran no baseline): the
+            // diagnostic run then hit the time bound itself.
+            return ProgramResult {
+                class: ResultClass::Timeout,
+                cause: Some(format!(
+                    "the run did not finish within time_ms = {}",
+                    self.budget.time.as_millis()
+                )),
+                baseline: None,
+                final_configuration: None,
+                coverage,
+                wall_ms: None,
+                specification_diagnostics: json!([]),
+                smt_unknowns: 0,
+            };
+        }
+        let leaves = execution.leaves();
+        let class = match kind {
+            CampaignFailureKind::BaselineOracleFailed => ResultClass::Unknown,
+            _ => ResultClass::Error,
+        };
+        let halts = leaves
+            .iter()
+            .map(|leaf| {
+                format!(
+                    "{} at depth {}",
+                    kebab(&format!("{:?}", leaf.halt)),
+                    leaf.branch.depth
+                )
+            })
+            .collect::<Vec<_>>();
+        let hint = if let Some(exclusion) = exclusion {
+            exclusion_hint(exclusion, !execution.facts().contradicted_claims.is_empty())
+        } else if leaves.iter().any(|leaf| leaf.halt == HaltClass::DepthBound) {
+            format!(
+                "the run reached max_depth = {}",
+                self.budget.max_depth.unwrap_or_default()
+            )
+        } else if !leaves.is_empty()
+            && leaves.iter().all(|leaf| {
+                matches!(
+                    leaf.halt,
+                    HaltClass::Stuck | HaltClass::Trivial | HaltClass::Vacuous
+                )
+            })
+        {
+            "every path ended, but a final configuration is not a value kink can compare \
+             (for example it holds a collection kink cannot compare, such as one with a Bytes key, \
+             an unevaluated function or a symbolic term)"
+                .to_owned()
+        } else {
+            "a path did not end".to_owned()
+        };
+        let final_configuration = leaves
+            .iter()
+            .map(|leaf| from_value(&leaf.branch.state).map(|state| state.to_string()))
+            .collect::<Result<Vec<_>, _>>()
+            .ok();
+        ProgramResult {
+            class,
+            cause: Some(format!(
+                "{refused}; {hint}; leaves: {}",
+                if halts.is_empty() {
+                    "none".to_owned()
+                } else {
+                    halts.join(", ")
+                }
+            )),
+            baseline: None,
+            final_configuration,
+            coverage,
+            wall_ms: None,
+            specification_diagnostics: crate::report::specification_diagnostics_value(
+                &execution.facts().contradicted_claims,
+            ),
+            smt_unknowns: execution.facts().smt_unknowns,
+        }
+    }
+}
+
+/// Why an excluded baseline run is not comparable, and what to fix, in the reader's words (re-pin
+/// adoption A-1b). `records`: the diagnostic run lists a contradicted-claim record, which the
+/// program's row reports as a specification diagnostic.
+fn exclusion_hint(exclusion: Exclusion, records: bool) -> String {
+    let why = match exclusion {
+        Exclusion::ContradictedClaim if records => {
+            "the run contradicts a trusted claim of the definition: k-rust lists a contradicted \
+             claim the run or the definition's load observed, named with the application it is \
+             false at in this row's specification_diagnostics; the definition, not the program, \
+             is wrong there, so fix the claim (or the rule it is about), not the program"
+        }
+        Exclusion::ContradictedClaim => {
+            "the run contradicts a trusted claim of the definition: a leaf takes an undefined \
+             step that falsifies a `total` or `preserves-definedness` claim (see this row's \
+             specification_diagnostics for any record k-rust lists); the definition, not the \
+             program, is wrong there, so fix the claim (or the rule it is about), not the program"
+        }
+        Exclusion::StackStop => {
+            "the run met a stop for lack of native stack, so its result can depend on the host's \
+             threads"
+        }
+        Exclusion::LoadStackStop => {
+            "loading the definition met a stop for lack of native stack, so its loaded theory can \
+             depend on the host's threads"
+        }
+        Exclusion::ImplementationChosenHook => {
+            "the definition uses a hook whose value the definition leaves open and k-rust chooses"
+        }
+        Exclusion::ShortCircuitReading => {
+            "the run's result depends on whether andBool, orBool, impliesBool, #if, andThenBool or \
+             orElseBool skip an operand that may be undefined, which the definition leaves to the \
+             backend"
+        }
+        Exclusion::AllowanceRefusal => {
+            "a Bytes hook of the run was refused for the process's memory allowance, a property \
+             of the host"
+        }
+        Exclusion::EqualsCondition => {
+            "a rule or equation condition equates two terms ({ A #Equals B }), which k-rust may \
+             decide wrongly when they may be undefined"
+        }
+        Exclusion::ImplementationChosenValue => {
+            "the run read a value the definition leaves open, which k-rust chose (k-rust's list \
+             of the run's open values)"
+        }
+        Exclusion::UnsupportedHook => {
+            "the run, or the definition's load, left an application unevaluated as an \
+             unsupported hook"
+        }
+    };
+    format!("the run is excluded ({}): {why}", exclusion.name())
+}
+
+/// A duration in whole milliseconds.
+pub fn millis(duration: Duration) -> u64 {
+    u64::try_from(duration.as_millis()).unwrap_or(u64::MAX)
+}
+
+/// The cause of a baseline that this command's live run stopped on time (flow F-13): the
+/// bound, the leaf census of the run when the bound fired, and how many of the rules a run can
+/// observe (`observable`: each rule's compiled ids) the returned leaves had applied. The rule
+/// count comes from the census, not from the record's coverage, which lists nothing for a
+/// timed-out run (kink-native `TestCoverage`); it is a hint, read from the leaves k-rust
+/// returned after the cancel.
+pub fn timeout_cause(
+    time_ms: u128,
+    census: &kink_campaign::LeafCensus,
+    observable: &[BTreeSet<String>],
+) -> String {
+    let reached = if census.total() > 0 {
+        let count = observable
+            .iter()
+            .filter(|ids| !ids.is_disjoint(&census.rule_ids))
+            .count();
+        format!(
+            "; those leaves had applied {count} of the {} rules a run can observe",
+            observable.len()
+        )
+    } else {
+        String::new()
+    };
+    format!(
+        "the run did not finish within time_ms = {time_ms}; when the bound fired {}{reached}",
+        crate::report::census_clause(census)
+    )
+}
+
+/// The compiled ids of each authored rule of the specification with an id in the coverage domain
+/// (kink-native `coverage_domain`: the rules and equations a run's coverage can name; re-pin
+/// L2-1, before which only rewrite rules counted).
+fn observable_rules(spec: &AdmittedSpec, authors: &RuleAuthors) -> Vec<BTreeSet<String>> {
+    let rewrites = coverage_domain(&spec.compiled);
+    spec.loaded
+        .baseline
+        .authored_sentences()
+        .filter(|(_, sentence)| matches!(sentence, Sentence::Rule { .. }))
+        .map(|(at, _)| {
+            authors
+                .ids_of(&at)
+                .map(str::to_owned)
+                .collect::<BTreeSet<_>>()
+        })
+        .filter(|ids| ids.iter().any(|id| rewrites.contains(id)))
+        .collect()
+}
+
+pub(crate) fn kebab(name: &str) -> String {
+    let mut out = String::new();
+    for (index, c) in name.chars().enumerate() {
+        if index > 0 && c.is_uppercase() {
+            out.push('-');
+        }
+        out.extend(c.to_lowercase());
+    }
+    out
+}
+
+/// The whole-term side's terminal terms as KORE text.
+fn final_terms(run: &SideRun) -> Option<Vec<String>> {
+    let SideRun::Sides { sides } = run else {
+        return None;
+    };
+    sides.iter().find_map(|side| match side {
+        OracleSide::Normal(OracleValue::FinalResult(FinalResult::WholeTerm(terms))) => {
+            Some(terms.iter().map(ToString::to_string).collect())
+        }
+        _ => None,
+    })
+}
+
+/// A sentence's source position: `{module, index, label, file, start_line, end_line}`.
+pub fn sentence_value(spec: &AdmittedSpec, at: &SentenceRef) -> Value {
+    let sentence = spec.loaded.baseline.sentence(at);
+    let attributes = sentence.map(Sentence::attributes);
+    let location = attributes.and_then(|a| a.location());
+    json!({
+        "module": at.module,
+        "index": at.index,
+        "label": attributes.and_then(|a| a.string(AttributeKey::Label)),
+        "file": attributes.and_then(|a| a.source()),
+        "start_line": location.map(|l| l.start_line),
+        "end_line": location.map(|l| l.end_line),
+    })
+}
+
+/// A record's coverage (kink-native `TestCoverage`, coverage v2 since re-pin L2-1): `sentences`
+/// are the baseline sentences the run reached (k-rust `matched`), `applied_sentences` those it
+/// fired (`applied`).
+fn coverage_value(spec: &AdmittedSpec, coverage: &TestCoverage) -> Value {
+    let sentences = |sentences: &BTreeSet<SentenceRef>| {
+        sentences
+            .iter()
+            .map(|at| sentence_value(spec, at))
+            .collect::<Vec<_>>()
+    };
+    json!({
+        "complete": coverage.complete,
+        "sentences": sentences(&coverage.sentences),
+        "applied_sentences": sentences(&coverage.applied_sentences),
+    })
+}
+
+/// The result record of one program (never for a refused program).
+pub fn record_value(spec: &AdmittedSpec, key: &Value, id: &str, result: &ProgramResult) -> Value {
+    json!({
+        "schema": RECORD_SCHEMA,
+        "key": key,
+        "program_id": id,
+        "class": result.class.as_str(),
+        "cause": result.cause,
+        "baseline": result.baseline,
+        "run_sha256": result.run_sha256().map(|d| d.to_string()),
+        "final_configuration": result.final_configuration,
+        "coverage": result.coverage.as_ref().map(|c| coverage_value(spec, c)),
+        "wall_ms": result.wall_ms,
+        "specification_diagnostics": result.specification_diagnostics,
+        "smt_unknowns": result.smt_unknowns,
+    })
+}
+
+/// A stored record: `None` when the file is absent; `Some(None)` when it exists but does not
+/// parse or has another schema or key (it is then recomputed, never used).
+fn read_record(path: &Path, key: &Value) -> Option<Option<Value>> {
+    let text = fs::read_to_string(path).ok()?;
+    Some(
+        kink_patch::parse_json(&text)
+            .ok()
+            .filter(|record| record["schema"] == RECORD_SCHEMA && record["key"] == *key),
+    )
+}
+
+/// How `--verify` compares a stored record with a new run of its program: every difference,
+/// including a record whose `run_sha256` is not the digest of its own baseline row.
+fn verify_record(record: &Value, result: &ProgramResult) -> Vec<String> {
+    let mut differences = Vec::new();
+    let stored_digest = record["run_sha256"].as_str();
+    let row_digest = record
+        .get("baseline")
+        .filter(|row| !row.is_null())
+        .and_then(run_digest)
+        .map(|d| d.to_string());
+    if stored_digest != row_digest.as_deref() {
+        differences.push(format!(
+            "the record's run_sha256 {} is not the digest of its baseline row ({})",
+            stored_digest.unwrap_or("null"),
+            row_digest.as_deref().unwrap_or("no row"),
+        ));
+    }
+    if record["class"] != result.class.as_str() {
+        differences.push(format!(
+            "class: cached {}, now {}",
+            record["class"],
+            result.class.as_str()
+        ));
+    }
+    let now = result.run_sha256().map(|d| d.to_string());
+    if stored_digest != now.as_deref() {
+        differences.push(format!(
+            "run_sha256: cached {}, now {}",
+            stored_digest.unwrap_or("null"),
+            now.as_deref().unwrap_or("null"),
+        ));
+    }
+    differences
+}
+
+/// Options of the `results` command.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct ResultsOptions {
+    /// Re-run every program that has a current record and compare (README 5.3).
+    pub verify: bool,
+    /// The cache directory; default `<directory of FLOW.toml>/.kink-flow`.
+    pub cache: Option<PathBuf>,
+    /// A mutation list (`MUTATIONS.toml`): the document then lists the rules no resolving
+    /// mutation of it targets (`untargeted_rules`; flow F-13).
+    pub mutations: Option<PathBuf>,
+}
+
+/// One program's row of the results document, with its record when it has one.
+pub struct ProgramRow {
+    /// The program's row of the results document.
+    pub row: Value,
+    /// The program's current record (stored or just written), if it has one.
+    pub record: Option<Value>,
+    /// Under `--verify`, when the program has a stored record: the record this command's own run
+    /// gives, which `record` (the stored one) was compared with. `None` otherwise (`record` is
+    /// then this command's run, or the stored record a command without `--verify` uses).
+    pub live: Option<Value>,
+    /// The program was refused, its run failed or its record could not be written.
+    pub failed: bool,
+    /// The program's digest, when its text could be read.
+    pub digest: Option<Sha256Digest>,
+    /// The program's text exactly as its digest was computed from it.
+    pub text: Option<String>,
+    /// The program's admitted test case (no oracles), when this command assembled it.
+    pub test: Option<TestCase>,
+}
+
+impl ProgramRow {
+    /// The record's class, when the program has a record.
+    pub fn class(&self) -> Option<&str> {
+        self.record
+            .as_ref()
+            .and_then(|record| record["class"].as_str())
+    }
+}
+
+/// The result cache brought up to date for one admitted specification (`results` without
+/// the document): one row per manifest program, in manifest order.
+pub struct ResultsUpdate {
+    pub spec_digest: Sha256Digest,
+    pub rows: Vec<ProgramRow>,
+    pub mismatches: Vec<Value>,
+}
+
+impl ResultsUpdate {
+    /// No program was refused or failed and `--verify` found no mismatch.
+    pub fn ok(&self) -> bool {
+        self.rows.iter().all(|row| !row.failed) && self.mismatches.is_empty()
+    }
+}
+
+/// The cache directory of a manifest: `options.cache`, else `.kink-flow` next to it.
+pub fn cache_directory(manifest: &FlowManifest, cache: Option<&Path>) -> PathBuf {
+    cache.map_or_else(
+        || manifest.directory.join(CACHE_DIRECTORY),
+        Path::to_path_buf,
+    )
+}
+
+/// The refusal of a specification whose baseline runner cannot be built.
+pub fn runner_refusal(detail: String) -> kink_corpus::admission::AdmissionRefusal {
+    kink_corpus::admission::AdmissionRefusal {
+        stage: "baseline".into(),
+        reason: "invalid-declaration".into(),
+        detail,
+    }
+}
+
+/// Bring the result cache of `spec` up to date (README 5.3) with `runner`, whose validator
+/// is the specification's, so every program shares one baseline compile.
+pub fn update_results(
+    spec: &AdmittedSpec,
+    manifest: &FlowManifest,
+    inputs: &mut ProgramInputs,
+    runner: &BaselineRunner<'_>,
+    cache: &Path,
+    verify: bool,
+) -> ResultsUpdate {
+    let spec_digest = spec_digest(manifest, &spec.loaded.files);
+    let store = Store::new(cache);
+    let directory = cache.join("results").join(spec_digest.to_string());
+    let build = kink_campaign::kink_build().ok();
+    let mut mismatches = Vec::new();
+    let rows = manifest
+        .programs
+        .iter()
+        .map(|program| {
+            program_row(
+                spec,
+                manifest,
+                inputs,
+                runner,
+                &ProgramContext {
+                    spec_digest,
+                    build,
+                    directory: &directory,
+                    cache,
+                    store: &store,
+                    verify,
+                    refresh: false,
+                },
+                program,
+                &mut mismatches,
+            )
+        })
+        .collect::<Vec<_>>();
+    ResultsUpdate {
+        spec_digest,
+        rows,
+        mismatches,
+    }
+}
+
+/// `kink-flow results`: the results document and whether the command found no corpus or
+/// infrastructure error (the caller's exit status).
+pub fn results(manifest: &FlowManifest, options: &ResultsOptions) -> (Value, bool) {
+    let (mut record, admitted) = admit_spec(manifest);
+    let Some((spec, mut inputs)) = admitted else {
+        return (
+            document(
+                &record,
+                None,
+                Vec::new(),
+                Vec::new(),
+                Vec::new(),
+                Value::Null,
+            ),
+            false,
+        );
+    };
+    let cache = cache_directory(manifest, options.cache.as_deref());
+    let runner = match BaselineRunner::new(&spec, manifest) {
+        Ok(runner) => runner,
+        Err(e) => {
+            record.refusal = Some(runner_refusal(e));
+            return (
+                document(
+                    &record,
+                    None,
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    Value::Null,
+                ),
+                false,
+            );
+        }
+    };
+    let update = update_results(
+        &spec,
+        manifest,
+        &mut inputs,
+        &runner,
+        &cache,
+        options.verify,
+    );
+    let mut ok = update.ok();
+    let rules = rules(&spec, manifest, &update.rows);
+    let programs = update.rows.into_iter().map(|row| row.row).collect();
+    let mut document = document(
+        &record,
+        Some(update.spec_digest),
+        programs,
+        rules,
+        update.mismatches,
+        runner.baseline_runs(),
+    );
+    // The rules no mutation of the given list targets (flow F-13, informational only).
+    if let Some(path) = &options.mutations {
+        match crate::mutation::MutationList::read(path) {
+            Ok(list) => {
+                let resolutions = list
+                    .mutations
+                    .iter()
+                    .map(|mutation| crate::mutation::resolve(manifest, &spec.loaded, mutation))
+                    .collect::<Vec<_>>();
+                document["untargeted_rules"] = Value::Array(crate::report::untargeted_rules(
+                    &crate::mutation::rule_texts(manifest, &spec.loaded),
+                    &crate::search::targeted(&resolutions),
+                ));
+            }
+            Err(error) => {
+                document["mutation_list"] =
+                    json!({"outcome": "refused", "detail": error.to_string()});
+                ok = false;
+            }
+        }
+    }
+    (document, ok)
+}
+
+struct ProgramContext<'a> {
+    spec_digest: Sha256Digest,
+    /// kink's build identity; `None` when the executable cannot be read, and then no record is
+    /// read or written (packet CACHE-ID-fix-1).
+    build: Option<Sha256Digest>,
+    directory: &'a Path,
+    cache: &'a Path,
+    store: &'a Store,
+    verify: bool,
+    /// Re-run a program that has a current record, and replace the record only when the class
+    /// or the run digest changed (F-14: [`rerun_timeout_record`]).
+    refresh: bool,
+}
+
+/// Re-run once, through the same path as `results`, the baseline of a program whose current
+/// record is class `timeout` (flow F-14, README 7.5.7, F-05 review 1 minor 1). A timeout is
+/// host-dependent, so it is not final for a program that a killer hint names. The record is
+/// replaced only when the class or the run digest changes; comparability still comes only from
+/// the zero-mutant campaign admitting the baseline. The row says `"rerun": "timeout"`.
+pub fn rerun_timeout_record(
+    spec: &AdmittedSpec,
+    manifest: &FlowManifest,
+    inputs: &mut ProgramInputs,
+    runner: &BaselineRunner<'_>,
+    cache: &Path,
+    program: &Program,
+) -> ProgramRow {
+    let spec_digest = spec_digest(manifest, &spec.loaded.files);
+    let store = Store::new(cache);
+    let directory = cache.join("results").join(spec_digest.to_string());
+    let mut row = program_row(
+        spec,
+        manifest,
+        inputs,
+        runner,
+        &ProgramContext {
+            spec_digest,
+            build: kink_campaign::kink_build().ok(),
+            directory: &directory,
+            cache,
+            store: &store,
+            verify: false,
+            refresh: true,
+        },
+        program,
+        &mut Vec::new(),
+    );
+    row.row["rerun"] = json!("timeout");
+    row
+}
+
+fn program_row(
+    spec: &AdmittedSpec,
+    manifest: &FlowManifest,
+    inputs: &mut ProgramInputs,
+    runner: &BaselineRunner<'_>,
+    context: &ProgramContext<'_>,
+    program: &Program,
+    mismatches: &mut Vec<Value>,
+) -> ProgramRow {
+    // `wall_ms`: the wall time of the program's live baseline run, from the record (outside
+    // the key and the run digest; flow F-13).
+    let row = |digest: Option<Sha256Digest>, class: &str, cause: &Value, cached, verify: Value| {
+        json!({
+            "id": program.id,
+            "digest": digest.map(|d| d.to_string()),
+            "class": class,
+            "cause": cause,
+            "cached": cached,
+            "verify": verify,
+            "wall_ms": null,
+        })
+    };
+    // Re-pin adoption A-1: the record's specification diagnostics and undecided solver answers
+    // too (outside the key and the run digest).
+    let with_wall = |mut row: Value, record: &Value| {
+        row["wall_ms"] = record["wall_ms"].clone();
+        row["specification_diagnostics"] = record["specification_diagnostics"].clone();
+        row["smt_unknowns"] = record["smt_unknowns"].clone();
+        row
+    };
+    let refused = |digest, refusal: kink_corpus::admission::AdmissionRefusal| {
+        let result = ProgramResult::refused(format!(
+            "{}/{}: {}",
+            refusal.stage, refusal.reason, refusal.detail
+        ));
+        ProgramRow {
+            row: row(
+                digest,
+                result.class.as_str(),
+                &json!(result.cause),
+                false,
+                Value::Null,
+            ),
+            record: None,
+            live: None,
+            failed: true,
+            digest,
+            text: None,
+            test: None,
+        }
+    };
+    let text = match inputs.text(program) {
+        Ok(text) => text,
+        Err(refusal) => return refused(None, refusal),
+    };
+    let digest = program_digest(program, &text);
+    let key = result_key(context.spec_digest, digest, manifest.budget, context.build);
+    let path = context.directory.join(format!("{digest}.json"));
+    // Without a build identity no record is honoured (packet CACHE-ID-fix-1).
+    let stored = context
+        .build
+        .and_then(|_| read_record(&path, &key))
+        .flatten();
+    if let (Some(record), false, false) = (&stored, context.verify, context.refresh) {
+        return ProgramRow {
+            row: with_wall(
+                row(
+                    Some(digest),
+                    record["class"].as_str().unwrap_or("error"),
+                    &record["cause"],
+                    true,
+                    Value::Null,
+                ),
+                record,
+            ),
+            failed: record["class"] == ResultClass::Error.as_str(),
+            record: stored,
+            live: None,
+            digest: Some(digest),
+            text: Some(text),
+            test: None,
+        };
+    }
+    let test = match inputs.test_case(spec, program, text.clone()) {
+        Ok(test) => test,
+        Err(refusal) => return refused(Some(digest), refusal),
+    };
+    let result = runner.run(test.clone());
+    let unchanged = |record: &Value| {
+        record["class"] == result.class.as_str()
+            && record["run_sha256"].as_str()
+                == result.run_sha256().map(|d| d.to_string()).as_deref()
+    };
+    if let (Some(record), true) = (&stored, context.refresh)
+        && unchanged(record)
+    {
+        return ProgramRow {
+            row: with_wall(
+                row(
+                    Some(digest),
+                    record["class"].as_str().unwrap_or("error"),
+                    &record["cause"],
+                    true,
+                    Value::Null,
+                ),
+                record,
+            ),
+            failed: record["class"] == ResultClass::Error.as_str(),
+            record: stored,
+            live: None,
+            digest: Some(digest),
+            text: Some(text),
+            test: Some(test),
+        };
+    }
+    if let (Some(record), false) = (stored, context.refresh) {
+        let differences = verify_record(&record, &result);
+        let relative = path
+            .strip_prefix(context.cache)
+            .unwrap_or(&path)
+            .to_string_lossy()
+            .into_owned();
+        for detail in &differences {
+            mismatches.push(json!({"program": program.id, "record": relative, "detail": detail}));
+        }
+        let verdict = if differences.is_empty() {
+            "match"
+        } else {
+            "mismatch"
+        };
+        return ProgramRow {
+            row: with_wall(
+                row(
+                    Some(digest),
+                    record["class"].as_str().unwrap_or("error"),
+                    &record["cause"],
+                    true,
+                    json!(verdict),
+                ),
+                &record,
+            ),
+            failed: record["class"] == ResultClass::Error.as_str(),
+            record: Some(record),
+            live: Some(record_value(spec, &key, &program.id, &result)),
+            digest: Some(digest),
+            text: Some(text),
+            test: Some(test),
+        };
+    }
+    let record = record_value(spec, &key, &program.id, &result);
+    let mut row = with_wall(
+        row(
+            Some(digest),
+            result.class.as_str(),
+            &json!(result.cause),
+            false,
+            Value::Null,
+        ),
+        &record,
+    );
+    let mut failed = result.class == ResultClass::Error;
+    if context.build.is_none() {
+        row["cache_error"] = json!(
+            "kink's build identity is unknown (the executable cannot be read): the result cache \
+             is neither read nor written"
+        );
+    } else if let Err(e) = context.store.write_json(&path, &record) {
+        row["cache_error"] = json!(format!("cannot write the result record: {e}"));
+        failed = true;
+    }
+    ProgramRow {
+        row,
+        record: Some(record),
+        live: None,
+        failed,
+        digest: Some(digest),
+        text: Some(text),
+        test: Some(test),
+    }
+}
+
+/// Every authored rule of the specification, with the comparable programs whose coverage
+/// reaches it (`reached_by`, k-rust `matched`) and fires it (`fired_by`, `applied`): uncovered
+/// rules first, then covered rules, then the rules with no coverage signal (no compiled id in
+/// kink-native's `coverage_domain`: a rule that compiles to no axiom, a `non-executable` rule
+/// (re-pin L2-1-tail: k-rust never runs one, so no program can reach it), a macro or alias rule,
+/// an `smt-lemma`; re-pin L2-1, before which every equation was `not-observable`).
+fn rules(spec: &AdmittedSpec, manifest: &FlowManifest, rows: &[ProgramRow]) -> Vec<Value> {
+    let mut reached = BTreeMap::<(String, u64), Vec<&str>>::new();
+    let mut fired = BTreeMap::<(String, u64), Vec<&str>>::new();
+    for (program, row) in manifest.programs.iter().zip(rows) {
+        let Some(record) = &row.record else {
+            continue;
+        };
+        if record["class"] != ResultClass::Comparable.as_str() {
+            continue;
+        }
+        for (key, into) in [
+            ("sentences", &mut reached),
+            ("applied_sentences", &mut fired),
+        ] {
+            for sentence in record["coverage"][key].as_array().into_iter().flatten() {
+                if let (Some(module), Some(index)) =
+                    (sentence["module"].as_str(), sentence["index"].as_u64())
+                {
+                    into.entry((module.to_owned(), index))
+                        .or_default()
+                        .push(&program.id);
+                }
+            }
+        }
+    }
+    let domain = coverage_domain(&spec.compiled);
+    let non_executable = non_executable_ids(&spec.compiled);
+    let authors = RuleAuthors::of(&spec.compiled);
+    let mut groups: [Vec<Value>; 3] = Default::default();
+    for (at, sentence) in spec.loaded.baseline.authored_sentences() {
+        if !matches!(sentence, Sentence::Rule { .. }) {
+            continue;
+        }
+        let ids = authors.ids_of(&at).collect::<Vec<_>>();
+        let mut value = sentence_value(spec, &at);
+        let key = (at.module.clone(), u64::from(at.index));
+        let programs = reached.get(&key).cloned().unwrap_or_default();
+        let (group, status) = if !ids.iter().any(|id| domain.contains(*id)) {
+            (2, NO_COVERAGE_SIGNAL)
+        } else if programs.is_empty() {
+            (0, "uncovered")
+        } else {
+            (1, "covered")
+        };
+        value["status"] = json!(status);
+        value["reached_by"] = json!(programs);
+        value["fired_by"] = json!(fired.get(&key).cloned().unwrap_or_default());
+        if status == NO_COVERAGE_SIGNAL {
+            value["reason"] = json!(if ids.is_empty() {
+                "compiles to no rule"
+            } else if ids.iter().all(|id| non_executable.contains(*id)) {
+                "a non-executable rule: k-rust never runs it, so no program can reach it"
+            } else {
+                "a macro, alias or smt-lemma rule: k-rust's run coverage has no recording site for it"
+            });
+        }
+        groups[group].push(value);
+    }
+    groups.into_iter().flatten().collect()
+}
+
+/// The status of a rule none of whose compiled ids k-rust's run coverage can name: never
+/// `uncovered`, since no program can reach it in coverage's sense.
+const NO_COVERAGE_SIGNAL: &str = "no-coverage-signal";
+
+fn document(
+    record: &AdmissionRecord,
+    digest: Option<Sha256Digest>,
+    programs: Vec<Value>,
+    rules: Vec<Value>,
+    mismatches: Vec<Value>,
+    baseline_runs: Value,
+) -> Value {
+    let refusal = record.refusal.as_ref();
+    let count = |status: &str| rules.iter().filter(|r| r["status"] == status).count();
+    let summary = json!({
+        "programs": programs.len(),
+        "comparable": programs.iter().filter(|p| p["class"] == "comparable").count(),
+        "computed": programs.iter().filter(|p| p["cached"] == false).count(),
+        "rules": rules.len(),
+        "uncovered": count("uncovered"),
+        "covered": count("covered"),
+        "no_coverage_signal": count(NO_COVERAGE_SIGNAL),
+        "mismatches": mismatches.len(),
+    });
+    json!({
+        "schema": "kink-flow-results",
+        // 2 since re-pin L2-1: a rule's status `no-coverage-signal` (summary
+        // `no_coverage_signal`) replaced `not-observable`, equations are covered, and every rule
+        // carries `fired_by`.
+        "version": 2,
+        "k_rust_revision": K_RUST_REVISION,
+        "profile": SolverProfile::BUILD.name(),
+        "result_schema_version": RESULT_SCHEMA_VERSION,
+        "spec": {
+            "outcome": if refusal.is_some() { "refused" } else { "admitted" },
+            "stage": refusal.map(|r| &r.stage),
+            "reason": refusal.map(|r| &r.reason),
+            "detail": refusal.map(|r| &r.detail),
+            "digest": digest.map(|d| d.to_string()),
+            "files": record
+                .files
+                .iter()
+                .map(|f| json!({"name": f.name, "sha256": f.sha256.to_string()}))
+                .collect::<Vec<_>>(),
+        },
+        "programs": programs,
+        "rules": rules,
+        "mismatches": mismatches,
+        "summary": summary,
+        "baseline_runs": baseline_runs,
+        "untargeted_rules": null,
+    })
+}

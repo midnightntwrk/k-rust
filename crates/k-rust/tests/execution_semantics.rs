@@ -2014,6 +2014,96 @@ fn an_undefined_instance_of_the_initial_configuration_has_no_result() {
     }
 }
 
+/// A definition whose first step consumes a partial Boolean of the configuration by a literal
+/// pattern position (`stb(false, I)`, `stn(true, I)`), and whose next step distinguishes the
+/// instances where that Boolean was undefined (`chk(0)`).
+#[cfg(feature = "z3-inference")]
+const CONSUMED_PARTIAL_BOOLEAN: &str = r#"
+module CB-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Pgm ::= stb(Bool, Int) [symbol(stb)] | stn(Bool, Int) [symbol(stn)]
+               | chk(Int) [symbol(chk)] | bad() [symbol(bad)] | good() [symbol(good)]
+endmodule
+
+module CB
+  imports CB-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k>
+  rule <k> stb(false, I) => chk(I) ... </k>
+  rule <k> stn(true, I) => chk(I) ... </k>
+  rule <k> chk(0) => bad() ... </k>
+  rule <k> chk(I) => good() ... </k> requires I =/=Int 0
+endmodule
+"#;
+
+/// `stb(X /Int Y >Int 0, Y)` is undefined where `Y` is 0, so it has no instance there and
+/// nothing is reached from it there. Its first step consumes `X /Int Y >Int 0` by the literal
+/// `false` and leaves `chk(Y)`, whose term no longer holds the quotient, so only the successor's
+/// constraints can keep `Y = 0` out: `\not(X /Int Y >Int 0)` alone holds there (the solver reads
+/// `/Int` as a total operation), and `chk(0) => bad()` would then apply. So no run reaches
+/// `bad()`, by execution (both strategies) or search, and every `good()` it reaches states that
+/// `Y` is not 0. The same holds where the step consumes `notBool (X /Int Y >Int 0)` by `true`.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_first_step_that_consumes_a_partial_boolean_reaches_nothing_from_its_undefined_instances() {
+    use k_rust::backend::ExecutionStrategy;
+
+    let compiled = compile(CONSUMED_PARTIAL_BOOLEAN, "CB", "CB-SYNTAX", "Pgm", "good()");
+    let comparison = r#"Lbl'Unds-GT-'Int'Unds'{}(Lbl'UndsSlsh'Int'Unds'{}(VarX:SortInt{}, VarY:SortInt{}), \dv{SortInt{}}("0"))"#;
+    let y_is_not_zero = r#"\not{SortGeneratedTopCell{}}(\equals{SortInt{}, SortGeneratedTopCell{}}(VarY:SortInt{}, \dv{SortInt{}}("0")))"#;
+    for program in [
+        format!("Lblstb{{}}({comparison}, VarY:SortInt{{}})"),
+        format!("Lblstn{{}}(LblnotBool'Unds'{{}}({comparison}), VarY:SortInt{{}})"),
+    ] {
+        let initial = undefined_instances_initial(&program);
+        for strategy in [ExecutionStrategy::All, ExecutionStrategy::Any] {
+            let mut backend =
+                Backend::new(&compiled.kore, "CB", BackendOptions::default()).unwrap();
+            let result = backend
+                .execute(ExecuteRequest {
+                    strategy,
+                    ..ExecuteRequest::new(initial.clone())
+                })
+                .unwrap();
+            let states = text(&result);
+            assert!(
+                states.iter().all(|state| !state.contains("Lblbad{}(")),
+                "{program} {strategy:?}: {states:#?}"
+            );
+            let good = states
+                .iter()
+                .filter(|state| state.contains("Lblgood{}("))
+                .collect::<Vec<_>>();
+            assert!(
+                !good.is_empty() && good.iter().all(|state| state.contains(y_is_not_zero)),
+                "{program} {strategy:?}: {states:#?}"
+            );
+        }
+        let mut backend = Backend::new(&compiled.kore, "CB", BackendOptions::default()).unwrap();
+        let response = backend
+            .search(SearchRequest {
+                search_type: SearchTypeArg::Final,
+                ..SearchRequest::new(initial.clone())
+            })
+            .unwrap();
+        assert!(response.incomplete.is_empty(), "{:?}", response.incomplete);
+        let found = response
+            .states
+            .iter()
+            .map(|found| {
+                Printer::compact().print_pattern(&codec::from_value(&found.state).unwrap())
+            })
+            .collect::<Vec<_>>();
+        assert!(
+            found.iter().all(|state| !state.contains("Lblbad{}("))
+                && found.iter().any(|state| state.contains("Lblgood{}(")),
+            "{program} search: {found:#?}"
+        );
+    }
+}
+
 /// The definedness of `sti(X /Int Y)` is `Y` not 0. When the initial constraints establish it
 /// (`Y >Int 0`), the configuration has no undefined instance, so nothing is restricted or named;
 /// when they refute it together (`Y *Int Y ==Int 0`, which no single obligation's simplification
@@ -2858,6 +2948,110 @@ fn an_execute_request_asks_for_traces_unless_it_says_otherwise() {
     assert!(ExecuteRequest::new(parse_pattern("a{}()").unwrap()).trace);
 }
 
+/// A rule's defining symbol is the root of its left-hand pattern, and `P #as V` denotes what `P`
+/// denotes while naming the matched term, so a root alias changes no rule's role:
+///
+/// - `f(X) #as _V => X +Int 1` is an equation of the function `f`, so `f(1) +Int 2` evaluates
+///   to 4 (a rewrite of the computation cell would leave `f(1)` unevaluated below `+Int`);
+/// - `m(X) #as _T => X` is a rule of the macro production `m`, so `m` is expanded where `h`'s
+///   right side applies it and where a program writes it;
+/// - `pair(X, Y) #as _P => pair(Y, X) requires X >Int Y [anywhere]` is an equation of the
+///   constructor `pair`, so `pair(3, 1)` becomes `pair(1, 3)`;
+/// - `pair(X, Y) #as P => done(P) requires X >Int Y` is an ordinary rewrite rule, a transition
+///   from the matched `pair(X, Y)`, so its right side may use the alias: `pair(3, 1)` steps to
+///   `done(pair(3, 1))`.
+///
+/// An equation whose right side or condition uses its root alias would mention its own redex,
+/// and is refused by the definition checks (`definition_checks`), so every equation here leaves
+/// its alias unused.
+#[test]
+fn a_root_alias_leaves_a_rule_of_its_head() {
+    const FUNCTION: &str = r#"
+module MAIN
+  imports INT
+  syntax Int ::= f(Int) [function, symbol(f)]
+  rule f(X) #as _V => X +Int 1
+  configuration <k> f($PGM:Int) +Int 2 </k>
+endmodule
+"#;
+    let leaves = text(&execute(
+        &compile(FUNCTION, "MAIN", "MAIN", "Int", "1"),
+        "MAIN",
+        None,
+    ));
+    assert_eq!(leaves.len(), 1, "{leaves:?}");
+    assert!(
+        leaves[0].contains(r#"\dv{SortInt{}}("4")"#) && !leaves[0].contains("Lblf{}"),
+        "{leaves:?}"
+    );
+
+    const MACRO: &str = r#"
+module MAIN
+  imports INT
+  syntax Int ::= m(Int) [macro, symbol(m)]
+  syntax Int ::= h(Int) [function, symbol(h)]
+  rule h(X) => m(X) +Int 1
+  rule m(X) #as _T => X
+  configuration <k> $PGM:Int </k>
+endmodule
+"#;
+    for (program, value) in [("h(1)", "2"), ("m(5)", "5")] {
+        let leaves = text(&execute(
+            &compile(MACRO, "MAIN", "MAIN", "Int", program),
+            "MAIN",
+            None,
+        ));
+        assert_eq!(leaves.len(), 1, "{program}: {leaves:?}");
+        assert!(
+            leaves[0].contains(&format!(r#"\dv{{SortInt{{}}}}("{value}")"#))
+                && !leaves[0].contains("Lblm{}")
+                && !leaves[0].contains("Lblh{}"),
+            "{program}: {leaves:?}"
+        );
+    }
+
+    const ANYWHERE_RUN: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pair ::= pair(Int, Int) [symbol(pair)]
+  rule pair(X, Y) #as _P => pair(Y, X) requires X >Int Y [anywhere]
+  configuration <k> $PGM:Pair </k>
+endmodule
+"#;
+    let leaves = text(&execute(
+        &compile(ANYWHERE_RUN, "MAIN", "MAIN", "Pair", "pair(3, 1)"),
+        "MAIN",
+        None,
+    ));
+    assert_eq!(leaves.len(), 1, "{leaves:?}");
+    assert!(
+        leaves[0].contains(r#"Lblpair{}(\dv{SortInt{}}("1"), \dv{SortInt{}}("3"))"#),
+        "{leaves:?}"
+    );
+
+    const REWRITE: &str = r#"
+module MAIN
+  imports INT
+  imports BOOL
+  syntax Pair ::= pair(Int, Int) [symbol(pair)]
+  syntax KItem ::= done(Pair) [symbol(done)]
+  rule pair(X, Y) #as P => done(P) requires X >Int Y
+  configuration <k> $PGM:Pair </k>
+endmodule
+"#;
+    let leaves = text(&execute(
+        &compile(REWRITE, "MAIN", "MAIN", "Pair", "pair(3, 1)"),
+        "MAIN",
+        None,
+    ));
+    assert_eq!(leaves.len(), 1, "{leaves:?}");
+    assert!(
+        leaves[0].contains(r#"Lbldone{}(Lblpair{}(\dv{SortInt{}}("3"), \dv{SortInt{}}("1")))"#),
+        "{leaves:?}"
+    );
+}
+
 /// A local function whose body tests a sort: `#let Y = X #in isInt(Y)` lowers to a lambda over
 /// the sort predicate `isInt`, so `h(1)` rewrites to `m(true)`.
 #[test]
@@ -3086,4 +3280,374 @@ fn a_state_set_run_of_a_strict_loop_is_linear_in_its_iterations() {
             "n = {n}"
         );
     }
+}
+
+/// The undecided-answer count: `go` steps to `try(?X, ?Y, ?Z)` over symbolic integers, and
+/// `try` to `found` where `X^3 + Y^3 + Z^3 = 33` with `X > 0`, a nonlinear condition no solver
+/// decides in practice (its least solution has 16-digit integers); `sign` steps to `pos` or
+/// `nonpos` on the sign of a symbolic integer, which a solver decides; `done` takes no step.
+const SMT_UNKNOWNS: &str = r#"
+module SMT-UNKNOWNS
+  imports INT
+  imports BOOL
+  syntax Pgm ::= "go" | try(Int, Int, Int) | "found" | "sign" | at(Int) | "pos" | "nonpos" | "done"
+  rule go => try(?_X:Int, ?_Y:Int, ?_Z:Int)
+  rule try(X, Y, Z) => found
+    requires X *Int X *Int X +Int Y *Int Y *Int Y +Int Z *Int Z *Int Z ==Int 33
+     andBool X >Int 0
+  rule sign => at(?_N:Int)
+  rule at(N) => pos requires N >Int 0
+  rule at(N) => nonpos requires N <=Int 0
+endmodule
+"#;
+
+fn smt_unknowns_run(
+    backend: &mut Backend,
+    initial: &Pattern,
+) -> (ExecutionResult, serde_json::Value) {
+    let result = backend
+        .execute(ExecuteRequest::new(initial.clone()))
+        .unwrap();
+    let json = serde_json::from_str(
+        &backend
+            .execute_json(ExecuteRequest::new(initial.clone()))
+            .unwrap(),
+    )
+    .unwrap();
+    (result, json)
+}
+
+/// A run that never asks the solver counts no undecided answer, and its JSON has no
+/// `smtUnknowns` member; in the portable build, which runs no solver, the nonlinear request
+/// counts none either (its step is indeterminate there, whatever the time).
+#[test]
+fn a_run_that_receives_no_undecided_answer_reports_no_smt_unknowns() {
+    let concrete = compile(SMT_UNKNOWNS, "SMT-UNKNOWNS", "SMT-UNKNOWNS", "Pgm", "done");
+    let mut backend =
+        Backend::new(&concrete.kore, "SMT-UNKNOWNS", BackendOptions::default()).unwrap();
+    assert!(backend.capabilities().smt_unknowns);
+    let (result, json) = smt_unknowns_run(&mut backend, &concrete.initial);
+    assert_eq!(result.smt_unknowns, 0);
+    assert!(json.get("smtUnknowns").is_none(), "{json}");
+
+    #[cfg(not(feature = "z3-inference"))]
+    {
+        let nonlinear = compile(SMT_UNKNOWNS, "SMT-UNKNOWNS", "SMT-UNKNOWNS", "Pgm", "go");
+        let (result, json) = smt_unknowns_run(&mut backend, &nonlinear.initial);
+        assert_eq!(result.smt_unknowns, 0);
+        assert!(json.get("smtUnknowns").is_none(), "{json}");
+    }
+}
+
+/// With a 50 ms timeout and no retry, Z3 leaves the nonlinear condition undecided, and the run
+/// counts it. The prelude check runs only the first time a query answers `unsat`; no query of
+/// this run does, and the backend is built for this test alone, so a timed-out prelude check
+/// (a `SolverPrelude` error that depends on time) cannot reach it from another request.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_run_that_receives_an_undecided_answer_counts_it() {
+    let compiled = compile(SMT_UNKNOWNS, "SMT-UNKNOWNS", "SMT-UNKNOWNS", "Pgm", "go");
+    let mut backend = Backend::new(
+        &compiled.kore,
+        "SMT-UNKNOWNS",
+        BackendOptions {
+            smt_timeout_ms: 50,
+            smt_retry_limit: 0,
+            smt_resource_limit: None,
+        },
+    )
+    .unwrap();
+    let (result, json) = smt_unknowns_run(&mut backend, &compiled.initial);
+    // The two counts come from two runs, and a query decided in one may time out in the other
+    // on a loaded host, so each is required positive rather than equal.
+    assert!(result.smt_unknowns > 0, "{json}");
+    assert!(
+        json["smtUnknowns"].as_u64().is_some_and(|count| count > 0),
+        "{json}"
+    );
+}
+
+/// A run whose every solver answer is decided counts none, and it gives one result: twice on one
+/// `Backend`, whose cache then answers the second run, and once on a fresh one.
+#[cfg(feature = "z3-inference")]
+#[test]
+fn a_run_whose_answers_are_all_decided_gives_one_result_on_any_backend() {
+    let compiled = compile(SMT_UNKNOWNS, "SMT-UNKNOWNS", "SMT-UNKNOWNS", "Pgm", "sign");
+    let mut reused =
+        Backend::new(&compiled.kore, "SMT-UNKNOWNS", BackendOptions::default()).unwrap();
+    let mut fresh =
+        Backend::new(&compiled.kore, "SMT-UNKNOWNS", BackendOptions::default()).unwrap();
+    let request = || ExecuteRequest::new(compiled.initial.clone());
+    let texts = [
+        reused.execute_json(request()).unwrap(),
+        reused.execute_json(request()).unwrap(),
+        fresh.execute_json(request()).unwrap(),
+    ];
+    for text in &texts {
+        let json: serde_json::Value = serde_json::from_str(text).unwrap();
+        assert!(json.get("smtUnknowns").is_none(), "{json}");
+        assert_eq!(json["leaves"].as_array().unwrap().len(), 2, "{json}");
+    }
+    assert_eq!(texts[0], texts[1]);
+    assert_eq!(texts[0], texts[2]);
+    assert_eq!(reused.execute(request()).unwrap().smt_unknowns, 0);
+}
+
+/// A context alias's variables are its own. Strictness resolution places the production's
+/// arguments (`K0`, `K1`, ...) beside the alias's variables, so an alias variable spelled like
+/// one of them must stay a variable of its own: `<s> K0 </s>` matches any store, as `<s> S </s>`
+/// does, and `1 + (2 + 3)` heats both sides and gives 6 whatever the alias calls its variable.
+#[test]
+fn a_context_alias_variable_spelled_like_a_strictness_variable_is_its_own() {
+    let run = |variable: &str| {
+        let source = format!(
+            "module CTXK0\n  imports INT\n  imports BOOL\n  syntax Exp ::= Int | \"(\" Exp \")\" [bracket] | Exp \"+\" Exp [seqstrict(c)]\n  syntax KResult ::= Int\n  configuration <k> $PGM:Exp </k> <s> 0 </s>\n  context alias [c]: <k> HERE ... </k> <s> {variable} </s>\n  rule <k> I1:Int + I2:Int => I1 +Int I2 ... </k>\nendmodule\n"
+        );
+        let compiled = compile(&source, "CTXK0", "CTXK0", "Exp", "1 + (2 + 3)");
+        let result = execute(&compiled, "CTXK0", Some(40));
+        (
+            result
+                .leaves
+                .iter()
+                .map(|leaf| leaf.reason)
+                .collect::<Vec<_>>(),
+            text(&result),
+        )
+    };
+    let (reasons, states) = run("S");
+    assert_eq!(reasons, [HaltReasonOutput::Stuck], "{states:?}");
+    let [state] = states.as_slice() else {
+        panic!("one leaf: {states:?}")
+    };
+    assert!(
+        state.contains(r#"kseq{}(inj{SortInt{}, SortKItem{}}(\dv{SortInt{}}("6")), dotk{}())"#),
+        "{state}"
+    );
+    for variable in ["K0", "K1", "K2", "HOLE0"] {
+        assert_eq!(
+            run(variable),
+            (reasons.clone(), states.clone()),
+            "{variable}"
+        );
+    }
+}
+
+/// The leaves of running `program` on `rules` over `go`/`done` (module `BOUND`), as printed
+/// states.
+fn bound_name_run(header: &str, rules: &str, program: &str) -> Vec<String> {
+    let source = format!(
+        "module BOUND\n  imports INT\n  imports BOOL\n{header}  configuration <k> $PGM:KItem </k>\n{rules}endmodule\n"
+    );
+    let compiled = compile(&source, "BOUND", "BOUND", "KItem", program);
+    text(&execute(&compiled, "BOUND", Some(20)))
+}
+
+/// Whether the one leaf of `leaves` has a `<k>` cell holding `label(value)` alone, for a
+/// constructor `label` of the module and an integer `value` (printed KORE).
+fn ends_in(leaves: &[String], label: &str, value: &str) -> bool {
+    matches!(leaves, [leaf] if leaf.contains(&format!("kseq{{}}(Lbl{label}'"))
+        && leaf.contains(&format!("(\\dv{{SortInt{{}}}}(\"{value}\")), dotk{{}}())")))
+}
+
+/// Run `program` on the rules `rules(binder)` for the binder spelled `shadowing` (a name of the
+/// rule's other variables) and spelled `apart`: both spellings give the same leaves, and, where
+/// the build decides the condition's quantifier (Z3), the one leaf holds `label(value)`. The
+/// portable build decides no SMT query, so its run stops undecided at the first step, alike for
+/// both spellings.
+fn assert_bound_name_runs(
+    header: &str,
+    rules: impl Fn(&str) -> String,
+    [shadowing, apart]: [&str; 2],
+    program: &str,
+    (label, value): (&str, &str),
+) {
+    let leaves = bound_name_run(header, &rules(shadowing), program);
+    let renamed = bound_name_run(header, &rules(apart), program);
+    assert_eq!(leaves, renamed, "{program}: {shadowing} against {apart}");
+    if cfg!(feature = "z3-inference") {
+        assert!(ends_in(&leaves, label, value), "{program}: {leaves:?}");
+    }
+}
+
+/// A macro is textual substitution of its arguments for its parameters, and a quantifier in a
+/// macro's right side binds its own variable: `m(N, M) => #Exists M . ({N #Equals M} #And {M
+/// #Equals 0})` states, at `m(X, X)`, that some value equals both X and 0, which holds at X = 0
+/// only. So `go(3)` is stuck and `go(0)` gives `done(0)`, as with the binder spelled `B`; and
+/// `m(X, 5)`, where the parameter `M` receives a value, still binds a variable.
+#[test]
+fn a_macro_binder_spelled_like_a_parameter_binds_its_own_variable() {
+    let header = "  syntax KItem ::= go(Int) | done(Int)\n  syntax Bool ::= m(Int, Int) [macro]\n";
+    let twice = |binder: &str| {
+        format!(
+            "  rule m(N, M) => #Exists {binder}:Int . ({{N #Equals {binder}}} #And {{{binder} #Equals 0}})\n  rule <k> go(X) => done(X) ... </k> requires m(X, X)\n"
+        )
+    };
+    assert_bound_name_runs(header, twice, ["M", "B"], "go(3)", ("go", "3"));
+    assert_bound_name_runs(header, twice, ["M", "B"], "go(0)", ("done", "0"));
+    let literal = |binder: &str| {
+        format!(
+            "  rule m(N, M) => #Exists {binder}:Int . {{N #Equals {binder}}}\n  rule <k> go(X) => done(X) ... </k> requires m(X, 5)\n"
+        )
+    };
+    assert_bound_name_runs(header, literal, ["M", "B"], "go(3)", ("done", "3"));
+}
+
+/// A macro is textual substitution: a `?` variable of a macro's right side that no parameter
+/// receives is an existential variable of the macro's text, so at each use it is a fresh
+/// existential variable of the using sentence, with its sigil. The three macros below are each
+/// used in a rule's condition, where a `?` variable occurs in the condition alone and so is
+/// quantified existentially inside it, and each runs alike whatever the existential is called.
+/// - `m(N) => (#Exists ?B . {?B #Equals N}) #And {?Y #Equals N}`, the BIND/A4 rebase's probe:
+///   some value equals X, so `go(3)` gives `done(3)`.
+/// - `s(N) => {?Y #Equals N +Int 1}` used twice, `requires s(X) #And s(X +Int 1)`: each use has
+///   its own existential (one variable for both would equal X + 1 and X + 2 at once), so `go(3)`
+///   gives `done(3)`.
+/// - `b(N) => #Exists ?Y . {?Y #Equals N}`, whose `?Y` its own quantifier binds: `go(3)` gives
+///   `done(3)`.
+#[test]
+fn a_macro_existential_is_a_fresh_existential_at_each_use() {
+    let header = |name: &str| {
+        format!("  syntax KItem ::= go(Int) | done(Int)\n  syntax Bool ::= {name}(Int) [macro]\n")
+    };
+    let probe = |name: &str| {
+        format!(
+            "  rule m(N) => (#Exists ?B:Int . {{?B #Equals N}}) #And {{{name} #Equals N}}\n  rule <k> go(X) => done(X) ... </k> requires m(X)\n"
+        )
+    };
+    assert_bound_name_runs(&header("m"), probe, ["?Y", "?W"], "go(3)", ("done", "3"));
+    let twice = |name: &str| {
+        format!(
+            "  rule s(N) => {{{name} #Equals N +Int 1}}\n  rule <k> go(X) => done(X) ... </k> requires s(X) #And s(X +Int 1)\n"
+        )
+    };
+    assert_bound_name_runs(&header("s"), twice, ["?Y", "?W"], "go(3)", ("done", "3"));
+    let bound = |name: &str| {
+        format!(
+            "  rule b(N) => #Exists {name}:Int . {{{name} #Equals N}}\n  rule <k> go(X) => done(X) ... </k> requires b(X)\n"
+        )
+    };
+    assert_bound_name_runs(&header("b"), bound, ["?Y", "?W"], "go(3)", ("done", "3"));
+}
+
+/// A quantifier in a condition binds its variable in its body only, so `#Exists X . {s(X)
+/// #Equals s(2)}` holds whatever the left side's `X` is: `go(s(3))` gives `done(3)`, as with the
+/// bound variable spelled `Z`. The left side's `s(X)` and the condition's `s(X)` are different
+/// terms, so no compilation step may share one for the other.
+#[test]
+fn a_condition_binder_spelled_like_a_left_side_variable_binds_its_own_variable() {
+    let header = "  syntax Wrap ::= s(Int)\n  syntax KItem ::= go(Wrap) | done(Int)\n";
+    let rules = |binder: &str| {
+        format!(
+            "  rule <k> go(s(X)) => done(X) ... </k> requires #Exists {binder}:Int . {{s({binder}) #Equals s(2)}}\n"
+        )
+    };
+    assert_bound_name_runs(header, rules, ["X", "Z"], "go(s(3))", ("done", "3"));
+}
+
+/// A binder spelled like a left-side variable of another sort is a variable of its own, with its
+/// own sort: `go(X:Int) ... requires #Exists X:Bool . {X #Equals true}` compiles, and `go(3)`
+/// gives `done(3)`, as with the binder spelled `B`.
+#[test]
+fn a_binder_spelled_like_a_variable_of_another_sort_has_its_own_sort() {
+    let header = "  syntax KItem ::= go(Int) | done(Int)\n";
+    let rules = |binder: &str| {
+        format!(
+            "  rule <k> go(X:Int) => done(X) ... </k> requires #Exists {binder}:Bool . {{{binder} #Equals true}}\n"
+        )
+    };
+    assert_bound_name_runs(header, rules, ["X", "B"], "go(3)", ("done", "3"));
+}
+
+/// The `UNIQUE_ID` of the axiom labelled `label` in `kore`.
+fn unique_id_of(kore: &str, label: &str) -> String {
+    let needle = format!("label{{}}(\"{label}\")");
+    let axiom = kore
+        .split("axiom{")
+        .find(|axiom| axiom.contains(&needle))
+        .unwrap_or_else(|| panic!("no axiom labelled {label}"));
+    let start = axiom
+        .find("UNIQUE'Unds'ID{}(\"")
+        .unwrap_or_else(|| panic!("axiom {label} has no UNIQUE_ID"))
+        + "UNIQUE'Unds'ID{}(\"".len();
+    axiom[start..start + 64].to_owned()
+}
+
+/// A rule's `UNIQUE_ID` names the rule up to the renaming of its variables: a condition binder
+/// that shadows the left side's variable is a variable of its own, so the rule and its
+/// alpha-variant with the binder renamed apart have one identifier.
+#[test]
+fn a_shadowing_binder_leaves_the_rule_identifier_alpha_invariant() {
+    let id = |binder: &str| {
+        let source = format!(
+            "module BOUND\n  imports INT\n  imports BOOL\n  syntax KItem ::= go(Int) | done(Int)\n  configuration <k> $PGM:KItem </k>\n  rule [p]: <k> go(Y) => done(Y) ... </k> requires #Exists {binder}:Int . {{{binder} #Equals 5}}\nendmodule\n"
+        );
+        unique_id_of(
+            &compile(&source, "BOUND", "BOUND", "KItem", "go(3)").kore,
+            "BOUND.p",
+        )
+    };
+    assert_eq!(id("Y"), id("Z"));
+}
+
+/// INT8 (the claims' reading of sorts with no normal form): the simplifier's normal-form
+/// certificate also marks an application of an overloaded declared partial function, `g(a)`
+/// here (`g` partial with no equation, in `Sub`, which only `g` produces, so `Sub` has no normal
+/// form), and the anywhere head `h` above it is then certified, so `h(g(a)) ==K d` is decided.
+/// The mark is no claim that `g(a)` is a normal form: `g(a)` is not ceil-free, so the step splits
+/// on its definedness, and the decision, which erases `g(a)`, holds only under the constraint
+/// `\ceil(g(a))`, which the normal-form model, where the stuck partial application is
+/// `\bottom`, makes vacuous. Without the overload `g(a)` is unmarked and the equality stays
+/// undecided.
+#[test]
+fn a_marked_overloaded_partial_argument_leaves_its_definedness_on_the_decision() {
+    const SOURCE: &str = r#"
+module OV-SYNTAX
+  imports INT-SYNTAX
+  syntax A ::= "a"
+  syntax A2 ::= A | "a2"
+  syntax Sub ::= g(A) [function, overload(g)]
+  syntax Sup ::= Sub | "c"
+  syntax Sup ::= g(A2) [function, overload(g)]
+  syntax H ::= h(Sup) | "d"
+  syntax Pgm ::= go(Int)
+endmodule
+module OV
+  imports OV-SYNTAX
+  imports INT
+  imports BOOL
+  imports K-EQUAL
+  rule h(c) => d [anywhere]
+  configuration <k> $PGM:Pgm </k> <s> .K </s>
+  rule <k> go(_) => .K </k> <s> _ => h(g(a)) ==K d </s>
+endmodule
+"#;
+    let overloaded = compile(SOURCE, "OV", "OV-SYNTAX", "Pgm", "go(0)");
+    // The step splits on the definedness of `g(a)`: where it is defined the equality is
+    // `false`, where it is not the configuration takes no step.
+    let leaves = text(&execute(&overloaded, "OV", None));
+    let decided = |leaf: &String| leaf.contains(r#"\dv{SortBool{}}("false")"#);
+    assert_eq!(leaves.len(), 2, "{leaves:?}");
+    assert!(
+        leaves.iter().all(|leaf| leaf.contains(r"\ceil{SortSub{}")),
+        "{leaves:?}"
+    );
+    assert!(
+        leaves
+            .iter()
+            .all(|leaf| decided(leaf) != leaf.contains(r"\not{SortGeneratedTopCell{}}(\ceil")),
+        "{leaves:?}"
+    );
+    assert_eq!(leaves.iter().filter(|leaf| decided(leaf)).count(), 1);
+    let plain_source = SOURCE
+        .replace(" [function, overload(g)]", " [function]")
+        .replace("syntax Sup ::= g(A2)", "syntax Sup ::= g2(A2)");
+    let plain = compile(&plain_source, "OV", "OV-SYNTAX", "Pgm", "go(0)");
+    let leaves = text(&execute(&plain, "OV", None));
+    assert!(
+        leaves
+            .iter()
+            .any(|leaf| leaf.contains("Lbl'UndsEqlsEqls'K'Unds'"))
+            && !leaves.iter().any(decided),
+        "{leaves:?}"
+    );
 }

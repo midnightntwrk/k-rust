@@ -91,7 +91,9 @@ pub use relations::{
     compute_priorities, compute_subsorts,
 };
 pub use resolve::{Error as ResolveError, ImportRef, ModuleId, ResolvedDefinition, ResolvedModule};
-pub use rule_catalog::{ClaimId, ContextId, RuleCatalog, RuleId, match_rule_label};
+pub use rule_catalog::{
+    ClaimId, ContextId, HeadShape, RuleCatalog, RuleHead, RuleId, match_rule_label, peel_aliases,
+};
 pub use sort_catalog::SortCatalog;
 pub use synonyms::{SortDenotations, SortSynonyms, Spelling, SynonymDefect, apply_sort_synonyms};
 pub(crate) use synonyms::{apply_sort_synonyms_with_resolved, first_unapplied_synonym};

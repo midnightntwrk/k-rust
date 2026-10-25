@@ -27,6 +27,12 @@ behavior = "validation"
 reason = "Structural checks report diagnostics without changing the current definition."
 
 [[pipeline]]
+call = "rename_bound_apart"
+occurrences = 1
+behavior = "metadata-only"
+reason = "Renaming bound variables apart renames, in place, the binder and the bound occurrences of each quantifier whose name occurs elsewhere in its sentence, so each node keeps its origin and location; it creates no node."
+
+[[pipeline]]
 call = "resolve_comm"
 occurrences = 1
 behavior = "generating"
@@ -155,6 +161,25 @@ occurrences = 1
 behavior = "generating"
 generating_passes = ["macro-expansion"]
 reason = "Macro expansion substitutes generated terms at call sites."
+
+[[pipeline]]
+call = "resolve_condition_conjunctions"
+occurrences = 1
+behavior = "metadata-only"
+reason = "Condition-conjunction resolution relabels the pending conjunctions that strictness, heating and cooling added to conditions as #And or _andBool_, in place, so each node keeps the origin its generating pass recorded; it creates no node."
+
+[[pipeline]]
+call = "check_ml_positions"
+occurrences = 1
+behavior = "validation"
+reason = "The matching-logic position check judges the sentences with their macros and aliases expanded and reports diagnostics without changing accepted definitions."
+
+[[pipeline]]
+call = "lower_term_conjunctions"
+occurrences = 1
+behavior = "generating"
+generating_passes = ["lower-term-conjunctions"]
+reason = "Term-conjunction lowering writes a conjunction of two connective-free terms at a built position or in a claim, and an alias in a claim's left side, as the first operand guarded by their equality, which it generates together with the copy of the first operand."
 
 [[pipeline]]
 call = "add_implicit_computation_cell"

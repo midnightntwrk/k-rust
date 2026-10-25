@@ -50,8 +50,9 @@ After semantic and Definition IR lowering, K emission produces the backend-facin
 // [!include ~/snippets/eval-add.k]
 ```
 
-`int::add` did not execute as Rust along the way.
-It remained the symbolic builtin application `int_add`, which the emitter spells as `+Int`.
+Nothing executed as Rust along the way.
+The descriptor records the authored operator, `operator:add`, because `+` names no domain by itself; semantic analysis chooses it from the operands' sorts, here the `Int` that `where lhs: Int, rhs: Int` gives both binders, so the rule's result is the symbolic builtin application `int_add`.
+Expansion writes that choice as the call `int::add(lhs, rhs)`, and the emitter spells it `+Int`.
 Each variable in emitted K takes its authored binder name in K's capitalized form (`lhs` becomes `Lhs`), made unique within its sentence; the native route spells it identically, and `sources.json` carries its authored range back to the readable rule.
 
 `tests/tour-imp/verify.py` regenerates all four views from one source, checks deterministic expansion and emission, and fails if any published view is stale.
@@ -89,7 +90,8 @@ It does not execute the object program: `krs run`, `krs search`, and `krs prove`
 ## Identity and diagnostics
 
 Rust paths and generated declaration identities remain distinct from emitted K symbols.
-`#[k::symbol]` can pin the public symbol of a sort or standalone constructor where external compatibility requires it; inferred identities are preferred elsewhere.
+A production's emitted symbol depends only on its own declaration (`Op::Add` is `opAdd`, a struct `Inc` is `inc`), so no other declaration can rename it.
+`#[k::symbol]` can pin the public symbol of a sort, a standalone constructor, or a family variant where external compatibility requires it; inferred identities are preferred elsewhere.
 
 Source maps preserve authored ranges through generated artifacts.
 A failure should be reported at the stage that discovered it: Rust expansion, KRS analysis, the K frontend, or the native definition checks.

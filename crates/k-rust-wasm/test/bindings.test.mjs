@@ -14,6 +14,7 @@ import {
   parseProgram,
   printKast,
   printKore,
+  runFuzzCampaign,
 } from '../dist/index.js'
 
 const bytes = readFileSync(new URL('../generated/bindings_bg.wasm', import.meta.url))
@@ -73,9 +74,17 @@ test('exposes the diagnostic on only the branch candidate that emitted it', () =
 })
 
 const termExhausted = [{ kind: 'simplification-budget-exhausted', limit: 3, subject: 'term' }]
+// The fixture's KORE carries no source or location attributes, so a rule's origin is only its
+// sentence: its index among all of MAIN's sentences (the sort, nine symbols, then the axioms).
+const sentenceIndex = { 'norm-c': 11, 'check-ok': 12 }
 const conditionExhausted = (ruleId) => [
   { kind: 'simplification-budget-exhausted', limit: 3, subject: 'predicates' },
-  { kind: 'rule-condition-unsimplified', ruleId, limit: 3 },
+  {
+    kind: 'rule-condition-unsimplified',
+    ruleId,
+    origin: { source: null, location: null, sentence: { module: 'MAIN', index: sentenceIndex[ruleId] } },
+    limit: 3,
+  },
 ]
 const ending = (entries, field, symbol) =>
   entries.find((entry) => JSON.stringify(entry[field]).includes(`"name":"${symbol}"`))
@@ -126,9 +135,24 @@ test('exposes the compiled rule catalog', () => {
 })
 
 // Without associativity or priorities, a+a+a has two well-sorted trees that denote different terms,
-// so no sort decision can pick one: the error must name the ambiguity and list both readings.
-const bothAdditionReadings =
-  /Parsing ambiguity\.[\s\S]*add\(a\(\.KList\),add\(a\(\.KList\),a\(\.KList\)\)\)[\s\S]*add\(add\(a\(\.KList\),a\(\.KList\)\),a\(\.KList\)\)/
+// add(a, add(a, a)) and add(add(a, a), a), so no sort decision can pick one. Both are rooted at
+// add and differ at its two operands together, so the error names the ambiguity by those two
+// subterms, each at its first character, with the readings each takes: a or add(a, a).
+const additionAmbiguity = (prefix, first, second) => ({
+  name: 'Error',
+  message:
+    `${prefix}Parsing ambiguity: the readings differ in 2 subterms.\n` +
+    [first, second]
+      .map(
+        (at, index) =>
+          `Subterm ${index + 1} at ${at}:\n` +
+          '1: syntax Exp ::= "a" [symbol(a)]\n' +
+          '    a(.KList)\n' +
+          '2: syntax Exp ::= Exp "+" Exp [symbol(add)]\n' +
+          '    add(a(.KList),a(.KList))',
+      )
+      .join('\n'),
+})
 
 test('compiles a portable definition into all KORE artifacts', () => {
   const compiled = compileDefinition({
@@ -180,7 +204,7 @@ test('rejects a value-building parametric application at a token sort', () => {
   )
 })
 
-test('reports both readings of an ambiguous rule', () => {
+test('reports an ambiguous rule by the two subterms its readings differ in', () => {
   assert.throws(
     () =>
       compileDefinition({
@@ -192,7 +216,7 @@ test('reports both readings of an ambiguous rule', () => {
         `,
         moduleName: 'MAIN',
       }),
-    bothAdditionReadings,
+    additionAmbiguity('definition.k:4:18: could not parse rule in module "MAIN": ', '4:18', '4:20'),
   )
 })
 
@@ -285,7 +309,7 @@ test('infers nested parametric applications portably', () => {
   assert.deepEqual(parsed.kast.term.args[0].label.params, [])
 })
 
-test('reports both readings of an ambiguous program', () => {
+test('reports an ambiguous program by the two subterms its readings differ in', () => {
   assert.throws(
     () =>
       parseProgram({
@@ -299,7 +323,7 @@ test('reports both readings of an ambiguous program', () => {
         program: 'a+a+a',
         includePrelude: false,
       }),
-    bothAdditionReadings,
+    additionAmbiguity('could not parse program as Exp with module "MAIN": ', '1:1', '1:3'),
   )
 })
 
@@ -346,6 +370,34 @@ test('round-trips KAST and KORE through typed JSON', () => {
   assert.match(
     formatKoreDefinition('[] module TEST sort S{} [] endmodule []'),
     /module TEST[\s\S]*sort S\{\}/,
+  )
+})
+
+test('prints KAST text that reads back as the printed term', () => {
+  for (const [source, text] of [
+    ['``X~>foo(.KList)``=>Y', '``X~>foo(.KList)``=>Y'],
+    ['X~>``foo(.KList)=>Y``', 'X~>``foo(.KList)=>Y``'],
+    ['``X=>Y``=>Z', '``X=>Y``=>Z'],
+    ['``X #as Y``=>Z', '``X #as Y``=>Z'],
+  ]) {
+    const parsed = parseKast(source)
+    assert.equal(parsed.text, text)
+    assert.equal(printKast(parsed.kast), text)
+    assert.deepEqual(parseKast(printKast(parsed.kast)).kast, parsed.kast)
+  }
+  const rewrite = parseKast('``X~>foo(.KList)``=>Y').kast
+  assert.equal(rewrite.term.node, 'KRewrite')
+  assert.equal(rewrite.term.lhs.node, 'KSequence')
+
+  const variable = parseKast('X').kast
+  const sort = parseKast('#token("1","Int")').kast.term.sort
+  assert.throws(
+    () => printKast({ ...variable, term: { ...variable.term, sort } }),
+    /variable X has sort Int/,
+  )
+  assert.throws(
+    () => printKast({ ...variable, term: { ...variable.term, name: '@X' } }),
+    /not readable as textual KAST/,
   )
 })
 
@@ -419,6 +471,7 @@ test('searches and observes the persistent portable backend graph', () => {
     'path-set',
   )
   assert.equal(backend.capabilities.coverage, true)
+  assert.equal(backend.capabilities.smtUnknowns, true)
   assert.equal(backend.execute({ state: a }).coverage, undefined)
   assert.deepEqual(backend.execute({ state: a, collectCoverage: true }).coverage, {
     applied: ['a-to-b', 'b-to-c'],
@@ -474,4 +527,135 @@ test('compileBackend compiles and creates a portable session', () => {
   assert.equal(backend.capabilities.smt, false)
   assert.equal(printKore(backend.simplify({ state: parseKore('Lbla{}()').kore })), 'Lblb{}()')
   backend.free()
+})
+
+const readFixture = name =>
+  readFileSync(new URL(`../../k-rust-fuzz/tests/data/imp/${name}`, import.meta.url), 'utf8')
+const SOLVER = 'none'
+
+// The IMP campaign of the crate's own test (src/fuzz.rs): blind values for `x` and `y` of `le.imp`
+// until one falsifies the claim that `r` ends as 1, which any `x > y` does.
+const impCampaign = (campaign = {}) => ({
+  definition: readFixture('imp.k'),
+  moduleName: 'IMP',
+  sourceName: 'imp.k',
+  includePrelude: true,
+  campaign: {
+    program: {
+      program: { name: 'le.imp', text: readFixture('le.imp'), 'start-sort': 'Pgm' },
+      'config-vars': [],
+    },
+    holes: [
+      { name: 'X', sort: 'Int', location: { kind: 'span', program: 'le.imp', find: 'x = 3;', literal: '3' } },
+      { name: 'Y', sort: 'Int', location: { kind: 'span', program: 'le.imp', find: 'y = 5;', literal: '5' } },
+    ],
+    target: {
+      kind: {
+        kind: 'pattern',
+        pattern: '<k> .K </k> <state> (#token("r", "Id") |-> R:Int) _:Map </state> requires R =/=Int 1',
+        at: 'final',
+      },
+      'run-to-completion': false,
+      'negated-property': true,
+    },
+    seed: '24301',
+    identity: { 'k-rust-revision': 'binding-test' },
+    budget: { cases: '64' },
+    ...campaign,
+  },
+})
+
+test('runs one fuzz campaign on IMP to a confirmed witness', () => {
+  const { json, report } = runFuzzCampaign(impCampaign())
+  assert.equal(report.schema, 'krust-fuzz-report')
+  assert.equal(report.version, 6)
+  assert.equal(report.identity.solver, SOLVER)
+  assert.equal(report.identity.seed, '24301')
+  assert.deepEqual(report.identity.budget, { cases: '64' })
+  assert.equal(report.outcome.status, 'witness-found')
+  const { witness } = report.outcome
+  assert.equal(witness.label, 'property-failure')
+  const [x, y] = (witness.shrunk ?? witness.first).holes.map(hole => BigInt(hole.value.int))
+  assert.ok(x > y, `${x} > ${y}`)
+  assert.deepEqual(report['engine-defects'], [])
+  // The report is a function of the specification: a second call gives the same bytes.
+  assert.equal(runFuzzCampaign(impCampaign()).json, json)
+})
+
+test('throws for a malformed campaign specification', () => {
+  assert.throws(
+    () => runFuzzCampaign(impCampaign({ options: { 'max-dept': 3 } })),
+    /campaign\.options: unknown field `max-dept`/,
+  )
+  assert.throws(() => runFuzzCampaign(impCampaign({ seed: 7 })), /invalid type/)
+})
+
+test('refuses the safety limit and the solve proposer before compiling anything', () => {
+  const unparsable = options => ({ ...options, definition: 'not a definition' })
+  assert.throws(
+    () => runFuzzCampaign(unparsable(impCampaign({ options: { 'safety-limit-ms': 1000 } }))),
+    /^Error: campaign\.options\.safety-limit-ms: the per-case safety limit is not available in WebAssembly/,
+  )
+  assert.throws(
+    () => runFuzzCampaign(unparsable(impCampaign({ proposers: { weights: { blind: 1, solve: 1 } } }))),
+    /^Error: campaign\.proposers\.weights\.solve: the solve proposer is not available in WebAssembly/,
+  )
+})
+
+const readCoin = name =>
+  readFileSync(new URL(`../../k-rust-fuzz/tests/data/coin/${name}`, import.meta.url), 'utf8')
+// k-rust's build identity: its version and the digest of the sources it was built from.
+const BUILD_IDENTITY = /^\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?\+src\.[0-9a-f]{32}$/
+const STACK_SIZE = null
+
+// The differential campaign of the fuzz crate's own test: COIN against COIN-KILL, which adds the
+// end N + 2 for N > 10, over the `3` of `flip(3)`.
+const coinCampaign = () => ({
+  definition: readCoin('coin.k'),
+  moduleName: 'COIN',
+  sourceName: 'coin.k',
+  includePrelude: true,
+  mutant: { definition: readCoin('coin-kill.k'), moduleName: 'COIN', sourceName: 'coin-kill.k', includePrelude: true },
+  campaign: {
+    program: { program: { name: 'flip.pgm', text: readCoin('flip.pgm'), 'start-sort': 'Pgm' }, 'config-vars': [] },
+    holes: [{ name: 'N', sort: 'Int', location: { kind: 'span', program: 'flip.pgm', find: '3', literal: '3' } }],
+    target: { kind: { kind: 'differential' }, 'run-to-completion': false, 'negated-property': false },
+    proposers: { explicit: [{ N: { int: '10' } }] },
+    seed: '7',
+    identity: { 'k-rust-revision': 'binding-test' },
+    budget: { cases: '64' },
+  },
+})
+
+test('runs one differential fuzz campaign that kills a mutant', () => {
+  const { report } = runFuzzCampaign(coinCampaign())
+  assert.equal(report.identity.definitions.length, 2)
+  assert.equal(report.outcome.status, 'witness-found')
+  const { witness } = report.outcome
+  const killing = witness.shrunk ?? witness.first
+  assert.equal(killing.kill, 'added-end')
+  assert.ok(BigInt(killing.holes[0].value.int) > 10n, killing.holes[0].value.int)
+})
+
+test('refuses a misspelt field inside a hole', () => {
+  const options = impCampaign()
+  options.campaign.holes[0].constraint = { range: { min: '0', max: '0' } }
+  assert.throws(() => runFuzzCampaign(options), /unknown field `constraint`/)
+})
+
+test('refuses a misspelt option beside the campaign and in the mutant', () => {
+  const options = impCampaign()
+  options.syntaxModul = 'IMP-SYNTAX'
+  assert.throws(() => runFuzzCampaign(options), /unknown field `syntaxModul`/)
+  const coin = coinCampaign()
+  coin.mutant.includePrelud = true
+  assert.throws(() => runFuzzCampaign(coin), /unknown field `includePrelud`/)
+})
+
+test('names this build when the campaign gives no identity', () => {
+  const options = impCampaign({ budget: { cases: '1' } })
+  delete options.campaign.identity
+  const { report } = runFuzzCampaign(options)
+  assert.match(report.identity['k-rust-revision'], BUILD_IDENTITY)
+  assert.equal(report.identity['thread-stack-size'], STACK_SIZE)
 })

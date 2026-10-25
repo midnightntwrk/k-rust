@@ -148,6 +148,60 @@ fn readable_clauses_alias_subpatterns() {
     );
 }
 
+fn record_bindings(source: &str) -> Vec<String> {
+    let block = krs_syntax::RuleBlock::parse_source(source)
+        .unwrap_or_else(|error| panic!("{source}: {error}"));
+    block.clauses()[0]
+        .bindings()
+        .iter()
+        .map(ToString::to_string)
+        .collect()
+}
+
+/// A readable record's value (a cell value, a list element, a computation
+/// item) is not a rule subject: an alias may stand inside each alternative
+/// and inside parentheses, as it does below a constructor, and means the
+/// alias over the alternatives.
+#[test]
+fn readable_values_alias_inside_alternatives_and_parentheses() {
+    for (source, expected) in [
+        (
+            "for Machine; a: { k: [Pick(), ..], stack: [(saved @ Frame { pc: 0, .. } | saved @ Frame { pc: 1, .. }), s @ ..], frame: _ } => { k: [..], stack: s, frame: saved };",
+            &["saved", "s"][..],
+        ),
+        (
+            "for Machine; a: { k: [Pick(), ..], stack: [saved @ Frame { pc: 0, .. } | saved @ Frame { pc: 1, .. }, s @ ..], frame: _ } => { k: [..], stack: s, frame: saved };",
+            &["saved", "s"][..],
+        ),
+        (
+            "for Machine; a: { k: [(c @ A() | c @ B()), ..] } => { k: [c, ..] };",
+            &["c"][..],
+        ),
+        (
+            "for Machine; a: { k: [c @ A() | c @ B(), ..] } => { k: [c, ..] };",
+            &["c"][..],
+        ),
+        (
+            "for Machine; a: { k: [Go(), ..], pc: (x @ 0 | x @ 1) } => { k: [x, ..] };",
+            &["x"][..],
+        ),
+        (
+            "for Machine; a: { k: [Go(), ..], pc: (x @ 0) } => { k: [x, ..] };",
+            &["x"][..],
+        ),
+        (
+            "for Machine; a: { k: [Go(), ..], pc: k::term![x @ 0 | x @ 1] } => { k: [x, ..] };",
+            &["x"][..],
+        ),
+        (
+            "for Machine; a: { k: [Go(), ..], pc: k::term![x @ 0] } => { k: [x, ..] };",
+            &["x"][..],
+        ),
+    ] {
+        assert_eq!(record_bindings(source), expected, "{source}");
+    }
+}
+
 #[test]
 fn malformed_aliases_are_rejected() {
     for (source, expected) in [
@@ -183,6 +237,14 @@ fn malformed_aliases_are_rejected() {
         let error = krs_syntax::RuleItem::parse_source(source).unwrap_err();
         assert!(reason(&error).contains(expected), "{source}: {error}");
     }
+    let clause = krs_syntax::RuleBlock::parse_source(
+        "for Exp; use ExpSyntax::*; bad: (p @ Dup(_) | p @ Neg(_)) => p;",
+    )
+    .unwrap_err();
+    assert!(
+        reason(&clause).contains("cannot alias a whole rule subject"),
+        "{clause}"
+    );
     let readable = krs_syntax::RuleBlock::parse_source(
         "for Exp; use ExpSyntax::*; bad: Dup(a) => Pair(p @ a, a);",
     )

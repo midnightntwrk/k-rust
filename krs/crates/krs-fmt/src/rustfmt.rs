@@ -7,7 +7,7 @@ use krs_ir::LineIndex;
 use krs_syntax::surface::{self, FacadeScope, FunctionMacro, InvocationKind};
 use proc_macro2::{Span, TokenStream, TokenTree};
 
-use crate::rules::{self, TrailingCommentStyle};
+use crate::rules::{self, BodyLayout};
 use crate::{Edition, FormatError, FormatErrorKind};
 
 pub(crate) struct ElidedSource {
@@ -16,6 +16,7 @@ pub(crate) struct ElidedSource {
 }
 
 pub(crate) struct RuleBody {
+    entry: FunctionMacro,
     marker: String,
     source: String,
     source_start: usize,
@@ -23,6 +24,7 @@ pub(crate) struct RuleBody {
 
 #[derive(Clone, Copy)]
 struct BodyRange {
+    entry: FunctionMacro,
     start: usize,
     end: usize,
 }
@@ -38,7 +40,7 @@ fn find_rule_bodies(source: &str, facade: &FacadeScope) -> Result<Vec<BodyRange>
     let mut ranges = Vec::new();
     for invocation in surface::invocations(&syntax, facade) {
         let InvocationKind::Function {
-            entry: FunctionMacro::Rules,
+            entry: entry @ (FunctionMacro::Rules | FunctionMacro::Claims | FunctionMacro::Equations),
             delimiter: Some(delimiter),
             ..
         } = invocation.kind
@@ -48,7 +50,10 @@ fn find_rule_bodies(source: &str, facade: &FacadeScope) -> Result<Vec<BodyRange>
         if !matches!(delimiter, syn::MacroDelimiter::Brace(_)) {
             return Err(FormatError::new(
                 FormatErrorKind::NonBraceRules,
-                "KRS `rules!` must use braces so `krs fmt` can enforce its block layout",
+                format!(
+                    "KRS `{}!` must use braces so `krs fmt` can enforce its block layout",
+                    entry.name()
+                ),
             ));
         }
         // `syn::parse_file` strips a shebang before assigning span byte ranges.
@@ -66,7 +71,7 @@ fn find_rule_bodies(source: &str, facade: &FacadeScope) -> Result<Vec<BodyRange>
                 "a `rules!` body span escaped its source",
             )
         })?;
-        ranges.push(BodyRange { start, end });
+        ranges.push(BodyRange { entry, start, end });
     }
     ranges.sort_by_key(|range| range.start);
     Ok(ranges)
@@ -89,6 +94,7 @@ pub(crate) fn elide_rule_bodies(
                 )
             })?;
             Ok(RuleBody {
+                entry: range.entry,
                 marker: format!("__KRS_FMT_BODY_{index}"),
                 source: body.to_owned(),
                 source_start: range.start,
@@ -108,7 +114,7 @@ pub(crate) fn elide_rule_bodies(
 pub(crate) fn splice_rule_bodies(
     source: &str,
     bodies: &[RuleBody],
-    trailing_comments: TrailingCommentStyle,
+    layout: BodyLayout,
     facade: &FacadeScope,
 ) -> Result<String, FormatError> {
     let ranges = find_rule_bodies(source, facade)?;
@@ -144,12 +150,12 @@ pub(crate) fn splice_rule_bodies(
             })?;
         let base_indent = line_indent(source, range.start);
         let body_indent = format!("{base_indent}    ");
-        let formatted = rules::format_rule_body(
-            &body.source,
-            body.source_start,
-            &body_indent,
-            trailing_comments,
-        )?;
+        let format = match body.entry {
+            FunctionMacro::Equations => rules::format_equation_body,
+            FunctionMacro::Claims => rules::format_claim_body,
+            _ => rules::format_rule_body,
+        };
+        let formatted = format(&body.source, body.source_start, &body_indent, layout)?;
         replacements.push(format!("\n{formatted}\n{base_indent}"));
     }
     let mut output = source.to_owned();
@@ -167,8 +173,54 @@ fn line_indent(source: &str, offset: usize) -> String {
         .collect()
 }
 
+/// Rustfmt's `max_width` when no configuration sets it.
+pub(crate) const DEFAULT_MAX_WIDTH: usize = 100;
+
+fn command() -> Command {
+    Command::new(std::env::var_os("RUSTFMT").unwrap_or_else(|| "rustfmt".into()))
+}
+
+/// The `max_width` of the Rustfmt configuration that applies in `directory`.
+pub(crate) fn max_width(directory: &Path) -> Result<usize, FormatError> {
+    // Rustfmt resolves the configuration of a file path from the file's
+    // directory; the file need not exist.
+    let output = command()
+        .args(["--print-config", "current", "krs-fmt-config-probe.rs"])
+        .current_dir(directory)
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|error| {
+            FormatError::new(
+                FormatErrorKind::Rustfmt,
+                format!("cannot start Rustfmt: {error}"),
+            )
+        })?;
+    if !output.status.success() {
+        return Err(FormatError::new(
+            FormatErrorKind::Rustfmt,
+            format!(
+                "Rustfmt cannot resolve its configuration: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            ),
+        ));
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .find_map(|line| {
+            let (key, value) = line.split_once('=')?;
+            (key.trim() == "max_width").then(|| value.trim().parse().ok())?
+        })
+        .ok_or_else(|| {
+            FormatError::new(
+                FormatErrorKind::Rustfmt,
+                "Rustfmt's configuration has no `max_width`",
+            )
+        })
+}
+
 pub(crate) fn run(source: &str, edition: Edition, directory: &Path) -> Result<String, FormatError> {
-    let mut command = Command::new(std::env::var_os("RUSTFMT").unwrap_or_else(|| "rustfmt".into()));
+    let mut command = command();
     command
         .arg("--edition")
         .arg(edition.to_string())
@@ -217,6 +269,9 @@ pub(crate) fn run(source: &str, edition: Edition, directory: &Path) -> Result<St
     })
 }
 
+/// Checks that formatting kept each DSL body's tokens, modulo trailing
+/// commas (which the layout writes or removes), and that each formatted
+/// body parses with the `krs-syntax` entry its macro formats with.
 pub(crate) fn validate_token_payload(
     before: &str,
     after: &str,
@@ -242,17 +297,26 @@ pub(crate) fn validate_token_payload(
                     FormatErrorKind::RustSyntax,
                     format!("cannot tokenize KRS DSL body {index} before formatting: {error}"),
                 )
-            })?
-            .to_string();
-        let after_body = TokenStream::from_str(&after[after_range.start..after_range.end])
-            .map_err(|error| {
-                FormatError::new(
-                    FormatErrorKind::OutputDoesNotParse,
-                    format!("cannot tokenize formatted KRS DSL body {index}: {error}"),
-                )
-            })?
-            .to_string();
-        if before_body != after_body {
+            })?;
+        let after_source = &after[after_range.start..after_range.end];
+        let after_body = TokenStream::from_str(after_source).map_err(|error| {
+            FormatError::new(
+                FormatErrorKind::OutputDoesNotParse,
+                format!("cannot tokenize formatted KRS DSL body {index}: {error}"),
+            )
+        })?;
+        reparse_body(after_range.entry, after_source).map_err(|error| {
+            FormatError::new(
+                FormatErrorKind::OutputDoesNotParse,
+                format!(
+                    "formatted `{}!` body {index} does not parse: {error}",
+                    after_range.entry.name()
+                ),
+            )
+        })?;
+        if without_trailing_commas(before_body).to_string()
+            != without_trailing_commas(after_body).to_string()
+        {
             return Err(FormatError::new(
                 FormatErrorKind::TokenPayloadChanged,
                 format!("formatting changed the span-blind token payload of KRS DSL body {index}"),
@@ -260,6 +324,47 @@ pub(crate) fn validate_token_payload(
         }
     }
     Ok(())
+}
+
+/// Parses a formatted body with the entry the formatter parsed it with.
+fn reparse_body(entry: FunctionMacro, source: &str) -> Result<(), krs_syntax::SyntaxError> {
+    match entry {
+        FunctionMacro::Equations => {
+            krs_syntax::parse_equation_table_source_with_trivia(source).map(drop)
+        }
+        FunctionMacro::Claims => krs_syntax::parse_claim_block_source_with_trivia(source).map(drop),
+        _ => krs_syntax::parse_rule_block_source_with_trivia(source).map(drop),
+    }
+}
+
+/// The tokens without the commas directly before a closing delimiter or a
+/// `;`: a trailing comma adds no element, and the layout decides it.
+fn without_trailing_commas(tokens: TokenStream) -> TokenStream {
+    let tokens = tokens.into_iter().collect::<Vec<_>>();
+    let mut output = Vec::with_capacity(tokens.len());
+    for (index, token) in tokens.iter().enumerate() {
+        let is_comma = matches!(token, TokenTree::Punct(punct) if punct.as_char() == ',');
+        let ends = match tokens.get(index + 1) {
+            None => true,
+            Some(TokenTree::Punct(next)) => next.as_char() == ';',
+            Some(_) => false,
+        };
+        if is_comma && ends {
+            continue;
+        }
+        output.push(match token {
+            TokenTree::Group(group) => {
+                let mut stripped = proc_macro2::Group::new(
+                    group.delimiter(),
+                    without_trailing_commas(group.stream()),
+                );
+                stripped.set_span(group.span());
+                TokenTree::Group(stripped)
+            }
+            other => other.clone(),
+        });
+    }
+    output.into_iter().collect()
 }
 
 pub(crate) fn validate_comment_payload(before: &str, after: &str) -> Result<(), FormatError> {

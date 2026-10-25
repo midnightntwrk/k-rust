@@ -1,0 +1,1 @@
+put(get + 2); put(get + get)

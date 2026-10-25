@@ -1,0 +1,13 @@
+# kink-flow corpus manifest for the divide fixture (flow F-13).
+[spec]
+entry = "divide.k"
+main_module = "DIVIDE"
+syntax_module = "DIVIDE-SYNTAX"
+
+[[program]]
+id = "quotient"
+text = "7 / 2"
+
+[[program]]
+id = "by-zero"
+text = "1 / 0"

@@ -140,6 +140,8 @@ entry_points! {
         SpecModule = "spec_module",
         /// `#[k::context]` (KF-021).
         Context = "context",
+        /// `#[k::constant]` on a `const` item.
+        Constant = "constant",
     }
 }
 
@@ -152,6 +154,10 @@ entry_points! {
         FrameworkSorts = "__framework_sorts",
         /// `k::rules!`.
         Rules = "rules",
+        /// `k::claims!`.
+        Claims = "claims",
+        /// `k::equations!`.
+        Equations = "equations",
         /// `k::term!`.
         Term = "term",
         /// `k::id!`.
@@ -233,7 +239,7 @@ impl Entry {
 
 /// Helpers that `#[k::constructors]` consumes from the enum it annotates,
 /// after the `constructors` attribute.
-pub const ENUM_HELPERS: &[&str] = &["precedence"];
+pub const ENUM_HELPERS: &[&str] = &["precedence", "cons_list"];
 
 /// Helpers that `#[k::constructors]` consumes from each enum variant.
 pub const VARIANT_HELPERS: &[&str] = &[

@@ -5,9 +5,9 @@ use syn::{
     TraitBoundModifier, TypeParamBound,
 };
 
-use crate::parse::{KrsSyntax, checked_ordinal};
+use crate::parse::{KrsSyntax, checked_ordinal, first_non_doc_attribute};
 use crate::path::is_plain_path;
-use crate::term_sort::{TermSort, parse_term_sort};
+use crate::term_sort::{TermSort, parse_typed_term_sort};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
 
 /// One validated named field of a record constructor.
@@ -94,9 +94,9 @@ impl ConstructorDeclaration {
     ///
     /// Rejects where clauses, generic parameters other than K sort
     /// parameters `S: ?Sized` used by a field, tuple structs, field
-    /// attributes, and record fields not typed as `Term<SortPath>`,
-    /// `Term<dyn SortPath>`, or `Term<S>` for a sort parameter `S`, at the
-    /// responsible token.
+    /// attributes other than doc comments, and record fields not typed as
+    /// `Term<SortPath>`, `Term<dyn SortPath>`, or `Term<S>` for a sort
+    /// parameter `S`, at the responsible token.
     pub fn from_item(item: ItemStruct) -> Result<Self, SyntaxError> {
         let parameters = sort_parameters(&item.generics)?;
 
@@ -105,9 +105,9 @@ impl ConstructorDeclaration {
             Fields::Named(named) => {
                 let mut parsed = Vec::with_capacity(named.named.len());
                 for field in &named.named {
-                    if let Some(attribute) = field.attrs.first() {
+                    if let Some(attribute) = first_non_doc_attribute(&field.attrs) {
                         return Err(unsupported_constructor(
-                            "constructor field attributes are not supported",
+                            "a constructor field takes only doc comments",
                             attribute.span(),
                         ));
                     }
@@ -117,7 +117,7 @@ impl ConstructorDeclaration {
                             field.span(),
                         ));
                     };
-                    let term_sort = parse_term_sort(field.ty.clone())?;
+                    let term_sort = parse_typed_term_sort(field.ty.clone())?;
                     let parameter = term_sort_parameter(&term_sort, &parameters);
                     parsed.push(ConstructorField {
                         field: field.clone(),
@@ -230,6 +230,19 @@ impl ConstructorDeclaration {
             ));
         }
         Ok(anchors)
+    }
+
+    /// Returns one anchor per element type of a typed collection field sort,
+    /// which only the constructor descriptor references.
+    ///
+    /// # Errors
+    ///
+    /// Returns an endpoint error only if a parsed node emits no leaves.
+    pub fn argument_provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        crate::SortArgument::anchors(
+            self.fields.iter().map(|field| field.term_sort.arguments()),
+            ProvenanceRole::ConstructorFieldSortArgument,
+        )
     }
 
     /// Returns the compact anchors plus each constructor field declaration name.
@@ -577,14 +590,16 @@ impl KrsSyntax for RawKItem {
     /// rule, claim or context sentence.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
         let span = tokens.span();
-        let literal: LitStr = syn::parse2(tokens).map_err(|_| {
-            SyntaxError::new(
-                SyntaxErrorKind::RawKShape {
-                    reason: "`raw_k!` takes one string literal holding one K sentence".to_owned(),
-                },
-                span,
-            )
-        })?;
+        let literal: LitStr =
+            syn::parse2(crate::parse::strip_trailing_comma(tokens)).map_err(|_| {
+                SyntaxError::new(
+                    SyntaxErrorKind::RawKShape {
+                        reason: "`raw_k!` takes one string literal holding one K sentence"
+                            .to_owned(),
+                    },
+                    span,
+                )
+            })?;
         let kind = Self::check_text(&literal.value()).map_err(|reason| {
             SyntaxError::new(SyntaxErrorKind::RawKShape { reason }, literal.span())
         })?;

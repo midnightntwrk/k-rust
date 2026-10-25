@@ -17,19 +17,19 @@ import native  # noqa: E402
 PROBES = (
     (
         "block lookup command",
-        "Execution::ExecBlock(list::get(program, index))",
+        "ExecBlock(list::get(program, index))",
         "ExecBlock",
         "    ExecBlock { block: BasicBlock },",
     ),
     (
         "entry block command",
-        "Execution::ExecBlockIdx(0)",
+        "k: [ExecBlockIdx(0), ..]",
         "ExecBlockIdx",
         "    ExecBlockIdx { index: Int },",
     ),
     (
         "continuation constructor",
-        "continuation: EvaluationContinuation::BinaryRight { place, operation, rhs, checked }",
+        "continuation: BinaryRight { place, operation, rhs, checked }",
         "BinaryRight",
         "    BinaryRight {",
     ),
@@ -41,13 +41,13 @@ PROBES = (
     ),
     (
         "local binding",
-        "value: int::add(lhs, rhs)",
+        "value: lhs + rhs",
         "lhs",
-        "checked: false, operation: MirBinaryOp::BinOpAdd(), lhs: Value::Integer { value: lhs, width, signed }",
+        "lhs: Integer { value: lhs, width, signed }",
     ),
     (
         "return constructor",
-        "ret_val: ReturnValue::Returned(value)",
+        "ret_val: Returned(value)",
         "Returned",
         "    Returned { value: MirValue },",
     ),
@@ -58,7 +58,7 @@ PORT = semantics.Port(
     label="KMIR",
     key="kmir",
     checkout=INSPIRATIONS / "runtimeverification/mir-semantics",
-    descriptors=1222,
+    descriptors=1166,
     lsp_probes=PROBES,
     lsp_diagnostic_timeout=600,
 )

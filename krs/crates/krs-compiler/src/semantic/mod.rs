@@ -1,23 +1,33 @@
 //! Descriptor-bundle lowering into target-neutral semantic IR.
 
 mod catalog;
+mod cell_alternatives;
 mod cell_states;
+mod collection_types;
 mod configuration;
 mod configuration_rules;
+mod cons_lists;
+mod constants;
 mod error;
 mod evaluation;
+mod family_precedence;
 mod fresh;
 mod grammar;
 mod infer;
 mod lexicals;
+mod list_patterns;
 mod lists;
 pub(crate) use lists::value_list_overloads;
 mod ml;
 mod open_sorts;
+mod operators;
+mod or_positions;
 mod origin;
 mod overload;
 mod package;
 mod raw_k;
+mod record_updates;
+pub(crate) use record_updates::{head_rule_long_form, structured_rule_long_form};
 mod references;
 mod restriction;
 mod rules;
@@ -28,7 +38,9 @@ mod token_collisions;
 mod tokens;
 mod visibility;
 
-pub use error::{DescriptorLoweringError, FreshProblem, LexicalProblem, NondetGroupProblem};
+pub use error::{
+    DescriptorLoweringError, FreshProblem, LexicalProblem, NondetGroupProblem, OperatorProblem,
+};
 
 use crate::overlap::OverlapViolation;
 pub use open_sorts::{OpenSortAnalysis, analyze_open_sorts};
@@ -40,11 +52,49 @@ use krs_ir::{
     BuiltinSort, Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorIndex,
     DescriptorPayload, ModuleId, PackageId, ProvenanceRole, StableItemId,
 };
-use krs_ir_levels::SemanticTheory;
+use krs_ir_levels::{SemanticModule, SemanticTheory};
 
 use catalog::{DeclarationCatalog, build_production_catalog, build_semantic_sort_parents};
 use package::{lower_package_module, lower_spec_module};
 use references::validate_all_stable_references;
+
+/// The bundle's descriptors in identity order, each constant inlined at its uses: a constant is
+/// a name for a term, so every use becomes the term before anything else reads the bundle, and
+/// no later check sees a constant.
+fn ordered_descriptors(
+    bundle: &DescriptorBundle,
+) -> Result<constants::Inlined<'_>, DescriptorLoweringError> {
+    let mut descriptors = bundle.descriptors().iter().collect::<Vec<_>>();
+    descriptors.sort_by(|left, right| left.id().cmp(right.id()));
+    constants::inline_constants(&descriptors)
+}
+
+/// The inference catalog's subsort judge over the bundle's descriptors, as lowering builds it.
+///
+/// # Errors
+///
+/// Returns the lowering error of a constant that does not inline.
+#[cfg(feature = "test-support")]
+pub(crate) fn catalog_subsort_judge(
+    bundle: &DescriptorBundle,
+) -> Result<
+    impl Fn(&krs_ir_levels::SemanticSortRef, &krs_ir_levels::SemanticSortRef) -> bool + use<>,
+    DescriptorLoweringError,
+> {
+    let inlined = ordered_descriptors(bundle)?;
+    let descriptors = inlined
+        .descriptors
+        .iter()
+        .map(AsRef::as_ref)
+        .collect::<Vec<&Descriptor>>();
+    let parents = build_semantic_sort_parents(&descriptors);
+    Ok(
+        move |candidate: &krs_ir_levels::SemanticSortRef,
+              expected: &krs_ir_levels::SemanticSortRef| {
+            catalog::semantic_is_subsort(candidate, expected, &parents)
+        },
+    )
+}
 
 /// Resolves one descriptor bundle into checked target-neutral IR.
 ///
@@ -65,8 +115,12 @@ use references::validate_all_stable_references;
 pub fn lower_descriptor_bundle(
     bundle: &DescriptorBundle,
 ) -> Result<SemanticTheory, DescriptorLoweringError> {
-    let mut descriptors = bundle.descriptors().iter().collect::<Vec<_>>();
-    descriptors.sort_by(|left, right| left.id().cmp(right.id()));
+    let inlined = ordered_descriptors(bundle)?;
+    let descriptors = inlined
+        .descriptors
+        .iter()
+        .map(AsRef::as_ref)
+        .collect::<Vec<&Descriptor>>();
     let configurations = descriptors
         .iter()
         .filter(|descriptor| {
@@ -75,15 +129,37 @@ pub fn lower_descriptor_bundle(
                 DescriptorPayload::FixedConfiguration(_)
             )
         })
-        .count();
-    if configurations != 1 {
-        return Err(DescriptorLoweringError::ConfigurationCount(configurations));
+        .collect::<Vec<_>>();
+    if configurations.len() != 1 {
+        // A second configuration is the one to remove or merge; none has nothing to point at.
+        let range = |index: usize| {
+            configurations
+                .get(index)
+                .and_then(|descriptor| self::origin::item_range(descriptor))
+                .map(Box::new)
+        };
+        return Err(DescriptorLoweringError::ConfigurationCount {
+            names: configurations
+                .iter()
+                .map(|descriptor| descriptor.id().item_name().to_owned())
+                .collect(),
+            range: range(1),
+            first: range(0),
+        });
     }
 
     let declarations = DescriptorIndex::from_descriptors(descriptors.iter().copied());
     validate_all_stable_references(&descriptors, &declarations)?;
     let semantic_sort_parents = build_semantic_sort_parents(&descriptors);
     let production_catalog = build_production_catalog(&descriptors)?;
+    cons_lists::check_cons_lists(&descriptors, &production_catalog)?;
+    collection_types::check_production_types(&descriptors, &production_catalog)?;
+    constants::check_constants(
+        &inlined.constants,
+        &declarations,
+        &production_catalog,
+        &semantic_sort_parents,
+    )?;
     let mut declaration_metadata = bundle
         .declarations()
         .iter()
@@ -166,8 +242,12 @@ pub fn lower_descriptor_bundle(
             )?);
         }
     }
+    if !uses_framework(&modules) {
+        modules.retain(|module| !crate::partition::is_framework_module(module.id()));
+    }
     modules.sort_by(|left, right| left.id().cmp(right.id()));
     overload::check_overloads(&modules, &semantic_sort_parents)?;
+    family_precedence::check_chainless_families(&modules, &semantic_sort_parents)?;
     tokens::check_token_sorts(&modules)?;
     tokens::check_program_token_fields(&modules)?;
     token_collisions::check_token_collisions(&modules)?;
@@ -177,6 +257,8 @@ pub fn lower_descriptor_bundle(
     evaluation::check_evaluation_steps(&modules)?;
     smt::check_smtlib_symbols(&modules)?;
     restriction::check_equation_restrictions(&modules)?;
+    or_positions::check_or_pattern_positions(&modules)?;
+    list_patterns::check_list_patterns(&modules)?;
     restriction::check_smt_lemmas(&modules)?;
     statics::check_static_clauses(&modules)?;
     visibility::check_proof_visibility(&modules)?;
@@ -233,7 +315,148 @@ pub fn lower_descriptor_bundle(
             }
         });
     }
-    Ok(SemanticTheory::new(modules)?)
+    if let Some(overlap) = crate::equation_domain::first_equation_overlap(&modules) {
+        if let Some(arms) = declarations
+            .get(&overlap.first)
+            .zip(declarations.get(&overlap.second))
+            .and_then(|(first, second)| branch_ranges(first, second))
+        {
+            return Err(DescriptorLoweringError::OverlappingMatchArms {
+                function: overlap.function,
+                first: Box::new(overlap.first),
+                second: Box::new(overlap.second),
+                application: overlap.application,
+                results: Box::new(overlap.results),
+                arms: Box::new(arms),
+            });
+        }
+        let range = declarations
+            .get(&overlap.second)
+            .and_then(exact_rule_head_range)
+            .map(Box::new);
+        return Err(DescriptorLoweringError::OverlappingEquations {
+            function: overlap.function,
+            first: Box::new(overlap.first),
+            second: Box::new(overlap.second),
+            application: overlap.application,
+            results: Box::new(overlap.results),
+            second_head_range: range,
+        });
+    }
+    // A validator failure is located at the innermost term the validator was checking.
+    let (theory, site) = krs_ir_levels::failure_site::record(|| SemanticTheory::new(modules));
+    theory.map_err(|error| DescriptorLoweringError::InvalidSemanticTheory {
+        error,
+        range: site
+            .iter()
+            .find_map(|origin| origin.origin().exact_authored_range())
+            .map(Box::new),
+    })
+}
+
+/// The exact authored range of a descriptor's first anchor of `role`.
+/// Whether the definition uses the framework sorts, so that its K keeps the
+/// framework module: some module imports it, which a module does exactly when
+/// one of its declarations names `KItem` or `KResult` (as with any package),
+/// or some sentence still refers to one of them, such as a rule variable
+/// inferred at `KItem`. Every definition has the framework sorts; only what
+/// it uses is emitted.
+fn uses_framework(modules: &[SemanticModule]) -> bool {
+    modules
+        .iter()
+        .filter(|module| !crate::partition::is_framework_module(module.id()))
+        .any(|module| {
+            module
+                .imports()
+                .iter()
+                .any(crate::partition::is_framework_module)
+                || serde_json::to_value(module).is_ok_and(|module| names_framework_item(&module))
+        })
+}
+
+/// Whether a serialized IR value names an item of the framework package
+/// outside provenance: an item identity serializes with its `package`, whose
+/// `k_namespace` is the framework's.
+fn names_framework_item(value: &serde_json::Value) -> bool {
+    match value {
+        serde_json::Value::Object(fields) => fields.iter().any(|(key, field)| {
+            key != "origin"
+                && ((key == "package"
+                    && field.get("k_namespace").and_then(serde_json::Value::as_str)
+                        == Some(crate::partition::FRAMEWORK_NAMESPACE))
+                    || names_framework_item(field))
+        }),
+        serde_json::Value::Array(items) => items.iter().any(names_framework_item),
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Number(_)
+        | serde_json::Value::String(_) => false,
+    }
+}
+
+fn exact_role_range(descriptor: &Descriptor, role: ProvenanceRole) -> Option<krs_ir::SourceRange> {
+    descriptor
+        .provenance()
+        .origins()
+        .iter()
+        .find(|node| node.key.role() == role && node.key.ordinal() == 0)?
+        .origin
+        .exact_authored_range()
+}
+
+/// The authored branches of two equations that one function shorthand's
+/// branching body defines: both name the function at one authored head, the
+/// fn's name, which is not where their sort is written (an equation table's
+/// rows name their function at the header, which is also their sort), and
+/// each is named at its own branch rather than at the head.
+fn branch_ranges(
+    first: &Descriptor,
+    second: &Descriptor,
+) -> Option<(krs_ir::SourceRange, krs_ir::SourceRange)> {
+    let head = exact_role_range(first, ProvenanceRole::RuleLeftApplicationHead)?;
+    if exact_role_range(second, ProvenanceRole::RuleLeftApplicationHead)? != head
+        || exact_role_range(first, ProvenanceRole::RuleType)? == head
+    {
+        return None;
+    }
+    let first_branch = exact_role_range(first, ProvenanceRole::RuleDeclaration)?;
+    let second_branch = exact_role_range(second, ProvenanceRole::RuleDeclaration)?;
+    (first_branch != head && second_branch != head).then_some((first_branch, second_branch))
+}
+
+/// The source-map key semantic lowering gives the application whose head has
+/// provenance `key` in `descriptor`, whatever operation it applies.
+pub(crate) fn application_source_key(
+    descriptor: &Descriptor,
+    key: &krs_ir::ProvenanceKey,
+) -> Option<krs_ir::SourceMapKey> {
+    origin::semantic_origin(descriptor, key.clone(), "term-application")
+        .ok()
+        .map(|origin| origin.key().clone())
+}
+
+/// The source-map key of the builtin List operation lowered at the
+/// application with provenance `key`, as [`application_source_key`] gives a
+/// constructor's: `[]` at a builtin `List` position lowers to `.List`.
+pub(crate) fn list_operation_source_key(
+    descriptor: &Descriptor,
+    key: &krs_ir::ProvenanceKey,
+) -> Option<krs_ir::SourceMapKey> {
+    origin::semantic_origin(descriptor, key.clone(), "term-list-operation")
+        .ok()
+        .map(|origin| origin.key().clone())
+}
+
+/// The source-map key of the `list::item` that the bracket level with
+/// provenance `key` lowered to at a builtin `List` position, as
+/// [`application_source_key`] gives a constructor's.
+pub(crate) fn list_notation_source_key(
+    descriptor: &Descriptor,
+    key: &krs_ir::ProvenanceKey,
+) -> Option<krs_ir::SourceMapKey> {
+    origin::semantic_origin(descriptor, key.clone(), "list-notation-item")
+        .ok()
+        .map(|origin| origin.key().clone())
 }
 
 /// The authored range of a rule's subject head, or of its name when the
@@ -274,6 +497,7 @@ fn validate_builtin_sort_names(
             return Err(DescriptorLoweringError::BuiltinSortNameCollision {
                 id: Box::new(descriptor.id().clone()),
                 builtin,
+                range: self::origin::item_range(descriptor).map(Box::new),
             });
         }
     }

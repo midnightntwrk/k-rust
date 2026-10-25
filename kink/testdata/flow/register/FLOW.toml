@@ -1,0 +1,17 @@
+# kink-flow corpus manifest for the register fixture (flow F-02).
+[spec]
+entry = "register.k"
+main_module = "REGISTER"
+syntax_module = "REGISTER-SYNTAX"
+
+[[program]]
+id = "store"
+file = "programs/store.reg"
+
+[[program]]
+id = "increment"
+file = "programs/increment.reg"
+
+[[program]]
+id = "double"
+file = "programs/double.reg"

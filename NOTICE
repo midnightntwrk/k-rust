@@ -1,5 +1,37 @@
-k-rust includes pinned K Framework builtin source files under
-`crates/k-rust/builtin/`. They were copied from runtimeverification/k commit
-4a46d1231473b599c699160132fd6e76a5c46406 and retain their original copyright
-notices. The K Framework is distributed under the BSD 3-Clause License included
-in this repository.
+k-rust is licensed under either of the Apache License, Version 2.0 (LICENSE-APACHE)
+or the MIT license (LICENSE-MIT), at your option, except for the third-party
+material below, which keeps its original license and copyright notices.
+
+K Framework (BSD 3-Clause License, licenses/K-FRAMEWORK-BSD-3-Clause.txt;
+Runtime Verification's pyk test data, crates/k-rust/tests/fixtures/kore/LICENSE.md):
+- `crates/k-rust/builtin/` (the K builtin sources) and `crates/k-rust/cparser/`
+  (the standalone parser runtime) were copied from runtimeverification/k commit
+  4a46d1231473b599c699160132fd6e76a5c46406. The builtin sources are compiled
+  into k-rust, so binary distributions of k-rust reproduce this notice.
+- Test fixtures under `crates/k-rust/tests/fixtures/` that say so in their
+  README, and the tests `crates/k-rust/tests/lexer.rs` ports from pyk, come
+  from the same commit.
+- The test fixture `crates/k-rust-fuzz/tests/data/imp/imp.k` is the K Team's IMP
+  definition, unchanged, with its copyright line.
+- The test fixture `crates/k-rust-fuzz/tests/data/simple/simple.md` is the K
+  pl-tutorial's SIMPLE untyped definition
+  (`k-distribution/tests/regression-new/pl-tutorial/2_languages/1_simple/1_untyped/simple-untyped.md`)
+  from the same commit, with its copyright line, modified only by removing the
+  `stream` attributes of its `<input>` and `<output>` cells.
+- The test fixture `crates/k-rust-fuzz/tests/data/imp-diff/imp.k` is the K
+  tutorial's lesson-4 IMP (`k-distribution/tests/regression-new/pl-tutorial/1_k/2_imp/lesson_4/imp.k`)
+  from the same commit, unchanged below a source header, with its licence in
+  `LICENSE-K.md` beside it; the `imp-diff/imp-*.k` mutants modify one rule each.
+- k2lean's `k2lean/demos/k/kimp-mutant/` (kimp's `imp.k`, `calc.k` and `expr.k`
+  with one rule changed), `k2lean/demos/claims/specs/imp-ifs-uint64-spec.k`
+  (kimp's `examples/specs/imp-ifs-spec.k` with one predicate written out) and the
+  kimp example programs that `k2lean/tests/goldens` carries come from
+  runtimeverification/imp-semantics commit 683a773418add3bcae8ded47c2b24e94494e1988;
+  the compiled fixtures under `k2lean/tests/fixtures/` and
+  `k2lean/demos/k/krs-imp/*.kore` contain the K builtin modules krust compiles
+  into every definition (k2lean/README.md, "Third-party material").
+
+Haskell backend (BSD 3-Clause License, licenses/HASKELL-BACKEND-BSD-3-Clause.txt):
+- `crates/k-rust-backend` ports the behaviour of runtimeverification/haskell-backend
+  commit ad54c7a55085b726c4d3c2728242a7e0695b0439 to Rust (docs/backend-port.md).
+  To the extent it derives from that source, its notice applies.

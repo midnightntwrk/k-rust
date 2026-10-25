@@ -771,7 +771,7 @@ fn cell_rows(
 ) {
     for cell in cells {
         let (sort, variable) = match cell.content() {
-            FixedCellContent::Term { sort } => (
+            FixedCellContent::Term { sort, .. } => (
                 Some(context.sort(sort)),
                 initializers
                     .iter()
@@ -1002,6 +1002,7 @@ pub fn query(directory: &Path, request: &Value) -> QueryResult {
                     DescriptorPayload::ConfigurationRule(_) => "configuration_rule",
                     DescriptorPayload::HeadRule(_) => "head_rule",
                     DescriptorPayload::ContextAlias(_) => "context_alias",
+                    DescriptorPayload::Constant(_) => "constant",
                 };
                 let item = enum_name(&d.id().item_kind());
                 if accepts(descriptor_kind.as_deref(), kind) && accepts(item_kind.as_deref(), &item)
@@ -2089,7 +2090,13 @@ mod tests {
         assert_eq!(normalized["sentence"]["variables"], json!([]));
     }
 
-    fn head_rule_artifacts() -> krs_test_support::TempDir {
+    #[expect(
+        clippy::too_many_lines,
+        reason = "The head-rule descriptor is spelled out field by field."
+    )]
+    fn head_rule_artifacts(
+        result_head: krs_ir::DescriptorApplicationRef,
+    ) -> krs_test_support::TempDir {
         use krs_ir::{
             Arguments, DescriptorApplicationRef, DescriptorApplicationReference,
             DescriptorHeadRule, DescriptorHeadRuleBinding, DescriptorHeadRuleResult,
@@ -2113,6 +2120,8 @@ mod tests {
             },
             path_key: key(ProvenanceRole::RuleLeftReference),
             arguments: args,
+            update: None,
+            open: false,
         };
         let config = item("machine", "Machine", ItemKind::Configuration);
         descriptor.id = item("rules", "eval_add", ItemKind::Rule);
@@ -2146,7 +2155,7 @@ mod tests {
                 },
             ],
             head: Some(krs_ir::ProtocolHeadRuleHead {
-                subject: application(
+                items: vec![application(
                     DescriptorApplicationRef::Declared(item(
                         "syntax",
                         "Add",
@@ -2162,16 +2171,17 @@ mod tests {
                             })
                             .collect(),
                     ),
-                ),
-                result: DescriptorHeadRuleResult::Replace(application(
-                    DescriptorApplicationRef::Builtin(krs_ir::BuiltinOperation::IntAdd),
+                )],
+                exact: false,
+                result: Some(DescriptorHeadRuleResult::Replace(application(
+                    result_head,
                     Arguments::Positional(
                         ["lhs", "rhs"]
                             .iter()
                             .map(|name| Box::new(var(name)))
                             .collect(),
                     ),
-                )),
+                ))),
             }),
             requires: None,
             extras: vec![],
@@ -2179,6 +2189,7 @@ mod tests {
             ensures: None,
             fresh: Vec::new(),
             evaluation: None,
+            claim: None,
         }));
         fs::write(
             dir.path().join("descriptor-bundle.json"),
@@ -2193,19 +2204,33 @@ mod tests {
 
     #[test]
     fn head_rule_walkthrough_projects_typed_named_and_positional_arguments() {
-        let dir = head_rule_artifacts();
         let request = json!({"kind":"head_rule_walkthrough","item_name":"eval_add"});
-        let value = query(dir.path(), &request).unwrap();
-        assert_eq!(
-            value,
-            json!({
-                "id": "eval_add", "kind": "head_rule", "sentence_kind": "transition",
-                "label": "eval-add", "configuration": "Machine", "cell": "k",
-                "bindings": ["lhs", "rhs"],
-                "subject": {"application": "Add", "arguments": ["lhs", "rhs"]},
-                "result": {"application": "builtin:int_add", "arguments": ["lhs", "rhs"]},
-            })
-        );
+        for (result_head, application) in [
+            (
+                krs_ir::DescriptorApplicationRef::Builtin(krs_ir::BuiltinOperation::IntAdd),
+                "builtin:int_add",
+            ),
+            (
+                krs_ir::DescriptorApplicationRef::Operator(krs_ir::BuiltinOperator::Add),
+                "operator:add",
+            ),
+        ] {
+            let dir = head_rule_artifacts(result_head);
+            let value = query(dir.path(), &request).unwrap();
+            assert_eq!(
+                value,
+                json!({
+                    "id": "eval_add", "kind": "head_rule", "sentence_kind": "transition",
+                    "label": "eval-add", "configuration": "Machine", "cell": "k",
+                    "bindings": ["lhs", "rhs"],
+                    "subject": {"application": "Add", "arguments": ["lhs", "rhs"]},
+                    "result": {"application": application, "arguments": ["lhs", "rhs"]},
+                })
+            );
+        }
+        let dir = head_rule_artifacts(krs_ir::DescriptorApplicationRef::Builtin(
+            krs_ir::BuiltinOperation::IntAdd,
+        ));
         assert!(
             query(
                 dir.path(),

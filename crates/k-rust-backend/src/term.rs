@@ -16,20 +16,24 @@
 //!     "set_kind_attributes", "marked_attributes", "Term::map", "Term::map_of_items", "Term::set",
 //!     "Term::set_of_items", "Term::list", "Term::list_of_items", "order_collection",
 //!     "Term::with_evaluated_cache", "Term::marked_evaluated", "calculate_hash", "ceil_free",
-//!     "has_key_header", "fold_children", "k_cells", "Term::eq", "Term::cmp",
+//!     "has_key_header", "fold_children", "k_cells", "may_be_rigid", "Term::eq", "Term::cmp",
 //!     "equal_nodes", "order_nodes"]
 //! invariant = """\
 //! Term::allocate is the only place a TermData is built, and a TermData is never mutated after it is \
 //! shared, except for the debug-only mark of definedness::check_ceil_free, which nothing else \
 //! reads: Term and TermData keep their fields private. Term::allocate sets the stored hash to \
 //! calculate_hash of the kind, so Eq for Term (pointer equality, or equal hash and equal kind) \
-//! is structural equality of the kind, and Ord for Term is the derived order on the kind; below \
+//! is structural equality of the kind, and Ord for Term is the derived order on the kind (a Sort \
+//! orders by variant, name bytes and arguments, representation.backend.sort); below \
 //! RECURSIVE_COMPARISON_LEVELS levels of recursion both continue on a work list (equal_nodes, \
 //! order_nodes) that makes the derived comparisons of each pair of nodes in field order. \
 //! Term::allocate also sets the stored ceil_free attribute to ceil_free of the kind, which reads \
 //! only the kind and the children's stored ceil_free, so the stored value of every Term is \
 //! ceilFree of the Lean model applied to it; likewise has_macro_or_alias and k_cells, from the \
-//! children's stored values, are hasMacro and kCells of the Lean model. Only \
+//! children's stored values, are hasMacro and kCells of the Lean model. may_be_rigid, from the \
+//! kind and the children's stored values, is false exactly when some node is a variable, a \
+//! conjunction, a collection, or an application of a function, residual or uninterpreted symbol, \
+//! the nodes at which rigid_apart_skeleton_hash and has_key_header stop. Only \
 //! Term::map_of_items builds a Map kind: it unites entries in nondecreasing (key, value) order \
 //! with those of a same-definition rest, which keeps that order, retaining repeated keys and \
 //! bindings; Term::map orders its entries with order_collection first, and the other callers hand \
@@ -76,7 +80,6 @@
 use std::{
     cell::Cell,
     cmp::Ordering,
-    collections::BTreeMap,
     fmt,
     hash::{Hash, Hasher},
     sync::{Arc, LazyLock, OnceLock},
@@ -101,105 +104,45 @@ pub(crate) mod domain;
 pub mod head;
 pub mod items;
 pub mod names;
+mod sort;
 pub mod variables;
 
 pub(crate) use items::Flag;
 pub use items::Items;
+pub use sort::{Sort, SortNode, Sorts};
 pub use variables::{VariableLookup, Variables};
 
 pub type Name = Arc<str>;
 
-#[derive(Clone, Debug, Eq, Hash, PartialEq)]
-pub enum Sort {
-    Application { name: Name, arguments: Vec<Sort> },
-    Variable(Name),
-}
-
-impl PartialOrd for Sort {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for Sort {
-    /// The order of the variants, then of the names, then of the arguments; two handles of
-    /// one name allocation are equal names without reading them.
-    fn cmp(&self, other: &Self) -> Ordering {
-        let names = |left: &Name, right: &Name| {
-            if Arc::ptr_eq(left, right) {
-                Ordering::Equal
-            } else {
-                left.cmp(right)
-            }
-        };
-        match (self, other) {
-            (
-                Self::Application { name, arguments },
-                Self::Application {
-                    name: other_name,
-                    arguments: other_arguments,
-                },
-            ) => names(name, other_name).then_with(|| arguments.cmp(other_arguments)),
-            (Self::Variable(name), Self::Variable(other_name)) => names(name, other_name),
-            (Self::Application { .. }, Self::Variable(_)) => Ordering::Less,
-            (Self::Variable(_), Self::Application { .. }) => Ordering::Greater,
-        }
-    }
-}
-
-impl Sort {
-    pub fn application(name: impl Into<Name>, arguments: Vec<Self>) -> Self {
-        Self::Application {
-            name: name.into(),
-            arguments,
-        }
-    }
-
-    pub fn simple(name: impl Into<Name>) -> Self {
-        Self::application(name, Vec::new())
-    }
-
-    /// A builtin sort, sharing one `Name` allocation per variant for the life of the process.
-    pub fn builtin(sort: BuiltinSort) -> Self {
-        Self::Application {
-            name: builtin_name(sort),
-            arguments: Vec::new(),
-        }
-    }
-
-    /// True for the nullary application of the builtin's KORE name.
-    pub fn is_builtin(&self, sort: BuiltinSort) -> bool {
-        matches!(
-            self,
-            Self::Application { name, arguments }
-                if arguments.is_empty() && name.as_ref() == sort.kore_name()
-        )
-    }
-
-    /// True when a sort variable occurs anywhere in the sort.
-    pub fn has_variable(&self) -> bool {
-        match self {
-            Self::Variable(_) => true,
-            Self::Application { arguments, .. } => arguments.iter().any(Self::has_variable),
-        }
-    }
+/// The `Name` a definition's sort table keys the sort `name` with: the one [`Sort::builtin`]
+/// holds when `name` is a builtin sort's KORE name, a new one otherwise, so that comparing a
+/// table name with a builtin sort's name takes the pointer shortcut of `Arc`'s equality.
+pub(crate) fn sort_name(name: &str) -> Name {
+    BuiltinSort::ALL
+        .iter()
+        .find(|sort| sort.kore_name() == name)
+        .map_or_else(|| Name::from(name), |sort| builtin_name(*sort))
 }
 
 /// One `Name` per `BuiltinSort` variant, created on first use and indexed by the variant's
 /// position in `BuiltinSort::ALL`.
 fn builtin_name(sort: BuiltinSort) -> Name {
-    static NAMES: OnceLock<Vec<Name>> = OnceLock::new();
-    let names = NAMES.get_or_init(|| {
-        BuiltinSort::ALL
-            .iter()
-            .map(|sort| Name::from(sort.kore_name()))
-            .collect()
-    });
     let index = BuiltinSort::ALL
         .iter()
         .position(|candidate| *candidate == sort)
         .expect("every builtin sort is listed in BuiltinSort::ALL");
-    names[index].clone()
+    builtin_names()[index].clone()
+}
+
+/// The `Name`s of [`builtin_name`], in the order of `BuiltinSort::ALL`.
+fn builtin_names() -> &'static [Name] {
+    static NAMES: OnceLock<Vec<Name>> = OnceLock::new();
+    NAMES.get_or_init(|| {
+        BuiltinSort::ALL
+            .iter()
+            .map(|sort| Name::from(sort.kore_name()))
+            .collect()
+    })
 }
 
 /// The kind of a variable. Element variables order before set variables, and a [`Variable`]
@@ -211,11 +154,35 @@ pub enum VariableKind {
     Set,
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct Variable {
     pub kind: VariableKind,
     pub sort: Sort,
     pub name: Name,
+}
+
+impl PartialOrd for Variable {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for Variable {
+    /// Lexicographic over (`kind`, `sort`, `name`), the order a derived `Ord` gives; two handles
+    /// of one name allocation are equal names without reading them (`Arc`'s own order reads
+    /// the text even then).
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.kind
+            .cmp(&other.kind)
+            .then_with(|| self.sort.cmp(&other.sort))
+            .then_with(|| {
+                if Arc::ptr_eq(&self.name, &other.name) {
+                    Ordering::Equal
+                } else {
+                    self.name.cmp(&other.name)
+                }
+            })
+    }
 }
 
 impl Variable {
@@ -238,7 +205,7 @@ impl Variable {
     pub fn with_name(&self, name: impl Into<Name>) -> Self {
         Self {
             kind: self.kind,
-            sort: self.sort.clone(),
+            sort: self.sort,
             name: name.into(),
         }
     }
@@ -714,7 +681,7 @@ pub enum TermKind {
     And(Term, Term),
     Application {
         symbol: Arc<Symbol>,
-        sort_arguments: Vec<Sort>,
+        sort_arguments: Sorts,
         arguments: Vec<Term>,
     },
     DomainValue {
@@ -796,6 +763,8 @@ pub struct TermAttributes {
     has_macro_or_alias: bool,
     /// See [`TermAttributes::k_cells`]; set only by `Term::allocate`, from the kind.
     k_cells: u8,
+    /// See [`TermAttributes::may_be_rigid`]; set only by `Term::allocate`, from the kind.
+    may_be_rigid: bool,
     hash: u64,
 }
 
@@ -811,6 +780,7 @@ impl Default for TermAttributes {
             ceil_free: false,
             has_macro_or_alias: false,
             k_cells: 0,
+            may_be_rigid: false,
             hash: 0,
         }
     }
@@ -850,6 +820,15 @@ impl TermAttributes {
     /// 2. See `k_cells`, which `Term::allocate` stores here.
     pub fn k_cells(&self) -> u8 {
         self.k_cells
+    }
+
+    /// False when some node of this term is a variable, a conjunction, a map, list or set, or an
+    /// application of a symbol whose role is neither [`HeadRole::FreeConstructor`] nor
+    /// [`HeadRole::EquationHead`]: such a term is not rigid ([`rigid_apart_skeleton_hash`]
+    /// gives `None`) and has no key header (`has_key_header`). True says only that no node has
+    /// one of those kinds. See `may_be_rigid`, which `Term::allocate` stores here.
+    pub(crate) fn may_be_rigid(&self) -> bool {
+        self.may_be_rigid
     }
 }
 
@@ -1134,15 +1113,15 @@ impl Term {
 
     pub fn application(
         symbol: Arc<Symbol>,
-        sort_arguments: Vec<Sort>,
+        sort_arguments: impl Into<Sorts> + AsRef<[Sort]>,
         arguments: Vec<Self>,
     ) -> Self {
         if symbol.is(WellKnownSymbol::Inj)
-            && let ([source, target], [argument]) =
-                (sort_arguments.as_slice(), arguments.as_slice())
+            && let ([source, target], [argument]) = (sort_arguments.as_ref(), arguments.as_slice())
         {
-            return Self::injection(source.clone(), target.clone(), argument.clone());
+            return Self::injection(*source, *target, argument.clone());
         }
+        let sort_arguments = sort_arguments.into();
 
         if let Some(collection) = &symbol.attributes.collection {
             return Self::collection_application(
@@ -1156,11 +1135,7 @@ impl Term {
         Self::application_raw(symbol, sort_arguments, arguments)
     }
 
-    fn application_raw(
-        symbol: Arc<Symbol>,
-        sort_arguments: Vec<Sort>,
-        arguments: Vec<Self>,
-    ) -> Self {
+    fn application_raw(symbol: Arc<Symbol>, sort_arguments: Sorts, arguments: Vec<Self>) -> Self {
         Self::new(TermKind::Application {
             symbol,
             sort_arguments,
@@ -1170,7 +1145,7 @@ impl Term {
 
     fn collection_application(
         symbol: Arc<Symbol>,
-        sort_arguments: Vec<Sort>,
+        sort_arguments: Sorts,
         arguments: Vec<Self>,
         collection: CollectionMetadata,
     ) -> Self {
@@ -1320,6 +1295,33 @@ impl Term {
         )
     }
 
+    /// [`Self::int`] of a machine integer, written without a `BigInt`: the decimal digits of its
+    /// magnitude, after a `-` when it is negative, which is the canonical `Int` text (no sign
+    /// for zero or a positive value, no leading zero), so the canonicalizer is not run again.
+    pub(crate) fn small_int(value: i64) -> Self {
+        // `i64::MIN` has 19 digits; with its sign, 20 bytes.
+        let mut text = [0_u8; 20];
+        let mut start = text.len();
+        let mut magnitude = value.unsigned_abs();
+        loop {
+            start -= 1;
+            text[start] = b'0' + (magnitude % 10) as u8;
+            magnitude /= 10;
+            if magnitude == 0 {
+                break;
+            }
+        }
+        if value < 0 {
+            start -= 1;
+            text[start] = b'-';
+        }
+        Self::domain_value_of_canonical(
+            DomainKind::Int,
+            Sort::builtin(BuiltinSort::Int),
+            KoreString::from_bytes(&text[start..]),
+        )
+    }
+
     /// The `Bool` domain value `true` or `false`, at the sort `SortBool`, which has the `Bool`
     /// kind by its name whether or not a definition hooks it.
     pub fn bool(value: bool) -> Self {
@@ -1391,7 +1393,7 @@ impl Term {
 
     /// The leaf a dropped handle is left on ([`DETACHED`]): no value of any sort.
     fn sentinel() -> Self {
-        Self::new_domain_value(Sort::Variable(Name::from("")), KoreString::from(""))
+        Self::new_domain_value(Sort::variable(Name::from("")), KoreString::from(""))
     }
 
     pub fn variable(variable: Variable) -> Self {
@@ -1406,7 +1408,7 @@ impl Term {
         } = term.kind()
             && &source == inner_target
         {
-            return Self::injection(inner_source.clone(), target, inner.clone());
+            return Self::injection(*inner_source, target, inner.clone());
         }
         Self::new(TermKind::Injection {
             source,
@@ -1775,7 +1777,7 @@ impl Term {
                 {
                     return Ok(self.clone());
                 }
-                Self::application(symbol.clone(), sort_arguments.clone(), new_arguments)
+                Self::application(symbol.clone(), *sort_arguments, new_arguments)
             }
             TermKind::Injection {
                 source,
@@ -1786,7 +1788,7 @@ impl Term {
                 if term.ptr_eq(&new_term) {
                     return Ok(self.clone());
                 }
-                Self::injection(source.clone(), target.clone(), new_term)
+                Self::injection(*source, *target, new_term)
             }
             TermKind::Map {
                 definition,
@@ -2032,19 +2034,9 @@ impl Term {
                 symbol,
                 sort_arguments,
                 ..
-            } => {
-                let substitution = symbol
-                    .sort_variables
-                    .iter()
-                    .cloned()
-                    .zip(sort_arguments.iter().cloned())
-                    .collect::<BTreeMap<_, _>>();
-                substitute_sort(&symbol.result_sort, &substitution)
-            }
-            TermKind::DomainValue { sort, .. } | TermKind::Variable(Variable { sort, .. }) => {
-                sort.clone()
-            }
-            TermKind::Injection { target, .. } => target.clone(),
+            } => instantiate_result_sort(symbol, sort_arguments),
+            TermKind::DomainValue { sort, .. } | TermKind::Variable(Variable { sort, .. }) => *sort,
+            TermKind::Injection { target, .. } => *target,
             TermKind::Map { definition, .. } => Sort::simple(definition.map_sort.clone()),
             TermKind::List { definition, .. } | TermKind::Set { definition, .. } => {
                 Sort::simple(definition.list_sort.clone())
@@ -2138,6 +2130,7 @@ fn set_kind_attributes(kind: &TermKind, attributes: &mut TermAttributes) {
     attributes.ceil_free = ceil_free(kind);
     attributes.has_macro_or_alias = has_macro_or_alias(kind);
     attributes.k_cells = k_cells(kind);
+    attributes.may_be_rigid = may_be_rigid(kind);
     attributes.hash = calculate_hash(kind);
 }
 
@@ -2419,6 +2412,43 @@ fn has_macro_or_alias(kind: &TermKind) -> bool {
     })
 }
 
+/// The `may_be_rigid` attribute of a node with this kind: whether the node is a domain value, an
+/// injection, or an application of a symbol whose role is [`HeadRole::FreeConstructor`] or
+/// [`HeadRole::EquationHead`], and every child's stored attribute holds. By induction over the
+/// term, the stored attribute is false exactly when some node of the term has another kind or
+/// role: a variable, a conjunction, a collection, or an application of a function, residual or
+/// uninterpreted symbol.
+///
+/// Those are the nodes at which the walks of [`rigid_apart_skeleton_hash`] and `has_key_header`
+/// stop with `None` and `false`: the root classification (`head::classify`) gives a variable
+/// and a conjunction an open head, a collection the `Collection` root, which neither walk
+/// accepts, and an application of those roles an open or residual head; `has_key_header` accepts
+/// only domain values, injections and free-constructor applications. Both walks reach every node
+/// of a term before they answer `Some` or `true`, so they answer `None` and `false` on a term
+/// whose attribute is false, and may return at once there.
+#[deny(clippy::wildcard_enum_match_arm)]
+fn may_be_rigid(kind: &TermKind) -> bool {
+    match kind {
+        TermKind::DomainValue { .. } => true,
+        TermKind::Injection { term, .. } => term.attributes().may_be_rigid,
+        TermKind::Application {
+            symbol, arguments, ..
+        } => {
+            matches!(
+                symbol.attributes.head_role(),
+                HeadRole::FreeConstructor | HeadRole::EquationHead
+            ) && arguments
+                .iter()
+                .all(|argument| argument.attributes().may_be_rigid)
+        }
+        TermKind::Variable(_)
+        | TermKind::And(..)
+        | TermKind::Map { .. }
+        | TermKind::List { .. }
+        | TermKind::Set { .. } => false,
+    }
+}
+
 /// The `k_cells` attribute of a node with this kind: 1 at a `<k>` cell whatever its arguments
 /// hold, because `rule::find_k_cells` does not descend below a `<k>` cell; otherwise the sum of
 /// the children's stored counts, saturated at 2. This is `kCells` of
@@ -2492,8 +2522,23 @@ fn distinct_roots_decide(left: head::FixedRoot, right: head::FixedRoot) -> bool 
 /// `lean/KRust/TermAttributes.lean`.
 ///
 /// One walk over the term, with its pending nodes on `pending` (left empty), so that a key of any
-/// height takes a bounded native stack.
+/// height takes a bounded native stack; none when the stored `may_be_rigid` attribute is false,
+/// which says the walk would stop at some node.
 pub(crate) fn rigid_apart_skeleton_hash<'t>(
+    term: &'t Term,
+    pending: &mut Vec<&'t Term>,
+) -> Option<u64> {
+    pending.clear();
+    // A term with a node the walk stops at answers `None` without the walk (`may_be_rigid`).
+    if !term.attributes().may_be_rigid() {
+        return None;
+    }
+    rigid_apart_skeleton_walk(term, pending)
+}
+
+/// [`rigid_apart_skeleton_hash`] by its walk alone, whatever the stored `may_be_rigid`: the
+/// reference the shortcut is checked against (`tests::definedness`).
+pub(crate) fn rigid_apart_skeleton_walk<'t>(
     term: &'t Term,
     pending: &mut Vec<&'t Term>,
 ) -> Option<u64> {
@@ -2812,6 +2857,9 @@ fn apart_step<'t>(
         head::RootComparison::SameApplication(same) => ApartStep::Arguments(same),
         // Applications of one symbol with different arities are ill-formed.
         head::RootComparison::ArityMismatch => ApartStep::Undecided,
+        // One symbol whose sort arguments are one on some instances of their sort variables:
+        // the two terms are one term there.
+        head::RootComparison::OpenSortArguments => ApartStep::Undecided,
         head::RootComparison::DomainValues => head::Apart::of_domain_values(left_root, right_root)
             .map_or(ApartStep::Undecided, ApartStep::Apart),
         head::RootComparison::Injections => {
@@ -2882,7 +2930,14 @@ pub(crate) enum InjectionComparison {
 /// work list, so that a key whose nodes have at most one argument each, such as a key cell
 /// `<id>(\dv{Int}("1"))`, is walked without allocating, and a key of any height takes a
 /// bounded native stack.
-fn has_key_header(key: &Term) -> bool {
+pub(crate) fn has_key_header(key: &Term) -> bool {
+    // A key with a node the walk stops at has no header, without the walk (`may_be_rigid`).
+    key.attributes().may_be_rigid() && key_header_walk(key)
+}
+
+/// [`has_key_header`] by its walk alone, whatever the stored `may_be_rigid`: the reference the
+/// shortcut is checked against (`tests::definedness`).
+pub(crate) fn key_header_walk(key: &Term) -> bool {
     let mut pending = Vec::new();
     let mut node = key;
     loop {
@@ -2957,9 +3012,10 @@ pub enum DomainKind {
     /// the sort's KORE name on every route). A code point above U+00FF names no byte.
     Bytes,
     /// The floating-point numbers of every format (`FLOAT.Float`): a literal denotes its decimal
-    /// rounded to nearest, ties to even, in the format its suffix names, and the canonical text
-    /// is the one text of that value ([`crate::builtin::canonical_float_text`]): the hooks' text
-    /// for binary32 and binary64, the exact decimal for every other format.
+    /// rounded to nearest, ties to even by k-rust's reading of FLOAT rounding
+    /// (`docs/compatibility.md`, "Backend scope"), in the format its suffix names, and the
+    /// canonical text is the one text of that value ([`crate::builtin::canonical_float_text`]):
+    /// the hooks' text for binary32 and binary64, the exact decimal for every other format.
     Float,
     /// Every other sort with domain values (an unhooked token sort, `Id`, an unhooked
     /// `SortFloat`, ...): a text is its own value.
@@ -3002,6 +3058,50 @@ impl DomainKind {
             _ => Self::Token,
         })
     }
+
+    /// Whether two texts can name one element of a sort of this kind, so that its canonical text
+    /// is not always the text as written (`canonical_text`): `07` and `7` are one integer,
+    /// `01p8` and `1p8` one machine integer, `1.0` and `1.00` one Float. A Boolean's, a
+    /// `String`'s and a `Bytes` value's text is its one text, as a token's is.
+    pub(crate) fn identifies_texts(self) -> bool {
+        match self {
+            Self::Int | Self::MInt(_) | Self::Float => true,
+            Self::Bool | Self::String | Self::Bytes | Self::Token => false,
+        }
+    }
+
+    /// The kind the builtin hooks' argument readers take a domain value of `sort` to have,
+    /// judging by the sort's name alone: `SortInt`, `SortBool`, `SortString`, `SortBytes` and
+    /// `SortFloat` their builtins' kinds, and `SortMInt{Sort<digits>{}}` the machine integers of
+    /// that width. `None` for every other sort, a `SortMInt` whose argument names no numeral or
+    /// is still a sort variable included: no reader reads a literal of one.
+    ///
+    /// It is the kind the definition gives the sort only where the definition declares the
+    /// sort with its builtin's hook ([`Self::of_declared_sort`]; `SortInt` and `SortBool` take
+    /// their kinds from their names). Where this kind identifies texts
+    /// ([`Self::identifies_texts`]) and the definition gives the sort another, the evaluation
+    /// entry refuses the application before any reader sees the argument
+    /// (`crate::builtin::misread_by_name`).
+    pub(crate) fn named(sort: &Sort) -> Option<Self> {
+        let SortNode::Application { name, arguments } = sort.node() else {
+            return None;
+        };
+        if !arguments.is_empty() {
+            return match mint_width(sort)? {
+                MIntWidth::NoWidth => None,
+                width => Some(Self::MInt(width)),
+            };
+        }
+        [
+            (BuiltinSort::Int, Self::Int),
+            (BuiltinSort::Bool, Self::Bool),
+            (BuiltinSort::String, Self::String),
+            (BuiltinSort::Bytes, Self::Bytes),
+            (BuiltinSort::Float, Self::Float),
+        ]
+        .into_iter()
+        .find_map(|(builtin, kind)| (name.as_ref() == builtin.kore_name()).then_some(kind))
+    }
 }
 
 /// The width of `sort` when it is a machine-integer sort `SortMInt{A}`: `Bits(n)` when `A` is
@@ -3009,7 +3109,7 @@ impl DomainKind {
 /// for any other closed `A` (a declared `MInt{Foo}`). `None` when `A` holds a sort variable,
 /// whose width is not fixed yet, and for every other sort.
 pub(crate) fn mint_width(sort: &Sort) -> Option<MIntWidth> {
-    let Sort::Application { name, arguments } = sort else {
+    let SortNode::Application { name, arguments } = sort.node() else {
         return None;
     };
     let [argument] = arguments.as_slice() else {
@@ -3030,7 +3130,7 @@ pub(crate) fn mint_width(sort: &Sort) -> Option<MIntWidth> {
 /// The digits of the width argument of a machine-integer sort `SortMInt{Sort<digits>{}}`, as
 /// written in the sort's name.
 pub(crate) fn mint_width_digits(sort: &Sort) -> Option<&str> {
-    let Sort::Application { name, arguments } = sort else {
+    let SortNode::Application { name, arguments } = sort.node() else {
         return None;
     };
     match arguments.as_slice() {
@@ -3041,7 +3141,7 @@ pub(crate) fn mint_width_digits(sort: &Sort) -> Option<&str> {
 
 /// The digits `d` of a nullary sort `Sort<d>{}`, the KORE declaration of a numeral.
 fn numeral_sort_digits(sort: &Sort) -> Option<&str> {
-    let Sort::Application { name, arguments } = sort else {
+    let SortNode::Application { name, arguments } = sort.node() else {
         return None;
     };
     let digits = name.strip_prefix("Sort")?;
@@ -3236,7 +3336,7 @@ fn map_parts(definition: &Arc<MapDefinition>, term: &Term) -> (Items<(Term, Term
 fn combine_lists(
     definition: Arc<ListDefinition>,
     symbol: Arc<Symbol>,
-    sort_arguments: Vec<Sort>,
+    sort_arguments: Sorts,
     left: Term,
     right: Term,
 ) -> Term {
@@ -3294,7 +3394,7 @@ fn combine_lists(
 fn combine_sets(
     definition: Arc<SetDefinition>,
     symbol: Arc<Symbol>,
-    sort_arguments: Vec<Sort>,
+    sort_arguments: Sorts,
     left: Term,
     right: Term,
 ) -> Term {
@@ -3325,20 +3425,38 @@ fn set_parts(definition: &Arc<SetDefinition>, term: &Term) -> (Items<Term>, Opti
     }
 }
 
-fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) -> Sort {
-    match sort {
-        Sort::Variable(name) => substitution
-            .get(name)
-            .cloned()
-            .unwrap_or_else(|| sort.clone()),
-        Sort::Application { name, arguments } => Sort::Application {
-            name: name.clone(),
-            arguments: arguments
+/// The result sort of an application of `symbol` at `sort_arguments`: its declared result sort
+/// with each of its sort variables replaced by the argument at that variable's position. A
+/// symbol's result sort mentions only the symbol's own sort variables (checked at load), so a
+/// symbol without sort variables has its declared result sort. A variable without an argument
+/// at its position stays; of two positions of one name (load refuses them), the last one with
+/// an argument counts.
+fn instantiate_result_sort(symbol: &Symbol, sort_arguments: &[Sort]) -> Sort {
+    fn instantiate(sort: Sort, variables: &[Name], arguments: &[Sort]) -> Sort {
+        match sort.node() {
+            SortNode::Variable(name) => variables
                 .iter()
-                .map(|argument| substitute_sort(argument, substitution))
-                .collect(),
-        },
+                .zip(arguments)
+                .rev()
+                .find_map(|(variable, argument)| (variable == name).then_some(*argument))
+                .unwrap_or(sort),
+            SortNode::Application {
+                name,
+                arguments: inner,
+            } if sort.has_variable() => Sort::application_of(
+                name.clone(),
+                inner
+                    .iter()
+                    .map(|argument| instantiate(*argument, variables, arguments))
+                    .collect(),
+            ),
+            SortNode::Application { .. } => sort,
+        }
     }
+    if symbol.sort_variables.is_empty() {
+        return symbol.result_sort;
+    }
+    instantiate(symbol.result_sort, &symbol.sort_variables, sort_arguments)
 }
 
 fn combine_attributes<'a>(terms: impl IntoIterator<Item = &'a Term>) -> TermAttributes {
@@ -4267,7 +4385,7 @@ impl Term {
     pub(crate) fn unshared_copy(&self) -> Self {
         let copy = |term: &Self| term.unshared_copy();
         if let TermKind::DomainValue { sort, value } = self.kind() {
-            return Self::new_domain_value(sort.clone(), value.clone());
+            return Self::new_domain_value(*sort, value.clone());
         }
         Self::new(match self.kind() {
             TermKind::And(left, right) => TermKind::And(copy(left), copy(right)),
@@ -4277,7 +4395,7 @@ impl Term {
                 arguments,
             } => TermKind::Application {
                 symbol: symbol.clone(),
-                sort_arguments: sort_arguments.clone(),
+                sort_arguments: *sort_arguments,
                 arguments: arguments.iter().map(copy).collect(),
             },
             TermKind::Variable(_) => self.kind().clone(),
@@ -4287,8 +4405,8 @@ impl Term {
                 target,
                 term,
             } => TermKind::Injection {
-                source: source.clone(),
-                target: target.clone(),
+                source: *source,
+                target: *target,
                 term: copy(term),
             },
             TermKind::Map {
@@ -4329,8 +4447,73 @@ impl Term {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::counted::Counted;
+
+    /// The substitution `Term::sort` applied before `instantiate_result_sort`, as the reference.
+    fn substitute_sort(sort: &Sort, substitution: &BTreeMap<Name, Sort>) -> Sort {
+        match sort.node() {
+            SortNode::Variable(name) => substitution.get(name).copied().unwrap_or(*sort),
+            SortNode::Application { name, arguments } => Sort::application(
+                name.clone(),
+                arguments
+                    .iter()
+                    .map(|argument| substitute_sort(argument, substitution))
+                    .collect(),
+            ),
+        }
+    }
+
+    /// `instantiate_result_sort` is the substitution of the symbol's sort variables, zipped with
+    /// the sort arguments into a map, applied to its result sort: over result sorts mentioning
+    /// variables of the symbol and others, nested in applications, and over variable lists with
+    /// repeated names and argument lists of every length up to one more than the variables.
+    #[test]
+    fn instantiated_result_sort_is_the_substitution_of_the_sort_variables() {
+        let variable = |name: &str| Sort::variable(Name::from(name));
+        let results = [
+            Sort::simple("SortA"),
+            variable("S"),
+            variable("U"),
+            Sort::application("SortPair", vec![variable("S"), variable("T")]),
+            Sort::application(
+                "SortBox",
+                vec![Sort::application(
+                    "SortPair",
+                    vec![variable("T"), Sort::simple("SortA")],
+                )],
+            ),
+        ];
+        let variable_lists: [&[&str]; 5] = [&[], &["S"], &["S", "T"], &["T", "S"], &["S", "S"]];
+        let pool = [
+            Sort::simple("SortInt"),
+            Sort::simple("SortBool"),
+            variable("R"),
+        ];
+        for result_sort in &results {
+            for variables in variable_lists {
+                for count in 0..=variables.len() + 1 {
+                    let arguments = pool[..count.min(pool.len())].to_vec();
+                    let mut symbol = Symbol::constructor("s", Vec::new(), *result_sort);
+                    symbol.sort_variables =
+                        variables.iter().map(|name| Name::from(*name)).collect();
+                    let substitution = symbol
+                        .sort_variables
+                        .iter()
+                        .cloned()
+                        .zip(arguments.iter().cloned())
+                        .collect::<BTreeMap<_, _>>();
+                    assert_eq!(
+                        instantiate_result_sort(&symbol, &arguments),
+                        substitute_sort(result_sort, &substitution),
+                        "{result_sort:?} {variables:?} {arguments:?}"
+                    );
+                }
+            }
+        }
+    }
 
     fn sort() -> Sort {
         Sort::simple("SomeSort")
@@ -4525,12 +4708,12 @@ mod tests {
             let int = Sort::builtin(BuiltinSort::Int);
             let leaf =
                 (any::<bool>(), any::<bool>(), 0..2u8).prop_map(move |(inject, kitem, value)| {
-                    let value = Term::raw_domain_value(int.clone(), value.to_string());
+                    let value = Term::raw_domain_value(int, value.to_string());
                     if inject {
                         let source = if kitem {
                             Sort::simple("SortKItem")
                         } else {
-                            int.clone()
+                            int
                         };
                         Term::injection(source, sort(), value)
                     } else {
@@ -5050,12 +5233,8 @@ mod tests {
         let a = Sort::simple("A");
         let b = Sort::simple("B");
         let c = Sort::simple("C");
-        let value = Term::raw_domain_value(a.clone(), "value");
-        let nested = Term::injection(
-            b.clone(),
-            c.clone(),
-            Term::injection(a.clone(), b, value.clone()),
-        );
+        let value = Term::raw_domain_value(a, "value");
+        let nested = Term::injection(b, c, Term::injection(a, b, value.clone()));
         assert_eq!(nested, Term::injection(a, c, value));
     }
 
@@ -5069,7 +5248,7 @@ mod tests {
     fn int_domain_values_are_canonical_at_construction() {
         let int_sort = Sort::simple("SortInt");
         for (source, expected) in [("+3", "3"), ("007", "7"), ("-0", "0"), ("-12", "-12")] {
-            let term = Term::domain_value_of(DomainKind::Int, int_sort.clone(), source);
+            let term = Term::domain_value_of(DomainKind::Int, int_sort, source);
             let TermKind::DomainValue { value, .. } = term.kind() else {
                 unreachable!()
             };
@@ -5077,14 +5256,13 @@ mod tests {
         }
 
         let canonical = KoreString::from("12");
-        let canonical_term =
-            Term::domain_value_of(DomainKind::Int, int_sort.clone(), canonical.clone());
+        let canonical_term = Term::domain_value_of(DomainKind::Int, int_sort, canonical.clone());
         let TermKind::DomainValue { value, .. } = canonical_term.kind() else {
             unreachable!()
         };
         assert!(std::ptr::eq(value.as_bytes(), canonical.as_bytes()));
 
-        let signed = Term::domain_value_of(DomainKind::Int, int_sort.clone(), "+3");
+        let signed = Term::domain_value_of(DomainKind::Int, int_sort, "+3");
         let unsigned = Term::domain_value_of(DomainKind::Int, int_sort, "3");
         assert_eq!(signed, unsigned);
         assert_eq!(
@@ -5099,8 +5277,7 @@ mod tests {
     #[test]
     fn float_domain_values_are_canonical_at_construction() {
         let float_sort = Sort::builtin(BuiltinSort::Float);
-        let built =
-            |source: &str| Term::domain_value_of(DomainKind::Float, float_sort.clone(), source);
+        let built = |source: &str| Term::domain_value_of(DomainKind::Float, float_sort, source);
         let text = |term: &Term| match term.kind() {
             TermKind::DomainValue { value, .. } => value.as_utf8().unwrap().to_owned(),
             _ => unreachable!(),
@@ -5121,7 +5298,7 @@ mod tests {
 
         let canonical = KoreString::from("1e0p11x5");
         let canonical_term =
-            Term::domain_value_of(DomainKind::Float, float_sort.clone(), canonical.clone());
+            Term::domain_value_of(DomainKind::Float, float_sort, canonical.clone());
         let TermKind::DomainValue { value, .. } = canonical_term.kind() else {
             unreachable!()
         };
@@ -5187,8 +5364,8 @@ mod tests {
     #[test]
     fn domain_value_equality_and_hash_preserve_raw_bytes() {
         let sort = Sort::builtin(BuiltinSort::String);
-        let raw = Term::raw_domain_value(sort.clone(), vec![0xff, 0x80]);
-        let same = Term::raw_domain_value(sort.clone(), vec![0xff, 0x80]);
+        let raw = Term::raw_domain_value(sort, vec![0xff, 0x80]);
+        let same = Term::raw_domain_value(sort, vec![0xff, 0x80]);
         let utf8 = Term::raw_domain_value(sort, "ÿ\u{80}");
 
         assert_eq!(raw, same);
@@ -5199,14 +5376,10 @@ mod tests {
     #[test]
     fn sequential_values_and_wrappers_have_distinct_hashes() {
         let sort = Sort::builtin(BuiltinSort::Int);
-        let wrapper = Arc::new(Symbol::constructor(
-            "hashWrapper",
-            vec![sort.clone()],
-            sort.clone(),
-        ));
+        let wrapper = Arc::new(Symbol::constructor("hashWrapper", vec![sort], sort));
         let mut hashes = std::collections::HashSet::new();
         for value in 0..10_000 {
-            let child = Term::raw_domain_value(sort.clone(), value.to_string());
+            let child = Term::raw_domain_value(sort, value.to_string());
             let wrapped = Term::application(wrapper.clone(), Vec::new(), vec![child.clone()]);
             assert!(hashes.insert(child.attributes().hash));
             assert!(hashes.insert(wrapped.attributes().hash));
@@ -5275,14 +5448,16 @@ mod tests {
             assert!(Sort::builtin(sort).is_builtin(sort), "{sort:?}");
             assert!(Sort::simple(sort.kore_name()).is_builtin(sort), "{sort:?}");
         }
-        let Sort::Application { name: first, .. } = Sort::builtin(BuiltinSort::Int) else {
+        let SortNode::Application { name: first, .. } = Sort::builtin(BuiltinSort::Int).node()
+        else {
             unreachable!()
         };
-        let Sort::Application { name: second, .. } = Sort::builtin(BuiltinSort::Int) else {
+        let SortNode::Application { name: second, .. } = Sort::builtin(BuiltinSort::Int).node()
+        else {
             unreachable!()
         };
         assert!(
-            Arc::ptr_eq(&first, &second),
+            Arc::ptr_eq(first, second),
             "builtin names share one allocation"
         );
     }
@@ -5294,7 +5469,7 @@ mod tests {
             vec![Sort::builtin(BuiltinSort::K)],
         );
         assert!(!parametric.is_builtin(BuiltinSort::Map));
-        assert!(!Sort::Variable("SortMap".into()).is_builtin(BuiltinSort::Map));
+        assert!(!Sort::variable("SortMap").is_builtin(BuiltinSort::Map));
         assert!(!Sort::builtin(BuiltinSort::Set).is_builtin(BuiltinSort::Map));
         let symbol = Symbol::constructor("inj", Vec::new(), Sort::builtin(BuiltinSort::K));
         assert!(symbol.is(WellKnownSymbol::Inj));

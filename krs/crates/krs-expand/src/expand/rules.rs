@@ -104,7 +104,6 @@ pub(crate) fn context(
         &attribute,
         krs_ir::SentenceKind::Context,
         OrdinaryRuleKeys::default(),
-        None,
         &[],
     )
 }
@@ -144,6 +143,107 @@ pub(crate) fn equation(
     )
 }
 
+/// An equation the shared parser synthesized from authored tokens: one a
+/// function shorthand's body defines, whose only `#[k::equation]` key is
+/// the `owise` of a catch-all arm.
+pub(crate) fn equation_item(
+    env: &dyn MacroEnvironment,
+    shorthand: &krs_syntax::ShorthandEquation,
+) -> crate::Result<TokenStream> {
+    let equation = krs_syntax::EquationAttribute::parse_tokens(shorthand.equation_keys())?;
+    let rule = shorthand.rule()?;
+    expand_ordinary_rule(
+        env,
+        &rule,
+        &krs_syntax::RuleAttribute::default(),
+        krs_ir::SentenceKind::Equation,
+        OrdinaryRuleKeys {
+            equation: Some(&equation),
+            simplification: None,
+            desugar: None,
+            lexical_imports: None,
+        },
+        &[],
+    )
+}
+
+/// One `k::equations!` row: an equation whose one-segment paths rustc
+/// resolves through the table's `use` items, and the check of its argument
+/// count against the function's.
+pub(crate) fn equation_row(
+    env: &dyn MacroEnvironment,
+    row: &krs_syntax::EquationRow,
+    imports: &[syn::ItemUse],
+    function: &Path,
+) -> crate::Result<TokenStream> {
+    let equation = expand_ordinary_rule(
+        env,
+        row.rule(),
+        &krs_syntax::RuleAttribute::default(),
+        krs_ir::SentenceKind::Equation,
+        OrdinaryRuleKeys {
+            equation: Some(row.equation()),
+            simplification: None,
+            desugar: None,
+            lexical_imports: Some(imports),
+        },
+        &[],
+    )?;
+    let facade = env.facade_path()?;
+    let cfg = call_site_cfg_attributes(&row.rule().item().attrs)?;
+    let arguments = (0..row.arity()).map(|_| quote!(#facade::__krs_argument()));
+    let arity = quote::quote_spanned! {row.arguments().span()=>
+        #(#cfg)*
+        const _: () = {
+            #[allow(clippy::unused_unit)]
+            fn __krs_row_arity() {
+                let _: <#function as #facade::__KrsFunction>::Arguments = (#(#arguments,)*);
+            }
+        };
+    };
+    let binder_check =
+        scoped_binder_check(&cfg, imports, row.rule().parameter().pattern.bindings());
+    Ok(quote! {
+        #equation
+        #arity
+        #binder_check
+    })
+}
+
+/// Checks the binders of a readable table's clause or row with the block's
+/// `use` items in scope. A bare identifier in a KRS pattern is a binder;
+/// where the block's imports make it a unit variant or a constant, which
+/// Rust would read instead, `let A = ();` is a refutable pattern of another
+/// type and rustc reports E0308 at the name, so the clause cannot silently
+/// bind everything. The variant is written `A()` or `Enum::A`. Imports of
+/// the module are already in scope of the sentence fn's own binding check.
+pub(super) fn scoped_binder_check(
+    cfg: &[Attribute],
+    imports: &[syn::ItemUse],
+    binders: &[syn::Ident],
+) -> Option<TokenStream> {
+    // A bit template's hidden binder cannot name a unit variant.
+    let binders = binders
+        .iter()
+        .filter(|binder| !krs_syntax::is_hidden_binder(&binder.to_string()))
+        .collect::<Vec<_>>();
+    (!imports.is_empty() && !binders.is_empty()).then(|| {
+        quote! {
+            #(#cfg)*
+            const _: () = {
+                #(
+                    #[allow(unused_imports, clippy::enum_glob_use)]
+                    #imports
+                )*
+                #[allow(unused_variables, clippy::let_unit_value, clippy::no_effect_underscore_binding)]
+                fn __krs_scoped_binders() {
+                    #(let #binders = ();)*
+                }
+            };
+        }
+    })
+}
+
 pub(crate) fn simplification(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
@@ -176,9 +276,9 @@ pub(crate) fn alias(
             None,
         );
     }
-    Err(ExpandError::new(
+    // The misplaced helper is the invocation itself.
+    Err(ExpandError::at_invocation(
         expand::ORPHAN_HELPER,
-        Span::call_site(),
         "`#[k::alias]` on a production is a constructor helper; place `#[k::constructor(...)]` before it",
     ))
 }
@@ -202,7 +302,7 @@ pub(crate) fn desugar(
                 .segments
                 .last()
                 .expect("helper attributes have a final path segment");
-            return Err(requires_on_desugar(name.ident.span()));
+            return Err(requires_on_desugar(Some(name.ident.span())));
         }
         let rule = krs_syntax::RuleItem::parse_desugar_tokens(item, &desugar)?;
         return expand_ordinary_rule(
@@ -214,26 +314,29 @@ pub(crate) fn desugar(
                 desugar: Some(&desugar),
                 ..OrdinaryRuleKeys::default()
             },
-            None,
             &[],
         );
     }
-    Err(ExpandError::new(
+    // The misplaced helper is the invocation itself.
+    Err(ExpandError::at_invocation(
         expand::ORPHAN_HELPER,
-        Span::call_site(),
         "`#[k::desugar]` on a production is a constructor helper; place `#[k::constructor(...)]` before it",
     ))
 }
 
 /// `#[k::requires]` on a desugar clause (KF-028).
-fn requires_on_desugar(span: Span) -> ExpandError {
-    krs_syntax::SyntaxError::new(
+/// `span` is the `#[k::requires]` attribute; `None` when it is the invocation being expanded.
+fn requires_on_desugar(span: Option<Span>) -> ExpandError {
+    let error = krs_diagnostic::ToDiagnostic::to_diagnostic(&krs_syntax::SyntaxError::new(
         krs_syntax::SyntaxErrorKind::InvalidRuleKey {
             reason: krs_syntax::REQUIRES_ON_DESUGAR_CLAUSE,
         },
-        span,
-    )
-    .into()
+        span.unwrap_or_else(Span::call_site),
+    ));
+    match span {
+        Some(_) => ExpandError::from_diagnostic(error),
+        None => ExpandError::at_invocation(error.code, error.message),
+    }
 }
 
 pub(crate) fn priority(
@@ -267,8 +370,8 @@ fn ordinary_rule(
             equation,
             simplification,
             desugar: None,
+            lexical_imports: None,
         },
-        None,
         &[],
     )
 }
@@ -280,6 +383,9 @@ struct OrdinaryRuleKeys<'a> {
     simplification: Option<&'a krs_syntax::SimplificationAttribute>,
     /// `#[k::desugar(..)]` of a desugar clause (KF-046).
     desugar: Option<&'a krs_syntax::DesugarAttribute>,
+    /// The `use` items of a `k::equations!` table, through which rustc
+    /// resolves the row's one-segment paths.
+    lexical_imports: Option<&'a [syn::ItemUse]>,
 }
 
 #[expect(
@@ -292,13 +398,13 @@ fn expand_ordinary_rule(
     attribute: &krs_syntax::RuleAttribute,
     sentence_kind: krs_ir::SentenceKind,
     keys: OrdinaryRuleKeys<'_>,
-    enum_glob: Option<&Path>,
     narrowings: &[krs_syntax::RuleNarrowing],
 ) -> crate::Result<TokenStream> {
     let OrdinaryRuleKeys {
         equation,
         simplification,
         desugar,
+        lexical_imports,
     } = keys;
     // A single-body rule (KF-011) is a transition that is not an anywhere
     // rule: its subject's `k::rewrite!` islands say what changes.
@@ -317,14 +423,14 @@ fn expand_ordinary_rule(
     if let Some(binder) = rule.existentials().fresh().first()
         && (sentence_kind != krs_ir::SentenceKind::Transition || attribute.anywhere().is_some())
     {
-        return Err(misplaced_fresh(binder.name().span()));
+        return Err(misplaced_fresh(Some(binder.name().span())));
     }
     if sentence_kind != krs_ir::SentenceKind::Transition
         && let Some(helper) = rule.existentials().attributes().first()
     {
-        return Err(misplaced_existential(syn::spanned::Spanned::span(
+        return Err(misplaced_existential(Some(syn::spanned::Spanned::span(
             helper.path(),
-        )));
+        ))));
     }
     let rule_requires_role = ProvenanceRole::RuleRequires;
     let simplification_priority_role = ProvenanceRole::SimplificationPriority;
@@ -391,7 +497,16 @@ fn expand_ordinary_rule(
     // descriptor carries Bool placeholders, and rustc checks that both
     // types are the facade's `ml::Predicate` (KF-039). A single-body rule
     // (KF-011) has no result type.
-    let (parameter_sort_type, result_sort_type, predicate_checks) = if predicate {
+    let (parameter_sort_type, result_sort_type, predicate_checks) = if rule
+        .parameter()
+        .term_sort
+        .is_function_result()
+    {
+        // A `k::equations!` row: the header names the function, whose
+        // result sort is the equation's.
+        let sort = quote!(<#parameter_sort_path as #facade::__KrsFunction>::Result);
+        (sort.clone(), Some(sort), TokenStream::new())
+    } else if predicate {
         (
             quote!(#facade::builtin::Bool),
             Some(quote!(#facade::builtin::Bool)),
@@ -444,10 +559,15 @@ fn expand_ordinary_rule(
         .pattern
         .bindings()
         .iter()
-        .map(ToString::to_string)
+        .map(|binding| binding.unraw().to_string())
         .collect::<Vec<_>>();
     let mut binding_checks = Vec::new();
     for binding in &rule.condition_bindings() {
+        // A bit template's hidden binder is no name an author wrote or can
+        // use, so tooling is not shown one at the template.
+        if krs_syntax::is_hidden_binder(&binding.to_string()) {
+            continue;
+        }
         let generated = call_site_ident(binding)?;
         binding_checks.push(quote! {
             let #binding = ();
@@ -463,8 +583,8 @@ fn expand_ordinary_rule(
     // The result and the ensures condition also see the existentials; the
     // subject and requires never do (the parser rejects such a use).
     let binding_idents = rule.result_bindings();
-    let mut term_builder =
-        TermBuilder::new(&facade, nonce, &cfg, &binding_idents).with_enum_glob(enum_glob);
+    let mut term_builder = TermBuilder::new(&facade, nonce, &cfg, &binding_idents)
+        .with_lexical_imports(lexical_imports);
     let mut slots = WireSlots::new(&facade);
     let (existentials, existential_key_functions) =
         existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
@@ -790,7 +910,7 @@ fn function_context(
             }
         };
         context_bindings.push(krs_ir::ProtocolRuleBinding {
-            name: binding.name().to_string(),
+            name: binding.name().unraw().to_string(),
             kind,
         });
     }
@@ -868,7 +988,7 @@ fn typed_binders(
         });
         bindings.push(krs_ir::wire::WireTypedBinding {
             key: wire_key(ProvenanceRole::RuleBindingParameter, ordinal),
-            name: binder.name().to_string(),
+            name: binder.name().unraw().to_string(),
             sort: wire_sort_reference(
                 slots,
                 facade,
@@ -952,6 +1072,23 @@ pub(crate) fn orphan_rule_helper(
     ) {
         return orphan_result_helper(env, entry, attributes, item);
     }
+    if entry == AttributeMacro::Requires
+        && let Ok(mut shorthand) = syn::parse2::<krs_syntax::ShorthandItem>(item.clone())
+        && let Some(index) = shorthand
+            .attrs
+            .iter()
+            .position(|attribute| helper_entry(attribute.path()) == Some(AttributeMacro::Function))
+    {
+        // `#[k::requires]` above a function shorthand guards its equation.
+        let function = shorthand.attrs.remove(index);
+        let payload = match &function.meta {
+            syn::Meta::List(list) => list.tokens.clone(),
+            _ => TokenStream::new(),
+        };
+        let helper: Attribute = syn::parse_quote!(#[k::requires(#attributes)]);
+        shorthand.attrs.insert(0, helper);
+        return super::constructors::function(env, payload, shorthand.to_token_stream());
+    }
     if entry == AttributeMacro::Requires {
         let mut function: ItemFn = syn::parse2(item)?;
         if function
@@ -959,7 +1096,8 @@ pub(crate) fn orphan_rule_helper(
             .iter()
             .any(|attribute| helper_entry(attribute.path()) == Some(AttributeMacro::Desugar))
         {
-            return Err(requires_on_desugar(Span::call_site()));
+            // The misplaced `#[k::requires]` is the invocation itself.
+            return Err(requires_on_desugar(None));
         }
         if let Some((index, outer)) =
             function
@@ -990,9 +1128,9 @@ pub(crate) fn orphan_rule_helper(
             };
         }
     }
-    Err(ExpandError::new(
+    // The misplaced helper is the invocation itself.
+    Err(ExpandError::at_invocation(
         expand::ORPHAN_HELPER,
-        Span::call_site(),
         format!("`#[k::{name}]` is a rule helper; place `#[k::rule]` before it"),
     ))
 }
@@ -1045,10 +1183,11 @@ fn orphan_result_helper(
             function.attrs.insert(0, helper);
             return rule(env, sentence_payload, function.to_token_stream());
         }
+        // The misplaced helper is the invocation itself.
         Some((_, AttributeMacro::Claim | AttributeMacro::ContextAlias))
             if entry == AttributeMacro::Fresh =>
         {
-            return Err(misplaced_fresh(Span::call_site()));
+            return Err(misplaced_fresh(None));
         }
         Some((
             _,
@@ -1058,23 +1197,22 @@ fn orphan_result_helper(
             | AttributeMacro::Desugar,
         )) => {
             return Err(if entry == AttributeMacro::Fresh {
-                misplaced_fresh(Span::call_site())
+                misplaced_fresh(None)
             } else {
-                misplaced_existential(Span::call_site())
+                misplaced_existential(None)
             });
         }
         _ => {}
     }
+    // The misplaced helper is the invocation itself.
     if entry == AttributeMacro::Fresh {
-        return Err(ExpandError::new(
+        return Err(ExpandError::at_invocation(
             expand::ORPHAN_HELPER,
-            Span::call_site(),
             "`#[k::fresh]` is a rule helper; place `#[k::rule(...)]` before it",
         ));
     }
-    Err(ExpandError::new(
+    Err(ExpandError::at_invocation(
         expand::ORPHAN_HELPER,
-        Span::call_site(),
         format!(
             "`#[k::{name}]` is a rule or claim helper; place `#[k::rule(...)]` or `#[k::claim(...)]` before it"
         ),
@@ -1093,12 +1231,14 @@ pub(super) fn collection_placement(span: Span) -> ExpandError {
     )
 }
 
-pub(super) fn misplaced_fresh(span: Span) -> ExpandError {
-    ExpandError::new(
-        expand::FRESH_PLACEMENT,
-        span,
-        "fresh values are drawn from the generated counter only by a transition step of the configuration; `#[k::fresh]` is not allowed on an equation, simplification, alias, claim, context, context alias, anywhere rule, or heat or cool rule",
-    )
+/// `span` is the misplaced binder or helper; `None` when the helper is the invocation being
+/// expanded.
+pub(super) fn misplaced_fresh(span: Option<Span>) -> ExpandError {
+    let message = "fresh values are drawn from the generated counter only by a transition step of the configuration; `#[k::fresh]` is not allowed on an equation, simplification, alias, claim, context, context alias, anywhere rule, or heat or cool rule";
+    match span {
+        Some(span) => ExpandError::new(expand::FRESH_PLACEMENT, span, message),
+        None => ExpandError::at_invocation(expand::FRESH_PLACEMENT, message),
+    }
 }
 
 /// Rejects a `#[k::fresh]` helper on a claim or context-alias item (KF-022).
@@ -1116,16 +1256,18 @@ pub(super) fn reject_fresh_helper(item: &TokenStream) -> crate::Result<()> {
             .segments
             .last()
             .map_or_else(Span::call_site, |segment| segment.ident.span());
-        return Err(misplaced_fresh(span));
+        return Err(misplaced_fresh(Some(span)));
     }
     Ok(())
 }
 
 /// `#[k::exists]` or `#[k::ensures]` on an equation, simplification, or alias.
-fn misplaced_existential(span: Span) -> ExpandError {
-    ExpandError::new(
-        expand::EXISTENTIAL_PLACEMENT,
-        span,
-        "existential results and ensures are allowed on claims and transition rules, not on equations, simplifications, or aliases",
-    )
+/// `span` is the misplaced binder or helper; `None` when the helper is the invocation being
+/// expanded.
+fn misplaced_existential(span: Option<Span>) -> ExpandError {
+    let message = "existential results and ensures are allowed on claims and transition rules, not on equations, simplifications, or aliases";
+    match span {
+        Some(span) => ExpandError::new(expand::EXISTENTIAL_PLACEMENT, span, message),
+        None => ExpandError::at_invocation(expand::EXISTENTIAL_PLACEMENT, message),
+    }
 }

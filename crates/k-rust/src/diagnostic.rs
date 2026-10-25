@@ -154,6 +154,7 @@ diagnostic_codes! {
     FutureError => "FutureError",
     InvalidAnonymousVariable => "InvalidAnonymousVariable",
     InvalidAttribute => "InvalidAttribute",
+    InvalidBinder => "InvalidBinder",
     InvalidAsPattern => "InvalidAsPattern",
     InvalidBracketProduction => "InvalidBracketProduction",
     InvalidAssociativity => "InvalidAssociativity",
@@ -194,6 +195,7 @@ diagnostic_codes! {
     MarkdownWarning => "MarkdownWarning",
     MissingLocationsImport => "MissingLocationsImport",
     MissingSyntaxModule => "MissingSyntaxModule",
+    MlConstructPosition => "MlConstructPosition",
     ProofModuleRule => "ProofModuleRule",
     ProofModuleSyntax => "ProofModuleSyntax",
     SingletonOverload => "SingletonOverload",
@@ -247,6 +249,7 @@ impl DiagnosticCode {
             | Self::DuplicateUserList
             | Self::InvalidAnonymousVariable
             | Self::InvalidAttribute
+            | Self::InvalidBinder
             | Self::InvalidAsPattern
             | Self::InvalidBracketProduction
             | Self::InvalidCommutativeSimplification
@@ -284,6 +287,7 @@ impl DiagnosticCode {
             | Self::InvalidDomainValue
             | Self::KernelSortPosition
             | Self::MissingLocationsImport
+            | Self::MlConstructPosition
             | Self::ProofModuleRule
             | Self::ProofModuleSyntax
             | Self::UnboundVariable

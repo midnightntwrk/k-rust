@@ -1,0 +1,24 @@
+[[mutation]]
+id = "value-plus-one"
+  [[mutation.edit]]
+  rule = "store"
+  find = "M[K <- V]"
+  replace = "M[K <- V +Int 1]"
+[[mutation]]
+id = "key-value-swap"
+  [[mutation.edit]]
+  rule = "store"
+  find = "M[K <- V]"
+  replace = "M[V <- K]"
+[[mutation]]
+id = "update-as-concat"
+  [[mutation.edit]]
+  rule = "store"
+  find = "M[K <- V]"
+  replace = "M (K |-> V)"
+[[mutation]]
+id = "update-dropped"
+  [[mutation.edit]]
+  rule = "store"
+  find = "M[K <- V]"
+  replace = "M"

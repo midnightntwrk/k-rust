@@ -1,4 +1,5 @@
 use proc_macro2::TokenStream;
+use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::spanned::Spanned;
 use syn::{Expr, ExprLit, Ident, Lit, LitInt, LitStr, Path, Token};
@@ -448,6 +449,28 @@ impl KrsSyntax for ClaimAttribute {
     /// Rejects missing, duplicate, unknown, or incompatible claim arguments and
     /// labels outside the portable K label subset.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        Self::parse_with_label(tokens, None)
+    }
+}
+
+impl ClaimAttribute {
+    /// Parses the `#[k::claim(..)]` of a `k::claims!` clause (F7), whose
+    /// label is the clause name with `_` written `-`, as a readable rule's
+    /// is: the attribute gives the modality and flags only.
+    ///
+    /// # Errors
+    ///
+    /// The errors of [`KrsSyntax::parse_tokens`], a `label` key, and a clause
+    /// name that is no portable K label.
+    pub fn parse_clause_tokens(tokens: TokenStream, name: &Ident) -> Result<Self, SyntaxError> {
+        Self::parse_with_label(tokens, Some(name))
+    }
+
+    #[expect(
+        clippy::too_many_lines,
+        reason = "Every claim key is checked in one pass that keeps its diagnostic at its token."
+    )]
+    fn parse_with_label(tokens: TokenStream, clause: Option<&Ident>) -> Result<Self, SyntaxError> {
         let error = |span, message| ParseError::from(syn::Error::new(span, message));
         let parser = |input: ParseStream<'_>| -> Result<ClaimAttribute, ParseError> {
             let mut modality = None;
@@ -467,6 +490,12 @@ impl KrsSyntax for ClaimAttribute {
                             ClaimModality::OnePath
                         };
                         modality = Some((value, key));
+                    }
+                    "label" if clause.is_some() => {
+                        return Err(error(
+                            key.span(),
+                            "a `k::claims!` clause is labelled by its name: rename the clause instead of writing `label`",
+                        ));
                     }
                     "label" => {
                         if label.is_some() {
@@ -513,8 +542,17 @@ impl KrsSyntax for ClaimAttribute {
             }
             let (modality, modality_ident) =
                 modality.ok_or_else(|| input.error("claim requires `all_paths` or `one_path`"))?;
-            let label =
-                label.ok_or_else(|| input.error("claim requires an explicit `label = \"...\"`"))?;
+            let label = match clause {
+                Some(name) => {
+                    let spelling = name.unraw().to_string().replace('_', "-");
+                    if !valid_claim_label(&spelling) {
+                        return Err(error(name.span(), "invalid portable K claim label"));
+                    }
+                    LitStr::new(&spelling, name.span())
+                }
+                None => label
+                    .ok_or_else(|| input.error("claim requires an explicit `label = \"...\"`"))?,
+            };
             if modality == ClaimModality::OnePath
                 && let Some(circularity) = &circularity
             {

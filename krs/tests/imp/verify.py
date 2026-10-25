@@ -216,7 +216,7 @@ class RustBuild:
     @property
     def detail(self) -> str:
         return (
-            "authored package formatting, Clippy, and MSRV checks; authored and expanded "
+            "authored package formatting checks; authored and expanded "
             "helper tests; authored helper docs; kompile tests; gate self-tests; "
             "krs/krs-gate builds; diagnostic and readable IMP LSP evidence"
         )
@@ -312,6 +312,35 @@ def phase_preflight(context: Context) -> str:
     )
 
 
+WRAPPER_EXEC = re.compile(r'^exec "(/[^"]+)"(?:\s+"\$@")?\s*$', re.MULTILINE)
+
+
+def wrapped_executable(path: Path) -> Path:
+    """The program a tool path finally runs, through symlinks and Nix wrapper scripts.
+
+    The LLVM backend reports no version, so its Nix store path is the version
+    evidence. K's `llvm-kompile` may be a `makeWrapper` script whose last
+    command is `exec "/nix/store/...-llvm-backend-<version>/bin/llvm-kompile" "$@"`.
+    A script with exactly one such absolute `exec` line is a wrapper and is
+    followed; a script with none is the program itself (the backend's own
+    `llvm-kompile` is a bash script); a script with several is ambiguous.
+    """
+
+    for _ in range(8):
+        path = path.resolve()
+        with path.open("rb") as handle:
+            if handle.read(2) != b"#!":
+                return path
+        text = path.read_text(encoding="utf-8", errors="replace")
+        targets = WRAPPER_EXEC.findall(text)
+        if not targets:
+            return path
+        if len(targets) > 1:
+            raise GateError(f"{path} is a script with more than one absolute exec target")
+        path = Path(targets[0])
+    raise GateError(f"{path}: wrapper scripts nest more than 8 levels")
+
+
 def verify_java_tools(tools: Mapping[str, str]) -> None:
     """Require the `Krs.lock` K, kore-exec, LLVM backend, and Z3 versions."""
 
@@ -321,9 +350,10 @@ def verify_java_tools(tools: Mapping[str, str]) -> None:
     kore = run([tools["kore-exec"], "--version"], timeout=30).stdout.strip()
     if kore != lock.value("k", "kore_exec_version"):
         raise GateError(f"kore-exec version differs from Krs.lock: {kore}")
-    llvm = Path(tools["llvm-kompile"]).resolve()
-    if f"llvm-backend-{lock.value('k', 'llvm_backend_version')}" not in llvm.as_posix():
-        raise GateError("LLVM backend version differs from Krs.lock")
+    llvm = wrapped_executable(Path(tools["llvm-kompile"]))
+    expected = f"llvm-backend-{lock.value('k', 'llvm_backend_version')}"
+    if llvm.parent.parent.name.split("-", 1)[-1] != expected or llvm.name != "llvm-kompile":
+        raise GateError(f"LLVM backend version differs from Krs.lock: {llvm} is not {expected}'s llvm-kompile")
     z3 = run([tools["z3"], "--version"], timeout=30).stdout.strip()
     if z3 != f"Z3 version {lock.z3_version()} - 64 bit":
         raise GateError(f"Z3 version differs from Krs.lock: {z3}")
@@ -407,7 +437,7 @@ def phase_rust(context: Context) -> RustBuild:
 
     krs = build(env, timeout=600)
     context.built_gate = krs_gate.build(environment=env)
-    check_packages("imp", krs=krs, env=env, target_dir=context.target)
+    check_packages("imp", krs=krs, env=env)
     # These live LSP probes select authored tokens. A mere rust-analyzer
     # --version check is deliberately insufficient evidence.
     run(
@@ -429,7 +459,9 @@ def phase_rust(context: Context) -> RustBuild:
     return RustBuild(krs)
 
 
-NATIVE_ARTIFACTS = (".krs-artifacts", "definition.kore", "macros.kore", "syntaxDefinition.kore")
+NATIVE_ARTIFACTS = (
+    ".krs-artifacts", "definition.kore", "k2lean-sidecar.json", "macros.kore", "syntaxDefinition.kore"
+)
 
 
 def krs_invocation(krs: Path) -> Invocation:
@@ -439,8 +471,9 @@ def krs_invocation(krs: Path) -> Invocation:
 def native_artifacts(context: Context, krs: Path, env: Mapping[str, str]) -> Path:
     """Build the native definition twice per backend and require identical builds.
 
-    Only the KRS-owned ownership marker is pinned: the KORE is k-rust's output,
-    which k-rust's own gates check, and IMP.7 and IMP.8 check what it does.
+    Only the KRS-owned artifacts are pinned, the ownership marker and the k2lean
+    sidecar of the declared cell types: the KORE is k-rust's output, which
+    k-rust's own gates check, and IMP.7 and IMP.8 check what it does.
     The concrete LLVM backend does not prove, so its build omits every claim.
     """
 
@@ -475,6 +508,17 @@ def native_artifacts(context: Context, krs: Path, env: Mapping[str, str]) -> Pat
 
 def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
     krs = rust_build.krs
+    env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
+    paths, hashes = emitted_artifacts(context, krs)
+    return Artifacts(paths, hashes, native_artifacts(context, krs, env))
+
+
+def emitted_artifacts(context: Context, krs: Path) -> tuple[Path, dict[str, str]]:
+    """IMP.3 up to the native builds: check, expand, emit, the replacement crate, and the API probe.
+
+    Return the probe's emission directory and its pinned digests.
+    """
+
     env = {**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)}
     check = run(krs_invocation(krs).argv("check"), timeout=300, environment=env)
     if "KRS check passed: 124 descriptors, 2 semantic modules" not in check.stdout:
@@ -529,8 +573,24 @@ def phase_artifacts(context: Context, rust_build: RustBuild) -> Artifacts:
 
     for name, digest in probe_hashes.items():
         context.pins.expect(("artifact_sha256", name), digest)
-    native_build = native_artifacts(context, krs, env)
-    return Artifacts(probes[0], probe_hashes, native_build)
+    return probes[0], probe_hashes
+
+
+def emission(pins: Ledger, workspace: Path, krs: Path, gate: Path) -> None:
+    """The emission steps alone, against the same pins, for `tests/ports-emit`.
+
+    They are the authored packages' formatting (IMP.2's `check_packages`) and
+    `emitted_artifacts`, which read IMP's own packages and the KRS tools only:
+    no external checkout, Java K result, or native build.
+    """
+
+    context = Context(
+        pins, load_json(CORPUS_PATH), workspace, default_target().resolve(),
+        environment=z3_environment(), built_gate=gate,
+    )
+    context.target.mkdir(parents=True, exist_ok=True)
+    check_packages("imp", krs=krs, env={**context.environment, "CARGO_TARGET_DIR": os.fspath(context.target)})
+    emitted_artifacts(context, krs)
 
 
 def compile_source_definitions(context: Context, artifacts: Artifacts) -> SourceDefinitions:
@@ -1040,6 +1100,12 @@ def run_phase(
     return result
 
 
+def default_target() -> Path:
+    """The Cargo target IMP's packages and their collectors build in: `KRS_IMP_TARGET_DIR`, else checkout scratch."""
+
+    return Path(os.environ.get("KRS_IMP_TARGET_DIR", os.fspath(checkout_scratch() / "imp-root-target")))
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--audit-all", action="store_true")
@@ -1048,16 +1114,7 @@ def main() -> int:
         action="store_true",
         help="run every phase and rewrite the output pins it measured",
     )
-    parser.add_argument(
-        "--target-dir",
-        type=Path,
-        default=Path(
-            os.environ.get(
-                "KRS_IMP_TARGET_DIR",
-                os.fspath(checkout_scratch() / "imp-root-target"),
-            )
-        ),
-    )
+    parser.add_argument("--target-dir", type=Path, default=default_target())
     parser.add_argument(
         "--artifacts-only",
         action="store_true",

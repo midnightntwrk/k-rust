@@ -307,6 +307,18 @@ fn parse_integer(value: &str, radix: u32) -> Option<BigInt> {
         .flatten()
 }
 
+/// Whether `value`, `Base2String`'s value on `arguments`, holds a letter digit: a radix above 10
+/// writes the digits from 10 up as letters, whose case the definition leaves to the backend
+/// (`super::chosen_value`, `LetterCase`). Decimal digits and the sign read the same in either
+/// case.
+pub(super) fn writes_a_letter_digit(arguments: &[Term], value: &Term) -> bool {
+    let radix_above_ten = matches!(arguments, [_, radix]
+        if read_int(radix).is_some_and(|radix| radix > BigInt::from(10)));
+    radix_above_ten
+        && read_string(value)
+            .is_some_and(|text| text.chars().any(|digit| digit.is_ascii_alphabetic()))
+}
+
 fn base_to_string(arguments: &[Term]) -> HookResult<BuiltinResult> {
     expect_arity("STRING.base2string", arguments, 2)?;
     let Some(value) = read_int(&arguments[0]) else {
@@ -478,7 +490,7 @@ fn string_to_token(arguments: &[Term], declaration: Declaration<'_>) -> HookResu
     match validate_text(kind, result_sort, &value) {
         Ok(()) => Ok(BuiltinResult::Value(Term::domain_value_of(
             kind,
-            result_sort.clone(),
+            *result_sort,
             value,
         ))),
         Err(TextRejection::NamesNoElement(_)) => names_no_element(),
@@ -930,7 +942,7 @@ mod tests {
             assert_eq!(
                 evaluate(
                     "STRING.token2string",
-                    vec![Term::raw_domain_value(id.clone(), text)]
+                    vec![Term::raw_domain_value(id, text)]
                 ),
                 BuiltinResult::Value(string_term(text)),
                 "Id2String({text:?})"

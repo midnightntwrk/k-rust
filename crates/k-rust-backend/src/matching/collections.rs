@@ -58,14 +58,14 @@ use crate::{
     definition::BackendDefinition,
     substitution::{Substitution, substitute},
     term::{
-        CollectionMetadata, Items, ListDefinition, MapDefinition, Name, Sort, SymbolType, Term,
-        TermKind, Variable, chunked::Item,
+        CollectionMetadata, Items, ListDefinition, MapDefinition, Name, Sort, Sorts, SymbolType,
+        Term, TermKind, Variable, chunked::Item,
     },
     unification::{MatchUnification, unify_from},
 };
 
 use super::{
-    Bindings, FailReason, MatchFailed, MatchMode, MatchResult, match_terms_with_context,
+    Bindings, MatchFailed, MatchMode, MatchResult, UndecidedReason, match_terms_with_context,
     match_terms_with_context_reporting_bindings,
 };
 /// One solution for a set of deferred collection pairs.
@@ -413,22 +413,7 @@ fn solve_term_pair_as_bound(
 ) -> PairSolution {
     let pattern = substitute(pattern, solution.matched.substitution());
     let subject = substitute(subject, solution.matched.substitution());
-    let (matched, bindings) = match match_terms_with_context_reporting_bindings(
-        mode,
-        definition.sort_graph(),
-        Some(definition),
-        &pattern,
-        &subject,
-        // A collection element is never the root an equation is tried on.
-        false,
-    ) {
-        (MatchResult::Failed(FailReason::SharedVariables(shared)), _)
-            if mode == MatchMode::Evaluate =>
-        {
-            match_sharing_subject_variables(definition, &pattern, &subject, &shared)
-        }
-        outcome => outcome,
-    };
+    let (matched, bindings) = match_collection_part(mode, definition, &pattern, &subject);
     match matched {
         MatchResult::Success(found) => {
             solution.matched.bind(&found);
@@ -436,18 +421,18 @@ fn solve_term_pair_as_bound(
             PairSolution::Solved(vec![solution])
         }
         MatchResult::Failed(_) => PairSolution::NoSolution,
+        // Undecided is no refutation: the placement stays possible, so the problem is undecided.
+        MatchResult::Undecided(_) => PairSolution::Indeterminate,
         MatchResult::Indeterminate {
             substitution,
             remainder,
         } if narrowing.is_some() => {
             solution.matched.bind(&substitution);
             let remainder = if mode == MatchMode::Rewrite {
-                let Some(recovered) =
-                    recover_rewrite_candidate(definition, &mut solution.matched, remainder)
-                else {
-                    return PairSolution::NoSolution;
-                };
-                recovered
+                match recover_rewrite_candidate(definition, &mut solution.matched, remainder) {
+                    Ok(recovered) => recovered,
+                    Err(decided) => return decided,
+                }
             } else {
                 remainder
             };
@@ -507,6 +492,36 @@ fn solve_term_pair_as_bound(
             }
         }
         MatchResult::Indeterminate { .. } => PairSolution::Indeterminate,
+    }
+}
+
+/// Match a pattern part of a collection problem against a subject part, under the bindings
+/// found so far, which the caller substituted into both. Such a binding may bring a subject
+/// variable into the pattern; in `Evaluate` mode, where one-way matching leaves a variable on
+/// both sides undecided ([`UndecidedReason::SharedVariables`]), the pair is matched with the
+/// pattern's occurrences renamed apart ([`match_sharing_subject_variables`]). The answer then
+/// depends on the pair's terms, not on which names they share.
+fn match_collection_part(
+    mode: MatchMode,
+    definition: &BackendDefinition,
+    pattern: &Term,
+    subject: &Term,
+) -> (MatchResult, Bindings) {
+    match match_terms_with_context_reporting_bindings(
+        mode,
+        definition.sort_graph(),
+        Some(definition),
+        pattern,
+        subject,
+        // A collection element is never the root an equation is tried on.
+        false,
+    ) {
+        (MatchResult::Undecided(UndecidedReason::SharedVariables(shared)), _)
+            if mode == MatchMode::Evaluate =>
+        {
+            match_sharing_subject_variables(definition, pattern, subject, &shared)
+        }
+        outcome => outcome,
     }
 }
 
@@ -574,6 +589,9 @@ fn match_sharing_subject_variables(
     let mut found = match matched {
         MatchResult::Success(found) => found,
         MatchResult::Failed(reason) => return (MatchResult::Failed(reason), Bindings::Forced),
+        MatchResult::Undecided(reason) => {
+            return (MatchResult::Undecided(reason), Bindings::Forced);
+        }
         MatchResult::Indeterminate { .. } => return undecided(),
     };
     for (variable, apart) in renamed {
@@ -597,11 +615,14 @@ fn match_sharing_subject_variables(
 /// At that point a residual pair can be decidable even though the collection pair was not.  In
 /// particular, normalized rewrite-rigid heads beneath widening injections must fail as a concrete
 /// candidate rather than becoming an opaque equality through symbolic unification.
+///
+/// The pairs still unresolved, or the candidate's decided outcome: `NoSolution` when a pair is
+/// refuted, `Indeterminate` when the matcher could not decide one.
 fn recover_rewrite_candidate(
     definition: &BackendDefinition,
     matched: &mut MatchSolution,
     remainder: Vec<(Term, Term)>,
-) -> Option<Vec<(Term, Term)>> {
+) -> Result<Vec<(Term, Term)>, PairSolution> {
     let mut unresolved = Vec::new();
     for (pattern, subject) in remainder {
         let pattern = substitute(&pattern, matched.substitution());
@@ -618,7 +639,8 @@ fn recover_rewrite_candidate(
             MatchResult::Success(found) => {
                 matched.bind(&found);
             }
-            MatchResult::Failed(_) => return None,
+            MatchResult::Failed(_) => return Err(PairSolution::NoSolution),
+            MatchResult::Undecided(_) => return Err(PairSolution::Indeterminate),
             MatchResult::Indeterminate {
                 substitution: found,
                 remainder,
@@ -628,7 +650,7 @@ fn recover_rewrite_candidate(
             }
         }
     }
-    Some(unresolved)
+    Ok(unresolved)
 }
 
 fn solve_list_pair(
@@ -641,15 +663,8 @@ fn solve_list_pair(
     depth: usize,
 ) -> Option<Vec<CollectionSolution>> {
     measure::bump(Counter::MatchingCollectionProblems);
-    let (matched, bindings) = match_terms_with_context_reporting_bindings(
-        mode,
-        definition.sort_graph(),
-        Some(definition),
-        pattern,
-        subject,
-        // A collection element is never the root an equation is tried on.
-        false,
-    );
+    // `pattern` holds the bindings found so far, which may bring the subject's variables into it.
+    let (matched, bindings) = match_collection_part(mode, definition, pattern, subject);
     match matched {
         MatchResult::Success(found) => {
             solution.matched.bind(&found);
@@ -657,6 +672,7 @@ fn solve_list_pair(
             return Some(vec![solution]);
         }
         MatchResult::Failed(_) => return Some(Vec::new()),
+        MatchResult::Undecided(_) => return None,
         MatchResult::Indeterminate { .. } if narrowing.is_none() => return None,
         MatchResult::Indeterminate {
             substitution,
@@ -1651,7 +1667,7 @@ pub(crate) fn match_collection_remainders_all_in_definition(
 #[derive(Clone)]
 struct OpaqueConcatHead {
     symbol: Arc<crate::term::Symbol>,
-    sort_arguments: Vec<Sort>,
+    sort_arguments: Sorts,
 }
 
 /// Cancel opaque chunks which occur on both sides of an AC equation.
@@ -1703,7 +1719,7 @@ fn flatten_opaque_chunks(
         {
             head.get_or_insert_with(|| OpaqueConcatHead {
                 symbol: symbol.clone(),
-                sort_arguments: sort_arguments.clone(),
+                sort_arguments: *sort_arguments,
             });
             visit(left.clone(), concat, chunks, head);
             visit(right.clone(), concat, chunks, head);
@@ -1727,11 +1743,7 @@ fn rebuild_opaque_chunks(chunks: Vec<Term>, head: Option<OpaqueConcatHead>) -> O
         let head = head
             .as_ref()
             .expect("multiple opaque chunks came from a concatenation");
-        Term::application(
-            head.symbol.clone(),
-            head.sort_arguments.clone(),
-            vec![left, right],
-        )
+        Term::application(head.symbol.clone(), head.sort_arguments, vec![left, right])
     }))
 }
 
@@ -1968,7 +1980,7 @@ fn item_subject_expansion(
                 // A collection element is never the root an equation is tried on.
                 false,
             ),
-            MatchResult::Failed(reason) if !matches!(reason, FailReason::Subsorting(_))
+            MatchResult::Failed(_)
         )
     };
     let mut branches = Vec::new();
@@ -2188,7 +2200,7 @@ fn flatten_list_runs(
             let (left, right) = (&arguments[0], &arguments[1]);
             head.get_or_insert_with(|| OpaqueConcatHead {
                 symbol: symbol.clone(),
-                sort_arguments: sort_arguments.clone(),
+                sort_arguments: *sort_arguments,
             });
             flatten_list_runs(definition, left, runs, head);
             flatten_list_runs(definition, right, runs, head);
@@ -2228,11 +2240,7 @@ fn concat_list_runs(
             ListRun::Part(part) => part,
         })
         .reduce(|left, right| {
-            Term::application(
-                head.symbol.clone(),
-                head.sort_arguments.clone(),
-                vec![left, right],
-            )
+            Term::application(head.symbol.clone(), head.sort_arguments, vec![left, right])
         })
         .expect("a list with two parts has runs")
 }
@@ -2445,7 +2453,7 @@ impl ListImplicationProblem<'_> {
                 // A collection element is never the root an equation is tried on.
                 false,
             ),
-            MatchResult::Failed(reason) if !matches!(reason, FailReason::Subsorting(_))
+            MatchResult::Failed(_)
         );
         self.matched.insert((block, offset, position), found);
         found

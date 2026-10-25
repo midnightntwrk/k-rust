@@ -23,6 +23,10 @@ for Keccak256Raw {
         })
     }
 }
+impl ::k::__KrsFunction for Keccak256Raw {
+    type Result = k::builtin::Bytes;
+    type Arguments = (k::builtin::Bytes,);
+}
 #[doc(hidden)]
 fn __krs_constructor_descriptor_5c8a8ac291b809e7() -> ::core::result::Result<
     ::k::HostDescriptor,

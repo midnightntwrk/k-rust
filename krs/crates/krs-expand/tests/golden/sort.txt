@@ -1,5 +1,4 @@
 pub trait ValueSort: ExprSort + KResultSort {}
-::k::__request_framework_sorts!();
 #[doc(hidden)]
 fn __krs_sort_type_c413fb444b0ca766() -> ::core::any::TypeId {
     ::core::any::TypeId::of::<Value>()

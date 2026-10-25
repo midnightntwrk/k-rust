@@ -66,7 +66,7 @@ from support.krs import build  # noqa: E402
 from support.packages import check_packages  # noqa: E402
 from support.pins import Ledger  # noqa: E402
 from support.reference import Key, Output, Pin, Snapshot, add_refresh_argument, repository_inputs  # noqa: E402
-from support.tools import checkout_scratch, rust_analyzer, z3_environment  # noqa: E402
+from support.tools import rust_analyzer, target_environment, tool_target, z3_environment  # noqa: E402
 
 
 HERE = Path(__file__).resolve().parent
@@ -210,7 +210,8 @@ def java_haskell_outcomes(
 def verify_functions(harness: FixtureGate) -> None:
     """Parametric functions run natively and on Java Haskell; LLVM refuses them."""
 
-    harness.check(FUNCTIONS)
+    # Only the native-rust route compiles parametric function equations.
+    harness.check(FUNCTIONS, "--backend", "haskell")
     expansion = "".join(harness.expand(FUNCTIONS).split())
     if "crate::Choose::<dyncrate::ExpSort>(" not in expansion:
         raise GateError(f"{FUNCTIONS.package}: krs expand does not render the readable turbofish as its marker")
@@ -256,6 +257,10 @@ def verify_functions(harness: FixtureGate) -> None:
     if not lines or "krs::capability::unavailable" not in lines[0]:
         raise GateError(f"{FUNCTIONS.package}: krs build --backend llvm failed without the capability refusal:\n{refused.stderr}")
     harness.pins.expect(("diagnostics", "functions-llvm"), lines)
+    # `krs check` predicts `build` on every backend, so it refuses with the same refusal.
+    checked = harness._krs(FUNCTIONS, "check", check=False)  # noqa: SLF001
+    if checked.returncode == 0 or diagnostic_lines(checked.stderr)[:1] != lines[:1]:
+        raise GateError(f"{FUNCTIONS.package}: krs check did not refuse as krs build --backend llvm does:\n{checked.stderr}")
 
 
 def verify_constructors(harness: FixtureGate) -> None:
@@ -290,11 +295,10 @@ def main() -> int:
     if pins.get("schema") != 1:
         raise GateError("pins.json is not the schema-1 sorts-algebra ledger")
 
-    target = checkout_scratch() / "sorts-algebra-target"
-    environment = {**z3_environment(), "CARGO_TARGET_DIR": os.fspath(target), "CARGO_TERM_COLOR": "never"}
+    environment = {**z3_environment(), **target_environment(), "CARGO_TERM_COLOR": "never"}
     krs = build(environment)
     gate = krs_gate.configured_or_build()
-    check_packages("sorts-algebra", krs=krs, env=environment, target_dir=target)
+    check_packages("sorts-algebra", krs=krs, env=environment)
     analyzer = rust_analyzer()
     lsp.probe(
         HERE / "packages" / "functions",
@@ -302,7 +306,9 @@ def main() -> int:
         diagnostic_timeout=600,
         environment={
             **environment,
-            "CARGO_TARGET_DIR": os.fspath(target / "lsp"),
+            # rust-analyzer builds its proc macros and build scripts through its own rustc
+            # wrapper, so its target stays apart from the shared one the other builds use.
+            "CARGO_TARGET_DIR": os.fspath(tool_target() / "rust-analyzer"),
             "PATH": os.pathsep.join([os.fspath(analyzer.parent), os.environ["PATH"]]),
         },
         timeout=900,

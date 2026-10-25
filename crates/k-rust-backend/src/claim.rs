@@ -7,11 +7,14 @@ use k_rust_kore::names::KoreAttribute;
 
 use crate::{
     definition::{
-        BackendDefinition, DefinitionError, HoldsEncoding, PendingAxiom, UnlicensedInjectionSite,
-        UnstatedDefinedness, equates_a_term_read_as_predicate,
+        BackendDefinition, DefinitionError, PendingAxiom, UnlicensedInjectionSite,
+        UnstatedDefinedness,
     },
     rewrite::Pattern,
-    rule::{RuleAttributes, internalize_rule_pattern, term_disjuncts},
+    rule::{
+        ConditionSlot, PredicateReading, RuleAttributes, RulePatternError, internalize_side,
+        term_disjuncts,
+    },
     term::Variable,
 };
 
@@ -112,31 +115,37 @@ pub(crate) fn internalize_reachability_claim(
     };
 
     let (right, existential_syntax) = extract_existentials(right);
-    // An `\equals` that reads a term as a predicate is not read with its meaning, so a claim that
-    // holds one has no definedness-explicit form, as a request with one has none.
-    let mut reads_a_term_as_predicate = false;
-    for side in [left.as_ref(), right] {
-        let expanded = crate::alias::expand(side, definition.aliases())?;
-        reads_a_term_as_predicate |=
-            equates_a_term_read_as_predicate(&expanded, HoldsEncoding::Holds);
-    }
-    let unstated = reads_a_term_as_predicate.then_some(UnstatedDefinedness::TermReadAsPredicate);
     let existentials = existential_syntax
         .into_iter()
         .map(|variable| definition.internalize_variable(variable, &claim.parameters))
         .collect::<Result<BTreeSet<_>, DefinitionError>>()?;
-    let rhs = term_disjuncts(right)
-        .into_iter()
-        .map(|branch| {
-            let (term, constraints) = internalize_rule_pattern(
+    // A claim's predicates are read as an axiom's are: as written, but for the frontend's
+    // condition slots, the `requires` before the left-hand side's configuration and the
+    // `ensures` after the right-hand side's. A claim with a predicate that reading refuses has
+    // no faithful reading, so it is refused alone, as unstated, and keeps its sides as the
+    // reading without refusals gives them; the definition and its other claims load.
+    let (unstated, lhs, rhs) = match claim_sides(
+        definition,
+        &claim.parameters,
+        left,
+        right,
+        PredicateReading::Written,
+    ) {
+        Ok((lhs, rhs)) => (None, lhs, rhs),
+        Err(error) => {
+            let Some(refusal) = refused_reading(&error) else {
+                return Err(error);
+            };
+            let (lhs, rhs) = claim_sides(
                 definition,
-                &branch,
                 &claim.parameters,
-                UnlicensedInjectionSite::Refuse,
+                left,
+                right,
+                PredicateReading::Unchecked,
             )?;
-            Ok(Pattern { term, constraints })
-        })
-        .collect::<Result<Vec<_>, DefinitionError>>()?;
+            (Some(refusal), lhs, rhs)
+        }
+    };
     if rhs.is_empty() {
         return Err(DefinitionError::Claim(ClaimError::MissingRightHandSide));
     }
@@ -155,25 +164,70 @@ pub(crate) fn internalize_reachability_claim(
         location: origin.location,
         sentence,
     };
-    term_disjuncts(left)
+    Ok(lhs
         .into_iter()
-        .map(|left| {
-            let (term, constraints) = internalize_rule_pattern(
-                definition,
-                &left,
-                &claim.parameters,
-                UnlicensedInjectionSite::Refuse,
-            )?;
-            Ok(ReachabilityClaim {
-                lhs: Pattern { term, constraints },
-                rhs: rhs.clone(),
-                existentials: existentials.clone(),
-                mode,
-                attributes: attributes.clone(),
-                unstated: unstated.clone(),
-            })
+        .map(|lhs| ReachabilityClaim {
+            lhs,
+            rhs: rhs.clone(),
+            existentials: existentials.clone(),
+            mode,
+            attributes: attributes.clone(),
+            unstated: unstated.clone(),
         })
-        .collect()
+        .collect())
+}
+
+/// The left-hand disjuncts and the right-hand disjuncts of a claim `left => right` (`right`
+/// under its modality and existentials), their predicates read with `reading` outside the
+/// frontend's condition slots.
+fn claim_sides(
+    definition: &BackendDefinition,
+    parameters: &[crate::term::Name],
+    left: &kore::Pattern,
+    right: &kore::Pattern,
+    reading: PredicateReading,
+) -> Result<(Vec<Pattern>, Vec<Pattern>), DefinitionError> {
+    let sides = |side: &kore::Pattern, slot: ConditionSlot| {
+        // The split into disjuncts keeps a root `\and` and its arity, so each keeps the slot.
+        let slot = if matches!(side, kore::Pattern::And { arguments, .. } if arguments.len() == 2) {
+            slot
+        } else {
+            ConditionSlot::None
+        };
+        term_disjuncts(side)
+            .into_iter()
+            .map(|branch| {
+                let (term, constraints) = internalize_side(
+                    definition,
+                    &branch,
+                    parameters,
+                    UnlicensedInjectionSite::Refuse,
+                    slot,
+                    reading,
+                )?;
+                Ok(Pattern { term, constraints })
+            })
+            .collect::<Result<Vec<_>, DefinitionError>>()
+    };
+    let rhs = sides(right, ConditionSlot::Last)?;
+    let lhs = sides(left, ConditionSlot::First)?;
+    Ok((lhs, rhs))
+}
+
+/// Why the predicate reading refused a claim's side, when `error` is such a refusal: an
+/// `\equals` that would read a term as a predicate, a connective over terms conjoined to a term,
+/// or a term of another sort than Bool read as a predicate.
+fn refused_reading(error: &DefinitionError) -> Option<UnstatedDefinedness> {
+    match error {
+        DefinitionError::UnstatedDefinedness(UnstatedDefinedness::TermReadAsPredicate) => {
+            Some(UnstatedDefinedness::TermReadAsPredicate)
+        }
+        DefinitionError::RulePattern(
+            error @ (RulePatternError::TermConnectiveInConjunction { .. }
+            | RulePatternError::NonBoolTermAsPredicate { .. }),
+        ) => Some(UnstatedDefinedness::RefusedReading(Box::new(error.clone()))),
+        _ => None,
+    }
 }
 
 /// `claim` with the constraints of its left-hand side and of every right-hand disjunct in
@@ -187,8 +241,10 @@ pub(crate) fn internalize_reachability_claim(
 /// runs once the definition is complete. A side with no such form (an impure application whose
 /// definedness a conditional would decide, an atom over a term-level `\and`) leaves the claim as
 /// written, with the reason in `unstated`, so that the definition still loads and its other
-/// claims and its execution are unaffected; so does a claim whose KORE holds an `\equals` that
-/// reads a term as a predicate (`internalize_reachability_claim`), which keeps its reason.
+/// claims and its execution are unaffected; so does a claim with a predicate that the backend's
+/// reading refuses (`internalize_reachability_claim`: an `\equals` that would read a term as a
+/// predicate, a connective over terms conjoined to a term, a term of another sort than Bool
+/// read as a predicate), which keeps its reason.
 ///
 /// The reading this gives a claim's KORE is the one `k_rust::backend::proving::CLAIM_READING`
 /// names in saved-proof digests: a change to it changes what a saved proof certifies, and must

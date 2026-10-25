@@ -1,5 +1,11 @@
 //! Node-API bindings for the user-facing parts of the `k-rust` frontend.
 
+// The campaign specification reader, shared with `k-rust-wasm`, whose tests pin it to the fuzz
+// library (this crate's Rust code has no test harness: it links against Node's symbols).
+#[path = "../../k-rust-wasm/src/campaign.rs"]
+mod campaign;
+pub mod fuzz;
+
 use std::{collections::BTreeMap, path::Path, sync::Mutex};
 
 use k_rust::{
@@ -259,6 +265,7 @@ pub fn create_backend_native(options: NativeCreateBackendOptions) -> Result<Nati
         BackendOptions {
             smt_timeout_ms: options.smt_timeout_ms.unwrap_or(defaults.smt_timeout_ms),
             smt_retry_limit: options.smt_retry_limit.unwrap_or(defaults.smt_retry_limit),
+            smt_resource_limit: None,
         },
     )
     .map_err(napi_error)?;
@@ -393,7 +400,9 @@ pub fn parse_program_native(options: NativeParseProgramOptions) -> Result<Native
 pub fn parse_kast_native(source: String) -> Result<NativeSerializedTerm> {
     let term = parse_term(&source).map_err(napi_error)?;
     Ok(NativeSerializedTerm {
-        text: KastPrinter::new().print_term(&term),
+        text: KastPrinter::new()
+            .try_print_term(&term)
+            .map_err(napi_error)?,
         json: kast_json::to_string(&term).map_err(napi_error)?,
     })
 }
@@ -402,7 +411,7 @@ pub fn parse_kast_native(source: String) -> Result<NativeSerializedTerm> {
 #[napi]
 pub fn print_kast_native(json: String) -> Result<String> {
     let term = kast_json::from_str(&json).map_err(napi_error)?;
-    Ok(KastPrinter::new().print_term(&term))
+    KastPrinter::new().try_print_term(&term).map_err(napi_error)
 }
 
 /// Convert a textual KORE pattern into canonical text and KORE JSON v1.

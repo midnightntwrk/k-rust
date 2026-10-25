@@ -1,0 +1,88 @@
+[package]
+name = "k-rust-fuzz"
+# k-rust's version: a release tag `vX.Y.Z` ships the dist packages of version X.Y.Z, so krust-fuzz
+# ships beside krust only while the two versions agree (`[package.metadata.dist]` below; the
+# `version_is_k_rust_version` test checks it).
+version = "0.8.0"
+edition = "2024"
+rust-version = "1.99"
+description = "Crafts concrete input values that make a program reach a target under a K specification"
+repository = "https://github.com/midnightntwrk/k-rust"
+license = "MIT OR Apache-2.0"
+keywords = ["fuzzing", "k-framework", "kore", "testing"]
+categories = ["development-tools::testing"]
+publish = false
+
+[dependencies]
+# The portable build is the primary build (kink builds k-rust without default features); the
+# backend crate is reached through the facade's `k_rust::k_rust_backend` re-export.
+k-rust = { version = "=0.8.0", path = "../k-rust", default-features = false }
+# Prints collection and data-sort hole values as program text (G-6, values/text.rs).
+krs-unparse = { version = "=0.1.0", path = "../../krs/crates/krs-unparse" }
+num-bigint.workspace = true
+num-traits.workspace = true
+# Generation and value-tree shrinking. Spelled here rather than inherited: the workspace entry
+# enables proptest's `std`, which pulls an OS random source that does not build for
+# wasm32-unknown-unknown (ARCHITECTURE.md 3, T-2). Pinned exactly because ENGINE_VERSION covers
+# the case sequence, which the generator and RNG code of these versions determines.
+proptest = { version = "=1.11.0", default-features = false, features = ["alloc", "no_std"] }
+# The seeded schedule that drives every proposer choice (ARCHITECTURE.md 8, 10.1).
+rand = { version = "=0.9.5", default-features = false, features = ["alloc"] }
+rand_chacha = { version = "=0.9.0", default-features = false }
+serde.workspace = true
+# The workspace entry enables `unbounded_depth`: reports are read with the recursion limit lifted
+# (report.rs, `FuzzReport::from_json`), the stack guarded by `serde_stacker` below.
+serde_json.workspace = true
+# Digests of the program, the hole overlay, the target and the rewrite order in the report.
+sha2.workspace = true
+# The `krust-fuzz` executable's argument parser and campaign file reader (`cli` feature).
+clap = { workspace = true, optional = true }
+toml = { workspace = true, optional = true }
+
+# A report holds hole values up to `values::MAX_VALUE_DEPTH` levels deep, deeper than
+# `serde_json`'s recursion limit and the stack of a small thread allow: reports are written and
+# read on a stack that grows on the heap. WebAssembly cannot switch stacks (report.rs).
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+serde_stacker = "=0.1.14"
+
+[dev-dependencies]
+indoc.workspace = true
+
+[features]
+# The solve proposer (ARCHITECTURE.md 8.6) needs a solver; the library builds without it.
+z3 = ["k-rust/z3-inference"]
+# The `krust-fuzz` executable (ARCHITECTURE.md 9.4). It loads compiled directories as `krust krun`
+# does, which needs k-rust's `cli` feature (and with it Z3). Not a default feature: the library's
+# portable build is its primary build, and clients such as the bindings and kink take it with
+# default features. It implies `z3`: k-rust's `cli` feature links Z3, so the executable offers the
+# solve proposer.
+cli = ["z3", "k-rust/cli", "dep:clap", "dep:toml"]
+# Link the Z3 release k-rust's default features download (`k-rust/z3-inference-gh-release`), as
+# `krust` does, instead of a Z3 the build environment provides. Release archives build
+# `krust-fuzz` with it; a build with only `cli` links a system Z3 unless another package of the
+# same Cargo invocation enables k-rust's default features.
+z3-gh-release = ["z3", "k-rust/z3-inference-gh-release"]
+
+[[bin]]
+name = "krust-fuzz"
+path = "src/bin/krust-fuzz/main.rs"
+required-features = ["cli"]
+
+[[test]]
+name = "cli"
+path = "tests/cli.rs"
+required-features = ["cli"]
+
+[lints]
+workspace = true
+
+# Release archives (dist-workspace.toml): `krust fuzz` runs a `krust-fuzz` beside krust or on
+# PATH that was built from the same k-rust sources, so every release that ships krust ships
+# krust-fuzz, built from the same commit for the same targets and installed into the same
+# directory by its own shell installer. dist skips a package with `publish = false` unless it
+# says `dist = true`. The archive carries the K Framework license beside this crate's: the K
+# builtin sources are compiled into k-rust, and so into krust-fuzz (crates/k-rust/NOTICE).
+[package.metadata.dist]
+dist = true
+features = ["cli", "z3-gh-release"]
+include = ["../k-rust/LICENSE-K-FRAMEWORK"]

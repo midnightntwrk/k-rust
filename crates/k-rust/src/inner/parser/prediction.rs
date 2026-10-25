@@ -143,6 +143,10 @@ pub(super) struct PredictionAnalysis {
     /// For each active production and each dot position, what the items from the dot to the end
     /// can begin with; `None` for a production the predictor never adds.
     rests: Vec<Option<ProductionRests>>,
+    /// For each production whose first item is a nonterminal of a sort that matches no empty
+    /// text and whose second item is a lexeme, that sort and that lexeme
+    /// ([`Self::nonterminal_then_lexeme`]).
+    nonterminal_then_lexeme: Vec<Option<(usize, usize)>>,
 }
 
 /// The FIRST sets and nullability of the suffixes of one production's items.
@@ -160,6 +164,7 @@ impl PredictionAnalysis {
         // Hidden program-list descriptors still exist in `productions` for reconstruction.
         // Only the predictor's active buckets participate in recognition.
         let mut first_items = vec![None; grammar.productions.len()];
+        let mut nonterminal_then_lexeme = vec![None; grammar.productions.len()];
         let productions = grammar
             .by_result
             .iter()
@@ -180,6 +185,11 @@ impl PredictionAnalysis {
                     })
                     .collect::<Vec<_>>();
                 first_items[*index] = items.first().copied();
+                if let [Symbol::NonTerminal(sort), Symbol::Lexical(Some(lexeme)), ..] =
+                    items.as_slice()
+                {
+                    nonterminal_then_lexeme[*index] = Some((*sort, *lexeme));
+                }
                 (production.result_id, items)
             })
             .collect::<Vec<_>>();
@@ -316,7 +326,50 @@ impl PredictionAnalysis {
                 nullable,
             });
         }
+        // The sorts a phrase over no text can be of, as a least fixed point: a production matches
+        // no text when every item can, a lexeme by its own text or regex (a zero-width token is
+        // a phrase over no text too, unlike in `epsilon`).
+        let mut empty_text = vec![false; grammar.sorts.len()];
+        let candidates = grammar
+            .by_result
+            .iter()
+            .flatten()
+            .filter_map(|index| {
+                let production = &grammar.productions[*index];
+                let mut sorts = Vec::new();
+                for (item, sort_id) in production.items.iter().zip(&production.item_sort_ids) {
+                    match item {
+                        Item::NonTerminal(_) => {
+                            sorts.push(sort_id.expect("nonterminal item has a sort id"))
+                        }
+                        Item::Terminal(text) if text.is_empty() => {}
+                        Item::Regex { regex, .. } if regex.may_match_empty() => {}
+                        Item::Terminal(_) | Item::Regex { .. } => return None,
+                    }
+                }
+                Some((production.result_id, sorts))
+            })
+            .collect::<Vec<_>>();
+        // Invariant: `empty_text` only grows, and a pass that adds nothing ends the loop.
+        loop {
+            let mut grew = false;
+            for (result, sorts) in &candidates {
+                if !empty_text[*result] && sorts.iter().all(|sort| empty_text[*sort]) {
+                    empty_text[*result] = true;
+                    grew = true;
+                }
+            }
+            if !grew {
+                break;
+            }
+        }
+        for entry in &mut nonterminal_then_lexeme {
+            if entry.is_some_and(|(sort, _)| empty_text[sort]) {
+                *entry = None;
+            }
+        }
         Self {
+            nonterminal_then_lexeme,
             first_items,
             epsilon,
             first,
@@ -369,6 +422,16 @@ impl PredictionAnalysis {
             },
             bucket.lexical_total - lexical.len(),
         )
+    }
+
+    /// For a production whose first item is a nonterminal of a sort that matches no empty text
+    /// and whose second is a lexeme, the sort the recognizer reads the first at and the lexeme of
+    /// the second.
+    pub(super) fn nonterminal_then_lexeme(&self, production: usize) -> Option<(usize, usize)> {
+        self.nonterminal_then_lexeme
+            .get(production)
+            .copied()
+            .flatten()
     }
 
     pub(super) fn can_filter(&self, production: usize) -> bool {
@@ -1059,6 +1122,7 @@ mod tests {
                     PriorityFilter::Ignored,
                     stand_in,
                     false,
+                    crate::inner::parser::Predictions::Kept,
                     &mut false,
                     &mut WorkMeter::unlimited(),
                     &mut scanner_cache,
@@ -2786,11 +2850,11 @@ mod tests {
         };
         assert_eq!(
             outcome(false).as_deref(),
-            Some("atom(.KList)=>atom(.KList)~>atom(.KList)")
+            Some("atom(.KList)=>``atom(.KList)~>atom(.KList)``")
         );
         assert_eq!(
             outcome(true).as_deref(),
-            Some("start(atom(.KList)=>atom(.KList)~>atom(.KList))")
+            Some("start(atom(.KList)=>``atom(.KList)~>atom(.KList)``)")
         );
     }
 
@@ -2816,7 +2880,7 @@ mod tests {
                 "[ a => a ~> a ]",
             )
             .unwrap();
-            let expected = "o0(atom(.KList)=>atom(.KList)~>atom(.KList))";
+            let expected = "o0(atom(.KList)=>``atom(.KList)~>atom(.KList)``)";
             let expected = if labelled_start {
                 format!("start({expected})")
             } else {
@@ -2929,6 +2993,7 @@ mod tests {
                 PriorityFilter::Enforced,
                 None,
                 false,
+                crate::inner::parser::Predictions::Kept,
                 &mut false,
                 &mut WorkMeter::unlimited(),
                 &mut scanner_cache,
@@ -2987,6 +3052,7 @@ mod tests {
                 PriorityFilter::Enforced,
                 None,
                 false,
+                crate::inner::parser::Predictions::Kept,
                 &mut false,
                 &mut WorkMeter::unlimited(),
                 &mut scanner_cache,
@@ -3070,6 +3136,7 @@ mod tests {
                 PriorityFilter::Enforced,
                 None,
                 false,
+                crate::inner::parser::Predictions::Kept,
                 &mut false,
                 &mut WorkMeter::unlimited(),
                 &mut scanner_cache,

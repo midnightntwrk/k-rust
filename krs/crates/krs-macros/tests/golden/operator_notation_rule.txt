@@ -1,0 +1,2 @@
+rule operated ( Value:Int , Limit:Int , Flag:Bool ) => result ( ((0 -Int Value:Int) *Int Limit:Int) -Int ((Value:Int /Int Limit:Int) %Int -3) , (notBool Flag:Bool) =/=Bool (Value:Int <Int Limit:Int) )
+    requires ((((Value:Int &Int 15) +Int (Limit:Int &Int 15)) ==Int (1 <<Int 4)) andThenBool (notBool (Flag:Bool ==Bool true))) andThenBool (((Value:Int |Int Limit:Int) xorInt (~Int Limit:Int)) >=Int (Value:Int >>Int 2))

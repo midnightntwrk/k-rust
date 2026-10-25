@@ -7,15 +7,13 @@
 //!
 //! - [`emitted`] checks every sentence of the emitted KORE theory (the semantics and syntax
 //!   modules and the macro sentences) against the facts of that theory which give its
-//!   injections, domain values, generated binders, sorts and symbols a meaning:
+//!   injections, domain values, sorts and symbols a meaning:
 //!   K1, every `inj{A, B}` has `A != B` and a path from `A` to `B` along the theory's
 //!   `subsort{..}` axioms;
 //!   K2, every `\dv{S}` has a sort head declared with `hasDomainValues`;
-//!   K3, every `\exists` or `\forall` over a compiler-generated variable binds a variable that
-//!   occurs free in its body;
 //!   K4 (sort scope), every sort a sentence mentions is a sort variable that the sentence binds
 //!   or a sort declared in the module or the embedded prelude, applied to as many arguments as
-//!   its declaration has parameters, whose arguments satisfy K4 in turn. K4 runs before K1-K3,
+//!   its declaration has parameters, whose arguments satisfy K4 in turn. K4 runs before K1 and K2,
 //!   so a sort parameter that escaped its binder is reported as such rather than through a
 //!   symptom;
 //!   K5 (symbol arity), every symbol or alias application names a declaration in the module or
@@ -24,9 +22,23 @@
 //!   A sentence's `element`, `unit`, `concat` and `update` symbol instances satisfy K5 and K4
 //!   under its binder before its signature and pattern sorts are checked.
 //!
-//! - [`stage`] checks the output of every stage of the table-driven pipeline: R3, every
-//!   right-hand-side variable of a rule-like sentence stays bound by its left-hand side or
-//!   covered by an exemption once the pipeline input has that property.
+//! - K3 (generated binder), every `\exists` the KORE emitter generates binds a variable that
+//!   occurs free in its body, is checked where the binder is built (`module_to_kore::binders`),
+//!   since only that code knows the binder is generated; it runs under the same gating.
+//!
+//! - [`stage`] checks the output of every stage of the table-driven pipeline:
+//!   CF1, once the configuration-binding stage has run, every `#Configuration` reference of a
+//!   rule-like sentence that is not macro-like is bound at the root of its left-hand side, by the
+//!   generated top cell aliased to it or as the last argument of the root application;
+//!   R3, every right-hand-side variable of a rule-like sentence stays bound by its left-hand side
+//!   or covered by an exemption once the pipeline input has that property;
+//!   C1, every variable free in a condition of a rule-like sentence occurs in its body or in a
+//!   condition of the same sentence before the stage, outside the anonymous-variable renaming,
+//!   exempt at its stage only, and `#Configuration`, which is no condition variable until the
+//!   configuration-binding stage;
+//!   C2, no sentence holds a pending condition conjunction once the stage resolving them has run;
+//!   BC, no sentence binds a name twice or binds a name free in it once the stage renaming bound
+//!   variables apart has run.
 //!
 //! - [`ground`] checks G2-ground: the parametric symbol instances in a ground value's typing
 //!   at its position are exactly the instances that sort injection emits for that value.

@@ -1,6 +1,6 @@
 //! Backend-internal variable naming: provenance markers, fresh counters, and hook names.
 //!
-//! The marker is part of the name string on purpose: `Ord for Variable` is derived over
+//! The marker is part of the name string on purpose: `Ord for Variable` is lexicographic over
 //! (`kind`, `sort`, `name`) and every `BTreeSet<Variable>` in the rewriter iterates in that
 //! order, which decides fresh-counter assignment and therefore printed variable names.
 //!
@@ -32,6 +32,9 @@ use super::Variable;
 
 /// The variable-name contract of the backend's responses, for consumers that depend on it.
 /// A consumer that guards on this value notices every change of how a name is read or printed.
+/// It versions the naming scheme only: it moves when that scheme changes, and a change of which
+/// states, and so which variables, a request yields leaves it as it is ("Format versions" in
+/// `docs/compatibility.md`).
 ///
 /// 1 (9e07ed10): printing through [`encode_variable_name`] and reading through
 /// [`decode_variable_name`] are a bijection on the accepted names: a reader decodes `-h` and

@@ -7,8 +7,8 @@ use std::collections::BTreeMap;
 
 use krs_ir::wire::{
     WireApplicationReference, WireConstructorDescriptor, WireConstructorFieldDescriptor,
-    WireGrammarDescriptor, WirePayload, WireProduction, WireProductionOwner, WireSortReference,
-    WireTypeReference,
+    WireGrammarDescriptor, WirePayload, WireProduction, WireProductionAttribute,
+    WireProductionOwner, WireSortReference, WireTypeReference,
 };
 use krs_ir::{
     DescriptorAssociativitySentence, DescriptorGroupReference, DescriptorPrecedenceChain,
@@ -33,11 +33,138 @@ use super::tokens::{
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
+pub(crate) fn constructors(
+    env: &dyn MacroEnvironment,
+    attributes: TokenStream,
+    item: TokenStream,
+) -> crate::Result<TokenStream> {
+    let stand_in = enum_stand_in(env, &item, false);
+    constructors_inner(env, attributes, item).map_err(|error| error.with_stand_in(stand_in))
+}
+
+/// The items a failed `#[k::constructors]` or `#[k::syntax_list]` enum leaves
+/// in place of its expansion, so that the names it declares still resolve and
+/// rustc reports nothing beyond the KRS diagnostics: a `use Enum::*;` or
+/// `use Enum::Variant;` whose first segment names nothing is an error rustc
+/// does not silence after a `compile_error!`.
+///
+/// The stand-in declares only what the authored item states independently of
+/// the failed KRS judgement: the enum's name, visibility, documentation, and
+/// `#[cfg]`, and each variant's name, kind, documentation, and `#[cfg]`. The
+/// variants have no fields, since generated code names a variant only by the
+/// pattern `Variant { .. }` and a field type can depend on what failed (a
+/// readable list's tail is rewritten on success). Beside it stands the
+/// generated interface other expansions name: one marker function and one
+/// `__KrsRuleApplication` impl per variant, and for a syntactic list its sort marker trait and `KItemSort` impl. Nothing in it
+/// runs: the diagnostics' `compile_error!` stops every build that contains it.
+/// It is empty when the item is not an enum, the facade cannot be resolved,
+/// or a `#[cfg]` cannot be reproduced.
+pub(super) fn enum_stand_in(
+    env: &dyn MacroEnvironment,
+    item: &TokenStream,
+    syntax_list: bool,
+) -> TokenStream {
+    let Ok(facade) = env.facade_path() else {
+        return TokenStream::new();
+    };
+    let Ok(item) = syn::parse2::<ItemEnum>(item.clone()) else {
+        return TokenStream::new();
+    };
+    let (Ok(cfg), Ok(enum_ident)) = (
+        call_site_cfg_attributes(&item.attrs),
+        call_site_ident(&item.ident),
+    ) else {
+        return TokenStream::new();
+    };
+    let attributes = item
+        .attrs
+        .iter()
+        .filter(|attribute| attribute.path().is_ident("doc") || attribute.path().is_ident("cfg"));
+    let visibility = &item.vis;
+    let name = &item.ident;
+    let dead_code =
+        (!matches!(item.vis, syn::Visibility::Public(_))).then(|| quote!(#[allow(dead_code)]));
+    let mut variants = Vec::new();
+    let mut markers = Vec::new();
+    let mut rule_applications = Vec::new();
+    let mut selectors = std::collections::BTreeSet::new();
+    for variant in &item.variants {
+        // Variants that collide in rule resolution are a KRS error
+        // (`enum-variant-collision`); the stand-in keeps the first, so it
+        // declares no conflicting item of its own.
+        let selector = rule_application_selector(&variant.ident);
+        if !selectors.insert(selector) {
+            continue;
+        }
+        let Ok(variant_cfg) = call_site_cfg_attributes(&variant.attrs) else {
+            return TokenStream::new();
+        };
+        let attributes = variant.attrs.iter().filter(|attribute| {
+            attribute.path().is_ident("doc") || attribute.path().is_ident("cfg")
+        });
+        let ident = &variant.ident;
+        let fields = match &variant.fields {
+            syn::Fields::Named(_) => quote!({}),
+            syn::Fields::Unnamed(_) => quote!(()),
+            syn::Fields::Unit => TokenStream::new(),
+        };
+        variants.push(quote!(#(#attributes)* #ident #fields));
+        let marker = variant_marker_function(ident);
+        markers.push(quote! {
+            #(#variant_cfg)*
+            #[doc(hidden)]
+            #[allow(non_snake_case)]
+            pub fn #marker() -> ::core::any::TypeId {
+                ::core::unreachable!("a failed KRS enum has no variant markers")
+            }
+        });
+        rule_applications.push(quote! {
+            #(#cfg)*
+            #(#variant_cfg)*
+            impl #facade::__KrsRuleApplication<#selector> for #enum_ident {
+                fn __krs_rule_application(
+                    _authored_path: &str,
+                ) -> #facade::HostApplicationTarget {
+                    ::core::unreachable!("a failed KRS enum has no rule applications")
+                }
+            }
+        });
+    }
+    let list_sort = syntax_list.then(|| {
+        let marker = format_ident!("{}Sort", item.ident, span = proc_macro2::Span::call_site());
+        quote! {
+            #(#cfg)*
+            #[doc(hidden)]
+            pub trait #marker: #facade::KItemSort {}
+
+            #(#cfg)*
+            impl #facade::KItemSort for #enum_ident {}
+        }
+    });
+    quote! {
+        #(#attributes)*
+        #dead_code
+        #visibility enum #name {
+            #(#variants,)*
+        }
+
+        #(#cfg)*
+        #[allow(dead_code)]
+        impl #enum_ident {
+            #(#markers)*
+        }
+
+        #(#rule_applications)*
+
+        #list_sort
+    }
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "The enum family and its variants share one descriptor expansion."
 )]
-pub(crate) fn constructors(
+fn constructors_inner(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
     item: TokenStream,
@@ -356,7 +483,10 @@ fn expand_enum_variant(
         ));
     }
     let fallback = TokenRange::for_tokens(variant.variant())?;
-    let provenance = host_provenance(env, facade, fallback, &anchors);
+    // Element types reach only the constructor descriptor, not the grammar.
+    let mut constructor_anchors = anchors.clone();
+    constructor_anchors.extend(variant.argument_provenance()?);
+    let provenance = host_provenance(env, facade, fallback, &constructor_anchors);
     let grammar_provenance = host_provenance(env, facade, fallback, &anchors);
 
     let mut slots = WireSlots::new(facade);
@@ -386,7 +516,24 @@ fn expand_enum_variant(
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
                 authored_path: spelling,
             },
+            arguments: Vec::new(),
         });
+    }
+    // Each field's element types, numbered in preorder across the fields.
+    let mut sink = super::terms::SortArgumentSink {
+        facade,
+        prefix: format!("__krs_enum_field_argument_{nonce:016x}_{index}"),
+        cfg,
+        helpers: &mut field_key_functions,
+        slots: &mut slots,
+        ordinal: 0,
+    };
+    for (wire, field) in fields.iter_mut().zip(variant.fields()) {
+        wire.arguments = super::terms::production_sort_arguments(
+            field.term_sort().arguments(),
+            ProvenanceRole::ConstructorFieldSortArgument,
+            &mut sink,
+        )?;
     }
 
     let grammar_nonce = expansion_nonce(env, "enum_strictness", variant.name(), fallback);
@@ -452,6 +599,23 @@ fn expand_enum_variant(
     ) {
         attributes.push(strictness);
     }
+    // The cons of a `#[k::cons_list]` enum names its empty sibling (F6).
+    if let Some((cons, empty)) = declaration.cons_list()
+        && cons == index
+    {
+        let empty_key = format_ident!("__krs_enum_variant_{nonce:016x}_{empty}");
+        attributes.push(WireProductionAttribute::ConsList {
+            key: wire_key(ProvenanceRole::ConsListDeclaration, 0),
+            empty: WireApplicationReference {
+                key: wire_key(ProvenanceRole::ConsListDeclaration, 0),
+                target: grammar_slots.variant_slot_for_grammar(
+                    &quote!(#facade::HostTypeKey(#enum_key)),
+                    &quote!(#facade::HostTypeKey(#empty_key)),
+                ),
+                authored_path: format!("{enum_name}::{}", declaration.variants()[empty].name()),
+            },
+        });
+    }
     let template_key = variant
         .syntax()
         .map(|_| wire_key(constructor_syntax_role, 0));
@@ -498,6 +662,7 @@ fn expand_enum_variant(
             },
         },
         fields,
+        arguments: Vec::new(),
     });
     let constructor_wire =
         serde_json::to_string(&constructor_wire).expect("enum-constructor wire is serializable");

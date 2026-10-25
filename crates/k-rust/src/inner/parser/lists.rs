@@ -1459,7 +1459,13 @@ impl Grammar {
     /// position it occupies. A parameter that neither the expected sort nor any child constrains
     /// is not determined by the node and keeps the parser's inferred instantiation. A parameter
     /// with bounds must have a unique least upper bound; otherwise no one instantiation is the
-    /// least that holds them.
+    /// least that holds them. The rewrite production (`#KRewrite`) is the exception: the lowered
+    /// rewrite carries no sort, so a parameter of the rewrite whose bounds have several minimal
+    /// upper bounds (sides of sorts `A` and `B` under two common supersorts) keeps the parser's
+    /// inferred instantiation, which holds both sides. A rule's sides are placed at the position
+    /// compilation builds for each; where a later stage joins the sides (a cell-less claim, an
+    /// `#as` or or-pattern, an argument of another parametric production), that stage computes
+    /// their bound and rejects a sentence without a unique one.
     /// Returns the instantiated nonterminal sorts and the instantiated result sort.
     /// The node has `arity` children; `child_sort(index, expected)` is the list sort of the
     /// child at `index` at the sort its position expects, `None` where that sort mentions a
@@ -1495,6 +1501,10 @@ impl Grammar {
         if result_only_parameter && let Some(expected) = expected {
             match_parameters(origin, &origin.result, expected, &mut bounds, subsorts);
         }
+        let rewrite = origin
+            .label
+            .as_ref()
+            .is_some_and(|label| label.is(InternalLabel::KRewrite));
         let mut arguments = Vec::with_capacity(origin.parameters.len());
         for (index, (parameter, fresh)) in origin.parameters.iter().zip(&fresh).enumerate() {
             // A parameter without bounds takes its fresh sort (the expected sort for the result
@@ -1508,19 +1518,27 @@ impl Grammar {
                     .clone()
                     .or_else(|| inferred.get(index).cloned())
                     .unwrap_or_else(|| parameter.clone())
+            } else if let Some(bound) = least_upper_bound(&entries, fresh.as_ref(), subsorts) {
+                bound
+            } else if rewrite {
+                // The lowered rewrite carries no sort, so its instance only sets the sort its
+                // sides are completed at here: the inferred one, which holds both sides.
+                inferred
+                    .get(index)
+                    .cloned()
+                    .or_else(|| fresh.clone())
+                    .unwrap_or_else(|| parameter.clone())
             } else {
-                least_upper_bound(&entries, fresh.as_ref(), subsorts).ok_or_else(|| {
-                    ParseError::SortInference {
-                        message: format!(
-                            "could not compute a unique least upper bound for parametric production bounds: {}",
-                            entries
-                                .iter()
-                                .map(ToString::to_string)
-                                .collect::<Vec<_>>()
-                                .join(", ")
-                        ),
-                    }
-                })?
+                return Err(ParseError::SortInference {
+                    message: format!(
+                        "could not compute a unique least upper bound for parametric production bounds: {}",
+                        entries
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                });
             };
             arguments.push(argument);
         }

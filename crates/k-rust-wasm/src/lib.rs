@@ -1,5 +1,8 @@
 //! WebAssembly bindings for the portable, host-independent `k-rust` frontend.
 
+mod campaign;
+mod fuzz;
+
 use std::{collections::BTreeMap, path::Path};
 
 use k_rust::{
@@ -266,6 +269,7 @@ pub fn create_backend_wasm(options: &str) -> Result<WasmBackend, JsError> {
         BackendOptions {
             smt_timeout_ms: options.smt_timeout_ms.unwrap_or(defaults.smt_timeout_ms),
             smt_retry_limit: options.smt_retry_limit.unwrap_or(defaults.smt_retry_limit),
+            smt_resource_limit: None,
         },
     )
     .map_err(js_error)?;
@@ -411,7 +415,9 @@ pub fn parse_kast_wasm(source: &str) -> Result<String, JsError> {
 fn parse_kast(source: &str) -> Result<String, String> {
     let term = parse_term(source).map_err(display_error)?;
     serialize(&SerializedKast {
-        text: KastPrinter::new().print_term(&term),
+        text: KastPrinter::new()
+            .try_print_term(&term)
+            .map_err(display_error)?,
         kast: raw_json(kast_json::to_string(&term).map_err(display_error)?)?,
     })
 }
@@ -420,7 +426,7 @@ fn parse_kast(source: &str) -> Result<String, String> {
 #[wasm_bindgen(js_name = printKastWasm)]
 pub fn print_kast_wasm(json: &str) -> Result<String, JsError> {
     let term = kast_json::from_str(json).map_err(js_error)?;
-    Ok(KastPrinter::new().print_term(&term))
+    KastPrinter::new().try_print_term(&term).map_err(js_error)
 }
 
 /// Convert a textual KORE pattern into canonical text and KORE JSON v1.
@@ -453,6 +459,14 @@ fn print_kore(json: &str, width: Option<u32>) -> Result<String, String> {
 pub fn format_kore_definition_wasm(source: &str, width: Option<u32>) -> Result<String, JsError> {
     let definition = parse_definition(source).map_err(js_error)?;
     Ok(kore_printer(width).print_definition(&definition))
+}
+
+/// Run one `krust fuzz` campaign on in-memory definitions and return its report's canonical
+/// JSON. The safety limit and the solve proposer are refused: this build has no clock, threads or
+/// solver ([`fuzz`]).
+#[wasm_bindgen(js_name = runFuzzCampaignWasm)]
+pub fn run_fuzz_campaign_wasm(options: &str) -> Result<String, JsError> {
+    fuzz::run_fuzz_campaign(options).map_err(js_error)
 }
 
 fn kore_printer(width: Option<u32>) -> KorePrinter {

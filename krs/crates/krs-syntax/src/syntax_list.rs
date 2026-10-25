@@ -21,7 +21,9 @@ use syn::{Attribute, Fields, Ident, ItemEnum, LitStr, Meta, Path, Token, Variant
 
 use crate::grammar::{StrictnessAttribute, StrictnessKind, push_terminal};
 use crate::item::{ConstructorField, ProductionDocumentation, production_documentation};
-use crate::parse::{KrsSyntax, ParseError, checked_ordinal, duplicate, structured, unknown};
+use crate::parse::{
+    KrsSyntax, ParseError, checked_ordinal, duplicate, first_non_doc_attribute, structured, unknown,
+};
 use crate::term_sort::{parse_readable_sort, parse_term_sort};
 use crate::{
     ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, SyntaxTemplateItem, TokenRange,
@@ -516,6 +518,17 @@ fn validate(
                     }
                 };
                 strictness = Some((kind, marker, tokens, helper.span()));
+            } else if is_k_helper(&helper)
+                && helper
+                    .path()
+                    .segments
+                    .last()
+                    .is_some_and(|segment| segment.ident == "symbol")
+            {
+                return Err(invalid(
+                    "a syntactic list's symbols are derived from the enum, `lowerCamel(Enum)` + `Cons` and + `Nil`, so `#[k::symbol]` cannot rename them; rename the enum instead",
+                    helper.span(),
+                ));
             } else if is_k_helper(&helper) {
                 return Err(invalid(
                     "syntactic-list variants take no `#[k::syntax]` or other KRS helper except `strict`: K generates the list syntax and its symbols from the enum",
@@ -553,9 +566,9 @@ fn validate(
                 }
                 let mut fields = Vec::with_capacity(2);
                 for field in &named.named {
-                    if let Some(attribute) = field.attrs.first() {
+                    if let Some(attribute) = first_non_doc_attribute(&field.attrs) {
                         return Err(invalid(
-                            "syntactic-list fields take no attributes",
+                            "a syntactic-list field takes only doc comments",
                             attribute.span(),
                         ));
                     }

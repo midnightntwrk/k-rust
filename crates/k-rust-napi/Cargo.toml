@@ -1,11 +1,11 @@
 [package]
 name = "k-rust-napi"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2024"
 rust-version = "1.99"
 description = "Node-API bindings for the k-rust frontend"
 repository = "https://github.com/midnightntwrk/k-rust"
-license = "BSD-3-Clause"
+license = "MIT OR Apache-2.0"
 publish = false
 
 [lib]
@@ -17,6 +17,9 @@ test = false
 k-rust = { path = "../k-rust", default-features = false, features = [
   "z3-inference-gh-release",
 ] }
+# `runFuzzCampaignNative`: one campaign per call. Its `z3` feature (the solve proposer, not yet
+# provided) stays off: enabling it would change the fuzz crate's features in workspace builds.
+k-rust-fuzz = { path = "../k-rust-fuzz" }
 napi.workspace = true
 napi-derive.workspace = true
 serde.workspace = true

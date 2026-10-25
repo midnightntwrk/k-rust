@@ -21,6 +21,7 @@
 
 mod collections;
 pub(in crate::builtin) mod float;
+mod meanings;
 mod mint;
 mod scalars;
 
@@ -449,7 +450,7 @@ fn decode_domain_value(sort: &Sort, value: &[u8]) -> Val {
                 .expect("an item is written iN"),
         )
     } else {
-        let crate::term::Sort::Application { name, .. } = sort else {
+        let crate::term::SortNode::Application { name, .. } = sort.node() else {
             panic!("a token of a sort variable")
         };
         Val::Token(name.to_string(), value.to_vec())

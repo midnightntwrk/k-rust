@@ -154,7 +154,8 @@ mapfile -t cases < <(
     (.expect // "accept"),
     (.reason // ""),
     (.["reference-error"] // ""),
-    ((.["lifted-cells"] // []) | tojson)
+    ((.["lifted-cells"] // []) | tojson),
+    ((.["divergent-axioms"] // []) | tojson)
   ] | join("\u001f")' <<<"$manifest_json"
 )
 selected_count=0
@@ -166,7 +167,7 @@ reference_comparator=$(reference_build_comparator "$workspace" "${krust_gate_z3_
 reference_cache_begin "$work"
 for fixture in "${cases[@]}"; do
   IFS=$'\x1f' read -r name source module include selector syntax_module hook_namespaces \
-    comparisons pairings expect reason reference_error lifted_cells <<<"$fixture"
+    comparisons pairings expect reason reference_error lifted_cells divergent_axioms <<<"$fixture"
   selected=true
   if (($#)); then
     selected=false
@@ -366,6 +367,7 @@ for fixture in "${cases[@]}"; do
         K_REFERENCE_KORE="$semantic_reference" \
         K_RUST_KORE="$rust/definition.kore" \
         K_DIFFERENTIAL_LIFTED_CELLS="$lifted_cells" \
+        K_DIFFERENTIAL_DIVERGENT_AXIOMS="$divergent_axioms" \
         compare_artifacts emitted_kore_matches_the_reference_frontend --nocapture 2>&1); then
         printf '%s\n' "$comparison_output" >&2
         exit 1

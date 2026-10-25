@@ -14,11 +14,11 @@ use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::ir_level::SemanticLevel;
 use crate::ir_validation::{
-    collect_configuration_nodes, insert_group_cell_parents, insert_node, require_kind,
-    require_sort, validate_context_alias, validate_context_alias_frames,
-    validate_fixed_configuration, validate_initializer_cell_references, validate_precedence_order,
-    validate_production_shape, validate_rule, validate_rule_cell_references,
-    validate_subsort_order, validate_term_cell_references,
+    collect_configuration_nodes, insert_k_item_parents, insert_node, require_kind, require_sort,
+    validate_context_alias, validate_context_alias_frames, validate_fixed_configuration,
+    validate_initializer_cell_references, validate_precedence_order, validate_production_shape,
+    validate_rule, validate_rule_cell_references, validate_subsort_order,
+    validate_term_cell_references,
 };
 use krs_ir::sorted::{SortKey, SortedByKey};
 use krs_ir::{
@@ -137,6 +137,51 @@ impl SemanticTheory {
         })
     }
 
+    /// The validator's subsort judge: whether a term of `candidate` may stand where
+    /// `expected` is required, by the graph its validation checks the theory against.
+    #[cfg(feature = "test-support")]
+    pub fn subsort_judge(&self) -> impl Fn(&SemanticSortRef, &SemanticSortRef) -> bool + use<> {
+        let parents = self.judging_sort_parents();
+        move |candidate, expected| {
+            crate::ir_validation::is_subsort::<SemanticLevel>(candidate, expected, &parents)
+        }
+    }
+
+    /// The graph the validator judges subsorts by: the theory's subsort sentences, completed
+    /// with K's `S <: KItem` when the theory declares the framework's `KItem`.
+    fn judging_sort_parents(&self) -> BTreeMap<SemanticSortRef, Vec<SemanticSortRef>> {
+        let mut sort_parents = BTreeMap::<SemanticSortRef, Vec<SemanticSortRef>>::new();
+        for subsort in self.modules.iter().flat_map(|module| &module.subsorts) {
+            sort_parents
+                .entry(subsort.subsort.clone())
+                .or_default()
+                .push(subsort.supersort.clone());
+        }
+        let fixed_configuration = self
+            .modules
+            .iter()
+            .find_map(|module| module.configuration.as_ref());
+        let k_item = self
+            .modules
+            .iter()
+            .flat_map(|module| &module.sorts)
+            .map(|sort| &sort.id)
+            .filter(|id| is_framework_k_item(id))
+            .min()
+            .cloned()
+            .map(SemanticSortRef::Declared);
+        insert_k_item_parents::<_, SemanticLevel>(
+            fixed_configuration,
+            k_item,
+            self.modules
+                .iter()
+                .flat_map(|module| &module.sorts)
+                .map(|sort| sort.id.clone()),
+            &mut sort_parents,
+        );
+        sort_parents
+    }
+
     /// Returns the IR schema version.
     #[must_use]
     pub const fn schema_version(&self) -> SchemaVersion {
@@ -176,7 +221,6 @@ impl SemanticTheory {
         let mut functional_productions = BTreeSet::new();
         let mut alias_productions = BTreeSet::new();
         let mut desugar_productions = BTreeSet::new();
-        let mut sort_parents: BTreeMap<SemanticSortRef, Vec<SemanticSortRef>> = BTreeMap::new();
         let mut groups = BTreeSet::new();
         let mut semantic_ids = BTreeSet::new();
         let mut cell_ids = BTreeSet::new();
@@ -197,10 +241,6 @@ impl SemanticTheory {
             }
             for subsort in &module.subsorts {
                 insert_node::<SemanticLevel>(&mut node_keys, subsort.origin.key())?;
-                sort_parents
-                    .entry(subsort.subsort.clone())
-                    .or_default()
-                    .push(subsort.supersort.clone());
             }
             for production in &module.productions {
                 validate_item_kind(&production.id, ItemKind::Constructor)?;
@@ -334,12 +374,7 @@ impl SemanticTheory {
             .modules
             .iter()
             .find_map(|module| module.configuration.as_ref());
-        let k_item = declarations
-            .keys()
-            .find(|id| is_framework_k_item(id))
-            .cloned()
-            .map(SemanticSortRef::Declared);
-        insert_group_cell_parents::<SemanticLevel>(fixed_configuration, k_item, &mut sort_parents);
+        let sort_parents = self.judging_sort_parents();
 
         for module in &self.modules {
             for import in &module.imports {
@@ -1726,12 +1761,14 @@ pub enum SemanticValidationError {
     ParameterSortInTerm,
     /// A rewrite's endpoints do not share its sort.
     RewriteSortMismatch,
-    /// `alias @ pattern` (#as) outside a pre-pattern, or at a sort its alias
-    /// variable does not have or its pattern does not inject into.
+    /// `alias @ pattern` (#as) outside a pre-pattern.
     InvalidPatternAs,
-    /// `A | B` (#Or) outside a pre-pattern, at a sort an alternative does
-    /// not inject into, or with alternatives binding different variables.
+    /// `A | B` (#Or) outside a pre-pattern, or with alternatives binding different variables.
     InvalidPatternOr,
+    /// `alias @ pattern` at a sort its alias or pattern does not have.
+    PatternAsSortMismatch,
+    /// `A | B` at a sort an alternative does not inject into.
+    PatternOrSortMismatch,
     /// `k::matches!` (:=K) outside a post-term or condition, at a sort
     /// other than Bool, or with local binders that are not exactly its
     /// pattern's named variables or that occur outside it.
@@ -1807,6 +1844,9 @@ pub enum SemanticValidationError {
     InitializerTreeMismatch,
     /// A structured initializer leaf term has the wrong sort.
     InitializerLeafSortMismatch,
+    /// A leaf cell's element types do not fit its content sort: a `Map`
+    /// takes two, a `List` or `Set` one, and any other sort none.
+    CellArgumentArity,
     /// A Map term did not carry builtin Map sort.
     MapSortMismatch,
     /// A Map operation had a wrong result or operand sort.
@@ -1821,6 +1861,9 @@ pub enum SemanticValidationError {
     ConfigurationRuleTargetMismatch(Box<StableItemId>),
     /// A cell rule references a missing/non-leaf cell or incomplete frame.
     InvalidCellFraming,
+    /// A leaf cell clause's term sort is not a subsort of the cell's
+    /// content sort.
+    CellContentSortMismatch,
     /// A cell-content frame is incompatible with its leaf sort.
     CellFrameSortMismatch,
     /// A context-alias frame is incompatible with its leaf-cell sort.
@@ -1953,10 +1996,16 @@ impl fmt::Display for SemanticValidationError {
                 formatter.write_str("rewrite endpoint sorts must equal the rewrite sort")
             }
             Self::InvalidPatternAs => formatter.write_str(
-                "`alias @ pattern` (#as) occurs only in pre-patterns, at its alias variable's sort, which its pattern's sort must inject into",
+                "`alias @ pattern` (#as) occurs only in pre-patterns",
+            ),
+            Self::PatternAsSortMismatch => formatter.write_str(
+                "an `alias @ pattern` (#as) node's sort is not its alias variable's, or its pattern's sort does not inject into it",
+            ),
+            Self::PatternOrSortMismatch => formatter.write_str(
+                "an alternative of an `A | B` (#Or) node does not inject into the node's sort",
             ),
             Self::InvalidPatternOr => formatter.write_str(
-                "`A | B` (#Or) occurs only in pre-patterns, at a sort every alternative injects into, and every alternative binds the same variables",
+                "`A | B` (#Or) occurs only in pre-patterns, and every alternative binds the same variables",
             ),
             Self::InvalidMatches => formatter.write_str(
                 "`k::matches!` (:=K) occurs only in post-terms and conditions, at sort Bool, and its local binders are exactly its pattern's named variables, each bound by one pattern and used nowhere else",
@@ -2098,6 +2147,9 @@ impl fmt::Display for SemanticValidationError {
             Self::InitializerLeafSortMismatch => {
                 formatter.write_str("initializer leaf term must match its cell content sort")
             }
+            Self::CellArgumentArity => formatter.write_str(
+                "a cell's element types must be two for a Map, one for a List or Set, and none for any other sort",
+            ),
             Self::MapSortMismatch => formatter.write_str("Map term must have builtin Map sort"),
             Self::MapOperationSignature(operation) => {
                 write!(formatter, "{operation} has an invalid signature")
@@ -2128,6 +2180,9 @@ impl fmt::Display for SemanticValidationError {
             ),
             Self::ContextAliasVariableClosure => {
                 formatter.write_str("context-alias declarations differ from term and frame uses")
+            }
+            Self::CellContentSortMismatch => {
+                formatter.write_str("cell content sort is not a subsort of the cell's sort")
             }
             Self::CellFrameSortMismatch => {
                 formatter.write_str("cell-content frame is incompatible with cell sort")

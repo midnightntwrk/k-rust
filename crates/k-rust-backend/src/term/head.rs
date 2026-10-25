@@ -40,7 +40,7 @@
 //! `injective` attribute) is never evidence.
 //!
 //! The instance-normal scan's syntactic unification test reads an equation's left-hand side
-//! through `classify_value` too, with the oracle [`ScannedPatterns`]: it fixes an equation-head
+//! through `classify_value` too, with the oracle `ScannedPatterns`: it fixes an equation-head
 //! application written there at its own root where the load-time check admits that head, which
 //! is how a step of the normal-form model matches the pattern. That is evidence about the
 //! pattern, never about a value, and it has its own source.
@@ -61,6 +61,7 @@ use crate::{
     confluence::{GateSite, UntaintedIndex},
     definition::{BackendDefinition, SelectionComplete},
     instance_normal::{InstanceNormal, NormalArguments},
+    matching::{SortRelation, sort_list_relation, sort_relation},
     rule::{Predicate, term_index},
     simplify::scan::{FunctionTheory, NoOfferedEquationMatched, SimplificationTheory},
 };
@@ -580,10 +581,15 @@ fn classify(term: &Term, equation_head: impl FnOnce() -> Option<NormalEvidence>)
 /// distinct values".
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum RootComparison<'t> {
-    /// Different symbols or sort arguments of two applications; an application against a
-    /// domain value, an injection or a collection; a domain value against an injection or a
-    /// collection; an injection against a collection; two collections of different kinds.
+    /// Different symbols of two applications, or sort arguments that no instance of their sort
+    /// variables makes one; an application against a domain value, an injection or a
+    /// collection; a domain value against an injection or a collection; an injection against a
+    /// collection; two collections of different kinds.
     Distinct(RootsDiffer<'t>),
+    /// One symbol name whose sort arguments are one only on some instances of their sort
+    /// variables (`matching::SortRelation::Open`): `f{S}` against `f{T}`. The roots are one
+    /// root exactly where the instance makes them so, which neither side fixes.
+    OpenSortArguments,
     /// One free symbol, equal sort arguments, equal arity: the two values are equal exactly
     /// when the arguments are.
     SameApplication(SameApplication<'t>),
@@ -644,7 +650,8 @@ pub(crate) fn compare_roots<'t>(left: Fixed<'t>, right: Fixed<'t>) -> RootCompar
     }
 }
 
-/// Two applications with fixed roots: `None` when their symbols or sort arguments differ.
+/// Two applications with fixed roots: `None` when their symbols differ, or their sort arguments
+/// on every instance of their sort variables.
 fn compare_applications<'t>(left: &'t Term, right: &'t Term) -> Option<RootComparison<'t>> {
     let (
         TermKind::Application {
@@ -661,8 +668,13 @@ fn compare_applications<'t>(left: &'t Term, right: &'t Term) -> Option<RootCompa
     else {
         unreachable!("a free-constructor or equation-head root is an application");
     };
-    if left_symbol.name != right_symbol.name || left_sorts != right_sorts {
+    if left_symbol.name != right_symbol.name {
         return None;
+    }
+    match sort_list_relation(left_sorts, right_sorts) {
+        SortRelation::Equal => {}
+        SortRelation::Distinct => return None,
+        SortRelation::Open => return Some(RootComparison::OpenSortArguments),
     }
     Some(if left_arguments.len() != right_arguments.len() {
         RootComparison::ArityMismatch
@@ -847,7 +859,8 @@ impl Apart {
         Self(())
     }
 
-    /// Two domain values (`RootComparison::DomainValues`) with different sorts or values.
+    /// Two domain values (`RootComparison::DomainValues`) with different values, or with sorts
+    /// that no instance of their sort variables makes one.
     #[must_use]
     pub(crate) fn of_domain_values(left: Fixed<'_>, right: Fixed<'_>) -> Option<Self> {
         match (left.term.kind(), right.term.kind()) {
@@ -860,7 +873,9 @@ impl Apart {
                     sort: right_sort,
                     value: right_value,
                 },
-            ) => (left_sort != right_sort || left_value != right_value).then_some(Self(())),
+            ) => (left_value != right_value
+                || sort_relation(left_sort, right_sort) == SortRelation::Distinct)
+                .then_some(Self(())),
             _ => None,
         }
     }
@@ -1271,7 +1286,7 @@ mod tests {
     #[test]
     fn a_rigid_cycle_runs_through_free_constructors_and_injections_only() {
         let int = Sort::simple("SortInt");
-        let x = Variable::new("X", int.clone());
+        let x = Variable::new("X", int);
         let minus = Arc::new(Symbol {
             attributes: {
                 let mut attributes = crate::term::SymbolAttributes::constructor();
@@ -1279,7 +1294,7 @@ mod tests {
                 attributes.hook = Some("INT.sub".into());
                 attributes
             },
-            ..Symbol::constructor("Lbl'Unds'-Int'Unds'", vec![int.clone(); 2], int.clone())
+            ..Symbol::constructor("Lbl'Unds'-Int'Unds'", vec![int; 2], int)
         });
         let inc_pos = Arc::new(Symbol {
             attributes: {
@@ -1287,14 +1302,14 @@ mod tests {
                 attributes.symbol_type = SymbolType::Function(FunctionType::Total);
                 attributes
             },
-            ..Symbol::constructor("LblincPos", vec![int.clone()], int.clone())
+            ..Symbol::constructor("LblincPos", vec![int], int)
         });
-        let successor = Arc::new(Symbol::constructor("Lbls", vec![int.clone()], int.clone()));
+        let successor = Arc::new(Symbol::constructor("Lbls", vec![int], int));
         let wrap = Arc::new(Symbol {
             attributes: crate::term::SymbolAttributes::constructor().with_anywhere(true),
-            ..Symbol::constructor("Lblwrap", vec![int.clone()], int.clone())
+            ..Symbol::constructor("Lblwrap", vec![int], int)
         });
-        let one = Term::raw_domain_value(int.clone(), "1");
+        let one = Term::raw_domain_value(int, "1");
         let through_function = apply(
             &inc_pos,
             vec![apply(&minus, vec![Term::variable(x.clone()), one])],
@@ -1306,7 +1321,7 @@ mod tests {
         assert_eq!(cycle.variable(), &x);
         assert_eq!(cycle.term(), &through_constructor);
 
-        let injected = Term::injection(int.clone(), sort(), through_constructor.clone());
+        let injected = Term::injection(int, sort(), through_constructor.clone());
         assert!(rigid_occurrence(&x, &injected).is_some());
         assert_eq!(rigid_occurrence(&x, &Term::variable(x.clone())), None);
         assert_eq!(
@@ -1730,10 +1745,10 @@ mod tests {
             apply(&wrap, vec![one.clone()]),
             apply(&wrap, vec![one.clone()]).with_evaluated_mark_for_test(),
             apply(&wrap, vec![two.clone()]).with_evaluated_mark_for_test(),
-            Term::injection(sub.clone(), sort(), one.clone()),
-            Term::injection(sub.clone(), sort(), two.clone()),
+            Term::injection(sub, sort(), one.clone()),
+            Term::injection(sub, sort(), two.clone()),
             Term::injection(Sort::simple("SortOther"), sort(), two.clone()),
-            Term::injection(sub.clone(), sort(), apply(&wrap, vec![one.clone()])),
+            Term::injection(sub, sort(), apply(&wrap, vec![one.clone()])),
             list,
             apply(&function("f", 1), vec![one.clone()]),
             apply(&residual, vec![one.clone()]),

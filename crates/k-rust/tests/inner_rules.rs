@@ -1050,7 +1050,7 @@ endmodule
     let definition = resolve_rule_bubbles(&lowered(&source("a => a ~> a"))).unwrap();
     assert_eq!(
         only_rule_body(&definition),
-        "a(.KList)=>a(.KList)~>a(.KList)"
+        "a(.KList)=>``a(.KList)~>a(.KList)``"
     );
     let rule = "a => a ~> a => a";
     let error =
@@ -1088,7 +1088,7 @@ endmodule
     };
     for (rule, expected) in [
         ("h(bar => bar)", "h(bar(.KList)=>bar(.KList))"),
-        ("g(a => a ~> a)", "g(a(.KList)=>a(.KList)~>a(.KList))"),
+        ("g(a => a ~> a)", "g(a(.KList)=>``a(.KList)~>a(.KList)``)"),
         (
             "f(a => a ~> a)",
             "f(a(.KList)=>seqish(a(.KList),a(.KList)))",
@@ -5359,6 +5359,211 @@ fn reference_alias_variable_under_a_production_is_cast_at_the_argument_sort() {
     );
 }
 
+/// The rules of module `B` over `go(Int)` and `done(Int)` whose only rule is `rule`, each as
+/// `body requires condition ensures condition`, or the load error.
+fn scoped_binder_rules(rule: &str) -> Result<Vec<String>, String> {
+    scoped_binder_rules_with("", rule)
+}
+
+/// [`scoped_binder_rules`] with the productions `syntax` added to module `B`.
+fn scoped_binder_rules_with(syntax: &str, rule: &str) -> Result<Vec<String>, String> {
+    let source = format!(
+        "module B\n  imports INT\n  imports BOOL\n  syntax KItem ::= go(Int) | done(Int)\n{syntax}  {rule}\nendmodule\n"
+    );
+    let loaded = load_with_prelude(&source, "b.k", "B").map_err(|error| error.to_string())?;
+    Ok(loaded
+        .definition()
+        .main_module()
+        .unwrap()
+        .local_sentences
+        .iter()
+        .filter_map(|sentence| match &**sentence {
+            Sentence::Rule {
+                body,
+                requires,
+                ensures,
+                attributes,
+            } if attributes.source() == Some("b.k") => {
+                Some(format!("{body} requires {requires} ensures {ensures}"))
+            }
+            _ => None,
+        })
+        .collect())
+}
+
+/// A quantifier binds its variable in its body only, so a binder is a variable of its own, with
+/// its own sort, wherever another variable of the rule has its spelling (FU-39): the rule parses
+/// exactly as its alpha-variant with the binder renamed apart does, the binder spelled as written.
+#[test]
+fn a_binder_takes_its_own_sort_beside_a_variable_of_its_spelling() {
+    let parse = |rule: &str| {
+        scoped_binder_rules(rule)
+            .unwrap_or_else(|error| panic!("{rule}: {error}"))
+            .join("\n")
+    };
+    for (shadowing, apart, bound) in [
+        // vireview/shsort: the left side's `Y:Int` beside a `Y:Bool` binder.
+        (
+            "rule [p]: <k> go(Y:Int) => done(Y) ... </k> requires #Exists Y:Bool . {Y #Equals true}",
+            "rule [p]: <k> go(Y:Int) => done(Y) ... </k> requires #Exists Fresh:Bool . {Fresh #Equals true}",
+            "Y",
+        ),
+        // vireview/twosort: two sibling binders, one at Int and one at Bool.
+        (
+            "rule [p]: <k> go(X) => done(X) ... </k> requires (#Exists Y:Int . {Y #Equals 1}) #And (#Exists Y:Bool . {Y #Equals true})",
+            "rule [p]: <k> go(X) => done(X) ... </k> requires (#Exists Y:Int . {Y #Equals 1}) #And (#Exists Fresh:Bool . {Fresh #Equals true})",
+            "Y",
+        ),
+        // A nested binder of the outer binder's spelling, at another sort.
+        (
+            "rule [p]: <k> go(X) => done(X) ... </k> requires #Exists Y:Int . ({Y #Equals X} #And (#Exists Y:Bool . {Y #Equals true}))",
+            "rule [p]: <k> go(X) => done(X) ... </k> requires #Exists Y:Int . ({Y #Equals X} #And (#Exists Fresh:Bool . {Fresh #Equals true}))",
+            "Y",
+        ),
+        // An unannotated binder is inferred from its own body only, not from the left side.
+        (
+            "rule [p]: <k> go(X:Int) => done(X) ... </k> requires #Exists X . {X #Equals 1}",
+            "rule [p]: <k> go(X:Int) => done(X) ... </k> requires #Exists Fresh . {Fresh #Equals 1}",
+            "X",
+        ),
+        (
+            "rule [p]: <k> go(X:Int) => done(X) ... </k> ensures #Exists X . {X #Equals 1}",
+            "rule [p]: <k> go(X:Int) => done(X) ... </k> ensures #Exists Fresh . {Fresh #Equals 1}",
+            "X",
+        ),
+    ] {
+        let renamed = parse(apart);
+        assert!(renamed.contains("Fresh"), "{renamed}");
+        assert_eq!(
+            parse(shadowing),
+            renamed.replace("Fresh", bound),
+            "{shadowing}"
+        );
+    }
+}
+
+/// The free occurrences of a binder's spelling keep the sort of their own variable, and a
+/// rejection inside a binder's scope names the variable as written.
+#[test]
+fn a_binder_leaves_the_free_variable_of_its_spelling_alone() {
+    let rules = scoped_binder_rules(
+        "rule [p]: <k> go(Y:Int) => done(Y) ... </k> requires #Exists Y:Bool . {Y #Equals true}",
+    )
+    .unwrap_or_else(|error| panic!("{error}"));
+    let [rule] = rules.as_slice() else {
+        panic!("{rules:?}")
+    };
+    assert!(rule.contains("(#SemanticCastToInt(Y))=>"), "{rule}");
+    assert!(rule.contains("#Exists(#SemanticCastToBool(Y)"), "{rule}");
+    let error = scoped_binder_rules(
+        "rule [p]: <k> go(Y:Int) => done(Y) ... </k> requires #Exists Y:Bool . {Y +Int 1 #Equals 2}",
+    )
+    .unwrap_err();
+    assert!(error.contains("could not parse rule"), "{error}");
+    // No spelling the parser gives a binder while it infers sorts reaches the message.
+    assert!(
+        error.is_ascii() && !error.to_ascii_lowercase().contains("e000"),
+        "{error}"
+    );
+}
+
+/// A definition may declare variable tokens that spell names with any character, U+E000
+/// included; this one makes `Y\u{E000}0` and the like writable variables.
+const MARKED_VARIABLES: &str = "  syntax #KVariable ::= r\"[A-Z]\u{E000}[0-9]+\" [token]\n  syntax KItem ::= go2(Int, Int) | done2(Int, Int) | go3(Int, Int, Int) | done3(Int, Int, Int)\n";
+
+/// The rules `rule` and `apart`, its alpha-variant with one binder spelled `Fresh` instead of
+/// `bound`, parse alike: `rule` exactly as `apart` with `Fresh` written `bound`.
+fn assert_parses_as_renamed_apart(syntax: &str, rule: &str, apart: &str, bound: &str) {
+    let parse = |rule: &str| {
+        scoped_binder_rules_with(syntax, rule)
+            .unwrap_or_else(|error| panic!("{rule}: {error}"))
+            .join("\n")
+    };
+    let renamed = parse(apart);
+    assert!(renamed.contains("Fresh"), "{renamed}");
+    assert_eq!(parse(rule), renamed.replace("Fresh", bound), "{rule}");
+}
+
+/// The names the parser gives binders while it infers sorts are names no variable of the rule
+/// has, whatever spellings the definition's variable tokens allow: a binder renamed apart never
+/// merges with a written variable, and every written variable keeps its name (code review
+/// BIND/A5, probes coll1 and coll4).
+#[test]
+fn a_binder_renamed_apart_never_takes_a_written_name() {
+    for (rule, apart, bound) in [
+        // coll1: a free variable spelled like the binder followed by U+E000 and a number.
+        (
+            "rule [p]: <k> go2(Y:Int, Y\u{E000}0:Int) => done2(Y, Y\u{E000}0) ... </k> requires #Exists Y:Int . {Y #Equals 1}",
+            "rule [p]: <k> go2(Y:Int, Y\u{E000}0:Int) => done2(Y, Y\u{E000}0) ... </k> requires #Exists Fresh:Int . {Fresh #Equals 1}",
+            "Y",
+        ),
+        // coll4: a free variable spelled like another variable followed by U+E000 and a number,
+        // in a rule where a binder is renamed apart.
+        (
+            "rule [p]: <k> go3(Y:Int, Z:Int, Z\u{E000}5:Int) => done3(Y, Z, Z\u{E000}5) ... </k> requires #Exists Y:Int . {Y #Equals 1}",
+            "rule [p]: <k> go3(Y:Int, Z:Int, Z\u{E000}5:Int) => done3(Y, Z, Z\u{E000}5) ... </k> requires #Exists Fresh:Int . {Fresh #Equals 1}",
+            "Y",
+        ),
+        // A binder whose own spelling is one a renamed binder could take.
+        (
+            "rule [p]: <k> go2(Y:Int, W:Int) => done2(Y, W) ... </k> requires (#Exists Y:Bool . {Y #Equals true}) #And (#Exists Y\u{E000}0:Int . {Y\u{E000}0 #Equals W})",
+            "rule [p]: <k> go2(Y:Int, W:Int) => done2(Y, W) ... </k> requires (#Exists Fresh:Bool . {Fresh #Equals true}) #And (#Exists Y\u{E000}0:Int . {Y\u{E000}0 #Equals W})",
+            "Y",
+        ),
+    ] {
+        assert_parses_as_renamed_apart(MARKED_VARIABLES, rule, apart, bound);
+    }
+}
+
+/// A rejection names the variables of the rule as written, those whose spelling holds U+E000
+/// included, when a binder of the rule was renamed apart for inference: the readings of an
+/// ambiguous right side name `Z\u{E000}5`, which the rule writes, and no binder's new name.
+#[test]
+fn a_rejection_names_a_written_variable_with_the_renaming_mark_as_written() {
+    let error = scoped_binder_rules_with(
+        &format!("{MARKED_VARIABLES}  syntax A ::= foo(Int)\n  syntax B ::= foo(Int)\n"),
+        "rule [p]: <k> go2(Y:Int, Z\u{E000}5:Int) => foo(Z\u{E000}5) ... </k> requires #Exists Y:Bool . {Y #Equals true}",
+    )
+    .unwrap_err();
+    assert!(error.contains("could not parse rule"), "{error}");
+    assert!(error.contains("Z\u{E000}5"), "{error}");
+}
+
+/// A local function's pattern binds its variables in the function's own body only
+/// (`kompile::passes::closure_variables`), so a parameter is a variable of its own with its own
+/// sort beside a variable of the rule with its spelling: the rule parses exactly as its
+/// alpha-variant with the parameter renamed apart does (code review BIND/A5, the lambda nit).
+#[test]
+fn a_local_function_parameter_takes_its_own_sort_beside_a_variable_of_its_spelling() {
+    const BOOL_GO: &str = "  syntax KItem ::= gob(Bool, Int)\n";
+    for (rule, apart) in [
+        (
+            "rule [p]: <k> gob(X:Bool, N) => done(#fun(X:Int => X +Int 1)(N)) ... </k> requires X",
+            "rule [p]: <k> gob(X:Bool, N) => done(#fun(Fresh:Int => Fresh +Int 1)(N)) ... </k> requires X",
+        ),
+        (
+            "rule [p]: <k> gob(X:Bool, N) => done(#let X:Int = N #in X +Int 1) ... </k> requires X",
+            "rule [p]: <k> gob(X:Bool, N) => done(#let Fresh:Int = N #in Fresh +Int 1) ... </k> requires X",
+        ),
+        // The argument and the bound value are outside the pattern's scope.
+        (
+            "rule [p]: <k> gob(X:Bool, N) => done(#fun(N:Int => N +Int 1)(N)) ... </k> requires X",
+            "rule [p]: <k> gob(X:Bool, N) => done(#fun(Fresh:Int => Fresh +Int 1)(N)) ... </k> requires X",
+        ),
+        (
+            "rule [p]: <k> gob(X:Bool, N) => done(#let N:Int = N #in N +Int 1) ... </k> requires X",
+            "rule [p]: <k> gob(X:Bool, N) => done(#let Fresh:Int = N #in Fresh +Int 1) ... </k> requires X",
+        ),
+    ] {
+        let bound = if rule.contains("#fun(X") || rule.contains("#let X") {
+            "X"
+        } else {
+            "N"
+        };
+        assert_parses_as_renamed_apart(BOOL_GO, rule, apart, bound);
+    }
+}
+
 #[cfg(feature = "z3-inference")]
 #[test]
 fn reference_exists_binder_variable_is_inferred_at_k() {
@@ -6431,7 +6636,7 @@ fn two_applications_source(k_attribute: &str, int_attribute: &str) -> String {
 }
 
 const APPLICATION_K_READING: &str =
-    "aK(#SemanticCastToK(X),#SemanticCastToInt(Y))=>#SemanticCastToK(X)~>#SemanticCastToInt(Y)";
+    "aK(#SemanticCastToK(X),#SemanticCastToInt(Y))=>``#SemanticCastToK(X)~>#SemanticCastToInt(Y)``";
 
 #[test]
 fn maximal_trees_avoided_at_every_divergence_point_stay_ambiguous() {
@@ -6521,17 +6726,25 @@ fn a_production_sort_parameter_is_not_a_cast_sort_in_rules() {
 
 #[test]
 fn a_production_sort_parameter_has_no_sort_predicate_in_rules() {
-    // Without a sort `Sort1` there is no predicate `isSort1`, so the condition fails to parse
-    // exactly as a predicate of the undeclared sort `Undef` does. The two names have the same
-    // length, so the error positions, which follow the end of the condition, are comparable.
+    // Without a sort `Sort1` there is no predicate `isSort1`, so the condition is refused as an
+    // application of an unknown label, exactly as a predicate of the undeclared sort `Undef` is:
+    // the condition reads as a KAST prefix application, which the parse-time bottom sort places
+    // at `Bool`, and no production has its label.
     let module = |sort: &str| {
         format!(
             "module MAIN\n  imports ML-SYNTAX\n  imports INT\n  imports BOOL\n  syntax Int ::= f(Int) [function]\n  rule f(X) => 1 requires is{sort}(X)\nendmodule\n"
         )
     };
-    let parameter = sort_parameter_rule_parse_error(&module("Sort1"));
-    let undeclared = sort_parameter_rule_parse_error(&module("Undef"));
-    assert_eq!(parameter.error, undeclared.error, "{parameter:?}");
+    for sort in ["Sort1", "Undef"] {
+        let error = sort_parameter_rule_parse_error(&module(sort));
+        assert!(
+            matches!(
+                &error.error,
+                ParseError::UnknownApplication { label, arity: 1 } if *label == format!("is{sort}")
+            ),
+            "{sort}: {error:?}"
+        );
+    }
 }
 
 #[test]
@@ -6941,4 +7154,225 @@ fn trees_left_by_the_most_specific_overload_are_split_only_by_their_own_instanti
     let overloaded = resolve_rule_bubbles(&lowered(&overload_beside_bracket_pair(true)))
         .expect("both builds decide the rule with the overload");
     assert_eq!(only_rule_body(&overloaded), only_rule_body(&plain));
+}
+
+/// kink's SYMBOTTOM definition, with its `window` rule replaced by `{window}` and `{imports}`
+/// added to the main module's imports.
+fn symbottom(imports: &str, window: &str) -> String {
+    format!(
+        "module SYMBOTTOM-SYNTAX
+  imports INT-SYNTAX
+  syntax Address ::= addr(Int) [symbol(addr)]
+  syntax Op ::= write(Address, Int) [symbol(write)]
+              | load(Address, Int) [symbol(load)]
+  syntax Prog ::= \"halt\" [symbol(halt)]
+                | seq(Op, Prog) [symbol(seq)]
+                | stop(Int) [symbol(stop)]
+                | apart(Int, Int) [symbol(apart)]
+                | window(Int) [symbol(window)]
+endmodule
+
+module SYMBOTTOM
+  imports SYMBOTTOM-SYNTAX
+  imports BASIC-K
+  imports INT
+{imports}
+  configuration <k> .K </k>
+
+  rule [write]: seq(write(addr(A), V), P) => P
+  rule [load]:  seq(load(addr(A), V), P) => P
+  rule [stop]:  stop(I) => halt ensures I <Int 0
+  rule [apart]: apart(A, B) => halt ensures A =/=Int B
+  rule [window]: {window}
+endmodule
+"
+    )
+}
+
+/// The rule `contents` parsed with the rule grammar of SYMBOTTOM, which also imports `imports`.
+fn symbottom_rule(imports: &str, contents: &str) -> Result<Sentence, RuleError> {
+    let loaded = load_with_prelude_options(
+        &symbottom(imports, "window(I) => halt"),
+        "symbottom.k",
+        "SYMBOTTOM",
+        Vec::new(),
+    )
+    .expect("SYMBOTTOM loads");
+    parse_rule_content(
+        loaded.resolved(),
+        "SYMBOTTOM",
+        contents,
+        Attributes::default(),
+    )
+}
+
+/// Each pair of rule contents, a clause written with KAST prefix terms and the same clause in
+/// concrete syntax, parses to the same sentence (terms compare without their annotations).
+fn assert_same_rules(imports: &str, pairs: &[(&str, &str)]) {
+    for (prefix, concrete) in pairs {
+        let expected = symbottom_rule(imports, concrete)
+            .unwrap_or_else(|error| panic!("{concrete}: the concrete clause parses: {error}"));
+        let parsed = symbottom_rule(imports, prefix)
+            .unwrap_or_else(|error| panic!("{prefix}: the prefix clause parses: {error}"));
+        assert_eq!(parsed, expected, "{prefix} against {concrete}");
+    }
+}
+
+/// A requires or ensures clause is a term of sort `Bool`, and a KAST prefix term (`#token`,
+/// `` `label`(..) ``) is a term of the parse-time bottom sort, which lies below every sort of K
+/// terms, `Bool` among them. So a clause written with prefix terms is the clause its labels and
+/// tokens name, as its concrete spelling is.
+#[test]
+fn kast_prefix_terms_parse_in_rule_clauses() {
+    let body = "window(I) => halt";
+    let rule = |clauses: &str| format!("{body} {clauses}");
+    let pairs = [
+        (
+            rule("requires `_>Int_`(I, #token(\"5\",\"Int\"))"),
+            rule("requires I >Int 5"),
+        ),
+        (rule("requires `_>Int_`(I, 5)"), rule("requires I >Int 5")),
+        (rule("requires (`_>Int_`(I, 5))"), rule("requires I >Int 5")),
+        (
+            rule("requires `_>Int_`(I, 5):Bool"),
+            rule("requires (I >Int 5):Bool"),
+        ),
+        (
+            rule("requires #token(\"true\",\"Bool\")"),
+            rule("requires true"),
+        ),
+        (
+            rule("requires #SemanticCastToBool(X)"),
+            rule("requires X:Bool"),
+        ),
+        (rule("ensures `_<Int_`(I, 10)"), rule("ensures I <Int 10")),
+        (
+            rule("requires `_>Int_`(I, #token(\"5\",\"Int\")) ensures `_<Int_`(I, 10)"),
+            rule("requires I >Int 5 ensures I <Int 10"),
+        ),
+    ];
+    let pairs = pairs
+        .iter()
+        .map(|(prefix, concrete)| (prefix.as_str(), concrete.as_str()))
+        .collect::<Vec<_>>();
+    assert_same_rules("", &pairs);
+}
+
+/// A source rule whose clauses are written with prefix terms compiles to the definition its
+/// concrete form compiles to, up to the rules' `Location` attributes (the spellings differ in
+/// length) and the `UNIQUE'Unds'ID` hashes that cover them.
+#[test]
+fn a_source_rule_with_prefix_clauses_compiles_as_its_concrete_form() {
+    let compile = |window: &str| {
+        let loaded = load_with_prelude_excluding(
+            &symbottom("", window),
+            "symbottom.k",
+            "SYMBOTTOM",
+            k_rust::kompile::CompilationBackend::Rust.excluded_module_attribute(),
+        )
+        .unwrap_or_else(|error| panic!("{window}: the definition loads: {error}"));
+        let kore = k_rust::kompile::compile_loaded_definition(
+            &loaded,
+            k_rust::kompile::CompileOptions::default(),
+        )
+        .unwrap_or_else(|error| panic!("{window}: the definition compiles: {error}"))
+        .definition_kore;
+        without_attribute(
+            &without_attribute(
+                &kore,
+                "org'Stop'kframework'Stop'attributes'Stop'Location{}(",
+            ),
+            "UNIQUE'Unds'ID{}(",
+        )
+    };
+    let prefix = compile(
+        "window(I) => halt requires `_>Int_`(I, #token(\"5\",\"Int\")) ensures `_<Int_`(I, 10)",
+    );
+    let concrete = compile("window(I) => halt requires I >Int 5 ensures I <Int 10");
+    assert!(prefix == concrete, "the two definitions differ");
+}
+
+/// `kore` without the attribute applications that start with `head` (up to their closing
+/// parenthesis, which holds no nested parenthesis in a `Location` or `UNIQUE'Unds'ID`).
+fn without_attribute(kore: &str, head: &str) -> String {
+    let mut out = String::with_capacity(kore.len());
+    let mut rest = kore;
+    while let Some(at) = rest.find(head) {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + head.len()..];
+        let end = after.find(')').expect("the attribute is closed");
+        rest = &after[end + 1..];
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Mixfix `Bool` operators over prefix operands parse when the module imports `BOOL`, which
+/// declares them.
+#[test]
+fn mixfix_bool_operators_over_prefix_operands_parse() {
+    let body = "window(I) => halt";
+    let rule = |clauses: &str| format!("{body} {clauses}");
+    let pairs = [
+        (
+            rule("requires notBool `_>Int_`(I, 5)"),
+            rule("requires notBool (I >Int 5)"),
+        ),
+        (
+            rule("requires notBool (`_>Int_`(I, 5))"),
+            rule("requires notBool (I >Int 5)"),
+        ),
+        (
+            rule("requires (`_>Int_`(I, 5)) andBool true"),
+            rule("requires (I >Int 5) andBool true"),
+        ),
+        (
+            rule("requires `_>Int_`(I, 5) andBool true"),
+            rule("requires (I >Int 5) andBool true"),
+        ),
+        (
+            rule("requires `_andBool_`(`_>Int_`(I, 5), true)"),
+            rule("requires (I >Int 5) andBool true"),
+        ),
+    ];
+    let pairs = pairs
+        .iter()
+        .map(|(prefix, concrete)| (prefix.as_str(), concrete.as_str()))
+        .collect::<Vec<_>>();
+    assert_same_rules("  imports BOOL", &pairs);
+}
+
+/// A clause applying a declared `Bool` production keeps its one reading. Here the label of the
+/// production `foo(Int)` is `baz`, and the label `foo` names another production, `bar(Int)`: the
+/// written `foo(I)` is the mixfix application of `foo(Int)`, which applies `baz`, not a prefix
+/// application of the label `foo`, which the parse-time bottom now also admits at `Bool`.
+#[test]
+fn a_declared_bool_production_in_a_clause_has_one_reading() {
+    let imports = "  imports BOOL
+  syntax Bool ::= bar(Int) [function, symbol(foo)]
+                | foo(Int) [function, symbol(baz)]";
+    let rule = symbottom_rule(imports, "window(I) => halt requires foo(I)")
+        .unwrap_or_else(|error| panic!("the clause parses: {error}"));
+    let Sentence::Rule { requires, .. } = rule else {
+        panic!("a rule");
+    };
+    let Term::Apply { label, .. } = requires.unannotated() else {
+        panic!("an application: {requires}");
+    };
+    assert_eq!(label.name, "baz", "{requires}");
+}
+
+/// A prefix term of another sort than `Bool` in a clause is a sort error, as at every other
+/// position.
+#[test]
+fn a_prefix_clause_of_another_sort_is_a_sort_error() {
+    let imports = "  syntax Int ::= gi(Int) [function, symbol(gi)]";
+    let error = symbottom_rule(imports, "window(I) => halt requires `gi`(I)")
+        .expect_err("an Int is no clause");
+    assert!(
+        error
+            .to_string()
+            .contains("unexpected sort Int; expected a subsort of Bool"),
+        "{error}"
+    );
 }

@@ -35,7 +35,7 @@ pub use error::{ExpandError, Result};
 /// # Errors
 ///
 /// Returns the invocation's diagnostics; `krs-macros` renders them with
-/// [`syn::Error::into_compile_error`].
+/// [`ExpandError::into_compile_error`].
 pub fn expand_attribute(
     entry: AttributeMacro,
     env: &dyn MacroEnvironment,
@@ -72,6 +72,7 @@ pub fn expand_attribute(
         AttributeMacro::Desugar => expand::desugar(env, attributes, item),
         AttributeMacro::SpecModule => expand::spec_module(env, attributes, item),
         AttributeMacro::Context => expand::context(env, attributes, item),
+        AttributeMacro::Constant => expand::constant(env, attributes, item),
     }
 }
 
@@ -83,7 +84,7 @@ pub fn expand_attribute(
 /// # Errors
 ///
 /// Returns the invocation's diagnostics; `krs-macros` renders them with
-/// [`syn::Error::into_compile_error`].
+/// [`ExpandError::into_compile_error`].
 pub fn expand_function(
     entry: FunctionMacro,
     env: &dyn MacroEnvironment,
@@ -93,7 +94,9 @@ pub fn expand_function(
         FunctionMacro::Sorts => expand::sorts(env, input),
         FunctionMacro::FrameworkSorts => expand::framework_sorts(env, input),
         FunctionMacro::Rules => expand::rules(env, input),
-        FunctionMacro::Term => expand::term(input),
+        FunctionMacro::Claims => expand::claims(env, input),
+        FunctionMacro::Equations => expand::equations(env, input),
+        FunctionMacro::Term => expand::term(env, input),
         FunctionMacro::Id => islands::id(input),
         FunctionMacro::Bytes => islands::bytes(input),
         FunctionMacro::Anonymous => Ok(islands::anonymous()),
@@ -101,7 +104,7 @@ pub fn expand_function(
         FunctionMacro::Fragment => expand::fragment(env, &input),
         FunctionMacro::K => expand::k(env, input),
         FunctionMacro::Map => expand::map(env, input),
-        FunctionMacro::Cells => expand::cells(input),
+        FunctionMacro::Cells => expand::cells(env, input),
         FunctionMacro::Precedence => expand::precedence(env, input),
         FunctionMacro::Associativity => expand::associativity(env, input),
         FunctionMacro::Lexeme => islands::lexeme(input),

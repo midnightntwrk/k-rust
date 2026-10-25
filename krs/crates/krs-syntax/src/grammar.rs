@@ -7,8 +7,8 @@ use syn::spanned::Spanned;
 use syn::{Fields, Ident, ItemImpl, ItemStruct, ItemType, LitInt, LitStr, Path, Token, Type};
 
 use crate::parse::{
-    KrsSyntax, ParseError, ProvenanceAnchors, checked_ordinal, duplicate, invalid_argument,
-    missing, structured, unknown,
+    KrsSyntax, ParseError, ProvenanceAnchors, checked_ordinal, duplicate, first_non_doc_attribute,
+    invalid_argument, missing, structured, unknown,
 };
 use crate::path::{is_plain_path, path_text, unqualified_path_ident};
 use crate::{ProvenanceAnchor, ProvenanceRole, SyntaxError, SyntaxErrorKind, TokenRange};
@@ -1189,8 +1189,9 @@ impl TokenDeclaration {
     ///
     /// # Errors
     ///
-    /// Rejects generic, record, unit, multi-field, attributed-field, and
-    /// non-`String` representations.
+    /// Rejects generic, record, unit, and multi-field representations, a
+    /// field attribute other than a doc comment, and non-`String`
+    /// representations.
     pub fn from_item(item: ItemStruct) -> Result<Self, SyntaxError> {
         if !item.generics.params.is_empty() || item.generics.where_clause.is_some() {
             return Err(unsupported_token(
@@ -1216,10 +1217,10 @@ impl TokenDeclaration {
                 fields.span(),
             ));
         };
-        if !field.attrs.is_empty() {
+        if let Some(attribute) = first_non_doc_attribute(&field.attrs) {
             return Err(unsupported_token(
-                "the token representation field cannot have attributes",
-                field.attrs[0].span(),
+                "the token representation field takes only doc comments",
+                attribute.span(),
             ));
         }
         let Type::Path(representation) = &field.ty else {
@@ -1399,6 +1400,7 @@ impl KrsSyntax for BracketAttribute {
     /// The payload may use the compatibility template form (`"({value})"`) or the two-delimiter form (`"(", ")"`).
     /// Both forms must produce exactly one same-sort value and at least one terminal.
     fn parse_tokens(tokens: TokenStream) -> Result<Self, SyntaxError> {
+        let tokens = crate::parse::strip_trailing_comma(tokens);
         let delimiter_tokens = tokens.clone();
         structured(tokens, |input| {
             let first: LitStr = input.parse()?;
@@ -1796,6 +1798,12 @@ pub struct PrecedenceChain {
 }
 
 impl PrecedenceChain {
+    /// Returns the chain's first and last authored leaves.
+    #[must_use]
+    pub const fn range(&self) -> TokenRange {
+        self.range
+    }
+
     /// Returns production groups from tightest to loosest.
     #[must_use]
     pub const fn groups(&self) -> &AtLeastTwo<Ident> {
@@ -1956,6 +1964,12 @@ pub struct AssociativitySentence {
 }
 
 impl AssociativitySentence {
+    /// Returns the sentence's first and last authored leaves.
+    #[must_use]
+    pub const fn range(&self) -> TokenRange {
+        self.range
+    }
+
     /// Returns the typed associativity.
     #[must_use]
     pub const fn associativity(&self) -> GroupAssociativity {

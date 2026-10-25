@@ -11,7 +11,7 @@ pub struct Guarded {
 
 #[rule]
 fn invalid(Guarded { value }: Term<dyn ExprSort>) -> Term<dyn ExprSort> {
-    Guarded { value: post } //~ ERROR cannot find type `post`
+    Guarded { value: post } //~ ERROR `post` is not bound in this sentence
 }
 
 fn main() {}

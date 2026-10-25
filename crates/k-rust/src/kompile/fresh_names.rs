@@ -52,16 +52,15 @@ impl GeneratedVariableIdentity {
     }
 }
 
-/// Whether a variable name is one of the forms the fresh-name passes generate for anonymous
-/// variables.
-pub(crate) fn is_generated_anonymous(name: &str) -> bool {
-    ["_Gen", "?_Gen", "!_Gen", "@_Gen", "_DotVar"]
-        .iter()
-        .any(|prefix| {
-            name.strip_prefix(prefix).is_some_and(|suffix| {
-                !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
-            })
-        })
+/// The sigil of a variable name: `?` (existential), `!` (fresh) or `@` (set variable), or `""`
+/// for none.
+pub(crate) fn sigil(name: &str) -> &'static str {
+    match name.chars().next() {
+        Some('?') => "?",
+        Some('!') => "!",
+        Some('@') => "@",
+        _ => "",
+    }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -95,6 +94,18 @@ impl FreshNames {
 
     pub(crate) fn contains(&self, name: &str) -> bool {
         self.used.contains(name)
+    }
+
+    /// Mint a variable the compiler introduces in the place of a variable with sigil `sigil`
+    /// (`""`, `?`, `!` or `@`, [`sigil`]): `{sigil}_Gen{n}`, which keeps the role the sigil gives
+    /// (existential, fresh, or a set variable), with the identity that records it as minted.
+    pub(crate) fn mint_generated(&mut self, sigil: &str) -> GeneratedVariableIdentity {
+        let name = self.mint(&format!("{sigil}_Gen"));
+        if sigil == "@" {
+            GeneratedVariableIdentity::set(name)
+        } else {
+            GeneratedVariableIdentity::element(name)
+        }
     }
 
     /// Mint the first unused `{prefix}{n}` from the counter on; the counter also advances past the
@@ -135,15 +146,5 @@ mod tests {
 
         assert_eq!(fresh.mint("_Gen"), "_Gen1");
         assert_eq!(fresh.mint("_Gen"), "_Gen3");
-    }
-
-    #[test]
-    fn recognizes_only_generated_anonymous_variable_spellings() {
-        for name in ["_Gen0", "?_Gen1", "!_Gen2", "@_Gen3", "_DotVar4"] {
-            assert!(is_generated_anonymous(name), "{name}");
-        }
-        for name in ["_Gen", "_Genx", "X_Gen0", "_DotVar-1", "Gen0"] {
-            assert!(!is_generated_anonymous(name), "{name}");
-        }
     }
 }
