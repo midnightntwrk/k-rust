@@ -6,7 +6,7 @@
 
 use crate::{
     admit::{FlowAdmission, admit},
-    fuzz::{FuzzOptions, TemplateList},
+    fuzz::{FuzzJob, FuzzOptions, TemplateList},
     manifest::{FlowManifest, ManifestError},
     memo::MemoUse,
     mutation::MutationList,
@@ -35,7 +35,8 @@ pub const USAGE: &str = "usage: kink-flow check FLOW.toml | kink-flow results FL
                          [--compile-workers N] [--no-memo] [--cache DIR] | kink-flow report \
                          FLOW.toml [--cache DIR] | kink-flow query FLOW.toml PATTERNS.toml \
                          [--only ID]... [--verify] [--cache DIR] | kink-flow fuzz FLOW.toml \
-                         TEMPLATES.toml --template ID --kill MUTATION --mutations MUTATIONS.toml \
+                         TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS.toml \
+                         | --reach RULE [--fired] | --pattern ID --patterns PATTERNS.toml) \
                          [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] \
                          [--assume-joined NAME]... [--one-path] [--cache DIR] --no-confirm";
 
@@ -147,8 +148,16 @@ pub fn execute(args: Vec<OsString>) -> u8 {
                 Ok(request) => request,
                 Err(message) => return usage(&message),
             };
-            if !request.mutations.is_file() {
-                return usage(&format!("{} is not a file", request.mutations.display()));
+            match &request.job {
+                FuzzJobRequest::Kill {
+                    mutations: file, ..
+                }
+                | FuzzJobRequest::Pattern { patterns: file, .. }
+                    if !file.is_file() =>
+                {
+                    return usage(&format!("{} is not a file", file.display()));
+                }
+                _ => {}
             }
             if let Ok(list) = TemplateList::read(&templates)
                 && list.get(&request.template).is_none()
@@ -158,13 +167,20 @@ pub fn execute(args: Vec<OsString>) -> u8 {
                     request.template
                 ));
             }
-            if let Ok(list) = MutationList::read(&request.mutations)
-                && !list.mutations.iter().any(|m| m.id == request.mutation)
+            if let FuzzJobRequest::Kill {
+                mutation,
+                mutations,
+            } = &request.job
+                && let Ok(list) = MutationList::read(mutations)
+                && !list.mutations.iter().any(|m| &m.id == mutation)
             {
-                return usage(&format!(
-                    "--kill {}: no mutation has this id",
-                    request.mutation
-                ));
+                return usage(&format!("--kill {mutation}: no mutation has this id"));
+            }
+            if let FuzzJobRequest::Pattern { id, patterns } = &request.job
+                && let Ok(list) = PatternList::read(patterns)
+                && !list.patterns.iter().any(|p| &p.id == id)
+            {
+                return usage(&format!("--pattern {id}: no pattern has this id"));
             }
             match on_stack(move || fuzz(&manifest, &templates, &request)) {
                 Some(result) => result,
@@ -305,9 +321,22 @@ fn query_options(args: &[String]) -> Result<QueryOptions, String> {
 #[derive(Clone, Debug)]
 pub struct FuzzRequest {
     pub template: String,
-    pub mutation: String,
-    pub mutations: PathBuf,
+    pub job: FuzzJobRequest,
     pub options: FuzzOptions,
+}
+
+/// The job a `kink-flow fuzz` command line names.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum FuzzJobRequest {
+    /// `--kill MUTATION --mutations MUTATIONS.toml`.
+    Kill {
+        mutation: String,
+        mutations: PathBuf,
+    },
+    /// `--reach RULE [--fired]`.
+    Reach { rule: String, fired: bool },
+    /// `--pattern ID --patterns PATTERNS.toml`.
+    Pattern { id: String, patterns: PathBuf },
 }
 
 fn number(flag: &str, value: Option<&String>) -> Result<u64, String> {
@@ -320,6 +349,7 @@ fn number(flag: &str, value: Option<&String>) -> Result<u64, String> {
 fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
     let mut options = FuzzOptions::default();
     let (mut template, mut mutation, mut mutations) = (None, None, None);
+    let (mut reach, mut pattern, mut patterns, mut fired) = (None, None, None, false);
     let (mut budget, mut seed, mut max_work, mut time_limit) = (None, None, None, None);
     let (mut one_path, mut no_confirm) = (false, false);
     let mut args = args.iter();
@@ -336,10 +366,15 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
                     args.next().ok_or("--mutations needs a file")?,
                 ));
             }
-            "--reach" | "--pattern" => {
-                return Err(format!(
-                    "{arg}: the reach and pattern jobs are not built yet; use --kill"
-                ));
+            "--reach" if reach.is_none() => {
+                reach = Some(args.next().ok_or("--reach needs a rule")?.clone());
+            }
+            "--fired" if !fired => fired = true,
+            "--pattern" if pattern.is_none() => {
+                pattern = Some(args.next().ok_or("--pattern needs a pattern id")?.clone());
+            }
+            "--patterns" if patterns.is_none() => {
+                patterns = Some(PathBuf::from(args.next().ok_or("--patterns needs a file")?));
             }
             "--attempts" => {
                 return Err(
@@ -392,8 +427,46 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
         }
     }
     let template = template.ok_or("give --template ID")?;
-    let mutation = mutation.ok_or("give the job: --kill MUTATION --mutations MUTATIONS.toml")?;
-    let mutations = mutations.ok_or("--kill needs --mutations MUTATIONS.toml")?;
+    let job = match (mutation, reach, pattern) {
+        (Some(mutation), None, None) => {
+            if fired || patterns.is_some() {
+                return Err("--fired and --patterns belong to --reach and --pattern".into());
+            }
+            let mutations = mutations.ok_or("--kill needs --mutations MUTATIONS.toml")?;
+            FuzzJobRequest::Kill {
+                mutation,
+                mutations,
+            }
+        }
+        (None, Some(rule), None) => {
+            if mutations.is_some() || patterns.is_some() {
+                return Err("--mutations and --patterns belong to --kill and --pattern".into());
+            }
+            FuzzJobRequest::Reach { rule, fired }
+        }
+        (None, None, Some(id)) => {
+            if mutations.is_some() || fired {
+                return Err("--mutations and --fired belong to --kill and --reach".into());
+            }
+            if !options.assume_joined.is_empty() {
+                return Err(
+                    "--assume-joined: a pattern job reads no data end, so it takes no assumed \
+                     name"
+                        .into(),
+                );
+            }
+            let patterns = patterns.ok_or("--pattern needs --patterns PATTERNS.toml")?;
+            FuzzJobRequest::Pattern { id, patterns }
+        }
+        (None, None, None) => {
+            return Err(
+                "give the job: --kill MUTATION --mutations MUTATIONS.toml, --reach RULE \
+                        [--fired], or --pattern ID --patterns PATTERNS.toml"
+                    .into(),
+            );
+        }
+        _ => return Err("give one job: --kill, --reach or --pattern".into()),
+    };
     if !no_confirm {
         return Err(
             "confirmation by kink's own run is not built yet: pass --no-confirm, then append the \
@@ -412,14 +485,14 @@ fn fuzz_options(args: &[String]) -> Result<FuzzRequest, String> {
     }
     Ok(FuzzRequest {
         template,
-        mutation,
-        mutations,
+        job,
         options,
     })
 }
 
-/// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID --kill MUTATION --mutations
-/// MUTATIONS.toml [options] --no-confirm`: the fuzz document ([`crate::fuzz`]) and the exit
+/// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations
+/// MUTATIONS.toml | --reach RULE [--fired] | --pattern ID --patterns PATTERNS.toml) [options]
+/// --no-confirm`: the fuzz document ([`crate::fuzz`]) and the exit
 /// status: [`EXIT_OK`] when the job was done (a witness printed as a `[[program]]` fragment, or
 /// none within the budget or the time limit); [`EXIT_CORPUS`] when an input, the template or the
 /// mutation is refused, the campaign is `not-comparable`, or a run failed.
@@ -437,23 +510,60 @@ pub fn fuzz(manifest: &Path, templates: &Path, request: &FuzzRequest) -> (Value,
             );
         }
     };
-    let list = match MutationList::read(&request.mutations) {
-        Ok(list) => list,
-        Err(error) => {
-            return (
-                crate::fuzz::input_refused("MUTATIONS.toml", &error),
-                EXIT_CORPUS,
-            );
+    let (document, ok) = match &request.job {
+        FuzzJobRequest::Kill {
+            mutation,
+            mutations,
+        } => {
+            let list = match MutationList::read(mutations) {
+                Ok(list) => list,
+                Err(error) => {
+                    return (
+                        crate::fuzz::input_refused("MUTATIONS.toml", &error),
+                        EXIT_CORPUS,
+                    );
+                }
+            };
+            crate::fuzz::fuzz_job(
+                &manifest,
+                &templates,
+                &request.template,
+                FuzzJob::Kill {
+                    list: &list,
+                    mutation,
+                },
+                &request.options,
+            )
+        }
+        FuzzJobRequest::Reach { rule, fired } => crate::fuzz::fuzz_job(
+            &manifest,
+            &templates,
+            &request.template,
+            FuzzJob::Reach {
+                rule,
+                fired: *fired,
+            },
+            &request.options,
+        ),
+        FuzzJobRequest::Pattern { id, patterns } => {
+            let list = match PatternList::read(patterns) {
+                Ok(list) => list,
+                Err(error) => {
+                    return (
+                        crate::fuzz::input_refused("PATTERNS.toml", &error),
+                        EXIT_CORPUS,
+                    );
+                }
+            };
+            crate::fuzz::fuzz_job(
+                &manifest,
+                &templates,
+                &request.template,
+                FuzzJob::Pattern { list: &list, id },
+                &request.options,
+            )
         }
     };
-    let (document, ok) = crate::fuzz::kill(
-        &manifest,
-        &templates,
-        &request.template,
-        &list,
-        &request.mutation,
-        &request.options,
-    );
     (document, if ok { EXIT_OK } else { EXIT_CORPUS })
 }
 

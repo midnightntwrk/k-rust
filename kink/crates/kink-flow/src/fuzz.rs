@@ -2,9 +2,14 @@
 //! and T3b).
 //!
 //! The command takes a template, a program of the flow with some of its literals marked as holes
-//! (`TEMPLATES.toml`, [`TemplateList`]), and one job. T3a builds the kill job: look for hole
-//! values that make the template kill one mutation of the flow's list, so that the program can
-//! join the corpus and kink's own `run` proves the kill.
+//! (`TEMPLATES.toml`, [`TemplateList`]), and one job ([`FuzzJob`]). T3a builds the kill job: look
+//! for hole values that make the template kill one mutation of the flow's list, so that the
+//! program can join the corpus and kink's own `run` proves the kill. T5 adds the reach job (a
+//! program `results` would list in a rule's `reached_by` or `fired_by`: its all-paths run must
+//! be comparable, since kink counts only comparable programs) and the pattern job (a program
+//! whose run reaches a configuration matching a pattern of `PATTERNS.toml`, as a `query` hit:
+//! matched at any state, with the facts a complete search could stop at refused). Both run on
+//! the baseline alone.
 //!
 //! **Sides.** The baseline is the admitted specification's compile, converted with
 //! `k_rust_fuzz::CompiledDefinition::from_artifacts` with the loaded definition's source table,
@@ -59,12 +64,17 @@ use crate::{
     admit::{AdmittedSpec, ProgramInputs, admit_spec},
     digest::{program_digest, spec_digest},
     manifest::{FlowManifest, ManifestError, Program},
-    mutation::{MutationList, resolve},
+    mutation::{MutationList, RuleText, resolve, rule_texts},
+    pattern::{INVALID_PATTERN, Lowering, PatternList, Searcher},
     report::claims_value,
     results::kebab,
     search::status_name,
 };
-use k_rust::kore::parser::parse_pattern;
+use k_rust::kore::{
+    ast::{Pattern as KorePattern, Sentence},
+    parser::{parse_definition, parse_pattern},
+};
+use k_rust::names::KoreAttribute;
 use k_rust_fuzz::{
     BackendRoute, Budget, CallerIdentity, Campaign, CampaignSpec, CancellationToken, CaseOptions,
     CompiledDefinition, Definitions, HoleDecl, HoleLocation, PathMode, ProgramInput,
@@ -75,13 +85,14 @@ use k_rust_fuzz::{
         CampaignOutcome, DefinitionFinding, FindingVerdict, FuzzReport, WitnessCase, digest_hex,
     },
     spec::{DEFAULT_REJECTION_CAP, ProgramSource as FuzzProgram, ProgramText},
-    target::DifferentialTarget,
+    target::{DifferentialTarget, PatternAt, PatternTarget, RuleMode, RuleRef, RuleTarget},
     values::GenerationBounds,
 };
 use kink_campaign::{MutantAdmission, claim_free_mutant};
 use kink_corpus::{ProgramSource, cli::DEFINITION_STACK_BYTES};
 use kink_native::{
     K_RUST_REVISION, ValidatedDefinition,
+    coverage::{RuleAuthors, coverage_domain},
     exclusion::{DefinitionExclusions, Exclusion},
     execution::SolverProfile,
 };
@@ -1196,6 +1207,37 @@ fn last_run(
     })
 }
 
+// ---------------------------------------------------------------------------------------------
+// Jobs: kill, reach, pattern
+// ---------------------------------------------------------------------------------------------
+
+/// The job of one `kink-flow fuzz` command.
+#[derive(Clone, Copy, Debug)]
+pub enum FuzzJob<'a> {
+    /// `--kill MUTATION --mutations MUTATIONS.toml`: hole values whose program kills the mutation.
+    Kill {
+        list: &'a MutationList,
+        mutation: &'a str,
+    },
+    /// `--reach RULE [--fired]`: hole values whose program's all-paths baseline run is comparable
+    /// and reaches the rule's condition (kink's `reached_by`), or applies it with `fired`
+    /// (`fired_by`).
+    Reach { rule: &'a str, fired: bool },
+    /// `--pattern ID --patterns PATTERNS.toml`: hole values whose program reaches a configuration
+    /// matching the pattern (a `hit` of kink's `query`).
+    Pattern { list: &'a PatternList, id: &'a str },
+}
+
+impl FuzzJob<'_> {
+    const fn kind(&self) -> &'static str {
+        match self {
+            Self::Kill { .. } => "kill",
+            Self::Reach { .. } => "reach",
+            Self::Pattern { .. } => "pattern",
+        }
+    }
+}
+
 /// `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID --kill MUTATION --mutations
 /// MUTATIONS.toml`: the document and whether the job was done (a witness, or none within the
 /// budget or the time limit); `false` when an input, the template or the mutation is refused, the
@@ -1208,17 +1250,44 @@ pub fn kill(
     mutation: &str,
     options: &FuzzOptions,
 ) -> (Value, bool) {
+    fuzz_job(
+        manifest,
+        templates,
+        template,
+        FuzzJob::Kill { list, mutation },
+        options,
+    )
+}
+
+/// The document of one job ([`kill`] for the kill job) and whether the job was done.
+#[allow(clippy::too_many_lines)]
+pub fn fuzz_job(
+    manifest: &FlowManifest,
+    templates: &TemplateList,
+    template: &str,
+    job: FuzzJob<'_>,
+    options: &FuzzOptions,
+) -> (Value, bool) {
     let mut document = document();
     document["job"] = json!({
-        "kind": "kill",
-        "mutation": mutation,
+        "kind": job.kind(),
         "outcome": "pending",
         "path_mode": match options.paths {
             PathMode::AllPaths => "all-paths",
             PathMode::OnePath => "one-path",
         },
     });
-    document["assumed"] = assumed_value(manifest, options, None);
+    if let FuzzJob::Kill { mutation, .. } = job {
+        document["job"]["mutation"] = json!(mutation);
+    }
+    // A pattern target reads no data end, so the campaign takes no assumed name (k-rust-fuzz
+    // refuses names on such a target), not even the flow's.
+    let reads_data = !matches!(job, FuzzJob::Pattern { .. });
+    document["assumed"] = if reads_data {
+        assumed_value(manifest, options, None)
+    } else {
+        json!([])
+    };
     let refuse = |mut document: Value, refusal: Refusal, action: &str| {
         document["job"]["outcome"] = json!("refused");
         document["job"]["refusal"] = refusal.value();
@@ -1234,13 +1303,30 @@ pub fn kill(
         );
         return refuse(document, refusal, "name a template of TEMPLATES.toml");
     };
-    let Some(mutation_entry) = list.mutations.iter().find(|m| m.id == mutation) else {
-        let refusal = Refusal::new(
-            "mutation",
-            "unknown-mutation",
-            format!("no mutation {mutation:?}"),
-        );
-        return refuse(document, refusal, "name a mutation of MUTATIONS.toml");
+    let mutation_entry = match job {
+        FuzzJob::Kill { list, mutation } => {
+            let Some(entry) = list.mutations.iter().find(|m| m.id == mutation) else {
+                let refusal = Refusal::new(
+                    "mutation",
+                    "unknown-mutation",
+                    format!("no mutation {mutation:?}"),
+                );
+                return refuse(document, refusal, "name a mutation of MUTATIONS.toml");
+            };
+            Some(entry)
+        }
+        FuzzJob::Reach { .. } | FuzzJob::Pattern { .. } => None,
+    };
+    let pattern_entry = match job {
+        FuzzJob::Pattern { list, id } => {
+            let Some(entry) = list.patterns.iter().find(|p| p.id == id) else {
+                let refusal =
+                    Refusal::new("pattern", "unknown-pattern", format!("no pattern {id:?}"));
+                return refuse(document, refusal, "name a pattern of PATTERNS.toml");
+            };
+            Some(entry)
+        }
+        FuzzJob::Kill { .. } | FuzzJob::Reach { .. } => None,
     };
     let (record, admitted) = admit_spec(manifest);
     let Some((spec, mut inputs)) = admitted else {
@@ -1295,79 +1381,143 @@ pub fn kill(
              checks) run before the watchdog starts, and no time limit bounds them",
         ));
     }
-    document["template"]["last_run"] = last_run(
-        manifest,
-        &spec,
-        options,
-        template,
-        &instance,
-        mutation,
-        &mut warnings,
-    );
+    if let FuzzJob::Kill { mutation, .. } = job {
+        document["template"]["last_run"] = last_run(
+            manifest,
+            &spec,
+            options,
+            template,
+            &instance,
+            mutation,
+            &mut warnings,
+        );
+    }
     document["warnings"] = json!(warnings);
 
+    // The job's own target, resolved against the baseline before any campaign.
+    let kind = match job {
+        FuzzJob::Kill { .. } => None,
+        FuzzJob::Reach { rule, fired } => match resolve_reach(manifest, &spec, rule, fired) {
+            Ok(reach) => {
+                document["job"]["rule"] = reach.value();
+                Some(TargetKind::Rule(RuleTarget {
+                    rule: RuleRef::UniqueId(reach.id),
+                    mode: if fired {
+                        RuleMode::Covered
+                    } else {
+                        RuleMode::ConditionReached
+                    },
+                }))
+            }
+            Err(refusal) => {
+                return refuse(
+                    document,
+                    refusal,
+                    "name one authored rewrite rule of the specification: FILE:LINE (a line of the \
+                     rule), its label (MODULE.x when the bare label is ambiguous), or one of the \
+                     listed 64-hex ids",
+                );
+            }
+        },
+        FuzzJob::Pattern { .. } => {
+            let entry = pattern_entry.expect("a pattern job has its entry");
+            match lower_pattern(manifest, &spec, &entry.pattern) {
+                Ok(kore) => {
+                    document["job"]["pattern"] =
+                        json!({"id": entry.id, "text": entry.pattern, "kore": kore});
+                    Some(TargetKind::Pattern(PatternTarget {
+                        pattern: entry.pattern.clone(),
+                        at: PatternAt::AnyState,
+                    }))
+                }
+                Err(refusal) => {
+                    document["job"]["pattern"] = json!({"id": entry.id, "text": entry.pattern});
+                    return refuse(
+                        document,
+                        refusal,
+                        "fix the pattern: kink's `query` refuses it the same way (invalid-pattern)",
+                    );
+                }
+            }
+        }
+    };
+
     // The mutant, exactly as kink's runner prepares it for every test of the mutation.
-    let resolved = match resolve(manifest, &spec.loaded, mutation_entry) {
-        Ok(resolved) => resolved,
-        Err(invalid) => {
-            document["job"]["status"] = json!(invalid.reason.status());
-            document["job"]["reason"] = json!(invalid.reason.as_str());
-            document["job"]["detail"] = json!(invalid.to_string());
-            let refusal = Refusal::new("mutation", invalid.reason.as_str(), invalid.to_string());
-            return refuse(
-                document,
-                refusal,
-                "fix the mutation: it does not resolve (kink-flow run gives the same status)",
+    let mutant = match mutation_entry {
+        None => None,
+        Some(mutation_entry) => {
+            let resolved = match resolve(manifest, &spec.loaded, mutation_entry) {
+                Ok(resolved) => resolved,
+                Err(invalid) => {
+                    document["job"]["status"] = json!(invalid.reason.status());
+                    document["job"]["reason"] = json!(invalid.reason.as_str());
+                    document["job"]["detail"] = json!(invalid.to_string());
+                    let refusal =
+                        Refusal::new("mutation", invalid.reason.as_str(), invalid.to_string());
+                    return refuse(
+                        document,
+                        refusal,
+                        "fix the mutation: it does not resolve (kink-flow run gives the same \
+                         status)",
+                    );
+                }
+            };
+            let baseline = spec.validator.baseline();
+            let admission = MutantAdmission::new(
+                baseline,
+                &spec.compiled,
+                &k_rust::kast::identifier::encode(&manifest.spec.main_module),
+                &manifest.spec.assume_joined,
             );
+            match claim_free_mutant(
+                &spec.validator,
+                &spec.compiled,
+                &resolved.patch,
+                &admission,
+                &mut |_| {},
+            ) {
+                Ok(mutant) => {
+                    document["job"]["claims"] = claims_value(baseline, &mutant.claims);
+                    document["job"]["mutant_unnamed_findings"] =
+                        Value::Array(mutant.data.unnamed().iter().map(|f| f.value()).collect());
+                    Some(mutant)
+                }
+                Err(refusal) => {
+                    let status = status_name(refusal.failure.status());
+                    let reason = kebab(&format!("{:?}", refusal.failure));
+                    document["job"]["status"] = json!(status);
+                    document["job"]["reason"] = json!(reason);
+                    document["job"]["claims"] = claims_value(baseline, &refusal.claims);
+                    document["job"]["inconsistent_pairs"] = Value::Array(
+                        refusal
+                            .inconsistent_pairs
+                            .iter()
+                            .map(kink_native::consistency::UnjoinedEquations::value)
+                            .collect(),
+                    );
+                    let detail = format!("kink's mutant preparation: {status} ({reason})");
+                    return refuse(
+                        document,
+                        Refusal::new("mutant", reason, detail),
+                        "no mutant to fuzz: kink refuses this mutation the same way in \
+                         `kink-flow run`",
+                    );
+                }
+            }
         }
     };
-    let baseline = spec.validator.baseline();
-    let admission = MutantAdmission::new(
-        baseline,
-        &spec.compiled,
-        &k_rust::kast::identifier::encode(&manifest.spec.main_module),
-        &manifest.spec.assume_joined,
-    );
-    let mutant = match claim_free_mutant(
-        &spec.validator,
-        &spec.compiled,
-        &resolved.patch,
-        &admission,
-        &mut |_| {},
-    ) {
-        Ok(mutant) => mutant,
-        Err(refusal) => {
-            let status = status_name(refusal.failure.status());
-            let reason = kebab(&format!("{:?}", refusal.failure));
-            document["job"]["status"] = json!(status);
-            document["job"]["reason"] = json!(reason);
-            document["job"]["claims"] = claims_value(baseline, &refusal.claims);
-            document["job"]["inconsistent_pairs"] = Value::Array(
-                refusal
-                    .inconsistent_pairs
-                    .iter()
-                    .map(kink_native::consistency::UnjoinedEquations::value)
-                    .collect(),
-            );
-            let detail = format!("kink's mutant preparation: {status} ({reason})");
-            return refuse(
-                document,
-                Refusal::new("mutant", reason, detail),
-                "no mutant to fuzz: kink refuses this mutation the same way in `kink-flow run`",
-            );
-        }
-    };
-    document["job"]["claims"] = claims_value(baseline, &mutant.claims);
-    document["job"]["mutant_unnamed_findings"] =
-        Value::Array(mutant.data.unnamed().iter().map(|f| f.value()).collect());
 
     // kink's definition exclusions (design 3.2.4): one on the mutant makes every test of the
     // mutation unknown in kink's run; one on the baseline makes every program's baseline result
-    // unknown (excluded), so no program is comparable and nothing can kill. Either way no witness
-    // could be confirmed.
+    // unknown (excluded), so no program is comparable and nothing can kill, reach or hit. Either
+    // way no witness could be confirmed. A reach or pattern job has the baseline alone.
     let module = k_rust::kast::identifier::encode(&manifest.spec.main_module);
     let mut exclusions = serde_json::Map::new();
-    for (role, side) in [("baseline", &spec.compiled), ("mutant", &mutant.side)] {
+    let mut sides_to_check = vec![("baseline", &spec.compiled)];
+    if let Some(mutant) = &mutant {
+        sides_to_check.push(("mutant", &mutant.side));
+    }
+    for (role, side) in sides_to_check {
         match side_exclusion(side, &module) {
             Ok(None) => {
                 exclusions.insert(role.into(), Value::Null);
@@ -1378,23 +1528,25 @@ pub fn kill(
                     json!({"exclusion": exclusion.name(), "detail": detail}),
                 );
                 document["job"]["exclusions"] = Value::Object(exclusions);
-                // The status and reason kink's `run` gives the mutation.
-                let (status, reason) = if role == "baseline" {
-                    ("error", "no-comparable-program")
-                } else {
-                    ("unknown", exclusion.name())
-                };
-                document["job"]["status"] = json!(status);
-                document["job"]["reason"] = json!(reason);
+                if mutant.is_some() {
+                    // The status and reason kink's `run` gives the mutation.
+                    let (status, reason) = if role == "baseline" {
+                        ("error", "no-comparable-program")
+                    } else {
+                        ("unknown", exclusion.name())
+                    };
+                    document["job"]["status"] = json!(status);
+                    document["job"]["reason"] = json!(reason);
+                }
                 let detail = format!(
                     "the {role}'s definition has kink's definition exclusion {}: {detail}",
                     exclusion.name()
                 );
                 let action = if role == "baseline" {
                     "kink excludes every run on this specification, so every program's result is \
-                     unknown and no mutation can be killed (`kink-flow run` gives each mutation \
-                     status error, no-comparable-program, and each program the exclusion as its \
-                     cause): fix the specification"
+                     unknown and no witness could be confirmed (`kink-flow run` gives each \
+                     mutation status error, no-comparable-program, and each program the exclusion \
+                     as its cause): fix the specification"
                 } else {
                     "kink reports this mutation unknown with this reason (every test of the \
                      mutant is excluded), so no program can kill it: choose another mutation \
@@ -1422,7 +1574,11 @@ pub fn kill(
     document["job"]["exclusions"] = Value::Object(exclusions);
 
     let sides = compiled_side(manifest, &spec, &spec.compiled).and_then(|baseline_side| {
-        compiled_side(manifest, &spec, &mutant.side).map(|mutant_side| (baseline_side, mutant_side))
+        mutant
+            .as_ref()
+            .map(|mutant| compiled_side(manifest, &spec, &mutant.side))
+            .transpose()
+            .map(|mutant_side| (baseline_side, mutant_side))
     });
     let (baseline_side, mutant_side) = match sides {
         Ok(sides) => sides,
@@ -1436,14 +1592,50 @@ pub fn kill(
     };
     document["sides"] = json!({
         "baseline": side_value(&spec.compiled, &baseline_side),
-        "mutant": side_value(&mutant.side, &mutant_side),
     });
+    if let (Some(mutant), Some(mutant_side)) = (&mutant, &mutant_side) {
+        document["sides"]["mutant"] = side_value(&mutant.side, mutant_side);
+    }
 
+    let target = match kind {
+        // Kill: the mutant's clean end outside the baseline's complete set of ends.
+        None => Target {
+            kind: TargetKind::Differential(DifferentialTarget::default()),
+            run_to_completion: false,
+            negated_property: false,
+            data_end: true,
+            // Both options judge rule and pattern hits only; a differential target ignores them.
+            comparable: false,
+            query_confirmable: false,
+        },
+        // Reach: kink counts a program in `reached_by` (`fired_by`) only when its all-paths
+        // baseline run is comparable, so the hit's run of every path must be (`comparable`),
+        // which also needs data ends.
+        Some(kind @ TargetKind::Rule(_)) => Target {
+            kind,
+            run_to_completion: true,
+            negated_property: false,
+            data_end: true,
+            comparable: true,
+            query_confirmable: false,
+        },
+        // Pattern: a query `hit` needs some reached configuration that matches, so the pattern
+        // is matched at every configuration (`any-state`), with the facts a complete search
+        // could stop at refused (`query-confirmable`).
+        Some(kind) => Target {
+            kind,
+            run_to_completion: false,
+            negated_property: false,
+            data_end: false,
+            comparable: false,
+            query_confirmable: true,
+        },
+    };
     let budget = manifest.budget;
     let campaign_spec = CampaignSpec {
         definitions: Definitions {
             baseline: Arc::new(baseline_side),
-            mutant: Some(Arc::new(mutant_side)),
+            mutant: mutant_side.map(Arc::new),
         },
         program: ProgramInput::Source(FuzzProgram {
             program: Some(ProgramText {
@@ -1454,21 +1646,17 @@ pub fn kill(
             config_vars: campaign_variables(&spec, &instance),
         }),
         holes: template.holes.clone(),
-        target: Target {
-            kind: TargetKind::Differential(DifferentialTarget::default()),
-            run_to_completion: false,
-            negated_property: false,
-            data_end: true,
-            // Both options judge rule and pattern hits only; a differential target ignores them.
-            comparable: false,
-            query_confirmable: false,
-        },
+        target,
         options: CaseOptions {
             paths: options.paths,
             max_depth: Some(budget.max_depth),
             max_work: Some(options.max_work.unwrap_or(DEFAULT_MAX_WORK)),
             safety_limit_ms: Some(budget.time_ms),
-            assume_joined: assumed_names(manifest, options),
+            assume_joined: if reads_data {
+                assumed_names(manifest, options)
+            } else {
+                Vec::new()
+            },
             ..CaseOptions::default()
         },
         proposers: ProposerConfig::default(),
@@ -1590,7 +1778,9 @@ pub fn kill(
             .map(finding_value)
             .collect(),
     );
-    document["assumed"] = assumed_value(manifest, options, Some(&report));
+    if reads_data {
+        document["assumed"] = assumed_value(manifest, options, Some(&report));
+    }
     let fuzz =
         serde_json::from_str::<Value>(&report.to_canonical_json()).expect("a fuzz report is JSON");
     let mut attempt = json!({
@@ -1599,6 +1789,16 @@ pub fn kill(
         "candidate": null,
         "confirmation": null,
     });
+    // What the job looks for, for the actions below.
+    let sought = match job {
+        FuzzJob::Kill { .. } => {
+            "choose a template whose run reaches the edited rule and ends on both sides"
+        }
+        FuzzJob::Reach { .. } => {
+            "choose a template whose run comes near the rule, and ends on every path with values"
+        }
+        FuzzJob::Pattern { .. } => "choose a template whose run comes near the pattern",
+    };
     let ok = match &report.outcome {
         CampaignOutcome::WitnessFound { witness } => {
             let (case, which) = witness
@@ -1630,7 +1830,11 @@ pub fn kill(
                 return (document, true);
             }
             let (id, file) = (fragment.id.clone(), fragment.file.clone());
-            let premises = premises(manifest, options, &report);
+            let premises = if reads_data {
+                premises(manifest, options, &report)
+            } else {
+                Vec::new()
+            };
             document["program"] = json!({
                 "id": id,
                 "fragment": fragment.toml,
@@ -1643,13 +1847,28 @@ pub fn kill(
                 .filter(|p| p["in_flow"] == false)
                 .filter_map(|p| p["name"].as_str())
                 .collect::<Vec<_>>();
-            let mut action = format!(
+            let append = format!(
                 "append the [[program]] fragment to FLOW.toml (as text, or write the text to {} \
-                 and give it as file), then run `kink-flow run FLOW.toml MUTATIONS.toml --only \
-                 {mutation}`: kink's own run proves the kill and writes the hint. This command did \
-                 not confirm it (--no-confirm)",
+                 and give it as file)",
                 file.as_deref().unwrap_or("a file")
             );
+            let mut action = match job {
+                FuzzJob::Kill { mutation, .. } => format!(
+                    "{append}, then run `kink-flow run FLOW.toml MUTATIONS.toml --only \
+                     {mutation}`: kink's own run proves the kill and writes the hint"
+                ),
+                FuzzJob::Reach { fired, .. } => format!(
+                    "{append}, then run `kink-flow results FLOW.toml`: the rule's {} lists the \
+                     program once kink's own run of it is comparable",
+                    if fired { "fired_by" } else { "reached_by" }
+                ),
+                FuzzJob::Pattern { id: pattern, .. } => format!(
+                    "{append}, add {id:?} to the `programs` of pattern {pattern:?} in \
+                     PATTERNS.toml, then run `kink-flow query FLOW.toml PATTERNS.toml --only \
+                     {pattern}`: kink's own search confirms the claim"
+                ),
+            };
+            action.push_str(". This command did not confirm it (--no-confirm)");
             if !missing.is_empty() {
                 action.push_str(&format!(
                     "; first add to [spec] assume_joined the premises FLOW.toml lacks: {}",
@@ -1662,8 +1881,7 @@ pub fn kill(
         CampaignOutcome::NoWitnessFound { no_witness } => {
             document["stopped"] = json!("budget");
             document["action"] = json!(format!(
-                "no witness: {} Raise --cases or --work, mark more literals as holes, or choose \
-                 a template whose run reaches the edited rule and ends on both sides",
+                "no witness: {} Raise --cases or --work, mark more literals as holes, or {sought}",
                 no_witness.statement
             ));
             true
@@ -1712,11 +1930,11 @@ pub fn kill(
             document["action"] = json!(format!(
                 "not comparable (the fuzz report's outcome explains the verdicts); findings no \
                  name assumes: {}. Under such a finding the definition may identify the ends a \
-                 kill compares, so a kill would hold in no model; kink refuses it too \
-                 (baseline-findings) unless FLOW.toml's [spec] assume_joined names them. Fix \
-                 the definition, or name each finding you accept as a premise with \
-                 --assume-joined NAME and in [spec] assume_joined (a decided finding cannot be \
-                 named; a genuine one is known false)",
+                 test compares, so a kill would hold in no model and a reaching program would be \
+                 no comparable test; kink refuses kills too (baseline-findings) unless FLOW.toml's \
+                 [spec] assume_joined names them. Fix the definition, or name each finding you \
+                 accept as a premise with --assume-joined NAME and in [spec] assume_joined (a \
+                 decided finding cannot be named; a genuine one is known false)",
                 names.join("; ")
             ));
             false
@@ -1729,4 +1947,232 @@ pub fn kill(
     };
     document["attempts"] = json!([attempt]);
     (document, ok)
+}
+
+/// One reach job's rule, resolved on the baseline.
+struct ReachRule {
+    /// The targeted rewrite id.
+    id: String,
+    /// The authored rule the id belongs to, when the id names one.
+    at: Option<RuleText>,
+    /// Equation ids of the same sentence, which the target does not read.
+    untargeted: Vec<String>,
+    fired: bool,
+}
+
+impl ReachRule {
+    fn value(&self) -> Value {
+        json!({
+            "module": self.at.as_ref().map(|r| r.at.module.clone()),
+            "index": self.at.as_ref().map(|r| r.at.index),
+            "file": self.at.as_ref().and_then(|r| r.file.clone()),
+            "start_line": self.at.as_ref().and_then(|r| r.start_line),
+            "label": self.at.as_ref().and_then(|r| r.label.clone()),
+            "id": self.id,
+            "mode": if self.fired { "covered" } else { "condition-reached" },
+            "untargeted_ids": self.untargeted,
+        })
+    }
+}
+
+/// Whether `text` is a compiled rule id (64 lowercase hex digits).
+fn is_rule_id(text: &str) -> bool {
+    text.len() == 64
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
+/// The ids of the baseline's rewrite axioms: a rewrite axiom is a `\rewrites` (k-rust
+/// classifies every other `UNIQUE_ID` axiom as an equation of some kind).
+fn rewrite_ids(validated: &ValidatedDefinition) -> BTreeSet<String> {
+    let Ok(definition) = parse_definition(&validated.artifacts().definition_kore) else {
+        return BTreeSet::new();
+    };
+    definition
+        .modules
+        .iter()
+        .flat_map(|module| &module.sentences)
+        .filter_map(|sentence| match sentence {
+            Sentence::Axiom {
+                pattern,
+                attributes,
+                ..
+            } if matches!(**pattern, KorePattern::Rewrites { .. }) => {
+                attributes.0.iter().find_map(|attribute| match attribute {
+                    KorePattern::Application { symbol, arguments }
+                        if symbol.name == KoreAttribute::UniqueId.as_str() =>
+                    {
+                        match arguments.as_slice() {
+                            [KorePattern::String(id)] => id.as_utf8().ok().map(str::to_owned),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                })
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// Resolve `--reach RULE` on the baseline: `FILE:LINE` (a line inside an authored rule of
+/// `FILE`), a label (bare or `MODULE.x`, as a mutation edit's), or a compiled id. The rule's ids
+/// with a coverage signal (kink's coverage domain) must hold exactly one rewrite id, which is
+/// targeted; the sentence's equation ids are listed as untargeted.
+fn resolve_reach(
+    manifest: &FlowManifest,
+    spec: &AdmittedSpec,
+    rule: &str,
+    fired: bool,
+) -> Result<ReachRule, Refusal> {
+    let refused = |reason: &str, detail: String| Refusal::new("reach", reason, detail);
+    let authors = RuleAuthors::of(&spec.compiled);
+    let domain = coverage_domain(&spec.compiled);
+    let rewrites = rewrite_ids(&spec.compiled);
+    let texts = rule_texts(manifest, &spec.loaded);
+    let (at, ids): (Option<RuleText>, Vec<String>) = if is_rule_id(rule) {
+        if authors.get(rule).is_none() {
+            return Err(refused(
+                "unknown-rule-id",
+                format!("no axiom of the baseline has the id {rule}"),
+            ));
+        }
+        let at = texts
+            .iter()
+            .find(|text| authors.ids_of(&text.at).any(|id| id == rule))
+            .cloned();
+        (at, vec![rule.to_owned()])
+    } else {
+        let by_line = rule
+            .rsplit_once(':')
+            .and_then(|(file, line)| Some((file, line.parse::<u32>().ok()?)));
+        let matches = match by_line {
+            Some((file, line)) => texts
+                .iter()
+                .filter(|text| {
+                    text.file
+                        .as_deref()
+                        .is_some_and(|name| name == file || name.ends_with(&format!("/{file}")))
+                        && text.start_line.is_some_and(|start| start <= line)
+                        && text.end_line.is_some_and(|end| line <= end)
+                })
+                .collect::<Vec<_>>(),
+            None => texts
+                .iter()
+                .filter(|text| {
+                    text.label.as_deref().is_some_and(|label| {
+                        label == rule
+                            || label == format!("{}.{rule}", text.at.module)
+                            || (!label.contains('.')
+                                && rule.strip_prefix(&format!("{}.", text.at.module))
+                                    == Some(label))
+                    })
+                })
+                .collect(),
+        };
+        let describe = |text: &RuleText| {
+            format!(
+                "{}:{} ({}#{})",
+                text.file.as_deref().unwrap_or("?"),
+                text.start_line
+                    .map_or_else(|| "?".to_owned(), |l| l.to_string()),
+                text.at.module,
+                text.at.index
+            )
+        };
+        let one = match matches.as_slice() {
+            [] => {
+                return Err(match by_line {
+                    Some(_) => refused(
+                        "no-rule-at-line",
+                        format!("no authored rule of the specification spans {rule}"),
+                    ),
+                    None => refused("unknown-label", format!("no rule is labelled {rule:?}")),
+                });
+            }
+            [one] => (*one).clone(),
+            several => {
+                return Err(refused(
+                    if by_line.is_some() {
+                        "ambiguous-rule-position"
+                    } else {
+                        "ambiguous-label"
+                    },
+                    format!(
+                        "{rule:?} names {}; {}",
+                        several
+                            .iter()
+                            .map(|text| describe(text))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        if by_line.is_some() {
+                            "give a longer path"
+                        } else {
+                            "qualify it with the module"
+                        }
+                    ),
+                ));
+            }
+        };
+        let ids = authors.ids_of(&one.at).map(str::to_owned).collect();
+        (Some(one), ids)
+    };
+    let signalled = ids
+        .into_iter()
+        .filter(|id| domain.contains(id))
+        .collect::<Vec<_>>();
+    if signalled.is_empty() {
+        return Err(refused(
+            "no-coverage-signal",
+            format!(
+                "{rule:?} compiles to no axiom k-rust's run coverage can name (a macro, a claim, \
+                 an smt-lemma or non-executable axiom, or nothing), so kink lists it in no \
+                 reached_by"
+            ),
+        ));
+    }
+    let (targets, untargeted): (Vec<String>, Vec<String>) =
+        signalled.into_iter().partition(|id| rewrites.contains(id));
+    match targets.as_slice() {
+        [] => Err(refused(
+            "equation-target",
+            format!(
+                "{rule:?} compiles to equations only ({}): a reach job targets a rewrite rule, \
+                 whose condition a run reaches",
+                untargeted.join(", ")
+            ),
+        )),
+        [id] => Ok(ReachRule {
+            id: id.clone(),
+            at,
+            untargeted,
+            fired,
+        }),
+        several => Err(refused(
+            "several-rewrite-ids",
+            format!(
+                "{rule:?} compiles to several rewrite axioms: {}; give one of them with --reach ID",
+                several.join(", ")
+            ),
+        )),
+    }
+}
+
+/// Lower a pattern's text exactly as kink's `query` does (its rule grammar and execution
+/// definition, checked against the baseline search definition): the target's KORE, or the
+/// refusal `invalid-pattern` with k-rust's message.
+fn lower_pattern(
+    manifest: &FlowManifest,
+    spec: &AdmittedSpec,
+    text: &str,
+) -> Result<String, Refusal> {
+    let searcher = Searcher::new(spec, &manifest.spec.main_module, manifest.budget)
+        .map_err(|detail| Refusal::new("pattern", "search-backend", detail))?;
+    let lowering = Lowering::new(spec, &manifest.spec.main_module)
+        .map_err(|detail| Refusal::new("pattern", "search-backend", detail))?;
+    lowering
+        .lower(text, searcher.definition())
+        .map(|lowered| lowered.kore())
+        .map_err(|detail| Refusal::new("pattern", INVALID_PATTERN, detail))
 }

@@ -15,7 +15,7 @@ the outcome cache: proved outcomes kept across commands, killer hints that survi
 one baseline run per program per command (flow F-12),
 report usability: named oracle slots, timings, leaf censuses in the causes of stopped runs, cheaper killers first, and the rules no mutation targets (flow F-13),
 per-input pattern checks with the `query` command (flow F-18; "Checking a pattern" below),
-and the `fuzz` command: hole values of a template program that kill a mutation, found by k-rust-fuzz on kink's own sides (fz26 P7-KINKFLOW T3a; "Killing a survivor with `fuzz`" below).
+and the `fuzz` command: hole values of a template program that kill a mutation, reach a rule or hit a pattern, found by k-rust-fuzz on kink's own sides (fz26 P7-KINKFLOW T3a and T5; "Killing a survivor with `fuzz`" below).
 
 ## Building
 
@@ -669,7 +669,7 @@ Exit status: 0 when every selected (pattern, program) got its answer (`hit`, `no
 1 when the manifest, the pattern list, the specification or a program is refused, a search failed, a record could not be written, or `--verify` found a difference;
 2 on a usage error (an `--only` id that names no pattern, an option given twice).
 
-## Killing a survivor with `fuzz`: `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID --kill MUTATION --mutations MUTATIONS.toml [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] [--assume-joined NAME]... [--one-path] [--cache DIR] --no-confirm`
+## Killing a survivor with `fuzz`: `kink-flow fuzz FLOW.toml TEMPLATES.toml --template ID (--kill MUTATION --mutations MUTATIONS.toml | --reach RULE [--fired] | --pattern ID --patterns PATTERNS.toml) [--cases N | --work W] [--seed S] [--max-work N] [--time-limit-ms T] [--assume-joined NAME]... [--one-path] [--cache DIR] --no-confirm`
 
 When a mutation survives or is unknown because no corpus program tells the two definitions apart, write (or pick) a program that reaches the edited rule, mark its literals as holes, and let `fuzz` look for hole values that kill the mutation.
 It runs a k-rust-fuzz campaign in process on kink's own two sides and prints the killing program as a `[[program]]` fragment for `FLOW.toml`; kink's own `run` then proves the kill.
@@ -699,6 +699,14 @@ program = "primes"         # a [[program]] of FLOW.toml (its text, start_sort an
 - Mark every data literal: in TRIAL2 the killing value was usually one nobody would have guessed (`t = 0` in `primes`). A template is not a corpus program: it gets no record, and nothing is cached for it.
 - `testdata/flow/fuzz/imp` (TRIAL2's IMP thin corpus, its survivors and their templates) and `testdata/flow/fuzz/impu` are complete examples.
 
+### Reaching a rule and hitting a pattern
+
+`--reach RULE [--fired]` and `--pattern ID --patterns PATTERNS.toml` replace `--kill`; every other option applies, and the job runs on the baseline alone (its exclusions, its assembly, its findings).
+
+- **Reach** looks for hole values whose program `results` would list in the rule's `reached_by` (with `--fired`, `fired_by`). `RULE` is `FILE:LINE` (any line of an authored rule of `FILE`, a source of the specification, or a suffix of its path after a `/`), the rule's label (bare, or `MODULE.x` when the bare label names several rules), or a 64-hex compiled id. The rule's ids that k-rust's run coverage can name (the coverage domain `results` reads) must hold exactly one rewrite axiom, the target; equation ids of the same sentence are listed as `untargeted_ids`. Refusals before any case: `no-rule-at-line`, `unknown-label`, `ambiguous-label`, `ambiguous-rule-position`, `unknown-rule-id`, `no-coverage-signal` (a macro, alias, smt-lemma or non-executable rule), `equation-target` (a function rule) and `several-rewrite-ids`. kink counts a program in `reached_by` only when its all-paths baseline run is comparable, so the hit's run of every path must be comparable too (k-rust-fuzz's `comparable` option: complete, clean, data ends); the program must end naturally. A definition with a finding no name assumes makes the job `not-comparable`, as for a kill.
+- **Pattern** looks for hole values whose program reaches a configuration matching the pattern of `PATTERNS.toml` named `ID`, as a `query` `hit`: matched at every configuration of every path (k-rust-fuzz's `at: any-state`), with every fact on which a complete search could stop refused (`query-confirmable`). The pattern is first lowered exactly as `query` lowers it; an invalid one is refused (`invalid-pattern`, with k-rust's message) before any campaign. A pattern reads no data end, so it takes no assumed name: `--assume-joined` is a usage error, and the flow's own names are not passed.
+- The action names kink's confirming command: `kink-flow results` for a reach, and for a pattern, adding the fragment's id to the pattern's `programs` and running `kink-flow query --only ID`.
+
 ### What it runs
 
 - **Sides.** The baseline is the admitted specification's compile, with its claims. The mutant is the claim-free, consistency-checked mutant kink's runner builds for every test of the mutation (kink-campaign `claim_free_mutant`, admitted with the flow's `[spec] assume_joined`). Both run on the backend route kink runs (`Backend::from_definition`). A mutation `run` would refuse (`invalid-mutation`, `equivalent`, `invalid` with its reason and `inconsistent_pairs`, unsupported claims) ends the command with that status and reason; nothing is fuzzed.
@@ -716,7 +724,7 @@ program = "primes"         # a [[program]] of FLOW.toml (its text, start_sort an
 `{schema: "kink-flow-fuzz", version: 1, k_rust_revision, profile, kink_build, kink, spec, template, job, sides, assembly, findings, assumed, attempts: [{seed, fuzz, candidate, confirmation}], program, stopped, action, warnings}`:
 - `spec`: admitted, with the flow's `assume_joined`, whether the baseline has data under them (`has_data`) and its unnamed findings, as `run` reads them; or the refusal.
 - `template`: its id, source, the start sort used and where it came from (`template`, `program` or `default`), its variables, its hole declarations and `last_run` (`{found, current, template: {program, class, cause}, mutation: {status, reason, reaching}, suggested_templates}`, or `{found: false, detail}`).
-- `job`: `{kind: "kill", mutation, outcome: fuzzed | refused, path_mode}`, with kink's `status`, `reason`, `claims` and `inconsistent_pairs` when kink refuses the mutation, and the claims the mutant withdrew otherwise.
+- `job`: `{kind: "kill", mutation, outcome: fuzzed | refused, path_mode}`, with kink's `status`, `reason`, `claims` and `inconsistent_pairs` when kink refuses the mutation, and the claims the mutant withdrew otherwise. A reach job has `kind: "reach"` and `rule: {module, index, file, start_line, label, id, mode: condition-reached | covered, untargeted_ids}`; a pattern job `kind: "pattern"` and `pattern: {id, text, kore}`. Both have `sides.baseline` only and no `mutant_anchor`.
 - `sides`: each side's compiled KORE digest and the two provenance digests of its k-rust-fuzz definition.
 - `assembly`: `{kink_template: {sha256} | {refused}, baseline_anchor, mutant_anchor}`, the digests the up-front check compares.
 - `findings`, `assumed`: every finding of the campaign's check, and every assumed name with where it came from (`in_flow`, `from_command_line`), whether it assumed a genuine finding, and the findings it matched.

@@ -29,14 +29,18 @@ use kink_flow::{
     FlowManifest, MutationList,
     cli::{EXIT_USAGE, execute},
     fuzz::{
-        AssemblyCheck, FuzzOptions, TemplateList, TemplateSource, check_assembly, compiled_side,
-        kill,
+        AssemblyCheck, FuzzJob, FuzzOptions, TemplateList, TemplateSource, check_assembly,
+        compiled_side, fuzz_job, kill,
     },
+    pattern::PatternList,
+    query::{QueryOptions, query},
     resolve,
+    results::{ResultsOptions, results},
     search::RunOptions,
 };
 use serde_json::Value;
 use std::{
+    collections::BTreeSet,
     ffi::OsString,
     fs,
     path::{Path, PathBuf},
@@ -199,6 +203,7 @@ fn the_command_line_refuses_what_t3a_does_not_build() {
     // Confirmation is T4's: without --no-confirm the command refuses to run.
     assert_eq!(run_cli(&base), EXIT_USAGE);
     for extra in [
+        // One job per command.
         &["--no-confirm", "--reach", "imp.k:47"][..],
         &["--no-confirm", "--attempts", "3"],
         &["--no-confirm", "--cases", "0"],
@@ -207,6 +212,38 @@ fn the_command_line_refuses_what_t3a_does_not_build() {
         let args = base.iter().chain(extra).copied().collect::<Vec<_>>();
         assert_eq!(run_cli(&args), EXIT_USAGE, "{extra:?}");
     }
+    // The reach and pattern jobs (T5) parse; a pattern job takes no assumed name.
+    let patterns = scratch("cli-patterns").join("PATTERNS.toml");
+    fs::write(
+        &patterns,
+        "[[pattern]]\nid = \"p\"\npattern = \"<k> 0 </k>\"\n",
+    )
+    .unwrap();
+    let patterns = patterns.to_str().unwrap();
+    let job = |extra: &[&str]| {
+        let mut args = vec!["fuzz", manifest, templates, "--template", "primes-holes"];
+        args.extend_from_slice(extra);
+        args.push("--no-confirm");
+        run_cli(&args)
+    };
+    assert_eq!(
+        job(&[
+            "--pattern",
+            "p",
+            "--patterns",
+            patterns,
+            "--assume-joined",
+            "x"
+        ]),
+        EXIT_USAGE
+    );
+    assert_eq!(job(&["--pattern", "q", "--patterns", patterns]), EXIT_USAGE);
+    assert_eq!(job(&["--pattern", "p"]), EXIT_USAGE);
+    assert_eq!(
+        job(&["--reach", "imp.k:47", "--fired", "--mutations", mutations]),
+        EXIT_USAGE
+    );
+    assert_eq!(job(&["--fired"]), EXIT_USAGE);
     let mut unknown = base.to_vec();
     unknown[4] = "no-such-template";
     unknown.push("--no-confirm");
@@ -215,6 +252,97 @@ fn the_command_line_refuses_what_t3a_does_not_build() {
     unknown[6] = "no-such-mutation";
     unknown.push("--no-confirm");
     assert_eq!(run_cli(&unknown), EXIT_USAGE);
+}
+
+/// A small definition for the reach and pattern jobs (T5): `run(X)` steps to `step(dbl(X))`,
+/// which writes `X` to `<out>` above 10 (rule `big`) and `0` otherwise (`small`), ending
+/// naturally; `dbl` is a function (an equation) and `seven` a macro.
+const STEPS_K: &str = "module STEPS-SYNTAX
+  imports INT-SYNTAX
+  syntax Pgm ::= run(Int)
+endmodule
+
+module STEPS
+  imports STEPS-SYNTAX
+  imports INT
+  configuration <k> $PGM:Pgm </k> <out> 0 </out>
+  syntax KItem ::= step(Int)
+  syntax Int ::= dbl(Int) [function, total]
+  syntax Int ::= seven() [macro]
+  rule seven() => 7
+  rule dbl(X) => X *Int 2
+  rule [go]: <k> run(X) => step(dbl(X)) </k>
+
+  rule [big]: <k> step(X) => .K </k> <out> _ => X </out> requires X >Int 10
+  rule [small]: <k> step(X) => .K </k> <out> _ => 0 </out> requires X <=Int 10
+endmodule
+";
+
+const STEPS_TEMPLATES: &str = "[[template]]\nid = \"run-holes\"\nprogram = \"one\"\n\
+                               [[template.hole]]\nname = \"X\"\nsort = \"Int\"\nfind = \"1\"\n\
+                               literal = \"1\"\nrange = { min = 0, max = 9 }\n";
+
+/// The 1-based line of `STEPS_K` that starts with `prefix` (after indentation).
+fn steps_line(prefix: &str) -> usize {
+    STEPS_K
+        .lines()
+        .position(|line| line.trim_start().starts_with(prefix))
+        .unwrap()
+        + 1
+}
+
+/// The STEPS flow in a scratch directory, with the program `one` (`run(1)`).
+fn steps_flow(name: &str) -> PathBuf {
+    let manifest = "[spec]\nentry = \"steps.k\"\nmain_module = \"STEPS\"\nsyntax_module = \
+                    \"STEPS-SYNTAX\"\n\n[[program]]\nid = \"one\"\ntext = \"run(1)\"\n";
+    scratch_flow(name, "steps.k", STEPS_K, manifest, "")
+}
+
+/// A job on the flow in `dir` with `templates` (decoded in `dir`), on the thread allowance.
+fn run_job(
+    dir: &Path,
+    templates: &str,
+    template: &str,
+    job: Job,
+    options: FuzzOptions,
+) -> (Value, bool) {
+    let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+    let templates = TemplateList::decode(templates, dir).unwrap();
+    let template = template.to_owned();
+    on_stack(move || match &job {
+        Job::Reach(rule, fired) => fuzz_job(
+            &manifest,
+            &templates,
+            &template,
+            FuzzJob::Reach {
+                rule,
+                fired: *fired,
+            },
+            &options,
+        ),
+        Job::Pattern(list, id) => fuzz_job(
+            &manifest,
+            &templates,
+            &template,
+            FuzzJob::Pattern { list, id },
+            &options,
+        ),
+    })
+}
+
+/// [`run_job`]'s job.
+enum Job {
+    Reach(String, bool),
+    Pattern(PatternList, String),
+}
+
+/// Append the witness's `[[program]]` fragment to the flow's `FLOW.toml`.
+fn append_fragment(dir: &Path, document: &Value) {
+    let path = dir.join("FLOW.toml");
+    let mut text = fs::read_to_string(&path).unwrap();
+    text.push('\n');
+    text.push_str(document["program"]["fragment"].as_str().unwrap());
+    fs::write(&path, text).unwrap();
 }
 
 /// The kill job on the flow in `dir` with `templates` (a `TEMPLATES.toml` text decoded in `dir`,
@@ -1013,6 +1141,229 @@ mod kink_tier {
                 "{template}: {document:#}"
             );
         }
+    }
+
+    /// The reach job (T5) finds a program whose comparable all-paths run applies `big` (`--fired`:
+    /// `dbl(X) > 10`, so `X >= 6`), and kink's own `results`, with the fragment appended, lists
+    /// it in the rule's `fired_by`; without `--fired` any program reaches `big`'s condition. The
+    /// same seed gives the same document.
+    #[test]
+    #[ignore = "kink"]
+    fn reach_finds_a_program_kinks_results_confirm() {
+        let dir = steps_flow("reach");
+        let fired = || {
+            run_job(
+                &dir,
+                STEPS_TEMPLATES,
+                "run-holes",
+                Job::Reach("big".into(), true),
+                imp_options(40),
+            )
+        };
+        let (document, ok) = fired();
+        assert!(ok, "{document:#}");
+        assert_eq!(
+            document["stopped"],
+            Value::Null,
+            "{:#}\n{:#}",
+            document["attempts"][0]["fuzz"]["totals"],
+            document["attempts"][0]["fuzz"]["outcome"]
+        );
+        assert_eq!(document["job"]["kind"], "reach");
+        assert_eq!(document["job"]["rule"]["mode"], "covered");
+        assert_eq!(
+            document["job"]["rule"]["label"], "STEPS.big",
+            "{document:#}"
+        );
+        assert_eq!(document["stopped"], Value::Null, "{document:#}");
+        let candidate = &document["attempts"][0]["candidate"];
+        assert_eq!(candidate["assembly"]["status"], "match", "{candidate:#}");
+        assert_eq!(candidate["comparable"]["holds"], true, "{candidate:#}");
+        let x = candidate["holes"][0]["k-text"].as_str().unwrap_or_default();
+        assert!(x.parse::<i64>().is_ok_and(|x| x >= 6), "{candidate:#}");
+        assert_eq!(fired().0, document, "the same seed gives the same document");
+        let by_line = run_job(
+            &dir,
+            STEPS_TEMPLATES,
+            "run-holes",
+            Job::Reach(format!("steps.k:{}", steps_line("rule [small]")), false),
+            imp_options(5),
+        );
+        assert!(by_line.1, "{:#}", by_line.0);
+        assert_eq!(by_line.0["job"]["rule"]["label"], "STEPS.small");
+        assert_eq!(by_line.0["job"]["rule"]["mode"], "condition-reached");
+
+        append_fragment(&dir, &document);
+        let id = document["program"]["id"].as_str().unwrap().to_owned();
+        let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+        let cache = dir.join("cache");
+        let (results, ok) = on_stack(move || {
+            results(
+                &manifest,
+                &ResultsOptions {
+                    cache: Some(cache),
+                    ..ResultsOptions::default()
+                },
+            )
+        });
+        assert!(ok, "{results:#}");
+        let big = results["rules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|rule| rule["label"] == "STEPS.big")
+            .unwrap();
+        assert!(
+            big["fired_by"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p == id.as_str()),
+            "{big:#}"
+        );
+    }
+
+    /// The reach job refuses a rule it cannot target before any campaign: a macro has no
+    /// coverage signal, a function rule compiles to equations, a line between rules and an
+    /// unknown label name no rule.
+    #[test]
+    #[ignore = "kink"]
+    fn reach_refuses_what_kink_cannot_list() {
+        let dir = steps_flow("reach-refusals");
+        for (rule, reason) in [
+            (
+                format!("steps.k:{}", steps_line("rule seven()")),
+                "no-coverage-signal",
+            ),
+            (
+                format!("steps.k:{}", steps_line("rule dbl(")),
+                "equation-target",
+            ),
+            (
+                format!("steps.k:{}", steps_line("rule [go]") + 1),
+                "no-rule-at-line",
+            ),
+            ("nope".to_owned(), "unknown-label"),
+        ] {
+            let (document, ok) = run_job(
+                &dir,
+                STEPS_TEMPLATES,
+                "run-holes",
+                Job::Reach(rule.clone(), false),
+                imp_options(5),
+            );
+            assert!(!ok, "{rule}");
+            assert_eq!(
+                document["job"]["refusal"]["reason"], reason,
+                "{rule}: {document:#}"
+            );
+            assert_eq!(
+                document["attempts"],
+                Value::Array(Vec::new()),
+                "{rule}: no campaign ran"
+            );
+        }
+    }
+
+    /// A reach job on a definition with an unnamed finding is not comparable, as a kill is
+    /// (Sebastien, D33); naming the findings gives a witness.
+    #[test]
+    #[ignore = "kink"]
+    fn reach_on_a_findings_repro_needs_its_names() {
+        let dir = flow("findings/r3-plainq");
+        let rule = || Job::Reach("spec.k:11".into(), false);
+        let (strict, ok) = run_job(&dir, REPRO_TEMPLATE, "go", rule(), FuzzOptions::default());
+        assert!(!ok);
+        assert_eq!(strict["stopped"], "not-comparable", "{strict:#}");
+        let names = strict["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["name"].as_str().unwrap().to_owned())
+            .collect::<BTreeSet<_>>();
+        let (named, ok) = run_job(
+            &dir,
+            REPRO_TEMPLATE,
+            "go",
+            rule(),
+            FuzzOptions {
+                assume_joined: names.into_iter().collect(),
+                ..FuzzOptions::default()
+            },
+        );
+        assert!(ok, "{named:#}");
+        assert_eq!(named["stopped"], Value::Null, "{named:#}");
+        assert!(!named["program"]["premises"].as_array().unwrap().is_empty());
+    }
+
+    /// The pattern job (T5) finds a program reaching a configuration that matches (`step(V)`
+    /// with `V > 14`, so `X >= 8`), at any state (the configuration is not the run's end), and kink's own `query`, with the fragment
+    /// appended and claimed, confirms the claim; an invalid pattern is refused by kink's compiler
+    /// before any campaign.
+    #[test]
+    #[ignore = "kink"]
+    fn pattern_finds_a_program_kinks_query_confirms() {
+        let dir = steps_flow("pattern");
+        let patterns = "[[pattern]]\nid = \"big-step\"\npattern = \"<k> step(V) </k> requires V \
+                        >Int 14\"\n\n[[pattern]]\nid = \"broken\"\npattern = \"<k> step( </k>\"\n";
+        let list = PatternList::decode(patterns).unwrap();
+        let (document, ok) = run_job(
+            &dir,
+            STEPS_TEMPLATES,
+            "run-holes",
+            Job::Pattern(list.clone(), "big-step".into()),
+            imp_options(40),
+        );
+        assert!(ok, "{document:#}");
+        assert_eq!(document["job"]["kind"], "pattern");
+        assert_eq!(document["assumed"], Value::Array(Vec::new()));
+        assert!(
+            document["job"]["pattern"]["kore"].is_string(),
+            "{document:#}"
+        );
+        let candidate = &document["attempts"][0]["candidate"];
+        assert_eq!(candidate["assembly"]["status"], "match", "{candidate:#}");
+        assert!(candidate["reaching"]["step"].is_u64(), "{candidate:#}");
+        let (broken, ok) = run_job(
+            &dir,
+            STEPS_TEMPLATES,
+            "run-holes",
+            Job::Pattern(list, "broken".into()),
+            imp_options(5),
+        );
+        assert!(!ok);
+        assert_eq!(
+            broken["job"]["refusal"]["reason"], "invalid-pattern",
+            "{broken:#}"
+        );
+        assert_eq!(broken["attempts"], Value::Array(Vec::new()));
+
+        append_fragment(&dir, &document);
+        let id = document["program"]["id"].as_str().unwrap().to_owned();
+        let claimed = format!(
+            "[[pattern]]\nid = \"big-step\"\npattern = \"<k> step(V) </k> requires V >Int 14\"\n\
+             programs = [\"{id}\"]\n"
+        );
+        let manifest = FlowManifest::read(&dir.join("FLOW.toml")).unwrap();
+        let claimed = PatternList::decode(&claimed).unwrap();
+        let cache = dir.join("cache");
+        let (answers, _) = on_stack(move || {
+            query(
+                &manifest,
+                &claimed,
+                &QueryOptions {
+                    cache: Some(cache),
+                    ..QueryOptions::default()
+                },
+            )
+        });
+        let row = answers["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["program"] == id.as_str())
+            .unwrap_or_else(|| panic!("{answers:#}"));
+        assert_eq!(row["claim"], "confirmed", "{row:#}");
     }
 
     /// The last `run` document (read from `--cache`, never written by `fuzz`): no document, then
