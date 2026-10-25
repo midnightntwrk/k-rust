@@ -394,12 +394,24 @@ fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications
 /// it reads the heads through `DataEnds::overload_head` and judges each outermost application
 /// with `is_data`, which now admits SIMPLE's `a[4]`, hence `TERMINAL_VALUE_VERSION` v2.
 /// `ground_defined` is new: the existence predicate kink-flow's query reads on a matched state.
+///
+/// fz26 KRUST-ANYWHERE-HEAD fix round (review D1, SD1, M-f, M-h): `ground_defined` runs its walk
+/// in `Proof` mode (a function of the term and the definition), and the pin now also covers what
+/// it delegates to, the walk and its node (`ceil_term`, `ceil_term_walk`, `ceil_term_node`), the
+/// ceil-equation step (`apply_ceil_equation`, `ceil_theory_condition`, the new
+/// `value_production_ceil_equations`: a conditional, undecided or unusable ceil equation offered
+/// at a `value-production` application keeps its `\ceil` owed, one whose `requires` is decided
+/// true gives its condition), the discharge (`irreducible_application_is_defined`,
+/// `is_value_production`), `only_top` and the witness `application_owes_nothing`. The module
+/// documentation (`doc`) says that k-rust's apartness test does not separate two applications of
+/// an equation head even of one shape, so data implies existence only in `M+`.
 #[test]
 fn the_data_judgement_kink_reads_is_pinned() {
     const DATA_TERM: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
     const INSTANCE_NORMAL: &str =
         include_str!("../../../../crates/k-rust-backend/src/instance_normal.rs");
     const DEFINEDNESS: &str = include_str!("../../../../crates/k-rust-backend/src/definedness.rs");
+    const DEFINITION: &str = include_str!("../../../../crates/k-rust-backend/src/definition.rs");
     let between = |source: &'static str, from: &str, to: &str| {
         let start = source.find(from).unwrap_or_else(|| panic!("no {from:?}"));
         let end = source[start..]
@@ -446,6 +458,51 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             "ground_defined",
         ),
+        (between(DEFINEDNESS, "\nfn only_top(", "\n}\n"), "only_top"),
+        (
+            between(DEFINEDNESS, "\npub fn application_owes_nothing(", "\n}\n"),
+            "application_owes_nothing",
+        ),
+        (
+            between(DEFINEDNESS, "\npub fn ceil_term(", "\n}\n"),
+            "ceil_term",
+        ),
+        (
+            between(DEFINEDNESS, "\nfn ceil_term_walk(", "\n}\n"),
+            "ceil_term_walk",
+        ),
+        (
+            between(DEFINEDNESS, "\nfn ceil_term_node<'a>(", "\n}\n"),
+            "ceil_term_node",
+        ),
+        (
+            between(DEFINEDNESS, "\nfn apply_ceil_equation(", "\n}\n"),
+            "apply_ceil_equation",
+        ),
+        (
+            between(
+                DEFINEDNESS,
+                "\nfn value_production_ceil_equations(",
+                "\n}\n",
+            ),
+            "value_production_ceil_equations",
+        ),
+        (
+            between(DEFINEDNESS, "\nfn ceil_theory_condition(", "\n}\n"),
+            "ceil_theory_condition",
+        ),
+        (
+            method(
+                DEFINITION,
+                "pub(crate) ",
+                "irreducible_application_is_defined",
+            ),
+            "irreducible_application_is_defined",
+        ),
+        (
+            method(DEFINITION, "pub(crate) ", "is_value_production"),
+            "is_value_production",
+        ),
     ]
     .map(|(text, name)| (name, kink_patch::sha256(text.as_bytes()).to_string()));
     assert_eq!(
@@ -453,7 +510,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
         [
             (
                 "doc",
-                "c3f058195875e6e4e64f61071bfd776c031212b1da891dde65251246016e1904"
+                "38e7dbfd60ebd5260406923879366f8936df3799a7ef8ab387e8d51c6e15e3d0"
             ),
             (
                 "data_heads",
@@ -489,7 +546,47 @@ fn the_data_judgement_kink_reads_is_pinned() {
             ),
             (
                 "ground_defined",
-                "402bd8e44e612035361585c7426d9e38c4c16c3e3d9f80457c832e6480e54354"
+                "04e691b1989b4711ad5b48c970629af8149bc37499577f655ac15a1f26bc0dbb"
+            ),
+            (
+                "only_top",
+                "7acf84fe451a1e62b92093f730ec0e2a64cfd8d37019be51e85e0f7e34612a11"
+            ),
+            (
+                "application_owes_nothing",
+                "0abb2008b60b7312b0fed32a7307813431de08642cd0d901e103abfc2ace8db6"
+            ),
+            (
+                "ceil_term",
+                "09a4f2bf5ddbc14b2bd0e4a7c1e34870913d6ddee30bbf637d4d392b740ab1f9"
+            ),
+            (
+                "ceil_term_walk",
+                "70e84d8f96acf3b89be87fa1ea0bbee5484f2466c7506620ab5c74c4d25d32d8"
+            ),
+            (
+                "ceil_term_node",
+                "2c6ce8744cefd65a910d195e48d7eb0e566c25e7caf066e06633634a115455e6"
+            ),
+            (
+                "apply_ceil_equation",
+                "6199c329297d5f2f2954005da6eee99501989ae454cd039a7a7f4151ef365e03"
+            ),
+            (
+                "value_production_ceil_equations",
+                "480c6cd1db94bf5b0622b7f3625a3962bdbddb7097517522674dd556d066e279"
+            ),
+            (
+                "ceil_theory_condition",
+                "67f5fc051fbc25bf20f258d191f377bf0650bfadbabb67ccee7ff25257e343ac"
+            ),
+            (
+                "irreducible_application_is_defined",
+                "75ecf13cf21924fb2c7b69637807a5d7cfdb4664429a792d34801f5bc401e9a0"
+            ),
+            (
+                "is_value_production",
+                "b35a7fdec3a4e3f90cf62576ee1d6bfb8c88caa34e4959a933a123cb9cc3eb0d"
             ),
         ]
         .map(|(name, digest)| (name, digest.to_owned()))

@@ -68,7 +68,8 @@ fn only_cause(manifest: &Path, mutations: &Path) -> String {
 /// application of a data head k-rust does not judge data (the rule matches it), not by its head.
 const NOT_DATA: &str = "the first node, in pre-order, that fails its own test is an application of \
                         `c(_)_AW-SYNTAX_Foo_Int` at <s>: it is an application of a data head that \
-                        k-rust does not judge data (an equation of its head may apply to it)";
+                        k-rust does not judge data (an equation of its head may apply to it, or an \
+                        argument is not data)";
 
 mod kink_tier {
     use super::*;

@@ -786,6 +786,59 @@ fn forge(path: &Path, field: &str, value: Value) {
 mod kink_tier {
     use super::*;
 
+    /// fz26 KRUST-ANYWHERE-HEAD, review N5: SIMPLE's `array` is comparable now, so a `no` is
+    /// reachable on it. A pattern holding a reducible application of the data head `_[_]`
+    /// (`array(_, _)[2]`, which SIMPLE's `anywhere` rule rewrites to `lookup(..)`) is not
+    /// normalized, but the search reads it up to equations (k-rust's `Implies` matching never
+    /// compares an equation-head root as written), so a state compared there leaves the match
+    /// undecided: `unknown`, never `no`. Its reduct's shape, `lookup(_)`, is a hit.
+    #[test]
+    #[ignore = "kink"]
+    fn a_pattern_holding_a_reducible_array_access_is_never_no() {
+        let dir = scratch("n5-array");
+        let overload = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/k/overload");
+        fs::copy(overload.join("simple.md"), dir.join("simple.md")).unwrap();
+        fs::copy(
+            overload.join("programs/array.simple"),
+            dir.join("array.simple"),
+        )
+        .unwrap();
+        write(
+            &dir.join("FLOW.toml"),
+            r#"[spec]
+entry = "simple.md"
+main_module = "SIMPLE-UNTYPED"
+syntax_module = "SIMPLE-UNTYPED-SYNTAX"
+[[program]]
+id = "array"
+file = "array.simple"
+"#,
+        );
+        write(
+            &dir.join("PATTERNS.toml"),
+            r#"[[pattern]]
+id = "reducible-read"
+pattern = "<k> array(_, _) [ 2 ] ~> _ </k>"
+
+[[pattern]]
+id = "lookup-read"
+pattern = "<k> lookup(_) ~> _ </k>"
+"#,
+        );
+        let (document, status) = plain(&dir.join("FLOW.toml"), &dir.join("PATTERNS.toml"));
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        let reducible = row(&document, "reducible-read", "array");
+        assert_eq!(reducible["answer"], "unknown", "{document:#}");
+        assert!(
+            reducible["cause"]
+                .as_str()
+                .unwrap()
+                .contains("match against the pattern was left undecided"),
+            "{document:#}"
+        );
+        assert_eq!(row(&document, "lookup-read", "array")["answer"], "hit");
+    }
+
     /// Flow F-18: answers feed no verdict store. A query writes result records and pattern records
     /// only: no outcome, hint, memo or run document.
     #[test]

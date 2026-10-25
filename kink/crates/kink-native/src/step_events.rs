@@ -369,7 +369,7 @@ impl LocalTest {
             }
             Self::OverloadData => {
                 "it is an application of a data head that k-rust does not judge data (an \
-                 equation of its head may apply to it)"
+                 equation of its head may apply to it, or an argument is not data)"
             }
             Self::Arity => "it has another number of arguments than its symbol declares",
             Self::TrustedCollections => {

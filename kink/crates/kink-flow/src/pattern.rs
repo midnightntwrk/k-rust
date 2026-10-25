@@ -90,6 +90,16 @@
 //!   equating two terms, no load stack stop), and so does the initial state; and the build is not
 //!   the Z3 profile. Another model of an open value could reach the pattern, so a `no` is relative
 //!   to the definition only when no implementation-chosen value is in play.
+//!
+//!   **A pattern holding an equation-head application** (fz26 KRUST-ANYWHERE-HEAD, review N5),
+//!   such as SIMPLE's `array(_, _)[2]`, which an `anywhere` rule reduces. Neither the pattern
+//!   compiler nor the search normalizes the pattern (the facade verifies and internalizes it,
+//!   `prepare_backend_match_target`), and it need not: the search matches its target in k-rust's
+//!   `Implies` mode, which reads an application of an equation head in the pattern as the value of
+//!   its normal form, never by its root as written (k-rust-backend `matching`, `pattern_reading`).
+//!   A reached state compared at such a position leaves the match undecided, so the exploration is
+//!   incomplete and the answer `unknown`; a `no` rests only on refutations at positions the
+//!   matcher reads as values, which hold whatever the equations make of that application.
 //! - `unknown`, with its cause, in every other case: a depth bound, the clock, an undecided step
 //!   or match, a matched state not shown defined, a stack-exhausted state, the census, a load
 //!   stack stop, a baseline run that is not comparable, the Z3 profile, a response of k-rust's
