@@ -287,6 +287,23 @@ The output module proves `bisim : StutterBisim A.Step B.Step (Stutter.Rel tr X) 
 The hand module supplies `X` (kimp at a one-armed `if`, the variant at its completion), `μ` (1 at a one-armed `if`), `ν = 0`, and 6 parts: `while` in both directions (two steps of kimp against one), kimp's `if-else` at an `X` state (kimp stutters and `μ` decreases), and the variant's `if-true`, `if-false` and condition heating at an `X` state (kimp completes its `if`, then takes the same step).
 `Run.lean` derives that two runs to terminal states end in translations of each other, since `X` never relates a terminal state of kimp.
 
+**Priorities and moved constructors (design, not implemented; REL-5).**
+`refine` takes today only an order-preserving translation without priority ranks; both restrictions can be lifted without changing `Stutter.Rel`'s shape, at the cost of the obligations below.
+
+- *A constructor moves.* `relate`'s relation is then `Inv c ∧ d = tr c`, with `inv_step` (generated, by `k2l_preserve`) and simulation arms that take `hi : Inv c`.
+  Refinement would use `Stutter.Rel tr X c d := (Inv c ∧ d = tr c) ∨ X c d`: the parts at a translation (`fwd_tr`, `bwd_tr`) take `Inv c` from the left disjunct, pass it to `relate`'s per-rule lemmas, and re-establish it at the target by `inv_step`.
+  One obligation is added: a part that leaves `X` at a translation owes `Inv` there; requiring `X.inv : X c d → Inv c` of the hand module (an `X` state's `A` side satisfies the key invariant) lets the generated parts derive it by `inv_step`, so only that lemma is new.
+  The restrictions of `relate`'s key-invariant regime (no free-key patterns, ranks or typed cell maps) carry over unchanged.
+- *Priority ranks.* A step of rank `i` carries `hpri : ∀ j < i, ¬ App j c`.
+  In `fwd_tr`, `B`'s step at `tr c` needs `∀ j < i, ¬ B.App j (tr c)`, that is `B.App j (tr c) → A.App j c`; `relate` proves it as `app_bwd` only when every rule pairs.
+  With unpaired rules (why `refine` exists), it holds rank by rank for the ranks whose `B` rules all pair, and for a rank `j` with an unpaired `B` rule `r` it needs `app_bwd.r : B.App_r (tr c) → A.App j c` (by hand, or generated when `r`'s left-hand side clashes with every translation); `bwd_tr` needs `app_fwd.r` for the unpaired `A` rules symmetrically.
+  Steps of the other side at `X` states are the hand parts, which carry their own `hpri`; a stutter takes no step and needs none.
+  So the obligations added are one `app_bwd.r` per unpaired `B` rule and one `app_fwd.r` per unpaired `A` rule whose rank has priority over that of some paired rule (`hpri` of a step of rank `i` quantifies over the ranks `j < i`); none when the unpaired rules are all of the last rank.
+- *Generating `X`.* For a rule split in two (`A`: `l ⇒ r`; `B`: `l' ⇒ m` and `m ⇒ r'`, whose composition is `A`'s rule translated), `X` is an inductive with one constructor per split, `split_r σ : guard σ → X (l σ) (m σ)`, its `B` side a pattern of `B`'s constructors over translated variables as above, so that `cases` never inverts a translation; `ν` is 1 at an `X` state's `B` side and 0 elsewhere, `μ = 0`.
+  Its parts are generic: `B`'s first step from `tr (l σ)` stutters `A` into `X` (`bwd_tr`, `ν` decreases), `B`'s second step from `m σ` is matched by `A`'s step (`bwd_x`), and `A`'s step from `l σ` is matched by both `B` steps (`fwd_tr`, a `TransGen` of two steps).
+  The mirror (`A` split in two, ImpUnroll's `while`) swaps the roles; the generator detects both by composing two unpaired rules of one side (unifying the first's right-hand side with the second's left-hand side) and comparing with an unpaired rule of the other up to renaming.
+  Other shapes (a step that skips several states, an unrolling by a varying number of steps) stay hand-written.
+
 ### 3.6 Confluence modulo scheduling (`confluence`)
 
 The statement, for a program hypothesis `H` (a predicate with `H.preserved : Preserved Step H`, from the hand module) and an observation `obs` (the cells `--obs` names): two runs from a configuration satisfying `H` that end in terminal configurations end in the same one (`terminal_unique`), so they observe the same `obs` (`obs_confluent`).
