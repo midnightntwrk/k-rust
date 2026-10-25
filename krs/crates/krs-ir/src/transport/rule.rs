@@ -1104,7 +1104,7 @@ impl CellKeyAccess for DescriptorCellReference {
     }
 }
 
-fn frame_key(frame: &ProtocolRuleFrame) -> Option<&ProvenanceKey> {
+pub(super) fn frame_key(frame: &ProtocolRuleFrame) -> Option<&ProvenanceKey> {
     match frame {
         ProtocolRuleFrame::Exact => None,
         ProtocolRuleFrame::Anonymous { key }
@@ -1393,7 +1393,7 @@ pub type DescriptorConfigurationRule = ConfigurationRule<DescriptorStage>;
 pub type HostConfigurationRule = ConfigurationRule<HostStage>;
 
 #[derive(Clone, Copy)]
-enum ValidationSide {
+pub(super) enum ValidationSide {
     Left,
     Right,
     Requires,
@@ -1421,7 +1421,7 @@ impl From<RuleSide> for ValidationSide {
 
 /// A term role whose provenance spelling depends on the rule clause.
 #[derive(Clone, Copy)]
-enum TermRole {
+pub(super) enum TermRole {
     Path,
     ApplicationHead,
     Reference,
@@ -1430,7 +1430,7 @@ enum TermRole {
 }
 
 impl TermRole {
-    const fn on_side(self, side: ValidationSide) -> ProvenanceRole {
+    pub(super) const fn on_side(self, side: ValidationSide) -> ProvenanceRole {
         match (side, self) {
             (ValidationSide::Left, Self::Path) => ProvenanceRole::RuleLeftPath,
             (ValidationSide::Left, Self::ApplicationHead) => {

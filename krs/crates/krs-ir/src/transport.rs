@@ -12,6 +12,6 @@ pub mod constant;
 pub mod detail;
 pub mod grammar;
 pub mod head_rule;
-mod keys;
+pub(crate) mod keys;
 pub mod rule;
 mod validation;

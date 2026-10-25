@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::transport::detail::{StateCellContentReason, TransportField, TransportItemKind};
+use crate::transport::keys::WireKeys;
 use crate::{
     DisplayPath, DisplayPathError, HostDeclarationIdentity, HostHeadRule, ItemKind, ProvenanceRole,
     SchemaVersion, StateTransportError,
@@ -935,7 +936,10 @@ pub struct HostDescriptor {
 }
 
 impl HostDescriptor {
-    /// Validates configuration/cell/rule ownership and host joins.
+    /// Validates configuration/cell/rule ownership and host joins, and closes
+    /// the keys of the payloads the collector reshapes over the anchors:
+    /// sorts, constructors and head rules, which it resolves into payloads
+    /// that keep only some of their keys.
     ///
     /// # Errors
     ///
@@ -975,11 +979,25 @@ impl HostDescriptor {
                 declaration.validate_host(owner)
             }
             HostDescriptorPayload::ConfigurationRule(rule) => rule.validate(self.id.item_kind()),
-            HostDescriptorPayload::HeadRule(rule) => rule.validate(self.id.item_kind()),
+            // A head rule is closed over its anchors here, as the expander
+            // built it, before the collector keeps one of its readings.
+            HostDescriptorPayload::HeadRule(rule) => {
+                rule.validate(self.id.item_kind())?;
+                rule.validate_complete_provenance(
+                    self.provenance
+                        .authored()
+                        .iter()
+                        .map(HostAuthoredAnchor::key),
+                )
+            }
             HostDescriptorPayload::ContextAlias(alias) => alias.validate(self.id.item_kind()),
-            HostDescriptorPayload::Sort(_)
-            | HostDescriptorPayload::Constructor(_)
-            | HostDescriptorPayload::Grammar(_)
+            HostDescriptorPayload::Sort(sort) => {
+                sort.validate_complete_provenance(self.provenance.authored())
+            }
+            HostDescriptorPayload::Constructor(constructor) => {
+                constructor.validate_complete_provenance(self.provenance.authored())
+            }
+            HostDescriptorPayload::Grammar(_)
             | HostDescriptorPayload::StructuredRule(_)
             | HostDescriptorPayload::Constant(_) => Ok(()),
         }
@@ -998,6 +1016,91 @@ pub type HostConstantDescriptor = crate::ConstantPayload<crate::HostStage>;
 /// Build-local host-stage form of [`crate::bundle::Constructor`].
 pub type HostConstructorDescriptor = crate::bundle::Constructor<crate::HostStage>;
 
+/// The anchors a payload's keys must be: every authored anchor but the
+/// stable symbol, which is the collector's node.
+fn payload_anchors(anchors: &[HostAuthoredAnchor]) -> impl Iterator<Item = &ProvenanceKey> {
+    anchors
+        .iter()
+        .map(HostAuthoredAnchor::key)
+        .filter(|key| key.role() != ProvenanceRole::StableSymbol)
+}
+
+impl HostSortDescriptor {
+    /// Checks that the sort's anchors are its declaration, a fixed key, and
+    /// one parent per parent reference, which carries no key: the one
+    /// positional pairing of [`WireKeys::implicit`].
+    ///
+    /// The check reads the payload before the collector resolves it: the
+    /// resolved payload holds its parents as a set.
+    fn validate_complete_provenance(
+        &self,
+        anchors: &[HostAuthoredAnchor],
+    ) -> Result<(), StateTransportError> {
+        let mut keys = WireKeys::default();
+        keys.fixed(ProvenanceRole::SortDeclaration)?;
+        for _ in &self.parents {
+            keys.implicit(ProvenanceRole::SortParent);
+        }
+        Ok(keys.close(payload_anchors(anchors))?)
+    }
+}
+
+impl HostConstructorDescriptor {
+    /// Checks that the constructor's anchors are its sort, its sort
+    /// parameters, its fields' sorts, which carry no key, and the element
+    /// types of those sorts, besides the production's nodes the descriptor
+    /// repeats from its grammar descriptor, which that descriptor's own
+    /// closure covers ([`crate::transport::grammar::REPEATED_PRODUCTION_ROLES`],
+    /// and a list variant's [`crate::transport::grammar::REPEATED_LIST_ROLES`]).
+    /// The transport validates each descriptor alone, so it exempts these
+    /// roles where the expander's ledger requires the grammar wire to define
+    /// them.
+    ///
+    /// The check reads the payload before the collector resolves it: the
+    /// resolved payload carries no key.
+    fn validate_complete_provenance(
+        &self,
+        anchors: &[HostAuthoredAnchor],
+    ) -> Result<(), StateTransportError> {
+        let mut keys = WireKeys::default();
+        keys.define(&self.sort.key, ProvenanceRole::ConstructorSort)?;
+        for parameter in &self.parameters {
+            keys.define(&parameter.key, ProvenanceRole::SortParameter)?;
+        }
+        collect_sort_argument_keys(
+            &self.arguments,
+            ProvenanceRole::ConstructorSortArgument,
+            &mut keys,
+        )?;
+        for field in &self.fields {
+            keys.implicit(ProvenanceRole::ConstructorFieldSort);
+            collect_sort_argument_keys(
+                &field.arguments,
+                ProvenanceRole::ConstructorFieldSortArgument,
+                &mut keys,
+            )?;
+        }
+        let repeated = |role| {
+            crate::transport::grammar::REPEATED_PRODUCTION_ROLES.contains(&role)
+                || crate::transport::grammar::REPEATED_LIST_ROLES.contains(&role)
+        };
+        Ok(keys.close(payload_anchors(anchors).filter(|key| !repeated(key.role())))?)
+    }
+}
+
+/// Defines the keys of a constructor's element types, nested ones included.
+fn collect_sort_argument_keys(
+    arguments: &[HostConstructorSortArgument],
+    role: ProvenanceRole,
+    keys: &mut WireKeys,
+) -> Result<(), StateTransportError> {
+    for argument in arguments {
+        keys.define(&argument.sort.key, role)?;
+        collect_sort_argument_keys(&argument.arguments, role, keys)?;
+    }
+    Ok(())
+}
+
 /// Build-local host-stage form of [`crate::bundle::ConstructorField`].
 pub type HostConstructorFieldDescriptor = crate::bundle::ConstructorField<crate::HostStage>;
 
@@ -1007,6 +1110,79 @@ pub type HostConstructorSortArgument = crate::bundle::ConstructorSortArgument<cr
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn authored(role: ProvenanceRole, ordinal: u32) -> HostAuthoredAnchor {
+        HostAuthoredAnchor::new(
+            ProvenanceKey::new(role, ordinal),
+            anchor(AnchorPrecision::Exact),
+        )
+    }
+
+    /// A sort's parent references carry no key: each pairs with one parent
+    /// anchor, and the counts must agree.
+    #[test]
+    fn a_sort_pairs_each_parent_reference_with_a_parent_anchor() {
+        let sort = |parents: usize| HostSortDescriptor {
+            parents: (0..parents).map(|_| type_reference("Parent")).collect(),
+        };
+        let anchors = [
+            authored(ProvenanceRole::SortDeclaration, 0),
+            authored(ProvenanceRole::StableSymbol, 0),
+            authored(ProvenanceRole::SortParent, 0),
+            authored(ProvenanceRole::SortParent, 1),
+        ];
+        assert_eq!(sort(2).validate_complete_provenance(&anchors), Ok(()));
+        assert_eq!(
+            sort(1).validate_complete_provenance(&anchors),
+            Err(StateTransportError::ExtraProvenance(ProvenanceKey::new(
+                ProvenanceRole::SortParent,
+                1
+            )))
+        );
+        assert_eq!(
+            sort(3).validate_complete_provenance(&anchors),
+            Err(StateTransportError::MissingProvenance(ProvenanceKey::new(
+                ProvenanceRole::SortParent,
+                2
+            )))
+        );
+    }
+
+    /// A constructor defines its sort, pairs its fields' sorts with their
+    /// anchors, and leaves the production's repeated nodes to its grammar
+    /// descriptor; any other anchor is its own to consume.
+    #[test]
+    fn a_constructor_is_closed_beside_its_repeated_production_nodes() {
+        let constructor = HostConstructorDescriptor {
+            sort: crate::HostSortReference {
+                key: ProvenanceKey::new(ProvenanceRole::ConstructorSort, 0),
+                target: type_reference("Expression"),
+            },
+            fields: vec![crate::bundle::ConstructorField {
+                name: "value".into(),
+                sort: type_reference("Value"),
+                arguments: Vec::new(),
+            }],
+            parameters: Vec::new(),
+            arguments: Vec::new(),
+        };
+        let mut anchors = vec![
+            authored(ProvenanceRole::StableSymbol, 0),
+            authored(ProvenanceRole::ConstructorSort, 0),
+            authored(ProvenanceRole::ConstructorFieldSort, 0),
+            authored(ProvenanceRole::ConstructorDeclaration, 0),
+            authored(ProvenanceRole::ConstructorFieldDeclaration, 0),
+        ];
+        assert_eq!(constructor.validate_complete_provenance(&anchors), Ok(()));
+        anchors.push(authored(ProvenanceRole::SortParameter, 0));
+        assert_eq!(
+            constructor.validate_complete_provenance(&anchors),
+            Err(StateTransportError::ExtraProvenance(ProvenanceKey::new(
+                ProvenanceRole::SortParameter,
+                0
+            )))
+        );
+    }
 
     fn test_type_id() -> TypeId {
         TypeId::of::<u8>()
