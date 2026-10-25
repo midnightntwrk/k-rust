@@ -17,6 +17,8 @@ DEMOS = {
                                               "demos/PeanoRel/PeanoRel/Bisim.lean", "demos/PeanoRel/correspondence.toml"]},
     "CellMapRel": {"tier": "light", "sources": ["generated/cellmap", "generated/cellmapb",
                                                 "demos/CellMapRel/CellMapRel/Bisim.lean", "demos/CellMapRel/correspondence.toml"]},
+    "PickRel": {"tier": "light", "sources": ["generated/pick", "generated/pickb",
+                                             "demos/PickRel/PickRel/Bisim.lean", "demos/PickRel/correspondence.toml"]},
     "ImpUnroll": {"tier": "light", "encoding": "per-sort", "sources": ["generated/kunroll",
                                                "demos/ImpUnroll/ImpUnroll/Tr.lean", "demos/ImpUnroll/ImpUnroll/Refine.lean",
                                                "demos/ImpUnroll/correspondence.toml", "demos/ImpUnroll/refine.toml"]},
