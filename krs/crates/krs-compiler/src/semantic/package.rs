@@ -294,21 +294,17 @@ fn lower_sort_descriptor(
         declaration.visibility.clone(),
         declaration.explicit_symbol.clone(),
     ));
-    for (ordinal, parent) in sort.parents.iter().enumerate() {
-        let ordinal = u32::try_from(ordinal).map_err(|_| {
-            DescriptorLoweringError::unsupported_shape(
-                "sort parents",
-                "sort has more than u32::MAX direct parents",
-            )
-        })?;
+    // The parents are ordered by sort: a sort named twice is one subsort,
+    // located at its first reference.
+    let mut previous = None;
+    for parent in &sort.parents {
+        if previous.replace(&parent.sort) == Some(&parent.sort) {
+            continue;
+        }
         sentences.subsorts.push(SemanticSubsort::new(
-            semantic_origin(
-                descriptor,
-                role_key(ProvenanceRole::SortParent, ordinal),
-                "subsort",
-            )?,
+            semantic_origin(descriptor, parent.key.clone(), "subsort")?,
             SemanticSortRef::Declared(descriptor.id().clone()),
-            SemanticSortRef::Declared(parent.clone()),
+            SemanticSortRef::Declared(parent.sort.clone()),
         ));
     }
     Ok(())
@@ -320,7 +316,7 @@ fn referenced_packages(descriptors: &[&Descriptor]) -> BTreeSet<PackageId> {
         match descriptor.payload() {
             DescriptorPayload::Sort(sort) => {
                 for parent in &sort.parents {
-                    collect_item_package(parent, &mut packages);
+                    collect_item_package(&parent.sort, &mut packages);
                 }
             }
             DescriptorPayload::Constructor(constructor) => {

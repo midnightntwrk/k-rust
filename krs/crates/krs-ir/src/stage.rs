@@ -108,7 +108,7 @@ impl Stage for DescriptorStage {
     type Item = crate::StableItemId;
     type CellDeclaration = crate::DescriptorCellDeclarationReference;
     type InitializerOwner = crate::StableItemId;
-    type Parent = crate::StableItemId;
+    type Parent = crate::DescriptorSortParent;
     type Parents = std::collections::BTreeSet<Self::Parent>;
     type ConstructorSort = crate::DescriptorSortRef;
     type ConstructorFieldSort = Option<crate::DescriptorSortRef>;

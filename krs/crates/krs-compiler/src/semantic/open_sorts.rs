@@ -125,12 +125,12 @@ fn open_sort_edges(
             DescriptorPayload::Sort(sort) => {
                 require_kind(descriptor.id(), ItemKind::Sort, kinds)?;
                 for parent in &sort.parents {
-                    require_kind(parent, ItemKind::Sort, kinds)?;
+                    require_kind(&parent.sort, ItemKind::Sort, kinds)?;
                 }
                 direct_parents
                     .entry(descriptor.id().clone())
                     .or_default()
-                    .extend(sort.parents.iter().cloned());
+                    .extend(sort.parents.iter().map(|parent| parent.sort.clone()));
             }
             DescriptorPayload::Constructor(constructor) => {
                 require_kind(descriptor.id(), ItemKind::Constructor, kinds)?;

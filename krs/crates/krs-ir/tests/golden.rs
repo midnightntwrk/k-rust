@@ -6,10 +6,10 @@ use krs_ir::testing::{assert_canonical_contract, authored, item};
 use krs_ir::{
     ConstructorDescriptor, ConstructorFieldDescriptor, Descriptor, DescriptorBundle,
     DescriptorDeclaration, DescriptorDeclarationError, DescriptorNodeOrigin, DescriptorPayload,
-    DescriptorProvenance, DescriptorProvenanceError, DescriptorSortRef, ExplicitSymbol,
-    IdentityError, ItemKind, OriginFrame, OriginStack, OriginStackError, ProvenanceKey,
-    ProvenanceRole, RangedOriginKind, RustVisibility, SchemaVersion, SortDescriptor, StableItemId,
-    TransformationOriginKind,
+    DescriptorProvenance, DescriptorProvenanceError, DescriptorSortParent, DescriptorSortRef,
+    ExplicitSymbol, IdentityError, ItemKind, OriginFrame, OriginStack, OriginStackError,
+    ProvenanceKey, ProvenanceRole, RangedOriginKind, RustVisibility, SchemaVersion, SortDescriptor,
+    StableItemId, TransformationOriginKind,
 };
 use krs_test_support::{assert_rejects, assert_rejects_with_message};
 use serde::Serialize;
@@ -57,7 +57,10 @@ fn populated_bundle() -> DescriptorBundle {
     let sort = descriptor(
         value.clone(),
         DescriptorPayload::Sort(SortDescriptor {
-            parents: BTreeSet::from([k_item.clone()]),
+            parents: BTreeSet::from([DescriptorSortParent {
+                sort: k_item.clone(),
+                key: ProvenanceRole::SortParent.key(0),
+            }]),
         }),
     );
     let constructor = descriptor(

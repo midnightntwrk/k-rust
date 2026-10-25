@@ -664,7 +664,15 @@ impl Sample for SetOperation {
 impl Sample for SortDescriptor {
     fn samples() -> Vec<Self> {
         vec![Self {
-            parents: sample::<BTreeSet<StableItemId>>(),
+            parents: sample::<BTreeSet<DescriptorSortParent>>(),
+        }]
+    }
+}
+impl Sample for DescriptorSortParent {
+    fn samples() -> Vec<Self> {
+        vec![Self {
+            sort: sample::<StableItemId>(),
+            key: sample::<ProvenanceKey>(),
         }]
     }
 }

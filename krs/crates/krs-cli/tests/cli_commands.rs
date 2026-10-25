@@ -6,8 +6,9 @@ use std::process::Output;
 
 use krs_compiler::testing::assert_lowering_contract;
 use krs_ir::DescriptorBundle;
+use krs_ir::OriginFrame;
 use krs_ir::testing::assert_canonical_contract;
-use krs_ir_levels::{DefinitionIr, SemanticTheory};
+use krs_ir_levels::{DefinitionIr, SemanticSortRef, SemanticTheory};
 use krs_test_support::{fixture_build_env, krs_command, shared_fixture_target, temp_dir};
 use sha2::{Digest, Sha256};
 
@@ -210,6 +211,55 @@ fn commands_share_the_production_collection_and_definition_pipeline() {
     assert!(native.join("macros.kore").is_file());
     assert!(native.join("k2lean-sidecar.json").is_file());
     assert!(native.join(".krs-artifacts").is_file());
+}
+
+/// Each subsort is located at the parent path that names it, whatever order
+/// the parents' stable identities sort in: `Zed` is written first and sorts
+/// last.
+#[test]
+fn each_subsort_is_located_at_its_parent_reference() {
+    let target = shared_fixture_target();
+    let temporary = temp_dir();
+    let source = FOO_BAR.replace(
+        "#[krs::sort(alias = Obj, parents = [krs::KResult])]\npub trait ObjSort: krs::KResultSort {}",
+        "krs::sorts! {\n    Zed;\n    Alpha;\n}\n\n#[krs::sort(alias = Obj, parents = [Zed, Alpha])]\npub trait ObjSort: ZedSort + AlphaSort {}",
+    );
+    assert_ne!(source, FOO_BAR);
+    let manifest = materialize_fixture(temporary.path(), &source);
+    let emitted = temporary.path().join("emitted");
+    let emit = command(target.path(), &manifest, "emit-k", Some(&emitted), &[]);
+    assert_success(&emit);
+    let theory: SemanticTheory =
+        serde_json::from_slice(&fs::read(emitted.join("semantic-ir.json")).unwrap()).unwrap();
+    let located = theory
+        .modules()
+        .iter()
+        .flat_map(krs_ir_levels::SemanticModule::subsorts)
+        .filter_map(|subsort| {
+            let (SemanticSortRef::Declared(below), SemanticSortRef::Declared(above)) =
+                (subsort.subsort(), subsort.supersort())
+            else {
+                return None;
+            };
+            if below.item_name() != "Obj" {
+                return None;
+            }
+            let Some(OriginFrame::Ranged { range, .. }) =
+                subsort.origin().origin().frames().first()
+            else {
+                panic!("subsort {above} has no authored origin");
+            };
+            let text = &source[range.start_byte as usize..range.end_byte as usize];
+            Some((above.item_name().to_owned(), text.to_owned()))
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        located,
+        [
+            ("Alpha".to_owned(), "Alpha".to_owned()),
+            ("Zed".to_owned(), "Zed".to_owned())
+        ]
+    );
 }
 
 #[test]

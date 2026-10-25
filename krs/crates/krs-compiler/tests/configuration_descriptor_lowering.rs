@@ -366,7 +366,10 @@ fn descriptor_lookup_errors_preserve_kind_messages_and_missing_ids() {
         bundle.descriptors.push(descriptor(
             id("Referrer", ItemKind::Sort),
             DescriptorPayload::Sort(SortDescriptor {
-                parents: BTreeSet::from([reference.clone()]),
+                parents: BTreeSet::from([krs_ir::DescriptorSortParent {
+                    sort: reference.clone(),
+                    key: ProvenanceRole::SortParent.key(0),
+                }]),
             }),
         ));
         let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
@@ -415,7 +418,10 @@ fn duplicate_descriptor_precedes_dangling_reference_validation() {
     let referrer = descriptor(
         duplicate_id.clone(),
         DescriptorPayload::Sort(SortDescriptor {
-            parents: BTreeSet::from([id("Missing", ItemKind::Sort)]),
+            parents: BTreeSet::from([krs_ir::DescriptorSortParent {
+                sort: id("Missing", ItemKind::Sort),
+                key: ProvenanceRole::SortParent.key(0),
+            }]),
         }),
     );
     bundle.descriptors.push(referrer.clone());

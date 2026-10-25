@@ -57,8 +57,8 @@ pub use bundle::{
     ConstructorFieldDescriptor, ConstructorSortArgument, ConstructorSortArgumentDescriptor,
     Descriptor, DescriptorBundle, DescriptorDeclaration, DescriptorDeclarationError,
     DescriptorError, DescriptorFailure, DescriptorNodeOrigin, DescriptorPayload,
-    DescriptorProvenance, DescriptorProvenanceError, PackageSettings, Payload, SentenceKind,
-    SortDescriptor, SortPayload,
+    DescriptorProvenance, DescriptorProvenanceError, DescriptorSortParent, PackageSettings,
+    Payload, SentenceKind, SortDescriptor, SortPayload,
 };
 pub use catalog::{
     BuiltinOperationNotation, BuiltinOperationSpec, BuiltinSort, BuiltinSortSpec,

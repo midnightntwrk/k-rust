@@ -107,7 +107,11 @@ fn add_bool_common_descendant(bundle: &mut DescriptorBundleInputs, name: &str) -
                 [key(ProvenanceRole::SortParent, 0)],
             ),
             DescriptorPayload::Sort(SortDescriptor {
-                parents: [expr].into(),
+                parents: [krs_ir::DescriptorSortParent {
+                    sort: expr,
+                    key: key(ProvenanceRole::SortParent, 0),
+                }]
+                .into(),
             }),
         ),
     );

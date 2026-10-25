@@ -608,9 +608,17 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
         )
     }
 
-    fn parent(&mut self, reference: HostSortReference) -> Result<StableItemId, Self::Error> {
-        resolve_nominal_reference(&reference.target, ItemKind::Sort, self.declarations)
-            .map_err(|error| error.with_reference_key(reference.key))
+    fn parent(
+        &mut self,
+        reference: HostSortReference,
+    ) -> Result<krs_ir::DescriptorSortParent, Self::Error> {
+        match resolve_nominal_reference(&reference.target, ItemKind::Sort, self.declarations) {
+            Ok(sort) => Ok(krs_ir::DescriptorSortParent {
+                sort,
+                key: reference.key,
+            }),
+            Err(error) => Err(error.with_reference_key(reference.key)),
+        }
     }
 
     fn constructor_sort(

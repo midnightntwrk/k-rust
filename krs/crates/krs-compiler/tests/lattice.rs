@@ -32,7 +32,8 @@ use std::path::Path;
 use krs_compiler::testing::{SortJudge, SortJudges};
 use krs_ir::testing::{DescriptorBundleInputs, DescriptorInputs};
 use krs_ir::{
-    BuiltinSort, DescriptorPayload, ItemKind, ProvenanceRole, SortDescriptor, StableItemId,
+    BuiltinSort, DescriptorPayload, DescriptorSortParent, ItemKind, ProvenanceRole, SortDescriptor,
+    StableItemId,
 };
 use krs_ir_levels::SemanticSortRef;
 use krs_test_support::class_matrix::pending::{
@@ -86,22 +87,22 @@ fn class(judges: &SortJudges, candidate: &SemanticSortRef, expected: &SemanticSo
 
 /// A sort declaration with `parents`, keyed as the collector keys one.
 fn sort_with_parents(id: StableItemId, parents: &[StableItemId]) -> DescriptorInputs {
-    let parent_keys = (0..parents.len()).map(|ordinal| {
-        configuration::key(
-            ProvenanceRole::SortParent,
-            u32::try_from(ordinal).expect("few parents"),
-        )
-    });
+    let parents = parents
+        .iter()
+        .zip(0..)
+        .map(|(sort, ordinal)| DescriptorSortParent {
+            sort: sort.clone(),
+            key: configuration::key(ProvenanceRole::SortParent, ordinal),
+        })
+        .collect::<BTreeSet<_>>();
     DescriptorInputs::new(
         id,
         BTreeMap::new(),
         configuration::provenance(
             configuration::key(ProvenanceRole::SortDeclaration, 0),
-            parent_keys,
+            parents.iter().map(|parent| parent.key.clone()),
         ),
-        DescriptorPayload::Sort(SortDescriptor {
-            parents: parents.iter().cloned().collect(),
-        }),
+        DescriptorPayload::Sort(SortDescriptor { parents }),
     )
 }
 

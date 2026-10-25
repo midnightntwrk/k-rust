@@ -1045,6 +1045,20 @@
       }
     ]
   },
+  "DescriptorSortParent": {
+    "STRUCT": [
+      {
+        "sort": {
+          "TYPENAME": "StableItemIdWire"
+        }
+      },
+      {
+        "key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      }
+    ]
+  },
   "DescriptorSpecModuleName": {
     "STRUCT": [
       {
@@ -1859,7 +1873,7 @@
       {
         "parents": {
           "SEQ": {
-            "TYPENAME": "StableItemIdWire"
+            "TYPENAME": "DescriptorSortParent"
           }
         }
       }

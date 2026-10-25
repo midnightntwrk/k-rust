@@ -6699,17 +6699,23 @@
       "descriptor": {
         "parents": [
           {
-            "disambiguator": "",
-            "item_kind": "sort",
-            "item_name": "Value",
-            "module_path": [
-              "syntax"
-            ],
-            "package": {
-              "cargo_name": "schema",
-              "cargo_source": "workspace",
-              "cargo_version": "0.1.0",
-              "k_namespace": "ORG-EXAMPLE-SCHEMA"
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "sort": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
             }
           }
         ]
@@ -6888,17 +6894,23 @@
           "descriptor": {
             "parents": [
               {
-                "disambiguator": "",
-                "item_kind": "sort",
-                "item_name": "Value",
-                "module_path": [
-                  "syntax"
-                ],
-                "package": {
-                  "cargo_name": "schema",
-                  "cargo_source": "workspace",
-                  "cargo_version": "0.1.0",
-                  "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                "key": {
+                  "ordinal": 0,
+                  "role": "sort_declaration"
+                },
+                "sort": {
+                  "disambiguator": "",
+                  "item_kind": "sort",
+                  "item_name": "Value",
+                  "module_path": [
+                    "syntax"
+                  ],
+                  "package": {
+                    "cargo_name": "schema",
+                    "cargo_source": "workspace",
+                    "cargo_version": "0.1.0",
+                    "k_namespace": "ORG-EXAMPLE-SCHEMA"
+                  }
                 }
               }
             ]
@@ -8791,17 +8803,23 @@
       "descriptor": {
         "parents": [
           {
-            "disambiguator": "",
-            "item_kind": "sort",
-            "item_name": "Value",
-            "module_path": [
-              "syntax"
-            ],
-            "package": {
-              "cargo_name": "schema",
-              "cargo_source": "workspace",
-              "cargo_version": "0.1.0",
-              "k_namespace": "ORG-EXAMPLE-SCHEMA"
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "sort": {
+              "disambiguator": "",
+              "item_kind": "sort",
+              "item_name": "Value",
+              "module_path": [
+                "syntax"
+              ],
+              "package": {
+                "cargo_name": "schema",
+                "cargo_source": "workspace",
+                "cargo_version": "0.1.0",
+                "k_namespace": "ORG-EXAMPLE-SCHEMA"
+              }
             }
           }
         ]

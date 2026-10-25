@@ -1048,8 +1048,9 @@ impl HostSortDescriptor {
     /// Checks that the sort's anchors are its declaration, a fixed key, and
     /// its parent references' keys.
     ///
-    /// The check reads the payload before the collector resolves it: the
-    /// resolved payload holds its parents as a set of sorts, without keys.
+    /// The check reads the payload before the collector resolves it; the
+    /// resolved parents keep their keys, but the descriptor stage does not
+    /// repeat the check.
     fn validate_complete_provenance(
         &self,
         anchors: &[HostAuthoredAnchor],

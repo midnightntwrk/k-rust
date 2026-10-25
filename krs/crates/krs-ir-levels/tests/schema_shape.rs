@@ -726,6 +726,7 @@ fn registry() -> Registry {
     trace!(DescriptorConfigurationReference: DescriptorConfigurationReference);
     trace!(DescriptorColorEntry: DescriptorColorEntry);
     trace!(DescriptorContextAliasReference: DescriptorContextAliasReference);
+    trace!(DescriptorSortParent: DescriptorSortParent);
     trace!(DescriptorFieldReference: DescriptorFieldReference);
     trace!(DescriptorGroupReference: DescriptorGroupReference);
     trace!(DescriptorKSequenceNotation: DescriptorKSequenceNotation);

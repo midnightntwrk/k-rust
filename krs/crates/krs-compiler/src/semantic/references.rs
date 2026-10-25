@@ -31,7 +31,7 @@ fn validate_descriptor_references(
     match descriptor.payload() {
         DescriptorPayload::Sort(sort) => {
             for parent in &sort.parents {
-                declarations.sort(parent)?;
+                declarations.sort(&parent.sort)?;
             }
         }
         DescriptorPayload::Constructor(constructor) => {

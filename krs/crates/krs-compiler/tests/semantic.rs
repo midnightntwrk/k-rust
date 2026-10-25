@@ -137,7 +137,14 @@ fn sort(id: StableItemId, parents: Vec<StableItemId>) -> Descriptor {
         BTreeMap::new(),
         provenance(ProvenanceRole::SortDeclaration),
         DescriptorPayload::Sort(SortDescriptor {
-            parents: parents.into_iter().collect(),
+            parents: parents
+                .into_iter()
+                .zip(0..)
+                .map(|(sort, ordinal)| krs_ir::DescriptorSortParent {
+                    sort,
+                    key: ProvenanceRole::SortParent.key(ordinal),
+                })
+                .collect(),
         }),
     )
 }

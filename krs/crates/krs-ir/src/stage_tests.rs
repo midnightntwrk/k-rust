@@ -10,9 +10,9 @@ use crate::{
     DescriptorConfigurationRule, DescriptorConfigurationVariable, DescriptorContextAlias,
     DescriptorFixedConfiguration, DescriptorHeadRule, DescriptorInitializerCell,
     DescriptorInitializerStateTerm, DescriptorPayload, DescriptorRuleCells,
-    DescriptorRuleCondition, DescriptorSortRef, DescriptorSortReference, DescriptorStage,
-    DescriptorTerm, GrammarDescriptor, ItemKind, PackageId, ProvenanceKey, ProvenanceRole, RefMap,
-    SentenceKind, SortDescriptor, StableItemId, StructuredRuleDescriptor,
+    DescriptorRuleCondition, DescriptorSortParent, DescriptorSortRef, DescriptorSortReference,
+    DescriptorStage, DescriptorTerm, GrammarDescriptor, ItemKind, PackageId, ProvenanceKey,
+    ProvenanceRole, RefMap, SentenceKind, SortDescriptor, StableItemId, StructuredRuleDescriptor,
 };
 
 macro_rules! assert_mapping {
@@ -45,6 +45,13 @@ fn key(ordinal: u32) -> ProvenanceKey {
 fn item(kind: ItemKind, name: &str) -> StableItemId {
     let package = PackageId::new("ORG-EXAMPLE-TRAVERSAL", "test", "0.1.0", "workspace").unwrap();
     StableItemId::new(package, ["transport"], name, kind, "").unwrap()
+}
+
+fn parent(sort: StableItemId, ordinal: u32) -> DescriptorSortParent {
+    DescriptorSortParent {
+        sort,
+        key: ProvenanceRole::SortParent.key(ordinal),
+    }
 }
 
 fn sort(ordinal: u32) -> DescriptorSortReference {
@@ -740,8 +747,8 @@ fn structured_rule() -> StructuredRuleDescriptor {
 fn sort_and_constructor_traversals_preserve_variant_data() {
     let sorts = SortDescriptor {
         parents: [
-            item(ItemKind::Sort, "First"),
-            item(ItemKind::Sort, "Second"),
+            parent(item(ItemKind::Sort, "First"), 0),
+            parent(item(ItemKind::Sort, "Second"), 1),
         ]
         .into_iter()
         .collect(),
@@ -784,8 +791,8 @@ fn sort_and_constructor_traversals_preserve_variant_data() {
 fn declaration_payload_traversal_maps_references_and_propagates_errors() {
     let sorts = SortDescriptor {
         parents: [
-            item(ItemKind::Sort, "First"),
-            item(ItemKind::Sort, "Second"),
+            parent(item(ItemKind::Sort, "First"), 0),
+            parent(item(ItemKind::Sort, "Second"), 1),
         ]
         .into_iter()
         .collect(),

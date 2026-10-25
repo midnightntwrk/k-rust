@@ -1122,6 +1122,19 @@ stage_shape! {
 /// Stable descriptor-stage form of [`SortPayload`].
 pub type SortDescriptor = SortPayload<DescriptorStage>;
 
+/// One direct parent of a resolved sort, with the key of the reference that
+/// names it, `sort_parent`. A sort's parents are a set of sorts, so the
+/// collection orders them by sort, then by key: a parent named twice is two
+/// references to one sort.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DescriptorSortParent {
+    /// Stable parent sort declaration.
+    pub sort: StableItemId,
+    /// Authored parent-path provenance.
+    pub key: ProvenanceKey,
+}
+
 #[cfg(feature = "test-support")]
 impl SortDescriptor {
     /// Rebuilds the direct parent-sort set from a permuted input.

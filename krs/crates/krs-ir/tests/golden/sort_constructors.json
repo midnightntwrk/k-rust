@@ -220,18 +220,24 @@
       "descriptor": {
         "parents": [
           {
-            "package": {
-              "k_namespace": "ORG-EXAMPLE-SMOKE",
-              "cargo_name": "smoke-semantics",
-              "cargo_version": "0.1.0",
-              "cargo_source": "workspace"
+            "sort": {
+              "package": {
+                "k_namespace": "ORG-EXAMPLE-SMOKE",
+                "cargo_name": "smoke-semantics",
+                "cargo_version": "0.1.0",
+                "cargo_source": "workspace"
+              },
+              "module_path": [
+                "syntax"
+              ],
+              "item_name": "KItem",
+              "item_kind": "sort",
+              "disambiguator": ""
             },
-            "module_path": [
-              "syntax"
-            ],
-            "item_name": "KItem",
-            "item_kind": "sort",
-            "disambiguator": ""
+            "key": {
+              "role": "sort_parent",
+              "ordinal": 0
+            }
           }
         ]
       }
