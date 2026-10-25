@@ -103,6 +103,23 @@ fn a_native_codes_kind_follows_who_wrote_the_sentence_it_names() {
         assert_eq!(frontend.code.kind(), kind, "{code} at {sentence:?}");
         assert_eq!(frontend.source_map_key.is_some(), sentence.is_some());
     }
+
+    // A diagnostic about a sentence derived from both a lowered and a raw sentence: the
+    // author's K is involved, so it is the author's, and the first address locates it.
+    let mut merged = super::FrontendDiagnostic::from(&Diagnostic {
+        severity: Severity::Error,
+        code: DiagnosticCode::UnboundVariable,
+        message: String::new(),
+        source: None,
+        location: None,
+        input_addresses: vec![
+            InputAddress::new(InputSpace::Structured, "DIAG", 0),
+            InputAddress::new(InputSpace::Structured, "DIAG", 1),
+        ],
+    });
+    super::attribute_diagnostics(&origins, std::slice::from_mut(&mut merged));
+    assert_eq!(merged.code.kind(), CodeKind::Author);
+    assert_eq!(merged.source_map_key, Some(origins[0].key.clone()));
 }
 
 #[test]

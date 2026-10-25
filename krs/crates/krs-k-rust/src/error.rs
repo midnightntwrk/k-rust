@@ -479,9 +479,13 @@ pub(super) fn attribute_diagnostics(
     diagnostics: &mut [FrontendDiagnostic],
 ) {
     for diagnostic in diagnostics {
-        let mapping = sentence_mapping(origins, diagnostic);
-        diagnostic.source_map_key = mapping.map(|mapping| mapping.key.clone());
-        if mapping.is_some_and(|mapping| mapping.producer == SentenceProducer::Raw)
+        diagnostic.source_map_key =
+            sentence_mapping(origins, diagnostic).map(|mapping| mapping.key.clone());
+        // k-rust merges the input addresses of the sentences a sentence derives from or equals, so
+        // one diagnostic can name a lowered and a raw sentence; KRS has checked its own lowering,
+        // so where the author's verbatim K is involved, the refusal is the author's.
+        if sentence_mappings(origins, diagnostic)
+            .any(|mapping| mapping.producer == SentenceProducer::Raw)
             && diagnostic.code.kind() == CodeKind::Internal
         {
             diagnostic.code = Code::foreign(diagnostic.code.as_str().to_owned(), CodeKind::Author);
@@ -498,24 +502,33 @@ pub fn diagnostic_source_map_key(
     sentence_mapping(origins, diagnostic).map(|mapping| mapping.key.clone())
 }
 
+/// The first KRS sentence the diagnostic's Structured addresses name: its source-map key.
 fn sentence_mapping<'a>(
     origins: &'a [OriginMapping],
     diagnostic: &FrontendDiagnostic,
 ) -> Option<&'a OriginMapping> {
-    diagnostic.input_addresses.iter().find_map(|address| {
-        (address.input == InputSpace::Structured)
-            .then(|| {
-                origins.iter().find(|mapping| {
-                    mapping.module == address.module
-                        && mapping.place
-                            == NativeNodePlace::Sentence {
-                                index: address.index as usize,
-                                role: SentenceNodeRole::Sentence,
-                            }
-                })
+    sentence_mappings(origins, diagnostic).next()
+}
+
+/// Every KRS sentence the diagnostic's Structured addresses name, in address order.
+fn sentence_mappings<'a>(
+    origins: &'a [OriginMapping],
+    diagnostic: &FrontendDiagnostic,
+) -> impl Iterator<Item = &'a OriginMapping> {
+    diagnostic
+        .input_addresses
+        .iter()
+        .filter(|address| address.input == InputSpace::Structured)
+        .filter_map(|address| {
+            origins.iter().find(|mapping| {
+                mapping.module == address.module
+                    && mapping.place
+                        == NativeNodePlace::Sentence {
+                            index: address.index as usize,
+                            role: SentenceNodeRole::Sentence,
+                        }
             })
-            .flatten()
-    })
+        })
 }
 
 /// Failure from a named stage of the native frontend pipeline.

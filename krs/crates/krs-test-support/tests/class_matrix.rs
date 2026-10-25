@@ -607,8 +607,8 @@ fn error(code: Option<&str>, range: Option<Range<usize>>, message: &str) -> Obse
     ObservedDiagnostic {
         severity: Severity::Error,
         code: code.map(str::to_owned),
-        // A forwarded code reaches the harness as the author's, as rustc's do.
-        kind: code.map(|code| registry_kind(code).unwrap_or(CodeKind::Author)),
+        // A KRS code's kind is the registry's; a forwarded code states its own (below).
+        kind: code.and_then(registry_kind),
         range,
         labels: Vec::new(),
         message: message.to_owned(),
@@ -708,13 +708,17 @@ fn the_table_free_invariants_judge_a_refusal_without_the_table() {
         "krs::analysis::optional-presence @ spelling"
     );
 
+    // rustc judges the authored Rust.
     let rustc = Observed {
         accepted: false,
-        diagnostics: vec![error(
-            Some("E0277"),
-            Some(placed.item.clone()),
-            "the trait bound is not satisfied",
-        )],
+        diagnostics: vec![ObservedDiagnostic {
+            kind: Some(CodeKind::Author),
+            ..error(
+                Some("E0277"),
+                Some(placed.item.clone()),
+                "the trait bound is not satisfied",
+            )
+        }],
         panic: None,
     };
     assert_eq!(

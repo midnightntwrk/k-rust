@@ -32,9 +32,19 @@ impl Adapter<'_> {
         module: &str,
         sentence_index: usize,
     ) -> Result<NativeSentence, AdapterError> {
+        // No wildcard: a new sentence that carries the author's verbatim K must say so here.
         let producer = match sentence {
             DefinitionSentence::Raw(_) => SentenceProducer::Raw,
-            _ => SentenceProducer::Lowered,
+            DefinitionSentence::SyntaxSort(_)
+            | DefinitionSentence::Subsort(_)
+            | DefinitionSentence::Production(_)
+            | DefinitionSentence::Precedence(_)
+            | DefinitionSentence::Associativity(_)
+            | DefinitionSentence::Configuration(_)
+            | DefinitionSentence::ContextAlias(_)
+            | DefinitionSentence::Rule(_)
+            | DefinitionSentence::Lexical(_)
+            | DefinitionSentence::Layout(_) => SentenceProducer::Lowered,
         };
         self.map_origin(
             sentence.origin(),
