@@ -107,9 +107,15 @@ impl KeyLedger {
     /// [`Self::finish`] for a descriptor whose anchors repeat nodes of
     /// `sibling`, the other descriptor of the same item, whose wire nodes
     /// denote them: a constructor's descriptor lists its production's
-    /// syntax, which only its grammar descriptor carries.
-    pub(super) fn finish_beside(&self, sibling: &Self) -> crate::Result<()> {
-        self.finish_with(|key| sibling.defines(key))
+    /// syntax, which only its grammar descriptor carries. An anchor of a
+    /// role in `repeated` must be defined by the sibling; every other
+    /// anchor, by this descriptor.
+    pub(super) fn finish_beside(
+        &self,
+        sibling: &Self,
+        repeated: &[ProvenanceRole],
+    ) -> crate::Result<()> {
+        self.finish_with(|key| repeated.contains(&key.role()) && sibling.defines(key))
     }
 
     /// Whether a wire node of this descriptor took `key` as its own.
@@ -249,14 +255,41 @@ mod tests {
 
     #[test]
     fn a_descriptor_finishes_beside_its_sibling() {
-        let (anchors, spans) = anchors(KEYS);
+        let (anchors, spans) = anchors([
+            (ProvenanceRole::ConstructorSort, 0),
+            (ProvenanceRole::ConstructorSyntax, 0),
+            (ProvenanceRole::ConstructorDeclaration, 0),
+        ]);
+        let repeated = [
+            ProvenanceRole::ConstructorSyntax,
+            ProvenanceRole::ConstructorDeclaration,
+        ];
+        // The constructor defines its sort; the grammar, the repeated nodes.
+        let ledger = KeyLedger::new(&anchors, &[]);
         let sibling = KeyLedger::new(&anchors, &[]);
-        let ledger = KeyLedger::new(&anchors, &[ProvenanceRole::RuleDeclaration]);
-        ledger.define_key(anchors[1].key()).unwrap();
+        ledger.define_key(anchors[0].key()).unwrap();
+        sibling.define_key(anchors[1].key()).unwrap();
         sibling.define_key(anchors[2].key()).unwrap();
-        ledger.finish_beside(&sibling).unwrap();
-        // The sibling's own anchors are still its to define.
-        let error = sibling.finish_beside(&ledger).unwrap_err();
+        ledger.finish_beside(&sibling, &repeated).unwrap();
+
+        // A repeated node the sibling did not define is dropped.
+        let ledger = KeyLedger::new(&anchors, &[]);
+        let sibling = KeyLedger::new(&anchors, &[]);
+        ledger.define_key(anchors[0].key()).unwrap();
+        sibling.define_key(anchors[1].key()).unwrap();
+        let error = ledger.finish_beside(&sibling, &repeated).unwrap_err();
+        let (code, span) = located(&error);
+        assert_eq!(code, expand::UNCONSUMED_PROVENANCE_KEY);
+        assert_eq!(span.unwrap().start(), spans[2].start());
+
+        // A node of no repeated role is this descriptor's to define, even
+        // when the sibling defined it.
+        let ledger = KeyLedger::new(&anchors, &[]);
+        let sibling = KeyLedger::new(&anchors, &[]);
+        for anchor in &anchors {
+            sibling.define_key(anchor.key()).unwrap();
+        }
+        let error = ledger.finish_beside(&sibling, &repeated).unwrap_err();
         let (code, span) = located(&error);
         assert_eq!(code, expand::UNCONSUMED_PROVENANCE_KEY);
         assert_eq!(span.unwrap().start(), spans[0].start());

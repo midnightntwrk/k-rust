@@ -21,7 +21,7 @@ use syn::{Attribute, Ident, Item, ItemStruct, Meta, Path, parse_quote};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
-use super::productions::strictness_key_function;
+use super::productions::{REPEATED_PRODUCTION_ROLES, strictness_key_function};
 use super::terms::{SortArgumentSink, WireSlots, production_sort_arguments, wire_sort_reference};
 use super::tokens::{
     call_site_cfg_attributes, call_site_ident, call_site_path, helper_tokens, sort_type_tokens,
@@ -600,7 +600,7 @@ fn constructor_like(
         hook.as_ref(),
         static_marker.as_ref().map(|(marker, _)| marker),
     )?;
-    ledger.finish_beside(&grammar_ledger)?;
+    ledger.finish_beside(&grammar_ledger, &REPEATED_PRODUCTION_ROLES)?;
 
     let factory_tokens = DescriptorFactory {
         facade: &facade,
