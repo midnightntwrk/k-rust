@@ -12,8 +12,8 @@ source_map_sha256 = "5a5664ebfcb48fa859fd073fc5b8c9219d264102019e5ca4b55b2a49d07
 refusal_sha256 = "b56ec1282fdb48a079f6f96835c41979b35727b016fd95f85c131682588c23ac"
 
 [macro_output.imp."tests/imp/rust-definition/src/imp.rs"]
-text_sha256 = "a376d5268bbaa05d45563eab2501583fd6227ef44846fa0fb159d666daa034bd"
-source_map_sha256 = "ee0aa36783952d16d26b7386d2e519235c7b110eed7e4678a1379e10f4816db5"
+text_sha256 = "8ca08e4c4f9713238804e948db6d47654ce8f33d3f31e0d6bf2ecf34785df1cc"
+source_map_sha256 = "089f022a81707915714be2bf5ecb9404b0d4333a1a6eb56e9172a68b4cccb145"
 
 [macro_output.imp."tests/imp/rust-definition/src/lib.rs"]
 text_sha256 = "39715992111fe6c7c802d2fa710c67e95c17393478c6b89980d9383fb89fb6e7"
@@ -41,17 +41,17 @@ source_map_sha256 = "365a0b0890ac9b29010babb0749b5f1a89e02416f6f0d4e14da861fcc33
 [macro_output.kevm]
 
 [macro_output.kevm."semantics/kevm/src/lib.rs"]
-text_sha256 = "030cc95420eb5881cabf12983e67d71556171d3556b21ae39a7975a4c449b2ef"
-source_map_sha256 = "f0b417d8bd3a48d261bfe2ad4cece6ea38b4d86322c606f92a11340b208ccf39"
+text_sha256 = "28c76266f88e2c0c887c0be26ccfcd10227e40aeb88ed4aa830a1968fb70d9cf"
+source_map_sha256 = "6144f0a923bf25b53559589bd6b4e0542ceb06919c88ebac3ce4b494122fbd90"
 
 [macro_output.kmir]
 
 [macro_output.kmir."semantics/kmir/src/lib.rs"]
-text_sha256 = "3937b64660cda123c16af071bcb82e242281018e033c5203f60fb41aa3bc8b26"
-source_map_sha256 = "d28dcfe5169e3fbf041870797aa0cda6967c18d9afe8a52d7f5921d6ad291524"
+text_sha256 = "38b64d5424a77a748f4b5606a1b98c0707ec260b33356db23cf756aff62377cd"
+source_map_sha256 = "dabbbe6ef429c37e79e88f7baf1098ee35a3e5d63374946cb48c7a4e368da872"
 
 [macro_output.kwasm]
 
 [macro_output.kwasm."semantics/kwasm/src/lib.rs"]
-text_sha256 = "02dc2777fffb1c8d82a33d3946e57be57e273c10f58b6f988696628d5f49b71f"
-source_map_sha256 = "2e7bb0e4e55810325cf24a529a6a72b930546cb15ed666445814319c0774f29b"
+text_sha256 = "ba3104eccaca85dedbda537caf215ff7ebeaf2774877af18b02c735e2ce78da1"
+source_map_sha256 = "b044e1d7f57b07ffe3beacdbdf97072a54ffbb68ac4b15bd1eed2d98bcef5a5e"
