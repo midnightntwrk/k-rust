@@ -219,7 +219,10 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// fz26 FZ-CONFLUENCE added 5 lines after "The contract states, and does not check" (the checked
 /// hook premise), which moved the same five down 5, re-pinned by digest; the fz26 phase-6
 /// integration (INT8) added FZ-EMPTYSORT's one line on sorts with no normal form to "Anywhere
-/// rules", which moved the same five down 1, byte-identical, re-pinned by their text):
+/// rules", which moved the same five down 1, byte-identical, re-pinned by their text; round 3's
+/// FZ-STATESET and FZ-STATESET-MATCH grew "Work budget" and the sections above the allowance
+/// passage, which moved 2396-2399 down 12 and 2509 down 42, byte-identical, re-pinned by digest at
+/// fz26 FZ-COMPARABLE-B's fix round, where the test was found red at main `d24fb2857`):
 /// - 92: the run-level record keeps what the diagnostic channel drops (`allowanceRefusals`,
 ///   `unsupportedHooks`, of the run and of the load);
 /// - 859: a result whose `allowanceRefusals` is empty is the result under every allowance of at
@@ -230,9 +233,9 @@ fn every_adapted_run_carries_the_run_level_facts() {
 /// - 1913-1936: a mark is noted where the evaluator takes the value, kept through undone work and
 ///   memos; the run's list holds every mark, absorbed and vanished work included; the guarantee
 ///   for a run whose list is empty;
-/// - 2509: a run under another allowance is outside the determinism contract when a bounded
+/// - 2551: a run under another allowance is outside the determinism contract when a bounded
 ///   `Bytes` hook may refuse;
-/// - 2396-2399 (KINK-22 fact 1, "Work budget"): every leaf before the `work-bound` leaf is a leaf
+/// - 2408-2411 (KINK-22 fact 1, "Work budget"): every leaf before the `work-bound` leaf is a leaf
 ///   of every run with a larger budget, at the same position, which the one-sided kill rests on;
 /// - 2141-2146 (KINK-22 fact 2, "Search results"): a `state-set` result whose bound or undecided
 ///   leaves were all merged into an earlier stuck leaf of their configuration is complete, which
@@ -259,13 +262,13 @@ const A1_PASSAGES: [(usize, usize, &str); 7] = [
         "309b843d88518f4bdec637057d724ba4726130237eedd1e63d228bba075c800c",
     ),
     (
-        2509,
-        2509,
+        2551,
+        2551,
         "7447a2082d4fdcd5cdfac1143465021b97160d5520cd5c10c84272a371253bc4",
     ),
     (
-        2396,
-        2399,
+        2408,
+        2411,
         "cdafee84ebdbccd1180f763b8b672650f6c6fa1319981c9b47b38cfcc3bdbf66",
     ),
     (

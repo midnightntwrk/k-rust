@@ -1563,6 +1563,27 @@ fn an_undefined_step_that_contradicts_a_claim_excludes_the_run() {
             Some(&id("TDIV.half"))
         );
         assert_eq!(excluded, None);
+        // The one reading of an undefined step's rule (fz26 FZ-COMPARABLE-B), which the leaf
+        // predicates and kink-flow's witness filter share.
+        assert_eq!(
+            exclusions.undefined_step_exclusions(&id("TDIV.pd")),
+            [Exclusion::ContradictedClaim]
+        );
+        assert!(
+            exclusions
+                .undefined_step_exclusions(&id("TDIV.half"))
+                .is_empty()
+        );
+        assert!(exclusions.contradicts_a_claim(&pd) && !exclusions.contradicts_a_claim(&half));
+        let short = DefinitionExclusions {
+            short_circuit_rules: std::iter::once(id("TDIV.half")).collect(),
+            ..exclusions.clone()
+        };
+        assert_eq!(
+            short.undefined_step_exclusions(&id("TDIV.half")),
+            [Exclusion::ShortCircuitReading]
+        );
+        assert!(short.short_circuit_step(&half) && !short.short_circuit_step(&pd));
         for (symbol, argument) in [("Lbltdiv", 0), ("Lblpd", 0)] {
             let (defined, excluded) = leaf(symbol, argument);
             assert_eq!(defined.halt, HaltClass::Stuck, "{symbol}");

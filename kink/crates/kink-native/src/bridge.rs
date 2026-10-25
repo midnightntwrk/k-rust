@@ -685,13 +685,13 @@ pub fn leaf_terms(
 /// as KORE text and its halt, without the adapter's feasibility or diagnostics (kink-flow's
 /// in-campaign witness filter, fz26 FZ-COMPARABLE-B).
 ///
-/// It selects the term as [`leaf_terms`] does for a leaf the adapter did not show feasible: the
-/// state's only term when the state is decided (no path predicate, no free variable), and
-/// [`LeafTerm::Undecided`] otherwise. A `Vacuous` leaf is [`LeafTerm::Discarded`]. Without the
-/// feasibility, a leaf the solver refutes ([`DiscardReason::Unsat`]), which [`leaf_terms`] would
-/// discard, gives its term here, so a judgement of it is stricter than the bridge's, never laxer;
-/// and a constrained leaf the solver shows feasible, whose term the bridge would read, is
-/// `Undecided` here.
+/// For a `stuck` or `trivial` leaf it gives the term [`leaf_terms`] gives a leaf the adapter did
+/// not show feasible: the state's only term when the state is decided (no path predicate, no free
+/// variable), and [`LeafTerm::Undecided`] otherwise. Without the feasibility, a constrained leaf
+/// the solver shows feasible, whose term the bridge would read, is `Undecided` here; a decided
+/// state is never refuted by the solver, so no leaf the bridge discards as `Unsat` gives a term.
+/// Without the diagnostics, every `Vacuous` leaf is [`LeafTerm::Discarded`], where the bridge
+/// keeps a diagnosed one ([`discarded`]).
 ///
 /// # Errors
 ///

@@ -1208,10 +1208,28 @@ impl DefinitionExclusions {
     pub fn contradicts_a_claim(&self, leaf: &AdaptedLeaf) -> bool {
         leaf.contradicted_total.is_some()
             || (leaf.halt == HaltClass::Trivial
-                && leaf
-                    .undefined_rule
-                    .as_ref()
-                    .is_some_and(|rule| self.preserves_definedness.contains(&rule.id)))
+                && leaf.undefined_rule.as_ref().is_some_and(|rule| {
+                    self.undefined_step_exclusions(&rule.id)
+                        .contains(&Exclusion::ContradictedClaim)
+                }))
+    }
+
+    /// The exclusions an undefined step (a `Trivial` leaf) of the rule with unique id `rule_id`
+    /// gives its run on this definition, in [`Self::run_exclusion`]'s order: a contradicted claim
+    /// when the rule carries `preserves-definedness`, then the short-circuit reading when its
+    /// result depends on it. The one reading of an undefined step's rule, shared by
+    /// [`Self::contradicts_a_claim`], [`Self::short_circuit_step`] and clients that judge a
+    /// leaf known by its rule id (kink-flow's witness filter, fz26 FZ-COMPARABLE-B).
+    #[must_use]
+    pub fn undefined_step_exclusions(&self, rule_id: &str) -> Vec<Exclusion> {
+        let mut exclusions = Vec::new();
+        if self.preserves_definedness.contains(rule_id) {
+            exclusions.push(Exclusion::ContradictedClaim);
+        }
+        if self.short_circuit_rules.contains(rule_id) {
+            exclusions.push(Exclusion::ShortCircuitReading);
+        }
+        exclusions
     }
 
     /// Whether `leaf` is an undefined step of a rewrite rule whose right-hand side applies a
@@ -1220,10 +1238,10 @@ impl DefinitionExclusions {
     #[must_use]
     pub fn short_circuit_step(&self, leaf: &AdaptedLeaf) -> bool {
         leaf.halt == HaltClass::Trivial
-            && leaf
-                .undefined_rule
-                .as_ref()
-                .is_some_and(|rule| self.short_circuit_rules.contains(&rule.id))
+            && leaf.undefined_rule.as_ref().is_some_and(|rule| {
+                self.undefined_step_exclusions(&rule.id)
+                    .contains(&Exclusion::ShortCircuitReading)
+            })
     }
 
     /// The exclusion of `state`, a test's initial state on `definition` (the definition these
