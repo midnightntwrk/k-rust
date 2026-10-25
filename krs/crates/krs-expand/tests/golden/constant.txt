@@ -41,7 +41,7 @@ fn __krs_constant_descriptor_4b7d5b034b76f443() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constant\":{\"sort\":{\"key\":{\"role\":\"constant_type\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Int\"}},\"value\":{\"term_kind\":\"literal\",\"key\":{\"role\":\"rule_right_literal\",\"ordinal\":0},\"literal\":{\"literal_kind\":\"int\",\"value\":\"65295\"}}}}",
+            "{\"constant\":{\"sort\":{\"key\":{\"role\":\"constant_type\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Int\"}},\"value_key\":{\"role\":\"constant_value\",\"ordinal\":0},\"value\":{\"term_kind\":\"literal\",\"key\":{\"role\":\"rule_right_literal\",\"ordinal\":0},\"literal\":{\"literal_kind\":\"int\",\"value\":\"65295\"}}}}",
             ::k::__KrsSlots {
                 types: &[::k::HostTypeKey(__krs_constant_sort_4b7d5b034b76f443)],
                 items: &[],

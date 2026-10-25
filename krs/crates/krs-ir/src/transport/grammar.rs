@@ -4237,9 +4237,8 @@ impl DescriptorTerm {
     }
 }
 
-/// Collects a constant's keys: its type, and its value's nodes, which
-/// are keyed as the nodes of a rule result are. The value term denotes the
-/// value expression but carries no key field of its own.
+/// Collects a constant's keys: its type, its value expression, and its
+/// value's nodes, which are keyed as the nodes of a rule result are.
 pub(super) fn collect_constant_keys(
     constant: &super::constant::ConstantDescriptor,
     keys: &mut WireKeys,
@@ -4249,7 +4248,7 @@ pub(super) fn collect_constant_keys(
     if let Some(reason) = configuration_term(&constant.value) {
         return Err(GrammarTransportError::InvalidTerm(reason));
     }
-    keys.implicit(ProvenanceRole::ConstantValue);
+    keys.define(&constant.value_key, ProvenanceRole::ConstantValue)?;
     constant
         .value
         .collect_wire_term_keys(keys, ValidationSide::Right)

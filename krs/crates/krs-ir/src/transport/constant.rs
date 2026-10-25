@@ -27,6 +27,8 @@ stage_shape! {
     pub struct ConstantPayload<S: Stage> {
         /// The declared sort, keyed `constant_type`.
         pub sort: S::Sort => [sort],
+        /// The value expression's provenance, keyed `constant_value`.
+        pub value_key: ProvenanceKey => [keep],
         /// The value, whose nodes are keyed as a rule result's are.
         pub value: Term<S> => [nested],
     }
@@ -76,6 +78,7 @@ mod tests {
                 key: key(ProvenanceRole::ConstantType, 0),
                 sort: DescriptorSortRef::Builtin(BuiltinSort::Int),
             },
+            value_key: key(ProvenanceRole::ConstantValue, 0),
             value,
         }
     }
@@ -102,6 +105,16 @@ mod tests {
             .unwrap()
             .close(&anchors)
             .unwrap();
+        // The value expression carries its own key, of its own role.
+        let mut misplaced = constant(literal());
+        misplaced.value_key = key(ProvenanceRole::RuleResult, 0);
+        assert_eq!(
+            misplaced.wire_keys().err(),
+            Some(GrammarTransportError::UnexpectedProvenance {
+                expected: ProvenanceRole::ConstantValue,
+                actual: key(ProvenanceRole::RuleResult, 0),
+            })
+        );
         let anonymous = DescriptorTerm::Anonymous {
             key: key(ProvenanceRole::ClaimAnonymous, 0),
             sort: DescriptorSortReference {

@@ -1330,6 +1330,7 @@ impl Sample for ConstantDescriptor {
     fn samples() -> Vec<Self> {
         vec![Self {
             sort: sample::<DescriptorSortReference>(),
+            value_key: sample::<ProvenanceKey>(),
             value: sample::<DescriptorTerm>(),
         }]
     }
@@ -1338,6 +1339,7 @@ impl Sample for WireConstant {
     fn samples() -> Vec<Self> {
         vec![Self {
             sort: sample::<WireSortReference>(),
+            value_key: sample::<ProvenanceKey>(),
             value: sample::<WireTerm>(),
         }]
     }

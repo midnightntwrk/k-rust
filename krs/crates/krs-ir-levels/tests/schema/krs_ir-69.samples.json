@@ -1085,6 +1085,10 @@
           "role": "sort_declaration"
         },
         "term_kind": "variable"
+      },
+      "value_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
       }
     }
   ],
@@ -11046,6 +11050,10 @@
             "role": "sort_declaration"
           },
           "term_kind": "variable"
+        },
+        "value_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
         }
       },
       "descriptor_kind": "constant"
@@ -31370,6 +31378,10 @@
           "role": "sort_declaration"
         },
         "term_kind": "variable"
+      },
+      "value_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
       }
     }
   ],
