@@ -82,7 +82,9 @@ after the tactic counts every rule's heartbeats, so a proof with many rules sets
 `maxHeartbeats 0` and bounds the rules by `k2l.preserve.maxHeartbeats`. A closer that reaches the
 budget (a runtime exception, which `try … catch` rethrows) leaves its rule open, restored, with
 the log line `k2l_preserve: rule r reached the heartbeat limit …`; the other rules are still
-attempted, and in the per-case mode the case is reported not closed.
+attempted, and in the per-case mode the case is reported not closed. A per-case theorem has
+spent its whole budget by then, so its elaboration after the tactic times out too (a second
+error, at the theorem); the log line names the rule.
 
 The unfolding set is: the head constant of `P` (for `OnCell proj Q`, also the heads of `proj`
 and `Q`; for `fun c => A c ∧ B c`, the heads of `A` and `B`), the `@[k2l_pres]` simp set, and
