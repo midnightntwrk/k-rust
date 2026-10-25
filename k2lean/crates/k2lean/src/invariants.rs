@@ -26,7 +26,10 @@
 //! cell sort has exactly one constructor, so every value is that constructor applied to its
 //! projections. The generated `Invariant.f_cells : ∀ x, f x = φ(content_env (cell_env x))`, proved
 //! by cases on `x`, joins the unfolding set; the equation itself rewrites only a constructor term,
-//! and a rule's case has variables for the cells it does not mention.
+//! and a rule's case has variables for the cells it does not mention. When `φ` binds partial calls
+//! (`A andBool B`), the proof cases on each call, and the unfolding set gets the split of the
+//! bind chain (`BIND_SPLIT`) and not the function's own definition, which would unfold first and
+//! stay stuck on a rule's cell variables.
 //!
 //! **Preservation.** `Step.preserves_of` (`{ns}/Preserves.lean`) proves `Preserved Step Invariant` from
 //! one `Step.Case.r Invariant` per rule, and each case is a theorem `Invariant.case.r` proved by `k2l_preserve`
@@ -610,7 +613,26 @@ struct CellTree {
     /// below the root, and the right-hand side, for `init`.
     vars: Vec<(String, Vec<(String, usize)>)>,
     rhs: P,
+    /// Whether the right-hand side binds partial calls (`Option.bind`), which
+    /// `KPrelude.bind_bool_eq_some_true` splits.
+    binds: bool,
 }
+
+/// What splits a chain of `Option.bind`s over partial `Bool` calls equated to `some true`
+/// (`f_cells` of a function whose right-hand side is `A andBool B`): the split of one link, the
+/// connectives at constants, and the propositional clean-up of the branches that fail.
+const BIND_SPLIT: &[&str] = &[
+    "KPrelude.bind_bool_eq_some_true",
+    "KPrelude.BoolHook.and",
+    "KPrelude.BoolHook.or",
+    "KPrelude.BoolHook.not",
+    "Option.some.injEq",
+    "Bool.false_eq_true",
+    "and_false",
+    "false_and",
+    "or_false",
+    "false_or",
+];
 
 /// The variables of a pattern, in order (for the right-hand side of an equation).
 fn free_vars(p: &P, out: &mut Vec<String>) {
@@ -785,10 +807,73 @@ fn cell_tree(
     let by_eqn = stated_eqn
         .map(|n| format!(" | exact ({n} ..)"))
         .unwrap_or_default();
+    // With partial calls on the right-hand side, the function's match on each call's result and
+    // the right-hand side's `Option.bind` on it agree once that result is a constructor: the
+    // last alternative names the pattern's variables, unfolds the function and the projections,
+    // and cases on each call in order (a later call may use an earlier one's value). One call
+    // whose value is the result (`A.bind fun r => some r`) is `A` by `Option.bind_fun_some`,
+    // which every unfolding set has, so it needs neither this nor `BIND_SPLIT`.
+    let binds = match steps.as_slice() {
+        [] => false,
+        [crate::lower::Step::Bind { var, .. }] => rhs.render() != *var,
+        _ => true,
+    };
+    let mut chain = String::new();
+    if binds {
+        let mut names_of: BTreeMap<&str, String> = BTreeMap::new();
+        for (v, _) in &vars {
+            if used.contains(v) {
+                names_of.insert(v, format!("y{}", names_of.len()));
+            }
+        }
+        let reserved: Vec<&str> = std::iter::once("x")
+            .chain(names_of.values().map(String::as_str))
+            .collect();
+        let mut lw = Lower::new(m, cx.fns, &reserved);
+        for (v, n) in &names_of {
+            lw.vars.insert(v.to_string(), n.clone());
+        }
+        lw.expr(&e.rhs, &sig.result).ok()?;
+        let mut cases = String::new();
+        for s in &lw.steps {
+            let crate::lower::Step::Bind { expr, var, .. } = s else {
+                return None;
+            };
+            cases.push_str(&format!(
+                "; (rcases {} with _ | {var}) <;> (try rfl)",
+                expr.render_arg()
+            ));
+        }
+        let mut it = vars.iter();
+        pat = pat
+            .split('_')
+            .enumerate()
+            .map(|(i, piece)| match i {
+                0 => piece.to_string(),
+                _ => {
+                    let (v, _) = it.next().expect("one `_` per pattern variable");
+                    let n = names_of.get(v.as_str()).map_or("_", String::as_str);
+                    format!("{n}{piece}")
+                }
+            })
+            .collect();
+        let mut unfolds = vec![sig.lean.clone(), format!("{}.rule1", sig.lean)];
+        for (v, path) in &vars {
+            if names_of.contains_key(v.as_str()) {
+                for (s, i) in path {
+                    let n = proj_arg(m, s, *i, projections, proj_names)?;
+                    if !unfolds.contains(&n) {
+                        unfolds.push(n);
+                    }
+                }
+            }
+        }
+        chain = format!(" | (simp only [{}]{cases})", unfolds.join(", "));
+    }
     let theorem = format!(
         "/-- `{}` at any `{arg}`: its one equation matches every value of the cell sort, whose\n\
 cells each have one constructor, so its value is the right-hand side at the projections. -/\n\
-theorem {name} (x : {arg}) :\n    {concl} := by\n  rcases x with {pat}\n  first{by_eqn} | rfl | (simp only [{}, {}.rule1]; done)\n",
+theorem {name} (x : {arg}) :\n    {concl} := by\n  rcases x with {pat}\n  first{by_eqn} | rfl | (simp only [{}, {}.rule1]; done){chain}\n",
         names::demangle(sym),
         sig.lean,
         sig.lean
@@ -798,6 +883,7 @@ theorem {name} (x : {arg}) :\n    {concl} := by\n  rcases x with {pat}\n  first{
         theorem,
         vars,
         rhs: e.rhs.clone(),
+        binds,
     })
 }
 
@@ -1226,7 +1312,17 @@ pub fn emit(
         if let Some(ct) = &cells {
             unfold.push(ct.name.clone());
             uses_eqns |= stated_eqn.is_some();
+            if ct.binds {
+                // the bind chain of partial `Bool` calls, split one call at a time, and the
+                // `Bool` connectives at the values it substitutes
+                for n in BIND_SPLIT {
+                    if !unfold.iter().any(|u| u == n) {
+                        unfold.push(n.to_string());
+                    }
+                }
+            }
         }
+        let has_cells = cells.is_some();
         match elem_def {
             // "for every element": the K function on the element's cell is an element predicate,
             // and the part is the collection predicate of the prelude (`EntriesOn`, `ElemsOn`), so
@@ -1356,6 +1452,9 @@ pub fn emit(
                 uses_eqns = true;
                 unfold.extend(eq_names);
                 unfold.extend(owise_names);
+            } else if has_cells && g == sym {
+                // `f_cells` states the function at every value of its sort; its definition
+                // would unfold first and leave a match stuck on a rule's cell variables
             } else {
                 unfold.push(gs.lean.clone());
                 unfold.extend((1..=es.len()).map(|k| format!("{}.rule{k}", gs.lean)));
