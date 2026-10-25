@@ -322,12 +322,28 @@ fn collect_pending_descriptors(
         // The ownership check follows the lookup of the descriptor's package context, which
         // locating its error needs; a descriptor of a package outside the selection is no part
         // of the definition, so that error comes first whatever the descriptor's shape.
-        if let Err(error) = host.validate_state_ownership() {
-            let at = error.at().cloned();
-            let error = CollectionError::new(
-                CollectionErrorKind::InvalidConfiguration,
-                format!("invalid host configuration descriptor: {error}"),
-            );
+        // A payload that disagrees with its anchors is the expander's failure, not the
+        // author's: both come from one expansion.
+        let failure = host
+            .validate_state_ownership()
+            .map_err(|error| {
+                (
+                    CollectionErrorKind::InvalidConfiguration,
+                    format!("invalid host configuration descriptor: {error}"),
+                    error.at().cloned(),
+                )
+            })
+            .and_then(|()| {
+                host.validate_complete_provenance().map_err(|error| {
+                    (
+                        CollectionErrorKind::ProvenanceMismatch,
+                        format!("host descriptor provenance disagrees with its payload: {error}"),
+                        error.at().cloned(),
+                    )
+                })
+            });
+        if let Err((kind, message, at)) = failure {
+            let error = CollectionError::new(kind, message);
             let error = match at {
                 Some(key) => error.with_reference_key(key),
                 None => error,

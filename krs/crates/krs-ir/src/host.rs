@@ -936,10 +936,7 @@ pub struct HostDescriptor {
 }
 
 impl HostDescriptor {
-    /// Validates configuration/cell/rule ownership and host joins, and closes
-    /// the keys of the payloads the collector reshapes over the anchors:
-    /// sorts, constructors and head rules, which it resolves into payloads
-    /// that keep only some of their keys.
+    /// Validates configuration/cell/rule ownership and host joins.
     ///
     /// # Errors
     ///
@@ -979,25 +976,47 @@ impl HostDescriptor {
                 declaration.validate_host(owner)
             }
             HostDescriptorPayload::ConfigurationRule(rule) => rule.validate(self.id.item_kind()),
-            // A head rule is closed over its anchors here, as the expander
-            // built it, before the collector keeps one of its readings.
-            HostDescriptorPayload::HeadRule(rule) => {
-                rule.validate(self.id.item_kind())?;
-                rule.validate_complete_provenance(
-                    self.provenance
-                        .authored()
-                        .iter()
-                        .map(HostAuthoredAnchor::key),
-                )
-            }
+            HostDescriptorPayload::HeadRule(rule) => rule.validate(self.id.item_kind()),
             HostDescriptorPayload::ContextAlias(alias) => alias.validate(self.id.item_kind()),
+            HostDescriptorPayload::Sort(_)
+            | HostDescriptorPayload::Constructor(_)
+            | HostDescriptorPayload::Grammar(_)
+            | HostDescriptorPayload::StructuredRule(_)
+            | HostDescriptorPayload::Constant(_) => Ok(()),
+        }
+    }
+
+    /// Closes the keys of the payloads the collector reshapes over the
+    /// anchors: sorts, constructors and head rules, which it resolves into
+    /// payloads that keep only some of their keys, so they are closed here,
+    /// as the expander built them. Every other payload is closed at the
+    /// descriptor stage.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StateTransportError`] when the payload's keys and the
+    /// anchors disagree: a key of another role than its field's, a key two
+    /// nodes define, or keys that are not the anchors. Both come from one
+    /// expansion, so a failure is the expander's.
+    pub fn validate_complete_provenance(&self) -> Result<(), StateTransportError> {
+        match &self.payload {
+            HostDescriptorPayload::HeadRule(rule) => rule.validate_complete_provenance(
+                self.provenance
+                    .authored()
+                    .iter()
+                    .map(HostAuthoredAnchor::key),
+            ),
             HostDescriptorPayload::Sort(sort) => {
                 sort.validate_complete_provenance(self.provenance.authored())
             }
             HostDescriptorPayload::Constructor(constructor) => {
                 constructor.validate_complete_provenance(self.provenance.authored())
             }
-            HostDescriptorPayload::Grammar(_)
+            HostDescriptorPayload::FixedConfiguration(_)
+            | HostDescriptorPayload::Cell(_)
+            | HostDescriptorPayload::ConfigurationRule(_)
+            | HostDescriptorPayload::ContextAlias(_)
+            | HostDescriptorPayload::Grammar(_)
             | HostDescriptorPayload::StructuredRule(_)
             | HostDescriptorPayload::Constant(_) => Ok(()),
         }
