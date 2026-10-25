@@ -191,11 +191,7 @@ impl StateRuleTerms<'_> {
             }
             ProtocolRuleStateTerm::Group(term) => {
                 if !matches!(declared_sort, SemanticSortRef::Cell(_)) {
-                    let wrapper = if *declared_sort == SemanticSortRef::k_sequence() {
-                        krs_ir::CellWrapper::KCell
-                    } else {
-                        krs_ir::CellWrapper::Cell
-                    };
+                    let wrapper = super::cell_states::leaf_wrapper(declared_sort);
                     return Err(DescriptorLoweringError::cell_wrapper(
                         None,
                         Some(wrapper),
@@ -822,9 +818,7 @@ fn lower_configuration_rule_clause(
                 descriptor,
                 krs_diagnostic::codes::analysis::OPTIONAL_PRESENCE,
                 &subject.field.key,
-                format!(
-                    "the optional cell `{name}` takes `Some(..)` when present and `None` when absent, not a bare value: write `Some(k::configuration::Cell(..))` for a leaf, `Some(..)` around a group, or `None`"
-                ),
+                super::cell_states::bare_optional(name),
             ));
         }
         Some(_) => {

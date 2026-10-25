@@ -59,6 +59,22 @@ pub(super) fn collection_error(
     }
 }
 
+/// Why an optional cell's entry written as a bare value is a mistake.
+pub(super) fn bare_optional(name: &str) -> String {
+    format!(
+        "the optional cell `{name}` takes `Some(..)` when present and `None` when absent, not a bare value: write `Some(k::configuration::Cell(..))` for a leaf, `Some(..)` around a group, or `None`"
+    )
+}
+
+/// The wrapper of a leaf cell of `sort`: the computation cell's `KCell(..)`, a leaf's `Cell(..)`.
+pub(super) fn leaf_wrapper(sort: &SemanticSortRef) -> krs_ir::CellWrapper {
+    if *sort == SemanticSortRef::k_sequence() {
+        krs_ir::CellWrapper::KCell
+    } else {
+        krs_ir::CellWrapper::Cell
+    }
+}
+
 /// Checks that an entry's state is one its declared cell's kind has: `Some`/`None` only on an
 /// optional cell, an instance list only on a collection. The entry that disagrees with the
 /// declaration is the mistake, so the error names `cell`, the entry, whichever side it is on.
@@ -255,12 +271,7 @@ pub(super) fn lower_optional_clause(
     }
     let (kind, sort) = cell_kind_sort(declared);
     if !is_presence(before) {
-        return Err(presence_error(
-            &cell.key,
-            format!(
-                "the optional cell `{name}` takes `Some(..)` when present and `None` when absent, not a bare value: write `Some(k::configuration::Cell(..))` for a leaf, `Some(..)` around a group, or `None`"
-            ),
-        ));
+        return Err(presence_error(&cell.key, bare_optional(name)));
     }
     let before_inner = present_content(before);
     // `Some(P1 | P2)` of an optional group joins whole cells, as a group
