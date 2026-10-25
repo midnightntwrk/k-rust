@@ -130,16 +130,45 @@ fn raw_hook_uses(attributes: &[DescriptorProductionAttribute]) -> Vec<RawUse<'_>
                 name,
             } => {
                 let hook = format!("{namespace}.{name}");
-                let capability = krs_ir::hook_registry::registered_hook(&hook)
-                    .map_or("unknown", |registered| registered.capability.as_str());
                 Some(RawUse {
                     key,
                     what: format!("quoted hook `{hook}`"),
                     allowed_code: codes::expand::RAW_HOOK,
-                    allowed: format!("signature unchecked; native capability: {capability}"),
+                    allowed: format!("signature unchecked; {}", native_capability(&hook)),
                 })
             }
             _ => None,
         })
         .collect()
+}
+
+/// What the native routes do with the quoted hook `hook`. The registry's capability is the
+/// in-process backend's (`--backend haskell`); `--backend llvm` admits no plugin hook namespace,
+/// so there a plugin hook's production compiles as an unhooked function.
+fn native_capability(hook: &str) -> String {
+    match krs_ir::hook_registry::registered_hook(hook) {
+        Some(registered) if registered.is_plugin() => format!(
+            "native capability: none on `--backend llvm`, which admits no plugin hook namespace, and {} on `--backend haskell`",
+            registered.capability.as_str()
+        ),
+        Some(registered) => format!("native capability: {}", registered.capability.as_str()),
+        None => "native capability: unknown".to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::native_capability;
+
+    #[test]
+    fn a_plugin_hooks_capability_names_the_route_that_admits_it() {
+        assert_eq!(
+            native_capability("KRYPTO.keccak256"),
+            "native capability: none on `--backend llvm`, which admits no plugin hook namespace, and implemented on `--backend haskell`"
+        );
+        assert_eq!(
+            native_capability("BYTES.concat"),
+            "native capability: implemented"
+        );
+    }
 }

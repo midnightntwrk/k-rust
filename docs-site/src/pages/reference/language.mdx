@@ -1374,7 +1374,7 @@ Java K evaluates a hook outside its default namespaces only when `kompile` is gi
 `k::raw_k!(r#"rule <k> double(I:Int) => I +Int I ... </k> [label(raw-double)]"#)` is one K `rule`, `claim`, or `context`, with no `module`, `endmodule`, or `imports`; KRS prints it verbatim in the package's semantics module after a `// raw_k! src/lib.rs:L:C (opaque to KRS)` comment, and K parses it with that module's grammar, so a K parse error fails the build on every route.
 Treat a `raw_k!` as a TODO marker: KRS does not check it, its names are the emitted K names, it takes part in no overlap check, and it is the full module of every builtin sort the package uses that its text can see.
 A package admits either escape only with `allow-raw-k = true` in `[package.metadata.krs]`; without it each one is an error (`krs::policy::raw-k-not-allowed`).
-With it, every build warns once per use (`krs::expand::raw-hook`, naming the hook's native capability, and `krs::semantic::raw-k`), and `profile = "strict"` or `krs --profile strict` turns the warnings into errors.
+With it, every build warns once per use (`krs::expand::raw-hook`, naming the hook's native capability, per backend for a plugin hook such as `KRYPTO.*`, which `--backend llvm` does not admit, and `krs::semantic::raw-k`), and `profile = "strict"` or `krs --profile strict` turns the warnings into errors.
 
 ## Running a definition
 
