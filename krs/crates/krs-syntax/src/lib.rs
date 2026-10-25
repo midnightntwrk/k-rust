@@ -39,7 +39,7 @@ pub use attribute::{
     ConstructorsAttribute, ContextAliasAttribute, ContextAttribute, DesugarAttribute,
     EquationAttribute, ExistsAttribute, FunctionAttribute, FunctionHook, FunctionSmt,
     FunctionTotality, InitAttribute, MatchRestriction, PlacementFlag, PriorityAttribute,
-    RECURSIVE_ON_CLAUSE, REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey, RuleAttribute,
+    ProductionKeys, RECURSIVE_ON_CLAUSE, REQUIRES_ON_DESUGAR_CLAUSE, RestrictionKey, RuleAttribute,
     SimplificationAttribute, SortAttribute, SpecModuleAttribute, SpecModuleItem, StaticMode,
     StaticProductionAttribute, SubsortAttribute, SymbolAttribute,
     UNBOUND_VARIABLES_OUTSIDE_DESUGAR_CLAUSE, UnboundVariable, UnboundVariables,

@@ -199,7 +199,7 @@ impl EnumConstructorVariant {
             TokenRange::for_tokens(&self.constructor_sort)?,
         )?;
         if let Some(syntax) = &self.syntax {
-            syntax.allocate_keys(&mut keys)?;
+            syntax.clone().allocate_keys(&mut keys)?;
         }
         keys.key(
             ProvenanceRole::ConstructorDeclaration,
@@ -234,10 +234,10 @@ impl EnumConstructorVariant {
         }
         if let Some(marker) = &self.static_marker {
             keys.key(marker.attribute.mode().production_role(), marker.range)?;
-            marker.attribute.allocate_keys(&mut keys)?;
+            marker.attribute.clone().allocate_keys(&mut keys)?;
         }
         if let Some(symbol) = &self.explicit_symbol {
-            symbol.allocate_keys(&mut keys)?;
+            symbol.clone().allocate_keys(&mut keys)?;
         }
         Ok(keys.into_anchors())
     }

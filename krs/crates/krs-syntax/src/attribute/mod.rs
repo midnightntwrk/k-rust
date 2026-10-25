@@ -8,7 +8,8 @@ mod value;
 pub(crate) use constructor::ConstructorFamilyMode;
 pub use constructor::{
     ConstructorAttribute, ConstructorsAttribute, FunctionAttribute, FunctionHook, FunctionSmt,
-    FunctionTotality, PlacementFlag, VariantSyntaxAttribute, default_function_syntax,
+    FunctionTotality, PlacementFlag, ProductionKeys, VariantSyntaxAttribute,
+    default_function_syntax,
 };
 pub use rule::{
     ANYWHERE_NOT_TERM_SHAPED, ClaimAttribute, ClaimBinder, ClaimModality, ContextAttribute,

@@ -13,6 +13,7 @@
 //! `<k-namespace>-<UPPER-KEBAB(mod name)>`; `imports` lists Rust paths (`crate`,
 //! a dependency crate root, or another spec module), which rustc checks.
 
+use krs_ir::ProvenanceKey;
 use proc_macro2::{Span, TokenStream};
 use syn::parse::ParseStream;
 use syn::punctuated::Punctuated;
@@ -30,6 +31,11 @@ const PROGRAM_SYNTAX_SUFFIX: &str = "-SYNTAX";
 pub struct SpecModuleAttribute {
     name: Option<LitStr>,
     imports: Vec<Path>,
+    name_key: Option<ProvenanceKey>,
+    import_keys: Vec<ProvenanceKey>,
+    /// The anchors of the attribute's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl SpecModuleAttribute {
@@ -49,22 +55,45 @@ impl SpecModuleAttribute {
     ///
     /// # Errors
     ///
-    /// Returns a syntax error when an import path has no tokens.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.anchors.clone())
+    }
+
+    /// The key of the module name, when authored.
+    #[must_use]
+    pub const fn name_key(&self) -> Option<&ProvenanceKey> {
+        self.name_key.as_ref()
+    }
+
+    /// The keys of the import paths, indexed as [`Self::imports`].
+    #[must_use]
+    pub fn import_keys(&self) -> &[ProvenanceKey] {
+        &self.import_keys
+    }
+
+    /// Keys the name, then each import.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        if let Some(name) = &self.name {
-            keys.key(
+        self.name_key = match &self.name {
+            Some(name) => Some(keys.key(
                 ProvenanceRole::SpecModuleName,
                 TokenRange::new(name.span(), name.span()),
-            )?;
-        }
-        for import in &self.imports {
-            keys.key(
-                ProvenanceRole::SpecModuleImport,
-                TokenRange::for_tokens(import)?,
-            )?;
-        }
-        Ok(keys.into_anchors())
+            )?),
+            None => None,
+        };
+        self.import_keys = self
+            .imports
+            .iter()
+            .map(|import| {
+                keys.key(
+                    ProvenanceRole::SpecModuleImport,
+                    TokenRange::for_tokens(import)?,
+                )
+            })
+            .collect::<Result<_, _>>()?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -122,7 +151,11 @@ fn parse_attribute_stream(input: ParseStream<'_>) -> Result<SpecModuleAttribute,
     Ok(SpecModuleAttribute {
         name,
         imports: imports.unwrap_or_default(),
-    })
+        name_key: None,
+        import_keys: Vec::new(),
+        anchors: Vec::new(),
+    }
+    .keyed()?)
 }
 
 fn parse_import_list(input: ParseStream<'_>) -> syn::Result<Vec<Path>> {
@@ -185,6 +218,9 @@ fn invalid(reason: impl Into<String>, span: Span) -> SyntaxError {
 pub struct SpecModuleItem {
     item: ItemMod,
     items: Vec<Item>,
+    key: Option<ProvenanceKey>,
+    /// The anchors of the item's keying, which [`Self::provenance`] returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl SpecModuleItem {
@@ -209,11 +245,24 @@ impl SpecModuleItem {
     /// Returns the declaration anchor: the module name.
     #[must_use]
     pub fn provenance(&self) -> Vec<ProvenanceAnchor> {
-        vec![ProvenanceAnchor::new(
+        self.anchors.clone()
+    }
+
+    /// The key of the module name, the spec module's declaration.
+    #[must_use]
+    pub const fn key(&self) -> Option<&ProvenanceKey> {
+        self.key.as_ref()
+    }
+
+    /// Keys the module name as a sentence of its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
+        let mut keys = KeyAllocator::default();
+        self.key = Some(keys.key(
             ProvenanceRole::SpecModuleDeclaration,
-            0,
             TokenRange::new(self.item.ident.span(), self.item.ident.span()),
-        )]
+        )?);
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -253,6 +302,12 @@ impl SpecModuleItem {
             ));
         };
         let items = items.clone();
-        Ok(Self { item, items })
+        Self {
+            item,
+            items,
+            key: None,
+            anchors: Vec::new(),
+        }
+        .keyed()
     }
 }

@@ -681,7 +681,7 @@ fn constructor_like(
             smt.map(|smt| smt.attribute),
             underspecified.map(|underspecified| underspecified.attribute),
         ],
-        static_marker.as_ref().map(|(marker, _)| *marker),
+        static_marker.as_ref().map(|(marker, _)| marker.clone()),
     )?;
 
     let factory_tokens = DescriptorFactory {
