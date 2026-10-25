@@ -125,7 +125,7 @@ target/release/k2lean noninterference --kore A/definition.kore --name A --ns ANI
 
 | option | does |
 |---|---|
-| `relate --arity-terms true` | the two libraries are in the arity-indexed universe (`gen --arity-terms`): the translation is one function over `A`'s term family (`docs/design.md`, §3.2) |
+| `relate --per-sort-terms true` | the two libraries are in the per-sort universe (`gen --per-sort-terms`); by default they are in the arity-indexed one and the translation is one function over `A`'s term family (`docs/design.md`, §3.2); `--arity-terms true`, the former opt-in, changes nothing |
 | `relate --per-rule true` | when not every rule pairs: one simulation lemma per pair of corresponding rules (`fwd.r`, `bwd.r`) instead of the bisimulation |
 | `refine --open FILE` | the case parts the hand module proves (`KIND RULE`, `KIND` one of `fwd_tr`, `fwd_x`, `bwd_tr`, `bwd_x`); `--hand-module` (default `NS.Relation`), `--extra`, `--measure-a`, `--measure-b` name what it supplies (default `X`, `μ`, `ν`) |
 | `confluence --open FILE` | the pairs of rules the hand module joins (`RULE \| RULE`); `--hand-module` (default `NS.Hand`) and `--hyp` (default `H`) name the program hypothesis, `--join local` asks for `μ` and `μ_dec` |
@@ -134,8 +134,8 @@ target/release/k2lean noninterference --kore A/definition.kore --name A --ns ANI
 
 ## Large definitions
 
-The default term universe is one Lean type per sort, in one `mutual` block.
-For definitions of KEVM's size, `gen --arity-terms` writes one inductive family indexed by the sorts instead, and determinism is proved along the rule index rather than over all pairs of rules, by default on both encodings (`gen --det-pairs` keeps the proof by pairs for the per-sort one); `docs/design.md`, §2.1 and §3.1, describes both and what they cost.
+The default term universe is one inductive family indexed by the sorts, which Lean builds at KEVM's size; `gen --per-sort-terms` writes one Lean type per sort instead, in one `mutual` block, the default until 2026-10-25, which some of the gate's libraries and demos still use (`docs/design.md`, §2.1, lists them and why); `gen --arity-terms`, the former opt-in, changes nothing.
+Determinism is proved along the rule index rather than over all pairs of rules, on both encodings (`gen --det-pairs` keeps the proof by pairs for the per-sort one); `docs/design.md`, §2.1 and §3.1, describes both and what they cost.
 `pipelines/kevm.sh` and `pipelines/kmir.sh` run KEVM and KMIR through the generator and Lean, step by step, and `pipelines/simple-rel.sh` relates SIMPLE to its variant (`demos/SimpleRel`); `docs/design.md`, §9, lists what is open.
 `pipelines/kevm.sh` builds KEVM's test driver (`driver.md`) by default and the semantics alone (`evm.md`, main module `EVM`) with `TARGET=evm`; its `equations` step builds KEVM's `Equations` part by part, and its `det` step builds the determinism modules and then `KEvmTest.DetAxioms`, the axiom guard of determinism alone, which does not need KEVM's `Equations`.
 A definition whose rules overlap gets `Step.deterministic_of` (no listed pair applies) instead of `Step.deterministic`, and each listed pair a witness, a configuration where both rules step to different results; a witness holding a `String` or token literal longer than `--det2-long-literal N` characters (default 256), or a `Bytes` literal longer than `--det2-long-bytes N` bytes (default 131,072), is reported and not checked, and its pair stays listed.
@@ -143,7 +143,7 @@ A definition whose rules overlap gets `Step.deterministic_of` (no listed pair ap
 ## Testing
 
 `cargo test -p k2lean` runs the generator's tests, which the workspace suite includes.
-`tests/gate.sh light|heavy|arity` is the regression gate; `docs/testing.md` of the repository describes the tiers and when they are owed (`k2lean-light`, `k2lean-heavy`, `k2lean-arity` in `scripts/gates.toml`).
+`tests/gate.sh light|heavy` is the regression gate; `docs/testing.md` of the repository describes the tiers and when they are owed (`k2lean-light`, `k2lean-heavy` in `scripts/gates.toml`).
 
 ## Third-party material
 
