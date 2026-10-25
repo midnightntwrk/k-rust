@@ -48,6 +48,8 @@ kimp_claims() {
       --out "$OUT" --name KImpClaims --semantics KImp --semantics-path ../kimp-ps --kclaims-path ../../lean/claims \
       --open "$T/demos/claims/kimp-open.txt" \
       --transfer ImpRel --transfer-target KrsImp --transfer-out "$D/ImpRelClaims/ImpRelClaims/Transfers.lean" \
+      --transfer ImpUnroll --transfer-kind stutter --transfer-target KUnroll \
+      --transfer-out "$D/ImpUnrollClaims/ImpUnrollClaims/Transfers.lean" \
       --hand Hand --hand Replay.Addition2 --hand Replay.Branching --hand Replay.SumLoop > "$L/claims-gen.log" 2>&1; then
     ok "claims gen"
     cp "$T/demos/claims/hand/Hand.lean" "$OUT/KImpClaims/Hand.lean"
@@ -119,5 +121,11 @@ gate_claims() {
   if runs demo ImpRelClaims; then
     phase "demo ImpRelClaims"
     dbuild ImpRelClaims
+  fi
+  # kimp's claims carried to its unrolling variant along ImpUnroll's stuttering bisimulation, as
+  # one-path claims (demos/ImpUnrollClaims, `claims --transfer … --transfer-kind stutter`)
+  if runs demo ImpUnrollClaims; then
+    phase "demo ImpUnrollClaims"
+    dbuild ImpUnrollClaims
   fi
 }
