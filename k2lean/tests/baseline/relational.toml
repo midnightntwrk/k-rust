@@ -166,7 +166,7 @@ preserve = []
 "generated/peano/Peano/Determinism.lean" = { tier = "light", sha256 = "4e49619061ccff4dc8a98ec09e41180b68d98a2c772ade997e9629630bb362ad" }
 "generated/peano/Peano/Determinism/L1.lean" = { tier = "light", sha256 = "9ee6c2e77f5a915652e69e3daab02e68ebd0370c528e4b3477a97b291ca7219c" }
 "generated/peano/Peano/Determinism/Pre.lean" = { tier = "light", sha256 = "19b41db287f4f931af1aa339c424f25081d11bbbc40767e28da6d8aede1051c5" }
-"generated/peano/Peano/Equations.lean" = { tier = "light", sha256 = "c2e394789b323a27d58df1bbcf2aa48eed75f87b4673d315ed0520104bb872f0" }
+"generated/peano/Peano/Equations.lean" = { tier = "light", sha256 = "d6fe16cde9315305384722f1f9d800caa7ee0ea1fac0ed11075209d3d383db2a" }
 "generated/peano/Peano/Functions.lean" = { tier = "light", sha256 = "419937c11bf8d26dbfc46bb8dc3926d1ee08e4b3d08c20ece995db6abeb50997" }
 "generated/peano/Peano/Init.lean" = { tier = "light", sha256 = "151313b32014d2493945d8a8541cf415815f781ced50ac36c60b72c6f6d96ebc" }
 "generated/peano/Peano/Preserves.lean" = { tier = "light", sha256 = "de35904694a7b69dd8c52245c940d102ccffdfe83387749e1efe86c773f67fc3" }
@@ -183,7 +183,7 @@ preserve = []
 "generated/peanob/PeanoB/Determinism.lean" = { tier = "light", sha256 = "a1243804b05faed4133df256c42b3de1e92039cf0f5c34954eb066d02aaae998" }
 "generated/peanob/PeanoB/Determinism/L1.lean" = { tier = "light", sha256 = "52ae2b62ce3edb357dd1c26bfabd19e5dfaea17acbf0f5dc385535f384bddac3" }
 "generated/peanob/PeanoB/Determinism/Pre.lean" = { tier = "light", sha256 = "83e33f881c3a705ec4ef2d57bb37949eb12c7c8483bdcbf8eb5066b372ead84f" }
-"generated/peanob/PeanoB/Equations.lean" = { tier = "light", sha256 = "a78697abd8a3e5be7d007859566cf73ae74d53cb6e9b6905b76f275b6b0af1f0" }
+"generated/peanob/PeanoB/Equations.lean" = { tier = "light", sha256 = "99fe70f0379e1157ea459cbe651a0240f0e713a121380f2ada05d9d9e03f2b8d" }
 "generated/peanob/PeanoB/Functions.lean" = { tier = "light", sha256 = "174a0d0832b8f98343360c1a7e68760ab9ec4b9d1472910cfed00c215912afee" }
 "generated/peanob/PeanoB/Init.lean" = { tier = "light", sha256 = "d0cefb5f086c227cd26dc17c4600727f2ac3a8be4ee4f0aec7db83099d6e7ed8" }
 "generated/peanob/PeanoB/Preserves.lean" = { tier = "light", sha256 = "e77cb2189d133df6502ee169ceaf25b55d367707f3e1dd0830bf3fa9c750a5f6" }
