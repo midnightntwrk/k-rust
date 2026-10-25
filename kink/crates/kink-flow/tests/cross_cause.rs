@@ -63,14 +63,19 @@ fn only_cause(manifest: &Path, mutations: &Path) -> String {
         })
 }
 
-const NOT_FREE: &str = "the first node, in pre-order, that fails its own test is an application of \
-                        `c(_)_AW-SYNTAX_Foo_Int` at <s>: its head is neither a free constructor";
+/// Since KRUST-ANYWHERE-HEAD `c` is a data head of the definition that applies `c(1) => d`
+/// anywhere (a plain `anywhere` head declared `value-production`), so `c(1)` fails as an
+/// application of a data head k-rust does not judge data (the rule matches it), not by its head.
+const NOT_DATA: &str = "the first node, in pre-order, that fails its own test is an application of \
+                        `c(_)_AW-SYNTAX_Foo_Int` at <s>: it is an application of a data head that \
+                        k-rust does not judge data (an equation of its head may apply to it)";
 
 mod kink_tier {
     use super::*;
 
     /// r2-anyw-attr: the mutant makes `c` an anywhere head, so the baseline's end `c(1)` is not
-    /// data under the mutant's definition. The mutant's own end `d` is.
+    /// data under the mutant's definition, where `c(1) => d` rewrites it. The mutant's own end `d`
+    /// is.
     #[test]
     #[ignore = "kink"]
     fn a_baseline_end_not_data_under_the_mutant_names_the_baseline_side() {
@@ -87,7 +92,7 @@ mod kink_tier {
             ),
             "{cause}"
         );
-        assert!(cause.contains(NOT_FREE), "{cause}");
+        assert!(cause.contains(NOT_DATA), "{cause}");
         assert!(!cause.contains("the mutant's run:"), "{cause}");
     }
 
@@ -110,7 +115,7 @@ mod kink_tier {
             ),
             "{cause}"
         );
-        assert!(cause.contains(NOT_FREE), "{cause}");
+        assert!(cause.contains(NOT_DATA), "{cause}");
         assert!(!cause.contains("did not end in a value"), "{cause}");
     }
 }

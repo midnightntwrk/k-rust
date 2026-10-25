@@ -265,6 +265,10 @@ fn the_probe_head_makes_k_rust_check_every_pair() {
 /// already pinned in the code. kink reads the full check (`CheckScope::All`), not the load, so no
 /// reading of kink's moves. Re-pinned by digest: 1100-1107 -> `16798fc0`; no line moved.
 ///
+/// fz26 KRUST-ANYWHERE-HEAD: `definition.rs` gains `is_value_production` (the data heads' H2 reads
+/// it) above the passage, which moves down 6 to 2932-2962, byte-identical (`3b520509`): only its
+/// lines are re-pinned.
+///
 /// kink's check (probe head, `CheckScope::All`, the coverage guard) still rests only on these:
 /// every verdict it reads is one of the four the text defines, and the widened refutation can
 /// only admit a mutant whose guards share no integer.
@@ -289,8 +293,8 @@ const PREMISE_PASSAGES: [(&str, usize, usize, &str); 4] = [
     ),
     (
         "crates/k-rust-backend/src/definition.rs",
-        2926,
-        2956,
+        2932,
+        2962,
         "3b5205091a3683ba0d694b1a136cef303abb250984fce1be15d3710769e4ffbe",
     ),
 ];

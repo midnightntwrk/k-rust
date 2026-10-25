@@ -1,5 +1,6 @@
 //! fz26 KINK-OVERLOAD-VALUE (P7-SIMPLE-KINK design, (c) overloaded list ends): a compared end may
-//! hold an instance-normal application of an overload data head, where k-rust's data judgement
+//! hold an instance-normal application of a data head (an overload head; since
+//! KRUST-ANYWHERE-HEAD also a plain `anywhere` head such as SIMPLE's `_[_]`), where k-rust's data judgement
 //! (`BackendDefinition::is_data`) holds under the definition's own facts (kink-native
 //! `data::data_ends`), and every compared end of a pair is judged under the other side's
 //! definition too (kink-campaign `runner::judge_across`): an end that is not data there makes that
@@ -139,6 +140,12 @@ mod kink_tier {
     /// the baseline, under which the two ends are one value. Judged under the baseline's
     /// definition, the mutant's end is not data, so the mutation is `unknown`; before
     /// KINK-OVERLOAD-VALUE it was killed through the whole-term slot.
+    ///
+    /// KRUST-ANYWHERE-HEAD (review M7): `c` is now a data head of the baseline (a plain `anywhere`
+    /// head the compiler declares `value-production`, whose one equation is plain), so `c(1)` is
+    /// no longer refused by its head: it is refused because the equation `c(1) => d` matches it
+    /// (not instance-normal), which is what makes the two ends one value. The mutation stays
+    /// `unknown`.
     #[test]
     #[ignore = "kink"]
     fn removing_an_anywhere_attribute_is_not_a_kill() {
@@ -216,26 +223,29 @@ mod kink_tier {
         );
     }
 
-    /// TRIAL2's eleven SIMPLE programs: before this ticket none was comparable (each store holds
-    /// a list). Now nine are; `array` and `matrix` stay unknown, since `a[i]` leaves an
-    /// application of `_[_]`, which roots two `[anywhere]` rules that are not overload equations,
-    /// so it is no overload data head (the design's Q3).
+    /// TRIAL2's eleven SIMPLE programs: before KINK-OVERLOAD-VALUE none was comparable (each
+    /// store holds a list); after it nine were, `array` and `matrix` unknown, since `a[i]` leaves
+    /// an application of `_[_]`, which roots two `[anywhere]` rules that are not overload
+    /// equations (the design's Q3). Since KRUST-ANYWHERE-HEAD `_[_]` is a data head (`anywhere`,
+    /// `value-production`, executable plain equations), and neither of its rules matches an
+    /// application whose receiver is an `Id` (`Id` is not below `Val`), so `a[i]`, `m[1][2]` and
+    /// `m[2, 3]` are normal forms in every context and values: all eleven are comparable.
     #[test]
     #[ignore = "kink"]
-    fn the_trial2_corpus_programs_are_comparable_but_the_array_ones() {
+    fn the_trial2_corpus_programs_are_comparable() {
         let dir = fixture("corpus");
         let document = classes(&dir.join("FLOW-corpus.toml"));
         let expected = [
             ("arith", "comparable"),
             ("cmp", "comparable"),
             ("loop", "comparable"),
-            ("array", "unknown"),
+            ("array", "comparable"),
             ("fact", "comparable"),
             ("strings", "comparable"),
             ("exc", "comparable"),
             ("threads", "comparable"),
             ("locks", "comparable"),
-            ("matrix", "unknown"),
+            ("matrix", "comparable"),
             ("higher", "comparable"),
         ];
         assert_eq!(

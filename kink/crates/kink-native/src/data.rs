@@ -505,17 +505,22 @@ pub(crate) fn symbolic(rule: &RewriteRule) -> bool {
 /// (fz26 KINK-OVERLOAD-VALUE) admits an instance-normal application of an overload data head
 /// where k-rust's [`BackendDefinition::is_data`] holds, and judges every compared end of a pair
 /// under the other side's definition too, so an end that is not data there makes its slot
-/// unknown for that pair. A component of kink's semantics identity (kink-campaign `identity`, key
-/// `terminal_value`): it changes which slots compare, so a verdict. Bump it whenever what the walk
-/// admits changes.
-pub const TERMINAL_VALUE_VERSION: &str = "kink-native/terminal-value/v1";
+/// unknown for that pair. v2 (fz26 KRUST-ANYWHERE-HEAD) reads k-rust's wider data heads: also an
+/// `anywhere` production whose equations are plain `anywhere` equations (SIMPLE's `_[_]`), when
+/// it is declared total or `value-production` and has no hook, lemma or ceil equation, so an
+/// end holding an instance-normal `a[4]` is now compared; and it drops an overload head declared
+/// neither total nor `value-production` (hand-written KORE only), whose irreducible applications
+/// need not be elements. The walk itself is unchanged; the heads it delegates to moved. A
+/// component of kink's semantics identity (kink-campaign `identity`, key `terminal_value`): it
+/// changes which slots compare, so a verdict. Bump it whenever what the walk admits changes.
+pub const TERMINAL_VALUE_VERSION: &str = "kink-native/terminal-value/v2";
 
 /// Which ends of runs on a definition are data under it ([`data_ends`]).
 #[derive(Clone, Copy, Debug)]
 pub enum DataEnds<'f> {
     /// Every end kink's terminal-value walk admits (TV-01: free constructors, normal-form
     /// injections, identity-safe domain values and trusted natural collections, and the
-    /// applications of these overload data heads where k-rust's data judgement holds,
+    /// applications of these data heads where k-rust's data judgement holds,
     /// [`Self::overload_application_is_data`]): such a term is a normal form free of `M+`'s
     /// constants, and distinct such normal forms differ in `M+`, a model of the definition under
     /// A1+.
@@ -526,7 +531,7 @@ pub enum DataEnds<'f> {
 }
 
 impl DataEnds<'_> {
-    /// Whether `symbol` (a KORE symbol name) is one of the definition's overload data heads
+    /// Whether `symbol` (a KORE symbol name) is one of the definition's data heads
     /// (k-rust-backend `data_term`, "The class"). None is when no end is data.
     #[must_use]
     pub fn overload_head(&self, symbol: &str) -> bool {
@@ -536,7 +541,7 @@ impl DataEnds<'_> {
         }
     }
 
-    /// Whether `application`, a ground application of an overload data head
+    /// Whether `application`, a ground application of a data head
     /// ([`Self::overload_head`]) on a definition `definition` whose facts gave `self`, is data
     /// there: it internalizes in `definition` and k-rust's [`BackendDefinition::is_data`] holds
     /// with the definition's own heads, which reads instance-normality from the evaluator's own
@@ -562,7 +567,7 @@ impl DataEnds<'_> {
 }
 
 /// Two judgements are equal when they admit the same ends of one definition: both none, or the
-/// same overload data heads.
+/// same data heads.
 impl PartialEq for DataEnds<'_> {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -578,7 +583,7 @@ impl Eq for DataEnds<'_> {}
 /// Which ends of runs on a definition are data under it, from that definition's own facts `own`
 /// (fz26 KINK-BASELINE-FINDINGS part 2, extended by KINK-OVERLOAD-VALUE): none while a finding is
 /// left or the check is incomplete ([`DataFacts::has_data`]); otherwise every end the terminal-value walk admits, with the instance-normal
-/// applications of the definition's overload data heads where k-rust's data judgement holds
+/// applications of the definition's data heads where k-rust's data judgement holds
 /// (`step_events::ObservationDecider::judging_data` takes the result). This is the one place that
 /// says it.
 ///

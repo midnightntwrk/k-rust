@@ -4746,7 +4746,9 @@ mod tests {
                 assert_eq!(one_sided, [terminal(&c1), terminal(&d)]);
                 // fz26 KINK-CAUSE-SUBTERM: the mutant's evidence says which slots were refused,
                 // whose end, and the first node that fails its own test under the mutant's
-                // definition: `c(1)`, whose head is no free constructor there.
+                // definition: `c(1)`. Since KRUST-ANYWHERE-HEAD `c` is a data head there (a plain
+                // `anywhere` head declared `value-production`), so `c(1)` fails as an application
+                // of a data head k-rust does not judge data: the rule `c(1) => d` reduces it.
                 let refusals = |evidence: &TestEvidence| {
                     evidence
                         .notes
@@ -4757,7 +4759,7 @@ mod tests {
                                 CrossCause::NotData(Some(failure)) => {
                                     assert_eq!(
                                         failure.test,
-                                        kink_native::step_events::LocalTest::FreeConstructor
+                                        kink_native::step_events::LocalTest::OverloadData
                                     );
                                     Some(failure.node.clone())
                                 }

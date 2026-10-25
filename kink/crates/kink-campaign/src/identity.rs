@@ -199,7 +199,7 @@ pub struct Outside {
 
 /// Every versioned constant outside [`KINK_IDENTITY`]. Each reason names the path that checks
 /// the constant, or says why nothing has to.
-pub const OUTSIDE_IDENTITY: [Outside; 31] = [
+pub const OUTSIDE_IDENTITY: [Outside; 32] = [
     Outside {
         krate: "kink-patch",
         constant: "TEST_MANIFEST_DOMAIN",
@@ -348,6 +348,14 @@ pub const OUTSIDE_IDENTITY: [Outside; 31] = [
         constant: "FUZZ_VERSION",
         reason: "the `fuzz` command's document format, an output nothing reads back; the command \
                  decides no status, since kink's `run` proves each program it prints (fuzz.rs)",
+    },
+    Outside {
+        krate: "kink-flow",
+        constant: "FILTER_VERSION",
+        reason: "the composition of the witness filter `fuzz` runs inside its campaign (fz26 \
+                 FZ-COMPARABLE-B), recorded in that campaign's identity: it decides only which \
+                 candidates `fuzz` keeps, and kink's `run` proves each program it prints \
+                 (fuzz_filter.rs, fuzz.rs)",
     },
     Outside {
         krate: "kink-native",

@@ -459,15 +459,18 @@ mod kink_tier {
         assert_eq!(document["rules"][0]["reached_by"], json!([]));
     }
 
-    /// fz26 KINK-CAUSE-SUBTERM (P7-SIMPLE-IN, review S7): on SIMPLE (TRIAL2's stream-free copy,
+    /// fz26 KRUST-ANYWHERE-HEAD: on SIMPLE (TRIAL2's stream-free copy,
     /// `testdata/k/overload/simple.md`), an array declaration leaves `var a[1];` in `main`'s
-    /// closure in the store. Every node above its argument list passes its own test (the cells,
-    /// the store's Map and entry, the closure's constructors), so the cause names that `Exps`
-    /// list, an overload application k-rust does not judge data, under `<T>/<store>`, not the
-    /// root, and, inside it, the `_[_]` application, which roots `[anywhere]` rules.
+    /// closure in the store, an `Exps` list holding `a[1]`. Before, `_[_]` rooted `[anywhere]`
+    /// rules that are not overload equations, so it was no data head and the program was unknown
+    /// (KINK-CAUSE-SUBTERM named that list under `<T>/<store>`, and `_[_]` inside it). Now `_[_]`
+    /// is a data head (`anywhere`, `value-production`, plain equations), and no `[anywhere]` rule
+    /// of it matches `a[1]` (the receiver is an `Id`, not a `Val`): the application is a normal
+    /// form in every context and a value of its sort, the list over it is data, and the program
+    /// is comparable.
     #[test]
     #[ignore = "kink"]
-    fn an_array_declaration_names_its_list_under_the_store() {
+    fn an_array_declaration_is_comparable() {
         let dir = scratch("cause-subterm-simple");
         fs::copy(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("../../testdata/k/overload/simple.md"),
@@ -488,17 +491,65 @@ text = 'function main() { var a[1]; }'
         );
         let (document, status) = run(&manifest, false);
         assert_eq!(status, EXIT_OK, "{document:#}");
-        assert_eq!(rows(&document), expect(&[("arr-decl", "unknown", false)]));
+        assert_eq!(
+            rows(&document),
+            expect(&[("arr-decl", "comparable", false)])
+        );
+    }
+
+    /// fz26 KINK-CAUSE-SUBTERM (P7-SIMPLE-IN, review S7), on an overloaded list (FZ-OVERLIST's
+    /// `ov`) that holds `opaque(1)`, a total function's application no equation reduces: its
+    /// value is whatever a model makes of `opaque`, so it is not data, and neither is the list
+    /// over it. Every node above the list passes its own test, so the cause names that `Exps`
+    /// list, a data-head application k-rust does not judge data, under `<s>`, not the root, and,
+    /// inside it, the `opaque` application (before KRUST-ANYWHERE-HEAD a SIMPLE array
+    /// declaration showed the same, with `_[_]` inside; that program is comparable now).
+    #[test]
+    #[ignore = "kink"]
+    fn an_overloaded_list_names_the_application_inside_it() {
+        let dir = scratch("cause-subterm-ov");
+        write(
+            &dir.join("ovf.k"),
+            r#"module OVF-SYNTAX
+  imports DOMAINS-SYNTAX
+  syntax Exp  ::= Int | Id | opaque(Int) [function, total]
+  syntax Ids  ::= List{Id,","}  [overload(Exps)]
+  syntax Exps ::= List{Exp,","} [overload(Exps)]
+  syntax Exps ::= Ids
+  syntax Pgm  ::= "h" "(" Exps ")"
+endmodule
+module OVF
+  imports OVF-SYNTAX
+  imports DOMAINS
+  configuration <k> $PGM:Pgm </k> <s> .K </s>
+  rule <k> h(Es) => .K </k> <s> _ => Es </s>
+  rule opaque(0) => 0
+endmodule
+"#,
+        );
+        let manifest = dir.join("FLOW.toml");
+        write(
+            &manifest,
+            r#"[spec]
+entry = "ovf.k"
+main_module = "OVF"
+syntax_module = "OVF-SYNTAX"
+[[program]]
+id = "opaque"
+text = 'h(opaque(1), 2)'
+"#,
+        );
+        let (document, status) = run(&manifest, false);
+        assert_eq!(status, EXIT_OK, "{document:#}");
+        assert_eq!(rows(&document), expect(&[("opaque", "unknown", false)]));
         let cause = document["programs"][0]["cause"].as_str().unwrap();
         for part in [
             "every path ended, but a final configuration is not a value kink can compare: in the \
-             stuck leaf at depth 17, the first node, in pre-order, that fails its own test is an \
-             application of `_,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps` at <T>/<store>/Map entry 1 \
-             value: it is an application of an overload head that k-rust does not judge data; \
-             inside it, an application of `_[_]_SIMPLE-UNTYPED-SYNTAX_Exp_Exp_Exps` fails its own \
-             test: its head is neither a free constructor",
-            "(node: Lbl'UndsLSqBUndsRSqBUnds'SIMPLE-UNTYPED-SYNTAX'Unds'Exp'Unds'Exp'Unds'Exps{}(",
-            "; leaves: stuck at depth 17",
+             stuck leaf at depth 1, the first node, in pre-order, that fails its own test is an \
+             application of `_,__OVF-SYNTAX_Exps_Exp_Exps` at <s>",
+            "it is an application of a data head that k-rust does not judge data",
+            "inside it, an application of `opaque(_)_OVF-SYNTAX_Exp_Int` fails its own test: its \
+             head is neither a free constructor",
         ] {
             assert!(cause.contains(part), "{part}\n{cause}");
         }

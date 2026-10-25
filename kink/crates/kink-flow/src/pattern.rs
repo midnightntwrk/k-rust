@@ -68,13 +68,16 @@
 //!   missing map key to bottom, so the step to it has no successor, the state is never reached,
 //!   and the answer is a correct `no`.) So a hit also needs the matched state's term, and with it
 //!   every binding, to be defined: the state is internalized on the searcher's definition and
-//!   must be `ceil_free` (k-rust-backend `term::TermAttributes::ceil_free`: its definedness
-//!   obligation is empty for every definition by construction; every application's symbol is a
-//!   constructor or a function the definition declares total, every collection a map or set
-//!   whose keys k-rust shows distinct, a list, over such subterms) and hold no term-level `\and`
-//!   anywhere (`ceil_free` of `\and(a, b)` is that of `a` and `b`, but the conjunction is empty
-//!   when they differ; no K rule writes one on a right-hand side, so this refuses no state known
-//!   to be reached). A state that is not, or whose definedness kink cannot read (it does not
+//!   must be shown to exist by k-rust's one existence predicate
+//!   (`BackendDefinition::ground_defined`, fz26 KRUST-ANYWHERE-HEAD: ground, and its definedness
+//!   walk owes nothing; every application's symbol is a constructor, a function the definition
+//!   declares total, or a `value-production` symbol, such as SIMPLE's `_[_]`, whose application
+//!   no equation of its head can reach, which that declaration makes a value of its sort; every
+//!   collection a map or set whose keys k-rust shows apart, or a list, over such subterms; it
+//!   accepts every state the stored `ceil_free` attribute, read before, accepts) and hold no
+//!   term-level `\and` anywhere (the walk owes nothing for `\and(a, a)`, but kink refuses every
+//!   conjunction; no K rule writes one on a right-hand side, so this refuses no state known to be
+//!   reached). A state that is not, or whose definedness kink cannot read (it does not
 //!   decode, verify or internalize on that definition, k-rust provides no stack for it, or
 //!   k-rust panics), makes the answer `unknown` (`undefined-state`).
 //! - `no`: the exploration completed (k-rust's `incomplete` list is empty and the watchdog did not
@@ -801,8 +804,9 @@ type StackFor<'a> = &'a dyn Fn(
     &dyn Fn() -> Result<bool, String>,
 ) -> Result<Result<bool, String>, DefinitionError>;
 
-/// Whether the term of a matched state (`state`, its KORE JSON) is defined: k-rust's `ceil_free`
-/// of the state internalized on `definition`, the definition the search ran on (module docs).
+/// Whether the term of a matched state (`state`, its KORE JSON) is defined: k-rust's
+/// `ground_defined` of the state internalized on `definition`, the definition the search ran on
+/// (module docs).
 /// `Err` says why the state is not shown defined, or why kink could not tell.
 fn defined_state(definition: &BackendDefinition, state: &Value) -> Result<(), String> {
     defined_state_with(definition, state, &|pattern, work| {
@@ -811,7 +815,7 @@ fn defined_state(definition: &BackendDefinition, state: &Value) -> Result<(), St
 }
 
 /// [`defined_state`] whose internalization runs under `stack_for` ([`StackFor`]). Only an
-/// internalized term that k-rust shows `ceil_free` is `Ok`: a state that does not decode, holds
+/// internalized term that k-rust shows `ground_defined` is `Ok`: a state that does not decode, holds
 /// a term-level `\and`, does not verify or internalize, a refused stack and a k-rust panic are
 /// each `Err` (the answer is then unknown, never a hit).
 fn defined_state_with(
@@ -840,7 +844,7 @@ fn defined_state_with(
             definition
                 .verify_standalone_pattern(&pattern, &[])
                 .and_then(|admitted| admitted.internalize_term())
-                .map(|term| term.attributes().ceil_free())
+                .map(|term| definition.ground_defined(&term))
                 .map_err(|e| format!("it does not internalize on the searched definition ({e})"))
         })
     };
@@ -854,15 +858,16 @@ fn defined_state_with(
         Err(format!(
             "k-rust does not show its term defined ({UNDEFINED_STATE}): it holds an application \
              of a function the definition does not declare total that no equation reduced (such \
-             as `f(3)` for a function with an equation for `f(0)` only), or a map or set whose \
-             keys k-rust does not show distinct, so the state may denote no configuration"
+             as `f(3)` for a function with an equation for `f(0)` only, or an application an \
+             `anywhere` rule of its head still matches), or a map or set whose keys k-rust does \
+             not show apart, so the state may denote no configuration"
         ))
     }
 }
 
-/// Whether `pattern` holds a term-level `\and`, at its root or below: k-rust's `ceil_free` of a
-/// conjunction is that of its conjuncts, and `\and(a, b)` is empty when `a` and `b` differ, so a
-/// state holding one is not shown defined (module docs). An associative application of `\and`
+/// Whether `pattern` holds a term-level `\and`, at its root or below: k-rust's definedness walk
+/// owes nothing for `\and(a, a)`, and `\and(a, b)` is empty when `a` and `b` differ, which kink
+/// does not decide, so a state holding one is not shown defined (module docs). An associative application of `\and`
 /// counts too. The walk keeps its pending nodes on k-rust's explicit stack.
 fn holds_conjunction(pattern: &Pattern) -> bool {
     let mut found = false;
@@ -1430,7 +1435,7 @@ mod tests {
     }
 
     /// F-18 tail: a term-level `\and` anywhere in the state, below the root included, is not
-    /// shown defined (`undefined-state`), although k-rust's `ceil_free` alone accepts it.
+    /// shown defined (`undefined-state`), although k-rust's `ground_defined` alone accepts it.
     #[test]
     fn a_state_holding_a_conjunction_is_not_a_hit() {
         on_calc(|searcher, state| {
@@ -1445,7 +1450,7 @@ mod tests {
             });
             not_defined(defined_state(definition, &nested), "term-level \\and");
             not_defined(defined_state(definition, &nested), UNDEFINED_STATE);
-            // What the refusal adds: the conjunction verifies, internalizes and is ceil_free.
+            // What the refusal adds: the conjunction verifies, internalizes and is ground_defined.
             let pattern =
                 from_value(&json!({"format": "KORE", "version": 1, "term": term(&nested)}))
                     .unwrap();
@@ -1453,7 +1458,7 @@ mod tests {
                 definition
                     .verify_standalone_pattern(&pattern, &[])
                     .and_then(|admitted| admitted.internalize_term())
-                    .map(|term| term.attributes().ceil_free())
+                    .map(|term| definition.ground_defined(&term))
                     .map_err(|e| e.to_string())
             });
             assert_eq!(free.map_err(|e| e.to_string()), Ok(Ok(true)));

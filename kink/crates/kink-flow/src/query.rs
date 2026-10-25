@@ -65,8 +65,10 @@ pub const QUERY_VERSION: u64 = 1;
 /// A cached answer's schema, and its key's `schema_version`.
 pub const RECORD_SCHEMA: &str = "kink-flow-pattern";
 /// The record's format and what its answers mean: it changes whenever what counts as a hit or a
-/// no changes (v2, flow F-18 tail: a matched state holding a term-level `\and` is not a hit).
-pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v2";
+/// no changes (v2, flow F-18 tail: a matched state holding a term-level `\and` is not a hit; v3,
+/// fz26 KRUST-ANYWHERE-HEAD: a matched state is defined when k-rust's `ground_defined` holds,
+/// which also accepts an irreducible `value-production` application such as SIMPLE's `a[4]`).
+pub const ANSWER_SCHEMA_VERSION: &str = "kink-flow/pattern-answer/v3";
 /// Domain of a record's digest.
 pub const PATTERN_RECORD_DOMAIN: &str = "kink-flow/pattern-answer/v1";
 /// The cache's directory in the cache directory.

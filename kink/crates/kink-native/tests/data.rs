@@ -291,13 +291,74 @@ fn an_overload_application_is_data_only_where_it_is_instance_normal() {
     });
 }
 
+/// fz26 KRUST-ANYWHERE-HEAD (review M7, the reverse r2-anyw shape): in `anyw-anywhere.k` the
+/// production `c(Int)` heads the plain rule `c(1) => d [anywhere]`, so the compiler declares it
+/// `anywhere, function, value-production`. It is a data head now (no overload equation is
+/// needed), and the walk admits an application of it exactly where k-rust's `is_data` holds:
+/// `c(2)`, which the rule does not match, is a normal form in every context and a value; `c(1)`,
+/// which the rule rewrites to `d`, is not data, so the two definitions of the r2-anyw pair never
+/// compare `c(1)` with `d`.
+#[test]
+fn a_plain_anywhere_head_is_a_data_head_and_admits_only_irreducible_applications() {
+    use k_rust::kore::ast::{Pattern, Sort, Symbol};
+    use kink_native::feasibility::TestInitialState;
+    use kink_native::step_events::ObservationDecider;
+    on_a_big_stack(|| {
+        let compiled = NativeValidator::bind(
+            support::load_path(
+                &Path::new(support::DIR).join("overload/anyw-anywhere.k"),
+                "AW",
+            ),
+            CompileOptions::default(),
+        )
+        .compile_baseline()
+        .unwrap();
+        let definition = loaded_definition(&compiled).unwrap();
+        let facts = DataFacts::of(&definition, &[]);
+        let ends = data_ends(&facts);
+        let DataEnds::Admitted(heads) = ends else {
+            panic!("{facts:?}");
+        };
+        let c = "Lblc'LParUndsRParUnds'AW-SYNTAX'Unds'Foo'Unds'Int";
+        assert_eq!(
+            heads.names().map(ToString::to_string).collect::<Vec<_>>(),
+            [c]
+        );
+        let application = |value: &str| Pattern::Application {
+            symbol: Symbol {
+                name: c.to_owned(),
+                sort_parameters: Vec::new(),
+            },
+            arguments: vec![Pattern::DomainValue {
+                sort: Sort::Application {
+                    name: "SortInt".to_owned(),
+                    arguments: Vec::new(),
+                },
+                value: value.into(),
+            }],
+        };
+        let solver = k_rust_backend::smt::NoSolver;
+        let decider = |term: &Pattern| {
+            ObservationDecider::new(&definition, &solver, TestInitialState::of_test(term))
+                .judging_data(ends, ends)
+        };
+        let irreducible = application("2");
+        assert!(ends.overload_application_is_data(&definition, &irreducible));
+        assert!(decider(&irreducible).definition_independent(&irreducible));
+        let reducible = application("1");
+        assert!(!ends.overload_application_is_data(&definition, &reducible));
+        assert!(!decider(&reducible).definition_independent(&reducible));
+    });
+}
+
 /// fz26 KINK-OVERLOAD-VALUE consumes k-rust's data judgement rather than re-implementing it, so
-/// the passages its soundness rests on are pinned by digest:
+/// the passages its soundness rests on are pinned by digest (kink-flow's query reads the existence
+/// predicate, `definedness`'s `ground_defined`, which is pinned here too):
 /// - `data_term`'s module documentation from "The class" through "Two definitions" (what a data
 ///   term is, why two differ in each definition's initial model under A1+ and A2, and that ends
 ///   compared across two definitions must be data in both, each judged by its own);
-/// - `data_heads` (a finding leaves no head), the selection of the overload data heads
-///   (`overload_data_heads`, `canonical_overload_equation`), `is_data_walk` (no data without a
+/// - `data_heads` (a finding leaves no head), the selection of the data heads
+///   (`data_head_names`, `canonical_overload_equation`), `is_data_walk` (no data without a
 ///   confluent check) and the walk `is_data` makes (`built_from_data`);
 /// - the instance-normal scan `built_from_data` calls on an overload application
 ///   (`instance_normal.rs`: its module documentation, `instance_normal` and `excluded`), whose
@@ -319,11 +380,26 @@ fn an_overload_application_is_data_only_where_it_is_instance_normal() {
 /// differ in each definition's initial model by the argument above under A1+ and A2, where it
 /// said A1 and A2; the argument it points to already read `M+` under A1+, so the sentence names
 /// the premise that argument needs. Only the module documentation is re-pinned (`doc`).
+///
+/// fz26 KRUST-ANYWHERE-HEAD: the head selection is `data_head_names` (H1-H3 of the module
+/// documentation): an `anywhere` production that is not a declared function, declared total or
+/// `value-production`, with no hook, lemma or ceil equation at its index, rooting executable
+/// equations whose overload ones are canonical. "The class" states why an instance-normal
+/// application of such a head over data is a normal form in every context (an `anywhere`
+/// equation reads only the term it matches) and an element (H2), and that data implies
+/// existence in `M+`; A2 names the predicate lemmas outside the scan; "Two definitions" names
+/// the `X:Id[N]` and `Id < Val` mutants; "Assumed pairs" says "data heads". `data_heads` changes
+/// only by the selection's name. `canonical_overload_equation`, `is_data_walk`,
+/// `built_from_data` and the instance-normal scan are byte-identical. kink's walk is unchanged:
+/// it reads the heads through `DataEnds::overload_head` and judges each outermost application
+/// with `is_data`, which now admits SIMPLE's `a[4]`, hence `TERMINAL_VALUE_VERSION` v2.
+/// `ground_defined` is new: the existence predicate kink-flow's query reads on a matched state.
 #[test]
 fn the_data_judgement_kink_reads_is_pinned() {
     const DATA_TERM: &str = include_str!("../../../../crates/k-rust-backend/src/data_term.rs");
     const INSTANCE_NORMAL: &str =
         include_str!("../../../../crates/k-rust-backend/src/instance_normal.rs");
+    const DEFINEDNESS: &str = include_str!("../../../../crates/k-rust-backend/src/definedness.rs");
     let between = |source: &'static str, from: &str, to: &str| {
         let start = source.find(from).unwrap_or_else(|| panic!("no {from:?}"));
         let end = source[start..]
@@ -346,10 +422,7 @@ fn the_data_judgement_kink_reads_is_pinned() {
             "doc",
         ),
         (method(DATA_TERM, "pub ", "data_heads"), "data_heads"),
-        (
-            method(DATA_TERM, "", "overload_data_heads"),
-            "overload_data_heads",
-        ),
+        (method(DATA_TERM, "", "data_head_names"), "data_head_names"),
         (
             function("canonical_overload_equation"),
             "canonical_overload_equation",
@@ -365,6 +438,14 @@ fn the_data_judgement_kink_reads_is_pinned() {
             "instance_normal",
         ),
         (method(INSTANCE_NORMAL, "", "excluded"), "excluded"),
+        (
+            between(
+                DEFINEDNESS,
+                "impl BackendDefinition {\n    /// Whether the term `term` is shown to exist",
+                "\n/// Whether the definedness walk ([`ceil_term`]) owes nothing",
+            ),
+            "ground_defined",
+        ),
     ]
     .map(|(text, name)| (name, kink_patch::sha256(text.as_bytes()).to_string()));
     assert_eq!(
@@ -372,15 +453,15 @@ fn the_data_judgement_kink_reads_is_pinned() {
         [
             (
                 "doc",
-                "9fffe792904b8041ce4c17acc5987a2015f0fa4b782bb3669ef9b536e98b5519"
+                "c3f058195875e6e4e64f61071bfd776c031212b1da891dde65251246016e1904"
             ),
             (
                 "data_heads",
-                "f948e8ddfb47d575e25be1851f996bbbef1c416d1de5124e4204deb465ca478e"
+                "cc0a88dda42619c58ee60959289c89bafdf8cca1fd9f91cd5dde8f19932c095f"
             ),
             (
-                "overload_data_heads",
-                "ff973c12826c14df6ad2ce694d166eebbf3f972d1fa655ecff980441c4fb14d3"
+                "data_head_names",
+                "e27f9610e700f28a3d70453f63f3b11eb489b4e722535525790dcfb24b0d4bb0"
             ),
             (
                 "canonical_overload_equation",
@@ -405,6 +486,10 @@ fn the_data_judgement_kink_reads_is_pinned() {
             (
                 "excluded",
                 "641b47e1929c88a6e3f66d0234fca49119e0f6a7d86ab1b1321b772182e58136"
+            ),
+            (
+                "ground_defined",
+                "402bd8e44e612035361585c7426d9e38c4c16c3e3d9f80457c832e6480e54354"
             ),
         ]
         .map(|(name, digest)| (name, digest.to_owned()))

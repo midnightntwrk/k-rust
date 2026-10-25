@@ -328,9 +328,10 @@ pub enum LocalTest {
     /// An application of a symbol the definition does not declare.
     DeclaredSymbol,
     /// An application whose head is not a free constructor (nor, with the definition's data
-    /// facts, an overload data head).
+    /// facts, a data head: an overload head or another `anywhere` head k-rust's `data_term`
+    /// selects).
     FreeConstructor,
-    /// The outermost application of an overload data head, which k-rust does not judge data.
+    /// The outermost application of a data head, which k-rust does not judge data.
     OverloadData,
     /// An application, or a collection's element application, with another number of
     /// arguments than its symbol declares.
@@ -364,10 +365,11 @@ impl LocalTest {
             Self::DeclaredSymbol => "its symbol is not declared by the definition",
             Self::FreeConstructor => {
                 "its head is neither a free constructor (it is for example a function, a hooked \
-                 or anywhere symbol, or a symbol with axioms) nor an overload data head"
+                 or anywhere symbol, or a symbol with axioms) nor a data head"
             }
             Self::OverloadData => {
-                "it is an application of an overload head that k-rust does not judge data"
+                "it is an application of a data head that k-rust does not judge data (an \
+                 equation of its head may apply to it)"
             }
             Self::Arity => "it has another number of arguments than its symbol declares",
             Self::TrustedCollections => {
@@ -483,9 +485,9 @@ pub struct ObservationDecider<'a> {
     /// Whether a collection term can be a terminal value (re-pin finding C-10).
     collections_trusted: bool,
     /// Which ends are data under the shared definition, from its own facts
-    /// ([`crate::data::data_ends`]): the overload data heads whose applications the walk admits
+    /// ([`crate::data::data_ends`]): the data heads whose applications the walk admits
     /// where k-rust's data judgement holds (KINK-OVERLOAD-VALUE). [`DataEnds::None`] (the default)
-    /// admits no overload application; it does not refuse the rest of TV-01, since refusing every
+    /// admits no data-head application; it does not refuse the rest of TV-01, since refusing every
     /// kill on a definition with a finding is the runner's gate (KINK-BASELINE-FINDINGS).
     data: DataEnds<'a>,
     /// The same for the leaf definition when it is another definition than the shared one: an
@@ -556,13 +558,13 @@ impl<'a> ObservationDecider<'a> {
     /// trusted injective codec, free constructors, and sort injections in k-rust's normal form
     /// ([`canonical_injection`]). Anything else, including an identity or nested injection, is
     /// not (TV-01 and its fix 1, review R1-F1). With [`Self::judging_data`], also a ground
-    /// application of an overload data head that is data ([`Self::overload_data`]).
+    /// application of a data head that is data ([`Self::overload_data`]).
     pub fn definition_independent(&self, term: &Pattern) -> bool {
         self.independent(term, false).is_ok()
     }
 
     /// [`Self::definition_independent`] of `term`, or the first node, in pre-order, that fails
-    /// its own test ([`Self::node_test`]); `judged` when an enclosing overload application was
+    /// its own test ([`Self::node_test`]); `judged` when an enclosing data-head application was
     /// already judged data as a whole, so a nested one needs no judgement of its own.
     fn independent(&self, term: &Pattern, judged: bool) -> Result<(), Box<NonValue>> {
         let judged = self.node_test(term, judged)?;
@@ -580,7 +582,7 @@ impl<'a> ObservationDecider<'a> {
     /// value passes when its codec is trusted and injective (`domain_value_identity_safe`); an
     /// injection when it is in k-rust's normal form ([`canonical_injection`]); an application when
     /// its head is a free constructor of the shared definition, or, with [`Self::judging_data`],
-    /// an overload data head whose outermost application is data ([`Self::overload_data`]);
+    /// a data head whose outermost application is data ([`Self::overload_data`]);
     /// nothing else passes. On a pass, the `judged` flag of its arguments.
     fn node_test(&self, term: &Pattern, judged: bool) -> Result<bool, Box<NonValue>> {
         let fails = |test| Err(NonValue::at(term, test));
@@ -620,7 +622,7 @@ impl<'a> ObservationDecider<'a> {
         }
     }
 
-    /// Whether `application`, an application of an overload data head of the shared definition
+    /// Whether `application`, an application of a data head of the shared definition
     /// that no enclosing one covers, is data: under the shared definition with its facts, and,
     /// for leaves of another definition, under the leaf definition with its facts too
     /// ([`DataEnds::overload_application_is_data`], k-rust's `is_data`, once for the whole
