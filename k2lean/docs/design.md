@@ -331,6 +331,8 @@ The checker's 37 inversion lemmas (`ImpNI/Levels.lean`) are proved by one tactic
 `init`, `final` and `cover` are short hand proofs.
 The modules beyond the generated ones build in 12 s wall and 38 s of CPU, 2.0 GB peak (2026-10-25, Lean v4.34.0, shared 32-CPU host, load 16, on built libraries).
 
+The statement is not vacuous (`ImpNI/Examples.lean`, `nonvacuous`): at a labelling with one high and one low identifier, the checker accepts a program whose branch on the high identifier writes only it, rejects an explicit flow (`l = h;`) and implicit flows through `if` and `while`, and the empty stores are low-equal; the checker's verdicts are computed through its inversion lemmas, since its functions are defined by well-founded recursion, which the kernel does not reduce.
+
 `lowEq` includes that both stores are canonical maps whose identifiers hold values (`Good`), and so does the conclusion; without it a store could hold a statement, which a lookup would put on `<k>`.
 Every part of the hand proof except the relation's shape and the store cases is uniform in the rules, so generating it from the checker (the per-rule tactics, the stack typings as §3.3 generates `kty`, and a `Step.Rel` helper per rule) is the next step (NI-2).
 

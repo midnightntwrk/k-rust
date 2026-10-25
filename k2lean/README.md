@@ -64,7 +64,7 @@ target/release/k2lean gen --kore out/my/definition.kore --runtime out/my/runtime
 | `demos/ImpMut` | a mutant of kimp (`demos/k/kimp-mutant`) diverges from kimp, proved on a concrete configuration |
 | `demos/ImpUnroll` | kimp and a variant whose `while` unrolls in one step less (`tests/kimp-unroll.py`) are stuttering bisimilar: `k2lean refine` generates 310 of the 316 case parts, `Relation.lean` holds the non-local part of the relation and the other 6 |
 | `demos/RaceConf` | every schedule of the fixture `tests/fixtures/race` (workers adding to a shared accumulator) ends in one configuration: `k2lean confluence` generates and proves all 9 joins of pairs of rules |
-| `demos/ImpNI` | kimp's termination-insensitive noninterference for a two-level security checker in K (`demos/k/imp-sec.k`), stated by `k2lean noninterference` with its 240 obligations, all discharged by a hand relation (`ImpNI/Proof.lean`) |
+| `demos/ImpNI` | kimp's termination-insensitive noninterference for a two-level security checker in K (`demos/k/imp-sec.k`), stated by `k2lean noninterference` with its 240 obligations, all discharged by a hand relation (`ImpNI/Proof.lean`); `ImpNI/Examples.lean` shows the hypotheses hold of a secure program and the checker rejects explicit and implicit flows |
 | `demos/KrsImpTyping` | every KRS IMP rule preserves the declared cell type `env: Map<Id, Value>`, from the KRS sidecar |
 | `demos/SimpleEnv` | a kind 2 invariant of SIMPLE, strengthened to be inductive |
 | `demos/ImpWrites` | a kind 2 invariant of kimp that walks the `<k>` cell |
