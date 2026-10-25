@@ -677,6 +677,43 @@ fn confluence_separates_a_thread_end_matched_at_a_constructor_key_at_one_binding
         r.contains("\"step | end (two bindings: the map's bindings change)\""),
         "{r}"
     );
+
+/// `relate --split true` on the `peano` fixture: the bisimulation cut into a base module, one
+/// module per simulation importing only what it uses, and the bisimulation module importing the
+/// forward and backward simulations; the proof macros move to the base module, scoped.
+#[test]
+fn relate_split_writes_one_module_per_simulation() {
+    let d = tmp("cli-relate-split");
+    let fx =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/peano/definition.kore");
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("relate")
+        .arg("--kore-a")
+        .arg(&fx)
+        .args(["--name-a", "A", "--kore-b"])
+        .arg(&fx)
+        .args(["--name-b", "B", "--ns", "Rel", "--split", "true", "--out"])
+        .arg(d.join("Bisim.lean"))
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let read = |f: &str| std::fs::read_to_string(d.join(f)).unwrap();
+    let base = read("Bisim/Base.lean");
+    assert!(base.contains("theorem inv_step") && base.contains("scoped macro \"hpri_bwd\""));
+    assert!(!base.contains("local macro"));
+    for (m, import, thm) in [
+        ("AppFwd", "Rel.Bisim.Base", "theorem app_fwd"),
+        ("AppBwd", "Rel.Bisim.Base", "theorem app_bwd"),
+        ("Forward", "Rel.Bisim.AppBwd", "theorem forward"),
+        ("Backward", "Rel.Bisim.AppFwd", "theorem backward"),
+    ] {
+        let t = read(&format!("Bisim/{m}.lean"));
+        assert!(t.starts_with(&format!("import {import}\n")), "{m}");
+        assert!(t.contains(thm) && t.trim_end().ends_with("end Rel"), "{m}");
+    }
+    let main = read("Bisim.lean");
+    assert!(main.starts_with("import Rel.Bisim.Forward\nimport Rel.Bisim.Backward\n"));
+    assert!(main.contains("theorem bisim : Bisimulation A.Step B.Step R"));
 }
 
 /// `confluence --threads` on the `threadend` fixture: `step` updates one thread, `end` removes one

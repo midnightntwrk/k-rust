@@ -58,7 +58,7 @@ relate_relational() {
     ImpRel) nb=KrsImp kd=$KRS f=Bisim extra=(--per-sort-terms true) ;;
     ImpMut) nb=KMut kd=$(kore_dir kmut) extra=(--per-sort-terms true) ;;
     ImpUnroll) nb=KUnroll kd=$(kore_dir kimp-unroll) extra=(--per-rule true --per-sort-terms true) ;;
-    SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim ;;
+    SimpleRel) na=KSimple ka=$(kore_dir simple) nb=KSimpleV kd=$(kore_dir simple-variant) f=Bisim extra=(--split true) ;;
     PeanoRel) na=Peano ka=$(libs_fixture peano) nb=PeanoB kd=$ka f=Bisim ;;
     CellMapRel) na=CellMap ka=$(libs_fixture cellmap) nb=CellMapB kd=$ka f=Bisim ;;
     *) return 1 ;;
