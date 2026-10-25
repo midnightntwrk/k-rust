@@ -372,10 +372,11 @@ def tk(k):
 
 def to_baseline(m, area, reg, old=None):
     """Area AREA's baseline document for measurements m: the entries of the tiers m's run accepts,
-    and old's entries of the other tiers (an entry only compared by the run keeps old's)."""
+    and old's entries of the other tiers (an entry only compared by the run keeps old's). An old
+    entry of a tier that is not in TIERS is dropped: no run can measure or accept it again."""
     old = old or {}
     run_t = tiers(m["tier"])
-    keep = lambda e: isinstance(e, dict) and e.get("tier") not in run_t
+    keep = lambda e: isinstance(e, dict) and e.get("tier") in TIERS and e.get("tier") not in run_t
     owner = {(k, n): a for a, k, n, _ in entries(reg)}
     mine = lambda kind, n: owner.get((kind, n)) == area
     b = {}
