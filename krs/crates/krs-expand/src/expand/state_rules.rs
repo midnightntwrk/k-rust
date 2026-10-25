@@ -231,15 +231,27 @@ pub(crate) fn context_alias(
     clippy::too_many_lines,
     reason = "The configuration rule and its complete provenance are expanded together."
 )]
+/// Expands a rule fn whose sides are `cells!` configurations: a transition
+/// with `attribute`, or the context `context` (KF-021), whose rule-attribute
+/// view `attribute` then is.
 pub(super) fn configuration_rule(
     env: &dyn MacroEnvironment,
     item: TokenStream,
     attribute: &krs_syntax::RuleAttribute,
-    sentence: krs_syntax::RuleSentence<'_>,
-    sentence_kind: krs_ir::ConfigurationSentenceKind,
+    context: Option<&krs_syntax::ContextAttribute>,
 ) -> crate::Result<TokenStream> {
     // A `cells!` context (KF-021) shares the rule expansion.
-    let context = sentence_kind == krs_ir::ConfigurationSentenceKind::Context;
+    let (sentence, sentence_kind) = match context {
+        Some(context) => (
+            krs_syntax::RuleSentence::Context(context),
+            krs_ir::ConfigurationSentenceKind::Context,
+        ),
+        None => (
+            krs_syntax::RuleSentence::Transition(attribute),
+            krs_ir::ConfigurationSentenceKind::Transition,
+        ),
+    };
+    let context = context.is_some();
     let rule = if context {
         krs_syntax::StateRuleItem::parse_context_tokens(item)?
     } else {
