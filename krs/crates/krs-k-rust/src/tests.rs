@@ -299,3 +299,26 @@ fn the_route_table_refuses_direct_console_writes_without_console_state() {
         );
     }
 }
+
+#[test]
+fn the_registry_plugin_hooks_are_the_namespaces_each_backend_admits() {
+    let plugin: std::collections::BTreeSet<_> = krs_ir::hook_registry::HOOK_REGISTRY
+        .iter()
+        .filter(|hook| hook.is_plugin())
+        .map(|hook| hook.namespace().to_owned())
+        .collect();
+    let haskell: std::collections::BTreeSet<_> = CompilationBackend::Rust
+        .default_hook_namespaces()
+        .into_iter()
+        .collect();
+    assert_eq!(
+        plugin, haskell,
+        "the raw-hook note's plugin set on `--backend haskell`"
+    );
+    assert!(
+        CompilationBackend::Llvm
+            .default_hook_namespaces()
+            .is_empty(),
+        "the raw-hook note says `--backend llvm` admits no plugin hook namespace"
+    );
+}
