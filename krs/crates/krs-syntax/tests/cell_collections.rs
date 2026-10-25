@@ -230,3 +230,103 @@ fn a_bracket_that_reads_both_ways_carries_its_list_reading() {
     assert!(labelled.bracket_alternative().is_some());
     assert_eq!(labelled.bindings(), ["first"]);
 }
+
+/// The text `anchor` selects in `source`.
+fn anchored<'a>(source: &'a str, anchor: &krs_syntax::ProvenanceAnchor) -> &'a str {
+    let offset = |at: proc_macro2::LineColumn| {
+        source
+            .split_inclusive('\n')
+            .take(at.line - 1)
+            .map(str::len)
+            .sum::<usize>()
+            + at.column
+    };
+    &source[offset(anchor.range().start())..offset(anchor.range().end())]
+}
+
+/// The text of the anchor that holds `key` among `anchors`.
+fn anchored_key<'a>(
+    source: &'a str,
+    anchors: &[krs_syntax::ProvenanceAnchor],
+    key: Option<&krs_ir::ProvenanceKey>,
+) -> &'a str {
+    let key = key.expect("the shell is keyed");
+    let [anchor] = anchors
+        .iter()
+        .filter(|anchor| &anchor.key() == key)
+        .collect::<Vec<_>>()[..]
+    else {
+        panic!("one anchor holds {key:?}");
+    };
+    anchored(source, anchor)
+}
+
+/// The fields of the first instance of `state`, an instance list.
+fn first_instance_fields(state: &StateTerm) -> &[krs_syntax::InstanceField] {
+    let StateTerm::Instances(list) = state else {
+        panic!("expected an instance list");
+    };
+    list.front()[0].fields()
+}
+
+/// A `cells!` instance's empty `k::k![]` and `map![]` children are keyed at
+/// their invocation, their own delimited text.
+#[test]
+fn empty_instance_children_are_keyed_at_their_invocation() {
+    let source = r"
+        pub fn idle(
+            cells! {
+                thread: { k::fragment![Thread { k: k::k![], env: map![] }], .. },
+                state @ ..
+            }: model::Machine,
+        ) -> model::Machine {
+            cells! { thread: { .. }, ..state }
+        }
+        ";
+    let rule = krs_syntax::StateRuleItem::parse_source(source).unwrap();
+    let anchors = rule.provenance().unwrap();
+    let [k, env] = first_instance_fields(rule.subject().entries()[0].value()) else {
+        panic!("two children");
+    };
+    let StateTerm::KSequence(sequence) = k.value() else {
+        panic!("`k::k![]` is a K sequence");
+    };
+    assert_eq!(
+        anchored_key(source, &anchors, sequence.payload_key()),
+        "k::k![]"
+    );
+    let StateTerm::Map(map) = env.value() else {
+        panic!("`map![]` is a map");
+    };
+    assert_eq!(anchored_key(source, &anchors, map.payload_key()), "map![]");
+}
+
+/// A readable instance child's empty `[]` is keyed at its brackets.
+#[test]
+fn an_empty_readable_instance_child_is_keyed_at_its_brackets() {
+    let source = r"
+        for Machine;
+        use Cmd::*;
+
+        idle: { k: [Idle(), ..], thread: { Thread { k: [], .. }, .. } } => { k: [..] };
+        ";
+    let block = krs_syntax::RuleBlock::parse_source(source).unwrap();
+    let clause = &block.clauses()[0];
+    let [RuleExtra::RewriteState { before, .. }] = clause.extras() else {
+        panic!("expected one collection read");
+    };
+    let [child] = first_instance_fields(before) else {
+        panic!("one child");
+    };
+    let StateTerm::KSequence(sequence) = child.value() else {
+        panic!("`[]` is a K sequence");
+    };
+    assert_eq!(
+        anchored_key(
+            source,
+            &clause.provenance().unwrap(),
+            sequence.payload_key()
+        ),
+        "[]"
+    );
+}

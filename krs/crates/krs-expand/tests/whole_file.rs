@@ -594,6 +594,35 @@ fn a_readable_clause_keys_each_nested_literal_once_at_its_token() {
     }
 }
 
+/// A readable instance child's empty `[]` is keyed at its brackets, and its
+/// sequence's wire node carries that key.
+#[test]
+fn an_empty_readable_instance_child_reaches_the_wire_with_its_key() {
+    let source = "k::rules! {\n    for Machine;\n    use Cmd::*;\n\n    idle: { k: [Idle(), ..], thread: { Thread { k: [], .. }, .. } } => { k: [..] };\n}\n";
+    let expansion = expand(source).expect("a readable clause expands");
+    let text = &expansion.generated.text;
+    let wire = text
+        .split(r#"\"payload_key\":{\"role\":\"rule_left_k_sequence_payload\",\"ordinal\":"#)
+        .skip(1)
+        .map(|entry| &entry[..entry.find('}').unwrap()])
+        .collect::<Vec<_>>();
+    let [ordinal] = wire[..] else {
+        panic!("one left sequence on the wire: {wire:?}");
+    };
+    let line = 5;
+    let column = source.lines().nth(line - 1).unwrap().find("[]").unwrap() + 1;
+    assert_eq!(
+        authored_anchors(text, 0)
+            .into_iter()
+            .filter(|anchor| anchor.starts_with("RuleLeftKSequencePayload#"))
+            .collect::<Vec<_>>(),
+        [format!(
+            "RuleLeftKSequencePayload#{ordinal} {line}:{column}-{line}:{}",
+            column + 2
+        )]
+    );
+}
+
 /// An initializer's `k!` remainder (`..pgm`, the variable's sequence after
 /// the items) has no place in the initializer's sequence yet: it is refused
 /// with an author code where it is written, not dropped from the
