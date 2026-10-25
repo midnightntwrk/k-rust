@@ -330,7 +330,9 @@ fn a_map_built_on_an_int_range_gets_its_entries_lemma() {
 /// and each worker's `<env>` map by free-key patterns: each walk gets its test of one binding,
 /// read through projections (the cell map's key and the worker's `<wid>` read equal), and its
 /// element-wise form `Invariant.f_walk`, and both join the unfolding set, instead of the note
-/// that the recursion is neither a fold nor structural.
+/// that the recursion is neither a fold nor structural; the walk of the `<workers>` cell's map
+/// also gets the form at any cell (`Invariant.f_walk_cell`, through `Invariant.f_map`), which
+/// rewrites the cell where a rule leaves it as a variable (the fixture's store rules).
 #[test]
 fn map_walks_by_free_key_patterns_get_their_element_wise_form() {
     let d = tmp("cli-walk");
@@ -362,8 +364,11 @@ fn map_walks_by_free_key_patterns_get_their_element_wise_form() {
     assert!(defs.contains("def Invariant.allIn_test (k : SortKItem) (v : SortKItem) (S : SortMap) : Prop :=\n  KPrelude.MapHook.inKeys v S = true"), "{defs}");
     assert!(defs.contains("def Invariant.workersIn_test (k : SortWidCell) (v : SortWorkerCell) (S : SortMap) : Prop :=\n  (Invariant.content_wid (Invariant.cell_wid v)) = (Invariant.content_wid k) ∧ (K.«allIn(_,_)_WALK_Bool_Map_Map» (Invariant.content_env (Invariant.cell_env v)) S) = some true"), "{defs}");
     assert!(defs.contains("theorem Invariant.workersIn_walk (m : SortWorkerCellMap) (S : SortMap) :\n    K.«workersIn(_,_)_WALK_Bool_WorkersCell_Map» (SortWorkersCell.«<workers>» m) S = some true ↔\n      KPrelude.MapHook.WF m ∧ KPrelude.MapHook.EntriesOn (fun q => Invariant.workersIn_test q.1 q.2 S) m := by"), "{defs}");
+    assert!(defs.contains("def Invariant.workersIn_map : SortWorkersCell → SortWorkerCellMap\n  | SortWorkersCell.«<workers>» x => x"), "{defs}");
+    assert!(defs.contains("theorem Invariant.workersIn_walk_cell (w : SortWorkersCell) (S : SortMap) :\n    K.«workersIn(_,_)_WALK_Bool_WorkersCell_Map» w S = some true ↔"), "{defs}");
+    assert!(!defs.contains("Invariant.allIn_walk_cell"), "{defs}");
     let thms = std::fs::read_to_string(out.join("KWalk/Invariants.lean")).unwrap();
-    assert!(thms.contains("Invariant.allIn_walk, Invariant.allIn_test, Invariant.workersIn_walk, Invariant.workersIn_test"), "{thms}");
+    assert!(thms.contains("Invariant.allIn_walk, Invariant.allIn_test, Invariant.workersIn_walk, Invariant.workersIn_test, Invariant.workersIn_walk_cell, Invariant.workersIn_map"), "{thms}");
 }
 
 fn gen_fixture(dir: &Path, out: &Path, ns: &str) {

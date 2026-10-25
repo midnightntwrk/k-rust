@@ -548,6 +548,8 @@ struct Walk {
     /// (`<threads>` and its cell map), when the argument is that cell
     pos: usize,
     wrap: Option<String>,
+    /// the sort of that cell
+    cell: Option<String>,
     /// the sorts of the map, its keys and its values
     map: String,
     key: String,
@@ -570,6 +572,13 @@ impl Walk {
             None => paren(map),
         };
         args.insert(self.pos, arg);
+        format!("{} {}", self.lean, args.join(" "))
+    }
+
+    /// `f a₀ … aₙ` with the term `arg` itself at the map's position.
+    fn call_at(&self, arg: &str) -> String {
+        let mut args: Vec<String> = self.params.iter().map(|(n, _)| n.clone()).collect();
+        args.insert(self.pos, arg.to_string());
         format!("{} {}", self.lean, args.join(" "))
     }
 
@@ -844,12 +853,15 @@ fn walk_of(
         .collect();
     *projections = projs;
     proj_names.extend(added);
-    let wrap = match &wrap_sym {
+    let (wrap, cell) = match &wrap_sym {
         Some(s) => {
             let ci = m.ctors.get(s)?;
-            Some(format!("{}.{}", ci.sort, ci.lean))
+            (
+                Some(format!("{}.{}", ci.sort, ci.lean)),
+                Some(ci.sort.clone()),
+            )
         }
-        None => None,
+        None => (None, None),
     };
     let base = names::demangle(f)
         .split('(')
@@ -863,6 +875,7 @@ fn walk_of(
         base,
         pos,
         wrap,
+        cell,
         map,
         key,
         val,
@@ -2150,6 +2163,10 @@ pub fn emit(
     for w in &walks {
         simp.push(format!("Invariant.{}_walk", w.base));
         simp.push(format!("Invariant.{}_test", w.base));
+        if w.cell.is_some() {
+            simp.push(format!("Invariant.{}_walk_cell", w.base));
+            simp.push(format!("Invariant.{}_map", w.base));
+        }
     }
     simp.push("Option.bind_fun_some".into());
 
@@ -2284,6 +2301,19 @@ all_goals simp_all [{unfold}]\n\n",
             w.call("m"),
             w.unit_eqn,
         ));
+        // a walk of a cell's map: the same at any cell, through the cell's map, so that it reads
+        // a cell that a rule leaves as a variable (a rule that does not touch the cell map)
+        if let (Some(cell), Some(wrap)) = (&w.cell, &w.wrap) {
+            d.push_str(&format!(
+                "/-- The map of the cell that the walk `{l}` walks. -/\n\
+def Invariant.{b}_map : {cell} → {}\n  | {wrap} x => x\n\n\
+/-- `Invariant.{b}_walk` at any cell, through its map: it rewrites a rule's cell variable too. -/\n\
+theorem Invariant.{b}_walk_cell (w : {cell}){ps} :\n    {} = some true ↔\n      KPrelude.MapHook.WF (Invariant.{b}_map w) ∧ KPrelude.MapHook.EntriesOn (fun q => Invariant.{b}_test q.1 q.2{pa}) (Invariant.{b}_map w) := by\n  \
+cases w\n  exact Invariant.{b}_walk _{pa}\n\n",
+                w.map,
+                w.call_at("w"),
+            ));
+        }
     }
     // the lemmas of the maps built on an `Int` range, which the collections closer applies to
     // the map a rule binds
