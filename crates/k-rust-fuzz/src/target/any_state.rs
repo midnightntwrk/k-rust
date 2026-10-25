@@ -252,6 +252,7 @@ impl ResolvedTarget {
                 hit_site: Some(HitSite::Leaf(leaf)),
                 blocked: false,
                 reason,
+                demoted_from: None,
             },
             result,
             walked.hit_conjunctions[leaf],

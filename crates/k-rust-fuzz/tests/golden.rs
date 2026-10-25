@@ -26,7 +26,7 @@ use k_rust_fuzz::{
     values::{Constraints, ElementSorts, GenerationBounds, IntRange},
 };
 use num_bigint::BigInt;
-use support::{COIN, COIN_KILL, DICT, IMP, LOCK, MAZE, UNSIGNED, VALUES};
+use support::{COIN, COIN_KILL, DICT, IMP, IMP_DIFF, LOCK, MAZE, UNSIGNED, VALUES};
 
 /// The variable that makes [`golden_child`] run the campaigns and print their reports.
 const CHILD: &str = "KRUST_FUZZ_GOLDEN_CHILD";
@@ -55,6 +55,17 @@ const END: &str = "=====END-KRUST-FUZZ-REPORTS=====";
 const PINNED: Option<(u32, &str)> = Some((
     7,
     "ed2751abb407d6d93e71ecc4f9a1b35448ec00c213637182796ad268c4440bcf",
+));
+
+/// The pinned fingerprint of the state-set campaign's case sequence (FZ-STATESET), at
+/// [`ENGINE_VERSION`] 7, the version that brought all-paths rule and final-pattern cases onto
+/// k-rust state sets. Every other golden campaign runs one path or a differential, so this one
+/// guards a state-set campaign's determinism across processes and its case sequence: a change of
+/// the state-set exploration's merge order, of what it keeps of a merged arrival, or of the
+/// classes judged on it moves it. Bump `ENGINE_VERSION` and re-pin every fingerprint.
+const PINNED_STATESET: Option<(u32, &str)> = Some((
+    7,
+    "c43af437cd3593aa92147bbada3fdc4df0b22771fc2bb46dd9f21dabe57f5382",
 ));
 
 /// The pinned fingerprint of the dictionary campaigns' case sequence (FZ-11) at
@@ -113,11 +124,15 @@ const PINNED_SOLVE: Option<(u32, &str)> = Some((
 const SOLVE_CAMPAIGNS: usize = if cfg!(feature = "z3") { 1 } else { 0 };
 
 /// How many of [`golden_reports`] are blind campaigns, fingerprinted by [`PINNED`]; the
-/// dictionary campaigns follow, fingerprinted by [`PINNED_DICTIONARY`], then the climb campaigns
+/// state-set campaigns follow ([`STATESET_CAMPAIGNS`]), fingerprinted by [`PINNED_STATESET`],
+/// then the dictionary campaigns, fingerprinted by [`PINNED_DICTIONARY`], then the climb campaigns
 /// ([`CLIMB_CAMPAIGNS`]), fingerprinted by [`PINNED_CLIMB`], then the corpus campaigns
 /// ([`CORPUS_CAMPAIGNS`]), fingerprinted by [`PINNED_CORPUS`], and the solve campaigns last
 /// ([`SOLVE_CAMPAIGNS`], in builds with the `z3` feature), checked by `check_solve`.
 const BLIND_CAMPAIGNS: usize = 5;
+
+/// How many of [`golden_reports`], after the blind campaigns, run all paths on state sets.
+const STATESET_CAMPAIGNS: usize = 1;
 
 /// How many of [`golden_reports`], before the corpus campaigns, enable the climb.
 const CLIMB_CAMPAIGNS: usize = 1;
@@ -207,6 +222,8 @@ fn violation(pattern: &str) -> Target {
 ///   the explicit value's round-trip);
 /// - VALUES with a `Map` configuration-variable hole and a target that needs three entries: a
 ///   map witness that shrinks by whole entries (`ENGINE_VERSION` 2);
+/// - IMP's `primes` on all paths, whose `strict` operators interleave: a final pattern judged
+///   on state sets, with a witness found by blind sampling and shrunk;
 /// - DICT's `goal` with blind and the dictionary: a witness of harvested values, shrunk by
 ///   moves;
 /// - DICT's `probe` under a pattern target, with the dictionary alone: the pattern's own
@@ -291,6 +308,7 @@ fn golden_reports() -> Vec<FuzzReport> {
         (map, Budget::Cases(40)),
     ]
     .into_iter()
+    .chain([(stateset_campaign(), Budget::Cases(30))])
     .chain(dictionary_campaigns(&coin_spec))
     .chain([(climb_campaign(), Budget::Cases(200))])
     .chain([(corpus_campaign(), Budget::Cases(1500))])
@@ -301,6 +319,46 @@ fn golden_reports() -> Vec<FuzzReport> {
             .run(budget, None)
     })
     .collect()
+}
+
+/// IMP's `primes` on all paths with `m` ranging over `0 ..= 8` and the target a natural end
+/// that counted 3 primes (`m` 5 or 6), with blind sampling. The `strict` operators interleave, so
+/// the path set of `m = 4` alone holds 203 leaves; on a state set each case completes within the
+/// work bound, and its ends are distinct configurations. The campaign misses on the anchor and
+/// on blind values before a witness, which shrinks (5 cases, about 0.4 s).
+fn stateset_campaign() -> CampaignSpec {
+    let compiled = IMP_DIFF.compiled();
+    let program = "imp-diff/primes.imp";
+    let mut spec = spec("imp/le.imp", Vec::new(), "<k> .K </k>", &[], 0x0000_0002);
+    spec.definitions = Definitions {
+        baseline: Arc::new(compiled.definition()),
+        mutant: None,
+    };
+    spec.program = ProgramInput::Source(compiled.program_source(program));
+    let mut hole = int_hole("M", program, "m = 4;", "4");
+    hole.constraints.range = Some(IntRange {
+        min: Some(BigInt::from(0)),
+        max: Some(BigInt::from(8)),
+    });
+    spec.holes = vec![hole];
+    spec.target = Target {
+        kind: TargetKind::Pattern(PatternTarget {
+            pattern: r#"<k> .K </k> <state> (#token("s", "Id") |-> S:Int) _:Map </state> requires S ==Int 3"#
+                .into(),
+            at: PatternAt::Final,
+        }),
+        run_to_completion: false,
+        negated_property: false,
+        data_end: true,
+        comparable: false,
+        query_confirmable: false,
+    };
+    spec.options = CaseOptions {
+        paths: PathMode::AllPaths,
+        max_work: Some(20_000),
+        ..CaseOptions::default()
+    };
+    spec
 }
 
 /// VALUES with a `Map` configuration-variable hole of `Int` keys and values, and a target that
@@ -538,6 +596,34 @@ fn solve_campaigns() -> Vec<(CampaignSpec, Budget)> {
     vec![(spec, Budget::Cases(200))]
 }
 
+/// The state-set campaign runs its cases on state sets and finds its witness, each of whose ends
+/// is distinct, and its fingerprint is [`PINNED_STATESET`].
+fn check_stateset(reports: &[FuzzReport]) {
+    let stateset = fingerprint(reports);
+    if std::env::var_os("KRUST_FUZZ_GOLDEN_PRINT").is_some() {
+        eprintln!("state-set fingerprint at engine version {ENGINE_VERSION}: {stateset}");
+    }
+    for report in reports {
+        assert_eq!(
+            serde_json::to_value(&report.identity).expect("the identity is JSON")["execution-modality"]
+                ["cases"],
+            "state-set"
+        );
+        let found = report
+            .witness()
+            .expect("the state-set campaign finds a witness");
+        let ends = &found.first.sides[0].final_configurations;
+        let distinct: std::collections::BTreeSet<_> = ends.iter().collect();
+        assert_eq!(distinct.len(), ends.len(), "{ends:?}");
+    }
+    check_pin(
+        "state-set",
+        PINNED_STATESET,
+        &stateset,
+        "the state-set exploration, its merges or the classes judged on it",
+    );
+}
+
 /// The solve campaign finds its witness through a model, inside the determinism contract, and
 /// its fingerprint is [`PINNED_SOLVE`].
 #[cfg(feature = "z3")]
@@ -701,7 +787,8 @@ fn the_same_campaign_in_two_processes_gives_byte_identical_reports() {
     let corpus_start = solving - CORPUS_CAMPAIGNS;
     let climbing = corpus_start - CLIMB_CAMPAIGNS;
     let computed = fingerprint(&reports[..BLIND_CAMPAIGNS]);
-    let dictionary = fingerprint(&reports[BLIND_CAMPAIGNS..climbing]);
+    let dictionary_start = BLIND_CAMPAIGNS + STATESET_CAMPAIGNS;
+    let dictionary = fingerprint(&reports[dictionary_start..climbing]);
     let climb = fingerprint(&reports[climbing..corpus_start]);
     let corpus = fingerprint(&reports[corpus_start..solving]);
     #[cfg(feature = "z3")]
@@ -743,6 +830,7 @@ fn the_same_campaign_in_two_processes_gives_byte_identical_reports() {
         &climb,
         "its parameters, its moves or its score",
     );
+    check_stateset(&reports[BLIND_CAMPAIGNS..dictionary_start]);
     check_pin(
         "dictionary",
         PINNED_DICTIONARY,

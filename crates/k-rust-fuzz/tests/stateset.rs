@@ -447,3 +447,118 @@ fn a_rolled_back_target_rule_is_never_a_hit() {
     assert_eq!(pick(0, PathMode::OnePath), (OutcomeClass::Miss, None));
     assert_eq!(pick(1, PathMode::AllPaths), (OutcomeClass::Hit, None));
 }
+
+fn any_state(pattern: &str) -> Target {
+    target(TargetKind::Pattern(PatternTarget {
+        pattern: pattern.into(),
+        at: PatternAt::AnyState,
+    }))
+}
+
+/// D1 (review of C1). MERGE `tri(5)`, `fired` on `te`: `te` fires only on the `t` branch, whose
+/// end the state set merges with the `u` branch's, so the case is `fired-off-trace`. The other
+/// leaf, `h(5)` with `<out> 7` after `s` and `t`, is a clean abnormal stop: a real `stuck` leaf
+/// of the program, whatever the target can judge, so the report keeps it as the incidental
+/// `stuck` finding (the class the leaves gave), as it does for a `stuck` case.
+#[test]
+fn a_fired_off_trace_case_keeps_its_incidental_stuck_finding() {
+    let report = run(fixture_spec(
+        &MERGE,
+        "merge/tri.pgm",
+        ("tri(5)", "5", 5),
+        rule(label("te"), RuleMode::Fired),
+        all_paths(None, None),
+    ));
+    assert_eq!(
+        verdict(&report),
+        (OutcomeClass::Unsupported, Some("fired-off-trace".into()))
+    );
+    let stuck = report
+        .incidental
+        .stuck
+        .as_ref()
+        .expect("the abnormal stop is an incidental finding");
+    assert_eq!(stuck.k_heads, ["h ( 5 )"], "{stuck:?}");
+    assert!(report.incidental.undefined.is_none());
+}
+
+/// S1 (review of C1). MERGE `tri(5)`, `fired` on `t` under `run-to-completion`: `t` fires on
+/// the branch the state set absorbs, whose clean natural end would be a hit on a path set, and
+/// on the `s` branch, which stops abnormally at `h(5)`. The retained leaves show only the
+/// unfinished reach, so `reached-unfinished` would claim that no path that fired `t` ended
+/// cleanly and naturally; the case is `fired-off-trace`. Without `run-to-completion` the
+/// abnormal stop on `t`'s path is a retained hit.
+#[test]
+fn an_unfinished_reach_beside_an_absorbed_one_is_fired_off_trace() {
+    let tri = |run_to_completion| {
+        let mut fired = rule(label("t"), RuleMode::Fired);
+        fired.run_to_completion = run_to_completion;
+        verdict(&run(fixture_spec(
+            &MERGE,
+            "merge/tri.pgm",
+            ("tri(5)", "5", 5),
+            fired,
+            all_paths(None, None),
+        )))
+    };
+    assert_eq!(
+        tri(true),
+        (OutcomeClass::Unsupported, Some("fired-off-trace".into()))
+    );
+    assert_eq!(tri(false), (OutcomeClass::Hit, None));
+}
+
+/// N2 (review of C1). MERGE `chain(10)` against `at: any-state` `<k> chain(0) ~> _ </k>` under
+/// `comparable`, within max-work 400: the case runs a path set (2^10 paths), which reaches
+/// `chain(0)` on its first path and is `work-bound`, so it is not the program's run of every
+/// path; the case makes that run separately, a state set of 3 * 10 + 1 states, which completes,
+/// and the hit is comparable. Judged on the case's own path set, it would be `unsupported`
+/// (`end-not-comparable:work-bound`).
+#[test]
+fn an_any_state_case_judges_comparability_on_a_separate_state_set() {
+    let mut reached = any_state("<k> chain(0) ~> _ </k>");
+    reached.comparable = true;
+    let report = run(fixture_spec(
+        &MERGE,
+        "merge/chain.pgm",
+        ("chain(10)", "10", 10),
+        reached,
+        all_paths(Some(400), None),
+    ));
+    assert_eq!(
+        verdict(&report),
+        (OutcomeClass::Hit, None),
+        "{:?}",
+        report.outcome
+    );
+    let witness = report.witness().expect("a witness");
+    assert_eq!(
+        witness
+            .first
+            .comparable
+            .as_ref()
+            .map(|comparable| comparable.holds),
+        Some(true)
+    );
+}
+
+/// Guard (review of C1, M5). MERGE `go(5)` against `at: any-state` `<k> c(5) ~> _ </k>`, the
+/// absorbed branch's state at depth 1: an any-state case runs a path set, where every path
+/// keeps its leaf and so every configuration on it, so the case is a hit. A state set would
+/// show no leaf whose path passes `c(5)`, since that branch's arrival at depth 2 is absorbed.
+#[test]
+fn an_any_state_case_sees_the_branch_a_state_set_would_absorb() {
+    let report = run(fixture_spec(
+        &MERGE,
+        "merge/go.pgm",
+        ("go(5)", "5", 5),
+        any_state("<k> c(5) ~> _ </k>"),
+        all_paths(None, None),
+    ));
+    assert_eq!(
+        verdict(&report),
+        (OutcomeClass::Hit, None),
+        "{:?}",
+        report.outcome
+    );
+}

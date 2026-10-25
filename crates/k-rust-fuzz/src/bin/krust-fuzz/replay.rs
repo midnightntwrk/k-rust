@@ -36,15 +36,20 @@ pub const WITNESS_SCHEMA: &str = "krust-fuzz-witness";
 pub const WITNESS_VERSION: u32 = 2;
 
 /// Why a report older than version 9 is not replayed (FZ-STATESET): appended to its refusal.
+/// It names only the runs version 9 moved to state sets, since the witness's own kind is not
+/// read before the refusal: a differential case's sides were state sets before version 9 too.
 const MODALITY_CHANGE: &str = concat!(
-    " (reports before version 9 judged every case on path sets; this krust-fuzz judges an ",
-    "all-paths rule, final-pattern or comparability run on a state set, which keeps one leaf ",
-    "per distinct configuration of a depth, so its final configurations, steps and reaching ",
-    "leaf need not be the witness's; run the campaign again for a witness of this build)",
+    " (since version 9 an all-paths rule target, a pattern `at: final` and the program's run ",
+    "of every path that judges comparability run as state sets, which keep one leaf per ",
+    "distinct configuration of a depth, where earlier versions ran them as path sets; so ",
+    "such a witness's final configurations, steps and reaching leaf need not be what this ",
+    "build reports; run the campaign again for a witness of this build)",
 );
 
 /// What a change of `identity.execution-modality` means for a replay (FZ-STATESET), appended
-/// to that field's mismatch.
+/// to that field's mismatch. Within version 9 the field is a function of the target and the
+/// path mode, whose own mismatches come first, so it explains a mismatch only when a later
+/// change re-derives a modality within one report version.
 const MODALITY_MISMATCH: &str = concat!(
     " (the witness's runs reported their paths otherwise: a state set keeps one leaf per ",
     "distinct configuration of a depth and merges converging paths, a path set one leaf per ",

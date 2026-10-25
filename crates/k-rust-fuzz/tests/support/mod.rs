@@ -670,19 +670,22 @@ fixture!(
     CLAIMSTEP_PROGRAMS
 );
 
-/// The diamond pair (FZ-DIFFEND): two converging paths, one of which reads a chosen value whose
-/// mark a state-set merge moves to the result's list.
 /// Branches that meet in one configuration at one depth (FZ-STATESET): a state set keeps the
 /// arrival it meets first, so a rule fired on the other is on no leaf's trace (B1), and the leaf
 /// carries the first arrival's facts (V1); `pick(0)` rolls back a candidate whose successor is
-/// undefined.
+/// undefined; `tri(N)` absorbs a branch beside one that stops abnormally; `chain(N)` has 2^N
+/// paths and 3N + 1 distinct states.
 pub const MERGE_PROGRAMS: &[Program] = &[
     program!("merge/go.pgm"),
     program!("merge/mark.pgm"),
     program!("merge/pick.pgm"),
+    program!("merge/tri.pgm"),
+    program!("merge/chain.pgm"),
 ];
 fixture!(MERGE, "merge/merge.k", "MERGE", MERGE_PROGRAMS);
 
+/// The diamond pair (FZ-DIFFEND): two converging paths, one of which reads a chosen value whose
+/// mark a state-set merge moves to the result's list.
 pub const DIAMOND_PROGRAMS: &[Program] = &[program!("diamond/go.pgm")];
 fixture!(DIAMOND, "diamond/diamond.k", "DIAMOND", DIAMOND_PROGRAMS);
 fixture!(

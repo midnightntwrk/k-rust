@@ -364,6 +364,12 @@ pub(crate) struct Judgement {
     pub(crate) blocked: bool,
     /// Why the case is `unsupported` ([`crate::exec::reasons`]); `Some` exactly then.
     pub(crate) reason: Option<UnjudgedReason>,
+    /// The class the case's leaves gave when [`UnjudgedReason::FiredOffTrace`] replaced it by
+    /// `unsupported`, and `None` otherwise. That reason says only that the target cannot be
+    /// judged; the leaves are the run's own, so a clean abnormal stop among them is still a
+    /// `stuck` finding of the program, and the incidental finding is decided from this class
+    /// ([`crate::report::Incidentals`]).
+    pub(crate) demoted_from: Option<OutcomeClass>,
 }
 
 /// A target resolved against one definition: rules mapped to catalog ids, patterns compiled for
@@ -497,6 +503,27 @@ pub(crate) fn execution_modality(target: &Target, paths: PathMode) -> ExecutionM
             .then_some(ResultModality::PathSet),
         },
     }
+}
+
+/// Whether a `fired` case's `class` means, among other things, that no path which fired the
+/// rule reached a clean end of the kind the target asks for: `miss` (every leaf a clean natural
+/// end, none on such a path), `stuck` (no clean leaf on such a path, and one clean abnormal
+/// stop) and `reached-unfinished` (only paths that did not end cleanly and naturally fired it,
+/// under `run-to-completion`). On a state set that is unjudgeable once the rule is in coverage
+/// `applied`: an arrival absorbed into a recorded state of its depth may have fired it on its
+/// own path, and its continuation is the recorded state's subtree, whose clean end then lies on
+/// a path that fired the rule while the end's leaf keeps another arrival's trace (a leaf
+/// absorbed by the final merge is such an end itself). Such a case is `unsupported` with
+/// [`UnjudgedReason::FiredOffTrace`].
+///
+/// The other non-hit classes make no such claim and stand: `depth-bound`, `work-bound` and
+/// `timeout` already say that the run is incomplete, and `undefined` names an undefined step a
+/// leaf really took. An absorbed hit can therefore surface as one of them (V7).
+fn denies_a_clean_reaching_end(class: OutcomeClass) -> bool {
+    matches!(
+        class,
+        OutcomeClass::Miss | OutcomeClass::Stuck | OutcomeClass::ReachedUnfinished
+    )
 }
 
 impl ResolvedTarget {
@@ -698,14 +725,16 @@ impl ResolvedTarget {
     /// coverage, so the remaining leaf need not be on the path that reached the rule (phase-1
     /// review N7). On one path the run is its leaf's path.
     ///
-    /// A `fired` case on a state set that would be `miss` or `stuck` while its rule is in
-    /// coverage `applied` is `unsupported` with [`UnjudgedReason::FiredOffTrace`] (FZ-STATESET
-    /// B1): a merged leaf keeps the trace of its first arrival only, so the rule may have fired
-    /// on an absorbed arrival's path, which may end in a clean leaf that would be a hit; it may
-    /// equally have built only a rolled-back candidate, which no path took. A hit is read from
-    /// a retained trace or terminal halt alone, which is that leaf's own path, so it stays sound.
-    /// On a path set every path keeps its leaf, so a rule in `applied` on no trace built only
-    /// rolled-back or vanished candidates, and `miss` stands.
+    /// A `fired` case on a state set that would be `miss`, `stuck` or `reached-unfinished`
+    /// while its rule is in coverage `applied` is `unsupported` with
+    /// [`UnjudgedReason::FiredOffTrace`] (FZ-STATESET B1, [`denies_a_clean_reaching_end`]): a
+    /// merged leaf keeps the trace of its first arrival only, so the rule may have fired on an
+    /// absorbed arrival's path, which may end in a clean leaf that would be a hit; it may
+    /// equally have built only a rolled-back candidate, which no path took. The class it
+    /// replaces is kept in [`Judgement::demoted_from`] for the incidental finding. A hit is
+    /// read from a retained trace or terminal halt alone, which is that leaf's own path, so it
+    /// stays sound. On a path set every path keeps its leaf, so a rule in `applied` on no trace
+    /// built only rolled-back or vanished candidates, and the class stands.
     ///
     /// # Errors
     ///
@@ -763,14 +792,16 @@ impl ResolvedTarget {
             class = OutcomeClass::Unsupported;
             reason = Some(UnjudgedReason::RunFactOffLeaves);
         }
+        let mut demoted_from = None;
         if let Resolved::Rule {
             id,
             mode: RuleMode::Fired,
         } = &self.resolved
             && state_set
-            && matches!(class, OutcomeClass::Miss | OutcomeClass::Stuck)
+            && denies_a_clean_reaching_end(class)
             && rule::applied(id, result.coverage.as_ref())
         {
+            demoted_from = Some(class);
             class = OutcomeClass::Unsupported;
             reason = Some(UnjudgedReason::FiredOffTrace);
         }
@@ -808,6 +839,7 @@ impl ResolvedTarget {
             hit_site,
             blocked,
             reason,
+            demoted_from,
         };
         let term_conjunction = match hit_site {
             Some(HitSite::Leaf(index)) => result.leaves[index].term_conjunction,

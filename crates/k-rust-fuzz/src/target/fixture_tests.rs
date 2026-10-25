@@ -204,6 +204,7 @@ fn condition_reached_holds_on_a_failing_guard() {
             hit_site: Some(HitSite::Leaf(0)),
             blocked: true,
             reason: None,
+            demoted_from: None,
         }
     );
     for mode in [RuleMode::Fired, RuleMode::Covered] {
@@ -410,6 +411,7 @@ fn a_coverage_hit_over_several_clean_leaves_is_the_runs() {
                         hit_site: Some(HitSite::Run),
                         blocked: false,
                         reason: None,
+                        demoted_from: None,
                     },
                     "{mode:?} {label}"
                 );

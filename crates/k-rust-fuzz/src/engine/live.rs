@@ -956,12 +956,16 @@ impl LiveCases {
         } = target.run_and_judge(&mut side.executor, &prepared.assembled, &side.shape, cancel)?;
         let sides: Vec<_> = std::iter::once(&result).chain(&every_path).collect();
         let mut run = run_of(&result, &sides);
+        // The class of the case's leaves, which decides its incidental finding: the class, or
+        // the one `fired-off-trace` replaced (`Judgement::demoted_from`).
+        let mut leaves_class = None;
         run.pattern_body_matches = target.pattern_body_matches(&result);
         run.progress = progress;
         run.cut = cut_of(&result);
         match judged {
             Ok(judgement) => {
                 run.class = judgement.class;
+                leaves_class = judgement.demoted_from;
                 run.unjudged = data_reason(judgement.reason, &self.baseline, None);
                 run.blocked = judgement.blocked;
                 if judgement.class == OutcomeClass::Hit {
@@ -1025,11 +1029,13 @@ impl LiveCases {
                 run.defects.push(defect.description);
             }
         }
-        // The case's one run is the finding's: its determinism is the case's.
-        if self.wants_incidental(run.class, !run.outside_determinism) {
+        // The case's one run is the finding's: its determinism is the case's. A case that
+        // `fired-off-trace` made `unsupported` keeps the finding of its leaves' class: that
+        // reason says the target cannot be judged, not that the leaves are not real.
+        let class = leaves_class.unwrap_or(run.class);
+        if self.wants_incidental(class, !run.outside_determinism) {
             let paths = self.spec.options.paths;
             let terminal_rules = target.needs(paths).terminal_rules;
-            let class = run.class;
             run.incidental =
                 self.incidental_of(class, values, &prepared, &result, paths, &terminal_rules);
         }

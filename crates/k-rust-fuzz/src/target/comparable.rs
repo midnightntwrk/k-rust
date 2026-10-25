@@ -80,6 +80,7 @@ impl ResolvedTarget {
                 reason: Some(UnjudgedReason::QueryNotConfirmable(QueryNotConfirmable(
                     *condition,
                 ))),
+                demoted_from: None,
             },
         }
     }
@@ -146,6 +147,7 @@ impl ResolvedTarget {
                     hit_site: None,
                     blocked: hit.blocked,
                     reason: None,
+                    demoted_from: None,
                 }
             } else {
                 Judgement {
@@ -155,6 +157,7 @@ impl ResolvedTarget {
                     reason: Some(crashed.unwrap_or(UnjudgedReason::EndNotComparable(
                         EndNotComparable(*condition),
                     ))),
+                    demoted_from: None,
                 }
             };
             return Ok((Ok(refused), None, every_path));
@@ -170,7 +173,8 @@ impl ResolvedTarget {
 
     /// The comparable judgement of a reported witness case that its case did not make
     /// ([`Self::judge_comparable`]): a rule or pattern target without `comparable-end` whose
-    /// case `shape` runs one path or names a terminal rule. It runs the program from `initial`
+    /// case `shape` runs one path, names a terminal rule or asks for a path set (an all-paths
+    /// `at: any-state` case, FZ-STATESET N2). It runs the program from `initial`
     /// on every path on `executor` within `cancel`'s scope, outside every case, and gives the
     /// judgement with that run's work (at least 1) for the campaign's total. A failed solver
     /// prelude, which the witness's own run passed, reads as `run-failed`. `None` when the case

@@ -661,6 +661,7 @@ fn a_failing_guard_is_a_condition_reached_hit_and_a_blocked_miss_otherwise() {
             hit_site: Some(HitSite::Leaf(0)),
             blocked: true,
             reason: None,
+            demoted_from: None,
         }
     );
     for mode in [RuleMode::Fired, RuleMode::Covered] {
@@ -738,9 +739,10 @@ fn a_coverage_hit_on_all_paths_names_no_leaf_even_with_one_leaf_left() {
 }
 
 /// FZ-STATESET B1: on a state set, a `fired` rule in coverage `applied` on no retained trace may
-/// have fired on an absorbed arrival's path, so a would-be `miss` or `stuck` is `unsupported`
-/// with `fired-off-trace`; on a path set every path keeps its leaf, so it is `miss`. A retained
-/// trace is still a hit, and a rule outside `applied` is still a `miss`.
+/// have fired on an absorbed arrival's path, so a would-be `miss`, `stuck` or
+/// `reached-unfinished` is `unsupported` with `fired-off-trace`, and the class it replaces is
+/// kept for the incidental finding; on a path set every path keeps its leaf, so the class
+/// stands. A retained trace is still a hit, and a rule outside `applied` is still a `miss`.
 #[test]
 fn a_fired_rule_applied_on_no_retained_trace_is_never_a_state_set_miss() {
     let target = rule_target("id-div", RuleMode::Fired, false);
@@ -761,12 +763,49 @@ fn a_fired_rule_applied_on_no_retained_trace_is_never_a_state_set_miss() {
     assert_eq!(judged(&off_trace, false), (OutcomeClass::Miss, None));
     let mut stuck = natural_end();
     stuck.natural_end = false;
+    let stuck_case = case(vec![stuck.clone()], &["id-div"], &[]);
     assert_eq!(
-        judged(&case(vec![stuck], &["id-div"], &[]), true),
+        judged(&stuck_case, true),
         (
             OutcomeClass::Unsupported,
             Some(UnjudgedReason::FiredOffTrace)
         )
+    );
+    assert_eq!(
+        target
+            .judge_run(&stuck_case, true, true)
+            .expect("no engine defect")
+            .demoted_from,
+        Some(OutcomeClass::Stuck)
+    );
+    // Under run-to-completion, a reach on a retained leaf that stops abnormally beside a clean
+    // natural end: on a state set the natural end may stand for an absorbed arrival that fired
+    // the rule, so `reached-unfinished` is not judged either (review S1).
+    let mut unfinished = stuck;
+    unfinished.rewrites = vec!["id-div".to_owned()];
+    let unfinished_case = case(vec![natural_end(), unfinished], &["id-div"], &[]);
+    let completing = rule_target("id-div", RuleMode::Fired, true);
+    let on_state_set = completing
+        .judge_run(&unfinished_case, true, true)
+        .expect("no engine defect");
+    assert_eq!(
+        (
+            on_state_set.class,
+            on_state_set.reason,
+            on_state_set.demoted_from
+        ),
+        (
+            OutcomeClass::Unsupported,
+            Some(UnjudgedReason::FiredOffTrace),
+            Some(OutcomeClass::ReachedUnfinished)
+        )
+    );
+    let on_path_set = completing
+        .judge_run(&unfinished_case, true, false)
+        .expect("no engine defect");
+    assert_eq!(
+        (on_path_set.class, on_path_set.demoted_from),
+        (OutcomeClass::ReachedUnfinished, None)
     );
     assert_eq!(
         judged(&case(vec![natural_end()], &["other"], &[]), true),
@@ -784,7 +823,13 @@ fn a_fired_rule_applied_on_no_retained_trace_is_never_a_state_set_miss() {
     cut.natural_end = false;
     cut.unclean = vec![UncleanReason::Halt];
     assert_eq!(
-        judged(&case(vec![cut], &["id-div"], &[]), true),
+        judged(&case(vec![cut.clone()], &["id-div"], &[]), true),
+        (OutcomeClass::DepthBound, None)
+    );
+    // So does a cut beside a clean natural end that might stand for an absorbed reach: a cut
+    // class concedes the run is incomplete, and claims no miss (V7).
+    assert_eq!(
+        judged(&case(vec![natural_end(), cut], &["id-div"], &[]), true),
         (OutcomeClass::DepthBound, None)
     );
     // A coverage mode reads `applied` itself, whatever the modality.

@@ -602,6 +602,7 @@ impl ResolvedTarget {
                 hit_site,
                 blocked: false,
                 reason,
+                demoted_from: None,
             },
             hit_step,
             paths.progress,
@@ -617,6 +618,7 @@ pub(super) fn explained(class: OutcomeClass, reason: Option<UnjudgedReason>) -> 
         hit_site: None,
         blocked: false,
         reason,
+        demoted_from: None,
     }
 }
 

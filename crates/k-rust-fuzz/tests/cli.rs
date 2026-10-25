@@ -1301,10 +1301,12 @@ fn a_witness_of_an_older_report_version_is_refused_by_its_version() {
     assert!(stderr.contains("krust-fuzz-witness version 0"), "{stderr}");
 }
 
-/// FZ-STATESET (S8): a version-8 witness was found and judged on path sets, where version 9
-/// judges all-paths rule, `final` pattern and comparability runs on state sets, which report
-/// each distinct end once; its final configurations, steps and reaching leaf need not be
-/// this build's, so it is refused by its version, and the refusal says why.
+/// FZ-STATESET (S8): version 9 judges all-paths rule, `final` pattern and comparability runs on
+/// state sets, which report each distinct end once, where version 8 ran them as path sets; a
+/// version-8 witness's final configurations, steps and reaching leaf need not be this build's,
+/// so it is refused by its version, and the refusal says why. The refusal names those runs
+/// only: a differential witness's sides were state sets before version 9 too, so it claims
+/// no path set for every case.
 #[test]
 fn a_version_8_witness_is_refused_by_its_version_with_the_modality_change() {
     let directory = le_workspace("report-version-8");
@@ -1326,6 +1328,7 @@ fn a_version_8_witness_is_refused_by_its_version_with_the_modality_change() {
         "{stderr}"
     );
     assert!(stderr.contains("state set"), "{stderr}");
+    assert!(!stderr.contains("every case"), "{stderr}");
 }
 
 /// FZ-RULEREF: a workspace holding kink's IMP (`kink/examples/imp/imp.k`, the pl-tutorial

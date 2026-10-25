@@ -322,8 +322,11 @@ pub struct ExecutionModality {
     /// one path (except the differential's sides), observers and `at: any-state`.
     pub cases: ResultModality,
     /// The program's run of every path that judges a rule or pattern hit's comparability
-    /// (`crate::Target::comparable`), when the case's own run is not that run: a state set.
-    /// Absent for the differential and observer targets, which judge none.
+    /// (`crate::Target::comparable`): a state set. Present for every rule and pattern target,
+    /// whether or not a case makes that run separately (an all-paths case with no terminal rule
+    /// on a state set is that run itself, and a campaign without `comparable` may never make
+    /// it), since its modality is that of whichever run judges comparability. Absent for the
+    /// differential and observer targets, which judge none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub every_path: Option<ResultModality>,
     /// The observed run whose configurations a pattern `at: any-state` is judged on: a path set.
@@ -1412,7 +1415,9 @@ pub struct EngineDefect {
 ///   before the step.
 ///
 /// In a rule, pattern or observer campaign that run is the case's, so the finding's class is
-/// the case's class. In a differential campaign the semantics under test is the baseline, so the
+/// the case's class, or, for a case that [`UnjudgedReason::FiredOffTrace`] made `unsupported`,
+/// the class its leaves gave (that reason says the target cannot be judged, while the leaves
+/// are the run's own). In a differential campaign the semantics under test is the baseline, so the
 /// finding comes from the baseline's own run of the case (all paths), classed alone, whatever
 /// the pair's class: a stop or undefined step only the mutant has is never a finding (it is a
 /// kill, or under `run-to-completion` the pair's own disagreement, which its class reports). A

@@ -194,6 +194,9 @@ impl Harness {
             .assemble(program.file, program.text, program.bindings)
             .unwrap_or_else(|error| panic!("{file} does not assemble: {error}"));
         let shape = CaseRequestShape::new(&self.options, &resolved.needs(self.options.paths));
+        // An observer folds its state over a path, which a state set's merge does not keep, so
+        // its case runs a path set in both path modes (FZ-STATESET).
+        assert!(!shape.state_set(), "an observer case asks for a path set");
         let judged = resolved
             .run_and_judge(&mut self.executor, &initial, &shape, None)
             .expect("no abort");

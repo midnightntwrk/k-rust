@@ -131,11 +131,13 @@ pub enum UnjudgedReason {
     /// carries, so another model of the definition may have another leaf (D16).
     RunFactOffLeaves,
     /// An all-paths `fired` target (a state-set run, FZ-STATESET B1): the target rule is in the
-    /// run's coverage `applied` but on no retained leaf's trace and no terminal halt. A state set
-    /// keeps one arrival per distinct configuration of a depth and drops the trace of every
-    /// other; coverage `applied` also holds a candidate whose successor was rolled back. So the
-    /// rule may have fired on a path that ends cleanly, or on no path at all: neither a hit nor a
-    /// `miss` or `stuck` is shown.
+    /// run's coverage `applied`, but no retained leaf's trace or terminal halt shows it on a
+    /// path that ends as the target needs, so the case would be `miss`, `stuck` or
+    /// `reached-unfinished`. A state set keeps one arrival per distinct configuration of a depth
+    /// and drops the trace of every other; coverage `applied` also holds a candidate whose
+    /// successor was rolled back. So the rule may have fired on a path that ends cleanly (and
+    /// naturally, under `run-to-completion`), or on no such path: neither a hit nor one of
+    /// those classes is shown.
     FiredOffTrace,
     /// The target was reached on a leaf that took an undefined step (a `trivial` halt), which
     /// is no end; without `run-to-completion` that is no hit.
@@ -281,9 +283,10 @@ const HALT_SMT_REMEDY: &str = concat!(
 
 /// The remedy of [`UnjudgedReason::FiredOffTrace`].
 const FIRED_OFF_TRACE_REMEDY: &str = concat!(
-    "the target rule was applied in the run of every path, but on no path the result keeps: ",
-    "the state set kept another path to the same configuration, or the rule's successor was ",
-    "undefined and rolled back, so whether a path that fired it ends cleanly is not shown; ",
+    "the target rule was applied in the run of every path, but on no path the result keeps ",
+    "that ends as the target needs: the state set may have kept another path to the same ",
+    "configuration, or the rule's successor was undefined and rolled back, so whether a path ",
+    "that fired it ends that way is not shown; ",
     "target mode `covered` (campaign key `mode`, command line `--rule-mode`, library ",
     "`RuleMode::Covered`) asks whether any explored step applied the rule, and another program ",
     "or hole range may fire it on a path the result keeps",
