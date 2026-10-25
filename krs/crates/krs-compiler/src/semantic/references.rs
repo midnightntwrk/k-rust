@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use krs_ir::{
     Descriptor, DescriptorApplicationRef, DescriptorCellDeclaration, DescriptorCellField,
     DescriptorCellIdentity, DescriptorFixedConfiguration, DescriptorIndex,
@@ -268,12 +270,19 @@ fn validate_initializer_cell_references(
                     range: None,
                 });
             }
+            // A group's struct literal names each of its fields once, in any order.
             let nested_declaration = declarations.cell(&declaration.declaration)?;
-            if children.len() != nested_declaration.fields.len()
-                || children
-                    .iter()
-                    .zip(&nested_declaration.fields)
-                    .any(|(child, field)| child.field.cell != field.reference.cell)
+            let written = children
+                .iter()
+                .map(|child| &child.field.cell)
+                .collect::<BTreeSet<_>>();
+            if written.len() != children.len()
+                || written
+                    != nested_declaration
+                        .fields
+                        .iter()
+                        .map(|field| &field.reference.cell)
+                        .collect()
             {
                 return Err(DescriptorLoweringError::ParserReferenceDisagreement {
                     id: Box::new(declaration.declaration.clone()),

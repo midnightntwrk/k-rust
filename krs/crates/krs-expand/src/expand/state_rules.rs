@@ -793,11 +793,9 @@ impl<'a> StateRuleBuilder<'a> {
         slots: &mut WireSlots,
     ) -> crate::Result<ProtocolRuleKSequence<WireTerm>> {
         let ledger = self.terms.ledger;
-        let payload_key = if sequence.payload_key().is_some() {
-            Some(ledger.define(sequence.payload_key())?)
-        } else {
-            None
-        };
+        // Every shell has its payload key: an empty one is anchored at
+        // its invocation.
+        let payload_key = Some(ledger.define(sequence.payload_key())?);
         let dot_k_key = if sequence.notation() == KSequenceNotation::DotK {
             Some(ledger.define(sequence.tail_key())?)
         } else {
@@ -835,11 +833,9 @@ impl<'a> StateRuleBuilder<'a> {
         slots: &mut WireSlots,
     ) -> crate::Result<ProtocolRuleMap<WireTerm>> {
         let ledger = self.terms.ledger;
-        let payload_key = if map.payload_key().is_some() {
-            Some(ledger.define(map.payload_key())?)
-        } else {
-            None
-        };
+        // Every shell has its payload key: an empty one is anchored at
+        // its invocation.
+        let payload_key = Some(ledger.define(map.payload_key())?);
         let body = match map.body() {
             MapBody::Empty { explicit_dot } => ProtocolRuleMapBody::Empty {
                 explicit_dot: *explicit_dot,

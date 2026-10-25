@@ -462,8 +462,8 @@ protocol_shape! {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct ProtocolKSequence<T => term_map => T2> {
-        /// Complete payload provenance.
-        /// Empty `k![]` alone has no inner endpoint.
+        /// Complete payload provenance, at the invocation of an empty
+        /// `k![]`; every sequence has it.
         pub payload_key: Option<ProvenanceKey> => [keep],
         /// Exact `.K` provenance for standalone dot notation.
         pub dot_k_key: Option<ProvenanceKey> => [keep],
@@ -529,8 +529,8 @@ protocol_shape! {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct ProtocolMap<T => term_map => T2> {
-        /// Complete payload provenance.
-        /// Empty `map![]` alone has no inner endpoint.
+        /// Complete payload provenance, at the invocation of an empty
+        /// `map![]`; every map has it.
         pub payload_key: Option<ProvenanceKey> => [keep],
         /// Typed map operation.
         pub body: ProtocolMapBody<T> => [nested term_map],
@@ -711,9 +711,10 @@ pub enum StateTransportError {
     CellFieldMismatch,
     /// Initializer and declaration field trees disagreed.
     InitializerDeclarationMismatch {
-        /// The initializer node that disagrees, when one does: a cell whose field is not the
-        /// declaration's, or the initializer of another owner.
-        at: Option<ProvenanceKey>,
+        /// The initializer node that disagrees: a cell whose field is not the declaration's or
+        /// repeats one written before it, the struct literal when it leaves a declared field
+        /// out, or the initializer of another owner.
+        at: ProvenanceKey,
     },
     /// More than one configuration variable was marked main.
     MultipleMainVariables,
@@ -752,8 +753,8 @@ impl StateTransportError {
     #[must_use]
     pub const fn at(&self) -> Option<&ProvenanceKey> {
         match self {
-            Self::InitializerDeclarationMismatch { at } => at.as_ref(),
-            Self::UnexpectedProvenance { actual: key, .. }
+            Self::InitializerDeclarationMismatch { at: key }
+            | Self::UnexpectedProvenance { actual: key, .. }
             | Self::MismatchedProvenance { actual: key, .. }
             | Self::DuplicateProvenance(key)
             | Self::ExtraProvenance(key) => Some(key),
@@ -848,6 +849,9 @@ impl From<KeyFailure> for StateTransportError {
             KeyFailure::Duplicate(key) => Self::DuplicateProvenance(key),
             KeyFailure::Missing(key) => Self::MissingProvenance(key),
             KeyFailure::Extra(key) => Self::ExtraProvenance(key),
+            KeyFailure::UnkeyedShell => {
+                Self::InvalidCellContent(StateCellContentReason::MissingShellPayloadProvenance)
+            }
         }
     }
 }
@@ -1467,7 +1471,7 @@ fn validate_initializer<S: ConfigurationValidationStage>(
 ) -> Result<(), StateTransportError> {
     if !S::owners_match(&initializer.owner, owner) {
         return Err(StateTransportError::InitializerDeclarationMismatch {
-            at: Some(initializer.owner_key.clone()),
+            at: initializer.owner_key.clone(),
         });
     }
     keys.define(&initializer.key, ProvenanceRole::InitializerDeclaration)?;
@@ -1481,6 +1485,7 @@ fn validate_initializer<S: ConfigurationValidationStage>(
         &initializer.cells,
         &declaration.fields,
         owner,
+        &initializer.body_key,
         &bindings,
         keys,
     )
@@ -1544,6 +1549,7 @@ fn validate_initializer_cells<S: ConfigurationValidationStage>(
     cells: &[StageInitializerCell<S>],
     declarations: &[StageCellField<S>],
     owner: &S::InitializerOwner,
+    body_key: &ProvenanceKey,
     bindings: &BTreeSet<String>,
     keys: &mut WireKeys,
 ) -> Result<(), StateTransportError> {
@@ -1552,16 +1558,29 @@ fn validate_initializer_cells<S: ConfigurationValidationStage>(
             TransportField::InitializerCellFields,
         ));
     }
-    if cells.len() != declarations.len() {
-        return Err(StateTransportError::InitializerDeclarationMismatch { at: None });
-    }
-    for (cell, declaration) in cells.iter().zip(declarations) {
-        if !S::initializer_field_matches(&cell.field, declaration, owner) {
+    // The body is a struct literal, whose field order has no meaning: each cell is matched to
+    // its declared field by identity, and every declared field is written exactly once.
+    let mut written = vec![false; declarations.len()];
+    for cell in cells {
+        let Some(index) = declarations
+            .iter()
+            .position(|declaration| S::initializer_field_matches(&cell.field, declaration, owner))
+        else {
             return Err(StateTransportError::InitializerDeclarationMismatch {
-                at: Some(cell.key.clone()),
+                at: cell.key.clone(),
+            });
+        };
+        if std::mem::replace(&mut written[index], true) {
+            return Err(StateTransportError::InitializerDeclarationMismatch {
+                at: cell.key.clone(),
             });
         }
-        validate_initializer_cell::<S>(cell, Some(declaration), owner, bindings, keys)?;
+        validate_initializer_cell::<S>(cell, Some(&declarations[index]), owner, bindings, keys)?;
+    }
+    if written.contains(&false) {
+        return Err(StateTransportError::InitializerDeclarationMismatch {
+            at: body_key.clone(),
+        });
     }
     Ok(())
 }
@@ -1616,7 +1635,7 @@ fn validate_initializer_cell<S: ConfigurationValidationStage>(
             validate_nested_children::<S>(children, &S::nested_owner(nested), bindings, keys)
         }
         _ => Err(StateTransportError::InitializerDeclarationMismatch {
-            at: Some(cell.key.clone()),
+            at: cell.key.clone(),
         }),
     }
 }
@@ -1632,7 +1651,7 @@ fn validate_nested_children<S: ConfigurationValidationStage>(
         if !S::cell_owned_by(&child.field, owner) || !fields.insert(S::field_identity(&child.field))
         {
             return Err(StateTransportError::InitializerDeclarationMismatch {
-                at: Some(child.key.clone()),
+                at: child.key.clone(),
             });
         }
         validate_initializer_cell::<S>(child, None, owner, bindings, keys)?;
@@ -1718,12 +1737,13 @@ fn validate_k_sequence_shell<T>(
     sequence: &ProtocolKSequence<T>,
     keys: &mut WireKeys,
 ) -> Result<(), StateTransportError> {
-    if let Some(payload_key) = &sequence.payload_key {
-        keys.define(payload_key, ProvenanceRole::KSequencePayload)?;
-    }
+    keys.define(
+        shell_payload_key(sequence.payload_key.as_ref())?,
+        ProvenanceRole::KSequencePayload,
+    )?;
     match sequence.notation {
         DescriptorKSequenceNotation::DotK => {
-            if !sequence.items.is_empty() || sequence.payload_key.is_none() {
+            if !sequence.items.is_empty() {
                 return Err(StateTransportError::InvalidCellContent(
                     StateCellContentReason::InvalidStandaloneDotKPayload,
                 ));
@@ -1739,7 +1759,6 @@ fn validate_k_sequence_shell<T>(
         }
         DescriptorKSequenceNotation::Comma | DescriptorKSequenceNotation::Operator => {
             if sequence.dot_k_key.is_some()
-                || (!sequence.items.is_empty() && sequence.payload_key.is_none())
                 || (sequence.notation == DescriptorKSequenceNotation::Operator
                     && sequence.items.len() < 2)
             {
@@ -1756,32 +1775,29 @@ fn validate_map_shell<T>(
     map: &ProtocolMap<T>,
     keys: &mut WireKeys,
 ) -> Result<(), StateTransportError> {
-    if let Some(payload_key) = &map.payload_key {
-        keys.define(payload_key, ProvenanceRole::MapPayload)?;
-    }
-    match &map.body {
-        ProtocolMapBody::Empty { explicit_dot } => {
-            if *explicit_dot != map.payload_key.is_some() {
-                return Err(StateTransportError::InvalidCellContent(
-                    StateCellContentReason::EmptyMapPayloadProvenanceMismatch,
-                ));
-            }
-        }
-        ProtocolMapBody::Items { items } => {
-            if items.is_empty() || map.payload_key.is_none() {
-                return Err(StateTransportError::InvalidCellContent(
-                    StateCellContentReason::EmptyMapItemPayload,
-                ));
-            }
-        }
-        ProtocolMapBody::Update { .. } if map.payload_key.is_none() => {
-            return Err(StateTransportError::InvalidCellContent(
-                StateCellContentReason::MapUpdateRequiresPayloadProvenance,
-            ));
-        }
-        ProtocolMapBody::Update { .. } => {}
+    keys.define(
+        shell_payload_key(map.payload_key.as_ref())?,
+        ProvenanceRole::MapPayload,
+    )?;
+    if let ProtocolMapBody::Items { items } = &map.body
+        && items.is_empty()
+    {
+        return Err(StateTransportError::InvalidCellContent(
+            StateCellContentReason::EmptyMapItemPayload,
+        ));
     }
     Ok(())
+}
+
+/// A `k!` or `map!` shell's payload key, which every shell has: it is
+/// anchored at the payload, or at the invocation of an empty shell. The
+/// wire field stays optional until the next schema bump.
+fn shell_payload_key(
+    payload_key: Option<&ProvenanceKey>,
+) -> Result<&ProvenanceKey, StateTransportError> {
+    payload_key.ok_or(StateTransportError::InvalidCellContent(
+        StateCellContentReason::MissingShellPayloadProvenance,
+    ))
 }
 
 fn validate_initializer_term<S: ConfigurationValidationStage>(

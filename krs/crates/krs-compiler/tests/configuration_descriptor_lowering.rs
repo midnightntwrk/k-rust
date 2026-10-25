@@ -174,6 +174,75 @@ fn exact_empty_map_can_rewrite_to_exact_map_items() {
     assert!(emitted.source().contains("|->"));
 }
 
+/// `env: Cell(k::map![])` on a cell declared `Int` is refused at the empty
+/// map's own key, anchored at its `k::map![]` invocation, not at the cell.
+#[test]
+fn an_empty_map_in_a_non_map_rule_cell_is_reported_at_its_spelling() {
+    let mut bundle = bundle();
+    let mut descriptors = bundle.descriptors.clone();
+    for entry in &mut descriptors {
+        match &mut entry.payload {
+            DescriptorPayload::FixedConfiguration(configuration) => {
+                set_leaf_sort(&mut configuration.declaration.fields[1], BuiltinSort::Int);
+                configuration.initializer.variables[1].sort.sort =
+                    DescriptorSortRef::Builtin(BuiltinSort::Int);
+                *entry = descriptor(entry.id.clone(), entry.payload.clone());
+            }
+            DescriptorPayload::ConfigurationRule(rule) => {
+                rule.subject.cells[1].value = ProtocolRuleStateTerm::Map(ProtocolRuleMap {
+                    payload_key: Some(key(ProvenanceRole::RuleLeftMapPayload, 0)),
+                    body: ProtocolRuleMapBody::Empty {
+                        explicit_dot: false,
+                    },
+                });
+                let ProtocolRuleStateTerm::KSequence(result_k) =
+                    &mut rule.result.as_mut().unwrap().cells[0].value
+                else {
+                    unreachable!();
+                };
+                result_k.items[0].value = variable(ProvenanceRole::RuleRightReference, 0, "X");
+                rule.bindings
+                    .retain(|binding| matches!(binding.name.as_str(), "X" | "tail" | "state"));
+            }
+            _ => {}
+        }
+    }
+    bundle.descriptors = descriptors;
+    refresh_rule_provenance(&mut bundle);
+    let bundle = bundle.build().unwrap();
+    let error = lower_descriptor_bundle(&bundle).unwrap_err();
+    assert!(
+        error
+            .to_string()
+            .contains("map occurs in a non-Map rule cell"),
+        "unexpected error: {error}"
+    );
+    let rule = bundle
+        .descriptors()
+        .iter()
+        .find(|descriptor| {
+            matches!(
+                descriptor.payload(),
+                DescriptorPayload::ConfigurationRule(_)
+            )
+        })
+        .unwrap();
+    let range_of = |role| {
+        rule.provenance()
+            .origin_for(&key(role, 0))
+            .and_then(krs_ir::OriginStack::exact_authored_range)
+            .unwrap()
+    };
+    assert_eq!(
+        error.range(),
+        Some(&range_of(ProvenanceRole::RuleLeftMapPayload))
+    );
+    assert_ne!(
+        error.range(),
+        Some(&range_of(ProvenanceRole::RuleLeftCellsField))
+    );
+}
+
 #[test]
 fn result_only_cell_is_rejected_before_configuration_lowering() {
     let mut bundle = bundle();
@@ -360,8 +429,8 @@ fn duplicate_descriptor_precedes_dangling_reference_validation() {
     );
 }
 
-/// Edit the configuration descriptor, refresh its provenance, and return the lowering error text.
-fn console_error(edit: impl FnOnce(&mut DescriptorFixedConfiguration)) -> String {
+/// The fixture bundle with its configuration descriptor edited and its provenance refreshed.
+fn edited_bundle(edit: impl FnOnce(&mut DescriptorFixedConfiguration)) -> DescriptorBundleInputs {
     let mut bundle = bundle();
     let mut descriptors = bundle.descriptors.clone();
     let configuration = descriptors
@@ -379,13 +448,40 @@ fn console_error(edit: impl FnOnce(&mut DescriptorFixedConfiguration)) -> String
     edit(payload);
     *configuration = descriptor(configuration.id.clone(), configuration.payload.clone());
     bundle.descriptors = descriptors;
-    let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
+    bundle
+}
+
+/// Edit the configuration descriptor, refresh its provenance, and return the lowering error text.
+fn console_error(edit: impl FnOnce(&mut DescriptorFixedConfiguration)) -> String {
+    let error = lower_descriptor_bundle(&edited_bundle(edit).build().unwrap()).unwrap_err();
     assert_eq!(
         krs_diagnostic::ToDiagnostic::to_diagnostic(&error).code,
         krs_diagnostic::codes::analysis::CONSOLE_CELL,
         "{error}"
     );
     error.to_string()
+}
+
+/// A struct literal's field order has no meaning: an initializer that writes its cells in
+/// another order than the declaration's is the same configuration, its cells keeping their keys.
+#[test]
+fn initializer_cells_in_any_order_lower_in_declaration_order() {
+    let in_order = lower_descriptor_bundle(&bundle().build().unwrap()).unwrap();
+    let reordered = lower_descriptor_bundle(
+        &edited_bundle(|configuration| configuration.initializer.cells.swap(0, 1))
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        reordered.to_canonical_json().unwrap(),
+        in_order.to_canonical_json().unwrap()
+    );
+    let (_, emitted) = assert_lowering_contract(&reordered);
+    assert_eq!(
+        emitted.source(),
+        assert_lowering_contract(&in_order).1.source()
+    );
 }
 
 fn stream(ordinal: u32, value: CellStream) -> DescriptorCellStream {

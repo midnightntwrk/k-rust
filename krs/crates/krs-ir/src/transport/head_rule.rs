@@ -1698,6 +1698,110 @@ mod tests {
         );
     }
 
+    /// A readable state's shells have their payload keys, as every shell
+    /// does: an instance child `[]` or `map![]` without its key is refused
+    /// at the transport.
+    #[test]
+    fn a_readable_state_shell_has_its_payload_key() {
+        use crate::transport::detail::StateCellContentReason;
+        use crate::{
+            InstanceDelimiter, ProtocolInstanceRest, ProtocolRuleFrame, ProtocolRuleInstance,
+            ProtocolRuleInstanceField, ProtocolRuleInstances, ProtocolRuleKSequence,
+            ProtocolRuleMap, ProtocolRuleMapBody, ProtocolRuleStateTerm,
+        };
+
+        let key = ProvenanceKey::new;
+        // `threads: [Thread { k: [] }]`, its child the given shell.
+        let with_child = |child| {
+            let mut rule = resolved_clause();
+            let ProtocolHeadRuleExtra::RewriteCell { cell, .. } = rule.extras.remove(0) else {
+                unreachable!()
+            };
+            rule.extras = vec![ProtocolHeadRuleExtra::RewriteState {
+                cell,
+                result_key: None,
+                before: ProtocolRuleStateTerm::Instances(ProtocolRuleInstances {
+                    delimiter: InstanceDelimiter::Bracket,
+                    front: vec![ProtocolRuleInstance {
+                        key: key(ProvenanceRole::RuleLeftCellsInstance, 0),
+                        label: None,
+                        fields: vec![ProtocolRuleInstanceField {
+                            key: key(ProvenanceRole::RuleLeftCellsInstanceField, 0),
+                            field: "k".to_owned(),
+                            value: child,
+                        }],
+                        rest: ProtocolInstanceRest::Exact,
+                    }],
+                    rest: ProtocolRuleFrame::Exact,
+                    back: Vec::new(),
+                }),
+                after: None,
+            }];
+            rule
+        };
+        let sequence = |payload_key| {
+            ProtocolRuleStateTerm::KSequence(ProtocolRuleKSequence {
+                payload_key,
+                dot_k_key: None,
+                notation: crate::DescriptorKSequenceNotation::Comma,
+                items: Vec::new(),
+                tail: ProtocolRuleFrame::Exact,
+            })
+        };
+        let map = |payload_key| {
+            ProtocolRuleStateTerm::Map(ProtocolRuleMap {
+                payload_key,
+                body: ProtocolRuleMapBody::Empty {
+                    explicit_dot: false,
+                },
+            })
+        };
+        let mut anchors = vec![
+            key(ProvenanceRole::RuleDeclaration, 0),
+            key(ProvenanceRole::RulePattern, 0),
+            key(ProvenanceRole::RuleResult, 0),
+            key(ProvenanceRole::RuleLeftReference, 0),
+            key(ProvenanceRole::RuleLeftPath, 0),
+            key(ProvenanceRole::RuleRightReference, 0),
+            key(ProvenanceRole::RuleRightPath, 0),
+            key(ProvenanceRole::RuleLeftCellsField, 0),
+            key(ProvenanceRole::RuleLeftCellsInstance, 0),
+            key(ProvenanceRole::RuleLeftCellsInstanceField, 0),
+            key(ProvenanceRole::RuleLeftKSequencePayload, 0),
+            key(ProvenanceRole::RuleLeftMapPayload, 0),
+        ];
+        let unkeyed = Err(crate::StateTransportError::InvalidCellContent(
+            StateCellContentReason::MissingShellPayloadProvenance,
+        ));
+
+        let keyed = with_child(sequence(Some(key(
+            ProvenanceRole::RuleLeftKSequencePayload,
+            0,
+        ))));
+        assert_eq!(keyed.validate_anchored_provenance(&anchors), Ok(()));
+        assert_eq!(
+            with_child(sequence(None)).validate_anchored_provenance(&anchors),
+            unkeyed
+        );
+
+        let keyed = with_child(map(Some(key(ProvenanceRole::RuleLeftMapPayload, 0))));
+        assert_eq!(keyed.validate_anchored_provenance(&anchors), Ok(()));
+        assert_eq!(
+            with_child(map(None)).validate_anchored_provenance(&anchors),
+            unkeyed
+        );
+
+        // The key is defined by the shell: one no anchor holds is refused.
+        anchors.pop();
+        assert_eq!(
+            keyed.validate_anchored_provenance(&anchors),
+            Err(crate::StateTransportError::MissingProvenance(key(
+                ProvenanceRole::RuleLeftMapPayload,
+                0
+            )))
+        );
+    }
+
     fn map_number(reference: u8, calls: &mut Vec<u8>) -> Result<u16, &'static str> {
         calls.push(reference);
         if reference == 9 {

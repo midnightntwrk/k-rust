@@ -54,6 +54,20 @@ pub(super) fn semantic_origin(
     semantic_origin_from_stack(descriptor, origin, role, Some(&key))
 }
 
+/// The payload key of a `k!` or `map!` shell, which every shell has: an empty
+/// shell's is anchored at its invocation. A shell without one is a payload
+/// the parser did not make.
+pub(super) fn shell_payload_key<'a>(
+    descriptor: &Descriptor,
+    key: Option<&'a ProvenanceKey>,
+) -> Result<&'a ProvenanceKey, DescriptorLoweringError> {
+    key.ok_or_else(|| DescriptorLoweringError::ParserReferenceDisagreement {
+        id: Box::new(descriptor.id().clone()),
+        detail: "a `k!` or `map!` shell lacks its payload key".into(),
+        range: None,
+    })
+}
+
 /// The exact authored range of the node `key` names in `descriptor`, if it has one.
 pub(super) fn key_range(
     descriptor: &Descriptor,

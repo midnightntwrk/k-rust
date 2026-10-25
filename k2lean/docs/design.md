@@ -117,16 +117,16 @@ The arity universe is the default of `gen` and `relate` since 2026-10-25 (K6): `
 Every generated theorem states the same thing on both universes, so no statement changed with the default.
 A library or demo whose arity form would lose a count stays per-sort, with `encoding = "per-sort"` in its gate registry entry (`tests/areas/AREA.py`; `gate.sh list` prints it); these are, with the reason of each:
 
-- the claims (`kimp-claims` on `kimp-ps`, `kimpinv-claims` on `kimpinv-ps`): their build exceeds 20 GB on the arity universe, while the whole heavy tier peaks at 8.5 GB per-sort (where the memory goes is not localized yet);
-- `ImpRel` and `ImpRelClaims` (on `kimp-ps` and `krsimp-ps`): `ImpRel`'s bisimulation on the arity universe grows past 14 GB in its build, and `ImpRelClaims` needs `ImpRel` and the per-sort claims;
+- `ImpRel` and `ImpRelClaims` (on `kimp-ps` and `krsimp-ps`): `ImpRel`'s bisimulation on the arity universe grows past 14 GB in its build, and `ImpRelClaims` needs `ImpRel` and so the per-sort copy of kimp's claims, `kimp-claims-ps` (the same generated modules over `kimp-ps`; `ImpUnrollClaims` uses it too);
 - `ImpMut` (on `kimp-ps` and `kmut-ps`) and `ImpUnroll` (on `kimp-ps` and its library `kunroll`, generated per-sort): their hand-written modules (`Diverge.lean`, `Relation.lean`) name per-sort constructors and their `injEq` lemmas;
 - `ImpTypes` (on `kimp-ps` and `imptypes-ps`): `soundness` writes `Typing.lean`'s proofs for the per-sort encoding (`k2l_ty_inv` does not reduce the arity translation `tr` through a constructor: on the arity universe 29 of its declarations report an error, 2026-10-25);
 - `SimpleEnv` (on `simple-ps`): its hand-written modules match on per-sort constructors (`KSimple.Term.nil`, `inj_FstackCell`);
 - `ImpNI` and its library `impsec`: hand-written modules over the per-sort names of `KImp` and `KImpSec`;
 - `RaceConf` and its library `race`, and SIMPLE's confluence: `confluence` writes per-sort rule text (SIMPLE's confluence is a report from the KORE and builds no library, so the switch does not reach it);
-- `walk` (invariants area): the proof of a map walk's lemma (`Invariant.f_walk`) leaves open, on the arity universe, the catch-all arm of a match on a one-constructor cell sort, the fallback arm below, which the per-sort encoding does not have;
 - `SimpleRel` (`pipelines/simple-rel.sh`, outside the gate; `simple`, `simplev` and the relation generated per-sort there): its bisimulation builds in the per-sort form (§9);
 - six snapshot tests of the generator (params, measure, peano, counter, freekey, counter_det2), which keep the per-sort output under test (`--per-sort-terms` in `tests/snapshots.rs`).
+
+Since 2026-10-26 the claims are no longer a holdout: kimp's claims and kimpinv's run on the arity universe, `kimp-claims` on `kimp` and `kimpinv-claims` on `kimpinv`, with every `kc_auto` line equal to the per-sort run's. Their 20 GB on the arity universe had two causes in the claim tactic, both fixed. First, the variable and cell splits accepted only types without indices, and every sort is an indexed family there, so a symbolic expression was never split into its value forms and no rule applied: on the family the splits take `familyCases`' cases under the same conditions. Second, a `match` on the family, such as a collection's `toList`, is not reduced while its scrutinee contains a metavariable, so the map equations of a claim instance were never solved and a loop's circularity never applied: the tactic unrolled the loop until its fuel was spent. The structural unifier now reduces with the metavariables read as free variables, `whnfDOpen`, which every instantiation of them preserves.
 
 Two choices in the family follow from its match compilation (measured 2026-10-23 on KEVM, load 2 to 10):
 
@@ -465,6 +465,10 @@ The continuation is a translated kimp continuation: `bisim` relates only transla
 The target is the image of the claim's target, so no translation of the target predicate is needed; a statement in the port's own terms, as `sumN_holds`, is then a step of the same shape with the target's correspondence proved by hand.
 The invariant at the left-hand side is a hypothesis: whether it holds depends on the left-hand side's store (an empty one satisfies it, `inv_unit`).
 Along `refine`'s stuttering bisimulations (§3.5), one-path claims carry the same way (`KClaims/Stutter.lean`: `Reach.of_stutter` by induction on the path, `EF.of_stutter` by coinduction with the measure bounding the stuttering, both from the simulation alone, to the image target), but all-path claims do not in general: one step of the refined side may stand for several of the other, whose target may hold only at an intermediate state that nothing relates (the module's comment has a four-state counterexample); an all-path transfer needs a target that stays reached once reached.
+It also holds when the refined side is deterministic. Each configuration then has at most one successor, so "some successor is in the set" and "a successor exists and every successor is in the set" are the same condition, and the two greatest fixpoints coincide (`AF_iff_EF_of_det`).
+`claims --transfer REL --transfer-kind stutter` generates the one-path transfers (`EF.image_of_stutter`, an all-path claim through `AF.toEF`).
+With `--transfer-det MODULE`, the module of the target's `B.Step.deterministic`, an all-path claim carries back to an all-path one. `gen` states that theorem only for a definition with no overlapping rules (§3.1), and the generator never checks it: a target without it fails to build.
+`demos/ImpUnrollClaims` carries kimp's 18 proved claims to its unrolling variant `KUnroll` this way; the report's `[[transfer]]` entry counts the carried claims and the all-path ones (`carried`, `all_path`).
 
 **Claims under a preserved invariant** (`--assume-invariant NAME`).
 A claim generated with it is `∀ vars, hyps → NAME lhs → AF Step Q lhs`: it says nothing of a left-hand side outside `NAME`, so it is weaker than the K claim, and holds for every configuration reachable from one that satisfies `NAME`.

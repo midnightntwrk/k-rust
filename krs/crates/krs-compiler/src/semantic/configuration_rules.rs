@@ -23,6 +23,7 @@ use super::infer::{
 };
 use super::origin::{
     generated_semantic_id, key_range, role_key, semantic_cell_id, semantic_origin,
+    shell_payload_key,
 };
 use super::references::require_cell_field;
 use super::rules::{
@@ -153,20 +154,20 @@ impl StateRuleTerms<'_> {
     }
 
     /// Lowers one entry's state; an error that names no narrower node is located at the entry,
-    /// `fallback_key`.
+    /// `entry_key`.
     fn state_term(
         &mut self,
         state: &ProtocolRuleStateTerm<DescriptorTerm>,
         declared_sort: &SemanticSortRef,
-        fallback_key: &ProvenanceKey,
+        entry_key: &ProvenanceKey,
         binding_sorts: &BTreeMap<String, SemanticSortRef>,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
-        self.entry_state_term(state, declared_sort, fallback_key, binding_sorts, subject)
+        self.entry_state_term(state, declared_sort, binding_sorts, subject)
             .map_err(|error| {
                 error.within(
                     self.descriptor.id(),
-                    key_range(self.descriptor, fallback_key).as_ref(),
+                    key_range(self.descriptor, entry_key).as_ref(),
                 )
             })
     }
@@ -176,7 +177,6 @@ impl StateRuleTerms<'_> {
         &mut self,
         state: &ProtocolRuleStateTerm<DescriptorTerm>,
         declared_sort: &SemanticSortRef,
-        fallback_key: &ProvenanceKey,
         binding_sorts: &BTreeMap<String, SemanticSortRef>,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
@@ -206,11 +206,7 @@ impl StateRuleTerms<'_> {
                 self.term(term, Some(declared_sort), binding_sorts, subject)
             }
             ProtocolRuleStateTerm::KSequence(sequence) => {
-                let key = sequence
-                    .payload_key
-                    .as_ref()
-                    .or(sequence.dot_k_key.as_ref())
-                    .unwrap_or(fallback_key);
+                let key = shell_payload_key(descriptor, sequence.payload_key.as_ref())?;
                 if *declared_sort != SemanticSortRef::k_sequence() {
                     return Err(DescriptorLoweringError::invalid_term(
                         descriptor.id(),
@@ -235,7 +231,7 @@ impl StateRuleTerms<'_> {
                 ))
             }
             ProtocolRuleStateTerm::Map(map) => {
-                let key = map.payload_key.as_ref().unwrap_or(fallback_key);
+                let key = shell_payload_key(descriptor, map.payload_key.as_ref())?;
                 if *declared_sort != SemanticSortRef::map() {
                     return Err(DescriptorLoweringError::invalid_term(
                         descriptor.id(),
@@ -764,7 +760,7 @@ impl super::cell_states::StateLowering for CellsStateLowering<'_, '_> {
         &mut self,
         state: &ProtocolRuleStateTerm<DescriptorTerm>,
         sort: &SemanticSortRef,
-        fallback_key: &ProvenanceKey,
+        entry_key: &ProvenanceKey,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         let binding_sorts = if subject {
@@ -783,7 +779,7 @@ impl super::cell_states::StateLowering for CellsStateLowering<'_, '_> {
             (state, _) => state,
         };
         self.terms
-            .state_term(state, sort, fallback_key, binding_sorts, subject)
+            .state_term(state, sort, entry_key, binding_sorts, subject)
     }
 
     fn same(&self, left: &SemanticTerm, right: &SemanticTerm) -> bool {

@@ -409,8 +409,10 @@ fn k_folds_get_their_element_wise_form() {
     assert!(defs.contains("def Invariant.kAll (P : SortKItem → Prop) : SortK → Prop\n  | .dotk => True\n  | .kseq i k => P i ∧ Invariant.kAll P k"), "{defs}");
     assert!(defs.contains("theorem Invariant.kOk_iff : ∀ (k : SortK) (p1 : SortMap), K.«kOk(_,_)_KFOLD_Bool_K_Map» k p1 = some true ↔ Invariant.kAll (fun x => K.«itemOk(_,_)_KFOLD_Bool_KItem_Map» x p1 = some true) k\n  | .dotk, p1 => by simp only [Invariant.kAll, Eqn.«kOk(_,_)_KFOLD_Bool_K_Map_1»]"), "{defs}");
     assert!(defs.contains("theorem Invariant.itemOk_owise_Cmd (x : SortCmd) (a1 : SortMap) :\n    K.«itemOk(_,_)_KFOLD_Bool_KItem_Map» (SortKItem.inj_Cmd x) a1 = some true := by"), "{defs}");
+    // the `<stack>` list fold, with the same partial test, from its two equations
+    assert!(defs.contains("theorem Invariant.stackOk_iff (l : SortList) (p1 : SortMap) :\n    K.«stackOk(_,_)_KFOLD_Bool_List_Map» l p1 = some true ↔ KPrelude.ListHook.ElemsOn (fun x => K.«itemOk(_,_)_KFOLD_Bool_KItem_Map» x p1 = some true) l :=\n  KPrelude.ListHook.all_iff_of_eqns_partial"), "{defs}");
     let thms = std::fs::read_to_string(out.join("KKFold/Invariants.lean")).unwrap();
-    assert!(thms.contains("Eqn.«itemOk(_,_)_KFOLD_Bool_KItem_Map_3», Eqn.«ok(_)_KFOLD_Bool_GeneratedTopCell_1», Invariant.kOk_iff, Invariant.kAll, Invariant.itemOk_owise_Bool, Invariant.itemOk_owise_Cmd"), "{thms}");
+    assert!(thms.contains("Eqn.«itemOk(_,_)_KFOLD_Bool_KItem_Map_3», Eqn.«ok(_)_KFOLD_Bool_GeneratedTopCell_1», Invariant.stackOk_iff, Invariant.kOk_iff, Invariant.kAll, Invariant.itemOk_owise_Bool, Invariant.itemOk_owise_Cmd"), "{thms}");
 }
 
 fn gen_fixture(dir: &Path, out: &Path, ns: &str) {

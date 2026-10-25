@@ -21,7 +21,9 @@ states, which nothing relates (`StutterSim` relates the end of the matching step
 `SA`: `c₀ → c₁ → c₂`, `SB`: `d₀ → d₁`, `d₀ → d₂`, `d₁ → d₂`, `R` relating each `cᵢ` to `dᵢ` (a
 stuttering bisimulation: `SB`'s step `d₀ → d₂` is matched by `SA`'s two) and `P` true at `c₁`
 only, `AF SA P c₀` holds, but `SB`'s path `d₀ → d₂` meets no state related to `c₁`. So `AF`
-transfers only for a target that, once reached, stays reached (or is terminal); not stated here. -/
+transfers only for a target that, once reached, stays reached (or is terminal); not stated here.
+When `SB` is deterministic, `AF` and `EF` coincide on it (`AF_iff_EF_of_det`), so an all-path claim
+carries as its one-path weakening and back. -/
 
 namespace KClaims
 

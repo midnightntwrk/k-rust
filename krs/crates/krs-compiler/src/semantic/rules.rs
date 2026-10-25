@@ -25,7 +25,7 @@ use super::error::DescriptorLoweringError;
 use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
 use super::origin::{
     generated_semantic_id, key_range, role_key, semantic_cell_id, semantic_origin,
-    semantic_origin_from_primary,
+    semantic_origin_from_primary, shell_payload_key,
 };
 use super::references::require_cell_field;
 
@@ -1424,7 +1424,7 @@ impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
         &mut self,
         state: &krs_ir::ProtocolRuleStateTerm<DescriptorTerm>,
         sort: &SemanticSortRef,
-        fallback_key: &ProvenanceKey,
+        _entry_key: &ProvenanceKey,
         subject: bool,
     ) -> Result<SemanticTerm, DescriptorLoweringError> {
         use krs_ir::ProtocolRuleStateTerm as State;
@@ -1432,7 +1432,7 @@ impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
         match state {
             State::Term(term) | State::Group(term) => self.builder.lower(term, Some(sort), subject),
             State::KSequence(sequence) => {
-                let key = sequence.payload_key.as_ref().unwrap_or(fallback_key);
+                let key = shell_payload_key(descriptor, sequence.payload_key.as_ref())?;
                 let range = key_range(descriptor, key);
                 if *sort != SemanticSortRef::k_sequence() {
                     return Err(DescriptorLoweringError::invalid_term(

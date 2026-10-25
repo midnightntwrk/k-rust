@@ -1281,3 +1281,50 @@ fn map_patterns_reject_a_key_named_twice() {
     )
     .unwrap();
 }
+
+/// The empty shells of a `cells!` entry are keyed at their invocation:
+/// `k::map![]` path to closing delimiter, and `KCell()` at the parentheses
+/// that hold its sequence (the wrapper path is a node of its own). An empty
+/// payload read without its invocation has nowhere to anchor.
+#[test]
+fn empty_cells_entry_shells_are_keyed_at_their_invocation() {
+    let source = "k: KCell(), env: Cell(k::map![])";
+    let expression =
+        krs_syntax::parse_cells_expression(krs_syntax::parse::tokens_from_source(source).unwrap())
+            .unwrap();
+    let text = |anchor: &krs_syntax::ProvenanceAnchor| {
+        let (start, end) = (anchor.range().start(), anchor.range().end());
+        (
+            anchor.role(),
+            anchor.ordinal(),
+            &source[start.column..end.column],
+        )
+    };
+    let [k, env] = expression.entries() else {
+        panic!("two entries");
+    };
+    let StateTerm::KSequence(sequence) = k.value() else {
+        panic!("`KCell()` holds a K sequence");
+    };
+    let anchors = sequence.provenance().unwrap();
+    assert_eq!(
+        anchors.iter().map(text).collect::<Vec<_>>(),
+        [(ProvenanceRole::KSequencePayload, 0, "()")]
+    );
+    assert_eq!(sequence.payload_key(), Some(&anchors[0].key()));
+    let StateTerm::Map(map) = env.value() else {
+        panic!("`Cell(k::map![])` holds a map");
+    };
+    let anchors = map.provenance().unwrap();
+    assert_eq!(
+        anchors.iter().map(text).collect::<Vec<_>>(),
+        [(ProvenanceRole::MapPayload, 0, "k::map![]")]
+    );
+    assert_eq!(map.payload_key(), Some(&anchors[0].key()));
+
+    let alone =
+        krs_syntax::parse_map_expression(krs_syntax::parse::tokens_from_source("").unwrap())
+            .unwrap();
+    assert!(alone.payload_key().is_none());
+    assert!(alone.provenance().unwrap().is_empty());
+}

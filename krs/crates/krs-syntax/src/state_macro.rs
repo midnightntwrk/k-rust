@@ -62,6 +62,21 @@ fn key_at(
     keys.key(position.role(slot), range)
 }
 
+/// Where a shell's payload key is anchored: at the payload, or, when the
+/// payload is empty, at the invocation that delimits it, since the empty
+/// shell's text is its invocation. An empty payload read without its
+/// invocation has nowhere to anchor.
+fn payload_range(
+    tokens: &TokenStream,
+    invocation: Option<TokenRange>,
+) -> Result<Option<TokenRange>, SyntaxError> {
+    if tokens.is_empty() {
+        Ok(invocation)
+    } else {
+        TokenRange::for_tokens(tokens).map(Some)
+    }
+}
+
 /// Whether a compiler-owned state island occurs in pattern or expression position.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum StateMacroContext {
@@ -134,6 +149,10 @@ pub struct KSequence {
     items: Vec<TermExpression>,
     tail: StateMacroRemainder,
     notation: KSequenceNotation,
+    /// The delimited text that holds the payload (the `k::k![..]`
+    /// invocation, `KCell(..)`'s parentheses, a readable `[..]`), when the
+    /// parser of an enclosing form read it.
+    invocation: Option<TokenRange>,
     payload_key: Option<ProvenanceKey>,
     tail_key: Option<ProvenanceKey>,
     /// The anchors of the sequence's standalone keying.
@@ -148,11 +167,13 @@ impl KSequence {
     ///
     /// Returns an endpoint or ordinal-overflow error of its standalone keying.
     pub(crate) fn readable(
-        tokens: TokenStream,
+        brackets: &proc_macro2::Group,
         items: Vec<TermExpression>,
         tail: StateMacroRemainder,
     ) -> Result<Self, SyntaxError> {
-        Self::new(tokens, items, tail, KSequenceNotation::Comma).keyed_standalone()
+        Self::new(brackets.stream(), items, tail, KSequenceNotation::Comma)
+            .invoked_at(Some(TokenRange::for_tokens(brackets)?))
+            .keyed_standalone()
     }
 
     const fn new(
@@ -166,10 +187,18 @@ impl KSequence {
             items,
             tail,
             notation,
+            invocation: None,
             payload_key: None,
             tail_key: None,
             anchors: Vec::new(),
         }
+    }
+
+    /// Records the delimited text that holds the payload, where the empty
+    /// sequence is anchored.
+    const fn invoked_at(mut self, invocation: Option<TokenRange>) -> Self {
+        self.invocation = invocation;
+        self
     }
 
     /// Ordered K items before the tail.
@@ -201,7 +230,9 @@ impl KSequence {
         self.items.is_empty() && matches!(self.tail, StateMacroRemainder::Exact)
     }
 
-    /// The key of the payload, absent for empty `k![]`; an item's key is the
+    /// The key of the payload, anchored at the payload, or at the
+    /// invocation when the payload is empty (`k::k![]`); absent only for an
+    /// empty sequence parsed without its invocation. An item's key is the
     /// payload key of its term ([`crate::TermKeys::payload`]).
     #[must_use]
     pub const fn payload_key(&self) -> Option<&ProvenanceKey> {
@@ -216,9 +247,6 @@ impl KSequence {
 
     /// Returns payload, item, and tail anchors of the sequence's standalone
     /// keying.
-    ///
-    /// Empty `k![]` has no inner token endpoint; its enclosing macro node owns
-    /// that shell range, so this method returns no payload anchor for it.
     ///
     /// # Errors
     ///
@@ -255,8 +283,7 @@ impl KSequence {
         keys: &mut KeyAllocator,
         position: StatePosition,
     ) -> Result<(), SyntaxError> {
-        if !self.tokens.is_empty() {
-            let range = TokenRange::for_tokens(&self.tokens)?;
+        if let Some(range) = payload_range(&self.tokens, self.invocation)? {
             self.payload_key = Some(key_at(keys, position, RuleRole::KSequencePayload, range)?);
         }
         for item in &mut self.items {
@@ -360,6 +387,9 @@ pub struct MapExpression {
     tokens: TokenStream,
     body: MapBody,
     pattern_bindings: Option<MapPatternBindings>,
+    /// The delimited text that holds the payload (`k::map![..]`), when the
+    /// parser of an enclosing form read it.
+    invocation: Option<TokenRange>,
     payload_key: Option<ProvenanceKey>,
     remainder_key: Option<ProvenanceKey>,
     /// The anchors of the map's standalone keying.
@@ -390,10 +420,18 @@ impl MapExpression {
             tokens,
             body,
             pattern_bindings,
+            invocation: None,
             payload_key: None,
             remainder_key: None,
             anchors: Vec::new(),
         }
+    }
+
+    /// Records the delimited text that holds the payload, where the empty
+    /// map is anchored.
+    const fn invoked_at(mut self, invocation: Option<TokenRange>) -> Self {
+        self.invocation = invocation;
+        self
     }
 
     fn items(
@@ -421,8 +459,10 @@ impl MapExpression {
         &self.body
     }
 
-    /// The key of the payload, absent for empty `map![]`; an item's key and
-    /// value, and an update's base, key and value, are keyed as their terms'
+    /// The key of the payload, anchored at the payload, or at the
+    /// invocation when the payload is empty (`k::map![]`); absent only for
+    /// an empty map parsed without its invocation. An item's key and value,
+    /// and an update's base, key and value, are keyed as their terms'
     /// payloads ([`crate::TermKeys::payload`]).
     #[must_use]
     pub const fn payload_key(&self) -> Option<&ProvenanceKey> {
@@ -485,8 +525,7 @@ impl MapExpression {
         keys: &mut KeyAllocator,
         position: StatePosition,
     ) -> Result<(), SyntaxError> {
-        if !self.tokens.is_empty() {
-            let range = TokenRange::for_tokens(&self.tokens)?;
+        if let Some(range) = payload_range(&self.tokens, self.invocation)? {
             self.payload_key = Some(key_at(keys, position, RuleRole::MapPayload, range)?);
         }
         let key_role = position.role(RuleRole::MapKey);
@@ -1088,7 +1127,7 @@ impl CellsExpression {
 /// Rejects malformed separators, misplaced `.K`, duplicate tails, and
 /// expression-style `..tail` at the responsible token.
 pub fn parse_k_sequence_pattern(tokens: TokenStream) -> Result<KSequence, SyntaxError> {
-    parse_k_sequence(tokens, StateMacroContext::Pattern)
+    parse_k_sequence(tokens, StateMacroContext::Pattern, None)
 }
 
 /// Parses a `k!` expression payload.
@@ -1097,7 +1136,7 @@ pub fn parse_k_sequence_pattern(tokens: TokenStream) -> Result<KSequence, Syntax
 ///
 /// Rejects pattern-only tail bindings and malformed sequence syntax.
 pub fn parse_k_sequence_expression(tokens: TokenStream) -> Result<KSequence, SyntaxError> {
-    parse_k_sequence(tokens, StateMacroContext::Expression)
+    parse_k_sequence(tokens, StateMacroContext::Expression, None)
 }
 
 /// Parses a `map!` pattern payload.
@@ -1106,7 +1145,7 @@ pub fn parse_k_sequence_expression(tokens: TokenStream) -> Result<KSequence, Syn
 ///
 /// Rejects updates and expression-style remainders in pattern position.
 pub fn parse_map_pattern(tokens: TokenStream) -> Result<MapExpression, SyntaxError> {
-    parse_map(tokens, StateMacroContext::Pattern)
+    parse_map(tokens, StateMacroContext::Pattern, None)
 }
 
 /// Parses a `map!` expression payload, including functional updates.
@@ -1115,7 +1154,7 @@ pub fn parse_map_pattern(tokens: TokenStream) -> Result<MapExpression, SyntaxErr
 ///
 /// Rejects pattern-only remainder bindings and malformed items/updates.
 pub fn parse_map_expression(tokens: TokenStream) -> Result<MapExpression, SyntaxError> {
-    parse_map(tokens, StateMacroContext::Expression)
+    parse_map(tokens, StateMacroContext::Expression, None)
 }
 
 /// Parses a `map!` pattern payload together with lossless source trivia.
@@ -1192,11 +1231,23 @@ pub fn parse_cells_expression_source_with_trivia(
     Ok((parse_cells_expression(tokens)?, trivia))
 }
 
+/// Parses a `k!` payload held by `invocation`, if an enclosing form read
+/// it, and keys it as a sentence of its own.
+pub(crate) fn parse_k_sequence(
+    tokens: TokenStream,
+    context: StateMacroContext,
+    invocation: Option<TokenRange>,
+) -> Result<KSequence, SyntaxError> {
+    parse_unkeyed_k_sequence(tokens, context)
+        .map(|sequence| sequence.invoked_at(invocation))
+        .and_then(KSequence::keyed_standalone)
+}
+
 #[expect(
     clippy::too_many_lines,
     reason = "One closed sequence grammar keeps tail diagnostics local."
 )]
-fn parse_k_sequence(
+fn parse_unkeyed_k_sequence(
     tokens: TokenStream,
     context: StateMacroContext,
 ) -> Result<KSequence, SyntaxError> {
@@ -1322,15 +1373,18 @@ fn parse_k_sequence(
         },
         |error| state_error("k", "malformed compiler-owned state syntax", error.span()),
     )
-    .and_then(KSequence::keyed_standalone)
 }
 
-/// Parses a `map!` payload and keys it as a sentence of its own.
-fn parse_map(
+/// Parses a `map!` payload held by `invocation`, if an enclosing form read
+/// it, and keys it as a sentence of its own.
+pub(crate) fn parse_map(
     tokens: TokenStream,
     context: StateMacroContext,
+    invocation: Option<TokenRange>,
 ) -> Result<MapExpression, SyntaxError> {
-    parse_unkeyed_map(tokens, context).and_then(MapExpression::keyed_standalone)
+    parse_unkeyed_map(tokens, context)
+        .map(|map| map.invoked_at(invocation))
+        .and_then(MapExpression::keyed_standalone)
 }
 
 #[expect(
@@ -1659,10 +1713,15 @@ fn parse_entry_value(
             wrapper.span(),
         ));
     };
-    let value_tokens = parse_parenthesized_tokens(input).map_err(SyntaxError::from)?;
+    let (value_tokens, parentheses) =
+        parse_parenthesized_group(input).map_err(SyntaxError::from)?;
     let wrapper_name = last.ident.to_string();
     let value = match wrapper_name.as_str() {
-        "KCell" => StateTerm::KSequence(parse_k_sequence(value_tokens, context)?),
+        // `KCell(..)`'s parentheses hold the K sequence, as `k::k![..]`'s
+        // brackets do; the wrapper path is a node of its own.
+        "KCell" => {
+            StateTerm::KSequence(parse_k_sequence(value_tokens, context, Some(parentheses))?)
+        }
         "Cell" => parse_state_term(crate::parse::strip_trailing_comma(value_tokens), context)?,
         _ => {
             return Err(state_error(
@@ -1951,9 +2010,16 @@ fn parse_instance_child(
     context: StateMacroContext,
 ) -> Result<StateTerm, SyntaxError> {
     if let Some((name, payload)) = qualified_macro_payload(&tokens) {
+        let invocation = || TokenRange::for_tokens(&tokens).map(Some);
         match name.as_str() {
-            "k" => return Ok(StateTerm::KSequence(parse_k_sequence(payload, context)?)),
-            "map" => return Ok(StateTerm::Map(parse_map(payload, context)?)),
+            "k" => {
+                return Ok(StateTerm::KSequence(parse_k_sequence(
+                    payload,
+                    context,
+                    invocation()?,
+                )?));
+            }
+            "map" => return Ok(StateTerm::Map(parse_map(payload, context, invocation()?)?)),
             _ => {}
         }
     }
@@ -2032,9 +2098,16 @@ fn parse_state_term(
     context: StateMacroContext,
 ) -> Result<StateTerm, SyntaxError> {
     if let Some((name, payload)) = qualified_macro_payload(&tokens) {
+        let invocation = || TokenRange::for_tokens(&tokens).map(Some);
         match name.as_str() {
-            "k" => return Ok(StateTerm::KSequence(parse_k_sequence(payload, context)?)),
-            "map" => return Ok(StateTerm::Map(parse_map(payload, context)?)),
+            "k" => {
+                return Ok(StateTerm::KSequence(parse_k_sequence(
+                    payload,
+                    context,
+                    invocation()?,
+                )?));
+            }
+            "map" => return Ok(StateTerm::Map(parse_map(payload, context, invocation()?)?)),
             _ if macro_payload(&tokens).is_some() => {
                 return Err(state_error(
                     "cells",
@@ -2199,9 +2272,15 @@ fn parse_dot_unit(
 }
 
 fn parse_parenthesized_tokens(input: ParseStream<'_>) -> syn::Result<TokenStream> {
+    parse_parenthesized_group(input).map(|(tokens, _)| tokens)
+}
+
+/// The contents of a parenthesized group and the range of its delimiters.
+fn parse_parenthesized_group(input: ParseStream<'_>) -> syn::Result<(TokenStream, TokenRange)> {
     let content;
-    parenthesized!(content in input);
-    content.parse()
+    let parentheses = parenthesized!(content in input);
+    let range = TokenRange::new(parentheses.span.open(), parentheses.span.close());
+    Ok((content.parse()?, range))
 }
 
 fn split_bracket_update(tokens: &TokenStream) -> Option<(TokenStream, proc_macro2::Group)> {
@@ -2299,14 +2378,38 @@ mod keyed {
         CellsExpression, InstanceItem, InstanceList, KSequence, KSequenceNotation, MapBody,
         MapExpression, StateTerm,
     };
-    use crate::SyntaxError;
     use crate::keyed_nodes::KeyedNodes;
+    use crate::{SyntaxError, TokenRange};
+    use krs_ir::ProvenanceKey;
+    use proc_macro2::TokenStream;
+
+    /// Records a shell's payload key with the range it is anchored at: the
+    /// payload, or the invocation of an empty one.
+    fn push_payload(
+        nodes: &mut KeyedNodes,
+        key: Option<&ProvenanceKey>,
+        tokens: &TokenStream,
+        invocation: Option<TokenRange>,
+    ) -> Result<(), SyntaxError> {
+        if let Some(range) = super::payload_range(tokens, invocation)? {
+            nodes.push(key, range);
+        } else {
+            assert!(key.is_none(), "a payload key without an anchor");
+        }
+        Ok(())
+    }
 
     impl KSequence {
-        /// Records the sequence's keyed nodes: the payload, each item and
-        /// its nodes, then the tail (its remainder, or the authored `.K`).
+        /// Records the sequence's keyed nodes: the payload (or the
+        /// invocation of an empty one), each item and its nodes, then the
+        /// tail (its remainder, or the authored `.K`).
         pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
-            nodes.push_tokens(self.payload_key.as_ref(), &self.tokens)?;
+            push_payload(
+                nodes,
+                self.payload_key.as_ref(),
+                &self.tokens,
+                self.invocation,
+            )?;
             for item in &self.items {
                 item.keyed_nodes(nodes)?;
             }
@@ -2322,11 +2425,16 @@ mod keyed {
     }
 
     impl MapExpression {
-        /// Records the map's keyed nodes: the payload, each key and value
-        /// (or update base, key and value) and their nodes, then the
-        /// remainder.
+        /// Records the map's keyed nodes: the payload (or the invocation of
+        /// an empty one), each key and value (or update base, key and value)
+        /// and their nodes, then the remainder.
         pub(crate) fn keyed_nodes(&self, nodes: &mut KeyedNodes) -> Result<(), SyntaxError> {
-            nodes.push_tokens(self.payload_key.as_ref(), &self.tokens)?;
+            push_payload(
+                nodes,
+                self.payload_key.as_ref(),
+                &self.tokens,
+                self.invocation,
+            )?;
             match &self.body {
                 MapBody::Empty { .. } => {}
                 MapBody::Items { items, remainder } => {

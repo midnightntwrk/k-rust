@@ -7,8 +7,7 @@ use krs_ir::{
     DescriptorIndex, DescriptorInitializerCell, DescriptorInitializerStateTerm, DescriptorTerm,
     FixedCell, FixedConfiguration, FixedConfigurationVariable, FixedInitializerCell,
     FixedInitializerContent, NodeOrigin, ProtocolCellContent, ProtocolInitializerCellContent,
-    ProtocolInitializerStateTerm, ProtocolMapBody, ProvenanceKey, SemanticId, SourceRange,
-    StableItemId,
+    ProtocolInitializerStateTerm, ProtocolMapBody, SemanticId, SourceRange, StableItemId,
 };
 use krs_ir_levels::{
     IrTermKind, ListOperands, MapEntry, MapOperands, SemanticConfiguration, SemanticSortRef,
@@ -19,7 +18,9 @@ use super::catalog::{ProductionSignature, common_sequence_item_sort, semantic_so
 use super::collection_types::{CollectionTyping, Root, SortType, Walker};
 use super::error::{DescriptorLoweringError, ImplicitPresentCell};
 use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
-use super::origin::{generated_semantic_id, key_range, semantic_cell_id, semantic_origin};
+use super::origin::{
+    generated_semantic_id, key_range, semantic_cell_id, semantic_origin, shell_payload_key,
+};
 use super::references::require_cell_field;
 
 pub(super) fn lower_fixed_configuration_descriptor(
@@ -99,6 +100,11 @@ pub(super) fn lower_fixed_configuration_descriptor(
         })
         .collect::<Result<Vec<_>, _>>()?;
     console.check_initializers(&initializer)?;
+    let initializer = in_declaration_order(
+        initializer,
+        &configuration.declaration.fields,
+        &configuration.initializer.owner,
+    )?;
     check_configuration_variables_read(descriptor, configuration, &initializer)?;
     check_explicit_presence(&cells, &initializer, &binding_sorts)?;
     let initializer_id = SemanticId::new(format!("{}.init", configuration_id.as_str()))?;
@@ -697,22 +703,21 @@ fn lower_initializer_cell_content(
         ) => Ok(FixedInitializerCell::term(
             origin,
             id,
-            lower_initializer_state(
-                descriptor,
-                value,
-                &semantic_sort_ref(&sort.sort),
-                &cell.key,
-                tables,
-            )?,
+            lower_initializer_state(descriptor, value, &semantic_sort_ref(&sort.sort), tables)?,
         )),
         (
             ProtocolInitializerCellContent::Nested { children, .. },
-            ProtocolCellContent::Nested { .. },
+            ProtocolCellContent::Nested { declaration },
         ) => {
             let children = children
                 .iter()
                 .map(|child| lower_initializer_cell(descriptor, child, declarations, tables))
                 .collect::<Result<Vec<_>, _>>()?;
+            let children = in_declaration_order(
+                children,
+                &declarations.cell(&declaration.declaration)?.fields,
+                &declaration.declaration,
+            )?;
             Ok(FixedInitializerCell::children(origin, id, children)?)
         }
         _ => Err(DescriptorLoweringError::ParserReferenceDisagreement {
@@ -723,11 +728,49 @@ fn lower_initializer_cell_content(
     }
 }
 
+/// Puts the lowered cells of one struct literal in the field order of `owner`'s declaration.
+/// A struct literal's field order has no meaning, while the configuration's is the
+/// declaration's, and the IR's initializer mirrors its cell tree. The cells are lowered in the
+/// order they are written, so that an error is reported at the first cell in the source.
+fn in_declaration_order(
+    mut cells: Vec<FixedInitializerCell<SemanticId, SemanticTerm>>,
+    fields: &[DescriptorCellField],
+    owner: &StableItemId,
+) -> Result<Vec<FixedInitializerCell<SemanticId, SemanticTerm>>, DescriptorLoweringError> {
+    let disagreement = |detail: String| DescriptorLoweringError::ParserReferenceDisagreement {
+        id: Box::new(owner.clone()),
+        detail,
+        range: None,
+    };
+    let ordered = fields
+        .iter()
+        .map(|field| {
+            let id = semantic_cell_id(&field.reference.cell)?;
+            let index = cells
+                .iter()
+                .position(|cell| *cell.cell() == id)
+                .ok_or_else(|| {
+                    disagreement(format!(
+                        "initializer writes no cell for the declared field {:?}",
+                        field.rust_field
+                    ))
+                })?;
+            Ok(cells.swap_remove(index))
+        })
+        .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
+    if cells.is_empty() {
+        Ok(ordered)
+    } else {
+        Err(disagreement(
+            "initializer writes a cell its declaration does not have".into(),
+        ))
+    }
+}
+
 fn lower_initializer_state(
     descriptor: &Descriptor,
     state: &DescriptorInitializerStateTerm,
     declared_sort: &SemanticSortRef,
-    fallback_key: &ProvenanceKey,
     tables: &InitializerTables<'_>,
 ) -> Result<SemanticTerm, DescriptorLoweringError> {
     let sort_parents = tables.sort_parents;
@@ -744,11 +787,7 @@ fn lower_initializer_state(
     match state {
         ProtocolInitializerStateTerm::Term(term) => lower_term(&term.term, Some(declared_sort)),
         ProtocolInitializerStateTerm::KSequence(sequence) => {
-            let key = sequence
-                .payload_key
-                .as_ref()
-                .or(sequence.dot_k_key.as_ref())
-                .unwrap_or(fallback_key);
+            let key = shell_payload_key(descriptor, sequence.payload_key.as_ref())?;
             if *declared_sort != SemanticSortRef::k_sequence() {
                 return Err(DescriptorLoweringError::invalid_term(
                     descriptor.id(),
@@ -772,7 +811,7 @@ fn lower_initializer_state(
             ))
         }
         ProtocolInitializerStateTerm::Map(map) => {
-            let key = map.payload_key.as_ref().unwrap_or(fallback_key);
+            let key = shell_payload_key(descriptor, map.payload_key.as_ref())?;
             if *declared_sort != SemanticSortRef::map() {
                 return Err(DescriptorLoweringError::invalid_term(
                     descriptor.id(),

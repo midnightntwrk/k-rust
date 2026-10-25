@@ -421,9 +421,7 @@ fn parse_readable_child(
             items.push(readable_term(chunk, context)?);
         }
         return Ok(StateTerm::KSequence(crate::KSequence::readable(
-            group.stream(),
-            items,
-            tail,
+            group, items, tail,
         )?));
     }
     Ok(StateTerm::Term(readable_term(tokens, context)?))

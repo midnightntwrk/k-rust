@@ -1560,22 +1560,12 @@ deviation = "krs::analysis::collection-entry @ entry"
 step = "S5"
 
 # S0-16: an author mistake reported unlocated, at the wrong entry, or under an internal code (C5)
-# The four left: S5 reads `job: [x, ..]` results by declared kind; S2 gives `map![]` its own key
+# The two left: S5 reads `job: [x, ..]` results by declared kind
 
 ["claim/result/job/[x, ..]"]
 finding = "S0-16"
 deviation = "krs::analysis::invalid-list-notation @ item"
 step = "S5"
-
-["init/pc/k::map![]"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ entry"
-step = "S2"
-
-["init/stack/k::map![]"]
-finding = "S0-16"
-deviation = "krs::analysis::invalid-term @ entry"
-step = "S2"
 
 ["readable/result/job/[x, ..]"]
 finding = "S0-16"
@@ -2558,28 +2548,6 @@ step = "S4"
 finding = "N27"
 deviation = "krs::analysis::invalid-semantic-theory @ spelling"
 step = "S4"
-
-# X1: initializer fields out of declaration order are a collector error (at the first field out of order since S1); a nested group's children out of order are the internal `parser-reference-disagreement`, unlocated
-
-["init/order/nested-reversed"]
-finding = "X1"
-deviation = "krs::analysis::parser-reference-disagreement @ unlocated"
-step = "S2"
-
-["init/order/pc-first"]
-finding = "X1"
-deviation = "krs::collect::invalid-configuration @ spelling"
-step = "S2"
-
-["init/order/queue-first"]
-finding = "X1"
-deviation = "krs::collect::invalid-configuration @ spelling"
-step = "S2"
-
-["init/order/reversed"]
-finding = "X1"
-deviation = "krs::collect::invalid-configuration @ spelling"
-step = "S2"
 
 # S2-remainder: an initializer's `k!` remainder (`k::k![Cmd::Go(), ..pgm]`, `Go ~> $PGM`) has no place in the initializer's sequence yet, and expansion refuses it at `..pgm` with the author code `unsupported-initializer-body` (S2.7 adds it)
 

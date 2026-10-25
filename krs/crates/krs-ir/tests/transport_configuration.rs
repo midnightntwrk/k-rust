@@ -4,7 +4,7 @@ use std::any::TypeId;
 use std::collections::{BTreeMap, BTreeSet};
 
 use krs_ir::testing;
-use krs_ir::transport::detail::{StateTermReason, TransportField};
+use krs_ir::transport::detail::{StateCellContentReason, StateTermReason, TransportField};
 use krs_ir::{
     BuiltinOperation, BuiltinSort, CellWrapper, DescriptorApplicationHeadClass,
     DescriptorApplicationRef, DescriptorApplicationReference, DescriptorBundle,
@@ -170,7 +170,7 @@ fn fixed_configuration() -> (StableItemId, DescriptorFixedConfiguration) {
                     constructor_key: key(ProvenanceRole::InitializerCellConstructor, 1),
                     wrapper: CellWrapper::Cell,
                     value: ProtocolInitializerStateTerm::Map(ProtocolMap {
-                        payload_key: None,
+                        payload_key: Some(key(ProvenanceRole::MapPayload, 0)),
                         body: ProtocolMapBody::Empty {
                             explicit_dot: false,
                         },
@@ -240,12 +240,48 @@ fn fixed_configuration_rejects_wrong_keys_duplicates_and_tree_drift() {
         ))
     );
 
+    // Every shell has its payload key: an empty `map![]`'s is anchored at
+    // its invocation.
+    let mut keyless_shell = configuration.clone();
+    let ProtocolInitializerCellContent::Leaf {
+        value: ProtocolInitializerStateTerm::Map(map),
+        ..
+    } = &mut keyless_shell.initializer.cells[1].content
+    else {
+        panic!("the env cell holds a map");
+    };
+    map.payload_key = None;
+    assert_eq!(
+        keyless_shell.validate(&owner),
+        Err(StateTransportError::InvalidCellContent(
+            StateCellContentReason::MissingShellPayloadProvenance
+        ))
+    );
+
+    // A struct literal's field order has no meaning: the cells match their declared fields
+    // by identity, in any order.
     let mut reordered = configuration.clone();
     reordered.initializer.cells.swap(0, 1);
-    assert!(matches!(
-        reordered.validate(&owner),
-        Err(StateTransportError::InitializerDeclarationMismatch { .. })
-    ));
+    assert_eq!(reordered.validate(&owner), Ok(()));
+    // A declared field left out is located at the struct literal, and a field written twice at
+    // its second cell.
+    let mut missing = configuration.clone();
+    missing.initializer.cells.pop();
+    assert_eq!(
+        missing.validate(&owner),
+        Err(StateTransportError::InitializerDeclarationMismatch {
+            at: key(ProvenanceRole::InitializerBody, 0)
+        })
+    );
+    let mut repeated_field = configuration.clone();
+    repeated_field.initializer.cells[1].field.cell =
+        repeated_field.initializer.cells[0].field.cell.clone();
+    assert_eq!(
+        repeated_field.validate(&owner),
+        Err(StateTransportError::InitializerDeclarationMismatch {
+            at: key(ProvenanceRole::InitializerCell, 1)
+        })
+    );
 
     let expected = configuration.expected_provenance_keys(&owner).unwrap();
     let mut actual = expected.clone();
@@ -1359,6 +1395,47 @@ fn simultaneous_k_and_map_update_is_structured() {
     let keys = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
     assert!(keys.contains(&key(ProvenanceRole::RuleRightMapUpdateBase, 0)));
     assert!(keys.contains(&key(ProvenanceRole::RuleRightCellsField, 1)));
+}
+
+/// An empty `map![]` in a rule is a shell like any other: it defines its
+/// payload key, anchored at its invocation, and a shell without one is
+/// refused.
+#[test]
+fn empty_rule_map_shell_has_its_payload_key() {
+    let (_, mut rule) = var_configuration_rule();
+    let configuration = rule
+        .result_configuration
+        .as_ref()
+        .unwrap()
+        .configuration
+        .clone();
+    rule.result.as_mut().unwrap().cells.push(rule_cell(
+        &configuration,
+        "right",
+        1,
+        "env",
+        CellWrapper::Cell,
+        ProtocolRuleStateTerm::Map(ProtocolRuleMap {
+            payload_key: Some(key(ProvenanceRole::RuleRightMapPayload, 0)),
+            body: ProtocolRuleMapBody::Empty {
+                explicit_dot: false,
+            },
+        }),
+    ));
+    rule.validate(ItemKind::Rule).unwrap();
+    let keys = rule.expected_provenance_keys(ItemKind::Rule).unwrap();
+    assert!(keys.contains(&key(ProvenanceRole::RuleRightMapPayload, 0)));
+
+    let ProtocolRuleStateTerm::Map(map) = &mut rule.result.as_mut().unwrap().cells[1].value else {
+        unreachable!()
+    };
+    map.payload_key = None;
+    assert_eq!(
+        rule.validate(ItemKind::Rule),
+        Err(StateTransportError::InvalidCellContent(
+            StateCellContentReason::MissingShellPayloadProvenance
+        ))
+    );
 }
 
 #[test]
