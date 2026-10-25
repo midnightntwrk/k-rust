@@ -1012,10 +1012,35 @@ impl TermKeys {
     /// Every key the sentence gave the node at `index` in
     /// [`TermExpression::nodes`], in allocation order: an application head's
     /// own key before its turbofish instances', and an island's shell before
-    /// its parts.
+    /// its parts. [`Self::node_key`] reads one part by its role.
     #[must_use]
     pub fn node(&self, index: usize) -> &[ProvenanceKey] {
         self.nodes.get(index).map_or(&[], Vec::as_slice)
+    }
+
+    /// The key of `role` the sentence gave the node at `index`: which part
+    /// of the node the key names (an application head or one of its
+    /// turbofish instances, a `let` or its sort, an island's shell or one of
+    /// its parts) is the role's to say, not the key's place among the
+    /// node's keys. A sentence that keys a node more than once in one role
+    /// (a claim literal in a readable state nested in another, which the
+    /// claim's literal order visits once per enclosing state) gave it the
+    /// first of them on its first visit.
+    #[must_use]
+    pub fn node_key(&self, index: usize, role: ProvenanceRole) -> Option<&ProvenanceKey> {
+        self.node_keys(index, role).next()
+    }
+
+    /// Every key of `role` the sentence gave the node at `index`, in
+    /// allocation order: an application head's turbofish instances.
+    pub fn node_keys(
+        &self,
+        index: usize,
+        role: ProvenanceRole,
+    ) -> impl Iterator<Item = &ProvenanceKey> {
+        self.node(index)
+            .iter()
+            .filter(move |key| key.role() == role)
     }
 
     /// The key of the record field name at `index` in the term tree's

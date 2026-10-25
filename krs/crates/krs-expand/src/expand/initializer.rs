@@ -30,7 +30,7 @@ use super::configuration::{
 use super::island_checks::initializer_state_island_import_checks;
 use super::nonce::expansion_nonce;
 use super::terms::{
-    KeyedTerm, NodeKind, TermBuilder, TermKeyReader, WireSlots, read_key, role_key, wire_key,
+    KeyedTerm, NodeKind, TermBuilder, TermKeyReader, WireSlots, read_key, wire_key,
 };
 use super::tokens::{
     call_site_cfg_attributes, call_site_path, is_bound_ident_path, sort_type_tokens, spelling,
@@ -825,7 +825,8 @@ impl<'a> InitializerBuilder<'a> {
                 let ordinal = take_counter(&mut self.counters.id_token)?;
                 Ok(WireTerm::BuiltinToken {
                     key: read_key(
-                        role_key(keys.node(NodeKind::IdToken), ProvenanceRole::ClaimIdToken),
+                        keys.node(NodeKind::IdToken)
+                            .role(ProvenanceRole::ClaimIdToken),
                         wire_key(ProvenanceRole::ClaimIdToken, ordinal),
                     ),
                     sort: BuiltinSort::Id,
@@ -836,10 +837,8 @@ impl<'a> InitializerBuilder<'a> {
                 let ordinal = take_counter(&mut self.counters.bytes_token)?;
                 Ok(WireTerm::BuiltinToken {
                     key: read_key(
-                        role_key(
-                            keys.node(NodeKind::BytesToken),
-                            ProvenanceRole::ClaimBytesToken,
-                        ),
+                        keys.node(NodeKind::BytesToken)
+                            .role(ProvenanceRole::ClaimBytesToken),
                         wire_key(ProvenanceRole::ClaimBytesToken, ordinal),
                     ),
                     sort: BuiltinSort::Bytes,

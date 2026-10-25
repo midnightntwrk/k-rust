@@ -121,21 +121,21 @@ impl WireSlots {
 /// holds `node`.
 pub(super) fn rewrite_wire(
     ordinal: u32,
-    node: &[ProvenanceKey],
+    node: NodeKeys<'_>,
     from: WireTerm,
     to: Option<Box<WireTerm>>,
 ) -> WireTerm {
     WireTerm::Rewrite {
         key: read_key(
-            role_key(node, ProvenanceRole::RuleLocalRewrite),
+            node.role(ProvenanceRole::RuleLocalRewrite),
             wire_key(ProvenanceRole::RuleLocalRewrite, ordinal),
         ),
         from_key: read_key(
-            role_key(node, ProvenanceRole::RuleLocalRewriteFrom),
+            node.role(ProvenanceRole::RuleLocalRewriteFrom),
             wire_key(ProvenanceRole::RuleLocalRewriteFrom, ordinal),
         ),
         to_key: read_key(
-            role_key(node, ProvenanceRole::RuleLocalRewriteTo),
+            node.role(ProvenanceRole::RuleLocalRewriteTo),
             wire_key(ProvenanceRole::RuleLocalRewriteTo, ordinal),
         ),
         from: Box::new(from),
@@ -169,12 +169,6 @@ pub(super) fn anchor_key(
         .iter()
         .find(|anchor| anchor.role() == role)
         .map(krs_syntax::ProvenanceAnchor::key)
-}
-
-/// The first of `keys` with `role`: the key a node's sentence gave it in
-/// that role, beside its other parts' keys.
-pub(super) fn role_key(keys: &[ProvenanceKey], role: ProvenanceRole) -> Option<&ProvenanceKey> {
-    keys.iter().find(|key| key.role() == role)
 }
 
 /// One term's tree with the nodes and keys its sentence gave it.
@@ -305,19 +299,40 @@ impl<'t> TermKeyReader<'t> {
         key
     }
 
-    /// Every key of the next node of `kind`, empty when there is none.
-    pub(super) fn node(&mut self, kind: NodeKind) -> &'t [ProvenanceKey] {
+    /// The keys of the next node of `kind`, none when there is no such
+    /// node.
+    pub(super) fn node(&mut self, kind: NodeKind) -> NodeKeys<'t> {
         let next = &mut self.next[kind as usize];
-        let Some(offset) = self.nodes[(*next).min(self.nodes.len())..]
+        let index = self.nodes[(*next).min(self.nodes.len())..]
             .iter()
             .position(|node| NodeKind::of(node) == kind)
-        else {
-            *next = self.nodes.len();
-            return &[];
-        };
-        let index = *next + offset;
-        *next = index + 1;
-        self.keys.node(index)
+            .map(|offset| *next + offset);
+        *next = index.map_or(self.nodes.len(), |index| index + 1);
+        NodeKeys {
+            keys: self.keys,
+            index,
+        }
+    }
+}
+
+/// The keys one term node holds, read by role.
+#[derive(Clone, Copy)]
+pub(super) struct NodeKeys<'t> {
+    keys: &'t TermKeys,
+    index: Option<usize>,
+}
+
+impl<'t> NodeKeys<'t> {
+    /// The node's key of `role`.
+    pub(super) fn role(self, role: ProvenanceRole) -> Option<&'t ProvenanceKey> {
+        self.index.and_then(|index| self.keys.node_key(index, role))
+    }
+
+    /// The node's keys of `role`, in allocation order.
+    pub(super) fn roles(self, role: ProvenanceRole) -> impl Iterator<Item = &'t ProvenanceKey> {
+        self.index
+            .into_iter()
+            .flat_map(move |index| self.keys.node_keys(index, role))
     }
 }
 
@@ -743,7 +758,7 @@ impl<'a> TermBuilder<'a> {
         let sort = sort
             .map(|sort| {
                 self.local_sort_reference(
-                    role_key(node, ProvenanceRole::LetSort),
+                    node.role(ProvenanceRole::LetSort),
                     wire_key(ProvenanceRole::LetSort, ordinal),
                     sort,
                     slots,
@@ -760,7 +775,7 @@ impl<'a> TermBuilder<'a> {
         self.let_scopes.pop();
         Ok(WireTerm::Let {
             key: read_key(
-                role_key(node, ProvenanceRole::Let),
+                node.role(ProvenanceRole::Let),
                 wire_key(ProvenanceRole::Let, ordinal),
             ),
             pattern: Box::new(pattern),
@@ -839,7 +854,7 @@ impl<'a> TermBuilder<'a> {
             )
         })?;
         let sort = self.local_sort_reference(
-            role_key(node, ProvenanceRole::MlBinderSort),
+            node.role(ProvenanceRole::MlBinderSort),
             wire_key(ProvenanceRole::MlBinderSort, ordinal),
             sort,
             slots,
@@ -849,11 +864,11 @@ impl<'a> TermBuilder<'a> {
         self.let_scopes.pop();
         Ok(WireTerm::Closure {
             key: read_key(
-                role_key(node, ProvenanceRole::MlConnective),
+                node.role(ProvenanceRole::MlConnective),
                 wire_key(ProvenanceRole::MlConnective, ordinal),
             ),
             binder_key: read_key(
-                role_key(node, ProvenanceRole::MlBinder),
+                node.role(ProvenanceRole::MlBinder),
                 wire_key(ProvenanceRole::MlBinder, ordinal),
             ),
             name: binder.unraw().to_string(),
@@ -915,7 +930,7 @@ impl<'a> TermBuilder<'a> {
         self.local_binders = None;
         Ok(WireTerm::Matches {
             key: read_key(
-                role_key(node, ProvenanceRole::Matches),
+                node.role(ProvenanceRole::Matches),
                 wire_key(ProvenanceRole::Matches, ordinal),
             ),
             subject: Box::new(subject),
@@ -955,7 +970,7 @@ impl<'a> TermBuilder<'a> {
                 );
                 let node = keys.node(NodeKind::ApplicationHead);
                 let key = read_key(
-                    role_key(node, side.role(TermRole::ApplicationHead)),
+                    node.role(side.role(TermRole::ApplicationHead)),
                     wire_key(side.role(TermRole::ApplicationHead), application_ordinal),
                 );
                 let lexical = if self.lexical_imports.is_some() {
@@ -1033,10 +1048,8 @@ impl<'a> TermBuilder<'a> {
                     wire_key(side.role(TermRole::Path), path_ordinal),
                 );
                 let key = read_key(
-                    role_key(
-                        keys.node(NodeKind::Reference),
-                        side.role(TermRole::Reference),
-                    ),
+                    keys.node(NodeKind::Reference)
+                        .role(side.role(TermRole::Reference)),
                     wire_key(side.role(TermRole::Reference), reference_ordinal),
                 );
                 if self.is_local_binder(path) {
@@ -1093,7 +1106,8 @@ impl<'a> TermBuilder<'a> {
                 let literal = wire_literal(literal);
                 Ok(WireTerm::Literal {
                     key: read_key(
-                        role_key(keys.node(NodeKind::Literal), side.role(TermRole::Literal)),
+                        keys.node(NodeKind::Literal)
+                            .role(side.role(TermRole::Literal)),
                         wire_key(side.role(TermRole::Literal), ordinal),
                     ),
                     literal,
@@ -1111,7 +1125,7 @@ impl<'a> TermBuilder<'a> {
                 })?;
                 Ok(WireTerm::Wildcard {
                     key: read_key(
-                        role_key(node, ProvenanceRole::LetWildcard),
+                        node.role(ProvenanceRole::LetWildcard),
                         wire_key(ProvenanceRole::LetWildcard, ordinal),
                     ),
                 })
@@ -1128,7 +1142,7 @@ impl<'a> TermBuilder<'a> {
                 })?;
                 Ok(WireTerm::Wildcard {
                     key: read_key(
-                        role_key(node, ProvenanceRole::MatchesWildcard),
+                        node.role(ProvenanceRole::MatchesWildcard),
                         wire_key(ProvenanceRole::MatchesWildcard, ordinal),
                     ),
                 })
@@ -1156,7 +1170,8 @@ impl<'a> TermBuilder<'a> {
                 self.id_token_ordinal += 1;
                 Ok(WireTerm::BuiltinToken {
                     key: read_key(
-                        role_key(keys.node(NodeKind::IdToken), ProvenanceRole::ClaimIdToken),
+                        keys.node(NodeKind::IdToken)
+                            .role(ProvenanceRole::ClaimIdToken),
                         wire_key(ProvenanceRole::ClaimIdToken, ordinal),
                     ),
                     sort: BuiltinSort::Id,
@@ -1168,10 +1183,8 @@ impl<'a> TermBuilder<'a> {
                 self.bytes_token_ordinal += 1;
                 Ok(WireTerm::BuiltinToken {
                     key: read_key(
-                        role_key(
-                            keys.node(NodeKind::BytesToken),
-                            ProvenanceRole::ClaimBytesToken,
-                        ),
+                        keys.node(NodeKind::BytesToken)
+                            .role(ProvenanceRole::ClaimBytesToken),
                         wire_key(ProvenanceRole::ClaimBytesToken, ordinal),
                     ),
                     sort: BuiltinSort::Bytes,
@@ -1205,12 +1218,12 @@ impl<'a> TermBuilder<'a> {
                 let facade = self.facade;
                 Ok(WireTerm::Anonymous {
                     key: read_key(
-                        role_key(node, ProvenanceRole::ClaimAnonymous),
+                        node.role(ProvenanceRole::ClaimAnonymous),
                         wire_key(ProvenanceRole::ClaimAnonymous, ordinal),
                     ),
                     sort: WireSortReference {
                         key: read_key(
-                            role_key(node, ProvenanceRole::ClaimAnonymousSort),
+                            node.role(ProvenanceRole::ClaimAnonymousSort),
                             wire_key(ProvenanceRole::ClaimAnonymousSort, ordinal),
                         ),
                         target: WireTypeReference {
@@ -1343,7 +1356,7 @@ impl<'a> TermBuilder<'a> {
                     .try_map_ref(|argument| self.expand_node(argument, keys, side, slots))?;
                 Ok(WireTerm::OrBool {
                     key: read_key(
-                        role_key(node, ProvenanceRole::ClaimOrBool),
+                        node.role(ProvenanceRole::ClaimOrBool),
                         wire_key(ProvenanceRole::ClaimOrBool, ordinal),
                     ),
                     arguments,
@@ -1358,10 +1371,8 @@ impl<'a> TermBuilder<'a> {
                     wire_key(side.role(TermRole::Path), path_ordinal),
                 );
                 let key = read_key(
-                    role_key(
-                        keys.node(NodeKind::ApplicationHead),
-                        side.role(TermRole::ApplicationHead),
-                    ),
+                    keys.node(NodeKind::ApplicationHead)
+                        .role(side.role(TermRole::ApplicationHead)),
                     wire_key(side.role(TermRole::ApplicationHead), application_ordinal),
                 );
                 let declaration = self.cell_declaration_reference(cell.owner(), slots)?;
@@ -1428,7 +1439,7 @@ impl<'a> TermBuilder<'a> {
     pub(super) fn take_pattern_as(
         &mut self,
         binding: &Ident,
-        node: &[ProvenanceKey],
+        node: NodeKeys<'_>,
     ) -> crate::Result<(ProvenanceKey, ProvenanceKey)> {
         let ordinal = self.pattern_as_ordinal;
         self.pattern_as_ordinal = ordinal.checked_add(1).ok_or_else(|| {
@@ -1444,11 +1455,11 @@ impl<'a> TermBuilder<'a> {
         }
         Ok((
             read_key(
-                role_key(node, ProvenanceRole::PatternAs),
+                node.role(ProvenanceRole::PatternAs),
                 wire_key(ProvenanceRole::PatternAs, ordinal),
             ),
             read_key(
-                role_key(node, ProvenanceRole::PatternAsBinding),
+                node.role(ProvenanceRole::PatternAsBinding),
                 wire_key(ProvenanceRole::PatternAsBinding, ordinal),
             ),
         ))
@@ -1459,7 +1470,7 @@ impl<'a> TermBuilder<'a> {
     pub(super) fn take_pattern_or(
         &mut self,
         span: Span,
-        node: &[ProvenanceKey],
+        node: NodeKeys<'_>,
     ) -> crate::Result<ProvenanceKey> {
         let ordinal = self.pattern_or_ordinal;
         self.pattern_or_ordinal = ordinal.checked_add(1).ok_or_else(|| {
@@ -1470,7 +1481,7 @@ impl<'a> TermBuilder<'a> {
             )
         })?;
         Ok(read_key(
-            role_key(node, ProvenanceRole::PatternOr),
+            node.role(ProvenanceRole::PatternOr),
             wire_key(ProvenanceRole::PatternOr, ordinal),
         ))
     }
@@ -1481,7 +1492,7 @@ impl<'a> TermBuilder<'a> {
         &mut self,
         sort: &Path,
         text: &syn::LitStr,
-        node: &[ProvenanceKey],
+        node: NodeKeys<'_>,
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
         let ordinal = self.lexeme_ordinal;
@@ -1511,12 +1522,12 @@ impl<'a> TermBuilder<'a> {
         let facade = self.facade;
         Ok(WireTerm::Lexeme {
             key: read_key(
-                role_key(node, ProvenanceRole::LexemeText),
+                node.role(ProvenanceRole::LexemeText),
                 wire_key(ProvenanceRole::LexemeText, ordinal),
             ),
             sort: krs_ir::wire::WireSortReference {
                 key: read_key(
-                    role_key(node, ProvenanceRole::LexemeSort),
+                    node.role(ProvenanceRole::LexemeSort),
                     wire_key(ProvenanceRole::LexemeSort, ordinal),
                 ),
                 target: krs_ir::wire::WireTypeReference {
@@ -1534,7 +1545,7 @@ impl<'a> TermBuilder<'a> {
         &mut self,
         range: krs_syntax::TokenRange,
         sort: &Path,
-        node: &[ProvenanceKey],
+        node: NodeKeys<'_>,
         slots: &mut WireSlots,
     ) -> crate::Result<(krs_ir::ProvenanceKey, krs_ir::wire::WireSortReference)> {
         let ordinal = self.sort_test_ordinal;
@@ -1564,12 +1575,12 @@ impl<'a> TermBuilder<'a> {
         let facade = self.facade;
         Ok((
             read_key(
-                role_key(node, ProvenanceRole::SortTest),
+                node.role(ProvenanceRole::SortTest),
                 wire_key(ProvenanceRole::SortTest, ordinal),
             ),
             krs_ir::wire::WireSortReference {
                 key: read_key(
-                    role_key(node, ProvenanceRole::SortTestSort),
+                    node.role(ProvenanceRole::SortTestSort),
                     wire_key(ProvenanceRole::SortTestSort, ordinal),
                 ),
                 target: krs_ir::wire::WireTypeReference {
@@ -1680,12 +1691,10 @@ impl<'a> TermBuilder<'a> {
     pub(super) fn application_instance_wire(
         &mut self,
         application: &krs_syntax::TermApplication,
-        node: &[ProvenanceKey],
+        node: NodeKeys<'_>,
         slots: &mut WireSlots,
     ) -> crate::Result<Vec<krs_ir::wire::WireSortReference>> {
-        let mut instance_keys = node
-            .iter()
-            .filter(|key| key.role() == ProvenanceRole::ApplicationInstance);
+        let mut instance_keys = node.roles(ProvenanceRole::ApplicationInstance);
         let instance = application.instance();
         let Some(first) = instance.first() else {
             return Ok(Vec::new());

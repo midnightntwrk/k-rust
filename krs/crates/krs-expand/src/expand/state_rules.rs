@@ -35,7 +35,7 @@ use super::island_checks::{consumed_state_island_import_checks, wrapper_type_che
 use super::nonce::expansion_nonce;
 use super::terms::{
     KeyedTerm, NodeKind, TermBuilder, TermKeyReader, TermRole, TermSide, WireSlots, read_key,
-    role_key, wire_key, wire_sort_reference,
+    wire_key, wire_sort_reference,
 };
 use super::tokens::{
     call_site_cfg_attributes, call_site_path, is_bound_ident_path, sort_type_tokens, spelling,
@@ -1019,7 +1019,7 @@ impl<'a> StateRuleBuilder<'a> {
                 keys.path();
                 let node = keys.node(NodeKind::ApplicationHead);
                 let key = read_key(
-                    role_key(node, self.term_role(TermRole::ApplicationHead)),
+                    node.role(self.term_role(TermRole::ApplicationHead)),
                     self.term_key(TermRole::ApplicationHead, ordinal),
                 );
                 let target = self.terms.application_wire_slot(
@@ -1077,10 +1077,8 @@ impl<'a> StateRuleBuilder<'a> {
                 let ordinal = take_counter(&mut self.counters.reference)?;
                 keys.path();
                 let key = read_key(
-                    role_key(
-                        keys.node(NodeKind::Reference),
-                        self.term_role(TermRole::Reference),
-                    ),
+                    keys.node(NodeKind::Reference)
+                        .role(self.term_role(TermRole::Reference)),
                     self.term_key(TermRole::Reference, ordinal),
                 );
                 if is_bound_ident_path(path, self.bindings) {
@@ -1110,10 +1108,8 @@ impl<'a> StateRuleBuilder<'a> {
                 let ordinal = take_counter(&mut self.counters.literal)?;
                 Ok(WireTerm::Literal {
                     key: read_key(
-                        role_key(
-                            keys.node(NodeKind::Literal),
-                            self.term_role(TermRole::Literal),
-                        ),
+                        keys.node(NodeKind::Literal)
+                            .role(self.term_role(TermRole::Literal)),
                         self.term_key(TermRole::Literal, ordinal),
                     ),
                     literal: wire_literal(literal),
@@ -1136,7 +1132,8 @@ impl<'a> StateRuleBuilder<'a> {
                 let ordinal = take_counter(&mut self.counters.id_token)?;
                 Ok(WireTerm::BuiltinToken {
                     key: read_key(
-                        role_key(keys.node(NodeKind::IdToken), ProvenanceRole::ClaimIdToken),
+                        keys.node(NodeKind::IdToken)
+                            .role(ProvenanceRole::ClaimIdToken),
                         wire_key(ProvenanceRole::ClaimIdToken, ordinal),
                     ),
                     sort: BuiltinSort::Id,
@@ -1147,10 +1144,8 @@ impl<'a> StateRuleBuilder<'a> {
                 let ordinal = take_counter(&mut self.counters.bytes_token)?;
                 Ok(WireTerm::BuiltinToken {
                     key: read_key(
-                        role_key(
-                            keys.node(NodeKind::BytesToken),
-                            ProvenanceRole::ClaimBytesToken,
-                        ),
+                        keys.node(NodeKind::BytesToken)
+                            .role(ProvenanceRole::ClaimBytesToken),
                         wire_key(ProvenanceRole::ClaimBytesToken, ordinal),
                     ),
                     sort: BuiltinSort::Bytes,
@@ -1238,12 +1233,12 @@ impl<'a> StateRuleBuilder<'a> {
                 self.terms.key_functions.push(quote! { #(#cfg)* #[doc(hidden)] fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() } });
                 Ok(WireTerm::Anonymous {
                     key: read_key(
-                        role_key(node, ProvenanceRole::ClaimAnonymous),
+                        node.role(ProvenanceRole::ClaimAnonymous),
                         wire_key(ProvenanceRole::ClaimAnonymous, ordinal),
                     ),
                     sort: WireSortReference {
                         key: read_key(
-                            role_key(node, ProvenanceRole::ClaimAnonymousSort),
+                            node.role(ProvenanceRole::ClaimAnonymousSort),
                             wire_key(ProvenanceRole::ClaimAnonymousSort, ordinal),
                         ),
                         target: WireTypeReference {
@@ -1300,7 +1295,7 @@ impl<'a> StateRuleBuilder<'a> {
                     arguments.try_map_ref(|argument| self.expand_term(argument, keys, slots))?;
                 Ok(WireTerm::OrBool {
                     key: read_key(
-                        role_key(node, ProvenanceRole::ClaimOrBool),
+                        node.role(ProvenanceRole::ClaimOrBool),
                         wire_key(ProvenanceRole::ClaimOrBool, ordinal),
                     ),
                     arguments,
@@ -1310,10 +1305,8 @@ impl<'a> StateRuleBuilder<'a> {
                 let ordinal = take_counter(&mut self.counters.application)?;
                 keys.path();
                 let key = read_key(
-                    role_key(
-                        keys.node(NodeKind::ApplicationHead),
-                        self.term_role(TermRole::ApplicationHead),
-                    ),
+                    keys.node(NodeKind::ApplicationHead)
+                        .role(self.term_role(TermRole::ApplicationHead)),
                     self.term_key(TermRole::ApplicationHead, ordinal),
                 );
                 let declaration = self.terms.cell_declaration_reference(cell.owner(), slots)?;
