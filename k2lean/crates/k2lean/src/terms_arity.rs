@@ -47,6 +47,81 @@ struct Coll1 {
     elems: Vec<(String, String)>,
 }
 
+/// The index and the enumerations of the arity-indexed universe, as `emit` writes them: for code
+/// that is generated against a library in this encoding without reading its `Terms.lean`
+/// (`relate`'s translation between two such libraries).
+pub struct Shape {
+    /// The constructors of `Tag`, in order: the block's types, then the builtin carriers.
+    pub tags: Vec<String>,
+    /// The tags of builtin carriers (a `b_…` constructor of the family each).
+    pub builtins: BTreeSet<String>,
+    /// For each arity `k`, the sorts with constructors of arity `k` and those constructors (the
+    /// enumeration `S.Ck`: Lean name and argument sorts, in order).
+    pub enums: BTreeMap<usize, Vec<(String, Vec<(String, Vec<String>)>)>>,
+    /// The sorts with subsorts and the tags of their leaves (`S.leaf`).
+    pub sums: Vec<(String, Vec<String>)>,
+    /// The collection sorts (`coll_…`): kind and element sorts.
+    pub colls: Vec<(String, Coll, Vec<String>)>,
+}
+
+pub fn shape(m: &Model) -> Shape {
+    let types = block_types(m);
+    let names: BTreeSet<String> = types.iter().map(|(t, _)| t.clone()).collect();
+    let mut builtins = BTreeSet::new();
+    let mut enums: BTreeMap<usize, Vec<(String, Vec<(String, Vec<String>)>)>> = BTreeMap::new();
+    let mut sums = Vec::new();
+    let mut colls = Vec::new();
+    for (ty, cs) in &types {
+        match &m.sorts.get(ty).map(|s| s.kind.clone()) {
+            Some(Kind::Coll(k)) => {
+                let info = m.sort(ty);
+                for e in &info.elems {
+                    if !names.contains(e) {
+                        builtins.insert(e.clone());
+                    }
+                }
+                colls.push((ty.clone(), k.clone(), info.elems.clone()));
+            }
+            Some(Kind::Plain) if !m.sort(ty).is_simple() => {
+                for c in cs {
+                    if !names.contains(&c.args[0]) {
+                        builtins.insert(c.args[0].clone());
+                    }
+                }
+                sums.push((ty.clone(), cs.iter().map(|c| c.args[0].clone()).collect()));
+            }
+            _ => {
+                let mut ar: BTreeMap<usize, Vec<(String, Vec<String>)>> = BTreeMap::new();
+                for c in cs {
+                    for a in &c.args {
+                        if !names.contains(a) {
+                            builtins.insert(a.clone());
+                        }
+                    }
+                    ar.entry(c.args.len())
+                        .or_default()
+                        .push((c.name.clone(), c.args.clone()));
+                }
+                for (k, v) in ar {
+                    enums.entry(k).or_default().push((ty.clone(), v));
+                }
+            }
+        }
+    }
+    let tags = types
+        .iter()
+        .map(|(t, _)| t.clone())
+        .chain(builtins.iter().cloned())
+        .collect();
+    Shape {
+        tags,
+        builtins,
+        enums,
+        sums,
+        colls,
+    }
+}
+
 pub fn emit(m: &Model, ns: &str) -> String {
     let mut o = crate::terms::prefix(
         m,

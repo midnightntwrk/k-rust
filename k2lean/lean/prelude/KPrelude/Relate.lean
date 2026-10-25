@@ -601,8 +601,8 @@ open Lean Meta Elab Tactic in
 /-- `k2l_inv`: repeatedly (1) substitute variables, (2) split conjunctions, (3) for a hypothesis
 `h : e = f x` (or `f x = e`) where `f` is a translation function (its name has a component
 starting with `tr_`), `x` a local variable and `e` not a variable, case on `x` and simplify `h`
-with `f`'s equations: constructor clashes close the goal, matching constructors give equations
-between the arguments. Terminates because `e` gets smaller. -/
+with `f`'s equations (on the arity-indexed family, the `k2l_tr` equations after `familyCases`):
+constructor clashes close the goal, matching constructors give equations between the arguments. Terminates because `e` gets smaller. -/
 partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
   if fuel = 0 then return
   if (← getGoals).isEmpty then return
@@ -633,7 +633,17 @@ partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
         let hx ← Term.exprToSyntax x
         let hid := mkIdent ldecl.userName
         let fid := mkIdent fn
-        evalTactic (← `(tactic| cases $hx:term <;> simp [$fid:ident] at $hid:ident))
+        if (← whnfR (← inferType x)).getAppFn.constName?.any (isFamilyName (← getEnv)) then
+          -- on the arity-indexed family: the cases of the sort's values only (`familyCases`)
+          let gs ← familyCases (← getMainGoal) x.fvarId!
+          let mut out := #[]
+          for (g, _) in gs do
+            setGoals [g]
+            evalTactic (← `(tactic| simp [k2l_tr] at $hid:ident))
+            out := out ++ (← getGoals)
+          setGoals out.toList
+        else
+          evalTactic (← `(tactic| cases $hx:term <;> simp [$fid:ident] at $hid:ident))
         return true
       catch _ => s.restore
     return false
@@ -683,8 +693,12 @@ partial def k2lCommLoop (fuel : Nat) : TacticM Unit := do
         return some ldecl.toExpr
     return none
   let some x := cand | throwError "k2l_comm_fn: nothing to case on"
-  let hx ← g.withContext (Term.exprToSyntax x)
-  evalTactic (← `(tactic| cases $hx:term))
+  if ← g.withContext do
+      return (← whnfR (← inferType x)).getAppFn.constName?.any (isFamilyName (← getEnv)) then
+    setGoals ((← familyCases g x.fvarId!).toList.map (·.1))
+  else
+    let hx ← g.withContext (Term.exprToSyntax x)
+    evalTactic (← `(tactic| cases $hx:term))
   let gs ← getGoals
   let mut out := #[]
   for g in gs do

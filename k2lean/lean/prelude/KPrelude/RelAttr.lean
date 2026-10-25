@@ -6,3 +6,8 @@ commute with the translation. Registered in its own file because an attribute ca
 the file that declares it. -/
 
 register_simp_attr k2l_rel
+
+/-- The equations of a translation in the arity-indexed universe, one per constructor
+(`tr_S (A.c x) = B.c (tr x)`): what unfolding `tr_S` gives on a type per sort, which `k2l_inv`
+uses to invert `d = tr_S x` after splitting `x`. -/
+register_simp_attr k2l_tr

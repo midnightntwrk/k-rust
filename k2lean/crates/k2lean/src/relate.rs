@@ -48,6 +48,8 @@ struct Side {
     prios: Vec<i64>,
     ranked: bool,
     ns: String,
+    /// The library is in the arity-indexed universe (`terms_arity.rs`, design.md §2.1).
+    arity: bool,
 }
 
 impl Side {
@@ -75,7 +77,7 @@ fn fail(msg: &str) -> ! {
     std::process::exit(2)
 }
 
-fn load_side(kore: &str, syn: Option<&str>, ns: &str, want_rules: bool) -> Side {
+fn load_side(kore: &str, syn: Option<&str>, ns: &str, want_rules: bool, arity: bool) -> Side {
     let def = ir::load(&std::fs::read_to_string(kore).unwrap()).unwrap();
     let syn = syn.map(|p| ir::load(&std::fs::read_to_string(p).unwrap()).unwrap());
     let m = Model::build(&def).unwrap_or_else(|e| panic!("{e}"));
@@ -88,7 +90,13 @@ fn load_side(kore: &str, syn: Option<&str>, ns: &str, want_rules: bool) -> Side 
         }
     }
     roots.extend(m.anywhere.iter().cloned());
-    let fgen = crate::funcs::generate(&def, &m, &roots)
+    // the functions as `gen` generates them in the library's encoding (their termination measures
+    // depend on it)
+    let side = crate::funcs::Sidecar {
+        arity_terms: arity,
+        ..Default::default()
+    };
+    let fgen = crate::funcs::generate_with(&def, &m, &roots, &side)
         .unwrap_or_else(|e| fail(&format!("functions: {e}")));
     let (rules, prios, ranked) = if want_rules {
         rules::collect_ranked(&def, &m, &fgen.fns, &[]).unwrap_or_else(|e| fail(&e))
@@ -109,6 +117,7 @@ fn load_side(kore: &str, syn: Option<&str>, ns: &str, want_rules: bool) -> Side 
         prios,
         ranked,
         ns: ns.to_string(),
+        arity,
     }
 }
 
@@ -581,17 +590,21 @@ pub fn main(args: &[String]) {
     if per_rule && !full {
         fail("--per-rule needs the whole correspondence (not --roots)");
     }
+    // the encoding of the two libraries' terms, as `gen` was given it
+    let arity = opt.get("arity-terms").is_some_and(|v| v == "true");
     let a = load_side(
         &get("kore-a"),
         opt.get("syntax-a").map(|s| s.as_str()),
         &get("name-a"),
         full,
+        arity,
     );
     let b = load_side(
         &get("kore-b"),
         opt.get("syntax-b").map(|s| s.as_str()),
         &get("name-b"),
         full,
+        arity,
     );
     let ns = get("ns");
     let sm = match_symbols(&a, &b);
@@ -901,6 +914,13 @@ pub fn main(args: &[String]) {
     );
 }
 
+/// The tactic that splits a term variable into its sort's values: `cases` on a type per sort, and
+/// on the arity-indexed family `k2l_cases`, which also refutes the family's constructors that no
+/// value of the sort has.
+fn cases_tac(a: &Side) -> &'static str {
+    if a.arity { "k2l_cases" } else { "cases" }
+}
+
 fn tr_name(ty: &str) -> String {
     format!("tr_{}", terms::fsuffix(ty))
 }
@@ -982,72 +1002,76 @@ fn emit(
         }
     }
     writeln!(o, "/-! ## The translation -/\n").unwrap();
-    for t in &tokens {
-        writeln!(o, "def {} (x : {na}.{t}) : {nb}.{t} := ⟨x.val⟩", tr_name(t)).unwrap();
-    }
-    writeln!(o, "\nmutual").unwrap();
-    for (t, _, k) in &uni {
-        if !covered.contains(t) {
-            continue;
+    if a.arity {
+        emit_arity_tr(a, b, sm, covered, &mut o)?;
+    } else {
+        for t in &tokens {
+            writeln!(o, "def {} (x : {na}.{t}) : {nb}.{t} := ⟨x.val⟩", tr_name(t)).unwrap();
         }
-        writeln!(
-            o,
-            "def {} (a : {na}.{t}) : {nb}.{t} :=\n  match a with",
-            tr_name(t)
-        )
-        .unwrap();
-        match k {
-            TyKind::Own(cs) => {
-                for (sym, lean, args) in cs {
-                    let bsym = &sm.map[sym].0;
-                    let blean = &b.m.ctors[bsym].lean;
-                    let xs: Vec<String> = (0..args.len()).map(|i| format!("a{i}")).collect();
-                    let vs: Vec<String> =
-                        args.iter().zip(&xs).map(|(s, x)| val(&a.m, s, x)).collect();
-                    writeln!(
-                        o,
-                        "  | .{lean} {} => .{blean} {}",
-                        xs.join(" "),
-                        vs.join(" ")
-                    )
-                    .unwrap();
+        writeln!(o, "\nmutual").unwrap();
+        for (t, _, k) in &uni {
+            if !covered.contains(t) {
+                continue;
+            }
+            writeln!(
+                o,
+                "def {} (a : {na}.{t}) : {nb}.{t} :=\n  match a with",
+                tr_name(t)
+            )
+            .unwrap();
+            match k {
+                TyKind::Own(cs) => {
+                    for (sym, lean, args) in cs {
+                        let bsym = &sm.map[sym].0;
+                        let blean = &b.m.ctors[bsym].lean;
+                        let xs: Vec<String> = (0..args.len()).map(|i| format!("a{i}")).collect();
+                        let vs: Vec<String> =
+                            args.iter().zip(&xs).map(|(s, x)| val(&a.m, s, x)).collect();
+                        writeln!(
+                            o,
+                            "  | .{lean} {} => .{blean} {}",
+                            xs.join(" "),
+                            vs.join(" ")
+                        )
+                        .unwrap();
+                    }
+                }
+                TyKind::Sum(ls) => {
+                    for (l, own) in ls {
+                        let short = names::short_sort(l);
+                        writeln!(
+                            o,
+                            "  | .inj_{short} x => .inj_{short} {}",
+                            val(&a.m, own, "x")
+                        )
+                        .unwrap();
+                    }
+                }
+                TyKind::Coll(c, es) => {
+                    writeln!(o, "  | .nil => .nil").unwrap();
+                    match c {
+                        Coll::Map => writeln!(
+                            o,
+                            "  | .cons k v r => .cons {} {} ({} r)",
+                            val(&a.m, &es[0], "k"),
+                            val(&a.m, &es[1], "v"),
+                            tr_name(t)
+                        )
+                        .unwrap(),
+                        _ => writeln!(
+                            o,
+                            "  | .cons x r => .cons {} ({} r)",
+                            val(&a.m, &es[0], "x"),
+                            tr_name(t)
+                        )
+                        .unwrap(),
+                    }
                 }
             }
-            TyKind::Sum(ls) => {
-                for (l, own) in ls {
-                    let short = names::short_sort(l);
-                    writeln!(
-                        o,
-                        "  | .inj_{short} x => .inj_{short} {}",
-                        val(&a.m, own, "x")
-                    )
-                    .unwrap();
-                }
-            }
-            TyKind::Coll(c, es) => {
-                writeln!(o, "  | .nil => .nil").unwrap();
-                match c {
-                    Coll::Map => writeln!(
-                        o,
-                        "  | .cons k v r => .cons {} {} ({} r)",
-                        val(&a.m, &es[0], "k"),
-                        val(&a.m, &es[1], "v"),
-                        tr_name(t)
-                    )
-                    .unwrap(),
-                    _ => writeln!(
-                        o,
-                        "  | .cons x r => .cons {} ({} r)",
-                        val(&a.m, &es[0], "x"),
-                        tr_name(t)
-                    )
-                    .unwrap(),
-                }
-            }
+            writeln!(o, "  termination_by structural a").unwrap();
         }
-        writeln!(o, "  termination_by structural a").unwrap();
+        writeln!(o, "end\n").unwrap();
     }
-    writeln!(o, "end\n").unwrap();
     // fold lemmas
     writeln!(
         o,
@@ -1090,6 +1114,34 @@ fn emit(
                 v
             }
         };
+        if a.arity
+            && let TyKind::Coll(c, es) = k
+        {
+            // a collection value is `coll_T l` of a list, translated by `trL_T`
+            let f = terms::fsuffix(t);
+            let elem = |e: &str| {
+                if is_builtin(&a.m, e)
+                    || matches!(a.m.sorts.get(e).map(|i| &i.kind), Some(Kind::Token))
+                {
+                    format!("{na}.{e}")
+                } else {
+                    format!("{na}.Term .«{e}»")
+                }
+            };
+            let lt = match c {
+                Coll::Map => format!("({} × {})", elem(&es[0]), elem(&es[1])),
+                Coll::Set => format!("({} × Unit)", elem(&es[0])),
+                Coll::List => format!("({})", elem(&es[0])),
+            };
+            writeln!(
+                o,
+                "@[k2l_rel] theorem fold_{f}_0 (l : List {lt}) : {nb}.Term.«coll_{f}» (trL_{f} l) = {} ({na}.Term.«coll_{f}» l) := rfl",
+                tr_name(t)
+            )
+            .unwrap();
+            fold_names.push(format!("fold_{f}_0"));
+            continue;
+        }
         for (i, (la, lb, args)) in ctors.iter().enumerate() {
             let xs: Vec<String> = (0..args.len()).map(|i| format!("x{i}")).collect();
             let binders: String = args
@@ -1139,9 +1191,10 @@ fn emit(
         }
         writeln!(
             o,
-            "@[k2l_rel] theorem fold_inj_{sx}_{sy} (x : {na}.{tx}) : {nb}.inj_{sx}_{sy} {} = {} ({na}.inj_{sx}_{sy} x) := by\n  first | rfl | (cases x <;> rfl)",
+            "@[k2l_rel] theorem fold_inj_{sx}_{sy} (x : {na}.{tx}) : {nb}.inj_{sx}_{sy} {} = {} ({na}.inj_{sx}_{sy} x) := by\n  first | rfl | ({} x <;> rfl)",
             val(&a.m, &x, "x"),
-            tr_name(&y)
+            tr_name(&y),
+            cases_tac(a)
         )
         .unwrap();
         let mapf = if is_builtin(&a.m, &x) {
@@ -1154,7 +1207,7 @@ fn emit(
         } else {
             format!("({na}.proj_{sy}_{sx} y).map {mapf}")
         };
-        writeln!(o, "@[k2l_rel] theorem comm_proj_{sy}_{sx} (y : {na}.{y}) : {nb}.proj_{sy}_{sx} ({} y) = {rhs} := by\n  cases y <;> rfl", tr_name(&y)).unwrap();
+        writeln!(o, "@[k2l_rel] theorem comm_proj_{sy}_{sx} (y : {na}.{y}) : {nb}.proj_{sy}_{sx} ({} y) = {rhs} := by\n  {} y <;> rfl", tr_name(&y), cases_tac(a)).unwrap();
         writeln!(o, "attribute [k2l_rel] {na}.proj_inj_{sy}_{sx}").unwrap();
     }
     // functions defined by equations, used by the rules
@@ -1507,8 +1560,9 @@ fn emit(
     .unwrap();
     writeln!(
         o,
-        "theorem pres : SAL.PresOn (fun k => keyOK k = true) tr_SortKItem := by\n  intro a b ha hb\n  cases a <;> simp [keyOK] at ha <;> cases b <;> simp [keyOK] at hb <;> first | rfl | simp [compare, {na}.cmp_SortKItem, {nb}.cmp_SortKItem, {}]\n",
-        tokens.iter().map(|t| format!("{na}.cmp_{t}, {nb}.cmp_{t}, {}", tr_name(t))).collect::<Vec<_>>().join(", ")
+        "theorem pres : SAL.PresOn (fun k => keyOK k = true) tr_SortKItem := by\n  intro a b ha hb\n  {ct} a <;> simp [keyOK] at ha <;> {ct} b <;> simp [keyOK] at hb <;> first | rfl | simp [compare, {na}.cmp_SortKItem, {nb}.cmp_SortKItem, {}]\n",
+        tokens.iter().map(|t| format!("{na}.cmp_{t}, {nb}.cmp_{t}, {}", tr_name(t))).collect::<Vec<_>>().join(", "),
+        ct = cases_tac(a)
     )
     .unwrap();
     writeln!(
@@ -1950,6 +2004,317 @@ fn emit(
 /// tag in the serialization `ser`, from which each library's order on terms comes): then
 /// `ser (tr a) = ser a` for every term, so the translation preserves the order of every map key
 /// and commutes with every collection operation, without a hypothesis (design.md, §3.2). `Err`
+/// The translation in the arity-indexed universe (design.md §2.1, `terms_arity.rs`): one function
+/// `tr : {s : A.Tag} → A.Term s → TrTy s` by structural recursion on `A`'s family, where `TrTy s`
+/// is `B.Term s` on the covered sorts and the builtin carriers, and `Unit` on the others (the sorts
+/// a translation of programs, `--roots`, does not reach). A covered sort's values are translated by
+/// the builders `mkK` (a constructor of arity `K` to its counterpart, by a match on the sort and
+/// its enumeration, so the arguments' `TrTy` reduce to `B`'s argument sorts) and `mkInj` (a leaf
+/// injection to the same leaf of `B`'s sort); the per-sort names `tr_S` are `tr` at sort `S`.
+/// Each `B` constructor applied to translations is then `tr` of the `A` constructor by `rfl`, as
+/// in the one type per sort encoding.
+fn emit_arity_tr(
+    a: &Side,
+    b: &Side,
+    sm: &SymMap,
+    covered: &BTreeSet<String>,
+    o: &mut String,
+) -> Result<(), String> {
+    let (na, nb) = (&a.ns, &b.ns);
+    let sa = crate::terms_arity::shape(&a.m);
+    let sb = crate::terms_arity::shape(&b.m);
+    let q = |t: &str| format!("«{t}»");
+    let btags: BTreeSet<&String> = sb.tags.iter().collect();
+    let is_token = |t: &str| matches!(a.m.sorts.get(t).map(|i| &i.kind), Some(Kind::Token));
+    // tags whose terms translate to `B`'s terms of the same tag
+    let into: BTreeSet<String> = sa
+        .tags
+        .iter()
+        .filter(|t| (covered.contains(*t) || sa.builtins.contains(*t)) && btags.contains(t))
+        .cloned()
+        .collect();
+    for t in covered {
+        if !btags.contains(t) {
+            return Err(format!(
+                "relate: {nb} has no sort {t} (needed by the translation)"
+            ));
+        }
+    }
+    // A's constructors by (type, Lean name)
+    let mut sym_of: BTreeMap<(String, String), String> = BTreeMap::new();
+    for (t, _, k) in universe(&a.m) {
+        if let TyKind::Own(cs) = k {
+            for (sym, lean, _) in cs {
+                sym_of.insert((t.clone(), lean), sym);
+            }
+        }
+    }
+    let _ = writeln!(
+        o,
+        "/-- The type a term of tag `s` of `{na}` translates to: `{nb}`'s terms of the same sort, or \
+`Unit` for a sort the translation does not cover. -/\n@[reducible] def TrTy : {na}.Tag → Type"
+    );
+    for t in &sa.tags {
+        if into.contains(t) {
+            let _ = writeln!(o, "  | .{} => {nb}.Term .{}", q(t), q(t));
+        } else {
+            let _ = writeln!(o, "  | .{} => Unit", q(t));
+        }
+    }
+    let _ = writeln!(o);
+    for t in sa
+        .builtins
+        .iter()
+        .filter(|t| into.contains(*t) && is_token(t))
+    {
+        let _ = writeln!(o, "def {} (x : {na}.{t}) : {nb}.{t} := ⟨x.val⟩", tr_name(t));
+    }
+    let _ = writeln!(o);
+    // the builders, one per arity
+    for (k, sorts) in &sa.enums {
+        let xs: Vec<String> = (0..*k).map(|i| format!("x{i}")).collect();
+        for (t, cs) in sorts {
+            if !into.contains(t) {
+                continue;
+            }
+            let args: String = (0..*k)
+                .map(|i| format!("TrTy ({na}.{t}.A{k}_{i} c) → "))
+                .collect();
+            let _ = writeln!(
+                o,
+                "@[reducible] def mk{k}_{} : (c : {na}.{t}.C{k}) → {args}{nb}.Term .{}",
+                terms::fsuffix(t),
+                q(t)
+            );
+            for (lean, _) in cs {
+                let sym = &sym_of[&(t.clone(), lean.clone())];
+                let blean = &b.m.ctors[&sm.map[sym].0].lean;
+                let pat: String = std::iter::once(format!(".{lean}"))
+                    .chain(xs.iter().cloned())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let _ = writeln!(
+                    o,
+                    "  | {pat} => {nb}.Term.c{k} (s := .{}) .{blean}{}",
+                    q(t),
+                    xs.iter().map(|x| format!(" {x}")).collect::<String>()
+                );
+            }
+        }
+        let args: String = (0..*k)
+            .map(|i| format!("TrTy ({na}.A{k}_{i} s c) → "))
+            .collect();
+        let _ = writeln!(
+            o,
+            "@[reducible] def mk{k} : (s : {na}.Tag) → (c : {na}.C{k} s) → {args}TrTy s"
+        );
+        let has: BTreeSet<&String> = sorts.iter().map(|(t, _)| t).collect();
+        for t in &sa.tags {
+            if !has.contains(t) {
+                let _ = writeln!(o, "  | .{} => fun c => nomatch c", q(t));
+            } else if into.contains(t) {
+                let _ = writeln!(o, "  | .{} => mk{k}_{}", q(t), terms::fsuffix(t));
+            } else {
+                let us: String = (0..=*k).map(|_| " _").collect();
+                let _ = writeln!(o, "  | .{} => fun{us} => ()", q(t));
+            }
+        }
+        let _ = writeln!(o);
+    }
+    let sums: BTreeSet<&String> = sa.sums.iter().map(|(t, _)| t).collect();
+    for (t, _) in &sa.sums {
+        if !into.contains(t) {
+            continue;
+        }
+        let _ = writeln!(
+            o,
+            "def mkInj_{} (l : {na}.Tag) (h : {na}.{t}.leaf l = true) (x : TrTy l) : {nb}.Term .{} := by\n  \
+cases l <;> first | exact {nb}.Term.inj (s := .{}) rfl _ rfl x | exact absurd h (by decide)",
+            terms::fsuffix(t),
+            q(t),
+            q(t)
+        );
+    }
+    let _ = writeln!(
+        o,
+        "@[reducible] def mkInj : (s l : {na}.Tag) → {na}.leafOK s l = true → TrTy l → TrTy s"
+    );
+    for t in &sa.tags {
+        if !sums.contains(t) {
+            let _ = writeln!(
+                o,
+                "  | .{} => fun _ h _ => absurd h Bool.false_ne_true",
+                q(t)
+            );
+        } else if into.contains(t) {
+            let _ = writeln!(o, "  | .{} => mkInj_{}", q(t), terms::fsuffix(t));
+        } else {
+            let _ = writeln!(o, "  | .{} => fun _ _ _ => ()", q(t));
+        }
+    }
+    // the translation
+    let _ = writeln!(
+        o,
+        "\nmutual\ndef tr : {{s : {na}.Tag}} → {na}.Term s → TrTy s"
+    );
+    for t in &sa.builtins {
+        let c = q(&format!("b_{t}"));
+        if into.contains(t) {
+            let v = if is_token(t) {
+                format!("({} v)", tr_name(t))
+            } else {
+                "v".to_string()
+            };
+            let _ = writeln!(o, "  | _, .{c} v => {nb}.Term.{c} {v}");
+        } else {
+            let _ = writeln!(o, "  | _, .{c} _ => ()");
+        }
+    }
+    for k in sa.enums.keys() {
+        let xs: String = (0..*k).map(|i| format!(" a{i}")).collect();
+        let ts: String = (0..*k).map(|i| format!(" (tr a{i})")).collect();
+        let _ = writeln!(o, "  | _, @{na}.Term.c{k} s c{xs} => mk{k} s c{ts}");
+    }
+    for (t, _, _) in &sa.colls {
+        let c = q(&format!("coll_{}", terms::fsuffix(t)));
+        if into.contains(t) {
+            let _ = writeln!(
+                o,
+                "  | _, .{c} l => {nb}.Term.{c} (trL_{} l)",
+                terms::fsuffix(t)
+            );
+        } else {
+            let _ = writeln!(o, "  | _, .{c} _ => ()");
+        }
+    }
+    let _ = writeln!(o, "  | _, @{na}.Term.inj s _ l h a => mkInj s l h (tr a)");
+    let _ = writeln!(o, "termination_by structural _ a => a");
+    let elem = |e: &str, x: &str| -> String {
+        if sa.builtins.contains(e) {
+            if is_token(e) {
+                format!("{} {x}", tr_name(e))
+            } else {
+                x.to_string()
+            }
+        } else {
+            format!("tr {x}")
+        }
+    };
+    let lty = |side: &str, e: &str, sh: &crate::terms_arity::Shape| -> String {
+        if sh.builtins.contains(e) {
+            format!("{side}.{e}")
+        } else {
+            format!("{side}.Term .{}", q(e))
+        }
+    };
+    for (t, kind, es) in &sa.colls {
+        if !into.contains(t) {
+            continue;
+        }
+        let f = format!("trL_{}", terms::fsuffix(t));
+        let (ta, tb, arm) = match kind {
+            Coll::Map => (
+                format!("({} × {})", lty(na, &es[0], &sa), lty(na, &es[1], &sa)),
+                format!("({} × {})", lty(nb, &es[0], &sb), lty(nb, &es[1], &sb)),
+                format!(
+                    "(k, v) :: r => ({}, {}) :: {f} r",
+                    elem(&es[0], "k"),
+                    elem(&es[1], "v")
+                ),
+            ),
+            Coll::Set => (
+                format!("({} × Unit)", lty(na, &es[0], &sa)),
+                format!("({} × Unit)", lty(nb, &es[0], &sb)),
+                format!("(k, ()) :: r => ({}, ()) :: {f} r", elem(&es[0], "k")),
+            ),
+            Coll::List => (
+                format!("({})", lty(na, &es[0], &sa)),
+                format!("({})", lty(nb, &es[0], &sb)),
+                format!("x :: r => {} :: {f} r", elem(&es[0], "x")),
+            ),
+        };
+        let _ = writeln!(
+            o,
+            "def {f} : List {ta} → List {tb}\n  | [] => []\n  | {arm}\ntermination_by structural l => l"
+        );
+    }
+    let _ = writeln!(o, "end\n");
+    for (t, _, _) in universe(&a.m) {
+        if covered.contains(&t) {
+            let _ = writeln!(o, "def {} (a : {na}.{t}) : {nb}.{t} := tr a", tr_name(&t));
+        }
+    }
+    // the equations of each `tr_S`, one per constructor of `S` (`rfl`), in the simp set `k2l_tr`:
+    // `k2l_inv` rewrites with them `tr_S` of a constructor into `B`'s constructor of translations,
+    // as unfolding `tr_S` does on a type per sort
+    let _ = writeln!(
+        o,
+        "\n/-! The equations of the translation at each sort. -/\n"
+    );
+    for (t, _, k) in universe(&a.m) {
+        if !covered.contains(&t) {
+            continue;
+        }
+        let f = terms::fsuffix(&t);
+        let trn = tr_name(&t);
+        let mut eqns = Vec::new();
+        let mut eqn = |o: &mut String, binders: String, lhs: String, rhs: String| {
+            let n = format!("{trn}.eq_k{}", eqns.len());
+            let _ = writeln!(
+                o,
+                "@[k2l_tr] theorem {n}{binders} : {trn} {lhs} = {rhs} := rfl"
+            );
+            eqns.push(n);
+        };
+        let call = |c: String, xs: &[String]| {
+            if xs.is_empty() {
+                c
+            } else {
+                format!("({c} {})", xs.join(" "))
+            }
+        };
+        match &k {
+            TyKind::Own(cs) => {
+                for (sym, lean, args) in cs {
+                    let blean = &b.m.ctors[&sm.map[sym].0].lean;
+                    let xs: Vec<String> = (0..args.len()).map(|i| format!("x{i}")).collect();
+                    let binders: String = args
+                        .iter()
+                        .zip(&xs)
+                        .map(|(s, x)| format!(" ({x} : {na}.{s})"))
+                        .collect();
+                    let vs: Vec<String> =
+                        args.iter().zip(&xs).map(|(s, x)| val(&a.m, s, x)).collect();
+                    let rhs = call(format!("{nb}.{t}.{blean}"), &vs);
+                    eqn(o, binders, call(format!("{na}.{t}.{lean}"), &xs), rhs);
+                }
+            }
+            TyKind::Sum(ls) => {
+                for (l, own) in ls {
+                    let c = format!("inj_{}", names::short_sort(l));
+                    eqn(
+                        o,
+                        format!(" (x : {na}.{own})"),
+                        format!("({na}.{t}.{c} x)"),
+                        format!("{nb}.{t}.{c} {}", val(&a.m, own, "x")),
+                    );
+                }
+            }
+            TyKind::Coll(..) => {
+                let c = format!("«coll_{f}»");
+                eqn(
+                    o,
+                    format!(" (l : List _)"),
+                    format!("({na}.Term.{c} l)"),
+                    format!("{nb}.Term.{c} (trL_{f} l)"),
+                );
+            }
+        }
+    }
+    let _ = writeln!(o);
+    Ok(())
+}
+
 /// names the first constructor that moves.
 fn positions_kept(
     a: &Side,
@@ -2007,6 +2372,142 @@ fn tr_fn(m: &Model, s: &str) -> String {
 /// of functions already use: `ser (tr a) = ser a` on every covered type, injectivity, the order
 /// of every key, the pointwise translation of every collection and the commutation of every
 /// collection operation (`k2l_rel`), `==K`. Returns the names of the lemmas that push `tr` into
+/// `ser (tr a) = ser a` in the arity-indexed universe: one theorem by structural recursion on
+/// `A`'s family (each arity's case split on the sort and its enumeration, each injection's on the
+/// sort and the leaf tag), and the per-sort statements as its instances. It holds when the
+/// translation keeps every constructor's position in its enumeration and every leaf tag's position
+/// in `Tag` (`positions_kept`), since those positions are the tags `ser` writes.
+fn emit_arity_ser_tr(a: &Side, b: &Side, o: &mut String, block: &[(String, Vec<terms::LCtor>)]) {
+    let (na, nb) = (&a.ns, &b.ns);
+    let sa = crate::terms_arity::shape(&a.m);
+    let q = |t: &str| format!("«{t}»");
+    let _ = writeln!(
+        o,
+        "/-- `{nb}`'s serialization of a translated term of tag `s`. -/\n@[reducible] def serTr : (s : {na}.Tag) → TrTy s → List Tok"
+    );
+    for t in &sa.tags {
+        let _ = writeln!(o, "  | .{} => fun x => {nb}.ser x", q(t));
+    }
+    let _ = writeln!(
+        o,
+        "\nmutual\ntheorem ser_tr : {{s : {na}.Tag}} → (a : {na}.Term s) → serTr s (tr a) = {na}.ser a"
+    );
+    for t in &sa.builtins {
+        let _ = writeln!(o, "  | _, .{} _ => rfl", q(&format!("b_{t}")));
+    }
+    for k in sa.enums.keys() {
+        let xs: String = (0..*k).map(|i| format!(" a{i}")).collect();
+        if *k == 0 {
+            let _ = writeln!(
+                o,
+                "  | _, @{na}.Term.c0 s c => by cases s <;> cases c <;> rfl"
+            );
+            continue;
+        }
+        let hs: Vec<String> = (0..*k).map(|i| format!("h{i}")).collect();
+        let have: String = (0..*k)
+            .map(|i| format!("have h{i} := ser_tr a{i}; "))
+            .collect();
+        // `A.ser` of the constructor is `c k :: c idx :: (ser a0 ++ (ser a1 ++ …))`
+        let mut cat = hs.last().unwrap().clone();
+        for h in hs.iter().rev().skip(1) {
+            cat = format!("(congr (congrArg (· ++ ·) {h}) {cat})");
+        }
+        let _ = writeln!(
+            o,
+            "  | _, @{na}.Term.c{k} s c{xs} => by\n    {have}revert {}\n    cases s <;> cases c <;> intro {} <;> exact congrArg (List.cons _) (congrArg (List.cons _) {cat})",
+            hs.join(" "),
+            hs.join(" ")
+        );
+    }
+    for (t, _, _) in &sa.colls {
+        let _ = writeln!(
+            o,
+            "  | _, .{} l => congrArg (List.cons _) (serL_tr_{} l)",
+            q(&format!("coll_{}", terms::fsuffix(t))),
+            terms::fsuffix(t)
+        );
+    }
+    let _ = writeln!(
+        o,
+        "  | _, @{na}.Term.inj s hs l h a => by\n    have h0 := ser_tr a\n    revert hs h h0\n    cases s <;> intro hs h h0 <;> first\n      | exact absurd hs Bool.false_ne_true\n      | (revert h h0; cases l <;> intro h h0 <;> first\n          | exact absurd h Bool.false_ne_true\n          | exact congrArg (List.cons _) (congrArg (List.cons _) h0))"
+    );
+    let _ = writeln!(o, "termination_by structural _ a => a");
+    let in_block: BTreeSet<&String> = sa
+        .tags
+        .iter()
+        .filter(|t| !sa.builtins.contains(*t))
+        .collect();
+    for (t, kind, es) in &sa.colls {
+        let f = terms::fsuffix(t);
+        let ser = |e: &str, x: &str, side: &str| {
+            if in_block.contains(&e.to_string()) {
+                if side == "b" {
+                    format!("{nb}.ser (tr {x})")
+                } else {
+                    format!("{na}.ser {x}")
+                }
+            } else {
+                let _ = side;
+                format!("ser_{} {x}", terms::fsuffix(e))
+            }
+        };
+        let _ = ser;
+        let elem = |e: &str| {
+            if in_block.contains(&e.to_string()) {
+                format!("{na}.Term .{}", q(e))
+            } else {
+                format!("{na}.{e}")
+            }
+        };
+        let ih = |e: &str, x: &str| {
+            if in_block.contains(&e.to_string()) {
+                format!("(ser_tr {x})")
+            } else {
+                "rfl".to_string()
+            }
+        };
+        let (lt, arm) = match kind {
+            Coll::Map => (
+                format!("({} × {})", elem(&es[0]), elem(&es[1])),
+                format!(
+                    "(k, v) :: r => congrArg (List.cons _) (congr (congrArg (· ++ ·) {}) (congr (congrArg (· ++ ·) {}) (serL_tr_{f} r)))",
+                    ih(&es[0], "k"),
+                    ih(&es[1], "v")
+                ),
+            ),
+            Coll::Set => (
+                format!("({} × Unit)", elem(&es[0])),
+                format!(
+                    "(k, ()) :: r => congrArg (List.cons _) (congr (congrArg (· ++ ·) {}) (serL_tr_{f} r))",
+                    ih(&es[0], "k")
+                ),
+            ),
+            Coll::List => (
+                format!("({})", elem(&es[0])),
+                format!(
+                    "x :: r => congrArg (List.cons _) (congr (congrArg (· ++ ·) {}) (serL_tr_{f} r))",
+                    ih(&es[0], "x")
+                ),
+            ),
+        };
+        let _ = writeln!(
+            o,
+            "theorem serL_tr_{f} : (l : List {lt}) → {nb}.serL_{f} (trL_{f} l) = {na}.serL_{f} l\n  | [] => rfl\n  | {arm}\ntermination_by structural l => l"
+        );
+    }
+    let _ = writeln!(o, "end\n");
+    for (t, _) in block {
+        let f = terms::fsuffix(t);
+        let _ = writeln!(
+            o,
+            "theorem ser_tr_{f} (a : {na}.{t}) : {nb}.ser_{f} ({} a) = {na}.ser_{f} a := ser_tr a",
+            tr_name(t)
+        );
+    }
+    let _ = writeln!(o);
+}
+
 /// an operation, and of the inversions of map and list patterns.
 fn emit_ordered_terms(
     a: &Side,
@@ -2027,73 +2528,77 @@ fn emit_ordered_terms(
         "\n/-! ## The translation keeps every constructor's position, so it keeps every term's serialization -/\n"
     )
     .unwrap();
-    writeln!(*o, "mutual").unwrap();
-    for (t, ctors) in &block {
-        let f = terms::fsuffix(t);
-        writeln!(
+    if a.arity {
+        emit_arity_ser_tr(a, b, o, &block);
+    } else {
+        writeln!(*o, "mutual").unwrap();
+        for (t, ctors) in &block {
+            let f = terms::fsuffix(t);
+            writeln!(
             o,
             "theorem ser_tr_{f} (a : {na}.{t}) : {nb}.ser_{f} ({} a) = {na}.ser_{f} a :=\n  match a with",
             tr_name(t)
         )
         .unwrap();
-        for (i, c) in ctors.iter().enumerate() {
-            let xs: Vec<String> = (0..c.args.len()).map(|j| format!("a{j}")).collect();
-            if c.args.is_empty() {
-                writeln!(*o, "  | .{} => rfl", c.name).unwrap();
-                continue;
-            }
-            let part = |side: &str, s: &str, x: &str, translate: bool| {
-                let arg = if translate {
-                    val(&a.m, s, x)
-                } else {
-                    x.to_string()
-                };
-                format!("{side}.ser_{} {arg}", terms::fsuffix(s))
-            };
-            let join = |ps: Vec<String>| {
-                let mut body = ps.last().unwrap().clone();
-                for p in ps.iter().rev().skip(1) {
-                    body = format!("({p} ++ {body})");
+            for (i, c) in ctors.iter().enumerate() {
+                let xs: Vec<String> = (0..c.args.len()).map(|j| format!("a{j}")).collect();
+                if c.args.is_empty() {
+                    writeln!(*o, "  | .{} => rfl", c.name).unwrap();
+                    continue;
                 }
-                body
-            };
-            let lhs = join(
-                c.args
+                let part = |side: &str, s: &str, x: &str, translate: bool| {
+                    let arg = if translate {
+                        val(&a.m, s, x)
+                    } else {
+                        x.to_string()
+                    };
+                    format!("{side}.ser_{} {arg}", terms::fsuffix(s))
+                };
+                let join = |ps: Vec<String>| {
+                    let mut body = ps.last().unwrap().clone();
+                    for p in ps.iter().rev().skip(1) {
+                        body = format!("({p} ++ {body})");
+                    }
+                    body
+                };
+                let lhs = join(
+                    c.args
+                        .iter()
+                        .zip(&xs)
+                        .map(|(s, x)| part(nb, s, x, true))
+                        .collect(),
+                );
+                let rhs = join(
+                    c.args
+                        .iter()
+                        .zip(&xs)
+                        .map(|(s, x)| part(na, s, x, false))
+                        .collect(),
+                );
+                let ih: Vec<String> = c
+                    .args
                     .iter()
                     .zip(&xs)
-                    .map(|(s, x)| part(nb, s, x, true))
-                    .collect(),
-            );
-            let rhs = join(
-                c.args
-                    .iter()
-                    .zip(&xs)
-                    .map(|(s, x)| part(na, s, x, false))
-                    .collect(),
-            );
-            let ih: Vec<String> = c
-                .args
-                .iter()
-                .zip(&xs)
-                .filter(|(s, _)| in_block.contains(s))
-                .map(|(s, x)| format!("ser_tr_{} {x}", terms::fsuffix(s)))
-                .collect();
-            let fin = if ih.is_empty() {
-                "exact rfl".to_string()
-            } else {
-                format!("rw [{}] <;> exact rfl", ih.join(", "))
-            };
-            writeln!(
+                    .filter(|(s, _)| in_block.contains(s))
+                    .map(|(s, x)| format!("ser_tr_{} {x}", terms::fsuffix(s)))
+                    .collect();
+                let fin = if ih.is_empty() {
+                    "exact rfl".to_string()
+                } else {
+                    format!("rw [{}] <;> exact rfl", ih.join(", "))
+                };
+                writeln!(
                 o,
                 "  | .{} {} => by\n    show (Tok.c {i} :: {lhs} : List Tok) = Tok.c {i} :: {rhs}\n    {fin}",
                 c.name,
                 xs.join(" ")
             )
             .unwrap();
+            }
+            writeln!(*o, "  termination_by structural a").unwrap();
         }
-        writeln!(*o, "  termination_by structural a").unwrap();
+        writeln!(*o, "end\n").unwrap();
     }
-    writeln!(*o, "end\n").unwrap();
     // the collection sorts and their key types
     let colls: Vec<(String, Coll, Vec<String>)> = universe(&a.m)
         .into_iter()
@@ -2156,6 +2661,32 @@ fn emit_ordered_terms(
             let tr = tr_name(t);
             let go = |o: &mut String, pw: &str, rhs: &str, cons: &str| {
                 if pass == 1 {
+                    return;
+                }
+                if a.arity {
+                    // a collection value is `coll_T l`: the translation is `trL_T` on the list
+                    let elem = |e: &str| {
+                        if in_block.contains(&e.to_string()) {
+                            format!("{na}.Term .«{e}»")
+                        } else {
+                            format!("{na}.{e}")
+                        }
+                    };
+                    let lt = match c {
+                        Coll::Map => format!("({} × {})", elem(&es[0]), elem(&es[1])),
+                        Coll::Set => format!("({} × Unit)", elem(&es[0])),
+                        Coll::List => format!("({})", elem(&es[0])),
+                    };
+                    let cons = cons
+                        .replacen(".cons k v r", "(k, v) :: r", 1)
+                        .replacen(".cons k r", "(k, ()) :: r", 1)
+                        .replacen(".cons x r", "x :: r", 1);
+                    writeln!(
+                        o,
+                        "theorem pw_{f} : {pw} {tr} := by\n  intro m\n  match m with\n  | .«coll_{f}» l => exact go l\nwhere\n  go : ∀ l : List {lt}, trL_{f} l = {}\n    | [] => rfl\n    | {cons}\n",
+                        rhs.replacen("(ListIso.toList m)", "l", 1)
+                    )
+                    .unwrap();
                     return;
                 }
                 writeln!(
