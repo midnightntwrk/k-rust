@@ -405,6 +405,7 @@ SPEC_MODULE_ITEM: "krs::expand::spec-module-item" => "An item inside a `#[k::spe
         DESCRIPTOR_CAPACITY: "krs::expand::descriptor-capacity" => "A descriptor count or ordinal exceeds its u32 representation.",
         DUPLICATE_PROVENANCE_KEY: "krs::expand::duplicate-provenance-key" [Internal] => "KRS numbered two authored nodes of one sentence with the same provenance key; this is a bug in KRS, not in the definition.",
         MISSING_PROVENANCE_KEY: "krs::expand::missing-provenance-key" [Internal] => "An authored node that expansion turns into a wire node holds no provenance key from its sentence's parse; this is a bug in KRS, not in the definition.",
+        MISREAD_PROVENANCE_KEY: "krs::expand::misread-provenance-key" [Internal] => "Expansion read the provenance key of another term node than the one it turns into a wire node, which would carry that node's location; this is a bug in KRS, not in the definition.",
         HELPER_PAYLOAD_FORM: "krs::expand::helper-payload-form" => "A helper attribute requires a parenthesized payload.",
         CFG_REPRODUCTION: "krs::expand::cfg-reproduction" [Internal] => "A cfg attribute could not be reproduced for generated tokens.",
         MISSING_COMPUTATION_CELL: "krs::expand::missing-computation-cell" => "A configuration-owned rule has no computation-cell field.",

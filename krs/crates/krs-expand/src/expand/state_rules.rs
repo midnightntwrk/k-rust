@@ -857,9 +857,12 @@ impl<'a> StateRuleBuilder<'a> {
         match tree {
             TermTree::Application(application) => {
                 // A `cells!` term keys no path: the head's key stands for it.
-                keys.path();
-                let node = keys.node(NodeKind::ApplicationHead);
-                let key = held_key(node.role(self.term_role(TermRole::ApplicationHead)))?;
+                keys.pass_path(application.head())?;
+                let node = keys.node(
+                    NodeKind::ApplicationHead,
+                    TokenRange::for_tokens(application.head())?,
+                )?;
+                let key = node.key(self.term_role(TermRole::ApplicationHead))?;
                 let target = self.terms.application_wire_slot(
                     application.head(),
                     application.is_notation(),
@@ -881,7 +884,7 @@ impl<'a> StateRuleBuilder<'a> {
                         let mut arguments = Vec::new();
                         for argument in values {
                             arguments.push(krs_ir::NamedTermArgument {
-                                key: held_key(keys.record_field())?,
+                                key: keys.record_field(argument.name())?,
                                 field: ProductionFieldId::new(argument.name().to_string())
                                     .expect("Rust field identifiers are valid production fields"),
                                 value: Box::new(self.expand_term(argument.value(), keys, slots)?),
@@ -908,11 +911,10 @@ impl<'a> StateRuleBuilder<'a> {
                 })
             }
             TermTree::Reference(path) => {
-                keys.path();
-                let key = held_key(
-                    keys.node(NodeKind::Reference)
-                        .role(self.term_role(TermRole::Reference)),
-                )?;
+                keys.pass_path(path)?;
+                let key = keys
+                    .node(NodeKind::Reference, TokenRange::for_tokens(path)?)?
+                    .key(self.term_role(TermRole::Reference))?;
                 if is_bound_ident_path(path, self.bindings) {
                     Ok(WireTerm::Variable {
                         key: key.clone(),
@@ -937,10 +939,9 @@ impl<'a> StateRuleBuilder<'a> {
                 }
             }
             TermTree::Literal(literal) => Ok(WireTerm::Literal {
-                key: held_key(
-                    keys.node(NodeKind::Literal)
-                        .role(self.term_role(TermRole::Literal)),
-                )?,
+                key: keys
+                    .node(NodeKind::Literal, literal.range()?)?
+                    .key(self.term_role(TermRole::Literal))?,
                 literal: wire_literal(literal),
             }),
             TermTree::Wildcard(range) => {
@@ -952,36 +953,34 @@ impl<'a> StateRuleBuilder<'a> {
                     ));
                 }
                 Ok(WireTerm::Wildcard {
-                    key: held_key(keys.wildcard())?,
+                    key: keys.wildcard(*range)?,
                 })
             }
             TermTree::IdToken { literal } => Ok(WireTerm::BuiltinToken {
-                key: held_key(
-                    keys.node(NodeKind::IdToken)
-                        .role(ProvenanceRole::ClaimIdToken),
-                )?,
+                key: keys
+                    .node(NodeKind::IdToken, TokenRange::for_tokens(literal)?)?
+                    .key(ProvenanceRole::ClaimIdToken)?,
                 sort: BuiltinSort::Id,
                 value: literal.value(),
             }),
             TermTree::BytesToken { literal } => Ok(WireTerm::BuiltinToken {
-                key: held_key(
-                    keys.node(NodeKind::BytesToken)
-                        .role(ProvenanceRole::ClaimBytesToken),
-                )?,
+                key: keys
+                    .node(NodeKind::BytesToken, TokenRange::for_tokens(literal)?)?
+                    .key(ProvenanceRole::ClaimBytesToken)?,
                 sort: BuiltinSort::Bytes,
                 value: bytes_token::encode(&literal.value()),
             }),
             TermTree::Lexeme { sort, text } => {
-                let node = keys.node(NodeKind::Lexeme);
+                let node = keys.node(NodeKind::Lexeme, TokenRange::for_tokens(text)?)?;
                 self.terms.lexeme_wire(sort, text, node, slots)
             }
             TermTree::SortTest {
+                range,
                 kind,
                 sort,
                 operand,
-                ..
             } => {
-                let node = keys.node(NodeKind::SortTest);
+                let node = keys.node(NodeKind::SortTest, *range)?;
                 let (key, sort) = self.terms.sort_test_reference(sort, node, slots)?;
                 Ok(WireTerm::SortTest {
                     key,
@@ -1000,7 +999,7 @@ impl<'a> StateRuleBuilder<'a> {
                         ),
                     ));
                 }
-                let node = keys.node(NodeKind::As);
+                let node = keys.node(NodeKind::As, TokenRange::for_tokens(binding)?)?;
                 let (key, binding_key) = self.terms.take_pattern_as(binding, node)?;
                 Ok(WireTerm::As {
                     key,
@@ -1020,7 +1019,7 @@ impl<'a> StateRuleBuilder<'a> {
                         "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use `||`, bool::or, or k::or_bool!",
                     ));
                 }
-                let node = keys.node(NodeKind::Or);
+                let node = keys.node(NodeKind::Or, *range)?;
                 let key = TermBuilder::take_pattern_or(node)?;
                 Ok(WireTerm::Or {
                     key,
@@ -1039,7 +1038,10 @@ impl<'a> StateRuleBuilder<'a> {
                         "anonymous! is allowed only in claim subjects",
                     ));
                 }
-                let node = keys.node(NodeKind::Anonymous);
+                let node = keys.node(
+                    NodeKind::Anonymous,
+                    TokenRange::for_tokens(display_literal)?,
+                )?;
                 let path = call_site_path(sort)?;
                 let key_fn = format_ident!(
                     "__krs_claim_anonymous_sort_{:016x}_{}",
@@ -1050,9 +1052,9 @@ impl<'a> StateRuleBuilder<'a> {
                 let cfg = self.terms.cfg;
                 self.terms.key_functions.push(quote! { #(#cfg)* #[doc(hidden)] fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() } });
                 Ok(WireTerm::Anonymous {
-                    key: held_key(node.role(ProvenanceRole::ClaimAnonymous))?,
+                    key: node.key(ProvenanceRole::ClaimAnonymous)?,
                     sort: WireSortReference {
-                        key: held_key(node.role(ProvenanceRole::ClaimAnonymousSort))?,
+                        key: node.key(ProvenanceRole::ClaimAnonymousSort)?,
                         target: WireTypeReference {
                             slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_fn))),
                             authored_path: spelling(sort),
@@ -1079,7 +1081,7 @@ impl<'a> StateRuleBuilder<'a> {
             TermTree::Rewrite {
                 range, from, to, ..
             } => {
-                let node = keys.node(NodeKind::Rewrite);
+                let node = keys.node(NodeKind::Rewrite, *range)?;
                 self.terms
                     .enter_rewrite(*range, matches!(self.side, RuleSide::Left))?;
                 let from = self.expand_term(from, keys, slots);
@@ -1100,25 +1102,27 @@ impl<'a> StateRuleBuilder<'a> {
                         "or_bool! is currently claim-only",
                     ));
                 }
-                let node = keys.node(NodeKind::OrBool);
+                let node = keys.node(NodeKind::OrBool, *range)?;
                 let arguments =
                     arguments.try_map_ref(|argument| self.expand_term(argument, keys, slots))?;
                 Ok(WireTerm::OrBool {
-                    key: held_key(node.role(ProvenanceRole::ClaimOrBool))?,
+                    key: node.key(ProvenanceRole::ClaimOrBool)?,
                     arguments,
                 })
             }
             TermTree::Cell(cell) => {
-                keys.path();
-                let key = held_key(
-                    keys.node(NodeKind::ApplicationHead)
-                        .role(self.term_role(TermRole::ApplicationHead)),
-                )?;
+                keys.pass_path(cell.owner())?;
+                let key = keys
+                    .node(
+                        NodeKind::ApplicationHead,
+                        TokenRange::for_tokens(cell.owner())?,
+                    )?
+                    .key(self.term_role(TermRole::ApplicationHead))?;
                 let declaration = self.terms.cell_declaration_reference(cell.owner(), slots)?;
                 let mut fields = Vec::new();
                 for field in cell.fields() {
                     fields.push(WireCellTermField {
-                        key: held_key(keys.record_field())?,
+                        key: keys.record_field(field.name())?,
                         field: ProductionFieldId::new(field.name().to_string())
                             .expect("Rust fields are valid cell-field identities"),
                         value: Box::new(self.expand_term(field.value(), keys, slots)?),

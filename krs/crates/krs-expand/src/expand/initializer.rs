@@ -18,6 +18,7 @@ use krs_syntax::KrsSyntax;
 use krs_syntax::{
     FixedCellInitializer, InitializerCellContent, KSequence, KSequenceNotation, MapBody,
     MapExpression, ProvenanceRole, StateTerm, TermArguments, TermExpression, TermNode, TermTree,
+    TokenRange,
 };
 use proc_macro2::{Span, TokenStream};
 use quote::{format_ident, quote};
@@ -586,8 +587,11 @@ impl<'a> InitializerBuilder<'a> {
         match tree {
             TermTree::Application(application) => {
                 // The head's path key stands for the application.
-                let key = held_key(keys.path())?;
-                let node = keys.node(NodeKind::ApplicationHead);
+                let key = keys.path(application.head())?;
+                let node = keys.node(
+                    NodeKind::ApplicationHead,
+                    TokenRange::for_tokens(application.head())?,
+                )?;
                 let target = self.terms.application_wire_slot(
                     application.head(),
                     application.is_notation(),
@@ -622,7 +626,7 @@ impl<'a> InitializerBuilder<'a> {
                             let field = ProductionFieldId::new(argument.name().to_string())
                                 .expect("Rust field identifiers are valid production fields");
                             arguments.push(krs_ir::NamedTermArgument {
-                                key: held_key(keys.record_field())?,
+                                key: keys.record_field(argument.name())?,
                                 field,
                                 value: Box::new(self.expand_term_tree(
                                     argument.value(),
@@ -649,7 +653,7 @@ impl<'a> InitializerBuilder<'a> {
                 })
             }
             TermTree::Reference(path) => {
-                let key = held_key(keys.path())?;
+                let key = keys.path(path)?;
                 let name = spelling(path);
                 if is_bound_ident_path(path, self.bindings) {
                     Ok(WireTerm::Variable {
@@ -702,18 +706,16 @@ impl<'a> InitializerBuilder<'a> {
             )),
             // A builtin literal is one constant of its sort, in an initializer as anywhere.
             TermTree::IdToken { literal } => Ok(WireTerm::BuiltinToken {
-                key: held_key(
-                    keys.node(NodeKind::IdToken)
-                        .role(ProvenanceRole::ClaimIdToken),
-                )?,
+                key: keys
+                    .node(NodeKind::IdToken, TokenRange::for_tokens(literal)?)?
+                    .key(ProvenanceRole::ClaimIdToken)?,
                 sort: BuiltinSort::Id,
                 value: literal.value(),
             }),
             TermTree::BytesToken { literal } => Ok(WireTerm::BuiltinToken {
-                key: held_key(
-                    keys.node(NodeKind::BytesToken)
-                        .role(ProvenanceRole::ClaimBytesToken),
-                )?,
+                key: keys
+                    .node(NodeKind::BytesToken, TokenRange::for_tokens(literal)?)?
+                    .key(ProvenanceRole::ClaimBytesToken)?,
                 sort: BuiltinSort::Bytes,
                 value: bytes_token::encode(&literal.value()),
             }),
@@ -733,7 +735,7 @@ impl<'a> InitializerBuilder<'a> {
                 "fragment! is not an initializer term; construct nested initializer cells directly",
             )),
             TermTree::Lexeme { sort, text } => {
-                let node = keys.node(NodeKind::Lexeme);
+                let node = keys.node(NodeKind::Lexeme, TokenRange::for_tokens(text)?)?;
                 self.terms.lexeme_wire(sort, text, node, &mut self.slots)
             }
             TermTree::SortTest { range, .. } => Err(ExpandError::new(

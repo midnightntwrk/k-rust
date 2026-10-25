@@ -1054,7 +1054,7 @@ pub(crate) fn allocate_term_node_keys(
             | TermNode::LetWildcard(_)
             | TermNode::Rewrite { .. } => continue,
         };
-        term_keys.push_node(index, keys.key(role, term_node_range(node)?)?);
+        term_keys.push_node(index, keys.key(role, node.range()?)?);
     }
     Ok(())
 }
@@ -1117,31 +1117,6 @@ pub(super) fn push_term_reference_candidates(
             path: path.clone(),
             kind,
         });
-    }
-}
-
-fn term_node_range(node: &TermNode) -> Result<TokenRange, SyntaxError> {
-    match node {
-        TermNode::ApplicationHead(path) | TermNode::Reference(path) => TokenRange::for_tokens(path),
-        TermNode::Literal(TermLiteral::Integer(literal)) => Ok(literal.range()),
-        TermNode::Literal(TermLiteral::Float(literal)) => Ok(literal.range()),
-        TermNode::Literal(TermLiteral::Boolean(literal)) => TokenRange::for_tokens(literal),
-        TermNode::Literal(TermLiteral::String(literal)) | TermNode::IdToken(literal) => {
-            TokenRange::for_tokens(literal)
-        }
-        TermNode::BytesToken(literal) => TokenRange::for_tokens(literal),
-        TermNode::Anonymous { spelling, .. } => TokenRange::for_tokens(spelling),
-        TermNode::OrBool(range)
-        | TermNode::SortTest { range, .. }
-        | TermNode::As { range, .. }
-        | TermNode::Or(range)
-        | TermNode::Matches(range)
-        | TermNode::MatchesWildcard(range)
-        | TermNode::Let { range, .. }
-        | TermNode::Closure { range, .. }
-        | TermNode::LetWildcard(range)
-        | TermNode::Rewrite { range, .. } => Ok(*range),
-        TermNode::Lexeme { text, .. } => TokenRange::for_tokens(text),
     }
 }
 

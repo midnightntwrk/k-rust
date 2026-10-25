@@ -11,7 +11,10 @@ use krs_ir::wire::{
 };
 use krs_ir::{BuiltinSort, DescriptorApplicationHeadClass, ProductionFieldId, ProvenanceKey};
 use krs_syntax::surface::path_text;
-use krs_syntax::{ProvenanceRole, TermArguments, TermExpression, TermKeys, TermNode, TermTree};
+use krs_syntax::{
+    ProvenanceRole, TermArguments, TermExpression, TermKeys, TermNode, TermSymbol, TermTree,
+    TokenRange,
+};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::ext::IdentExt;
@@ -124,9 +127,9 @@ pub(super) fn rewrite_wire(
     to: Option<Box<WireTerm>>,
 ) -> crate::Result<WireTerm> {
     Ok(WireTerm::Rewrite {
-        key: held_key(node.role(ProvenanceRole::RuleLocalRewrite))?,
-        from_key: held_key(node.role(ProvenanceRole::RuleLocalRewriteFrom))?,
-        to_key: held_key(node.role(ProvenanceRole::RuleLocalRewriteTo))?,
+        key: node.key(ProvenanceRole::RuleLocalRewrite)?,
+        from_key: node.key(ProvenanceRole::RuleLocalRewriteFrom)?,
+        to_key: node.key(ProvenanceRole::RuleLocalRewriteTo)?,
         from: Box::new(from),
         to,
     })
@@ -155,11 +158,12 @@ pub(super) fn anchor_key(
         .map(krs_syntax::ProvenanceAnchor::key)
 }
 
-/// One term's tree with the nodes and keys its sentence gave it.
+/// One term's tree with the nodes, paths and keys its sentence gave it.
 #[derive(Clone, Copy)]
 pub(super) struct KeyedTerm<'t> {
     tree: &'t TermTree,
     nodes: &'t [TermNode],
+    paths: TermPaths<'t>,
     keys: &'t TermKeys,
 }
 
@@ -169,15 +173,21 @@ impl<'t> KeyedTerm<'t> {
         Self {
             tree: term.tree(),
             nodes: term.nodes(),
+            paths: TermPaths::Symbols(term.symbols()),
             keys: term.keys(),
         }
     }
 
-    /// A rule subject: its pattern's nodes and keys, and its tree.
+    /// A rule subject: its pattern's nodes, paths and keys, and its tree.
     pub(super) fn pattern(pattern: &'t krs_syntax::RulePattern, tree: &'t TermTree) -> Self {
+        let paths = match pattern {
+            krs_syntax::RulePattern::Native { paths, .. } => TermPaths::Native(paths),
+            krs_syntax::RulePattern::TermMacro { term, .. } => TermPaths::Symbols(term.symbols()),
+        };
         Self {
             tree,
             nodes: pattern.nodes(),
+            paths,
             keys: pattern.keys(),
         }
     }
@@ -187,13 +197,38 @@ impl<'t> KeyedTerm<'t> {
     }
 
     pub(super) fn reader(self) -> TermKeyReader<'t> {
+        let mut record_fields = Vec::new();
+        self.tree.record_field_names_preorder(&mut record_fields);
+        let mut wildcards = Vec::new();
+        self.tree.wildcard_ranges_preorder(&mut wildcards);
         TermKeyReader {
             nodes: self.nodes,
+            paths: self.paths,
+            record_fields,
+            wildcards,
             keys: self.keys,
             path: 0,
             record_field: 0,
             wildcard: 0,
-            next: [0; NODE_KINDS],
+            next: [0; NodeKind::COUNT],
+        }
+    }
+}
+
+/// The paths a term's symbol keys are indexed by.
+#[derive(Clone, Copy)]
+enum TermPaths<'t> {
+    /// A term payload's symbols.
+    Symbols(&'t [TermSymbol]),
+    /// A native rule pattern's constructor and binding paths.
+    Native(&'t [Path]),
+}
+
+impl<'t> TermPaths<'t> {
+    fn get(self, index: usize) -> Option<&'t Path> {
+        match self {
+            Self::Symbols(symbols) => symbols.get(index).map(TermSymbol::path),
+            Self::Native(paths) => paths.get(index),
         }
     }
 }
@@ -220,9 +255,10 @@ pub(super) enum NodeKind {
     Rewrite,
 }
 
-const NODE_KINDS: usize = 17;
-
 impl NodeKind {
+    /// The number of kinds: one past the last kind's index.
+    const COUNT: usize = Self::Rewrite as usize + 1;
+
     const fn of(node: &TermNode) -> Self {
         match node {
             TermNode::ApplicationHead(_) => Self::ApplicationHead,
@@ -250,73 +286,136 @@ impl NodeKind {
 /// pushes its nodes, paths, record field names and wildcards each in its own
 /// preorder, and expansion visits the nodes of each kind, and each of the
 /// other lists, in that preorder, so the next one of a kind is the one
-/// expansion has reached.
+/// expansion has reached. Each read names the authored node expansion has
+/// reached, and the reader checks that the entry it found starts at the
+/// same token: a walker that visits nodes in another order fails with an
+/// internal error instead of giving a wire node another node's key.
 pub(super) struct TermKeyReader<'t> {
     nodes: &'t [TermNode],
+    paths: TermPaths<'t>,
+    record_fields: Vec<Ident>,
+    wildcards: Vec<TokenRange>,
     keys: &'t TermKeys,
     path: usize,
     record_field: usize,
     wildcard: usize,
-    next: [usize; NODE_KINDS],
+    next: [usize; NodeKind::COUNT],
 }
 
 impl<'t> TermKeyReader<'t> {
-    /// The key of the next path: an application head's or a reference's.
-    pub(super) fn path(&mut self) -> Option<&'t ProvenanceKey> {
-        let key = self.keys.symbol(self.path);
+    /// The key of `path`, the next path: an application head's or a
+    /// reference's.
+    pub(super) fn path(&mut self, path: &Path) -> crate::Result<ProvenanceKey> {
+        let at = TokenRange::for_tokens(path)?;
+        let index = self.next_path(at)?;
+        located_key(self.keys.symbol(index), at)
+    }
+
+    /// Passes `path`, the next path, whose key no wire field takes (a
+    /// `k::fragment!` cell's path; a `cells!` term keys no path).
+    pub(super) fn pass_path(&mut self, path: &Path) -> crate::Result<()> {
+        self.next_path(TokenRange::for_tokens(path)?).map(drop)
+    }
+
+    fn next_path(&mut self, at: TokenRange) -> crate::Result<usize> {
+        let index = self.path;
         self.path += 1;
-        key
+        let found = self.paths.get(index).ok_or_else(|| misread(at))?;
+        same_node(TokenRange::for_tokens(found)?, at)?;
+        Ok(index)
     }
 
-    /// The key of the next record field name.
-    pub(super) fn record_field(&mut self) -> Option<&'t ProvenanceKey> {
-        let key = self.keys.record_field(self.record_field);
+    /// The key of the record field `name`, the next record field name.
+    pub(super) fn record_field(&mut self, name: &Ident) -> crate::Result<ProvenanceKey> {
+        let at = TokenRange::for_tokens(name)?;
+        let index = self.record_field;
         self.record_field += 1;
-        key
+        let found = self.record_fields.get(index).ok_or_else(|| misread(at))?;
+        same_node(TokenRange::for_tokens(found)?, at)?;
+        located_key(self.keys.record_field(index), at)
     }
 
-    /// The key of the next `_` of a pattern (not of a `k::matches!` or
-    /// `let` pattern, whose wildcards are nodes).
-    pub(super) fn wildcard(&mut self) -> Option<&'t ProvenanceKey> {
-        let key = self.keys.wildcard(self.wildcard);
+    /// The key of the `_` at `at`, the next `_` of a pattern (not of a
+    /// `k::matches!` or `let` pattern, whose wildcards are nodes).
+    pub(super) fn wildcard(&mut self, at: TokenRange) -> crate::Result<ProvenanceKey> {
+        let index = self.wildcard;
         self.wildcard += 1;
-        key
+        same_node(*self.wildcards.get(index).ok_or_else(|| misread(at))?, at)?;
+        located_key(self.keys.wildcard(index), at)
     }
 
-    /// The keys of the next node of `kind`, none when there is no such
-    /// node.
-    pub(super) fn node(&mut self, kind: NodeKind) -> NodeKeys<'t> {
+    /// The keys of the node of `kind` at `at`, the next node of `kind`. `at`
+    /// is where the node's tokens start: its path, literal, a
+    /// `k::anonymous!`'s spelling, a `k::lexeme!`'s text, a `name @ ..`'s
+    /// name, or an island's range.
+    pub(super) fn node(&mut self, kind: NodeKind, at: TokenRange) -> crate::Result<NodeKeys<'t>> {
         let next = &mut self.next[kind as usize];
         let index = self.nodes[(*next).min(self.nodes.len())..]
             .iter()
             .position(|node| NodeKind::of(node) == kind)
             .map(|offset| *next + offset);
         *next = index.map_or(self.nodes.len(), |index| index + 1);
-        NodeKeys {
+        let index = index.ok_or_else(|| misread(at))?;
+        same_node(self.nodes[index].range()?, at)?;
+        Ok(NodeKeys {
             keys: self.keys,
             index,
-        }
+            at,
+        })
     }
+}
+
+/// Checks that `found`, the next entry of one of a term's lists, is the
+/// authored node at `at` that expansion has reached: two nodes of one list
+/// never start at the same token. Spans without a source location compare
+/// equal, so the check can miss a misread there but never refuses a read.
+fn same_node(found: TokenRange, at: TokenRange) -> crate::Result<()> {
+    if found.first().start() == at.first().start() {
+        Ok(())
+    } else {
+        Err(misread(at))
+    }
+}
+
+/// Expansion reached the node at `at` while the next entry of its list is
+/// another node, or none.
+fn misread(at: TokenRange) -> ExpandError {
+    ExpandError::at_range(
+        expand::MISREAD_PROVENANCE_KEY,
+        at,
+        "expansion reached this node out of the order its sentence keyed the term's nodes in, so the provenance key it would read names another node",
+    )
+}
+
+/// The key `read` of the node at `at`, which its sentence gave it at parse;
+/// a node expansion reaches without one is a KRS bug.
+fn located_key(read: Option<&ProvenanceKey>, at: TokenRange) -> crate::Result<ProvenanceKey> {
+    read.cloned().ok_or_else(|| {
+        ExpandError::at_range(
+            expand::MISSING_PROVENANCE_KEY,
+            at,
+            "this node holds no provenance key from its sentence's parse",
+        )
+    })
 }
 
 /// The keys one term node holds, read by role.
 #[derive(Clone, Copy)]
 pub(super) struct NodeKeys<'t> {
     keys: &'t TermKeys,
-    index: Option<usize>,
+    index: usize,
+    at: TokenRange,
 }
 
 impl<'t> NodeKeys<'t> {
     /// The node's key of `role`.
-    pub(super) fn role(self, role: ProvenanceRole) -> Option<&'t ProvenanceKey> {
-        self.index.and_then(|index| self.keys.node_key(index, role))
+    pub(super) fn key(self, role: ProvenanceRole) -> crate::Result<ProvenanceKey> {
+        located_key(self.keys.node_key(self.index, role), self.at)
     }
 
     /// The node's keys of `role`, in allocation order.
-    pub(super) fn roles(self, role: ProvenanceRole) -> impl Iterator<Item = &'t ProvenanceKey> {
-        self.index
-            .into_iter()
-            .flat_map(move |index| self.keys.node_keys(index, role))
+    pub(super) fn keys(self, role: ProvenanceRole) -> impl Iterator<Item = &'t ProvenanceKey> {
+        self.keys.node_keys(self.index, role)
     }
 }
 
@@ -498,7 +597,7 @@ impl<'a> TermBuilder<'a> {
         side: TermSide,
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
-        let node = keys.node(NodeKind::Rewrite);
+        let node = keys.node(NodeKind::Rewrite, range)?;
         self.enter_rewrite(range, matches!(side, TermSide::Left))?;
         let from = self.expand_node(from, keys, side, slots);
         let to = match (from.is_ok(), to) {
@@ -598,7 +697,7 @@ impl<'a> TermBuilder<'a> {
         side: TermSide,
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
-        let node = keys.node(NodeKind::Let);
+        let node = keys.node(NodeKind::Let, range)?;
         if matches!(side, TermSide::Left) || self.in_matches_pattern() || self.in_let_pattern() {
             return Err(ExpandError::new(
                 expand::LET_OUTSIDE_TERM,
@@ -616,7 +715,7 @@ impl<'a> TermBuilder<'a> {
             ));
         }
         let sort = sort
-            .map(|sort| self.local_sort_reference(node.role(ProvenanceRole::LetSort), sort, slots))
+            .map(|sort| self.local_sort_reference(node.key(ProvenanceRole::LetSort)?, sort, slots))
             .transpose()?;
         self.let_pattern_binders = Some(binders.to_vec());
         let pattern = self.expand_node(pattern, keys, side, slots);
@@ -627,7 +726,7 @@ impl<'a> TermBuilder<'a> {
         let body = self.expand_node(body, keys, side, slots);
         self.let_scopes.pop();
         Ok(WireTerm::Let {
-            key: held_key(node.role(ProvenanceRole::Let))?,
+            key: node.key(ProvenanceRole::Let)?,
             pattern: Box::new(pattern),
             sort,
             value: Box::new(value),
@@ -636,10 +735,10 @@ impl<'a> TermBuilder<'a> {
     }
 
     /// The rustc-resolved sort of `let name: Sort = value;` or of the binder
-    /// of `ml::exists(|name: Sort| ..)`, keyed `read`.
+    /// of `ml::exists(|name: Sort| ..)`, keyed `key`.
     fn local_sort_reference(
         &mut self,
-        read: Option<&ProvenanceKey>,
+        key: ProvenanceKey,
         sort: &Path,
         slots: &mut WireSlots,
     ) -> crate::Result<krs_ir::wire::WireSortReference> {
@@ -661,7 +760,7 @@ impl<'a> TermBuilder<'a> {
         };
         let facade = self.facade;
         Ok(krs_ir::wire::WireSortReference {
-            key: held_key(read)?,
+            key,
             target: krs_ir::wire::WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_reference))),
                 authored_path: spelling(sort),
@@ -685,7 +784,7 @@ impl<'a> TermBuilder<'a> {
         side: TermSide,
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
-        let node = keys.node(NodeKind::Closure);
+        let node = keys.node(NodeKind::Closure, range)?;
         if matches!(side, TermSide::Left) || self.in_matches_pattern() || self.in_let_pattern() {
             return Err(ExpandError::new(
                 expand::ML_PLACEMENT,
@@ -694,13 +793,13 @@ impl<'a> TermBuilder<'a> {
             ));
         }
         let sort =
-            self.local_sort_reference(node.role(ProvenanceRole::MlBinderSort), sort, slots)?;
+            self.local_sort_reference(node.key(ProvenanceRole::MlBinderSort)?, sort, slots)?;
         self.let_scopes.push(vec![binder.clone()]);
         let body = self.expand_node(body, keys, side, slots);
         self.let_scopes.pop();
         Ok(WireTerm::Closure {
-            key: held_key(node.role(ProvenanceRole::MlConnective))?,
-            binder_key: held_key(node.role(ProvenanceRole::MlBinder))?,
+            key: node.key(ProvenanceRole::MlConnective)?,
+            binder_key: node.key(ProvenanceRole::MlBinder)?,
             name: binder.unraw().to_string(),
             sort,
             body: Box::new(body?),
@@ -729,7 +828,7 @@ impl<'a> TermBuilder<'a> {
         side: TermSide,
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
-        let node = keys.node(NodeKind::Matches);
+        let node = keys.node(NodeKind::Matches, range)?;
         if matches!(side, TermSide::Left) || self.in_matches_pattern() || self.in_let_pattern() {
             return Err(ExpandError::new(
                 expand::MATCHES_OUTSIDE_CONDITION,
@@ -751,7 +850,7 @@ impl<'a> TermBuilder<'a> {
         let pattern = self.expand_node(pattern, keys, side, slots);
         self.local_binders = None;
         Ok(WireTerm::Matches {
-            key: held_key(node.role(ProvenanceRole::Matches))?,
+            key: node.key(ProvenanceRole::Matches)?,
             subject: Box::new(subject),
             pattern: Box::new(pattern?),
         })
@@ -781,9 +880,12 @@ impl<'a> TermBuilder<'a> {
     ) -> crate::Result<WireTerm> {
         match tree {
             TermTree::Application(application) => {
-                let path_key = held_key(keys.path())?;
-                let node = keys.node(NodeKind::ApplicationHead);
-                let key = held_key(node.role(side.role(TermRole::ApplicationHead)))?;
+                let path_key = keys.path(application.head())?;
+                let node = keys.node(
+                    NodeKind::ApplicationHead,
+                    TokenRange::for_tokens(application.head())?,
+                )?;
+                let key = node.key(side.role(TermRole::ApplicationHead))?;
                 let lexical = if self.lexical_imports.is_some() {
                     !application.is_notation()
                         && application.head().leading_colon.is_none()
@@ -818,7 +920,7 @@ impl<'a> TermBuilder<'a> {
                             let field = ProductionFieldId::new(argument.name().to_string())
                                 .expect("Rust field identifiers are valid production fields");
                             arguments.push(krs_ir::NamedTermArgument {
-                                key: held_key(keys.record_field())?,
+                                key: keys.record_field(argument.name())?,
                                 field,
                                 value: Box::new(self.expand_node(
                                     argument.value(),
@@ -848,11 +950,10 @@ impl<'a> TermBuilder<'a> {
             }
             TermTree::Reference(path) => {
                 let lexical = self.take_lexical_rule_head(path);
-                let path_key = held_key(keys.path())?;
-                let key = held_key(
-                    keys.node(NodeKind::Reference)
-                        .role(side.role(TermRole::Reference)),
-                )?;
+                let path_key = keys.path(path)?;
+                let key = keys
+                    .node(NodeKind::Reference, TokenRange::for_tokens(path)?)?
+                    .key(side.role(TermRole::Reference))?;
                 if self.is_local_binder(path) {
                     // A local binder has no Rust binding for tooling to use.
                     Ok(WireTerm::Variable {
@@ -902,26 +1003,22 @@ impl<'a> TermBuilder<'a> {
                     })
                 }
             }
-            TermTree::Literal(literal) => {
-                let literal = wire_literal(literal);
-                Ok(WireTerm::Literal {
-                    key: held_key(
-                        keys.node(NodeKind::Literal)
-                            .role(side.role(TermRole::Literal)),
-                    )?,
-                    literal,
-                })
-            }
+            TermTree::Literal(literal) => Ok(WireTerm::Literal {
+                key: keys
+                    .node(NodeKind::Literal, literal.range()?)?
+                    .key(side.role(TermRole::Literal))?,
+                literal: wire_literal(literal),
+            }),
             TermTree::Wildcard(range) if self.in_let_pattern() => {
-                let node = keys.node(NodeKind::LetWildcard);
+                let node = keys.node(NodeKind::LetWildcard, *range)?;
                 Ok(WireTerm::Wildcard {
-                    key: held_key(node.role(ProvenanceRole::LetWildcard))?,
+                    key: node.key(ProvenanceRole::LetWildcard)?,
                 })
             }
             TermTree::Wildcard(range) if self.in_matches_pattern() => {
-                let node = keys.node(NodeKind::MatchesWildcard);
+                let node = keys.node(NodeKind::MatchesWildcard, *range)?;
                 Ok(WireTerm::Wildcard {
-                    key: held_key(node.role(ProvenanceRole::MatchesWildcard))?,
+                    key: node.key(ProvenanceRole::MatchesWildcard)?,
                 })
             }
             TermTree::Wildcard(range) => {
@@ -935,22 +1032,20 @@ impl<'a> TermBuilder<'a> {
                     ));
                 }
                 Ok(WireTerm::Wildcard {
-                    key: held_key(keys.wildcard())?,
+                    key: keys.wildcard(*range)?,
                 })
             }
             TermTree::IdToken { literal } => Ok(WireTerm::BuiltinToken {
-                key: held_key(
-                    keys.node(NodeKind::IdToken)
-                        .role(ProvenanceRole::ClaimIdToken),
-                )?,
+                key: keys
+                    .node(NodeKind::IdToken, TokenRange::for_tokens(literal)?)?
+                    .key(ProvenanceRole::ClaimIdToken)?,
                 sort: BuiltinSort::Id,
                 value: literal.value(),
             }),
             TermTree::BytesToken { literal } => Ok(WireTerm::BuiltinToken {
-                key: held_key(
-                    keys.node(NodeKind::BytesToken)
-                        .role(ProvenanceRole::ClaimBytesToken),
-                )?,
+                key: keys
+                    .node(NodeKind::BytesToken, TokenRange::for_tokens(literal)?)?
+                    .key(ProvenanceRole::ClaimBytesToken)?,
                 sort: BuiltinSort::Bytes,
                 value: bytes_token::encode(&literal.value()),
             }),
@@ -960,9 +1055,12 @@ impl<'a> TermBuilder<'a> {
                 sort,
                 spelling: display_literal,
             } if self.claim && matches!(side, TermSide::Left) => {
-                let node = keys.node(NodeKind::Anonymous);
-                let key = held_key(node.role(ProvenanceRole::ClaimAnonymous))?;
-                let sort_key = held_key(node.role(ProvenanceRole::ClaimAnonymousSort))?;
+                let node = keys.node(
+                    NodeKind::Anonymous,
+                    TokenRange::for_tokens(display_literal)?,
+                )?;
+                let key = node.key(ProvenanceRole::ClaimAnonymous)?;
+                let sort_key = node.key(ProvenanceRole::ClaimAnonymousSort)?;
                 let path = call_site_path(sort)?;
                 let key_fn = format_ident!(
                     "__krs_claim_anonymous_sort_{:016x}_{}",
@@ -997,16 +1095,16 @@ impl<'a> TermBuilder<'a> {
                 "anonymous! is valid only in a claim subject",
             )),
             TermTree::Lexeme { sort, text } => {
-                let node = keys.node(NodeKind::Lexeme);
+                let node = keys.node(NodeKind::Lexeme, TokenRange::for_tokens(text)?)?;
                 self.lexeme_wire(sort, text, node, slots)
             }
             TermTree::SortTest {
+                range,
                 kind,
                 sort,
                 operand,
-                ..
             } => {
-                let node = keys.node(NodeKind::SortTest);
+                let node = keys.node(NodeKind::SortTest, *range)?;
                 let (key, sort) = self.sort_test_reference(sort, node, slots)?;
                 Ok(WireTerm::SortTest {
                     key,
@@ -1036,7 +1134,7 @@ impl<'a> TermBuilder<'a> {
                         ),
                     ));
                 }
-                let node = keys.node(NodeKind::As);
+                let node = keys.node(NodeKind::As, TokenRange::for_tokens(binding)?)?;
                 let (key, binding_key) = self.take_pattern_as(binding, node)?;
                 Ok(WireTerm::As {
                     key,
@@ -1056,7 +1154,7 @@ impl<'a> TermBuilder<'a> {
                         "`A | B` alternatives occur only on a left-hand side (K's #Or); for Bool disjunction use `||`, bool::or, or k::or_bool!",
                     ));
                 }
-                let node = keys.node(NodeKind::Or);
+                let node = keys.node(NodeKind::Or, *range)?;
                 let key = Self::take_pattern_or(node)?;
                 Ok(WireTerm::Or {
                     key,
@@ -1106,28 +1204,29 @@ impl<'a> TermBuilder<'a> {
                         "or_bool! is currently claim-only",
                     ));
                 }
-                let key = held_key(
-                    keys.node(NodeKind::OrBool)
-                        .role(ProvenanceRole::ClaimOrBool),
-                )?;
+                let key = keys
+                    .node(NodeKind::OrBool, *range)?
+                    .key(ProvenanceRole::ClaimOrBool)?;
                 let arguments = arguments
                     .try_map_ref(|argument| self.expand_node(argument, keys, side, slots))?;
                 Ok(WireTerm::OrBool { key, arguments })
             }
             TermTree::Cell(cell) => {
                 // The cell's path has a key that no wire node takes.
-                held_key(keys.path())?;
-                let key = held_key(
-                    keys.node(NodeKind::ApplicationHead)
-                        .role(side.role(TermRole::ApplicationHead)),
-                )?;
+                keys.pass_path(cell.owner())?;
+                let key = keys
+                    .node(
+                        NodeKind::ApplicationHead,
+                        TokenRange::for_tokens(cell.owner())?,
+                    )?
+                    .key(side.role(TermRole::ApplicationHead))?;
                 let declaration = self.cell_declaration_reference(cell.owner(), slots)?;
                 let mut fields = Vec::new();
                 for field in cell.fields() {
                     let name = ProductionFieldId::new(field.name().to_string())
                         .expect("Rust fields are valid cell-field identities");
                     fields.push(WireCellTermField {
-                        key: held_key(keys.record_field())?,
+                        key: keys.record_field(field.name())?,
                         field: name,
                         value: Box::new(self.expand_node(field.value(), keys, side, slots)?),
                     });
@@ -1188,14 +1287,14 @@ impl<'a> TermBuilder<'a> {
                 .push(Path::from(binding.clone()));
         }
         Ok((
-            held_key(node.role(ProvenanceRole::PatternAs))?,
-            held_key(node.role(ProvenanceRole::PatternAsBinding))?,
+            node.key(ProvenanceRole::PatternAs)?,
+            node.key(ProvenanceRole::PatternAsBinding)?,
         ))
     }
 
     /// The shell key of one `A | B` or-pattern (K's `#Or`).
     pub(super) fn take_pattern_or(node: NodeKeys<'_>) -> crate::Result<ProvenanceKey> {
-        held_key(node.role(ProvenanceRole::PatternOr))
+        node.key(ProvenanceRole::PatternOr)
     }
 
     /// Lowers `k::lexeme!(Sort, "text")` to a token term whose sort rustc
@@ -1225,9 +1324,9 @@ impl<'a> TermBuilder<'a> {
         };
         let facade = self.facade;
         Ok(WireTerm::Lexeme {
-            key: held_key(node.role(ProvenanceRole::LexemeText))?,
+            key: node.key(ProvenanceRole::LexemeText)?,
             sort: krs_ir::wire::WireSortReference {
-                key: held_key(node.role(ProvenanceRole::LexemeSort))?,
+                key: node.key(ProvenanceRole::LexemeSort)?,
                 target: krs_ir::wire::WireTypeReference {
                     slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_reference))),
                     authored_path: spelling(sort),
@@ -1264,9 +1363,9 @@ impl<'a> TermBuilder<'a> {
         };
         let facade = self.facade;
         Ok((
-            held_key(node.role(ProvenanceRole::SortTest))?,
+            node.key(ProvenanceRole::SortTest)?,
             krs_ir::wire::WireSortReference {
-                key: held_key(node.role(ProvenanceRole::SortTestSort))?,
+                key: node.key(ProvenanceRole::SortTestSort)?,
                 target: krs_ir::wire::WireTypeReference {
                     slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_reference))),
                     authored_path: spelling(sort),
@@ -1378,7 +1477,7 @@ impl<'a> TermBuilder<'a> {
         node: NodeKeys<'_>,
         slots: &mut WireSlots,
     ) -> crate::Result<Vec<krs_ir::wire::WireSortReference>> {
-        let mut instance_keys = node.roles(ProvenanceRole::ApplicationInstance);
+        let mut instance_keys = node.keys(ProvenanceRole::ApplicationInstance);
         let instance = application.instance();
         let Some(first) = instance.first() else {
             return Ok(Vec::new());
@@ -1437,7 +1536,7 @@ impl<'a> TermBuilder<'a> {
                 quote!(#key_fn)
             };
             references.push(krs_ir::wire::WireSortReference {
-                key: held_key(instance_keys.next())?,
+                key: located_key(instance_keys.next(), TokenRange::for_tokens(sort.ty())?)?,
                 target: krs_ir::wire::WireTypeReference {
                     slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_reference))),
                     authored_path: quote::ToTokens::to_token_stream(sort.ty()).to_string(),
@@ -1787,4 +1886,92 @@ pub(super) fn production_sort_arguments(
         });
     }
     Ok(output)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{KeyedTerm, NodeKind};
+    use krs_diagnostic::codes::expand;
+    use krs_syntax::{TermArguments, TermExpression, TermTree, TokenRange};
+
+    fn term(source: &str) -> TermExpression {
+        TermExpression::from_expression(syn::parse_str(source).unwrap()).unwrap()
+    }
+
+    fn at(tokens: &impl quote::ToTokens) -> TokenRange {
+        TokenRange::for_tokens(tokens).unwrap()
+    }
+
+    fn code(error: &crate::ExpandError) -> krs_diagnostic::Code {
+        error.diagnostics().next().unwrap().code.clone()
+    }
+
+    /// A walker that expands `k::matches!(f(x), g(y))`'s pattern before its
+    /// subject reaches `g` while the next application head the sentence
+    /// keyed is `f`: the read fails instead of giving `g` the key anchored
+    /// at `f`. In the keyed order, the same reads pass.
+    #[test]
+    fn a_permuted_read_names_another_node_and_fails() {
+        let term = term("k::matches!(f(x), g(y))");
+        let TermTree::Matches {
+            range,
+            subject,
+            pattern,
+            ..
+        } = term.tree()
+        else {
+            panic!("a `k::matches!` term");
+        };
+        let (TermTree::Application(f), TermTree::Application(g)) = (&**subject, &**pattern) else {
+            panic!("two applications");
+        };
+
+        let mut keys = KeyedTerm::of(&term).reader();
+        let misread = keys
+            .node(NodeKind::ApplicationHead, at(g.head()))
+            .err()
+            .expect("`g` is not the next application head");
+        assert_eq!(code(&misread), expand::MISREAD_PROVENANCE_KEY);
+        let mut keys = KeyedTerm::of(&term).reader();
+        let misread = keys.pass_path(g.head()).unwrap_err();
+        assert_eq!(code(&misread), expand::MISREAD_PROVENANCE_KEY);
+
+        let mut keys = KeyedTerm::of(&term).reader();
+        assert!(keys.node(NodeKind::Matches, *range).is_ok());
+        for application in [f, g] {
+            assert!(keys.pass_path(application.head()).is_ok());
+            assert!(
+                keys.node(NodeKind::ApplicationHead, at(application.head()))
+                    .is_ok()
+            );
+            let TermArguments::Positional(arguments) = application.arguments() else {
+                panic!("positional arguments");
+            };
+            let TermTree::Reference(argument) = &arguments[0] else {
+                panic!("a reference");
+            };
+            assert!(keys.pass_path(argument).is_ok());
+        }
+        // Every node of the kind has been read.
+        let misread = keys
+            .node(NodeKind::ApplicationHead, at(g.head()))
+            .err()
+            .expect("no application head is left");
+        assert_eq!(code(&misread), expand::MISREAD_PROVENANCE_KEY);
+    }
+
+    /// Record field names are read in the order the sentence keyed them.
+    #[test]
+    fn a_permuted_record_field_read_fails() {
+        let term = term("F { a: x, b: y }");
+        let TermTree::Application(record) = term.tree() else {
+            panic!("a record");
+        };
+        let TermArguments::Named(fields) = record.arguments() else {
+            panic!("named fields");
+        };
+        let mut keys = KeyedTerm::of(&term).reader();
+        let misread = keys.record_field(fields[1].name()).unwrap_err();
+        assert_eq!(code(&misread), expand::MISREAD_PROVENANCE_KEY);
+    }
 }

@@ -165,7 +165,13 @@ impl TermLiteral {
         }
     }
 
-    fn range(&self) -> Result<TokenRange, SyntaxError> {
+    /// The literal's authored tokens, a negative sign included.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SyntaxErrorKind::MissingTokenEndpoint`] for a literal
+    /// without tokens, which a parsed literal never is.
+    pub fn range(&self) -> Result<TokenRange, SyntaxError> {
         match self {
             Self::Integer(literal) => Ok(literal.range()),
             Self::Boolean(literal) => TokenRange::for_tokens(literal),
@@ -315,7 +321,15 @@ impl TermNode {
         }
     }
 
-    pub(crate) fn range(&self) -> Result<TokenRange, SyntaxError> {
+    /// The node's authored tokens, which its key's anchor covers: a path,
+    /// a literal, a `k::anonymous!`'s spelling, a `k::lexeme!`'s text, or
+    /// an island's whole range.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SyntaxErrorKind::MissingTokenEndpoint`] for a node without
+    /// tokens, which a parsed node never is.
+    pub fn range(&self) -> Result<TokenRange, SyntaxError> {
         match self {
             Self::ApplicationHead(path) | Self::Reference(path) => TokenRange::for_tokens(path),
             Self::Literal(literal) => literal.range(),
@@ -803,7 +817,9 @@ impl TermTree {
         }
     }
 
-    pub(crate) fn record_field_names_preorder(&self, output: &mut Vec<syn::Ident>) {
+    /// Appends the record field names of the tree to `output`, in the
+    /// preorder its sentence keys them in ([`TermKeys::record_field`]).
+    pub fn record_field_names_preorder(&self, output: &mut Vec<syn::Ident>) {
         let arguments = match self {
             Self::Application(application) => &application.arguments,
             Self::Cell(cell) => {
@@ -873,7 +889,10 @@ impl TermTree {
         }
     }
 
-    pub(crate) fn wildcard_ranges_preorder(&self, output: &mut Vec<TokenRange>) {
+    /// Appends the ranges of the tree's `_` to `output`, in the preorder its
+    /// sentence keys them in ([`TermKeys::wildcard`]); a `k::matches!` or
+    /// `let` pattern's wildcards are nodes of their own and are left out.
+    pub fn wildcard_ranges_preorder(&self, output: &mut Vec<TokenRange>) {
         match self {
             Self::Application(application) => match &application.arguments {
                 TermArguments::Positional(arguments) => {
