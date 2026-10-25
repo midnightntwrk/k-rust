@@ -165,7 +165,7 @@ use k_rust_backend::stop;
 #[cfg(feature = "z3-inference")]
 use k_rust_backend::substitution::Substitution;
 use k_rust_backend::{
-    definition::{Admission, Admitted, BackendDefinition},
+    definition::{Admission, Admitted, BackendDefinition, DefinitionError},
     evaluation::{EvaluationMode, EvaluationScope},
     externalize,
     fresh::RequestNames,
@@ -1452,6 +1452,31 @@ pub struct BackendError {
     message: String,
     stop: Option<StopCause>,
     refusal: Option<UnstatedDefinedness>,
+    kind: Option<BackendErrorKind>,
+}
+
+/// What kind of failure a [`BackendError`] that is not a stop reports, for the failures a
+/// caller must tell apart from one another without reading the text ([`BackendError::kind`]).
+/// Most errors have no kind: the error's text is then its whole content. New kinds may be added.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[non_exhaustive]
+pub enum BackendErrorKind {
+    /// The request's state is not an executable state of the definition (a symbol the
+    /// definition does not declare, a macro or alias left in it, a sort mismatch).
+    InvalidState,
+    /// The request's state is executable but could not be internalized in the definition.
+    StateNotInternalized,
+    /// The request's patterns are nested deeper than the largest stack the backend provides for
+    /// one operation: the depth exceeds a reservation the build fixes, so the refusal is a
+    /// function of the request (`DefinitionError::InsufficientStack`).
+    InsufficientStack,
+    /// The request's patterns need a stack segment the system refused to map: the refusal
+    /// depends on the host's memory and the calling thread's stack, not on the request alone
+    /// (`DefinitionError::StackSegmentRefused`).
+    StackSegmentRefused,
+    /// The solver for the definition's module could not be created: the definition's SMT
+    /// declarations, their translation, or the host refused the solver context.
+    SolverInit,
 }
 
 impl BackendError {
@@ -1461,6 +1486,15 @@ impl BackendError {
             message: message.into(),
             stop: None,
             refusal: None,
+            kind: None,
+        }
+    }
+
+    /// An error that is not a stop, of `kind`: `message` is its whole content.
+    pub fn of_kind(kind: BackendErrorKind, message: impl Into<String>) -> Self {
+        Self {
+            kind: Some(kind),
+            ..Self::new(message)
         }
     }
 
@@ -1473,6 +1507,7 @@ impl BackendError {
             ),
             stop: None,
             refusal: Some(reason),
+            kind: None,
         }
     }
 
@@ -1491,6 +1526,15 @@ impl BackendError {
     /// failed.
     pub fn stop_cause(&self) -> Option<&StopCause> {
         self.stop.as_ref()
+    }
+
+    /// The kind of this error ([`BackendErrorKind`]), set where the operation still holds the
+    /// typed cause: a state the execute or search operations refuse or cannot internalize, a
+    /// request nested too deep for the backend's stack, and a solver that could not be created.
+    /// `None` for a stop ([`Self::stop_cause`]) and for every other error, whose text is then its
+    /// whole content.
+    pub fn kind(&self) -> Option<BackendErrorKind> {
+        self.kind
     }
 }
 
@@ -1517,6 +1561,7 @@ impl From<StopCause> for BackendError {
                 message: cause.to_string(),
                 stop: Some(cause),
                 refusal: None,
+                kind: None,
             },
         }
     }
@@ -1830,11 +1875,17 @@ impl Backend {
         self.with_solver_over(module, &[&syntax], |definition, solver| {
             definition
                 .validate_executable_pattern(&syntax)
-                .map_err(error("invalid executable state"))?;
+                .map_err(kinded(
+                    "invalid executable state",
+                    BackendErrorKind::InvalidState,
+                ))?;
             let initial = definition
                 .admit_unverified(&syntax, &[])
                 .internalize_pattern()
-                .map_err(error("could not internalize execution state"))?;
+                .map_err(kinded(
+                    "could not internalize execution state",
+                    BackendErrorKind::StateNotInternalized,
+                ))?;
             let options = ExecutionOptions {
                 max_depth: request.max_depth.unwrap_or(u64::MAX),
                 max_breadth: request.max_breadth,
@@ -1917,11 +1968,17 @@ impl Backend {
         self.with_solver_over(module, &[&syntax], |definition, solver| {
             definition
                 .validate_executable_pattern(&syntax)
-                .map_err(error("invalid executable state"))?;
+                .map_err(kinded(
+                    "invalid executable state",
+                    BackendErrorKind::InvalidState,
+                ))?;
             let initial = definition
                 .admit_unverified(&syntax, &[])
                 .internalize_pattern()
-                .map_err(error("could not internalize search state"))?;
+                .map_err(kinded(
+                    "could not internalize search state",
+                    BackendErrorKind::StateNotInternalized,
+                ))?;
             let result = match observation_rules {
                 Some(rules) => {
                     let observation = observation_options(definition, rules)?;
@@ -1978,11 +2035,17 @@ impl Backend {
         self.with_solver_over(module, &[&syntax], |definition, solver| {
             definition
                 .validate_executable_pattern(&syntax)
-                .map_err(error("invalid executable state"))?;
+                .map_err(kinded(
+                    "invalid executable state",
+                    BackendErrorKind::InvalidState,
+                ))?;
             let initial = definition
                 .admit_unverified(&syntax, &[])
                 .internalize_pattern()
-                .map_err(error("could not internalize path-search state"))?;
+                .map_err(kinded(
+                    "could not internalize path-search state",
+                    BackendErrorKind::StateNotInternalized,
+                ))?;
             let result = match observation_rules {
                 Some(rules) => {
                     let observation = observation_options(definition, rules)?;
@@ -2043,11 +2106,17 @@ impl Backend {
         self.with_solver_over(module, &patterns, |definition, solver| {
             definition
                 .validate_executable_pattern(&initial_syntax)
-                .map_err(error("invalid executable state"))?;
+                .map_err(kinded(
+                    "invalid executable state",
+                    BackendErrorKind::InvalidState,
+                ))?;
             let initial = definition
                 .admit_unverified(&initial_syntax, &[])
                 .internalize_pattern()
-                .map_err(error("could not internalize pattern-search state"))?;
+                .map_err(kinded(
+                    "could not internalize pattern-search state",
+                    BackendErrorKind::StateNotInternalized,
+                ))?;
             let target = definition
                 .admit_unverified(&target_syntax, &[])
                 .internalize_pattern()
@@ -2108,11 +2177,17 @@ impl Backend {
         self.with_solver_over(module, &patterns, |definition, solver| {
             definition
                 .validate_executable_pattern(&initial_syntax)
-                .map_err(error("invalid executable state"))?;
+                .map_err(kinded(
+                    "invalid executable state",
+                    BackendErrorKind::InvalidState,
+                ))?;
             let initial = definition
                 .admit_unverified(&initial_syntax, &[])
                 .internalize_pattern()
-                .map_err(error("could not internalize path-pattern-search state"))?;
+                .map_err(kinded(
+                    "could not internalize path-pattern-search state",
+                    BackendErrorKind::StateNotInternalized,
+                ))?;
             let target = definition
                 .admit_unverified(&target_syntax, &[])
                 .internalize_pattern()
@@ -2584,7 +2659,15 @@ impl Backend {
                 self.run_with_solver(definition, operation)
             })
         })
-        .map_err(error("the request is too deep for the backend"))
+        .map_err(|cause| {
+            let kind = match &cause {
+                DefinitionError::StackSegmentRefused { .. } => {
+                    BackendErrorKind::StackSegmentRefused
+                }
+                _ => BackendErrorKind::InsufficientStack,
+            };
+            kinded("the request is too deep for the backend", kind)(cause)
+        })
         .map_err(E::from)?
     }
 
@@ -2609,7 +2692,10 @@ impl Backend {
             } else {
                 Z3Solver::with_options(&definition, options)
             }
-            .map_err(error("could not initialize Z3"))
+            .map_err(kinded(
+                "could not initialize Z3",
+                BackendErrorKind::SolverInit,
+            ))
             .map_err(E::from)?;
             self.solvers.insert(module.clone(), solver);
         }
@@ -2919,6 +3005,14 @@ fn admit<'a>(
 
 fn error<E: fmt::Display>(context: &'static str) -> impl FnOnce(E) -> BackendError {
     move |cause| BackendError::new(format!("{context}: {cause}"))
+}
+
+/// [`error`], of `kind` ([`BackendError::kind`]).
+fn kinded<E: fmt::Display>(
+    context: &'static str,
+    kind: BackendErrorKind,
+) -> impl FnOnce(E) -> BackendError {
+    move |cause| BackendError::of_kind(kind, format!("{context}: {cause}"))
 }
 
 #[cfg(test)]
@@ -3601,6 +3695,10 @@ mod tests {
             "could not internalize execution state: Invalid pattern: the pattern states no term, \
              only predicates, where a term is needed"
         );
+        assert_eq!(
+            predicate.kind(),
+            Some(BackendErrorKind::StateNotInternalized)
+        );
         let disjunction = backend
             .execute(ExecuteRequest::new(kore(r"\or{SortS{}}(a{}(), b{}())")))
             .unwrap_err();
@@ -3627,6 +3725,29 @@ mod tests {
                 trailing.len() - 1
             )
         );
+    }
+
+    /// A solver that cannot be created for the definition is an error of kind `SolverInit`,
+    /// which the caller tells from every other error without reading its text: here the
+    /// definition's SMT declarations do not translate (an `smtlib` symbol over a sort variable).
+    #[cfg(feature = "z3-inference")]
+    #[test]
+    fn a_solver_that_cannot_be_created_is_a_solver_init_error() {
+        let definition = r#"[]
+        module MAIN
+            sort SortS{} []
+            symbol a{}() : SortS{} [constructor{}()]
+            symbol f{S}(S) : S [function{}(), smtlib{}("f")]
+        endmodule []"#;
+        let error = Backend::new(definition, "MAIN", BackendOptions::default())
+            .err()
+            .expect("the solver is not created");
+        assert_eq!(error.kind(), Some(BackendErrorKind::SolverInit), "{error}");
+        assert!(
+            error.message().starts_with("could not initialize Z3: "),
+            "{error}"
+        );
+        assert_eq!(error.stop_cause(), None);
     }
 
     #[test]
@@ -3696,6 +3817,11 @@ mod tests {
         let alias = kore("weakExistsFinally{SortS{}}(a{}())");
         let nested_macro = kore(r#"\and{SortS{}}(a{}(), macroValue{}())"#);
         let assert_invalid = |error: BackendError, symbol: &str| {
+            assert_eq!(
+                error.kind(),
+                Some(BackendErrorKind::InvalidState),
+                "{error}"
+            );
             let error = error.to_string();
             assert!(error.contains("invalid executable state"), "{error}");
             assert!(error.contains(symbol), "{error}");
@@ -5482,6 +5608,11 @@ endmodule
                     .state;
                 for error in every_route(&mut backend, &deep) {
                     let error = error.expect_err("a request too deep is refused");
+                    assert_eq!(
+                        error.kind(),
+                        Some(BackendErrorKind::InsufficientStack),
+                        "{error}"
+                    );
                     assert!(
                         error
                             .to_string()
