@@ -732,3 +732,18 @@ elab "k2l_ctor_search " i:ident " => " tac:tacticSeq : tactic => do
   throwError "k2l_ctor_search: no constructor of {n} applies"
 
 end KPrelude
+
+namespace KPrelude.IOHook
+
+/-! An undefined IO hook (`--io off`) is `none` in both definitions, so a rule that calls one has
+no instance: the relation's closers read it off the hypothesis `undefN … = some r`. -/
+
+@[k2l_rel] theorem undef0_eq {β : Type} : (undef0 : Option β) = none := rfl
+@[k2l_rel] theorem undef1_eq {α β : Type} (a : α) : (undef1 a : Option β) = none := rfl
+@[k2l_rel] theorem undef2_eq {α₁ α₂ β : Type} (a : α₁) (b : α₂) : (undef2 a b : Option β) = none := rfl
+@[k2l_rel] theorem undef3_eq {α₁ α₂ α₃ β : Type} (a : α₁) (b : α₂) (c : α₃) :
+    (undef3 a b c : Option β) = none := rfl
+@[k2l_rel] theorem undef4_eq {α₁ α₂ α₃ α₄ β : Type} (a : α₁) (b : α₂) (c : α₃) (d : α₄) :
+    (undef4 a b c d : Option β) = none := rfl
+
+end KPrelude.IOHook
