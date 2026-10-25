@@ -10,6 +10,11 @@ tier = "light"
 guarded = 12
 preserve = []
 
+[demo.SimpleConf]
+tier = "heavy"
+guarded = 8
+preserve = []
+
 [outputs]
 "simple-confluence.toml" = { tier = "heavy", compare = "exact" }
 
@@ -18,6 +23,7 @@ preserve = []
 [sources.sha256]
 "demos/RaceConf/RaceConf/Confluence.lean" = { tier = "light", sha256 = "6babb033eefe8fed5b5a84e7b11510d957a8eb287bfcebcf7bf2a1cf24d66554" }
 "demos/RaceConf/confluence.toml" = { tier = "light", sha256 = "c55fc58f8df1362826bcf25086e7e667cf25d10c8657a3ce7eb5e4f0f9a58f38" }
+"demos/SimpleConf/SimpleConf/Views.lean" = { tier = "heavy", sha256 = "6b4b0bd1c306a3547ec5e816712b5420ce89f88e4e2fba3a80b869c75fc49342" }
 "generated/race/Race.lean" = { tier = "light", sha256 = "b8730ce086f1156a15a41234a7b1614c2b14a61721db04e569ccf3562a8cd403" }
 "generated/race/Race/Adequacy.lean" = { tier = "light", sha256 = "827719d9a7befb183f1788652aac51a72570967c59db42fe658dae525e7b9577" }
 "generated/race/Race/Determinism.lean" = { tier = "light", sha256 = "52be43ddc62f4bcba653d03c572e05763d36f0f9df02c55d18eb5d0177359276" }
