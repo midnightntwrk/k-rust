@@ -10,7 +10,7 @@ use quote::{format_ident, quote};
 use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Path};
 
-use super::terms::held_key;
+use super::ledger::KeyLedger;
 use super::tokens::{call_site_path, enum_variant_parts, spelling, variant_marker_function};
 use krs_ir::ProvenanceKey;
 
@@ -103,7 +103,7 @@ pub(super) struct OverloadWire {
 /// Expands the target of `overload = Path`: an enum variant `Enum::Variant`
 /// or a constructor struct.
 pub(super) fn overload_wire(
-    facade: &Path,
+    (facade, ledger): (&Path, &KeyLedger),
     target: &Path,
     read: Option<&ProvenanceKey>,
     key_fn: &Ident,
@@ -141,7 +141,7 @@ pub(super) fn overload_wire(
         tokens,
         attribute: krs_ir::wire::WireProductionAttribute::Overload {
             target: krs_ir::wire::WireApplicationReference {
-                key: held_key(read)?,
+                key: ledger.define(read)?,
                 target: slot,
                 authored_path: spelling(target),
             },
@@ -160,6 +160,7 @@ pub(super) struct ColorMetadata<'a> {
     reason = "A production's metadata values and their keys come from its attribute or its family."
 )]
 pub(super) fn constructor_metadata_wire(
+    ledger: &KeyLedger,
     keys: &krs_syntax::ProductionKeys,
     (group, group_key): (Option<String>, Option<&ProvenanceKey>),
     avoid: bool,
@@ -177,7 +178,7 @@ pub(super) fn constructor_metadata_wire(
     if let Some(group) = group {
         attributes.push(Attribute::Group {
             reference: DescriptorGroupReference {
-                key: held_key(group_key)?,
+                key: ledger.define(group_key)?,
                 group: ProductionGroupId::new(group)
                     .expect("checked production groups are valid identities"),
             },
@@ -185,27 +186,27 @@ pub(super) fn constructor_metadata_wire(
     }
     if avoid {
         attributes.push(Attribute::Avoid {
-            key: held_key(keys.avoid())?,
+            key: ledger.define(keys.avoid())?,
         });
     }
     if prefer {
         attributes.push(Attribute::Prefer {
-            key: held_key(keys.prefer())?,
+            key: ledger.define(keys.prefer())?,
         });
     }
     match placement {
         Some(krs_syntax::PlacementFlag::Internal) => attributes.push(Attribute::Internal {
-            key: held_key(keys.placement())?,
+            key: ledger.define(keys.placement())?,
         }),
         Some(krs_syntax::PlacementFlag::Program) => attributes.push(Attribute::Program {
-            key: held_key(keys.placement())?,
+            key: ledger.define(keys.placement())?,
         }),
         None => {}
     }
     attributes.extend(overload);
     if let Some(color) = colors.color {
         attributes.push(Attribute::Color {
-            key: held_key(keys.color())?,
+            key: ledger.define(keys.color())?,
             value: color.value(),
         });
     }
@@ -213,12 +214,12 @@ pub(super) fn constructor_metadata_wire(
         let mut values = Vec::with_capacity(literals.len());
         for (index, literal) in literals.iter().enumerate() {
             values.push(krs_ir::DescriptorColorEntry {
-                key: held_key(keys.color_entries().get(index))?,
+                key: ledger.define(keys.color_entries().get(index))?,
                 value: literal.value(),
             });
         }
         attributes.push(Attribute::Colors {
-            key: held_key(keys.color())?,
+            key: ledger.define(keys.color())?,
             values,
         });
     }
@@ -235,12 +236,12 @@ pub(super) fn constructor_metadata_wire(
                 StructuredFormatFragment::ColorReset => FormatFragment::ColorReset,
             };
             fragments.push(DescriptorFormatFragment {
-                key: held_key(format.fragment_keys().get(index))?,
+                key: ledger.define(format.fragment_keys().get(index))?,
                 fragment,
             });
         }
         attributes.push(Attribute::Format {
-            key: held_key(keys.format())?,
+            key: ledger.define(keys.format())?,
             fragments,
         });
     }
@@ -248,13 +249,14 @@ pub(super) fn constructor_metadata_wire(
 }
 
 pub(super) fn production_documentation_wire(
+    ledger: &KeyLedger,
     documentation: &[krs_syntax::ProductionDocumentation],
 ) -> crate::Result<Vec<krs_ir::wire::WireProductionAttribute>> {
     documentation
         .iter()
         .map(|documentation| {
             Ok(krs_ir::wire::WireProductionAttribute::Documentation {
-                key: held_key(documentation.key())?,
+                key: ledger.define(documentation.key())?,
                 text: documentation.text().to_owned(),
             })
         })
@@ -265,27 +267,28 @@ pub(super) fn production_documentation_wire(
 /// (KF-028), keyed `read`, the marker's name, with the `recursive`
 /// keyword's key when written.
 pub(super) fn static_mode_wire(
+    ledger: &KeyLedger,
     marker: &krs_syntax::StaticProductionAttribute,
     read: Option<&ProvenanceKey>,
 ) -> crate::Result<krs_ir::wire::WireProductionAttribute> {
     let recursive = marker
         .is_recursive()
-        .then(|| held_key(marker.recursive_key()))
+        .then(|| ledger.define(marker.recursive_key()))
         .transpose()?;
     Ok(match marker.mode() {
         krs_syntax::StaticMode::Alias => krs_ir::wire::WireProductionAttribute::Alias {
-            key: held_key(read)?,
+            key: ledger.define(read)?,
             recursive,
         },
         krs_syntax::StaticMode::Desugar => krs_ir::wire::WireProductionAttribute::Desugar {
-            key: held_key(read)?,
+            key: ledger.define(read)?,
             recursive,
         },
     })
 }
 
 pub(super) fn strictness_wire(
-    facade: &Path,
+    (facade, ledger): (&Path, &KeyLedger),
     strictness: Option<&StrictnessAttribute>,
     nonce: u64,
     slots: &mut super::terms::WireSlots,
@@ -308,7 +311,7 @@ pub(super) fn strictness_wire(
             module_path!(), #name, #facade::ItemKind::ContextAlias, "",
         ).expect("a strictness context alias forms a valid host identity"));
             Ok(WireContextAliasReference {
-                key: held_key(strictness.using_key())?,
+                key: ledger.define(strictness.using_key())?,
                 slot: slots.item_slot(&expression),
             })
         })
@@ -319,7 +322,7 @@ pub(super) fn strictness_wire(
         .enumerate()
         .map(|(index, field)| -> crate::Result<_> {
             Ok(DescriptorFieldReference {
-                key: held_key(strictness.field_keys().get(index))?,
+                key: ledger.define(strictness.field_keys().get(index))?,
                 field: ProductionFieldId::new(field.to_string())
                     .expect("Rust field identifiers are valid production fields"),
             })
@@ -330,12 +333,12 @@ pub(super) fn strictness_wire(
         SyntaxStrictnessKind::SeqStrict => StrictnessKind::SeqStrict,
     };
     Ok(Some(WireProductionAttribute::Strictness {
-        key: held_key(strictness.key())?,
+        key: ledger.define(strictness.key())?,
         kind,
         using,
         fields,
         result_sort: Box::new(WireSortReference {
-            key: held_key(strictness.result_sort_key())?,
+            key: ledger.define(strictness.result_sort_key())?,
             target: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_fn))),
                 authored_path: spelling,

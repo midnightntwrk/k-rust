@@ -1,11 +1,7 @@
-use std::collections::HashSet;
-
-use krs_diagnostic::codes::expand;
 use krs_ir::{DisplayPath, HostRawProvenance};
 use krs_syntax::{ProvenanceAnchor, TokenRange, role_tokens};
 use quote::quote;
 
-use crate::ExpandError;
 use crate::environment::MacroEnvironment;
 
 #[derive(Clone, Debug)]
@@ -30,24 +26,15 @@ struct CapturedAnchor {
 /// not inside an inline `const` block, so large rule anchor tables need one.
 ///
 /// A provenance key names one authored node of the sentence, so the anchors'
-/// keys must be distinct; the `const` block asserts it. A repeated key is a
-/// numbering bug in KRS, never a mistake in the definition, so it is reported
-/// here, at the node that repeats the key, instead of as a const-evaluation
-/// panic at the invocation.
+/// keys are distinct: the shared parser allocates each once
+/// (`krs::syntax::repeated-provenance-key` refuses a repetition), and the
+/// `const` block asserts it as the last guard.
 pub(crate) fn host_provenance(
     env: &dyn MacroEnvironment,
     facade: &syn::Path,
     fallback: TokenRange,
     anchors: &[ProvenanceAnchor],
 ) -> proc_macro2::TokenStream {
-    if let Some(error) = repeated_key(anchors) {
-        // The error stands beside a provenance without authored anchors, so
-        // the expression keeps its type and the const block has nothing to
-        // reject: rustc reports the KRS error alone.
-        let error = error.into_compile_error(fallback.first());
-        let provenance = host_provenance(env, facade, fallback, &[]);
-        return quote! {{ #error #provenance }};
-    }
     let invocation = capture_call_site(env)
         .or_else(|| capture(env, fallback, false))
         .unwrap_or_else(|| unavailable_invocation(env, fallback));
@@ -90,23 +77,6 @@ pub(crate) fn host_provenance(
             },
         )?
     }
-}
-
-/// The error at the first anchor whose key an earlier anchor of the sentence
-/// already has.
-fn repeated_key(anchors: &[ProvenanceAnchor]) -> Option<ExpandError> {
-    let mut keys = HashSet::with_capacity(anchors.len());
-    let anchor = anchors.iter().find(|anchor| !keys.insert(anchor.key()))?;
-    let key = anchor.key();
-    Some(ExpandError::new(
-        expand::DUPLICATE_PROVENANCE_KEY,
-        anchor.range().first(),
-        format_args!(
-            "internal KRS error: this node repeats the provenance key `{} {}` of an earlier node in the same sentence; this is a bug in KRS, not in the definition",
-            key.role().as_str(),
-            key.ordinal(),
-        ),
-    ))
 }
 
 /// Keep proc-macro expansion available to hosts such as rust-analyzer that do
@@ -208,86 +178,5 @@ fn raw_anchor(
             (#end_line, #end_column),
             #exact
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use krs_diagnostic::Location;
-    use krs_diagnostic::codes::expand;
-    use krs_syntax::{ProvenanceAnchor, ProvenanceRole, TokenRange};
-
-    use super::{host_provenance, repeated_key};
-    use crate::environment::FixedEnvironment;
-
-    /// Anchors on `first second third` with the given keys, in that order.
-    fn anchors(
-        keys: [(ProvenanceRole, u32); 3],
-    ) -> (Vec<ProvenanceAnchor>, Vec<proc_macro2::Span>) {
-        let tokens: proc_macro2::TokenStream = "first second third".parse().unwrap();
-        let spans = tokens
-            .into_iter()
-            .map(|token| token.span())
-            .collect::<Vec<_>>();
-        let anchors = keys
-            .iter()
-            .zip(&spans)
-            .map(|((role, ordinal), span)| {
-                ProvenanceAnchor::new(*role, *ordinal, TokenRange::new(*span, *span))
-            })
-            .collect();
-        (anchors, spans)
-    }
-
-    #[test]
-    fn a_repeated_key_is_a_coded_error_at_the_repeating_node() {
-        let (distinct, _) = anchors([
-            (ProvenanceRole::KSequencePayload, 0),
-            (ProvenanceRole::KSequencePayload, 1),
-            (ProvenanceRole::MapPayload, 0),
-        ]);
-        assert!(repeated_key(&distinct).is_none());
-
-        let (repeated, spans) = anchors([
-            (ProvenanceRole::KSequencePayload, 0),
-            (ProvenanceRole::MapPayload, 0),
-            (ProvenanceRole::KSequencePayload, 0),
-        ]);
-        let error = repeated_key(&repeated).unwrap();
-        let diagnostics = error.diagnostics().collect::<Vec<_>>();
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].code, expand::DUPLICATE_PROVENANCE_KEY);
-        assert_eq!(
-            diagnostics[0].message,
-            "internal KRS error: this node repeats the provenance key `k_sequence_payload 0` of an earlier node in the same sentence; this is a bug in KRS, not in the definition"
-        );
-        let Location::Span(span) = diagnostics[0].primary.location else {
-            panic!("the error has a span");
-        };
-        assert_eq!(span.start(), spans[2].start());
-
-        // The error replaces the authored anchors.
-        let environment = FixedEnvironment::new("src/lib.rs", "k");
-        let tokens = host_provenance(
-            &environment,
-            &environment.facade,
-            TokenRange::new(spans[0], spans[2]),
-            &repeated,
-        )
-        .to_string();
-        assert!(tokens.contains("compile_error"), "{tokens}");
-        assert!(
-            tokens.contains("[krs::expand::duplicate-provenance-key]"),
-            "{tokens}"
-        );
-        assert!(!tokens.contains("KSequencePayload"), "{tokens}");
-        let accepted = host_provenance(
-            &environment,
-            &environment.facade,
-            TokenRange::new(spans[0], spans[2]),
-            &distinct,
-        )
-        .to_string();
-        assert!(accepted.contains("KSequencePayload"), "{accepted}");
     }
 }

@@ -10,8 +10,9 @@ use syn::ext::IdentExt;
 
 use super::existentials::{ensures_condition, existential_binders, fresh_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
+use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
-use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, held_key};
+use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots};
 use super::tokens::{call_site_cfg_attributes, call_site_path, sort_type_tokens, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -72,6 +73,13 @@ fn expand_head_rule(
     let anchors = clause.descriptor_provenance()?;
     let fallback = TokenRange::for_tokens(rule.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
+    let ledger = KeyLedger::new(
+        &anchors,
+        &[
+            krs_syntax::ProvenanceRole::RuleDeclaration,
+            krs_syntax::ProvenanceRole::ClaimDeclaration,
+        ],
+    );
     let nonce = expansion_nonce(env, "head_rule", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_head_rule_descriptor_{nonce:016x}");
     let sort_key = format_ident!("__krs_head_rule_sort_{nonce:016x}");
@@ -89,7 +97,7 @@ fn expand_head_rule(
         .cloned()
         .chain(rule.existentials().names())
         .collect::<Vec<_>>();
-    let mut builder = TermBuilder::new(&facade, nonce, &cfg, &binding_idents)
+    let mut builder = TermBuilder::new(&facade, &ledger, nonce, &cfg, &binding_idents)
         .with_lexical_imports((!imports.is_empty()).then_some(imports))
         .with_lexical_rule_head(imports.is_empty())
         .with_readable_instances();
@@ -131,7 +139,7 @@ fn expand_head_rule(
             });
             let slot = slots.type_slot(quote!(#facade::HostTypeKey(#key_fn)));
             Some(krs_ir::wire::WireSortReference {
-                key: held_key(narrowing.sort_key())?,
+                key: ledger.define(narrowing.sort_key())?,
                 target: krs_ir::wire::WireTypeReference {
                     slot,
                     authored_path: authored,
@@ -172,6 +180,12 @@ fn expand_head_rule(
         match extra {
             krs_syntax::RuleExtra::HaveMap { cell, entries } => {
                 let cell_name = cell.unraw().to_string();
+                // An entry's key term and value binder carry no keys of
+                // their own on the wire: the entry denotes both.
+                for entry in entries {
+                    ledger.define(entry.key.keys().payload())?;
+                    ledger.define(entry.value_key())?;
+                }
                 let entries = entries
                     .iter()
                     .map(|entry| {
@@ -187,7 +201,7 @@ fn expand_head_rule(
                     .collect::<Result<Vec<_>, ExpandError>>()?;
                 have_extras.push(krs_ir::wire::WireHeadRuleExtra::HaveMap {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: held_key(extra_keys.cell())?,
+                        key: ledger.define(extra_keys.cell())?,
                         name: cell_name,
                     },
                     entries,
@@ -206,7 +220,7 @@ fn expand_head_rule(
                 )?;
                 rewrite_befores.push((
                     cell.unraw().to_string(),
-                    held_key(extra_keys.cell())?,
+                    ledger.define(extra_keys.cell())?,
                     before,
                 ));
             }
@@ -221,7 +235,7 @@ fn expand_head_rule(
                 )?;
                 state_befores.push((
                     cell.unraw().to_string(),
-                    held_key(extra_keys.cell())?,
+                    ledger.define(extra_keys.cell())?,
                     before,
                 ));
             }
@@ -255,7 +269,7 @@ fn expand_head_rule(
                 }
                 list_befores.push((
                     cell.unraw().to_string(),
-                    held_key(extra_keys.cell())?,
+                    ledger.define(extra_keys.cell())?,
                     krs_ir::wire::WireHeadRuleList { items, rest, back },
                 ));
             }
@@ -270,6 +284,12 @@ fn expand_head_rule(
             Some(krs_ir::wire::WireHeadRuleResult::Replace(term))
         }
         Some(krs_syntax::RuleHeadResult::Splice { items, .. }) => {
+            // The splice carries its sequence's and its items' keys on no
+            // wire field: it denotes the sequence, each wire term an item.
+            ledger.define(clause.splice_key())?;
+            for item in items {
+                ledger.define(item.keys().payload())?;
+            }
             let items = items
                 .iter()
                 .map(|item| builder.expand_wire(KeyedTerm::of(item), TermSide::Right, &mut slots))
@@ -308,7 +328,7 @@ fn expand_head_rule(
                                 side: krs_syntax::RuleSide::Right,
                             },
                         )?;
-                        (Some(held_key(extra_keys.result_cell())?), Some(after))
+                        (Some(ledger.define(extra_keys.result_cell())?), Some(after))
                     }
                     _ => (None, None),
                 };
@@ -332,7 +352,7 @@ fn expand_head_rule(
                 )?;
                 update_extras.push(krs_ir::wire::WireHeadRuleExtra::UpdateMap {
                     cell: krs_ir::wire::WireHeadRuleCellReference {
-                        key: held_key(extra_keys.result_cell())?,
+                        key: ledger.define(extra_keys.result_cell())?,
                         name: cell_name,
                     },
                     base_binding,
@@ -348,7 +368,7 @@ fn expand_head_rule(
                 let (result_key, after) = if let Some(after) = after {
                     let after =
                         builder.expand_wire(KeyedTerm::of(after), TermSide::Right, &mut slots)?;
-                    (Some(held_key(extra_keys.result_cell())?), Some(after))
+                    (Some(ledger.define(extra_keys.result_cell())?), Some(after))
                 } else {
                     (None, None)
                 };
@@ -405,7 +425,7 @@ fn expand_head_rule(
                             )?);
                         }
                         (
-                            Some(held_key(extra_keys.result_cell())?),
+                            Some(ledger.define(extra_keys.result_cell())?),
                             Some(krs_ir::wire::WireHeadRuleList { items, rest, back }),
                         )
                     }
@@ -445,7 +465,12 @@ fn expand_head_rule(
                 })
                 .or_else(|| head.as_ref().map(AlternativeRecords::head));
             match records {
-                Some(records) => Some(bracket_alternative_wire(alternative, &records, &bindings)?),
+                Some(records) => Some(bracket_alternative_wire(
+                    &ledger,
+                    alternative,
+                    &records,
+                    &bindings,
+                )?),
                 None => None,
             }
         }
@@ -459,21 +484,31 @@ fn expand_head_rule(
             &mut slots,
         )?;
         Some(krs_ir::wire::WireRuleCondition {
-            key: held_key(condition.term().keys().payload())?,
+            key: ledger.define(condition.term().keys().payload())?,
             term,
         })
     } else {
         None
     };
     let ensures = ensures_condition(rule.existentials(), &mut builder, &mut slots)?;
-    let (existentials, existential_key_functions) =
-        existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
-    let (fresh, fresh_key_functions) =
-        fresh_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
+    let (existentials, existential_key_functions) = existential_binders(
+        rule.existentials(),
+        (&facade, &ledger),
+        nonce,
+        &cfg,
+        &mut slots,
+    )?;
+    let (fresh, fresh_key_functions) = fresh_binders(
+        rule.existentials(),
+        (&facade, &ledger),
+        nonce,
+        &cfg,
+        &mut slots,
+    )?;
     let (evaluation, evaluation_key_function) = super::existentials::evaluation_step(
         clause.attribute(),
         rule.existentials(),
-        (&facade, nonce, &cfg),
+        (&facade, &ledger, nonce, &cfg),
         &mut slots,
     )?;
     let mut key_functions = builder.key_functions;
@@ -502,12 +537,12 @@ fn expand_head_rule(
     // carries (F7).
     let label = Some(match clause.claim() {
         Some(claim) => krs_ir::DescriptorRuleLabel {
-            key: held_key(claim.label_key())?,
+            key: ledger.define(claim.label_key())?,
             name: claim.label().value(),
         },
         // The clause's name, or its `#[k::rule(label = ..)]`.
         None => krs_ir::DescriptorRuleLabel {
-            key: held_key(
+            key: ledger.define(
                 clause
                     .label_key()
                     .or_else(|| clause.attribute().label_key()),
@@ -523,18 +558,18 @@ fn expand_head_rule(
             krs_ir::SentenceKind::Claim,
             quote!(#facade::ItemKind::Claim),
             Some(krs_ir::HeadRuleClaim {
-                modality_key: held_key(claim.modality_key())?,
+                modality_key: ledger.define(claim.modality_key())?,
                 modality: match claim.modality() {
                     krs_syntax::ClaimModality::AllPaths => krs_ir::ClaimModality::AllPaths,
                     krs_syntax::ClaimModality::OnePath => krs_ir::ClaimModality::OnePath,
                 },
                 circularity_key: claim
                     .circularity()
-                    .then(|| held_key(claim.circularity_key()))
+                    .then(|| ledger.define(claim.circularity_key()))
                     .transpose()?,
                 trusted_key: claim
                     .trusted()
-                    .then(|| held_key(claim.trusted_key()))
+                    .then(|| ledger.define(claim.trusted_key()))
                     .transpose()?,
             }),
         ),
@@ -549,7 +584,7 @@ fn expand_head_rule(
         .transition_priority()
         .map(|(_, value)| -> crate::Result<_> {
             Ok(krs_ir::DescriptorRulePriority {
-                key: held_key(
+                key: ledger.define(
                     clause
                         .attribute()
                         .owise_key()
@@ -566,6 +601,11 @@ fn expand_head_rule(
     let name_ident = &original.sig.ident;
     let name = name_ident.unraw().to_string();
     let parameter_type = rule.parameter().term_sort.ty();
+    // A clause's one sort is its subject's and its result's: the sentence
+    // keys the authored sort as both types, and the head's sort denotes it.
+    if rule.result_type_key().is_some() {
+        ledger.define(rule.result_type_key())?;
+    }
     let (head_sort, configuration, computation_cell_name) = if configuration_owned {
         let computation_cell = match (clause.computation_cell(), &head) {
             (Some(cell), Some(_)) => Some(cell.unraw().to_string()),
@@ -581,7 +621,7 @@ fn expand_head_rule(
         (
             None,
             Some(krs_ir::wire::WireConfigurationReference {
-                key: held_key(rule.parameter().type_key())?,
+                key: ledger.define(rule.parameter().type_key())?,
                 configuration: krs_ir::wire::WireTypeReference {
                     slot: sort_slot,
                     authored_path: sort_spelling,
@@ -592,7 +632,7 @@ fn expand_head_rule(
     } else {
         (
             Some(krs_ir::wire::WireSortReference {
-                key: held_key(rule.parameter().type_key())?,
+                key: ledger.define(rule.parameter().type_key())?,
                 target: krs_ir::wire::WireTypeReference {
                     slot: sort_slot,
                     authored_path: sort_spelling,
@@ -608,7 +648,7 @@ fn expand_head_rule(
         .nondet()
         .map(|group| -> crate::Result<_> {
             Ok(krs_ir::DescriptorNondetGroup {
-                key: held_key(clause.attribute().nondet_key())?,
+                key: ledger.define(clause.attribute().nondet_key())?,
                 name: group.unraw().to_string(),
             })
         })
@@ -619,12 +659,12 @@ fn expand_head_rule(
         priority,
         nondet,
         // The whole subject record, or the computation item's pattern.
-        pattern_key: held_key(
+        pattern_key: ledger.define(
             clause
                 .pattern_key()
                 .or_else(|| rule.parameter().pattern_key()),
         )?,
-        result_key: held_key(clause.result_key())?,
+        result_key: ledger.define(clause.result_key())?,
         head_sort,
         configuration,
         computation_cell_name,
@@ -639,6 +679,7 @@ fn expand_head_rule(
         bracket_alternative,
         claim,
     }));
+    ledger.finish()?;
     let wire = serde_json::to_string(&wire).expect("head-rule wire is serializable");
     let slot_tokens = slots.tokens();
 
@@ -700,6 +741,7 @@ fn readable_state_wire(
 ) -> crate::Result<krs_ir::ProtocolRuleStateTerm<krs_ir::wire::WireTerm>> {
     use krs_ir::ProtocolRuleStateTerm as State;
     use krs_syntax::{StateMacroRemainder, StateTerm};
+    let ledger = context.builder.ledger;
     let term_side = match context.side {
         krs_syntax::RuleSide::Left => TermSide::Left,
         krs_syntax::RuleSide::Right => TermSide::Right,
@@ -720,11 +762,11 @@ fn readable_state_wire(
             {
                 None
             } else {
-                Some(held_key(sequence.payload_key())?)
+                Some(ledger.define(sequence.payload_key())?)
             };
             let mut items = Vec::new();
             for item in sequence.items() {
-                let key = held_key(item.keys().payload())?;
+                let key = ledger.define(item.keys().payload())?;
                 items.push(krs_ir::ProtocolRuleKSequenceItem {
                     key,
                     value: context.builder.expand_wire(
@@ -736,7 +778,7 @@ fn readable_state_wire(
             }
             let tail = match sequence.tail() {
                 StateMacroRemainder::Anonymous(_) => krs_ir::ProtocolRuleFrame::Anonymous {
-                    key: held_key(sequence.tail_key())?,
+                    key: ledger.define(sequence.tail_key())?,
                 },
                 _ => krs_ir::ProtocolRuleFrame::Exact,
             };
@@ -761,10 +803,10 @@ fn readable_state_wire(
              -> crate::Result<
                 krs_ir::ProtocolRuleInstance<krs_ir::wire::WireTerm>,
             > {
-                let key = held_key(item.key())?;
+                let key = ledger.define(item.key())?;
                 let mut fields = Vec::new();
                 for field in item.fields() {
-                    let key = held_key(field.name_key())?;
+                    let key = ledger.define(field.name_key())?;
                     fields.push(krs_ir::ProtocolRuleInstanceField {
                         key,
                         field: field.name().to_string(),
@@ -786,7 +828,7 @@ fn readable_state_wire(
             let rest = match list.rest() {
                 StateMacroRemainder::Exact => krs_ir::ProtocolRuleFrame::Exact,
                 _ => krs_ir::ProtocolRuleFrame::Anonymous {
-                    key: held_key(list.rest_key())?,
+                    key: ledger.define(list.rest_key())?,
                 },
             };
             let back = list
@@ -858,6 +900,7 @@ impl<'t> AlternativeRecords<'t> {
 /// whose children are the already-expanded terms of the reading the clause
 /// took, the computation cell's head or the cell's list elements.
 fn bracket_alternative_wire(
+    ledger: &KeyLedger,
     alternative: &krs_syntax::BracketAlternative,
     records: &AlternativeRecords<'_>,
     bindings: &[krs_ir::wire::WireHeadRuleBinding],
@@ -877,11 +920,12 @@ fn bracket_alternative_wire(
     };
     let subject = (children(&records.subject.0)?, children(&records.subject.1)?);
     let results = (children(&records.result.0)?, children(&records.result.1)?);
-    let before = alternative_instances(alternative.before(), subject)?.ok_or_else(mismatch)?;
+    let before =
+        alternative_instances(ledger, alternative.before(), subject)?.ok_or_else(mismatch)?;
     let (result_key, after) = match alternative.after() {
         Some(after) => (
-            Some(held_key(alternative.result_cell_key())?),
-            Some(alternative_instances(after, results)?.ok_or_else(mismatch)?),
+            Some(ledger.define(alternative.result_cell_key())?),
+            Some(alternative_instances(ledger, after, results)?.ok_or_else(mismatch)?),
         ),
         None => (None, None),
     };
@@ -900,7 +944,7 @@ fn bracket_alternative_wire(
         bindings,
         extra: krs_ir::wire::WireHeadRuleExtra::RewriteState {
             cell: krs_ir::wire::WireHeadRuleCellReference {
-                key: held_key(alternative.cell_key())?,
+                key: ledger.define(alternative.cell_key())?,
                 name: alternative.cell().unraw().to_string(),
             },
             result_key,
@@ -932,6 +976,7 @@ fn record_children(term: &krs_ir::wire::WireTerm) -> Option<Vec<krs_ir::wire::Wi
 /// and after its rest take their children from `records` in order; `None`
 /// when the list's shape does not match the records.
 fn alternative_instances(
+    ledger: &KeyLedger,
     state: &krs_syntax::StateTerm,
     records: (
         Vec<Vec<krs_ir::wire::WireTerm>>,
@@ -966,14 +1011,14 @@ fn alternative_instances(
                     .zip(children)
                     .map(|(field, value)| {
                         Ok(krs_ir::ProtocolRuleInstanceField {
-                            key: held_key(field.name_key())?,
+                            key: ledger.define(field.name_key())?,
                             field: field.name().to_string(),
                             value: krs_ir::ProtocolRuleStateTerm::Term(value),
                         })
                     })
                     .collect::<crate::Result<_>>()?;
                 Ok(krs_ir::ProtocolRuleInstance {
-                    key: held_key(item.key())?,
+                    key: ledger.define(item.key())?,
                     label: item.label().map(ToString::to_string),
                     fields,
                     rest: super::state_rules::instance_rest(item.rest()),
@@ -986,7 +1031,7 @@ fn alternative_instances(
     let rest = match list.rest() {
         StateMacroRemainder::Exact => krs_ir::ProtocolRuleFrame::Exact,
         _ => krs_ir::ProtocolRuleFrame::Anonymous {
-            key: held_key(list.rest_key())?,
+            key: ledger.define(list.rest_key())?,
         },
     };
     Ok(Some(krs_ir::ProtocolRuleStateTerm::Instances(

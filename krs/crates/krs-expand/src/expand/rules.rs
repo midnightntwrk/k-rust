@@ -20,9 +20,10 @@ use syn::{Attribute, FnArg, ItemFn, Pat, Path};
 use super::existentials::{ensures_condition, evaluation_step, existential_binders, fresh_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
+use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
 use super::state_rules::{StateRuleBuilder, configuration_rule};
-use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, held_key, wire_sort_reference};
+use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, wire_sort_reference};
 use super::tokens::{
     call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens, spelling,
 };
@@ -379,6 +380,7 @@ fn expand_ordinary_rule(
     let descriptor = krs_syntax::RuleDescriptor::new(rule, sentence)?;
     let fallback = krs_syntax::TokenRange::for_tokens(rule.item())?;
     let provenance = host_provenance(env, &facade, fallback, descriptor.anchors());
+    let ledger = KeyLedger::new(descriptor.anchors(), &fixed_rule_keys(sentence_kind));
     let nonce = expansion_nonce(env, sentence_name, &rule.item().sig.ident, fallback);
     let factory = format_ident!(
         "__krs_rule_descriptor_{nonce:016x}",
@@ -443,7 +445,7 @@ fn expand_ordinary_rule(
         .label()
         .map(|label| -> crate::Result<_> {
             Ok(DescriptorRuleLabel {
-                key: held_key(attribute.label_key())?,
+                key: ledger.define(attribute.label_key())?,
                 name: label.value().clone(),
             })
         })
@@ -481,21 +483,31 @@ fn expand_ordinary_rule(
     // The result and the ensures condition also see the existentials; the
     // subject and requires never do (the parser rejects such a use).
     let binding_idents = rule.result_bindings();
-    let mut term_builder = TermBuilder::new(&facade, nonce, &cfg, &binding_idents)
+    let mut term_builder = TermBuilder::new(&facade, &ledger, nonce, &cfg, &binding_idents)
         .with_lexical_imports(lexical_imports);
     let mut slots = WireSlots::new(&facade);
-    let (existentials, existential_key_functions) =
-        existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
-    let (fresh, fresh_key_functions) =
-        fresh_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
+    let (existentials, existential_key_functions) = existential_binders(
+        rule.existentials(),
+        (&facade, &ledger),
+        nonce,
+        &cfg,
+        &mut slots,
+    )?;
+    let (fresh, fresh_key_functions) = fresh_binders(
+        rule.existentials(),
+        (&facade, &ledger),
+        nonce,
+        &cfg,
+        &mut slots,
+    )?;
     let (evaluation, evaluation_key_function) = evaluation_step(
         attribute,
         rule.existentials(),
-        (&facade, nonce, &cfg),
+        (&facade, &ledger, nonce, &cfg),
         &mut slots,
     )?;
     let subject_sort = WireSortReference {
-        key: held_key(rule.parameter().type_key())?,
+        key: ledger.define(rule.parameter().type_key())?,
         target: WireTypeReference {
             slot: slots.type_slot(quote!(#facade::HostTypeKey(#parameter_key))),
             authored_path: parameter_sort_spelling,
@@ -504,7 +516,7 @@ fn expand_ordinary_rule(
     let result_sort = result_sort_spelling
         .map(|authored_path| -> crate::Result<_> {
             Ok(WireSortReference {
-                key: held_key(rule.result_type_key())?,
+                key: ledger.define(rule.result_type_key())?,
                 target: WireTypeReference {
                     slot: slots.type_slot(quote!(#facade::HostTypeKey(#result_key))),
                     authored_path,
@@ -513,7 +525,7 @@ fn expand_ordinary_rule(
         })
         .transpose()?;
     let (typed_bindings, binder_key_functions) =
-        typed_binders(rule, &facade, nonce, &cfg, &mut slots)?;
+        typed_binders(rule, (&facade, &ledger), nonce, &cfg, &mut slots)?;
     term_builder.set_rewrites(rule.result().is_none());
     let subject = term_builder.expand_wire(
         KeyedTerm::pattern(&rule.parameter().pattern, rule.subject_tree()),
@@ -551,7 +563,7 @@ fn expand_ordinary_rule(
             &mut slots,
         )?;
         Some(WireRuleCondition {
-            key: held_key(condition.term().keys().payload())?,
+            key: ledger.define(condition.term().keys().payload())?,
             term,
         })
     } else {
@@ -567,7 +579,7 @@ fn expand_ordinary_rule(
         .or_else(|| equation.and_then(krs_syntax::EquationAttribute::equation_priority))
         .map(|(_, value)| -> crate::Result<_> {
             Ok(DescriptorRulePriority {
-                key: held_key(priority_key(attribute, equation))?,
+                key: ledger.define(priority_key(attribute, equation))?,
                 value,
             })
         })
@@ -575,22 +587,22 @@ fn expand_ordinary_rule(
     let simplification = simplification
         .map(|simplification| -> crate::Result<_> {
             Ok(DescriptorSimplification {
-                key: held_key(descriptor.marker_key())?,
+                key: ledger.define(descriptor.marker_key())?,
                 priority: simplification
                     .priority()
                     .map(|value| -> crate::Result<_> {
                         Ok(DescriptorSimplificationPriority {
-                            key: held_key(simplification.priority_key())?,
+                            key: ledger.define(simplification.priority_key())?,
                             value,
                         })
                     })
                     .transpose()?,
-                restriction: match_restriction(simplification.restriction())?,
+                restriction: match_restriction(&ledger, simplification.restriction())?,
             })
         })
         .transpose()?;
     let equation_attributes = equation
-        .map(|equation| match_restriction(equation.restriction()))
+        .map(|equation| match_restriction(&ledger, equation.restriction()))
         .transpose()?
         .flatten()
         .map(|restriction| krs_ir::DescriptorEquationAttributes { restriction });
@@ -600,14 +612,14 @@ fn expand_ordinary_rule(
         .nondet()
         .map(|group| -> crate::Result<_> {
             Ok(krs_ir::DescriptorNondetGroup {
-                key: held_key(attribute.nondet_key())?,
+                key: ledger.define(attribute.nondet_key())?,
                 name: group.unraw().to_string(),
             })
         })
         .transpose()?;
     let anywhere = attribute
         .anywhere()
-        .map(|_| held_key(attribute.anywhere_key()))
+        .map(|_| ledger.define(attribute.anywhere_key()))
         .transpose()?;
     let wire = WirePayload::StructuredRule(Box::new(WireStructuredRule {
         sentence_kind,
@@ -617,11 +629,11 @@ fn expand_ordinary_rule(
         nondet,
         anywhere,
         simplification,
-        pattern_key: held_key(rule.parameter().pattern_key())?,
+        pattern_key: ledger.define(rule.parameter().pattern_key())?,
         typed_bindings,
         result_key: rule
             .result()
-            .map(|result| held_key(result.keys().payload()))
+            .map(|result| ledger.define(result.keys().payload()))
             .transpose()?,
         subject_sort,
         result_sort,
@@ -634,12 +646,13 @@ fn expand_ordinary_rule(
         equation: equation_attributes,
         unbound_variables: desugar
             .and_then(krs_syntax::DesugarAttribute::unbound_variables)
-            .map(unbound_variables)
+            .map(|variables| unbound_variables(&ledger, variables))
             .transpose()?,
         function_context,
         predicate,
         evaluation,
     }));
+    ledger.finish()?;
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 
@@ -706,6 +719,20 @@ fn expand_ordinary_rule(
 
         #factory_tokens
     })
+}
+
+/// The keys a rule descriptor's kind names by itself, which no wire field
+/// carries: the rule's own declaration, and the clause keyword of an alias
+/// or a desugar rule, which its sentence kind states.
+fn fixed_rule_keys(sentence_kind: krs_ir::SentenceKind) -> Vec<krs_syntax::ProvenanceRole> {
+    use krs_syntax::ProvenanceRole as Role;
+    let mut fixed = vec![Role::RuleDeclaration];
+    match sentence_kind {
+        krs_ir::SentenceKind::Alias => fixed.push(Role::AliasClause),
+        krs_ir::SentenceKind::Desugar => fixed.push(Role::DesugarClause),
+        _ => {}
+    }
+    fixed
 }
 
 /// The key of the priority [`krs_syntax::RuleAttribute::transition_priority`]
@@ -819,16 +846,16 @@ fn function_context(
                     .expect("the binder list declares every context term binder");
                 let binder = &rule.binders()[index];
                 let key_fn = format_ident!("__krs_rule_binder_sort_{nonce:016x}_{index}");
-                // The binder's declared sort, which the typed binders also
-                // name.
+                // The binder's declared sort, which its typed binding
+                // defines.
                 krs_ir::ProtocolRuleBindingKind::Term {
                     sort: wire_sort_reference(
                         slots,
                         facade,
-                        binder.sort_key(),
+                        term_builder.ledger.refer(binder.sort_key())?,
                         &key_fn,
                         &binder.term_sort().sort_token_text(),
-                    )?,
+                    ),
                 }
             }
             krs_syntax::StateRuleBindingKind::KSequenceFrame => {
@@ -847,8 +874,14 @@ fn function_context(
             kind,
         });
     }
-    let mut builder =
-        StateRuleBuilder::new(facade, nonce, cfg, bindings, krs_syntax::RuleSide::Left);
+    let mut builder = StateRuleBuilder::new(
+        facade,
+        term_builder.ledger,
+        nonce,
+        cfg,
+        bindings,
+        krs_syntax::RuleSide::Left,
+    );
     builder.continue_subject(term_builder);
     let cells = builder.expand_cells(context.pattern(), &configuration_type, slots)?;
     term_builder.next_key = builder.terms.next_key;
@@ -867,9 +900,9 @@ fn function_context(
         .collect::<crate::Result<Vec<_>>>()?;
     checks.extend(consumed_state_island_import_checks(rule.item()));
     let wire = krs_ir::wire::WireFunctionContext {
-        key: held_key(context.key())?,
+        key: term_builder.ledger.define(context.key())?,
         configuration: krs_ir::wire::WireConfigurationReference {
-            key: held_key(context.type_key())?,
+            key: term_builder.ledger.define(context.type_key())?,
             configuration: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#configuration_key))),
                 authored_path: spelling(context.configuration_type()),
@@ -892,7 +925,7 @@ fn function_context(
 /// each sort resolves through its own type slot, keyed like a `cells!` rule's.
 fn typed_binders(
     rule: &krs_syntax::RuleItem,
-    facade: &Path,
+    (facade, ledger): (&Path, &KeyLedger),
     nonce: u64,
     cfg: &[Attribute],
     slots: &mut WireSlots,
@@ -912,15 +945,15 @@ fn typed_binders(
             }
         });
         bindings.push(krs_ir::wire::WireTypedBinding {
-            key: held_key(binder.parameter_key())?,
+            key: ledger.define(binder.parameter_key())?,
             name: binder.name().unraw().to_string(),
             sort: wire_sort_reference(
                 slots,
                 facade,
-                binder.sort_key(),
+                ledger.define(binder.sort_key())?,
                 &key_fn,
                 &sort.sort_token_text(),
-            )?,
+            ),
         });
     }
     Ok((bindings, key_functions))
@@ -929,6 +962,7 @@ fn typed_binders(
 /// The descriptor form of an equation's or simplification's `concrete`,
 /// `symbolic`, and `smt_lemma` keys (KF-043), or `None` when none is authored.
 fn match_restriction(
+    ledger: &KeyLedger,
     restriction: &krs_syntax::MatchRestriction,
 ) -> crate::Result<Option<krs_ir::DescriptorMatchRestriction>> {
     if restriction.is_empty() {
@@ -951,13 +985,13 @@ fn match_restriction(
                     )
                     .map(|(variable, read)| {
                         Ok(krs_ir::DescriptorRestrictionVariable {
-                            key: held_key(read)?,
+                            key: ledger.define(read)?,
                             name: variable.to_string(),
                         })
                     })
                     .collect::<crate::Result<_>>()?;
                 Ok(krs_ir::DescriptorRestriction {
-                    key: held_key(restriction.provenance_key())?,
+                    key: ledger.define(restriction.provenance_key())?,
                     variables,
                 })
             })
@@ -968,26 +1002,27 @@ fn match_restriction(
         symbolic: key(restriction.symbolic())?,
         smt_lemma: restriction
             .smt_lemma()
-            .map(|_| held_key(restriction.smt_lemma_key()))
+            .map(|_| ledger.define(restriction.smt_lemma_key()))
             .transpose()?,
     }))
 }
 
 /// The descriptor form of `unbound_variables = [..]` (KF-046).
 fn unbound_variables(
+    ledger: &KeyLedger,
     unbound: &krs_syntax::UnboundVariables,
 ) -> crate::Result<krs_ir::DescriptorUnboundVariables> {
     // The keys of the `unbound_variables` identifier, then of each entry.
     let keys = unbound.provenance_keys();
     Ok(krs_ir::DescriptorUnboundVariables {
-        key: held_key(keys.first())?,
+        key: ledger.define(keys.first())?,
         variables: unbound
             .variables()
             .iter()
             .zip(keys.iter().skip(1).map(Some).chain(repeat(None)))
             .map(|(variable, read)| {
                 Ok(krs_ir::DescriptorUnboundVariable {
-                    key: held_key(read)?,
+                    key: ledger.define(read)?,
                     name: match variable {
                         krs_syntax::UnboundVariable::Named(name) => name.to_string(),
                         krs_syntax::UnboundVariable::Wildcard(_) => {

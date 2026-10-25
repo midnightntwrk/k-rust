@@ -23,9 +23,10 @@ use syn::{Attribute, Ident, ItemEnum, Path};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::grammar::grammar_macro_descriptor;
+use super::ledger::KeyLedger;
 use super::nonce::{expansion_nonce, rule_application_selector};
 use super::productions::strictness_key_function;
-use super::terms::{WireSlots, held_key, wire_sort_reference};
+use super::terms::{WireSlots, wire_sort_reference};
 use super::tokens::{
     call_site_cfg_attributes, call_site_ident, call_site_path, sort_type_tokens, spelling,
     variant_marker_function,
@@ -346,6 +347,7 @@ fn expand_enum_family_grammar(
     let mut output = Vec::new();
     if let Some(precedence) = declaration.precedence_descriptor()? {
         let provenance = host_provenance(env, facade, fallback, &precedence.provenance);
+        let ledger = KeyLedger::new(&precedence.provenance, &[]);
         let factory = format_ident!("__krs_enum_precedence_{nonce:016x}");
         let name = format!("__krs_grammar_{enum_name}_precedence");
         let mut group_ordinal = 0_usize;
@@ -354,18 +356,19 @@ fn expand_enum_family_grammar(
             group_ordinal += 1;
             let name = group.emitted_name(declaration.enum_name(), ordinal);
             Ok(DescriptorGroupReference {
-                key: held_key(group.precedence_key())?,
+                key: ledger.define(group.precedence_key())?,
                 group: ProductionGroupId::new(name)
                     .expect("generated enum groups are valid identities"),
             })
         })?;
         let grammar = WireGrammarDescriptor::Precedence {
-            key: held_key(declaration.precedence_declaration_key())?,
+            key: ledger.define(declaration.precedence_declaration_key())?,
             chains: vec![DescriptorPrecedenceChain {
-                key: held_key(declaration.precedence_chain_key())?,
+                key: ledger.define(declaration.precedence_chain_key())?,
                 groups,
             }],
         };
+        ledger.finish()?;
         let descriptor = grammar_macro_descriptor(
             facade,
             &factory,
@@ -379,6 +382,7 @@ fn expand_enum_family_grammar(
     }
     if let Some(anchors) = declaration.associativity_provenance()? {
         let provenance = host_provenance(env, facade, fallback, &anchors);
+        let ledger = KeyLedger::new(&anchors, &[]);
         let factory = format_ident!("__krs_enum_associativity_{nonce:016x}");
         let name = format!("__krs_grammar_{enum_name}_associativity");
         let mut sentences = Vec::new();
@@ -397,19 +401,20 @@ fn expand_enum_family_grammar(
                 SyntaxGroupAssociativity::NonAssociative => GroupAssociativity::NonAssociative,
             };
             sentences.push(DescriptorAssociativitySentence {
-                key: held_key(group.associativity_sentence_key())?,
+                key: ledger.define(group.associativity_sentence_key())?,
                 associativity,
                 groups: vec![DescriptorGroupReference {
-                    key: held_key(group.associativity_reference_key())?,
+                    key: ledger.define(group.associativity_reference_key())?,
                     group: ProductionGroupId::new(group_name)
                         .expect("generated enum groups are valid identities"),
                 }],
             });
         }
         let grammar = WireGrammarDescriptor::Associativity {
-            key: held_key(declaration.associativity_declaration_key())?,
+            key: ledger.define(declaration.associativity_declaration_key())?,
             sentences,
         };
+        ledger.finish()?;
         let descriptor = grammar_macro_descriptor(
             facade,
             &factory,
@@ -464,6 +469,8 @@ fn expand_enum_variant(
     let constructor_anchors = variant.constructor_provenance()?;
     let provenance = host_provenance(env, facade, fallback, &constructor_anchors);
     let grammar_provenance = host_provenance(env, facade, fallback, &anchors);
+    let constructor_ledger = KeyLedger::new(&constructor_anchors, &[ProvenanceRole::StableSymbol]);
+    let ledger = KeyLedger::new(&anchors, &[ProvenanceRole::StableSymbol]);
 
     let mut slots = WireSlots::new(facade);
     let result_slot = slots.type_slot(quote!(#facade::HostTypeKey(#result_key)));
@@ -486,6 +493,10 @@ fn expand_enum_variant(
                 ::core::any::TypeId::of::<#ty>()
             }
         });
+        // The field's sort reference carries no key on the wire: the
+        // collector numbers the fields' sorts in order, as the sentence
+        // keyed them.
+        constructor_ledger.define(field.sort_key())?;
         fields.push(WireConstructorFieldDescriptor {
             name: field_name,
             sort: WireTypeReference {
@@ -503,6 +514,7 @@ fn expand_enum_variant(
         cfg,
         helpers: &mut field_key_functions,
         slots: &mut slots,
+        ledger: &constructor_ledger,
         ordinal: 0,
     };
     for (wire, field) in fields.iter_mut().zip(variant.fields()) {
@@ -521,8 +533,13 @@ fn expand_enum_variant(
         cfg,
     )?;
     let mut grammar_slots = WireSlots::new(facade);
-    let items =
-        enum_variant_production_wire_items(facade, variant, nonce, index, &mut grammar_slots)?;
+    let items = enum_variant_production_wire_items(
+        (facade, &ledger),
+        variant,
+        nonce,
+        index,
+        &mut grammar_slots,
+    )?;
     let group = variant
         .precedence_group()
         .map(|ordinal| enum_precedence_group_name(declaration, ordinal));
@@ -531,7 +548,7 @@ fn expand_enum_variant(
         .and_then(krs_syntax::VariantSyntaxAttribute::overload)
         .map(|target| {
             super::productions::overload_wire(
-                facade,
+                (facade, &ledger),
                 target,
                 variant.syntax().and_then(|syntax| syntax.keys().overload()),
                 &format_ident!("__krs_overload_target_{nonce:016x}_{index}"),
@@ -552,6 +569,7 @@ fn expand_enum_variant(
             syntax.keys().group()
         };
         super::productions::constructor_metadata_wire(
+            &ledger,
             syntax.keys(),
             (
                 group.or_else(|| syntax.group().map(syn::LitStr::value)),
@@ -572,16 +590,16 @@ fn expand_enum_variant(
     };
     attributes.splice(
         0..0,
-        super::productions::production_documentation_wire(variant.documentation())?,
+        super::productions::production_documentation_wire(&ledger, variant.documentation())?,
     );
     if let Some(marker) = variant.static_attribute() {
         attributes.insert(
             0,
-            super::productions::static_mode_wire(marker, variant.static_key())?,
+            super::productions::static_mode_wire(&ledger, marker, variant.static_key())?,
         );
     }
     if let Some(strictness) = super::productions::strictness_wire(
-        facade,
+        (facade, &ledger),
         variant.strictness(),
         grammar_nonce,
         &mut grammar_slots,
@@ -595,9 +613,9 @@ fn expand_enum_variant(
         let empty_key = format_ident!("__krs_enum_variant_{nonce:016x}_{empty}");
         // The marker, which also names the empty sibling.
         attributes.push(WireProductionAttribute::ConsList {
-            key: held_key(variant.cons_list_key())?,
+            key: ledger.define(variant.cons_list_key())?,
             empty: WireApplicationReference {
-                key: held_key(variant.cons_list_key())?,
+                key: ledger.refer(variant.cons_list_key())?,
                 target: grammar_slots.variant_slot_for_grammar(
                     &quote!(#facade::HostTypeKey(#enum_key)),
                     &quote!(#facade::HostTypeKey(#empty_key)),
@@ -608,17 +626,17 @@ fn expand_enum_variant(
     }
     let template_key = variant
         .syntax()
-        .map(|syntax| held_key(syntax.keys().syntax()))
+        .map(|syntax| ledger.define(syntax.keys().syntax()))
         .transpose()?;
     let application_path = format!("{enum_name}::{variant_name}");
     let result_spelling = spelling(variant.constructor_sort());
     let result_sort = wire_sort_reference(
         &mut grammar_slots,
         facade,
-        variant.sort_key(),
+        ledger.define(variant.sort_key())?,
         result_key,
         &result_spelling,
-    )?;
+    );
     let variant_slot = grammar_slots.variant_slot_for_grammar(
         &quote!(#facade::HostTypeKey(#enum_key)),
         &quote!(#facade::HostTypeKey(#variant_key)),
@@ -626,12 +644,12 @@ fn expand_enum_variant(
     let grammar_wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
         WireProduction {
             parameters: Vec::new(),
-            key: held_key(variant.key())?,
+            key: ledger.define(variant.key())?,
             template_key,
             // The production's owner is its own variant.
             owner: WireProductionOwner::Constructor {
                 constructor: WireApplicationReference {
-                    key: held_key(variant.key())?,
+                    key: ledger.refer(variant.key())?,
                     target: variant_slot,
                     authored_path: application_path,
                 },
@@ -641,12 +659,13 @@ fn expand_enum_variant(
             attributes,
         },
     )));
+    ledger.finish()?;
     let grammar_wire = serde_json::to_string(&grammar_wire).expect("KRS wire values serialize");
     let grammar_slot_tokens = grammar_slots.tokens();
     let constructor_wire = WirePayload::Constructor(WireConstructorDescriptor {
         parameters: Vec::new(),
         sort: WireSortReference {
-            key: held_key(variant.sort_key())?,
+            key: constructor_ledger.define(variant.sort_key())?,
             target: WireTypeReference {
                 slot: result_slot,
                 authored_path: result_spelling,
@@ -655,6 +674,7 @@ fn expand_enum_variant(
         fields,
         arguments: Vec::new(),
     });
+    constructor_ledger.finish_beside(&ledger)?;
     let constructor_wire =
         serde_json::to_string(&constructor_wire).expect("enum-constructor wire is serializable");
     let slot_tokens = slots.tokens();
@@ -711,7 +731,7 @@ fn expand_enum_variant(
 }
 
 fn enum_variant_production_wire_items(
-    facade: &Path,
+    (facade, ledger): (&Path, &KeyLedger),
     variant: &krs_syntax::EnumConstructorVariant,
     nonce: u64,
     variant_index: usize,
@@ -721,7 +741,7 @@ fn enum_variant_production_wire_items(
     let mut items = Vec::new();
     if let Some(syntax) = variant.syntax() {
         for (item_index, item) in syntax.syntax_template().items().iter().enumerate() {
-            let key = held_key(syntax.syntax_template().item_key(item_index))?;
+            let key = ledger.define(syntax.syntax_template().item_key(item_index))?;
             match item {
                 SyntaxTemplateItem::Terminal(text) => items.push(Item::Terminal {
                     key,
@@ -745,20 +765,19 @@ fn enum_variant_production_wire_items(
                     let field = &variant.fields()[declaration_index];
                     items.push(Item::NonTerminal {
                         key,
-                        field_key: held_key(
-                            syntax.syntax_template().value_reference_key(item_index),
-                        )?,
+                        field_key: ledger
+                            .define(syntax.syntax_template().value_reference_key(item_index))?,
                         // The field's declaration, which the template names.
-                        declaration_key: Some(held_key(field.name_key())?),
+                        declaration_key: Some(ledger.define(field.name_key())?),
                         field: krs_ir::ProductionFieldId::new(name.clone())
                             .expect("Rust fields are valid production fields"),
                         sort: Box::new(wire_sort_reference(
                             slots,
                             facade,
-                            field.sort_key(),
+                            ledger.define(field.sort_key())?,
                             &sort_key,
                             &field.term_sort().sort_token_text(),
-                        )?),
+                        )),
                     });
                 }
             }
@@ -766,13 +785,14 @@ fn enum_variant_production_wire_items(
     } else {
         // Without a template the production reads as the variant's name,
         // which declares it.
+        // The production defines the variant's key.
         items.push(Item::Terminal {
-            key: held_key(variant.key())?,
+            key: ledger.refer(variant.key())?,
             text: variant.name().to_string(),
         });
         for (field_index, field) in variant.fields().iter().enumerate() {
             // The field's name keys its item, its field and its declaration.
-            let key = held_key(field.name_key())?;
+            let key = ledger.define(field.name_key())?;
             let sort_key =
                 format_ident!("__krs_enum_field_{nonce:016x}_{variant_index}_{field_index}");
             items.push(Item::NonTerminal {
@@ -784,10 +804,10 @@ fn enum_variant_production_wire_items(
                 sort: Box::new(wire_sort_reference(
                     slots,
                     facade,
-                    field.sort_key(),
+                    ledger.define(field.sort_key())?,
                     &sort_key,
                     &field.term_sort().sort_token_text(),
-                )?),
+                )),
             });
         }
     }

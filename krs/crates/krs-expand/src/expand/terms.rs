@@ -20,6 +20,7 @@ use quote::{format_ident, quote};
 use syn::ext::IdentExt;
 use syn::{Attribute, Ident, Path};
 
+use super::ledger::KeyLedger;
 use super::nonce::rule_application_selector;
 use super::tokens::{
     call_site_path, enum_variant_parts, is_bound_ident_path, spelling, variant_marker_function,
@@ -135,17 +136,6 @@ pub(super) fn rewrite_wire(
     })
 }
 
-/// The key of the authored node a wire node denotes, which its sentence
-/// gave it at parse; a node expansion reaches without one is a KRS bug.
-pub(super) fn held_key(read: Option<&ProvenanceKey>) -> crate::Result<ProvenanceKey> {
-    read.cloned().ok_or_else(|| {
-        ExpandError::at_invocation(
-            expand::MISSING_PROVENANCE_KEY,
-            "an authored node holds no provenance key from its sentence's parse",
-        )
-    })
-}
-
 /// One term's tree with the nodes, paths and keys its sentence gave it.
 #[derive(Clone, Copy)]
 pub(super) struct KeyedTerm<'t> {
@@ -184,12 +174,15 @@ impl<'t> KeyedTerm<'t> {
         self.tree
     }
 
-    pub(super) fn reader(self) -> TermKeyReader<'t> {
+    /// Reads the term's keys as expansion reaches its nodes; each key read
+    /// is defined, or referred to, in `ledger`.
+    pub(super) fn reader(self, ledger: &'t KeyLedger) -> TermKeyReader<'t> {
         let mut record_fields = Vec::new();
         self.tree.record_field_names_preorder(&mut record_fields);
         let mut wildcards = Vec::new();
         self.tree.wildcard_ranges_preorder(&mut wildcards);
         TermKeyReader {
+            ledger,
             nodes: self.nodes,
             paths: self.paths,
             record_fields,
@@ -279,6 +272,7 @@ impl NodeKind {
 /// same token: a walker that visits nodes in another order fails with an
 /// internal error instead of giving a wire node another node's key.
 pub(super) struct TermKeyReader<'t> {
+    ledger: &'t KeyLedger,
     nodes: &'t [TermNode],
     paths: TermPaths<'t>,
     record_fields: Vec<Ident>,
@@ -292,15 +286,15 @@ pub(super) struct TermKeyReader<'t> {
 
 impl<'t> TermKeyReader<'t> {
     /// The key of `path`, the next path: an application head's or a
-    /// reference's.
+    /// reference's, which the wire node's `path_key` defines.
     pub(super) fn path(&mut self, path: &Path) -> crate::Result<ProvenanceKey> {
         let at = TokenRange::for_tokens(path)?;
         let index = self.next_path(at)?;
-        located_key(self.keys.symbol(index), at)
+        self.ledger
+            .define_key(located_key(self.keys.symbol(index), at)?)
     }
 
-    /// Passes `path`, the next path, whose key no wire field takes (a
-    /// `k::fragment!` cell's path; a `cells!` term keys no path).
+    /// Passes `path`, the next path, which a `cells!` term keys not at all.
     pub(super) fn pass_path(&mut self, path: &Path) -> crate::Result<()> {
         self.next_path(TokenRange::for_tokens(path)?).map(drop)
     }
@@ -320,7 +314,8 @@ impl<'t> TermKeyReader<'t> {
         self.record_field += 1;
         let found = self.record_fields.get(index).ok_or_else(|| misread(at))?;
         same_node(TokenRange::for_tokens(found)?, at)?;
-        located_key(self.keys.record_field(index), at)
+        self.ledger
+            .define_key(located_key(self.keys.record_field(index), at)?)
     }
 
     /// The key of the `_` at `at`, the next `_` of a pattern (not of a
@@ -329,7 +324,8 @@ impl<'t> TermKeyReader<'t> {
         let index = self.wildcard;
         self.wildcard += 1;
         same_node(*self.wildcards.get(index).ok_or_else(|| misread(at))?, at)?;
-        located_key(self.keys.wildcard(index), at)
+        self.ledger
+            .define_key(located_key(self.keys.wildcard(index), at)?)
     }
 
     /// The keys of the node of `kind` at `at`, the next node of `kind`. `at`
@@ -346,6 +342,7 @@ impl<'t> TermKeyReader<'t> {
         let index = index.ok_or_else(|| misread(at))?;
         same_node(self.nodes[index].range()?, at)?;
         Ok(NodeKeys {
+            ledger: self.ledger,
             keys: self.keys,
             index,
             at,
@@ -390,38 +387,64 @@ fn located_key(read: Option<&ProvenanceKey>, at: TokenRange) -> crate::Result<Pr
 /// The keys one term node holds, read by role.
 #[derive(Clone, Copy)]
 pub(super) struct NodeKeys<'t> {
+    ledger: &'t KeyLedger,
     keys: &'t TermKeys,
     index: usize,
     at: TokenRange,
 }
 
 impl<'t> NodeKeys<'t> {
-    /// The node's key of `role`.
+    /// The node's key of `role`, which the wire node that denotes the node
+    /// (or that part of it) takes as its own.
     pub(super) fn key(self, role: ProvenanceRole) -> crate::Result<ProvenanceKey> {
-        located_key(self.keys.node_key(self.index, role), self.at)
+        self.ledger
+            .define_key(located_key(self.keys.node_key(self.index, role), self.at)?)
     }
 
-    /// The node's keys of `role`, in allocation order.
-    pub(super) fn keys(self, role: ProvenanceRole) -> impl Iterator<Item = &'t ProvenanceKey> {
-        self.keys.node_keys(self.index, role)
+    /// The node's keys of `role`, in allocation order, each read as the
+    /// next is reached: the wire node of each takes it as its own.
+    pub(super) fn keys(self, role: ProvenanceRole) -> NodeKeyList<'t> {
+        NodeKeyList {
+            ledger: self.ledger,
+            keys: self
+                .keys
+                .node_keys(self.index, role)
+                .collect::<Vec<_>>()
+                .into_iter(),
+        }
     }
 }
 
-/// A sort reference keyed `read`, the key its node holds.
+/// The keys of one role that one term node holds, in allocation order.
+pub(super) struct NodeKeyList<'t> {
+    ledger: &'t KeyLedger,
+    keys: std::vec::IntoIter<&'t ProvenanceKey>,
+}
+
+impl NodeKeyList<'_> {
+    /// The next key, of the part of the node at `at`, which its wire node
+    /// takes as its own.
+    pub(super) fn next(&mut self, at: TokenRange) -> crate::Result<ProvenanceKey> {
+        self.ledger.define_key(located_key(self.keys.next(), at)?)
+    }
+}
+
+/// A sort reference keyed `node`, the key its node holds (which the caller
+/// defined or referred to), resolved through the type-key helper `key`.
 pub(super) fn wire_sort_reference(
     slots: &mut WireSlots,
     facade: &Path,
-    read: Option<&ProvenanceKey>,
+    node: ProvenanceKey,
     key: &Ident,
     authored_path: &str,
-) -> crate::Result<WireSortReference> {
-    Ok(WireSortReference {
-        key: held_key(read)?,
+) -> WireSortReference {
+    WireSortReference {
+        key: node,
         target: WireTypeReference {
             slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
             authored_path: authored_path.to_owned(),
         },
-    })
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -471,6 +494,8 @@ impl TermSide {
 )]
 pub(super) struct TermBuilder<'a> {
     facade: &'a Path,
+    /// The ledger of the descriptor whose terms this builder expands.
+    pub(super) ledger: &'a KeyLedger,
     pub(super) nonce: u64,
     pub(super) cfg: &'a [Attribute],
     bindings: &'a [Ident],
@@ -514,12 +539,14 @@ pub(super) struct TermBuilder<'a> {
 impl<'a> TermBuilder<'a> {
     pub(super) fn new(
         facade: &'a Path,
+        ledger: &'a KeyLedger,
         nonce: u64,
         cfg: &'a [Attribute],
         bindings: &'a [Ident],
     ) -> Self {
         Self {
             facade,
+            ledger,
             nonce,
             cfg,
             bindings,
@@ -852,7 +879,7 @@ impl<'a> TermBuilder<'a> {
         side: TermSide,
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
-        self.expand_node(term.tree(), &mut term.reader(), side, slots)
+        self.expand_node(term.tree(), &mut term.reader(self.ledger), side, slots)
     }
 
     #[expect(
@@ -1049,6 +1076,9 @@ impl<'a> TermBuilder<'a> {
                 )?;
                 let key = node.key(ProvenanceRole::ClaimAnonymous)?;
                 let sort_key = node.key(ProvenanceRole::ClaimAnonymousSort)?;
+                // The `spelling` field is the spelling node, whose key the
+                // anonymous term's ordinal pairs it with.
+                node.key(ProvenanceRole::ClaimAnonymousSpelling)?;
                 let path = call_site_path(sort)?;
                 let key_fn = format_ident!(
                     "__krs_claim_anonymous_sort_{:016x}_{}",
@@ -1200,8 +1230,9 @@ impl<'a> TermBuilder<'a> {
                 Ok(WireTerm::OrBool { key, arguments })
             }
             TermTree::Cell(cell) => {
-                // The cell's path has a key that no wire node takes.
-                keys.pass_path(cell.owner())?;
+                // The cell's declaration reference is its path, which
+                // carries no key of its own on the wire.
+                keys.path(cell.owner())?;
                 let key = keys
                     .node(
                         NodeKind::ApplicationHead,
@@ -1524,7 +1555,7 @@ impl<'a> TermBuilder<'a> {
                 quote!(#key_fn)
             };
             references.push(krs_ir::wire::WireSortReference {
-                key: located_key(instance_keys.next(), TokenRange::for_tokens(sort.ty())?)?,
+                key: instance_keys.next(TokenRange::for_tokens(sort.ty())?)?,
                 target: krs_ir::wire::WireTypeReference {
                     slot: slots.type_slot(quote!(#facade::HostTypeKey(#key_reference))),
                     authored_path: quote::ToTokens::to_token_stream(sort.ty()).to_string(),
@@ -1828,6 +1859,8 @@ pub(super) struct SortArgumentSink<'a> {
     pub(super) cfg: &'a [syn::Attribute],
     pub(super) helpers: &'a mut Vec<TokenStream>,
     pub(super) slots: &'a mut WireSlots,
+    /// The ledger of the descriptor whose production this is.
+    pub(super) ledger: &'a KeyLedger,
     /// The number of the next helper.
     pub(super) ordinal: u32,
 }
@@ -1855,7 +1888,7 @@ pub(super) fn production_sort_arguments(
             }
         });
         let sort = krs_ir::wire::WireSortReference {
-            key: held_key(argument.key())?,
+            key: sink.ledger.define(argument.key())?,
             target: krs_ir::wire::WireTypeReference {
                 slot: sink.slots.type_slot(quote!(#facade::HostTypeKey(#key))),
                 authored_path: super::tokens::spelling(&argument.path),
@@ -1879,6 +1912,7 @@ pub(super) fn production_sort_arguments(
 #[cfg(test)]
 mod tests {
     use super::{KeyedTerm, NodeKind};
+    use crate::expand::ledger::KeyLedger;
     use krs_diagnostic::codes::expand;
     use krs_syntax::{TermArguments, TermExpression, TermTree, TokenRange};
 
@@ -1901,6 +1935,7 @@ mod tests {
     #[test]
     fn a_permuted_read_names_another_node_and_fails() {
         let term = term("k::matches!(f(x), g(y))");
+        let ledger = KeyLedger::new(&term.provenance().unwrap(), &[]);
         let TermTree::Matches {
             range,
             subject,
@@ -1914,17 +1949,17 @@ mod tests {
             panic!("two applications");
         };
 
-        let mut keys = KeyedTerm::of(&term).reader();
+        let mut keys = KeyedTerm::of(&term).reader(&ledger);
         let misread = keys
             .node(NodeKind::ApplicationHead, at(g.head()))
             .err()
             .expect("`g` is not the next application head");
         assert_eq!(code(&misread), expand::MISREAD_PROVENANCE_KEY);
-        let mut keys = KeyedTerm::of(&term).reader();
+        let mut keys = KeyedTerm::of(&term).reader(&ledger);
         let misread = keys.pass_path(g.head()).unwrap_err();
         assert_eq!(code(&misread), expand::MISREAD_PROVENANCE_KEY);
 
-        let mut keys = KeyedTerm::of(&term).reader();
+        let mut keys = KeyedTerm::of(&term).reader(&ledger);
         assert!(keys.node(NodeKind::Matches, *range).is_ok());
         for application in [f, g] {
             assert!(keys.pass_path(application.head()).is_ok());
@@ -1952,13 +1987,14 @@ mod tests {
     #[test]
     fn a_permuted_record_field_read_fails() {
         let term = term("F { a: x, b: y }");
+        let ledger = KeyLedger::new(&term.provenance().unwrap(), &[]);
         let TermTree::Application(record) = term.tree() else {
             panic!("a record");
         };
         let TermArguments::Named(fields) = record.arguments() else {
             panic!("named fields");
         };
-        let mut keys = KeyedTerm::of(&term).reader();
+        let mut keys = KeyedTerm::of(&term).reader(&ledger);
         let misread = keys.record_field(fields[1].name()).unwrap_err();
         assert_eq!(code(&misread), expand::MISREAD_PROVENANCE_KEY);
     }

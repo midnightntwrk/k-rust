@@ -19,11 +19,10 @@ use syn::spanned::Spanned;
 use syn::{Attribute, Ident, Item, ItemStruct, Meta, Path, parse_quote};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
+use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
 use super::productions::strictness_key_function;
-use super::terms::{
-    SortArgumentSink, WireSlots, held_key, production_sort_arguments, wire_sort_reference,
-};
+use super::terms::{SortArgumentSink, WireSlots, production_sort_arguments, wire_sort_reference};
 use super::tokens::{
     call_site_cfg_attributes, call_site_ident, call_site_path, helper_tokens, sort_type_tokens,
     spelling,
@@ -87,7 +86,7 @@ pub(crate) fn constructor(
     item: TokenStream,
 ) -> crate::Result<TokenStream> {
     let attribute = krs_syntax::ConstructorAttribute::parse_tokens(attributes)?;
-    constructor_like(env, attribute, None, item, None, [None, None])
+    constructor_like(env, attribute, None, item, None)
 }
 
 pub(crate) fn function(
@@ -147,50 +146,66 @@ fn function_production(
             krs_syntax::FunctionHook::Quoted(literal) => quoted_hook(literal, &item),
         })
         .transpose()?;
-    let smt = expanded_smt(function, &item)?;
-    let underspecified = function
-        .underspecified()
-        .map(|reason| -> crate::Result<_> {
-            Ok(WireProductionAttribute::Underspecified {
-                key: held_key(function.underspecified_key())?,
-                reason: reason.value(),
-            })
-        })
-        .transpose()?;
+    check_smt_fields(function, &item)?;
     constructor_like(
         env,
         function.production().clone(),
         Some(function),
         item,
         hook,
-        [smt, underspecified],
     )
 }
 
-/// Checks `smt_hook` placeholders against the struct's fields and lowers the
-/// function's SMT key to its wire attribute.
-fn expanded_smt(
+/// Checks `smt_hook` placeholders against the struct's fields.
+fn check_smt_fields(
     function: &krs_syntax::FunctionAttribute,
     item: &TokenStream,
+) -> crate::Result<()> {
+    if let Some(krs_syntax::FunctionSmt::Hook(_)) = function.smt() {
+        let fields = syn::parse2::<ItemStruct>(item.clone())
+            .map(|item| {
+                item.fields
+                    .into_iter()
+                    .filter_map(|field| field.ident)
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
+        function.validate_smt_fields(&fields)?;
+    }
+    Ok(())
+}
+
+/// The wire attribute of a function's `underspecified` key.
+fn underspecified_wire(
+    ledger: &KeyLedger,
+    function: &krs_syntax::FunctionAttribute,
+) -> crate::Result<Option<WireProductionAttribute>> {
+    function
+        .underspecified()
+        .map(|reason| -> crate::Result<_> {
+            Ok(WireProductionAttribute::Underspecified {
+                key: ledger.define(function.underspecified_key())?,
+                reason: reason.value(),
+            })
+        })
+        .transpose()
+}
+
+/// The wire attribute of a function's SMT key, whose placeholders
+/// [`check_smt_fields`] checked.
+fn smt_wire(
+    ledger: &KeyLedger,
+    function: &krs_syntax::FunctionAttribute,
 ) -> crate::Result<Option<WireProductionAttribute>> {
     let Some(smt) = function.smt() else {
         return Ok(None);
     };
     let attribute = match smt {
         krs_syntax::FunctionSmt::Smtlib(literal) => WireProductionAttribute::Smtlib {
-            key: held_key(function.smtlib_key())?,
+            key: ledger.define(function.smtlib_key())?,
             symbol: literal.value(),
         },
         krs_syntax::FunctionSmt::Hook(template) => {
-            let fields = syn::parse2::<ItemStruct>(item.clone())
-                .map(|item| {
-                    item.fields
-                        .into_iter()
-                        .filter_map(|field| field.ident)
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default();
-            function.validate_smt_fields(&fields)?;
             let fragments = template
                 .fragments()
                 .iter()
@@ -204,7 +219,7 @@ fn expanded_smt(
                             }
                         }
                         krs_syntax::SmtTemplateFragment::Field(name) => {
-                            let key = held_key(template.placeholder_key(index))?;
+                            let key = ledger.define(template.placeholder_key(index))?;
                             krs_ir::DescriptorSmtFragment {
                                 key: Some(key),
                                 fragment: krs_ir::SmtFragment::Field(
@@ -217,7 +232,7 @@ fn expanded_smt(
                 })
                 .collect::<crate::Result<_>>()?;
             WireProductionAttribute::SmtHook {
-                key: held_key(template.hook_key())?,
+                key: ledger.define(template.hook_key())?,
                 template: fragments,
             }
         }
@@ -345,7 +360,6 @@ fn constructor_like(
     function: Option<&krs_syntax::FunctionAttribute>,
     item: TokenStream,
     hook: Option<ExpandedHook>,
-    [smt, underspecified]: [Option<WireProductionAttribute>; 2],
 ) -> crate::Result<TokenStream> {
     let functional = function.is_some();
     let total = function.is_some_and(krs_syntax::FunctionAttribute::is_total);
@@ -397,6 +411,8 @@ fn constructor_like(
     let declaration_anchors = pieces.constructor_provenance()?;
     let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())?;
     let provenance = host_provenance(env, &facade, fallback, &declaration_anchors);
+    // The constructor descriptor's own key is its sort's.
+    let ledger = KeyLedger::new(&declaration_anchors, &[ProvenanceRole::StableSymbol]);
     if !attribute.avoid
         && attribute
             .full_provenance()?
@@ -458,7 +474,7 @@ fn constructor_like(
     let sort_spelling = spelling(&attribute.sort);
     let mut slots = WireSlots::new(&facade);
     let sort_reference = WireSortReference {
-        key: held_key(attribute.sort_key())?,
+        key: ledger.define(attribute.sort_key())?,
         target: WireTypeReference {
             slot: slots.type_slot(quote!(#facade::HostTypeKey(#sort_key))),
             authored_path: sort_spelling,
@@ -490,6 +506,10 @@ fn constructor_like(
                 ::core::any::TypeId::of::<#generated>()
             }
         });
+        // The field's sort reference carries no key on the wire: the
+        // collector numbers the fields' sorts in order, as the sentence
+        // keyed them.
+        ledger.define(field.sort_key())?;
         fields.push(WireConstructorFieldDescriptor {
             name: field_name,
             sort: WireTypeReference {
@@ -508,6 +528,7 @@ fn constructor_like(
         cfg: &cfg,
         helpers: &mut field_key_functions,
         slots: &mut slots,
+        ledger: &ledger,
         ordinal: 0,
     };
     for (field, arguments) in fields.iter_mut().zip(field_arguments) {
@@ -516,8 +537,12 @@ fn constructor_like(
     sink.prefix = format!("__krs_constructor_sort_argument_{nonce:016x}");
     sink.ordinal = 0;
     let result_arguments = production_sort_arguments(&attribute.sort_arguments, &mut sink)?;
-    let parameters =
-        parameter_wire_references(&facade, &declaration, &parameter_markers, &mut slots)?;
+    let parameters = parameter_wire_references(
+        (&facade, &ledger),
+        &declaration,
+        &parameter_markers,
+        &mut slots,
+    )?;
     let wire = WirePayload::Constructor(WireConstructorDescriptor {
         sort: sort_reference,
         fields,
@@ -553,8 +578,9 @@ fn constructor_like(
             }
         }
     });
+    let grammar_ledger = KeyLedger::new(grammar.anchors(), &[ProvenanceRole::StableSymbol]);
     let grammar = constructor_grammar(
-        &facade,
+        (&facade, &grammar_ledger),
         (&attribute, function, &grammar),
         &declaration,
         strictness.as_ref(),
@@ -572,9 +598,9 @@ fn constructor_like(
             function.is_some_and(|function| function.fresh_generator().is_some()),
         ],
         hook.as_ref(),
-        [smt, underspecified],
         static_marker.as_ref().map(|(marker, _)| marker),
     )?;
+    ledger.finish_beside(&grammar_ledger)?;
 
     let factory_tokens = DescriptorFactory {
         facade: &facade,
@@ -673,7 +699,7 @@ fn parametric_item(item: &ItemStruct) -> ItemStruct {
 /// One sort reference per K sort parameter of `declaration`, keyed as the
 /// parameter is, whose slot is the parameter's marker type (KF-027).
 fn parameter_wire_references(
-    facade: &Path,
+    (facade, ledger): (&Path, &KeyLedger),
     declaration: &krs_syntax::ConstructorDeclaration,
     markers: &[(Ident, Ident)],
     slots: &mut WireSlots,
@@ -684,13 +710,13 @@ fn parameter_wire_references(
         .zip(markers)
         .enumerate()
         .map(|(index, (parameter, (_, key)))| {
-            wire_sort_reference(
+            Ok(wire_sort_reference(
                 slots,
                 facade,
-                declaration.parameter_key(index),
+                ledger.define(declaration.parameter_key(index))?,
                 key,
                 &parameter.to_string(),
-            )
+            ))
         })
         .collect()
 }
@@ -917,18 +943,24 @@ pub(crate) fn token(
 
     let grammar_anchors = stack.descriptor_provenance(&declaration)?;
     let grammar_provenance = host_provenance(env, &facade, fallback, &grammar_anchors);
+    let ledger = KeyLedger::new(&grammar_anchors, &[]);
     let grammar_name = format!("__krs_grammar_token_{name}");
     let mut slots = WireSlots::new(&facade);
     // The carrier's name: the sort and the owner of every production.
-    let token_reference =
-        wire_sort_reference(&mut slots, &facade, declaration.name_key(), &key_fn, &name)?;
+    let token_reference = wire_sort_reference(
+        &mut slots,
+        &facade,
+        ledger.define(declaration.name_key())?,
+        &key_fn,
+        &name,
+    );
     let productions = stack
         .attributes()
         .iter()
         .map(|attribute| -> crate::Result<_> {
             // The content keys the production, its one item and its
             // `token` attribute.
-            let key = held_key(attribute.content_key())?;
+            let key = ledger.define(attribute.content_key())?;
             let item = match attribute.content() {
                 krs_syntax::TokenContent::Regex(literal) => WireProductionItem::RegexTerminal {
                     key: key.clone(),
@@ -945,7 +977,7 @@ pub(crate) fn token(
                 .lexical_precedence()
                 .map(|value| -> crate::Result<_> {
                     Ok(krs_ir::DescriptorLexicalPrecedence {
-                        key: held_key(attribute.precedence_key())?,
+                        key: ledger.define(attribute.precedence_key())?,
                         value,
                     })
                 })
@@ -967,6 +999,7 @@ pub(crate) fn token(
         })
         .collect::<crate::Result<_>>()?;
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Tokens { productions }));
+    ledger.finish()?;
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 
@@ -990,8 +1023,10 @@ pub(crate) fn token(
     // productions to the sort it names and declares nothing else.
     let (sort_factory_tokens, field_check) = match declaration.carrier() {
         krs_syntax::TokenCarrier::Struct(item_struct) => {
-            let sort_provenance =
-                host_provenance(env, &facade, fallback, &declaration.sort_provenance()?);
+            let sort_anchors = declaration.sort_provenance()?;
+            let sort_provenance = host_provenance(env, &facade, fallback, &sort_anchors);
+            // A token sort's descriptor is its declaration and has no parent.
+            KeyLedger::new(&sort_anchors, &[ProvenanceRole::SortDeclaration]).finish()?;
             let sort_wire =
                 serde_json::to_string(&WirePayload::Sort(krs_ir::wire::WireSortDescriptor {
                     parents: Vec::new(),
@@ -1044,7 +1079,7 @@ pub(crate) fn token(
     reason = "Grammar lowering retains all declaration context in one expansion."
 )]
 fn constructor_grammar(
-    facade: &Path,
+    (facade, ledger): (&Path, &KeyLedger),
     (attribute, function, descriptor): (
         &krs_syntax::ConstructorAttribute,
         Option<&krs_syntax::FunctionAttribute>,
@@ -1063,7 +1098,6 @@ fn constructor_grammar(
     total: bool,
     [memo, fresh_generator]: [bool; 2],
     hook: Option<&ExpandedHook>,
-    [smt, underspecified]: [Option<WireProductionAttribute>; 2],
     static_marker: Option<&krs_syntax::StaticProductionAttribute>,
 ) -> crate::Result<TokenStream> {
     let name = declaration.name().to_string();
@@ -1074,16 +1108,16 @@ fn constructor_grammar(
     let result_sort = wire_sort_reference(
         &mut slots,
         facade,
-        attribute.sort_key(),
+        ledger.define(attribute.sort_key())?,
         sort_key,
         &result_sort_spelling,
-    )?;
+    );
     let template_key = attribute
         .syntax_template()
-        .map(|_| held_key(attribute.keys().syntax()))
+        .map(|_| ledger.define(attribute.keys().syntax()))
         .transpose()?;
     let items = constructor_production_wire_items(
-        facade,
+        (facade, ledger),
         attribute.syntax_template(),
         (declaration.name(), declaration.name_key()),
         declaration.fields(),
@@ -1103,7 +1137,7 @@ fn constructor_grammar(
         .overload()
         .map(|target| {
             super::productions::overload_wire(
-                facade,
+                (facade, ledger),
                 target,
                 attribute.keys().overload(),
                 &format_ident!("__krs_overload_target_{nonce:016x}"),
@@ -1117,6 +1151,7 @@ fn constructor_grammar(
         .map(|overload| overload.tokens.clone())
         .unwrap_or_default();
     let mut attributes = super::productions::constructor_metadata_wire(
+        ledger,
         attribute.keys(),
         (
             attribute.group.as_ref().map(syn::LitStr::value),
@@ -1134,7 +1169,7 @@ fn constructor_grammar(
     )?;
     attributes.splice(
         0..0,
-        super::productions::production_documentation_wire(declaration.documentation())?,
+        super::productions::production_documentation_wire(ledger, declaration.documentation())?,
     );
     if functional {
         // A total function's `function` is its name, which the descriptor
@@ -1147,20 +1182,21 @@ fn constructor_grammar(
         attributes.insert(
             0,
             WireProductionAttribute::Function {
-                key: held_key(read)?,
+                key: ledger.define(read)?,
             },
         );
         if total {
             attributes.insert(
                 1,
                 WireProductionAttribute::Total {
-                    key: held_key(function.and_then(krs_syntax::FunctionAttribute::totality_key))?,
+                    key: ledger
+                        .define(function.and_then(krs_syntax::FunctionAttribute::totality_key))?,
                 },
             );
         }
     }
     if let Some(hook) = hook {
-        let key = held_key(function.and_then(krs_syntax::FunctionAttribute::hook_key))?;
+        let key = ledger.define(function.and_then(krs_syntax::FunctionAttribute::hook_key))?;
         attributes.insert(
             if total { 2 } else { 1 },
             match hook {
@@ -1181,7 +1217,7 @@ fn constructor_grammar(
         attributes.insert(
             if total { 2 } else { 1 },
             WireProductionAttribute::Memo {
-                key: held_key(function.and_then(krs_syntax::FunctionAttribute::memo_key))?,
+                key: ledger.define(function.and_then(krs_syntax::FunctionAttribute::memo_key))?,
             },
         );
     }
@@ -1190,7 +1226,7 @@ fn constructor_grammar(
         attributes.insert(
             1 + usize::from(total) + usize::from(memo),
             WireProductionAttribute::FreshGenerator {
-                key: held_key(
+                key: ledger.define(
                     function.and_then(krs_syntax::FunctionAttribute::fresh_generator_key),
                 )?,
             },
@@ -1198,7 +1234,11 @@ fn constructor_grammar(
     }
     // `smtlib` or `smt-hook` follows them and the hook (KF-044), as in KEVM's
     // `[function, total, hook(..), smtlib(..)]`.
-    if let Some(smt) = smt {
+    if let Some(smt) = function
+        .map(|function| smt_wire(ledger, function))
+        .transpose()?
+        .flatten()
+    {
         attributes.insert(
             1 + usize::from(total)
                 + usize::from(memo)
@@ -1208,29 +1248,37 @@ fn constructor_grammar(
         );
     }
     // `underspecified` is KRS-only; lowering drops it before K.
-    if let Some(underspecified) = underspecified {
+    if let Some(underspecified) = function
+        .map(|function| underspecified_wire(ledger, function))
+        .transpose()?
+        .flatten()
+    {
         attributes.push(underspecified);
     }
     if let Some(marker) = static_marker {
         attributes.insert(
             0,
-            super::productions::static_mode_wire(marker, descriptor.marker_name_keys().first())?,
+            super::productions::static_mode_wire(
+                ledger,
+                marker,
+                descriptor.marker_name_keys().first(),
+            )?,
         );
     }
     if let Some(strict_attribute) =
-        super::productions::strictness_wire(facade, strictness, nonce, &mut slots)?
+        super::productions::strictness_wire((facade, ledger), strictness, nonce, &mut slots)?
     {
         attributes.push(strict_attribute);
     }
     let owner_slot = slots.nominal_target_slot(&quote!(#facade::HostTypeKey(#declared_key)));
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
         WireProduction {
-            key: held_key(declaration.name_key())?,
+            key: ledger.define(declaration.name_key())?,
             template_key,
             // The production's owner is the struct it declares.
             owner: WireProductionOwner::Constructor {
                 constructor: krs_ir::wire::WireApplicationReference {
-                    key: held_key(declaration.name_key())?,
+                    key: ledger.refer(declaration.name_key())?,
                     target: owner_slot,
                     authored_path: name,
                 },
@@ -1239,13 +1287,14 @@ fn constructor_grammar(
             items,
             attributes,
             parameters: parameter_wire_references(
-                facade,
+                (facade, ledger),
                 declaration,
                 parameter_markers,
                 &mut slots,
             )?,
         },
     )));
+    ledger.finish()?;
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 
@@ -1274,7 +1323,7 @@ fn constructor_grammar(
 }
 
 fn constructor_production_wire_items(
-    facade: &Path,
+    (facade, ledger): (&Path, &KeyLedger),
     template: Option<&krs_syntax::SyntaxTemplate>,
     (name, declaration_key): (&Ident, Option<&krs_ir::ProvenanceKey>),
     fields: &[krs_syntax::ConstructorField],
@@ -1284,7 +1333,7 @@ fn constructor_production_wire_items(
     let mut items = Vec::new();
     if let Some(template) = template {
         for (item_index, item) in template.items().iter().enumerate() {
-            let key = held_key(template.item_key(item_index))?;
+            let key = ledger.define(template.item_key(item_index))?;
             match item {
                 SyntaxTemplateItem::Terminal(text) => items.push(WireProductionItem::Terminal {
                     key,
@@ -1310,14 +1359,14 @@ fn constructor_production_wire_items(
                     let sort = wire_sort_reference(
                         slots,
                         facade,
-                        field.sort_key(),
+                        ledger.define(field.sort_key())?,
                         &sort_key,
                         &sort_spelling,
-                    )?;
+                    );
                     items.push(WireProductionItem::NonTerminal {
                         key,
-                        field_key: held_key(template.value_reference_key(item_index))?,
-                        declaration_key: Some(held_key(field.name_key())?),
+                        field_key: ledger.define(template.value_reference_key(item_index))?,
+                        declaration_key: Some(ledger.define(field.name_key())?),
                         field: krs_ir::ProductionFieldId::new(field_name.clone())
                             .expect("Rust field identifiers are valid production fields"),
                         sort: Box::new(sort),
@@ -1328,14 +1377,15 @@ fn constructor_production_wire_items(
     } else {
         // Without a template the production reads as the struct's name,
         // which declares it.
-        let key = held_key(declaration_key)?;
+        // The production defines the name's key.
+        let key = ledger.refer(declaration_key)?;
         items.push(WireProductionItem::Terminal {
             key,
             text: name.to_string(),
         });
         for (index, field) in fields.iter().enumerate() {
             // The field's name keys its item, its field and its declaration.
-            let key = held_key(field.name_key())?;
+            let key = ledger.define(field.name_key())?;
             let sort_key = format_ident!("__krs_constructor_field_{nonce:016x}_{index}");
             let sort_spelling = field.term_sort().sort_token_text();
             items.push(WireProductionItem::NonTerminal {
@@ -1347,10 +1397,10 @@ fn constructor_production_wire_items(
                 sort: Box::new(wire_sort_reference(
                     slots,
                     facade,
-                    field.sort_key(),
+                    ledger.define(field.sort_key())?,
                     &sort_key,
                     &sort_spelling,
-                )?),
+                )),
             });
         }
     }

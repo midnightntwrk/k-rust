@@ -29,8 +29,9 @@ use super::configuration::{
     SortArgumentContext, cell_marker_function, configuration_sort_arguments,
 };
 use super::island_checks::initializer_state_island_import_checks;
+use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
-use super::terms::{KeyedTerm, NodeKind, TermBuilder, TermKeyReader, WireSlots, held_key};
+use super::terms::{KeyedTerm, NodeKind, TermBuilder, TermKeyReader, WireSlots};
 use super::tokens::{
     call_site_cfg_attributes, call_site_path, is_bound_ident_path, sort_type_tokens, spelling,
     wire_literal,
@@ -90,6 +91,8 @@ fn init_inner(
     let anchors = initializer.provenance()?;
     let fallback = krs_syntax::TokenRange::for_tokens(initializer.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
+    // The initializer's declaration key is its wire node's own.
+    let ledger = KeyLedger::new(&anchors, &[]);
 
     let bindings = initializer
         .variables()
@@ -98,7 +101,7 @@ fn init_inner(
         .collect::<Vec<_>>();
     let cfg = call_site_cfg_attributes(&initializer.item().attrs)?;
     let nonce = expansion_nonce(env, "initializer", &initializer.item().sig.ident, fallback);
-    let mut builder = InitializerBuilder::new(&facade, nonce, &cfg, &bindings);
+    let mut builder = InitializerBuilder::new(&facade, &ledger, nonce, &cfg, &bindings);
     let mut variables = Vec::new();
     let self_type = Ident::new("Self", Span::call_site());
     let arguments_key = format_ident!("initializer_variable_{nonce:016x}");
@@ -122,13 +125,14 @@ fn init_inner(
         let main_key = variable
             .attribute()
             .is_main()
-            .then(|| held_key(variable.main_key()))
+            .then(|| ledger.define(variable.main_key()))
             .transpose()?;
         let authored = spelling(variable.sort());
         let arguments = configuration_sort_arguments(
             variable.arguments(),
             &mut SortArgumentContext {
                 facade: &facade,
+                ledger: &ledger,
                 owner: &self_type,
                 owner_key: &arguments_key,
                 cfg: &cfg,
@@ -138,12 +142,12 @@ fn init_inner(
             },
         )?;
         variables.push(WireConfigurationVariable {
-            binding_key: held_key(variable.key())?,
+            binding_key: ledger.define(variable.key())?,
             binding,
-            external_name_key: held_key(variable.name_key())?,
+            external_name_key: ledger.define(variable.name_key())?,
             external_name,
             sort: WireSortReference {
-                key: held_key(variable.type_key())?,
+                key: ledger.define(variable.type_key())?,
                 target: WireTypeReference {
                     slot: builder
                         .slots
@@ -161,8 +165,8 @@ fn init_inner(
         .key_functions
         .append(&mut builder.terms.key_functions);
     let wire = WireConfigurationInitializer {
-        key: held_key(initializer.declaration_key())?,
-        owner_key: held_key(initializer.result_type_key())?,
+        key: ledger.define(initializer.declaration_key())?,
+        owner_key: ledger.define(initializer.result_type_key())?,
         owner: WireTypeReference {
             slot: builder
                 .slots
@@ -170,9 +174,10 @@ fn init_inner(
             authored_path: "Self".to_owned(),
         },
         variables,
-        body_key: held_key(initializer.body_key())?,
+        body_key: ledger.define(initializer.body_key())?,
         cells,
     };
+    ledger.finish()?;
     let wire = serde_json::to_string(&wire).expect("initializer wire is serializable");
     let slots = builder.slots.tokens();
     let key_functions = builder.key_functions;
@@ -369,11 +374,17 @@ struct InitializerBuilder<'a> {
 }
 
 impl<'a> InitializerBuilder<'a> {
-    fn new(facade: &'a Path, nonce: u64, cfg: &'a [Attribute], bindings: &'a [Ident]) -> Self {
+    fn new(
+        facade: &'a Path,
+        ledger: &'a KeyLedger,
+        nonce: u64,
+        cfg: &'a [Attribute],
+        bindings: &'a [Ident],
+    ) -> Self {
         Self {
             facade,
             bindings,
-            terms: TermBuilder::new(facade, nonce, cfg, bindings)
+            terms: TermBuilder::new(facade, ledger, nonce, cfg, bindings)
                 .with_associated_keys()
                 .without_application_instances(),
             key_functions: Vec::new(),
@@ -387,11 +398,12 @@ impl<'a> InitializerBuilder<'a> {
         owner: &TokenStream,
     ) -> crate::Result<Vec<WireInitializerCell>> {
         let facade = self.facade;
+        let ledger = self.terms.ledger;
         let mut output = Vec::new();
         for cell in cells {
             let marker = cell_marker_function(cell.name());
             let field = WireCellReference {
-                key: held_key(cell.field_key())?,
+                key: ledger.define(cell.field_key())?,
                 cell: WireCellIdentity {
                     owner: self
                         .slots
@@ -422,7 +434,7 @@ impl<'a> InitializerBuilder<'a> {
                     };
                     let value = self.expand_state(value)?;
                     ProtocolInitializerCellContent::Leaf {
-                        constructor_key: held_key(cell.constructor_key())?,
+                        constructor_key: ledger.define(cell.constructor_key())?,
                         wrapper,
                         value,
                     }
@@ -434,7 +446,7 @@ impl<'a> InitializerBuilder<'a> {
                     let path = call_site_path(constructor)?;
                     let authored = spelling(constructor);
                     let declaration = WireCellDeclarationReference {
-                        key: held_key(cell.constructor_key())?,
+                        key: ledger.define(cell.constructor_key())?,
                         declaration: WireTypeReference {
                             slot: self
                                 .slots
@@ -450,7 +462,7 @@ impl<'a> InitializerBuilder<'a> {
                 }
             };
             output.push(WireInitializerCell {
-                key: held_key(cell.key())?,
+                key: ledger.define(cell.key())?,
                 field,
                 content,
             });
@@ -482,13 +494,14 @@ impl<'a> InitializerBuilder<'a> {
     }
 
     fn expand_k(&mut self, sequence: &KSequence) -> crate::Result<ProtocolKSequence<WireTerm>> {
+        let ledger = self.terms.ledger;
         let payload_key = if sequence.payload_key().is_some() {
-            Some(held_key(sequence.payload_key())?)
+            Some(ledger.define(sequence.payload_key())?)
         } else {
             None
         };
         let dot_k_key = if sequence.notation() == KSequenceNotation::DotK {
-            Some(held_key(sequence.tail_key())?)
+            Some(ledger.define(sequence.tail_key())?)
         } else {
             None
         };
@@ -499,7 +512,7 @@ impl<'a> InitializerBuilder<'a> {
         };
         let mut items = Vec::new();
         for item in sequence.items() {
-            let structural = held_key(item.keys().payload())?;
+            let structural = ledger.define(item.keys().payload())?;
             let value = self.expand_term(item, Some(structural.clone()))?;
             items.push(ProtocolKSequenceItem {
                 key: structural,
@@ -515,8 +528,9 @@ impl<'a> InitializerBuilder<'a> {
     }
 
     fn expand_map(&mut self, map: &MapExpression) -> crate::Result<ProtocolMap<WireTerm>> {
+        let ledger = self.terms.ledger;
         let payload_key = if map.payload_key().is_some() {
-            Some(held_key(map.payload_key())?)
+            Some(ledger.define(map.payload_key())?)
         } else {
             None
         };
@@ -527,8 +541,8 @@ impl<'a> InitializerBuilder<'a> {
             MapBody::Items { items, .. } => {
                 let mut output = Vec::new();
                 for item in items {
-                    let key_key = held_key(item.key().keys().payload())?;
-                    let value_key = held_key(item.value().keys().payload())?;
+                    let key_key = ledger.define(item.key().keys().payload())?;
+                    let value_key = ledger.define(item.value().keys().payload())?;
                     let key = self.expand_term(item.key(), Some(key_key.clone()))?;
                     let value = self.expand_term(item.value(), Some(value_key.clone()))?;
                     output.push(ProtocolMapItem {
@@ -541,9 +555,9 @@ impl<'a> InitializerBuilder<'a> {
                 ProtocolMapBody::Items { items: output }
             }
             MapBody::Update { base, key, value } => {
-                let base_key = held_key(base.keys().payload())?;
-                let key_key = held_key(key.keys().payload())?;
-                let value_key = held_key(value.keys().payload())?;
+                let base_key = ledger.define(base.keys().payload())?;
+                let key_key = ledger.define(key.keys().payload())?;
+                let value_key = ledger.define(value.keys().payload())?;
                 let base = self.expand_term(base, Some(base_key.clone()))?;
                 let key = self.expand_term(key, Some(key_key.clone()))?;
                 let value = self.expand_term(value, Some(value_key.clone()))?;
@@ -565,12 +579,16 @@ impl<'a> InitializerBuilder<'a> {
         term: &TermExpression,
         structural_key: Option<ProvenanceKey>,
     ) -> crate::Result<ProtocolInitializerTerm<WireTerm>> {
-        let key = held_key(term.keys().term())?;
+        let key = self.terms.ledger.define(term.keys().term())?;
         // A literal of the term takes the key of the place the term stands
         // in: the `k!` item, map key or value, or the term itself (N26).
         let structural = structural_key.unwrap_or_else(|| key.clone());
         let keyed = KeyedTerm::of(term);
-        let term = self.expand_term_tree(keyed.tree(), &mut keyed.reader(), structural)?;
+        let term = self.expand_term_tree(
+            keyed.tree(),
+            &mut keyed.reader(self.terms.ledger),
+            structural,
+        )?;
         Ok(ProtocolInitializerTerm { key, term })
     }
 
@@ -692,13 +710,12 @@ impl<'a> InitializerBuilder<'a> {
                     })
                 }
             }
-            TermTree::Literal(literal) => {
-                let literal = wire_literal(literal);
-                Ok(WireTerm::Literal {
-                    key: structural_key,
-                    literal,
-                })
-            }
+            // The literal names the place its term stands in, whose own
+            // wire node defines that key (N26).
+            TermTree::Literal(literal) => Ok(WireTerm::Literal {
+                key: self.terms.ledger.refer_key(structural_key)?,
+                literal: wire_literal(literal),
+            }),
             TermTree::Wildcard(range) => Err(ExpandError::at_range(
                 expand::INITIALIZER_WILDCARD,
                 *range,

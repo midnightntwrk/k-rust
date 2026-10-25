@@ -22,8 +22,8 @@ use syn::ext::IdentExt;
 use syn::{AttrStyle, Attribute, Ident, Item, Meta, Path};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
+use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
-use super::terms::held_key;
 use crate::environment::{MacroEnvironment, SourcePosition};
 use crate::provenance::host_provenance;
 use crate::{ExpandError, expand_attribute, expand_function};
@@ -322,6 +322,7 @@ fn descriptor_factory(
     let anchors = module.descriptor_provenance(attribute)?;
     let fallback = TokenRange::new(ident.span(), ident.span());
     let provenance = host_provenance(env, facade, fallback, &anchors);
+    let ledger = KeyLedger::new(&anchors, &[]);
     let nonce = expansion_nonce(env, "spec_module", ident, fallback);
     let factory = format_ident!("__krs_spec_module_descriptor_{nonce:016x}");
     let imports = attribute
@@ -336,24 +337,25 @@ fn descriptor_factory(
         )
         .map(|(path, read)| -> crate::Result<_> {
             Ok(DescriptorModuleImport {
-                key: held_key(read)?,
+                key: ledger.define(read)?,
                 path: surface::path_text(path),
             })
         })
         .collect::<crate::Result<Vec<_>>>()?;
     let grammar = WireGrammarDescriptor::SpecModule {
-        key: held_key(module.key())?,
+        key: ledger.define(module.key())?,
         name: attribute
             .name()
             .map(|name| -> crate::Result<_> {
                 Ok(DescriptorSpecModuleName {
-                    key: held_key(attribute.name_key())?,
+                    key: ledger.define(attribute.name_key())?,
                     value: name.value(),
                 })
             })
             .transpose()?,
         imports,
     };
+    ledger.finish()?;
     let wire = serde_json::to_string(&WirePayload::Grammar(Box::new(grammar)))
         .expect("KRS wire values serialize");
     let name = ident.unraw().to_string();

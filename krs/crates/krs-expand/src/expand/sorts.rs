@@ -6,7 +6,8 @@ use krs_syntax::KrsSyntax;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
-use super::terms::{WireSlots, held_key, wire_sort_reference};
+use super::ledger::KeyLedger;
+use super::terms::{WireSlots, wire_sort_reference};
 use krs_ir::lower_hex;
 use krs_ir::wire::{WireGrammarDescriptor, WirePayload, WireSortDescriptor, WireTypeReference};
 use krs_syntax::surface::{AttributeMacro, helper_entry};
@@ -24,6 +25,10 @@ use super::tokens::{
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
+#[expect(
+    clippy::too_many_lines,
+    reason = "The sort's descriptor, its brackets' grammar and its marker items are emitted together."
+)]
 pub(crate) fn sort(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
@@ -48,6 +53,7 @@ pub(crate) fn sort(
         attribute.descriptor_provenance(&declaration.item().ident, explicit_symbol.as_ref())?;
     let fallback = krs_syntax::TokenRange::for_tokens(declaration.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
+    let ledger = KeyLedger::new(&anchors, &SORT_FIXED_KEYS);
     let nonce = expansion_nonce(env, "sort", &declaration.item().ident, fallback);
     let factory = format_ident!(
         "__krs_sort_descriptor_{nonce:016x}",
@@ -64,6 +70,9 @@ pub(crate) fn sort(
     let mut slots = WireSlots::new(&facade);
     let semantic_parents = attribute.parents();
     for (index, parent) in semantic_parents.iter().enumerate() {
+        // The parent reference carries no key on the wire: the collector
+        // numbers the parents in order, as the sentence keyed them.
+        ledger.define(attribute.parent_keys().get(index))?;
         let key = format_ident!(
             "__krs_sort_parent_{nonce:016x}_{index}",
             span = Span::call_site()
@@ -96,6 +105,7 @@ pub(crate) fn sort(
             &cfg,
         )?);
     }
+    ledger.finish()?;
     let wire = serde_json::to_string(&WirePayload::Sort(WireSortDescriptor { parents }))
         .expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
@@ -138,6 +148,14 @@ pub(crate) fn sort(
         #(#grammar)*
     })
 }
+
+/// The keys a sort descriptor names by itself: the sort's declaration,
+/// which is the descriptor, and an explicit `#[k::symbol]`, which the
+/// collector reads from its own parse.
+const SORT_FIXED_KEYS: [krs_syntax::ProvenanceRole; 2] = [
+    krs_syntax::ProvenanceRole::SortDeclaration,
+    krs_syntax::ProvenanceRole::StableSymbol,
+];
 
 /// Expands the readable sort block into marker/alias pairs and semantic edges.
 ///
@@ -321,6 +339,7 @@ fn expand_readable_sort(
             )
         })?;
     let provenance = host_provenance(env, facade, fallback, &anchors);
+    let ledger = KeyLedger::new(&anchors, &SORT_FIXED_KEYS);
     let nonce = expansion_nonce(env, "readable_sort", declaration.name(), fallback);
     let factory = format_ident!("__krs_sort_descriptor_{nonce:016x}");
     let declared_key = format_ident!("__krs_sort_type_{nonce:016x}");
@@ -339,6 +358,9 @@ fn expand_readable_sort(
     let mut parents = Vec::new();
     let mut slots = WireSlots::new(facade);
     for (index, parent) in declaration.parents().iter().enumerate() {
+        // The collector numbers the parents in order, as the sentence keyed
+        // them.
+        ledger.define(declaration.parent_keys().get(index))?;
         let key = format_ident!("__krs_sort_parent_{nonce:016x}_{index}");
         // This hidden reference gives language tooling a real use of the
         // authored parent path while retaining its input span.
@@ -371,6 +393,7 @@ fn expand_readable_sort(
         )?);
     }
 
+    ledger.finish()?;
     let wire = serde_json::to_string(&WirePayload::Sort(WireSortDescriptor { parents }))
         .expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
@@ -428,6 +451,7 @@ fn expand_readable_membership(
     let member = &declaration.members()[index];
     let fallback = anchors[0].range();
     let provenance = host_provenance(env, facade, fallback, anchors);
+    let ledger = KeyLedger::new(anchors, &[]);
     let rust_key = &identity.rust_key;
     let super_key = format_ident!("__krs_subsort_super_{rust_key}", span = Span::call_site());
     let sub_key = format_ident!("__krs_subsort_sub_{rust_key}", span = Span::call_site());
@@ -451,22 +475,23 @@ fn expand_readable_membership(
     let supersort = wire_sort_reference(
         &mut slots,
         facade,
-        declaration.supersort_key(),
+        ledger.define(declaration.supersort_key())?,
         &super_key,
         &super_spelling,
-    )?;
+    );
     let subsort = wire_sort_reference(
         &mut slots,
         facade,
-        declaration.member_sub_sort_key(index),
+        ledger.define(declaration.member_sub_sort_key(index))?,
         &sub_key,
         &sub_spelling,
-    )?;
+    );
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Subsort {
-        key: held_key(declaration.member_key(index))?,
+        key: ledger.define(declaration.member_key(index))?,
         subsort,
         supersort,
     }));
+    ledger.finish()?;
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
     let factory_tokens = DescriptorFactory {
@@ -605,6 +630,7 @@ pub(crate) fn subsort(
     let fallback = TokenRange::for_tokens(declaration.item())?;
     let anchors = declaration.provenance(&reference)?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
+    let ledger = KeyLedger::new(&anchors, &[]);
     let identity = ReadableMembershipIdentity::new(reference.sort(), declaration.sub_sort());
     let super_key = format_ident!("__krs_subsort_super_{}", identity.rust_key);
     let sub_key = format_ident!("__krs_subsort_sub_{}", identity.rust_key);
@@ -621,22 +647,23 @@ pub(crate) fn subsort(
     let supersort = wire_sort_reference(
         &mut slots,
         &facade,
-        reference.sort_key(),
+        ledger.define(reference.sort_key())?,
         &super_key,
         &super_spelling,
-    )?;
+    );
     let subsort = wire_sort_reference(
         &mut slots,
         &facade,
-        declaration.sub_sort_key(),
+        ledger.define(declaration.sub_sort_key())?,
         &sub_key,
         &sub_spelling,
-    )?;
+    );
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Subsort {
-        key: held_key(declaration.key())?,
+        key: ledger.define(declaration.key())?,
         subsort,
         supersort,
     }));
+    ledger.finish()?;
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 
@@ -730,6 +757,7 @@ fn expand_bracket_grammar_parts(
             )
         })?;
     let provenance = host_provenance(env, facade, fallback, anchors);
+    let ledger = KeyLedger::new(anchors, &[]);
     let factory = format_ident!("__krs_bracket_descriptor_{nonce:016x}_{index}");
     let grammar_name = format!("__krs_grammar_bracket_{sort_name}_{index}");
     let mut slots = WireSlots::new(facade);
@@ -738,13 +766,13 @@ fn expand_bracket_grammar_parts(
     let sort_reference = wire_sort_reference(
         &mut slots,
         facade,
-        Some(descriptor.sort_key()),
+        ledger.define(Some(descriptor.sort_key()))?,
         sort_key,
         sort_name,
-    )?;
+    );
     let mut items = Vec::new();
     for (item_index, item) in bracket.template().items().iter().enumerate() {
-        let key = held_key(bracket.item_key(item_index))?;
+        let key = ledger.define(bracket.item_key(item_index))?;
         match item {
             SyntaxTemplateItem::Terminal(text) => {
                 items.push(krs_ir::wire::WireProductionItem::Terminal {
@@ -753,7 +781,7 @@ fn expand_bracket_grammar_parts(
                 });
             }
             SyntaxTemplateItem::Field(_) => {
-                let field_key = held_key(bracket.value_reference_key(item_index))?;
+                let field_key = ledger.define(bracket.value_reference_key(item_index))?;
                 items.push(krs_ir::wire::WireProductionItem::NonTerminal {
                     key,
                     field_key,
@@ -769,7 +797,7 @@ fn expand_bracket_grammar_parts(
     let wire = WirePayload::Grammar(Box::new(WireGrammarDescriptor::Production(
         krs_ir::wire::WireProduction {
             parameters: Vec::new(),
-            key: held_key(bracket.key())?,
+            key: ledger.define(bracket.key())?,
             template_key: None,
             owner: krs_ir::wire::WireProductionOwner::BracketSort {
                 sort: sort_reference.clone(),
@@ -778,10 +806,11 @@ fn expand_bracket_grammar_parts(
             items,
             // The declaration again, as the production's attribute.
             attributes: vec![krs_ir::wire::WireProductionAttribute::Bracket {
-                key: held_key(bracket.key())?,
+                key: ledger.refer(bracket.key())?,
             }],
         },
     )));
+    ledger.finish()?;
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
     let factory_tokens = DescriptorFactory {

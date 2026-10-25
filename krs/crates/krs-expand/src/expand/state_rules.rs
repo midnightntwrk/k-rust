@@ -32,9 +32,10 @@ use super::configuration::cell_marker_function;
 use super::existentials::{ensures_condition, evaluation_step, existential_binders, fresh_binders};
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
+use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
 use super::terms::{
-    KeyedTerm, NodeKind, TermBuilder, TermKeyReader, TermRole, TermSide, WireSlots, held_key,
+    KeyedTerm, NodeKind, TermBuilder, TermKeyReader, TermRole, TermSide, WireSlots,
     wire_sort_reference,
 };
 use super::tokens::{
@@ -60,6 +61,8 @@ pub(crate) fn context_alias(
     let anchors = alias.descriptor_provenance(&attribute)?;
     let fallback = TokenRange::for_tokens(alias.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
+    // The alias's declaration key is its wire node's own.
+    let ledger = KeyLedger::new(&anchors, &[]);
     let nonce = expansion_nonce(env, "context_alias", &alias.item().sig.ident, fallback);
     let factory = format_ident!("__krs_context_alias_{nonce:016x}");
     let configuration_key = format_ident!("__krs_context_alias_configuration_{nonce:016x}");
@@ -107,10 +110,10 @@ pub(crate) fn context_alias(
                         sort: wire_sort_reference(
                             &mut slots,
                             &facade,
-                            binding.sort_key(),
+                            ledger.define(binding.sort_key())?,
                             &key_fn,
                             &sort_spelling,
-                        )?,
+                        ),
                     }
                 }
                 StateRuleBindingKind::KSequenceFrame => {
@@ -130,7 +133,14 @@ pub(crate) fn context_alias(
             kind,
         });
     }
-    let mut builder = StateRuleBuilder::new(&facade, nonce, &cfg, &binding_idents, RuleSide::Left);
+    let mut builder = StateRuleBuilder::new(
+        &facade,
+        &ledger,
+        nonce,
+        &cfg,
+        &binding_idents,
+        RuleSide::Left,
+    );
     let pattern = builder.expand_cells(alias.pattern(), &configuration_type, &mut slots)?;
     key_functions.extend(builder.terms.key_functions);
     let mut wrapper_checks = Vec::new();
@@ -162,23 +172,23 @@ pub(crate) fn context_alias(
             Some(wire_sort_reference(
                 &mut slots,
                 &facade,
-                attribute.result_key(),
+                ledger.define(attribute.result_key())?,
                 &key_fn,
                 &spelling(sort),
-            )?)
+            ))
         }
         None => None,
     };
 
     let wire = WirePayload::ContextAlias(Box::new(WireContextAlias {
-        declaration_key: held_key(alias.declaration_key())?,
-        name_key: held_key(attribute.name_key())?,
+        declaration_key: ledger.define(alias.declaration_key())?,
+        name_key: ledger.define(attribute.name_key())?,
         name: alias_name,
-        here_key: held_key(attribute.here_key())?,
+        here_key: ledger.define(attribute.here_key())?,
         here: here_name,
-        pattern_key: held_key(alias.pattern_key())?,
+        pattern_key: ledger.define(alias.pattern_key())?,
         configuration: WireConfigurationReference {
-            key: held_key(alias.configuration_type_key())?,
+            key: ledger.define(alias.configuration_type_key())?,
             configuration: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#configuration_key))),
                 authored_path: configuration_spelling,
@@ -188,6 +198,7 @@ pub(crate) fn context_alias(
         pattern,
         result,
     }));
+    ledger.finish()?;
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 
@@ -272,6 +283,11 @@ pub(super) fn configuration_rule(
     let descriptor = krs_syntax::RuleDescriptor::state(&rule, sentence)?;
     let fallback = TokenRange::for_tokens(rule.item())?;
     let provenance = host_provenance(env, &facade, fallback, descriptor.anchors());
+    // A rule's declaration key is its own; no wire field carries it.
+    let ledger = KeyLedger::new(
+        descriptor.anchors(),
+        &[krs_syntax::ProvenanceRole::RuleDeclaration],
+    );
     let nonce = expansion_nonce(env, "configuration_rule", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_configuration_rule_{nonce:016x}");
     let subject_key = format_ident!("__krs_rule_configuration_left_{nonce:016x}");
@@ -321,10 +337,10 @@ pub(super) fn configuration_rule(
                     sort: wire_sort_reference(
                         &mut slots,
                         &facade,
-                        binding.sort_key(),
+                        ledger.define(binding.sort_key())?,
                         &key_fn,
                         &authored,
-                    )?,
+                    ),
                 }
             }
             StateRuleBindingKind::KSequenceFrame => ProtocolRuleBindingKind::KSequenceFrame,
@@ -359,21 +375,39 @@ pub(super) fn configuration_rule(
         .cloned()
         .chain(rule.existentials().names())
         .collect::<Vec<_>>();
-    let (existentials, existential_key_functions) =
-        existential_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
-    let (fresh, fresh_key_functions) =
-        fresh_binders(rule.existentials(), &facade, nonce, &cfg, &mut slots)?;
+    let (existentials, existential_key_functions) = existential_binders(
+        rule.existentials(),
+        (&facade, &ledger),
+        nonce,
+        &cfg,
+        &mut slots,
+    )?;
+    let (fresh, fresh_key_functions) = fresh_binders(
+        rule.existentials(),
+        (&facade, &ledger),
+        nonce,
+        &cfg,
+        &mut slots,
+    )?;
     let (evaluation, evaluation_key_function) = evaluation_step(
         attribute,
         rule.existentials(),
-        (&facade, nonce, &cfg),
+        (&facade, &ledger, nonce, &cfg),
         &mut slots,
     )?;
-    let mut left = StateRuleBuilder::new(&facade, nonce, &cfg, &binding_idents, RuleSide::Left);
+    let mut left = StateRuleBuilder::new(
+        &facade,
+        &ledger,
+        nonce,
+        &cfg,
+        &binding_idents,
+        RuleSide::Left,
+    );
     left.terms.set_rewrites(rule.result().is_none());
     let subject = left.expand_cells(rule.subject(), &subject_type, &mut slots)?;
     let mut right = StateRuleBuilder::new(
         &facade,
+        &ledger,
         nonce ^ 0x8000_0000_0000_0000,
         &cfg,
         &result_idents,
@@ -387,6 +421,7 @@ pub(super) fn configuration_rule(
     };
     let mut condition_builder = TermBuilder::new(
         &facade,
+        &ledger,
         nonce ^ 0x4000_0000_0000_0000,
         &cfg,
         &requires_idents,
@@ -398,14 +433,19 @@ pub(super) fn configuration_rule(
             &mut slots,
         )?;
         Some(WireRuleCondition {
-            key: held_key(condition.term().keys().payload())?,
+            key: ledger.define(condition.term().keys().payload())?,
             term,
         })
     } else {
         None
     };
-    let mut ensures_builder =
-        TermBuilder::new(&facade, nonce ^ 0x2000_0000_0000_0000, &cfg, &result_idents);
+    let mut ensures_builder = TermBuilder::new(
+        &facade,
+        &ledger,
+        nonce ^ 0x2000_0000_0000_0000,
+        &cfg,
+        &result_idents,
+    );
     let ensures = ensures_condition(rule.existentials(), &mut ensures_builder, &mut slots)?;
     let mut key_functions = left.terms.key_functions;
     key_functions.extend(right.terms.key_functions);
@@ -430,7 +470,7 @@ pub(super) fn configuration_rule(
         .label()
         .map(|label| -> crate::Result<_> {
             Ok(DescriptorRuleLabel {
-                key: held_key(attribute.label_key())?,
+                key: ledger.define(attribute.label_key())?,
                 name: label.value(),
             })
         })
@@ -439,7 +479,7 @@ pub(super) fn configuration_rule(
         .transition_priority()
         .map(|(_, value)| -> crate::Result<_> {
             Ok(DescriptorRulePriority {
-                key: held_key(attribute.owise_key().or_else(|| attribute.priority_key()))?,
+                key: ledger.define(attribute.owise_key().or_else(|| attribute.priority_key()))?,
                 value,
             })
         })
@@ -457,7 +497,7 @@ pub(super) fn configuration_rule(
         .nondet()
         .map(|group| -> crate::Result<_> {
             Ok(krs_ir::DescriptorNondetGroup {
-                key: held_key(attribute.nondet_key())?,
+                key: ledger.define(attribute.nondet_key())?,
                 name: syn::ext::IdentExt::unraw(group).to_string(),
             })
         })
@@ -469,9 +509,9 @@ pub(super) fn configuration_rule(
         nondet,
         requires,
         claim: None,
-        pattern_key: held_key(rule.pattern_key())?,
+        pattern_key: ledger.define(rule.pattern_key())?,
         subject_configuration: WireConfigurationReference {
-            key: held_key(rule.subject_type_key())?,
+            key: ledger.define(rule.subject_type_key())?,
             configuration: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#subject_key))),
                 authored_path: subject_spelling,
@@ -479,12 +519,12 @@ pub(super) fn configuration_rule(
         },
         result_key: result
             .is_some()
-            .then(|| held_key(rule.result_key()))
+            .then(|| ledger.define(rule.result_key()))
             .transpose()?,
         result_configuration: result_spelling
             .map(|authored_path| -> crate::Result<_> {
                 Ok(WireConfigurationReference {
-                    key: held_key(rule.result_type_key())?,
+                    key: ledger.define(rule.result_type_key())?,
                     configuration: WireTypeReference {
                         slot: slots.type_slot(quote!(#facade::HostTypeKey(#result_key))),
                         authored_path,
@@ -500,6 +540,7 @@ pub(super) fn configuration_rule(
         fresh,
         evaluation,
     }));
+    ledger.finish()?;
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 
@@ -576,6 +617,7 @@ pub(super) struct StateRuleBuilder<'a> {
 impl<'a> StateRuleBuilder<'a> {
     pub(super) fn new(
         facade: &'a Path,
+        ledger: &'a KeyLedger,
         nonce: u64,
         cfg: &'a [Attribute],
         bindings: &'a [Ident],
@@ -585,7 +627,7 @@ impl<'a> StateRuleBuilder<'a> {
             facade,
             bindings,
             side,
-            terms: TermBuilder::new(facade, nonce, cfg, bindings),
+            terms: TermBuilder::new(facade, ledger, nonce, cfg, bindings),
             claim: false,
         }
     }
@@ -618,9 +660,10 @@ impl<'a> StateRuleBuilder<'a> {
         slots: &mut WireSlots,
     ) -> crate::Result<WireRuleCells> {
         let facade = self.facade;
+        let ledger = self.terms.ledger;
         let mut output = Vec::new();
         for entry in cells.entries() {
-            let field_key = held_key(entry.name_key())?;
+            let field_key = ledger.define(entry.name_key())?;
             let marker = cell_marker_function(entry.name());
             let cell_owner = entry.owner().unwrap_or(owner);
             let (wrapper_key, wrapper) = if let Some(path) = entry.wrapper() {
@@ -637,7 +680,7 @@ impl<'a> StateRuleBuilder<'a> {
                 } else {
                     CellWrapper::Cell
                 };
-                (Some(held_key(entry.wrapper_key())?), Some(wrapper))
+                (Some(ledger.define(entry.wrapper_key())?), Some(wrapper))
             } else {
                 // A whole nested-cell entry has no wrapper (KF-016).
                 (None, None)
@@ -658,9 +701,9 @@ impl<'a> StateRuleBuilder<'a> {
                 value,
             });
         }
-        let remainder = Self::expand_frame(cells.remainder(), cells.remainder_key())?;
+        let remainder = expand_frame(ledger, cells.remainder(), cells.remainder_key())?;
         Ok(WireRuleCells {
-            key: held_key(cells.payload_key())?,
+            key: ledger.define(cells.payload_key())?,
             cells: output,
             remainder,
         })
@@ -704,7 +747,7 @@ impl<'a> StateRuleBuilder<'a> {
             .iter()
             .map(|item| self.expand_instance(item, slots))
             .collect::<crate::Result<Vec<_>>>()?;
-        let rest = Self::expand_frame(list.rest(), list.rest_key())?;
+        let rest = expand_frame(self.terms.ledger, list.rest(), list.rest_key())?;
         let back = list
             .back()
             .iter()
@@ -726,11 +769,12 @@ impl<'a> StateRuleBuilder<'a> {
         item: &krs_syntax::InstanceItem,
         slots: &mut WireSlots,
     ) -> crate::Result<krs_ir::ProtocolRuleInstance<WireTerm>> {
-        let key = held_key(item.key())?;
+        let ledger = self.terms.ledger;
+        let key = ledger.define(item.key())?;
         let mut fields = Vec::new();
         for field in item.fields() {
             fields.push(krs_ir::ProtocolRuleInstanceField {
-                key: held_key(field.name_key())?,
+                key: ledger.define(field.name_key())?,
                 field: field.name().to_string(),
                 value: self.expand_state(field.value(), slots)?,
             });
@@ -748,13 +792,14 @@ impl<'a> StateRuleBuilder<'a> {
         sequence: &KSequence,
         slots: &mut WireSlots,
     ) -> crate::Result<ProtocolRuleKSequence<WireTerm>> {
+        let ledger = self.terms.ledger;
         let payload_key = if sequence.payload_key().is_some() {
-            Some(held_key(sequence.payload_key())?)
+            Some(ledger.define(sequence.payload_key())?)
         } else {
             None
         };
         let dot_k_key = if sequence.notation() == KSequenceNotation::DotK {
-            Some(held_key(sequence.tail_key())?)
+            Some(ledger.define(sequence.tail_key())?)
         } else {
             None
         };
@@ -766,14 +811,14 @@ impl<'a> StateRuleBuilder<'a> {
         let mut items = Vec::new();
         for item in sequence.items() {
             items.push(ProtocolRuleKSequenceItem {
-                key: held_key(item.keys().payload())?,
+                key: ledger.define(item.keys().payload())?,
                 value: self.expand_keyed(KeyedTerm::of(item), slots)?,
             });
         }
         let tail = if sequence.notation() == KSequenceNotation::DotK {
             ProtocolRuleFrame::Exact
         } else {
-            Self::expand_frame(sequence.tail(), sequence.tail_key())?
+            expand_frame(ledger, sequence.tail(), sequence.tail_key())?
         };
         Ok(ProtocolRuleKSequence {
             payload_key,
@@ -789,8 +834,9 @@ impl<'a> StateRuleBuilder<'a> {
         map: &MapExpression,
         slots: &mut WireSlots,
     ) -> crate::Result<ProtocolRuleMap<WireTerm>> {
+        let ledger = self.terms.ledger;
         let payload_key = if map.payload_key().is_some() {
-            Some(held_key(map.payload_key())?)
+            Some(ledger.define(map.payload_key())?)
         } else {
             None
         };
@@ -802,48 +848,27 @@ impl<'a> StateRuleBuilder<'a> {
                 let mut values = Vec::new();
                 for item in items {
                     values.push(ProtocolRuleMapItem {
-                        key_key: held_key(item.key().keys().payload())?,
+                        key_key: ledger.define(item.key().keys().payload())?,
                         key: self.expand_keyed(KeyedTerm::of(item.key()), slots)?,
-                        value_key: held_key(item.value().keys().payload())?,
+                        value_key: ledger.define(item.value().keys().payload())?,
                         value: self.expand_keyed(KeyedTerm::of(item.value()), slots)?,
                     });
                 }
                 ProtocolRuleMapBody::Items {
                     items: values,
-                    remainder: Self::expand_frame(remainder, map.remainder_key())?,
+                    remainder: expand_frame(ledger, remainder, map.remainder_key())?,
                 }
             }
             MapBody::Update { base, key, value } => ProtocolRuleMapBody::Update {
-                base_key: held_key(base.keys().payload())?,
+                base_key: ledger.define(base.keys().payload())?,
                 base: self.expand_keyed(KeyedTerm::of(base), slots)?,
-                key_key: held_key(key.keys().payload())?,
+                key_key: ledger.define(key.keys().payload())?,
                 key: self.expand_keyed(KeyedTerm::of(key), slots)?,
-                value_key: held_key(value.keys().payload())?,
+                value_key: ledger.define(value.keys().payload())?,
                 value: self.expand_keyed(KeyedTerm::of(value), slots)?,
             },
         };
         Ok(ProtocolRuleMap { payload_key, body })
-    }
-
-    /// A remainder, keyed `read`, the remainder's own key.
-    fn expand_frame(
-        frame: &StateMacroRemainder,
-        read: Option<&ProvenanceKey>,
-    ) -> crate::Result<ProtocolRuleFrame> {
-        match frame {
-            StateMacroRemainder::Exact => Ok(ProtocolRuleFrame::Exact),
-            StateMacroRemainder::Anonymous(_) => Ok(ProtocolRuleFrame::Anonymous {
-                key: held_key(read)?,
-            }),
-            StateMacroRemainder::Bind { binding, .. } => Ok(ProtocolRuleFrame::Bind {
-                key: held_key(read)?,
-                binding: binding.unraw().to_string(),
-            }),
-            StateMacroRemainder::Reuse { binding, .. } => Ok(ProtocolRuleFrame::Reuse {
-                key: held_key(read)?,
-                binding: binding.unraw().to_string(),
-            }),
-        }
     }
 
     fn expand_keyed(
@@ -851,7 +876,7 @@ impl<'a> StateRuleBuilder<'a> {
         term: KeyedTerm<'_>,
         slots: &mut WireSlots,
     ) -> crate::Result<WireTerm> {
-        self.expand_term(term.tree(), &mut term.reader(), slots)
+        self.expand_term(term.tree(), &mut term.reader(self.terms.ledger), slots)
     }
 
     #[expect(
@@ -1062,6 +1087,9 @@ impl<'a> StateRuleBuilder<'a> {
                 self.terms.next_key += 1;
                 let cfg = self.terms.cfg;
                 self.terms.key_functions.push(quote! { #(#cfg)* #[doc(hidden)] fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() } });
+                // The `spelling` field is the spelling node, whose key the
+                // anonymous term's ordinal pairs it with.
+                node.key(ProvenanceRole::ClaimAnonymousSpelling)?;
                 Ok(WireTerm::Anonymous {
                     key: node.key(ProvenanceRole::ClaimAnonymous)?,
                     sort: WireSortReference {
@@ -1154,6 +1182,28 @@ impl<'a> StateRuleBuilder<'a> {
                 })
             }
         }
+    }
+}
+
+/// A remainder, keyed `read`, the remainder's own key.
+fn expand_frame(
+    ledger: &KeyLedger,
+    frame: &StateMacroRemainder,
+    read: Option<&ProvenanceKey>,
+) -> crate::Result<ProtocolRuleFrame> {
+    match frame {
+        StateMacroRemainder::Exact => Ok(ProtocolRuleFrame::Exact),
+        StateMacroRemainder::Anonymous(_) => Ok(ProtocolRuleFrame::Anonymous {
+            key: ledger.define(read)?,
+        }),
+        StateMacroRemainder::Bind { binding, .. } => Ok(ProtocolRuleFrame::Bind {
+            key: ledger.define(read)?,
+            binding: binding.unraw().to_string(),
+        }),
+        StateMacroRemainder::Reuse { binding, .. } => Ok(ProtocolRuleFrame::Reuse {
+            key: ledger.define(read)?,
+            binding: binding.unraw().to_string(),
+        }),
     }
 }
 

@@ -16,9 +16,10 @@ use syn::ext::IdentExt;
 
 use super::factory::{DescriptorFactory, FactoryPayload};
 use super::island_checks::{consumed_state_island_import_checks, wrapper_type_check};
+use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
 use super::state_rules::StateRuleBuilder;
-use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, held_key, wire_sort_reference};
+use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, wire_sort_reference};
 use super::tokens::{call_site_cfg_attributes, call_site_path, sort_type_tokens, spelling};
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
@@ -49,6 +50,8 @@ fn configuration_claim(
     let anchors = claim.descriptor_provenance(attribute)?;
     let fallback = TokenRange::for_tokens(rule.item())?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
+    // The claim's declaration key is its wire claim's own.
+    let ledger = KeyLedger::new(&anchors, &[]);
     let nonce = expansion_nonce(env, "configuration_claim", &rule.item().sig.ident, fallback);
     let factory = format_ident!("__krs_configuration_claim_{nonce:016x}");
     let subject_key = format_ident!("__krs_claim_configuration_left_{nonce:016x}");
@@ -98,20 +101,20 @@ fn configuration_claim(
                 let sort_ref = wire_sort_reference(
                     &mut slots,
                     &facade,
-                    binding.sort_key(),
+                    ledger.define(binding.sort_key())?,
                     &key_fn,
                     &authored,
-                )?;
+                );
                 let claim_sort_ref = wire_sort_reference(
                     &mut slots,
                     &facade,
-                    binding.binder_sort_key(),
+                    ledger.define(binding.binder_sort_key())?,
                     &key_fn,
                     &authored,
-                )?;
+                );
                 universal_metadata.push(WireClaimBinder {
-                    declaration_key: held_key(binding.universal_key())?,
-                    name_key: held_key(binding.binder_name_key())?,
+                    declaration_key: ledger.define(binding.universal_key())?,
+                    name_key: ledger.define(binding.binder_name_key())?,
                     name: name.clone(),
                     sort: claim_sort_ref,
                 });
@@ -131,21 +134,34 @@ fn configuration_claim(
         key_functions.push(quote! { #(#cfg)* #[doc(hidden)] fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() } });
         let authored = spelling(binder.sort());
         let name = binder.name().unraw().to_string();
-        let sort_ref =
-            wire_sort_reference(&mut slots, &facade, binder.sort_key(), &key_fn, &authored)?;
+        let sort_ref = wire_sort_reference(
+            &mut slots,
+            &facade,
+            ledger.define(binder.sort_key())?,
+            &key_fn,
+            &authored,
+        );
         existential_metadata.push(WireClaimBinder {
-            declaration_key: held_key(binder.key())?,
-            name_key: held_key(binder.name_key())?,
+            declaration_key: ledger.define(binder.key())?,
+            name_key: ledger.define(binder.name_key())?,
             name,
             sort: sort_ref,
         });
     }
 
-    let mut left =
-        StateRuleBuilder::new(&facade, nonce, &cfg, &universal_idents, RuleSide::Left).for_claim();
+    let mut left = StateRuleBuilder::new(
+        &facade,
+        &ledger,
+        nonce,
+        &cfg,
+        &universal_idents,
+        RuleSide::Left,
+    )
+    .for_claim();
     let subject = left.expand_cells(rule.subject(), &subject_type, &mut slots)?;
     let mut right = StateRuleBuilder::new(
         &facade,
+        &ledger,
         nonce ^ 0x8000_0000_0000_0000,
         &cfg,
         &all_idents,
@@ -159,6 +175,7 @@ fn configuration_claim(
     )?;
     let mut condition_builder = TermBuilder::new(
         &facade,
+        &ledger,
         nonce ^ 0x4000_0000_0000_0000,
         &cfg,
         &universal_idents,
@@ -171,14 +188,20 @@ fn configuration_claim(
             &mut slots,
         )?;
         Some(WireRuleCondition {
-            key: held_key(condition.term().keys().payload())?,
+            key: ledger.define(condition.term().keys().payload())?,
             term,
         })
     } else {
         None
     };
-    let mut ensures_builder =
-        TermBuilder::new(&facade, nonce ^ 0x2000_0000_0000_0000, &cfg, &all_idents).for_claim();
+    let mut ensures_builder = TermBuilder::new(
+        &facade,
+        &ledger,
+        nonce ^ 0x2000_0000_0000_0000,
+        &cfg,
+        &all_idents,
+    )
+    .for_claim();
     let ensures = if let Some(condition) = claim.ensures() {
         let term = ensures_builder.expand_wire(
             KeyedTerm::of(condition.term()),
@@ -186,7 +209,7 @@ fn configuration_claim(
             &mut slots,
         )?;
         Some(WireRuleCondition {
-            key: held_key(condition.term().keys().payload())?,
+            key: ledger.define(condition.term().keys().payload())?,
             term,
         })
     } else {
@@ -213,21 +236,22 @@ fn configuration_claim(
         SyntaxClaimModality::OnePath => ClaimModality::OnePath,
     };
     let circularity = if attribute.circularity() {
-        Some(held_key(attribute.circularity_key())?)
+        Some(ledger.define(attribute.circularity_key())?)
     } else {
         None
     };
     let trusted = if attribute.trusted() {
-        Some(held_key(attribute.trusted_key())?)
+        Some(ledger.define(attribute.trusted_key())?)
     } else {
         None
     };
-    // The claim names every `k::or_bool!` its terms hold.
-    let or_bool_anchors = anchors
+    // The claim names every `k::or_bool!` its terms hold; each `OrBool`
+    // wire term defines its own key.
+    let or_bool_keys = anchors
         .iter()
         .filter(|anchor| anchor.role() == ProvenanceRole::ClaimOrBool)
-        .collect::<Vec<_>>();
-    let or_bool_keys = or_bool_anchors.iter().map(|anchor| anchor.key()).collect();
+        .map(|anchor| ledger.refer_key(anchor.key()))
+        .collect::<crate::Result<_>>()?;
     let mut wrapper_checks = Vec::new();
     for candidate in rule.reference_candidates()? {
         if candidate.kind() == StateRuleReferenceKind::CellWrapper {
@@ -239,15 +263,15 @@ fn configuration_claim(
     let wire = WirePayload::ConfigurationRule(Box::new(WireConfigurationRule {
         sentence_kind: krs_ir::ConfigurationSentenceKind::Claim,
         label: Some(DescriptorRuleLabel {
-            key: held_key(attribute.label_key())?,
+            key: ledger.define(attribute.label_key())?,
             name: label_name,
         }),
         priority: None,
         nondet: None,
         requires,
         claim: Some(WireClaim {
-            declaration_key: held_key(rule.declaration_key())?,
-            modality_key: held_key(attribute.modality_key())?,
+            declaration_key: ledger.define(rule.declaration_key())?,
+            modality_key: ledger.define(attribute.modality_key())?,
             modality,
             circularity_key: circularity,
             trusted_key: trusted,
@@ -256,17 +280,17 @@ fn configuration_claim(
             ensures,
             or_bool_keys,
         }),
-        pattern_key: held_key(rule.pattern_key())?,
+        pattern_key: ledger.define(rule.pattern_key())?,
         subject_configuration: WireConfigurationReference {
-            key: held_key(rule.subject_type_key())?,
+            key: ledger.define(rule.subject_type_key())?,
             configuration: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#subject_key))),
                 authored_path: subject_spelling,
             },
         },
-        result_key: Some(held_key(rule.result_key())?),
+        result_key: Some(ledger.define(rule.result_key())?),
         result_configuration: Some(WireConfigurationReference {
-            key: held_key(rule.result_type_key())?,
+            key: ledger.define(rule.result_type_key())?,
             configuration: WireTypeReference {
                 slot: slots.type_slot(quote!(#facade::HostTypeKey(#result_key))),
                 authored_path: result_spelling,
@@ -280,6 +304,7 @@ fn configuration_claim(
         fresh: Vec::new(),
         evaluation: None,
     }));
+    ledger.finish()?;
     let wire = serde_json::to_string(&wire).expect("KRS wire values serialize");
     let slot_tokens = slots.tokens();
 

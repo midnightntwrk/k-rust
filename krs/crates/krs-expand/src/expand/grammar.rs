@@ -14,8 +14,8 @@ use quote::{format_ident, quote};
 use syn::{Ident, Path};
 
 use super::factory::{DescriptorFactory, FactoryPayload};
+use super::ledger::KeyLedger;
 use super::nonce::expansion_nonce;
-use super::terms::held_key;
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
@@ -37,6 +37,7 @@ pub(crate) fn precedence(
             )
         })?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
+    let ledger = KeyLedger::new(&anchors, &[]);
     let nonce = expansion_nonce(
         env,
         "precedence",
@@ -58,20 +59,21 @@ pub(crate) fn precedence(
         let groups = chain.groups().try_map_ref(|group| -> crate::Result<_> {
             let name = group.to_string();
             Ok(DescriptorGroupReference {
-                key: held_key(group_keys.next())?,
+                key: ledger.define(group_keys.next())?,
                 group: ProductionGroupId::new(name)
                     .expect("Rust identifiers are valid production groups"),
             })
         })?;
         chains.push(DescriptorPrecedenceChain {
-            key: held_key(chain.key())?,
+            key: ledger.define(chain.key())?,
             groups,
         });
     }
     let grammar = WireGrammarDescriptor::Precedence {
-        key: held_key(declaration.key())?,
+        key: ledger.define(declaration.key())?,
         chains,
     };
+    ledger.finish()?;
     Ok(grammar_macro_descriptor(
         &facade,
         &factory,
@@ -101,6 +103,7 @@ pub(crate) fn associativity(
             )
         })?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
+    let ledger = KeyLedger::new(&anchors, &[]);
     let nonce = expansion_nonce(
         env,
         "associativity",
@@ -133,21 +136,22 @@ pub(crate) fn associativity(
         ) {
             let name = group.to_string();
             groups.push(DescriptorGroupReference {
-                key: held_key(read)?,
+                key: ledger.define(read)?,
                 group: ProductionGroupId::new(name)
                     .expect("Rust identifiers are valid production groups"),
             });
         }
         sentences.push(DescriptorAssociativitySentence {
-            key: held_key(sentence.key())?,
+            key: ledger.define(sentence.key())?,
             associativity,
             groups,
         });
     }
     let grammar = WireGrammarDescriptor::Associativity {
-        key: held_key(declaration.key())?,
+        key: ledger.define(declaration.key())?,
         sentences,
     };
+    ledger.finish()?;
     Ok(grammar_macro_descriptor(
         &facade,
         &factory,
@@ -164,43 +168,49 @@ pub(crate) fn lexical(
     input: TokenStream,
 ) -> crate::Result<TokenStream> {
     let declaration = krs_syntax::LexicalDeclaration::parse_tokens(input)?;
+    let anchors = declaration.provenance()?;
+    let ledger = KeyLedger::new(&anchors, &[]);
     let lexicals = declaration
         .entries()
         .iter()
         .map(|entry| -> crate::Result<_> {
             Ok(DescriptorLexical {
-                key: held_key(entry.key())?,
+                key: ledger.define(entry.key())?,
                 name: entry.name().to_string(),
-                regex_key: held_key(entry.regex_key())?,
+                regex_key: ledger.define(entry.regex_key())?,
                 regex: entry.regex().value(),
             })
         })
         .collect::<crate::Result<Vec<_>>>()?;
+    ledger.finish()?;
     lexing_descriptor(
         env,
         "lexical",
-        &declaration.provenance()?,
+        &anchors,
         &WireGrammarDescriptor::Lexical { lexicals },
     )
 }
 
 pub(crate) fn layout(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Result<TokenStream> {
     let declaration = krs_syntax::LayoutDeclaration::parse_tokens(input)?;
+    let anchors = declaration.provenance()?;
+    let ledger = KeyLedger::new(&anchors, &[]);
     let regexes = declaration
         .regexes()
         .iter()
         .enumerate()
         .map(|(index, regex)| -> crate::Result<_> {
             Ok(DescriptorLayoutRegex {
-                key: held_key(declaration.regex_keys().get(index))?,
+                key: ledger.define(declaration.regex_keys().get(index))?,
                 regex: regex.value(),
             })
         })
         .collect::<crate::Result<Vec<_>>>()?;
+    ledger.finish()?;
     lexing_descriptor(
         env,
         "layout",
-        &declaration.provenance()?,
+        &anchors,
         &WireGrammarDescriptor::Layout { regexes },
     )
 }
@@ -246,6 +256,7 @@ pub(crate) fn raw_k(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
     let anchors = raw.provenance()?;
     let fallback = anchors[0].range();
     let provenance = host_provenance(env, &facade, fallback, &anchors);
+    let ledger = KeyLedger::new(&anchors, &[]);
     let nonce = expansion_nonce(
         env,
         "raw_k",
@@ -259,12 +270,13 @@ pub(crate) fn raw_k(env: &dyn MacroEnvironment, input: TokenStream) -> crate::Re
         .or_else(|| env.span_start(raw.literal().span()));
     let (line, column) = position.map_or((1, 1), |position| (position.line, position.column));
     let grammar = WireGrammarDescriptor::RawSentence {
-        key: held_key(raw.key())?,
+        key: ledger.define(raw.key())?,
         kind: raw.kind(),
         text: raw.text(),
         line,
         column,
     };
+    ledger.finish()?;
     Ok(grammar_macro_descriptor(
         &facade,
         &factory,

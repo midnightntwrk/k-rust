@@ -10,14 +10,15 @@ use quote::{format_ident, quote};
 use syn::ext::IdentExt;
 use syn::{Attribute, Path};
 
-use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, held_key, wire_sort_reference};
+use super::ledger::KeyLedger;
+use super::terms::{KeyedTerm, TermBuilder, TermSide, WireSlots, wire_sort_reference};
 use super::tokens::{call_site_path, spelling};
 
 /// The wire binders of a transition's existentials and the hidden sort-key
 /// functions that let rustc resolve each binder's sort.
 pub(super) fn existential_binders(
     existentials: &RuleExistentials,
-    facade: &Path,
+    (facade, ledger): (&Path, &KeyLedger),
     nonce: u64,
     cfg: &[Attribute],
     slots: &mut WireSlots,
@@ -25,7 +26,7 @@ pub(super) fn existential_binders(
     scoped_binders(
         existentials.binders(),
         "existential",
-        (facade, nonce, cfg),
+        (facade, ledger, nonce, cfg),
         slots,
     )
 }
@@ -36,7 +37,7 @@ pub(super) fn existential_binders(
 pub(super) fn evaluation_step(
     attribute: &krs_syntax::RuleAttribute,
     existentials: &RuleExistentials,
-    (facade, nonce, cfg): (&Path, u64, &[Attribute]),
+    (facade, ledger, nonce, cfg): (&Path, &KeyLedger, u64, &[Attribute]),
     slots: &mut WireSlots,
 ) -> crate::Result<(Option<WireEvaluationStep>, Option<TokenStream>)> {
     let Some((kind, _)) = attribute.evaluation() else {
@@ -56,10 +57,10 @@ pub(super) fn evaluation_step(
                 Some(wire_sort_reference(
                     slots,
                     facade,
-                    attribute.result_key(),
+                    ledger.define(attribute.result_key())?,
                     &key_fn,
                     &spelling(sort),
-                )?),
+                )),
                 Some(quote! {
                     #(#cfg)*
                     #[doc(hidden)]
@@ -72,8 +73,8 @@ pub(super) fn evaluation_step(
     Ok((
         Some(WireEvaluationStep {
             kind,
-            key: held_key(attribute.evaluation_key())?,
-            hole_key: held_key(attribute.hole_key())?,
+            key: ledger.define(attribute.evaluation_key())?,
+            hole_key: ledger.define(attribute.hole_key())?,
             hole: hole.to_string(),
             result,
         }),
@@ -85,12 +86,17 @@ pub(super) fn evaluation_step(
 /// and their hidden sort-key functions.
 pub(super) fn fresh_binders(
     existentials: &RuleExistentials,
-    facade: &Path,
+    (facade, ledger): (&Path, &KeyLedger),
     nonce: u64,
     cfg: &[Attribute],
     slots: &mut WireSlots,
 ) -> crate::Result<(Vec<WireClaimBinder>, Vec<TokenStream>)> {
-    scoped_binders(existentials.fresh(), "fresh", (facade, nonce, cfg), slots)
+    scoped_binders(
+        existentials.fresh(),
+        "fresh",
+        (facade, ledger, nonce, cfg),
+        slots,
+    )
 }
 
 /// Wire binders, keyed by their declarations, names and sorts, with one
@@ -98,7 +104,7 @@ pub(super) fn fresh_binders(
 fn scoped_binders(
     declared: &[ClaimBinder],
     kind: &str,
-    (facade, nonce, cfg): (&Path, u64, &[Attribute]),
+    (facade, ledger, nonce, cfg): (&Path, &KeyLedger, u64, &[Attribute]),
     slots: &mut WireSlots,
 ) -> crate::Result<(Vec<WireClaimBinder>, Vec<TokenStream>)> {
     let mut binders = Vec::new();
@@ -112,16 +118,16 @@ fn scoped_binders(
             fn #key_fn() -> ::core::any::TypeId { ::core::any::TypeId::of::<#path>() }
         });
         binders.push(WireClaimBinder {
-            declaration_key: held_key(binder.key())?,
-            name_key: held_key(binder.name_key())?,
+            declaration_key: ledger.define(binder.key())?,
+            name_key: ledger.define(binder.name_key())?,
             name: binder.name().unraw().to_string(),
             sort: wire_sort_reference(
                 slots,
                 facade,
-                binder.sort_key(),
+                ledger.define(binder.sort_key())?,
                 &key_fn,
                 &spelling(binder.sort()),
-            )?,
+            ),
         });
     }
     Ok((binders, key_functions))
@@ -138,7 +144,7 @@ pub(super) fn ensures_condition(
         .ensures()
         .map(|condition| {
             Ok(WireRuleCondition {
-                key: held_key(condition.keys().payload())?,
+                key: builder.ledger.define(condition.keys().payload())?,
                 term: builder.expand_wire(
                     KeyedTerm::of(condition),
                     TermSide::RuleEnsures,
