@@ -180,21 +180,17 @@ fn expand_head_rule(
         match extra {
             krs_syntax::RuleExtra::HaveMap { cell, entries } => {
                 let cell_name = cell.unraw().to_string();
-                // An entry's key term and value binder carry no keys of
-                // their own on the wire: the entry denotes both.
-                for entry in entries {
-                    ledger.define(entry.key.keys().payload())?;
-                    ledger.define(entry.value_key())?;
-                }
                 let entries = entries
                     .iter()
                     .map(|entry| {
                         Ok(krs_ir::wire::WireHeadRuleMapEntry {
+                            key_key: ledger.define(entry.key.keys().payload())?,
                             key: builder.expand_wire(
                                 KeyedTerm::of(&entry.key),
                                 TermSide::Left,
                                 &mut slots,
                             )?,
+                            value_key: ledger.define(entry.value_key())?,
                             value_binding: entry.value.unraw().to_string(),
                         })
                     })
@@ -284,17 +280,23 @@ fn expand_head_rule(
             Some(krs_ir::wire::WireHeadRuleResult::Replace(term))
         }
         Some(krs_syntax::RuleHeadResult::Splice { items, .. }) => {
-            // The splice carries its sequence's and its items' keys on no
-            // wire field: it denotes the sequence, each wire term an item.
-            ledger.define(clause.splice_key())?;
-            for item in items {
-                ledger.define(item.keys().payload())?;
-            }
+            let payload_key = Some(ledger.define(clause.splice_key())?);
             let items = items
                 .iter()
-                .map(|item| builder.expand_wire(KeyedTerm::of(item), TermSide::Right, &mut slots))
-                .collect::<Result<Vec<_>, _>>()?;
-            Some(krs_ir::wire::WireHeadRuleResult::Splice(items))
+                .map(|item| {
+                    Ok(krs_ir::ProtocolHeadRuleSpliceItem {
+                        key: Some(ledger.define(item.keys().payload())?),
+                        value: builder.expand_wire(
+                            KeyedTerm::of(item),
+                            TermSide::Right,
+                            &mut slots,
+                        )?,
+                    })
+                })
+                .collect::<crate::Result<Vec<_>>>()?;
+            Some(krs_ir::wire::WireHeadRuleResult::Splice(
+                krs_ir::ProtocolHeadRuleSplice { payload_key, items },
+            ))
         }
         Some(krs_syntax::RuleHeadResult::Erase(_)) => Some(krs_ir::wire::WireHeadRuleResult::Erase),
     };
@@ -611,10 +613,8 @@ fn expand_head_rule(
     let name = name_ident.unraw().to_string();
     let parameter_type = rule.parameter().term_sort.ty();
     // A clause's one sort is its subject's and its result's: the sentence
-    // keys the authored sort as both types, and the head's sort denotes it.
-    if rule.result_type_key().is_some() {
-        ledger.define(rule.result_type_key())?;
-    }
+    // keys the authored sort as both types.
+    let result_type_key = ledger.define(rule.result_type_key())?;
     let (head_sort, configuration, computation_cell_name) = if configuration_owned {
         let computation_cell = match (clause.computation_cell(), &head) {
             (Some(cell), Some(_)) => Some(cell.unraw().to_string()),
@@ -676,6 +676,7 @@ fn expand_head_rule(
         result_key: ledger.define(clause.result_key())?,
         head_sort,
         configuration,
+        result_type_key,
         computation_cell_name,
         bindings,
         head,
@@ -875,7 +876,7 @@ impl<'t> AlternativeRecords<'t> {
     fn head(head: &'t krs_ir::wire::WireHeadRuleHead) -> Self {
         let result = match &head.result {
             Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => vec![term],
-            Some(krs_ir::ProtocolHeadRuleResult::Splice(terms)) => terms.iter().collect(),
+            Some(krs_ir::ProtocolHeadRuleResult::Splice(splice)) => splice.terms().collect(),
             Some(krs_ir::ProtocolHeadRuleResult::Erase) | None => Vec::new(),
         };
         Self {

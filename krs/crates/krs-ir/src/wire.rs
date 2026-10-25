@@ -508,6 +508,7 @@ mod tests {
                 result_key: key(),
                 head_sort: Some(sort()),
                 configuration: None,
+                result_type_key: key(),
                 computation_cell_name: None,
                 bindings: vec![],
                 head: Some(super::WireHeadRuleHead {

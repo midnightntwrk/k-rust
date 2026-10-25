@@ -56,9 +56,59 @@ protocol_shape! {
         /// Replace the matched head with one ordinary term.
         Replace(value: T => [term_map]),
         /// Splice zero or more `k![...]` items before the preserved tail.
-        Splice(values: Vec<T> => [vec term_map]),
+        Splice(value: ProtocolHeadRuleSplice<T> => [nested term_map]),
         /// Erase the matched head and expose the preserved tail.
         Erase,
+    }
+}
+
+protocol_shape! {
+    /// The items a head result splices before the preserved tail,
+    /// `k: [x, y, ..]`, with the keys of the sequence and of its items.
+    ///
+    /// The keys are those of the nodes the clause's sentence keyed. A
+    /// splice the collector reads from a list cell written on the
+    /// computation cell denotes a list value and its elements, which the
+    /// sentence keyed as no sequence, so it carries none.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolHeadRuleSplice<T => term_map => U> {
+        /// The spliced sequence's provenance, `rule_right_k_sequence_payload`.
+        #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+        pub payload_key: Option<ProvenanceKey> => [keep],
+        /// The spliced items, front first.
+        pub items: Vec<ProtocolHeadRuleSpliceItem<T>> => [vec nested term_map],
+    }
+}
+
+protocol_shape! {
+    /// One spliced item of a head result.
+    #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+    #[serde(deny_unknown_fields)]
+    pub struct ProtocolHeadRuleSpliceItem<T => term_map => U> {
+        /// The item's provenance, `rule_right_k_sequence_item`.
+        #[serde(default = "Option::default", skip_serializing_if = "Option::is_none")]
+        pub key: Option<ProvenanceKey> => [keep],
+        /// The item's term.
+        pub value: T => [term_map],
+    }
+}
+
+impl<T> ProtocolHeadRuleSplice<T> {
+    /// The spliced items' terms, front first.
+    pub fn terms(&self) -> impl Iterator<Item = &T> {
+        self.items.iter().map(|item| &item.value)
+    }
+
+    /// The spliced items' terms, front first, for rewriting.
+    pub fn terms_mut(&mut self) -> impl Iterator<Item = &mut T> {
+        self.items.iter_mut().map(|item| &mut item.value)
+    }
+
+    /// The spliced items' terms, front first, without their keys.
+    #[must_use]
+    pub fn into_terms(self) -> Vec<T> {
+        self.items.into_iter().map(|item| item.value).collect()
     }
 }
 
@@ -94,8 +144,12 @@ protocol_shape! {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct ProtocolHeadRuleMapEntry<T => term_map => U> {
+        /// Exact key-expression provenance, `rule_left_map_key`.
+        pub key_key: ProvenanceKey => [keep],
         /// Required map key.
         pub key: T => [term_map],
+        /// Exact value-binder provenance, `rule_left_map_value`.
+        pub value_key: ProvenanceKey => [keep],
         /// Value binding introduced by the item match.
         pub value_binding: String => [keep],
     }
@@ -300,6 +354,9 @@ stage_shape! {
         pub head_sort: Option<S::Sort> => [option sort],
         /// Fixed configuration named by a `for Configuration` cell-record header.
         pub configuration: Option<S::Configuration> => [option configuration],
+        /// The result's type, `rule_result_type`: the header's sort or
+        /// configuration types the result as it types the subject.
+        pub result_type_key: ProvenanceKey => [keep],
         /// Authored computation-cell field for a cell-record clause that matches one.
         pub computation_cell_name: Option<String> => [keep],
         /// Bindings and authored refinements in introduction order.
@@ -334,7 +391,7 @@ stage_shape! {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         pub claim: Option<HeadRuleClaim> => [keep],
     }
-    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, computation_cell_name, bindings, requires, existentials, ensures, fresh, evaluation, bracket_alternative, claim];
+    map_order: [extras, head, sentence_kind, label, priority, nondet, pattern_key, result_key, head_sort, configuration, result_type_key, computation_cell_name, bindings, requires, existentials, ensures, fresh, evaluation, bracket_alternative, claim];
 }
 
 /// Host descriptor emitted before configuration and cell selection.
@@ -391,6 +448,9 @@ stage_shape! {
         pub head_sort: Option<S::Sort> => [option sort],
         /// Unique fixed configuration selected by collection.
         pub configuration: S::Item => [item],
+        /// The result's type, `rule_result_type`: the header's sort or
+        /// configuration types the result as it types the subject.
+        pub result_type_key: ProvenanceKey => [keep],
         /// Unique top-level `KCell<KSequence>` selected by collection, present
         /// exactly when the rule matches a computation-cell head.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -1122,6 +1182,7 @@ struct ClauseKeys<'a, S: Stage, I> {
     pattern_key: &'a ProvenanceKey,
     result_key: &'a ProvenanceKey,
     head_sort: Option<&'a S::Sort>,
+    result_type_key: &'a ProvenanceKey,
     bindings: &'a [ProtocolHeadRuleBinding<S::Sort>],
     head: Option<&'a ProtocolHeadRuleHead<Term<S>>>,
     extras: &'a [ProtocolHeadRuleExtra<I, Term<S>>],
@@ -1148,6 +1209,7 @@ macro_rules! clause_keys {
             pattern_key: &$rule.pattern_key,
             result_key: &$rule.result_key,
             head_sort: $rule.head_sort.as_ref(),
+            result_type_key: &$rule.result_type_key,
             bindings: &$rule.bindings,
             head: $rule.head.as_ref(),
             extras: &$rule.extras,
@@ -1192,12 +1254,11 @@ impl<S: ValidationStage, I: CellKey> ClauseKeys<'_, S, I> {
         keys.define(self.pattern_key, ProvenanceRole::RulePattern)?;
         keys.define(self.result_key, ProvenanceRole::RuleResult)?;
         // The clause's header, a sort or a configuration, is the type of its
-        // subject and of its result: it denotes both nodes, and carries the
-        // first's key only.
+        // subject and of its result, two nodes with a key each.
         if let Some(sort) = self.head_sort {
             keys.define(S::sort_key(sort), ProvenanceRole::RuleType)?;
         }
-        keys.implicit(ProvenanceRole::RuleResultType);
+        keys.define(self.result_type_key, ProvenanceRole::RuleResultType)?;
         for binding in self.bindings {
             if let Some(refinement) = &binding.refinement {
                 keys.define(S::sort_key(refinement), ProvenanceRole::RuleBindingType)?;
@@ -1213,12 +1274,17 @@ impl<S: ValidationStage, I: CellKey> ClauseKeys<'_, S, I> {
                     collect_term_keys(term, ValidationSide::Right, false, keys)?;
                 }
                 // The splice denotes the result's sequence, and each of its
-                // terms an item of it; neither carries the key.
-                Some(ProtocolHeadRuleResult::Splice(items)) => {
-                    keys.implicit(ProvenanceRole::RuleRightKSequencePayload);
-                    for item in items {
-                        keys.implicit(ProvenanceRole::RuleRightKSequenceItem);
-                        collect_term_keys(item, ValidationSide::Right, false, keys)?;
+                // items an item of it; one the collector read from a list
+                // cell denotes nodes the sentence did not key.
+                Some(ProtocolHeadRuleResult::Splice(splice)) => {
+                    if let Some(key) = &splice.payload_key {
+                        keys.define(key, ProvenanceRole::RuleRightKSequencePayload)?;
+                    }
+                    for item in &splice.items {
+                        if let Some(key) = &item.key {
+                            keys.define(key, ProvenanceRole::RuleRightKSequenceItem)?;
+                        }
+                        collect_term_keys(&item.value, ValidationSide::Right, false, keys)?;
                     }
                 }
             }
@@ -1309,13 +1375,18 @@ impl<S: ValidationStage, I: CellKey> ClauseKeys<'_, S, I> {
         match extra {
             ProtocolHeadRuleExtra::HaveMap { cell, entries } => {
                 self.cell(keys, cell.cell_key(), left_cell)?;
-                // An entry denotes its key term's payload and its value
-                // binder, and carries neither key; a clone's are another
-                // entry's.
+                // An entry denotes its key expression and its value binder;
+                // a clone's are another entry's.
                 for entry in entries {
-                    if !cloned_terms {
-                        keys.implicit(ProvenanceRole::RuleLeftMapKey);
-                        keys.implicit(ProvenanceRole::RuleLeftMapValue);
+                    for (key, role) in [
+                        (&entry.key_key, ProvenanceRole::RuleLeftMapKey),
+                        (&entry.value_key, ProvenanceRole::RuleLeftMapValue),
+                    ] {
+                        if cloned_terms {
+                            keys.refer(key, role)?;
+                        } else {
+                            keys.define(key, role)?;
+                        }
                     }
                     collect_term_keys(&entry.key, ValidationSide::Left, cloned_terms, keys)?;
                 }
@@ -1419,6 +1490,25 @@ mod tests {
         ProvenanceRole, SentenceKind, StableItemId, WireStage,
     };
 
+    /// A splice of `values` whose keys traversal leaves alone.
+    fn splice<T>(values: Vec<T>) -> super::ProtocolHeadRuleSplice<T> {
+        super::ProtocolHeadRuleSplice {
+            payload_key: None,
+            items: values
+                .into_iter()
+                .map(|value| super::ProtocolHeadRuleSpliceItem { key: None, value })
+                .collect(),
+        }
+    }
+
+    fn map_key() -> ProvenanceKey {
+        ProvenanceKey::new(ProvenanceRole::RuleLeftMapKey, 0)
+    }
+
+    fn map_value() -> ProvenanceKey {
+        ProvenanceKey::new(ProvenanceRole::RuleLeftMapValue, 0)
+    }
+
     fn host_sort(role: ProvenanceRole) -> crate::HostSortReference {
         crate::HostSortReference {
             key: ProvenanceKey::new(role, 0),
@@ -1442,6 +1532,7 @@ mod tests {
             result_key: key(ProvenanceRole::RuleResult, 0),
             head_sort: Some(host_sort(ProvenanceRole::RuleType)),
             configuration: None,
+            result_type_key: key(ProvenanceRole::RuleResultType, 0),
             computation_cell_name: None,
             bindings: vec![ProtocolHeadRuleBinding {
                 name: "x".to_owned(),
@@ -1454,10 +1545,18 @@ mod tests {
                     name: "x".to_owned(),
                 }],
                 exact: false,
-                result: Some(ProtocolHeadRuleResult::Splice(vec![crate::Term::Literal {
-                    key: key(ProvenanceRole::RuleRightLiteral, 0),
-                    literal: crate::DescriptorLiteral::Int("1".to_owned()),
-                }])),
+                result: Some(ProtocolHeadRuleResult::Splice(
+                    super::ProtocolHeadRuleSplice {
+                        payload_key: Some(key(ProvenanceRole::RuleRightKSequencePayload, 0)),
+                        items: vec![super::ProtocolHeadRuleSpliceItem {
+                            key: Some(key(ProvenanceRole::RuleRightKSequenceItem, 0)),
+                            value: crate::Term::Literal {
+                                key: key(ProvenanceRole::RuleRightLiteral, 0),
+                                literal: crate::DescriptorLiteral::Int("1".to_owned()),
+                            },
+                        }],
+                    },
+                )),
             }),
             requires: None,
             extras: Vec::new(),
@@ -1488,9 +1587,8 @@ mod tests {
     }
 
     /// A readable clause's keys are its anchors: each key field defines its
-    /// node, the clause's declaration is fixed, and the result type, the
-    /// splice and its item pair with their anchors though no field carries
-    /// their keys.
+    /// node, the result type, the splice and its item included, and the
+    /// clause's declaration is fixed.
     #[test]
     fn a_readable_clause_is_closed_over_its_anchors() {
         let rule = table_clause();
@@ -1507,16 +1605,22 @@ mod tests {
             ))
         );
 
-        // A spliced item with no anchor of its own: the pairing runs out.
+        // A spliced item whose key no anchor holds.
         let mut spliced = rule.clone();
-        let Some(ProtocolHeadRuleResult::Splice(items)) =
+        let Some(ProtocolHeadRuleResult::Splice(splice)) =
             spliced.head.as_mut().and_then(|head| head.result.as_mut())
         else {
             unreachable!()
         };
-        items.push(crate::Term::Literal {
-            key: ProvenanceKey::new(ProvenanceRole::RuleRightLiteral, 1),
-            literal: crate::DescriptorLiteral::Int("2".to_owned()),
+        splice.items.push(super::ProtocolHeadRuleSpliceItem {
+            key: Some(ProvenanceKey::new(
+                ProvenanceRole::RuleRightKSequenceItem,
+                1,
+            )),
+            value: crate::Term::Literal {
+                key: ProvenanceKey::new(ProvenanceRole::RuleRightLiteral, 1),
+                literal: crate::DescriptorLiteral::Int("2".to_owned()),
+            },
         });
         let mut with_literal = anchors.clone();
         with_literal.push(ProvenanceKey::new(ProvenanceRole::RuleRightLiteral, 1));
@@ -1525,6 +1629,33 @@ mod tests {
             Err(crate::StateTransportError::MissingProvenance(
                 ProvenanceKey::new(ProvenanceRole::RuleRightKSequenceItem, 1)
             ))
+        );
+
+        // A splice whose keys the clause does not carry leaves its anchors
+        // unconsumed.
+        let mut unkeyed = rule.clone();
+        let Some(ProtocolHeadRuleResult::Splice(splice)) =
+            unkeyed.head.as_mut().and_then(|head| head.result.as_mut())
+        else {
+            unreachable!()
+        };
+        splice.payload_key = None;
+        assert_eq!(
+            unkeyed.validate_complete_provenance(&anchors),
+            Err(crate::StateTransportError::ExtraProvenance(
+                ProvenanceKey::new(ProvenanceRole::RuleRightKSequencePayload, 0)
+            ))
+        );
+
+        // The result type is a node of its own, with its own role.
+        let mut retyped = rule.clone();
+        retyped.result_type_key = ProvenanceKey::new(ProvenanceRole::RuleType, 0);
+        assert_eq!(
+            retyped.validate_complete_provenance(&anchors),
+            Err(crate::StateTransportError::UnexpectedProvenance {
+                expected: ProvenanceRole::RuleResultType,
+                actual: ProvenanceKey::new(ProvenanceRole::RuleType, 0),
+            })
         );
 
         // Two head items that carry one node's keys.
@@ -1586,6 +1717,7 @@ mod tests {
             result_key: key(ProvenanceRole::RuleResult, 0),
             head_sort: None,
             configuration: configuration.clone(),
+            result_type_key: key(ProvenanceRole::RuleResultType, 0),
             computation_cell: Some(cell(key(ProvenanceRole::RulePattern, 0), "k")),
             bindings: Vec::new(),
             head: Some(ProtocolHeadRuleHead {
@@ -1631,6 +1763,7 @@ mod tests {
             key(ProvenanceRole::RuleDeclaration, 0),
             key(ProvenanceRole::RulePattern, 0),
             key(ProvenanceRole::RuleResult, 0),
+            key(ProvenanceRole::RuleResultType, 0),
             key(ProvenanceRole::RuleLeftCellsField, 0),
             key(ProvenanceRole::RuleRightCellsField, 0),
         ];
@@ -1759,6 +1892,7 @@ mod tests {
             key(ProvenanceRole::RuleDeclaration, 0),
             key(ProvenanceRole::RulePattern, 0),
             key(ProvenanceRole::RuleResult, 0),
+            key(ProvenanceRole::RuleResultType, 0),
             key(ProvenanceRole::RuleLeftReference, 0),
             key(ProvenanceRole::RuleLeftPath, 0),
             key(ProvenanceRole::RuleRightReference, 0),
@@ -1833,17 +1967,20 @@ mod tests {
             .try_map_refs(&mut calls, &mut map_number)
             .unwrap();
         assert_eq!(replace, ProtocolHeadRuleResult::Replace(11));
-        let splice = ProtocolHeadRuleResult::Splice(vec![2, 3])
+        let spliced = ProtocolHeadRuleResult::Splice(splice(vec![2, 3]))
             .try_map_refs(&mut calls, &mut map_number)
             .unwrap();
-        assert_eq!(splice, ProtocolHeadRuleResult::Splice(vec![12, 13]));
+        assert_eq!(
+            spliced,
+            ProtocolHeadRuleResult::Splice(splice(vec![12, 13]))
+        );
         let erase = ProtocolHeadRuleResult::<u8>::Erase
             .try_map_refs(&mut calls, &mut map_number)
             .unwrap();
         assert_eq!(erase, ProtocolHeadRuleResult::Erase);
         assert_eq!(calls, [1, 2, 3]);
-        let failure =
-            ProtocolHeadRuleResult::Splice(vec![4, 9, 5]).try_map_refs(&mut calls, &mut map_number);
+        let failure = ProtocolHeadRuleResult::Splice(splice(vec![4, 9, 5]))
+            .try_map_refs(&mut calls, &mut map_number);
         assert_eq!(failure, Err("unresolved reference"));
         assert_eq!(calls, [1, 2, 3, 4, 9]);
     }
@@ -1862,7 +1999,9 @@ mod tests {
             entries: names
                 .iter()
                 .map(|name| ProtocolHeadRuleMapEntry {
+                    key_key: map_key(),
                     key: 0,
+                    value_key: map_value(),
                     value_binding: (*name).to_owned(),
                 })
                 .collect(),
@@ -1889,7 +2028,9 @@ mod tests {
         let have = ProtocolHeadRuleExtra::HaveMap {
             cell: 1,
             entries: vec![ProtocolHeadRuleMapEntry {
+                key_key: map_key(),
                 key: 2,
+                value_key: map_value(),
                 value_binding: "value".to_owned(),
             }],
         }
@@ -1900,7 +2041,9 @@ mod tests {
             ProtocolHeadRuleExtra::HaveMap {
                 cell: 11,
                 entries: vec![ProtocolHeadRuleMapEntry {
+                    key_key: map_key(),
                     key: 12,
+                    value_key: map_value(),
                     value_binding: "value".to_owned(),
                 }],
             }
@@ -1986,6 +2129,7 @@ mod tests {
                     authored_path: "State".to_owned(),
                 },
             }),
+            result_type_key: key.clone(),
             computation_cell_name: Some("k".to_owned()),
             bindings: vec![ProtocolHeadRuleBinding {
                 name: "value".to_owned(),
@@ -1994,7 +2138,7 @@ mod tests {
             head: Some(ProtocolHeadRuleHead {
                 items: vec![wire_term()],
                 exact: false,
-                result: Some(ProtocolHeadRuleResult::Splice(vec![wire_term()])),
+                result: Some(ProtocolHeadRuleResult::Splice(splice(vec![wire_term()]))),
             }),
             requires: Some(crate::wire::WireRuleCondition {
                 key: key.clone(),
@@ -2100,6 +2244,7 @@ mod tests {
             result_key: key.clone(),
             head_sort: Some(descriptor_sort()),
             configuration,
+            result_type_key: key.clone(),
             computation_cell: Some(cell.clone()),
             bindings: vec![ProtocolHeadRuleBinding {
                 name: "value".to_owned(),
@@ -2117,7 +2262,9 @@ mod tests {
             extras: vec![ProtocolHeadRuleExtra::HaveMap {
                 cell,
                 entries: vec![ProtocolHeadRuleMapEntry {
+                    key_key: map_key(),
                     key: descriptor_term(),
+                    value_key: map_value(),
                     value_binding: "value".to_owned(),
                 }],
             }],

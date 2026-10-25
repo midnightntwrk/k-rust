@@ -1948,8 +1948,8 @@ fn render_rule(
                 ProtocolHeadRuleResult::Replace(term) => {
                     vec![render_term(term, false, package, bundle)?]
                 }
-                ProtocolHeadRuleResult::Splice(items) => items
-                    .iter()
+                ProtocolHeadRuleResult::Splice(splice) => splice
+                    .terms()
                     .map(|term| render_term(term, false, package, bundle))
                     .collect::<Result<Vec<_>, _>>()?,
                 ProtocolHeadRuleResult::Erase => Vec::new(),

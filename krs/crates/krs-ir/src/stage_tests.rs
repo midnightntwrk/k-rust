@@ -676,6 +676,7 @@ fn head_rule() -> DescriptorHeadRule {
         result_key: key(1),
         head_sort: None,
         configuration: item(ItemKind::Configuration, "State"),
+        result_type_key: key(5),
         computation_cell: Some(cell(2)),
         bindings: Vec::new(),
         head: Some(crate::ProtocolHeadRuleHead {

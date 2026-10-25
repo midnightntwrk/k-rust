@@ -1098,8 +1098,8 @@ pub(crate) fn head_rule_long_form(
         }
         match &mut head.result {
             Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => *term = long(term)?,
-            Some(krs_ir::ProtocolHeadRuleResult::Splice(items)) => {
-                for item in items {
+            Some(krs_ir::ProtocolHeadRuleResult::Splice(splice)) => {
+                for item in splice.terms_mut() {
                     *item = long(item)?;
                 }
             }

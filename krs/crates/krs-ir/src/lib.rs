@@ -169,7 +169,7 @@ pub use transport::head_rule::{
     HostHeadRuleExtra, HostHeadRuleMapEntry, HostHeadRuleResult, ProtocolHeadRuleBinding,
     ProtocolHeadRuleBracketAlternative, ProtocolHeadRuleExtra, ProtocolHeadRuleHead,
     ProtocolHeadRuleList, ProtocolHeadRuleListRest, ProtocolHeadRuleMapEntry,
-    ProtocolHeadRuleResult, ResolvedHeadRule,
+    ProtocolHeadRuleResult, ProtocolHeadRuleSplice, ProtocolHeadRuleSpliceItem, ResolvedHeadRule,
 };
 pub use transport::rule::{
     Claim, ClaimBinder, ClaimModality, ConfigurationRule, ContextAlias, DescriptorClaim,

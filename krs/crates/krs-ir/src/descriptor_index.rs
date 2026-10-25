@@ -321,6 +321,7 @@ mod tests {
                 ProvenanceKey::new(ProvenanceRole::RuleDeclaration, 0),
                 head_key(ProvenanceRole::RulePattern),
                 head_key(ProvenanceRole::RuleResult),
+                head_key(ProvenanceRole::RuleResultType),
                 head_key(ProvenanceRole::RuleLeftReference),
                 head_key(ProvenanceRole::RuleLeftPath),
             ]
@@ -380,6 +381,7 @@ mod tests {
                 result_key: head_key(ProvenanceRole::RuleResult),
                 head_sort: None,
                 configuration: configuration.clone(),
+                result_type_key: head_key(ProvenanceRole::RuleResultType),
                 computation_cell: Some(DescriptorCellReference {
                     key: head_key(ProvenanceRole::RulePattern),
                     cell: DescriptorCellIdentity {

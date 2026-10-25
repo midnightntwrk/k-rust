@@ -1555,10 +1555,52 @@
   "ProtocolHeadRuleMapEntry": {
     "STRUCT": [
       {
+        "key_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
         "key": "STR"
       },
       {
+        "value_key": {
+          "TYPENAME": "ProvenanceKeyWire"
+        }
+      },
+      {
         "value_binding": "STR"
+      }
+    ]
+  },
+  "ProtocolHeadRuleSplice": {
+    "STRUCT": [
+      {
+        "payload_key": {
+          "OPTION": {
+            "TYPENAME": "ProvenanceKeyWire"
+          }
+        }
+      },
+      {
+        "items": {
+          "SEQ": {
+            "TYPENAME": "ProtocolHeadRuleSpliceItem"
+          }
+        }
+      }
+    ]
+  },
+  "ProtocolHeadRuleSpliceItem": {
+    "STRUCT": [
+      {
+        "key": {
+          "OPTION": {
+            "TYPENAME": "ProvenanceKeyWire"
+          }
+        }
+      },
+      {
+        "value": "STR"
       }
     ]
   },

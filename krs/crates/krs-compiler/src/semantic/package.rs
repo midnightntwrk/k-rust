@@ -468,8 +468,8 @@ fn collect_head_rule_packages(
             Some(krs_ir::ProtocolHeadRuleResult::Replace(term)) => {
                 collect_term_packages(term, packages);
             }
-            Some(krs_ir::ProtocolHeadRuleResult::Splice(items)) => {
-                for term in items {
+            Some(krs_ir::ProtocolHeadRuleResult::Splice(splice)) => {
+                for term in splice.terms() {
                     collect_term_packages(term, packages);
                 }
             }

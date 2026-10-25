@@ -809,6 +809,8 @@ fn registry() -> Registry {
     trace!(ProtocolHeadRuleBinding: ProtocolHeadRuleBinding<String>);
     trace!(HeadRuleClaim: HeadRuleClaim);
     trace!(ProtocolHeadRuleMapEntry: ProtocolHeadRuleMapEntry<String>);
+    trace!(ProtocolHeadRuleSplice: ProtocolHeadRuleSplice<String>);
+    trace!(ProtocolHeadRuleSpliceItem: ProtocolHeadRuleSpliceItem<String>);
     trace!(ProtocolTypedBinding: ProtocolTypedBinding<String>);
     trace!(ProtocolRuleKSequenceItem: ProtocolRuleKSequenceItem<String>);
     trace!(ProtocolRuleMapItem: ProtocolRuleMapItem<String>);
@@ -1076,6 +1078,15 @@ fn krs_ir_schema_shape_is_pinned() {
         "SchemaVersion::CURRENT and Krs.lock [schemas] krs_ir",
         &actual,
     );
+}
+
+/// The shell shapes `ProtocolMap`, `ProtocolRuleKSequence` and
+/// `ProtocolRuleMap`, the terms, constants and readable clauses reach
+/// tagged enums, which the registry cannot trace, so their key fields'
+/// optionality is checked against their samples.
+#[test]
+fn untraced_key_fields_are_required() {
+    schema_samples::assert_required_key_fields();
 }
 
 #[test]

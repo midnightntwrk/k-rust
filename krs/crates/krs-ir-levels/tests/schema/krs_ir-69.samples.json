@@ -8563,7 +8563,15 @@
                 },
                 "term_kind": "variable"
               },
-              "value_binding": "sample"
+              "key_key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "value_binding": "sample",
+              "value_key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              }
             }
           ],
           "extra_kind": "have_map"
@@ -8703,6 +8711,10 @@
         }
       },
       "result_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "result_type_key": {
         "ordinal": 0,
         "role": "sort_declaration"
       },
@@ -10739,7 +10751,15 @@
                   },
                   "term_kind": "variable"
                 },
-                "value_binding": "sample"
+                "key_key": {
+                  "ordinal": 0,
+                  "role": "sort_declaration"
+                },
+                "value_binding": "sample",
+                "value_key": {
+                  "ordinal": 0,
+                  "role": "sort_declaration"
+                }
               }
             ],
             "extra_kind": "have_map"
@@ -10879,6 +10899,10 @@
           }
         },
         "result_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "result_type_key": {
           "ordinal": 0,
           "role": "sort_declaration"
         },
@@ -20635,7 +20659,15 @@
             },
             "term_kind": "variable"
           },
-          "value_binding": "sample"
+          "key_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          },
+          "value_binding": "sample",
+          "value_key": {
+            "ordinal": 0,
+            "role": "sort_declaration"
+          }
         }
       ],
       "extra_kind": "have_map"
@@ -21085,20 +21117,32 @@
       "head_result_kind": "replace"
     },
     {
-      "head_result": [
-        {
-          "key": {
-            "ordinal": 0,
-            "role": "sort_declaration"
-          },
-          "name": "sample",
-          "path_key": {
-            "ordinal": 0,
-            "role": "sort_declaration"
-          },
-          "term_kind": "variable"
+      "head_result": {
+        "items": [
+          {
+            "key": {
+              "ordinal": 0,
+              "role": "sort_declaration"
+            },
+            "value": {
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "name": "sample",
+              "path_key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "term_kind": "variable"
+            }
+          }
+        ],
+        "payload_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
         }
-      ],
+      },
       "head_result_kind": "splice"
     },
     {
@@ -32385,7 +32429,15 @@
                 },
                 "term_kind": "variable"
               },
-              "value_binding": "sample"
+              "key_key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "value_binding": "sample",
+              "value_key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              }
             }
           ],
           "extra_kind": "have_map"
@@ -32499,6 +32551,10 @@
         }
       },
       "result_key": {
+        "ordinal": 0,
+        "role": "sort_declaration"
+      },
+      "result_type_key": {
         "ordinal": 0,
         "role": "sort_declaration"
       },
@@ -33342,7 +33398,15 @@
                   },
                   "term_kind": "variable"
                 },
-                "value_binding": "sample"
+                "key_key": {
+                  "ordinal": 0,
+                  "role": "sort_declaration"
+                },
+                "value_binding": "sample",
+                "value_key": {
+                  "ordinal": 0,
+                  "role": "sort_declaration"
+                }
               }
             ],
             "extra_kind": "have_map"
@@ -33456,6 +33520,10 @@
           }
         },
         "result_key": {
+          "ordinal": 0,
+          "role": "sort_declaration"
+        },
+        "result_type_key": {
           "ordinal": 0,
           "role": "sort_declaration"
         },

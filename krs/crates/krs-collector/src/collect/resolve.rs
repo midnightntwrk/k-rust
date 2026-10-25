@@ -1073,7 +1073,9 @@ fn head_list(
     let after = head.result.map(|result| krs_ir::ProtocolHeadRuleList {
         items: match result {
             krs_ir::ProtocolHeadRuleResult::Replace(term) => vec![term],
-            krs_ir::ProtocolHeadRuleResult::Splice(terms) => terms,
+            // A list's elements carry no keys: the splice's are left to
+            // the anchors the descriptor does not consume.
+            krs_ir::ProtocolHeadRuleResult::Splice(splice) => splice.into_terms(),
             krs_ir::ProtocolHeadRuleResult::Erase => Vec::new(),
         },
         rest: rest(),
@@ -1144,7 +1146,15 @@ fn list_head(
         Some(after) => Some(match <[_; 1]>::try_from(after.items) {
             Ok([term]) => krs_ir::ProtocolHeadRuleResult::Replace(term),
             Err(items) if items.is_empty() => krs_ir::ProtocolHeadRuleResult::Erase,
-            Err(items) => krs_ir::ProtocolHeadRuleResult::Splice(items),
+            // A list's value and elements are no sequence the sentence
+            // keyed: the splice carries no keys.
+            Err(items) => krs_ir::ProtocolHeadRuleResult::Splice(krs_ir::ProtocolHeadRuleSplice {
+                payload_key: None,
+                items: items
+                    .into_iter()
+                    .map(|value| krs_ir::ProtocolHeadRuleSpliceItem { key: None, value })
+                    .collect(),
+            }),
         }),
     };
     Ok(krs_ir::ProtocolHeadRuleHead {
@@ -1820,6 +1830,7 @@ mod tests {
             result_key: key.clone(),
             head_sort: Some(unresolved_sort("Header")),
             configuration: None,
+            result_type_key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleResultType, 0),
             computation_cell_name: None,
             bindings: Vec::new(),
             head: Some(krs_ir::ProtocolHeadRuleHead {
@@ -1836,7 +1847,9 @@ mod tests {
                     name: "missing".to_owned(),
                 },
                 entries: vec![krs_ir::ProtocolHeadRuleMapEntry {
+                    key_key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftMapKey, 0),
                     key: unresolved_term("Extra"),
+                    value_key: ProvenanceKey::new(krs_ir::ProvenanceRole::RuleLeftMapValue, 0),
                     value_binding: "value".to_owned(),
                 }],
             }],
