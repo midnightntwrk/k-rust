@@ -499,7 +499,25 @@ KEVM through `pipelines/kevm.sh` (krust's compilation of `driver.md`, `gen --ari
 Every module builds without an error, a `sorry` or an axiom beyond Lean's three; KEVM's 13 `KRYPTO` hooks are the parameters of `class Hooks`, and `senderTxData`, whose rewriting diverges at chain id −4, is a least fixed point (`pipelines/kevm-sender-diverges.lean` proves it has no value there).
 That is the only entry of `kevm-termination.toml`: the five groups that needed a hand-written measure (`qsortJSONs`, `computeValidJumpDests*`, `#bloomFilterAux`, `#fakeExponential`, `#rlpDecode*`) get theirs from the generator (§2.2), and the other recursive groups are unchanged.
 The `Functions` row with synthesized measures was measured from a built `Terms` under a lower load than the row above it, so the two rows' times are not comparable (2026-10-24, `lean -j 8`, 12 GB cap).
-KMIR's term universe builds (78 s, 3.0 GB, 2026-10-23); `gen` stops at its one `ensures` rule.
+KMIR's concrete target through `pipelines/kmir.sh` (krust's compilation of `kmir.md` with the selector `k & ! symbolic`, `gen --arity-terms --termination kmir-termination.toml --det2-heartbeats 800000`, `lean -j 8`, nice 10, each step in its own scope of 14 GB), 2026-10-25, Lean v4.34.0:
+
+| step | wall | CPU | peak | load |
+|---|---|---|---|---|
+| krust `kcompile` | 11.5 s | | 0.3 GB | |
+| `k2lean gen` (262 rules, 200 functions, 38 overlapping pairs) | 537 s | 516 s | 80 MiB | 22 |
+| `Terms` | 79 s | 177 s | 4.4 GB | 42 → 18 |
+| `Functions` (11 least fixed points, the other recursive groups with synthesized measures) | 65 s | 80 s | 2.2 GB | |
+| `Rules` | 55 s | 85 s | 3.3 GB | |
+| `Adequacy` | 38 s | 94 s | 3.7 GB | → 18 |
+| `Determinism.Pre` (with the rebuild of its imports after a prelude change; 385 projection lemmas) | 133 s | 315 s | 4.3 GB | 16 → 26 |
+| `Determinism.L1` to `L11` | 7 to 43 s each, 245 s in all | 17 to 106 s, 557 s in all | 4.4 GB | 26 to 87 |
+| `Determinism.Witness`, `Determinism`, `KMirTest.DetAxioms` | 9.5 s | 9.2 s | 1.9 GB | 48 → 47 |
+| `Equations` (two parts, one at a time) | 147 s, 164 s | 887 s, 917 s | 13.3 GB | 41 → 39 |
+
+`Terms` to `Adequacy` were measured with the generator of `main` ff3ed87a0, the `Determinism` rows with that of a399ffe0c, and `Equations` with that of 3a64e6c81.
+Every module but `Equations` (623 statements, 477 proved, below) builds without an error or a `sorry`: `KMir.Step.deterministic_of`, `step_complete_of` and `step_iff_of_noOverlap` depend on Lean's three axioms only, with a hypothesis for each of the 38 overlapping pairs (1 witnessed: a configuration where both rules apply; 37 without a witness, below).
+KMIR's `Determinism` needed three generic changes: the case-split certificate unfolds only the definitions that refute a split (L4 had run out of 14 GB), the arity universe's `Det.projnone_*` lemmas cover the projections a keyless rule tests (`ERR:MIRError` against a cooling rule's `HOLE:Evaluation`, 21 theorems of L6 to L11), and `k2l_key_cases` repeats a failed search with the builtin values replaced (`RT-DATA.thunk`, whose key for `#mkArray(_, N:Int)` reads its `Int` argument); that last theorem needs more than the default heartbeats, hence `--det2-heartbeats 800000` (its comment in `kmir.sh`).
+The 11 entries of `kmir-termination.toml` are least fixed points (`#alignOf`, `#sizeOf`, `#elemSize`, the `#pointeeProjection` pair, the decoding group of five and `decodeValue`): they read a type from the program's type table, an arbitrary map, and K's rewriting of each does not terminate on a table with a cycle although K declares them `total`; `pipelines/kmir-diverges.lean` proves for each group that it has no value on such a table (`kmir.sh check`, 6 theorems on Lean's three axioms, 1 s, 1.7 GB).
 
 Open, in the order they block a KEVM library with kimp's guarantees:
 
@@ -522,7 +540,12 @@ Open, in the order they block a KEVM library with kimp's guarantees:
   With the structural equality of terms (§2.1) and the separate bound on `Bytes` literals (§3.1, `--det2-long-bytes`, 131,072 by default), `gen` with no flag witnesses all 68 pairs and states `overlaps_witnessed`; `KEvmTest.DetAxioms` checks it and `Step.deterministic_of` on Lean's three axioms (2026-10-25, Lean v4.34.0, 12 GB cap, `lean -j 8`, nice 10, load 19 to 146: the witnesses' module 182.6 s, 194.3 CPU-s, 3.7 GB; the determinism modules 2,237 s, 2,199 CPU-s, peak 5.1 GB; the whole target about 3,300 s and 3,860 CPU-s, peak 8.7 GB).
   Before, `DecidableEq (Term s)` compared `ser` values, whose byte and string leaves go through `ByteArray.utf8Decode?` and `Nat.bitwise` (well-founded recursion), and the kernel's evaluation of rule 185's `notBool ACCTCODE ==K .Bytes` at that value did not end.
 - **A KEVM run**: the test drivers need an instance of `Hooks` (real hashes, outside the semantics) and krust-produced initial configurations; none is generated yet.
-- **KMIR**: `ensures` rules, and per-program instances of its three equation-less `lookup*Kore` functions, now parameters.
+- **KMIR's open parts** (the concrete target, above):
+  - 37 overlapping pairs unwitnessed, 35 of them `#cast` transmute pairs; by blocker: 22 a type-table guard that evaluates to false for the searched `TypeInfo` (`#isUnionType` 7, which needs a `MIRString` name with the prefix `"std::mem::MaybeUninit<"`; `#isEnumWithoutFields` 6; `#isStaticU8Array` 5; `#isIntType` 4), 10 the search's budget (a nested `StructType` with a layout, about 8 constructor splits beyond depth 6), 3 a `==K` undefined or false, 2 a model that names no variable (`Rvalue::Ref`'s `isNewLocal` over `List:get`; `#selectBlock`'s heating rule at `isKResult(HOLE)`). Next experiments: split a stuck call's argument along the patterns of the callee's equations, and string prefix and index constraints in the SMT query.
+  - `Equations`: 623 statements, 477 proved, 146 open; by the first error 42 out of the 100,000 budget, 41 `omega`, 22 `simp` without progress, 18 a rewrite pattern not found, 13 a `simp` with a nested error, 5 unsolved goals, 5 a rewrite motive; by route 47 simplifications (of 102), 43 non-recursive, 39 least fixed points, 17 recursive. A part peaks at 13.3 GB, so they build one at a time.
+  - 24 equations not stated: 14 over set variables, 8 alias patterns (EQ-5), 1 `replace` (only `replaceAll`'s equation calls it, and the hooked `replaceAll` stops the call closure), 1 at a parametric sort.
+  - The symbolic target (`TARGET=symbolic`) is generated only; its `lookup*Kore` functions are static data with no equations.
+  - Follow-ups: EQ-10 (above); the `Det.projnone_*` lemmas of keyless rules are generated in the arity universe only, since the per-sort libraries close those cases without them; the heartbeats of a keyless rule's lemma do not grow with the leaves its split visits, which `--det2-heartbeats` covers for KMIR.
 - **`relate` on SIMPLE** (`demos/SimpleRel`, human-run by `pipelines/simple-rel.sh`, positions kept, `Inv` = True), measured on 2026-10-24 on the shared 32-CPU host under a load of 10 to 17, each simulation in a module of its own with the others stated without proof:
   the 15 commutation lemmas prove (the module up to them: 249 s wall, 10.6 GB peak); `app_fwd` about 150 s (113 s of it the kernel); `forward` 121 s of kernel check and 4.1 GB, then with 6 goals open in 4 rules, all closed since (2026-10-25): five were a token literal that a right-hand side introduces (`var X[N1, N2, Vs]`'s `$1`, `$2`; `execute`'s `main`), now folded into a translation by `fold_lit_S` (`({ val := s } : B.S) = tr_S { val := s }`, one per token sort), and two the IO hooks without an implementation, which are `none` (`IOHook.undefN_eq`, in the `k2l_rel` set); `forward` then elaborates with no goal open in 38 s wall, 3.5 GB peak (2026-10-25, Lean v4.34.0, load about 35, `app_fwd` and `app_bwd` stated without proof as above).
   `app_bwd` and `backward` were each killed at a 25-minute cap, after about 24 CPU-minutes at 13.6 GB, without finishing (the whole module had been killed after 35 CPU-minutes at 16.3 GB).
