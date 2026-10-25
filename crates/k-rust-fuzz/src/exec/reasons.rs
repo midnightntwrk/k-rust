@@ -939,6 +939,7 @@ mod tests {
             diagnostics: Vec::new(),
             term_conjunction: false,
             undefined_rule: None,
+            hooks: crate::exec::LeafHooks::default(),
         };
         let result = |halt, safety_limit_hit| CaseResult {
             leaves: vec![leaf(halt)],
@@ -951,6 +952,7 @@ mod tests {
             safety_limit_hit,
             failure: None,
             run_facts_off_leaves: false,
+            hooks: crate::exec::RunHooks::default(),
         };
         assert_eq!(
             incomplete(&result(HaltReasonOutput::Cancelled, false)),
@@ -1001,6 +1003,7 @@ mod tests {
             diagnostics: Vec::new(),
             term_conjunction: false,
             undefined_rule: None,
+            hooks: crate::exec::LeafHooks::default(),
         };
         assert_eq!(beyond_halt(&leaf), Some(UnjudgedReason::NotCeilFree));
     }

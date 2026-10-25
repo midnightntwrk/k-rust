@@ -743,6 +743,7 @@ mod tests {
             diagnostics: Vec::new(),
             term_conjunction: false,
             undefined_rule: None,
+            hooks: crate::exec::LeafHooks::default(),
         }
     }
 
@@ -761,6 +762,7 @@ mod tests {
             diagnostics: Vec::new(),
             term_conjunction: false,
             undefined_rule: None,
+            hooks: crate::exec::LeafHooks::default(),
         }
     }
 
@@ -773,6 +775,7 @@ mod tests {
             smt_unknowns: 0,
             run_allowance_refusals: 0,
             run_facts_off_leaves: false,
+            hooks: crate::exec::RunHooks::default(),
             load_records: Vec::new(),
             safety_limit_hit: false,
             failure: None,

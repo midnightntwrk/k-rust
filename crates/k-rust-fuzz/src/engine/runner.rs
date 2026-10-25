@@ -5,7 +5,7 @@
 //! value admissible. [`super::live::LiveCases`] implements it over holes, assembly, execution
 //! and the target judge; the engine's unit tests implement it with scripted results.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use k_rust::backend::CancellationToken;
 
@@ -13,7 +13,7 @@ use crate::{
     exec::{Abort, OutcomeClass, UnjudgedReason},
     report::{
         Comparability, CrashKind, CrashSide, CrashSignature, CrashStage, HoleValue, IncidentalCase,
-        KillKind, LoadRecord, Reaching, RejectionReason, WitnessSide,
+        KillKind, LoadRecord, Reaching, ReasonHook, RejectionReason, WitnessSide,
     },
     score::{Guards, records::Compared},
     values::Value,
@@ -80,6 +80,18 @@ pub(crate) struct CaseRun {
     /// without its `requires` ([`crate::report::Totals::pattern_body_matches`]); `None` for
     /// every other target.
     pub(crate) pattern_body_matches: Option<u64>,
+    /// For a pattern target at `final`, how many end leaves of the case were clean enough for
+    /// their configuration to be judged against the pattern's
+    /// (`crate::target::ResolvedTarget::pattern_body_judged`); 0 for every other target. Only a
+    /// case with one can tell a pattern no end holds (a misspelled key) from ends that could not
+    /// be judged at all.
+    pub(crate) pattern_body_judged: u64,
+    /// The hooks the facts behind the case's unjudged reason name (UNNAMED-HOOK,
+    /// `crate::exec::hooks::reason_hooks`), with the reason they were read for: the loop counts
+    /// them under [`Self::unjudged`] only while it is that reason, since the loop may replace a
+    /// candidate hit's reason (`client-refused`, `unconfirmed`). `None` when the reason names
+    /// no hook.
+    pub(crate) named_hooks: Option<(UnjudgedReason, BTreeSet<ReasonHook>)>,
     /// The case crashed: a panic or an internal error of a run or its judgement
     /// ([`crate::exec::CaseFailure::crash_kind`]), or of the engine around them (FZ-CRASH), or a
     /// leaf of a run halted on an internal cause ([`crate::exec::InternalHalt`], FZ-CRASH-CAUSE).
@@ -190,6 +202,8 @@ impl CaseRun {
             cut: Cut::default(),
             baseline_ended_within: None,
             pattern_body_matches: None,
+            pattern_body_judged: 0,
+            named_hooks: None,
             crash: None,
             poisoned: false,
         }

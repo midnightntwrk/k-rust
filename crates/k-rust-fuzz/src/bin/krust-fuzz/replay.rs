@@ -543,7 +543,8 @@ fn differences(recorded: &WitnessCase, report: &FuzzReport) -> Vec<String> {
 /// were made by a run that may end otherwise on another attempt (without `comparable-end`, the judgement
 /// of a one-path witness is made outside the case, whose determinism does not cover it), and
 /// they are not compared. A witness without the judgement (a differential or observer witness)
-/// compares nothing.
+/// compares nothing. The hooks the conditions name (UNNAMED-HOOK) are compared only when the
+/// recorded judgement lists some: a report written earlier in version 9 has none to compare.
 fn comparable_reproduced(
     recorded: Option<&Comparability>,
     replayed: Option<&Comparability>,
@@ -555,7 +556,12 @@ fn comparable_reproduced(
         {
             true
         }
-        (Some(recorded), replayed) => replayed == Some(recorded),
+        (Some(recorded), Some(replayed)) => {
+            recorded.holds == replayed.holds
+                && recorded.reasons == replayed.reasons
+                && (recorded.hooks.is_empty() || recorded.hooks == replayed.hooks)
+        }
+        (Some(_), None) => false,
     }
 }
 
@@ -646,6 +652,7 @@ mod tests {
         Comparability {
             holds: reasons.is_empty(),
             reasons: reasons.to_vec(),
+            hooks: std::collections::BTreeMap::new(),
         }
     }
 

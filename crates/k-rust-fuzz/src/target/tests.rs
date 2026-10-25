@@ -333,6 +333,7 @@ fn leaf(halt: HaltReasonOutput, unclean: Vec<UncleanReason>, natural_end: bool) 
         diagnostics: Vec::new(),
         term_conjunction: false,
         undefined_rule: None,
+        hooks: crate::exec::LeafHooks::default(),
     }
 }
 
@@ -372,6 +373,7 @@ fn case(leaves: Vec<LeafReport>, applied: &[&str], matched: &[&str]) -> CaseResu
         safety_limit_hit: false,
         failure: None,
         run_facts_off_leaves: false,
+        hooks: crate::exec::RunHooks::default(),
     }
 }
 
@@ -963,6 +965,7 @@ fn a_coverage_hit_needs_every_run_fact_on_a_leaf() {
     for leaves in [vec![end.clone()], vec![end.clone(), end.clone()]] {
         let result = CaseResult {
             run_facts_off_leaves: true,
+            hooks: crate::exec::RunHooks::default(),
             ..case(leaves, &["id-div"], &["id-div"])
         };
         for mode in [RuleMode::Covered, RuleMode::ConditionReached] {

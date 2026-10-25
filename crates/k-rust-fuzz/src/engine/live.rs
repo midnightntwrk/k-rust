@@ -3,7 +3,7 @@
 //! judged ([`crate::exec`], [`crate::target`]). Owner: FZ-06.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     fmt::Write as _,
     sync::{Arc, OnceLock},
 };
@@ -27,12 +27,14 @@ use crate::{
     exec::{
         self, Abort, CaseRequestShape, CaseResult, CompiledPattern, Executor, FailureCause,
         NormalEnd, OutcomeClass, PatternCompiler, TargetNeeds, UncleanReason, UnjudgedReason,
+        hooks,
     },
     graph::{self, RuleGraph, entry::Entry},
     holes::{self, HoleSite, InstantiatedProgram, PrintedValue, ResolvedHoles, RoundTripCheck},
     report::{
         CrashKind, CrashSide, CrashStage, DefinitionRole, FindingVerdict, HoleValue,
-        IncidentalCase, KillKind, NormalEnds, Reaching, RejectionReason, TargetRule, WitnessSide,
+        IncidentalCase, KillKind, NormalEnds, Reaching, ReasonHook, RejectionReason, TargetRule,
+        WitnessSide,
     },
     score,
     spec::{BackendRoute, CampaignSpec, CaseOptions, CompiledDefinition, PathMode, ProgramInput},
@@ -1004,6 +1006,7 @@ impl LiveCases {
         // the one `fired-off-trace` replaced (`Judgement::demoted_from`).
         let mut leaves_class = None;
         run.pattern_body_matches = target.pattern_body_matches(&result);
+        run.pattern_body_judged = target.pattern_body_judged(&result);
         run.progress = progress;
         run.cut = cut_of(&result);
         match judged {
@@ -1097,6 +1100,13 @@ impl LiveCases {
                 self.incidental_of(class, values, &prepared, &result, paths, &terminal_rules);
         }
         run.warnings.extend(partial_warnings(&result, run.unjudged));
+        // `end-not-comparable:*` was read from the run of every path, which is the case's own
+        // run when the case made no other.
+        let judged_run = match run.unjudged {
+            Some(UnjudgedReason::EndNotComparable(_)) => every_path.as_ref().unwrap_or(&result),
+            _ => &result,
+        };
+        run.named_hooks = named_hooks(judged_run, run.unjudged);
         if run.class == OutcomeClass::Rejected {
             run.rejection = Some(RejectionReason::BackendRefused);
         }
@@ -1245,6 +1255,7 @@ impl LiveCases {
                     _ => mutated,
                 };
                 run.warnings.extend(partial_warnings(judged, reason));
+                run.named_hooks = named_hooks(judged, run.unjudged);
                 run.cut = cut_of(judged);
                 if judgement.class == OutcomeClass::Hit {
                     // An added end: the killing mutant leaf. A removed end (all-paths mode, or the
@@ -1685,6 +1696,8 @@ fn run_of(covered: &CaseResult, sides: &[&CaseResult]) -> CaseRun {
         cut: Cut::default(),
         baseline_ended_within: None,
         pattern_body_matches: None,
+        pattern_body_judged: 0,
+        named_hooks: None,
         crash: None,
         poisoned: false,
     }
@@ -1728,6 +1741,18 @@ fn partial_warnings(result: &CaseResult, reason: Option<UnjudgedReason>) -> Vec<
             )
         })
         .collect()
+}
+
+/// The hooks the facts behind `reason` name in `result`, the run the reason was read from
+/// (UNNAMED-HOOK, [`hooks::reason_hooks`]), with the reason; `None` when there is no reason or
+/// its facts name no hook.
+fn named_hooks(
+    result: &CaseResult,
+    reason: Option<UnjudgedReason>,
+) -> Option<(UnjudgedReason, BTreeSet<ReasonHook>)> {
+    let reason = reason?;
+    let hooks = hooks::reason_hooks(result, reason);
+    (!hooks.is_empty()).then_some((reason, hooks))
 }
 
 /// Which bounds stopped paths of `result` ([`Cut`]).

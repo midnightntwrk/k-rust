@@ -930,6 +930,14 @@ fixture!(
     &[program!("steer/go.pgm"), program!("steer/big.pgm")]
 );
 
+// A one-path end beside a path steered by a hook k-rust does not compute (UNNAMED-HOOK).
+fixture!(
+    HOOKNAME,
+    "hookname/hookname.k",
+    "HOOKNAME",
+    &[program!("hookname/pick.pgm")]
+);
+
 // The hole overlay's and the values module's fixtures (FZ-02, FZ-03).
 fixture!(
     TOY,
@@ -1286,7 +1294,7 @@ fixture!(HALTCAUSE, "haltcause/haltcause.k", "HC", HALTCAUSE_PROGRAMS);
 /// compiles, converts to a campaign definition on both routes, and assembles every program.
 /// TOY is left out because its syntax module is its main module, where the check expects
 /// `<MAIN>-SYNTAX`; `src/holes/tests.rs` covers it.
-pub static ALL: [&Fixture; 96] = [
+pub static ALL: [&Fixture; 97] = [
     &IMP,
     &UNSIGNED,
     &CHOSEN,
@@ -1311,6 +1319,7 @@ pub static ALL: [&Fixture; 96] = [
     &SHAPE,
     &SIBLING,
     &STEER,
+    &HOOKNAME,
     &WRAPS,
     &STREAMS,
     &VALUES,

@@ -97,7 +97,119 @@ pub const REPORT_SCHEMA: &str = "krust-fuzz-report";
 /// kind `client-defect` and the crash phase `repair`; every witness side records its run's `work`
 /// and, for undefined steps, `undefined-rules`. A reader of the round's earlier version-9 reports
 /// refuses the new fields.
+///
+/// Within version 9 (UNNAMED-HOOK, the same wave): `totals.unsupported-hooks`,
+/// `totals.baseline-incomplete-hooks` and a witness case's `comparable.hooks` name the hooks
+/// behind each reason or condition that rests on one ([`ReasonHooks`]). A reader of the round's
+/// earlier version-9 reports refuses the new fields.
 pub const REPORT_VERSION: u32 = 9;
+
+/// How many hooks a reason or condition names at most ([`ReasonHooks`]); the rest are counted.
+pub const LISTED_HOOKS: usize = 8;
+
+/// A hook that a fact behind an unjudged reason or a failed comparable condition names
+/// (UNNAMED-HOOK), read from k-rust's typed records, never from their text: the hook of an
+/// `implementation-chosen-value` mark with the `class` of the value the definition leaves open
+/// (`order`, `item`, ...), or the hook of an application left unevaluated as an unsupported hook
+/// (an `unsupported-hook` halt's cause, an `unsupported-hook-unevaluated` diagnostic, a run's or
+/// a load's `unsupportedHooks` record), with no class. Ordered by hook, then class.
+#[derive(Clone, Debug, Deserialize, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ReasonHook {
+    /// The hook, as the definition's `hook` attribute names it (`MAP.keys_list`).
+    pub hook: String,
+    /// For an implementation-chosen value, what the definition leaves open; absent for an
+    /// unsupported hook.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class: Option<String>,
+}
+
+impl ReasonHook {
+    /// An unsupported hook.
+    #[must_use]
+    pub fn unsupported(hook: &str) -> Self {
+        Self {
+            hook: hook.to_owned(),
+            class: None,
+        }
+    }
+
+    /// A hook that read an implementation-chosen value of `class`.
+    #[must_use]
+    pub fn chosen(hook: &str, class: &str) -> Self {
+        Self {
+            hook: hook.to_owned(),
+            class: Some(class.to_owned()),
+        }
+    }
+}
+
+impl std::fmt::Display for ReasonHook {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.class {
+            Some(class) => write!(f, "{} [{class}]", self.hook),
+            None => f.write_str(&self.hook),
+        }
+    }
+}
+
+/// The hooks behind one reason or condition (UNNAMED-HOOK): over the cases counted under the
+/// reason ([`Totals::unsupported_hooks`]), or the run a witness's comparable judgement read
+/// ([`Comparability::hooks`]). The first [`LISTED_HOOKS`] distinct hooks in [`ReasonHook`]'s
+/// order, so the list is a function of the set of hooks, not of the order cases ran in, and how
+/// many more there are.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "kebab-case", deny_unknown_fields)]
+pub struct ReasonHooks {
+    /// The listed hooks, sorted, each once.
+    pub hooks: Vec<ReasonHook>,
+    /// Distinct hooks beyond the listed ones; absent when 0.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub omitted: u64,
+}
+
+impl ReasonHooks {
+    /// The first [`LISTED_HOOKS`] of `hooks` and the count of the rest; `None` when `hooks` is
+    /// empty.
+    #[must_use]
+    pub fn of(hooks: &BTreeSet<ReasonHook>) -> Option<Self> {
+        if hooks.is_empty() {
+            return None;
+        }
+        Some(Self {
+            hooks: hooks.iter().take(LISTED_HOOKS).cloned().collect(),
+            omitted: u64::try_from(hooks.len().saturating_sub(LISTED_HOOKS)).unwrap_or(u64::MAX),
+        })
+    }
+
+    /// The hooks as a reader sees them in a sentence: `hook MAP.keys_list [order]`, `hooks A, B`,
+    /// `hooks A, B and 3 more`.
+    #[must_use]
+    pub fn describe(&self) -> String {
+        let listed: Vec<String> = self.hooks.iter().map(ToString::to_string).collect();
+        let noun = if listed.len() == 1 && self.omitted == 0 {
+            "hook"
+        } else {
+            "hooks"
+        };
+        let more = if self.omitted > 0 {
+            format!(" and {} more", self.omitted)
+        } else {
+            String::new()
+        };
+        format!("{noun} {}{more}", listed.join(", "))
+    }
+}
+
+/// `count` cases of `reason` as the reports' sentences name them: `3 implementation-chosen-value
+/// (hook MAP.keys_list [order])`, with the reason's hooks when it names any.
+#[must_use]
+pub fn describe_reason(reason: UnjudgedReason, count: u64, hooks: Option<&ReasonHooks>) -> String {
+    match hooks {
+        Some(hooks) => format!("{count} {} ({})", reason.name(), hooks.describe()),
+        None => format!("{count} {}", reason.name()),
+    }
+}
 
 /// A campaign's report (ARCHITECTURE 9.3).
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -1016,6 +1128,19 @@ pub struct Totals {
     /// the counts sum to the `baseline-incomplete` entry of [`Self::classes`].
     #[serde(default)]
     pub baseline_incomplete_reasons: BTreeMap<UnjudgedReason, u64>,
+    /// For each reason of [`Self::unsupported_reasons`] whose facts name a hook, the hooks they
+    /// name over the cases counted under it (UNNAMED-HOOK, [`ReasonHooks`]): the hooks that read
+    /// an implementation-chosen value for `implementation-chosen-value`, `run-fact-off-leaves`
+    /// and `kill-without-evidence`, the unsupported hooks for `halt-unsupported-hook`,
+    /// `halt-unsupported-construct` and `unsupported-hook`, and for `end-not-comparable:*` and
+    /// `query-not-confirmable:*` those of the condition (as [`Comparability::hooks`]). Each
+    /// case's hooks are read from the run its reason was read from. Reasons whose cases name no
+    /// hook are omitted; absent when empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub unsupported_hooks: BTreeMap<UnjudgedReason, ReasonHooks>,
+    /// The same for [`Self::baseline_incomplete_reasons`]; absent when empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub baseline_incomplete_hooks: BTreeMap<UnjudgedReason, ReasonHooks>,
     /// Rules the cases reached (see [`CoverageTotals`]).
     pub coverage: CoverageTotals,
     /// Cases in which the target rule was blocked (ARCHITECTURE 6.2).
@@ -1026,7 +1151,7 @@ pub struct Totals {
     /// (true, false or undecided); a leaf counts when it is clean apart from the target's own
     /// undecided verdict, so a leaf unclean for another reason (a chosen value, a contradicted
     /// claim, a state that is not ceil-free) is left out even when its configuration matched. 0 means no end's configuration matched the pattern's (a misspelled
-    /// key, a cell no end holds), so a negated property held vacuously, and a warning says so. Information, not a class: each leaf is matched on its own. Absent for
+    /// key, a cell no end holds), so a negated property held vacuously, and a warning says so when some case had an end clean enough to be judged (it counts only those cases: a case whose every end is unclean judged nothing, and its `unsupported` reason says why). Information, not a class: each leaf is matched on its own. Absent for
     /// every other target, and when no case inside the determinism contract was executed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pattern_body_matches: Option<u64>,
@@ -1348,6 +1473,14 @@ pub struct Comparability {
     /// The conditions that fail, in [`ComparableCondition`]'s order, each once; empty exactly
     /// when [`Self::holds`].
     pub reasons: Vec<ComparableCondition>,
+    /// For each condition of [`Self::reasons`] whose facts name a hook, the hooks the judged run
+    /// names (UNNAMED-HOOK, [`ReasonHooks`]): `implementation-chosen-value` the hooks of the
+    /// leaves' marks, `run-fact-off-leaves` those of the run's marks no leaf carries,
+    /// `unsupported-hook-unevaluated` the hooks of the leaves' diagnostics, `halt` the hook of
+    /// each leaf that halted on an unsupported hook, and `unsupported-hook` the hooks of the
+    /// run's and the load's records. Absent when empty.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub hooks: BTreeMap<ComparableCondition, ReasonHooks>,
 }
 
 impl Comparability {
@@ -2215,6 +2348,8 @@ mod tests {
                 ]),
                 unsupported_reasons: BTreeMap::from([(UnjudgedReason::NaturalEndUndecided, 2)]),
                 baseline_incomplete_reasons: BTreeMap::new(),
+                unsupported_hooks: BTreeMap::new(),
+                baseline_incomplete_hooks: BTreeMap::new(),
                 coverage: CoverageTotals {
                     applied: BTreeSet::from(["b".to_owned(), "a".to_owned()]),
                     matched: BTreeSet::from(["c".to_owned()]),
@@ -2400,6 +2535,50 @@ mod tests {
                 "| 'repair'",
                 "| 'client-refused'",
                 "| 'client-defect'",
+            ] {
+                assert!(declarations.contains(key), "{key} is not declared");
+            }
+        }
+    }
+
+    /// (UNNAMED-HOOK) Both bindings declare the keys that name the hooks behind a reason or a
+    /// comparable condition, with the shape `ReasonHooks` serializes to.
+    #[test]
+    fn typescript_declarations_name_the_reason_hooks() {
+        let hooks = ReasonHooks::of(&BTreeSet::from([
+            ReasonHook::chosen("MAP.keys_list", "order"),
+            ReasonHook::unsupported("INT.shl"),
+        ]))
+        .expect("hooks");
+        assert_eq!(
+            serde_json::to_value(&hooks).expect("serializes"),
+            serde_json::json!({"hooks": [{"hook": "INT.shl"}, {"hook": "MAP.keys_list", "class": "order"}]})
+        );
+        let totals = Totals {
+            unsupported_hooks: BTreeMap::from([(
+                UnjudgedReason::EndNotComparable(crate::exec::reasons::EndNotComparable(
+                    ComparableCondition::UnsupportedHook,
+                )),
+                hooks.clone(),
+            )]),
+            ..Totals::default()
+        };
+        let text = serde_json::to_string(&totals).expect("serializes");
+        assert!(text.contains(r#""unsupported-hooks":{"end-not-comparable:unsupported-hook":"#));
+        assert_eq!(
+            serde_json::from_str::<Totals>(&text).expect("reads back"),
+            totals
+        );
+        for declarations in [
+            include_str!("../../k-rust-napi/typescript/index.ts"),
+            include_str!("../../k-rust-wasm/typescript/index.ts"),
+        ] {
+            for key in [
+                "'unsupported-hooks'?: Partial<Record<FuzzUnjudgedReason, FuzzReasonHooks>>",
+                "'baseline-incomplete-hooks'?: Partial<Record<FuzzUnjudgedReason, FuzzReasonHooks>>",
+                "hooks?: Partial<Record<FuzzComparableCondition, FuzzReasonHooks>>",
+                "hooks: { hook: string; class?: string }[]",
+                "omitted?: number",
             ] {
                 assert!(declarations.contains(key), "{key} is not declared");
             }

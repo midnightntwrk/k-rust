@@ -38,9 +38,10 @@ use crate::{
         Abort, CaseRequestShape, CaseResult, ComparableCondition, Executor, OutcomeClass,
         UnjudgedReason,
         comparable::{end_conditions, query_conditions},
+        hooks::condition_hooks,
         reasons::{EndNotComparable, QueryNotConfirmable},
     },
-    report::{Comparability, EngineDefect},
+    report::{Comparability, EngineDefect, ReasonHooks},
 };
 
 /// What [`ResolvedTarget::judge_comparable`] gives: the judgement (demoted under
@@ -162,7 +163,9 @@ impl ResolvedTarget {
             };
             return Ok((Ok(refused), None, every_path));
         }
-        Ok((judgement, Some(comparability(conditions)), every_path))
+        let judged = every_path.as_ref().unwrap_or(result);
+        let comparable = comparability(conditions, Some(judged));
+        Ok((judgement, Some(comparable), every_path))
     }
 
     /// Whether a witness case of a case run with `shape` takes its comparable judgement outside
@@ -195,11 +198,15 @@ impl ResolvedTarget {
         Some(
             match executor.run(initial, &shape.every_path(), &[], cancel) {
                 Ok(every_path) => (
-                    comparability(conditions_here(executor, &every_path)),
+                    comparability(conditions_here(executor, &every_path), Some(&every_path)),
                     every_path.work.max(1),
                     Some(every_path),
                 ),
-                Err(_) => (comparability(vec![ComparableCondition::RunFailed]), 0, None),
+                Err(_) => (
+                    comparability(vec![ComparableCondition::RunFailed], None),
+                    0,
+                    None,
+                ),
             },
         )
     }
@@ -212,11 +219,27 @@ fn own_run_of_every_path(shape: &CaseRequestShape) -> bool {
     shape.all_paths() && !shape.has_terminal_rules() && shape.state_set()
 }
 
-/// The judgement of `conditions`.
-fn comparability(conditions: Vec<ComparableCondition>) -> Comparability {
+/// The judgement of `conditions`, failed by `judged` (the run of every path they were read
+/// from, when there is one), with the hooks each condition's facts name there (UNNAMED-HOOK).
+fn comparability(
+    conditions: Vec<ComparableCondition>,
+    judged: Option<&CaseResult>,
+) -> Comparability {
+    let hooks = judged
+        .map(|judged| {
+            conditions
+                .iter()
+                .filter_map(|condition| {
+                    ReasonHooks::of(&condition_hooks(judged, *condition))
+                        .map(|hooks| (*condition, hooks))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     Comparability {
         holds: conditions.is_empty(),
         reasons: conditions,
+        hooks,
     }
 }
 

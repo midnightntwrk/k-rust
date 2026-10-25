@@ -25,6 +25,7 @@ use k_rust_fuzz::{
     exec::UnjudgedReason,
     report::{
         BestScore, CampaignOutcome, DefinitionRole, FuzzReport, HitLabel, KillKind, WitnessCase,
+        describe_reason,
     },
     spec::CompiledDefinition,
     target::{PatternAt, RuleMode},
@@ -940,11 +941,16 @@ fn write_findings(text: &mut String, report: &FuzzReport) {
 fn write_unjudged(text: &mut String, report: &FuzzReport) {
     use std::fmt::Write as _;
     if report.witness().is_some() {
-        for (label, reasons) in [
-            ("unsupported", &report.totals.unsupported_reasons),
+        for (label, reasons, hooks) in [
+            (
+                "unsupported",
+                &report.totals.unsupported_reasons,
+                &report.totals.unsupported_hooks,
+            ),
             (
                 "baseline-incomplete",
                 &report.totals.baseline_incomplete_reasons,
+                &report.totals.baseline_incomplete_hooks,
             ),
         ] {
             let mut ranked: Vec<(UnjudgedReason, u64)> = reasons
@@ -959,7 +965,7 @@ fn write_unjudged(text: &mut String, report: &FuzzReport) {
             };
             let counts: Vec<String> = ranked
                 .iter()
-                .map(|(reason, count)| format!("{count} {}", reason.name()))
+                .map(|(reason, count)| describe_reason(*reason, *count, hooks.get(reason)))
                 .collect();
             let _ = writeln!(text, "{label} cases by reason: {}", counts.join(", "));
             if let Some(remedy) = top.remedy() {

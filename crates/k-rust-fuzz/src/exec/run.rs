@@ -29,7 +29,8 @@ use k_rust::{
 
 use super::{
     Abort, CaseFailure, CaseRequestShape, CaseResult, FailureCause, LOAD_ALLOWANCE_REFUSAL,
-    LOAD_STACK_STOP, LeafDiagnostic, LeafReport, NormalEndKind, UncleanReason, reasons,
+    LOAD_STACK_STOP, LeafDiagnostic, LeafHooks, LeafReport, NormalEndKind, RunHooks, UncleanReason,
+    reasons,
 };
 use crate::{
     assemble::ProgramAssembly,
@@ -936,6 +937,7 @@ impl Executor {
             diagnostics: Vec::new(),
             term_conjunction: false,
             undefined_rule: None,
+            hooks: LeafHooks::default(),
         };
         let judge = Judge {
             normal_end: &self.normal_end,
@@ -1155,6 +1157,9 @@ impl Judge<'_> {
                 // host, as the run's do: both put the case outside the determinism contract.
                 judged.smt_unknowns = judged.smt_unknowns.saturating_add(matches.smt_unknowns);
                 judged.stack_stops = judged.stack_stops.saturating_add(matches.stack_stops);
+                if let Some(reach) = &matches.first_dirty_reach {
+                    judged.hooks.chosen_on_reach = RunHooks::chosen_on(reach);
+                }
                 Some(AnyStateRun {
                     matches,
                     run_reasons: run_reasons(&result),
@@ -1216,6 +1221,7 @@ impl Judge<'_> {
                 undefined_rule: (leaf.reason == HaltReasonOutput::Trivial)
                     .then(|| leaf.rule_id.clone())
                     .flatten(),
+                hooks: LeafHooks::of_leaf(leaf),
             });
         }
         let mut internal = match self.judge_internally(backend, &leaves) {
@@ -1268,6 +1274,7 @@ impl Judge<'_> {
             safety_limit_hit: false,
             failure: None,
             run_facts_off_leaves,
+            hooks: RunHooks::of_result(result),
         })
     }
 
@@ -1858,6 +1865,7 @@ fn failed_result(failure: CaseFailure, load_stack_stops: usize) -> CaseResult {
         safety_limit_hit: false,
         failure: Some(failure),
         run_facts_off_leaves: false,
+        hooks: RunHooks::default(),
     }
 }
 

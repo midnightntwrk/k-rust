@@ -26,8 +26,9 @@ use crate::{
         AbortKind, BestScore, CampaignOutcome, ClientRefusal, Comparability, CrashDeterminism,
         CrashFinding, CrashFindings, CrashHole, CrashPhase, CrashSignature, CrashStage,
         EngineDefect, FuzzReport, HitLabel, Incidentals, KillKind, LoadRecord, NoWitness,
-        NormalEnds, PanicRecord, REPORT_SCHEMA, REPORT_VERSION, RejectionReason, RepairedFrom,
-        ReportIdentity, SortOverride, Totals, Witness, WitnessCase, digest_hex,
+        NormalEnds, PanicRecord, REPORT_SCHEMA, REPORT_VERSION, ReasonHook, ReasonHooks,
+        RejectionReason, RepairedFrom, ReportIdentity, SortOverride, Totals, Witness, WitnessCase,
+        describe_reason, digest_hex,
     },
     score::{Score, Scorer, Signals},
     spec::{Budget, CaseOptions, PathMode},
@@ -1983,6 +1984,7 @@ fn judged_case(
             case.comparable = Some(Comparability {
                 holds: false,
                 reasons: vec![ComparableCondition::Crash],
+                hooks: std::collections::BTreeMap::new(),
             });
         }
         return case;
@@ -2006,6 +2008,7 @@ fn judged_case(
                 comparable: Comparability {
                     holds: false,
                     reasons: vec![reason],
+                    hooks: std::collections::BTreeMap::new(),
                 },
                 work: 0,
                 crash,
@@ -2171,6 +2174,13 @@ struct State {
     client_refusals: Vec<ClientRefusal>,
     /// The client's witness filter's identity, when the campaign runs with one.
     filter_id: Option<String>,
+    /// Every hook the cases counted under each `unsupported` reason, then each
+    /// `baseline-incomplete` reason, named (UNNAMED-HOOK): [`Totals::unsupported_hooks`] and
+    /// [`Totals::baseline_incomplete_hooks`] list the first of each set.
+    reason_hooks: [BTreeMap<UnjudgedReason, BTreeSet<ReasonHook>>; 2],
+    /// The cases inside the determinism contract with an end leaf judged against a final
+    /// pattern's configuration (`CaseRun::pattern_body_judged`).
+    pattern_body_judged: u64,
 }
 
 impl State {
@@ -2196,6 +2206,8 @@ impl State {
             crashes_omitted: 0,
             crash_shrink_runs: 0,
             rebuild_failure: None,
+            reason_hooks: [BTreeMap::new(), BTreeMap::new()],
+            pattern_body_judged: 0,
             client_refusals: Vec::new(),
             filter_id: None,
         }
@@ -2558,14 +2570,33 @@ impl State {
         // `Totals::unsupported_reasons` and `baseline_incomplete_reasons` sum to their classes' counts;
         // every runner gives a reason.
         let reasons = match class {
-            OutcomeClass::Unsupported => Some(&mut self.totals.unsupported_reasons),
-            OutcomeClass::BaselineIncomplete => Some(&mut self.totals.baseline_incomplete_reasons),
+            OutcomeClass::Unsupported => Some((
+                &mut self.totals.unsupported_reasons,
+                &mut self.totals.unsupported_hooks,
+                &mut self.reason_hooks[0],
+            )),
+            OutcomeClass::BaselineIncomplete => Some((
+                &mut self.totals.baseline_incomplete_reasons,
+                &mut self.totals.baseline_incomplete_hooks,
+                &mut self.reason_hooks[1],
+            )),
             _ => None,
         };
-        if let Some(reasons) = reasons {
+        if let Some((reasons, listed, every)) = reasons {
             debug_assert!(run.unjudged.is_some(), "an unjudged case without a reason");
             let reason = run.unjudged.unwrap_or(UnjudgedReason::EngineDefect);
             *reasons.entry(reason).or_insert(0) += 1;
+            // The hooks count under the reason they were read for only while it is the case's
+            // reason: the loop may have replaced a candidate hit's.
+            if let Some((named, hooks)) = &run.named_hooks
+                && *named == reason
+            {
+                let every = every.entry(reason).or_default();
+                every.extend(hooks.iter().cloned());
+                if let Some(hooks) = ReasonHooks::of(every) {
+                    listed.insert(reason, hooks);
+                }
+            }
         }
         if class == OutcomeClass::Rejected {
             // `Totals::rejections` sums to the `rejected` count; every runner gives a reason.
@@ -2585,6 +2616,9 @@ impl State {
         if let Some(count) = run.pattern_body_matches {
             let total = self.totals.pattern_body_matches.get_or_insert(0);
             *total = total.saturating_add(count);
+        }
+        if run.pattern_body_judged > 0 {
+            self.pattern_body_judged += 1;
         }
         let coverage = &mut self.totals.coverage;
         coverage.applied.extend(run.applied.iter().cloned());
@@ -2624,16 +2658,30 @@ impl State {
                     .map(|name| (id.clone(), name.clone()))
             })
             .collect();
-        if totals.pattern_body_matches == Some(0) {
-            let judged = totals
+        // Only a case with an end judged against the pattern's configuration can show that no
+        // end holds it: a case whose every end is unclean (a chosen value, a contradicted claim,
+        // an unsupported hook, ...) judged none, and its `unsupported` reason says why.
+        let judged = self.pattern_body_judged;
+        if totals.pattern_body_matches == Some(0) && judged > 0 {
+            let executed = totals
                 .cases
                 .saturating_sub(self.rejected())
                 .saturating_sub(totals.outside_determinism);
+            let unjudged = executed.saturating_sub(judged);
+            let others = if unjudged > 0 {
+                format!(
+                    " ({unjudged} other executed {} had no end clean enough to judge; their \
+                     classes and reasons say why)",
+                    if unjudged == 1 { "case" } else { "cases" }
+                )
+            } else {
+                String::new()
+            };
             self.warn(format!(
-                "pattern body: no end of the {judged} executed {} matched the pattern's \
-                 configuration, whatever its `requires` gave, so the pattern may name a cell, \
-                 key or value no end holds (a misspelled key?); a negated property then holds \
-                 vacuously, and a `miss` says nothing about it",
+                "pattern body: no end of the {judged} executed {} whose ends were judged matched \
+                 the pattern's configuration, whatever its `requires` gave{others}, so the \
+                 pattern may name a cell, key or value no end holds (a misspelled key?); a \
+                 negated property then holds vacuously, and a `miss` says nothing about it",
                 if judged == 1 { "case" } else { "cases" }
             ));
         }
@@ -2699,15 +2747,20 @@ pub(crate) fn every_k_warning(normal_end: Option<NormalEnds>, totals: &Totals) -
 }
 
 /// The clause of the no-witness statement that counts unjudged cases per reason
-/// ([`UnjudgedReason`]), largest first, and gives the largest one's remedy when it has one.
-fn reason_clause(text: &mut String, reasons: &std::collections::BTreeMap<UnjudgedReason, u64>) {
+/// ([`UnjudgedReason`]), largest first, each with the hooks its cases named (UNNAMED-HOOK), and
+/// gives the largest one's remedy when it has one.
+fn reason_clause(
+    text: &mut String,
+    reasons: &BTreeMap<UnjudgedReason, u64>,
+    hooks: &BTreeMap<UnjudgedReason, ReasonHooks>,
+) {
     let ranked = ranked_reasons(reasons);
     let Some((top, _)) = ranked.first() else {
         return;
     };
     let counts: Vec<String> = ranked
         .iter()
-        .map(|(reason, count)| format!("{count} {}", reason.name()))
+        .map(|(reason, count)| describe_reason(*reason, *count, hooks.get(reason)))
         .collect();
     write!(text, " By reason: {}.", counts.join(", ")).expect("writing to a String");
     if let Some(remedy) = top.remedy() {
@@ -2853,7 +2906,11 @@ pub(crate) fn no_witness(
             plural(unsupported, "case")
         )
         .expect("writing to a String");
-        reason_clause(&mut text, &totals.unsupported_reasons);
+        reason_clause(
+            &mut text,
+            &totals.unsupported_reasons,
+            &totals.unsupported_hooks,
+        );
     }
     let incomplete = count(OutcomeClass::BaselineIncomplete);
     if incomplete > 0 {
@@ -2863,7 +2920,11 @@ pub(crate) fn no_witness(
             plural(incomplete, "case")
         )
         .expect("writing to a String");
-        reason_clause(&mut text, &totals.baseline_incomplete_reasons);
+        reason_clause(
+            &mut text,
+            &totals.baseline_incomplete_reasons,
+            &totals.baseline_incomplete_hooks,
+        );
         bound_advice(&mut text, &cuts.incomplete, options, "a baseline path", "");
         if cuts.incomplete.none > 0 {
             write!(

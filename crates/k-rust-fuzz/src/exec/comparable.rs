@@ -450,6 +450,7 @@ mod tests {
             diagnostics: Vec::new(),
             term_conjunction: false,
             undefined_rule: None,
+            hooks: crate::exec::LeafHooks::default(),
         }
     }
 
@@ -469,6 +470,7 @@ mod tests {
             safety_limit_hit: false,
             failure: None,
             run_facts_off_leaves: false,
+            hooks: crate::exec::RunHooks::default(),
         }
     }
 
@@ -585,6 +587,7 @@ mod tests {
     fn the_run_s_lists_and_leaf_states_are_read() {
         let off = CaseResult {
             run_facts_off_leaves: true,
+            hooks: crate::exec::RunHooks::default(),
             ..result(vec![end()])
         };
         assert_eq!(end_conditions(&off), [C::RunFactOffLeaves]);

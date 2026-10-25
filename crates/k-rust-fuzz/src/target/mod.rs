@@ -833,21 +833,26 @@ impl ResolvedTarget {
         let count = result
             .leaves
             .iter()
-            .filter(|leaf| {
-                matches!(
-                    leaf.halt,
-                    HaltReasonOutput::Stuck
-                        | HaltReasonOutput::Trivial
-                        | HaltReasonOutput::Terminal
-                ) && leaf.unclean.iter().all(|reason| {
-                    matches!(
-                        reason,
-                        UncleanReason::NaturalEndUndecided | UncleanReason::UndecidedMatch
-                    )
-                }) && leaf.matches.get(index) == Some(&true)
-            })
+            .filter(|leaf| body_judged(leaf) && leaf.matches.get(index) == Some(&true))
             .count();
         Some(u64::try_from(count).unwrap_or(u64::MAX))
+    }
+
+    /// For a pattern target at `final`, how many end leaves of `result` were judged against the
+    /// pattern's configuration ([`Self::pattern_body_matches`] counts those that matched): end
+    /// leaves clean apart from the target matcher's own undecided verdict. A case with none says
+    /// nothing about whether the pattern names a configuration some end holds, so the warning
+    /// that no end matched counts only cases with some. 0 for every other target kind.
+    pub(crate) fn pattern_body_judged(&self, result: &CaseResult) -> u64 {
+        if self.resolved != Resolved::PatternFinal {
+            return 0;
+        }
+        let count = result
+            .leaves
+            .iter()
+            .filter(|leaf| body_judged(leaf))
+            .count();
+        u64::try_from(count).unwrap_or(u64::MAX)
     }
 
     /// The leaf matchers [`Executor::run`] must judge for this target, in the order
@@ -1006,4 +1011,20 @@ impl ResolvedTarget {
         };
         Ok(self.confirmable(judgement, result, term_conjunction))
     }
+}
+
+/// Whether `leaf`'s configuration is judged against a final pattern's
+/// ([`ResolvedTarget::pattern_body_matches`], [`ResolvedTarget::pattern_body_judged`]): an end
+/// (`stuck`, `trivial` or `terminal`) clean apart from the target matcher's own undecided
+/// verdict.
+fn body_judged(leaf: &crate::exec::LeafReport) -> bool {
+    matches!(
+        leaf.halt,
+        HaltReasonOutput::Stuck | HaltReasonOutput::Trivial | HaltReasonOutput::Terminal
+    ) && leaf.unclean.iter().all(|reason| {
+        matches!(
+            reason,
+            UncleanReason::NaturalEndUndecided | UncleanReason::UndecidedMatch
+        )
+    })
 }

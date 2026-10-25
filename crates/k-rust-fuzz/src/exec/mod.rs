@@ -12,6 +12,7 @@
 //! reach it, and `classify` decides what that makes the case.
 
 pub mod comparable;
+pub mod hooks;
 pub mod reasons;
 pub(crate) mod run;
 #[cfg(test)]
@@ -29,6 +30,7 @@ use k_rust::{
 use serde::{Deserialize, Serialize};
 
 pub use comparable::{ComparableCondition, LeafDiagnostic};
+pub use hooks::{LeafHooks, RunHooks};
 pub use reasons::UnjudgedReason;
 pub(crate) use run::{
     AnyStateRun, CompiledPattern, Executor, LeafMatcher, NormalEnd, PatternCompiler,
@@ -381,6 +383,8 @@ pub struct LeafReport {
     /// undefined, when the backend names one (`ExecutionLeaf::rule_id`); `None` for every other
     /// leaf.
     pub undefined_rule: Option<String>,
+    /// The hooks the leaf's own facts name (UNNAMED-HOOK, [`LeafHooks`]).
+    pub hooks: LeafHooks,
 }
 
 impl LeafReport {
@@ -534,6 +538,8 @@ pub struct CaseResult {
     /// or `stuck` (`classify`), and a differential baseline with the flag is incomplete
     /// (D16, review B3).
     pub run_facts_off_leaves: bool,
+    /// The hooks the run's own facts name, which no leaf's carry (UNNAMED-HOOK, [`RunHooks`]).
+    pub hooks: RunHooks,
 }
 
 impl CaseResult {

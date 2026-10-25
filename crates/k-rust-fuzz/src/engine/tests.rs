@@ -73,6 +73,8 @@ fn run(class: OutcomeClass, work: u64) -> CaseRun {
         cut: Cut::default(),
         baseline_ended_within: None,
         pattern_body_matches: None,
+        pattern_body_judged: 0,
+        named_hooks: None,
         crash: None,
         poisoned: false,
     }
@@ -233,6 +235,7 @@ impl CaseRunner for Scripted {
             comparable: Comparability {
                 holds: false,
                 reasons: vec![ComparableCondition::Clock],
+                hooks: BTreeMap::new(),
             },
             work,
             crash: None,
@@ -504,6 +507,7 @@ fn a_comparable_judgement_outside_the_case_moves_no_case_or_shrink_run() {
     let judged = Some(Comparability {
         holds: false,
         reasons: vec![ComparableCondition::Clock],
+        hooks: BTreeMap::new(),
     });
     assert_eq!(witness.first.comparable, judged);
     assert_eq!(witness.shrunk.expect("a shrunk witness").comparable, judged);
@@ -1903,6 +1907,7 @@ fn a_state_the_backend_refuses_is_recognized_on_either_side() {
             crate::report::CrashStage::Execute,
         )),
         run_facts_off_leaves: false,
+        hooks: crate::exec::RunHooks::default(),
     };
     assert!(super::live::refused(&result(FailureCause::StateRefused)));
     assert!(!super::live::refused(&result(FailureCause::Other)));

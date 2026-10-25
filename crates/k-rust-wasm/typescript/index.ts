@@ -1639,7 +1639,22 @@ export interface FuzzWitnessCase {
   kill?: 'added-end' | 'removed-end'
   steps?: number
   /** For a rule or pattern witness: whether the program's run of every path is comparable. */
-  comparable?: { holds: boolean; reasons: FuzzComparableCondition[] }
+  comparable?: {
+    holds: boolean
+    reasons: FuzzComparableCondition[]
+    /** Per failed condition whose facts rest on a hook, the hooks the judged run names; absent when empty. */
+    hooks?: Partial<Record<FuzzComparableCondition, FuzzReasonHooks>>
+  }
+}
+
+/**
+ * The hooks behind one unjudged reason or failed comparable condition: sorted by hook and class,
+ * at most 8, with `omitted` counting the rest. `class` names the implementation-chosen value a hook
+ * read (`order`, `item`, ...); it is absent for a hook k-rust left unevaluated.
+ */
+export interface FuzzReasonHooks {
+  hooks: { hook: string; class?: string }[]
+  omitted?: number
 }
 
 export interface FuzzWitness {
@@ -1874,6 +1889,10 @@ export interface FuzzTotals {
   'unsupported-reasons': Partial<Record<FuzzUnjudgedReason, number>>
   /** `baseline-incomplete` cases per reason; the counts sum to `classes['baseline-incomplete']`. */
   'baseline-incomplete-reasons': Partial<Record<FuzzUnjudgedReason, number>>
+  /** Per `unsupported` reason whose facts rest on a hook, the hooks its cases named; absent when empty. */
+  'unsupported-hooks'?: Partial<Record<FuzzUnjudgedReason, FuzzReasonHooks>>
+  /** Per `baseline-incomplete` reason whose facts rest on a hook, the hooks its cases named; absent when empty. */
+  'baseline-incomplete-hooks'?: Partial<Record<FuzzUnjudgedReason, FuzzReasonHooks>>
   /** Rule ids reached, and the names of each: kind, label and source locations. */
   coverage: {
     applied: string[]
@@ -1881,7 +1900,7 @@ export interface FuzzTotals {
     names: Record<string, FuzzRuleName>
   }
   'target-blocked': number
-  /** Pattern targets only: clean end leaves that matched the pattern's configuration without its `requires`; 0 warns of a vacuous pattern. */
+  /** Pattern targets only: clean end leaves that matched the pattern's configuration without its `requires`; 0 warns of a vacuous pattern when some case's ends were judged. */
   'pattern-body-matches'?: number
   /** The best score of the scored `miss` cases; null when no proposer scores (climb, solve). */
   'best-score': FuzzBestScore | null

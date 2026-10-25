@@ -806,6 +806,7 @@ fn leaf(halt: HaltReasonOutput, unclean: &[UncleanReason], natural_end: bool) ->
         diagnostics: Vec::new(),
         term_conjunction: false,
         undefined_rule: None,
+        hooks: crate::exec::LeafHooks::default(),
     }
 }
 
@@ -833,6 +834,7 @@ fn result(leaves: Vec<LeafReport>) -> CaseResult {
         safety_limit_hit: false,
         failure: None,
         run_facts_off_leaves: false,
+        hooks: crate::exec::RunHooks::default(),
     }
 }
 
@@ -1219,6 +1221,7 @@ fn run_facts_on_no_leaf_are_found() {
 fn run_facts_on_no_leaf_block_miss_and_stuck_only() {
     let flagged = |leaves: Vec<LeafReport>| CaseResult {
         run_facts_off_leaves: true,
+        hooks: crate::exec::RunHooks::default(),
         ..result(leaves)
     };
     assert_eq!(
