@@ -357,11 +357,16 @@ impl ListContext<'_> {
                         }
                     });
                     let spelling = field.term_sort().sort_token_text();
+                    // The production's nonterminal below defines the field
+                    // sort's key: the two descriptors share their anchors.
                     fields.push(WireConstructorFieldDescriptor {
                         name: field.name().to_string(),
-                        sort: WireTypeReference {
-                            slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
-                            authored_path: spelling.clone(),
+                        sort: WireSortReference {
+                            key: ledger.refer(field.sort_key())?,
+                            target: WireTypeReference {
+                                slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
+                                authored_path: spelling.clone(),
+                            },
                         },
                         arguments: Vec::new(),
                     });

@@ -34,7 +34,7 @@ fn __krs_sort_descriptor_c413fb444b0ca766() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"Expr\"},{\"slot\":1,\"authored_path\":\"KResult\"}]}}",
+            "{\"sort\":{\"parents\":[{\"key\":{\"role\":\"sort_parent\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Expr\"}},{\"key\":{\"role\":\"sort_parent\",\"ordinal\":1},\"target\":{\"slot\":1,\"authored_path\":\"KResult\"}}]}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_sort_parent_c413fb444b0ca766_0),

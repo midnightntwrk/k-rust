@@ -1046,19 +1046,18 @@ fn payload_anchors(anchors: &[HostAuthoredAnchor]) -> impl Iterator<Item = &Prov
 
 impl HostSortDescriptor {
     /// Checks that the sort's anchors are its declaration, a fixed key, and
-    /// one parent per parent reference, which carries no key: the one
-    /// positional pairing of [`WireKeys::implicit`].
+    /// its parent references' keys.
     ///
     /// The check reads the payload before the collector resolves it: the
-    /// resolved payload holds its parents as a set.
+    /// resolved payload holds its parents as a set of sorts, without keys.
     fn validate_complete_provenance(
         &self,
         anchors: &[HostAuthoredAnchor],
     ) -> Result<(), StateTransportError> {
         let mut keys = WireKeys::default();
         keys.fixed(ProvenanceRole::SortDeclaration)?;
-        for _ in &self.parents {
-            keys.implicit(ProvenanceRole::SortParent);
+        for parent in &self.parents {
+            keys.define(&parent.key, ProvenanceRole::SortParent)?;
         }
         Ok(keys.close(payload_anchors(anchors))?)
     }
@@ -1066,8 +1065,8 @@ impl HostSortDescriptor {
 
 impl HostConstructorDescriptor {
     /// Checks that the constructor's anchors are its sort, its sort
-    /// parameters, its fields' sorts, which carry no key, and the element
-    /// types of those sorts, besides the production's nodes the descriptor
+    /// parameters, its fields' sorts, and the element types of those sorts,
+    /// besides the production's nodes the descriptor
     /// repeats from its grammar descriptor, which that descriptor's own
     /// closure covers ([`crate::transport::grammar::REPEATED_PRODUCTION_ROLES`],
     /// and a list variant's [`crate::transport::grammar::REPEATED_LIST_ROLES`]).
@@ -1092,7 +1091,7 @@ impl HostConstructorDescriptor {
             &mut keys,
         )?;
         for field in &self.fields {
-            keys.implicit(ProvenanceRole::ConstructorFieldSort);
+            keys.define(&field.sort.key, ProvenanceRole::ConstructorFieldSort)?;
             collect_sort_argument_keys(
                 &field.arguments,
                 ProvenanceRole::ConstructorFieldSortArgument,
@@ -1137,12 +1136,16 @@ mod tests {
         )
     }
 
-    /// A sort's parent references carry no key: each pairs with one parent
-    /// anchor, and the counts must agree.
+    /// Each of a sort's parent references carries its parent anchor's key,
+    /// once.
     #[test]
-    fn a_sort_pairs_each_parent_reference_with_a_parent_anchor() {
-        let sort = |parents: usize| HostSortDescriptor {
-            parents: (0..parents).map(|_| type_reference("Parent")).collect(),
+    fn a_sort_defines_each_parent_reference_key() {
+        let parent = |ordinal| ProvenanceKey::new(ProvenanceRole::SortParent, ordinal);
+        let sort = |ordinals: &[u32]| HostSortDescriptor {
+            parents: ordinals
+                .iter()
+                .map(|ordinal| sort_reference(parent(*ordinal), "Parent"))
+                .collect(),
         };
         let anchors = [
             authored(ProvenanceRole::SortDeclaration, 0),
@@ -1150,25 +1153,33 @@ mod tests {
             authored(ProvenanceRole::SortParent, 0),
             authored(ProvenanceRole::SortParent, 1),
         ];
-        assert_eq!(sort(2).validate_complete_provenance(&anchors), Ok(()));
+        assert_eq!(sort(&[0, 1]).validate_complete_provenance(&anchors), Ok(()));
         assert_eq!(
-            sort(1).validate_complete_provenance(&anchors),
-            Err(StateTransportError::ExtraProvenance(ProvenanceKey::new(
-                ProvenanceRole::SortParent,
-                1
-            )))
+            sort(&[0]).validate_complete_provenance(&anchors),
+            Err(StateTransportError::ExtraProvenance(parent(1)))
         );
         assert_eq!(
-            sort(3).validate_complete_provenance(&anchors),
-            Err(StateTransportError::MissingProvenance(ProvenanceKey::new(
-                ProvenanceRole::SortParent,
-                2
-            )))
+            sort(&[0, 1, 2]).validate_complete_provenance(&anchors),
+            Err(StateTransportError::MissingProvenance(parent(2)))
+        );
+        assert_eq!(
+            sort(&[0, 0]).validate_complete_provenance(&anchors),
+            Err(StateTransportError::DuplicateProvenance(parent(0)))
+        );
+        let declaration = ProvenanceKey::new(ProvenanceRole::SortDeclaration, 0);
+        assert_eq!(
+            HostSortDescriptor {
+                parents: vec![sort_reference(declaration.clone(), "Parent")],
+            }
+            .validate_complete_provenance(&anchors),
+            Err(StateTransportError::UnexpectedProvenance {
+                expected: ProvenanceRole::SortParent,
+                actual: declaration,
+            })
         );
     }
 
-    /// A constructor defines its sort, pairs its fields' sorts with their
-    /// anchors, and leaves the production's repeated nodes to its grammar
+    /// A constructor defines its sort and its fields' sorts, and leaves the production's repeated nodes to its grammar
     /// descriptor; any other anchor is its own to consume.
     #[test]
     fn a_constructor_is_closed_beside_its_repeated_production_nodes() {
@@ -1179,7 +1190,10 @@ mod tests {
             },
             fields: vec![crate::bundle::ConstructorField {
                 name: "value".into(),
-                sort: type_reference("Value"),
+                sort: sort_reference(
+                    ProvenanceKey::new(ProvenanceRole::ConstructorFieldSort, 0),
+                    "Value",
+                ),
                 arguments: Vec::new(),
             }],
             parameters: Vec::new(),
@@ -1211,6 +1225,13 @@ mod tests {
         HostTypeReference {
             key: HostTypeKey(test_type_id),
             authored_path: path.into(),
+        }
+    }
+
+    fn sort_reference(key: ProvenanceKey, path: &str) -> crate::HostSortReference {
+        crate::HostSortReference {
+            key,
+            target: type_reference(path),
         }
     }
 
@@ -1308,13 +1329,19 @@ mod tests {
             },
             fields: vec![HostConstructorFieldDescriptor {
                 name: "value".into(),
-                sort: type_reference("model::Value"),
+                sort: sort_reference(
+                    ProvenanceKey::new(ProvenanceRole::ConstructorFieldSort, 0),
+                    "model::Value",
+                ),
                 arguments: Vec::new(),
             }],
             arguments: Vec::new(),
         };
         assert_eq!(constructor.fields[0].name, "value");
-        assert_eq!(constructor.fields[0].sort.key.resolve(), TypeId::of::<u8>());
+        assert_eq!(
+            constructor.fields[0].sort.target.key.resolve(),
+            TypeId::of::<u8>()
+        );
     }
 
     fn anchor(precision: AnchorPrecision) -> HostSourceAnchor {

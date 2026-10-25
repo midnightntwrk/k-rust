@@ -506,15 +506,14 @@ fn constructor_like(
                 ::core::any::TypeId::of::<#generated>()
             }
         });
-        // The field's sort reference carries no key on the wire: the
-        // collector numbers the fields' sorts in order, as the sentence
-        // keyed them.
-        ledger.define(field.sort_key())?;
         fields.push(WireConstructorFieldDescriptor {
             name: field_name,
-            sort: WireTypeReference {
-                slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
-                authored_path: spelling,
+            sort: WireSortReference {
+                key: ledger.define(field.sort_key())?,
+                target: WireTypeReference {
+                    slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
+                    authored_path: spelling,
+                },
             },
             arguments: Vec::new(),
         });

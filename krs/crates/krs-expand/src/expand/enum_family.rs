@@ -493,15 +493,14 @@ fn expand_enum_variant(
                 ::core::any::TypeId::of::<#ty>()
             }
         });
-        // The field's sort reference carries no key on the wire: the
-        // collector numbers the fields' sorts in order, as the sentence
-        // keyed them.
-        constructor_ledger.define(field.sort_key())?;
         fields.push(WireConstructorFieldDescriptor {
             name: field_name,
-            sort: WireTypeReference {
-                slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
-                authored_path: spelling,
+            sort: WireSortReference {
+                key: constructor_ledger.define(field.sort_key())?,
+                target: WireTypeReference {
+                    slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
+                    authored_path: spelling,
+                },
             },
             arguments: Vec::new(),
         });

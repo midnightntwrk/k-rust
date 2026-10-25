@@ -2097,7 +2097,7 @@
       },
       {
         "sort": {
-          "TYPENAME": "WireTypeReference"
+          "TYPENAME": "WireSortReference"
         }
       },
       {
@@ -2154,7 +2154,7 @@
       {
         "parents": {
           "SEQ": {
-            "TYPENAME": "WireTypeReference"
+            "TYPENAME": "WireSortReference"
           }
         }
       }

@@ -32548,8 +32548,14 @@
             ],
             "name": "sample",
             "sort": {
-              "authored_path": "sample",
-              "slot": 1
+              "key": {
+                "ordinal": 0,
+                "role": "sort_declaration"
+              },
+              "target": {
+                "authored_path": "sample",
+                "slot": 1
+              }
             }
           }
         ],

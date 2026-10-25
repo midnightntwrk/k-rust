@@ -331,7 +331,7 @@ pub struct Foo { pub left: Term<dyn KItemSort>, pub right: Term<dyn Absent> }
     let HostDescriptorPayload::Constructor(payload) = &mut constructor.payload else {
         unreachable!("constructor fixture")
     };
-    payload.fields[1].sort = type_ref(other_type, "Absent");
+    payload.fields[1].sort.target = type_ref(other_type, "Absent");
     assert_eq!(
         located(vec![package.sort("KItem", kitem_type, vec![]), constructor]),
         "Absent"
@@ -1152,7 +1152,18 @@ impl TestPackage {
             declared_type: Some(krs_ir::HostDeclarationIdentity::Nominal(HostTypeKey(
                 declared,
             ))),
-            payload: HostDescriptorPayload::Sort(HostSortDescriptor { parents }),
+            // Each parent reference carries its parent anchor's key, in
+            // order.
+            payload: HostDescriptorPayload::Sort(HostSortDescriptor {
+                parents: parents
+                    .into_iter()
+                    .zip(0..)
+                    .map(|(target, ordinal)| krs_ir::HostSortReference {
+                        key: ProvenanceRole::SortParent.key(ordinal),
+                        target,
+                    })
+                    .collect(),
+            }),
             cfg: BTreeMap::new(),
             provenance: host_provenance("src/lib.rs", anchors),
         }
@@ -1201,9 +1212,13 @@ impl TestPackage {
             syn::Fields::Named(fields) => fields
                 .named
                 .iter()
-                .map(|field| HostConstructorFieldDescriptor {
+                .zip(0..)
+                .map(|(field, ordinal)| HostConstructorFieldDescriptor {
                     name: field.ident.as_ref().unwrap().to_string(),
-                    sort: type_ref(sort, "Expr"),
+                    sort: krs_ir::HostSortReference {
+                        key: ProvenanceRole::ConstructorFieldSort.key(ordinal),
+                        target: type_ref(sort, "Expr"),
+                    },
                     arguments: Vec::new(),
                 })
                 .collect(),

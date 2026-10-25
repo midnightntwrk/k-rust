@@ -49,7 +49,7 @@ fn __krs_constructor_descriptor_a8835a0320c3a44f() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Operand\"}},\"fields\":[{\"name\":\"index\",\"sort\":{\"slot\":1,\"authored_path\":\"k :: builtin :: int :: Int\"}}]}}",
+            "{\"constructor\":{\"sort\":{\"key\":{\"role\":\"constructor_sort\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"Operand\"}},\"fields\":[{\"name\":\"index\",\"sort\":{\"key\":{\"role\":\"constructor_field_sort\",\"ordinal\":0},\"target\":{\"slot\":1,\"authored_path\":\"k :: builtin :: int :: Int\"}}}]}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_constructor_sort_a8835a0320c3a44f),

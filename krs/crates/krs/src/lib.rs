@@ -574,9 +574,12 @@ mod tests {
             .expect("valid item"),
             declared_type: None,
             payload: HostDescriptorPayload::Sort(HostSortDescriptor {
-                parents: vec![HostTypeReference {
-                    key: HostTypeKey(parent_sort_key),
-                    authored_path: "owned::ParentSort".to_owned(),
+                parents: vec![krs_ir::HostSortReference {
+                    key: krs_ir::ProvenanceRole::SortParent.key(0),
+                    target: HostTypeReference {
+                        key: HostTypeKey(parent_sort_key),
+                        authored_path: "owned::ParentSort".to_owned(),
+                    },
                 }],
             }),
             cfg: BTreeMap::new(),
@@ -922,7 +925,7 @@ mod tests {
             panic!("test registration is a sort")
         };
         assert_eq!(sort.parents.len(), 1);
-        assert_eq!(sort.parents[0].authored_path, "owned::ParentSort");
+        assert_eq!(sort.parents[0].target.authored_path, "owned::ParentSort");
     }
 }
 

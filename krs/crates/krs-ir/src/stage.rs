@@ -62,10 +62,10 @@ impl Stage for WireStage {
     type Item = crate::wire::ItemSlot;
     type CellDeclaration = crate::wire::WireCellDeclarationReference;
     type InitializerOwner = crate::wire::WireTypeReference;
-    type Parent = crate::wire::WireTypeReference;
+    type Parent = crate::wire::WireSortReference;
     type Parents = Vec<Self::Parent>;
     type ConstructorSort = crate::wire::WireSortReference;
-    type ConstructorFieldSort = crate::wire::WireTypeReference;
+    type ConstructorFieldSort = crate::wire::WireSortReference;
 
     fn skip_constructor_field_sort(_: &Self::ConstructorFieldSort) -> bool {
         false
@@ -85,10 +85,10 @@ impl Stage for HostStage {
     type Item = crate::HostItemId;
     type CellDeclaration = crate::HostCellDeclarationReference;
     type InitializerOwner = crate::HostTypeKey;
-    type Parent = crate::HostTypeReference;
+    type Parent = crate::HostSortReference;
     type Parents = Vec<Self::Parent>;
     type ConstructorSort = crate::HostSortReference;
-    type ConstructorFieldSort = crate::HostTypeReference;
+    type ConstructorFieldSort = crate::HostSortReference;
 
     fn skip_constructor_field_sort(_: &Self::ConstructorFieldSort) -> bool {
         false

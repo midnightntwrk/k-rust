@@ -779,7 +779,7 @@ impl Sample for WireCellDeclarationReference {
 impl Sample for WireSortDescriptor {
     fn samples() -> Vec<Self> {
         vec![Self {
-            parents: sample::<Vec<WireTypeReference>>(),
+            parents: sample::<Vec<WireSortReference>>(),
         }]
     }
 }
@@ -805,7 +805,7 @@ impl Sample for WireConstructorFieldDescriptor {
     fn samples() -> Vec<Self> {
         vec![Self {
             name: sample::<String>(),
-            sort: sample::<WireTypeReference>(),
+            sort: sample::<WireSortReference>(),
             arguments: sample::<Vec<WireConstructorSortArgument>>(),
         }]
     }

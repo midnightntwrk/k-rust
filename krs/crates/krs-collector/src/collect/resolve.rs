@@ -455,8 +455,6 @@ struct Resolver<'a> {
     head_targets: &'a [HeadRuleTarget],
     head_selection: Option<HeadRuleSelection<'a>>,
     allow_builtin_application: bool,
-    parent_ordinal: u32,
-    field_ordinal: u32,
     /// The generated marker type of each sort parameter of this payload's
     /// parametric production, by its declared name (KF-027).
     parameters: HashMap<TypeId, String>,
@@ -610,11 +608,9 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
         )
     }
 
-    fn parent(&mut self, reference: HostTypeReference) -> Result<StableItemId, Self::Error> {
-        let key = krs_ir::ProvenanceRole::SortParent.key(self.parent_ordinal);
-        self.parent_ordinal += 1;
-        resolve_nominal_reference(&reference, ItemKind::Sort, self.declarations)
-            .map_err(|error| error.with_reference_key(key))
+    fn parent(&mut self, reference: HostSortReference) -> Result<StableItemId, Self::Error> {
+        resolve_nominal_reference(&reference.target, ItemKind::Sort, self.declarations)
+            .map_err(|error| error.with_reference_key(reference.key))
     }
 
     fn constructor_sort(
@@ -626,16 +622,14 @@ impl RefMap<HostStage, DescriptorStage> for Resolver<'_> {
 
     fn constructor_field_sort(
         &mut self,
-        reference: HostTypeReference,
+        reference: HostSortReference,
     ) -> Result<Option<DescriptorSortRef>, Self::Error> {
-        let key = krs_ir::ProvenanceRole::ConstructorFieldSort.key(self.field_ordinal);
-        self.field_ordinal += 1;
-        if let Some(name) = self.parameters.get(&reference.key.resolve()) {
+        if let Some(name) = self.parameters.get(&reference.target.key.resolve()) {
             return Ok(Some(DescriptorSortRef::Parameter(name.clone())));
         }
-        resolve_constructor_field_sort(&reference, self.declarations, self.builtins)
+        resolve_constructor_field_sort(&reference.target, self.declarations, self.builtins)
             .map(Some)
-            .map_err(|error| error.with_reference_key(key))
+            .map_err(|error| error.with_reference_key(reference.key))
     }
 
     fn term(&mut self, term: krs_ir::HostTerm) -> Result<krs_ir::HostTerm, Self::Error> {
@@ -1210,8 +1204,6 @@ pub(super) fn resolve_payload(
         head_targets,
         head_selection: None,
         allow_builtin_application: !matches!(payload, HostDescriptorPayload::Grammar(_)),
-        parent_ordinal: 0,
-        field_ordinal: 0,
         parameters: sort_parameters(payload),
     };
     payload
@@ -1797,8 +1789,6 @@ mod tests {
             head_targets: &[],
             head_selection: None,
             allow_builtin_application: true,
-            parent_ordinal: 0,
-            field_ordinal: 0,
         };
         let error = cell
             .try_map_refs(

@@ -9,7 +9,9 @@ use super::factory::{DescriptorFactory, FactoryPayload};
 use super::ledger::KeyLedger;
 use super::terms::{WireSlots, wire_sort_reference};
 use krs_ir::lower_hex;
-use krs_ir::wire::{WireGrammarDescriptor, WirePayload, WireSortDescriptor, WireTypeReference};
+use krs_ir::wire::{
+    WireGrammarDescriptor, WirePayload, WireSortDescriptor, WireSortReference, WireTypeReference,
+};
 use krs_syntax::surface::{AttributeMacro, helper_entry};
 use krs_syntax::{ProvenanceAnchor, SyntaxTemplateItem, TokenRange};
 use proc_macro2::{Span, TokenStream};
@@ -70,9 +72,7 @@ pub(crate) fn sort(
     let mut slots = WireSlots::new(&facade);
     let semantic_parents = attribute.parents();
     for (index, parent) in semantic_parents.iter().enumerate() {
-        // The parent reference carries no key on the wire: the collector
-        // numbers the parents in order, as the sentence keyed them.
-        ledger.define(attribute.parent_keys().get(index))?;
+        let parent_key = ledger.define(attribute.parent_keys().get(index))?;
         let key = format_ident!(
             "__krs_sort_parent_{nonce:016x}_{index}",
             span = Span::call_site()
@@ -86,9 +86,12 @@ pub(crate) fn sort(
                 ::core::any::TypeId::of::<#parent_type>()
             }
         });
-        parents.push(WireTypeReference {
-            slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
-            authored_path: spelling,
+        parents.push(WireSortReference {
+            key: parent_key,
+            target: WireTypeReference {
+                slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
+                authored_path: spelling,
+            },
         });
     }
 
@@ -358,9 +361,7 @@ fn expand_readable_sort(
     let mut parents = Vec::new();
     let mut slots = WireSlots::new(facade);
     for (index, parent) in declaration.parents().iter().enumerate() {
-        // The collector numbers the parents in order, as the sentence keyed
-        // them.
-        ledger.define(declaration.parent_keys().get(index))?;
+        let parent_key = ledger.define(declaration.parent_keys().get(index))?;
         let key = format_ident!("__krs_sort_parent_{nonce:016x}_{index}");
         // This hidden reference gives language tooling a real use of the
         // authored parent path while retaining its input span.
@@ -372,9 +373,12 @@ fn expand_readable_sort(
                 ::core::any::TypeId::of::<#path>()
             }
         });
-        parents.push(WireTypeReference {
-            slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
-            authored_path: authored,
+        parents.push(WireSortReference {
+            key: parent_key,
+            target: WireTypeReference {
+                slot: slots.type_slot(quote!(#facade::HostTypeKey(#key))),
+                authored_path: authored,
+            },
         });
     }
 

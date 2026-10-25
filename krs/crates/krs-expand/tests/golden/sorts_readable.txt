@@ -332,7 +332,7 @@ fn __krs_sort_descriptor_055e4df68589a682() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"ReadableExpr\"},{\"slot\":1,\"authored_path\":\"k :: KResult\"}]}}",
+            "{\"sort\":{\"parents\":[{\"key\":{\"role\":\"sort_parent\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"ReadableExpr\"}},{\"key\":{\"role\":\"sort_parent\",\"ordinal\":1},\"target\":{\"slot\":1,\"authored_path\":\"k :: KResult\"}}]}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_sort_parent_055e4df68589a682_0),
@@ -715,7 +715,7 @@ fn __krs_sort_descriptor_3d2b6e3da09d4920() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"DiamondTop\"}]}}",
+            "{\"sort\":{\"parents\":[{\"key\":{\"role\":\"sort_parent\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"DiamondTop\"}}]}}",
             ::k::__KrsSlots {
                 types: &[::k::HostTypeKey(__krs_sort_parent_3d2b6e3da09d4920_0)],
                 items: &[],
@@ -805,7 +805,7 @@ fn __krs_sort_descriptor_6a7ca0e7c3857a9a() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"DiamondTop\"}]}}",
+            "{\"sort\":{\"parents\":[{\"key\":{\"role\":\"sort_parent\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"DiamondTop\"}}]}}",
             ::k::__KrsSlots {
                 types: &[::k::HostTypeKey(__krs_sort_parent_6a7ca0e7c3857a9a_0)],
                 items: &[],
@@ -899,7 +899,7 @@ fn __krs_sort_descriptor_736b00612848daf9() -> ::core::result::Result<
             ),
         ),
         payload: ::k::__krs_host_payload(
-            "{\"sort\":{\"parents\":[{\"slot\":0,\"authored_path\":\"DiamondLeft\"},{\"slot\":1,\"authored_path\":\"DiamondRight\"}]}}",
+            "{\"sort\":{\"parents\":[{\"key\":{\"role\":\"sort_parent\",\"ordinal\":0},\"target\":{\"slot\":0,\"authored_path\":\"DiamondLeft\"}},{\"key\":{\"role\":\"sort_parent\",\"ordinal\":1},\"target\":{\"slot\":1,\"authored_path\":\"DiamondRight\"}}]}}",
             ::k::__KrsSlots {
                 types: &[
                     ::k::HostTypeKey(__krs_sort_parent_736b00612848daf9_0),
