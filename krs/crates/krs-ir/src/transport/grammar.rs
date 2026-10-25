@@ -2220,9 +2220,6 @@ pub enum GrammarTransportError {
     /// The provenance table contained a parser key not represented by the
     /// complete typed payload.
     ExtraProvenance(ProvenanceKey),
-    /// A `k!` or `map!` shell, in a function context's cells, lacked its
-    /// payload key, which every shell has.
-    MissingShellPayloadProvenance,
     /// A rule binding was blank, repeated, absent from the subject, or used in
     /// the result without being bound by the subject.
     InvalidBinding(String),
@@ -2288,9 +2285,6 @@ impl fmt::Display for GrammarTransportError {
                 key.role(),
                 key.ordinal()
             ),
-            Self::MissingShellPayloadProvenance => {
-                formatter.write_str("a `k!` or `map!` shell lacks its payload provenance")
-            }
             Self::InvalidBinding(binding) => write!(formatter, "invalid rule binding {binding:?}"),
             Self::InvalidLiteral => formatter.write_str("literal is not in canonical form"),
             Self::InvalidProduction(detail) => write!(formatter, "invalid production: {detail}"),
@@ -2316,7 +2310,6 @@ impl From<KeyFailure> for GrammarTransportError {
             KeyFailure::Duplicate(key) => Self::DuplicateProvenance(key),
             KeyFailure::Missing(key) => Self::MissingProvenance(key),
             KeyFailure::Extra(key) => Self::ExtraProvenance(key),
-            KeyFailure::UnkeyedShell => Self::MissingShellPayloadProvenance,
         }
     }
 }

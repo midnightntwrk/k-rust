@@ -23,7 +23,6 @@ use super::infer::{
 };
 use super::origin::{
     generated_semantic_id, key_range, role_key, semantic_cell_id, semantic_origin,
-    shell_payload_key,
 };
 use super::references::require_cell_field;
 use super::rules::{
@@ -206,7 +205,7 @@ impl StateRuleTerms<'_> {
                 self.term(term, Some(declared_sort), binding_sorts, subject)
             }
             ProtocolRuleStateTerm::KSequence(sequence) => {
-                let key = shell_payload_key(descriptor, sequence.payload_key.as_ref())?;
+                let key = &sequence.payload_key;
                 if *declared_sort != SemanticSortRef::k_sequence() {
                     return Err(DescriptorLoweringError::invalid_term(
                         descriptor.id(),
@@ -231,7 +230,7 @@ impl StateRuleTerms<'_> {
                 ))
             }
             ProtocolRuleStateTerm::Map(map) => {
-                let key = shell_payload_key(descriptor, map.payload_key.as_ref())?;
+                let key = &map.payload_key;
                 if *declared_sort != SemanticSortRef::map() {
                     return Err(DescriptorLoweringError::invalid_term(
                         descriptor.id(),
@@ -1856,7 +1855,7 @@ mod state_frame_tests {
 
     fn map(body: ProtocolRuleMapBody<DescriptorTerm>) -> ProtocolRuleStateTerm<DescriptorTerm> {
         ProtocolRuleStateTerm::Map(krs_ir::ProtocolRuleMap {
-            payload_key: Some(key(ProvenanceRole::MapPayload)),
+            payload_key: key(ProvenanceRole::MapPayload),
             body,
         })
     }
@@ -1910,7 +1909,7 @@ mod state_frame_tests {
     fn exact_forms_do_not_admit_a_frame_and_framed_families_remain_typed() {
         let empty = map(ProtocolRuleMapBody::Empty { explicit_dot: true });
         let framed_k = ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
-            payload_key: Some(key(ProvenanceRole::KSequencePayload)),
+            payload_key: key(ProvenanceRole::KSequencePayload),
             dot_k_key: None,
             notation: krs_ir::DescriptorKSequenceNotation::Comma,
             items: Vec::new(),
@@ -1948,7 +1947,7 @@ mod state_frame_tests {
     #[test]
     fn a_bound_remainder_with_an_exact_result_is_moved() {
         let framed_k = ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
-            payload_key: Some(key(ProvenanceRole::KSequencePayload)),
+            payload_key: key(ProvenanceRole::KSequencePayload),
             dot_k_key: None,
             notation: krs_ir::DescriptorKSequenceNotation::Comma,
             items: Vec::new(),
@@ -1958,7 +1957,7 @@ mod state_frame_tests {
             },
         });
         let exact_k = ProtocolRuleStateTerm::KSequence(krs_ir::ProtocolRuleKSequence {
-            payload_key: Some(key(ProvenanceRole::KSequencePayload)),
+            payload_key: key(ProvenanceRole::KSequencePayload),
             dot_k_key: None,
             notation: krs_ir::DescriptorKSequenceNotation::Comma,
             items: Vec::new(),

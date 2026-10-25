@@ -807,10 +807,7 @@ fn cell_and_sibling_identities_preserve_owner_and_field_comparisons_on_both_stag
 fn k_sequence_shell(ordinal: u32) -> ProtocolInitializerStateTerm<Term<DescriptorStage>> {
     let item = ProvenanceKey::new(ProvenanceRole::KSequenceItem, ordinal);
     ProtocolInitializerStateTerm::KSequence(ProtocolKSequence {
-        payload_key: Some(ProvenanceKey::new(
-            ProvenanceRole::KSequencePayload,
-            ordinal,
-        )),
+        payload_key: ProvenanceKey::new(ProvenanceRole::KSequencePayload, ordinal),
         dot_k_key: None,
         notation: DescriptorKSequenceNotation::Comma,
         items: vec![ProtocolKSequenceItem {

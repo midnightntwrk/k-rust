@@ -44,11 +44,6 @@ pub(crate) enum KeyFailure {
     Missing(ProvenanceKey),
     /// An anchor that no wire node consumes.
     Extra(ProvenanceKey),
-    /// A `k!` or `map!` shell without its payload key. Every shell has one,
-    /// anchored at its payload or, when the shell is empty, at its
-    /// invocation; the wire field stays optional until the next schema
-    /// bump.
-    UnkeyedShell,
 }
 
 /// The keys of one payload's wire nodes, gathered by its validator.

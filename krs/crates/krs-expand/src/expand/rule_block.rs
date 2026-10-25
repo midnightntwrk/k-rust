@@ -768,7 +768,7 @@ fn readable_state_wire(
         StateTerm::KSequence(sequence) => {
             // Every `[..]` has its payload key: an empty one is anchored at
             // its brackets.
-            let payload_key = Some(ledger.define(sequence.payload_key())?);
+            let payload_key = ledger.define(sequence.payload_key())?;
             let mut items = Vec::new();
             for item in sequence.items() {
                 let key = ledger.define(item.keys().payload())?;

@@ -310,11 +310,10 @@ protocol_shape! {
     #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
     #[serde(deny_unknown_fields)]
     pub struct ProtocolRuleKSequence<T => term_map => T2> {
-        /// Complete payload provenance; every sequence has it. An empty
-        /// sequence's is at its own delimiters: an empty `k![]`'s
-        /// invocation, `KCell()`'s parentheses, or a readable instance
-        /// child's `[]`.
-        pub payload_key: Option<ProvenanceKey> => [keep],
+        /// Complete payload provenance. An empty sequence's is at its own
+        /// delimiters: an empty `k![]`'s invocation, `KCell()`'s
+        /// parentheses, or a readable instance child's `[]`.
+        pub payload_key: ProvenanceKey => [keep],
         /// Exact standalone `.K` provenance.
         pub dot_k_key: Option<ProvenanceKey> => [keep],
         /// Preserved parser notation.
@@ -383,8 +382,8 @@ protocol_shape! {
     #[serde(deny_unknown_fields)]
     pub struct ProtocolRuleMap<T => term_map => T2> {
         /// Complete map payload provenance, at the invocation of an empty
-        /// `map![]`; every map has it.
-        pub payload_key: Option<ProvenanceKey> => [keep],
+        /// `map![]`.
+        pub payload_key: ProvenanceKey => [keep],
         /// Classified map operation.
         pub body: ProtocolRuleMapBody<T> => [nested term_map],
     }
@@ -1172,11 +1171,7 @@ pub(super) fn collect_state_keys<T, E: From<KeyFailure>>(
             }
         }
         ProtocolRuleStateTerm::KSequence(sequence) => {
-            let key = sequence
-                .payload_key
-                .as_ref()
-                .ok_or(KeyFailure::UnkeyedShell)?;
-            define(keys, key, RuleRole::KSequencePayload)?;
+            define(keys, &sequence.payload_key, RuleRole::KSequencePayload)?;
             for key in sequence.dot_k_key.iter().chain(frame_key(&sequence.tail)) {
                 define(keys, key, RuleRole::KSequenceTail)?;
             }
@@ -1186,8 +1181,7 @@ pub(super) fn collect_state_keys<T, E: From<KeyFailure>>(
             }
         }
         ProtocolRuleStateTerm::Map(map) => {
-            let key = map.payload_key.as_ref().ok_or(KeyFailure::UnkeyedShell)?;
-            define(keys, key, RuleRole::MapPayload)?;
+            define(keys, &map.payload_key, RuleRole::MapPayload)?;
             match &map.body {
                 ProtocolRuleMapBody::Empty { .. } => {}
                 ProtocolRuleMapBody::Items { items, remainder } => {

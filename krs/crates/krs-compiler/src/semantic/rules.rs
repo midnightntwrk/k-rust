@@ -25,7 +25,7 @@ use super::error::DescriptorLoweringError;
 use super::infer::{CollectionUse, StructuredTermBuilder, initial_binding_constraints};
 use super::origin::{
     generated_semantic_id, key_range, role_key, semantic_cell_id, semantic_origin,
-    semantic_origin_from_primary, shell_payload_key,
+    semantic_origin_from_primary,
 };
 use super::references::require_cell_field;
 
@@ -1432,7 +1432,7 @@ impl super::cell_states::StateLowering for HeadStateLowering<'_, '_> {
         match state {
             State::Term(term) | State::Group(term) => self.builder.lower(term, Some(sort), subject),
             State::KSequence(sequence) => {
-                let key = shell_payload_key(descriptor, sequence.payload_key.as_ref())?;
+                let key = &sequence.payload_key;
                 let range = key_range(descriptor, key);
                 if *sort != SemanticSortRef::k_sequence() {
                     return Err(DescriptorLoweringError::invalid_term(

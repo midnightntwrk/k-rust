@@ -1578,9 +1578,7 @@
     "STRUCT": [
       {
         "payload_key": {
-          "OPTION": {
-            "TYPENAME": "ProvenanceKeyWire"
-          }
+          "TYPENAME": "ProvenanceKeyWire"
         }
       },
       {

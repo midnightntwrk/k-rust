@@ -181,7 +181,7 @@ pub fn fixed_configuration() -> (StableItemId, DescriptorFixedConfiguration) {
                         constructor_key: key(ProvenanceRole::InitializerCellConstructor, 0),
                         wrapper: CellWrapper::KCell,
                         value: ProtocolInitializerStateTerm::KSequence(ProtocolKSequence {
-                            payload_key: Some(key(ProvenanceRole::KSequencePayload, 0)),
+                            payload_key: key(ProvenanceRole::KSequencePayload, 0),
                             dot_k_key: None,
                             notation: krs_ir::DescriptorKSequenceNotation::Comma,
                             items: vec![ProtocolKSequenceItem {
@@ -284,14 +284,14 @@ pub fn frame_binding(
 pub fn configuration_rule(owner: &StableItemId) -> DescriptorConfigurationRule {
     let k_state = |side: RuleSide, value: &str, tail| {
         ProtocolRuleStateTerm::KSequence(ProtocolRuleKSequence {
-            payload_key: Some(key(
+            payload_key: key(
                 side_role(
                     side,
                     ProvenanceRole::RuleLeftKSequencePayload,
                     ProvenanceRole::RuleRightKSequencePayload,
                 ),
                 0,
-            )),
+            ),
             dot_k_key: None,
             notation: krs_ir::DescriptorKSequenceNotation::Comma,
             items: vec![ProtocolRuleKSequenceItem {
@@ -369,7 +369,7 @@ pub fn configuration_rule(owner: &StableItemId) -> DescriptorConfigurationRule {
                     "env",
                     CellWrapper::Cell,
                     ProtocolRuleStateTerm::Map(ProtocolRuleMap {
-                        payload_key: Some(key(ProvenanceRole::RuleLeftMapPayload, 0)),
+                        payload_key: key(ProvenanceRole::RuleLeftMapPayload, 0),
                         body: ProtocolRuleMapBody::Items {
                             items: vec![ProtocolRuleMapItem {
                                 key_key: key(ProvenanceRole::RuleLeftMapKey, 0),

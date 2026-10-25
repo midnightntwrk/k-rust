@@ -560,10 +560,7 @@ mod tests {
                             ),
                             wrapper: CellWrapper::Cell,
                             value: ProtocolInitializerStateTerm::Map(ProtocolMap {
-                                payload_key: Some(ProvenanceKey::new(
-                                    ProvenanceRole::MapPayload,
-                                    0,
-                                )),
+                                payload_key: ProvenanceKey::new(ProvenanceRole::MapPayload, 0),
                                 body: ProtocolMapBody::Empty {
                                     explicit_dot: false,
                                 },

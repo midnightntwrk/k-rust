@@ -294,7 +294,7 @@ fn configuration_declaration_traversal_maps_fields_and_generic_arguments() {
 fn initializer_state_traversal_maps_sequences_and_every_map_variant() {
     assert_mapping!(initializer_term(0), [map_term], ["sort"]);
     let sequence = cfg::ProtocolKSequence {
-        payload_key: Some(key(0)),
+        payload_key: key(0),
         dot_k_key: None,
         notation: cfg::DescriptorKSequenceNotation::Operator,
         items: vec![cfg::ProtocolKSequenceItem {
@@ -344,7 +344,7 @@ fn initializer_state_traversal_maps_sequences_and_every_map_variant() {
         assert_eq!(mapped, body);
         assert_eq!(map.calls, vec!["sort"; expected]);
         let state = cfg::ProtocolInitializerStateTerm::Map(cfg::ProtocolMap {
-            payload_key: Some(key(0)),
+            payload_key: key(0),
             body,
         });
         let mut map = CountingMap::default();
@@ -565,7 +565,7 @@ fn rule_sequence_traversal_preserves_every_frame_variant() {
     assert_mapping!(sequence_item.clone(), [map_term], ["sort"]);
     for tail in frames() {
         let sequence = rule::ProtocolRuleKSequence {
-            payload_key: Some(key(0)),
+            payload_key: key(0),
             dot_k_key: None,
             notation: cfg::DescriptorKSequenceNotation::Operator,
             items: vec![sequence_item.clone()],
@@ -596,7 +596,7 @@ fn rule_map_traversal_covers_items_updates_empty_and_frames() {
         };
         assert_mapping!(body.clone(), [map_term], ["sort", "sort"]);
         let map = rule::ProtocolRuleMap {
-            payload_key: Some(key(0)),
+            payload_key: key(0),
             body,
         };
         assert_mapping!(map.clone(), [map_term], ["sort", "sort"]);

@@ -882,7 +882,7 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolKSeque
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolKSequence<T> {
     fn samples() -> Vec<Self> {
         vec![Self {
-            payload_key: sample::<Option<ProvenanceKey>>(),
+            payload_key: sample::<ProvenanceKey>(),
             dot_k_key: sample::<Option<ProvenanceKey>>(),
             notation: sample::<DescriptorKSequenceNotation>(),
             items: sample::<Vec<ProtocolKSequenceItem<T>>>(),
@@ -3857,7 +3857,7 @@ impl<
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolMap<T> {
     fn samples() -> Vec<Self> {
         vec![Self {
-            payload_key: sample::<Option<ProvenanceKey>>(),
+            payload_key: sample::<ProvenanceKey>(),
             body: sample::<ProtocolMapBody<T>>(),
         }]
     }
@@ -3908,7 +3908,7 @@ impl<
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleKSequence<T> {
     fn samples() -> Vec<Self> {
         vec![Self {
-            payload_key: sample::<Option<ProvenanceKey>>(),
+            payload_key: sample::<ProvenanceKey>(),
             dot_k_key: sample::<Option<ProvenanceKey>>(),
             notation: sample::<DescriptorKSequenceNotation>(),
             items: sample::<Vec<ProtocolRuleKSequenceItem<T>>>(),
@@ -3919,7 +3919,7 @@ impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleKS
 impl<T: Sample + Clone + Serialize + DeserializeOwned> Sample for ProtocolRuleMap<T> {
     fn samples() -> Vec<Self> {
         vec![Self {
-            payload_key: sample::<Option<ProvenanceKey>>(),
+            payload_key: sample::<ProvenanceKey>(),
             body: sample::<ProtocolRuleMapBody<T>>(),
         }]
     }

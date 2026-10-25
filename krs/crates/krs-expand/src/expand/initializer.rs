@@ -497,7 +497,7 @@ impl<'a> InitializerBuilder<'a> {
         let ledger = self.terms.ledger;
         // Every shell has its payload key: an empty one is anchored at
         // its invocation.
-        let payload_key = Some(ledger.define(sequence.payload_key())?);
+        let payload_key = ledger.define(sequence.payload_key())?;
         let dot_k_key = if sequence.notation() == KSequenceNotation::DotK {
             Some(ledger.define(sequence.tail_key())?)
         } else {
@@ -537,7 +537,7 @@ impl<'a> InitializerBuilder<'a> {
         let ledger = self.terms.ledger;
         // Every shell has its payload key: an empty one is anchored at
         // its invocation.
-        let payload_key = Some(ledger.define(map.payload_key())?);
+        let payload_key = ledger.define(map.payload_key())?;
         let body = match map.body() {
             MapBody::Empty { explicit_dot } => ProtocolMapBody::Empty {
                 explicit_dot: *explicit_dot,

@@ -1698,12 +1698,11 @@ mod tests {
         );
     }
 
-    /// A readable state's shells have their payload keys, as every shell
-    /// does: an instance child `[]` or `map![]` without its key is refused
-    /// at the transport.
+    /// A readable state's shells define their payload keys, as every shell
+    /// does: an instance child `[]` or `map![]` is accepted with its key
+    /// anchored, and refused when no anchor holds it.
     #[test]
     fn a_readable_state_shell_has_its_payload_key() {
-        use crate::transport::detail::StateCellContentReason;
         use crate::{
             InstanceDelimiter, ProtocolInstanceRest, ProtocolRuleFrame, ProtocolRuleInstance,
             ProtocolRuleInstanceField, ProtocolRuleInstances, ProtocolRuleKSequence,
@@ -1770,26 +1769,11 @@ mod tests {
             key(ProvenanceRole::RuleLeftKSequencePayload, 0),
             key(ProvenanceRole::RuleLeftMapPayload, 0),
         ];
-        let unkeyed = Err(crate::StateTransportError::InvalidCellContent(
-            StateCellContentReason::MissingShellPayloadProvenance,
-        ));
-
-        let keyed = with_child(sequence(Some(key(
-            ProvenanceRole::RuleLeftKSequencePayload,
-            0,
-        ))));
+        let keyed = with_child(sequence(key(ProvenanceRole::RuleLeftKSequencePayload, 0)));
         assert_eq!(keyed.validate_anchored_provenance(&anchors), Ok(()));
-        assert_eq!(
-            with_child(sequence(None)).validate_anchored_provenance(&anchors),
-            unkeyed
-        );
 
-        let keyed = with_child(map(Some(key(ProvenanceRole::RuleLeftMapPayload, 0))));
+        let keyed = with_child(map(key(ProvenanceRole::RuleLeftMapPayload, 0)));
         assert_eq!(keyed.validate_anchored_provenance(&anchors), Ok(()));
-        assert_eq!(
-            with_child(map(None)).validate_anchored_provenance(&anchors),
-            unkeyed
-        );
 
         // The key is defined by the shell: one no anchor holds is refused.
         anchors.pop();

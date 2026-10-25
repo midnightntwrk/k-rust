@@ -138,7 +138,7 @@ pub fn machine_configuration(start: StableItemId) -> DescriptorInputs {
                     wrapper: CellWrapper::KCell,
                     value: krs_ir::ProtocolInitializerStateTerm::KSequence(
                         krs_ir::ProtocolKSequence {
-                            payload_key: Some(key(ProvenanceRole::KSequencePayload, 0)),
+                            payload_key: key(ProvenanceRole::KSequencePayload, 0),
                             dot_k_key: None,
                             notation: krs_ir::DescriptorKSequenceNotation::Comma,
                             items: vec![krs_ir::ProtocolKSequenceItem {
