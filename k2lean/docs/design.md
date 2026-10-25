@@ -137,6 +137,8 @@ The components:
 - a counter's distance to a bound, before a component that decreases only beyond that bound (KEVM's `#fakeExponential`: the counter `I` increases towards `|NUMER| + 1`, and beyond it the accumulator `ACCUM *Int NUMER /Int (DENOM *Int I)` is smaller than `ACCUM`, `KPrelude.IntHook.tdiv_mul_facts`).
 
 The choice is checked symbolically before it is emitted: facts are linear integer forms, and a decrease is a consequence of the facts at the call, decided by Fourier–Motzkin elimination over the rationals with each fact's constant rounded down (sound for integers, incomplete); `omega` decides at least as much.
+A case the facts exclude (the branch of a guarded rank where its guard fails, at a call where the guard holds) constrains nothing, whatever the components' values there.
+The facts include the prelude's about the hooks the calls go through: a right shift (`IntHook.shr_facts`), a defined `findString` is `-1` or an index at which the needle fits (`StringHook.find_facts`), the length of a `substrString` is at most the string's and at most what follows its start when the start is in range (`StringHook.substr_facts`), a string literal's length (by `rfl`); the lengths of a function's `String` and `Bytes` parameters are terms an invariant may bound, so `splitAt(S, I)` of the gate's `demos/k/term`, called only with an index `findString` returned, gets the measure `length S + 1`, then a rank guarded by `-1 ≤ I ≤ length S - 1` (KMIR's `#splitSemicolon`).
 
 Facts about a callee that the measure needs are lemmas derived from the callee's equations and proved before the group, registered with `@[k2l_fact]` so that `k2l_facts` adds them to a goal:
 

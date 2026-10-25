@@ -184,8 +184,21 @@ fn lin(l: &L) -> Option<Lin> {
                 _ => Some(compound_atom(l)),
             }
         }
+        L::App(h, args) if h == "KPrelude.StringHook.length" && args.len() == 1 => {
+            match str_lit_len(&args[0]) {
+                Some(n) => Some(Lin::konst(n)),
+                None => Some(compound_atom(l)),
+            }
+        }
         L::App(..) | L::Typed(..) => Some(compound_atom(l)),
     }
+}
+
+/// The length of a Lean string literal without escapes (`k2l_facts` states it by `rfl`).
+fn str_lit_len(l: &L) -> Option<i128> {
+    let L::Raw(r) = l else { return None };
+    let t = r.strip_prefix('"')?.strip_suffix('"')?;
+    (!t.contains('\\') && !t.contains('"')).then(|| t.chars().count() as i128)
 }
 
 /// The facts a Boolean condition gives when it holds (`pos`) or fails.
@@ -571,6 +584,18 @@ fn hook_facts(h: &str, args: &[L], var: &str, facts: &mut Vec<Fact>) {
                 }
                 if implied(&a.plus(-1), facts) {
                     facts.push(a.add(&r, -1).plus(-1));
+                }
+            }
+        }
+        ("KPrelude.StringHook.find", [h, n, _]) => {
+            // `StringHook.find_facts`: -1 ≤ r ≤ length h, and r = -1 or r + length n ≤ length h,
+            // so r < length h for a needle that is not empty
+            let r = Lin::atom(var);
+            if let Some(lh) = lin(&L::app("KPrelude.StringHook.length", vec![h.clone()])) {
+                facts.push(r.plus(1));
+                facts.push(lh.add(&r, -1));
+                if str_lit_len(n).is_some_and(|k| k >= 1) {
+                    facts.push(lh.add(&r, -1).plus(-1));
                 }
             }
         }
@@ -2286,6 +2311,27 @@ impl Ctx {
             if a.starts_with(SHAPE) {
                 add.push(Lin::atom(a));
             }
+            // `StringHook.length_nonneg`, `StringHook.substr_facts`
+            if let L::App(h, args) = atom_term(a)
+                && h == "KPrelude.StringHook.length"
+                && let [x] = args.as_slice()
+            {
+                let x_len = Lin::atom(a);
+                add.push(x_len.clone());
+                if let L::App(g, sargs) = x
+                    && g == "KPrelude.StringHook.substr"
+                    && let [s0, i, _] = sargs.as_slice()
+                    && let (Some(ls), Some(i)) = (
+                        lin(&L::app("KPrelude.StringHook.length", vec![s0.clone()])),
+                        lin(i),
+                    )
+                {
+                    add.push(ls.add(&x_len, -1));
+                    if f.entails(&i) && f.entails(&ls.add(&i, -1)) {
+                        add.push(ls.add(&i, -1).add(&x_len, -1));
+                    }
+                }
+            }
             if let L::App(h, args) = atom_term(a)
                 && let Some(g) = self.fns.get(&h)
                 && g.pure
@@ -2556,7 +2602,9 @@ impl Ctx {
         };
         match (callee, caller) {
             (K(a), K(b)) => {
-                if a < b {
+                // an infeasible case (a guard's branch the facts exclude) constrains nothing,
+                // as for the other values, whose comparisons are entailments
+                if a < b || self.close(facts, &[]).infeasible() {
                     Rel::Lt
                 } else if a <= b {
                     Rel::Le
@@ -3050,6 +3098,16 @@ impl Ctx {
             for (p, t) in gd.params.iter().zip(&gd.arg_tys) {
                 if self.is_int(t) {
                     targets.push(L::Var(p.clone()));
+                }
+                // the length of a string or byte-array parameter, which a fact at a call into
+                // the function may bound (an index into it)
+                let len = match t.as_str() {
+                    "SortString" | "String" => Some("KPrelude.StringHook.length"),
+                    "SortBytes" => Some("KPrelude.BytesHook.length"),
+                    _ => None,
+                };
+                if let Some(h) = len {
+                    targets.push(L::app(h, vec![L::Var(p.clone())]));
                 }
             }
             for e in edges.iter().filter(|e| e.from == g) {
