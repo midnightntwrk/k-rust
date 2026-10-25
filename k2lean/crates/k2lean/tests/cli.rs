@@ -637,16 +637,16 @@ fn relate_with_kept_positions_states_the_bisimulation_without_a_key_invariant() 
     );
 }
 
-/// A function with a free-key equation (`MapHook.chooseFirst`) gets no commutation lemma, so
-/// `relate` refuses the bisimulation with an error naming it (exit status 2), not a panic.
+/// A recursive function with a free-key equation (`MapHook.chooseFirst`) gets no commutation
+/// lemma, so `relate` refuses the bisimulation with an error naming it (exit status 2), not a panic.
 #[test]
-fn relate_refuses_a_function_with_a_free_key_equation() {
+fn relate_refuses_a_recursive_function_with_a_free_key_equation() {
     let d = tmp("cli-relate-freekey");
     let o = relate_fixture("freekey", &d);
     assert_eq!(o.status.code(), Some(2));
     let err = String::from_utf8_lossy(&o.stderr);
     assert!(
-        err.contains("relate: the function allNat(_)_FREEKEY_Bool_Map has an equation with a free-key map pattern"),
+        err.contains("relate: the function allNat(_)_FREEKEY_Bool_Map has an equation with a free-key map pattern; its commutation with the translation is generated only for a non-recursive function"),
         "{err}"
     );
 }
@@ -761,4 +761,32 @@ fn confluence_threads_leaves_the_global_and_same_thread_pairs_open() {
         v.contains("theorem terminal_unique_of (O : OpenJoins) (S : SameThreadJoins)"),
         "{v}"
     );
+}
+
+/// The non-recursive functions with free-key equations of the `pick` fixture (one free key, two,
+/// and a partial one) commute with a translation that keeps every constructor's position: each
+/// lemma rewrites the two free-key equations by `MapHook.dite_chooseFirst_pointwise`
+/// (`k2l_choose`) and compares the continuations binding by binding (`choose_cont`).
+#[test]
+fn relate_proves_the_commutation_of_non_recursive_free_key_functions() {
+    let d = tmp("cli-relate-pick");
+    let o = relate_fixture("pick", &d);
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let lean = std::fs::read_to_string(d.join("Bisim.lean")).unwrap();
+    for f in [
+        "hasNeg(_)_PICK_Bool_Map",
+        "twoPos(_)_PICK_Bool_Map",
+        "anyPos(_)_PICK_Int_Map",
+    ] {
+        assert!(
+            lean.contains(&format!("B.K.«{f}» (tr_SortMap x0)")),
+            "missing the lemma of {f}"
+        );
+    }
+    assert_eq!(
+        lean.matches("  k2l_choose pw_SortMap pres_SortKItem id\n")
+            .count(),
+        3
+    );
+    assert!(lean.contains("theorem bisim : Bisimulation A.Step B.Step R"));
 }
