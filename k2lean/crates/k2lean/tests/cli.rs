@@ -644,3 +644,31 @@ fn relate_refuses_a_function_with_a_free_key_equation() {
         "{err}"
     );
 }
+
+/// `confluence --report-only` on the `threadend` fixture: the end of a thread (its `<k>` empty) is
+/// matched at the key `<id> _ </id>`, the step of a thread at a variable key; taken as one binding
+/// (the classifier's same-binding mode), the two keys unify and the two `<k>` cells clash, so the
+/// pair is not critical at one binding (it still is at two, where the end removes a binding).
+#[test]
+fn confluence_separates_a_thread_end_matched_at_a_constructor_key_at_one_binding() {
+    let d = tmp("cli-confluence-threadend");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/threadend/definition.kore");
+    let report = d.join("confluence.toml");
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("confluence")
+        .arg("--kore")
+        .arg(&fx)
+        .args(["--name", "T", "--report-only", "true", "--report"])
+        .arg(&report)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let r = std::fs::read_to_string(&report).unwrap();
+    assert!(r.contains("[one_binding]\nclash = 1\n\n"), "{r}");
+    assert!(!r.contains("(one binding"), "{r}");
+    assert!(
+        r.contains("\"step | end (two bindings: the map's bindings change)\""),
+        "{r}"
+    );
+}
