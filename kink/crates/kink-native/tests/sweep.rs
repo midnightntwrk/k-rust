@@ -94,6 +94,11 @@ const IMPLEMENTATION_CHOSEN: &[&str] = &[
     // Re-pin R0c-fix-2: `keccak` is hooked `KRYPTO.keccak256`, which k-rust evaluates and no
     // builtin file documents.
     "testdata/k/t13implemented.k",
+    // fz26 KINK-CENSUS-RUNLIST: the String2Bytes/Bytes2String pair, which k-rust evaluates with
+    // no run-level record, stays in the definition-level census by design, so these fixtures are
+    // excluded (iop.k applies the pair in a rule, lhs.k in a left-hand-side map key).
+    "testdata/k/runlist/iop.k",
+    "testdata/k/runlist/lhs.k",
 ];
 
 /// Snapshot of tracked fixture/module pairs at TB-03's start; new t12 fixtures deliberately
@@ -288,12 +293,15 @@ fn units(only: Option<&[&str]>) -> Vec<Unit> {
         for entry in std::fs::read_dir(&dir).unwrap() {
             let path = entry.unwrap().path();
             if path.is_dir() {
-                // The Z3 fixtures and R0b's, R0c's and re-pin adoption A-1's own fixtures
-                // are pinned by their own tests (A-1's `marks.k` is flagged by design).
+                // The Z3 fixtures and R0b's, R0c's, re-pin adoption A-1's and fz26
+                // KINK-BASELINE-FINDINGS' own fixtures are pinned by their own tests (A-1's
+                // `marks.k` is flagged by design; KBF's `listrow.k` rewrites a term headed by a
+                // collection, a role-rooted axiom, by design: kink-native `tests/data.rs`).
                 if !path.ends_with("testdata/k/z3")
                     && !path.ends_with("testdata/k/r0b")
                     && !path.ends_with("testdata/k/r0c")
                     && !path.ends_with("testdata/k/a1")
+                    && !path.ends_with("testdata/k/kbf")
                 {
                     pending.push(path);
                 }
