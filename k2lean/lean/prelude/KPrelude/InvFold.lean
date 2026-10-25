@@ -129,6 +129,17 @@ macro "k2l_fold_eqn " f:ident : tactic => do
       Option.some.injEq, Prod.mk.injEq, reduceCtorEq] at *)
     all_goals (subst_vars; first | rfl | simp_all)))
 
+/-- Two partial `Bool` calls joined by `andBool`, as an equation states them (each call bound in
+turn): `true` exactly when both are. -/
+theorem bind_bind_and_eq_some_true {a b : Option Bool} :
+    (a.bind fun r => b.bind fun r' => some (BoolHook.and r r')) = some true ↔
+      a = some true ∧ b = some true := by
+  cases a with
+  | none => simp
+  | some x => cases b with
+    | none => simp
+    | some y => cases x <;> cases y <;> simp [BoolHook.and]
+
 /-- A K function of a tree of cells whose right-hand side combines partial `Bool` calls
 (`A andBool B`, `A orBool B`) is, through `Invariant.f_cells`, a chain of `Option.bind`s; this
 splits one link of the chain on the value of its call, so that `(A.bind fun r => B.bind fun r_1 =>

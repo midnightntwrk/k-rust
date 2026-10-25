@@ -540,6 +540,235 @@ fn fold_of(m: &Model, fns: &Fns, eqs: &BTreeMap<String, Vec<Equation>>, f: &str)
     })
 }
 
+/// A fold over a `K` sequence, recognized among the functions an invariant calls.
+struct KFold {
+    lean: String,
+    base: String,
+    /// the argument position of the sequence, and every other argument (a parameter the fold
+    /// passes unchanged): (Lean name, sort)
+    pos: usize,
+    params: Vec<(String, String)>,
+    /// the test of one item `x`, a proposition (`g x p… = some true` for a partial `g`)
+    test: String,
+    x: String,
+    unit_eqn: String,
+    cons_eqn: String,
+}
+
+impl KFold {
+    fn call(&self, k: &str) -> String {
+        let mut args: Vec<String> = self.params.iter().map(|(n, _)| n.clone()).collect();
+        args.insert(self.pos, paren(k));
+        format!("{} {}", self.lean, args.join(" "))
+    }
+
+    fn binders(&self) -> String {
+        self.params
+            .iter()
+            .map(|(n, t)| format!(" ({n} : {t})"))
+            .collect()
+    }
+}
+
+/// `f(.K, P…) => true` and `f(I ~> K, P…) => g(I, P…) andBool f(K, P…)`: a fold over a `K`
+/// sequence, which `.K` and `_~>_` generate freely, with the test of one item a call of a
+/// function `g` (total, or partial: well-founded and `Option`-valued, a function of the same
+/// mutual group, SIMPLE's `itemIn`), the other arguments variables the recursive call passes
+/// unchanged, no requires, both equations proved. Its element-wise form
+/// `Invariant.f_iff : f k p = some true ↔ Invariant.kAll (fun x => test) k` is proved by induction
+/// on `k` from the two equations, so a rule that pushes or pops items of `<k>` reads it item by
+/// item, and `g` is unfolded only at the items a rule builds.
+fn kfold_of(
+    m: &Model,
+    fns: &Fns,
+    eqs: &BTreeMap<String, Vec<Equation>>,
+    proved: &dyn Fn(&String) -> bool,
+    f: &str,
+) -> Option<KFold> {
+    let sig = fns.get(f)?;
+    let es = eqs.get(f)?;
+    if es.len() != 2
+        || sig.result != "SortBool"
+        || es.iter().any(|e| e.owise || !e.requires.is_empty())
+    {
+        return None;
+    }
+    let pos = sig.args.iter().position(|a| a == "SortK")?;
+    let is_unit = |p: &P| matches!(p, P::App(u, _, a) if u == "dotk" && a.is_empty());
+    let ui = es.iter().position(|e| is_unit(&e.args[pos]))?;
+    let ci = 1 - ui;
+    let (unit, cons) = (&es[ui], &es[ci]);
+    if !matches!(&unit.rhs, P::Dv(_, v) if v == "true") {
+        return None;
+    }
+    let P::App(c, _, ca) = &cons.args[pos] else {
+        return None;
+    };
+    let (P::Var(xv, _), P::Var(kv, _)) = (ca.first()?, ca.get(1)?) else {
+        return None;
+    };
+    if c != "kseq" || ca.len() != 2 || xv == kv {
+        return None;
+    }
+    let mut pvars: Vec<(usize, String)> = Vec::new();
+    for j in (0..sig.args.len()).filter(|&j| j != pos) {
+        let P::Var(v, _) = &cons.args[j] else {
+            return None;
+        };
+        if v == xv || v == kv || pvars.iter().any(|(_, w)| w == v) {
+            return None;
+        }
+        pvars.push((j, v.clone()));
+    }
+    let P::App(and, _, aa) = &cons.rhs else {
+        return None;
+    };
+    if hook(m, and) != Some("BOOL.and") || aa.len() != 2 {
+        return None;
+    }
+    let is_rec = |p: &P| {
+        matches!(p, P::App(g, _, a) if g == f && a.len() == sig.args.len()
+            && matches!(&a[pos], P::Var(v, _) if v == kv)
+            && pvars.iter().all(|(j, w)| matches!(&a[*j], P::Var(v, _) if v == w)))
+    };
+    if !is_rec(&aa[1]) {
+        return None;
+    }
+    // the test: a call of `g` on the item and the parameters, as the equation binds it first
+    let P::App(g, _, ga) = &aa[0] else {
+        return None;
+    };
+    let gsig = fns.get(g)?;
+    let mut lw = Lower::new(m, fns, &["k"]);
+    let x = lw.param("x", "SortKItem");
+    lw.vars.insert(xv.clone(), x.clone());
+    let mut params = Vec::new();
+    for (j, v) in &pvars {
+        let n = lw.param(&format!("p{j}"), &sig.args[*j]);
+        lw.vars.insert(v.clone(), n.clone());
+        params.push((n, sig.args[*j].clone()));
+    }
+    let mut gargs = Vec::new();
+    for a in ga {
+        let P::Var(v, _) = a else { return None };
+        gargs.push(lw.vars.get(v)?.clone());
+    }
+    let call = format!("{} {}", gsig.lean, gargs.join(" "));
+    let test = if gsig.partial {
+        format!("{call} = some true")
+    } else {
+        format!("{call} = true")
+    };
+    let name = |i: usize| {
+        format!(
+            "Eqn.{}",
+            names::ident(&format!("{}_{}", names::demangle(f), i + 1))
+        )
+    };
+    let (unit_eqn, cons_eqn) = (name(ui), name(ci));
+    if !proved(&unit_eqn) || !proved(&cons_eqn) || !gsig.partial {
+        // a total test would need the equation's other shape (`some (and (g x) r)`); not seen
+        return None;
+    }
+    let base = names::demangle(f)
+        .split('(')
+        .next()
+        .unwrap_or("kfold")
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    Some(KFold {
+        lean: sig.lean.clone(),
+        base,
+        pos,
+        params,
+        test,
+        x,
+        unit_eqn,
+        cons_eqn,
+    })
+}
+
+/// A function whose `owise` equation gives a `Bool` constant at an argument of sort `KItem` that
+/// every other equation matches with a constructor of `KItem`'s own (SIMPLE's `itemIn`: `setEnv(E)`
+/// and the two stack frames, else `true`).
+struct OwiseInj {
+    lean: String,
+    base: String,
+    /// the argument position, and every argument's sort
+    pos: usize,
+    args: Vec<String>,
+    /// the `owise` equation, and its value (`some true` for a partial function)
+    eqn: String,
+    value: String,
+}
+
+/// The `owise` equation of `f` at injections (`OwiseInj`): a value injected into `KItem` from one
+/// of its subsorts is built by another constructor of `KItem` than its own (the injection of the
+/// subsort's leaf), so no other equation matches it, and the `owise` equation gives `f` at it. The
+/// rewriting of the equation needs that, which `simp` cannot see on a variable under an injection
+/// (`inj_Exp_KItem e` is a `match` on `e`); the generated lemma states it for every value.
+fn owise_inj(
+    m: &Model,
+    fns: &Fns,
+    es: &[Equation],
+    f: &str,
+    eqn: &dyn Fn(usize) -> String,
+    proved: &dyn Fn(&String) -> bool,
+) -> Option<OwiseInj> {
+    let sig = fns.get(f)?;
+    let [o] = es
+        .iter()
+        .enumerate()
+        .filter(|(_, e)| e.owise)
+        .collect::<Vec<_>>()[..]
+    else {
+        return None;
+    };
+    let (oi, oe) = o;
+    let P::Dv(_, v) = &oe.rhs else { return None };
+    if (v != "true" && v != "false")
+        || sig.result != "SortBool"
+        || !oe.requires.is_empty()
+        || !oe.args.iter().all(|a| matches!(a, P::Var(..)))
+        || !proved(&eqn(oi))
+    {
+        return None;
+    }
+    let pos = (0..sig.args.len()).find(|&j| {
+        sig.args[j] == "SortKItem"
+            && es.iter().filter(|e| !e.owise).all(|e| {
+                matches!(&e.args[j], P::App(c, _, _)
+                    if m.ctors.get(c).is_some_and(|ci| ci.sort == "SortKItem"))
+            })
+    })?;
+    let base = names::demangle(f)
+        .split('(')
+        .next()
+        .unwrap_or("f")
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+        .collect();
+    Some(OwiseInj {
+        lean: sig.lean.clone(),
+        base,
+        pos,
+        args: sig.args.clone(),
+        eqn: eqn(oi),
+        value: if sig.partial {
+            format!("some {v}")
+        } else {
+            v.clone()
+        },
+    })
+}
+
+/// Whether some equation of `f` calls `f` itself (in its right-hand side or side condition).
+fn calls_itself(es: &[Equation], f: &str) -> bool {
+    es.iter()
+        .any(|e| mentions(&e.rhs, f, "") || e.requires.iter().any(|r| mentions(r, f, "")))
+}
+
 /// A walk over a map by a free-key pattern, recognized among the functions an invariant calls.
 struct Walk {
     lean: String,
@@ -1644,6 +1873,11 @@ pub fn emit(
     let mut unfold: Vec<String> = Vec::new(); // the k2l_preserve simp list
     let mut parts: Vec<Part> = Vec::new();
     let mut folds: Vec<Fold> = Vec::new();
+    let mut kfolds: Vec<KFold> = Vec::new();
+    // the equations unfolded bind partial `Bool` calls (a `K` fold's test, a function of its
+    // group, a partial structural function): split the chains as for a tree of cells
+    let mut split_binds = false;
+    let mut owise_injs: Vec<OwiseInj> = Vec::new();
     let mut walks: Vec<Walk> = Vec::new();
 
     // the projection chain of a cell path; returns the read expression for `c` (for a cell inside
@@ -1989,9 +2223,36 @@ pub fn emit(
                     if !folds.iter().any(|x| x.lean == f.lean) {
                         folds.push(f);
                     }
+                } else if let Some(f) = kfold_of(m, cx.fns, cx.eqs, &proved, &g) {
+                    if !kfolds.iter().any(|x| x.lean == f.lean) {
+                        kfolds.push(f);
+                    }
+                } else if all_proved && !calls_itself(es, &g) {
+                    split_binds = true;
+                    // recursive only through others of its group (SIMPLE's `itemIn`, through the
+                    // folds `kIn`, `listIn`): its equations rewrite a call on a constructor term
+                    // into calls whose element-wise forms the other functions have, which are
+                    // theorems, not rewrites of the call, so the rewriting ends
+                    for n in eq_names {
+                        if !unfold.contains(&n) {
+                            unfold.push(n);
+                        }
+                    }
+                    for i in (0..es.len()).filter(|&i| es[i].owise) {
+                        let n = eq_name(i);
+                        if proved(&n) && !unfold.contains(&n) {
+                            unfold.push(n);
+                        }
+                    }
+                    if let Some(o) = owise_inj(m, cx.fns, es, &g, &eq_name, &proved)
+                        && !owise_injs.iter().any(|x| x.lean == o.lean)
+                    {
+                        owise_injs.push(o);
+                    }
                 } else if all_proved && structural(cx.def, m, cx.eqs, &g) {
                     // structural recursion: its equations rewrite a call on a constructor term
-                    // into calls on its subterms
+                    // into calls on its subterms (of a partial function, through binds)
+                    split_binds |= gs.partial;
                     for n in eq_names {
                         if !unfold.contains(&n) {
                             unfold.push(n);
@@ -2019,6 +2280,11 @@ pub fn emit(
             if all_proved {
                 unfold.extend(eq_names);
                 unfold.extend(owise_names);
+                if let Some(o) = owise_inj(m, cx.fns, es, &g, &eq_name, &proved)
+                    && !owise_injs.iter().any(|x| x.lean == o.lean)
+                {
+                    owise_injs.push(o);
+                }
             } else if has_cells && g == sym {
                 // `f_cells` states the function at every value of its sort; its definition
                 // would unfold first and leave a match stuck on a rule's cell variables
@@ -2160,12 +2426,41 @@ pub fn emit(
     for f in &folds {
         simp.push(format!("Invariant.{}_iff", f.base));
     }
+    for f in &kfolds {
+        simp.push(format!("Invariant.{}_iff", f.base));
+    }
+    if !kfolds.is_empty() {
+        simp.push("Invariant.kAll".into());
+    }
+    // the `owise` equations at injections (below): the subsorts of `KItem`
+    let kitem_subs: Vec<String> = m
+        .subsorts
+        .iter()
+        .filter(|(sub, sup)| sup == "SortKItem" && sub != "SortKItem")
+        .map(|(sub, _)| sub.clone())
+        .collect();
+    for o in &owise_injs {
+        for sub in &kitem_subs {
+            simp.push(format!(
+                "Invariant.{}_owise_{}",
+                o.base,
+                sub.trim_start_matches("Sort")
+            ));
+        }
+    }
     for w in &walks {
         simp.push(format!("Invariant.{}_walk", w.base));
         simp.push(format!("Invariant.{}_test", w.base));
         if w.cell.is_some() {
             simp.push(format!("Invariant.{}_walk_cell", w.base));
             simp.push(format!("Invariant.{}_map", w.base));
+        }
+    }
+    if split_binds || !kfolds.is_empty() {
+        for n in BIND_SPLIT {
+            if !simp.iter().any(|u| u == n) {
+                simp.push(n.to_string());
+            }
         }
     }
     simp.push("Option.bind_fun_some".into());
@@ -2254,6 +2549,77 @@ theorem Invariant.{b}_iff (l : {}){ps} :\n    {} = some true ↔ KPrelude.ListHo
             f.list,
             at("l"),
             f.phi
+        ));
+    }
+    if !kfolds.is_empty() {
+        d.push_str(
+            "/-- Every item of a `K` sequence satisfies `P`. -/\n\
+def Invariant.kAll (P : SortKItem → Prop) : SortK → Prop\n  | .dotk => True\n  | .kseq i k => P i ∧ Invariant.kAll P k\n\n",
+        );
+    }
+    for o in &owise_injs {
+        for sub in &kitem_subs {
+            let sv = |n: &str| crate::ir::S::App(n.to_string(), vec![]);
+            let mut lw = Lower::new(m, cx.fns, &[]);
+            let x = lw.param("x", sub);
+            lw.vars.insert("VarX".into(), x.clone());
+            let inj = P::App(
+                "inj".into(),
+                vec![sv(sub), sv("SortKItem")],
+                vec![P::Var("VarX".into(), sv(sub))],
+            );
+            let Ok(e) = lw.expr(&inj, "SortKItem") else {
+                continue;
+            };
+            let injt = e.render();
+            let mut binders = format!("({x} : {sub})");
+            let mut args = Vec::new();
+            for (j, a) in o.args.iter().enumerate() {
+                if j == o.pos {
+                    args.push(paren(&injt));
+                } else {
+                    let n = lw.param(&format!("a{j}"), a);
+                    binders.push_str(&format!(" ({n} : {a})"));
+                    args.push(n);
+                }
+            }
+            // an injection that is a constructor of `KItem` needs no case split; one that is a
+            // function (a `match` on the value: a sort with subsorts, or any sort on the
+            // arity-indexed family) is reduced after casing on the value's constructors
+            // (`k2l_cases`: on the family, only those of the sort's values)
+            let head = injt.split_whitespace().next().unwrap_or_default();
+            let proof = format!(
+                "first\n    | simp [{e}]\n    | (k2l_cases {x} <;> simp [{e}, {head}])",
+                e = o.eqn
+            );
+            d.push_str(&format!(
+                "/-- `{}` at a value injected from `{sub}`: no equation but the `owise` one matches it. -/\n\
+theorem Invariant.{}_owise_{} {binders} :\n    {} {} = {} := by\n  {proof}\n\n",
+                o.lean,
+                o.base,
+                sub.trim_start_matches("Sort"),
+                o.lean,
+                args.join(" "),
+                o.value,
+            ));
+        }
+    }
+    for f in &kfolds {
+        let (b, l, x) = (&f.base, &f.lean, &f.x);
+        d.push_str(&format!(
+            "/-- The `K` fold `{l}` is `true` of a sequence exactly when every item passes its test (by\n\
+structural recursion on the sequence, from its two equations; `SortK` is mutually inductive, so not
+by `induction`). -/\n\
+theorem Invariant.{b}_iff : ∀ (k : SortK){}, {} = some true ↔ Invariant.kAll (fun {x} => {}) k\n  \
+| .dotk{pa} => by simp only [Invariant.kAll, {}]\n  \
+| .kseq i k{pa} => by simp only [Invariant.kAll, {}, KPrelude.bind_bind_and_eq_some_true, Invariant.{b}_iff k{pc}]\n\n",
+            f.binders(),
+            f.call("k"),
+            f.test,
+            f.unit_eqn,
+            f.cons_eqn,
+            pa = f.params.iter().map(|(n, _)| format!(", {n}")).collect::<String>(),
+            pc = f.params.iter().map(|(n, _)| format!(" {n}")).collect::<String>(),
         ));
     }
     for w in &walks {
