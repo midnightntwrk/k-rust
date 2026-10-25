@@ -235,13 +235,26 @@ fn a_leaf_holding_a_conjunction_of_two_different_terms_is_not_ceil_free() {
         [UncleanReason::NotCeilFree(Some(r"\and".to_owned()))],
         "{reasons:?}"
     );
-    // `1 /\ 1` is `1`: defined.
-    let equal = r#"\and{SortInt{}}(\dv{SortInt{}}("1"), \dv{SortInt{}}("1"))"#;
-    let reasons = executor.judge_stuck_state(k(equal));
-    assert!(
-        !reasons
-            .iter()
-            .any(|reason| matches!(reason, UncleanReason::NotCeilFree(_))),
+    // `1 /\ 1` is `1`, and so is `1 /\ (1 /\ 1)`: defined.
+    let one = r#"\dv{SortInt{}}("1")"#;
+    for equal in [
+        format!(r"\and{{SortInt{{}}}}({one}, {one})"),
+        format!(r"\and{{SortInt{{}}}}({one}, \and{{SortInt{{}}}}({one}, {one}))"),
+    ] {
+        let reasons = executor.judge_stuck_state(k(&equal));
+        assert!(
+            !reasons
+                .iter()
+                .any(|reason| matches!(reason, UncleanReason::NotCeilFree(_))),
+            "{equal}: {reasons:?}"
+        );
+    }
+    // `1 /\ (1 /\ 2)` owes only its inner `1 = 2`, which the note names.
+    let inner = format!(r"\and{{SortInt{{}}}}({one}, {different})");
+    let reasons = executor.judge_stuck_state(k(&inner));
+    assert_eq!(
+        reasons,
+        [UncleanReason::NotCeilFree(Some(r"\and".to_owned()))],
         "{reasons:?}"
     );
 }

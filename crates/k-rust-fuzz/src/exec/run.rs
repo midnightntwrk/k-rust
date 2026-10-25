@@ -962,8 +962,8 @@ pub(crate) type ConfigurationPlan =
 pub(crate) enum ConfigurationVerdict {
     /// It is decided (no constraint, no variable), ceil-free, and matches with empty
     /// constraints: the target is reached there. `term_conjunction`: its term holds a
-    /// term-level `\and` (of equal sides, since it is ceil-free), which kink's query refuses
-    /// ([`super::comparable::query_conditions`], Q4').
+    /// term-level `\and` (of sides with one first conjunct, since it is ceil-free), which kink's
+    /// query refuses ([`super::comparable::query_conditions`], Q4').
     Reaches {
         /// The configuration's term holds a term-level `\and`.
         term_conjunction: bool,
@@ -1615,14 +1615,17 @@ fn initial_has_k(backend: &mut Backend, state: &KorePattern) -> Option<bool> {
         .flatten()
 }
 
-/// The note of [`UncleanReason::NotCeilFree`] for a term-level `\and` of two different sides.
+/// The note of [`UncleanReason::NotCeilFree`] for a term-level `\and` whose sides' first
+/// conjuncts differ.
 pub(crate) const AND_NOTE: &str = r"\and";
 
 /// The K label of the first application of a partial function in `term`, in preorder, looking
-/// only into subterms that are not `ceil_free`, or [`AND_NOTE`] for a term-level conjunction of
-/// two different sides found first, which owes their equality and may denote nothing
-/// (`k_rust_backend::definedness::ceil_term`); `None` when the term is not ceil-free for another
-/// reason (a malformed map or set, a set variable).
+/// only into subterms that are not `ceil_free`, or [`AND_NOTE`] for a term-level conjunction
+/// found first whose sides' first conjuncts differ (`Term::first_conjunct`), which owes their
+/// equality and may denote nothing (`k_rust_backend::definedness::ceil_term`); `None` when the
+/// term is not ceil-free for another reason (a malformed map or set, a set variable). A
+/// conjunction of one first conjunct, such as `1 /\ (1 /\ 1)`, owes nothing of its own, so the
+/// search passes on to its sides.
 fn partial_application(term: &Term) -> Option<String> {
     if term.attributes().ceil_free() {
         return None;
@@ -1642,7 +1645,7 @@ fn partial_application(term: &Term) -> Option<String> {
             children.extend(arguments);
         }
         TermKind::And(left, right) => {
-            if left != right {
+            if left.first_conjunct() != right.first_conjunct() {
                 return Some(AND_NOTE.to_owned());
             }
             children.extend([left, right]);

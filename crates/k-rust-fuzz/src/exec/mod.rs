@@ -215,7 +215,7 @@ pub enum UncleanReason {
     /// (D16, review B2). Not a decided state.
     Undecided,
     /// Its internalized term is not `ceil_free`: an application of a partial function, a
-    /// term-level `\and` of two different sides, or a malformed map or set (T-1). The K label of
+    /// term-level `\and` of two different conjuncts, or a malformed map or set (T-1). The K label of
     /// the first partial function application found (in preorder), or `\and` when a conjunction
     /// is found first (`run::AND_NOTE`), when there is one.
     NotCeilFree(Option<String>),
@@ -340,8 +340,9 @@ pub struct LeafReport {
     pub diagnostics: Vec<LeafDiagnostic>,
     /// The leaf is a decided end (`stuck`, `trivial` or `terminal`, internalized with no
     /// constraint and no variable) whose term holds a term-level `\and` anywhere, which kink's
-    /// query refuses even with equal sides ([`comparable::query_conditions`], Q4'); one of
-    /// different sides also makes the leaf not ceil-free. `false` on every other leaf.
+    /// query refuses even with equal sides ([`comparable::query_conditions`], Q4'); one whose
+    /// sides' first conjuncts differ also makes the leaf not ceil-free. `false` on every other
+    /// leaf.
     pub term_conjunction: bool,
 }
 
