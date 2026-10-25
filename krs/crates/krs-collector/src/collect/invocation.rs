@@ -289,11 +289,14 @@ fn collect_struct_invocations(
         parsed
             .complete_default_syntax(&declaration)
             .map_err(source_syntax)?;
+        let helpers = production_helpers(&item_struct.attrs, resolver)?;
         push_function_invocations(
             &parsed,
             item_struct,
             &declaration,
             &constructor_visibility,
+            constructor_symbol.as_ref(),
+            &helpers,
             output,
         )?;
     }
@@ -329,7 +332,7 @@ fn collect_function_shorthand(
     let shorthand =
         krs_syntax::FunctionShorthand::lower(tokens, remaining).map_err(source_syntax)?;
     let structure = shorthand.structure();
-    let (visibility, _) = declaration_metadata(
+    let (visibility, symbol) = declaration_metadata(
         resolver,
         &structure.vis,
         &structure.attrs,
@@ -337,11 +340,14 @@ fn collect_function_shorthand(
     )?;
     let declaration =
         ConstructorDeclaration::from_item(structure.clone()).map_err(source_syntax)?;
+    let helpers = production_helpers(&structure.attrs, resolver)?;
     push_function_invocations(
         shorthand.attribute(),
         structure,
         &declaration,
         &visibility,
+        symbol.as_ref(),
+        &helpers,
         output,
     )?;
     for equation in shorthand.equations() {
@@ -353,12 +359,17 @@ fn collect_function_shorthand(
     Ok(true)
 }
 
-/// The production and grammar invocations of one function struct.
+/// The production and grammar invocations of one function struct, whose
+/// descriptors combine the same pieces as a constructor's: the explicit
+/// symbol and the static-marker and strictness helpers (the macro refuses a
+/// symbol or a static marker on a function before it keys them).
 fn push_function_invocations(
     parsed: &krs_syntax::FunctionAttribute,
     item_struct: &syn::ItemStruct,
     declaration: &ConstructorDeclaration,
     constructor_visibility: &RustVisibility,
+    symbol: Option<&krs_syntax::SymbolAttribute>,
+    helpers: &ProductionHelpers,
     output: &mut Vec<ParsedInvocation>,
 ) -> Result<(), CollectionError> {
     parsed
@@ -368,9 +379,9 @@ fn push_function_invocations(
     let pieces = ProductionItem {
         attribute: ProductionAttribute::Function(parsed),
         declaration,
-        symbol: None,
-        static_markers: &[],
-        strictness: &[],
+        symbol,
+        static_markers: &helpers.static_markers,
+        strictness: &helpers.strictness,
     };
     let anchors = pieces.constructor_provenance().map_err(source_syntax)?;
     let grammar_anchors = pieces.grammar_provenance().map_err(source_syntax)?;
@@ -411,48 +422,13 @@ fn collect_struct_constructors(
             .map_err(source_syntax)?;
         let declaration =
             ConstructorDeclaration::from_item(item_struct.clone()).map_err(source_syntax)?;
-        let mut static_markers = Vec::new();
-        for (helper, mode) in item_struct
-            .attrs
-            .iter()
-            .filter_map(|attribute| static_mode(resolver, attribute).map(|mode| (attribute, mode)))
-        {
-            let marker = krs_syntax::StaticProductionAttribute::parse_marker(
-                mode,
-                attribute_tokens(helper)?,
-            )
-            .map_err(source_syntax)?;
-            let name = &helper
-                .path()
-                .segments
-                .last()
-                .expect("named attributes have a final path segment")
-                .ident;
-            static_markers.push((marker, name.clone()));
-        }
-        let mut strictness = Vec::new();
-        for helper in item_struct
-            .attrs
-            .iter()
-            .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Strict))
-        {
-            strictness
-                .push(parse_strict_attribute(attribute_tokens(helper)?).map_err(source_syntax)?);
-        }
-        for helper in item_struct
-            .attrs
-            .iter()
-            .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Seqstrict))
-        {
-            strictness
-                .push(parse_seqstrict_attribute(attribute_tokens(helper)?).map_err(source_syntax)?);
-        }
+        let helpers = production_helpers(&item_struct.attrs, resolver)?;
         let pieces = ProductionItem {
             attribute: ProductionAttribute::Constructor(&parsed),
             declaration: &declaration,
             symbol: constructor_symbol,
-            static_markers: &static_markers,
-            strictness: &strictness,
+            static_markers: &helpers.static_markers,
+            strictness: &helpers.strictness,
         };
         let anchors = pieces.constructor_provenance().map_err(source_syntax)?;
         let grammar_anchors = pieces.grammar_provenance().map_err(source_syntax)?;
@@ -478,6 +454,55 @@ fn collect_struct_constructors(
         ));
     }
     Ok(())
+}
+
+/// The helper attributes of a production struct that its descriptors key
+/// beside the struct: the `#[k::alias]` and `#[k::desugar]` markers (KF-028),
+/// each with the name of its helper, then the `#[k::strict]` and
+/// `#[k::seqstrict]` strategies.
+struct ProductionHelpers {
+    static_markers: Vec<(krs_syntax::StaticProductionAttribute, syn::Ident)>,
+    strictness: Vec<krs_syntax::StrictnessAttribute>,
+}
+
+fn production_helpers(
+    attributes: &[Attribute],
+    resolver: &AttributeResolver<'_>,
+) -> Result<ProductionHelpers, CollectionError> {
+    let mut static_markers = Vec::new();
+    for (helper, mode) in attributes
+        .iter()
+        .filter_map(|attribute| static_mode(resolver, attribute).map(|mode| (attribute, mode)))
+    {
+        let marker =
+            krs_syntax::StaticProductionAttribute::parse_marker(mode, attribute_tokens(helper)?)
+                .map_err(source_syntax)?;
+        let name = &helper
+            .path()
+            .segments
+            .last()
+            .expect("named attributes have a final path segment")
+            .ident;
+        static_markers.push((marker, name.clone()));
+    }
+    let mut strictness = Vec::new();
+    for helper in attributes
+        .iter()
+        .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Strict))
+    {
+        strictness.push(parse_strict_attribute(attribute_tokens(helper)?).map_err(source_syntax)?);
+    }
+    for helper in attributes
+        .iter()
+        .filter(|attribute| resolver.invokes(attribute, AttributeMacro::Seqstrict))
+    {
+        strictness
+            .push(parse_seqstrict_attribute(attribute_tokens(helper)?).map_err(source_syntax)?);
+    }
+    Ok(ProductionHelpers {
+        static_markers,
+        strictness,
+    })
 }
 
 /// Parses every `#[k::token]` attribute of one carrier, in source order; the
@@ -1787,6 +1812,73 @@ mod tests {
                 "{source}: {}..{}",
                 range.start_byte,
                 range.end_byte
+            );
+        }
+    }
+
+    /// The reparse composes a function struct's descriptors from the pieces
+    /// the macro composes them from, its strictness helper included:
+    /// `krs-expand`'s `a_function_struct_keys_its_strictness_helper_and_refuses_a_symbol`
+    /// pins the macro's anchors of the same struct. A symbol, which the
+    /// macro refuses on a function struct with `symbol-attribute-order`, is
+    /// refused here with a located syntax error, not a provenance mismatch.
+    #[test]
+    fn a_function_struct_keys_its_strictness_helper_as_the_macro_does() {
+        let manifest = Path::new(env!("CARGO_MANIFEST_DIR")).join("../krs/Cargo.toml");
+        let facade = FacadeAliases::from_manifest(&manifest).unwrap();
+        let resolver = AttributeResolver::new(&facade, "src/lib.rs");
+        let file = krs_ir::SourceFileId::new(
+            krs_ir::PackageId::new("TEST", "test", "0.1.0", "workspace").unwrap(),
+            "src/lib.rs",
+            krs_ir::Sha256Digest::new("11".repeat(32)).unwrap(),
+        )
+        .unwrap();
+        let source = "use crate as k;\n#[k::function(total, sort = Int, syntax = \"f({value})\")]\n#[k::strict(sequence = [value], result = KResult)]\npub struct F {\n    pub value: Term<Int>,\n}\n";
+        let syntax = syn::parse_file(source).unwrap();
+        let discovered = krs_syntax::surface::invocations(&syntax, &facade.scope());
+        let mut collected = Vec::new();
+        collect_invocations(&syntax, &discovered, &resolver, &mut collected).unwrap();
+        let grammar = collected
+            .iter()
+            .find(|invocation| invocation.primary.role() == ProvenanceRole::ConstructorDeclaration)
+            .unwrap();
+        assert_eq!(grammar.anchors.len(), 15);
+        let coordinates = |line, start, end_line, end| {
+            format!(
+                "Coordinates {{ start_line: {line}, start_column: {start}, end_line: {end_line}, end_column: {end} }}"
+            )
+        };
+        for (role, (line, start, end_line, end)) in [
+            (ProvenanceRole::FunctionDeclaration, (4, 12, 4, 13)),
+            (ProvenanceRole::FunctionTotal, (2, 15, 2, 20)),
+            (ProvenanceRole::StrictnessDeclaration, (3, 13, 3, 49)),
+            (ProvenanceRole::StrictnessFieldReference, (3, 25, 3, 30)),
+            (ProvenanceRole::StrictnessResultSort, (3, 42, 3, 49)),
+        ] {
+            assert_eq!(
+                format!("{:?}", grammar.anchors[&role.key(0)]),
+                coordinates(line, start, end_line, end),
+                "{role:?}"
+            );
+        }
+
+        for source in [
+            "use crate as k;\n#[k::symbol(\"api::F\")]\n#[k::function(total, sort = Int, syntax = \"f({value})\")]\npub struct F {\n    pub value: Term<Int>,\n}\n",
+            "use crate as k;\n#[k::function(total, sort = Int, syntax = \"f({value})\")]\n#[k::symbol(\"api::F\")]\npub struct F {\n    pub value: Term<Int>,\n}\n",
+        ] {
+            let syntax = syn::parse_file(source).unwrap();
+            let discovered = krs_syntax::surface::invocations(&syntax, &facade.scope());
+            let error = collect_invocations(&syntax, &discovered, &resolver, &mut Vec::new())
+                .unwrap_err()
+                .with_source_file(&file);
+            assert_eq!(error.kind(), CollectionErrorKind::SourceSyntax, "{source}");
+            let symbol = source.find("#[k::symbol").unwrap();
+            let range = error.source_range().expect("the refusal is located");
+            assert_eq!(
+                usize::try_from(range.start_byte).unwrap(),
+                symbol,
+                "{source}: {}",
+                error.detail()
             );
         }
     }

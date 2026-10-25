@@ -465,3 +465,64 @@ fn raw_krs_attribute_arguments_are_not_expanded() {
     assert!(expansion.generated.map.invocations.is_empty());
     assert!(expansion.generated.text.starts_with(source));
 }
+
+/// A function struct's grammar descriptor keys its strictness helper as a
+/// constructor's does, after the function's own keys; the collector's
+/// reparse composes the same pieces (`krs-collector`'s
+/// `a_function_struct_keys_its_strictness_helper_as_the_macro_does` pins
+/// the same anchors). A symbol on a function struct is refused with an
+/// author code before anything is keyed.
+#[test]
+fn a_function_struct_keys_its_strictness_helper_and_refuses_a_symbol() {
+    let source = "use crate as k;\n#[k::function(total, sort = Int, syntax = \"f({value})\")]\n#[k::strict(sequence = [value], result = KResult)]\npub struct F {\n    pub value: Term<Int>,\n}\n";
+    let expansion = expand(source).expect("a strict function struct expands");
+    let text = &expansion.generated.text;
+    let grammar = text
+        .match_indices("const __KRS_AUTHORED")
+        .nth(1)
+        .map(|(start, _)| &text[start..])
+        .expect("the grammar descriptor has an anchor table");
+    let grammar = &grammar[..grammar.find("__KRS_AUTHORED ,)").unwrap()];
+    let anchors = grammar
+        .split("(:: k :: ProvenanceRole :: ")
+        .skip(1)
+        .map(|entry| {
+            let numbers = entry
+                .replace("u32", "")
+                .replace("usize", "")
+                .split(|ch: char| !ch.is_ascii_digit())
+                .filter(|part| !part.is_empty())
+                .map(|part| part.parse::<u32>().unwrap())
+                .collect::<Vec<_>>();
+            let role = entry.split(' ').next().unwrap();
+            // The ordinal, the file index, then the start and end.
+            format!(
+                "{role}#{} {}:{}-{}:{}",
+                numbers[0], numbers[2], numbers[3], numbers[4], numbers[5]
+            )
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(anchors.len(), 15);
+    assert_eq!(
+        anchors[10..],
+        [
+            "FunctionDeclaration#0 4:12-4:13",
+            "FunctionTotal#0 2:15-2:20",
+            "StrictnessDeclaration#0 3:13-3:49",
+            "StrictnessFieldReference#0 3:25-3:30",
+            "StrictnessResultSort#0 3:42-3:49",
+        ]
+    );
+
+    for source in [
+        "#[k::symbol(\"api::F\")]\n#[k::function(total, sort = Int, syntax = \"f({value})\")]\npub struct F {\n    pub value: Term<Int>,\n}\n",
+        "#[k::function(total, sort = Int, syntax = \"f({value})\")]\n#[k::symbol(\"api::F\")]\npub struct F {\n    pub value: Term<Int>,\n}\n",
+    ] {
+        let diagnostics = expand(source).expect_err("a symbol on a function struct is refused");
+        assert_eq!(
+            diagnostics[0].code,
+            krs_diagnostic::codes::expand::SYMBOL_ATTRIBUTE_ORDER,
+            "{source}"
+        );
+    }
+}
