@@ -1,0 +1,15 @@
+[package]
+name = "story-plus-claims"
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99"
+publish = false
+
+[dependencies]
+k = { package = "krs", path = "../../../krs/crates/krs" }
+story-plus = { path = "../plus" }
+
+[package.metadata.krs]
+k-namespace = "NAT-CLAIMS"
+
+[package.metadata.krs.definitions.main]

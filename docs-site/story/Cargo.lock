@@ -194,6 +194,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "story-plus-claims"
+version = "0.0.0"
+dependencies = [
+ "krs",
+ "story-plus",
+]
+
+[[package]]
 name = "story-plus-mutant-a"
 version = "0.0.0"
 dependencies = [

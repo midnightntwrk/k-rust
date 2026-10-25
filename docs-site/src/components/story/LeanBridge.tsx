@@ -4,13 +4,14 @@
 // matching logic is literally a syntactic subset of Lean's dependent type theory.
 // Proof examples: k2lean/demos/claims, ImpTypes, and ImpRel.
 
+import { ClaimSource } from './NativeClaims'
 import { Stage, usePlayer } from './player'
 import styles from './Story.module.css'
 import visual from './SpecificationTools.module.css'
 
 const phases = [
   { name: 'Generate Lean', caption: 'KRS generates Lean code through k2lean: types, functions, execution rules, and proofs connecting them. Work in the compact matching-logic specification, then extend its generated Lean model with your own definitions and proofs.' },
-  { name: 'Program properties', caption: 'Prove a program’s result for every allowed input, or an invariant that every execution rule preserves. The generated model gives your Lean proof the same rules that the interpreter and other tools use.' },
+  { name: 'Program properties', caption: 'Keep the claims you authored in KRS. k2lean claims states them as Lean propositions over the generated semantics. Try its claim tactic, add supporting lemmas, or supply a hand-written proof; established bisimulations can also transfer proved claims between specifications.' },
   { name: 'Type soundness', caption: 'Did you forget an execution rule, or accept too much in your type checker? Prove that every well-typed expression is already a value or has a rule that can evaluate it. This checks progress, one part of type soundness.' },
   { name: 'Bisimulation', caption: 'An optimization changes how your specification computes. Use a bisimulation proof to show that the original and optimized specifications preserve corresponding behavior in both directions, so improving the rules does not change what programs mean.' },
 ]
@@ -63,11 +64,8 @@ export function LeanBridge() {
         )}
         {player.at === 1 && (
           <div className={visual.property}>
-            <div className={styles.panel}>
-              <div className={styles.label}>a program in your specified language</div>
-              <pre>{'total = 0;\nwhile n > 0 {\n    total += n;\n    n -= 1;\n}'}</pre>
-            </div>
-            <div className={visual.guarantee}><span>For every nonnegative starting n</span><span aria-hidden="true">↓</span><strong>The result is the sum from 1 to n.</strong><span>State the property and prove it in Lean.</span></div>
+            <ClaimSource label="The claim you already authored" />
+            <div className={visual.guarantee}><code>k2lean claims</code><span aria-hidden="true">↓</span><strong>The same claim, as a Lean proposition.</strong><span>Use the claim tactic or supply your own proof.</span></div>
           </div>
         )}
         {player.at === 2 && (

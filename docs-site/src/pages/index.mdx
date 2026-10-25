@@ -10,6 +10,7 @@ import { MissedCases } from '../components/story/MissedCases'
 import { LeanBridge } from '../components/story/LeanBridge'
 import { MatchingLogic } from '../components/story/MatchingLogic'
 import { MutateTheSpec } from '../components/story/MutateTheSpec'
+import { NativeClaims } from '../components/story/NativeClaims'
 import { MutationReputation } from '../components/story/MutationReputation'
 import { PastFullCoverage } from '../components/story/PastFullCoverage'
 import { RewriteMachine } from '../components/story/RewriteMachine'
@@ -74,6 +75,12 @@ To compute `plus`, a rule finds a subterm its pattern fits, binds the variables,
 
 <RewriteMachine />
 
+### State what must hold
+
+You can execute the specification and use symbolic execution to prove claims about its behavior.
+
+<NativeClaims />
+
 ## Why matching logic?
 
 Matching logic scales from our two rules for addition to specifications of real languages and virtual machines, including Rust’s MIR, WebAssembly, and the EVM.
@@ -82,8 +89,7 @@ Matching logic scales from our two rules for addition to specifications of real 
 
 ### KRS generates Lean
 
-KRS generates Lean code through `k2lean`.
-You can start with a compact matching-logic specification, and use Lean to prove more complex properties around the generated model.
+KRS generates Lean code through `k2lean`, giving you a starting point for proving more complex statements.
 
 <LeanBridge />
 
@@ -97,8 +103,9 @@ One definition becomes a parser, an interpreter, a search engine, a prover, a Le
 
 ## Why a test corpus
 
-KRS supports autoresearch and hill-climbing on your specification, using Lean proofs and bisimulation to check that changes preserve its intended properties and behavior.
-It also gives AI a way to hill-climb on test corpus quality: measure which mistakes the tests catch, then add tests that close the gaps.
+Keep claims as fixed requirements while AI improves your specification, and recheck them after rule changes.
+Use Lean proofs and bisimulation to establish further properties and relationships.
+KRS also gives AI a way to hill-climb on test corpus quality: measure which mistakes the tests catch, then add tests that close the gaps.
 
 ### A test corpus
 

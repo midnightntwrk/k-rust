@@ -3,22 +3,23 @@ import output0 from '../snippets/outputs/story-check.txt?raw'
 import output1 from '../snippets/outputs/story-parse.txt?raw'
 import output2 from '../snippets/outputs/story-search.txt?raw'
 import output3 from '../snippets/outputs/story-emit-k.txt?raw'
-import output4 from '../snippets/outputs/story-base-t1.txt?raw'
-import output5 from '../snippets/outputs/story-base-t2.txt?raw'
-import output6 from '../snippets/outputs/story-base-t3.txt?raw'
-import output7 from '../snippets/outputs/story-base-t4.txt?raw'
-import output8 from '../snippets/outputs/story-a-t1.txt?raw'
-import output9 from '../snippets/outputs/story-a-t2.txt?raw'
-import output10 from '../snippets/outputs/story-a-t3.txt?raw'
-import output11 from '../snippets/outputs/story-a-t4.txt?raw'
-import output12 from '../snippets/outputs/story-b-t1.txt?raw'
-import output13 from '../snippets/outputs/story-b-t2.txt?raw'
-import output14 from '../snippets/outputs/story-b-t3.txt?raw'
-import output15 from '../snippets/outputs/story-b-t4.txt?raw'
-import output16 from '../snippets/outputs/story-c-t1.txt?raw'
-import output17 from '../snippets/outputs/story-c-t2.txt?raw'
-import output18 from '../snippets/outputs/story-c-t3.txt?raw'
-import output19 from '../snippets/outputs/story-c-t4.txt?raw'
+import output4 from '../snippets/outputs/story-prove.txt?raw'
+import output5 from '../snippets/outputs/story-base-t1.txt?raw'
+import output6 from '../snippets/outputs/story-base-t2.txt?raw'
+import output7 from '../snippets/outputs/story-base-t3.txt?raw'
+import output8 from '../snippets/outputs/story-base-t4.txt?raw'
+import output9 from '../snippets/outputs/story-a-t1.txt?raw'
+import output10 from '../snippets/outputs/story-a-t2.txt?raw'
+import output11 from '../snippets/outputs/story-a-t3.txt?raw'
+import output12 from '../snippets/outputs/story-a-t4.txt?raw'
+import output13 from '../snippets/outputs/story-b-t1.txt?raw'
+import output14 from '../snippets/outputs/story-b-t2.txt?raw'
+import output15 from '../snippets/outputs/story-b-t3.txt?raw'
+import output16 from '../snippets/outputs/story-b-t4.txt?raw'
+import output17 from '../snippets/outputs/story-c-t1.txt?raw'
+import output18 from '../snippets/outputs/story-c-t2.txt?raw'
+import output19 from '../snippets/outputs/story-c-t3.txt?raw'
+import output20 from '../snippets/outputs/story-c-t4.txt?raw'
 
 export const storyTests = [
   {
@@ -89,20 +90,21 @@ export const storyOutputs: Readonly<Record<string, string>> = {
   "story-parse": output1,
   "story-search": output2,
   "story-emit-k": output3,
-  "story-base-t1": output4,
-  "story-base-t2": output5,
-  "story-base-t3": output6,
-  "story-base-t4": output7,
-  "story-a-t1": output8,
-  "story-a-t2": output9,
-  "story-a-t3": output10,
-  "story-a-t4": output11,
-  "story-b-t1": output12,
-  "story-b-t2": output13,
-  "story-b-t3": output14,
-  "story-b-t4": output15,
-  "story-c-t1": output16,
-  "story-c-t2": output17,
-  "story-c-t3": output18,
-  "story-c-t4": output19
+  "story-prove": output4,
+  "story-base-t1": output5,
+  "story-base-t2": output6,
+  "story-base-t3": output7,
+  "story-base-t4": output8,
+  "story-a-t1": output9,
+  "story-a-t2": output10,
+  "story-a-t3": output11,
+  "story-a-t4": output12,
+  "story-b-t1": output13,
+  "story-b-t2": output14,
+  "story-b-t3": output15,
+  "story-b-t4": output16,
+  "story-c-t1": output17,
+  "story-c-t2": output18,
+  "story-c-t3": output19,
+  "story-c-t4": output20
 }

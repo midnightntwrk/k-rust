@@ -1,0 +1,3 @@
+$ krs prove --package story-plus-claims --definition main --dependency story-plus:main --claim add-one
+NAT-CLAIMS-SPEC.add-one: proven
+krs prove: 1 of 1 claim proven

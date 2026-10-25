@@ -6,6 +6,7 @@
 import type { ReactNode } from 'react'
 
 import { output, paperRules, result, ruleNames, tests } from './data'
+import { authoredClaim, NativeProofResult } from './NativeClaims'
 import { Controls, usePlayer } from './player'
 import styles from './Story.module.css'
 import visual from './SpecificationTools.module.css'
@@ -125,9 +126,13 @@ const tools: { verb: string; what: string; title: string; body: ReactNode }[] = 
   {
     verb: 'prove',
     what: 'Check claims about behavior',
-    title: 'Prove a claim across the inputs it describes.',
+    title: 'Write k::claims!, then check it with krs prove.',
     body: (
-      <p>The prover uses symbolic execution to check claims such as “plus(zero, n) is n for every natural number n”. A proof must account for every case covered by the claim.</p>
+      <>
+        <pre className={styles.panel}>{authoredClaim}</pre>
+        <p>This claim covers every natural number n. KRS checks it directly with symbolic execution; a concrete counterexample can guide a new test, while an unfinished proof remains inconclusive.</p>
+        <NativeProofResult />
+      </>
     ),
   },
   {
@@ -137,7 +142,7 @@ const tools: { verb: string; what: string; title: string; body: ReactNode }[] = 
     body: (
       <>
         <div className={visual.toolFlow}><strong>KRS specification</strong><span>→</span><strong>k2lean</strong><span>→</span><strong>Lean library</strong></div>
-        <p>Generate Lean types, functions, execution rules, and supporting proofs. Add your own Lean proofs for program properties, type soundness, or bisimulation.</p>
+        <p>Generate Lean types, functions, execution rules, and supporting proofs. Bring K claims into Lean with k2lean claims; use its claim tactic or write your own proofs. Extend the model for properties such as type soundness or bisimulation.</p>
         <div className={visual.benefits}>
           <a href="https://github.com/midnightntwrk/k-rust/tree/main/k2lean/demos/claims">Program properties ↗</a>
           <a href="https://github.com/midnightntwrk/k-rust/tree/main/k2lean/demos/ImpTypes">Type soundness ↗</a>
