@@ -1124,12 +1124,11 @@ impl DescriptorHeadRule {
     /// once, and every key is one of `anchors`, its descriptor's.
     ///
     /// The collector keeps one of a bracketed value's readings, so anchors
-    /// of the other reading are left unconsumed, and keys the cells it
+    /// of the other reading are left unconsumed; it keys the cells it
     /// writes, the computation cell and a list cell read from or as the
     /// head, at the clause's pattern and result, which such a cell refers
-    /// to. The header's configuration, now a stable identity, carries no
-    /// key, and nodes that carry none are not paired: a moved list or head
-    /// denotes other nodes than the authored reading did.
+    /// to; and the header's configuration, now a stable identity, carries
+    /// no key. So an anchor no key consumes is not checked.
     ///
     /// # Errors
     ///

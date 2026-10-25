@@ -1067,10 +1067,10 @@ impl HostSortDescriptor {
 impl HostConstructorDescriptor {
     /// Checks that the constructor's anchors are its sort, its sort
     /// parameters, its fields' sorts, and the element types of those sorts,
-    /// besides the production's nodes the descriptor
-    /// repeats from its grammar descriptor, which that descriptor's own
-    /// closure covers ([`crate::transport::grammar::REPEATED_PRODUCTION_ROLES`],
-    /// and a list variant's [`crate::transport::grammar::REPEATED_LIST_ROLES`]).
+    /// besides the production's nodes the descriptor repeats from its
+    /// grammar descriptor, which that descriptor's own closure covers
+    /// ([`crate::transport::grammar::REPEATED_PRODUCTION_ROLES`], and a list
+    /// variant's [`crate::transport::grammar::REPEATED_LIST_ROLES`]).
     /// The transport validates each descriptor alone, so it exempts these
     /// roles where the expander's ledger requires the grammar wire to define
     /// them.
@@ -1180,8 +1180,9 @@ mod tests {
         );
     }
 
-    /// A constructor defines its sort and its fields' sorts, and leaves the production's repeated nodes to its grammar
-    /// descriptor; any other anchor is its own to consume.
+    /// A constructor defines its sort and its fields' sorts, and leaves the
+    /// production's repeated nodes to its grammar descriptor; any other
+    /// anchor is its own to consume.
     #[test]
     fn a_constructor_is_closed_beside_its_repeated_production_nodes() {
         let constructor = HostConstructorDescriptor {

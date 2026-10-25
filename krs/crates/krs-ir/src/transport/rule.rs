@@ -1141,8 +1141,7 @@ where
 /// role there: a K sequence's payload, `.K`, items and tail, a map's
 /// payload, entries, update and remainder, and instances, their fields and
 /// their rest. Each term the state holds goes to `term`, which collects its
-/// keys as its rule's terms are keyed. A shell without its payload key is
-/// refused here, for every payload whose states this walk keys.
+/// keys as its rule's terms are keyed.
 pub(super) fn collect_state_keys<T, E: From<KeyFailure>>(
     state: &ProtocolRuleStateTerm<T>,
     side: RuleSide,
