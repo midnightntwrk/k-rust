@@ -1,3 +1,4 @@
+use krs_ir::ProvenanceKey;
 use proc_macro2::TokenStream;
 use syn::parse::{Parse, ParseStream};
 use syn::{Expr, Ident, LitStr, Token};
@@ -11,6 +12,10 @@ use super::value::{parse_empty_attribute, parse_empty_tokens, parse_string_value
 #[derive(Clone, Debug)]
 pub struct ConfigurationAttribute {
     root: Option<LitStr>,
+    root_key: Option<ProvenanceKey>,
+    /// The anchors of the attribute's keying, which [`Self::provenance`]
+    /// returns.
+    anchors: Vec<ProvenanceAnchor>,
 }
 
 impl ConfigurationAttribute {
@@ -32,20 +37,32 @@ impl ConfigurationAttribute {
         self.root.is_none()
     }
 
+    /// The key of the root name, when one is authored.
+    #[must_use]
+    pub const fn root_key(&self) -> Option<&ProvenanceKey> {
+        self.root_key.as_ref()
+    }
+
     /// Returns the canonical root-name anchor.
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if the parsed literal emits no tokens.
+    /// None: the attribute was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.anchors.clone())
+    }
+
+    /// Keys the root name, as a sentence of its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
         if let Some(root) = &self.root {
-            keys.key(
+            self.root_key = Some(keys.key(
                 ProvenanceRole::ConfigurationRoot,
                 TokenRange::for_tokens(root)?,
-            )?;
+            )?);
         }
-        Ok(keys.into_anchors())
+        self.anchors = keys.into_anchors();
+        Ok(self)
     }
 }
 
@@ -60,6 +77,66 @@ pub struct CellAttributePayload {
     stream: Option<LitStr>,
     exit: Option<Ident>,
     initial: Option<Ident>,
+    keys: CellAttributeKeys,
+    /// The anchors of the payload's standalone keying, which
+    /// [`Self::provenance`] returns.
+    anchors: Vec<ProvenanceAnchor>,
+}
+
+/// The keys of a cell attribute's authored values, one slot per value.
+#[derive(Clone, Debug, Default)]
+pub struct CellAttributeKeys {
+    name: Option<ProvenanceKey>,
+    color: Option<ProvenanceKey>,
+    multiplicity: Option<ProvenanceKey>,
+    cell_type: Option<ProvenanceKey>,
+    stream: Option<ProvenanceKey>,
+    exit: Option<ProvenanceKey>,
+    initial: Option<ProvenanceKey>,
+}
+
+impl CellAttributeKeys {
+    /// The key of the `name` literal.
+    #[must_use]
+    pub const fn name(&self) -> Option<&ProvenanceKey> {
+        self.name.as_ref()
+    }
+
+    /// The key of the `color` literal.
+    #[must_use]
+    pub const fn color(&self) -> Option<&ProvenanceKey> {
+        self.color.as_ref()
+    }
+
+    /// The key of the `multiplicity` literal.
+    #[must_use]
+    pub const fn multiplicity(&self) -> Option<&ProvenanceKey> {
+        self.multiplicity.as_ref()
+    }
+
+    /// The key of the `cell_type` literal.
+    #[must_use]
+    pub const fn cell_type(&self) -> Option<&ProvenanceKey> {
+        self.cell_type.as_ref()
+    }
+
+    /// The key of the `stream` literal.
+    #[must_use]
+    pub const fn stream(&self) -> Option<&ProvenanceKey> {
+        self.stream.as_ref()
+    }
+
+    /// The key of the `exit` flag.
+    #[must_use]
+    pub const fn exit(&self) -> Option<&ProvenanceKey> {
+        self.exit.as_ref()
+    }
+
+    /// The key of the `initial` flag.
+    #[must_use]
+    pub const fn initial(&self) -> Option<&ProvenanceKey> {
+        self.initial.as_ref()
+    }
 }
 
 impl CellAttributePayload {
@@ -112,57 +189,106 @@ impl CellAttributePayload {
         self.initial.as_ref()
     }
 
+    /// The keys of the authored values, from the sentence that holds the
+    /// attribute: the attribute alone, or its field's configuration.
+    #[must_use]
+    pub const fn keys(&self) -> &CellAttributeKeys {
+        &self.keys
+    }
+
     /// Returns exact value anchors in stable name, color, multiplicity, type, stream, exit,
     /// initial order.
     ///
     /// # Errors
     ///
-    /// Returns an endpoint error only if an authored literal has no leaves.
+    /// None: the payload was keyed when it was parsed.
     pub fn provenance(&self) -> Result<Vec<ProvenanceAnchor>, SyntaxError> {
+        Ok(self.anchors.clone())
+    }
+
+    /// Keys the payload as a sentence of its own.
+    fn keyed(mut self) -> Result<Self, SyntaxError> {
         let mut keys = KeyAllocator::default();
-        if let Some(name) = &self.name {
-            keys.key(
+        self.allocate_keys(&mut keys, None)?;
+        self.anchors = keys.into_anchors();
+        Ok(self)
+    }
+
+    /// Keys each authored value in name, color, multiplicity, type, stream,
+    /// exit, initial order: as the next of its role, or, inside a
+    /// configuration, at the ordinal of its field's key `field`.
+    pub(crate) fn allocate_keys(
+        &mut self,
+        keys: &mut KeyAllocator,
+        field: Option<&ProvenanceKey>,
+    ) -> Result<(), SyntaxError> {
+        self.keys = CellAttributeKeys::default();
+        let slots: [(
+            ProvenanceRole,
+            Option<TokenRange>,
+            &mut Option<ProvenanceKey>,
+        ); 7] = [
+            (
                 ProvenanceRole::ConfigurationCellName,
-                TokenRange::for_tokens(name)?,
-            )?;
-        }
-        if let Some(color) = &self.color {
-            keys.key(
+                self.name.as_ref().map(TokenRange::for_tokens).transpose()?,
+                &mut self.keys.name,
+            ),
+            (
                 ProvenanceRole::ConfigurationCellColor,
-                TokenRange::for_tokens(color)?,
-            )?;
-        }
-        if let Some(multiplicity) = &self.multiplicity {
-            keys.key(
+                self.color
+                    .as_ref()
+                    .map(TokenRange::for_tokens)
+                    .transpose()?,
+                &mut self.keys.color,
+            ),
+            (
                 ProvenanceRole::ConfigurationCellMultiplicity,
-                TokenRange::for_tokens(multiplicity)?,
-            )?;
-        }
-        if let Some(cell_type) = &self.cell_type {
-            keys.key(
+                self.multiplicity
+                    .as_ref()
+                    .map(TokenRange::for_tokens)
+                    .transpose()?,
+                &mut self.keys.multiplicity,
+            ),
+            (
                 ProvenanceRole::ConfigurationCellType,
-                TokenRange::for_tokens(cell_type)?,
-            )?;
-        }
-        if let Some(stream) = &self.stream {
-            keys.key(
+                self.cell_type
+                    .as_ref()
+                    .map(TokenRange::for_tokens)
+                    .transpose()?,
+                &mut self.keys.cell_type,
+            ),
+            (
                 ProvenanceRole::ConfigurationCellStream,
-                TokenRange::for_tokens(stream)?,
-            )?;
-        }
-        if let Some(exit) = &self.exit {
-            keys.key(
+                self.stream
+                    .as_ref()
+                    .map(TokenRange::for_tokens)
+                    .transpose()?,
+                &mut self.keys.stream,
+            ),
+            (
                 ProvenanceRole::ConfigurationCellExit,
-                TokenRange::for_tokens(exit)?,
-            )?;
-        }
-        if let Some(initial) = &self.initial {
-            keys.key(
+                self.exit.as_ref().map(TokenRange::for_tokens).transpose()?,
+                &mut self.keys.exit,
+            ),
+            (
                 ProvenanceRole::ConfigurationCellInitial,
-                TokenRange::for_tokens(initial)?,
-            )?;
+                self.initial
+                    .as_ref()
+                    .map(TokenRange::for_tokens)
+                    .transpose()?,
+                &mut self.keys.initial,
+            ),
+        ];
+        for (role, range, slot) in slots {
+            let Some(range) = range else {
+                continue;
+            };
+            *slot = Some(match field {
+                Some(field) => keys.paired(role, field, range),
+                None => keys.key(role, range)?,
+            });
         }
-        Ok(keys.into_anchors())
+        Ok(())
     }
 }
 
@@ -262,7 +388,12 @@ fn parse_configuration_stream(
             break;
         }
     }
-    Ok(ConfigurationAttribute { root })
+    Ok(ConfigurationAttribute {
+        root,
+        root_key: None,
+        anchors: Vec::new(),
+    }
+    .keyed()?)
 }
 
 #[expect(
@@ -391,7 +522,10 @@ fn parse_cell_stream(input: ParseStream<'_>) -> Result<CellAttributePayload, Par
         stream,
         exit,
         initial,
-    })
+        keys: CellAttributeKeys::default(),
+        anchors: Vec::new(),
+    }
+    .keyed()?)
 }
 
 /// The multiplicity keys (KF-023): `multiplicity` is `"?"` or `"*"`; a `*`

@@ -22,4 +22,4 @@ pub use sort::{
     UnboundVariables,
 };
 pub use spec_module::{SpecModuleAttribute, SpecModuleItem, validate_spec_module_name};
-pub use state::{CellAttributePayload, ConfigurationAttribute, InitAttribute};
+pub use state::{CellAttributeKeys, CellAttributePayload, ConfigurationAttribute, InitAttribute};
