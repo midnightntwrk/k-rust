@@ -123,7 +123,7 @@ fn a_native_codes_kind_follows_who_wrote_the_sentence_it_names() {
 }
 
 #[test]
-fn native_advice_is_given_in_krs_terms_and_a_collection_warning_names_its_cell() {
+fn native_advice_is_given_in_krs_terms() {
     use k_rust::diagnostic::{Diagnostic, DiagnosticCode, Severity};
     use krs_diagnostic::ToDiagnostic;
 
@@ -144,14 +144,12 @@ fn native_advice_is_given_in_krs_terms_and_a_collection_warning_names_its_cell()
     assert_eq!(hook.help.len(), 1);
     assert!(hook.help[0].starts_with("KRS has no `--hook-namespaces`"));
     assert_eq!(hook.to_diagnostic().help, hook.help);
-    assert_eq!(hook.collection_cell_without_initial(), None);
 
     let cell = native(
         DiagnosticCode::CellCollectionVarWithoutInitial,
         "Configuration variable found in declaration of collection cell <account>. Implicitly, this causes the initial configuration to start with one <account> element instead of zero. Add the `initial=\"\"` attribute to make that behavior explicit.",
     );
     assert!(cell.help.is_empty());
-    assert_eq!(cell.collection_cell_without_initial(), Some("account"));
 }
 
 fn native_diagnostic_for_test() -> super::FrontendDiagnostic {

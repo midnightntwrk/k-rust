@@ -15,43 +15,7 @@ use krs_ir_levels::{DefinitionIr, DefinitionSentence, DefinitionTerm, Definition
 /// diagnostics of a definition, in configuration order.
 #[must_use]
 pub fn cell_collection_warnings(definition: &DefinitionIr) -> Vec<Diagnostic> {
-    collection_cells_without_initial(definition)
-        .into_iter()
-        .map(|(cell, multiplicity)| {
-            let mut warning = Diagnostic::error(
-                codes::analysis::COLLECTION_CONFIG_VAR_WITHOUT_INITIAL,
-                format!(
-                    "the `multiplicity = \"{}\"` cell `{}` reads a configuration variable, so K starts it present although it is not `initial`; add `initial` to say so",
-                    multiplicity.as_str(),
-                    cell.name(),
-                ),
-                cell.origin()
-                    .origin()
-                    .exact_authored_range()
-                    .map_or(Location::None, Location::Source),
-            );
-            warning.severity = Severity::Warning;
-            warning
-        })
-        .collect()
-}
-
-/// The K names of the cells [`cell_collection_warnings`] warns about, in configuration order.
-#[must_use]
-pub fn cells_warned_without_initial(definition: &DefinitionIr) -> Vec<&str> {
-    collection_cells_without_initial(definition)
-        .into_iter()
-        .map(|(cell, _)| cell.name())
-        .collect()
-}
-
-/// The `?` and `*` cells that are not `initial` and whose template reads a configuration
-/// variable, outermost first: below such a cell, its warning already says the subtree starts
-/// present.
-fn collection_cells_without_initial(
-    definition: &DefinitionIr,
-) -> Vec<(&Cell, krs_ir::CellMultiplicity)> {
-    let mut found = Vec::new();
+    let mut warnings = Vec::new();
     for module in definition.modules() {
         for sentence in module.sentences() {
             if let DefinitionSentence::Configuration(configuration) = sentence {
@@ -63,12 +27,12 @@ fn collection_cells_without_initial(
                 let mut cells = Vec::new();
                 cells_of(configuration.cells(), &mut cells);
                 for initializer in configuration.initializer() {
-                    walk(initializer, &cells, &variables, &mut found);
+                    walk(initializer, &cells, &variables, &mut warnings);
                 }
             }
         }
     }
-    found
+    warnings
 }
 
 type Cell = krs_ir::FixedCell<krs_ir_levels::DefinitionSortRef, krs_ir_levels::SymbolId>;
@@ -83,11 +47,11 @@ fn cells_of<'a>(cells: &'a [Cell], out: &mut Vec<&'a Cell>) {
     }
 }
 
-fn walk<'a>(
+fn walk(
     initializer: &Initializer,
-    cells: &[&'a Cell],
+    cells: &[&Cell],
     variables: &BTreeSet<SemanticId>,
-    found: &mut Vec<(&'a Cell, krs_ir::CellMultiplicity)>,
+    warnings: &mut Vec<Diagnostic>,
 ) {
     let cell = cells.iter().find(|cell| cell.id() == initializer.cell());
     if let Some(cell) = cell
@@ -95,12 +59,25 @@ fn walk<'a>(
         && !cell.is_initial()
         && reads_variable(initializer, variables)
     {
-        found.push((cell, multiplicity));
+        let mut warning = Diagnostic::error(
+            codes::analysis::COLLECTION_CONFIG_VAR_WITHOUT_INITIAL,
+            format!(
+                "the `multiplicity = \"{}\"` cell `{}` reads a configuration variable, so K starts it present although it is not `initial`; add `initial` to say so",
+                multiplicity.as_str(),
+                cell.name(),
+            ),
+            cell.origin()
+                .origin()
+                .exact_authored_range()
+                .map_or(Location::None, Location::Source),
+        );
+        warning.severity = Severity::Warning;
+        warnings.push(warning);
         return;
     }
     if let FixedInitializerContent::Children { children } = initializer.content() {
         for child in children {
-            walk(child, cells, variables, found);
+            walk(child, cells, variables, warnings);
         }
     }
 }

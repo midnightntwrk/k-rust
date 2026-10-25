@@ -1081,20 +1081,8 @@ fn finish_native(
             warnings.push(diagnostic, DiagnosticStage::Analysis);
         }
     }
-    // KRS's own `collection-config-var-without-initial`, among the definition's warnings, already
-    // says that K starts such a cell present; k-rust's warning about the same cell adds nothing.
-    let warned = krs_compiler::cells_warned_without_initial(prepared.lowered.definition());
-    let native = artifacts
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| {
-            !diagnostic
-                .collection_cell_without_initial()
-                .is_some_and(|cell| warned.contains(&cell))
-        })
-        .cloned()
-        .collect::<Vec<_>>();
-    let native = crate::DiagnosticReports::native(prepared.lowered.source_map(), &native);
+    let native =
+        crate::DiagnosticReports::native(prepared.lowered.source_map(), &artifacts.diagnostics);
     warnings.envelopes.extend(native.envelopes);
     Ok((artifacts, context, warnings))
 }

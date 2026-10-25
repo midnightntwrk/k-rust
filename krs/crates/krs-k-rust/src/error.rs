@@ -254,20 +254,6 @@ const fn native_help(code: NativeDiagnosticCode) -> Option<&'static str> {
     }
 }
 
-impl FrontendDiagnostic {
-    /// The configuration cell a native `CellCollectionVarWithoutInitial` warning names, by its K
-    /// name. k-rust attaches no sentence to it, so its message is the only place the cell is
-    /// named: "... collection cell <NAME>. ...".
-    #[must_use]
-    pub fn collection_cell_without_initial(&self) -> Option<&str> {
-        if self.code.as_str() != NativeDiagnosticCode::CellCollectionVarWithoutInitial.as_str() {
-            return None;
-        }
-        let (_, rest) = self.message.split_once("collection cell <")?;
-        rest.split_once('>').map(|(name, _)| name)
-    }
-}
-
 /// Rejection by the pinned native preparation boundary.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum PreparationError {

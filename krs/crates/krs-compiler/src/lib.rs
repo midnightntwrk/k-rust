@@ -25,7 +25,7 @@ mod spec_tokens;
 pub mod testing;
 
 pub use artifacts::*;
-pub use cell_warnings::{cell_collection_warnings, cells_warned_without_initial};
+pub use cell_warnings::cell_collection_warnings;
 pub use coverage::coverage_warnings;
 pub use emit::{
     DeclaredCellType, EmitError, EmittedK, EmittedSpec, declared_cell_types,
