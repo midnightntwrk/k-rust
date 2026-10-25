@@ -1,0 +1,53 @@
+# Termination inputs for KMIR's recursive functions on which K's rewriting itself diverges
+# (`k2lean gen --arity-terms … --termination kmir-termination.toml`, read by kmir.sh beside this
+# file). Every other recursive function of KMIR gets its measure from the generator.
+#
+# Keys are K function labels as the generated comment prints them. `partial_fixpoint` makes a
+# function (every member of its group) the least fixed point of its equations: `none` exactly
+# where the rewriting does not terminate, the equations' value everywhere else. No measure
+# exists for these: each recurses on a type read from the type table, `lookupTy(TYPESMAP, TY)`,
+# and the table is an arbitrary map, so a table whose entry for TY mentions TY itself makes the
+# rewriting cycle.
+#
+# Divergence witnesses, checked against the generated library by kmir-diverges.lean (`kmir.sh
+# check`), with M = someMap(ty(0) |-> T, ty(1) |-> u8):
+# - #alignOf, #sizeOf, #elemSize: T = typeInfoArrayType(ty(0), C); #alignOf(M, T) => #alignOf(M, T),
+#   #sizeOf(M, T) and #elemSize(M, T) with C = someTyConst(…) multiply the same call by the length.
+# - #pointeeProjection: T = typeInfoArrayType(ty(0), C), at (M, T, u8): the types differ, neither
+#   is zero-sized, so the array rule recurses on (M, lookupTy(M, ty(0)), u8), the same call.
+# - the decoding group: T = typeInfoStructType(_, _, ty(0) .Tys, LAYOUT) with one field at offset
+#   0 and size 8 bytes; #decodeValue(M, B, T) with 8 bytes B needs #decodeFieldsWithOffsets(M, B,
+#   ty(0), 0), which decodes #decodeValue(M, B, T) again (#elemSize(M, T) = 8 terminates).
+
+[functions."#alignOf(_,_)_RT-TYPES_Int_MaybeMap_TypeInfo"]
+partial_fixpoint = true
+
+[functions."#sizeOf(_,_)_RT-TYPES_Int_MaybeMap_TypeInfo"]
+partial_fixpoint = true
+
+[functions."#elemSize(_,_)_RT-DECODING_Int_MaybeMap_TypeInfo"]
+partial_fixpoint = true
+
+[functions."#pointeeProjection(_,_,_)_RT-TYPES_MaybeProjectionElems_MaybeMap_TypeInfo_TypeInfo"]
+partial_fixpoint = true
+
+[functions."#pointeeProjectionTarget(_,_,_)_RT-TYPES_MaybeProjectionElems_MaybeMap_TypeInfo_TypeInfo"]
+partial_fixpoint = true
+
+[functions."#decodeArrayAllocation(_,_,_,_)_RT-DECODING_Value_MaybeMap_Bytes_TypeInfo_Int"]
+partial_fixpoint = true
+
+[functions."#decodeArrayElements(_,_,_,_,_)_RT-DECODING_List_MaybeMap_Bytes_TypeInfo_Int_List"]
+partial_fixpoint = true
+
+[functions."#decodeEnumDirectFields(_,_,_,_,_,_)_RT-DECODING_Evaluation_MaybeMap_Bytes_VariantIdx_Tyss_LayoutShapes_TypeInfo"]
+partial_fixpoint = true
+
+[functions."#decodeFieldsWithOffsets(_,_,_,_)_RT-DECODING_List_MaybeMap_Bytes_Tys_MachineSizes"]
+partial_fixpoint = true
+
+[functions."#decodeSliceAllocation(_,_,_)_RT-DECODING_Value_MaybeMap_Bytes_TypeInfo"]
+partial_fixpoint = true
+
+[functions."decodeValue"]
+partial_fixpoint = true

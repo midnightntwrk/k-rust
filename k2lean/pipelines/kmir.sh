@@ -18,6 +18,9 @@
 #                                           the axiom guard of determinism alone, KMirTest.DetAxioms
 #   k2lean/pipelines/kmir.sh equations      the Equations modules one at a time (its parts, then
 #                                           KMir.Equations when every part built), as `build` does
+#   k2lean/pipelines/kmir.sh check          lean of kmir-diverges.lean against the generated library:
+#                                           the least fixed points of kmir-termination.toml have
+#                                           no value where K's rewriting diverges
 #   k2lean/pipelines/kmir.sh open           k2lean open-from-log of the last Equations build logs into
 #                                           $OUT/open-obligations.txt, which the gen step reads
 #
@@ -117,6 +120,11 @@ case $step in
     if [ "$step" = equations ] && [ $# = 0 ] && [ "$failed" = 0 ] && [ -d "$lib/KMir/Equations" ]; then
       "$0" build KMir.Equations
     fi
+    ;;
+  check)
+    [ -f "$lib/lakefile.lean" ] || { echo "kmir.sh: run the gen step first" >&2; exit 2; }
+    (cd "$lib" && "$RT" lake env lean "$here/kmir-diverges.lean") > "$logs/check.log" 2>&1 || { tail -n 20 "$logs/check.log" >&2; exit 1; }
+    tail -n 7 "$logs/check.log"
     ;;
   open)
     for f in "$logs"/build-KMir.Equations*.log; do
