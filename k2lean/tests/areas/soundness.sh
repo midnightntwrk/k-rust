@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The soundness area: `soundness` (ImpTypes: kimp against the type checker demos/k/imp-typing.k,
-# library imptypes).
+# library imptypes). Registry: soundness.py.
 
 kore_soundness() {
   case $1 in
@@ -45,4 +45,19 @@ libs_soundness() {
         --out-typing "$DEMOS/ImpTypes/ImpTypes/Typing.lean" --out-soundness "$DEMOS/ImpTypes/ImpTypes/Soundness.lean" ;;
     *) echo "libs_soundness: unknown demo $1" >&2; return 2 ;;
   esac
+}
+
+# ---------------------------------------------------------------- gate phases (tests/gate.sh)
+
+gate_soundness() {
+  kc kimp
+  runs lib imptypes && kc imp-typing && lib imptypes KImpTypes
+  if runs demo ImpTypes; then
+    phase "demo ImpTypes"
+    kc imp-typing && rel ImpTypes
+    scaffold soundness-ImpTypes libs_soundness ImpTypes
+    dbuild ImpTypes
+  fi
+  phase "diff soundness"
+  diffs imptypes
 }

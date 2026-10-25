@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # The core area: kimp (goldens and step traces), KRS IMP, determinism along the rule index
 # (kimp-d2, ovl), the fixture freekey, SIMPLE and its acceptance against krust, and the libraries
-# in the arity-indexed term universe (kimp-ar, simple-ar, kterm-ar).
+# in the arity-indexed term universe (kimp-ar, simple-ar, kterm-ar). Registry: core.py.
 
 kore_core() {
   case $1 in
@@ -89,4 +89,107 @@ libs_simple_cases() {
 libs_cases() {
   "$G" cases --kore "$(kore_dir simple)/definition.kore" --name KSimple --krust "$KRUST" --definition "$(kore_dir simple)" \
     --sort Stmt --lean-out "$1" "${LIBS_SIMPLE_CASES[@]}"
+}
+
+# ---------------------------------------------------------------- gate phases (tests/gate.sh)
+
+needs_core() {
+  if runs lib simple || runs lib simple-ar; then
+    [ -d "$SD" ] || need "SIMPLE's sources at $SD (set GATE_K_CHECKOUT)"
+  fi
+  return 0
+}
+
+# K's LLVM interpreter of kimp, a second executor that the step traces compare krust and the Lean
+# semantics with; built once per kimp source and cached (LLVM is its directory)
+LLVM=''
+kimp_llvm() {
+  [ -n "$LLVM" ] && return 0
+  phase llvm
+  local key tmp
+  key=$(cd "$KIMP" && find . -type f | sort | xargs sha256sum | sha256sum | cut -c1-12)
+  LLVM=$CACHE/kimp-llvm-$key
+  # a cache entry is written under a name of this run's own and renamed into place, so a run that
+  # shares the cache never reads a partial one; when two runs build it at once, the first rename
+  # wins and the other run discards its copy (the interpreter does not depend on its directory's name)
+  if [ ! -x "$LLVM/interpreter" ]; then
+    [ -e "$LLVM" ] && mv "$LLVM" "$LLVM.partial.$$" && rm -rf "$LLVM.partial.$$"   # left by an older gate
+    tmp=$LLVM.tmp.$$
+    rm -rf "$tmp"
+    if K_OPTS="-Xmx4096m -Xss4m" "$KOMPILE" "$KIMP/imp.k" --backend llvm --main-module IMP --syntax-module IMP-SYNTAX \
+         --output-definition "$tmp" --warnings none -I "$KIMP" > "$L/kompile-llvm.log" 2>&1; then
+      mv -T "$tmp" "$LLVM" 2> /dev/null || rm -rf "$tmp"
+      ok kompile-llvm
+    else rm -rf "$tmp"; bad kompile-llvm "$L/kompile-llvm.log"; fi
+  fi
+}
+kimp_goldens() { # DIR: the goldens and traces of kimp's library DIR (kimp or kimp-ar), after its generation
+  kimp_llvm
+  if libs_goldens "$W/goldens-tmp" "$LLVM/interpreter" "$1" > "$L/goldens.log" 2>&1; then ok goldens "$L/goldens.log"
+  else bad goldens "$L/goldens.log"; fi
+}
+kimp_tests() { # DIR: build and run kimp's test driver of library DIR (goldens and traces)
+  phase "$1 tests"
+  if lbuild "$GEN/$1" "build-$1-test" kimp-test; then
+    "$GEN/$1/.lake/build/bin/kimp-test" --toml "$MEAS/goldens.toml" > "$MEAS/kimp-test.out" 2> "$L/$1-test.err" \
+      && ok "$1-test" "$MEAS/kimp-test.out" || bad "$1-test" "$MEAS/kimp-test.out"
+  else bad "build $1-test" "$L/build-$1-test.log"; fi
+}
+lib_simple() { # DIR (simple, simple-ar): generate, cases, build, guard, run the cases, acceptance table
+  local d=$1 o=$GEN/$1
+  lib_open "$d"
+  genlib "$d" || { bad "gen $d" "$L/gen-$d.log"; return 1; }
+  # the cases' expected results come from krust runs (about a minute); they are cached under the
+  # hash of everything they depend on: the compiled definition, krust, the generator, the tests
+  local key; key=$( { sha256sum "$KO/simple/definition.kore" "$KRUST" "$G"; printf '%s\n' "${LIBS_SIMPLE_CASES[@]}";
+    cat "$SD"/tests/*/*.simple* 2>/dev/null; } | sha256sum | cut -c1-16)
+  local cached=$CACHE/simple-cases-$key.lean
+  if [ -f "$cached" ]; then
+    cp "$cached" "$o/KSimpleTest/Cases.lean"; echo "cached $cached" > "$L/cases-$d.log"
+  else
+    libs_cases "$o/KSimpleTest/Cases.lean" > "$L/cases-$d.log" 2>&1 \
+      || { bad "cases $d" "$L/cases-$d.log"; return 1; }
+    # written under a name of this run's own and renamed into place, as kimp's interpreter
+    cp "$o/KSimpleTest/Cases.lean" "$cached.tmp.$$" && mv -f "$cached.tmp.$$" "$cached"
+  fi
+  eqns "$d" KSimple || return 1
+  lbuild "$o" "build-$d" KSimple || { bad "build $d" "$L/build-$d.log"; return 1; }
+  ok "build $d" "$L/build-$d.log"
+  lbuild "$o" "build-$d-guard" KSimpleTest.Axioms || { bad "guard $d" "$L/build-$d-guard.log"; return 1; }
+  ok "guard $d" "$L/build-$d-guard.log"
+  lbuild "$o" "build-$d-test" ksimple-test || { bad "build ksimple-test" "$L/build-$d-test.log"; return 1; }
+  "$o/.lake/build/bin/ksimple-test" > "$L/$d-test.out" 2>&1
+  python3 -I "$SELF/tests/simple-acceptance.py" "$L/$d-test.out" "$SD/tests" "$KRUST" "$KO/simple" \
+    "$MEAS/simple-acceptance.toml" > "$MEAS/simple-acceptance.md" 2> "$L/simple-acceptance.err"
+}
+
+gate_core() {
+  if runs lib kimp; then
+    kc kimp && kc kimp-verif && lib kimp KImp kimp_goldens kimp && kimp_tests kimp
+  fi
+  # kimp with determinism along the rule index: Terms … Equations are kimp's, so its build starts
+  # from kimp's (only Determinism and the guard differ)
+  if runs lib kimp-d2; then
+    seed_lake kimp-d2 kimp
+    kc kimp && kc kimp-verif && lib kimp-d2 KImp
+  fi
+  runs lib krsimp && lib krsimp KrsImp
+  runs lib ovl && kc ovl && lib ovl KOvl
+  # the fixture whose function equations match maps by free-key patterns (`MapHook.chooseFirst`)
+  runs lib freekey && lib freekey FreeKey
+  if runs lib kimp-ar; then
+    kc kimp && kc kimp-verif && lib kimp-ar KImp kimp_goldens kimp-ar && kimp_tests kimp-ar
+  fi
+  # recursive functions whose termination measures the generator synthesizes (demos/k/term)
+  runs lib kterm-ar && kc kterm && lib kterm-ar KTerm
+  if runs lib simple-ar; then
+    phase "lib simple-ar"
+    kc simple && libs_simple_cases && lib_simple simple-ar && ok "simple-ar acceptance" "$MEAS/simple-acceptance.md"
+  fi
+  if runs lib simple; then
+    phase "lib simple"
+    kc simple && libs_simple_cases && lib_simple simple && ok "simple acceptance" "$MEAS/simple-acceptance.md"
+  fi
+  phase "diff core"
+  diffs kimp krsimp simple
 }

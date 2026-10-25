@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The confluence area: `confluence` (RaceConf: every schedule of the fixture race, library race;
-# SIMPLE's pairs of rules classified, report only).
+# SIMPLE's pairs of rules classified, report only). Registry: confluence.py.
 
 name_confluence() {
   case $1 in
@@ -29,4 +29,30 @@ libs_confluence() {
         --report "$2" ;;
     *) echo "libs_confluence: unknown demo $1" >&2; return 2 ;;
   esac
+}
+
+# ---------------------------------------------------------------- gate phases (tests/gate.sh)
+
+needs_confluence() {
+  if runs output simple-confluence.toml; then
+    [ -d "$SD" ] || need "SIMPLE's sources at $SD (set GATE_K_CHECKOUT)"
+  fi
+  return 0
+}
+
+gate_confluence() {
+  # confluence modulo scheduling (docs/design.md, section 3.6) of the fixture race, its library
+  # built only as far as the demo needs
+  if runs demo RaceConf; then
+    phase "scaffold RaceConf"
+    partlib race Race.Preserves
+    scaffold confluence-RaceConf libs_confluence RaceConf
+    dbuild RaceConf
+  fi
+  # SIMPLE's pairs of rules for confluence modulo scheduling, counted (`k2lean confluence
+  # --report-only`): a recorded output
+  if runs output simple-confluence.toml; then
+    phase "confluence SimpleConf"
+    kc simple && scaffold "confluence SimpleConf" libs_confluence SimpleConf "$MEAS/simple-confluence.toml"
+  fi
 }

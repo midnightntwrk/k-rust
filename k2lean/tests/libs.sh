@@ -14,7 +14,8 @@
 #                       directory is $o); return 1 when DIR is not the area's
 #   relate_AREA NS      set libs_relate's variables (na ka nb kd f extra) for demo NS; return 1 when
 #                       NS is not the area's
-# and its own commands (libs_soundness, libs_refine, …). The dispatchers below ask each area in turn.
+# its own commands (libs_soundness, libs_refine, …), and its gate phases (gate_AREA, needs_AREA,
+# called by tests/gate.sh only). The dispatchers below ask each area in turn.
 #
 # The caller sets, before calling a function:
 #   G        the k2lean binary
@@ -31,7 +32,8 @@
 # definition NAME, so that each caller keeps its own layout.
 
 LIBS_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-# the areas
+# the areas, in the order the gate runs them (an area may use what an earlier one built);
+# tests/gate-check.py reads this line
 LIBS_AREAS="core invariants relational soundness confluence noninterference claims"
 for _a in $LIBS_AREAS; do
   # shellcheck source=/dev/null

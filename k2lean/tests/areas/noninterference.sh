@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # The noninterference area: `noninterference` (ImpNI: kimp with the security checker
-# demos/k/imp-sec.k, library impsec).
+# demos/k/imp-sec.k, library impsec). Registry: noninterference.py.
 
 kore_noninterference() {
   case $1 in
@@ -45,4 +45,18 @@ libs_noninterference() {
         --out "$DEMOS/ImpNI/ImpNI/NI.lean" --report "$DEMOS/ImpNI/noninterference.toml" ;;
     *) echo "libs_noninterference: unknown demo $1" >&2; return 2 ;;
   esac
+}
+
+# ---------------------------------------------------------------- gate phases (tests/gate.sh)
+
+gate_noninterference() {
+  # noninterference (docs/design.md, section 3.7): kimp and the checker, library impsec built only
+  # as far as the demo needs (its functions)
+  if runs demo ImpNI; then
+    phase "scaffold ImpNI"
+    kc kimp && kc imp-sec && partlib impsec KImpSec.Functions
+    rel ImpNI
+    scaffold noninterference-ImpNI libs_noninterference ImpNI
+    dbuild ImpNI
+  fi
 }

@@ -1,7 +1,7 @@
 # shellcheck shell=bash
 # The relational area: `relate` (ImpRel, ImpMut with the mutant library kmut, the fixture
 # self-relations PeanoRel and CellMapRel, SimpleRel outside the gate) and `refine` (ImpUnroll, with
-# the library kunroll).
+# the library kunroll). Registry: relational.py.
 
 kore_relational() {
   case $1 in
@@ -72,4 +72,37 @@ libs_refine() {
         --out "$DEMOS/ImpUnroll/ImpUnroll/Refine.lean" --report "$DEMOS/ImpUnroll/refine.toml" ;;
     *) echo "libs_refine: unknown demo $1" >&2; return 2 ;;
   esac
+}
+
+# ---------------------------------------------------------------- gate phases (tests/gate.sh)
+
+gate_relational() {
+  kc kimp
+  runs lib kmut && kc kmut && lib kmut KMut
+  phase "demos relational"
+  runs demo ImpRel && { rel ImpRel; dbuild ImpRel; }
+  runs demo ImpMut && kc kmut && { rel ImpMut; dbuild ImpMut; }
+  # two fixtures related to themselves: PeanoRel (an `owise` priority, recursive and mutual
+  # functions) and CellMapRel (a free-key rule over a typed cell map); each side generated under
+  # its own namespace and built only as far as the relation needs (Rules)
+  local d
+  if runs demo PeanoRel; then
+    for d in peano peanob; do partlib "$d" "$(libs_name "$d").Rules"; done
+    rel PeanoRel; dbuild PeanoRel
+  fi
+  if runs demo CellMapRel; then
+    for d in cellmap cellmapb; do partlib "$d" "$(libs_name "$d").Rules"; done
+    rel CellMapRel; dbuild CellMapRel
+  fi
+  # a stuttering bisimulation (docs/design.md, section 3.5): kimp against tests/kimp-unroll.py's
+  # variant, library kunroll built only as far as the demo needs
+  if runs demo ImpUnroll; then
+    phase "scaffold ImpUnroll"
+    kc kimp-unroll && partlib kunroll KUnroll.Preserves
+    rel ImpUnroll
+    scaffold refine-ImpUnroll libs_refine ImpUnroll
+    dbuild ImpUnroll
+  fi
+  phase "diff relational"
+  diffs kmut
 }
