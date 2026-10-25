@@ -371,6 +371,48 @@ fn map_walks_by_free_key_patterns_get_their_element_wise_form() {
     assert!(thms.contains("Invariant.allIn_walk, Invariant.allIn_test, Invariant.workersIn_walk, Invariant.workersIn_test, Invariant.workersIn_walk_cell, Invariant.workersIn_map"), "{thms}");
 }
 
+/// `gen --invariant ok` on the `kfold` fixture, whose invariant folds `<k>` with `kOk` and a
+/// partial test of one item `itemOk`, which calls `kOk` back on the continuation a `later(K)`
+/// holds: the fold gets `Invariant.kAll` and its element-wise form `Invariant.kOk_iff`, by
+/// structural recursion on the sequence (`SortK` is mutually inductive) from its two equations;
+/// `itemOk`, recursive only through the fold, is unfolded by its equations, and its `owise`
+/// equation is stated at every subsort of `KItem` (`Invariant.itemOk_owise_Cmd`), instead of
+/// notes that the recursion is neither a walk, a fold nor structural.
+#[test]
+fn k_folds_get_their_element_wise_form() {
+    let d = tmp("cli-kfold");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/kfold");
+    let out = d.join("out");
+    std::fs::create_dir_all(&out).unwrap();
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("gen")
+        .arg("--kore")
+        .arg(fx.join("definition.kore"))
+        .arg("--runtime")
+        .arg(fx.join("runtime.json"))
+        .arg("--out")
+        .arg(&out)
+        .args([
+            "--name",
+            "KKFold",
+            "--prelude",
+            "../../prelude",
+            "--invariant",
+            "ok",
+        ])
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let err = String::from_utf8_lossy(&o.stderr);
+    assert!(!err.contains("is neither a map walk"), "{err}");
+    let defs = std::fs::read_to_string(out.join("KKFold/InvariantDefs.lean")).unwrap();
+    assert!(defs.contains("def Invariant.kAll (P : SortKItem → Prop) : SortK → Prop\n  | .dotk => True\n  | .kseq i k => P i ∧ Invariant.kAll P k"), "{defs}");
+    assert!(defs.contains("theorem Invariant.kOk_iff : ∀ (k : SortK) (p1 : SortMap), K.«kOk(_,_)_KFOLD_Bool_K_Map» k p1 = some true ↔ Invariant.kAll (fun x => K.«itemOk(_,_)_KFOLD_Bool_KItem_Map» x p1 = some true) k\n  | .dotk, p1 => by simp only [Invariant.kAll, Eqn.«kOk(_,_)_KFOLD_Bool_K_Map_1»]"), "{defs}");
+    assert!(defs.contains("theorem Invariant.itemOk_owise_Cmd (x : SortCmd) (a1 : SortMap) :\n    K.«itemOk(_,_)_KFOLD_Bool_KItem_Map» (SortKItem.inj_Cmd x) a1 = some true := by"), "{defs}");
+    let thms = std::fs::read_to_string(out.join("KKFold/Invariants.lean")).unwrap();
+    assert!(thms.contains("Eqn.«itemOk(_,_)_KFOLD_Bool_KItem_Map_3», Eqn.«ok(_)_KFOLD_Bool_GeneratedTopCell_1», Invariant.kOk_iff, Invariant.kAll, Invariant.itemOk_owise_Bool, Invariant.itemOk_owise_Cmd"), "{thms}");
+}
+
 fn gen_fixture(dir: &Path, out: &Path, ns: &str) {
     let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
         .arg("gen")
