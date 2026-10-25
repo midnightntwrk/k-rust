@@ -16,13 +16,16 @@
 //! 1. the state exclusion (`DefinitionExclusions::state_exclusion`) of the baseline side's initial
 //!    configuration, under each side's facts and definition: kink assembles every test's input
 //!    from the baseline's grammar for both sides (cause `initial-state:<exclusion>`);
-//! 2. the undefined-step exclusions of each side's run, under that side's facts: a `trivial` leaf
-//!    of a `preserves-definedness` rule contradicts a claim (`preserves-definedness`), one of a
-//!    rule whose result depends on the short-circuit reading is no evidence
-//!    (`short-circuit-step`);
+//! 2. the undefined-step exclusions of each side's run, under that side's facts, read by
+//!    kink-native's `DefinitionExclusions::undefined_step_exclusions`, the one reading kink's own
+//!    leaf predicates use: a `trivial` leaf of a `preserves-definedness` rule contradicts a claim
+//!    (`preserves-definedness`), one of a rule whose result depends on the short-circuit reading
+//!    is no evidence (`short-circuit-step`; a job never meets it, since such a rule is a
+//!    definition exclusion that refuses the job before any case);
 //! 3. TV-01 on every `stuck` or `trivial` leaf's term under its own side's definition, with that
 //!    side's collection trust and data facts (`ObservationDecider::terminal_value`; the cause is
-//!    the first failing node's test, [`cause_of`]);
+//!    the first failing node's test, [`cause_of`], and a String-like domain value that is not
+//!    ASCII is `domain-value-not-ascii`, the one refusal a repair of the holes can avoid);
 //! 4. for a kill, every such end's value judged under the other side's definition too, as
 //!    `judge_ends` judges each side's ends (cause `cross-<test>`);
 //! 5. for a kill by a removed end under the flow's `[budget] work_factor`, the mutant's run must
@@ -35,25 +38,52 @@
 //! state exclusion (1): a query's stepped run stops at its first match, so the leaves the case
 //! holds are not the run kink judges, and kink's own query decides about them.
 //!
-//! **Laxer and stricter than kink.** The filter only removes candidates, and kink's own run of
+//! **Stack.** Every kink-native walk over a case's terms runs inside the backend's
+//! `with_solver_over` with those terms, on a stack sized for them, as k-rust sizes one for a
+//! request. Terms deeper than the largest stack the backend provides are refused with
+//! `too-deep`, kink's name for an input past its depth limit: a function of the input under the
+//! build's fixed reservation, never an overflow of the campaign's thread.
+//!
+//! **One verdict per case.** Each side's definition and solver are reached once, when the filter
+//! is built ([`FilterSide::new`]); a side kink-native cannot reach then, or fails to reach later
+//! for any reason but stack, accepts every case for the rest of the campaign, so a judgement of a
+//! case before its confirmation and the judgement of the equal case after it never differ for a
+//! reason outside the case (which would abort the campaign as a client defect). A stack segment
+//! the host refuses is a fact of the environment: that judgement accepts too.
+//!
+//! **Stricter and laxer than kink.** The filter only removes candidates, and kink's own run of
 //! the fragment stays the verdict (KF-T4). A difference costs a witness or leaves kink's refusal
 //! to its confirmation, never a claim kink does not make:
-//! - stricter: without the adapter's feasibility, a leaf the solver refutes (kink drops it,
-//!   `Unsat`) is judged ([`kink_native::bridge::leaf_term`]); the work-factor check reads the
-//!   fuzz's work, which is kink's unit of the same request shape;
-//! - laxer: a leaf whose state is not one decided term, a halt outside the bridge's contract, a
-//!   configuration that does not parse, and a decider kink-native could not build are left to
-//!   kink (a backend that cannot reach its definition is a fact of the environment, so refusing on
-//!   it could make the filter's verdict depend on more than the case).
+//! - stricter: the work-factor check reads the fuzz's work for kink's, which differs where kink
+//!   runs a side as a path set (an undefined, vacuous or contradicted leaf, KINK-PATHSET-FALLBACK)
+//!   or with another execution request; and a term past the backend's depth is refused (`too-deep`)
+//!   where kink's runner, judging it without a stack sized for it, may overflow instead. (Leaves
+//!   kink drops as solver-refuted, `Unsat`, never reach TV-01 here either: [`leaf_term`] gives a
+//!   term only for a decided state, which the adapter never refutes.)
+//! - laxer: a leaf whose state is not one decided term (a constrained state kink may show
+//!   feasible and judge), leaf diagnostics (kink makes a diagnosed leaf incomplete), a halt
+//!   outside the bridge's contract, a configuration that does not parse, a side kink-native could
+//!   not reach, the mutant's single path of a one-path campaign (which is not its set of ends),
+//!   an added end under `work_factor`, and everything after a pattern's first match are left to
+//!   kink's confirmation.
 //!
 //! **Identity.** [`KinkJudgement::id`] names [`FILTER_VERSION`] (this composition: the deciders,
-//! the leaves, the cause tokens, the repair), the `KINK_IDENTITY` components it composes
-//! (`terminal_value`, `data_facts`, `definition_exclusion`, `k_rust_revision`) and the flow's work
+//! the leaves, the cause tokens, the repair), the `KINK_IDENTITY` components it composes or
+//! assumes (`terminal_value`, `data_facts`, `definition_exclusion`, `execution_request`, whose
+//! request shape the work-factor check assumes, and `k_rust_revision`) and the flow's work
 //! budget. It never names `kink_build`, which changes with every rebuild of an identical filter.
+//!
+//! **Memory.** The filter keeps each side's kink load (a backend and its parsed KORE) for the
+//! whole campaign, beside the campaign's own backends: about +90 MB of peak resident memory on
+//! TRIAL3's SIMPLE job (478 MB against 385-390 MB), not measurable on IMP. `--no-filter` drops
+//! the loads.
 
-use k_rust::kore::{
-    ast::{Definition as KoreDefinition, Pattern, Sort as KoreSort},
-    parser::parse_pattern,
+use k_rust::{
+    backend::{BackendError, BackendErrorKind},
+    kore::{
+        ast::{Definition as KoreDefinition, Pattern, Sort as KoreSort},
+        parser::parse_pattern,
+    },
 };
 use k_rust_fuzz::{
     FilterRefusal, Value, WitnessFilter,
@@ -63,7 +93,7 @@ use kink_campaign::{KINK_IDENTITY, WorkBudget};
 use kink_native::{
     bridge::{LeafTerm, leaf_term},
     data::{DataFacts, data_ends},
-    exclusion::{DefinitionExclusions, ValidatedLoad},
+    exclusion::{DefinitionExclusions, Exclusion, ValidatedLoad},
     execution::HaltClass,
     feasibility::TestInitialState,
     step_events::{LocalTest, NonValue, ObservationDecider},
@@ -80,6 +110,9 @@ pub const FILTER_VERSION: &str = "kink-flow/witness-filter/v1";
 /// The repair candidates a refused hit gets at most ([`repair_candidates`]).
 const REPAIR_CANDIDATES: usize = 2;
 
+/// The cause of a TV-01 refusal a repair of the String holes can avoid ([`repairable`]).
+pub const NOT_ASCII: &str = "domain-value-not-ascii";
+
 /// The job a filter judges for.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FilterJob {
@@ -91,20 +124,52 @@ pub enum FilterJob {
     Pattern,
 }
 
+/// What a guarded call on a side gave ([`FilterSide::values`], [`FilterSide::state_exclusion`]).
+enum Guarded<T> {
+    /// Its result.
+    Done(T),
+    /// The terms are deeper than the largest stack the backend provides (`too-deep`).
+    TooDeep,
+    /// The side was not reached: the judgement accepts.
+    Unreached,
+}
+
 /// One side as the filter judges it: kink's load of it and the exclusions read from it, its
-/// symbol sorts, and its data facts under the campaign's assumed names.
+/// symbol sorts, its data facts under the campaign's assumed names, and whether kink-native
+/// reaches its definition and solver.
 pub struct FilterSide {
     load: ValidatedLoad,
     sorts: SymbolSorts,
     data: DataFacts,
+    /// Reached at construction, and on every guarded call since; once `false`, every judgement
+    /// of the side accepts for the rest of the campaign (module documentation, "One verdict per
+    /// case").
+    reachable: bool,
 }
 
 impl FilterSide {
-    /// The side of `load` with the data facts `data`.
+    /// The side of `load` with the data facts `data`, its definition and solver reached once.
     #[must_use]
     pub fn new(load: ValidatedLoad, data: DataFacts) -> Self {
         let sorts = SymbolSorts::from_definition(&load.kore);
-        Self { load, sorts, data }
+        let mut side = Self {
+            load,
+            sorts,
+            data,
+            reachable: true,
+        };
+        side.reachable = side
+            .load
+            .backend
+            .with_solver(None, |_, _| Ok::<_, BackendError>(()))
+            .is_ok();
+        side
+    }
+
+    /// Whether kink-native reached the side's definition and solver.
+    #[must_use]
+    pub const fn reachable(&self) -> bool {
+        self.reachable
     }
 
     /// The side's data facts recomputed under `assume_joined` on its own load (the campaign's
@@ -135,29 +200,58 @@ impl FilterSide {
         &self.load.kore
     }
 
+    /// `result` of a guarded call, its error read as the module documentation says.
+    fn guarded<T>(&mut self, result: Result<T, BackendError>) -> Guarded<T> {
+        match result {
+            Ok(value) => Guarded::Done(value),
+            Err(error) => match error.kind() {
+                Some(BackendErrorKind::InsufficientStack) => Guarded::TooDeep,
+                Some(BackendErrorKind::StackSegmentRefused) => Guarded::Unreached,
+                _ => {
+                    self.reachable = false;
+                    Guarded::Unreached
+                }
+            },
+        }
+    }
+
     /// The state exclusion of `initial` on this side, by name, if any.
-    fn state_exclusion(&mut self, initial: &Pattern) -> Option<&'static str> {
+    fn state_exclusion(&mut self, initial: &Pattern) -> Guarded<Option<&'static str>> {
+        if !self.reachable {
+            return Guarded::Unreached;
+        }
         let exclusions = &self.load.exclusions;
-        let selected = self.load.backend.select_definition(None).ok()?;
-        exclusions
-            .state_exclusion(&selected, initial)
-            .map(kink_native::exclusion::Exclusion::name)
+        let result = self
+            .load
+            .backend
+            .with_solver_over(None, &[initial], |definition, _| {
+                Ok::<_, BackendError>(
+                    exclusions
+                        .state_exclusion(definition, initial)
+                        .map(Exclusion::name),
+                )
+            });
+        self.guarded(result)
     }
 
     /// The terminal value of each of `terms` under this side's definition, or why it has none
-    /// (with whether the failing node is a String-like domain value that is not ASCII, which a
-    /// repair of the holes can avoid); `None` when no decider can be built.
-    fn values(&mut self, initial: &Pattern, terms: &[Pattern]) -> Option<Vec<Judged>> {
+    /// (with whether a repair of the holes can avoid it, [`repairable`]).
+    fn values(&mut self, initial: &Pattern, terms: &[Pattern]) -> Guarded<Vec<Judged>> {
+        if !self.reachable {
+            return Guarded::Unreached;
+        }
         let trusted = self.load.exclusions.collections_trusted();
         let own = data_ends(&self.data);
-        self.load
+        let patterns: Vec<&Pattern> = std::iter::once(initial).chain(terms).collect();
+        let result = self
+            .load
             .backend
-            .with_solver(None, |definition, solver| {
+            .with_solver_over(None, &patterns, |definition, solver| {
                 let decider =
                     ObservationDecider::new(definition, solver, TestInitialState::of_test(initial))
                         .trusting_collections(trusted)
                         .judging_data(own, own);
-                Ok::<_, k_rust::backend::BackendError>(
+                Ok::<_, BackendError>(
                     terms
                         .iter()
                         .map(|term| match decider.terminal_value(term) {
@@ -178,8 +272,8 @@ impl FilterSide {
                         })
                         .collect(),
                 )
-            })
-            .ok()
+            });
+        self.guarded(result)
     }
 }
 
@@ -213,9 +307,10 @@ fn repairable(failure: &NonValue, hook: &dyn Fn(&str) -> Option<Option<String>>)
 }
 
 /// The cause token of a term that has no terminal value, by the test its first failing node
-/// fails.
-const fn cause_of(test: LocalTest) -> &'static str {
+/// fails; a domain value a repair can avoid is [`NOT_ASCII`].
+const fn cause_of(test: LocalTest, repairable: bool) -> &'static str {
     match test {
+        LocalTest::IdentitySafeDomainValue if repairable => NOT_ASCII,
         LocalTest::TermKind => "term-kind",
         LocalTest::IdentitySafeDomainValue => "domain-value",
         LocalTest::CanonicalInjection => "injection",
@@ -248,6 +343,18 @@ impl Refused {
             repairable: false,
         }
     }
+
+    /// The `too-deep` refusal of the `role` side's terms.
+    fn too_deep(role: &str) -> Self {
+        Self::new(
+            "too-deep",
+            format!(
+                "the {role}'s terms are nested deeper than the largest stack the backend provides \
+                 for one operation"
+            ),
+            DEEP_REMEDY,
+        )
+    }
 }
 
 /// The remedy of a refusal by kink's end check.
@@ -266,6 +373,10 @@ const EXCLUSION_REMEDY: &str = "kink excludes such a run from every comparison (
 const WORK_REMEDY: &str = "kink's run of the mutant stops at its work budget before it shows that \
                            the baseline's end is missing; raise [budget] work_factor in FLOW.toml, \
                            or choose a template or hole range on which the mutant ends sooner";
+
+/// The remedy of a refusal of terms too deep.
+const DEEP_REMEDY: &str = "choose a smaller hole range or a template whose runs build shallower \
+                           terms";
 
 /// kink's judgement of a candidate witness (module documentation).
 pub struct KinkJudgement {
@@ -297,10 +408,11 @@ impl KinkJudgement {
         };
         let id = format!(
             "{FILTER_VERSION};terminal_value={};data_facts={};definition_exclusion={};\
-             k_rust_revision={};work={budget}",
+             execution_request={};k_rust_revision={};work={budget}",
             component("terminal_value"),
             component("data_facts"),
             component("definition_exclusion"),
+            component("execution_request"),
             component("k_rust_revision"),
         );
         Self {
@@ -321,70 +433,95 @@ impl KinkJudgement {
     /// The state exclusion of `initial` on any side the job reads, as `(side, exclusion)`, for
     /// the job's setup check of the anchors.
     pub fn initial_exclusion(&mut self, initial: &Pattern) -> Option<(&'static str, &'static str)> {
-        if let Some(exclusion) = self.baseline.state_exclusion(initial) {
+        if let Guarded::Done(Some(exclusion)) = self.baseline.state_exclusion(initial) {
             return Some(("baseline", exclusion));
         }
         let mutant = self
             .mutant
             .as_mut()
             .filter(|_| self.job == FilterJob::Kill)?;
-        mutant
-            .state_exclusion(initial)
-            .map(|exclusion| ("mutant", exclusion))
+        match mutant.state_exclusion(initial) {
+            Guarded::Done(Some(exclusion)) => Some(("mutant", exclusion)),
+            _ => None,
+        }
     }
 
-    /// The verdict on `case` (module documentation): `None` when kink's rules accept it.
-    fn verdict(&mut self, case: &WitnessCase) -> Option<Refused> {
-        let initial = parse_pattern(&case.sides.first()?.initial_configuration).ok()?;
+    /// Every refusal kink's rules give `case` (module documentation), in the order kink applies
+    /// them; the first is the case's verdict, and a repair is tried only when every one is
+    /// repairable.
+    fn refusals(&mut self, case: &WitnessCase) -> Vec<Refused> {
+        let mut refusals = Vec::new();
+        let Some(Ok(initial)) = case
+            .sides
+            .first()
+            .map(|side| parse_pattern(&side.initial_configuration))
+        else {
+            return refusals;
+        };
         // 1. The state exclusion of the baseline's initial configuration, under each side's facts.
-        if let Some((role, exclusion)) = self.initial_exclusion(&initial) {
-            return Some(Refused::new(
-                format!("initial-state:{exclusion}"),
-                format!(
-                    "the initial configuration has kink's exclusion {exclusion} on the {role}'s \
-                     definition"
-                ),
-                EXCLUSION_REMEDY,
-            ));
+        let kill = self.job == FilterJob::Kill;
+        let mutant = self.mutant.as_mut().filter(|_| kill);
+        for (role, side) in std::iter::once(("baseline", &mut self.baseline))
+            .chain(mutant.map(|mutant| ("mutant", mutant)))
+        {
+            match side.state_exclusion(&initial) {
+                Guarded::Done(Some(exclusion)) => refusals.push(Refused::new(
+                    format!("initial-state:{exclusion}"),
+                    format!(
+                        "the initial configuration has kink's exclusion {exclusion} on the \
+                         {role}'s definition"
+                    ),
+                    EXCLUSION_REMEDY,
+                )),
+                Guarded::TooDeep => refusals.push(Refused::too_deep(role)),
+                Guarded::Done(None) | Guarded::Unreached => {}
+            }
         }
         if self.job == FilterJob::Pattern {
-            return None;
+            return refusals;
         }
         // 2 and 3, each side under its own facts and definition.
-        let baseline = match judge_side(
+        let baseline = judge_side(
             "baseline",
-            case.sides.first()?,
+            &case.sides[0],
             &mut self.baseline,
             &initial,
-        ) {
-            Ok(values) => values,
-            Err(refused) => return Some(refused),
-        };
-        let pair = match (self.job, self.mutant.as_mut(), case.sides.get(1)) {
-            (FilterJob::Kill, Some(mutant), Some(side)) => Some((mutant, side)),
+            &mut refusals,
+        );
+        let pair = match (kill, self.mutant.as_mut(), case.sides.get(1)) {
+            (true, Some(mutant), Some(side)) => Some((mutant, side)),
             _ => None,
         };
-        let (mutant, mutant_case) = pair?;
-        let mutant_values = match judge_side("mutant", mutant_case, mutant, &initial) {
-            Ok(values) => values,
-            Err(refused) => return Some(refused),
+        let Some((mutant, mutant_case)) = pair else {
+            return refusals;
         };
+        let mutant_values = judge_side("mutant", mutant_case, mutant, &initial, &mut refusals);
         // 4. Each side's values under the other side's definition.
-        if let Some(values) = &baseline
-            && let Some(refused) = cross("baseline", values, "mutant", mutant, &initial)
-        {
-            return Some(refused);
+        if let Some(values) = &baseline {
+            cross(
+                "baseline",
+                values,
+                "mutant",
+                mutant,
+                &initial,
+                &mut refusals,
+            );
         }
-        if let Some(values) = &mutant_values
-            && let Some(refused) = cross("mutant", values, "baseline", &mut self.baseline, &initial)
-        {
-            return Some(refused);
+        if let Some(values) = &mutant_values {
+            cross(
+                "mutant",
+                values,
+                "baseline",
+                &mut self.baseline,
+                &initial,
+                &mut refusals,
+            );
         }
         // 5. A removed end needs the mutant's run complete within kink's work budget.
         if case.kill == Some(KillKind::RemovedEnd) {
-            return self.work_refusal(case);
+            refusals.extend(self.work_refusal(case));
         }
-        None
+        refusals
     }
 
     /// The `work-factor` refusal of a removed-end kill whose mutant run visited more states than
@@ -410,44 +547,46 @@ impl KinkJudgement {
     }
 }
 
-/// The refusal of `side`'s run, the `role` side's, by its undefined steps and by TV-01 under its
-/// own `facts`, or the values of its ends (`None` when no decider could be built, which leaves
-/// the side to kink).
+/// Push the refusals of `side`'s run, the `role` side's, by its undefined steps and by TV-01
+/// under its own `facts`, onto `refusals`; the values of its ends that have one (`None` when the
+/// side was not reached or its terms are too deep, which leaves no value to judge across).
 fn judge_side(
     role: &str,
     side: &WitnessSide,
     facts: &mut FilterSide,
     initial: &Pattern,
-) -> Result<Option<Vec<Pattern>>, Refused> {
-    if let Some(refused) = undefined_step(role, side, facts.exclusions()) {
-        return Err(refused);
-    }
+    refusals: &mut Vec<Refused>,
+) -> Option<Vec<Pattern>> {
+    undefined_steps(role, side, facts.exclusions(), refusals);
     let ends = ends(side, &facts.sorts);
     let terms: Vec<Pattern> = ends.iter().map(|(_, term)| term.clone()).collect();
-    let Some(judged) = facts.values(initial, &terms) else {
-        return Ok(None);
+    let judged = match facts.values(initial, &terms) {
+        Guarded::Done(judged) => judged,
+        Guarded::TooDeep => {
+            refusals.push(Refused::too_deep(role));
+            return None;
+        }
+        Guarded::Unreached => return None,
     };
     let mut values = Vec::new();
     for ((leaf, _), judged) in ends.iter().zip(judged) {
         match judged {
             Judged::Value(value) => values.push(value),
-            Judged::NoValue(failure, repairable) => {
-                return Err(Refused {
-                    repairable,
-                    ..Refused::new(
-                        cause_of(failure.test),
-                        format!(
-                            "the {role}'s leaf {leaf} has no value kink can compare: {}",
-                            non_value_text(&failure)
-                        ),
-                        VALUE_REMEDY,
-                    )
-                });
-            }
+            Judged::NoValue(failure, repairable) => refusals.push(Refused {
+                repairable,
+                ..Refused::new(
+                    cause_of(failure.test, repairable),
+                    format!(
+                        "the {role}'s leaf {leaf} has no value kink can compare: {}",
+                        non_value_text(&failure)
+                    ),
+                    VALUE_REMEDY,
+                )
+            }),
             Judged::Changed => {}
         }
     }
-    Ok(Some(values))
+    Some(values)
 }
 
 /// The `stuck` and `trivial` leaves of `side` whose state is one decided term, with their index.
@@ -470,12 +609,15 @@ fn ends(side: &WitnessSide, sorts: &SymbolSorts) -> Vec<(usize, Pattern)> {
         .collect()
 }
 
-/// The refusal of `side`'s run by its undefined steps, under its own `exclusions`.
-fn undefined_step(
+/// Push the refusals of `side`'s run by its undefined steps, under its own `exclusions`
+/// (`DefinitionExclusions::undefined_step_exclusions`, kink's one reading of them), onto
+/// `refusals`.
+fn undefined_steps(
     role: &str,
     side: &WitnessSide,
     exclusions: &DefinitionExclusions,
-) -> Option<Refused> {
+    refusals: &mut Vec<Refused>,
+) {
     let steps = side
         .halts
         .iter()
@@ -484,71 +626,79 @@ fn undefined_step(
         .filter(|(_, (halt, _))| HaltClass::from_output(**halt) == HaltClass::Trivial)
         .filter_map(|(index, (_, rule))| Some((index, rule.as_ref()?)));
     for (index, rule) in steps {
-        if exclusions.preserves_definedness.contains(rule) {
-            return Some(Refused::new(
-                "preserves-definedness",
-                format!(
-                    "the {role}'s leaf {index} is an undefined step of rule {rule}, written \
-                     preserves-definedness: the run contradicts the claim, so kink takes no \
-                     evidence from it"
+        for exclusion in exclusions.undefined_step_exclusions(rule) {
+            refusals.push(match exclusion {
+                Exclusion::ContradictedClaim => Refused::new(
+                    "preserves-definedness",
+                    format!(
+                        "the {role}'s leaf {index} is an undefined step of rule {rule}, written \
+                         preserves-definedness: the run contradicts the claim, so kink takes no \
+                         evidence from it"
+                    ),
+                    EXCLUSION_REMEDY,
                 ),
-                EXCLUSION_REMEDY,
-            ));
-        }
-        if exclusions.short_circuit_rules.contains(rule) {
-            return Some(Refused::new(
-                "short-circuit-step",
-                format!(
-                    "the {role}'s leaf {index} is an undefined step of rule {rule}, whose result \
-                     depends on whether a short-circuit operator skips an undefined operand"
+                other => Refused::new(
+                    if other == Exclusion::ShortCircuitReading {
+                        "short-circuit-step".to_owned()
+                    } else {
+                        format!("undefined-step:{}", other.name())
+                    },
+                    format!(
+                        "the {role}'s leaf {index} is an undefined step of rule {rule}, whose \
+                         result depends on whether a short-circuit operator skips an undefined \
+                         operand"
+                    ),
+                    EXCLUSION_REMEDY,
                 ),
-                EXCLUSION_REMEDY,
-            ));
+            });
         }
     }
-    None
 }
 
-/// The refusal of `values`, the `role` side's end values, under `other`'s definition: each must
-/// be its own terminal value there.
+/// Push the refusals of `values`, the `role` side's end values, under `other`'s definition onto
+/// `refusals`: each must be its own terminal value there.
 fn cross(
     role: &str,
     values: &[Pattern],
     other_role: &str,
     other: &mut FilterSide,
     initial: &Pattern,
-) -> Option<Refused> {
-    let judged = other.values(initial, values)?;
+    refusals: &mut Vec<Refused>,
+) {
+    let judged = match other.values(initial, values) {
+        Guarded::Done(judged) => judged,
+        Guarded::TooDeep => {
+            refusals.push(Refused::too_deep(other_role));
+            return;
+        }
+        Guarded::Unreached => return,
+    };
     for (value, judged) in values.iter().zip(judged) {
-        let failure = match judged {
+        let (cause, detail, repairable) = match judged {
             Judged::Value(own) if own == *value => continue,
-            Judged::Value(_) | Judged::Changed => None,
-            Judged::NoValue(failure, repairable) => Some((failure, repairable)),
-        };
-        let (cause, detail, repairable) = match failure {
-            Some((failure, repairable)) => (
-                format!("cross-{}", cause_of(failure.test)),
-                non_value_text(&failure),
-                repairable,
-            ),
-            None => (
+            Judged::Value(_) | Judged::Changed => (
                 "cross-value-differs".to_owned(),
                 "its value there is another term".to_owned(),
                 false,
             ),
+            Judged::NoValue(failure, repairable) => (
+                format!("cross-{}", cause_of(failure.test, repairable)),
+                non_value_text(&failure),
+                repairable,
+            ),
         };
-        return Some(Refused {
+        refusals.push(Refused {
             repairable,
             ..Refused::new(
                 cause,
                 format!(
-                    "an end of the {role} is not a value under the {other_role}'s definition: {detail}"
+                    "an end of the {role} is not a value under the {other_role}'s definition: \
+                     {detail}"
                 ),
                 VALUE_REMEDY,
             )
         });
     }
-    None
 }
 
 impl WitnessFilter for KinkJudgement {
@@ -557,21 +707,27 @@ impl WitnessFilter for KinkJudgement {
     }
 
     fn judge(&mut self, case: &WitnessCase) -> Result<(), FilterRefusal> {
-        self.verdict(case)
+        self.refusals(case)
+            .into_iter()
+            .next()
             .map_or(Ok(()), |refused| Err(refused.refusal))
     }
 
-    /// Candidates only for a refusal a repair of the holes can avoid: a String-like domain value
-    /// that is not ASCII ([`repairable`]); none for a value refused whatever it holds.
+    /// Candidates only when every refusal of the case is one a repair of the holes can avoid (a
+    /// String-like domain value that is not ASCII, [`NOT_ASCII`]): none when any refusal holds
+    /// whatever the holes' strings are, such as a `Bytes`, `Float` or `MInt` end or an exclusion,
+    /// so that no candidate runs in vain.
     fn repair(
         &mut self,
         case: &WitnessCase,
         values: &[Value],
         _refusal: &FilterRefusal,
     ) -> Vec<Vec<Value>> {
-        match self.verdict(case) {
-            Some(refused) if refused.repairable => repair_candidates(values),
-            _ => Vec::new(),
+        let refusals = self.refusals(case);
+        if !refusals.is_empty() && refusals.iter().all(|refused| refused.repairable) {
+            repair_candidates(values)
+        } else {
+            Vec::new()
         }
     }
 }
@@ -747,6 +903,15 @@ mod tests {
             hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
             symbol Lbla{}() : SortS{} [constructor{}(), functional{}()]
             symbol Lblb{}() : SortS{} [constructor{}(), functional{}()]
+        endmodule []"#;
+
+    /// [`DEFINITION`] with a unary constructor `c`.
+    const WITH_C: &str = r#"[]
+        module MAIN
+            sort SortS{} []
+            hooked-sort SortString{} [hook{}("STRING.String"), hasDomainValues{}()]
+            symbol Lbla{}() : SortS{} [constructor{}(), functional{}()]
+            symbol Lblc{}(SortS{}) : SortS{} [constructor{}(), functional{}()]
         endmodule []"#;
 
     /// [`DEFINITION`] without `b`.
@@ -953,6 +1118,7 @@ mod tests {
             "terminal_value",
             "data_facts",
             "definition_exclusion",
+            "execution_request",
             "k_rust_revision",
         ] {
             let value = KINK_IDENTITY
@@ -989,7 +1155,7 @@ mod tests {
         let refused = judgement
             .judge(&accented_case)
             .expect_err("a non-ASCII String end");
-        assert_eq!(refused.cause, "domain-value");
+        assert_eq!(refused.cause, NOT_ASCII);
         assert!(
             refused.detail.contains("baseline's leaf 0"),
             "{}",
@@ -997,8 +1163,9 @@ mod tests {
         );
         assert!(
             judgement
-                .verdict(&accented_case)
-                .is_some_and(|r| r.repairable)
+                .refusals(&accented_case)
+                .iter()
+                .all(|refused| refused.repairable)
         );
         let refused = judgement
             .judge(&case("Lblb{}()", "Lbla{}()"))
@@ -1010,6 +1177,166 @@ mod tests {
         let mut alone = case("Lblb{}()", "Lbla{}()");
         alone.sides.truncate(1);
         assert_eq!(reach.judge(&alone), Ok(()));
+    }
+
+    /// A side whose facts name `rules` as rules whose result depends on the short-circuit
+    /// reading.
+    fn short_circuit_side(rules: &[&str]) -> FilterSide {
+        let mut side = side(&[]);
+        side.load.exclusions.short_circuit_rules =
+            rules.iter().map(|id| (*id).to_owned()).collect();
+        side
+    }
+
+    /// The short-circuit reading of an undefined step, under each side's own facts (review S5):
+    /// no job meets it, since such a rule is a definition exclusion, but the judgement reads it as
+    /// kink's leaf predicate does.
+    #[test]
+    fn an_undefined_step_of_a_short_circuit_rule_is_refused_under_its_sides_facts() {
+        let case = |baseline_rule, mutant_rule| {
+            kill(
+                witness_side(
+                    DefinitionRole::Baseline,
+                    &[("Lblb{}()", TRIVIAL, baseline_rule)],
+                    1,
+                ),
+                witness_side(
+                    DefinitionRole::Mutant,
+                    &[("Lbla{}()", TRIVIAL, mutant_rule)],
+                    1,
+                ),
+                KillKind::AddedEnd,
+            )
+        };
+        let mut judgement = KinkJudgement::new(
+            FilterJob::Kill,
+            short_circuit_side(&["reading"]),
+            Some(side(&[])),
+            WorkBudget::Unbounded,
+        );
+        assert_eq!(
+            judgement
+                .judge(&case(Some("reading"), None))
+                .map_err(|refusal| refusal.cause),
+            Err("short-circuit-step".to_owned())
+        );
+        assert_eq!(judgement.judge(&case(None, Some("reading"))), Ok(()));
+        // A rule in both sets gives both readings, the contradicted claim first, as
+        // `run_exclusion` orders them.
+        let mut both = short_circuit_side(&["reading"]);
+        both.load
+            .exclusions
+            .preserves_definedness
+            .insert("reading".into());
+        let mut judgement = KinkJudgement::new(
+            FilterJob::Kill,
+            both,
+            Some(side(&[])),
+            WorkBudget::Unbounded,
+        );
+        let causes: Vec<String> = judgement
+            .refusals(&case(Some("reading"), None))
+            .into_iter()
+            .map(|refused| refused.refusal.cause)
+            .collect();
+        assert_eq!(causes, ["preserves-definedness", "short-circuit-step"]);
+    }
+
+    /// A case refused for a non-ASCII String end is repaired only when nothing else refuses it
+    /// (review M6): beside a refusal no repair avoids (`b` is no symbol of the mutant), the
+    /// repair proposes nothing.
+    #[test]
+    fn a_repair_is_proposed_only_when_every_refusal_is_repairable() {
+        let mut judgement = KinkJudgement::new(
+            FilterJob::Kill,
+            side(&[]),
+            Some(side_of(WITHOUT_B, &[])),
+            WorkBudget::Unbounded,
+        );
+        let accented = r#"\dv{SortString{}}("é")"#;
+        let case = |baseline: &str| {
+            kill(
+                witness_side(
+                    DefinitionRole::Baseline,
+                    &[(accented, STUCK, None), (baseline, STUCK, None)],
+                    1,
+                ),
+                witness_side(DefinitionRole::Mutant, &[("Lbla{}()", STUCK, None)], 1),
+                KillKind::AddedEnd,
+            )
+        };
+        let values = [string("\u{e9}")];
+        let alone = case("Lbla{}()");
+        let refused = judgement.judge(&alone).expect_err("refused");
+        assert_eq!(refused.cause, NOT_ASCII);
+        assert!(!judgement.repair(&alone, &values, &refused).is_empty());
+        let mixed = case("Lblb{}()");
+        let refused = judgement.judge(&mixed).expect_err("refused");
+        assert_eq!(
+            refused.cause, NOT_ASCII,
+            "the baseline's refusal comes first"
+        );
+        assert!(judgement.repair(&mixed, &values, &refused).is_empty());
+    }
+
+    /// A side kink-native cannot reach accepts every case, consistently (review M9): no
+    /// judgement of a case can differ from the judgement of the equal case for a reason outside
+    /// the case.
+    #[test]
+    fn an_unreached_side_accepts_every_case() {
+        let mut unreached = side(&[]);
+        unreached.reachable = false;
+        let mut judgement =
+            KinkJudgement::new(FilterJob::Reach, unreached, None, WorkBudget::Unbounded);
+        let mut case = kill(
+            witness_side(
+                DefinitionRole::Baseline,
+                &[(r#"\dv{SortString{}}("é")"#, STUCK, None)],
+                1,
+            ),
+            witness_side(DefinitionRole::Mutant, &[], 1),
+            KillKind::AddedEnd,
+        );
+        case.sides.truncate(1);
+        assert_eq!(judgement.judge(&case), Ok(()));
+        assert!(side(&[]).reachable());
+    }
+
+    /// A term deeper than the largest stack the backend provides is refused `too-deep` (review
+    /// S1): the judgement's walks run on a stack sized for the case's terms, so the campaign's
+    /// thread neither overflows nor accepts the case.
+    #[test]
+    fn a_term_too_deep_for_the_backend_is_refused_too_deep() {
+        let refused = std::thread::Builder::new()
+            .stack_size(8 << 20)
+            .spawn(|| {
+                let depth = 2_000_000;
+                let mut text = String::with_capacity(depth * 9 + 16);
+                for _ in 0..depth {
+                    text.push_str("Lblc{}(");
+                }
+                text.push_str("Lbla{}()");
+                for _ in 0..depth {
+                    text.push(')');
+                }
+                let mut judgement = KinkJudgement::new(
+                    FilterJob::Reach,
+                    side_of(WITH_C, &[]),
+                    None,
+                    WorkBudget::Unbounded,
+                );
+                let mut case = kill(
+                    witness_side(DefinitionRole::Baseline, &[(&text, STUCK, None)], 1),
+                    witness_side(DefinitionRole::Mutant, &[], 1),
+                    KillKind::AddedEnd,
+                );
+                case.sides.truncate(1);
+                judgement.judge(&case).map_err(|refusal| refusal.cause)
+            })
+            .expect("a thread")
+            .join()
+            .expect("no overflow");
+        assert_eq!(refused, Err("too-deep".to_owned()));
     }
 
     fn string(text: &str) -> Value {

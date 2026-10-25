@@ -1223,9 +1223,17 @@ mod kink_tier {
         );
         assert!(ok, "{filtered:#}");
         assert_eq!(filtered["stopped"], "client-refused", "{filtered:#}");
-        assert_eq!(filtered["attempts"][0]["confirmation"], Value::Null);
+        let attempt = filtered["attempts"]
+            .as_array()
+            .and_then(|attempts| attempts.first())
+            .expect("one attempt");
         assert_eq!(
-            totals(&filtered)["filter"]["refused"]["domain-value"],
+            attempt.get("confirmation"),
+            Some(&Value::Null),
+            "{attempt:#}"
+        );
+        assert_eq!(
+            totals(&filtered)["filter"]["refused"]["domain-value-not-ascii"],
             totals(&filtered)["unsupported-reasons"]["client-refused"],
             "{:#}",
             totals(&filtered)
@@ -1848,32 +1856,100 @@ fn candidate_strings(document: &Value) -> Vec<String> {
         .collect()
 }
 
+/// TRIAL3's SIMPLE flow for its String job (`$T3/simple`): the specification
+/// `testdata/k/overload/simple.md` (TRIAL3's `simple.md`, byte-identical), TRIAL3's budget, and its
+/// `strings` program.
+fn simple_strings_flow(name: &str) -> PathBuf {
+    let spec = fs::read_to_string(repository().join("testdata/k/overload/simple.md")).unwrap();
+    let manifest = r#"[spec]
+entry = "simple.md"
+main_module = "SIMPLE-UNTYPED"
+syntax_module = "SIMPLE-UNTYPED-SYNTAX"
+
+[budget]
+time_ms = 10000
+max_depth = 100000
+work_factor = 4
+
+[[program]]
+id = "strings"
+file = "strings.simple"
+"#;
+    let dir = scratch_flow(name, "simple.md", &spec, manifest, SIMPLE_STRINGS_MUTATIONS);
+    fs::write(
+        dir.join("strings.simple"),
+        r#"// String concatenation and equality.
+function main() {
+  var s = "ab", t = "cd";
+  print(s + t, " ", s == "ab", "\n");
+}
+"#,
+    )
+    .unwrap();
+    dir
+}
+
+/// TRIAL3's `MUTATIONS-t3.toml`: a left operand longer than 3 characters is dropped.
+const SIMPLE_STRINGS_MUTATIONS: &str = r#"
+[[mutation]]
+id = "concat-drops-long-left"
+note = "a left operand longer than 3 characters is dropped"
+
+  [[mutation.edit]]
+  line = 604
+  find = 'Str1 +String Str2'
+  replace = '#if lengthString(Str1) >Int 3 #then Str2 #else Str1 +String Str2 #fi'
+"#;
+
+/// TRIAL3's `strings-holes` template.
+const SIMPLE_STRINGS_TEMPLATES: &str = r#"
+[[template]]
+id = "strings-holes"
+program = "strings"
+  [[template.hole]]
+  name = "S"
+  sort = "String"
+  find = 'var s = "ab"'
+  literal = '"ab"'
+  [[template.hole]]
+  name = "T"
+  sort = "String"
+  find = 't = "cd";'
+  literal = '"cd"'
+"#;
+
 mod comparable_b {
     use super::*;
 
-    /// ASCII-STRINGS (TRIAL3 item 6, D34), the headline: a String-hole kill on `cat`, whose
-    /// generated strings are almost never ASCII. Without the filter the campaign's witness ends on
-    /// non-ASCII strings, which kink's end check refuses, so kink confirms no kill. With it, the
+    /// ASCII-STRINGS (TRIAL3 item 6, D34), the headline, on TRIAL3's own job: SIMPLE
+    /// (`testdata/k/overload/simple.md`, byte-identical to TRIAL3's), its `strings` program with
+    /// the `strings-holes` template, and `concat-drops-long-left`. Generated strings are almost
+    /// never ASCII. Without the filter the campaign's witness ends on non-ASCII strings, which
+    /// kink's end check refuses, so kink confirms no kill (TRIAL3's seeds 0 and 2). With it, the
     /// filter refuses each such hit inside the campaign, its repair replaces the non-ASCII
     /// characters of the String holes (lengths kept), the repaired case is a witness, and kink's
     /// own run kills the mutation with it.
     #[test]
     #[ignore = "kink"]
     fn a_string_hole_kill_is_repaired_into_one_kink_confirms() {
-        let dir = str_flow("str-cat");
-        for seed in [0, 2] {
-            let (document, ok) = fuzz_kill(
+        let dir = simple_strings_flow("simple-strings");
+        let kill = |seed, confirm, filter| {
+            fuzz_kill(
                 &dir,
                 "MUTATIONS.toml",
-                Some(STR_TEMPLATES),
-                "cat-holes",
+                Some(SIMPLE_STRINGS_TEMPLATES),
+                "strings-holes",
                 "concat-drops-long-left",
                 FuzzOptions {
                     seed,
-                    confirm: true,
+                    confirm,
+                    filter,
                     ..imp_options(300)
                 },
-            );
+            )
+        };
+        for seed in [0, 2] {
+            let (document, ok) = kill(seed, true, true);
             assert!(ok, "seed {seed}: {:#}", document["action"]);
             assert_eq!(
                 document["stopped"],
@@ -1887,18 +1963,25 @@ mod comparable_b {
                 "seed {seed}: {confirmation:#}"
             );
             assert_eq!(confirmation["status"], "killed");
-            for text in candidate_strings(&document) {
+            let strings = candidate_strings(&document);
+            assert_eq!(strings.len(), 2, "seed {seed}: {document:#}");
+            for text in strings {
                 assert!(text.is_ascii(), "seed {seed}: {text:?}");
             }
             let fuzz = &document["attempts"][0]["fuzz"];
             let refusals = fuzz["client-refusals"].as_array().expect("refusals");
             let refusal = refusals
                 .iter()
-                .find(|refusal| refusal["cause"] == "domain-value")
+                .find(|refusal| refusal["cause"] == "domain-value-not-ascii")
                 .unwrap_or_else(|| panic!("seed {seed}: {refusals:#?}"));
-            assert_eq!(refusal["repaired"], true, "seed {seed}: {refusal:#}");
             let witness = &fuzz["outcome"]["witness"];
-            assert_eq!(witness["repaired-from"]["cause"], "domain-value");
+            assert_eq!(witness["repaired-from"]["cause"], "domain-value-not-ascii");
+            // The entry marks its own case as repaired exactly when `repaired-from` names it.
+            assert_eq!(
+                refusal["repaired"],
+                refusal["case"] == witness["repaired-from"]["case"],
+                "seed {seed}: {refusal:#}"
+            );
             assert!(
                 fuzz["identity"]["filter"]
                     .as_str()
@@ -1908,41 +1991,81 @@ mod comparable_b {
                 fuzz["identity"]
             );
             assert_eq!(document["job"]["filter"]["on"], true);
+            // Without the filter, the campaign's witness is one kink refuses (TRIAL3's result).
+            let (unfiltered, _) = kill(seed, true, false);
+            assert_eq!(
+                unfiltered["stopped"], "unconfirmed",
+                "seed {seed}: {:#}",
+                unfiltered["action"]
+            );
+            assert_eq!(unfiltered["job"]["filter"]["on"], false);
         }
         // The filter and its repair are functions of the case: the same seed gives the same
         // document (no confirmation, which reads nothing back into the campaign).
-        let run = || {
-            fuzz_kill(
+        let (first, _) = kill(0, false, true);
+        assert!(first["attempts"][0]["fuzz"]["outcome"]["witness"]["repaired-from"].is_object());
+        assert_eq!(first, kill(0, false, true).0);
+    }
+
+    /// A template whose own input kink excludes is refused before any case
+    /// (`initial-state-excluded`): `g` is a total function whose value depends on whether
+    /// `orBool` skips an operand that may be undefined, which no rule applies (so the definition
+    /// has no exclusion of its own), but the template's input `run(g(1))` applies it, so kink
+    /// takes no evidence from any program of the template. With `--no-filter` the check is not
+    /// made.
+    #[test]
+    #[ignore = "kink"]
+    fn a_template_whose_input_kink_excludes_is_refused_before_any_case() {
+        let spec = "module SC-SYNTAX
+  imports INT-SYNTAX
+  imports BOOL-SYNTAX
+  syntax Pgm ::= run(Bool) [symbol(run)]
+  syntax Bool ::= g(Int) [function, total, symbol(g)]
+endmodule
+
+module SC
+  imports SC-SYNTAX
+  imports INT
+  imports BOOL
+  configuration <k> $PGM:Pgm </k> <out> false </out>
+  rule g(X) => true orBool (X /Int 0 ==Int 1)
+  rule [run]: <k> run(B) => .K </k> <out> _ => B </out>
+endmodule
+";
+        let manifest = "[spec]\nentry = \"sc.k\"\nmain_module = \"SC\"\nsyntax_module = \
+                        \"SC-SYNTAX\"\n\n[[program]]\nid = \"one\"\ntext = \"run(g(1))\"\n";
+        let dir = scratch_flow("short-circuit-input", "sc.k", spec, manifest, "");
+        let templates = "[[template]]\nid = \"one-holes\"\nprogram = \"one\"\n\
+                         [[template.hole]]\nname = \"N\"\nsort = \"Int\"\nfind = \"g(1)\"\n\
+                         literal = \"1\"\nrange = { min = 0, max = 3 }\n";
+        let reach = |filter| {
+            run_job(
                 &dir,
-                "MUTATIONS.toml",
-                Some(STR_TEMPLATES),
-                "cat-holes",
-                "concat-drops-long-left",
-                imp_options(300),
+                templates,
+                "one-holes",
+                Job::Reach("SC.run".into(), false),
+                FuzzOptions {
+                    filter,
+                    ..imp_options(5)
+                },
             )
         };
-        let (first, _) = run();
-        assert!(first["attempts"][0]["fuzz"]["outcome"]["witness"]["repaired-from"].is_object());
-        assert_eq!(first, run().0);
-        // Without the filter, the campaign's witness is one kink refuses (TRIAL3's ASCII-STRINGS).
-        let (unfiltered, _) = fuzz_kill(
-            &dir,
-            "MUTATIONS.toml",
-            Some(STR_TEMPLATES),
-            "cat-holes",
-            "concat-drops-long-left",
-            FuzzOptions {
-                confirm: true,
-                filter: false,
-                ..imp_options(300)
-            },
-        );
+        let (document, ok) = reach(true);
+        assert!(!ok, "{document:#}");
+        assert_eq!(document["job"]["outcome"], "refused", "{document:#}");
         assert_eq!(
-            unfiltered["stopped"], "unconfirmed",
-            "{:#}",
-            unfiltered["action"]
+            document["job"]["refusal"]["reason"], "initial-state-excluded",
+            "{document:#}"
         );
-        assert_eq!(unfiltered["job"]["filter"]["on"], false);
+        assert!(
+            document["job"]["refusal"]["detail"]
+                .as_str()
+                .unwrap()
+                .contains("short-circuit-reading"),
+            "{document:#}"
+        );
+        let (unfiltered, _) = reach(false);
+        assert_eq!(unfiltered["job"]["outcome"], "fuzzed", "{unfiltered:#}");
     }
 
     /// A refusal for every input of the template (`tag` always ends on a non-ASCII string) spends
@@ -1970,12 +2093,20 @@ mod comparable_b {
             "{:#}",
             document["action"]
         );
-        assert_eq!(document["attempts"][0]["confirmation"], Value::Null);
+        let attempt = document["attempts"]
+            .as_array()
+            .and_then(|attempts| attempts.first())
+            .expect("one attempt");
+        assert_eq!(
+            attempt.get("confirmation"),
+            Some(&Value::Null),
+            "{attempt:#}"
+        );
         assert_eq!(document["program"], Value::Null);
         let reasons = &totals(&document)["unsupported-reasons"];
         assert_eq!(reasons["client-refused"], 20, "{reasons:#}");
         assert_eq!(
-            totals(&document)["filter"]["refused"]["domain-value"],
+            totals(&document)["filter"]["refused"]["domain-value-not-ascii"],
             20,
             "{:#}",
             totals(&document)

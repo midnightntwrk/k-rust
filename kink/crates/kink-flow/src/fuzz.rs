@@ -52,7 +52,9 @@
 //! from: a candidate kink would refuse for a reason that depends on the input (a non-ASCII String
 //! end) is refused inside the search, repaired when its String holes can be, and the search goes
 //! on. A campaign whose every hit was refused stops `client-refused`, never `budget`. A template
-//! whose own input kink excludes is refused before any case (`initial-state-excluded`).
+//! whose own input kink excludes is refused before any case (`initial-state-excluded`). The
+//! filter keeps each side's kink load for the whole campaign (about +90 MB of peak memory on
+//! TRIAL3's SIMPLE job, not measurable on IMP); `--no-filter` drops them.
 //!
 //! **Budgets.** `--cases N` (default [`DEFAULT_CASES`]) or `--work W`, `--seed S` (default 0),
 //! the library's default proposers. Every case runs with the flow's `max_depth`, a safety limit
@@ -1887,9 +1889,10 @@ pub fn fuzz_job(
             warning(
                 "client-refused",
                 format!(
-                    "kink's rules refused candidate hits inside the campaign ({causes}): each is \
-                     a case kink's own run would not count, judged before its confirmation; the \
-                     fuzz report's client-refusals give each cause's first case and kink's reason"
+                    "kink's rules, as the witness filter reads them, refused candidate hits inside \
+                     the campaign ({causes}), each judged before its confirmation (the filter is \
+                     stricter than kink's own run only where the README says); the fuzz report's \
+                     client-refusals give each cause's first case and kink's reason"
                 ),
             ),
         );
@@ -2080,10 +2083,11 @@ pub fn fuzz_job(
             true
         }
         CampaignOutcome::NoWitnessFound { no_witness }
-            if !report.totals.filter.refused.is_empty() =>
+            if !report.totals.filter.refused.is_empty() && report.totals.unconfirmed == 0 =>
         {
-            // Every hit was one kink refuses: no witness kink accepts, which is no sign of
-            // survival (FZ-COMPARABLE-B review M5).
+            // Every hit was one kink's rules refuse (none the filter accepted was lost to its
+            // confirmation): no witness kink accepts, which is no sign of survival
+            // (FZ-COMPARABLE-B review M5).
             document["stopped"] = json!("client-refused");
             document["action"] = json!(format!(
                 "no witness kink accepts: {} Mark other literals as holes, narrow the holes to \
