@@ -12,7 +12,7 @@ fn native_code_spellings_forward_the_upstream_stable_spelling() {
         (
             DiagnosticCode::CellCollectionVarWithoutInitial,
             "CellCollectionVarWithoutInitial",
-            CodeKind::Author,
+            CodeKind::Internal,
         ),
         (
             DiagnosticCode::DuplicateKLabel,
@@ -79,6 +79,17 @@ fn a_native_codes_kind_follows_who_wrote_the_sentence_it_names() {
     for (code, sentence, kind) in [
         (DiagnosticCode::UnboundVariable, Some(1), CodeKind::Author),
         (DiagnosticCode::UnboundVariable, Some(0), CodeKind::Internal),
+        // KRS refuses the cells k-rust warns about here, so a lowered one is a KRS bug.
+        (
+            DiagnosticCode::CellCollectionVarWithoutInitial,
+            Some(0),
+            CodeKind::Internal,
+        ),
+        (
+            DiagnosticCode::CellCollectionVarWithoutInitial,
+            Some(1),
+            CodeKind::Author,
+        ),
         (DiagnosticCode::TermTooDeep, Some(1), CodeKind::Environment),
         (
             DiagnosticCode::UnadmittedHookNamespace,
