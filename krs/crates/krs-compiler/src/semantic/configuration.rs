@@ -99,6 +99,11 @@ pub(super) fn lower_fixed_configuration_descriptor(
             )
         })
         .collect::<Result<Vec<_>, _>>()?;
+    let initializer = in_declaration_order(
+        initializer,
+        &configuration.declaration.fields,
+        &configuration.initializer.owner,
+    )?;
     console.check_initializers(&initializer)?;
     check_configuration_variables_read(descriptor, configuration, &initializer)?;
     check_explicit_presence(&cells, &initializer, &binding_sorts)?;
@@ -702,12 +707,17 @@ fn lower_initializer_cell_content(
         )),
         (
             ProtocolInitializerCellContent::Nested { children, .. },
-            ProtocolCellContent::Nested { .. },
+            ProtocolCellContent::Nested { declaration },
         ) => {
             let children = children
                 .iter()
                 .map(|child| lower_initializer_cell(descriptor, child, declarations, tables))
                 .collect::<Result<Vec<_>, _>>()?;
+            let children = in_declaration_order(
+                children,
+                &declarations.cell(&declaration.declaration)?.fields,
+                &declaration.declaration,
+            )?;
             Ok(FixedInitializerCell::children(origin, id, children)?)
         }
         _ => Err(DescriptorLoweringError::ParserReferenceDisagreement {
@@ -715,6 +725,45 @@ fn lower_initializer_cell_content(
             detail: "initializer content disagrees with the declared cell family".into(),
             range: None,
         }),
+    }
+}
+
+/// Puts the lowered cells of one struct literal in the field order of `owner`'s declaration.
+/// A struct literal's field order has no meaning, while the configuration's is the
+/// declaration's, and the IR's initializer mirrors its cell tree. The cells are lowered in the
+/// order they are written, so that an error is reported at the first cell in the source.
+fn in_declaration_order(
+    mut cells: Vec<FixedInitializerCell<SemanticId, SemanticTerm>>,
+    fields: &[DescriptorCellField],
+    owner: &StableItemId,
+) -> Result<Vec<FixedInitializerCell<SemanticId, SemanticTerm>>, DescriptorLoweringError> {
+    let disagreement = |detail: String| DescriptorLoweringError::ParserReferenceDisagreement {
+        id: Box::new(owner.clone()),
+        detail,
+        range: None,
+    };
+    let ordered = fields
+        .iter()
+        .map(|field| {
+            let id = semantic_cell_id(&field.reference.cell)?;
+            let index = cells
+                .iter()
+                .position(|cell| *cell.cell() == id)
+                .ok_or_else(|| {
+                    disagreement(format!(
+                        "initializer writes no cell for the declared field {:?}",
+                        field.rust_field
+                    ))
+                })?;
+            Ok(cells.swap_remove(index))
+        })
+        .collect::<Result<Vec<_>, DescriptorLoweringError>>()?;
+    if cells.is_empty() {
+        Ok(ordered)
+    } else {
+        Err(disagreement(
+            "initializer writes a cell its declaration does not have".into(),
+        ))
     }
 }
 

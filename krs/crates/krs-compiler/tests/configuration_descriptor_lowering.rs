@@ -429,8 +429,8 @@ fn duplicate_descriptor_precedes_dangling_reference_validation() {
     );
 }
 
-/// Edit the configuration descriptor, refresh its provenance, and return the lowering error text.
-fn console_error(edit: impl FnOnce(&mut DescriptorFixedConfiguration)) -> String {
+/// The fixture bundle with its configuration descriptor edited and its provenance refreshed.
+fn edited_bundle(edit: impl FnOnce(&mut DescriptorFixedConfiguration)) -> DescriptorBundleInputs {
     let mut bundle = bundle();
     let mut descriptors = bundle.descriptors.clone();
     let configuration = descriptors
@@ -448,13 +448,40 @@ fn console_error(edit: impl FnOnce(&mut DescriptorFixedConfiguration)) -> String
     edit(payload);
     *configuration = descriptor(configuration.id.clone(), configuration.payload.clone());
     bundle.descriptors = descriptors;
-    let error = lower_descriptor_bundle(&bundle.build().unwrap()).unwrap_err();
+    bundle
+}
+
+/// Edit the configuration descriptor, refresh its provenance, and return the lowering error text.
+fn console_error(edit: impl FnOnce(&mut DescriptorFixedConfiguration)) -> String {
+    let error = lower_descriptor_bundle(&edited_bundle(edit).build().unwrap()).unwrap_err();
     assert_eq!(
         krs_diagnostic::ToDiagnostic::to_diagnostic(&error).code,
         krs_diagnostic::codes::analysis::CONSOLE_CELL,
         "{error}"
     );
     error.to_string()
+}
+
+/// A struct literal's field order has no meaning: an initializer that writes its cells in
+/// another order than the declaration's is the same configuration, its cells keeping their keys.
+#[test]
+fn initializer_cells_in_any_order_lower_in_declaration_order() {
+    let in_order = lower_descriptor_bundle(&bundle().build().unwrap()).unwrap();
+    let reordered = lower_descriptor_bundle(
+        &edited_bundle(|configuration| configuration.initializer.cells.swap(0, 1))
+            .build()
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(
+        reordered.to_canonical_json().unwrap(),
+        in_order.to_canonical_json().unwrap()
+    );
+    let (_, emitted) = assert_lowering_contract(&reordered);
+    assert_eq!(
+        emitted.source(),
+        assert_lowering_contract(&in_order).1.source()
+    );
 }
 
 fn stream(ordinal: u32, value: CellStream) -> DescriptorCellStream {
