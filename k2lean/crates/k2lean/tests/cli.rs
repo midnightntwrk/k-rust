@@ -678,3 +678,39 @@ fn confluence_separates_a_thread_end_matched_at_a_constructor_key_at_one_binding
         "{r}"
     );
 }
+
+/// `confluence --threads` on the `threadend` fixture: `step` updates one thread, `end` removes one
+/// (a global rule); the module states `terminal_unique_of` from the two hypotheses, and the report
+/// counts the pairs with `end` (3 ordered) as open and `step` against itself at one thread.
+#[test]
+fn confluence_threads_leaves_the_global_and_same_thread_pairs_open() {
+    let d = tmp("cli-confluence-threads");
+    let fx = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/fixtures/threadend/definition.kore");
+    let (out, report) = (d.join("Views.lean"), d.join("confluence.toml"));
+    let o = Command::new(env!("CARGO_BIN_EXE_k2lean"))
+        .arg("confluence")
+        .arg("--kore")
+        .arg(&fx)
+        .args(["--name", "T", "--ns", "TV", "--threads", "threads", "--obs", "ended", "--out"])
+        .arg(&out)
+        .arg("--report")
+        .arg(&report)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let r = std::fs::read_to_string(&report).unwrap();
+    assert!(
+        r.contains("[threads]\nrules = 2\nthread = 1\nshared = 0\nglobal = 1\n"),
+        "{r}"
+    );
+    assert!(r.contains("open = 3\nopen-global = 3\n"), "{r}");
+    assert!(r.contains("same-thread = 1\n"), "{r}");
+    let v = std::fs::read_to_string(&out).unwrap();
+    assert!(v.contains("| .step => .thread"), "{v}");
+    assert!(v.contains("| .«end» => .global"), "{v}");
+    assert!(
+        v.contains("theorem terminal_unique_of (O : OpenJoins) (S : SameThreadJoins)"),
+        "{v}"
+    );
+}

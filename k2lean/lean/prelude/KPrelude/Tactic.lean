@@ -56,7 +56,8 @@ elab "k2l_split_hyps" : tactic => do
 
 The generated proof of a K equation of a well-founded recursive function (`k2l_eqn_r` in a
 generated `Equations.lean`) unfolds the function once on the left-hand side and then cases with
-these two tactics until the cascade of the function's equations reduces. -/
+these tactics until the cascade of the function's equations reduces (`k2l_case_call` also serves
+the equations of functions that are not recursive, whose right-hand side binds partial calls). -/
 
 /-- `k2l_case_rec [f₁, …]`: case on one application of a recursive (`Option`-valued) function
 `fᵢ` that occurs outside binders in the goal or a hypothesis, innermost first. The hypotheses that
@@ -81,6 +82,54 @@ elab "k2l_case_rec " "[" fs:ident,+ "]" : tactic => do
         unless recorded ty do cands := cands.push ty
     let some t0 := cands.findSome? (fun e => e.find? isCall) | throwError "k2l_case_rec: no call"
     let t := inner 64 t0
+    let mut fvs := #[]
+    for d in (← getLCtx) do
+      unless d.isImplementationDetail do
+        let ty ← instantiateMVars d.type
+        if (ty.find? (· == t)).isSome && !(ty.isAppOfArity ``Eq 3 && ty.appFn!.appArg! == t) then
+          fvs := fvs.push d.fvarId
+    let (_, g) ← g.revert fvs (preserveOrder := true)
+    let (xs, g) ← g.generalize #[{ expr := t, xName? := `r, hName? := `hc }] (transparency := .default)
+    let gs ← g.cases xs[0]!
+    gs.toList.mapM fun s => do
+      let (_, g') ← s.mvarId.introNP fvs.size
+      pure g'
+
+/-- `k2l_case_call`: case on the value of a partial call that a `match` in the goal inspects.
+A generated definition binds each partial call of a right-hand side (a hook or a K function, whose
+result type is `Option _`) by a `match` on its value, and the equation's statement binds the same
+call with `Option.bind`; both sides are functions of that value, so casing on it (the call
+generalized in the goal and in the hypotheses that mention it, with `hc : call = none` or
+`hc : call = some r` added) reduces the `match` on either side. The call must be outside binders:
+a call whose argument is the value of an earlier call becomes one after the case on that call.
+Fails when the goal's matches inspect no such call. -/
+elab "k2l_case_call" : tactic => do
+  liftMetaTactic fun g => g.withContext do
+    let env ← getEnv
+    let tgt ← instantiateMVars (← g.getType)
+    -- the discriminants of the goal's matches that are applications of a function
+    let cands ← IO.mkRef (#[] : Array Expr)
+    tgt.forEach fun e => do
+      let .const n _ := e.getAppFn | pure ()
+      let some info := Lean.Meta.Match.Extension.getMatcherInfo? env n | pure ()
+      let args := e.getAppArgs
+      for d in args.extract (info.numParams + 1) (info.numParams + 1 + info.numDiscrs) do
+        if d.hasLooseBVars then continue
+        let .const c _ := d.getAppFn | continue
+        if env.isConstructor c then continue
+        if (Lean.Meta.Match.Extension.getMatcherInfo? env c).isSome then continue
+        cands.modify (·.push d)
+    -- a partial function's declared result type is `Option _` (`ite` and `dite`, whose result
+    -- may be an `Option` too, are not calls of one)
+    let partialFn (c : Name) : MetaM Bool := do
+      let some ci := env.find? c | return false
+      forallTelescopeReducing ci.type fun _ r => return r.isAppOfArity ``Option 1
+    let mut found : Option Expr := none
+    for d in (← cands.get) do
+      if ← partialFn d.getAppFn.constName! then
+        found := some d
+        break
+    let some t := found | throwError "k2l_case_call: no partial call that a match inspects"
     let mut fvs := #[]
     for d in (← getLCtx) do
       unless d.isImplementationDetail do

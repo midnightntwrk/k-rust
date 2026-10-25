@@ -1,8 +1,6 @@
 Eqn.hdrOf_2
 Eqn.hdrOf_3
 Eqn.hdrOf_4
-Eqn.scanAt_1
-Eqn.series_1
 Eqn.total_2
 Eqn.total_3
 Eqn.twice_2

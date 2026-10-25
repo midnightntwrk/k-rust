@@ -10,6 +10,11 @@ tier = "light"
 guarded = 12
 preserve = []
 
+[demo.SimpleConf]
+tier = "heavy"
+guarded = 8
+preserve = []
+
 [outputs]
 "simple-confluence.toml" = { tier = "heavy", compare = "exact" }
 
@@ -18,10 +23,11 @@ preserve = []
 [sources.sha256]
 "demos/RaceConf/RaceConf/Confluence.lean" = { tier = "light", sha256 = "6babb033eefe8fed5b5a84e7b11510d957a8eb287bfcebcf7bf2a1cf24d66554" }
 "demos/RaceConf/confluence.toml" = { tier = "light", sha256 = "c55fc58f8df1362826bcf25086e7e667cf25d10c8657a3ce7eb5e4f0f9a58f38" }
+"demos/SimpleConf/SimpleConf/Views.lean" = { tier = "heavy", sha256 = "6b4b0bd1c306a3547ec5e816712b5420ce89f88e4e2fba3a80b869c75fc49342" }
 "generated/race/Race.lean" = { tier = "light", sha256 = "b8730ce086f1156a15a41234a7b1614c2b14a61721db04e569ccf3562a8cd403" }
 "generated/race/Race/Adequacy.lean" = { tier = "light", sha256 = "827719d9a7befb183f1788652aac51a72570967c59db42fe658dae525e7b9577" }
 "generated/race/Race/Determinism.lean" = { tier = "light", sha256 = "52be43ddc62f4bcba653d03c572e05763d36f0f9df02c55d18eb5d0177359276" }
-"generated/race/Race/Equations.lean" = { tier = "light", sha256 = "4c1c76c66a33b6d8be03fa607df39177f9ab6f8c553cdab08215e9f84de8be4a" }
+"generated/race/Race/Equations.lean" = { tier = "light", sha256 = "326db12e2a233ae8e3f27887025776075f2fb4501ce71725fd07d28b80f9fe58" }
 "generated/race/Race/Functions.lean" = { tier = "light", sha256 = "b42bc29ebe94e1afe8d5ba64e0d4ffe6c388366802ccd8bdfdda4206dd00c69b" }
 "generated/race/Race/Init.lean" = { tier = "light", sha256 = "ec0d05b43394bb747197dc217b7f3e0584119cc1e6a9e9d96358a9e7e087754d" }
 "generated/race/Race/Preserves.lean" = { tier = "light", sha256 = "bf2b2f049b791549cf92f875ba01effe841fd806e3e200e80dd4dee58b9da240" }
@@ -31,5 +37,5 @@ preserve = []
 "generated/race/RaceBench/Programs.lean" = { tier = "light", sha256 = "86b8f6f7d8f4fc7f4db54f213a4542316ccd8039d099b722a4758a6e984682d5" }
 "generated/race/RaceTest/Axioms.lean" = { tier = "light", sha256 = "251ccf75bbbb531f81dbe52629d44f7a463469d5709970385e296e5665d25fea" }
 "generated/race/RaceTest/Main.lean" = { tier = "light", sha256 = "e5a5f0557d49ef5640fb233b640132cf94e6255ed53638d26378864641abbad4" }
-"generated/race/lakefile.lean" = { tier = "light", sha256 = "abe2ea359f00e8b01b02f53f2065845def5924bcdb5495434447a769e15a7bc5" }
+"generated/race/lakefile.lean" = { tier = "light", sha256 = "766c243d3af6a73c94f586086ee819e91885672579006e565e489eef631e9083" }
 "generated/race/lean-toolchain" = { tier = "light", sha256 = "8733782dc070a99b312039cda424f601b80f3be6f6f512627da5ba25adc27632" }

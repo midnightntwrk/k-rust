@@ -5,10 +5,16 @@ LIBS = {
     "imptypes": {"ns": "KImpTypes", "tier": "light"},
     # imptypes in the per-sort encoding, for ImpTypes (below)
     "imptypes-ps": {"ns": "KImpTypes", "tier": "light", "encoding": "per-sort"},
+    # kimp's expression language and its checker, per-sort, for ExprTypes (below)
+    "kexpr": {"ns": "KExpr", "tier": "light", "encoding": "per-sort"},
+    "exprtypes": {"ns": "KExprTypes", "tier": "light", "encoding": "per-sort"},
 }
 
 DEMOS = {
     # on kimp-ps and imptypes-ps: `soundness` writes Typing.lean's proofs for the per-sort encoding
     "ImpTypes": {"tier": "light", "encoding": "per-sort", "sources": ["demos/ImpTypes/ImpTypes/Tr.lean", "demos/ImpTypes/correspondence.toml",
                                               "demos/ImpTypes/ImpTypes/Typing.lean", "demos/ImpTypes/ImpTypes/Soundness.lean"]},
+    # a language whose programs end with a value, with no cell typed by hand (`soundness --typing typeOf`)
+    "ExprTypes": {"tier": "light", "encoding": "per-sort", "sources": ["demos/ExprTypes/ExprTypes/Tr.lean", "demos/ExprTypes/correspondence.toml",
+                                                "demos/ExprTypes/ExprTypes/Typing.lean", "demos/ExprTypes/ExprTypes/Soundness.lean"]},
 }

@@ -4,9 +4,11 @@
 DEMOS = {
     "RaceConf": {"tier": "light", "encoding": "per-sort", "sources": ["generated/race",
                                               "demos/RaceConf/RaceConf/Confluence.lean", "demos/RaceConf/confluence.toml"]},
+    # SIMPLE's steps of two threads joined generically, the rest as hypotheses (`confluence --threads`)
+    "SimpleConf": {"tier": "heavy", "encoding": "per-sort", "sources": ["demos/SimpleConf/SimpleConf/Views.lean"]},
 }
 
-# SIMPLE's pairs of rules classified (`confluence --report-only`)
+# SIMPLE's pairs of rules classified, and what SimpleConf leaves open (`confluence --threads`)
 OUTPUTS = {
     "simple-confluence.toml": {"tier": "heavy", "compare": "exact"},
 }

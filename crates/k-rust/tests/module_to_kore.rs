@@ -2591,6 +2591,127 @@ fn no_junk_axioms_of(source: &str, sort: &str) -> Vec<String> {
         .collect()
 }
 
+/// A variable written as the whole content of `<workers>`, whose one child is the
+/// `multiplicity="*"` cell `<worker>`, stands for the bag of workers: the left side matches any
+/// number of workers, and `total(W)` reads all of them: the rule holds `W` at `WorkerCellMap` in
+/// the cell and in the function's argument alike. A variable written at the cell sort
+/// `WorkerCell` stands for one worker. Two collection terms written side by side outside a cell
+/// body are still the collection's concatenation: the relation that lets `W` be a collection is
+/// for variables alone, not one by which a collection term is a group of cells there.
+#[test]
+fn a_variable_that_is_the_content_of_a_cell_collection_parent_is_the_collection() {
+    let source = indoc! {r#"
+        module WORKERS
+          imports INT
+          syntax KItem ::= "go" | "go1" | "go2"
+          configuration <T> <k> $PGM:K </k> <m> 0 </m>
+              <workers> <worker multiplicity="*" type="Map"> <wid> 0 </wid> <cnt> 0 </cnt> </worker> </workers> </T>
+          syntax WorkerCellMap
+          syntax Int ::= total(WorkerCellMap) [function, total]
+          rule total(.WorkerCellMap) => 0
+          rule total(<worker> <wid> _ </wid> <cnt> C </cnt> </worker> W) => C +Int total(W)
+          rule [inferred]: <k> go => .K ... </k> <m> _ => total(W) </m> <workers> W </workers>
+          rule [one]: <k> go1 => .K ... </k> <m> _ => total(W) </m> <workers> W:WorkerCell </workers>
+          syntax WorkerCellMap ::= mk(Int) [function]
+          rule mk(I) => WorkerCellMapItem(<wid> I </wid>, <worker> <wid> I </wid> <cnt> 0 </cnt> </worker>)
+          rule [pair]: <k> go2 => mk(0) mk(1) ... </k>
+        endmodule
+    "#};
+    let definition = compiled_probe(source, "WORKERS");
+    let printer = Printer::compact();
+    let printed = |label: &str| {
+        printer
+            .print_pattern(labelled_axiom(&definition, label))
+            .split_whitespace()
+            .collect::<String>()
+    };
+    let inferred = printed("WORKERS.inferred");
+    for expected in [
+        "Lbl'-LT-'workers'-GT-'{}(VarW:SortWorkerCellMap{})",
+        "Lbltotal'LParUndsRParUnds'WORKERS'Unds'Int'Unds'WorkerCellMap{}(VarW:SortWorkerCellMap{})",
+    ] {
+        assert!(
+            inferred.contains(expected),
+            "WORKERS.inferred lacks {expected}: {inferred}"
+        );
+    }
+    assert!(
+        !inferred.contains("VarW:SortWorkerCell{}"),
+        "WORKERS.inferred reads W as one worker: {inferred}"
+    );
+    let one = printed("WORKERS.one");
+    assert!(
+        one.contains("LblWorkerCellMapItem{}(")
+            && one.contains("VarW:SortWorkerCell{}")
+            && !one.contains("VarW:SortWorkerCellMap{}"),
+        "WORKERS.one should read W as one worker: {one}"
+    );
+    let pair = printed("WORKERS.pair");
+    assert!(
+        pair.contains("Lbl'Unds'WorkerCellMap'Unds'{}(Lblmk"),
+        "WORKERS.pair should concatenate the two maps: {pair}"
+    );
+}
+
+/// In a `type="List"` collection, a variable at the list sort is a part of the list, not one
+/// item of it: the whole list, or the instances after a written item. Beside the frame `...` it
+/// is a second part, and the rule does not state how the two divide the instances, so it is
+/// rejected as a `Bag` variable there is.
+#[test]
+fn a_variable_at_a_cell_list_sort_is_a_part_of_the_list() {
+    let source = |rule: &str| {
+        format!(
+            r#"
+            module FRAMES
+              imports INT
+              syntax KItem ::= "go"
+              configuration <T> <k> $PGM:K </k> <m> 0 </m>
+                  <stack> <fr multiplicity="*" type="List"> <v> 0 </v> </fr> </stack> </T>
+              syntax FrCellList
+              syntax Int ::= len(FrCellList) [function, total]
+              rule len(.FrCellList) => 0
+              rule len(<fr> _ </fr> F) => 1 +Int len(F)
+              rule [probe]: <k> go => .K ... </k> <m> _ => len(F) </m> {rule}
+            endmodule
+            "#
+        )
+    };
+    let printer = Printer::compact();
+    for (rule, stack) in [
+        (
+            "<stack> F </stack>",
+            "Lbl'-LT-'stack'-GT-'{}(VarF:SortFrCellList{})",
+        ),
+        (
+            "<stack> <fr> <v> 1 </v> </fr> F </stack>",
+            "Lbl'-LT-'stack'-GT-'{}(Lbl'Unds'FrCellList'Unds'{}(LblFrCellListItem{}(Lbl'-LT-'fr'-GT-'{}(Lbl'-LT-'v'-GT-'{}(\\dv{SortInt{}}(\"1\")))),VarF:SortFrCellList{}))",
+        ),
+    ] {
+        let definition = compiled_probe(&source(rule), "FRAMES");
+        let printed = printer
+            .print_pattern(labelled_axiom(&definition, "FRAMES.probe"))
+            .split_whitespace()
+            .collect::<String>();
+        for expected in [
+            stack,
+            "Lbllen'LParUndsRParUnds'FRAMES'Unds'Int'Unds'FrCellList{}(VarF:SortFrCellList{})",
+        ] {
+            assert!(
+                printed.contains(expected),
+                "{rule} lacks {expected}: {printed}"
+            );
+        }
+    }
+    let rule = "<stack> F ... </stack>";
+    let Err(error) = compile_probe(&source(rule), "FRAMES") else {
+        panic!("{rule} should be rejected");
+    };
+    assert!(
+        format!("{error:?}").contains("is written with `F` and `...` among the items"),
+        "{rule}: {error:?}"
+    );
+}
+
 #[test]
 fn a_cell_map_key_projection_emits_totality_only_for_a_sole_cell_generator() {
     for (schema, expected_attributes, expected_functional_axioms) in [

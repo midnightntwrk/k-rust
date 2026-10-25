@@ -2,10 +2,12 @@
 //! sentence.
 //!
 //! Cell completion (`kompile::passes::concretize_cells`) runs before injection, and it rewrites
-//! every occurrence of a cell-fragment variable: a variable without a cell sort written directly
-//! in the body of a cell with children, as an item of the body or as a side of a rewrite item.
+//! every occurrence of a cell-fragment variable: a variable without a cell sort or a cell
+//! collection sort written directly in the body of a cell with children, as an item of the body
+//! or as a side of a rewrite item.
 //! The rule parser reads such a variable at `Bag` (it writes `#SemanticCastToBag(X)`), so the
-//! loaded sentence has it at `Bag` everywhere.
+//! loaded sentence has it at `Bag` everywhere; a variable another occurrence requires at a cell
+//! or cell collection sort is inferred at that sort, and is placed in its child as it is.
 //! Completion's analysis (`Concretizer::analyze_fragments`) decides which children of the cell
 //! the variable stands for, and keeps the value sort of each in the variable's
 //! `FragmentInfo::split`.
@@ -582,7 +584,8 @@ impl Resort<'_, '_> {
     }
 }
 
-/// Whether some cell with children in `term` has, in its body, a variable without a cell sort:
+/// Whether some cell with children in `term` has, in its body, a variable without a cell sort or
+/// a cell collection sort:
 /// a candidate cell-fragment variable (`collect_fragment_observations`).
 pub(super) fn has_body_variable(term: &Term, completion: &CellCompletion) -> bool {
     let mut found = false;
@@ -599,12 +602,12 @@ pub(super) fn has_body_variable(term: &Term, completion: &CellCompletion) -> boo
 }
 
 /// Whether `term`, an argument of a cell with children, has an item or rewrite side that is a
-/// variable without a cell sort.
+/// variable without a cell sort or the collection sort of a `multiplicity="*"` child.
 fn body_variable(term: &Term, completion: &CellCompletion) -> bool {
     match term.unannotated() {
         Term::Variable { sort, .. } => !sort
             .as_ref()
-            .is_some_and(|sort| completion.is_cell_sort(sort)),
+            .is_some_and(|sort| completion.is_slot_sort(sort)),
         Term::Apply { label, arguments } if label.is(InternalLabel::Cells) => arguments
             .iter()
             .any(|argument| body_variable(argument, completion)),

@@ -927,6 +927,13 @@ impl Grammar {
             .collect()
     }
 
+    /// Record `lesser <= greater` for sort inference alone, with no production: a variable at a
+    /// position of sort `greater` may be inferred at `lesser`, and no other term of sort `lesser`
+    /// is recognized there.
+    pub(in crate::inner) fn add_inference_subsort(&mut self, lesser: &Sort, greater: &Sort) {
+        self.insert_subsort_pair(lesser, greater, SubsortRelation::Semantic);
+    }
+
     fn insert_subsort_pair(&mut self, lesser: &Sort, greater: &Sort, relation: SubsortRelation) {
         debug_assert!(
             !self.touches_scaffolding(lesser, greater),

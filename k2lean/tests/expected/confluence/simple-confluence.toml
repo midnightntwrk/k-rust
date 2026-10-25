@@ -709,3 +709,15 @@ pairs = [
   "SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps1-heat_ov1 | SIMPLE-UNTYPED-SYNTAX._,__SIMPLE-UNTYPED-SYNTAX_Exps_Exp_Exps2-heat_ov1 (one binding: free-key map: same binding assumed; cells threads)",
   "lvalue(_[HOLE]) | lvalue(HOLE[_]) (one binding: free-key map: same binding assumed; cells threads)",
 ]
+
+[threads]
+rules = 169
+thread = 158
+shared = 7
+global = 4
+classes = 12
+open = 1699
+open-global = 1304
+open-cells = 75
+open-priority = 320
+same-thread = 12936

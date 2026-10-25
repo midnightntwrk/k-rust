@@ -704,7 +704,8 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
     };
     o.push_str(&format!(
         "/-- The generic proof attempts without case splits. -/\nlocal macro \"k2l_eqn_a\" \" [\" xs:Lean.Parser.Tactic.simpLemma,* \"]\" : tactic => `(tactic| first\n  | rfl\n  | k2l_hook_law\n  | (simp [{u}]; done)\n  | (simp_all [{u}]; done)\n  | (simp_all [{u}]; omega)\n  | (simp only [{u}]; rw [Bool.eq_iff_iff]; simp_all; done)\n  | (simp only [{u}]; rw [Bool.eq_iff_iff]; simp_all; omega))\n\n\
-/-- The generic proof by case splits (equations `x = t` from a split substituted first: `simp_all`\nuses an equation `t = x` only from left to right). -/\nlocal macro \"k2l_eqn_b\" \" [\" xs:Lean.Parser.Tactic.simpLemma,* \"]\" : tactic => `(tactic| ((repeat' (first | split | k2l_split_hyps)) <;> (try subst_vars) <;> simp_all [{u}]))\n\n"
+/-- The generic proof by case splits (equations `x = t` from a split substituted first: `simp_all`\nuses an equation `t = x` only from left to right). -/\nlocal macro \"k2l_eqn_b\" \" [\" xs:Lean.Parser.Tactic.simpLemma,* \"]\" : tactic => `(tactic| ((repeat' (first | split | k2l_split_hyps)) <;> (try subst_vars) <;> simp_all [{u}]))\n\n\
+/-- The generic proof by cases on the partial calls that the cascade matches (`k2l_case_call`),\nwhich the statement binds with `Option.bind`: after each case both sides reduce, and the cases\nare closed as `k2l_eqn_a` does. Fails unless there is such a call. -/\nlocal macro \"k2l_eqn_c\" \" [\" xs:Lean.Parser.Tactic.simpLemma,* \"]\" : tactic => `(tactic| ((try simp only []); (k2l_case_call <;> try simp only [Option.bind]); (repeat' (k2l_case_call <;> try simp only [Option.bind])); all_goals k2l_eqn_a [$xs,*]))\n\n"
     ));
     // the equations of a recursive function: a well-founded definition, which `simp` cannot unfold;
     // the macro is in the whole module when some function is recursive, and in a part when one of
@@ -714,7 +715,7 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
         Some(_) => stated.iter().any(|s| rec_of(s, recursive).is_some()),
     };
     if needs_r {
-        // `k2l_case_rec` and `k2l_case_discr` are in `KPrelude.Tactic`
+        // `k2l_case_rec`, `k2l_case_discr` and `k2l_case_call` are in `KPrelude.Tactic`
         // what the proof cases on: the recursive calls, and the projections out of injections
         // (`proj_Y_X`, named like their `proj_eq_some_Y_X` lemmas), whose `match hp : proj … with`
         // in a cascade `simp` cannot rewrite
@@ -729,13 +730,15 @@ failed is kept as an open obligation (a `Prop` definition, not an axiom)."),
         o.push_str(&format!(
             "/-- The generic proof of an equation of a recursive function `f`, which `simp` does not\n\
 unfold: unfold `f` once on the left-hand side (`f.eq_def`), reduce the cascade of its equations,\n\
-case on the variables that the cascade matches, on the recursive calls and on the projections,\n\
+case on the variables that the cascade matches, on the recursive calls, on the projections and on\n\
+the other partial calls that its matches inspect (`k2l_case_call`: hooks and functions that are\n\
+not recursive, after which a recursive call whose argument is such a call's value is cased too),\n\
 then close each case as the generic tactics do. -/\n\
 local macro \"k2l_eqn_r \" f:ident \" [\" xs:Lean.Parser.Tactic.simpLemma,* \"]\" : tactic => do\n  let e := Lean.mkIdent (f.getId.str \"eq_def\")\n  \
 `(tactic| (\n    \
 (conv => lhs; rw [$e:ident])\n    \
 try simp only []\n    \
-try (repeat' (first | (k2l_case_discr <;> try simp only []) | (k2l_case_rec [{r}] <;> try simp only [Option.bind])))\n    \
+try (repeat' (first | (k2l_case_discr <;> try simp only []) | (k2l_case_rec [{r}] <;> try simp only [Option.bind]) | (k2l_case_call <;> try simp only [Option.bind])))\n    \
 all_goals first\n      \
 | (simp_all [{u}]; done)\n      \
 | ((repeat' (first | split | k2l_split_hyps)) <;> (try simp_all [{u}]) <;> omega)))\n\n"
@@ -762,9 +765,9 @@ all_goals first\n      \
             Some(f) => format!("by\n  intros\n  k2l_eqn_r {f} [{own}]"),
             // last, a case split on the variables under injections, which reduces a cascade that
             // matches the injected term (`k2l_eqn_b` can leave goals, so it must end in `done`
-            // for `first` to go on)
+            // for `first` to go on); then cases on the partial calls of the right-hand side
             None => format!(
-                "by\n  intros\n  first\n  | k2l_eqn_a [{own}]\n  | ({first}k2l_eqn_b [{own}]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [{own}])"
+                "by\n  intros\n  first\n  | k2l_eqn_a [{own}]\n  | ({first}k2l_eqn_b [{own}]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [{own}])\n  | ({first}k2l_eqn_c [{own}])"
             ),
         };
         if open.contains(&s.name) {
@@ -945,14 +948,20 @@ mod tests {
         let o = emit("N", &sample(), &BTreeSet::new(), &unfold, &rec);
         assert!(o.contains("theorem Eqn.f_1 (x : SortNat) :\n    K.f x = some x := by\n  intros\n  k2l_eqn_r K.f []\n"), "{o}");
         assert!(o.contains("local macro \"k2l_eqn_r \" f:ident"));
-        // the recursive function is cased on, never unfolded by simp
+        // the recursive function is cased on, never unfolded by simp; so are the other partial
+        // calls the cascade matches, after which a recursive call on such a call's value is closed
         assert!(o.contains("k2l_case_rec [K.f]"));
-        // a non-recursive function: the generic tactics, unfolding it (and its equations) first
         assert!(o.contains(
-            "theorem Eqn.g_1 (x : SortNat)\n    (hreq0 : K.h x = true) :\n    K.g x = x := by\n  intros\n  first\n  | k2l_eqn_a [K.g, K.g.rule1]\n  | (unfold K.g K.g.rule1; k2l_eqn_b [K.g, K.g.rule1]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.g, K.g.rule1])\n"
+            "k2l_case_rec [K.f] <;> try simp only [Option.bind]) | (k2l_case_call <;> try simp only [Option.bind])))"
         ), "{o}");
+        // a non-recursive function: the generic tactics, unfolding it (and its equations) first,
+        // and last the cases on the partial calls of its right-hand side
+        assert!(o.contains(
+            "theorem Eqn.g_1 (x : SortNat)\n    (hreq0 : K.h x = true) :\n    K.g x = x := by\n  intros\n  first\n  | k2l_eqn_a [K.g, K.g.rule1]\n  | (unfold K.g K.g.rule1; k2l_eqn_b [K.g, K.g.rule1]; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [K.g, K.g.rule1])\n  | (unfold K.g K.g.rule1; k2l_eqn_c [K.g, K.g.rule1])\n"
+        ), "{o}");
+        assert!(o.contains("local macro \"k2l_eqn_c\""), "{o}");
         // a statement that names no generated definition unfolds none
-        assert!(o.contains("theorem Simp.s_0123456789ab (b : Bool) :\n    (b && true) = b := by\n  intros\n  first\n  | k2l_eqn_a []\n  | (k2l_eqn_b []; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])\n"));
+        assert!(o.contains("theorem Simp.s_0123456789ab (b : Bool) :\n    (b && true) = b := by\n  intros\n  first\n  | k2l_eqn_a []\n  | (k2l_eqn_b []; done)\n  | ((repeat' k2l_case_inj) <;> k2l_eqn_a [])\n  | (k2l_eqn_c [])\n"));
     }
 
     #[test]
