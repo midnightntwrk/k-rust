@@ -848,6 +848,9 @@ impl From<KeyFailure> for StateTransportError {
             KeyFailure::Duplicate(key) => Self::DuplicateProvenance(key),
             KeyFailure::Missing(key) => Self::MissingProvenance(key),
             KeyFailure::Extra(key) => Self::ExtraProvenance(key),
+            KeyFailure::UnkeyedShell => {
+                Self::InvalidCellContent(StateCellContentReason::MissingShellPayloadProvenance)
+            }
         }
     }
 }
@@ -1773,7 +1776,7 @@ fn validate_map_shell<T>(
 /// A `k!` or `map!` shell's payload key, which every shell has: it is
 /// anchored at the payload, or at the invocation of an empty shell. The
 /// wire field stays optional until the next schema bump.
-pub(super) fn shell_payload_key(
+fn shell_payload_key(
     payload_key: Option<&ProvenanceKey>,
 ) -> Result<&ProvenanceKey, StateTransportError> {
     payload_key.ok_or(StateTransportError::InvalidCellContent(

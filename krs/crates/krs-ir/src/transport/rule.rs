@@ -12,7 +12,7 @@ use super::validation::{TermValidation, ValidationStage, validate_term};
 use crate::host::HostTypeReference;
 use crate::transport::configuration::{
     CellWrapper, DescriptorCellReference, DescriptorKSequenceNotation, HostCellReference,
-    StateTransportError, shell_payload_key,
+    StateTransportError,
 };
 use crate::transport::grammar::{
     CellTermField, DescriptorApplicationHeadClass, DescriptorRuleLabel, DescriptorSortRef,
@@ -1140,7 +1140,8 @@ where
 /// role there: a K sequence's payload, `.K`, items and tail, a map's
 /// payload, entries, update and remainder, and instances, their fields and
 /// their rest. Each term the state holds goes to `term`, which collects its
-/// keys as its rule's terms are keyed.
+/// keys as its rule's terms are keyed. A shell without its payload key is
+/// refused here, for every payload whose states this walk keys.
 pub(super) fn collect_state_keys<T, E: From<KeyFailure>>(
     state: &ProtocolRuleStateTerm<T>,
     side: RuleSide,
@@ -1169,9 +1170,11 @@ pub(super) fn collect_state_keys<T, E: From<KeyFailure>>(
             }
         }
         ProtocolRuleStateTerm::KSequence(sequence) => {
-            if let Some(key) = &sequence.payload_key {
-                define(keys, key, RuleRole::KSequencePayload)?;
-            }
+            let key = sequence
+                .payload_key
+                .as_ref()
+                .ok_or(KeyFailure::UnkeyedShell)?;
+            define(keys, key, RuleRole::KSequencePayload)?;
             for key in sequence.dot_k_key.iter().chain(frame_key(&sequence.tail)) {
                 define(keys, key, RuleRole::KSequenceTail)?;
             }
@@ -1181,9 +1184,8 @@ pub(super) fn collect_state_keys<T, E: From<KeyFailure>>(
             }
         }
         ProtocolRuleStateTerm::Map(map) => {
-            if let Some(key) = &map.payload_key {
-                define(keys, key, RuleRole::MapPayload)?;
-            }
+            let key = map.payload_key.as_ref().ok_or(KeyFailure::UnkeyedShell)?;
+            define(keys, key, RuleRole::MapPayload)?;
             match &map.body {
                 ProtocolRuleMapBody::Empty { .. } => {}
                 ProtocolRuleMapBody::Items { items, remainder } => {
@@ -2119,7 +2121,9 @@ fn validate_rule_cells<S: RuleValidationStage>(
                 TransportField::SelectedRuleCells,
             ));
         }
-        // The value's terms are keyed by its validation below.
+        // The value's structure is keyed here, which refuses a shell
+        // without its payload key; its terms are keyed by its validation
+        // below.
         collect_cell_keys::<S, StateTransportError>(cell, side, keys, &mut |_, _| Ok(()))?;
         validate_rule_wrapper(cell.wrapper, &cell.value)?;
         validate_rule_state::<S>(&cell.value, side, bindings, discovered, walk, keys)?;
@@ -2361,7 +2365,6 @@ fn validate_rule_instances<S: RuleValidationStage>(
 }
 
 fn validate_k_shell<T>(sequence: &ProtocolRuleKSequence<T>) -> Result<(), StateTransportError> {
-    shell_payload_key(sequence.payload_key.as_ref())?;
     match sequence.notation {
         DescriptorKSequenceNotation::DotK => {
             if !sequence.items.is_empty() || !matches!(sequence.tail, ProtocolRuleFrame::Exact) {
@@ -2393,7 +2396,6 @@ fn validate_map_shell<T>(
     map: &ProtocolRuleMap<T>,
     side: RuleSide,
 ) -> Result<(), StateTransportError> {
-    shell_payload_key(map.payload_key.as_ref())?;
     match &map.body {
         ProtocolRuleMapBody::Empty { .. } => {}
         ProtocolRuleMapBody::Items { items, remainder } => {
