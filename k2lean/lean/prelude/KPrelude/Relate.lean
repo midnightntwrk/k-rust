@@ -457,6 +457,25 @@ theorem chooseFirst_pointwise [DecidableEq M] [DecidableEq M'] {β β' : Type}
   simp only [Function.comp, dif_pos hc, dif_pos hc']
   exact h _ _ hc hc'
 
+/-- A free-key equation as the generated function writes it (`chooseFirst` behind the
+well-formedness test) on a map `m'` that is the translation of `m`, with a continuation that agrees
+with the translation of the original one at every binding. -/
+theorem dite_chooseFirst_pointwise [DecidableEq M] [DecidableEq M'] {β β' : Type}
+    (hT : Pointwise f g T) (hf : SAL.Pres f) {m : M} {m' : M'} (hm : m' = T m)
+    {F : (k : K) → (v : V) → concat (element k v) (remove m k) = some m → Option β}
+    {F' : (k : K') → (v : V') → concat (element k v) (remove m' k) = some m' → Option β'}
+    {φ : β → β'} (h : ∀ k v hc hc', F' (f k) (g v) hc' = (F k v hc).map φ) :
+    (if hw : wfb m' = true then chooseFirst m' ((wfb_iff _).1 hw) F' else none) =
+      (if hw : wfb m = true then chooseFirst m ((wfb_iff _).1 hw) F else none).map φ := by
+  subst hm
+  by_cases hw : wfb m = true
+  · have hw' : wfb (T m) = true := by rw [wfb_pointwise hT hf]; exact hw
+    rw [dif_pos hw', dif_pos hw]
+    exact chooseFirst_pointwise hT hf h
+  · have hw' : ¬ wfb (T m) = true := by rw [wfb_pointwise hT hf]; exact hw
+    rw [dif_neg hw', dif_neg hw]
+    rfl
+
 /-- A match `k' |-> v' r'` of a translated map, with a free key, is the translation of a match
 of the map. -/
 theorem concat_element_pointwise_inv_free (hT : Pointwise f g T) (hf : SAL.Pres f) {k' : K'} {v' : V'}
@@ -856,6 +875,33 @@ elab "k2l_ctor_search " i:ident " => " tac:tacticSeq : tactic => do
       s.restore
     catch _ => s.restore
   throwError "k2l_ctor_search: no constructor of {n} applies"
+
+end KPrelude
+
+namespace KPrelude
+
+open Lean Meta Elab Tactic in
+/-- `k2l_choose pw pres φ`: in a goal `… = …`, the first well-formedness test around a
+`chooseFirst` on each side (`if hw : wfb m = true then chooseFirst m _ F else none`, the free-key
+equation of a generated function) are one equation on a translated map and on the map: rewrite the
+left one into the right one mapped by `φ` (`MapHook.dite_chooseFirst_pointwise`, the maps related by
+`rfl` or the `k2l_rel` set), leaving the agreement of the two continuations at every binding as
+the next goal. -/
+elab "k2l_choose " pw:term:max pres:term:max phi:term:max : tactic => do
+  let g ← getMainGoal
+  let some (_, l, r) := (← instantiateMVars (← g.getType)).eq?
+    | throwError "k2l_choose: not an equation"
+  let isChoose (e : Expr) : Bool :=
+    e.isAppOfArity ``dite 5 && (e.getArg! 1).isAppOf ``Eq &&
+      ((e.getArg! 1).getArg! 1).isAppOf ``KPrelude.MapHook.wfb
+  let some e' := l.find? isChoose | throwError "k2l_choose: no free-key equation on the left"
+  let some e := r.find? isChoose | throwError "k2l_choose: no free-key equation on the right"
+  let (s', s) ← g.withContext do return (← Term.exprToSyntax e', ← Term.exprToSyntax e)
+  evalTactic (← `(tactic| (
+    have hX : $s' = Option.map $phi $s :=
+      KPrelude.MapHook.dite_chooseFirst_pointwise $pw $pres
+        (by first | rfl | (simp only [k2l_rel]; done)) ?h
+    rw [hX])))
 
 end KPrelude
 

@@ -1284,14 +1284,22 @@ fn emit(
             .map(|f| vec![f.clone()])
             .collect()
     };
-    if ordered_lemmas.is_some()
-        && let Some(f) = groups.iter().flatten().find(|f| a.choose_fns.contains(*f))
-    {
+    // a function with a free-key equation commutes with an order-preserving translation through
+    // `MapHook.dite_chooseFirst_pointwise` (`k2l_choose`); a recursive one, or one whose result is
+    // not builtin, gets no lemma, and the bisimulation is refused
+    if let Some(f) = groups.iter().flatten().find(|f| {
+        a.choose_fns.contains(*f)
+            && (ordered_lemmas.is_none()
+                || a.recursive.contains(&a.fns[*f].lean)
+                || !is_builtin(&a.m, &a.fns[*f].result)
+                || choose_map(&uni, &a.fns[*f].args).is_none())
+    }) {
         return Err(format!(
-            "the function {} has an equation with a free-key map pattern; its commutation with the translation is not generated",
+            "the function {} has an equation with a free-key map pattern; its commutation with the translation is generated only for a non-recursive function with a builtin result and a map argument, under a translation that keeps every constructor's position",
             names::demangle(f)
         ));
     }
+    let mut cont_emitted = false;
     for group in &groups {
         let rec_group =
             ordered_lemmas.is_some() && group.iter().any(|f| a.recursive.contains(&a.fns[f].lean));
@@ -1333,7 +1341,25 @@ fn emit(
                 .filter(|u| u.starts_with(&sig.lean))
                 .flat_map(|u| [format!("{na}.{u}"), format!("{nb}.{u}")])
                 .collect();
-            if rec_group {
+            if a.choose_fns.contains(sym) {
+                let (pw, pres) = choose_map(&uni, &sig.args).expect("checked above");
+                if !cont_emitted {
+                    writeln!(
+                        o,
+                        "/-- The continuations of a free-key equation agree at every binding: case on the bound value, push `tr`, and\ncompute, through a nested free-key equation too. -/\nlocal syntax \"choose_cont \" term:max term:max term:max : tactic\nmacro_rules\n  | `(tactic| choose_cont $pw $pres $phi) => `(tactic| (\n    intro k v hc hc'\n    cases v <;> (try push_ctor) <;> first\n      | rfl\n      | (split <;> first | rfl | (simp only [k2l_rel]; done))\n      | (k2l_choose $pw $pres $phi <;> first | rfl | choose_cont $pw $pres $phi)))"
+                    )
+                    .unwrap();
+                    cont_emitted = true;
+                }
+                writeln!(
+                    o,
+                    "@[k2l_rel] theorem comm_fn_{fn_count} {binders} : {nb}.{} {} = {rhs} := by\n  simp only [{}]\n  k2l_choose {pw} {pres} id\n  case h => choose_cont {pw} {pres} id\n  first | rfl | (rw [Option.map_id]; rfl)",
+                    sb.lean,
+                    vs.join(" "),
+                    unf.join(", ")
+                )
+                .unwrap();
+            } else if rec_group {
                 // a well-founded definition: unfolded once on both sides, both cascades split
                 // in step; a recursive call of `B` is rewritten by the lemma of its function
                 // (this one or one of its group), which is the induction: the lemma is defined by
@@ -3245,6 +3271,20 @@ fn split_modules(lean: &str, out: &str, ns: &str) -> Result<Vec<(String, String)
     ));
     let _ = end;
     Ok(files)
+}
+
+/// The map argument of a function with a free-key equation, as the names of its pointwise lemma
+/// and of the order-preservation lemma of its keys (`pw_S`, `pres_K`).
+fn choose_map(uni: &[(String, String, TyKind)], args: &[String]) -> Option<(String, String)> {
+    args.iter().find_map(|s| {
+        uni.iter().find_map(|(t, _, k)| match k {
+            TyKind::Coll(Coll::Map, es) if t == s => Some((
+                format!("pw_{}", terms::fsuffix(t)),
+                format!("pres_{}", terms::fsuffix(&es[0])),
+            )),
+            _ => None,
+        })
+    })
 }
 
 /// The folding lemmas of the injections that both libraries have, on the covered sorts.
