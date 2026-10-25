@@ -20,10 +20,6 @@ use super::tokens::{call_site_cfg_attributes, call_site_ident, call_site_path, s
 use crate::environment::MacroEnvironment;
 use crate::provenance::host_provenance;
 
-#[expect(
-    clippy::too_many_lines,
-    reason = "The constant's descriptor and the items that stand for its name are emitted together."
-)]
 pub(crate) fn constant(
     env: &dyn MacroEnvironment,
     attributes: TokenStream,
@@ -44,15 +40,8 @@ pub(crate) fn constant(
     let fallback = krs_syntax::TokenRange::for_tokens(item)?;
     let anchors = constant.provenance()?;
     let provenance = host_provenance(env, &facade, fallback, &anchors);
-    // The name is the descriptor's own key, and the value's payload key is
-    // the one value a constant has.
-    let ledger = KeyLedger::new(
-        &anchors,
-        &[
-            ProvenanceRole::ConstantDeclaration,
-            ProvenanceRole::ConstantValue,
-        ],
-    );
+    // The name is the descriptor's own key.
+    let ledger = KeyLedger::new(&anchors, &[ProvenanceRole::ConstantDeclaration]);
     let nonce = expansion_nonce(env, "constant", constant.name(), fallback);
     let factory = format_ident!(
         "__krs_constant_descriptor_{nonce:016x}",
@@ -76,6 +65,10 @@ pub(crate) fn constant(
     // A constant binds nothing, so every name in its value is a path that
     // rustc resolves: another constant or a constructor.
     let mut builder = TermBuilder::new(&facade, &ledger, nonce, &cfg, &[]);
+    // The value's payload key carries no field on the wire: the value term
+    // denotes the whole value expression, and the transport pairs the
+    // constant's one value with it.
+    ledger.define(constant.value().keys().payload())?;
     let value =
         builder.expand_wire(KeyedTerm::of(constant.value()), TermSide::Right, &mut slots)?;
     let key_functions = std::mem::take(&mut builder.key_functions);
