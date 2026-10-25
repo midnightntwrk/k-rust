@@ -677,6 +677,7 @@ fn confluence_separates_a_thread_end_matched_at_a_constructor_key_at_one_binding
         r.contains("\"step | end (two bindings: the map's bindings change)\""),
         "{r}"
     );
+}
 
 /// `relate --split true` on the `peano` fixture: the bisimulation cut into a base module, one
 /// module per simulation importing only what it uses, and the bisimulation module importing the

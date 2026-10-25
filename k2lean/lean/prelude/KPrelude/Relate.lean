@@ -603,10 +603,14 @@ open Lean Meta Elab Tactic in
 `tr_`), rewrite it to `a = b` by `f`'s injectivity (`tr_eq_iff_S` beside `f`), or, for a token sort
 (a structure over its string, with no such lemma), destructure both sides and inject, and (4) for a
 hypothesis `h : e = f x` (or `f x = e`) where `x` is a local variable and `e` is not a variable nor
-a translation, case on `x` and simplify `h` with `f`'s equations, read off its folding lemmas
+a translation but a constructor term (or a literal), case on `x` and simplify `h` with `f`'s equations, read off its folding lemmas
 `fold_S_k : B.C (tr a) = tr (A.C a)` reversed (else `f`'s own equations): constructor clashes close
 the goal, matching constructors give equations between the arguments. Terminates because `e`
-gets smaller.
+gets smaller; when `e` is a function of the other library (an injection between sorts), fold
+it into a translation by the `k2l_rel` lemmas instead, for (3). (5) A list match `ListItem(x') t' = f l` (or `t' ListItem(x')`) becomes
+`x' = f x`, `t' = f t` and the match on `l`, by the lemmas `list_bwd_S`/`list_bwd_back_S` beside
+`f`: a rule's hypothesis `ListItem(X) T = L` is substituted by (1) wherever `L` was bound, so the
+match is found where it lands rather than by its name.
 The folding lemmas are `rfl` lemmas of the relation's module; `f`'s own equations would be derived
 on first use (`f.eq_def` of the mutual block of translations, seconds each on SIMPLE). -/
 partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
@@ -646,6 +650,29 @@ partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
         evalTactic (← `(tactic| (cases $ha:term; cases $hb:term; simp only [$(mkIdent f1):ident] at $hid:ident; injection $hid:ident)))
         return true
       catch _ => s.restore
+    -- a list match: `ListItem(x') t' = f l` (or `t' ListItem(x')`) by `list_bwd_S` beside `f`
+    for ldecl in (← getLCtx) do
+      if ldecl.isImplementationDetail then continue
+      let ty ← instantiateMVars ldecl.type
+      let some (_, l, r) := ty.eq? | continue
+      let some (side, flip, fn) := (match isTr r, isTr l with
+        | some (f, _), none => some (l, false, f)
+        | none, some (f, _) => some (r, true, f)
+        | _, _ => none) | continue
+      unless side.getAppFn.constName? == some ``ListHook.concat do continue
+      let sfx := fn.components.getLast!.toString.drop 3
+      let hid := mkIdent ldecl.userName
+      let h ← if flip then `(Eq.symm $hid) else `($hid)
+      let mut done := false
+      for nm in [s!"list_bwd_{sfx}", s!"list_bwd_back_{sfx}"] do
+        let lem := mkIdent (fn.getPrefix ++ Name.mkSimple nm)
+        let s ← saveState
+        try
+          evalTactic (← `(tactic| (obtain ⟨_, _, _, _, _⟩ := $lem $h; clear $hid:ident)))
+          done := true
+          break
+        catch _ => s.restore
+      if done then return true
     -- a case split where the other side is a constructor term
     for ldecl in (← getLCtx) do
       if ldecl.isImplementationDetail then continue
@@ -657,10 +684,23 @@ partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
         | _, _ => none
       let some (fn, x) := cand | continue
       unless x.isFVar do continue
+      let other := if (isTr r).isSome then l else r
+      let hid := mkIdent ldecl.userName
+      unless other.isLit || (← isConstructorApp other) do
+        -- a function of the other side's library (an injection between sorts): fold it into a
+        -- translation (`fold_inj_*`, `k2l_rel`), which injectivity then removes; never a case split,
+        -- whose cases would not reduce it (nor a collection operation's, inverted by (5) or the
+        -- relation's map lemmas)
+        if other.getAppFn.constName?.any (`KPrelude).isPrefixOf then continue
+        let s ← saveState
+        try
+          evalTactic (← `(tactic| simp only [k2l_rel] at $hid:ident))
+          return true
+        catch _ => s.restore
+        continue
       let s ← saveState
       try
         let hx ← Term.exprToSyntax x
-        let hid := mkIdent ldecl.userName
         let sfx := fn.components.getLast!.toString.drop 3
         let env ← getEnv
         let mut lems : Array (TSyntax `Lean.Parser.Tactic.simpLemma) := #[]
@@ -687,6 +727,22 @@ partial def k2lInvLoop (fuel : Nat) : TacticM Unit := do
     setGoals out.toList
 
 elab "k2l_inv" : tactic => k2lInvLoop 64
+
+open Lean Meta Elab Tactic in
+/-- `k2l_assumption`: close the goal by a hypothesis, instantiating the goal's metavariables that
+other goals stand for (`apply` makes them synthetic opaque, which `assumption` leaves alone): the
+variables of a rule that occur only in a side hypothesis, such as the value matched in a map, are
+read off the hypothesis that matches it. -/
+elab "k2l_assumption" : tactic => liftMetaTactic fun g => g.withContext do
+  let ty ← g.getType
+  for ldecl in (← getLCtx) do
+    if ldecl.isImplementationDetail then continue
+    let s ← saveState
+    if ← withAssignableSyntheticOpaque (isDefEq ldecl.type ty) then
+      g.assign ldecl.toExpr
+      return []
+    s.restore
+  throwError "k2l_assumption: no hypothesis matches the goal"
 
 
 
