@@ -796,7 +796,10 @@ impl Descriptor {
                 self.provenance.primary_key(),
                 &actual,
             ),
-            DescriptorPayload::HeadRule(rule) => rule.validate(self.id.item_kind()),
+            DescriptorPayload::HeadRule(rule) => {
+                rule.validate(self.id.item_kind())?;
+                rule.validate_anchored_provenance(&actual)
+            }
             DescriptorPayload::ContextAlias(alias) => alias.validate_complete_provenance(
                 self.id.item_kind(),
                 self.provenance.primary_key(),

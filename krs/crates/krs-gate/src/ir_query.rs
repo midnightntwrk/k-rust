@@ -2105,40 +2105,62 @@ mod tests {
         let dir = artifacts();
         let original: DescriptorBundle = read(dir.path(), "descriptor-bundle.json").unwrap();
         let mut descriptor = testing::DescriptorInputs::from(original.descriptors()[0].clone());
-        let key = |role| ProvenanceKey::new(role, 0);
-        let var = |name: &str| DescriptorTerm::Variable {
-            key: key(ProvenanceRole::RuleLeftReference),
-            path_key: key(ProvenanceRole::RuleLeftReference),
-            name: name.into(),
+        let key = |role, ordinal| ProvenanceKey::new(role, ordinal);
+        // `Add { lhs, rhs } => result_head(lhs, rhs)`, each node keyed by its
+        // role on its side: a path and its head are two nodes.
+        let var = |name: &str, side: (ProvenanceRole, ProvenanceRole), ordinal: u32| {
+            DescriptorTerm::Variable {
+                key: key(side.0, ordinal),
+                path_key: key(side.1, ordinal + 1),
+                name: name.into(),
+            }
         };
-        let application = |head, args| DescriptorTerm::Application {
-            instance: Vec::new(),
-            head_class: krs_ir::DescriptorApplicationHeadClass::Applied,
-            reference: DescriptorApplicationReference {
-                key: key(ProvenanceRole::RuleLeftReference),
-                application: head,
-            },
-            path_key: key(ProvenanceRole::RuleLeftReference),
-            arguments: args,
-            update: None,
-            open: false,
-        };
+        let application =
+            |head, side: (ProvenanceRole, ProvenanceRole), args| DescriptorTerm::Application {
+                instance: Vec::new(),
+                head_class: krs_ir::DescriptorApplicationHeadClass::Applied,
+                reference: DescriptorApplicationReference {
+                    key: key(side.0, 0),
+                    application: head,
+                },
+                path_key: key(side.1, 0),
+                arguments: args,
+                update: None,
+                open: false,
+            };
+        let left = (
+            ProvenanceRole::RuleLeftApplicationHead,
+            ProvenanceRole::RuleLeftPath,
+        );
+        let left_variable = (
+            ProvenanceRole::RuleLeftReference,
+            ProvenanceRole::RuleLeftPath,
+        );
+        let right = (
+            ProvenanceRole::RuleRightApplicationHead,
+            ProvenanceRole::RuleRightPath,
+        );
+        let right_variable = (
+            ProvenanceRole::RuleRightReference,
+            ProvenanceRole::RuleRightPath,
+        );
         let config = item("machine", "Machine", ItemKind::Configuration);
         descriptor.id = item("rules", "eval_add", ItemKind::Rule);
-        descriptor.payload = DescriptorPayload::HeadRule(Box::new(DescriptorHeadRule {
+        let rule = DescriptorHeadRule {
             sentence_kind: SentenceKind::Transition,
             label: Some(krs_ir::DescriptorRuleLabel {
-                key: key(ProvenanceRole::RuleLabel),
+                key: key(ProvenanceRole::RuleLabel, 0),
                 name: "eval-add".into(),
             }),
             priority: None,
             nondet: None,
-            pattern_key: key(ProvenanceRole::RulePattern),
-            result_key: key(ProvenanceRole::RuleResult),
+            pattern_key: key(ProvenanceRole::RulePattern, 0),
+            result_key: key(ProvenanceRole::RuleResult, 0),
             head_sort: None,
             configuration: config.clone(),
+            // The collector keys the computation cell at the pattern.
             computation_cell: Some(krs_ir::DescriptorCellReference {
-                key: key(ProvenanceRole::RuleLeftCellsField),
+                key: key(ProvenanceRole::RulePattern, 0),
                 cell: krs_ir::DescriptorCellIdentity {
                     owner: config,
                     field: "k".into(),
@@ -2161,13 +2183,15 @@ mod tests {
                         "Add",
                         ItemKind::Constructor,
                     )),
+                    left,
                     Arguments::named(
                         ["lhs", "rhs"]
-                            .iter()
-                            .map(|name| NamedTermArgument {
-                                key: key(ProvenanceRole::RuleLeftReference),
-                                field: krs_ir::ProductionFieldId::new(*name).unwrap(),
-                                value: Box::new(var(name)),
+                            .into_iter()
+                            .zip(0..)
+                            .map(|(name, ordinal)| NamedTermArgument {
+                                key: key(ProvenanceRole::RuleLeftRecordFieldName, ordinal),
+                                field: krs_ir::ProductionFieldId::new(name).unwrap(),
+                                value: Box::new(var(name, left_variable, ordinal)),
                             })
                             .collect(),
                     ),
@@ -2175,10 +2199,12 @@ mod tests {
                 exact: false,
                 result: Some(DescriptorHeadRuleResult::Replace(application(
                     result_head,
+                    right,
                     Arguments::Positional(
                         ["lhs", "rhs"]
-                            .iter()
-                            .map(|name| Box::new(var(name)))
+                            .into_iter()
+                            .zip(0..)
+                            .map(|(name, ordinal)| Box::new(var(name, right_variable, ordinal)))
                             .collect(),
                     ),
                 ))),
@@ -2190,7 +2216,40 @@ mod tests {
             fresh: Vec::new(),
             evaluation: None,
             claim: None,
-        }));
+        };
+        // The rule's anchors: its declaration, label, pattern and result,
+        // and its terms' nodes.
+        let origin = descriptor.provenance.origins()[0].origin.clone();
+        let mut anchors = vec![
+            key(ProvenanceRole::RuleDeclaration, 0),
+            key(ProvenanceRole::RuleLabel, 0),
+            key(ProvenanceRole::RulePattern, 0),
+            key(ProvenanceRole::RuleResult, 0),
+            key(ProvenanceRole::RuleLeftApplicationHead, 0),
+            key(ProvenanceRole::RuleRightApplicationHead, 0),
+        ];
+        for ordinal in 0..2 {
+            anchors.extend([
+                key(ProvenanceRole::RuleLeftRecordFieldName, ordinal),
+                key(ProvenanceRole::RuleLeftReference, ordinal),
+                key(ProvenanceRole::RuleRightReference, ordinal),
+            ]);
+        }
+        for ordinal in 0..3 {
+            anchors.extend([
+                key(ProvenanceRole::RuleLeftPath, ordinal),
+                key(ProvenanceRole::RuleRightPath, ordinal),
+            ]);
+        }
+        descriptor.provenance = krs_ir::DescriptorProvenance::new(
+            key(ProvenanceRole::RuleDeclaration, 0),
+            anchors
+                .into_iter()
+                .map(|key| krs_ir::DescriptorNodeOrigin::new(key, origin.clone()))
+                .collect(),
+        )
+        .unwrap();
+        descriptor.payload = DescriptorPayload::HeadRule(Box::new(rule));
         fs::write(
             dir.path().join("descriptor-bundle.json"),
             DescriptorBundle::new(vec![descriptor.build().unwrap()])
