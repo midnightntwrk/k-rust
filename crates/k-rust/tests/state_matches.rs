@@ -270,6 +270,59 @@ fn state_matches_agree_with_search_pattern() {
     }
 }
 
+/// The parity on constrained states: from `go(N)` under `N >Int 0`, every reached state holds `N`
+/// and the constraint, so `search_pattern` has no match of the end `<out> 5 </out>` with empty
+/// constraints, and the state matches report no reach either; they report every state as
+/// `undecided-state`, never refuted, since such a state may stand for a configuration that
+/// matches (where `N = 5`).
+#[test]
+fn a_constrained_state_is_undecided_on_both_sides() {
+    let mut backend = backend();
+    let program = initial(("go", 7)).replace(&int(7), "VarN:SortInt{}");
+    let symbolic = format!(
+        "\\and{{SortGeneratedTopCell{{}}}}({program}, \\equals{{SortBool{{}}, SortGeneratedTopCell{{}}}}(Lbl'Unds-GT-'Int'Unds'{{}}(VarN:SortInt{{}}, {}), \\dv{{SortBool{{}}}}(\"true\")))",
+        int(0)
+    );
+    let search = backend
+        .search_pattern(SearchPatternRequest {
+            search_type: SearchTypeArg::All,
+            max_depth: Some(50),
+            ..SearchPatternRequest::new(
+                parse_pattern(&symbolic).unwrap(),
+                parse_pattern(&done(5)).unwrap(),
+            )
+        })
+        .unwrap();
+    // The search matches no reached state with empty constraints: `<out> N` is no `<out> 5`
+    // without the constraint `N = 5`, which a match does not assume.
+    assert!(
+        search
+            .matches
+            .iter()
+            .all(|found| !found.constraints.is_empty()),
+        "{search:?}"
+    );
+    for modality in MODALITIES {
+        let result = backend
+            .execute(ExecuteRequest {
+                result_modality: modality,
+                max_depth: Some(50),
+                match_states: Some(StateMatchRequest::new(parse_pattern(&done(5)).unwrap())),
+                ..ExecuteRequest::new(parse_pattern(&symbolic).unwrap())
+            })
+            .unwrap();
+        let found = matches(&result);
+        assert!(found.first_clean_reach.is_none() && found.first_dirty_reach.is_none());
+        assert_eq!(found.refuted, 0, "{found:?}");
+        assert_eq!(found.undecided.len(), 1, "{found:?}");
+        assert_eq!(
+            found.undecided[0].reason,
+            UndecidedMatchReasonOutput::UndecidedState
+        );
+        assert_eq!(found.undecided[0].count, found.matched);
+    }
+}
+
 /// Matching states and collecting committed transitions change no other field of the result:
 /// the JSON text with both options, without `stateMatches` and `coverage.committed`, is the text
 /// without them, on every program, in both modalities, with and without a work budget.
@@ -339,6 +392,14 @@ fn a_cleaner_merged_arrival_is_reported_as_the_clean_reach() {
         assert_eq!(clean.depth, 2);
         assert!(clean.diagnostics.is_empty(), "{clean:?}");
         assert_eq!(clean.state, dirty.state);
+        // The state set matches `mark(5)`, `e(5)`, the end and `f(5)`, and merges the clean
+        // arrival at the end, so its clean reach comes through the merge alone; the path set
+        // matches that arrival itself.
+        let expected = match modality {
+            ResultModalityOutput::StateSet => 4,
+            ResultModalityOutput::PathSet => 5,
+        };
+        assert_eq!(found.matched, expected, "{modality:?}: {found:?}");
     }
 }
 

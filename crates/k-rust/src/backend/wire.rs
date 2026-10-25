@@ -2103,6 +2103,7 @@ fn state_matches_output<K: WireKore>(
         matched: found.matched,
         refuted: found.refuted,
         smt_unknowns: found.smt_unknowns,
+        stack_stops: found.stack_stops,
     })
 }
 

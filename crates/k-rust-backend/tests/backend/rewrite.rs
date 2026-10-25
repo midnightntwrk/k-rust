@@ -50,11 +50,15 @@ use crate::support::{
     unstopped::{rewrite_step, rewrite_step_sequential_with_solver, rewrite_step_with_solver},
 };
 
-/// The pins hash a result's `Debug` rendering, so a field added to it moves them: FZ-STATESET-MATCH
-/// added `ExecutionResult::state_matches` (`None` here), and each pin was re-taken where the
-/// rendering without that line hashes to the earlier pin.
+/// The pins hash a result's `Debug` rendering without the lines of fields added after they were
+/// taken and absent from these results (`state_matches: None`, FZ-STATESET-MATCH), so a pin
+/// still states the rendering it was taken from and an added absent field moves none of them.
 fn assert_be08_capture(name: &str, value: &impl Debug, expected_sha256: &str) {
-    let rendered = format!("{value:#?}");
+    let rendered = format!("{value:#?}")
+        .lines()
+        .filter(|line| line.trim() != "state_matches: None,")
+        .collect::<Vec<_>>()
+        .join("\n");
     let mut actual = String::with_capacity(64);
     for byte in Sha256::digest(rendered.as_bytes()) {
         write!(actual, "{byte:02x}").unwrap();
@@ -3428,7 +3432,7 @@ fn later_group_simplification_error_is_reported_on_the_remainder() {
     assert_be08_capture(
         "T8 result and solver transcript",
         &(&result, &transcript),
-        "aed3afa6e612464100814a10013004dd21170b9ae67a23238fb4112863e3f480",
+        "0dd743cbdb43b46ea06d3544954c831f26409159df1b61ab1e116e874f25659a",
     );
 }
 
@@ -3498,7 +3502,7 @@ fn cancellation_during_lower_group_work_is_observed_after_the_step() {
     assert_be08_capture(
         "T9 result and solver transcript",
         &(&result, &transcript),
-        "d823fd99a7e9907d250d34e032c0f07434b944f4bd188acb3509f346286bee8e",
+        "26e3695c0adbe8f6e2eadedbf082ba6bce15dff9c6c5fb02d76728dd2d10053d",
     );
     assert_eq!(leaf.halt_reason, HaltReason::Stopped(StopCause::Cancelled));
     assert!(result.discarded.is_empty(), "{result:#?}");
@@ -3648,7 +3652,7 @@ fn lower_group_budget_exhaustion_keeps_partial_successors_under_diagnostic_colle
     assert_be08_capture(
         "T12 result, diagnostics, and solver transcript",
         &(&result, &diagnostics, &transcript),
-        "f12839d9e3f166f677690001fc9a46fb31d3523213962378626ec435d043d247",
+        "4da30228891a2d56896ef203bc306223f2ffdf2a40e024f3cb7a0fbf7f09f2a9",
     );
 }
 
@@ -3712,7 +3716,7 @@ fn complete_step_classifies_effects_from_every_group() {
     assert_be08_capture(
         "T13 result and solver transcript",
         &(&result, &transcript),
-        "e82729ba0a7cb22764cb9219def24e4d9e781c19734bb2316ea80cb8b9619db5",
+        "ed6779eb3e3fcec528cc778fcf2514a2ecca6353efcb8cef04707f73a88e7b74",
     );
 }
 
@@ -3774,7 +3778,7 @@ fn ground_io_candidates_are_rejected_without_touching_the_retained_cursor_across
     assert_be08_capture(
         "T14 result and solver transcript",
         &(&result, &transcript),
-        "72a0935a3a6d314ed72b4dda066c02223e99737a7d9b3b6dd7afeaa8624f9dc8",
+        "5371b54c750acbcf5f385efd87fdb68a207b5c8f7f7bea0bfb5b8a8c8eebcc09",
     );
 }
 
@@ -3837,7 +3841,7 @@ fn cut_point_and_terminal_rules_after_a_cascade_that_leaves_one_survivor() {
             &terminal,
             &*terminal_solver.transcript.borrow(),
         ),
-        "936d0db7231c9da5fef98a72a819c0ab9cd2c4570f272c28d72cdf2726783bc9",
+        "60b671bcc824735b2c02752fc3d176bc3d1f3f7f03593949ef017264f946275a",
     );
     assert!(cut_solver.answers.borrow().is_empty());
     assert!(cut_solver.validity.borrow().is_empty());

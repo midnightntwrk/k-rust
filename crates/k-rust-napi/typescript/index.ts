@@ -342,7 +342,8 @@ export interface StateMatchRequest {
  * (in both modes under `proofAgreement`); a reach is clean when the diagnostics of its path up to
  * it carry no 'implementation-chosen-value', 'contradicted-claim',
  * 'simplification-budget-exhausted', 'rule-condition-unsimplified', 'rule-condition-failed' or
- * 'undefined-initial-instances'. Matching stops after the first clean reach.
+ * 'undefined-initial-instances'. Matching stops after the first clean reach whose term holds no
+ * term-level `\and`; such a reach is preferred as `firstCleanReach`. At most five states are kept.
  */
 export interface StateMatches {
   /** The first state that reaches on a clean prefix (a merged arrival's own clean prefix included). */
@@ -359,6 +360,8 @@ export interface StateMatches {
   refuted: number
   /** The undecided solver answers of the matcher, which the run's `smtUnknowns` leaves out; absent when none. */
   smtUnknowns?: number
+  /** The matcher's stops for lack of native stack, which the run's `stackStops` leaves out; absent when none. */
+  stackStops?: number
 }
 
 /** One matched state: its depth (committed steps from the initial configuration), the state, and its path's diagnostics up to it. */

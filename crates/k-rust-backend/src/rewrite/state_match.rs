@@ -39,17 +39,29 @@
 //! taken may not exist), and no undecided definedness of the initial configuration (the path
 //! exists only on the instances where those obligations hold). What follows the state on the
 //! path cannot unmake the state's reach, so only the prefix is read. Matching stops after the
-//! first clean reach; the run goes on unchanged.
+//! first clean reach whose term holds no term-level `\and` (a client that confirms a reach by a
+//! query may refuse one with such a conjunction); a clean reach with one is kept as the first
+//! clean reach until such a later one replaces it. The run goes on unchanged.
 //!
-//! Matching is isolated from the run (`coverage::isolated`): it reports to no coverage set,
-//! notes no path fact into the run, emits no diagnostic into the run, takes nothing from the
-//! run's `FreshCounter`, fills none of the run's memos, and runs off the run's clock. Its solver
-//! queries go to the request's solver without the run's count of undecided answers, and are
-//! counted in [`StateMatches::smt_unknowns`] instead. So every other field of the result is the
-//! field of the same request without `match_states`, within the execution determinism contract
-//! (a decided answer the matcher leaves in the solver's cache is a fact about the query, so it
-//! answers the run as the solver would; a run with undecided answers is outside the contract
-//! anyway).
+//! The summary keeps at most five matched states (the first clean reach, the first dirty
+//! reach, and the first undecided state of each of the three reasons), each with a copy of its
+//! path's diagnostics up to it; nothing else grows with the run.
+//!
+//! Matching is isolated from the run (`coverage::isolated_on_the_clock`): it reports to no
+//! coverage set, notes no path fact into the run, emits no diagnostic into the run, takes
+//! nothing from the run's `FreshCounter`, and fills none of the run's memos. Its solver queries
+//! go to the request's solver without the run's count of undecided answers, and are counted in
+//! [`StateMatches::smt_unknowns`] instead; its stops for lack of native stack are counted in
+//! [`StateMatches::stack_stops`], not the run's. It runs on the run's clock, so a request's step
+//! deadline bounds it too: a deadline that passes during a match leaves the match undecided and
+//! times the step out, as it would have without the match. So every other field of the result
+//! is the field of the same request without `match_states`, within the execution determinism
+//! contract, with two exceptions that concern every answer of the run: a solver prelude that
+//! the matcher's first query finds inconsistent ends the run (it makes every solver answer of
+//! the run meaningless, so the run must not go on), and a stop for lack of stack, or a step
+//! deadline, which depend on the host. A decided answer the matcher leaves in the solver's
+//! cache is a fact about the query, so it answers the run as the solver would; a run with
+//! undecided answers is outside the contract anyway.
 
 use crate::{
     definition::BackendDefinition,
@@ -116,9 +128,10 @@ pub struct UndecidedStateMatches {
 /// run's depth-first order.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct StateMatches {
-    /// The first state that reaches the target on a clean prefix; matching stopped there. A
-    /// state merged into a recorded reaching state whose prefix was not clean is reported here
-    /// with its own, clean prefix ([`StateMatcher::absorbed`]).
+    /// The first state that reaches the target on a clean prefix and whose term holds no
+    /// term-level `\and`, where one exists, and otherwise the first clean reach; matching stopped
+    /// at the former. A state merged into a recorded reaching state whose prefix was not clean is
+    /// reported here with its own, clean prefix ([`StateMatcher::absorbed`]).
     pub first_clean_reach: Option<StateMatch>,
     /// The first state that reaches the target on a prefix that is not clean.
     pub first_dirty_reach: Option<StateMatch>,
@@ -132,6 +145,10 @@ pub struct StateMatches {
     pub refuted: u64,
     /// The undecided answers the solver gave the matcher, which the run's own count leaves out.
     pub smt_unknowns: usize,
+    /// The matcher's stops for lack of native stack, which the run's own count leaves out. A
+    /// match a stop interrupted is undecided; whether the stop happens depends on the host, so a
+    /// summary with a nonzero count is outside the determinism contract, as a run's is.
+    pub stack_stops: usize,
 }
 
 /// What the merge table keeps of a recorded state's verdict: whether it reaches, so that an
@@ -191,9 +208,20 @@ impl<'a> StateMatcher<'a> {
         }
     }
 
-    /// Whether matching is over: a clean reach was found.
+    /// Whether matching is over: a clean reach whose term holds no term-level `\and` was found.
     pub(super) fn done(&self) -> bool {
-        self.found.first_clean_reach.is_some()
+        self.found
+            .first_clean_reach
+            .as_ref()
+            .is_some_and(|reach| !reach.term_conjunction)
+    }
+
+    /// Keep `reach` as the first clean reach unless one is kept already (which, matching not
+    /// being over, holds a term-level `\and`) and `reach` is no better.
+    fn keep_clean(&mut self, reach: StateMatch) {
+        if self.found.first_clean_reach.is_none() || !reach.term_conjunction {
+            self.found.first_clean_reach = Some(reach);
+        }
     }
 
     /// Match the state `pattern`, reached at `depth` on a path with `diagnostics`, and record
@@ -208,12 +236,21 @@ impl<'a> StateMatcher<'a> {
         if self.done() {
             return MatchMark::Other;
         }
-        let (normalized, verdict) = crate::coverage::isolated(u64::MAX, || {
-            let normalized = self.normal_form(definition, pattern);
-            let verdict = self.verdict(definition, &normalized);
-            (normalized, verdict)
-        })
-        .0;
+        // A normal form that a value the definition leaves open decided is one model's: the
+        // state is matched as the run left it.
+        let ((normalized, normalizing_stops), read_chosen) =
+            crate::coverage::isolated_on_the_clock(|| {
+                crate::stop::counting_stack_stops(|| self.normal_form(definition, pattern))
+            });
+        let normalized = if read_chosen {
+            pattern.clone()
+        } else {
+            normalized
+        };
+        let ((verdict, matching_stops), _) = crate::coverage::isolated_on_the_clock(|| {
+            crate::stop::counting_stack_stops(|| self.verdict(definition, &normalized))
+        });
+        self.found.stack_stops += normalizing_stops + matching_stops;
         self.found.matched += 1;
         let state = |term_conjunction| StateMatch {
             depth,
@@ -224,7 +261,7 @@ impl<'a> StateMatcher<'a> {
         match verdict {
             Verdict::Reach { term_conjunction } => {
                 if clean(diagnostics) {
-                    self.found.first_clean_reach = Some(state(term_conjunction));
+                    self.keep_clean(state(term_conjunction));
                 } else {
                     self.found.dirty_reaches += 1;
                     if self.found.first_dirty_reach.is_none() {
@@ -261,8 +298,8 @@ impl<'a> StateMatcher<'a> {
     /// A state reached at `depth` on a path with `diagnostics` was merged into a recorded state
     /// of its depth whose verdict `mark` holds. Their verdicts are equal (module documentation),
     /// so when the recorded state reaches and this path is clean, this path is a clean reach of
-    /// the same configuration: it is reported as the first clean reach, with its own prefix.
-    /// The recorded state's own reach was on a dirty prefix, or matching would be over.
+    /// the same configuration: it is reported as the first clean reach, with its own prefix,
+    /// unless a clean reach is kept already and this one holds a term-level `\and` too.
     pub(super) fn absorbed(
         &mut self,
         mark: MatchMark,
@@ -276,7 +313,7 @@ impl<'a> StateMatcher<'a> {
         if let MatchMark::Reach { term_conjunction } = mark
             && clean(diagnostics)
         {
-            self.found.first_clean_reach = Some(StateMatch {
+            self.keep_clean(StateMatch {
                 depth,
                 pattern: pattern.clone(),
                 diagnostics: diagnostics.to_vec(),
@@ -413,4 +450,56 @@ fn holds_term_conjunction(term: &Term) -> bool {
         pending.extend(immediate_children(term.kind()));
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::term::{Sort, Variable};
+
+    fn pattern(name: &str) -> Pattern {
+        Pattern {
+            term: Term::variable(Variable::new(name, Sort::simple("SortS"))),
+            constraints: Vec::new(),
+        }
+    }
+
+    fn reach(name: &str, term_conjunction: bool) -> StateMatch {
+        StateMatch {
+            depth: 1,
+            pattern: pattern(name),
+            diagnostics: Vec::new(),
+            term_conjunction,
+        }
+    }
+
+    /// A clean reach whose term holds a term-level `\and` is kept, and matching goes on; a
+    /// later one with a conjunction does not replace it; the first without one does, and ends
+    /// matching (a client's query may refuse a conjunction).
+    #[test]
+    fn a_clean_reach_without_a_conjunction_is_preferred_and_ends_matching() {
+        let solver = crate::smt::NoSolver;
+        let mut matcher = StateMatcher::new(
+            StateMatchOptions {
+                target: pattern("T"),
+                proof_agreement: false,
+            },
+            &solver,
+            10,
+        );
+        let kept = |matcher: &StateMatcher<'_>| {
+            matcher
+                .found
+                .first_clean_reach
+                .as_ref()
+                .map(|reach| reach.pattern.clone())
+        };
+        matcher.keep_clean(reach("a", true));
+        assert!(!matcher.done());
+        matcher.keep_clean(reach("b", true));
+        assert_eq!(kept(&matcher), Some(pattern("a")));
+        matcher.keep_clean(reach("c", false));
+        assert!(matcher.done());
+        assert_eq!(kept(&matcher), Some(pattern("c")));
+    }
 }

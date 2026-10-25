@@ -450,6 +450,20 @@ pub(crate) fn records_conditions() -> bool {
 /// deadline at the same point of its own work; its own work is bounded by `polls` polls instead,
 /// a function of the work alone.
 pub(crate) fn isolated<T>(polls: u64, evaluation: impl FnOnce() -> T) -> (T, bool) {
+    isolate(|| crate::stop::off_the_clock(polls, evaluation).0)
+}
+
+/// [`isolated`], but on the run's clock and with no budget of polls of its own: work done for the
+/// caller that the request's time bounds still bound (the state matcher, `rewrite::state_match`).
+/// A passed step deadline stops it as it stops the step, and the time it takes counts in the
+/// step's measurement; a stop of its own is dismissed inside it, and a step deadline stays passed,
+/// so the step's next poll publishes it.
+pub(crate) fn isolated_on_the_clock<T>(evaluation: impl FnOnce() -> T) -> (T, bool) {
+    isolate(evaluation)
+}
+
+/// The isolation of [`isolated`] and [`isolated_on_the_clock`] around `evaluation`.
+fn isolate<T>(evaluation: impl FnOnce() -> T) -> (T, bool) {
     suspend(|| {
         measure::without_counting(|| {
             crate::diagnostic::discarded(|| {
@@ -458,9 +472,7 @@ pub(crate) fn isolated<T>(polls: u64, evaluation: impl FnOnce() -> T) -> (T, boo
                         crate::rule::with_apart_names_restored(|| {
                             crate::deferred::hook_values_aside(|| {
                                 crate::simplify::unspecified_values_aside(|| {
-                                    crate::stop::uncounted_stack_stops(|| {
-                                        crate::stop::off_the_clock(polls, evaluation).0
-                                    })
+                                    crate::stop::uncounted_stack_stops(evaluation)
                                 })
                             })
                         })

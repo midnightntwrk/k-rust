@@ -467,9 +467,13 @@ pub struct ExecuteRequest {
     pub cancelled_result: CancelledResultOutput,
     /// Match every state the run reaches against a pattern, and report a summary of the verdicts
     /// as [`ExecutionResult::state_matches`] (wire `matchStates`; absent by default: nothing is
-    /// matched and the result has no `stateMatches` key). The run is never stopped by a match:
-    /// leaves, coverage, work and the run's lists are those of the same request without it,
-    /// within the execution determinism contract (docs/compatibility.md, "State matches").
+    /// matched and the result has no `stateMatches` key). Leaves, coverage, work and the run's
+    /// lists are those of the same request without it, within the execution determinism
+    /// contract, with these exceptions (docs/compatibility.md, "State matches"): a solver prelude
+    /// a match's query finds inconsistent ends the run, since it makes every solver answer of the
+    /// run meaningless; the pattern's depth enters the operation's stack measurement, which can
+    /// change `stackStops` or refuse a request for lack of stack; and matching runs on the step
+    /// clock, so under a step timeout its time counts against the step's deadline.
     #[serde(default)]
     pub match_states: Option<StateMatchRequest>,
     /// With [`Self::collect_coverage`], also report [`RunCoverageOutput::committed`] (wire
@@ -656,14 +660,16 @@ pub struct ExecutionResult<K = Value> {
 /// when the diagnostics of its path up to the state carry no `implementation-chosen-value`,
 /// `contradicted-claim`, `simplification-budget-exhausted`, `rule-condition-unsimplified`,
 /// `rule-condition-failed` or `undefined-initial-instances`. Matching stops after the first
-/// clean reach.
+/// clean reach whose term holds no term-level `\and`. The summary holds at most five states,
+/// each with a copy of its path's diagnostics up to it.
 #[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(deny_unknown_fields, rename_all = "camelCase")]
 #[serde(bound(deserialize = "K: Deserialize<'de>"))]
 pub struct StateMatchesOutput<K = Value> {
-    /// The first state that reaches the pattern on a clean prefix; absent when none did. A state
-    /// merged into a recorded reaching state whose own prefix was not clean is reported with its
-    /// own clean prefix, since equal states have one verdict.
+    /// The first state that reaches the pattern on a clean prefix and whose term holds no
+    /// term-level `\and`, where one exists, and otherwise the first clean reach; absent when none
+    /// did. A state merged into a recorded reaching state whose own prefix was not clean is
+    /// reported with its own clean prefix, since equal states have one verdict.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_clean_reach: Option<StateMatchOutput<K>>,
     /// The first state that reaches the pattern on a prefix that is not clean.
@@ -684,6 +690,11 @@ pub struct StateMatchesOutput<K = Value> {
     /// out. Absent when zero.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub smt_unknowns: usize,
+    /// The matcher's stops for lack of native stack (each leaves its match `undecided-match`);
+    /// the run's `stackStops` leaves them out. Absent when zero. A summary with a nonzero count
+    /// is outside the determinism contract, as a run with nonzero `stackStops` is.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub stack_stops: usize,
 }
 
 /// One matched state: the committed rewrite steps from the initial configuration to it, the
@@ -3366,6 +3377,7 @@ mod tests {
         assert_typescript_member("StateMatches", "matched: number");
         assert_typescript_member("StateMatches", "refuted: number");
         assert_typescript_member("StateMatches", "smtUnknowns?: number");
+        assert_typescript_member("StateMatches", "stackStops?: number");
         assert_typescript_member("StateMatch", "depth: number");
         assert_typescript_member("StateMatch", "state: Kore");
         assert_typescript_member("StateMatch", "diagnostics?: BackendDiagnostic[]");

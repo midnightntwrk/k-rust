@@ -110,3 +110,89 @@ fn the_backend_advertises_its_stack_stop_count() {
     let backend = Backend::new(DEEP, "MAIN", BackendOptions::default()).expect("the backend loads");
     assert!(backend.capabilities().stack_stops);
 }
+
+/// A state matcher's stop for lack of stack is counted on its summary (`stateMatches.stackStops`),
+/// not hidden as an undecided match alone, and not on the run's count (FZ-STATESET-MATCH): the
+/// ground state `done(0)` takes no step, and the pattern's `requires` evaluates `deep(30000)`,
+/// which the simplifier's stack budget of 0 cannot hold. The match is `undecided-match`, the
+/// summary counts the stop, and the run reports none.
+#[test]
+fn a_state_matcher_stack_stop_is_counted_on_its_summary() {
+    let result = std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(|| {
+            let mut backend =
+                Backend::new(DEEP, "MAIN", BackendOptions::default()).expect("the backend loads");
+            backend.set_simplification_stack_budget(0);
+            let request = ExecuteRequest {
+                match_states: Some(k_rust::backend::StateMatchRequest {
+                    pattern: parse_pattern(
+                        r#"\and{SortS{}}(done{}(X:SortInt{}), \equals{SortBool{}, SortS{}}(gtInt{}(deep{}(\dv{SortInt{}}("30000")), X:SortInt{}), \dv{SortBool{}}("true")))"#,
+                    )
+                    .expect("the pattern parses"),
+                    proof_agreement: true,
+                }),
+                ..ExecuteRequest::new(
+                    parse_pattern(r#"done{}(\dv{SortInt{}}("0"))"#).expect("the state parses"),
+                )
+            };
+            let text = backend.execute_json(request).expect("it executes");
+            serde_json::from_str::<serde_json::Value>(&text).expect("the result is JSON")
+        })
+        .expect("the thread starts")
+        .join()
+        .expect("the run does not panic");
+    assert!(result.get("stackStops").is_none(), "{result}");
+    let matches = &result["stateMatches"];
+    assert!(
+        matches["stackStops"].as_u64().unwrap_or(0) >= 1,
+        "the matcher's stop is not counted: {matches}"
+    );
+    assert_eq!(
+        matches["undecided"][0]["reason"], "undecided-match",
+        "{matches}"
+    );
+    assert!(matches.get("firstCleanReach").is_none(), "{matches}");
+}
+
+/// A state match runs on the step clock (FZ-STATESET-MATCH): a step deadline bounds it as it
+/// bounds the step, so `stepTimeoutMs` still bounds a request with `matchStates`. The ground
+/// state `done(0)` takes no step; the pattern's `requires` evaluates `deep(60000)`, which takes
+/// far longer than the 5 ms deadline. The match is interrupted (`undecided-match`) and the
+/// state's step times out, as the step would have had it taken that long.
+#[test]
+fn a_state_match_is_bounded_by_the_step_deadline() {
+    let result = std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(|| {
+            let mut backend =
+                Backend::new(DEEP, "MAIN", BackendOptions::default()).expect("the backend loads");
+            let request = ExecuteRequest {
+                step_timeout_ms: Some(5),
+                match_states: Some(k_rust::backend::StateMatchRequest {
+                    pattern: parse_pattern(
+                        r#"\and{SortS{}}(done{}(X:SortInt{}), \equals{SortBool{}, SortS{}}(gtInt{}(deep{}(\dv{SortInt{}}("60000")), X:SortInt{}), \dv{SortBool{}}("true")))"#,
+                    )
+                    .expect("the pattern parses"),
+                    proof_agreement: false,
+                }),
+                ..ExecuteRequest::new(
+                    parse_pattern(r#"done{}(\dv{SortInt{}}("0"))"#).expect("the state parses"),
+                )
+            };
+            let text = backend.execute_json(request).expect("it executes");
+            serde_json::from_str::<serde_json::Value>(&text).expect("the result is JSON")
+        })
+        .expect("the thread starts")
+        .join()
+        .expect("the run does not panic");
+    let matches = &result["stateMatches"];
+    assert_eq!(
+        matches["undecided"][0]["reason"], "undecided-match",
+        "{result}"
+    );
+    let [leaf] = result["leaves"].as_array().expect("leaves").as_slice() else {
+        panic!("one leaf: {result}");
+    };
+    assert_eq!(leaf["reason"], "timeout", "{leaf}");
+}
